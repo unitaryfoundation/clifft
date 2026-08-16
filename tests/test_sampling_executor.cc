@@ -1,11 +1,9 @@
-#include "clifft/backend/backend.h"
 #include "clifft/circuit/parser.h"
 #include "clifft/frontend/frontend.h"
 #include "clifft/sampling/executor.h"
 #include "clifft/sampling/planner.h"
 #include "clifft/sampling/sampler.h"
 #include "clifft/sampling/state_queries.h"
-#include "clifft/svm/svm.h"
 #include "clifft/util/noise_sampling.h"
 #include "clifft/util/xoshiro.h"
 
@@ -88,125 +86,8 @@ SamplingPlan active_then_dormant_plan(double promotion_half_turns) {
     return plan;
 }
 
-void require_matches_legacy(std::string_view circuit_text, uint32_t shots, uint64_t seed) {
-    const clifft::HirModule hir = clifft::trace(clifft::parse(circuit_text));
-    const ExecutablePlan executable(clifft::sampling::plan_sampling(hir));
-    Executor executor(executable, seed);
-
-    const clifft::CompiledModule legacy_program = clifft::lower(hir);
-    clifft::SchrodingerState legacy({.peak_rank = legacy_program.peak_rank,
-                                     .num_measurements = legacy_program.total_meas_slots,
-                                     .num_qubits = legacy_program.num_qubits,
-                                     .num_exp_vals = legacy_program.num_exp_vals,
-                                     .seed = seed});
-
-    for (uint32_t shot = 0; shot < shots; ++shot) {
-        if (shot > 0) {
-            legacy.reset();
-        }
-        clifft::execute(legacy_program, legacy);
-        executor.run_shot();
-
-        CAPTURE(circuit_text, shot);
-        REQUIRE(executor.visible_records().size() == legacy_program.num_measurements);
-        REQUIRE(std::ranges::equal(
-            executor.visible_records(),
-            std::span<const uint8_t>(legacy.meas_record).first(legacy_program.num_measurements)));
-        REQUIRE(executor.exp_vals().size() == legacy.exp_vals.size());
-        for (size_t i = 0; i < legacy.exp_vals.size(); ++i) {
-            REQUIRE_THAT(executor.exp_vals()[i],
-                         Catch::Matchers::WithinAbs(legacy.exp_vals[i], 1e-12));
-        }
-    }
-}
-
-void require_basis_probabilities_match_legacy(std::string_view circuit_text,
-                                              std::span<const uint64_t> basis_masks,
-                                              size_t num_basis_masks, size_t words_per_basis_mask) {
-    const clifft::HirModule hir = clifft::trace(clifft::parse(circuit_text));
-    const ExecutablePlan executable(clifft::sampling::plan_sampling(hir));
-    const std::vector<double> actual = clifft::sampling::basis_probabilities(
-        executable, basis_masks, num_basis_masks, words_per_basis_mask);
-    const std::vector<double> expected = clifft::basis_probabilities(
-        clifft::lower(hir), basis_masks, num_basis_masks, words_per_basis_mask);
-    REQUIRE(actual.size() == expected.size());
-    for (size_t i = 0; i < actual.size(); ++i) {
-        CAPTURE(circuit_text, i);
-        REQUIRE_THAT(actual[i], Catch::Matchers::WithinAbs(expected[i], 1e-12));
-    }
-}
-
-void require_statevector_matches_legacy(std::string_view circuit_text) {
-    const clifft::HirModule hir = clifft::trace(clifft::parse(circuit_text));
-    const ExecutablePlan executable(clifft::sampling::plan_sampling(hir));
-    const std::vector<std::complex<double>> actual = clifft::sampling::get_statevector(executable);
-
-    const clifft::CompiledModule legacy_program = clifft::lower(hir);
-    clifft::SchrodingerState legacy({.peak_rank = legacy_program.peak_rank,
-                                     .num_measurements = legacy_program.total_meas_slots,
-                                     .num_qubits = legacy_program.num_qubits,
-                                     .num_exp_vals = legacy_program.num_exp_vals,
-                                     .seed = 0});
-    clifft::execute(legacy_program, legacy);
-    const std::vector<std::complex<double>> expected =
-        clifft::get_statevector(legacy_program, legacy);
-
-    REQUIRE(actual.size() == expected.size());
-    for (size_t i = 0; i < actual.size(); ++i) {
-        CAPTURE(circuit_text, i);
-        REQUIRE_THAT(actual[i].real(), Catch::Matchers::WithinAbs(expected[i].real(), 1e-6));
-        REQUIRE_THAT(actual[i].imag(), Catch::Matchers::WithinAbs(expected[i].imag(), 1e-6));
-    }
-}
-
-void require_replay_matches_legacy(std::string_view circuit_text,
-                                   std::span<const uint8_t> forced_records, size_t num_records) {
-    const clifft::HirModule hir = clifft::trace(clifft::parse(circuit_text));
-    const ExecutablePlan executable(clifft::sampling::plan_sampling(hir));
-    REQUIRE(executable.num_hidden_records() == 0);
-    REQUIRE(executable.num_visible_records() > 0);
-    REQUIRE(forced_records.size() == num_records * executable.num_visible_records());
-
-    const clifft::CompiledModule legacy_program = clifft::lower(hir);
-    const std::vector<double> legacy =
-        clifft::record_probabilities(legacy_program, forced_records, num_records);
-    REQUIRE(legacy.size() == num_records);
-
-    Executor executor(executable);
-    const size_t stride = executable.num_visible_records();
-    for (size_t i = 0; i < num_records; ++i) {
-        const std::span<const uint8_t> record = forced_records.subspan(i * stride, stride);
-        const ReplayResult replay = executor.replay_shot(record);
-        CAPTURE(circuit_text, i, record);
-        if (legacy[i] == clifft::kUnreachableLogProb) {
-            REQUIRE_FALSE(replay.reachable);
-        } else {
-            REQUIRE(replay.reachable);
-            REQUIRE_THAT(replay.log_probability, Catch::Matchers::WithinAbs(legacy[i], 1e-12));
-            REQUIRE(std::ranges::equal(executor.visible_records(), record));
-        }
-    }
-}
-
 SamplingPlan plan_from(std::string_view circuit_text) {
     return clifft::sampling::plan_sampling(clifft::trace(clifft::parse(circuit_text)));
-}
-
-bool has_multi_coordinate_active_measurement(const SamplingPlan& plan) {
-    return std::ranges::any_of(plan.actions, [](const PlannedAction& action) {
-        const auto* measurement = std::get_if<MeasureActivePauli>(&action.action);
-        return measurement != nullptr &&
-               std::popcount(measurement->pauli.x | measurement->pauli.z) > 1;
-    });
-}
-
-bool has_arbitrary_angle_active_rotation(const SamplingPlan& plan, double half_turns) {
-    return std::ranges::any_of(plan.actions, [half_turns](const PlannedAction& action) {
-        if (const auto* rotation = std::get_if<RotateActivePauli>(&action.action)) {
-            return rotation->half_turns == half_turns;
-        }
-        return false;
-    });
 }
 
 SamplingPlan categorical_noise_plan() {
@@ -578,17 +459,6 @@ TEST_CASE("Sampling replay evaluates record-dependent expectations") {
     }
 }
 
-TEST_CASE("Sampling basis probabilities match legacy exact queries") {
-    constexpr std::array<uint64_t, 4> kTwoQubitBasis{0, 1, 2, 3};
-    require_basis_probabilities_match_legacy("H 0\nCX 0 1\n", kTwoQubitBasis, 4, 1);
-    require_basis_probabilities_match_legacy("H 0\nT 0\nH 1\nT 1\nCX 0 1\n", kTwoQubitBasis, 4, 1);
-    require_basis_probabilities_match_legacy("H 0\nT 0\nCX 0 1\nR_Z(0.123) 1\nH 0\n",
-                                             kTwoQubitBasis, 4, 1);
-
-    constexpr std::array<uint64_t, 4> kHighQubitBasis{0, 0, 0, uint64_t{1} << 6};
-    require_basis_probabilities_match_legacy("H 70\n", kHighQubitBasis, 2, 2);
-}
-
 TEST_CASE("Sampling basis probabilities reject nonunitary plans") {
     const ExecutablePlan measured(plan_from("M 0\n"));
     REQUIRE_FALSE(measured.supports_final_state_queries());
@@ -602,16 +472,6 @@ TEST_CASE("Sampling basis probabilities reject nonunitary plans") {
         clifft::sampling::basis_probabilities(with_probe, std::array<uint64_t, 2>{0, 1}, 2, 1);
     REQUIRE_THAT(probabilities[0], Catch::Matchers::WithinAbs(0.5, 1e-12));
     REQUIRE_THAT(probabilities[1], Catch::Matchers::WithinAbs(0.5, 1e-12));
-}
-
-TEST_CASE("Sampling statevectors match legacy exact queries componentwise") {
-    require_statevector_matches_legacy("H 0\n");
-    require_statevector_matches_legacy("H 0\nT 0\n");
-    require_statevector_matches_legacy("Y 0\nH 0\nT 0\nT 0\nT 0\n");
-    require_statevector_matches_legacy("H 0\nT_DAG 0\nH 1\nCX 0 1\nR_Z(0.123) 1\nH 0\n");
-    require_statevector_matches_legacy(
-        "H 0\nH 1\nR_XX(0.25) 0 1\nR_YY(-0.375) 0 1\nR_PAULI(0.2) X0*Y1\n");
-    require_statevector_matches_legacy("H 0\nT 0\nT 0\nH 0\nT 0\n");
 }
 
 TEST_CASE("Sampling statevectors reject nonunitary and oversized plans") {
@@ -1241,46 +1101,6 @@ TEST_CASE("Sampling continuation preserves fused rotation prefixes") {
     }
 }
 
-TEST_CASE("Sampling executor matches legacy records for supported circuits") {
-    require_matches_legacy("M 0\n", 32, 1234);
-    require_matches_legacy("H 0\nM 0\nM 0\n", 64, 2345);
-    require_matches_legacy("H 0\nT 0\nM 0\n", 64, 3456);
-    require_matches_legacy("H 0\nT 0\nM 0\nM 0\n", 64, 3567);
-    require_matches_legacy("H 0\nT_DAG 0\nS 0\nM 0\n", 64, 4567);
-    require_matches_legacy("H 0\nH 1\nT 0\nT 1\nCX 0 1\nM 0 1\n", 64, 5678);
-
-    constexpr std::string_view kMultiCoordinateX = "H 0\nH 1\nT 0\nT 1\nMPP X0*X1\n";
-    REQUIRE(has_multi_coordinate_active_measurement(plan_from(kMultiCoordinateX)));
-    require_matches_legacy(kMultiCoordinateX, 64, 6789);
-
-    constexpr std::string_view kMultiCoordinateYZ = "H 0\nH 1\nT 0\nT 1\nCX 0 1\nMPP Y0*Z1\n";
-    REQUIRE(has_multi_coordinate_active_measurement(plan_from(kMultiCoordinateYZ)));
-    require_matches_legacy(kMultiCoordinateYZ, 64, 7890);
-
-    constexpr std::string_view kArbitraryRotation = "H 0\nT 0\nR_Z(0.3) 0\nM 0\nM 0\n";
-    REQUIRE(has_arbitrary_angle_active_rotation(plan_from(kArbitraryRotation), 0.3));
-    require_matches_legacy(kArbitraryRotation, 64, 8901);
-}
-
-TEST_CASE("Sampling batch records match legacy seeded execution") {
-    constexpr std::string_view kCircuit = "H 0\nH 1\nT 0\nT 1\nCX 0 1\nM 0 1\n";
-    const clifft::HirModule hir = clifft::trace(clifft::parse(kCircuit));
-    const ExecutablePlan executable(clifft::sampling::plan_sampling(hir));
-
-    const std::vector<uint8_t> actual = sample_records(executable, 64, uint64_t{5678});
-    const clifft::SampleResult expected = clifft::sample(clifft::lower(hir), 64, uint64_t{5678});
-    REQUIRE(actual == expected.measurements);
-    REQUIRE(sample_records(executable, 0, uint64_t{5678}).empty());
-}
-
-TEST_CASE("Sampling executor expectation probes match legacy execution") {
-    require_matches_legacy("EXP_VAL X0\nEXP_VAL Z0", 1, 1234);
-    require_matches_legacy("H 0\nT 0\nEXP_VAL X0\nEXP_VAL Y0\nEXP_VAL Z0", 1, 2345);
-    require_matches_legacy("H 0\nH 1\nT 0\nT 1\nCX 0 1\nEXP_VAL Y0*Z1", 1, 3456);
-    require_matches_legacy("H 0\nM 0\nCX rec[-1] 1\nEXP_VAL Z1", 64, 4567);
-    require_matches_legacy("X_ERROR(1) 0\nEXP_VAL Z0", 1, 5678);
-}
-
 TEST_CASE("Sampling batch and survivor results carry expectation columns") {
     const clifft::HirModule hir = clifft::trace(clifft::parse(R"(
         H 0
@@ -1390,36 +1210,6 @@ TEST_CASE("Sampling record probabilities reject output annotations in the core A
         clifft::sampling::plan_sampling(hir, {.postselection_mask = postselection}));
     REQUIRE_THROWS_WITH(record_log_probabilities(postselected, record, 1),
                         Catch::Matchers::ContainsSubstring("requires pure-state evolution"));
-}
-
-TEST_CASE("Sampling replay matches legacy record probabilities") {
-    require_replay_matches_legacy("H 0\nM 0\nM 0\n", std::array<uint8_t, 4>{0, 0, 0, 1}, 2);
-    require_replay_matches_legacy("H 0\nM 0\nM 0\n", std::array<uint8_t, 4>{1, 0, 1, 1}, 2);
-    require_replay_matches_legacy("H 0\nT 0\nR_Z(0.3) 0\nM 0\n", std::array<uint8_t, 2>{0, 1}, 2);
-    require_replay_matches_legacy("H 0\nH 1\nT 0\nT 1\nCX 0 1\nMPP Y0*Z1\n",
-                                  std::array<uint8_t, 2>{0, 1}, 2);
-    require_replay_matches_legacy("H 0\nCX 0 1\nM 0 1\n",
-                                  std::array<uint8_t, 8>{0, 0, 0, 1, 1, 0, 1, 1}, 4);
-}
-
-TEST_CASE("Sampling batched record probabilities match legacy replay") {
-    constexpr std::string_view kCircuit = "H 0\nCX 0 1\nM 0 1\n";
-    constexpr std::array<uint8_t, 8> kRecords{0, 0, 0, 1, 1, 0, 1, 1};
-    const clifft::HirModule hir = clifft::trace(clifft::parse(kCircuit));
-    const ExecutablePlan executable(clifft::sampling::plan_sampling(hir));
-
-    const std::vector<double> actual = record_log_probabilities(executable, kRecords, 4);
-    const std::vector<double> expected =
-        clifft::record_probabilities(clifft::lower(hir), kRecords, 4);
-    REQUIRE(actual.size() == expected.size());
-    for (size_t i = 0; i < actual.size(); ++i) {
-        CAPTURE(i);
-        if (expected[i] == clifft::kUnreachableLogProb) {
-            REQUIRE(actual[i] == std::numeric_limits<double>::lowest());
-        } else {
-            REQUIRE_THAT(actual[i], Catch::Matchers::WithinAbs(expected[i], 1e-12));
-        }
-    }
 }
 
 TEST_CASE("Sampling replay probabilities normalize for a small active circuit") {

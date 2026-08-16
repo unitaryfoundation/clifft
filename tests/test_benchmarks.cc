@@ -12,18 +12,11 @@
 // Or directly through the test binary for detailed Catch2 output:
 //   ./build/tests/clifft_tests "[bench]" --benchmark-samples 10
 
-#include "clifft/backend/backend.h"
 #include "clifft/circuit/parser.h"
 #include "clifft/frontend/frontend.h"
-#include "clifft/optimizer/bytecode_pass.h"
-#include "clifft/optimizer/expand_t_pass.h"
-#include "clifft/optimizer/hir_pass_manager.h"
-#include "clifft/optimizer/multi_gate_pass.h"
-#include "clifft/optimizer/noise_block_pass.h"
-#include "clifft/optimizer/peephole.h"
-#include "clifft/optimizer/single_axis_fusion_pass.h"
-#include "clifft/optimizer/swap_meas_pass.h"
-#include "clifft/svm/svm.h"
+#include "clifft/optimizer/pass_factory.h"
+#include "clifft/sampling/planner.h"
+#include "clifft/sampling/sampler.h"
 
 #include "stim.h"
 
@@ -44,28 +37,17 @@ static std::string fixture(const char* name) {
 }
 
 // Compile a parsed Circuit through the full optimizer pipeline.
-static CompiledModule compile_parsed(Circuit circuit) {
+static sampling::ExecutablePlan compile_parsed(Circuit circuit) {
     auto hir = trace(circuit);
-    HirPassManager pm;
-    pm.add_pass(std::make_unique<PeepholeFusionPass>());
-    pm.run(hir);
-    auto mod = lower(hir);
-    BytecodePassManager bpm;
-    bpm.add_pass(std::make_unique<NoiseBlockPass>());
-    bpm.add_pass(std::make_unique<MultiGatePass>());
-    bpm.add_pass(std::make_unique<ExpandTPass>());
-    bpm.add_pass(std::make_unique<ExpandRotPass>());
-    bpm.add_pass(std::make_unique<SwapMeasPass>());
-    bpm.add_pass(std::make_unique<SingleAxisFusionPass>());
-    bpm.run(mod);
-    return mod;
+    default_hir_pass_manager().run(hir);
+    return sampling::ExecutablePlan(sampling::plan_sampling(hir));
 }
 
-static CompiledModule compile_circuit(const std::string& path) {
+static sampling::ExecutablePlan compile_circuit(const std::string& path) {
     return compile_parsed(parse_file(path));
 }
 
-static CompiledModule compile_text(const std::string& text) {
+static sampling::ExecutablePlan compile_text(const std::string& text) {
     return compile_parsed(parse(text));
 }
 
@@ -110,10 +92,10 @@ static std::string exp_val_heavy_text(uint32_t num_qubits, uint32_t num_probes) 
 // ---------------------------------------------------------------------------
 TEST_CASE("Bench: QV-10 sampling 100 shots", "[bench]") {
     auto mod = compile_circuit(fixture("qv10.stim"));
-    REQUIRE(mod.peak_rank == 10);
+    REQUIRE(mod.max_active_width() == 10);
 
     BENCHMARK("QV-10 x100 shots") {
-        return sample(mod, 100, 0);
+        return sampling::sample(mod, 100, 0);
     };
 }
 
@@ -124,25 +106,25 @@ TEST_CASE("Bench: QV-10 sampling 100 shots", "[bench]") {
 // ---------------------------------------------------------------------------
 TEST_CASE("Bench: cultivation d5 sampling 1000 shots", "[bench]") {
     auto mod = compile_circuit(fixture("cultivation_d5.stim"));
-    REQUIRE(mod.peak_rank == 10);
+    REQUIRE(mod.max_active_width() == 10);
 
     BENCHMARK("cultivation-d5 x1000 shots") {
-        return sample_survivors(mod, 1000, 0, false);
+        return sampling::sample_survivors(mod, 1000, 0, false);
     };
 }
 
 // ---------------------------------------------------------------------------
 // Surface code d=7 r=7 p=1e-3: paper QEC throughput benchmark.
 // ~118 qubits, fully Clifford (peak_rank=0), low noise so most NOISE sites
-// stay silent. Throughput dominated by frame opcodes and the gap-sampler.
+// stay silent. Throughput is dominated by symbolic actions and the gap-sampler.
 // ---------------------------------------------------------------------------
 TEST_CASE("Bench: surface d7 r7 p1e-3 sampling 10000 shots", "[bench]") {
     auto mod = compile_text(surface_code_text(7, 7, 1e-3));
-    REQUIRE(mod.peak_rank == 0);
-    REQUIRE(mod.num_qubits <= 128);
+    REQUIRE(mod.max_active_width() == 0);
+    REQUIRE(mod.num_qubits() <= 128);
 
     BENCHMARK("surface-d7-r7 p=1e-3 x10000 shots") {
-        return sample(mod, 10000, 0);
+        return sampling::sample(mod, 10000, 0);
     };
 }
 
@@ -155,7 +137,7 @@ TEST_CASE("Bench: surface d5 r5 high-noise APPLY_PAULI heavy", "[bench]") {
     auto mod = compile_text(surface_code_text(5, 5, 0.05));
 
     BENCHMARK("surface-d5-r5 p=0.05 x10000 shots") {
-        return sample(mod, 10000, 0);
+        return sampling::sample(mod, 10000, 0);
     };
 }
 
@@ -166,11 +148,11 @@ TEST_CASE("Bench: surface d5 r5 high-noise APPLY_PAULI heavy", "[bench]") {
 // ---------------------------------------------------------------------------
 TEST_CASE("Bench: surface d11 r11 p1e-3 sampling 1000 shots", "[bench]") {
     auto mod = compile_text(surface_code_text(11, 11, 1e-3));
-    REQUIRE(mod.peak_rank == 0);
-    REQUIRE(mod.num_qubits > 128);
+    REQUIRE(mod.max_active_width() == 0);
+    REQUIRE(mod.num_qubits() > 128);
 
     BENCHMARK("surface-d11-r11 p=1e-3 x1000 shots") {
-        return sample(mod, 1000, 0);
+        return sampling::sample(mod, 1000, 0);
     };
 }
 
@@ -181,12 +163,12 @@ TEST_CASE("Bench: surface d11 r11 p1e-3 sampling 1000 shots", "[bench]") {
 // ---------------------------------------------------------------------------
 TEST_CASE("Bench: EXP_VAL 20q 200 probes", "[bench]") {
     auto mod = compile_text(exp_val_heavy_text(20, 200));
-    REQUIRE(mod.num_exp_vals == 200);
+    REQUIRE(mod.num_exp_vals() == 200);
 
     // BENCHMARK names must fit in Catch2's console-reporter name column
     // (~35 chars). Longer names wrap onto two lines and break the
     // bench-history workflow's parser (.github/workflows/bench.yml).
     BENCHMARK("exp-val 20q 200 probes x100k") {
-        return sample(mod, 100000, 0);
+        return sampling::sample(mod, 100000, 0);
     };
 }

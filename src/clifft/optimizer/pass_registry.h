@@ -1,29 +1,18 @@
 #pragma once
 
-#include "clifft/optimizer/bytecode_pass.h"
 #include "clifft/optimizer/drop_non_unitary_pass.h"
-#include "clifft/optimizer/expand_t_pass.h"
 #include "clifft/optimizer/hir_pass.h"
-#include "clifft/optimizer/multi_gate_pass.h"
-#include "clifft/optimizer/noise_block_pass.h"
 #include "clifft/optimizer/peephole.h"
 #include "clifft/optimizer/remove_noise_pass.h"
-#include "clifft/optimizer/single_axis_fusion_pass.h"
 #include "clifft/optimizer/statevector_squeeze_pass.h"
-#include "clifft/optimizer/swap_meas_pass.h"
-#include "clifft/optimizer/tile_axis_fusion_pass.h"
 
 #include <cstddef>
-#include <cstdint>
 #include <memory>
 #include <string_view>
 
 namespace clifft {
 
-enum class PassKind : uint8_t { HIR, Bytecode };
-
 using HirPassFactory = std::unique_ptr<HirPass> (*)();
-using BytecodePassFactory = std::unique_ptr<BytecodePass> (*)();
 
 // Whether a pass keeps every record-writing operation (visible and
 // hidden measurement records alike) in program order, neither
@@ -46,10 +35,9 @@ inline constexpr RecordOrder kBreaksRecordOrder{false};
 // Whether changing the input after an INSTRUMENT can change the pass output
 // through that instrument. A resumed trajectory recompiles a changed suffix
 // while reusing the state produced by the already-executed prefix, so such
-// passes must make an explicit stability guarantee. For bytecode passes, the
-// guarantee includes constant-pool data referenced by prefix instructions.
-// There is intentionally no default: adding a pass requires its author to
-// opt in or keep it out of the trajectory pipeline.
+// passes must make an explicit stability guarantee. There is intentionally no
+// default: adding a pass requires its author to opt in or keep it out of the
+// trajectory pipeline.
 struct InstrumentPrefixStability {
     bool preserved;
     constexpr explicit InstrumentPrefixStability(bool preserved_in) : preserved(preserved_in) {}
@@ -60,12 +48,10 @@ inline constexpr InstrumentPrefixStability kMayChangeInstrumentPrefix{false};
 
 struct PassInfo {
     std::string_view name;
-    PassKind kind;
     bool default_enabled;
     RecordOrder record_order;
     InstrumentPrefixStability instrument_prefix;
-    HirPassFactory make_hir = nullptr;
-    BytecodePassFactory make_bc = nullptr;
+    HirPassFactory make;
 };
 
 [[nodiscard]] constexpr bool is_trajectory_compatible(const PassInfo& info) {
@@ -77,82 +63,30 @@ std::unique_ptr<HirPass> make_hir() {
     return std::make_unique<T>();
 }
 
-template <typename T>
-std::unique_ptr<BytecodePass> make_bc() {
-    return std::make_unique<T>();
-}
-
 // Single source of truth for all available optimization passes.
 // Each entry defines metadata AND the factory function used to construct it.
 inline const PassInfo kRegisteredPasses[] = {
     // HIR passes
     {.name = "PeepholeFusionPass",
-     .kind = PassKind::HIR,
      .default_enabled = true,
      .record_order = kPreservesRecordOrder,
      .instrument_prefix = kPreservesInstrumentPrefix,
-     .make_hir = make_hir<PeepholeFusionPass>},
+     .make = make_hir<PeepholeFusionPass>},
     {.name = "StatevectorSqueezePass",
-     .kind = PassKind::HIR,
      .default_enabled = true,
      .record_order = kBreaksRecordOrder,
      .instrument_prefix = kMayChangeInstrumentPrefix,
-     .make_hir = make_hir<StatevectorSqueezePass>},
+     .make = make_hir<StatevectorSqueezePass>},
     {.name = "RemoveNoisePass",
-     .kind = PassKind::HIR,
      .default_enabled = false,
      .record_order = kBreaksRecordOrder,
      .instrument_prefix = kMayChangeInstrumentPrefix,
-     .make_hir = make_hir<RemoveNoisePass>},
+     .make = make_hir<RemoveNoisePass>},
     {.name = "DropNonUnitaryPass",
-     .kind = PassKind::HIR,
      .default_enabled = false,
      .record_order = kBreaksRecordOrder,
      .instrument_prefix = kMayChangeInstrumentPrefix,
-     .make_hir = make_hir<DropNonUnitaryPass>},
-    // Bytecode passes
-    {.name = "NoiseBlockPass",
-     .kind = PassKind::Bytecode,
-     .default_enabled = true,
-     .record_order = kPreservesRecordOrder,
-     .instrument_prefix = kPreservesInstrumentPrefix,
-     .make_bc = make_bc<NoiseBlockPass>},
-    {.name = "MultiGatePass",
-     .kind = PassKind::Bytecode,
-     .default_enabled = true,
-     .record_order = kPreservesRecordOrder,
-     .instrument_prefix = kPreservesInstrumentPrefix,
-     .make_bc = make_bc<MultiGatePass>},
-    {.name = "ExpandTPass",
-     .kind = PassKind::Bytecode,
-     .default_enabled = true,
-     .record_order = kPreservesRecordOrder,
-     .instrument_prefix = kPreservesInstrumentPrefix,
-     .make_bc = make_bc<ExpandTPass>},
-    {.name = "ExpandRotPass",
-     .kind = PassKind::Bytecode,
-     .default_enabled = true,
-     .record_order = kPreservesRecordOrder,
-     .instrument_prefix = kPreservesInstrumentPrefix,
-     .make_bc = make_bc<ExpandRotPass>},
-    {.name = "SwapMeasPass",
-     .kind = PassKind::Bytecode,
-     .default_enabled = true,
-     .record_order = kPreservesRecordOrder,
-     .instrument_prefix = kPreservesInstrumentPrefix,
-     .make_bc = make_bc<SwapMeasPass>},
-    {.name = "TileAxisFusionPass",
-     .kind = PassKind::Bytecode,
-     .default_enabled = true,
-     .record_order = kPreservesRecordOrder,
-     .instrument_prefix = kPreservesInstrumentPrefix,
-     .make_bc = make_bc<TileAxisFusionPass>},
-    {.name = "SingleAxisFusionPass",
-     .kind = PassKind::Bytecode,
-     .default_enabled = true,
-     .record_order = kPreservesRecordOrder,
-     .instrument_prefix = kPreservesInstrumentPrefix,
-     .make_bc = make_bc<SingleAxisFusionPass>},
+     .make = make_hir<DropNonUnitaryPass>},
 };
 
 inline constexpr size_t kNumRegisteredPasses =

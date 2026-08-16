@@ -90,13 +90,13 @@ console.log("\nSelective passes (HIR only):");
 console.log("  HIR ops:", hirOnly.hir_ops.length);
 assert.ok(hirOnly.hir_ops.length <= opt.hir_ops.length, "HIR-only should still fuse T+T");
 
-const legacyPassConfig = JSON.parse(
-    mod.compile_to_json("M 0", JSON.stringify({ hir: [], bc: [] }))
+const unknownPassConfig = JSON.parse(
+    mod.compile_to_json("M 0", JSON.stringify({ hir: [], unknown: [] }))
 );
 assert.match(
-    legacyPassConfig.error,
-    /Bytecode pass configuration is not supported/,
-    "Legacy bytecode pass configuration should fail explicitly"
+    unknownPassConfig.error,
+    /Unknown pass configuration key/,
+    "Unknown pass configuration keys should fail explicitly"
 );
 
 // --- executable provenance across lowering fusion ---
@@ -111,7 +111,7 @@ assert.ok(
 );
 assert.ok(
     fused.wasm_program.every((action) => !action.includes("OP_")),
-    "Expected symbolic actions instead of legacy VM opcodes"
+    "Expected prepared symbolic actions"
 );
 
 // --- simulate_wasm ---

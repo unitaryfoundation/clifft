@@ -1,169 +1,75 @@
-# SVM, Compile, and Probability Profiling Tools
+# Compilation and Probability Profiling Tools
 
-Three native C++ harnesses for profiling Clifft with `perf` (Linux) or other
-sampling profilers:
+Two native C++ harnesses isolate production compile and strong-simulation
+costs for `perf` or another sampling profiler:
 
-- `profile_svm` compiles a circuit once and runs many shots, so the SVM hot
-  loops accumulate enough samples for meaningful analysis.
-- `profile_compile` loops the selected production compile path many times with
-  no shots, so a sampling profiler captures compilation rather than execution.
-  It can measure either the legacy lower/bytecode path or the symbolic
-  planner/executable-plan path. This is useful for workflows that recompile
-  often (e.g. stratified loss-topology sampling).
-- `profile_probability` compiles a unitary circuit and calls
-  `clifft::basis_probabilities()` over a batch of bitstrings, so a `perf record`
-  run captures the strong-simulation hot path (basis-state probability
-  query). Measurement/feedback/noise opcodes are unsupported by
-  `basis_probabilities()`, so this harness emits a unitary-only circuit.
+- `profile_compile` repeatedly runs parse, trace and HIR optimization,
+  coordinate planning, and executable-plan preparation.
+- `profile_probability` compiles a unitary circuit and repeatedly queries
+  `clifft::basis_probabilities()` over a batch of bitstrings.
 
 ## Build
 
-The profiler is opt-in (not part of default or coverage builds). Use
-`-DCLIFFT_BUILD_PROFILER=ON` and `RelWithDebInfo` for debug symbols at full
-optimization (`-O2 -g`):
+The harnesses are opt-in. `RelWithDebInfo` retains call stacks while preserving
+the optimized code paths used for profiling.
 
 ```bash
-cmake -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCLIFFT_BUILD_PROFILER=ON
-cmake --build build -j$(nproc)
+cmake -B build-profile \
+  -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+  -DCLIFFT_BUILD_PROFILER=ON
+cmake --build build-profile --target profile_compile profile_probability -j$(nproc)
 ```
 
-Or use the just recipe:
+The equivalent build command is `just profile-build`.
+
+## Compilation
+
+`profile_compile` reports parse, trace and optimization, plan, prepare, and
+total time separately. File I/O is outside the timed loop.
 
 ```bash
-just profile-build
+CLIFFT_COMPILE_ITERATIONS=200 \
+  CLIFFT_CIRCUIT_FILE=tests/fixtures/cultivation_d5.stim \
+  ./build-profile/profile_compile
+
+CLIFFT_COMPILE_ITERATIONS=200 \
+  CLIFFT_CIRCUIT_FILE=tests/fixtures/cultivation_d5.stim \
+  perf record -F 9999 -g --call-graph dwarf \
+  -o perf-compile.data ./build-profile/profile_compile
 ```
-
-## Quick start
-
-```bash
-# Default: 50-qubit random Clifford circuit, 100k shots
-./build/profile_svm
-
-# T-gate workload (exercises SVM branch/collide/measure inner loops)
-CLIFFT_T_GATES=10 CLIFFT_SHOTS=100000 ./build/profile_svm
-
-# Load a real circuit file
-CLIFFT_CIRCUIT_FILE=tests/fixtures/target_qec.stim CLIFFT_SHOTS=100000 ./build/profile_svm
-
-# QV-20: large statevector workload (peak rank 20, array ops dominate)
-CLIFFT_CIRCUIT_FILE=tools/bench/fixtures/qv20_seed42.stim CLIFFT_SHOTS=10 ./build/profile_svm
-```
-
-## Environment variables
 
 | Variable | Default | Description |
-|---|---|---|
-| `CLIFFT_CIRCUIT_FILE` | *(none)* | Path to a `.stim` file. Overrides random generation. |
-| `CLIFFT_NUM_QUBITS` | 50 | Number of qubits for random circuit |
-| `CLIFFT_CLIFFORD_DEPTH` | 5000 | Number of random Clifford gates |
-| `CLIFFT_T_GATES` | 0 | Number of T-gates to append |
-| `CLIFFT_SHOTS` | 100000 | Number of shots to sample (`profile_svm`) |
-| `CLIFFT_COMPILE_ITERATIONS` | 20 | Number of compile iterations (`profile_compile`) |
-| `CLIFFT_COMPILE_BACKEND` | `symbolic` | Compile path for `profile_compile`: `symbolic` or `legacy` |
-| `CLIFFT_QUERIES` | 100 | Number of bitstring queries (`profile_probability`) |
-| `CLIFFT_POSTSELECT_ALL` | *(unset)* | If set, all detectors become postselects |
+|---|---:|---|
+| `CLIFFT_CIRCUIT_FILE` | generated circuit | Input `.stim` file |
+| `CLIFFT_COMPILE_ITERATIONS` | 20 | Number of complete compilations |
+| `CLIFFT_NUM_QUBITS` | 50 | Qubits in the generated circuit |
+| `CLIFFT_CLIFFORD_DEPTH` | 5000 | Clifford gates in the generated circuit |
+| `CLIFFT_T_GATES` | 0 | T gates appended to the generated circuit |
+| `CLIFFT_POSTSELECT_ALL` | unset | Mark every detector for postselection |
 
-`profile_probability` uses different circuit defaults (`CLIFFT_NUM_QUBITS=20`,
-`CLIFFT_CLIFFORD_DEPTH=200`, `CLIFFT_T_GATES=20`) so the active rank scales
-with the T count and the per-bitstring amplitude walk dominates the workload.
+## Probability queries
 
-## Compile-only profiling
-
-`profile_compile` re-runs the full compile pipeline `CLIFFT_COMPILE_ITERATIONS`
-times on the same circuit and reports per-stage min/median/mean/p95/max plus
-implied compiles-per-second. The default symbolic path uses the production
-`default_hir_pass_manager()`, so its parse, trace, plan, and prepare timings
-match what `clifft.compile()` pays. Set `CLIFFT_COMPILE_BACKEND=legacy` to
-retain lower/bytecode comparison data.
+`profile_probability` uses a unitary-only circuit because measurements,
+feedback, noise, and instruments are not eligible for basis-state queries.
 
 ```bash
-# Per-stage timings only
-CLIFFT_COMPILE_ITERATIONS=20 \
-  CLIFFT_CIRCUIT_FILE=tests/fixtures/target_qec.stim \
-  ./build/profile_compile
-
-# Split symbolic compilation into planner and executable preparation timings
-CLIFFT_COMPILE_BACKEND=symbolic \
-  CLIFFT_COMPILE_ITERATIONS=20 \
-  CLIFFT_CIRCUIT_FILE=tests/fixtures/target_qec.stim \
-  ./build/profile_compile
-
-# perf record on the compile path
-CLIFFT_COMPILE_ITERATIONS=200 \
-  CLIFFT_CIRCUIT_FILE=tests/fixtures/target_qec.stim \
-  perf record -F 9999 -g --call-graph dwarf -o perf-compile.data \
-  ./build/profile_compile
-```
-
-## Probability-query profiling
-
-`profile_probability` compiles a unitary circuit (no terminal `M`) and calls
-`clifft::basis_probabilities()` on `CLIFFT_QUERIES` random bitstrings. Use it to
-profile the strong-simulation path:
-
-```bash
-# Default: 20-qubit Clifford+T workload, 100 queries
-./build/profile_probability
-
-# Scale up the query count for `perf record`
 CLIFFT_QUERIES=2000 \
-  perf record -F 9999 -g --call-graph dwarf -o perf-prob.data \
-  ./build/profile_probability
+  perf record -F 9999 -g --call-graph dwarf \
+  -o perf-prob.data ./build-profile/profile_probability
 ```
 
-## Profiling with `perf`
+Its generated-circuit defaults are 20 qubits, Clifford depth 200, and 20 T
+gates. `CLIFFT_CIRCUIT_FILE`, `CLIFFT_NUM_QUBITS`,
+`CLIFFT_CLIFFORD_DEPTH`, and `CLIFFT_T_GATES` override them.
 
-### Record a profile
+## Inspecting a profile
 
 ```bash
-# Deep Clifford (AG_PIVOT dominated)
-perf record -F 9999 -g --call-graph dwarf -o perf.data ./build/profile_svm
-
-# QEC circuit
-CLIFFT_CIRCUIT_FILE=tests/fixtures/target_qec.stim CLIFFT_SHOTS=100000 \
-  perf record -F 9999 -g --call-graph dwarf -o perf.data ./build/profile_svm
-
-# T-gate circuit (SVM inner loop dominated)
-CLIFFT_T_GATES=10 CLIFFT_CLIFFORD_DEPTH=500 CLIFFT_SHOTS=100000 \
-  perf record -F 9999 -g --call-graph dwarf -o perf.data ./build/profile_svm
+perf report -i perf-compile.data --stdio --no-children -n --percent-limit 0.5
+perf report -i perf-compile.data --stdio --no-children --sort=srcline --percent-limit 1
+perf script -i perf-compile.data > profile.linux-perf.txt
 ```
 
-### View results
-
-```bash
-# Flat function-level hotspots (most useful first pass)
-perf report -i perf.data --stdio --no-children -n --percent-limit 0.5
-
-# Interactive TUI
-perf report -i perf.data
-
-# Annotated assembly for a specific function
-perf annotate -i perf.data --stdio \
-  --symbol="clifft::execute(clifft::CompiledModule const&, clifft::SchrodingerState&)"
-
-# Map hot addresses to source lines
-perf report -i perf.data --stdio --no-children --sort=srcline --percent-limit 1
-
-# Export for external tools (e.g. Firefox Profiler, speedscope)
-perf script -i perf.data > profile.linux-perf.txt
-```
-
-### Hardware counter stats (no recording overhead)
-
-```bash
-perf stat -d ./build/profile_svm
-```
-
-### Troubleshooting
-
-If `perf` says "not found for kernel X.Y.Z", the installed `linux-tools`
-package doesn't match the running kernel. You can often use the available
-version directly:
-
-```bash
-# Find the installed perf binary
-ls /usr/lib/linux-tools/*/perf
-
-# Use it explicitly
-/usr/lib/linux-tools/6.8.0-101-generic/perf record ...
-```
+Use `perf annotate -i perf-compile.data --stdio --symbol=<symbol>` to inspect
+one hot function's generated assembly, and `perf stat -d <command>` for
+hardware-counter totals.

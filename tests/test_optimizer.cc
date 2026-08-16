@@ -1,12 +1,12 @@
 // Optimizer unit tests
 
-#include "clifft/backend/backend.h"
 #include "clifft/circuit/parser.h"
 #include "clifft/frontend/frontend.h"
 #include "clifft/frontend/hir.h"
 #include "clifft/optimizer/commutation.h"
 #include "clifft/optimizer/peephole.h"
 #include "clifft/optimizer/statevector_squeeze_pass.h"
+#include "clifft/sampling/planner.h"
 #include "clifft/util/constants.h"
 
 #include "test_helpers.h"
@@ -249,7 +249,7 @@ TEST_CASE("Peephole: terminal phases cross disjoint measure-reset corrections", 
 
             REQUIRE(count_ops(hir, OpType::PHASE_ROTATION) == 0);
             REQUIRE(pass.cancellations() == 2);
-            REQUIRE(clifft::lower(hir).peak_rank == 0);
+            REQUIRE(clifft::sampling::plan_sampling(hir).max_active_width == 0);
         }
     }
 }
@@ -264,7 +264,7 @@ TEST_CASE("Peephole: terminal phase belonging only to a later reset target is re
 
     REQUIRE(count_ops(hir, OpType::PHASE_ROTATION) == 0);
     REQUIRE(pass.cancellations() == 1);
-    REQUIRE(clifft::lower(hir).peak_rank == 0);
+    REQUIRE(clifft::sampling::plan_sampling(hir).max_active_width == 0);
 }
 
 TEST_CASE("Peephole: disjoint feedback controlled by a crossed measurement is transparent",
@@ -722,40 +722,29 @@ TEST_CASE("Peephole: S absorption creates negative T that subsequently fuses", "
 TEST_CASE("Pass registry: all entries resolve via factory") {
     for (size_t i = 0; i < clifft::kNumRegisteredPasses; ++i) {
         const auto& info = clifft::kRegisteredPasses[i];
-        if (info.kind == clifft::PassKind::HIR) {
-            auto pass = clifft::make_hir_pass(info.name);
-            REQUIRE(pass != nullptr);
-        } else {
-            auto pass = clifft::make_bytecode_pass(info.name);
-            REQUIRE(pass != nullptr);
-        }
+        auto pass = clifft::make_hir_pass(info.name);
+        REQUIRE(pass != nullptr);
     }
 }
 
 TEST_CASE("Pass registry: default managers use registry") {
     auto hpm = clifft::default_hir_pass_manager();
-    auto bpm = clifft::default_bytecode_pass_manager();
-
     // Smoke test: run on a trivial circuit
     auto circuit = clifft::parse("H 0\nCNOT 0 1\nM 0\nM 1");
     auto hir = clifft::trace(circuit);
     hpm.run(hir);
-    auto prog = clifft::lower(hir);
-    bpm.run(prog);
-    REQUIRE(prog.num_qubits == 2);
+    REQUIRE(hir.num_qubits == 2);
 }
 
 TEST_CASE("Pass registry: trajectory compatibility requires both guarantees") {
     constexpr clifft::PassInfo record_only{
         .name = "record-only",
-        .kind = clifft::PassKind::HIR,
         .default_enabled = true,
         .record_order = clifft::kPreservesRecordOrder,
         .instrument_prefix = clifft::kMayChangeInstrumentPrefix,
     };
     constexpr clifft::PassInfo prefix_only{
         .name = "prefix-only",
-        .kind = clifft::PassKind::HIR,
         .default_enabled = true,
         .record_order = clifft::kBreaksRecordOrder,
         .instrument_prefix = clifft::kPreservesInstrumentPrefix,
@@ -763,10 +752,7 @@ TEST_CASE("Pass registry: trajectory compatibility requires both guarantees") {
     static_assert(!clifft::is_trajectory_compatible(record_only));
     static_assert(!clifft::is_trajectory_compatible(prefix_only));
 
-    const std::vector<std::string_view> prefix_stable = {
-        "PeepholeFusionPass", "NoiseBlockPass", "MultiGatePass",      "ExpandTPass",
-        "ExpandRotPass",      "SwapMeasPass",   "TileAxisFusionPass", "SingleAxisFusionPass",
-    };
+    const std::vector<std::string_view> prefix_stable = {"PeepholeFusionPass"};
     const std::vector<std::string_view> may_change_prefix = {
         "StatevectorSqueezePass", "RemoveNoisePass", "DropNonUnitaryPass"};
 
@@ -787,7 +773,7 @@ TEST_CASE("Pass registry: JSON round-trip is valid") {
     REQUIRE(json.front() == '[');
     REQUIRE(json.back() == ']');
     REQUIRE(json.find("PeepholeFusionPass") != std::string::npos);
-    REQUIRE(json.find("SingleAxisFusionPass") != std::string::npos);
+    REQUIRE(json.find("StatevectorSqueezePass") != std::string::npos);
     REQUIRE(json.find("RemoveNoisePass") != std::string::npos);
     REQUIRE(json.find("DropNonUnitaryPass") != std::string::npos);
     REQUIRE(json.find("preserves_instrument_prefix") != std::string::npos);

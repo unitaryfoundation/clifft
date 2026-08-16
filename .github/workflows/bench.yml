@@ -81,8 +81,8 @@ jobs:
 
       - name: Configure C++ build
         # Pin the global baseline to match Linux x86_64 release wheels. The
-        # high-ISA SVM kernels are still benchmarked explicitly below when
-        # the runner CPU supports them.
+        # Runtime-dispatched high-ISA kernels are exercised below when the
+        # runner CPU supports them.
         run: |
           cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=${{ env.CMAKE_BUILD_TYPE }} \

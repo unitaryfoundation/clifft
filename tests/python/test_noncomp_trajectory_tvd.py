@@ -19,14 +19,12 @@ import utils_noncomp_enumerator as en
 from conftest import binomial_tolerance, noncomp_transition_matrix
 
 import clifft
-from clifft import _legacy, noncomp
+from clifft import noncomp
 
 Level = noncomp.Level
 
 
-@pytest.fixture(
-    params=[clifft.noncomp.sample, _legacy.sample_noncomputational], ids=["symbolic", "legacy"]
-)
+@pytest.fixture(params=[clifft.noncomp.sample], ids=["symbolic"])
 def noncomp_sampling_api(request: pytest.FixtureRequest) -> Any:
     """Compare both trajectory executors with the exact enumerator."""
     return request.param

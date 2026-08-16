@@ -6,17 +6,16 @@
 // hot path of the basis-state probability query.
 //
 // basis_probabilities() rejects measurement/feedback/noise/detector/observable
-// opcodes, so this harness emits a unitary-only circuit (no trailing M).
+// actions, so this harness emits a unitary-only circuit (no trailing M).
 //
 // See tools/profile/README.md for full usage instructions.
 
-#include "clifft/backend/backend.h"
 #include "clifft/circuit/parser.h"
 #include "clifft/frontend/frontend.h"
-#include "clifft/optimizer/bytecode_pass.h"
 #include "clifft/optimizer/hir_pass_manager.h"
 #include "clifft/optimizer/pass_factory.h"
-#include "clifft/svm/svm.h"
+#include "clifft/sampling/planner.h"
+#include "clifft/sampling/state_queries.h"
 
 #include <chrono>
 #include <cstdint>
@@ -196,37 +195,28 @@ int main() {
     auto trace_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
     std::cout << " done (" << trace_ms << " ms)\n";
 
-    // Backend (no postselection - basis_probabilities() requires pure-state evolution)
-    std::cout << "Backend (bytecode generation)..." << std::flush;
+    // Plan and prepare the executable program.
+    std::cout << "Planning and preparing..." << std::flush;
     t0 = std::chrono::high_resolution_clock::now();
-    clifft::CompiledModule program = clifft::lower(hir, {});
+    clifft::sampling::SamplingPlan plan = clifft::sampling::plan_sampling(hir);
+    clifft::sampling::ExecutablePlan program(plan);
     t1 = std::chrono::high_resolution_clock::now();
-    auto lower_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
-    size_t pre_opt_count = program.bytecode.size();
-    std::cout << " done (" << lower_ms << " ms, " << pre_opt_count << " instructions)\n";
+    auto prepare_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
+    std::cout << " done (" << prepare_ms << " ms, " << program.num_actions() << " actions)\n";
 
-    // Default bytecode optimization (matches clifft.compile()).
-    std::cout << "Bytecode optimization..." << std::flush;
-    t0 = std::chrono::high_resolution_clock::now();
-    auto bpm = clifft::default_bytecode_pass_manager();
-    bpm.run(program);
-    t1 = std::chrono::high_resolution_clock::now();
-    auto opt_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
-    std::cout << " done (" << opt_ms << " ms, " << pre_opt_count << " -> "
-              << program.bytecode.size() << " instructions)\n";
-
-    std::cout << "\nCompilation total: " << (parse_ms + trace_ms + lower_ms + opt_ms) << " ms\n";
-    std::cout << "Peak rank: " << program.peak_rank << " (statevector size: 2^" << program.peak_rank
-              << " = " << (1ULL << program.peak_rank) << ")\n\n";
+    std::cout << "\nCompilation total: " << (parse_ms + trace_ms + prepare_ms) << " ms\n";
+    std::cout << "Peak active width: " << program.max_active_width() << " (statevector size: 2^"
+              << program.max_active_width() << " = " << (1ULL << program.max_active_width())
+              << ")\n\n";
 
     // Build query bitmasks. Random uniform bitstrings cover both in-support
     // and out-of-support fast paths in the amplitude walk.
-    const size_t words_per_mask = (static_cast<size_t>(program.num_qubits) + 63U) / 64U;
+    const size_t words_per_mask = (static_cast<size_t>(program.num_qubits()) + 63U) / 64U;
     std::cout << "Generating " << queries << " random bitstrings (" << words_per_mask
               << " word(s) each)..." << std::flush;
     t0 = std::chrono::high_resolution_clock::now();
     std::vector<uint64_t> bitmasks =
-        generate_random_bitmasks(program.num_qubits, queries, words_per_mask, kSeed ^ 0xabcdef);
+        generate_random_bitmasks(program.num_qubits(), queries, words_per_mask, kSeed ^ 0xabcdef);
     t1 = std::chrono::high_resolution_clock::now();
     auto masks_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
     std::cout << " done (" << masks_ms << " ms)\n";
@@ -234,7 +224,7 @@ int main() {
     // Run basis_probabilities()
     std::cout << "Running " << queries << " probability queries..." << std::flush;
     t0 = std::chrono::high_resolution_clock::now();
-    std::vector<double> probs = clifft::basis_probabilities(
+    std::vector<double> probs = clifft::sampling::basis_probabilities(
         program, std::span<const uint64_t>(bitmasks), queries, words_per_mask);
     t1 = std::chrono::high_resolution_clock::now();
     auto prob_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();

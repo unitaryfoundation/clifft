@@ -201,7 +201,7 @@ TEST_CASE("validation: losing a Bell-pair qubit inserts the hidden trace-out R a
     REQUIRE(count_gate(rw, GateType::R) == 1);
 
     // The trace-out R lowers to exactly one hidden measurement that survives
-    // the default HIR passes -- the partial-trace unraveling reaching the SVM.
+    // the default HIR passes -- the partial-trace unraveling reaching the executor.
     // The visible measurement count is unchanged (the record layout is
     // stable). The baseline is the same rewrite with no jump recorded, so
     // both sides carry the identical live instrument site.

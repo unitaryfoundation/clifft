@@ -1,6 +1,7 @@
 #include "clifft/circuit/parser.h"
 #include "clifft/frontend/frontend.h"
 #include "clifft/optimizer/hir_pass_manager.h"
+#include "clifft/optimizer/pass_factory.h"
 #include "clifft/sampling/planner.h"
 
 #include "instrument_test_helpers.h"

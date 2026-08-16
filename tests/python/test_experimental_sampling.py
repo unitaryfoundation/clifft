@@ -12,7 +12,6 @@ import stim
 
 import clifft
 import clifft.experimental as experimental
-from clifft import _legacy
 
 _RUNTIME_DISPATCH_BUILD = platform.machine().lower() in {"amd64", "x86_64"} and not (
     platform.python_compiler().startswith("MSC")
@@ -55,22 +54,6 @@ def test_experimental_program_aliases_public_program() -> None:
     assert program.num_measurements == 1
     assert program.num_hidden_measurements == 0
     assert program.num_actions > 0
-
-
-@pytest.mark.parametrize(
-    "circuit",
-    [
-        "H 0\nM 0\nM 0",
-        "H 0\nCX 0 1\nM 0 1",
-        "H 0\nT 0\nS 0\nMX 0",
-        "H 0\nT 0\nR_Z(0.3) 0\nM 0",
-        "H 0\nH 1\nT 0\nT 1\nCX 0 1\nMPP Y0*Z1",
-    ],
-)
-def test_seeded_samples_match_legacy_for_curated_circuits(circuit: str) -> None:
-    legacy = _legacy.sample(_legacy.compile(circuit), shots=128, seed=1234).measurements
-    actual = experimental.sample(experimental.compile(circuit), shots=128, seed=1234).measurements
-    np.testing.assert_array_equal(actual, legacy)
 
 
 def test_expectation_probes_are_available_through_compatibility_alias() -> None:

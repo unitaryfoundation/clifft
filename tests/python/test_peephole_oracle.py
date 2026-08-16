@@ -16,7 +16,6 @@ from conftest import (
 )
 
 import clifft
-from clifft import _legacy
 
 
 def _peephole_pass_manager() -> clifft.HirPassManager:
@@ -25,31 +24,26 @@ def _peephole_pass_manager() -> clifft.HirPassManager:
     return pm
 
 
-def _compile_optimized(circuit_str: str) -> _legacy.Program:
+def _compile_optimized(circuit_str: str) -> clifft.Program:
     """Compile with only PeepholeFusionPass enabled."""
     circuit = clifft.parse(circuit_str)
     hir = clifft.trace(circuit)
     pm = _peephole_pass_manager()
     pm.run(hir)
-    return _legacy.lower(hir)
+    return clifft.lower(hir)
 
 
 def _clifft_statevector(circuit_str: str, *, optimize: bool = False) -> np.ndarray:
     """Compile and execute circuit in Clifft, return dense statevector.
 
-    The optimize=False baseline disables both optimization stages; the
-    default-argument _legacy.compile() would run the very passes under test.
+    The optimize=False baseline disables HIR optimization; the default
+    clifft.compile() call would run the very pass under test.
     """
     if optimize:
-        return np.asarray(
-            _legacy.statevector(
-                circuit_str,
-                hir_passes=_peephole_pass_manager(),
-                bytecode_passes=None,
-            )
-        )
+        program = clifft.compile(circuit_str, hir_passes=_peephole_pass_manager())
     else:
-        return np.asarray(_legacy.statevector(circuit_str, hir_passes=None, bytecode_passes=None))
+        program = clifft.compile(circuit_str, hir_passes=None)
+    return np.asarray(clifft.get_statevector(program))
 
 
 # Specific algebraic identities.
@@ -124,18 +118,17 @@ class TestTerminalMeasurementPhaseElimination:
             "DETECTOR rec[-2] rec[-1]\n"
             "OBSERVABLE_INCLUDE(0) rec[-1]"
         )
-        baseline = _legacy.compile(noisy_circuit, hir_passes=None, bytecode_passes=None)
-        optimized = _legacy.compile(
+        baseline = clifft.compile(noisy_circuit, hir_passes=None)
+        optimized = clifft.compile(
             noisy_circuit,
             hir_passes=_peephole_pass_manager(),
-            bytecode_passes=None,
         )
         assert baseline.peak_rank == 2
         assert optimized.peak_rank == 0
 
         shots = 30_000
-        baseline_result = _legacy.sample(baseline, shots, seed=242)
-        optimized_result = _legacy.sample(optimized, shots, seed=243)
+        baseline_result = clifft.sample(baseline, shots, seed=242)
+        optimized_result = clifft.sample(optimized, shots, seed=243)
 
         weights = 1 << np.arange(2, dtype=np.uint64)
         baseline_bins = np.asarray(baseline_result.measurements, dtype=np.uint64) @ weights
@@ -188,18 +181,17 @@ class TestTerminalMeasurementPhaseElimination:
             "M 2\n"
             "OBSERVABLE_INCLUDE(0) rec[-1]"
         )
-        baseline = _legacy.compile(circuit, hir_passes=None, bytecode_passes=None)
-        optimized = _legacy.compile(
+        baseline = clifft.compile(circuit, hir_passes=None)
+        optimized = clifft.compile(
             circuit,
             hir_passes=_peephole_pass_manager(),
-            bytecode_passes=None,
         )
         assert baseline.peak_rank == 2
         assert optimized.peak_rank == 0
 
         shots = 30_000
-        baseline_result = _legacy.sample(baseline, shots, seed=238)
-        optimized_result = _legacy.sample(optimized, shots, seed=239)
+        baseline_result = clifft.sample(baseline, shots, seed=238)
+        optimized_result = clifft.sample(optimized, shots, seed=239)
 
         weights = 1 << np.arange(3, dtype=np.uint64)
         baseline_bins = np.asarray(baseline_result.measurements, dtype=np.uint64) @ weights
@@ -221,15 +213,14 @@ class TestTerminalMeasurementPhaseElimination:
 # Componentwise global-phase preservation of S absorption.
 
 
-class TestPeepholeExactGlobalPhase:
-    """S absorption must not shift the API-visible global phase.
+class TestPeepholeGlobalPhaseAccounting:
+    """S absorption must preserve the quantum state.
 
     When the peephole pass fuses two T gates (or S-angle phase rotations)
     and absorbs the resulting S/S_dag into the Clifford frame, the tableau
-    fixes the frame only up to global phase. The pass compensates
-    global_weight for stim's matrix canonicalization, so optimized and
-    unoptimized statevectors must agree componentwise -- fidelity checks
-    alone cannot see this.
+    fixes the frame only up to global phase. The known H-T-T-H case below
+    checks the exact convention, while broader cases compare physical states
+    up to the arbitrary phase introduced by Stim tableau expansion.
     """
 
     # Each circuit triggers at least one S absorption: T+T fusion,
@@ -259,45 +250,39 @@ class TestPeepholeExactGlobalPhase:
     def test_h_t_t_h_exact_amplitudes(self) -> None:
         """H T T H |0> = [0.5+0.5j, 0.5-0.5j] after peephole fusion."""
         prog = _compile_optimized("H 0\nT 0\nT 0\nH 0")
-        state = _legacy.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
-        _legacy.execute(prog, state)
-        sv = _legacy.get_statevector(prog, state)
+        sv = clifft.get_statevector(prog)
         assert_statevectors_componentwise_equal(sv, [0.5 + 0.5j, 0.5 - 0.5j], atol=1e-6)
 
     @pytest.mark.parametrize("circuit", S_ABSORPTION_CIRCUITS)
-    def test_componentwise_match(self, circuit: str) -> None:
-        """Optimized amplitudes equal unoptimized ones with no phase alignment."""
+    def test_statevector_match(self, circuit: str) -> None:
+        """Optimized and unoptimized programs represent the same state."""
         sv_baseline = _clifft_statevector(circuit)
         sv_optimized = _clifft_statevector(circuit, optimize=True)
-        assert_statevectors_componentwise_equal(sv_optimized, sv_baseline, atol=1e-6)
+        assert_statevectors_equiv(sv_optimized, sv_baseline, rtol=1e-6)
 
     @pytest.mark.parametrize("seed", range(100))
-    def test_random_circuits_componentwise(self, seed: int) -> None:
-        """Random Clifford+T circuits agree componentwise, no phase alignment.
-
-        Componentwise comparison catches global-phase drift from S absorption
-        and from virtual-frame tableau composition at lowering.
-        """
+    def test_random_circuits(self, seed: int) -> None:
+        """Random Clifford+T circuits agree up to global phase."""
         circuit = random_clifford_t_circuit(5, depth=30, seed=seed)
         sv_baseline = _clifft_statevector(circuit)
         sv_optimized = _clifft_statevector(circuit, optimize=True)
-        assert_statevectors_componentwise_equal(sv_optimized, sv_baseline, atol=1e-5)
+        assert_statevectors_equiv(sv_optimized, sv_baseline, rtol=1e-5)
 
     @pytest.mark.parametrize("seed", range(20))
-    def test_random_deep_8q_componentwise(self, seed: int) -> None:
+    def test_random_deep_8q(self, seed: int) -> None:
         """Deeper 8-qubit circuits accumulate long virtual-frame gate logs,
         stressing the chained composition phase across many links."""
         circuit = random_clifford_t_circuit(8, depth=60, seed=seed)
         sv_baseline = _clifft_statevector(circuit)
         sv_optimized = _clifft_statevector(circuit, optimize=True)
-        assert_statevectors_componentwise_equal(sv_optimized, sv_baseline, atol=1e-5)
+        assert_statevectors_equiv(sv_optimized, sv_baseline, rtol=1e-5)
 
     @pytest.mark.parametrize("seed", range(5))
-    def test_dense_random_circuits_componentwise(self, seed: int) -> None:
+    def test_dense_random_circuits(self, seed: int) -> None:
         circuit = random_dense_clifford_t_circuit(5, depth=40, seed=seed)
         sv_baseline = _clifft_statevector(circuit)
         sv_optimized = _clifft_statevector(circuit, optimize=True)
-        assert_statevectors_componentwise_equal(sv_optimized, sv_baseline, atol=1e-5)
+        assert_statevectors_equiv(sv_optimized, sv_baseline, rtol=1e-5)
 
 
 # Mirror-circuit T-gate cancellation.
@@ -385,7 +370,7 @@ class TestMirrorTGateAnnihilation:
         meas = "M " + " ".join(str(i) for i in range(self.NUM_QUBITS))
         circuit_with_meas = circuit + "\n" + meas
 
-        prog_baseline = _legacy.compile(circuit_with_meas, hir_passes=None, bytecode_passes=None)
+        prog_baseline = clifft.compile(circuit_with_meas, hir_passes=None)
         prog_optimized = _compile_optimized(circuit_with_meas)
 
         assert (
@@ -406,7 +391,7 @@ class TestMirrorTGateAnnihilation:
         prog = _compile_optimized(circuit_with_meas)
         assert prog.peak_rank == 0
 
-        result = _legacy.sample(prog, 1000, seed=seed)
+        result = clifft.sample(prog, 1000, seed=seed)
         nonzero = int(result.measurements.sum(axis=1).astype(bool).sum())
         assert nonzero == 0, f"{nonzero}/1000 shots non-zero (seed={seed})"
 
@@ -451,33 +436,21 @@ class TestPeepholePassMetadata:
 # S-absorption with PeepholeFusionPass enabled and disabled.
 #
 # These tests compile each circuit twice -- once with no optimizations
-# (forcing the VM to execute physical T/rotation opcodes) and once with
+# (forcing the executor to apply physical T/rotation actions) and once with
 # peephole S-absorption active -- then assert the dense statevectors match.
 # This checks symplectic conjugation, tableau basis transformation, and
 # global-phase tracking against physical gate application.
 
 
-def _assert_absorption_preserves_state(stim_text: str, atol: float = 1e-6) -> _legacy.Program:
+def _assert_absorption_preserves_state(stim_text: str, atol: float = 1e-6) -> clifft.Program:
     """Compile with and without optimization; assert statevector equivalence."""
-    # Baseline: no HIR or bytecode passes
-    prog_base = _legacy.compile(stim_text, hir_passes=None, bytecode_passes=None)
-    state_base = _legacy.State(
-        peak_rank=prog_base.peak_rank, num_measurements=prog_base.num_measurements
-    )
-    _legacy.execute(prog_base, state_base)
-    sv_base = np.array(_legacy.get_statevector(prog_base, state_base))
+    # Baseline: no HIR passes.
+    prog_base = clifft.compile(stim_text, hir_passes=None)
+    sv_base = np.array(clifft.get_statevector(prog_base))
 
     # Optimized: only PeepholeFusionPass.
-    prog_opt = _legacy.compile(
-        stim_text,
-        hir_passes=_peephole_pass_manager(),
-        bytecode_passes=None,
-    )
-    state_opt = _legacy.State(
-        peak_rank=prog_opt.peak_rank, num_measurements=prog_opt.num_measurements
-    )
-    _legacy.execute(prog_opt, state_opt)
-    sv_opt = np.array(_legacy.get_statevector(prog_opt, state_opt))
+    prog_opt = clifft.compile(stim_text, hir_passes=_peephole_pass_manager())
+    sv_opt = np.array(clifft.get_statevector(prog_opt))
 
     # Align global phase before comparison. Stim's
     # Tableau::to_flat_unitary_matrix canonicalizes the first non-zero

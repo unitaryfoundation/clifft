@@ -6,7 +6,7 @@ namespace clifft::internal {
 // Trap states defer configuration errors until a backend reaches an execution
 // or preparation boundary, avoiding exceptions during static initialization.
 // Builds without runtime dispatch always select Scalar and ignore
-// CLIFFT_FORCE_ISA, matching the portable SVM behavior.
+// CLIFFT_FORCE_ISA, so tests can exercise every portable fallback.
 enum class RuntimeIsa {
     Scalar,
     Avx2,

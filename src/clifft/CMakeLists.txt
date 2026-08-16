@@ -1,16 +1,9 @@
 # Clifft Core Library
-# This library contains the compiler pipeline and VM runtime.
+# This library contains the compiler pipeline and sampling runtime.
 
 add_library(clifft_core STATIC
     circuit/parser.cc
     frontend/frontend.cc
-    optimizer/bytecode_pass.cc
-    optimizer/noise_block_pass.cc
-    optimizer/multi_gate_pass.cc
-    optimizer/expand_t_pass.cc
-    optimizer/swap_meas_pass.cc
-    optimizer/tile_axis_fusion_pass.cc
-    optimizer/single_axis_fusion_pass.cc
     optimizer/hir_pass_manager.cc
     optimizer/drop_non_unitary_pass.cc
     optimizer/commutation.cc
@@ -18,7 +11,6 @@ add_library(clifft_core STATIC
     optimizer/pass_factory.cc
     optimizer/remove_noise_pass.cc
     optimizer/statevector_squeeze_pass.cc
-    backend/backend.cc
     sampling/plan.cc
     sampling/planner.cc
     sampling/planner_frame.cc
@@ -32,18 +24,11 @@ add_library(clifft_core STATIC
     sampling/sampler.cc
     sampling/state.cc
     api/basis_probabilities.cc
-    api/record_probabilities.cc
     api/reference_syndrome.cc
     api/statevector.cc
-    svm/svm.cc
-    svm/svm_forced_kernels.cc
-    svm/svm_instrument_kernels.cc
-    svm/svm_scalar.cc
-    svm/svm_state.cc
     util/canonical_phase.cc
     util/fault_sampling.cc
     util/hir_introspection.cc
-    util/introspection.cc
     util/page_allocation.cc
     util/runtime_isa.cc
     util/xoshiro.cc
@@ -54,7 +39,6 @@ add_library(clifft_core STATIC
     noncomp/model.cc
     noncomp/status_walk.cc
     noncomp/rewriter.cc
-    noncomp/continuation_prefix.cc
     noncomp/trajectory_driver.cc
     noncomp/sample.cc
 )
@@ -64,17 +48,9 @@ if(CLIFFT_X86_RUNTIME_DISPATCH)
     target_sources(clifft_core PRIVATE
         sampling/kernels_avx2.cc
         sampling/kernels_avx512.cc
-        svm/svm_avx2.cc
-        svm/svm_avx512.cc
     )
     set_source_files_properties(sampling/kernels_avx2.cc
         PROPERTIES COMPILE_OPTIONS "-mavx2;-mbmi2;-mfma"
-    )
-    set_source_files_properties(svm/svm_avx2.cc
-        PROPERTIES COMPILE_OPTIONS "-mavx2;-mbmi2;-mfma"
-    )
-    set_source_files_properties(svm/svm_avx512.cc
-        PROPERTIES COMPILE_OPTIONS "-mavx2;-mbmi2;-mfma;-mavx512f;-mavx512dq"
     )
     set_source_files_properties(sampling/kernels_avx512.cc
         PROPERTIES COMPILE_OPTIONS "-mavx2;-mbmi2;-mfma;-mavx512f;-mavx512dq"
@@ -95,31 +71,6 @@ target_link_libraries(clifft_core PUBLIC
 )
 
 target_link_libraries(clifft_core PRIVATE fast_float)
-
-# Optional OpenMP for multi-core array parallelism (large statevectors).
-# Not available under Emscripten (WASM). When absent, OMP pragmas are
-# silently ignored and all paths remain single-threaded.
-if(NOT EMSCRIPTEN)
-    # On macOS with Apple clang, Homebrew's libomp is not on the default
-    # search path. Point CMake at it so find_package(OpenMP) succeeds.
-    if(APPLE AND NOT DEFINED OpenMP_ROOT)
-        execute_process(
-            COMMAND brew --prefix libomp
-            OUTPUT_VARIABLE _BREW_LIBOMP_PREFIX
-            OUTPUT_STRIP_TRAILING_WHITESPACE
-            ERROR_QUIET
-            RESULT_VARIABLE _BREW_LIBOMP_RESULT
-        )
-        if(_BREW_LIBOMP_RESULT EQUAL 0 AND _BREW_LIBOMP_PREFIX)
-            set(OpenMP_ROOT "${_BREW_LIBOMP_PREFIX}")
-        endif()
-    endif()
-
-    find_package(OpenMP)
-    if(OpenMP_CXX_FOUND)
-        target_link_libraries(clifft_core PRIVATE OpenMP::OpenMP_CXX)
-    endif()
-endif()
 
 target_compile_features(clifft_core PUBLIC cxx_std_20)
 

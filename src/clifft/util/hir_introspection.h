@@ -1,8 +1,6 @@
 #pragma once
 
-// String-formatting utilities that depend only on the HIR. Keep these
-// separate from VM introspection so compiler-side users do not acquire a
-// dependency on the legacy backend.
+// String-formatting utilities that depend only on the HIR.
 
 #include "clifft/frontend/hir.h"
 

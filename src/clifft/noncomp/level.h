@@ -15,8 +15,8 @@
 //
 // QubitStatus is the per-qubit ledger entry: computational, or the
 // definite noncomputational level the qubit holds. Which basis state a
-// computational qubit holds -- if either definitely -- is runtime
-// information living in the SVM, never in this classical ledger, so g
+// computational qubit holds -- if either definitely -- is runtime quantum
+// state, never information in this classical ledger, so g
 // and e collapse to the one Computational status and a status needs no
 // auxiliary level field.
 
@@ -107,8 +107,8 @@ constexpr bool is_lost(QubitStatus status) {
 }
 
 // The status a qubit holds after landing on `level`: the computational
-// levels collapse to the one Computational status (which basis state
-// the qubit holds is SVM runtime information), the noncomputational
+// levels collapse to the one Computational status (the quantum state owns
+// any basis-state information), while the noncomputational
 // levels carry through.
 constexpr QubitStatus status_for(Level level) {
     switch (level) {

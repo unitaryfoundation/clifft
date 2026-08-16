@@ -2,7 +2,7 @@
 //
 // Sweeps n ∈ {32, 64, 100, 128, 129, 150, 1000} and touched qubits
 // ∈ {0, 63, 64, 127, 128, n-1} over deterministic patterns that exercise
-// frontend → optimizer → backend → SVM at word boundaries. Catches the
+// frontend -> optimizer -> planner -> executor at word boundaries. Catches the
 // class of word-boundary bug where a scratch buffer or scalar mask field
 // clips bits at qubit 64+ -- the runtime-width arena and Pauli frame must
 // round-trip every set bit.
@@ -11,16 +11,16 @@
 // circuit, so we can assert exact equality across all shots without a
 // statistical oracle. For the random-measurement coverage we just check
 // that both branches appear over many shots, which still exercises the
-// SVM hot paths.
+// executor hot paths.
 //
 // Tests are tagged [fuzz]. They are included in default ctest.
 
-#include "clifft/backend/backend.h"
 #include "clifft/circuit/parser.h"
 #include "clifft/frontend/frontend.h"
 #include "clifft/optimizer/hir_pass_manager.h"
 #include "clifft/optimizer/peephole.h"
-#include "clifft/svm/svm.h"
+#include "clifft/sampling/planner.h"
+#include "clifft/sampling/sampler.h"
 
 #include <algorithm>
 #include <catch2/catch_test_macros.hpp>
@@ -75,7 +75,7 @@ std::vector<std::pair<uint32_t, uint32_t>> cross_word_pairs(uint32_t n) {
 // Compile a circuit through the front-end, peephole pass, and backend.
 // Mirrors the production pipeline closely enough to catch end-to-end
 // width bugs.
-CompiledModule compile_text(uint32_t n, const std::string& body) {
+sampling::ExecutablePlan compile_text(uint32_t n, const std::string& body) {
     // Force the active width by appending an identity touch on the
     // highest qubit. Identity gates update num_qubits without emitting
     // an HIR op (see is_identity_noop).
@@ -89,11 +89,12 @@ CompiledModule compile_text(uint32_t n, const std::string& body) {
     HirPassManager pm;
     pm.add_pass(std::make_unique<PeepholeFusionPass>());
     pm.run(hir);
-    return lower(hir);
+    return sampling::ExecutablePlan(sampling::plan_sampling(hir));
 }
 
 // Read measurement m_idx from each shot.
-std::vector<uint8_t> meas_column(const SampleResult& r, uint32_t num_meas, size_t m_idx) {
+std::vector<uint8_t> meas_column(const sampling::SamplingResult& r, uint32_t num_meas,
+                                 size_t m_idx) {
     std::vector<uint8_t> out;
     out.reserve(r.measurements.size() / num_meas);
     for (size_t shot = 0; shot < r.measurements.size() / num_meas; ++shot) {
@@ -129,7 +130,7 @@ TEST_CASE("Fuzz: deterministic single-qubit Z measurement", "[fuzz]") {
                 std::ostringstream body;
                 body << "M " << q;
                 auto mod = compile_text(n, body.str());
-                auto result = sample(mod, kShots, kFuzzSeed);
+                auto result = sampling::sample(mod, kShots, kFuzzSeed);
                 require_all_equal(meas_column(result, 1, 0), 0);
             }
 
@@ -138,7 +139,7 @@ TEST_CASE("Fuzz: deterministic single-qubit Z measurement", "[fuzz]") {
                 std::ostringstream body;
                 body << "X " << q << "\nM " << q;
                 auto mod = compile_text(n, body.str());
-                auto result = sample(mod, kShots, kFuzzSeed);
+                auto result = sampling::sample(mod, kShots, kFuzzSeed);
                 require_all_equal(meas_column(result, 1, 0), 1);
             }
         }
@@ -155,7 +156,7 @@ TEST_CASE("Fuzz: R after X gives 0", "[fuzz]") {
             std::ostringstream body;
             body << "X " << q << "\nR " << q << "\nM " << q;
             auto mod = compile_text(n, body.str());
-            auto result = sample(mod, kShots, kFuzzSeed);
+            auto result = sampling::sample(mod, kShots, kFuzzSeed);
             require_all_equal(meas_column(result, 1, 0), 0);
         }
     }
@@ -174,7 +175,7 @@ TEST_CASE("Fuzz: deterministic single-qubit noise", "[fuzz]") {
                 std::ostringstream body;
                 body << "X_ERROR(1.0) " << q << "\nM " << q;
                 auto mod = compile_text(n, body.str());
-                auto result = sample(mod, kShots, kFuzzSeed);
+                auto result = sampling::sample(mod, kShots, kFuzzSeed);
                 require_all_equal(meas_column(result, 1, 0), 1);
             }
 
@@ -183,7 +184,7 @@ TEST_CASE("Fuzz: deterministic single-qubit noise", "[fuzz]") {
                 std::ostringstream body;
                 body << "X_ERROR(0.0) " << q << "\nM " << q;
                 auto mod = compile_text(n, body.str());
-                auto result = sample(mod, kShots, kFuzzSeed);
+                auto result = sampling::sample(mod, kShots, kFuzzSeed);
                 require_all_equal(meas_column(result, 1, 0), 0);
             }
         }
@@ -203,7 +204,7 @@ TEST_CASE("Fuzz: classical feedback uncomputes random measurement", "[fuzz]") {
             std::ostringstream body;
             body << "H " << q << "\nM " << q << "\nCX rec[-1] " << q << "\nM " << q;
             auto mod = compile_text(n, body.str());
-            auto result = sample(mod, kShots, kFuzzSeed);
+            auto result = sampling::sample(mod, kShots, kFuzzSeed);
             // Second measurement is deterministically 0.
             require_all_equal(meas_column(result, 2, 1), 0);
         }
@@ -221,7 +222,7 @@ TEST_CASE("Fuzz: MPP X*X on |++> across word boundary", "[fuzz]") {
             std::ostringstream body;
             body << "H " << a << "\nH " << b << "\nMPP X" << a << "*X" << b;
             auto mod = compile_text(n, body.str());
-            auto result = sample(mod, kShots, kFuzzSeed);
+            auto result = sampling::sample(mod, kShots, kFuzzSeed);
             require_all_equal(meas_column(result, 1, 0), 0);
         }
     }
@@ -239,7 +240,7 @@ TEST_CASE("Fuzz: MPP Z*Z on Bell state across word boundary", "[fuzz]") {
             std::ostringstream body;
             body << "H " << a << "\nCX " << a << " " << b << "\nMPP Z" << a << "*Z" << b;
             auto mod = compile_text(n, body.str());
-            auto result = sample(mod, kShots, kFuzzSeed);
+            auto result = sampling::sample(mod, kShots, kFuzzSeed);
             require_all_equal(meas_column(result, 1, 0), 0);
         }
     }
@@ -255,7 +256,7 @@ TEST_CASE("Fuzz: EXP_VAL Z on |0> = +1", "[fuzz]") {
             std::ostringstream body;
             body << "EXP_VAL Z" << q;
             auto mod = compile_text(n, body.str());
-            auto result = sample(mod, kShots, kFuzzSeed);
+            auto result = sampling::sample(mod, kShots, kFuzzSeed);
             REQUIRE(result.exp_vals.size() == kShots);
             for (size_t i = 0; i < result.exp_vals.size(); ++i) {
                 CAPTURE(i);
@@ -272,7 +273,7 @@ TEST_CASE("Fuzz: EXP_VAL Z after X = -1", "[fuzz]") {
             std::ostringstream body;
             body << "X " << q << "\nEXP_VAL Z" << q;
             auto mod = compile_text(n, body.str());
-            auto result = sample(mod, kShots, kFuzzSeed);
+            auto result = sampling::sample(mod, kShots, kFuzzSeed);
             REQUIRE(result.exp_vals.size() == kShots);
             for (size_t i = 0; i < result.exp_vals.size(); ++i) {
                 CAPTURE(i);
@@ -289,7 +290,7 @@ TEST_CASE("Fuzz: EXP_VAL Z*Z on |11> across word boundary", "[fuzz]") {
             std::ostringstream body;
             body << "X " << a << "\nX " << b << "\nEXP_VAL Z" << a << "*Z" << b;
             auto mod = compile_text(n, body.str());
-            auto result = sample(mod, kShots, kFuzzSeed);
+            auto result = sampling::sample(mod, kShots, kFuzzSeed);
             REQUIRE(result.exp_vals.size() == kShots);
             for (size_t i = 0; i < result.exp_vals.size(); ++i) {
                 CAPTURE(i);
@@ -302,7 +303,7 @@ TEST_CASE("Fuzz: EXP_VAL Z*Z on |11> across word boundary", "[fuzz]") {
 // ---------------------------------------------------------------------------
 // Random-measurement coverage. H q; M q is 50/50; we just confirm both
 // branches appear over many shots, which exercises the active-measure
-// SVM path at every (n, q) combination.
+// executor path at every (n, q) combination.
 // ---------------------------------------------------------------------------
 TEST_CASE("Fuzz: H then M produces both 0 and 1 outcomes", "[fuzz]") {
     constexpr uint32_t kManyShots = 200;
@@ -312,7 +313,7 @@ TEST_CASE("Fuzz: H then M produces both 0 and 1 outcomes", "[fuzz]") {
             std::ostringstream body;
             body << "H " << q << "\nM " << q;
             auto mod = compile_text(n, body.str());
-            auto result = sample(mod, kManyShots, kFuzzSeed);
+            auto result = sampling::sample(mod, kManyShots, kFuzzSeed);
             auto bits = meas_column(result, 1, 0);
             uint32_t zeros = 0, ones = 0;
             for (auto b : bits) {

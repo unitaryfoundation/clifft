@@ -44,14 +44,4 @@ NonComputationalSample sample_noncomputational(const Circuit& circuit,
     return run_trajectory_driver(circuit, model, shots, make_seed_root(shots, seed), max_rank);
 }
 
-NonComputationalSample sample_noncomputational_experimental(const Circuit& circuit,
-                                                            const NonComputationalModel& model,
-                                                            uint32_t shots,
-                                                            std::optional<uint64_t> seed,
-                                                            std::optional<uint32_t> max_rank) {
-    validate_noncomputational_entry(circuit);
-    return run_sampling_trajectory_driver(circuit, model, shots, make_seed_root(shots, seed),
-                                          max_rank);
-}
-
 }  // namespace clifft

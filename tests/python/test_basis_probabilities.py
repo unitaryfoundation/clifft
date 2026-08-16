@@ -10,11 +10,6 @@ from conftest import random_dense_clifford_t_circuit
 from utils_qiskit import qiskit_statevector, stim_to_qiskit_noiseless
 
 import clifft
-from clifft import _legacy
-
-
-def _compile_legacy(stim_text: str) -> Any:
-    return _legacy.compile(stim_text)
 
 
 def test_program_num_qubits_property(basis_probabilities_api: Any) -> None:
@@ -229,13 +224,7 @@ def test_probabilities_match_dense_statevector_for_small_circuit(
     CX 2 0
     """
     prog = basis_probabilities_api.compile(circuit)
-    legacy_prog = _compile_legacy(circuit)
-
-    state = _legacy.State(
-        peak_rank=legacy_prog.peak_rank, num_measurements=legacy_prog.num_measurements
-    )
-    _legacy.execute(legacy_prog, state)
-    expected = np.abs(_legacy.get_statevector(legacy_prog, state)) ** 2
+    expected = np.abs(clifft.get_statevector(prog)) ** 2
     bitstrings = [format(i, f"0{prog.num_qubits}b")[::-1] for i in range(1 << prog.num_qubits)]
 
     np.testing.assert_allclose(
@@ -270,16 +259,10 @@ def test_probabilities_supports_active_rank_beyond_dense_statevector_limit(
 ) -> None:
     circuit = "\n".join(f"H {q}\nT {q}" for q in range(12))
     prog = basis_probabilities_api.compile(circuit)
-    legacy_prog = _compile_legacy(circuit)
-
     assert prog.num_qubits == 12
-    assert legacy_prog.peak_rank > 10
+    assert prog.peak_rank > 10
     with pytest.raises(RuntimeError, match="Statevector expansion limited"):
-        state = _legacy.State(
-            peak_rank=legacy_prog.peak_rank, num_measurements=legacy_prog.num_measurements
-        )
-        _legacy.execute(legacy_prog, state)
-        _legacy.get_statevector(legacy_prog, state)
+        clifft.get_statevector(prog)
 
     np.testing.assert_allclose(
         basis_probabilities_api.basis_probabilities(prog, ["0" * 12, "1" * 12]),
@@ -292,7 +275,7 @@ def test_probabilities_match_formula_for_continuous_z_rotation(
     basis_probabilities_api: Any,
 ) -> None:
     # H R_Z(alpha) H |0> -> cos(pi*alpha/2) |0> - i sin(pi*alpha/2) |1>.
-    # Exercises the OP_ARRAY_ROT / PHASE_ROTATION path the random Clifford+T
+    # Exercises continuous PHASE_ROTATION, which the random Clifford+T
     # circuits never touch.
     alpha = 0.123
     prog = basis_probabilities_api.compile(f"H 0\nR_Z({alpha}) 0\nH 0")
@@ -310,7 +293,7 @@ def test_probabilities_sum_to_one_at_high_active_rank(basis_probabilities_api: A
     # that the small-circuit statevector cross-check cannot.
     circuit = "\n".join(f"H {q}\nT {q}" for q in range(12))
     prog = basis_probabilities_api.compile(circuit)
-    assert _compile_legacy(circuit).peak_rank > 10
+    assert prog.peak_rank > 10
     n = prog.num_qubits
     bitstrings = [format(i, f"0{n}b") for i in range(1 << n)]
     np.testing.assert_allclose(
@@ -338,25 +321,15 @@ def test_probabilities_handles_empty_and_singleton_inputs(
 def test_probabilities_match_statevector_for_fused_unitaries(
     basis_probabilities_api: Any,
 ) -> None:
-    # Construct a circuit that triggers both single-axis (OP_ARRAY_U2) and
-    # tile (OP_ARRAY_U4) fusion so the supported-opcode listing for those
-    # paths is actually exercised end-to-end.
+    # Construct a circuit that creates repeated one- and two-axis rotation
+    # runs so executable fusion is exercised end-to-end.
     src = (
         "H 0\nT 0\nS 0\nH 0\nT 0\nS 0\nH 0\nT 0\nS 0\n"
         "H 1\nT 1\nS 1\nH 1\nT 1\nS 1\nH 1\nT 1\nS 1\n"
         "CX 0 1\nH 0\nT 0\nS 0"
     )
     prog = basis_probabilities_api.compile(src)
-    legacy_prog = _compile_legacy(src)
-    opcodes = {instr.opcode for instr in legacy_prog}
-    assert _legacy.Opcode.OP_ARRAY_U2 in opcodes, "test circuit no longer triggers U2 fusion"
-    assert _legacy.Opcode.OP_ARRAY_U4 in opcodes, "test circuit no longer triggers U4 fusion"
-
-    state = _legacy.State(
-        peak_rank=legacy_prog.peak_rank, num_measurements=legacy_prog.num_measurements
-    )
-    _legacy.execute(legacy_prog, state)
-    expected = np.abs(_legacy.get_statevector(legacy_prog, state)) ** 2
+    expected = np.abs(clifft.get_statevector(prog)) ** 2
     n = prog.num_qubits
     bitstrings = [format(i, f"0{n}b")[::-1] for i in range(1 << n)]
     np.testing.assert_allclose(
@@ -372,10 +345,8 @@ def _all_bitstrings(num_qubits: int) -> list[str]:
     return [format(i, f"0{num_qubits}b")[::-1] for i in range(1 << num_qubits)]
 
 
-def _statevector_probs(prog: Any) -> npt.NDArray[np.float64]:
-    state = _legacy.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
-    _legacy.execute(prog, state)
-    return cast(npt.NDArray[np.float64], np.abs(_legacy.get_statevector(prog, state)) ** 2)
+def _statevector_probs(prog: clifft.Program) -> npt.NDArray[np.float64]:
+    return cast(npt.NDArray[np.float64], np.abs(clifft.get_statevector(prog)) ** 2)
 
 
 def test_probabilities_pure_clifford_zero_active_rank(basis_probabilities_api: Any) -> None:
@@ -385,13 +356,12 @@ def test_probabilities_pure_clifford_zero_active_rank(basis_probabilities_api: A
     # pivot and the fast path engages.
     circuit = "H 0\nH 1\nH 2\nCX 0 1\nCX 1 2\nS 0"
     prog = basis_probabilities_api.compile(circuit)
-    legacy_prog = _compile_legacy(circuit)
-    assert legacy_prog.peak_rank == 0
+    assert prog.peak_rank == 0
 
     bitstrings = _all_bitstrings(prog.num_qubits)
     np.testing.assert_allclose(
         basis_probabilities_api.basis_probabilities(prog, bitstrings),
-        _statevector_probs(legacy_prog),
+        _statevector_probs(prog),
         atol=1e-12,
     )
 
@@ -416,12 +386,10 @@ def test_probabilities_full_rank_clifford_t_matches_statevector(
         lines.append(f"H {q}")
     circuit = "\n".join(lines)
     prog = basis_probabilities_api.compile(circuit)
-    legacy_prog = _compile_legacy(circuit)
-
     bitstrings = _all_bitstrings(n)
     np.testing.assert_allclose(
         basis_probabilities_api.basis_probabilities(prog, bitstrings),
-        _statevector_probs(legacy_prog),
+        _statevector_probs(prog),
         atol=1e-12,
     )
 
@@ -436,12 +404,11 @@ def test_probabilities_rank_deficient_fallback_matches_statevector(
     # If the fallback regresses we will see a mismatch here.
     circuit = "H 0\nT 0\nH 0\nH 2"
     prog = basis_probabilities_api.compile(circuit)
-    legacy_prog = _compile_legacy(circuit)
     assert prog.num_qubits == 3
     bitstrings = _all_bitstrings(3)
     np.testing.assert_allclose(
         basis_probabilities_api.basis_probabilities(prog, bitstrings),
-        _statevector_probs(legacy_prog),
+        _statevector_probs(prog),
         atol=1e-12,
     )
 
@@ -456,11 +423,10 @@ def test_probabilities_random_clifford_t_matches_statevector(
     # bug in either branch.
     circuit = random_dense_clifford_t_circuit(num_qubits=5, depth=20, seed=seed)
     prog = basis_probabilities_api.compile(circuit)
-    legacy_prog = _compile_legacy(circuit)
     bitstrings = _all_bitstrings(prog.num_qubits)
     np.testing.assert_allclose(
         basis_probabilities_api.basis_probabilities(prog, bitstrings),
-        _statevector_probs(legacy_prog),
+        _statevector_probs(prog),
         atol=1e-12,
     )
 

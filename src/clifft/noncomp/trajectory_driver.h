@@ -3,9 +3,9 @@
 // Trajectory driver for level transitions such as leak, loss, and decay.
 //
 // Each shot samples its initial levels, then runs transitions on computational
-// qubits as VM instruments. If the VM cannot finish a transition, it stops and
-// reports a trap. The driver records the outcome and compiles a circuit
-// rewritten for those events, and resumes after the trapped transition.
+// qubits as executor instruments. If the executor cannot finish a transition,
+// it stops and reports a trap. The driver records the outcome, compiles a
+// circuit rewritten for those events, and resumes after the trapped transition.
 // Transitions reached while a qubit is leaked or lost are drawn by the driver
 // before compilation. DampingPolicy::Neglect uses the same process but omits
 // source-dependent no-jump back-action.
@@ -26,12 +26,5 @@ NonComputationalSample run_trajectory_driver(const Circuit& circuit,
                                              const NonComputationalModel& model, uint32_t shots,
                                              const SeedRoot& root,
                                              std::optional<uint32_t> max_rank);
-
-// Experimental symbolic-coordinate executor route. The public default remains
-// run_trajectory_driver until feature parity and validation are complete.
-NonComputationalSample run_sampling_trajectory_driver(const Circuit& circuit,
-                                                      const NonComputationalModel& model,
-                                                      uint32_t shots, const SeedRoot& root,
-                                                      std::optional<uint32_t> max_rank);
 
 }  // namespace clifft

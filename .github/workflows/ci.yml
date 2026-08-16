@@ -314,7 +314,7 @@ jobs:
         include:
           - label: macOS
             os: macos-latest
-            install-deps: brew install ninja libomp
+            install-deps: brew install ninja
             skbuild-type: Debug
             skbuild-cmake-args: ""
           # MSVC Debug wheels make the Python suite several times slower than

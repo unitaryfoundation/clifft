@@ -5,7 +5,7 @@ qubits), built from first principles -- statevector unitaries, Born-rule
 Z measurement, partial trace, and the per-site exact transition channel
 (source-conditioned collapse plus the sqrt(1 - p) no-fire damping filter)
 -- and deliberately independent of clifft's sampler, rewriter, driver, and
-SVM. Combined with explicit classical probabilities for initial levels,
+executor. Combined with explicit classical probabilities for initial levels,
 transitions, and the classifier, it yields expected output distributions
 to compare against ``clifft.noncomp.sample`` within shot noise.
 

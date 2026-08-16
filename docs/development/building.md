@@ -10,8 +10,6 @@
     - macOS: Xcode Command Line Tools (Clang 14+) or `brew install llvm`
 - **Python** 3.12+
 - **uv** — `curl -LsSf https://astral.sh/uv/install.sh | sh`
-- **OpenMP runtime on macOS** (optional, enables multi-core state vector kernels)
-    - `brew install libomp`
 
 ## Python Package Build (Recommended)
 
@@ -32,19 +30,6 @@ uv run pytest tests/python/ -v
 ```
 
 The editable install (`-e .`) means you can re-run `uv pip install -e .` after modifying C++ code to rebuild.
-
-OpenMP support is optional. Linux source builds usually pick it up automatically with GCC or Clang. On macOS with Apple clang, install Homebrew `libomp` before building if you want multi-core state vector execution:
-
-```bash
-brew install libomp
-uv pip install -e .
-```
-
-If OpenMP is not detected automatically, point scikit-build-core at the Homebrew prefix:
-
-```bash
-SKBUILD_CMAKE_ARGS="-DOpenMP_ROOT=$(brew --prefix libomp)" uv pip install -e .
-```
 
 ### Platform and CPU support
 
@@ -87,21 +72,6 @@ collecting timing data:
 
 ```bash
 ctest --test-dir build -R Bench
-```
-
-OpenMP is optional for standalone C++ builds too. Linux toolchains usually find it automatically. On macOS with Apple clang, install Homebrew `libomp` first:
-
-```bash
-brew install libomp
-cmake -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j
-```
-
-If `find_package(OpenMP)` still does not resolve, set `OpenMP_ROOT` explicitly:
-
-```bash
-cmake -B build -DOpenMP_ROOT="$(brew --prefix libomp)"
-cmake --build build -j
 ```
 
 ### Build Types

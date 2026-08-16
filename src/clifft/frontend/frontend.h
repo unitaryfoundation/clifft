@@ -59,9 +59,9 @@ struct InstrumentTraceOptions {
 //   positions, mask = the rewound source projector Z_q); without it,
 //   annotations reject with a pointer to sample_noncomputational.
 //
-// Throws std::runtime_error if the circuit exceeds the 65536-qubit VM
-// axis ceiling (the only remaining hard upper bound; Pauli mask storage
-// is sized at runtime).
+// Throws std::runtime_error if the circuit exceeds the conservative
+// 65536-qubit safety ceiling. Pauli mask storage is otherwise sized at
+// runtime.
 [[nodiscard]] HirModule trace(const Circuit& circuit,
                               const InstrumentTraceOptions* instruments = nullptr);
 
