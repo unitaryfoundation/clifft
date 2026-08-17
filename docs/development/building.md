@@ -56,6 +56,24 @@ Override the default when needed:
 CLIFFT_CPU_BASELINE=generic uv pip install -e .
 ```
 
+### Runtime kernel dispatch
+
+On supported x86 GNU/Clang builds, the scalar, AVX2, and AVX-512 executor
+backends are compiled in separate translation units. The vector translation
+units use explicit ISA flags, while the rest of the library retains the
+configured CPU baseline. Executable preparation detects the host once and
+uses one backend consistently for the resulting program.
+
+The AVX2 backend requires AVX2, BMI2, and FMA. The AVX-512 backend additionally
+requires AVX-512F and AVX-512DQ. If those features are unavailable, or runtime
+dispatch is not compiled for the platform, Clifft uses its portable scalar
+implementation.
+
+`CLIFFT_FORCE_ISA=scalar`, `avx2`, or `avx512` can force an available backend
+in a runtime-dispatch build. This is a diagnostic and testing control, not a
+portable deployment setting; requesting features that the host lacks is an
+error.
+
 ## Standalone C++ Build
 
 For pure C++ development without Python:
@@ -90,9 +108,10 @@ For optimized source builds, `Release` and `RelWithDebInfo` default to native CP
 
 ## Circuit size
 
-Clifft sizes Pauli masks and symbolic-frame storage from the input circuit at
-runtime. Practical limits therefore depend on compilation memory, active
-width, and output volume rather than a fixed backend-axis limit.
+Clifft sizes Pauli masks and coordinate-planning storage from the input circuit at
+runtime. The front end has a conservative 65,536-qubit safety ceiling, but
+below it practical limits depend on compilation memory, active width, and
+output volume rather than a fixed-width Pauli representation.
 
 ## WebAssembly Build
 

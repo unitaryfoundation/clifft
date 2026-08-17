@@ -70,9 +70,9 @@ circuit = clifft.parse_file("my_circuit.stim")
 
 ### 2. Trace Clifford Operations
 
-`clifft.trace()` absorbs Clifford operations into a symbolic frame and emits
+`clifft.trace()` absorbs Clifford operations into an offline tableau and emits
 the explicit non-Clifford operations, measurements, noise, and classical
-outputs as a `HirModule`:
+outputs in the Heisenberg frame as a `HirModule`:
 
 ```python
 import clifft
@@ -109,10 +109,21 @@ type returned by `clifft.compile()`:
 program = clifft.lower(hir)
 ```
 
-Lowering selects active coordinates and converts symbolic expressions,
-measurements, rotations, and classical outputs into fixed storage consumed by
-the sampler. Runtime kernels therefore do not perform tableau evolution or
-discover dependencies.
+Internally, lowering has two boundaries. Coordinate planning first produces a
+semantic `SamplingPlan`: it selects active coordinates and records expressions,
+measurements, rotations, width transitions, and outputs without choosing a CPU
+instruction set or target-specific data layout. Executable preparation then
+converts that plan into the immutable descriptors and dependency tables used
+by the host executor. It also chooses any supported fusion and scalar or SIMD
+kernels.
+
+The private `SamplingPlan` is useful for separating compiler decisions from
+target preparation; the public result of both steps remains one reusable
+`Program`. Runtime kernels therefore do not perform tableau evolution, choose
+coordinates, localize Paulis, or discover dependencies.
+
+See [Software Architecture](../theory/architecture.md) for the contracts
+between HIR, semantic planning, executable preparation, and shot execution.
 
 ## Full Custom Pipeline
 
