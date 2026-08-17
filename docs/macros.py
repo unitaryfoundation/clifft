@@ -47,6 +47,36 @@ def define_env(env: Any) -> None:
     env.variables["hir_categories"] = [c for c in hir_categories_order if hir_by_category.get(c)]
     env.variables["hir_by_category"] = hir_by_category
 
+    # -- Sampling plan actions --
+    plan_actions = data.get("plan_actions", {})
+    plan_categories_order = [
+        "Rotation",
+        "Measurement",
+        "Classical",
+        "Output",
+        "Instrument",
+    ]
+    plan_by_category: dict[str, list[dict[str, object]]] = {}
+    for cat in plan_categories_order:
+        plan_by_category[cat] = []
+    for name, info in plan_actions.items():
+        cat = info.get("category", "")
+        entry = {"name": name, **info}
+        if cat not in plan_by_category:
+            plan_by_category[cat] = []
+        plan_by_category[cat].append(entry)
+
+    unknown_plan_categories = sorted(set(plan_by_category) - set(plan_categories_order))
+    if unknown_plan_categories:
+        raise ValueError(
+            "docs/opcodes.json contains sampling-plan categories missing from docs/macros.py: "
+            + ", ".join(unknown_plan_categories)
+        )
+
+    env.variables["plan_actions"] = plan_actions
+    env.variables["plan_categories"] = [c for c in plan_categories_order if plan_by_category.get(c)]
+    env.variables["plan_by_category"] = plan_by_category
+
     # -- Optimization passes --
     # Hardcoded from pass_registry.h (single source of truth in C++).
     # When a new pass is added in C++, add it here too.
