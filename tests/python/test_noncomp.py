@@ -1,10 +1,8 @@
 """Python-facing tests for noncomputational leakage and loss.
 
 Covers model construction, end-to-end sampling, classifier/record semantics,
-and record-layout invariants. Backend-applicable sampling cases run through both
-the stable SVM route and the experimental symbolic-coordinate route. The model
-uses the built-in five-level set; matrices use the fixed clifft.noncomp.Level
-order.
+and record-layout invariants. The model uses the built-in five-level set;
+matrices use the fixed clifft.noncomp.Level order.
 """
 
 from __future__ import annotations

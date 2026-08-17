@@ -15,10 +15,6 @@ symbolic-coordinate plan using preallocated storage.
 | `src/clifft/noncomp/` | Leakage/loss trajectory planning and continuation handling |
 | `src/python/` | Python API via nanobind |
 
-The older localized SVM implementation remains internal while migration
-tests compare it with the production path. It is not part of the public
-Python compilation API.
-
 ## Compilation
 
 The front end uses Stim's tableau implementation to absorb Clifford gates and

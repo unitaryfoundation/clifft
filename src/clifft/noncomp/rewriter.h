@@ -1,7 +1,7 @@
 #pragma once
 
 // Rewrites a hook-expanded circuit for one shot so it can use Clifft's
-// existing compiler and VM. User-facing behavior is documented in
+// compiler and executor. User-facing behavior is documented in
 // docs/theory/noncomputational.md.
 //
 // The rewrite preserves the visible measurement record while applying the
@@ -19,7 +19,7 @@
 //   transition on a leaked or lost qubit is removed after applying the
 //   driver's pre-drawn outcome.
 //
-// The rewriter does not sample, compile, or run the VM.
+// The rewriter does not sample, compile, or run the executor.
 
 #include "clifft/circuit/circuit.h"
 #include "clifft/noncomp/model.h"

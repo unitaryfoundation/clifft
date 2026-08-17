@@ -1,266 +1,64 @@
-"""Tests for _legacy.compile() with optional hir_passes and bytecode_passes.
-
-Verifies that the pass manager arguments are wired correctly through
-the compile convenience function, producing the same results as the
-explicit step-by-step pipeline.
-"""
+"""Tests for compile() with configurable HIR optimization passes."""
 
 import numpy as np
 import pytest
 from conftest import random_dense_clifford_t_circuit
 
 import clifft
-from clifft import _legacy
-
-# ---------------------------------------------------------------------------
-# Default behavior: omitting pass managers runs the default optimizers
-# ---------------------------------------------------------------------------
 
 
-def test_compile_default_runs_default_optimizers() -> None:
-    """compile(text) with no kwargs equals the full default-optimized pipeline."""
+def test_compile_default_matches_explicit_pipeline() -> None:
     text = "H 0\nT 0\nCNOT 0 1\nM 0 1"
+    compiled = clifft.compile(text)
 
-    prog_convenience = _legacy.compile(text)
-
-    circuit = clifft.parse(text)
-    hir = clifft.trace(circuit)
+    hir = clifft.trace(clifft.parse(text))
     clifft.default_hir_pass_manager().run(hir)
-    prog_manual = _legacy.lower(hir)
-    _legacy.default_bytecode_pass_manager().run(prog_manual)
+    manual = clifft.lower(hir)
 
-    assert prog_convenience.num_instructions == prog_manual.num_instructions
-    assert prog_convenience.peak_rank == prog_manual.peak_rank
-
-
-def test_legacy_compile_accepts_package_default_sentinel() -> None:
-    """The private oracle shares the public wrapper's default marker."""
-    expected = _legacy.compile("H 0\nT 0\nM 0")
-    actual = _legacy.compile(
-        "H 0\nT 0\nM 0",
-        hir_passes=clifft._DEFAULT_PASSES,
-        bytecode_passes=clifft._DEFAULT_PASSES,
-    )
-    assert actual.num_instructions == expected.num_instructions
-    assert actual.peak_rank == expected.peak_rank
+    assert compiled.num_actions == manual.num_actions
+    assert compiled.peak_rank == manual.peak_rank
 
 
 def test_compile_explicit_none_skips_optimization() -> None:
-    """Passing None explicitly disables the corresponding optimization stage."""
     text = "H 0\nT 0\nCNOT 0 1\nM 0 1"
+    compiled = clifft.compile(text, hir_passes=None)
+    manual = clifft.lower(clifft.trace(clifft.parse(text)))
 
-    prog_off = _legacy.compile(text, hir_passes=None, bytecode_passes=None)
-
-    circuit = clifft.parse(text)
-    hir = clifft.trace(circuit)
-    prog_manual = _legacy.lower(hir)
-
-    assert prog_off.num_instructions == prog_manual.num_instructions
-    assert prog_off.peak_rank == prog_manual.peak_rank
-
-
-# ---------------------------------------------------------------------------
-# Full pipeline: compile() with both pass managers matches manual pipeline
-# ---------------------------------------------------------------------------
-
-
-def test_compile_both_passes_matches_manual() -> None:
-    """compile() with both pass managers matches the full manual pipeline."""
-    text = "H 0\nT 0\nCNOT 0 1\nT 1\nM 0 1"
-
-    prog = _legacy.compile(
-        text,
-        hir_passes=clifft.default_hir_pass_manager(),
-        bytecode_passes=_legacy.default_bytecode_pass_manager(),
-    )
-
-    # Manual pipeline
-    circuit = clifft.parse(text)
-    hir = clifft.trace(circuit)
-    pm = clifft.default_hir_pass_manager()
-    pm.run(hir)
-    prog_manual = _legacy.lower(hir)
-    bpm = _legacy.default_bytecode_pass_manager()
-    bpm.run(prog_manual)
-
-    assert prog.num_instructions == prog_manual.num_instructions
-    assert prog.peak_rank == prog_manual.peak_rank
-
-
-# ---------------------------------------------------------------------------
-# HIR-only optimization
-# ---------------------------------------------------------------------------
-
-
-def test_compile_hir_only_matches_manual() -> None:
-    """compile() with only hir_passes matches manual trace + optimize + lower."""
-    text = "H 0\nT 0\nT_DAG 0\nM 0"  # T/T_DAG cancel
-
-    prog = _legacy.compile(text, hir_passes=clifft.default_hir_pass_manager(), bytecode_passes=None)
-
-    circuit = clifft.parse(text)
-    hir = clifft.trace(circuit)
-    pm = clifft.default_hir_pass_manager()
-    pm.run(hir)
-    prog_manual = _legacy.lower(hir)
-
-    assert prog.num_instructions == prog_manual.num_instructions
-    assert prog.peak_rank == prog_manual.peak_rank
+    assert compiled.num_actions == manual.num_actions
+    assert compiled.peak_rank == manual.peak_rank
 
 
 def test_hir_passes_reduce_t_cancellation() -> None:
-    """Peephole fusion cancels T/T_DAG, reducing peak rank."""
     text = "H 0\nT 0\nT_DAG 0\nM 0"
-
-    prog_no_opt = _legacy.compile(text, hir_passes=None, bytecode_passes=None)
-    prog_opt = _legacy.compile(text, hir_passes=clifft.default_hir_pass_manager())
-
-    # Without optimization, T and T_DAG both expand the array.
-    # With peephole, they cancel and peak_rank should be lower.
-    assert prog_opt.peak_rank <= prog_no_opt.peak_rank
-
-
-# ---------------------------------------------------------------------------
-# Bytecode-only optimization
-# ---------------------------------------------------------------------------
-
-
-def test_compile_bytecode_only_matches_manual() -> None:
-    """compile() with only bytecode_passes matches manual lower + optimize."""
-    text = "H 0\nT 0\nCNOT 0 1\nM 0 1"
-
-    prog = _legacy.compile(
-        text, hir_passes=None, bytecode_passes=_legacy.default_bytecode_pass_manager()
-    )
-
-    circuit = clifft.parse(text)
-    hir = clifft.trace(circuit)
-    prog_manual = _legacy.lower(hir)
-    bpm = _legacy.default_bytecode_pass_manager()
-    bpm.run(prog_manual)
-
-    assert prog.num_instructions == prog_manual.num_instructions
-    assert prog.peak_rank == prog_manual.peak_rank
-
-
-def test_bytecode_passes_fuse_instructions() -> None:
-    """Bytecode passes should fuse ops, reducing instruction count."""
-    text = "H 0\nT 0\nCNOT 0 1\nM 0 1"
-
-    prog_no_opt = _legacy.compile(text, hir_passes=None, bytecode_passes=None)
-    prog_opt = _legacy.compile(
-        text, hir_passes=None, bytecode_passes=_legacy.default_bytecode_pass_manager()
-    )
-
-    # Fused instructions should not increase instruction count
-    assert prog_opt.num_instructions <= prog_no_opt.num_instructions
-
-
-# ---------------------------------------------------------------------------
-# Postselection combined with pass managers
-# ---------------------------------------------------------------------------
+    unoptimized = clifft.compile(text, hir_passes=None)
+    optimized = clifft.compile(text)
+    assert optimized.peak_rank <= unoptimized.peak_rank
 
 
 def test_compile_postselection_with_passes() -> None:
-    """Postselection mask works together with pass managers."""
-    text = "H 0\nM 0\nDETECTOR rec[-1]"
-
-    prog = _legacy.compile(
-        text,
+    program = clifft.compile(
+        "H 0\nM 0\nDETECTOR rec[-1]",
         postselection_mask=[1],
         hir_passes=clifft.default_hir_pass_manager(),
-        bytecode_passes=_legacy.default_bytecode_pass_manager(),
     )
-
-    assert prog.num_detectors == 1
-    # Should have an OP_POSTSELECT in the bytecode
-    opcodes = [prog[i].opcode for i in range(prog.num_instructions)]
-    assert _legacy.Opcode.OP_POSTSELECT in opcodes
-
-
-def test_postselection_without_passes_unchanged() -> None:
-    """Adding passes does not break postselection semantics."""
-    text = "H 0\nM 0\nDETECTOR rec[-1]"
-    mask = [1]
-
-    prog_base = _legacy.compile(
-        text, postselection_mask=mask, hir_passes=None, bytecode_passes=None
-    )
-    prog_opt = _legacy.compile(text, postselection_mask=mask)
-
-    assert prog_base.num_detectors == prog_opt.num_detectors
-    assert prog_base.num_measurements == prog_opt.num_measurements
-
-
-# ---------------------------------------------------------------------------
-# Statevector correctness: optimized compile matches unoptimized
-# ---------------------------------------------------------------------------
+    assert program.num_detectors == 1
+    assert program.has_postselection
 
 
 @pytest.mark.parametrize(
     "num_qubits,depth,seed",
-    [
-        (3, 50, 5000),
-        (4, 80, 5001),
-        (5, 100, 5002),
-        (5, 150, 5003),
-        (6, 100, 5004),
-    ],
+    [(3, 50, 5000), (4, 80, 5001), (5, 100, 5002), (6, 100, 5004)],
 )
 def test_statevector_equiv_with_passes(num_qubits: int, depth: int, seed: int) -> None:
-    """Statevectors from optimized compile must match unoptimized up to global phase.
-
-    Uses measurement-free circuits so the statevector is deterministic
-    and we can compare fidelity directly.
-    """
-    stim_text = random_dense_clifford_t_circuit(num_qubits, depth, seed)
-
-    prog_base = _legacy.compile(stim_text, hir_passes=None, bytecode_passes=None)
-    prog_opt = _legacy.compile(stim_text)
-
-    state_base = _legacy.State(
-        peak_rank=prog_base.peak_rank, num_measurements=prog_base.num_measurements
-    )
-    state_opt = _legacy.State(
-        peak_rank=prog_opt.peak_rank, num_measurements=prog_opt.num_measurements
-    )
-
-    _legacy.execute(prog_base, state_base)
-    _legacy.execute(prog_opt, state_opt)
-
-    sv_base = _legacy.get_statevector(prog_base, state_base)
-    sv_opt = _legacy.get_statevector(prog_opt, state_opt)
-
-    fidelity = float(np.abs(np.vdot(sv_base, sv_opt)) ** 2)
-    assert (
-        fidelity > 0.999999
-    ), f"Fidelity {fidelity:.9f} for {num_qubits}q depth={depth} seed={seed}"
-
-
-# ---------------------------------------------------------------------------
-# Custom pass manager: user can pick specific passes
-# ---------------------------------------------------------------------------
+    text = random_dense_clifford_t_circuit(num_qubits, depth, seed)
+    baseline = clifft.get_statevector(clifft.compile(text, hir_passes=None))
+    optimized = clifft.get_statevector(clifft.compile(text))
+    fidelity = float(np.abs(np.vdot(baseline, optimized)) ** 2)
+    assert fidelity > 0.999999
 
 
 def test_custom_pass_manager_via_compile() -> None:
-    """A manually-built HirPassManager works when passed to compile()."""
-    text = "H 0\nT 0\nT_DAG 0\nM 0"
-
-    pm = clifft.HirPassManager()
-    pm.add(clifft.PeepholeFusionPass())
-
-    prog = _legacy.compile(text, hir_passes=pm)
-    assert prog.peak_rank == 0  # T/T_DAG cancelled, no active dims
-
-
-def test_custom_bytecode_pass_manager_via_compile() -> None:
-    """A manually-built BytecodePassManager works when passed to compile()."""
-    text = "H 0\nT 0\nCNOT 0 1\nM 0 1"
-
-    bpm = _legacy.BytecodePassManager()
-    bpm.add(_legacy.ExpandTPass())
-
-    prog = _legacy.compile(text, hir_passes=None, bytecode_passes=bpm)
-    # Should have fused expand+T into OP_EXPAND_T
-    opcodes = [prog[i].opcode for i in range(prog.num_instructions)]
-    assert _legacy.Opcode.OP_EXPAND_T in opcodes or _legacy.Opcode.OP_EXPAND_T_DAG in opcodes
+    manager = clifft.HirPassManager()
+    manager.add(clifft.PeepholeFusionPass())
+    program = clifft.compile("H 0\nT 0\nT_DAG 0\nM 0", hir_passes=manager)
+    assert program.peak_rank == 0

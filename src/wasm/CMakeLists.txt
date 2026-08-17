@@ -27,23 +27,13 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/FetchNlohmannJson.cmake)
 add_library(clifft_core STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/circuit/parser.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/frontend/frontend.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/bytecode_pass.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/expand_t_pass.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/multi_gate_pass.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/noise_block_pass.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/hir_pass_manager.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/drop_non_unitary_pass.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/commutation.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/peephole.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/pass_factory.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/remove_noise_pass.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/swap_meas_pass.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/tile_axis_fusion_pass.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/single_axis_fusion_pass.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/statevector_squeeze_pass.cc
-    # The combined pass registry still owns legacy bytecode-pass factories.
-    # The playground exposes only HIR passes and does not execute this lowerer.
-    ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/backend/backend.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/sampling/plan.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/sampling/planner.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/sampling/planner_frame.cc

@@ -53,7 +53,7 @@ NonComputationalModel make_driver_model(const ModelSpec& spec) {
     std::map<std::string, RawProbabilityMatrix> transitions{{"leak", leak}};
     if (spec.flip_g_to_e > 0.0) {
         // A purely computational g -> e transition: its fires resolve
-        // in-line inside the VM and never trap.
+        // in-line inside the executor and never trap.
         auto flip = zero_transition_matrix();
         flip[level_index(Level::E)][level_index(Level::G)] = spec.flip_g_to_e;
         transitions.emplace("flip", std::move(flip));
@@ -194,7 +194,7 @@ TEST_CASE("trajectory: seepage after a trap recaptures through a classical consu
 }
 
 TEST_CASE("trajectory: an in-line computational fire is never reported as a known level") {
-    // From g, the flip site fires g -> e inside the VM on ~half the
+    // From g, the flip site fires g -> e inside the executor on ~half the
     // shots; the driver never learns which shots fired, so the sidecar
     // must not claim a known level for either population. The
     // measurement mixture verifies that the fire really happens.
@@ -214,7 +214,7 @@ TEST_CASE("trajectory: an in-line computational fire is never reported as a know
 }
 
 TEST_CASE("trajectory: a later trap composes with an earlier in-line fire") {
-    // The flip site fires g -> e inside the VM; the leak site then fires
+    // The flip site fires g -> e inside the executor; the leak site then fires
     // only from e (p = 1), so exactly the flipped shots trap. Per shot, a
     // leaked status must coincide with a classified 1 and a computational
     // status with a quantum 0: the trap resolves against the state's true
@@ -308,7 +308,7 @@ TEST_CASE("trajectory: a cross-domain word alias does not expand to a full-state
     }
 }
 
-TEST_CASE("trajectory: max_rank rejects an over-budget compile naming the line") {
+TEST_CASE("trajectory: max_rank rejects an over-budget compile") {
     // Each dormant-random site under exact damping adds one to k: three H-prefixed
     // sites push the peak to 3, over a cap of 2.
     ModelSpec spec;
@@ -321,7 +321,8 @@ TEST_CASE("trajectory: max_rank rejects an over-budget compile naming the line")
 
     REQUIRE_THROWS_WITH(
         sample_noncomputational(circuit, model, 5, 1, /*max_rank=*/2),
-        ContainsSubstring("exceeds max_rank 2") && ContainsSubstring("circuit line"));
+        ContainsSubstring("exceeds max_rank 2 (first exceeded at circuit line 6); consider "
+                          "damping=\"neglect\" for high-rate sites or a larger max_rank"));
 }
 
 TEST_CASE("trajectory: a trap-form fire keeps the fire-side correlation") {
@@ -1322,7 +1323,7 @@ TEST_CASE(
     // Both circuits lose qubit 0 with certainty and classify its record
     // slot from the same lost column, so they compile to the same module
     // -- unless MRX's X-basis reset half were emitted on the vacated
-    // carrier, whose hidden MX would spend an SVM draw and shift every
+    // carrier, whose hidden MX would spend an executor draw and shift every
     // later outcome on qubit 1's stream.
     const uint64_t seed = 61;
     const RawProbabilityMatrix classifier = {{1.0, 0.0, 1.0, 0.0, 0.0}, {0.0, 1.0, 0.0, 1.0, 1.0}};
@@ -1629,7 +1630,7 @@ TEST_CASE("trajectory: a circuit with EXP_VAL probes rejects") {
 TEST_CASE("trajectory: a measure-and-reset on a leaked qubit injects and restores") {
     // MR on the leaked qubit records the classifier bit AND resets the site to
     // |0>; the following M then deterministically reads 0 -- proving the reset
-    // actually ran in the SVM, not just in the trajectory bookkeeping.
+    // actually ran in the executor, not just in the trajectory bookkeeping.
     Circuit c = parse("H 0\nS 0\nMR 0\nM 0\n");
     std::map<std::string, RawProbabilityMatrix> transitions;
     transitions.emplace("S", certain_transition_from_computational(Level::LeakG));
@@ -1685,7 +1686,7 @@ TEST_CASE("trajectory: a leaked measurement feeds the observable the classifier 
 TEST_CASE("trajectory: a jump to the ground level forces the measurement to 0") {
     // The S transition collapses the H-prepared |+> to the g level; without
     // the materializing collapse the M would read 1 on ~half the shots. The
-    // fire resolves entirely inside the VM; the sidecar reports the bare
+    // fire resolves entirely inside the executor; the sidecar reports the bare
     // computational kind, never a level claim.
     Circuit c = parse("H 0\nS 0\nM 0\n");
     std::map<std::string, RawProbabilityMatrix> transitions;

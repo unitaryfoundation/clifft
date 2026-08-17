@@ -4,8 +4,6 @@
 
 #include "clifft/sampling/executor.h"
 #include "clifft/sampling/state_queries.h"
-#include "clifft/svm/svm.h"
-#include "clifft/svm/svm_math.h"
 #include "clifft/util/mask_view.h"
 
 #include <algorithm>
@@ -407,77 +405,6 @@ std::complex<double> BoundStabilizerAmplitudeQuery::amplitude(MaskView basis,
     return structure;
 }
 
-[[nodiscard]] bool is_unsupported_probability_opcode(Opcode opcode) {
-    switch (opcode) {
-        case Opcode::OP_FRAME_CNOT:
-        case Opcode::OP_FRAME_CZ:
-        case Opcode::OP_FRAME_H:
-        case Opcode::OP_FRAME_S:
-        case Opcode::OP_FRAME_S_DAG:
-        case Opcode::OP_FRAME_SWAP:
-        case Opcode::OP_ARRAY_CNOT:
-        case Opcode::OP_ARRAY_CZ:
-        case Opcode::OP_ARRAY_SWAP:
-        case Opcode::OP_ARRAY_MULTI_CNOT:
-        case Opcode::OP_ARRAY_MULTI_CZ:
-        case Opcode::OP_ARRAY_H:
-        case Opcode::OP_ARRAY_S:
-        case Opcode::OP_ARRAY_S_DAG:
-        case Opcode::OP_ARRAY_T:
-        case Opcode::OP_ARRAY_T_DAG:
-        case Opcode::OP_ARRAY_ROT:
-        case Opcode::OP_ARRAY_U2:
-        case Opcode::OP_ARRAY_U4:
-        case Opcode::OP_EXPAND:
-        case Opcode::OP_EXPAND_T:
-        case Opcode::OP_EXPAND_T_DAG:
-        case Opcode::OP_EXPAND_ROT:
-        case Opcode::OP_EXP_VAL:
-            return false;
-
-        case Opcode::OP_MEAS_DORMANT_STATIC:
-        case Opcode::OP_MEAS_DORMANT_RANDOM:
-        case Opcode::OP_MEAS_ACTIVE_DIAGONAL:
-        case Opcode::OP_MEAS_ACTIVE_INTERFERE:
-        case Opcode::OP_SWAP_MEAS_INTERFERE:
-        case Opcode::OP_MEAS_DORMANT_STATIC_FORCED:
-        case Opcode::OP_MEAS_DORMANT_RANDOM_FORCED:
-        case Opcode::OP_MEAS_ACTIVE_DIAGONAL_FORCED:
-        case Opcode::OP_MEAS_ACTIVE_INTERFERE_FORCED:
-        case Opcode::OP_SWAP_MEAS_INTERFERE_FORCED:
-        case Opcode::OP_INSTRUMENT_ACTIVE:
-        case Opcode::OP_INSTRUMENT_DORMANT_STATIC:
-        case Opcode::OP_INSTRUMENT_EXPAND:
-        case Opcode::OP_INSTRUMENT_DORMANT_NEGLECT:
-        case Opcode::OP_APPLY_PAULI:
-        case Opcode::OP_NOISE:
-        case Opcode::OP_NOISE_BLOCK:
-        case Opcode::OP_READOUT_NOISE:
-        case Opcode::OP_DETECTOR:
-        case Opcode::OP_POSTSELECT:
-        case Opcode::OP_OBSERVABLE:
-        case Opcode::NUM_OPCODES:
-            return true;
-    }
-    throw std::invalid_argument("basis_probabilities() encountered an unknown bytecode opcode");
-}
-
-void assert_probability_program_is_supported(const CompiledModule& program) {
-    // Keep this bytecode-level list conceptually aligned with DropNonUnitaryPass,
-    // which performs the analogous filtering on HIR OpType values.
-    for (const auto& instr : program.bytecode) {
-        if (is_unsupported_probability_opcode(instr.opcode)) {
-            throw std::invalid_argument(
-                "basis_probabilities() requires pure-state evolution: measurements, feedback, "
-                "noise, readout noise, transition instruments, detectors, postselection, and "
-                "observables are not supported. "
-                "EXP_VAL probes are allowed but their outputs are ignored. Use "
-                "DropNonUnitaryPass only if you intentionally want to query the unitary "
-                "skeleton of a mixed circuit.");
-        }
-    }
-}
-
 template <typename CoefficientAt>
 std::vector<double> basis_probabilities_from_factored_state(
     uint32_t n, uint32_t active_width, uint64_t active_size,
@@ -506,7 +433,7 @@ std::vector<double> basis_probabilities_from_factored_state(
     auto residual = mutable_basis_mask_view(residual_storage);
     auto current = mutable_basis_mask_view(current_storage);
 
-    // Active bits live in [0, active_k). validate_peak_rank() caps active_k
+    // Active bits live in [0, active_width). Plan validation caps active_width
     // below 60, so the mask fits in one word and the shift never reaches 64.
     const uint64_t active_mask =
         active_width == 0 ? uint64_t{0} : (uint64_t{1} << active_width) - uint64_t{1};
@@ -628,38 +555,6 @@ std::vector<double> basis_probabilities_from_factored_state(
 }
 
 }  // namespace
-
-std::vector<double> basis_probabilities(const CompiledModule& program,
-                                        std::span<const uint64_t> basis_masks,
-                                        size_t num_basis_masks, size_t words_per_basis_mask) {
-    assert_probability_program_is_supported(program);
-    if (!program.constant_pool.final_tableau.has_value()) {
-        throw std::invalid_argument(
-            "basis_probabilities() requires final Clifford tableau metadata; compile programs "
-            "through clifft.compile() or preserve ConstantPool::final_tableau.");
-    }
-    assert_arena_widths_match(program.num_qubits, program.constant_pool);
-
-    SchrodingerState state({.peak_rank = program.peak_rank,
-                            .num_measurements = program.total_meas_slots,
-                            .num_qubits = program.num_qubits,
-                            .num_detectors = program.num_detectors,
-                            .num_observables = program.num_observables,
-                            .num_exp_vals = program.num_exp_vals,
-                            .seed = uint64_t{0}});
-    execute(program, state);
-
-    const auto state_px = MaskView{std::span<const uint64_t>(state.p_x)};
-    // validate_peak_rank() caps active_k below 60, so active bits fit in word
-    // zero and this shift never reaches 64.
-    const uint64_t active_z_mask =
-        state.active_k == 0 ? 0 : (state.p_z[0] & ((uint64_t{1} << state.active_k) - uint64_t{1}));
-    return basis_probabilities_from_factored_state(
-        program.num_qubits, state.active_k, state.v_size(), *program.constant_pool.final_tableau,
-        state.gamma() * program.constant_pool.global_weight, state_px, active_z_mask,
-        [&](uint64_t active_index) { return state.v()[active_index]; }, basis_masks,
-        num_basis_masks, words_per_basis_mask);
-}
 
 namespace sampling {
 

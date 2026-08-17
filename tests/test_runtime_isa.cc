@@ -1,4 +1,3 @@
-#include "clifft/svm/svm.h"
 #include "clifft/util/runtime_isa.h"
 
 #include <catch2/catch_test_macros.hpp>
@@ -18,10 +17,6 @@ TEST_CASE("Runtime ISA names are stable") {
     REQUIRE(std::string_view(runtime_isa_name(RuntimeIsa::TrapAvx2)) == "trap:avx2");
     REQUIRE(std::string_view(runtime_isa_name(RuntimeIsa::TrapAvx512)) == "trap:avx512");
     REQUIRE(std::string_view(runtime_isa_name(RuntimeIsa::TrapUnknown)) == "trap:unknown");
-}
-
-TEST_CASE("Runtime ISA selection is shared with SVM introspection") {
-    REQUIRE(std::string_view(clifft::svm_backend()) == runtime_isa_name(runtime_isa()));
 }
 
 TEST_CASE("Runtime ISA validates executable selections") {

@@ -1,8 +1,8 @@
 """Performance benchmarks for large-statevector circuits.
 
 Uses a pre-generated 20-qubit Quantum Volume circuit (peak rank 20,
-16 MB statevector) to measure per-shot throughput when the SVM array
-operations dominate execution time.
+16 MB statevector) to measure per-shot throughput when dense active-state
+kernels dominate execution time.
 
 Run with: just bench
 """
@@ -36,7 +36,7 @@ def test_compile_qv20(benchmark: Any) -> None:
 def test_sample_qv20_1shot(benchmark: Any, clifft_program: clifft.Program) -> None:
     """Measure Clifft single-shot execution time for QV-20.
 
-    Single-shot timing isolates per-shot SVM array cost without
+    Single-shot timing isolates per-shot active-state cost without
     amortizing compilation or state allocation across many shots.
     """
 

@@ -3,7 +3,7 @@
 The enumerator (``utils_noncomp_enumerator``) computes the exact joint
 distribution of the visible record from first principles; the tests here
 first self-check it against hand-derived closed forms, then compare
-both trajectory executors to it on a distance-3 repetition-code round
+the production trajectory sampler to it on a distance-3 repetition-code round
 at cold-atom-magnitude rates, by total variation distance with a
 shot-noise band calibrated from the reference distribution itself.
 """
@@ -19,16 +19,14 @@ import utils_noncomp_enumerator as en
 from conftest import binomial_tolerance, noncomp_transition_matrix
 
 import clifft
-from clifft import _legacy, noncomp
+from clifft import noncomp
 
 Level = noncomp.Level
 
 
-@pytest.fixture(
-    params=[clifft.noncomp.sample, _legacy.sample_noncomputational], ids=["symbolic", "legacy"]
-)
+@pytest.fixture(params=[clifft.noncomp.sample], ids=["symbolic"])
 def noncomp_sampling_api(request: pytest.FixtureRequest) -> Any:
-    """Compare both trajectory executors with the exact enumerator."""
+    """Compare the production trajectory sampler with the exact enumerator."""
     return request.param
 
 

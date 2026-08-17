@@ -20,18 +20,13 @@ architecture cannot support it:
 
 ## Architectural Invariants
 
-- **Legacy SVM instruction ABI:** The legacy VM `Instruction` must remain
-  exactly 32 bytes (`static_assert(sizeof(Instruction) == 32)`). New executors
-  must use separate instruction or plan types rather than expanding it.
 - **Stim is immutable:** Fetch Stim through CMake `FetchContent`. Do not fork,
   vendor, or patch Stim source.
-- **Allocation-free hot execution:** The legacy `SchrodingerState` coefficient
-  array is allocated once at construction from `peak_rank`. New executors must
-  likewise preallocate coefficient, record, symbolic-state, and scratch storage
-  before entering hot dispatch or kernels. The sanctioned exception is an
-  explicit trap or continuation boundary, where storage may grow but never
-  shrink before dispatch resumes. No allocation is allowed inside an ordinary
-  dispatch loop or kernel.
+- **Allocation-free hot execution:** Executors must preallocate coefficient,
+  record, symbolic-state, and scratch storage before entering hot dispatch or
+  kernels. The sanctioned exception is an explicit trap or continuation
+  boundary, where storage may grow but never shrink before dispatch resumes.
+  No allocation is allowed inside an ordinary dispatch loop or kernel.
 - **Exception-free hot execution:** Validate external and compiler-produced
   inputs before entering hot execution. Use assertions rather than exceptions
   for internal preconditions in per-shot reset, ordinary dispatch, and kernels.
@@ -41,8 +36,7 @@ architecture cannot support it:
   is implementation-defined. Use `(rng() >> 11) * 0x1.0p-53` for `[0, 1)`.
 - **No runtime topology planning:** The compiler or planner must precompute
   coordinate changes, Pauli pairings, phase behavior, active-width transitions,
-  and symbolic dependencies. The legacy SVM continues to execute localized
-  operations. A symbolic-coordinate executor may apply compiler-precomputed
+  and symbolic dependencies. The executor may apply compiler-precomputed
   multi-coordinate active-Pauli actions directly, but runtime code must not
   perform tableau evolution, commutation analysis, localization, or dependency
   discovery.

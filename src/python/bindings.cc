@@ -1,5 +1,4 @@
 #include "clifft/api/reference_syndrome.h"
-#include "clifft/backend/backend.h"
 #include "clifft/circuit/circuit.h"
 #include "clifft/circuit/parser.h"
 #include "clifft/frontend/frontend.h"
@@ -7,32 +6,19 @@
 #include "clifft/noncomp/model.h"
 #include "clifft/noncomp/policy.h"
 #include "clifft/noncomp/sample.h"
-#include "clifft/optimizer/bytecode_pass.h"
 #include "clifft/optimizer/drop_non_unitary_pass.h"
-#include "clifft/optimizer/expand_t_pass.h"
 #include "clifft/optimizer/hir_pass_manager.h"
-#include "clifft/optimizer/multi_gate_pass.h"
-#include "clifft/optimizer/noise_block_pass.h"
 #include "clifft/optimizer/pass_factory.h"
 #include "clifft/optimizer/peephole.h"
 #include "clifft/optimizer/remove_noise_pass.h"
-#include "clifft/optimizer/single_axis_fusion_pass.h"
 #include "clifft/optimizer/statevector_squeeze_pass.h"
-#include "clifft/optimizer/swap_meas_pass.h"
-#include "clifft/optimizer/tile_axis_fusion_pass.h"
 #include "clifft/sampling/planner.h"
 #include "clifft/sampling/sampler.h"
 #include "clifft/sampling/state_queries.h"
-#include "clifft/svm/svm.h"
 #include "clifft/util/config.h"
-#include "clifft/util/introspection.h"
+#include "clifft/util/hir_introspection.h"
 #include "clifft/util/version.h"
 
-#ifdef _OPENMP
-#include <omp.h>
-#endif
-
-#include <nanobind/make_iterator.h>
 #include <nanobind/nanobind.h>
 #include <nanobind/ndarray.h>
 #include <nanobind/stl/map.h>
@@ -41,7 +27,6 @@
 #include <nanobind/stl/string_view.h>
 #include <nanobind/stl/vector.h>
 #include <span>
-#include <sstream>
 #include <stdexcept>
 
 namespace nb = nanobind;
@@ -133,30 +118,13 @@ void register_noncomp(nb::module_& m) {
         "clifft.noncomp.Model.");
 
     m.def(
-        "_sample_noncomputational_legacy",
-        [](const clifft::Circuit& circuit, const clifft::NonComputationalModel& model,
-           uint32_t shots, std::optional<uint64_t> seed, std::optional<uint32_t> max_rank) {
-            clifft::NonComputationalSample r;
-            {
-                nb::gil_scoped_release release;
-                r = clifft::sample_noncomputational(circuit, model, shots, seed, max_rank);
-            }
-            return noncomp_sample_to_python(std::move(r), shots);
-        },
-        nb::arg("circuit"), nb::arg("model"), nb::arg("shots"), nb::arg("seed") = nb::none(),
-        nb::arg("max_rank") = nb::none(),
-        "Sample a noncomputational model. Returns (measurements, detectors, observables, "
-        "final_status, heralds, num_qubits, num_measurements, num_detectors, num_observables).");
-
-    m.def(
         "_sample_noncomputational",
         [](const clifft::Circuit& circuit, const clifft::NonComputationalModel& model,
            uint32_t shots, std::optional<uint64_t> seed, std::optional<uint32_t> max_rank) {
             clifft::NonComputationalSample r;
             {
                 nb::gil_scoped_release release;
-                r = clifft::sample_noncomputational_experimental(circuit, model, shots, seed,
-                                                                 max_rank);
+                r = clifft::sample_noncomputational(circuit, model, shots, seed, max_rank);
             }
             return noncomp_sample_to_python(std::move(r), shots);
         },
@@ -174,54 +142,10 @@ NB_MODULE(_clifft_core, m) {
 
     register_noncomp(m);
 
-    m.def(
-        "svm_backend", []() { return clifft::svm_backend(); },
-        "Return the active SVM dispatch backend.\n\n"
-        "Reflects the resolved runtime kernel path or the CLIFFT_FORCE_ISA environment "
-        "override. In normal operation returns one of 'avx512', 'avx2', or 'scalar' "
-        "('scalar' names the generic/base SVM path).\n\n"
-        "If CLIFFT_FORCE_ISA names an ISA the host CPU cannot execute, or is set to "
-        "an unrecognized value, the backend instead reports one of 'trap:avx512', "
-        "'trap:avx2', or 'trap:unknown'. The next execute() call throws RuntimeError "
-        "with a message naming the missing features or accepted values.");
-
-    m.def(
-        "set_num_threads",
-        [](int n) {
-#ifdef _OPENMP
-            omp_set_num_threads(n);
-#else
-            (void)n;
-#endif
-        },
-        nb::arg("num_threads"),
-        "Set the number of OpenMP threads for multi-core statevector operations.\n\n"
-        "Threading only activates for circuits with peak rank >= 18\n"
-        "(statevector >= 4 MB). Pure Clifford and low-T-count circuits\n"
-        "run single-threaded regardless of this setting.\n\n"
-        "When using multiprocessing (e.g. sinter), set num_threads=1 in\n"
-        "each worker to avoid oversubscription.\n\n"
-        "Has no effect if Clifft was built without OpenMP support.");
-
-    m.def(
-        "get_num_threads",
-        []() -> int {
-#ifdef _OPENMP
-            return omp_get_max_threads();
-#else
-            return 1;
-#endif
-        },
-        "Return the current maximum number of OpenMP threads.\n\n"
-        "Threading only activates for circuits with peak rank >= 18\n"
-        "(statevector >= 4 MB).\n\n"
-        "Returns 1 if Clifft was built without OpenMP support.");
-
     // Sentinel-based enum counts for defensive binding tests.
     // If a new enum value is added in C++ but not bound in Python,
     // the test_introspection.py tripwire will catch it.
     m.def("_num_optypes", []() { return static_cast<int>(clifft::OpType::NUM_OP_TYPES); });
-    m.def("_num_opcodes", []() { return static_cast<int>(clifft::Opcode::NUM_OPCODES); });
     m.def("_num_gate_types", []() {
         return static_cast<int>(sizeof(clifft::detail::kGateTraitsData) /
                                 sizeof(clifft::detail::kGateTraitsData[0]));
@@ -681,265 +605,6 @@ NB_MODULE(_clifft_core, m) {
         "default_hir_pass_manager", []() { return clifft::default_hir_pass_manager(); },
         nb::rv_policy::move, "Return an HirPassManager pre-loaded with the default passes.");
 
-    nb::class_<clifft::BytecodePass>(m, "BytecodePass",
-                                     "Abstract base class for bytecode optimization passes.\n\n"
-                                     "Each pass receives a mutable Program and may rewrite,\n"
-                                     "reorder, or remove instructions.");
-
-    nb::class_<clifft::NoiseBlockPass, clifft::BytecodePass>(
-        m, "NoiseBlockPass", "Coalesces contiguous OP_NOISE instructions into OP_NOISE_BLOCK.")
-        .def(nb::init<>());
-
-    nb::class_<clifft::ExpandTPass, clifft::BytecodePass>(
-        m, "ExpandTPass", "Fuses OP_EXPAND + OP_ARRAY_T into single OP_EXPAND_T instructions.")
-        .def(nb::init<>());
-
-    nb::class_<clifft::ExpandRotPass, clifft::BytecodePass>(
-        m, "ExpandRotPass",
-        "Fuses OP_EXPAND + OP_ARRAY_ROT into single OP_EXPAND_ROT instructions.")
-        .def(nb::init<>());
-
-    nb::class_<clifft::SwapMeasPass, clifft::BytecodePass>(
-        m, "SwapMeasPass",
-        "Fuses OP_ARRAY_SWAP + OP_MEAS_ACTIVE_INTERFERE into OP_SWAP_MEAS_INTERFERE.")
-        .def(nb::init<>());
-
-    nb::class_<clifft::MultiGatePass, clifft::BytecodePass>(
-        m, "MultiGatePass", "Fuses sequences of same-type 2-qubit gates into multi-target ops.")
-        .def(nb::init<>());
-
-    nb::class_<clifft::TileAxisFusionPass, clifft::BytecodePass>(
-        m, "TileAxisFusionPass",
-        "Fuses 2-qubit tile sequences into OP_ARRAY_U4 with precomputed 4x4 matrices.")
-        .def(nb::init<>());
-
-    nb::class_<clifft::SingleAxisFusionPass, clifft::BytecodePass>(
-        m, "SingleAxisFusionPass",
-        "Fuses consecutive single-axis ops into OP_ARRAY_U2 with precomputed 2x2 matrices.")
-        .def(nb::init<>());
-
-    nb::class_<clifft::BytecodePassManager>(m, "BytecodePassManager",
-                                            "Runs a sequence of bytecode optimization passes "
-                                            "over a Program.")
-        .def(nb::init<>())
-        .def(
-            "add",
-            [](clifft::BytecodePassManager& bpm, clifft::BytecodePass& pass) {
-                struct BorrowedBytecodePass : clifft::BytecodePass {
-                    clifft::BytecodePass& ref;
-                    explicit BorrowedBytecodePass(clifft::BytecodePass& r) : ref(r) {}
-                    void run(clifft::CompiledModule& mod) override { ref.run(mod); }
-                };
-                bpm.add_pass(std::make_unique<BorrowedBytecodePass>(pass));
-            },
-            nb::arg("pass"), nb::keep_alive<1, 2>(),
-            "Add a bytecode optimization pass. Passes run in the order added.")
-        .def(
-            "run",
-            [](clifft::BytecodePassManager& bpm, clifft::CompiledModule& program) {
-                bpm.run(program);
-            },
-            nb::arg("program"), "Run all bytecode passes on the program in sequence.");
-
-    m.def(
-        "default_bytecode_pass_manager", []() { return clifft::default_bytecode_pass_manager(); },
-        nb::rv_policy::move, "Return a BytecodePassManager pre-loaded with the default passes.");
-
-    nb::enum_<clifft::Opcode>(m, "Opcode", "Virtual Machine opcodes")
-        .value("OP_FRAME_CNOT", clifft::Opcode::OP_FRAME_CNOT)
-        .value("OP_FRAME_CZ", clifft::Opcode::OP_FRAME_CZ)
-        .value("OP_FRAME_H", clifft::Opcode::OP_FRAME_H)
-        .value("OP_FRAME_S", clifft::Opcode::OP_FRAME_S)
-        .value("OP_FRAME_S_DAG", clifft::Opcode::OP_FRAME_S_DAG)
-        .value("OP_FRAME_SWAP", clifft::Opcode::OP_FRAME_SWAP)
-        .value("OP_ARRAY_CNOT", clifft::Opcode::OP_ARRAY_CNOT)
-        .value("OP_ARRAY_CZ", clifft::Opcode::OP_ARRAY_CZ)
-        .value("OP_ARRAY_SWAP", clifft::Opcode::OP_ARRAY_SWAP)
-        .value("OP_ARRAY_MULTI_CNOT", clifft::Opcode::OP_ARRAY_MULTI_CNOT)
-        .value("OP_ARRAY_MULTI_CZ", clifft::Opcode::OP_ARRAY_MULTI_CZ)
-        .value("OP_ARRAY_H", clifft::Opcode::OP_ARRAY_H)
-        .value("OP_ARRAY_S", clifft::Opcode::OP_ARRAY_S)
-        .value("OP_ARRAY_S_DAG", clifft::Opcode::OP_ARRAY_S_DAG)
-        .value("OP_EXPAND", clifft::Opcode::OP_EXPAND)
-        .value("OP_ARRAY_T", clifft::Opcode::OP_ARRAY_T)
-        .value("OP_ARRAY_T_DAG", clifft::Opcode::OP_ARRAY_T_DAG)
-        .value("OP_EXPAND_T", clifft::Opcode::OP_EXPAND_T)
-        .value("OP_EXPAND_T_DAG", clifft::Opcode::OP_EXPAND_T_DAG)
-        .value("OP_ARRAY_ROT", clifft::Opcode::OP_ARRAY_ROT)
-        .value("OP_EXPAND_ROT", clifft::Opcode::OP_EXPAND_ROT)
-        .value("OP_ARRAY_U2", clifft::Opcode::OP_ARRAY_U2)
-        .value("OP_ARRAY_U4", clifft::Opcode::OP_ARRAY_U4)
-        .value("OP_MEAS_DORMANT_STATIC", clifft::Opcode::OP_MEAS_DORMANT_STATIC)
-        .value("OP_MEAS_DORMANT_RANDOM", clifft::Opcode::OP_MEAS_DORMANT_RANDOM)
-        .value("OP_MEAS_ACTIVE_DIAGONAL", clifft::Opcode::OP_MEAS_ACTIVE_DIAGONAL)
-        .value("OP_MEAS_ACTIVE_INTERFERE", clifft::Opcode::OP_MEAS_ACTIVE_INTERFERE)
-        .value("OP_SWAP_MEAS_INTERFERE", clifft::Opcode::OP_SWAP_MEAS_INTERFERE)
-        .value("OP_MEAS_DORMANT_STATIC_FORCED", clifft::Opcode::OP_MEAS_DORMANT_STATIC_FORCED)
-        .value("OP_MEAS_DORMANT_RANDOM_FORCED", clifft::Opcode::OP_MEAS_DORMANT_RANDOM_FORCED)
-        .value("OP_MEAS_ACTIVE_DIAGONAL_FORCED", clifft::Opcode::OP_MEAS_ACTIVE_DIAGONAL_FORCED)
-        .value("OP_MEAS_ACTIVE_INTERFERE_FORCED", clifft::Opcode::OP_MEAS_ACTIVE_INTERFERE_FORCED)
-        .value("OP_SWAP_MEAS_INTERFERE_FORCED", clifft::Opcode::OP_SWAP_MEAS_INTERFERE_FORCED)
-        .value("OP_INSTRUMENT_ACTIVE", clifft::Opcode::OP_INSTRUMENT_ACTIVE)
-        .value("OP_INSTRUMENT_DORMANT_STATIC", clifft::Opcode::OP_INSTRUMENT_DORMANT_STATIC)
-        .value("OP_INSTRUMENT_EXPAND", clifft::Opcode::OP_INSTRUMENT_EXPAND)
-        .value("OP_INSTRUMENT_DORMANT_NEGLECT", clifft::Opcode::OP_INSTRUMENT_DORMANT_NEGLECT)
-        .value("OP_APPLY_PAULI", clifft::Opcode::OP_APPLY_PAULI)
-        .value("OP_NOISE", clifft::Opcode::OP_NOISE)
-        .value("OP_NOISE_BLOCK", clifft::Opcode::OP_NOISE_BLOCK)
-        .value("OP_READOUT_NOISE", clifft::Opcode::OP_READOUT_NOISE)
-        .value("OP_DETECTOR", clifft::Opcode::OP_DETECTOR)
-        .value("OP_POSTSELECT", clifft::Opcode::OP_POSTSELECT)
-        .value("OP_OBSERVABLE", clifft::Opcode::OP_OBSERVABLE)
-        .value("OP_EXP_VAL", clifft::Opcode::OP_EXP_VAL);
-
-    nb::class_<clifft::Instruction>(m, "Instruction", "A localized VM operation")
-        .def_prop_ro("opcode", [](const clifft::Instruction& i) { return i.opcode; })
-        .def_prop_ro("flags", [](const clifft::Instruction& i) { return i.flags; })
-        .def_prop_ro("axis_1", [](const clifft::Instruction& i) { return i.axis_1; })
-        .def_prop_ro("axis_2", [](const clifft::Instruction& i) { return i.axis_2; })
-        .def(
-            "as_dict",
-            [](const clifft::Instruction& i) {
-                nb::dict d;
-                d["opcode"] = clifft::opcode_to_str(i.opcode);
-                d["axis_1"] = i.axis_1;
-                d["axis_2"] = i.axis_2;
-                d["flags"] = i.flags;
-                d["description"] = clifft::format_instruction(i);
-
-                if (clifft::is_meas_opcode(i.opcode)) {
-                    d["classical_idx"] = i.classical.classical_idx;
-                    d["expected_val"] = i.classical.expected_val;
-                } else if (i.opcode == clifft::Opcode::OP_APPLY_PAULI) {
-                    d["cp_mask_idx"] = i.pauli.cp_mask_idx;
-                    d["condition_idx"] = i.pauli.condition_idx;
-                } else if (i.opcode == clifft::Opcode::OP_DETECTOR ||
-                           i.opcode == clifft::Opcode::OP_POSTSELECT) {
-                    d["target_list_index"] = i.pauli.cp_mask_idx;
-                    d["detector_index"] = i.pauli.condition_idx;
-                } else if (i.opcode == clifft::Opcode::OP_OBSERVABLE) {
-                    d["target_list_index"] = i.pauli.cp_mask_idx;
-                    d["observable_index"] = i.pauli.condition_idx;
-                } else if (i.opcode == clifft::Opcode::OP_NOISE) {
-                    d["noise_site_idx"] = i.pauli.cp_mask_idx;
-                } else if (i.opcode == clifft::Opcode::OP_NOISE_BLOCK) {
-                    d["start_site"] = i.pauli.cp_mask_idx;
-                    d["count"] = i.pauli.condition_idx;
-                } else if (i.opcode == clifft::Opcode::OP_READOUT_NOISE) {
-                    d["readout_noise_idx"] = i.pauli.cp_mask_idx;
-                } else if (i.opcode == clifft::Opcode::OP_ARRAY_MULTI_CNOT ||
-                           i.opcode == clifft::Opcode::OP_ARRAY_MULTI_CZ) {
-                    d["mask"] = i.multi_gate.mask;
-                } else if (i.opcode == clifft::Opcode::OP_ARRAY_ROT ||
-                           i.opcode == clifft::Opcode::OP_EXPAND_ROT) {
-                    d["weight_re"] = i.math.weight_re;
-                    d["weight_im"] = i.math.weight_im;
-                } else if (i.opcode == clifft::Opcode::OP_ARRAY_U2) {
-                    d["cp_idx"] = i.u2.cp_idx;
-                } else if (i.opcode == clifft::Opcode::OP_EXP_VAL) {
-                    d["cp_exp_val_idx"] = i.exp_val.cp_exp_val_idx;
-                    d["exp_val_idx"] = i.exp_val.exp_val_idx;
-                }
-                return d;
-            },
-            "Return a JSON-friendly dictionary representation.")
-        .def("__str__",
-             [](const clifft::Instruction& inst) { return clifft::format_instruction(inst); })
-        .def("__repr__", [](const clifft::Instruction& inst) {
-            return "<Instruction: " + clifft::format_instruction(inst) + ">";
-        });
-
-    nb::class_<clifft::CompiledModule>(m, "_LegacyProgram", "A legacy bytecode program")
-        .def_prop_ro("peak_rank", [](const clifft::CompiledModule& p) { return p.peak_rank; })
-        .def_prop_ro("num_qubits", [](const clifft::CompiledModule& p) { return p.num_qubits; })
-        .def_prop_ro("num_measurements",
-                     [](const clifft::CompiledModule& p) { return p.num_measurements; })
-        .def_prop_ro("num_detectors",
-                     [](const clifft::CompiledModule& p) { return p.num_detectors; })
-        .def_prop_ro("num_observables",
-                     [](const clifft::CompiledModule& p) { return p.num_observables; })
-        .def_prop_ro("num_exp_vals", [](const clifft::CompiledModule& p) { return p.num_exp_vals; })
-        .def_prop_ro("has_postselection",
-                     [](const clifft::CompiledModule& p) { return p.has_postselection; })
-        .def_prop_ro("num_instructions",
-                     [](const clifft::CompiledModule& p) { return p.bytecode.size(); })
-        .def_prop_ro(
-            "source_map",
-            [](const clifft::CompiledModule& p) {
-                nb::list outer;
-                for (size_t i = 0; i < p.source_map.size(); ++i) {
-                    auto lines = p.source_map.lines_for(i);
-                    outer.append(nb::cast(std::vector<uint32_t>(lines.begin(), lines.end())));
-                }
-                return outer;
-            },
-            "Source line mapping parallel to bytecode (list of list of uint32).")
-        .def_prop_ro(
-            "active_k_history",
-            [](const clifft::CompiledModule& p) {
-                return nb::cast(p.source_map.active_k_history());
-            },
-            "Active dimension k after each instruction (list of uint32).")
-        .def(
-            "__len__", [](const clifft::CompiledModule& p) { return p.bytecode.size(); },
-            "Return the number of bytecode instructions.")
-        .def(
-            "__getitem__",
-            [](const clifft::CompiledModule& p, int64_t idx) -> const clifft::Instruction& {
-                int64_t size = static_cast<int64_t>(p.bytecode.size());
-                if (idx < 0)
-                    idx += size;
-                if (idx < 0 || idx >= size)
-                    throw nb::index_error();
-                return p.bytecode[static_cast<size_t>(idx)];
-            },
-            nb::rv_policy::reference_internal, "Return the instruction at the given index.")
-        .def(
-            "__iter__",
-            [](const clifft::CompiledModule& p) {
-                return nb::make_iterator(nb::type<clifft::CompiledModule>(), "program_iter",
-                                         p.bytecode.begin(), p.bytecode.end());
-            },
-            nb::keep_alive<0, 1>())
-        .def(
-            "as_dict",
-            [](const clifft::CompiledModule& p) {
-                nb::dict d;
-                d["peak_rank"] = p.peak_rank;
-                d["num_qubits"] = p.num_qubits;
-                d["num_measurements"] = p.num_measurements;
-                d["num_detectors"] = p.num_detectors;
-                d["num_observables"] = p.num_observables;
-                nb::list bytecode;
-                for (const auto& i : p.bytecode)
-                    bytecode.append(nb::cast(i).attr("as_dict")());
-                d["bytecode"] = bytecode;
-                return d;
-            },
-            "Return a JSON-friendly dictionary representation.")
-        .def("__str__",
-             [](const clifft::CompiledModule& p) {
-                 std::ostringstream ss;
-                 for (size_t i = 0; i < p.bytecode.size(); ++i)
-                     ss << i << ": " << clifft::format_instruction(p.bytecode[i]) << "\n";
-                 return ss.str();
-             })
-        .def_prop_ro(
-            "noise_site_probabilities",
-            [](const clifft::CompiledModule& p) {
-                auto probs = clifft::noise_site_probabilities(p);
-                size_t n = probs.size();
-                return vec_to_numpy(std::move(probs), {n});
-            },
-            nb::rv_policy::move,
-            "Per-site total fault probabilities: quantum noise sites followed by\n"
-            "readout noise entries. Use for Poisson-Binomial PMF computation.")
-        .def("__repr__", [](const clifft::CompiledModule& p) {
-            return "LegacyProgram(" + std::to_string(p.bytecode.size()) +
-                   " instructions, peak_rank=" + std::to_string(p.peak_rank) + ", " +
-                   std::to_string(p.num_measurements) + " measurements)";
-        });
-
     nb::class_<clifft::sampling::ExecutablePlan>(m, "Program",
                                                  "A compiled symbolic-coordinate program")
         .def_prop_ro("peak_rank", &clifft::sampling::ExecutablePlan::max_active_width)
@@ -966,59 +631,6 @@ NB_MODULE(_clifft_core, m) {
                    " actions, peak_rank=" + std::to_string(p.max_active_width()) + ", " +
                    std::to_string(p.num_visible_records()) + " measurements)";
         });
-
-    m.def(
-        "_lower_legacy",
-        [](const clifft::HirModule& hir, std::vector<uint8_t> postselection_mask,
-           std::vector<uint8_t> expected_detectors, std::vector<uint8_t> expected_observables) {
-            nb::gil_scoped_release release;
-            return clifft::lower(hir, postselection_mask, expected_detectors, expected_observables);
-        },
-        nb::arg("hir"), nb::arg("postselection_mask") = std::vector<uint8_t>{},
-        nb::arg("expected_detectors") = std::vector<uint8_t>{},
-        nb::arg("expected_observables") = std::vector<uint8_t>{});
-
-    m.def(
-        "_compile_legacy",
-        [](const std::string& stim_text, std::vector<uint8_t> postselection_mask,
-           std::vector<uint8_t> expected_detectors, std::vector<uint8_t> expected_observables,
-           bool normalize_syndromes, clifft::HirPassManager* hir_passes,
-           clifft::BytecodePassManager* bytecode_passes) {
-            nb::gil_scoped_release release;
-            clifft::HirModule hir =
-                prepare_hir_for_lowering(stim_text, normalize_syndromes, hir_passes,
-                                         expected_detectors, expected_observables);
-            clifft::CompiledModule program = clifft::lower(
-                std::move(hir), postselection_mask, expected_detectors, expected_observables);
-            if (bytecode_passes != nullptr) {
-                bytecode_passes->run(program);
-            }
-            return program;
-        },
-        nb::arg("stim_text"), nb::arg("postselection_mask") = std::vector<uint8_t>{},
-        nb::arg("expected_detectors") = std::vector<uint8_t>{},
-        nb::arg("expected_observables") = std::vector<uint8_t>{},
-        nb::arg("normalize_syndromes") = false, nb::arg("hir_passes") = nb::none(),
-        nb::arg("bytecode_passes") = nb::none());
-
-    m.def(
-        "_sample_legacy",
-        [](const clifft::CompiledModule& program, uint32_t shots, std::optional<uint64_t> seed) {
-            clifft::SampleResult result;
-            {
-                nb::gil_scoped_release release;
-                result = clifft::sample(program, shots, seed);
-            }
-            auto measurements =
-                vec_to_numpy(std::move(result.measurements), {shots, program.num_measurements});
-            auto detectors =
-                vec_to_numpy(std::move(result.detectors), {shots, program.num_detectors});
-            auto observables =
-                vec_to_numpy(std::move(result.observables), {shots, program.num_observables});
-            auto exp_vals = vec_to_numpy(std::move(result.exp_vals), {shots, program.num_exp_vals});
-            return nb::make_tuple(measurements, detectors, observables, exp_vals);
-        },
-        nb::arg("program"), nb::arg("shots"), nb::arg("seed") = nb::none());
 
     m.def(
         "lower",
@@ -1232,68 +844,6 @@ NB_MODULE(_clifft_core, m) {
         ".observable_ones. Per-shot record arrays\n"
         "(.measurements, .detectors, .observables, .exp_vals) are only\n"
         "filled when keep_records=True; otherwise they are empty (rows=0).");
-
-    nb::class_<clifft::SchrodingerState>(m, "_LegacyState", "Legacy SVM execution state")
-        .def(nb::new_([](uint32_t peak_rank, uint32_t num_measurements, uint32_t num_detectors,
-                         uint32_t num_observables, uint32_t num_exp_vals,
-                         std::optional<uint64_t> seed) {
-                 return clifft::SchrodingerState({.peak_rank = peak_rank,
-                                                  .num_measurements = num_measurements,
-                                                  .num_detectors = num_detectors,
-                                                  .num_observables = num_observables,
-                                                  .num_exp_vals = num_exp_vals,
-                                                  .seed = seed});
-             }),
-             nb::kw_only(), nb::arg("peak_rank"), nb::arg("num_measurements"),
-             nb::arg("num_detectors") = 0, nb::arg("num_observables") = 0,
-             nb::arg("num_exp_vals") = 0, nb::arg("seed") = nb::none())
-        .def("reset", &clifft::SchrodingerState::reset)
-        .def("reseed", &clifft::SchrodingerState::reseed, nb::arg("seed"))
-        .def_prop_ro("dust_clamps", [](const clifft::SchrodingerState& s) { return s.dust_clamps; })
-        .def_prop_ro(
-            "meas_record",
-            [](const clifft::SchrodingerState& s) { return std::vector<uint8_t>(s.meas_record); })
-        .def_prop_ro(
-            "det_record",
-            [](const clifft::SchrodingerState& s) { return std::vector<uint8_t>(s.det_record); })
-        .def_prop_ro(
-            "obs_record",
-            [](const clifft::SchrodingerState& s) { return std::vector<uint8_t>(s.obs_record); })
-        .def_prop_ro(
-            "exp_vals",
-            [](const clifft::SchrodingerState& s) { return std::vector<double>(s.exp_vals); })
-        .def("__repr__", [](const clifft::SchrodingerState& s) {
-            return "State(array_size=" + std::to_string(s.array_size()) + ")";
-        });
-
-    m.def(
-        "_execute_legacy",
-        [](const clifft::CompiledModule& program, clifft::SchrodingerState& state) {
-            nb::gil_scoped_release release;
-            clifft::execute(program, state);
-        },
-        nb::arg("program"), nb::arg("state"),
-        "Execute a compiled program, updating the state in-place.");
-
-    m.def(
-        "_get_statevector_legacy",
-        [](const clifft::CompiledModule& program, const clifft::SchrodingerState& state) {
-            std::vector<std::complex<double>> sv;
-            {
-                nb::gil_scoped_release release;
-                sv = clifft::get_statevector(program, state);
-            }
-            size_t n = sv.size();
-            return vec_to_numpy(std::move(sv), {n});
-        },
-        nb::arg("program"), nb::arg("state"),
-        "Expand the SVM state into a dense statevector.\n\n"
-        "For unitary programs, compilation preserves the API-visible global\n"
-        "phase across optimization passes. Retained final-tableau expansion\n"
-        "uses Stim's complex<float> unitary path, so those amplitudes have\n"
-        "float-scale precision. After measurements or noise, only relative\n"
-        "amplitudes and probabilities are meaningful; overall phase may\n"
-        "differ between compilations.");
 
     m.def(
         "get_statevector",

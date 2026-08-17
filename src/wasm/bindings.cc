@@ -57,9 +57,14 @@ PipelineResult run_pipeline(const std::string& source, const std::string& passes
             hpm.run(result.hir);
         } else {
             auto cfg = json::parse(passes_json);
-            if (cfg.contains("bc")) {
-                throw std::invalid_argument(
-                    "Bytecode pass configuration is not supported by the symbolic backend");
+            if (!cfg.is_object()) {
+                throw std::invalid_argument("Pass configuration must be a JSON object");
+            }
+            for (const auto& [key, unused] : cfg.items()) {
+                static_cast<void>(unused);
+                if (key != "hir") {
+                    throw std::invalid_argument("Unknown pass configuration key: " + key);
+                }
             }
             if (cfg.contains("hir") && cfg["hir"].is_array()) {
                 clifft::HirPassManager hpm;

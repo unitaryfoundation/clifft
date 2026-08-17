@@ -26,18 +26,16 @@ import utils_noncomp_oracle as oracle
 from conftest import noncomp_classifier_matrix_with_column, noncomp_transition_matrix
 
 import clifft
-from clifft import _legacy, noncomp
+from clifft import noncomp
 
 Level = noncomp.Level
 BAND = 0.04  # ~7 sigma at 8000 shots for p near 0.5
 SHOTS = 8000
 
 
-@pytest.fixture(
-    params=[clifft.noncomp.sample, _legacy.sample_noncomputational], ids=["symbolic", "legacy"]
-)
+@pytest.fixture(params=[clifft.noncomp.sample], ids=["symbolic"])
 def noncomp_sampling_api(request: pytest.FixtureRequest) -> Any:
-    """Run the independent-oracle checks against both trajectory executors."""
+    """Run the independent-oracle checks against the production trajectory sampler."""
     return request.param
 
 

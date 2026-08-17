@@ -30,7 +30,7 @@ AstNode mpad_op(uint8_t bit) {
 }
 
 // Classical bit-flip on an absolute visible record slot, drawn at sample
-// time inside the VM.
+// time inside the executor.
 AstNode readout_noise_op(uint32_t slot, double prob) {
     return AstNode{GateType::READOUT_NOISE, {Target::rec(slot)}, {prob}, 0};
 }
@@ -224,7 +224,7 @@ ContinuationRewrite rewrite_continuation(const Circuit& annotated, const Traject
                 const QubitStatus pre = status[qubit];
 
                 if (!is_computational(pre)) {
-                    // The qubit is leaked or lost, so the VM has no
+                    // The qubit is leaked or lost, so the executor has no
                     // transition to execute. Remove the annotation and apply
                     // the outcome already drawn by the driver.
                     if (classical_cursor >= events.classical_outcomes.size()) {
@@ -302,7 +302,7 @@ ContinuationRewrite rewrite_continuation(const Circuit& annotated, const Traject
 
                 const auto jump = jump_dest.find(site_target);
                 if (jump == jump_dest.end()) {
-                    continue;  // no recorded jump; the VM executes this transition
+                    continue;  // no recorded jump; the executor handles this transition
                 }
                 ++jumps_seen;
                 const bool is_last =
@@ -313,7 +313,7 @@ ContinuationRewrite rewrite_continuation(const Circuit& annotated, const Traject
                 // quantum state. For destination g or e, the reset prepares
                 // |0>, followed by X for |1>. When the last jump came from a
                 // trap, remember this reset so the driver can force its hidden
-                // measurement to the source level reported by the VM.
+                // measurement to the source level reported by the executor.
                 const size_t r_node = out.nodes.size();
                 out.nodes.push_back(single_qubit_op(GateType::R, qubit));
                 if (jump->second == Level::E) {

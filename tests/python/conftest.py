@@ -8,8 +8,6 @@ import numpy.typing as npt
 import pytest
 
 import clifft
-import clifft.experimental as experimental
-from clifft import _legacy
 
 
 @pytest.fixture(params=[clifft], ids=["symbolic-coordinate"])
@@ -30,28 +28,20 @@ def importance_sampling_api(request: pytest.FixtureRequest) -> Any:
     return cast(Any, request.param)
 
 
-@pytest.fixture(params=["legacy", "experimental"], ids=["legacy", "experimental"])
+@pytest.fixture(params=[clifft], ids=["symbolic-coordinate"])
 def statevector_from_circuit(
     request: pytest.FixtureRequest,
 ) -> Callable[[str], npt.NDArray[np.complex128]]:
-    """Compile and expand a pure-state circuit through either backend."""
-    if request.param == "experimental":
+    """Compile and expand a pure-state circuit through the production backend."""
+    api = request.param
 
-        def experimental_statevector(stim_text: str) -> npt.NDArray[np.complex128]:
-            return cast(
-                npt.NDArray[np.complex128],
-                experimental.get_statevector(experimental.compile(stim_text)),
-            )
-
-        return experimental_statevector
-
-    def legacy_statevector(stim_text: str) -> npt.NDArray[np.complex128]:
+    def statevector(stim_text: str) -> npt.NDArray[np.complex128]:
         return cast(
             npt.NDArray[np.complex128],
-            _legacy.statevector(stim_text, hir_passes=None, bytecode_passes=None),
+            api.get_statevector(api.compile(stim_text, hir_passes=None)),
         )
 
-    return legacy_statevector
+    return statevector
 
 
 @pytest.fixture(params=[clifft.noncomp.sample], ids=["symbolic-coordinate"])

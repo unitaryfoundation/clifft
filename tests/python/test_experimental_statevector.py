@@ -1,33 +1,12 @@
 """Focused contracts for experimental symbolic-coordinate statevectors."""
 
-from typing import Any, cast
+from typing import Any
 
 import numpy as np
-import numpy.typing as npt
 import pytest
 
 import clifft
 import clifft.experimental as experimental
-from clifft import _legacy
-
-
-def _legacy_statevector(stim_text: str) -> npt.NDArray[np.complex128]:
-    return cast(npt.NDArray[np.complex128], _legacy.statevector(stim_text))
-
-
-@pytest.mark.parametrize(
-    "circuit",
-    [
-        "H 0\nT 0\nT 0\nH 0",
-        "H 0\nT_DAG 0\nT_DAG 0\nH 0",
-        "Y 0\nH 0\nT 0\nT 0\nT 0\nT 0",
-        "H 0\nCX 0 1\nT 1\nT 1\nCX 0 1\nH 0",
-        "H 0\nT 0\nT 0\nT 0\nH 0\nT 0",
-    ],
-)
-def test_statevector_matches_legacy_componentwise(circuit: str) -> None:
-    actual = experimental.get_statevector(experimental.compile(circuit))
-    np.testing.assert_allclose(actual, _legacy_statevector(circuit), atol=1e-6, rtol=0)
 
 
 def test_statevector_preserves_exact_global_phase() -> None:

@@ -6,9 +6,9 @@
 // resolves transitions against the live quantum state, and returns the
 // ordinary sample records plus final-status and herald sidecars.
 //
-// Randomness is deterministic in `seed`: per-shot driver and SVM streams
+// Randomness is deterministic in `seed`: per-shot driver and executor streams
 // derive from domain-separated sub-seeds (seed.h). Stochastic classifier
-// bits are drawn by the SVM's own stream at the rewriter's READOUT_NOISE
+// bits are drawn by the executor's own stream at the rewriter's READOUT_NOISE
 // sites. With no seed, a global seed is drawn from OS entropy and the
 // run is non-reproducible.
 
@@ -37,7 +37,7 @@ struct NonComputationalSample {
 
     // Sidecar: each qubit's final status per shot, row-major [shot, qubit].
     // LeakG, LeakE, and Lost are definite levels. Computational deliberately
-    // does not distinguish G from E; that state remains in the SVM.
+    // does not distinguish G from E; that state remains in the active state.
     std::vector<QubitStatus> final_status;
 
     // Sidecar: 1 where the classifier sampled the herald (third) symbol for
@@ -54,18 +54,12 @@ struct NonComputationalSample {
 // classifier the model does not provide. (Classifier shape -- two or
 // three symbols, stochastic columns -- is the model's own construction
 // contract, enforced before a circuit ever meets it.)
-// `max_rank` caps the compiled peak rank. Compilation names the first
-// offending circuit line before allocating or growing the SVM state for that
-// module. Unlimited when unset.
+// `max_rank` caps the compiled peak rank. Compilation reports the first
+// offending active width before allocating or growing the executor state.
+// Unlimited when unset.
 NonComputationalSample sample_noncomputational(const Circuit& circuit,
                                                const NonComputationalModel& model, uint32_t shots,
                                                std::optional<uint64_t> seed = std::nullopt,
                                                std::optional<uint32_t> max_rank = std::nullopt);
-
-// Explicitly selected migration path backed by sampling::Executor. This is
-// intentionally separate from the stable entry point above.
-NonComputationalSample sample_noncomputational_experimental(
-    const Circuit& circuit, const NonComputationalModel& model, uint32_t shots,
-    std::optional<uint64_t> seed = std::nullopt, std::optional<uint32_t> max_rank = std::nullopt);
 
 }  // namespace clifft

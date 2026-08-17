@@ -14,36 +14,17 @@ add_executable(clifft_tests
     test_hir.cc
     test_frontend.cc
     test_frontend_instruments.cc
-    test_backend_instruments.cc
-    test_execute_instruments.cc
-    test_trap_resume.cc
-    test_backend.cc
     test_sampling_plan.cc
     test_sampling_planner.cc
     test_sampling_planner_frame.cc
     test_sampling_executor.cc
     test_fused_rotation.cc
     test_sampling_kernels.cc
-    test_svm.cc
-    test_state_reset.cc
-    test_forced_kernels.cc
-    test_instrument_kernels.cc
-    test_execute_forced.cc
-    test_svm_avx512_axis01.cc
-    test_statevector.cc
     test_optimizer.cc
     test_canonical_phase.cc
-    test_bytecode_passes.cc
-    test_single_axis_fusion.cc
-    test_tile_axis_fusion.cc
     test_source_map.cc
     test_importance_sampling.cc
-    test_introspection.cc
-    test_basis_probabilities.cc
-    test_record_probabilities.cc
-    test_exp_value.cc
     test_runtime_isa.cc
-    test_openmp.cc
     test_fuzz.cc
     test_noncomp_value_types.cc
     test_noncomp_transition_instrument.cc
@@ -52,7 +33,6 @@ add_executable(clifft_tests
     test_noncomp_status_walk.cc
     test_noncomp_rewriter.cc
     test_noncomp_continuation.cc
-    test_continuation_prefix.cc
     test_trajectory_driver.cc
     test_noncomp_validation.cc
 )

@@ -24,6 +24,8 @@ class CoordinateFrame {
     [[nodiscard]] PlannerPauli to_current(const PlannerPauli& initial);
     [[nodiscard]] PlannerPauli to_initial(const PlannerPauli& current) const;
 
+    [[nodiscard]] const PlannerTableau& current_to_initial() const { return current_to_initial_; }
+
     void change_basis(const PlannerTableau& new_basis_in_old_coordinates);
 
     // Apply the planner's structured basis changes without constructing and

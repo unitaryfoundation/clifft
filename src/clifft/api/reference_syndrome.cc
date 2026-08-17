@@ -1,8 +1,8 @@
 #include "clifft/api/reference_syndrome.h"
 
-#include "clifft/backend/backend.h"
 #include "clifft/optimizer/remove_noise_pass.h"
-#include "clifft/svm/svm.h"
+#include "clifft/sampling/planner.h"
+#include "clifft/sampling/sampler.h"
 
 namespace clifft {
 
@@ -14,16 +14,16 @@ ReferenceSyndrome compute_reference_syndrome(const HirModule& hir) {
     RemoveNoisePass strip;
     strip.run(clean_hir);
 
-    // Lower without postselection or expected parities
-    auto clean_prog = lower(clean_hir);
+    // Compile without postselection or expected parities.
+    sampling::ExecutablePlan clean_program(sampling::plan_sampling(clean_hir));
 
-    if (clean_prog.num_measurements == 0 && clean_prog.num_detectors == 0 &&
-        clean_prog.num_observables == 0) {
+    if (clean_program.num_visible_records() == 0 && clean_program.num_detectors() == 0 &&
+        clean_program.num_observables() == 0) {
         return ref;
     }
 
     // Run exactly one deterministic shot (seed=0)
-    auto clean_res = sample(clean_prog, 1, uint64_t{0});
+    auto clean_res = sampling::sample(clean_program, 1, uint64_t{0});
     ref.detectors = std::move(clean_res.detectors);
     ref.observables = std::move(clean_res.observables);
     return ref;

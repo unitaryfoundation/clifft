@@ -1,22 +1,20 @@
 // Drives simulation of circuits with noncomputational transitions.
 //
-// Transition annotations compile to VM instructions. The VM applies an outcome
-// directly when the current compiled circuit can continue from it. Otherwise it
-// stops at the transition and reports a trap. The driver records the event,
-// rewrites and compiles a compatible continuation, and resumes the existing VM
-// state after the trapped instruction. Transitions reached while a qubit is
+// Transition annotations compile to executable-plan actions. The executor
+// applies an outcome directly when the current plan can continue from it.
+// Otherwise it stops at the transition and reports a trap. The driver records
+// the event, rewrites and compiles a compatible continuation, and resumes the
+// existing state after the trapped action. Transitions reached while a qubit is
 // already leaked or lost are sampled here before compiling the next
 // continuation.
 //
 // Driver draws (initial levels, transition destinations, classical outcomes,
-// and herald flags) use one per-shot stream. VM measurements, noise, and
-// in-VM transition decisions use a separate per-shot stream; see seed.h.
+// and herald flags) use one per-shot stream. Executor measurements, noise, and
+// transition decisions use a separate per-shot stream; see seed.h.
 
 #include "clifft/noncomp/trajectory_driver.h"
 
-#include "clifft/backend/backend.h"
 #include "clifft/frontend/frontend.h"
-#include "clifft/noncomp/continuation_prefix.h"
 #include "clifft/noncomp/instrument_options.h"
 #include "clifft/noncomp/rewriter.h"
 #include "clifft/noncomp/seed.h"
@@ -27,8 +25,6 @@
 #include "clifft/optimizer/pass_registry.h"
 #include "clifft/sampling/executor.h"
 #include "clifft/sampling/planner.h"
-#include "clifft/svm/svm.h"
-#include "clifft/svm/svm_math.h"
 #include "clifft/util/xoshiro.h"
 
 #include <cassert>
@@ -281,46 +277,12 @@ void extend_classical_outcomes(const Circuit& annotated, TrajectoryEvents& event
     events.classical_outcomes = std::move(ordered);
 }
 
-// The compiled program and trajectory metadata needed while executing it.
-// The rewritten Circuit and classifier patch table are discarded after
-// compilation. Replacing an existing shot-specific continuation invalidates
-// pointers and references into its module; the shared all-computational
-// continuation persists across shots.
-struct CompiledContinuation {
-    CompiledModule module;
-    std::vector<AnnotationTarget> site_targets;
-    std::vector<QubitStatus> final_status;
-    std::optional<size_t> forced_traceout_slot;
-};
-
 struct SamplingCompiledContinuation {
     sampling::ExecutablePlan program;
     std::vector<AnnotationTarget> site_targets;
     std::vector<QubitStatus> final_status;
     std::optional<size_t> forced_traceout_slot;
 };
-
-void check_max_rank(const CompiledModule& module, std::optional<uint32_t> max_rank) {
-    if (!max_rank.has_value() || module.peak_rank <= *max_rank) {
-        return;
-    }
-    // Use the source map to name the first circuit line that exceeded the
-    // requested rank.
-    std::string site;
-    for (size_t i = 0; i < module.source_map.size(); ++i) {
-        if (module.source_map.active_k_at(i) > *max_rank) {
-            const auto lines = module.source_map.lines_for(i);
-            if (!lines.empty()) {
-                site = " (first exceeded at circuit line " + std::to_string(lines[0]) + ")";
-            }
-            break;
-        }
-    }
-    throw std::invalid_argument(
-        "sample_noncomputational: compiled peak rank " + std::to_string(module.peak_rank) +
-        " exceeds max_rank " + std::to_string(*max_rank) + site +
-        "; consider damping=\"neglect\" for high-rate sites or a larger max_rank");
-}
 
 // Build the HIR pass pipeline from default passes that preserve measurement
 // record order and explicitly guarantee instrument-prefix stability. A
@@ -329,20 +291,8 @@ void check_max_rank(const CompiledModule& module, std::optional<uint32_t> max_ra
 HirPassManager trajectory_hir_pass_manager() {
     HirPassManager pm;
     for (const auto& info : kRegisteredPasses) {
-        if (info.kind == PassKind::HIR && info.default_enabled && is_trajectory_compatible(info)) {
-            pm.add_pass(info.make_hir());
-        }
-    }
-    return pm;
-}
-
-// Apply both trajectory requirements to bytecode passes.
-BytecodePassManager trajectory_bytecode_pass_manager() {
-    BytecodePassManager pm;
-    for (const auto& info : kRegisteredPasses) {
-        if (info.kind == PassKind::Bytecode && info.default_enabled &&
-            is_trajectory_compatible(info)) {
-            pm.add_pass(info.make_bc());
+        if (info.default_enabled && is_trajectory_compatible(info)) {
+            pm.add_pass(info.make());
         }
     }
     return pm;
@@ -423,67 +373,6 @@ TracedContinuation trace_continuation(Circuit circuit, std::optional<size_t> for
     };
 }
 
-// A trap-form instrument reports a source but leaves the qubit uncollapsed.
-// The rewritten continuation inserts a reset to apply that collapse and
-// prepare the selected destination. Its hidden measurement must reuse the
-// source already selected by the VM rather than draw a second outcome, so
-// replace that measurement with its forced-outcome opcode. Bytecode passes do
-// not renumber measurement slots, so `slot` remains valid after optimization.
-void swap_traceout_to_forced(CompiledModule& module, size_t slot) {
-    size_t found = 0;
-    for (Instruction& instr : module.bytecode) {
-        const std::optional<Opcode> forced = forced_measurement_opcode(instr.opcode);
-        if (!forced.has_value()) {
-            continue;
-        }
-        if (instr.classical.classical_idx == slot) {
-            instr.opcode = *forced;
-            ++found;
-        }
-    }
-    if (found != 1) {
-        throw std::logic_error("sample_noncomputational: the forced trace-out slot matched " +
-                               std::to_string(found) +
-                               " measurement instructions; expected exactly one");
-    }
-}
-
-CompiledContinuation compile_continuation(ContinuationRewrite rewrite,
-                                          const std::vector<uint8_t>& herald_flags,
-                                          const InstrumentTraceOptions& instrument_options,
-                                          std::optional<uint32_t> max_rank,
-                                          const CompiledModule* executed_prefix_module,
-                                          uint32_t prefix_end) {
-    Circuit patched = std::move(rewrite.circuit);
-    patch_heralded_measurements(patched, rewrite.classified_measurements, herald_flags);
-    TracedContinuation traced =
-        trace_continuation(std::move(patched), rewrite.forced_traceout_node, instrument_options);
-    CompiledModule module = lower(std::move(traced.hir));
-    trajectory_bytecode_pass_manager().run(module);
-    check_max_rank(module, max_rank);
-    if (module.instrument_offsets.size() != rewrite.site_targets.size()) {
-        throw std::logic_error("sample_noncomputational: compiled module has " +
-                               std::to_string(module.instrument_offsets.size()) +
-                               " instrument site(s) but the rewrite's site table has " +
-                               std::to_string(rewrite.site_targets.size()) +
-                               "; the rewriter and trace() must elide zero-fire sites identically");
-    }
-    if (traced.forced_traceout_slot.has_value()) {
-        swap_traceout_to_forced(module, *traced.forced_traceout_slot);
-    }
-
-    if (executed_prefix_module != nullptr) {
-        validate_continuation_prefix(module, *executed_prefix_module, prefix_end);
-    }
-
-    return CompiledContinuation{
-        .module = std::move(module),
-        .site_targets = std::move(rewrite.site_targets),
-        .final_status = std::move(rewrite.final_status),
-        .forced_traceout_slot = traced.forced_traceout_slot,
-    };
-}
-
 void prepend_initial_excited_preparations(Circuit& circuit, std::span<const Level> initial_levels,
                                           std::optional<size_t>& forced_traceout_node) {
     std::vector<AstNode> preparations;
@@ -506,9 +395,23 @@ void check_sampling_max_rank(const sampling::SamplingPlan& plan, std::optional<u
     if (!max_rank.has_value() || plan.max_active_width <= *max_rank) {
         return;
     }
-    throw std::invalid_argument("sample_noncomputational: planned active width " +
-                                std::to_string(plan.max_active_width) + " exceeds max_rank " +
-                                std::to_string(*max_rank));
+    std::string site;
+    if (plan.source_map.has_value()) {
+        for (size_t action = 0; action < plan.actions.size(); ++action) {
+            if (plan.actions[action].active_after <= *max_rank) {
+                continue;
+            }
+            const std::span<const uint32_t> lines = plan.source_map->lines_for(action);
+            if (!lines.empty()) {
+                site = " (first exceeded at circuit line " + std::to_string(lines.front()) + ")";
+            }
+            break;
+        }
+    }
+    throw std::invalid_argument(
+        "sample_noncomputational: planned active width " + std::to_string(plan.max_active_width) +
+        " exceeds max_rank " + std::to_string(*max_rank) + site +
+        "; consider damping=\"neglect\" for high-rate sites or a larger max_rank");
 }
 
 SamplingCompiledContinuation compile_sampling_continuation(
@@ -521,7 +424,16 @@ SamplingCompiledContinuation compile_sampling_continuation(
     TracedContinuation traced =
         trace_continuation(std::move(patched), rewrite.forced_traceout_node, instrument_options);
     sampling::SamplingPlan plan = sampling::plan_sampling(traced.hir);
-    check_sampling_max_rank(plan, max_rank);
+    if (max_rank.has_value() && plan.max_active_width > *max_rank) {
+        // Source provenance is retained only on the exceptional diagnostic
+        // path; successful continuations can be numerous and do not need it.
+        const sampling::SamplingPlan diagnostic =
+            sampling::plan_sampling(traced.hir, {.postselection_mask = {},
+                                                 .expected_detectors = {},
+                                                 .expected_observables = {},
+                                                 .retain_source_map = true});
+        check_sampling_max_rank(diagnostic, max_rank);
+    }
     if (plan.num_instrument_sites != rewrite.site_targets.size()) {
         throw std::logic_error("sample_noncomputational: sampling plan has " +
                                std::to_string(plan.num_instrument_sites) +
@@ -652,265 +564,6 @@ NonComputationalSample run_trajectory_driver(const Circuit& circuit,
     result.num_observables = circuit.num_observables;
     const MeasurementClassifier* classifier = model.classifier();
     const bool ternary = classifier != nullptr && classifier->has_herald();
-
-    const Circuit annotated = prepare_trajectory_circuit(circuit, model);
-
-    // Validation is shot-count independent: a zero-shot call checks the
-    // circuit/model contract and returns empty results.
-    if (shots == 0) {
-        return result;
-    }
-
-    const size_t shot_count = shots;
-    result.measurements.reserve(shot_count * circuit.num_measurements);
-    result.detectors.reserve(shot_count * circuit.num_detectors);
-    result.observables.reserve(shot_count * circuit.num_observables);
-    result.final_status.reserve(shot_count * circuit.num_qubits);
-    result.heralds.reserve(shot_count * circuit.num_measurements);
-
-    const InstrumentTraceOptions instrument_options = instrument_trace_options(model);
-
-    // The all-computational starting continuation is the common low-transition
-    // path, so compile it lazily once and reuse it across shots. Other
-    // continuations live only for the shot that reaches them.
-    TrajectoryEvents no_events;
-    no_events.initial_status.assign(circuit.num_qubits, QubitStatus::Computational);
-    std::optional<CompiledContinuation> computational_start;
-
-    // Reuse one state across shots. resume() can grow it for larger
-    // continuations. A starting module cannot use that trap-only growth path,
-    // so rebuild the state when it needs more rank or measurement slots. Keep
-    // the largest capacity seen in either dimension so later shots do not
-    // shrink it.
-    auto make_state = [&](const CompiledModule& m, uint32_t peak_rank, uint32_t total_meas_slots) {
-        return SchrodingerState(StateConfig{
-            .peak_rank = peak_rank,
-            .num_measurements = total_meas_slots,
-            .num_qubits = m.num_qubits,
-            .num_detectors = m.num_detectors,
-            .num_observables = m.num_observables,
-            .seed = 0});  // placeholder; reseed() supplies the per-shot seed before execution
-    };
-    uint32_t state_rank = 0;
-    uint32_t state_slots = 0;
-    std::optional<SchrodingerState> state_storage;
-
-    for (uint32_t shot = 0; shot < shots; ++shot) {
-        const auto dw = derive_state(root, shot, kTrajectoryDriverDomain);
-        Xoshiro256PlusPlus driver_rng(0);
-        driver_rng.seed_full(dw[0], dw[1], dw[2], dw[3]);
-
-        TrajectoryEvents events;
-        events.initial_status.reserve(circuit.num_qubits);
-        // QubitStatus::Computational does not distinguish g from e. Keep the
-        // sampled levels separately so an initial e can set the Pauli frame
-        // before execution.
-        std::vector<Level> initial_levels;
-        initial_levels.reserve(circuit.num_qubits);
-        bool any_noncomp_initial = false;
-        for (uint32_t q = 0; q < circuit.num_qubits; ++q) {
-            const Level level = draw_initial_level(model, driver_rng);
-            initial_levels.push_back(level);
-            events.initial_status.push_back(status_for(level));
-            any_noncomp_initial |= !is_computational(events.initial_status.back());
-        }
-
-        // Source levels for trace-out measurements that the continuation must
-        // force. The vector index is the hidden measurement slot.
-        std::vector<uint8_t> forced_buffer;
-
-        // Draw each visible slot's herald flag only the first time that
-        // classified measurement appears in a continuation.
-        std::map<uint32_t, uint8_t> herald_flags;
-        auto flags_for = [&](const ContinuationRewrite& rw) {
-            std::vector<uint8_t> flags;
-            flags.reserve(rw.classified_measurements.size());
-            for (const ClassifiedMeasurement& m : rw.classified_measurements) {
-                auto [it, inserted] = herald_flags.try_emplace(m.slot, 0);
-                if (inserted && ternary) {
-                    const double p_herald =
-                        classifier->prob(MeasurementClassifier::kHeraldSymbol, m.level);
-                    it->second = driver_rng.next_double() < p_herald ? 1 : 0;
-                }
-                flags.push_back(it->second);
-            }
-            return flags;
-        };
-
-        // A noncomputational initial state needs a shot-specific rewrite. The
-        // all-computational rewrite contains only VM instruments and is shared
-        // across shots. It is compiled lazily so an unreachable starting state
-        // cannot fail max_rank validation.
-        std::optional<CompiledContinuation> shot_continuation;
-        const CompiledContinuation* continuation = nullptr;
-        if (any_noncomp_initial) {
-            extend_classical_outcomes(annotated, events, model, driver_rng);
-            ContinuationRewrite rewrite = rewrite_continuation(annotated, events, false, model);
-            const std::vector<uint8_t> flags = flags_for(rewrite);
-            shot_continuation.emplace(compile_continuation(
-                std::move(rewrite), flags, instrument_options, max_rank, nullptr, 0));
-            continuation = &*shot_continuation;
-        } else {
-            if (!computational_start.has_value()) {
-                ContinuationRewrite rewrite =
-                    rewrite_continuation(annotated, no_events, false, model);
-                assert(rewrite.classified_measurements.empty() &&
-                       "an all-computational continuation has no classified measurements");
-                computational_start.emplace(compile_continuation(
-                    std::move(rewrite), {}, instrument_options, max_rank, nullptr, 0));
-            }
-            continuation = &*computational_start;
-        }
-
-        if (!state_storage.has_value()) {
-            state_rank = continuation->module.peak_rank;
-            state_slots = continuation->module.total_meas_slots;
-            state_storage.emplace(make_state(continuation->module, state_rank, state_slots));
-        } else {
-            state_storage->reset();
-            if (continuation->module.peak_rank > state_rank ||
-                continuation->module.total_meas_slots > state_slots) {
-                state_rank = std::max(state_rank, continuation->module.peak_rank);
-                state_slots = std::max(state_slots, continuation->module.total_meas_slots);
-                state_storage.emplace(make_state(continuation->module, state_rank, state_slots));
-            }
-        }
-        SchrodingerState& state = *state_storage;
-        const auto sw = derive_state(root, shot, kTrajectoryExecutorDomain);
-        state.reseed_full(sw[0], sw[1], sw[2], sw[3]);
-        assert(state.meas_record.size() >= continuation->module.total_meas_slots &&
-               "the rebuild block above guarantees meas_record capacity; "
-               "meas_record never shrinks");
-        // Represent an initial e as an X in the per-shot Pauli frame instead of
-        // compiling a separate module.
-        for (uint32_t q = 0; q < circuit.num_qubits; ++q) {
-            if (initial_levels[q] == Level::E) {
-                bit_set(state.p_x, q, true);
-            }
-        }
-        state.next_noise_idx = 0;
-        state.draw_next_noise(continuation->module.constant_pool.noise_hazards);
-        execute(continuation->module, state);
-
-        while (state.pending_trap.has_value()) {
-            const SchrodingerState::InstrumentTrap trap = *state.pending_trap;
-            if (trap.site_id >= continuation->site_targets.size()) {
-                throw std::logic_error(
-                    "sample_noncomputational: trap site id is out of range of the executing "
-                    "module's site table");
-            }
-            const auto [op_index, qubit] = continuation->site_targets[trap.site_id];
-            const AstNode& node = annotated.nodes[op_index];
-            const AnnotationChannel channel = resolve_annotation(node, model, op_index);
-
-            // If destination_pending is true, the VM selected only the source,
-            // so draw from the full transition column. Otherwise the VM already
-            // constrained the destination to leaked or lost levels, and the
-            // driver selects the specific level when needed. Source indices 0
-            // and 1 correspond to g and e.
-            assert(trap.source <= 1 &&
-                   "the VM reports the collapsed source as a computational axis index");
-            const Level source = static_cast<Level>(trap.source);
-            Level dest;
-            switch (channel.kind) {
-                case AnnotationChannelKind::Instrument:
-                    if (trap.destination_pending) {
-                        dest = draw_from_column(*channel.instrument, source, driver_rng,
-                                                [](Level) { return true; });
-                    } else {
-                        dest = draw_from_column(*channel.instrument, source, driver_rng,
-                                                [](Level to) { return !is_computational(to); });
-                    }
-                    break;
-                case AnnotationChannelKind::Leakage:
-                    dest = source == Level::G ? Level::LeakG : Level::LeakE;
-                    break;
-                case AnnotationChannelKind::Loss:
-                    dest = Level::Lost;
-                    break;
-            }
-
-            events.jumps.push_back({{op_index, qubit}, dest});
-            extend_classical_outcomes(annotated, events, model, driver_rng);
-
-            // When destination_pending is true, the VM has not collapsed the
-            // qubit. Force the continuation's hidden trace-out measurement to
-            // the reported source. Supplying it through per-shot state keeps
-            // the continuation bytecode independent of the g/e source.
-            const bool force = trap.destination_pending;
-            const uint32_t prefix_end = continuation->module.instrument_offsets[trap.site_id] + 1;
-
-            // Rebuild from the original circuit using all events seen so far.
-            // The new module reproduces the executed prefix and specializes
-            // the remaining suffix; resume() skips the prefix and continues
-            // immediately after this instrument.
-            ContinuationRewrite next_rewrite =
-                rewrite_continuation(annotated, events, force, model);
-            const std::vector<uint8_t> next_flags = flags_for(next_rewrite);
-            CompiledContinuation next =
-                compile_continuation(std::move(next_rewrite), next_flags, instrument_options,
-                                     max_rank, &continuation->module, prefix_end);
-
-            if (force) {
-                assert(next.forced_traceout_slot.has_value() &&
-                       "forced trace-out slot not populated by compile_continuation");
-                const size_t slot = *next.forced_traceout_slot;
-                if (forced_buffer.size() <= slot) {
-                    forced_buffer.resize(slot + 1, 0);
-                }
-                forced_buffer[slot] = trap.source;
-                // The span must be re-pointed after any resize.
-                state.forced_record = forced_buffer;
-            }
-
-            // Reusing one shot-specific slot bounds retained compiled programs
-            // independently of the number of traps and shots. The assignment
-            // destroys an existing shot-specific module, never the shared
-            // all-computational start; compile_continuation has finished
-            // reading the executed prefix before this point.
-            shot_continuation = std::move(next);
-            continuation = &*shot_continuation;
-            // resume() grows the state for this continuation when needed. Track
-            // the new capacities so rebuilding for a later shot never shrinks
-            // them.
-            state_rank = std::max(state_rank, continuation->module.peak_rank);
-            state_slots = std::max(state_slots, continuation->module.total_meas_slots);
-            resume(continuation->module, state,
-                   continuation->module.instrument_offsets[trap.site_id] + 1);
-        }
-
-        // Emit the visible records. The noncomputational path never sets
-        // expected_observables, so no reference normalization applies.
-        result.measurements.insert(result.measurements.end(), state.meas_record.begin(),
-                                   state.meas_record.begin() + circuit.num_measurements);
-        result.detectors.insert(result.detectors.end(), state.det_record.begin(),
-                                state.det_record.end());
-        result.observables.insert(result.observables.end(), state.obs_record.begin(),
-                                  state.obs_record.end());
-        result.final_status.insert(result.final_status.end(), continuation->final_status.begin(),
-                                   continuation->final_status.end());
-        std::vector<uint8_t> shot_heralds(circuit.num_measurements, 0);
-        for (const auto& [slot, flag] : herald_flags) {
-            shot_heralds[slot] = flag;
-        }
-        result.heralds.insert(result.heralds.end(), shot_heralds.begin(), shot_heralds.end());
-    }
-
-    return result;
-}
-
-NonComputationalSample run_sampling_trajectory_driver(const Circuit& circuit,
-                                                      const NonComputationalModel& model,
-                                                      uint32_t shots, const SeedRoot& root,
-                                                      std::optional<uint32_t> max_rank) {
-    NonComputationalSample result;
-    result.shots = shots;
-    result.num_qubits = circuit.num_qubits;
-    result.num_measurements = circuit.num_measurements;
-    result.num_detectors = circuit.num_detectors;
-    result.num_observables = circuit.num_observables;
-    const MeasurementClassifier* classifier = model.classifier();
-    const bool ternary = classifier != nullptr && classifier->has_herald();
     const Circuit annotated = prepare_trajectory_circuit(circuit, model);
     if (shots == 0) {
         return result;
@@ -1020,7 +673,7 @@ NonComputationalSample run_sampling_trajectory_driver(const Circuit& circuit,
 
             assert(trap.source <= 1 && "the executor reports a computational source as G or E");
             const Level source = static_cast<Level>(trap.source);
-            Level destination;
+            Level destination = source;
             switch (channel.kind) {
                 case AnnotationChannelKind::Instrument:
                     if (trap.destination_pending) {

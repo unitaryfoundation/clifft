@@ -29,4 +29,4 @@ Pre-generated circuit files live in `fixtures/`:
 
 - **`qv20_seed42.stim`** — 20-qubit Quantum Volume circuit (seed=42) in Stim-superset
   format. Peak rank 20 (2^20 = 1M complex amplitudes, 16 MB statevector).
-  Useful for profiling SVM array operations and benchmarking multi-core scaling.
+  Useful for profiling dense active-state kernels.

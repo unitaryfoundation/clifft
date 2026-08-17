@@ -9,40 +9,21 @@ namespace clifft {
 
 std::unique_ptr<HirPass> make_hir_pass(std::string_view name) {
     for (const auto& info : kRegisteredPasses) {
-        if (info.kind == PassKind::HIR && info.name == name) {
-            return info.make_hir();
+        if (info.name == name) {
+            return info.make();
         }
     }
     throw std::invalid_argument("Unknown HIR pass: " + std::string(name));
 }
 
-std::unique_ptr<BytecodePass> make_bytecode_pass(std::string_view name) {
-    for (const auto& info : kRegisteredPasses) {
-        if (info.kind == PassKind::Bytecode && info.name == name) {
-            return info.make_bc();
-        }
-    }
-    throw std::invalid_argument("Unknown bytecode pass: " + std::string(name));
-}
-
 HirPassManager default_hir_pass_manager() {
     HirPassManager pm;
     for (const auto& info : kRegisteredPasses) {
-        if (info.kind == PassKind::HIR && info.default_enabled) {
-            pm.add_pass(info.make_hir());
+        if (info.default_enabled) {
+            pm.add_pass(info.make());
         }
     }
     return pm;
-}
-
-BytecodePassManager default_bytecode_pass_manager() {
-    BytecodePassManager bpm;
-    for (const auto& info : kRegisteredPasses) {
-        if (info.kind == PassKind::Bytecode && info.default_enabled) {
-            bpm.add_pass(info.make_bc());
-        }
-    }
-    return bpm;
 }
 
 std::string pass_registry_json() {
@@ -54,7 +35,7 @@ std::string pass_registry_json() {
         out += "{\"name\":\"";
         out += p.name;
         out += "\",\"kind\":\"";
-        out += (p.kind == PassKind::HIR) ? "hir" : "bytecode";
+        out += "hir";
         out += "\",\"default\":";
         out += p.default_enabled ? "true" : "false";
         out += ",\"preserves_record_order\":";

@@ -64,10 +64,6 @@ The C++ core is unit-tested with `Catch2`. These tests target individual layers 
   rotation, measurement, and instrument suites compare scalar and SIMD
   implementations across width and mask boundaries.
 
-The legacy backend and SVM suites remain as private differential oracles while
-the implementation is being removed. Passing them does not make their Python
-types or bytecode part of the production API.
-
 ## Running the Tests
 
 We use `pytest` for the Python oracles and `CTest` for the C++ units. You can run the test suites locally using the provided `just` shortcuts.

@@ -366,9 +366,8 @@ without expanding the entire physical statevector. See
 [Basis-State Probabilities](../theory/basis_probabilities.md) for the
 algorithm.
 
-`record_probabilities()` rewrites each sampling measurement opcode to a
-forced-outcome sibling and runs the program once per record. The forced
-kernels replace the PRNG draw with the user-supplied outcome and accumulate
-the log-probability of that choice into a running scalar, using the same
-dust-clamping convention as the sampler. The original `CompiledModule` is
-not mutated; the rewrite runs on a private shallow copy.
+`record_probabilities()` replays each requested measurement record through the
+executable sampling plan. Replay replaces each measurement draw with the
+requested outcome and accumulates its log-probability using the same
+dust-clamping convention as ordinary sampling. The plan is immutable and can
+be reused for subsequent samples or queries.

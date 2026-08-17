@@ -15,7 +15,7 @@ import numpy as np
 import pytest
 from conftest import random_clifford_t_circuit
 
-from clifft import _legacy
+import clifft
 
 # =============================================================================
 # Helpers
@@ -52,8 +52,8 @@ def pauli_expectation(sv: np.ndarray, pauli_str: str, num_qubits: int) -> float:
 
 
 def clifft_statevector(circuit_str: str) -> np.ndarray:
-    """Compile and execute through the retained legacy statevector oracle."""
-    return np.array(_legacy.statevector(circuit_str, hir_passes=None, bytecode_passes=None))
+    """Compile and expand a circuit without applying HIR optimizations."""
+    return np.array(clifft.get_statevector(clifft.compile(circuit_str, hir_passes=None)))
 
 
 def random_pauli_product(num_qubits: int, rng: np.random.Generator) -> str:
@@ -286,13 +286,6 @@ class TestNoExpValRegression:
         """Program reports num_exp_vals == 0."""
         prog = sampling_api.compile("H 0\nM 0")
         assert prog.num_exp_vals == 0
-
-    def test_no_exp_val_opcode_in_bytecode(self) -> None:
-        """No OP_EXP_VAL appears in bytecode for a plain circuit."""
-        prog = _legacy.compile("H 0\nCX 0 1\nM 0\nM 1", hir_passes=None, bytecode_passes=None)
-        for inst in prog:
-            d = inst.as_dict()
-            assert d["opcode"] != "OP_EXP_VAL"
 
     def test_measurements_unchanged(self, sampling_api: Any) -> None:
         """Measurement outcomes match with and without EXP_VAL in circuit."""

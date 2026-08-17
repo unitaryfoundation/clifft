@@ -1,7 +1,6 @@
 #include "clifft/sampling/executor.h"
 #include "clifft/sampling/state_queries.h"
-#include "clifft/svm/svm.h"
-#include "clifft/svm/svm_math.h"
+#include "clifft/sampling/state_query_limits.h"
 
 #include <bit>
 #include <cassert>
@@ -14,8 +13,6 @@
 
 namespace clifft {
 namespace {
-
-constexpr uint32_t kMaxStatevectorQubits = 10;
 
 std::complex<double> exact_clifford_factor(std::complex<float> factor, double support_magnitude) {
     if (factor == std::complex<float>{0.0F, 0.0F}) {
@@ -38,7 +35,7 @@ std::complex<double> exact_clifford_factor(std::complex<float> factor, double su
 }
 
 void validate_statevector_size(uint32_t num_qubits) {
-    if (num_qubits > kMaxStatevectorQubits) {
+    if (num_qubits > sampling::kMaxExpandedStatevectorQubits) {
         throw std::runtime_error(
             "Statevector expansion limited to 10 qubits (dense U_C matrix is 4^n)");
     }
@@ -54,6 +51,7 @@ std::vector<std::complex<double>> expand_factored_state(
     assert(active_width <= num_qubits && "active width exceeds physical qubit count");
     assert(active_size == (uint64_t{1} << active_width) &&
            "active coefficient count does not match active width");
+    static_cast<void>(active_width);
 
     // Active coordinates occupy the low bits and dormant coordinates are
     // |0>. Apply the virtual Pauli frame while embedding so the dense
@@ -95,27 +93,6 @@ std::vector<std::complex<double>> expand_factored_state(
 }
 
 }  // namespace
-
-std::vector<std::complex<double>> get_statevector(const CompiledModule& program,
-                                                  const SchrodingerState& state) {
-    validate_statevector_size(program.num_qubits);
-    uint64_t pauli_x = 0;
-    uint64_t pauli_z = 0;
-    for (uint32_t q = 0; q < program.num_qubits; ++q) {
-        if (bit_get(state.p_x, q)) {
-            pauli_x |= uint64_t{1} << q;
-        }
-        if (bit_get(state.p_z, q)) {
-            pauli_z |= uint64_t{1} << q;
-        }
-    }
-    const stim::Tableau<kStimWidth>* final_tableau =
-        program.constant_pool.final_tableau ? &*program.constant_pool.final_tableau : nullptr;
-    return expand_factored_state(program.num_qubits, state.active_k, state.v_size(), pauli_x,
-                                 pauli_z, final_tableau,
-                                 state.gamma() * program.constant_pool.global_weight,
-                                 [&](uint64_t index) { return state.v()[index]; });
-}
 
 namespace sampling {
 

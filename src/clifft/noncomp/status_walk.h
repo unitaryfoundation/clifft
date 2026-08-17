@@ -6,7 +6,8 @@
 // The rewriter and runtime driver must agree on which qubits an operation
 // affects, whether to apply, drop, or reject it, how it changes each qubit's
 // computational, leaked, or lost status, and which measurements must be
-// handled outside the VM. This file keeps those decisions in one place.
+// handled outside the quantum executor. This file keeps those decisions in
+// one place.
 
 #include "clifft/circuit/circuit.h"
 #include "clifft/noncomp/level.h"
@@ -67,7 +68,7 @@ struct OrdinaryStep {
 
 // Range-check the node's operands, apply the whole-operation policy, advance
 // `status`, and report the qubit and leaked/lost level when a measurement
-// must be classified outside the SVM.
+// must be classified outside the quantum executor.
 OrdinaryStep advance_ordinary_node(const AstNode& node, uint32_t op_index,
                                    std::vector<QubitStatus>& status,
                                    const NonComputationalPolicy& policy, std::string_view caller);

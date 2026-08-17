@@ -458,11 +458,10 @@ void validate_instrument_probabilities(const InstrumentProbabilities& probabilit
 }  // namespace
 
 HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instruments) {
-    // The downstream VM uses uint16_t axis operands, so anything above
-    // 65536 cannot be lowered. Reject early to avoid the cost of
-    // allocating a Stim TableauSimulator (~O(n^2) bits) we'll discard.
+    // Avoid an accidental multi-gigabyte Stim tableau allocation. This
+    // conservative safety ceiling is far above practical circuit sizes.
     if (circuit.num_qubits > 65536) {
-        throw std::runtime_error("Circuit exceeds 65536-qubit VM axis limit: " +
+        throw std::runtime_error("Circuit exceeds the 65536-qubit frontend safety limit: " +
                                  std::to_string(circuit.num_qubits) + " qubits");
     }
     if (instruments != nullptr && instruments->forced_traceout_node.has_value()) {

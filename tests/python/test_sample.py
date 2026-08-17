@@ -11,7 +11,6 @@ from conftest import (
 )
 
 import clifft
-from clifft import _legacy
 
 
 class TestCompile:
@@ -48,16 +47,6 @@ class TestCompile:
         assert isinstance(program, clifft.Program)
         assert program.num_actions > 0
         assert clifft.sample(program, 1, seed=1).measurements.shape == (1, 1)
-
-    def test_legacy_and_public_programs_do_not_cross_executor_boundaries(self) -> None:
-        """The private oracle cannot accidentally select a public execution path."""
-        program = clifft.compile("M 0")
-        legacy_program = _legacy.compile("M 0")
-
-        with pytest.raises(TypeError):
-            clifft.sample(legacy_program, 1)
-        with pytest.raises(TypeError):
-            _legacy.sample(program, 1)
 
 
 class TestSample:
@@ -98,6 +87,37 @@ class TestSample:
         assert np.all(
             result.measurements[:, 0] == result.measurements[:, 1]
         ), "Bell state not correlated"
+
+    def test_biased_entangled_measurements_match_analytic_distribution(
+        self, sampling_api: Any
+    ) -> None:
+        """A coherent T rotation biases both members of an entangled pair."""
+        program = sampling_api.compile("H 0\nT 0\nH 0\nCX 0 1\nM 0 1")
+        shots = 50_000
+        result = sampling_api.sample(program, shots, seed=42)
+
+        expected_p0 = (1.0 + np.cos(np.pi / 4.0)) / 2.0
+        tolerance = binomial_tolerance(expected_p0, shots)
+        for column in range(2):
+            observed_p0 = float(np.mean(result.measurements[:, column] == 0))
+            assert abs(observed_p0 - expected_p0) < tolerance
+
+        np.testing.assert_array_equal(result.measurements[:, 0], result.measurements[:, 1])
+
+    def test_repeated_active_state_expansion_and_compaction(self, sampling_api: Any) -> None:
+        """Repeated inject-entangle-measure rounds retain a bounded active state."""
+        rounds = 256
+        lines = ["H 0", "T 0"]
+        for _ in range(rounds):
+            lines.extend(["H 1", "T 1", "CX 1 0", "M 1", "R 1"])
+        lines.append("M 0")
+
+        program = sampling_api.compile("\n".join(lines), hir_passes=None)
+        assert program.peak_rank == 2
+
+        result = sampling_api.sample(program, shots=64, seed=7)
+        assert result.measurements.shape == (64, rounds + 1)
+        assert np.all((result.measurements == 0) | (result.measurements == 1))
 
     def test_sample_reproducible(self, sampling_api: Any) -> None:
         """Same seed produces same results."""
@@ -309,33 +329,9 @@ class TestStatevector:
         expected = np.array([1 / np.sqrt(2), 1 / np.sqrt(2)], dtype=np.complex128)
         np.testing.assert_allclose(sv, expected, atol=1e-15, rtol=0)
 
-    def test_statevector_after_measurement(self) -> None:
-        """Statevector correctly handles active rank after measurement."""
-        circuit = "H 0\nT 0\nM 0"
-        prog = _legacy.compile(circuit, hir_passes=None, bytecode_passes=None)
-
-        state = _legacy.State(
-            peak_rank=prog.peak_rank, num_measurements=prog.num_measurements, seed=42
-        )
-        _legacy.execute(prog, state)
-        sv = _legacy.get_statevector(prog, state)
-
-        # Statevector must be perfectly normalized (catches garbage memory bug)
-        norm = float(np.sqrt(np.sum(np.abs(sv) ** 2)))
-        assert abs(norm - 1.0) < 1e-10, f"Not normalized: {norm}"
-
-        # The state must be cleanly collapsed AND match the measurement record
-        outcome = state.meas_record[0]
-        if outcome == 0:
-            assert abs(abs(sv[0]) - 1.0) < 1e-5, f"Expected |0> but got {sv}"
-            assert abs(sv[1]) < 1e-5, f"Expected no |1> component but got {sv}"
-        else:
-            assert abs(abs(sv[1]) - 1.0) < 1e-5, f"Expected |1> but got {sv}"
-            assert abs(sv[0]) < 1e-5, f"Expected no |0> component but got {sv}"
-
 
 class TestCliffordValidation:
-    """Validate pure-Clifford statevectors against Stim."""
+    """Validate exact Clifford evolution against Stim."""
 
     def test_random_clifford_single_qubit(self, statevector_from_circuit: Any) -> None:
         """Random 1-qubit Clifford circuits match Stim."""
@@ -734,15 +730,6 @@ class TestPostselection:
         with pytest.raises(ValueError, match="sample_survivors"):
             sampling_api.sample(prog, 10)
 
-    def test_private_legacy_sample_rejects_postselection(self) -> None:
-        """The differential oracle must not expose discarded rows as samples."""
-        program = _legacy.compile(
-            "H 0\nM 0\nDETECTOR rec[-1]",
-            postselection_mask=[1],
-        )
-        with pytest.raises(ValueError, match="cannot be used with post-selected"):
-            _legacy.sample(program, 10, seed=1)
-
     def test_sample_k_raises_on_postselected_program(self) -> None:
         """sample_k() raises ValueError when program has postselection."""
         circuit = """
@@ -1104,21 +1091,6 @@ class TestExpVal:
         """HirModule.num_exp_vals reports the correct count."""
         hir = clifft.trace(clifft.parse("EXP_VAL X0*Y1 Z2"))
         assert hir.num_exp_vals == 2
-
-    def test_state_exp_vals(self) -> None:
-        """State.exp_vals is accessible and correctly sized."""
-        state = _legacy.State(peak_rank=1, num_measurements=0, num_exp_vals=2)
-        assert len(state.exp_vals) == 2
-
-    def test_state_constructor_requires_keywords(self) -> None:
-        """State constructor rejects positional arguments beyond self."""
-        with pytest.raises(TypeError):
-            _legacy.State(1, 0)
-
-    def test_state_constructor_seed_keyword(self) -> None:
-        """Keyword seed does not affect exp_vals sizing."""
-        state = _legacy.State(peak_rank=1, num_measurements=0, seed=42)
-        assert len(state.exp_vals) == 0
 
     def test_exp_val_multiple_probes(self) -> None:
         """Multiple EXP_VAL probes return consecutive columns."""

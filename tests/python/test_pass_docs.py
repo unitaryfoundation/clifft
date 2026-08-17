@@ -24,7 +24,6 @@ def _extract_cpp_passes() -> dict[str, dict[str, object]]:
     for entry_match in re.finditer(r"\{(.*?)\},", match.group(1), re.DOTALL):
         entry = entry_match.group(1)
         name_match = re.search(r'\.name\s*=\s*"([^"]+)"', entry)
-        kind_match = re.search(r"\.kind\s*=\s*PassKind::(\w+)", entry)
         default_match = re.search(r"\.default_enabled\s*=\s*(true|false)", entry)
         record_order_match = re.search(
             r"\.record_order\s*=\s*k(Preserves|Breaks)RecordOrder", entry
@@ -34,13 +33,12 @@ def _extract_cpp_passes() -> dict[str, dict[str, object]]:
         )
 
         assert name_match, f"Registered pass entry missing .name: {entry}"
-        assert kind_match, f"Registered pass entry missing .kind: {entry}"
         assert default_match, f"Registered pass entry missing .default_enabled: {entry}"
         assert record_order_match, f"Registered pass entry missing .record_order: {entry}"
         assert prefix_match, f"Registered pass entry missing .instrument_prefix: {entry}"
 
         passes[name_match.group(1)] = {
-            "kind": kind_match.group(1),
+            "kind": "HIR",
             "default_enabled": default_match.group(1) == "true",
             "preserves_record_order": record_order_match.group(1) == "Preserves",
             "preserves_instrument_prefix": prefix_match.group(1) == "Preserves",

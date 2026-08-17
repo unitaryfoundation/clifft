@@ -1,9 +1,6 @@
-"""Differential checks for the default optimization pipelines.
+"""Differential checks for the default HIR optimization pipeline.
 
-The default bytecode pipeline must preserve the PRNG trajectory exactly (bit-for-bit
-identical classical arrays given the same seed).
-
-The default HIR pipeline is checked through statevector equivalence and statistical
+The pipeline is checked through statevector equivalence and statistical
 distribution matching (marginal probabilities agree within binomial
 tolerance on noisy circuits).
 """
@@ -25,220 +22,16 @@ from utils_fuzzing import (
 )
 
 import clifft
-from clifft import _legacy
 
-# Helpers.
-
-_MAX_PEAK_RANK = 12  # OOM guard: 4096 amplitudes (~64 KB)
-
-
-def run_differential_trajectory(circuit_str: str, shots: int, seed: int) -> None:
-    """Compile with and without bytecode passes, assert identical output.
-
-    The baseline uses no passes at all. The optimized version uses only
-    bytecode passes (no HIR passes) so that the lowered instruction stream
-    is identical up to bytecode-level rewrites.
-    """
-    base_prog = _legacy.compile(circuit_str, hir_passes=None, bytecode_passes=None)
-    opt_prog = _legacy.compile(
-        circuit_str,
-        hir_passes=None,
-        bytecode_passes=_legacy.default_bytecode_pass_manager(),
-    )
-
-    # Program-shape checks.
-    assert (
-        base_prog.peak_rank <= _MAX_PEAK_RANK
-    ), f"Generator bug: peak_rank={base_prog.peak_rank} exceeds OOM guard {_MAX_PEAK_RANK}"
-    assert (
-        opt_prog.peak_rank <= base_prog.peak_rank
-    ), f"Optimizer inflated peak_rank: {opt_prog.peak_rank} > {base_prog.peak_rank}"
-    assert opt_prog.num_instructions <= base_prog.num_instructions, (
-        f"Optimizer inflated instruction count: "
-        f"{opt_prog.num_instructions} > {base_prog.num_instructions}"
-    )
-    assert opt_prog.num_measurements == base_prog.num_measurements, (
-        f"Optimizer changed measurement count: "
-        f"{opt_prog.num_measurements} != {base_prog.num_measurements}"
-    )
-
-    # PRNG trajectory synchronization.
-    base_result = _legacy.sample(base_prog, shots, seed=seed)
-    opt_result = _legacy.sample(opt_prog, shots, seed=seed)
-
-    np.testing.assert_array_equal(
-        base_result.measurements,
-        opt_result.measurements,
-        err_msg="Measurement records diverged after bytecode optimization",
-    )
-    np.testing.assert_array_equal(
-        base_result.detectors,
-        opt_result.detectors,
-        err_msg="Detector records diverged after bytecode optimization",
-    )
-    np.testing.assert_array_equal(
-        base_result.observables,
-        opt_result.observables,
-        err_msg="Observable records diverged after bytecode optimization",
-    )
-
-
-# Generator configurations as num_qubits, depth pairs.
-
-_SMALL_CONFIGS = [(10, 100), (20, 200)]
-_LARGE_CONFIGS = [(50, 500)]
+_MAX_PEAK_RANK = 12
 _SEEDS = [0, 1, 2, 3, 4]
-_SHOTS = 100
-
-
-class TestRandomCommutationCircuits:
-    """Bytecode invariants on randomized commutation circuits."""
-
-    @pytest.mark.parametrize("seed", _SEEDS)
-    @pytest.mark.parametrize("nq,depth", _SMALL_CONFIGS)
-    def test_small(self, nq: int, depth: int, seed: int) -> None:
-        circuit = generate_random_commutation_circuit(nq, depth, seed=seed)
-        run_differential_trajectory(circuit, _SHOTS, seed=seed)
-
-    @pytest.mark.parametrize("seed", _SEEDS)
-    @pytest.mark.parametrize("nq,depth", _LARGE_CONFIGS)
-    def test_large(self, nq: int, depth: int, seed: int) -> None:
-        circuit = generate_random_commutation_circuit(nq, depth, seed=seed)
-        run_differential_trajectory(circuit, _SHOTS, seed=seed)
-
-
-class TestStarGraphCircuits:
-    """Bytecode invariants on star-graph stress circuits."""
-
-    @pytest.mark.parametrize("seed", _SEEDS)
-    @pytest.mark.parametrize("nq,depth", _SMALL_CONFIGS)
-    def test_small(self, nq: int, depth: int, seed: int) -> None:
-        circuit = generate_star_graph_stress_circuit(nq, depth, seed=seed)
-        run_differential_trajectory(circuit, _SHOTS, seed=seed)
-
-    @pytest.mark.parametrize("seed", _SEEDS)
-    @pytest.mark.parametrize("nq,depth", _LARGE_CONFIGS)
-    def test_large(self, nq: int, depth: int, seed: int) -> None:
-        circuit = generate_star_graph_stress_circuit(nq, depth, seed=seed)
-        run_differential_trajectory(circuit, _SHOTS, seed=seed)
-
-
-class TestUncomputationLadder:
-    """Bytecode invariants on uncomputation ladder circuits."""
-
-    @pytest.mark.parametrize("seed", _SEEDS)
-    @pytest.mark.parametrize("nq,depth", _SMALL_CONFIGS)
-    def test_small(self, nq: int, depth: int, seed: int) -> None:
-        circuit = generate_uncomputation_ladder(nq, depth, seed=seed)
-        run_differential_trajectory(circuit, _SHOTS, seed=seed)
-
-    @pytest.mark.parametrize("seed", _SEEDS)
-    @pytest.mark.parametrize("nq,depth", _LARGE_CONFIGS)
-    def test_large(self, nq: int, depth: int, seed: int) -> None:
-        circuit = generate_uncomputation_ladder(nq, depth, seed=seed)
-        run_differential_trajectory(circuit, _SHOTS, seed=seed)
-
-
-class TestDefaultHirUncomputationLadder:
-    """Check the default HIR pipeline on noiseless uncomputation ladders.
-
-    Because U * U_dag = I analytically, all final measurements are
-    deterministic (outcome 0). The VM epsilon patch ensures both the
-    unoptimized path (which sees FP dust in active measurements) and the
-    optimized path (which collapses peak_rank via T-gate cancellation)
-    bypass the PRNG entirely, producing identical all-zero records.
-    """
-
-    @pytest.mark.parametrize("seed", _SEEDS)
-    @pytest.mark.parametrize("nq,depth", _SMALL_CONFIGS)
-    def test_small(self, nq: int, depth: int, seed: int) -> None:
-        circuit = generate_uncomputation_ladder(nq, depth, seed=seed, noise_prob=0.0)
-        base = _legacy.compile(circuit, hir_passes=None, bytecode_passes=None)
-        opt = _legacy.compile(
-            circuit,
-            hir_passes=clifft.default_hir_pass_manager(),
-            bytecode_passes=None,
-        )
-
-        assert base.peak_rank <= _MAX_PEAK_RANK
-        assert opt.peak_rank <= base.peak_rank
-
-        base_result = _legacy.sample(base, _SHOTS, seed=seed)
-        opt_result = _legacy.sample(opt, _SHOTS, seed=seed)
-
-        # All measurements must be deterministic zero
-        np.testing.assert_array_equal(
-            base_result.measurements,
-            np.zeros_like(base_result.measurements),
-            err_msg="Unoptimized ladder produced non-zero measurements",
-        )
-        np.testing.assert_array_equal(
-            opt_result.measurements,
-            np.zeros_like(opt_result.measurements),
-            err_msg="Optimized ladder produced non-zero measurements",
-        )
-
-    @pytest.mark.parametrize("seed", _SEEDS)
-    @pytest.mark.parametrize("nq,depth", _LARGE_CONFIGS)
-    def test_large(self, nq: int, depth: int, seed: int) -> None:
-        circuit = generate_uncomputation_ladder(nq, depth, seed=seed, noise_prob=0.0)
-        base = _legacy.compile(circuit, hir_passes=None, bytecode_passes=None)
-        opt = _legacy.compile(
-            circuit,
-            hir_passes=clifft.default_hir_pass_manager(),
-            bytecode_passes=None,
-        )
-
-        assert base.peak_rank <= _MAX_PEAK_RANK
-        assert opt.peak_rank <= base.peak_rank
-
-        base_result = _legacy.sample(base, _SHOTS, seed=seed)
-        opt_result = _legacy.sample(opt, _SHOTS, seed=seed)
-
-        np.testing.assert_array_equal(
-            base_result.measurements, np.zeros_like(base_result.measurements)
-        )
-        np.testing.assert_array_equal(
-            opt_result.measurements, np.zeros_like(opt_result.measurements)
-        )
-
-    def test_dust_clamps_telemetry(self) -> None:
-        """Check that the unoptimized ladder generates FP dust that the VM clamps."""
-        # nq=4, depth=50 reliably produces base peak_rank=3 (active measurements
-        # that encounter analytically-zero branches) while the optimizer reduces
-        # peak_rank to 1. Both paths clamp dust, but the optimizer reduces it.
-        circuit = generate_uncomputation_ladder(4, 50, seed=42, noise_prob=0.0)
-
-        base = _legacy.compile(circuit, hir_passes=None, bytecode_passes=None)
-        assert base.peak_rank > 1, "Need active measurements to generate dust"
-        base_state = _legacy.State(
-            peak_rank=base.peak_rank, num_measurements=base.num_measurements, seed=42
-        )
-        _legacy.execute(base, base_state)
-        assert (
-            base_state.dust_clamps > 0
-        ), "Unoptimized ladder should clamp FP dust in active measurements"
-
-        opt = _legacy.compile(
-            circuit,
-            hir_passes=clifft.default_hir_pass_manager(),
-            bytecode_passes=None,
-        )
-        opt_state = _legacy.State(
-            peak_rank=opt.peak_rank, num_measurements=opt.num_measurements, seed=42
-        )
-        _legacy.execute(opt, opt_state)
-        assert (
-            opt_state.dust_clamps <= base_state.dust_clamps
-        ), "Optimizer should not increase the number of dust clamps"
-
 
 # Default HIR pipeline against statevectors.
 
 
 def _clifft_statevector(circuit_str: str, **compile_kwargs: Any) -> np.ndarray:
     """Compile and execute a noiseless circuit, return dense statevector."""
-    return np.asarray(_legacy.statevector(circuit_str, **compile_kwargs))
+    return np.asarray(clifft.get_statevector(clifft.compile(circuit_str, **compile_kwargs)))
 
 
 class TestDefaultHirStatevectorEquivalence:
@@ -253,33 +46,30 @@ class TestDefaultHirStatevectorEquivalence:
     @pytest.mark.parametrize("seed", _SEEDS)
     def test_random_clifford_t_5q(self, seed: int) -> None:
         circuit = random_clifford_t_circuit(5, 40, seed=seed)
-        base_sv = _clifft_statevector(circuit, hir_passes=None, bytecode_passes=None)
+        base_sv = _clifft_statevector(circuit, hir_passes=None)
         opt_sv = _clifft_statevector(
             circuit,
             hir_passes=clifft.default_hir_pass_manager(),
-            bytecode_passes=None,
         )
         assert_statevectors_equiv(opt_sv, base_sv)
 
     @pytest.mark.parametrize("seed", _SEEDS)
     def test_dense_clifford_t_4q(self, seed: int) -> None:
         circuit = random_dense_clifford_t_circuit(4, 50, seed=seed)
-        base_sv = _clifft_statevector(circuit, hir_passes=None, bytecode_passes=None)
+        base_sv = _clifft_statevector(circuit, hir_passes=None)
         opt_sv = _clifft_statevector(
             circuit,
             hir_passes=clifft.default_hir_pass_manager(),
-            bytecode_passes=None,
         )
         assert_statevectors_equiv(opt_sv, base_sv)
 
     @pytest.mark.parametrize("seed", _SEEDS)
     def test_dense_clifford_t_8q(self, seed: int) -> None:
         circuit = random_dense_clifford_t_circuit(8, 60, seed=seed)
-        base_sv = _clifft_statevector(circuit, hir_passes=None, bytecode_passes=None)
+        base_sv = _clifft_statevector(circuit, hir_passes=None)
         opt_sv = _clifft_statevector(
             circuit,
             hir_passes=clifft.default_hir_pass_manager(),
-            bytecode_passes=None,
         )
         assert_statevectors_equiv(opt_sv, base_sv)
 
@@ -317,48 +107,6 @@ class TestDefaultOptimizerStatisticalEquivalence:
                 f"Measurement column {col}: base={base_probs[col]:.4f}, "
                 f"opt={opt_probs[col]:.4f}, diff={diff:.4f}, tol={tol:.4f}"
             )
-
-    @pytest.mark.parametrize("seed", _SEEDS)
-    def test_star_graph_noisy_10q(self, seed: int) -> None:
-        circuit = generate_star_graph_stress_circuit(10, 100, seed=seed)
-        base = _legacy.compile(circuit, hir_passes=None, bytecode_passes=None)
-        opt = _legacy.compile(
-            circuit,
-            hir_passes=clifft.default_hir_pass_manager(),
-            bytecode_passes=_legacy.default_bytecode_pass_manager(),
-        )
-
-        base_result = _legacy.sample(base, _STAT_SHOTS, seed=seed)
-        opt_result = _legacy.sample(opt, _STAT_SHOTS, seed=seed)
-        self._assert_marginals_match(base_result.measurements, opt_result.measurements)
-
-    @pytest.mark.parametrize("seed", _SEEDS)
-    def test_random_commutation_noisy_20q(self, seed: int) -> None:
-        circuit = generate_random_commutation_circuit(20, 200, seed=seed)
-        base = _legacy.compile(circuit, hir_passes=None, bytecode_passes=None)
-        opt = _legacy.compile(
-            circuit,
-            hir_passes=clifft.default_hir_pass_manager(),
-            bytecode_passes=_legacy.default_bytecode_pass_manager(),
-        )
-
-        base_result = _legacy.sample(base, _STAT_SHOTS, seed=seed)
-        opt_result = _legacy.sample(opt, _STAT_SHOTS, seed=seed)
-        self._assert_marginals_match(base_result.measurements, opt_result.measurements)
-
-    @pytest.mark.parametrize("seed", _SEEDS)
-    def test_uncomputation_ladder_noisy_10q(self, seed: int) -> None:
-        circuit = generate_uncomputation_ladder(10, 100, seed=seed, noise_prob=0.02)
-        base = _legacy.compile(circuit, hir_passes=None, bytecode_passes=None)
-        opt = _legacy.compile(
-            circuit,
-            hir_passes=clifft.default_hir_pass_manager(),
-            bytecode_passes=_legacy.default_bytecode_pass_manager(),
-        )
-
-        base_result = _legacy.sample(base, _STAT_SHOTS, seed=seed)
-        opt_result = _legacy.sample(opt, _STAT_SHOTS, seed=seed)
-        self._assert_marginals_match(base_result.measurements, opt_result.measurements)
 
     @pytest.mark.parametrize("seed", _SEEDS)
     @pytest.mark.parametrize("circuit_kind", ["star", "commutation", "uncomputation"])

@@ -4,10 +4,8 @@
 // Key invariant: Clifford gates are absorbed, T gates emit HeisenbergOps
 // with correctly rewound Pauli masks.
 
-#include "clifft/backend/backend.h"
 #include "clifft/circuit/parser.h"
 #include "clifft/frontend/frontend.h"
-#include "clifft/svm/svm.h"
 
 #include "test_helpers.h"
 
@@ -548,14 +546,13 @@ TEST_CASE("Frontend: EXP_VAL inversion parity flips sign", "[frontend][exp_val]"
 TEST_CASE("Frontend: accepts circuits above the old fixed mask width", "[frontend]") {
     // Circuits above 128 used to throw at trace(). With
     // runtime-width Pauli mask storage, trace() accepts widths up to the
-    // VM axis ceiling (65536); the bytecode-axis check is shared between
-    // trace() and lower().
+    // frontend qubit ceiling (65536).
     Circuit circuit;
     circuit.num_qubits = 129;
     REQUIRE_NOTHROW(trace(circuit));
 }
 
-TEST_CASE("Frontend: rejects circuits above the VM axis ceiling", "[frontend]") {
+TEST_CASE("Frontend: rejects circuits above the qubit ceiling", "[frontend]") {
     Circuit circuit;
     circuit.num_qubits = 65537;
     REQUIRE_THROWS_AS(trace(circuit), std::runtime_error);
@@ -590,241 +587,6 @@ TEST_CASE("Frontend: high-qubit Pauli bits survive the runtime-arena round trip"
     // M 199 after H 199: rewound Z on q199 becomes X on q199.
     REQUIRE(hir.ops[1].op_type() == OpType::MEASURE);
     REQUIRE(hir.destab_mask(hir.ops[1]).bit_get(199));
-}
-
-TEST_CASE("Backend: accepts circuits above the old 128 boundary", "[frontend][high_qubit]") {
-    // Smoke test that the SVM-frame-width gate has been lifted. The HIR is
-    // empty so trace/lower don't even need to materialize ops; we just want
-    // lower() to succeed at the boundary that previously rejected.
-    HirModule hir;
-    hir.num_qubits = 129;
-    REQUIRE_NOTHROW(lower(hir));
-}
-
-TEST_CASE("Backend: high-axis measurement is not silently demoted to identity",
-          "[frontend][high_qubit]") {
-    // Lower a measurement on q127 (the high end of the first 128-qubit
-    // band) and verify the result is a real measurement, not a static
-    // identity. The identity check must walk the full mask width; if it
-    // ever reverted to a fixed-width scratch buffer it would treat any
-    // high-qubit-only support as zero and silently emit a deterministic
-    // measurement.
-    auto circuit = parse(R"(
-        H 127
-        M 127
-    )");
-    circuit.num_qubits = 128;
-    circuit.num_measurements = 1;
-
-    auto hir = trace(circuit);
-    REQUIRE(hir.ops.size() == 1);
-    REQUIRE(hir.ops[0].op_type() == OpType::MEASURE);
-    REQUIRE(hir.destab_mask(hir.ops[0]).bit_get(127));
-
-    auto mod = lower(hir);
-    bool found_non_identity_measure = false;
-    for (const auto& instr : mod.bytecode) {
-        if (instr.opcode == Opcode::OP_MEAS_DORMANT_STATIC ||
-            instr.opcode == Opcode::OP_MEAS_DORMANT_RANDOM ||
-            instr.opcode == Opcode::OP_MEAS_ACTIVE_DIAGONAL ||
-            instr.opcode == Opcode::OP_MEAS_ACTIVE_INTERFERE) {
-            CHECK_FALSE(instr.flags & Instruction::FLAG_IDENTITY);
-            found_non_identity_measure = true;
-        }
-    }
-    REQUIRE(found_non_identity_measure);
-}
-
-TEST_CASE("Frontend: high-qubit Paulis preserved across width boundaries",
-          "[frontend][high_qubit]") {
-    // Walk a few values straddling word and the old 128 limit.
-    auto check_at = [](uint32_t n, uint32_t high_q) {
-        Circuit circuit;
-        circuit.num_qubits = n;
-        AstNode h{};
-        h.gate = GateType::H;
-        h.targets.push_back(Target::qubit(high_q));
-        circuit.nodes.push_back(h);
-        AstNode t{};
-        t.gate = GateType::T;
-        t.targets.push_back(Target::qubit(high_q));
-        circuit.nodes.push_back(t);
-
-        auto hir = trace(circuit);
-        REQUIRE(hir.ops.size() == 1);
-        INFO("n=" << n << " high_q=" << high_q);
-        CHECK(hir.destab_mask(hir.ops[0]).bit_get(high_q));
-    };
-
-    check_at(70, 65);    // straddles word 0/1 boundary
-    check_at(150, 130);  // beyond old fixed mask width (128)
-    check_at(200, 199);  // last qubit at n=200
-    check_at(513, 512);  // bit 512 (word 8); 513 qubits => 9-word arena
-}
-
-// =============================================================================
-// Per-op-type end-to-end at qubit > 128
-// =============================================================================
-//
-// Each test traces a minimal circuit that produces one op of a given type
-// touching qubit 128, asserts trace() preserves the high-qubit support in
-// the HIR mask, lowers, and (for deterministic patterns) samples to confirm
-// the runtime path produces the correct outcome.
-//
-// num_qubits = 129 puts q128 in word 2 of the arena (num_words = 3) -- a
-// fixed-width 128-bit scratch buffer anywhere in the path would drop it.
-
-TEST_CASE("Backend: MEASURE at qubit 128 round-trips through SVM", "[frontend][high_qubit]") {
-    auto circuit = parse("H 128\nM 128");
-    circuit.num_qubits = 129;
-    circuit.num_measurements = 1;
-
-    auto hir = trace(circuit);
-    REQUIRE(hir.ops.size() == 1);
-    REQUIRE(hir.ops[0].op_type() == OpType::MEASURE);
-    REQUIRE(hir.destab_mask(hir.ops[0]).bit_get(128));  // X on q128 after H
-
-    auto mod = lower(hir);
-    auto result = sample(mod, 200, 0xC11FF7);
-    REQUIRE(result.measurements.size() == 200);
-    // H q128; M q128 is a random measurement: both branches must appear.
-    uint32_t zeros = 0, ones = 0;
-    for (auto b : result.measurements) {
-        if (b)
-            ++ones;
-        else
-            ++zeros;
-    }
-    REQUIRE(zeros > 0);
-    REQUIRE(ones > 0);
-}
-
-TEST_CASE("Backend: MPP across 128 boundary round-trips", "[frontend][high_qubit]") {
-    // MPP X63 * X128 spans words 0 and 2 -- exercises the cross-word
-    // build_pauli_string path that fixed-width intermediates would clip.
-    // After H 63; H 128 the prepared state is |+>_63 |+>_128 and X*X
-    // has eigenvalue +1, so the MPP outcome is deterministically 0.
-    auto circuit = parse("H 63\nH 128\nMPP X63*X128");
-    circuit.num_qubits = 129;
-    circuit.num_measurements = 1;
-
-    auto hir = trace(circuit);
-    auto mpp_op = std::find_if(hir.ops.begin(), hir.ops.end(), [](const HeisenbergOp& op) {
-        return op.op_type() == OpType::MEASURE;
-    });
-    REQUIRE(mpp_op != hir.ops.end());
-    // After H_63 and H_128 the X*X observable rewinds to Z*Z on both qubits;
-    // the high-qubit support survives in stab_mask.
-    REQUIRE(hir.stab_mask(*mpp_op).bit_get(63));
-    REQUIRE(hir.stab_mask(*mpp_op).bit_get(128));
-
-    auto mod = lower(hir);
-    auto result = sample(mod, 32, 0xC11FF7);
-    for (auto b : result.measurements) {
-        REQUIRE(b == 0);
-    }
-}
-
-TEST_CASE("Backend: CONDITIONAL_PAULI at qubit 128 round-trips", "[frontend][high_qubit]") {
-    // H 128; M 128; CX rec[-1] 128; M 128 -- the second measurement is
-    // deterministically 0 because the conditional CX uncomputes the random
-    // first-measurement outcome.
-    auto circuit = parse("H 128\nM 128\nCX rec[-1] 128\nM 128");
-    circuit.num_qubits = 129;
-    circuit.num_measurements = 2;
-
-    auto hir = trace(circuit);
-    auto cond = std::find_if(hir.ops.begin(), hir.ops.end(), [](const HeisenbergOp& op) {
-        return op.op_type() == OpType::CONDITIONAL_PAULI;
-    });
-    REQUIRE(cond != hir.ops.end());
-    // The conditional X on q128 gets rewound through the H 128 already in
-    // the tableau, becoming Z; the high-qubit support survives in stab_mask.
-    REQUIRE(hir.stab_mask(*cond).bit_get(128));
-
-    auto mod = lower(hir);
-    // The compiled APPLY_PAULI mask must still carry q128 in word 2.
-    // HIR encodes the conditional X on q128 with the H_128 already
-    // rewound (z[128] = 1); lower()'s map_to_virtual rotates it back
-    // through V_cum -- which still has H_128 unflushed -- so the
-    // physical Pauli is X on q128. A fixed-width 128-bit scratch
-    // anywhere in this path would zero word 2 silently.
-    REQUIRE(mod.constant_pool.pauli_masks.size() >= 1);
-    auto cp_mask = mod.constant_pool.pauli_masks.at(PauliMaskHandle{0});
-    REQUIRE(cp_mask.x().num_words() >= 3);
-    REQUIRE(cp_mask.x().bit_get(128));
-    REQUIRE_FALSE(cp_mask.z().bit_get(128));
-
-    auto result = sample(mod, 32, 0xC11FF7);
-    REQUIRE(result.measurements.size() == 64);
-    // Second measurement (offset 1 within each shot of 2) is always 0.
-    for (size_t shot = 0; shot < 32; ++shot) {
-        REQUIRE(result.measurements[shot * 2 + 1] == 0);
-    }
-}
-
-TEST_CASE("Backend: NOISE at qubit 128 round-trips", "[frontend][high_qubit]") {
-    // X_ERROR(1.0) 128 deterministically flips q128, so the subsequent
-    // M 128 always reads 1.
-    auto circuit = parse("X_ERROR(1.0) 128\nM 128");
-    circuit.num_qubits = 129;
-    circuit.num_measurements = 1;
-
-    auto hir = trace(circuit);
-    auto noise = std::find_if(hir.ops.begin(), hir.ops.end(),
-                              [](const HeisenbergOp& op) { return op.op_type() == OpType::NOISE; });
-    REQUIRE(noise != hir.ops.end());
-    REQUIRE(hir.noise_sites.size() == 1);
-    auto channel_view = hir.noise_channel_masks.at(hir.noise_sites[0].channels[0].mask);
-    REQUIRE(channel_view.x().bit_get(128));
-
-    auto mod = lower(hir);
-    // The compiled noise channel must still carry q128 in word 2.
-    REQUIRE(mod.constant_pool.noise_sites.size() == 1);
-    REQUIRE(mod.constant_pool.noise_sites[0].channels.size() == 1);
-    auto cp_channel =
-        mod.constant_pool.noise_channel_masks.at(mod.constant_pool.noise_sites[0].channels[0].mask);
-    REQUIRE(cp_channel.x().num_words() >= 3);
-    REQUIRE(cp_channel.x().bit_get(128));
-
-    auto result = sample(mod, 32, 0xC11FF7);
-    for (auto b : result.measurements) {
-        REQUIRE(b == 1);
-    }
-}
-
-TEST_CASE("Backend: EXP_VAL at qubit 128 round-trips", "[frontend][high_qubit]") {
-    // EXP_VAL Z128 on |0> always yields +1.
-    auto circuit = parse("EXP_VAL Z128");
-    circuit.num_qubits = 129;
-    circuit.num_exp_vals = 1;
-
-    auto hir = trace(circuit);
-    REQUIRE(hir.ops.size() == 1);
-    REQUIRE(hir.ops[0].op_type() == OpType::EXP_VAL);
-    REQUIRE(hir.stab_mask(hir.ops[0]).bit_get(128));
-
-    auto mod = lower(hir);
-    // The compiled EXP_VAL mask must still carry q128 in word 2.
-    REQUIRE(mod.constant_pool.exp_val_masks.size() >= 1);
-    auto cp_exp_mask = mod.constant_pool.exp_val_masks.at(PauliMaskHandle{0});
-    REQUIRE(cp_exp_mask.z().num_words() >= 3);
-    REQUIRE(cp_exp_mask.z().bit_get(128));
-
-    auto result = sample(mod, 32, 0xC11FF7);
-    REQUIRE(result.exp_vals.size() == 32);
-    for (auto v : result.exp_vals) {
-        REQUIRE(v == 1.0);
-    }
-}
-
-TEST_CASE("Backend: rejects circuits above the VM axis ceiling", "[frontend]") {
-    // Skip trace() because allocating a TableauSimulator for 65k+ qubits
-    // is itself prohibitively expensive. The ceiling lives in lower(),
-    // so feed it an empty HIR with the high qubit count directly.
-    HirModule hir;
-    hir.num_qubits = 65537;
-    REQUIRE_THROWS_AS(lower(hir), std::runtime_error);
 }
 
 TEST_CASE("Frontend: T count tracking", "[frontend]") {

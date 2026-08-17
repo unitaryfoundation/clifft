@@ -2,7 +2,7 @@
 
 import type { languages, editor, IMarkdownString, Position } from "monaco-editor";
 import type { Monaco } from "@monaco-editor/react";
-import opcodesData from "@docs/opcodes.json";
+import hirMetadata from "@docs/opcodes.json";
 
 interface OpDoc {
   category: string;
@@ -12,7 +12,7 @@ interface OpDoc {
   display?: string[];
 }
 
-const hirMap = opcodesData.hir_ops as Record<string, OpDoc>;
+const hirMap = hirMetadata.hir_ops as Record<string, OpDoc>;
 
 // Build a reverse lookup from HIR display names (T, T_DAG, MEASURE, etc.) to docs
 const hirDisplayMap: Record<string, OpDoc> = {};
@@ -102,8 +102,8 @@ export const planLanguage: languages.IMonarchLanguage = {
 // multiple times (e.g. StrictMode, multiple editors).
 let registered = false;
 
-/** Format an opcode doc entry as Monaco-flavored Markdown for the hover widget. */
-function formatOpcodeHover(name: string, doc: OpDoc): IMarkdownString {
+/** Format an HIR operation as Monaco-flavored Markdown for the hover widget. */
+function formatOperationHover(name: string, doc: OpDoc): IMarkdownString {
   const lines = [
     `**\`${name}\`** &mdash; _${doc.category}_`,
     "",
@@ -163,7 +163,7 @@ export function registerLanguages(monaco: Monaco): void {
           endLineNumber: position.lineNumber,
           endColumn: endCol,
         },
-        contents: [formatOpcodeHover(kwName, doc)],
+        contents: [formatOperationHover(kwName, doc)],
       };
     },
   });

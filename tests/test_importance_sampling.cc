@@ -1,12 +1,10 @@
 // Tests for importance sampling: DP table, subset sampling, and sample_k API.
 
 #include "clifft/api/reference_syndrome.h"
-#include "clifft/backend/backend.h"
 #include "clifft/circuit/parser.h"
 #include "clifft/frontend/frontend.h"
 #include "clifft/sampling/planner.h"
 #include "clifft/sampling/sampler.h"
-#include "clifft/svm/svm.h"
 #include "clifft/util/fault_sampling.h"
 #include "clifft/util/xoshiro.h"
 
@@ -24,16 +22,8 @@ using Catch::Matchers::WithinRel;
 
 namespace {
 
-// Compile a stim circuit string with normalized syndromes.
-clifft::CompiledModule compile_circuit(const std::string& stim_text) {
-    auto circuit = clifft::parse(stim_text);
-    auto hir = clifft::trace(circuit);
-    auto ref = clifft::compute_reference_syndrome(hir);
-    return clifft::lower(hir, {}, ref.detectors, ref.observables);
-}
-
-clifft::sampling::ExecutablePlan compile_sampling_circuit(
-    const std::string& stim_text, std::span<const uint8_t> postselection = {}) {
+clifft::sampling::ExecutablePlan compile_circuit(const std::string& stim_text,
+                                                 std::span<const uint8_t> postselection = {}) {
     auto hir = clifft::trace(clifft::parse(stim_text));
     auto reference = clifft::compute_reference_syndrome(hir);
     return clifft::sampling::ExecutablePlan(
@@ -84,7 +74,7 @@ TEST_CASE("noise_site_probabilities - basic extraction") {
         OBSERVABLE_INCLUDE(0) rec[-1]
     )";
     auto prog = compile_circuit(circuit_text);
-    auto probs = clifft::noise_site_probabilities(prog);
+    auto probs = prog.noise_site_probabilities();
 
     // Should have 2 quantum noise sites + 1 readout noise entry = 3 total.
     REQUIRE(probs.size() == 3);
@@ -104,7 +94,7 @@ TEST_CASE("noise_site_probabilities - no noise") {
         M 0
     )";
     auto prog = compile_circuit(circuit_text);
-    auto probs = clifft::noise_site_probabilities(prog);
+    auto probs = prog.noise_site_probabilities();
     CHECK(probs.empty());
 }
 
@@ -123,12 +113,12 @@ TEST_CASE("sample_k - k=0 produces no errors") {
         OBSERVABLE_INCLUDE(0) rec[-1]
     )";
     auto prog = compile_circuit(circuit_text);
-    auto result = clifft::sample_k(prog, 1000, 0, 42);
+    auto result = clifft::sampling::sample_k(prog, 1000, 0, 42);
 
     // With k=0 forced faults, no noise fires at all.
     // All observables should be 0, all detectors should be 0.
-    uint32_t num_obs = prog.num_observables;
-    uint32_t num_det = prog.num_detectors;
+    uint32_t num_obs = prog.num_observables();
+    uint32_t num_det = prog.num_detectors();
     for (uint32_t shot = 0; shot < 1000; ++shot) {
         for (uint32_t i = 0; i < num_obs; ++i) {
             CHECK(result.observables[shot * num_obs + i] == 0);
@@ -153,7 +143,7 @@ TEST_CASE("sample_k_survivors - k=0 no errors") {
         OBSERVABLE_INCLUDE(0) rec[-1]
     )";
     auto prog = compile_circuit(circuit_text);
-    auto result = clifft::sample_k_survivors(prog, 5000, 0, 42);
+    auto result = clifft::sampling::sample_k_survivors(prog, 5000, 0, 42);
 
     CHECK(result.total_shots == 5000);
     CHECK(result.passed_shots == 5000);
@@ -175,11 +165,11 @@ TEST_CASE("sample_k - k=N forces all sites") {
         OBSERVABLE_INCLUDE(0) rec[-1]
     )";
     auto prog = compile_circuit(circuit_text);
-    auto probs = clifft::noise_site_probabilities(prog);
+    auto probs = prog.noise_site_probabilities();
     uint32_t n_total = static_cast<uint32_t>(probs.size());
     REQUIRE(n_total == 1);
 
-    auto result = clifft::sample_k(prog, 500, 1, 42);
+    auto result = clifft::sampling::sample_k(prog, 500, 1, 42);
 
     // Every shot should have the observable flipped.
     uint32_t flips = 0;
@@ -202,11 +192,12 @@ TEST_CASE("sample_k - k exceeds total sites throws") {
         OBSERVABLE_INCLUDE(0) rec[-1]
     )";
     auto prog = compile_circuit(circuit_text);
-    auto probs = clifft::noise_site_probabilities(prog);
+    auto probs = prog.noise_site_probabilities();
     uint32_t n_total = static_cast<uint32_t>(probs.size());
 
-    CHECK_THROWS_AS(clifft::sample_k(prog, 10, n_total + 1, 42), std::invalid_argument);
-    CHECK_THROWS_AS(clifft::sample_k_survivors(prog, 10, n_total + 1, 42), std::invalid_argument);
+    CHECK_THROWS_AS(clifft::sampling::sample_k(prog, 10, n_total + 1, 42), std::invalid_argument);
+    CHECK_THROWS_AS(clifft::sampling::sample_k_survivors(prog, 10, n_total + 1, 42),
+                    std::invalid_argument);
 }
 
 TEST_CASE("sample_k - zero probability site rejects impossible strata") {
@@ -219,15 +210,15 @@ TEST_CASE("sample_k - zero probability site rejects impossible strata") {
         OBSERVABLE_INCLUDE(0) rec[-1]
     )";
     auto prog = compile_circuit(circuit_text);
-    auto probs = clifft::noise_site_probabilities(prog);
+    auto probs = prog.noise_site_probabilities();
     REQUIRE(probs.size() == 1);
     CHECK(probs[0] == 0.0);
 
     // k=0 is fine: zero faults on a zero-probability site is valid.
-    CHECK_NOTHROW(clifft::sample_k(prog, 10, 0, 42));
+    CHECK_NOTHROW(clifft::sampling::sample_k(prog, 10, 0, 42));
     // k=1 is impossible: zero-mass stratum (the only site has p=0).
-    CHECK_THROWS_AS(clifft::sample_k(prog, 10, 1, 42), std::invalid_argument);
-    CHECK_THROWS_AS(clifft::sample_k_survivors(prog, 10, 1, 42), std::invalid_argument);
+    CHECK_THROWS_AS(clifft::sampling::sample_k(prog, 10, 1, 42), std::invalid_argument);
+    CHECK_THROWS_AS(clifft::sampling::sample_k_survivors(prog, 10, 1, 42), std::invalid_argument);
 }
 
 TEST_CASE("sample_k - noiseless circuit rejects k greater than 0") {
@@ -238,11 +229,11 @@ TEST_CASE("sample_k - noiseless circuit rejects k greater than 0") {
         OBSERVABLE_INCLUDE(0) rec[-1]
     )";
     auto prog = compile_circuit(circuit_text);
-    auto probs = clifft::noise_site_probabilities(prog);
+    auto probs = prog.noise_site_probabilities();
     CHECK(probs.empty());
 
-    CHECK_NOTHROW(clifft::sample_k(prog, 10, 0, 42));
-    CHECK_THROWS_AS(clifft::sample_k(prog, 10, 1, 42), std::invalid_argument);
+    CHECK_NOTHROW(clifft::sampling::sample_k(prog, 10, 0, 42));
+    CHECK_THROWS_AS(clifft::sampling::sample_k(prog, 10, 1, 42), std::invalid_argument);
 }
 
 // =============================================================================
@@ -259,10 +250,10 @@ TEST_CASE("sample_k - readout noise forcing") {
         OBSERVABLE_INCLUDE(0) rec[-1]
     )";
     auto prog = compile_circuit(circuit_text);
-    auto probs = clifft::noise_site_probabilities(prog);
+    auto probs = prog.noise_site_probabilities();
     REQUIRE(probs.size() == 1);  // One readout noise entry, no quantum noise
 
-    auto result = clifft::sample_k(prog, 500, 1, 42);
+    auto result = clifft::sampling::sample_k(prog, 500, 1, 42);
 
     // Every shot should have the observable flipped (readout noise forced).
     uint32_t flips = 0;
@@ -290,13 +281,13 @@ TEST_CASE("sample_k - uniform probability uses Fisher-Yates path") {
         OBSERVABLE_INCLUDE(0) rec[-1]
     )";
     auto prog = compile_circuit(circuit_text);
-    auto probs = clifft::noise_site_probabilities(prog);
+    auto probs = prog.noise_site_probabilities();
     REQUIRE(probs.size() == 5);
 
     // With k=2 forced faults on 5 uniform sites, exactly 2 detectors
     // should fire per shot (give or take adjacency effects).
     // Main check: it runs without crashing and produces reasonable results.
-    auto result = clifft::sample_k(prog, 1000, 2, 42);
+    auto result = clifft::sampling::sample_k(prog, 1000, 2, 42);
 
     // Every shot should have exactly 2 faults. Since X_ERROR flips qubits,
     // we can check that exactly 2 measurements are flipped per shot.
@@ -325,11 +316,11 @@ TEST_CASE("sample_k - non-uniform probabilities fire exactly k sites") {
         OBSERVABLE_INCLUDE(0) rec[-1]
     )";
     auto prog = compile_circuit(circuit_text);
-    auto probs = clifft::noise_site_probabilities(prog);
+    auto probs = prog.noise_site_probabilities();
     REQUIRE(probs.size() == 3);
 
     for (uint32_t k = 0; k <= 3; ++k) {
-        auto result = clifft::sample_k(prog, 500, k, 42 + k);
+        auto result = clifft::sampling::sample_k(prog, 500, k, 42 + k);
         for (uint32_t shot = 0; shot < 500; ++shot) {
             uint32_t flips = 0;
             for (uint32_t i = 0; i < 3; ++i) {
@@ -358,7 +349,7 @@ TEST_CASE("sample_k - non-uniform favors higher probability sites") {
     )";
     auto prog = compile_circuit(circuit_text);
 
-    auto result = clifft::sample_k(prog, 10000, 1, 42);
+    auto result = clifft::sampling::sample_k(prog, 10000, 1, 42);
 
     // Count which site was selected in each shot.
     uint32_t count[3] = {0, 0, 0};
@@ -396,11 +387,14 @@ TEST_CASE("sample_k_survivors - postselection discards some shots") {
 
     // Postselect on first detector: shots where qubit 0 flips get discarded.
     std::vector<uint8_t> ps_mask = {1, 0};
-    auto prog = clifft::lower(hir, ps_mask, ref.detectors, ref.observables);
+    const clifft::sampling::ExecutablePlan prog(
+        clifft::sampling::plan_sampling(hir, {.postselection_mask = ps_mask,
+                                              .expected_detectors = ref.detectors,
+                                              .expected_observables = ref.observables}));
 
     // k=1: one of two sites fires. When site 0 fires, detector 0 triggers
     // and the shot is postselected out. When site 1 fires, it passes.
-    auto result = clifft::sample_k_survivors(prog, 1000, 1, 42);
+    auto result = clifft::sampling::sample_k_survivors(prog, 1000, 1, 42);
 
     CHECK(result.total_shots == 1000);
     // Roughly half should be discarded (site 0 vs site 1 equal probability).
@@ -422,8 +416,8 @@ TEST_CASE("sample_k - deterministic with same seed") {
     )";
     auto prog = compile_circuit(circuit_text);
 
-    auto r1 = clifft::sample_k(prog, 100, 2, 12345);
-    auto r2 = clifft::sample_k(prog, 100, 2, 12345);
+    auto r1 = clifft::sampling::sample_k(prog, 100, 2, 12345);
+    auto r2 = clifft::sampling::sample_k(prog, 100, 2, 12345);
 
     CHECK(r1.measurements == r2.measurements);
     CHECK(r1.detectors == r2.detectors);
@@ -432,14 +426,14 @@ TEST_CASE("sample_k - deterministic with same seed") {
 
 TEST_CASE("k-fault conditioning rejects asymmetric readout noise") {
     auto prog = compile_circuit("M 0\nREADOUT_NOISE(0.1, 0.2) rec[-1]\n");
-    CHECK_THROWS_WITH(clifft::noise_site_probabilities(prog),
+    CHECK_THROWS_WITH(prog.noise_site_probabilities(),
                       Catch::Matchers::ContainsSubstring("asymmetric"));
-    CHECK_THROWS_WITH(clifft::sample_k(prog, 8, 1, 0),
+    CHECK_THROWS_WITH(clifft::sampling::sample_k(prog, 8, 1, 0),
                       Catch::Matchers::ContainsSubstring("asymmetric"));
 }
 
 TEST_CASE("Symbolic conditioned sampling exposes ordered fault probabilities") {
-    auto program = compile_sampling_circuit(R"(
+    auto program = compile_circuit(R"(
         DEPOLARIZE1(0.03) 0
         X_ERROR(0.01) 1
         M(0.005) 0
@@ -466,12 +460,11 @@ TEST_CASE("Conditioned sampling preserves source noise site totals") {
         CHECK(probabilities[0] == probabilities[2]);
     };
 
-    check_probabilities(clifft::noise_site_probabilities(compile_circuit(circuit)));
-    check_probabilities(compile_sampling_circuit(circuit).noise_site_probabilities());
+    check_probabilities(compile_circuit(circuit).noise_site_probabilities());
 }
 
 TEST_CASE("Symbolic conditioned sampling forces quantum channels and readout") {
-    auto quantum = compile_sampling_circuit(R"(
+    auto quantum = compile_circuit(R"(
         X_ERROR(0.01) 0
         X_ERROR(0.05) 1
         X_ERROR(0.1) 2
@@ -484,7 +477,7 @@ TEST_CASE("Symbolic conditioned sampling forces quantum channels and readout") {
         CHECK(std::ranges::count(row, uint8_t{1}) == 2);
     }
 
-    auto readout = compile_sampling_circuit("M(0.1) 0\nOBSERVABLE_INCLUDE(0) rec[-1]\n");
+    auto readout = compile_circuit("M(0.1) 0\nOBSERVABLE_INCLUDE(0) rec[-1]\n");
     const clifft::sampling::SamplingResult readout_result =
         clifft::sampling::sample_k(readout, 100, 1, 43);
     CHECK(
@@ -492,7 +485,7 @@ TEST_CASE("Symbolic conditioned sampling forces quantum channels and readout") {
 }
 
 TEST_CASE("Symbolic conditioned Pauli channels use conditional probabilities") {
-    auto program = compile_sampling_circuit("DEPOLARIZE1(0.3) 0\nM 0\n");
+    auto program = compile_circuit("DEPOLARIZE1(0.3) 0\nM 0\n");
     const clifft::sampling::SamplingResult result =
         clifft::sampling::sample_k(program, 10000, 1, 44);
     const auto flips = std::ranges::count(result.measurements, uint8_t{1});
@@ -502,7 +495,7 @@ TEST_CASE("Symbolic conditioned Pauli channels use conditional probabilities") {
 
 TEST_CASE("Symbolic conditioned survivors preserve normalized outputs") {
     const std::array<uint8_t, 2> postselection{1, 0};
-    auto survivors = compile_sampling_circuit(R"(
+    auto survivors = compile_circuit(R"(
         X_ERROR(0.1) 0 1
         M 0 1
         DETECTOR rec[-2]
@@ -510,7 +503,7 @@ TEST_CASE("Symbolic conditioned survivors preserve normalized outputs") {
         OBSERVABLE_INCLUDE(0) rec[-1]
         EXP_VAL Z0
     )",
-                                              postselection);
+                                     postselection);
     const clifft::sampling::SamplingSurvivorResult result =
         clifft::sampling::sample_k_survivors(survivors, 1000, 1, 45, true);
     CHECK(result.total_shots == 1000);
@@ -520,7 +513,7 @@ TEST_CASE("Symbolic conditioned survivors preserve normalized outputs") {
     REQUIRE(result.exp_vals.size() == result.passed_shots);
     CHECK(std::ranges::all_of(result.exp_vals, [](double value) { return value == 1.0; }));
 
-    auto normalized = compile_sampling_circuit("X 0\nM 0\nOBSERVABLE_INCLUDE(0) rec[-1]\n");
+    auto normalized = compile_circuit("X 0\nM 0\nOBSERVABLE_INCLUDE(0) rec[-1]\n");
     const clifft::sampling::SamplingResult normalized_result =
         clifft::sampling::sample_k(normalized, 10, 0, 46);
     CHECK(std::ranges::all_of(normalized_result.observables,
@@ -528,7 +521,7 @@ TEST_CASE("Symbolic conditioned survivors preserve normalized outputs") {
 }
 
 TEST_CASE("Symbolic conditioned sampling rejects asymmetric readout noise") {
-    auto program = compile_sampling_circuit("M 0\nREADOUT_NOISE(0.1, 0.2) rec[-1]\n");
+    auto program = compile_circuit("M 0\nREADOUT_NOISE(0.1, 0.2) rec[-1]\n");
     CHECK_THROWS_WITH(program.noise_site_probabilities(),
                       Catch::Matchers::ContainsSubstring("asymmetric"));
     CHECK_THROWS_WITH(clifft::sampling::sample_k(program, 8, 1, 0),

@@ -99,8 +99,8 @@ enum class ReadoutNoiseIdx : uint32_t {};
 
 /// Index into HirModule::instrument_sites side-table. The index doubles as
 /// the site's stable id: instruments are optimization barriers, so no pass
-/// reorders or renumbers them, and the compiled module's site -> bytecode
-/// offset table is keyed by this index.
+/// reorders or renumbers them, and continuation metadata is keyed by this
+/// index.
 enum class InstrumentSiteIdx : uint32_t {};
 
 /// Sentinel handle value indicating that an op carries no Pauli mask.

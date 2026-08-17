@@ -448,7 +448,7 @@ TEST_CASE("rewrite: a measure-and-reset on a non-restoring lost qubit records wi
 }
 
 TEST_CASE("rewrite: a non-restoring lost MRX drops its X-basis reset half") {
-    // An emitted RX would spend a hidden SVM draw on the vacated carrier;
+    // An emitted RX would spend a hidden executor draw on the vacated carrier;
     // with the status still Lost it must not be emitted.
     Circuit c = parse("MRX 0\n");
     NonComputationalModel model = make_rewriter_model_with_classifier(

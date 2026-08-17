@@ -7,7 +7,6 @@
 // before. Instruments are optimization fences: no pass moves anything
 // across one, enforced in can_swap() and the peephole's commute check.
 
-#include "clifft/backend/backend.h"
 #include "clifft/circuit/parser.h"
 #include "clifft/frontend/frontend.h"
 #include "clifft/noncomp/instrument_options.h"

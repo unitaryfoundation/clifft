@@ -1,6 +1,8 @@
 #include "clifft/sampling/planner.h"
 
 #include "clifft/sampling/planner_frame.h"
+#include "clifft/sampling/state_query_limits.h"
+#include "clifft/util/canonical_phase.h"
 #include "clifft/util/hir_introspection.h"
 #include "clifft/util/numeric.h"
 #include "clifft/util/stim_mask.h"
@@ -27,16 +29,7 @@ namespace {
 using Pauli = internal::PlannerPauli;
 using Tableau = internal::PlannerTableau;
 using internal::CoordinateFrame;
-using internal::dormant_promotion_frame;
 using internal::SymbolicPauliFrame;
-
-void compose_final_tableau(SamplingPlan& plan, const Tableau& new_basis_in_old_coordinates) {
-    if (plan.final_tableau.has_value()) {
-        // A.then(B) represents B * A. The frame maps new coordinates into
-        // the old basis, so prepend it on the right of the physical map.
-        plan.final_tableau = new_basis_in_old_coordinates.then(*plan.final_tableau);
-    }
-}
 
 Pauli pauli_from_hir(const HirModule& hir, const HeisenbergOp& op) {
     Pauli result(hir.num_qubits);
@@ -249,7 +242,7 @@ void initialize_site_metadata(const HirModule& hir, SamplingPlan& plan) {
     }
 }
 
-void process_rotation(const Pauli& body, double half_turns, const AffineBool& sign,
+bool process_rotation(const Pauli& body, double half_turns, const AffineBool& sign,
                       SamplingPlan& plan, uint32_t& active_width, CoordinateFrame& coordinates,
                       SymbolicPauliFrame& symbolic_frame, std::span<const uint32_t> source_lines) {
     ResolvedPauli resolved = resolve_pauli(body, sign, coordinates, symbolic_frame);
@@ -261,7 +254,7 @@ void process_rotation(const Pauli& body, double half_turns, const AffineBool& si
                           RotateActivePauli{active_projection(resolved.body, active_width),
                                             half_turns, std::move(resolved.sign)}},
             source_lines);
-        return;
+        return false;
     }
 
     if (active_width + 1 >= kDenseActiveWidthLimit) {
@@ -270,13 +263,6 @@ void process_rotation(const Pauli& body, double half_turns, const AffineBool& si
             ", but the dense-state limit is " + std::to_string(kDenseActiveWidthLimit));
     }
 
-    if (plan.final_tableau.has_value()) {
-        // Final-state queries track a separate physical map and still need the
-        // generic frame. The coordinate map uses the structured update below
-        // to avoid a second generic tableau composition.
-        compose_final_tableau(plan,
-                              dormant_promotion_frame(resolved.body, active_width, *dormant_pivot));
-    }
     coordinates.promote_dormant(resolved.body, active_width, *dormant_pivot);
     append_action(plan,
                   PlannedAction{active_width, active_width + 1,
@@ -284,6 +270,7 @@ void process_rotation(const Pauli& body, double half_turns, const AffineBool& si
                   source_lines);
     ++active_width;
     plan.max_active_width = std::max(plan.max_active_width, active_width);
+    return true;
 }
 
 AffineBool process_measurement(const Pauli& body, const AffineBool& sign, RecordSlot record,
@@ -492,6 +479,7 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
     uint32_t next_noise_site = 0;
     uint32_t next_instrument_site = 0;
     bool supports_final_state_queries = true;
+    bool final_coordinates_changed = false;
     for (size_t i = 0; i < hir.ops.size(); ++i) {
         const HeisenbergOp& op = hir.ops[i];
         const std::span<const uint32_t> source_lines =
@@ -501,16 +489,18 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
             case OpType::T_GATE: {
                 const double half_turns = op.is_dagger() ? -0.25 : 0.25;
                 const Pauli body = pauli_from_hir(hir, op);
-                process_rotation(body, half_turns, AffineBool(hir.sign(op)), plan, active_width,
-                                 coordinates, symbolic_frame, source_lines);
+                final_coordinates_changed |=
+                    process_rotation(body, half_turns, AffineBool(hir.sign(op)), plan, active_width,
+                                     coordinates, symbolic_frame, source_lines);
                 multiply_phase(plan.global_weight,
                                (op.is_dagger() ? -1.0 : 1.0) * std::numbers::pi / 8.0);
                 break;
             }
             case OpType::PHASE_ROTATION: {
                 const Pauli body = pauli_from_hir(hir, op);
-                process_rotation(body, op.alpha(), AffineBool(hir.sign(op)), plan, active_width,
-                                 coordinates, symbolic_frame, source_lines);
+                final_coordinates_changed |=
+                    process_rotation(body, op.alpha(), AffineBool(hir.sign(op)), plan, active_width,
+                                     coordinates, symbolic_frame, source_lines);
                 const double signed_alpha = hir.sign(op) ? -op.alpha() : op.alpha();
                 multiply_phase(plan.global_weight, signed_alpha * std::numbers::pi / 2.0);
                 break;
@@ -687,6 +677,20 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
                                     WriteObservable{observable_values[observable],
                                                     ObservableSlot{observable}}},
                       source_lines);
+    }
+
+    if (plan.final_tableau.has_value() && final_coordinates_changed) {
+        const Tableau physical = *plan.final_tableau;
+        const Tableau& coordinates_to_physical = coordinates.current_to_initial();
+        Tableau composed = coordinates_to_physical.then(physical);
+        // Exact statevectors expose the global phase chosen by Stim's
+        // canonical tableau representation. Restore the phase lost when the
+        // physical map and planner coordinate map are composed.
+        if (plan.num_qubits <= kMaxExpandedStatevectorQubits) {
+            plan.global_weight *= clifft::internal::tableau_composition_phase(
+                physical, coordinates_to_physical, composed);
+        }
+        plan.final_tableau = std::move(composed);
     }
 
     plan.validate();

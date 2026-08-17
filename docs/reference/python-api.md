@@ -93,10 +93,6 @@ Sampling under a five-level leakage/loss model. See the
 
 ## Utilities
 
-::: clifft.get_num_threads
-
-::: clifft.set_num_threads
-
 ::: clifft.version
 
 ::: clifft.compute_reference_syndrome
