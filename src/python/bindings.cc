@@ -637,6 +637,16 @@ NB_MODULE(_clifft_core, m) {
             },
             nb::rv_policy::move,
             "Per-site total fault probabilities: quantum noise sites followed by readout noise.")
+        .def("inspect", &clifft::sampling::ExecutablePlan::inspect,
+             "Deterministic human-readable diagnostic text for the whole lowered "
+             "CPU program.\n\n"
+             "The format is diagnostic output for debugging and tooling, not a "
+             "stable machine-readable interface.")
+        .def("inspect_action", &clifft::sampling::ExecutablePlan::inspect_action, nb::arg("action"),
+             "Deterministic human-readable diagnostic text for a single action "
+             "in the lowered CPU program.\n\n"
+             "The format is diagnostic output for debugging and tooling, not a "
+             "stable machine-readable interface.")
         .def("__repr__", [](const clifft::sampling::ExecutablePlan& p) {
             return "Program(" + std::to_string(p.num_actions()) +
                    " actions, peak_active_width=" + std::to_string(p.peak_active_width()) + ", " +
