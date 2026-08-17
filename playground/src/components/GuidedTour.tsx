@@ -50,17 +50,20 @@ const STEPS: TourStep[] = [
     html: `
       <p>The planner turns the HIR into semantic actions over stabilizer
       coordinates and Boolean symbols. This is the portable representation
-      used by Clifft's symbolic-coordinate backend.</p>
-      <p>Each line shows the active width before and after the action.
-      Operations with a nonzero <code>dense_passes</code> estimate touch the
-      active coefficient state.</p>
-      <p>Useful plan actions to look for:</p>
-      <ul>
-        <li><code>rotate_active</code> rotates within the current active state</li>
-        <li><code>promote_dormant</code> adds a coordinate to that state</li>
-        <li><code>measure_active</code> can collapse and remove a coordinate</li>
-        <li><code>record_classical</code> needs no coefficient work</li>
-      </ul>
+      used by Clifft's symbolic-coordinate backend. The uppercase names, like
+      <code>ROTATE_ACTIVE</code>, <code>PROMOTE_DORMANT</code>, and
+      <code>MEASURE_ACTIVE</code>, are the planner actions themselves &mdash;
+      hover over one to see an inline description of what it does.</p>
+      <p>Pauli factors such as <code>X0</code> and <code>Z1</code> refer to
+      active symbolic coordinates, not physical qubits. The <code>w&lt;k&gt;</code>
+      prefix on each line shows the active width before and, when it changes,
+      after the action; a trailing <code>passes=n</code> estimates how many
+      dense-state traversals the action costs, and lines without it touch no
+      dense state at all.</p>
+      <p>Expressions like <code>s0^s1^s3</code> are XORs of per-shot Boolean
+      symbols &mdash; noise draws, measurement branches, and the like. Long
+      expressions may be truncated as <code>...(+N)</code> in this panel; the
+      full expression still exists in the underlying plan.</p>
     `,
   },
   {

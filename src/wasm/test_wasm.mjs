@@ -2,11 +2,20 @@
 // Run via: just test-wasm
 
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 const createModule = require("../../build-wasm/clifft_wasm.js");
 
 const mod = await createModule();
+
+// Plan-action documentation, keyed by mnemonic (ROTATE_ACTIVE, MEASURE_ACTIVE,
+// etc.). Every sampling_plan mnemonic emitted below must have an entry here,
+// so a new planner action without documentation fails this smoke test.
+const opcodeMetadata = JSON.parse(
+    readFileSync(new URL("../../docs/opcodes.json", import.meta.url))
+);
+const planActions = opcodeMetadata.plan_actions;
 
 // Default passes config (empty string = use defaults)
 const DEFAULTS = "";
@@ -75,27 +84,28 @@ assert.ok(
     result.sampling_plan.some((line) => line.includes("record=r")),
     "Expected at least one sampling_plan line with a typed record id"
 );
-const SAMPLING_PLAN_MNEMONICS = [
-    "ROTATE_ACTIVE",
-    "ROTATE_PHASE",
-    "PROMOTE_DORMANT",
-    "MEASURE_ACTIVE",
-    "MEASURE_DORMANT",
-    "RECORD_CLASSICAL",
-    "DEFINE_SYMBOL",
-    "READOUT_NOISE",
-    "WRITE_DETECTOR",
-    "WRITE_OBSERVABLE",
-    "WRITE_EXPECTATION",
-    "APPLY_INSTRUMENT",
-    "INSTRUMENT_BOUNDARY",
-];
+const SAMPLING_PLAN_MNEMONICS = Object.keys(planActions);
 assert.ok(
     result.sampling_plan.some((line) =>
         SAMPLING_PLAN_MNEMONICS.some((mnemonic) => line.includes(mnemonic))
     ),
     "Expected at least one recognized SamplingPlan mnemonic"
 );
+
+// --- sampling_plan mnemonics stay in sync with docs/opcodes.json ---
+// A new planner action that lands without a plan_actions entry should fail
+// this smoke test rather than shipping undocumented.
+function assertMnemonicsAreDocumented(samplingPlan) {
+    for (const line of samplingPlan) {
+        const match = line.match(/^w\d+(?:->\d+)? ([A-Z][A-Z0-9_]*)\b/);
+        assert.ok(match, `sampling_plan line has no recognizable mnemonic: ${line}`);
+        assert.ok(
+            Object.prototype.hasOwnProperty.call(planActions, match[1]),
+            `sampling_plan mnemonic "${match[1]}" is missing a docs/opcodes.json plan_actions entry`
+        );
+    }
+}
+assertMnemonicsAreDocumented(result.sampling_plan);
 
 // --- optimize toggle via pass config ---
 // T T = S; peephole fusion should reduce 2 T ops to 1 S op
@@ -110,6 +120,8 @@ assert.ok(
     unopt.hir_ops.length > opt.hir_ops.length,
     "Optimized should have fewer ops (T+T fused to S)"
 );
+assertMnemonicsAreDocumented(unopt.sampling_plan);
+assertMnemonicsAreDocumented(opt.sampling_plan);
 
 // --- selective passes ---
 const hirOnlyJson = mod.compile_to_json(
@@ -120,6 +132,7 @@ const hirOnly = JSON.parse(hirOnlyJson);
 console.log("\nSelective passes (HIR only):");
 console.log("  HIR ops:", hirOnly.hir_ops.length);
 assert.ok(hirOnly.hir_ops.length <= opt.hir_ops.length, "HIR-only should still fuse T+T");
+assertMnemonicsAreDocumented(hirOnly.sampling_plan);
 
 const unknownPassConfig = JSON.parse(
     mod.compile_to_json("M 0", JSON.stringify({ hir: [], unknown: [] }))
@@ -146,6 +159,7 @@ assert.ok(
     truncationResult.sampling_plan.some((line) => line.includes("...(+")),
     "Expected a truncated affine expression for a six-term noise chain"
 );
+assertMnemonicsAreDocumented(truncationResult.sampling_plan);
 
 // --- simulate_wasm ---
 const simJson = mod.simulate_wasm("H 0\nM 0", 1000, DEFAULTS);

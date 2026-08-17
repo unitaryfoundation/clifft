@@ -2,7 +2,7 @@
 
 import type { languages, editor, IMarkdownString, Position } from "monaco-editor";
 import type { Monaco } from "@monaco-editor/react";
-import hirMetadata from "@docs/opcodes.json";
+import opcodeMetadata from "@docs/opcodes.json";
 
 interface OpDoc {
   category: string;
@@ -12,7 +12,8 @@ interface OpDoc {
   display?: string[];
 }
 
-const hirMap = hirMetadata.hir_ops as Record<string, OpDoc>;
+const hirMap = opcodeMetadata.hir_ops as Record<string, OpDoc>;
+const planActionMap = opcodeMetadata.plan_actions as Record<string, OpDoc>;
 
 // Build a reverse lookup from HIR display names (T, T_DAG, MEASURE, etc.) to docs
 const hirDisplayMap: Record<string, OpDoc> = {};
@@ -186,6 +187,70 @@ export function registerLanguages(monaco: Monaco): void {
         },
         contents: [formatOperationHover(kwName, doc)],
       };
+    },
+  });
+
+  // SamplingPlan: hover over action mnemonics (ROTATE_ACTIVE, MEASURE_ACTIVE,
+  // etc.) and over the affine-expression attribute keys (sign, outcome,
+  // value, source).
+  const AFFINE_FIELD_NAMES = new Set(["sign", "outcome", "value", "source"]);
+  const AFFINE_EXPLAINER: IMarkdownString = {
+    value: [
+      "**Affine expression**",
+      "",
+      "- `^` is Boolean XOR over per-shot symbols.",
+      "- A leading `1^` is the affine constant (the expression is inverted).",
+      "- `...(+N)` means N further symbol terms were omitted from the compact display; the full expression exists in the plan.",
+    ].join("\n"),
+    isTrusted: true,
+  };
+
+  monaco.languages.registerHoverProvider("clifft-plan", {
+    provideHover(
+      model: editor.ITextModel,
+      position: Position,
+    ) {
+      const word = model.getWordAtPosition(position);
+      if (!word) return null;
+
+      const line = model.getLineContent(position.lineNumber);
+
+      // Action mnemonic: the ALL_CAPS token right after the width prefix.
+      const mnemonicMatch = line.match(/^w\d+(?:->\d+)?\s+([A-Z][A-Z0-9_]*)/);
+      if (mnemonicMatch) {
+        const mnemonic = mnemonicMatch[1];
+        const startCol = mnemonicMatch.index! + mnemonicMatch[0].length - mnemonic.length + 1;
+        const endCol = startCol + mnemonic.length;
+        if (position.column >= startCol && position.column <= endCol) {
+          const doc = planActionMap[mnemonic];
+          if (doc) {
+            return {
+              range: {
+                startLineNumber: position.lineNumber,
+                startColumn: startCol,
+                endLineNumber: position.lineNumber,
+                endColumn: endCol,
+              },
+              contents: [formatOperationHover(mnemonic, doc)],
+            };
+          }
+        }
+      }
+
+      // Affine-expression attribute keys: sign=, outcome=, value=, source=
+      if (AFFINE_FIELD_NAMES.has(word.word) && line[word.endColumn - 1] === "=") {
+        return {
+          range: {
+            startLineNumber: position.lineNumber,
+            startColumn: word.startColumn,
+            endLineNumber: position.lineNumber,
+            endColumn: word.endColumn,
+          },
+          contents: [AFFINE_EXPLAINER],
+        };
+      }
+
+      return null;
     },
   });
 }
