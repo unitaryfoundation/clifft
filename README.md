@@ -33,7 +33,8 @@ main simulation cost therefore scales with `2^k`, rather than directly with the
 total number of physical qubits `n`. Non-Clifford operations can increase `k`,
 while measurements can reduce it.
 
-Clifft's original design established this factored active-state architecture.
+Clifft's original design established this factored active-state architecture,
+described in the [Clifft paper](https://arxiv.org/abs/2604.27058).
 [SymFT](https://arxiv.org/abs/2607.28600), by Wang Fang, Huazhe Lou, and Riling
 Li, subsequently built on that foundation with symbolic Clifford-Pauli-frame
 factorization and adaptive stabilizer-coordinate planning. Clifft's current
