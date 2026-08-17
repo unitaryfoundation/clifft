@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786861919948,
+  "lastUpdate": 1786948377368,
   "repoUrl": "https://github.com/unitaryfoundation/clifft",
   "entries": {
     "C++ Catch2 benchmarks (scalar)": [
@@ -5758,6 +5758,70 @@ window.BENCHMARK_DATA = {
             "name": "exp-val 20q 200 probes x100k",
             "value": 153.308,
             "range": "± 3.94553",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Brad Chase",
+            "username": "bachase",
+            "email": "14430+bachase@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "bca72ee394ea3b257dd16f5d2b600121dec73746",
+          "message": "feat(wasm): use symbolic sampling backend in playground\n\nReplace the playground's legacy SVM compilation and execution with SamplingPlan, ExecutablePlan, and the symbolic sampler.\n\n- make the semantic sampling plan the default inspection view\n- retain prepared executable actions as an advanced view\n- preserve linked circuit, HIR, plan, and executable navigation\n- separate HIR formatting from legacy VM introspection\n- bound interactive expression output and avoid provenance overhead during simulation\n\nAssisted-by: Codex (GPT-5) <noreply@openai.com>",
+          "timestamp": "2026-08-16T12:02:04Z",
+          "url": "https://github.com/unitaryfoundation/clifft/commit/bca72ee394ea3b257dd16f5d2b600121dec73746"
+        },
+        "date": 1786948372537,
+        "tool": "catch2",
+        "benches": [
+          {
+            "name": "QV-10 x100 shots",
+            "value": 56.4787,
+            "range": "± 213.612",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "cultivation-d5 x1000 shots",
+            "value": 76.7848,
+            "range": "± 610.978",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d7-r7 p=1e-3 x10000 shots",
+            "value": 97.5419,
+            "range": "± 1.66131",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d5-r5 p=0.05 x10000 shots",
+            "value": 93.6247,
+            "range": "± 939.185",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d11-r11 p=1e-3 x1000 shots",
+            "value": 39.3229,
+            "range": "± 712.05",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "exp-val 20q 200 probes x100k",
+            "value": 162.481,
+            "range": "± 2.14186",
             "unit": "ms",
             "extra": "100 samples\n1 iterations"
           }
