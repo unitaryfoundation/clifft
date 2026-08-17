@@ -108,10 +108,11 @@ For optimized source builds, `Release` and `RelWithDebInfo` default to native CP
 
 ## Circuit size
 
-Clifft sizes Pauli masks and coordinate-planning storage from the input circuit at
-runtime. The front end has a conservative 65,536-qubit safety ceiling, but
-below it practical limits depend on compilation memory, active width, and
-output volume rather than a fixed-width Pauli representation.
+Clifft sizes Pauli masks and coordinate-planning storage from the input circuit
+at runtime. `clifft.trace()`, and therefore the usual `clifft.compile()` path,
+rejects circuits above 65,536 physical qubits as a conservative safety check.
+Below that ceiling, practical limits depend on compilation memory, active
+width, and output volume rather than a fixed-width Pauli representation.
 
 ## WebAssembly Build
 
