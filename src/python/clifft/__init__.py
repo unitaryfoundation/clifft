@@ -2,8 +2,9 @@
 
 A fast exact simulator for near-Clifford quantum circuits. Clifft accepts
 Stim-format circuits with non-Clifford extensions and compiles them into a
-symbolic-coordinate sampling plan whose cost scales with the active dimension
-rather than the full Hilbert space.
+symbolic-coordinate sampling plan whose cost scales with the active-state
+dimension rather than the full Hilbert space. If the active width is `k`, this
+dimension is `2^k`.
 """
 
 # ruff: noqa: E402

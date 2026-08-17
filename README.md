@@ -36,10 +36,13 @@ while measurements can reduce it.
 Clifft's original design established this factored active-state architecture,
 described in the [Clifft paper](https://arxiv.org/abs/2604.27058).
 [SymFT](https://arxiv.org/abs/2607.28600), by Wang Fang, Huazhe Lou, and Riling
-Li, subsequently built on that foundation with symbolic Clifford-Pauli-frame
-factorization and adaptive stabilizer-coordinate planning. Clifft's current
-sampler brings these improvements back into Clifft alongside Clifft-specific
-planning, continuation, and API machinery.
+Li, is the second-generation successor to
+[SOFT](https://arxiv.org/abs/2512.23037). Its planner builds on SOFT's
+generalized-stabilizer simulation and Clifft's dense active-state
+representation. SymFT adds symbolic Clifford-Pauli-frame factorization,
+adaptive stabilizer-coordinate planning, and direct multi-coordinate kernels.
+Clifft's current sampler adopts these SymFT developments alongside
+Clifft-specific compiler, continuation, and API machinery.
 See the [theoretical overview](https://unitaryfoundation.github.io/clifft/theory/overview/#method-provenance)
 for the fuller lineage and implementation boundaries.
 

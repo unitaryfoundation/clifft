@@ -89,7 +89,7 @@ bitstrings = [
 ps = clifft.basis_probabilities(program, bitstrings)
 
 print(f"qubits: {program.num_qubits}")
-print(f"peak active rank: {program.peak_rank}")
+print(f"peak active width: {program.peak_rank}")
 for bitstring, probability in zip(bitstrings, ps):
     print(f"{bitstring}: {probability:.12g}")
 ```
@@ -98,7 +98,7 @@ Output:
 
 ```text
 qubits: 12
-peak active rank: 1
+peak active width: 1
 000000000000: 0.999013364214
 111111111111: 0.000986635785864
 100000000000: 0
@@ -107,9 +107,9 @@ peak active rank: 1
 
 The full output space has 4096 bitstrings, but the query asks for only four.
 The non-Clifford work is localized to one active qubit, so the exact query
-scales with the active rank rather than by constructing a 4096-entry
-statevector. The same pattern is useful at larger widths when the active
-rank remains small and the set of target outputs stays sparse.
+scales with the active-state dimension rather than by constructing a
+4096-entry statevector. The same pattern is useful on larger circuits when the
+active width remains small and the set of target outputs stays sparse.
 
 ### Batch related queries
 
@@ -292,13 +292,13 @@ though, and the difference can be 100×+ in either direction:
 - `record_probabilities()` forces the requested measurement outcomes and
   replays the executable plan once per record. No
   amortization, but the compiler's `StatevectorSqueezePass` can reorder
-  measurements next to their non-Clifford gates to free active dimensions
-  early — which lowers the effective active rank.
+  measurements next to their non-Clifford gates to reduce active width early.
 
 A practical way to choose: compile both forms and read off
-`program.peak_rank`. When the *measured* form has a noticeably lower peak
-rank than the unitary form, `record_probabilities()` is typically faster
-per query. When the two peak ranks match, `basis_probabilities()` wins
+`program.peak_rank`, which currently reports peak active width. When the
+*measured* form has a noticeably lower peak active width than the unitary
+form, `record_probabilities()` is typically faster per query. When the two
+widths match, `basis_probabilities()` wins
 because it amortizes plan execution across queries.
 
 ```python
@@ -319,14 +319,14 @@ H 0 1 2 3 4
 unitary = clifft.compile(circuit)
 measured = clifft.compile(circuit + "\nM 0 1 2 3 4")
 
-print(f"basis_probabilities()  peak_rank: {unitary.peak_rank}")
-print(f"record_probabilities() peak_rank: {measured.peak_rank}")
+print(f"basis_probabilities()  peak active width: {unitary.peak_rank}")
+print(f"record_probabilities() peak active width: {measured.peak_rank}")
 ```
 
 A gap in `peak_rank` indicates roughly a
 $2^{(k_{\text{unitary}} - k_{\text{measured}})}$ speedup ceiling for
 `record_probabilities()` over `basis_probabilities()` on this circuit,
-independent of batch size. At equal peak rank,
+independent of batch size. At equal peak active width,
 `basis_probabilities()` wins by roughly the plan-to-amplitude-walk
 cost ratio for any moderately sized batch.
 

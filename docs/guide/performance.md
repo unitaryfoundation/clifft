@@ -5,7 +5,7 @@ fully dense statevector simulation: large circuits with mostly Clifford
 structure, localized non-Clifford operations, noise, measurements, detectors,
 and observables.
 
-The main quantity to watch is the peak active dimension `k`. Non-Clifford
+The main quantity to watch is the peak active width `k`. Non-Clifford
 operations can increase `k`, while measurements can reduce it. When `k` stays
 small relative to the total number of physical qubits, Clifft can sample large
 circuits exactly at high throughput.
@@ -26,7 +26,7 @@ scaling.
 ## QEC benchmark throughput
 
 The table below reports sample-time throughput in effective shots per second.
-`kmax` is the peak active virtual dimension reached during execution. For
+`kmax` is the peak active width reached during execution. For
 near-Clifford circuits, this is often a better predictor of Clifft performance
 than the total qubit count or raw non-Clifford operation count.
 
@@ -47,7 +47,7 @@ those operations directly.
 
 These numbers should be read as representative benchmark points, not as universal
 performance guarantees. Throughput depends on the circuit structure, noise model,
-measurement schedule, active dimension, and hardware.
+measurement schedule, active width, and hardware.
 
 ## Interpreting the results
 
@@ -73,11 +73,11 @@ qubit count and instead operate on the smaller active state.
 ### Coherent-noise and larger-`k` circuits
 
 The coherent-noise benchmarks show how performance changes as `kmax` grows. As
-the active dimension increases, Clifft gradually transitions toward dense
-statevector behavior. This is expected: active-state operations scale
-exponentially in `k`.
+the active width increases, Clifft gradually transitions toward dense
+statevector behavior. This is expected: the active-state dimension is $2^k$,
+so active-state operations scale exponentially in `k`.
 
-The important point is that the transition is controlled by the active dimension,
+The important point is that the transition is controlled by the active width,
 not simply by the total number of physical qubits.
 
 ## Dense-statevector limit
@@ -106,8 +106,8 @@ exclude compilation time and a warmup run.
 Some simulators are sensitive to physical noise rate, circuit structure, and
 backend-specific optimizations. In particular, non-Clifford operation count alone
 is not enough to predict performance. For Clifft, the most important quantities
-are the active dimension `k`, how long the circuit spends at each active
-dimension, and whether measurements collapse the active state.
+are the active width `k`, how long the circuit spends at each active width, and
+whether measurements collapse the active state.
 
 ## Reproducing benchmarks
 

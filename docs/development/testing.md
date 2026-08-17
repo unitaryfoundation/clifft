@@ -24,7 +24,14 @@ These tests act as a compatibility tripwire. If an upstream Stim change alters a
 
 Random circuit fuzzing is useful for finding edge cases, but it is not sufficient on its own. Deep random circuits can produce output distributions and dense states whose errors are difficult to diagnose locally. Clifft therefore combines random fuzzing with structured circuit families whose expected behavior is known analytically.
 
-* **Mirror circuits ($UU^{\dag} = I$):** We generate deep, entangling circuits with a bounded number of non-Clifford gates and append the exact inverse circuit. The final state must return to `|00...0⟩`. These tests exercise active-state expansion, non-Clifford phase handling, measurement-free reversibility, and normalization behavior. With optimization enabled, related tests check that the compiler can recognize and eliminate cancelling non-Clifford structure in these cases ([`test_peephole_oracle.py`](https://github.com/unitaryfoundation/clifft/blob/main/tests/python/test_peephole_oracle.py)).
+* **Mirror circuits ($UU^\dagger = I$):** We generate deep, entangling
+  circuits with a bounded number of non-Clifford gates and append the exact
+  inverse circuit. The final state must return to `|00...0>`. These tests
+  exercise active-state expansion, non-Clifford phase handling,
+  measurement-free reversibility, and normalization behavior. With
+  optimization enabled, related tests check that the compiler can recognize
+  and eliminate cancelling non-Clifford structure in these cases
+  ([`test_peephole_oracle.py`](https://github.com/unitaryfoundation/clifft/blob/main/tests/python/test_peephole_oracle.py)).
 
 * **Structured compiler stress tests:** We generate circuit families designed to exercise specific parts of the compiler and executor:
     * **Commutation tests:** circuits that force non-Clifford operations through chains of commuting and anti-commuting Pauli structure, stressing HIR rewrites and scheduling.
@@ -33,15 +40,25 @@ Random circuit fuzzing is useful for finding edge cases, but it is not sufficien
 
 * **Random fuzzing:** Dense random Clifford+T circuits are used to shake out
   edge cases in coordinate planning, prepared active operations, and the
-  routing of physical correlations through the symbolic frame.
+  routing of physical correlations through planned coordinates and affine
+  signs.
 
 All procedural generators are centralized in [`utils_fuzzing.py`](https://github.com/unitaryfoundation/clifft/blob/main/tests/python/utils_fuzzing.py).
 
 ## External Cross-Validation Oracles
 
-End-to-end Python tests compare Clifft against independent references whenever practical. These tests validate the full compiler-to-symbolic-executor path rather than isolated implementation details.
+End-to-end Python tests compare Clifft against independent references whenever
+practical. These tests validate the full symbolic sampling pipeline rather
+than isolated implementation details.
 
-* **Statevector equivalence with Qiskit Aer:** For small circuits, we extract Clifft's frame-factored state representation and expand it into a dense $2^n$ state vector. We then compare this state against the same circuit simulated by Qiskit Aer using a strict fidelity threshold ([`test_qiskit_aer.py`](https://github.com/unitaryfoundation/clifft/blob/main/tests/python/test_qiskit_aer.py)). This checks that Clifft's non-Clifford phase handling and frame reconstruction agree with an independent dense-state simulator up to global phase.
+* **Statevector equivalence with Qiskit Aer:** For small circuits, Clifft
+  expands its final factored state into a dense $2^n$ state vector. We then
+  compare this state against the same circuit simulated by Qiskit Aer using a
+  strict fidelity threshold
+  ([`test_qiskit_aer.py`](https://github.com/unitaryfoundation/clifft/blob/main/tests/python/test_qiskit_aer.py)).
+  This checks that Clifft's non-Clifford phase handling and coordinate
+  reconstruction agree with an independent dense-state simulator up to global
+  phase.
 
 * **Statistical equivalence with Stim:** For purely Clifford noisy circuits, Clifft should reproduce the detector and observable statistics produced by Stim. We run surface-code-style extraction circuits for many shots in both simulators and require each detector and logical observable marginal to agree within a binomial shot-noise bound ([`test_statistical_equivalence.py`](https://github.com/unitaryfoundation/clifft/blob/main/tests/python/test_statistical_equivalence.py)). This validates Clifft's ahead-of-time handling of stochastic noise, measurements, detectors, and classical record logic in the Clifford regime.
 
@@ -56,13 +73,36 @@ The C++ core is unit-tested with `Catch2`. These tests target individual layers 
 * **Front end:** [`test_frontend.cc`](https://github.com/unitaryfoundation/clifft/blob/main/tests/test_frontend.cc) checks Clifford absorption, Heisenberg rewinding, and extraction of the Pauli masks passed into HIR.
 
 * **Symbolic planning and lowering:** `test_sampling_planner.cc`,
-  `test_sampling_plan.cc`, and `test_sampling_executor.cc` cover coordinate
-  selection, affine dependencies, plan validation, prepared actions, and
-  execution boundaries.
+  `test_sampling_planner_frame.cc`, `test_sampling_plan.cc`, and
+  `test_sampling_executor.cc` cover coordinate selection, frame changes,
+  affine dependencies, plan validation, prepared actions, and execution
+  boundaries.
 
 * **Active-state kernels:** `test_sampling_kernels.cc` and the focused
   rotation, measurement, and instrument suites compare scalar and SIMD
   implementations across width and mask boundaries.
+
+* **Inspection and source provenance:** `test_source_map.cc` and the Python
+  introspection tests cover HIR source provenance. The sampling planner, plan,
+  and executor suites cover semantic and executable-plan inspection, including
+  the mapping from fused executable actions back to semantic actions. The
+  WebAssembly smoke suite checks provenance through HIR, semantic-plan, and
+  executable-plan inspection as exposed by the playground.
+
+## Validation and Backend Coverage
+
+Construction-time validation rejects malformed HIR and semantic plans before
+they reach execution. Debug builds additionally assert internal invariants in
+the ordinary dispatch loop and kernels, where exceptions and allocations are
+deliberately avoided.
+
+The C++ suite runs through default dispatch, forced scalar execution, and
+forced AVX2 execution when the CI host supports it. Focused kernel tests also
+compare AVX-512 implementations against the scalar reference on capable
+hosts. Cross-platform builds exercise configurations without runtime dispatch,
+and release smoke tests emulate older x86 CPUs so architecture-specific
+instructions cannot leak into fallback paths. WebAssembly has a separate smoke
+suite for compilation, plan inspection, and browser sampling.
 
 ## Running the Tests
 

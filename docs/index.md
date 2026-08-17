@@ -30,9 +30,18 @@ A fast exact simulator for near-Clifford quantum circuits.
 
 Clifft is an exact simulator for quantum circuits whose dominant structure is Clifford, but whose behavior depends on localized non-Clifford operations. It accepts Stim-compatible circuits, extends them with non-Clifford gates, and compiles them into a high-performance symbolic-coordinate sampling plan.
 
-Clifft works by factoring the quantum state into an offline Clifford frame, an online Pauli frame, and a dense active state vector. Clifford coordinate transformations are resolved ahead of time, while each shot performs only lightweight frame updates and localized state-vector evolution.
+Clifft factors each trajectory into an offline Clifford coordinate map,
+branch-dependent Pauli corrections represented by affine Boolean signs, and a
+dense active state. Coordinate transformations and symbolic dependencies are
+resolved ahead of time; each shot evaluates the prepared signs and active-state
+actions without evolving an online tableau or physical-qubit Pauli frame.
 
-The main cost scales with $2^k$ rather than $2^n$, where $n$ is the total number of qubits and $k$ is the active dimension of the state vector. Non-Clifford operations can increase $k$, while measurements can reduce it. For near-Clifford protocols with frequent measurements, such as magic-state preparation circuits, this can provide large memory and runtime savings over standard dense state-vector simulation.
+The main cost scales with $2^k$ rather than $2^n$, where $n$ is the total
+number of qubits and $k$ is the active width. The corresponding active-state
+dimension is $2^k$. Non-Clifford operations can increase $k$, while
+measurements can reduce it. For near-Clifford protocols with frequent
+measurements, such as magic-state preparation circuits, this can provide large
+memory and runtime savings over standard dense state-vector simulation.
 
 ## Quick Example
 
@@ -74,9 +83,9 @@ print(result.measurements[:5])  # First 5 shots.
 
     Run supported circuits from Qiskit or Cirq through companion packages without hand-writing Clifft circuit text.
 
-- **Active-Dimension Scaling**
+- **Active-Width Scaling**
 
-    For circuits with bounded active dimension, memory and runtime scale with the localized active state rather than the full qubit count.
+    For circuits with bounded active width, memory and runtime scale with the localized active state rather than the full qubit count.
 
 - **Leakage and Loss Trajectories (Experimental)**
 

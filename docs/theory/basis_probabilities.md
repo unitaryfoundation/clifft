@@ -169,7 +169,7 @@ walk over the $2^k$ active basis states.
 ## Complexity
 
 Per `clifft.basis_probabilities()` call, with $M$ queried bitstrings, $n$ qubits,
-active rank $k$, and total X-rank $r_X$:
+active width $k$, and total X-rank $r_X$:
 
 | Step | Cost | Frequency |
 |------|------|-----------|
@@ -205,7 +205,7 @@ path to a probability table. `basis_probabilities()` shines when:
 
 - $n$ is large enough that materializing the full $2^n$ statevector is
   impractical, but you only care about a sparse set of bitstrings.
-- The circuit's active rank $k$ is small (so the $2^k$ inner loop is
+- The circuit's active width $k$ is small (so the $2^k$ inner loop is
   cheap).
 - You want to query many bitstrings against the same circuit (the
   structure is shared across the batch).
