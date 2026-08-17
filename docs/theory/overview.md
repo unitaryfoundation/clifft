@@ -146,9 +146,9 @@ cases are:
 | Situation | Example | Planned state action | Width |
 |---|---|---|---|
 | Rotation already supported on active coordinates | A mapped $Z$ rotation that touches only active coordinates | Rotate the active Pauli directly | $k \to k$ |
-| Rotation requiring dormant coherent support | An $X$-axis pi/4 rotation on a dormant $|0\rangle$ coordinate | Promote the coordinate, then rotate | $k \to k+1$ |
+| Rotation requiring dormant coherent support | An $X$-axis pi/4 rotation on a dormant $\lvert 0\rangle$ coordinate | Promote the coordinate, then rotate | $k \to k+1$ |
 | Measurement with active support | A mapped $Z$ measurement that touches the active state | Sample and collapse, then remove the chosen coordinate | $k \to k-1$ |
-| Random measurement in dormant space | An $X$ measurement of a dormant $|0\rangle$ coordinate | Replace its stabilizer and define the sampled branch | $k \to k$ |
+| Random measurement in dormant space | An $X$ measurement of a dormant $\lvert 0\rangle$ coordinate | Replace its stabilizer and define the sampled branch | $k \to k$ |
 | Classical result | A deterministic $Z$ record or a detector parity of earlier records | Update only symbols, records, or outputs | $k \to k$ |
 
 This is Clifft's adaptation of SymFT's adaptive stabilizer-coordinate planning.
