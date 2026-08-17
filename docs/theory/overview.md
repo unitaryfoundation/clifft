@@ -15,9 +15,9 @@ The symbolic sampling strategy described below draws directly on
 [SymFT](https://arxiv.org/abs/2607.28600), introduced by Wang Fang, Huazhe
 Lou, and Riling Li. In particular, Clifft adapts SymFT's symbolic
 Clifford-Pauli-frame factorization and adaptive stabilizer-coordinate
-planning. `SamplingPlan`, target-specific executable lowering, instruments and
-continuations, and the executor organization are Clifft-specific implementation
-choices.
+planning. `SamplingPlan`, host-specific executable preparation, instruments
+and continuations, and the executor organization are Clifft-specific
+implementation choices.
 
 ## Symbolic Clifford Coordinates
 
@@ -162,8 +162,8 @@ or stop execution so that a trajectory-specific continuation can be prepared.
 
 ## From a Circuit to Samples
 
-The boxes below are stored representations. The text between them describes
-the work that transforms one representation into the next.
+The boxes below name the main compiler and runtime objects. The text between
+them describes the work that prepares or consumes each object.
 
 ```text
 [Circuit text]
@@ -184,7 +184,11 @@ the work that transforms one representation into the next.
       v
 [ExecutablePlan]
       |
-      | Reuse for every shot
+      | Allocate reusable shot state
+      v
+[Executor]
+      |
+      | Run shots and collect outputs
       v
 [Records, detectors, observables, and other results]
 ```
@@ -217,18 +221,21 @@ fusion.
 
 ### Executable-Plan Preparation
 
-Preparation turns the semantic plan into fixed storage for a particular CPU
-executor. It arranges symbolic dependencies for incremental evaluation,
-combines supported rotation runs, and selects scalar or architecture-specific
-kernels. Coefficient, scratch, symbol, record, output, and RNG storage is sized
-before the hot loop begins.
+Preparation turns the semantic plan into fixed storage for the selected
+executor backend. It arranges symbolic dependencies for incremental
+evaluation, combines supported rotation runs, and selects scalar or
+architecture-specific kernels. On x86 builds with runtime dispatch, this
+selects the scalar, AVX2, or AVX-512 backend once for the plan; portable builds
+use the scalar backend.
 
 ### Sampling
 
-The executor reuses the prepared plan for every shot. It samples fault and
-measurement symbols, evaluates the affected expressions, and applies prepared
-active-state actions. It performs no tableau evolution, commutation analysis,
-Pauli localization, coordinate selection, or dependency discovery.
+The executor allocates coefficient, scratch, symbol, record, output, and RNG
+storage before the hot loop, then reuses the prepared plan and that storage for
+every shot. It samples fault and measurement symbols, evaluates the affected
+expressions, and applies prepared active-state actions. It performs no tableau
+evolution, commutation analysis, Pauli localization, coordinate selection, or
+dependency discovery.
 
 ## Continuations and Noncomputational Trajectories
 
@@ -258,8 +265,10 @@ probabilities.
 full-register probabilities without expanding the full $2^n$ statevector. Its
 exponential component still scales with the active width.
 
-For eligible programs with measurements, `clifft.record_probabilities()`
-evaluates selected measurement records exactly without sampling.
+For pure-state programs whose only stochastic events and outputs are visible
+measurements, and which do not use postselection,
+`clifft.record_probabilities()` evaluates selected records exactly without
+sampling.
 
 See [Basis-State Probabilities](basis_probabilities.md) and
 [Strong Simulation with Exact Probabilities](../guide/strong-simulation.md).
