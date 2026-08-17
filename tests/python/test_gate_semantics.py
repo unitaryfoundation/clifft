@@ -50,6 +50,14 @@ def test_iswap_phase_and_inverse() -> None:
     )
 
 
+def test_swap_exchanges_qubit_amplitudes() -> None:
+    np.testing.assert_allclose(
+        _statevector("X 0\nSWAP 0 1"),
+        np.array([0, 0, 1, 0], dtype=np.complex128),
+        atol=1e-12,
+    )
+
+
 def test_absorbed_single_qubit_cliffords() -> None:
     np.testing.assert_allclose(_statevector("SQRT_X 0\nSQRT_X 0"), _statevector("X 0"), atol=1e-12)
     np.testing.assert_allclose(

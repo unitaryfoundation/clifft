@@ -88,6 +88,37 @@ class TestSample:
             result.measurements[:, 0] == result.measurements[:, 1]
         ), "Bell state not correlated"
 
+    def test_biased_entangled_measurements_match_analytic_distribution(
+        self, sampling_api: Any
+    ) -> None:
+        """A coherent T rotation biases both members of an entangled pair."""
+        program = sampling_api.compile("H 0\nT 0\nH 0\nCX 0 1\nM 0 1")
+        shots = 50_000
+        result = sampling_api.sample(program, shots, seed=42)
+
+        expected_p0 = (1.0 + np.cos(np.pi / 4.0)) / 2.0
+        tolerance = binomial_tolerance(expected_p0, shots)
+        for column in range(2):
+            observed_p0 = float(np.mean(result.measurements[:, column] == 0))
+            assert abs(observed_p0 - expected_p0) < tolerance
+
+        np.testing.assert_array_equal(result.measurements[:, 0], result.measurements[:, 1])
+
+    def test_repeated_active_state_expansion_and_compaction(self, sampling_api: Any) -> None:
+        """Repeated inject-entangle-measure rounds retain a bounded active state."""
+        rounds = 256
+        lines = ["H 0", "T 0"]
+        for _ in range(rounds):
+            lines.extend(["H 1", "T 1", "CX 1 0", "M 1", "R 1"])
+        lines.append("M 0")
+
+        program = sampling_api.compile("\n".join(lines), hir_passes=None)
+        assert program.peak_rank == 2
+
+        result = sampling_api.sample(program, shots=64, seed=7)
+        assert result.measurements.shape == (64, rounds + 1)
+        assert np.all((result.measurements == 0) | (result.measurements == 1))
+
     def test_sample_reproducible(self, sampling_api: Any) -> None:
         """Same seed produces same results."""
         prog = sampling_api.compile("H 0\nM 0")

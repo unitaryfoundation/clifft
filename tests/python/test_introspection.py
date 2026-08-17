@@ -16,6 +16,13 @@ import clifft
 class TestHirIntrospection:
     """HIR-level introspection: HeisenbergOp, OpType, iteration."""
 
+    def test_source_map_preserves_python_line_provenance(self) -> None:
+        hir = clifft.trace(clifft.parse("H 0\nT 0\nM 0"))
+
+        assert len(hir.source_map) == hir.num_ops
+        assert hir.source_map[0] == [2]
+        assert clifft.trace(clifft.parse("")).source_map == []
+
     def test_hir_str_prints_ops(self) -> None:
         hir = clifft.trace(clifft.parse("H 0\nT 0\nM 0"))
         text = str(hir)
