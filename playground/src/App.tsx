@@ -338,6 +338,18 @@ export default function App() {
     const hirLines = reverseMaps.hir.get(srcLine) ?? [];
     const loweredLines = reverseMaps.lowered.get(srcLine) ?? [];
 
+    // Keep the counterpart lines in view when a click's target is
+    // scrolled off-screen (large circuits can span hundreds of lines).
+    // revealLineInCenterIfOutsideViewport only scrolls the viewport — it
+    // never moves the cursor/selection — so it can't feed back into the
+    // read-only editors' onDidChangeCursorPosition handlers, and it's a
+    // no-op when the line is already visible (harmless for the editor
+    // the user just clicked in).
+    sourceEditorRef.current?.revealLineInCenterIfOutsideViewport(srcLine);
+    if (hirLines.length > 0) {
+      hirEditorRef.current?.revealLineInCenterIfOutsideViewport(hirLines[0]);
+    }
+
     // Highlight the source line itself
     sourceDecosRef.current?.set([
       {
@@ -373,12 +385,20 @@ export default function App() {
     );
 
     if (loweredLines.length > 0) {
+      // Anchor the glyph on the specific action the user clicked, if it
+      // maps to this source line; otherwise fall back to the first
+      // action for the line (e.g. when navigation originated from the
+      // source or HIR panel, which don't pick a specific action).
+      const anchorLine =
+        cursorPlanAction !== null && loweredLines.includes(cursorPlanAction + 1)
+          ? cursorPlanAction + 1
+          : loweredLines[0];
       loweredActionDecosRef.current?.set([
         {
           range: {
-            startLineNumber: loweredLines[0],
+            startLineNumber: anchorLine,
             startColumn: 1,
-            endLineNumber: loweredLines[0],
+            endLineNumber: anchorLine,
             endColumn: 1,
           },
           options: {
@@ -386,10 +406,11 @@ export default function App() {
           },
         },
       ]);
+      loweredEditorRef.current?.revealLineInCenterIfOutsideViewport(anchorLine);
     } else {
       loweredActionDecosRef.current?.clear();
     }
-  }, [cursorSourceLine, compileResult, reverseMaps, rulerColor, diffView]);
+  }, [cursorSourceLine, cursorPlanAction, compileResult, reverseMaps, rulerColor, diffView]);
 
   // --- Editor mount handlers ---
   const onSourceMount: OnMount = (editor) => {
