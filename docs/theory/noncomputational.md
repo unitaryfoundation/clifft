@@ -203,11 +203,11 @@ Each continuation still uses Clifft's normal compiler and symbolic-coordinate
 architecture. Clifford operations, coordinate planning, and symbolic
 dependencies are resolved before execution resumes.
 
-## Active-dimension cost
+## Active-width cost
 
 With the default exact damping policy, the simulation is exact for this hybrid
 quantum-classical model. Most transition positions do not increase the
-[active dimension](overview.md#symbolic-clifford-coordinates). A source
+[active width](overview.md#symbolic-clifford-coordinates). A source
 already in the active state uses its existing array axis. A definite dormant
 source is determined entirely from the Clifford and Pauli frames.
 
@@ -216,8 +216,8 @@ jump rates, $p_g \neq p_e$. The $K_{\mathrm{stay}}$ operator above is then not
 proportional to the identity, and is non-Clifford. Exact simulation must
 promote the site from dormant to active.
 
-If this occurs frequently, it can increase the peak active dimension $k$, the
-dominant scaling quantity for Clifft's runtime. Users can instead choose
+If this occurs frequently, it can increase the peak active width $k$, the
+dominant exponent in Clifft's runtime. Users can instead choose
 `damping="neglect"`, which omits the no-jump back-action. This is exact when
 $p_g = p_e$, when the operator is proportional to the identity. Otherwise it
 changes the conditioned no-jump state by order $\lvert p_g-p_e\rvert$ at each

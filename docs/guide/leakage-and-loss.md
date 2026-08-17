@@ -311,7 +311,7 @@ assert abs(r.measurements[:, 0].mean() - (0.5 + p / 2)) < 0.01
 Evaluating a transition against the quantum state at that point also preserves
 correlations. When the destination depends on the source level, the leaked
 site's classified readout stays correlated with its entangled partner. The
-semantics and rank cost are described in
+semantics and active-width cost are described in
 [Noncomputational States](../theory/noncomputational.md).
 
 ## Policy knobs
@@ -322,17 +322,18 @@ semantics and rank cost are described in
   controls only whether the reset half restores a lost site.
 - **`damping`** (default `"exact"`): source-dependent total jump rates on a
   coherent site require no-jump back-action. Exact simulation may add one unit
-  of peak rank for each affected coherent site; each additional unit doubles
-  the state-array size. Repeated transition positions on a site that remains
-  active do not add further rank. `"neglect"` omits this cost and the no-jump
-  back-action, introducing an error of order
+  of peak active width for each affected coherent site; each additional unit
+  doubles the active-state dimension. Repeated transition positions on a site
+  that remains active do not increase the width further. `"neglect"` omits
+  this cost and the no-jump back-action, introducing an error of order
   $\lvert p_g - p_e \rvert$ per transition position. There is no error when
   $p_g = p_e$, so `LEAKAGE(p)` and `LOSS(p)` are always exact. See the
-  [performance model](performance.md) for how rank affects simulation cost.
+  [performance model](performance.md) for how active width affects simulation
+  cost.
 - **`seed`**: same contract as ordinary sampling: a fixed seed is fully
   reproducible, `None` uses hardware entropy.
-- **`max_rank`**: caps the compiled peak rank before allocating or growing the
-  state for that module.
+- **`max_rank`**: caps the compiled peak active width before allocating or
+  growing the state for that module.
   The cap applies to each compiled module, including branches a given shot
   never takes, so it is conservative.
 

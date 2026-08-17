@@ -83,9 +83,11 @@ The C++ core is unit-tested with `Catch2`. These tests target individual layers 
   implementations across width and mask boundaries.
 
 * **Inspection and source provenance:** `test_source_map.cc` and the Python
-  introspection tests verify that semantic and executable-plan inspection can
-  relate prepared actions back to circuit source without affecting ordinary
-  compilation.
+  introspection tests cover HIR source provenance. The sampling planner, plan,
+  and executor suites cover semantic and executable-plan inspection, including
+  the mapping from fused executable actions back to semantic actions. The
+  WebAssembly smoke suite checks provenance through HIR, semantic-plan, and
+  executable-plan inspection as exposed by the playground.
 
 ## Validation and Backend Coverage
 
