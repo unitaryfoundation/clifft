@@ -48,6 +48,13 @@ struct ChoiSupport {
 /// Returns 0 when the index lies outside the support.
 [[nodiscard]] std::complex<double> choi_amplitude(const ChoiSupport& s, const ChoiIndex& index);
 
+/// Phase relating Stim's canonical representatives under composition:
+/// canonical(left) * canonical(right) == phase * canonical(right.then(left)).
+/// Intended for the small tableaus accepted by exact statevector queries.
+[[nodiscard]] std::complex<double> tableau_composition_phase(
+    const stim::Tableau<kStimWidth>& left, const stim::Tableau<kStimWidth>& right,
+    const stim::Tableau<kStimWidth>& composed);
+
 inline constexpr std::complex<double> kImagPow[4] = {{1, 0}, {0, 1}, {-1, 0}, {0, -1}};
 
 [[nodiscard]] inline bool choi_index_bit(const ChoiIndex& idx, uint32_t bit) {

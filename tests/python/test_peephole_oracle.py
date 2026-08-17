@@ -213,14 +213,14 @@ class TestTerminalMeasurementPhaseElimination:
 # Componentwise global-phase preservation of S absorption.
 
 
-class TestPeepholeGlobalPhaseAccounting:
-    """S absorption must preserve the quantum state.
+class TestPeepholeExactGlobalPhase:
+    """S absorption must preserve the API-visible global phase.
 
     When the peephole pass fuses two T gates (or S-angle phase rotations)
     and absorbs the resulting S/S_dag into the Clifford frame, the tableau
     fixes the frame only up to global phase. The known H-T-T-H case below
-    checks the exact convention, while broader cases compare physical states
-    up to the arbitrary phase introduced by Stim tableau expansion.
+    checks the exact convention, and the broader cases ensure composition of
+    the physical and planner-coordinate tableaus keeps that same convention.
     """
 
     # Each circuit triggers at least one S absorption: T+T fusion,
@@ -255,18 +255,18 @@ class TestPeepholeGlobalPhaseAccounting:
 
     @pytest.mark.parametrize("circuit", S_ABSORPTION_CIRCUITS)
     def test_statevector_match(self, circuit: str) -> None:
-        """Optimized and unoptimized programs represent the same state."""
+        """Optimization preserves the API-visible global phase."""
         sv_baseline = _clifft_statevector(circuit)
         sv_optimized = _clifft_statevector(circuit, optimize=True)
-        assert_statevectors_equiv(sv_optimized, sv_baseline, rtol=1e-6)
+        assert_statevectors_componentwise_equal(sv_optimized, sv_baseline, atol=1e-6)
 
     @pytest.mark.parametrize("seed", range(100))
     def test_random_circuits(self, seed: int) -> None:
-        """Random Clifford+T circuits agree up to global phase."""
+        """Random Clifford+T circuits agree componentwise."""
         circuit = random_clifford_t_circuit(5, depth=30, seed=seed)
         sv_baseline = _clifft_statevector(circuit)
         sv_optimized = _clifft_statevector(circuit, optimize=True)
-        assert_statevectors_equiv(sv_optimized, sv_baseline, rtol=1e-5)
+        assert_statevectors_componentwise_equal(sv_optimized, sv_baseline, atol=1e-5)
 
     @pytest.mark.parametrize("seed", range(20))
     def test_random_deep_8q(self, seed: int) -> None:
@@ -275,14 +275,14 @@ class TestPeepholeGlobalPhaseAccounting:
         circuit = random_clifford_t_circuit(8, depth=60, seed=seed)
         sv_baseline = _clifft_statevector(circuit)
         sv_optimized = _clifft_statevector(circuit, optimize=True)
-        assert_statevectors_equiv(sv_optimized, sv_baseline, rtol=1e-5)
+        assert_statevectors_componentwise_equal(sv_optimized, sv_baseline, atol=1e-5)
 
     @pytest.mark.parametrize("seed", range(5))
     def test_dense_random_circuits(self, seed: int) -> None:
         circuit = random_dense_clifford_t_circuit(5, depth=40, seed=seed)
         sv_baseline = _clifft_statevector(circuit)
         sv_optimized = _clifft_statevector(circuit, optimize=True)
-        assert_statevectors_equiv(sv_optimized, sv_baseline, rtol=1e-5)
+        assert_statevectors_componentwise_equal(sv_optimized, sv_baseline, atol=1e-5)
 
 
 # Mirror-circuit T-gate cancellation.

@@ -48,6 +48,10 @@ class TestCompile:
         assert program.num_actions > 0
         assert clifft.sample(program, 1, seed=1).measurements.shape == (1, 1)
 
+
+class TestSample:
+    """Tests for clifft.sample()."""
+
     def test_sample_deterministic_zero(self, sampling_api: Any) -> None:
         """Measurement of |0> always gives 0."""
         prog = sampling_api.compile("M 0")
@@ -293,6 +297,10 @@ class TestStatevector:
         sv = clifft.get_statevector(clifft.compile("H 0"))
         expected = np.array([1 / np.sqrt(2), 1 / np.sqrt(2)], dtype=np.complex128)
         np.testing.assert_allclose(sv, expected, atol=1e-15, rtol=0)
+
+
+class TestCliffordValidation:
+    """Validate exact Clifford evolution against Stim."""
 
     def test_random_clifford_single_qubit(self, statevector_from_circuit: Any) -> None:
         """Random 1-qubit Clifford circuits match Stim."""

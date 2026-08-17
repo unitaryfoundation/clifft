@@ -2,8 +2,10 @@
 
 #include <bit>
 #include <cassert>
+#include <cmath>
 #include <cstddef>
 #include <iterator>
+#include <stdexcept>
 #include <utility>
 
 namespace clifft::internal {
@@ -59,6 +61,12 @@ void index_xor(ChoiIndex& dst, const ChoiIndex& src) {
         phase_idx += 2U * (static_cast<uint32_t>(std::popcount(p.zs.u64[w] & j[w])) & 1U);
     }
     return kImagPow[phase_idx & 3U];
+}
+
+[[nodiscard]] double canonical_entry_magnitude(size_t num_qubits, size_t support_rank) {
+    // A unitary has squared Frobenius norm 2^n. Its Choi support contains
+    // 2^rank equal-magnitude entries.
+    return std::exp2(0.5 * (static_cast<double>(num_qubits) - static_cast<double>(support_rank)));
 }
 
 }  // namespace
@@ -170,6 +178,46 @@ std::complex<double> choi_amplitude(const ChoiSupport& s, const ChoiIndex& index
         }
     }
     return amp;
+}
+
+std::complex<double> tableau_composition_phase(const stim::Tableau<kStimWidth>& left,
+                                               const stim::Tableau<kStimWidth>& right,
+                                               const stim::Tableau<kStimWidth>& composed) {
+    const size_t n = left.num_qubits;
+    if (right.num_qubits != n || composed.num_qubits != n) {
+        throw std::invalid_argument("tableau composition phase requires equal dimensions");
+    }
+    if (n == 0) {
+        return {1.0, 0.0};
+    }
+    if (n >= 32) {
+        throw std::invalid_argument("tableau composition phase is limited to 31 qubits");
+    }
+
+    const ChoiSupport left_support = build_choi_support(left);
+    const ChoiSupport right_support = build_choi_support(right);
+    const ChoiSupport composed_support = build_choi_support(composed);
+    const uint64_t dimension = uint64_t{1} << n;
+    const uint64_t coordinate_mask = dimension - 1;
+    const uint64_t anchor = composed_support.anchor.front();
+    const uint64_t row = anchor >> n;
+    const uint64_t col = anchor & coordinate_mask;
+    const double left_magnitude = canonical_entry_magnitude(n, left_support.x_rows.size());
+    const double right_magnitude = canonical_entry_magnitude(n, right_support.x_rows.size());
+    const double composed_magnitude = canonical_entry_magnitude(n, composed_support.x_rows.size());
+
+    // Stim makes the composed anchor entry positive real. Contract that one
+    // matrix entry through the two factors; its phase is therefore the phase
+    // relating the three canonical representatives.
+    std::complex<double> entry{0.0, 0.0};
+    for (uint64_t inner = 0; inner < dimension; ++inner) {
+        const ChoiIndex left_index{(row << n) | inner};
+        const ChoiIndex right_index{(inner << n) | col};
+        entry += left_magnitude * choi_amplitude(left_support, left_index) * right_magnitude *
+                 choi_amplitude(right_support, right_index);
+    }
+    const std::complex<double> phase = entry / composed_magnitude;
+    return phase / std::abs(phase);
 }
 
 }  // namespace clifft::internal

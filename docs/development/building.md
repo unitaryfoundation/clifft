@@ -92,7 +92,7 @@ For optimized source builds, `Release` and `RelWithDebInfo` default to native CP
 
 Clifft sizes Pauli masks and symbolic-frame storage from the input circuit at
 runtime. Practical limits therefore depend on compilation memory, active
-width, and output volume rather than a public bytecode-axis limit.
+width, and output volume rather than a fixed backend-axis limit.
 
 ## WebAssembly Build
 

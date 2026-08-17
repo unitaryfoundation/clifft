@@ -86,6 +86,22 @@ SamplingPlan active_then_dormant_plan(double promotion_half_turns) {
     return plan;
 }
 
+SamplingPlan dormant_trap_plan() {
+    SamplingPlan plan;
+    plan.num_qubits = 1;
+    plan.num_instrument_sites = 1;
+    plan.symbols = {SymbolInfo{SymbolKind::Unused, std::nullopt, std::nullopt}};
+    plan.instrument_distributions = {InstrumentDistribution{InstrumentSiteId{0}, {1.0, 1.0}, {}}};
+    plan.actions = {
+        PlannedAction{
+            0, 0,
+            ApplyInstrument{
+                InstrumentSiteId{0}, InstrumentMode::DormantTrap, {}, AffineBool{}, std::nullopt}},
+        PlannedAction{0, 0, InstrumentBoundary{InstrumentSiteId{0}, 0, 1}},
+    };
+    return plan;
+}
+
 SamplingPlan plan_from(std::string_view circuit_text) {
     return clifft::sampling::plan_sampling(clifft::trace(clifft::parse(circuit_text)));
 }
@@ -909,6 +925,95 @@ TEST_CASE("Sampling executor stops at noncomputational destinations") {
     REQUIRE(executor.pending_trap()->site == InstrumentSiteId{0});
     REQUIRE(executor.pending_trap()->source == 0);
     REQUIRE_FALSE(executor.pending_trap()->destination_pending);
+}
+
+TEST_CASE("Sampling continuation rejects incompatible handoffs") {
+    const SamplingPlan root_plan = dormant_trap_plan();
+    const ExecutablePlan root(root_plan);
+
+    SECTION("resume without a trap") {
+        Executor executor(root, 1);
+        REQUIRE_THROWS_AS(executor.resume(root), std::invalid_argument);
+    }
+
+    SECTION("continuation omits the trapped site") {
+        SamplingPlan continuation_plan;
+        continuation_plan.num_qubits = 1;
+        const ExecutablePlan continuation(continuation_plan);
+        Executor executor(root, 1);
+        executor.run_shot();
+        REQUIRE_THROWS_AS(executor.resume(continuation), std::invalid_argument);
+    }
+
+    SECTION("boundary has the wrong live active width") {
+        SamplingPlan continuation_plan = root_plan;
+        continuation_plan.initial_active_width = 1;
+        continuation_plan.max_active_width = 1;
+        continuation_plan.actions[0].active_before = 1;
+        continuation_plan.actions[0].active_after = 1;
+        continuation_plan.actions[1].active_before = 1;
+        continuation_plan.actions[1].active_after = 1;
+        const ExecutablePlan continuation(continuation_plan);
+        Executor executor(root, 1);
+        executor.run_shot();
+        REQUIRE_THROWS_AS(executor.resume(continuation), std::invalid_argument);
+    }
+
+    SECTION("boundary changes prefix symbol identities") {
+        SamplingPlan continuation_plan = root_plan;
+        continuation_plan.symbols.push_back(
+            SymbolInfo{SymbolKind::Unused, std::nullopt, std::nullopt});
+        continuation_plan.actions[1] =
+            PlannedAction{0, 0, InstrumentBoundary{InstrumentSiteId{0}, 0, 2}};
+        const ExecutablePlan continuation(continuation_plan);
+        Executor executor(root, 1);
+        executor.run_shot();
+        REQUIRE_THROWS_AS(executor.resume(continuation), std::invalid_argument);
+    }
+
+    SECTION("continuation changes public dimensions") {
+        SamplingPlan continuation_plan = root_plan;
+        continuation_plan.num_visible_records = 1;
+        continuation_plan.actions.push_back(
+            PlannedAction{0, 0, RecordClassical{AffineBool{}, RecordSlot{0}}});
+        const ExecutablePlan continuation(continuation_plan);
+        Executor executor(root, 1);
+        executor.run_shot();
+        REQUIRE_THROWS_AS(executor.resume(continuation), std::invalid_argument);
+    }
+
+    SECTION("continuation contains an unbound presampled symbol") {
+        SamplingPlan continuation_plan = root_plan;
+        continuation_plan.symbols.push_back(
+            SymbolInfo{SymbolKind::Presampled, std::nullopt, std::nullopt});
+        const ExecutablePlan continuation(continuation_plan);
+        Executor executor(root, 1);
+        executor.run_shot();
+        REQUIRE_THROWS_AS(executor.resume(continuation), std::invalid_argument);
+    }
+
+    SECTION("forced trace-out record is out of range") {
+        Executor executor(root, 1);
+        executor.run_shot();
+        REQUIRE_THROWS_AS(executor.resume(root, ForcedTraceOut{RecordSlot{0}, 0}),
+                          std::invalid_argument);
+    }
+}
+
+TEST_CASE("Sampling continuation rejects an unconsumed forced trace-out record") {
+    const SamplingPlan root_plan = dormant_trap_plan();
+    SamplingPlan continuation_plan = root_plan;
+    continuation_plan.num_hidden_records = 1;
+    continuation_plan.actions.insert(
+        continuation_plan.actions.begin(),
+        PlannedAction{0, 0, RecordClassical{AffineBool{}, RecordSlot{0}}});
+    const ExecutablePlan root(root_plan);
+    const ExecutablePlan continuation(continuation_plan);
+    Executor executor(root, 1);
+
+    executor.run_shot();
+    REQUIRE_THROWS_AS(executor.resume(continuation, ForcedTraceOut{RecordSlot{0}, 0}),
+                      std::logic_error);
 }
 
 TEST_CASE("Sampling executor defers suffix noise until an instrument continuation") {

@@ -319,8 +319,10 @@ TEST_CASE("trajectory: max_rank rejects an over-budget compile") {
         "LEVEL_TRANSITION[leak] 0\nLEVEL_TRANSITION[leak] 1\nLEVEL_TRANSITION[leak] 2\n"
         "M 0\nM 1\nM 2");
 
-    REQUIRE_THROWS_WITH(sample_noncomputational(circuit, model, 5, 1, /*max_rank=*/2),
-                        ContainsSubstring("exceeds max_rank 2"));
+    REQUIRE_THROWS_WITH(
+        sample_noncomputational(circuit, model, 5, 1, /*max_rank=*/2),
+        ContainsSubstring("exceeds max_rank 2 (first exceeded at circuit line 6); consider "
+                          "damping=\"neglect\" for high-rate sites or a larger max_rank"));
 }
 
 TEST_CASE("trajectory: a trap-form fire keeps the fire-side correlation") {

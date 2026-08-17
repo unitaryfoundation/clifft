@@ -124,7 +124,3 @@ TEST_CASE("Source map: terminal reset phase elimination removes only phase entri
     REQUIRE(noise_entries == 2);
     REQUIRE(measure_reset_entries == 4);
 }
-
-// =============================================================================
-// Back-End source map and k-history
-// =============================================================================

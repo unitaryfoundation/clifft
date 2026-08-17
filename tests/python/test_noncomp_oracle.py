@@ -35,7 +35,7 @@ SHOTS = 8000
 
 @pytest.fixture(params=[clifft.noncomp.sample], ids=["symbolic"])
 def noncomp_sampling_api(request: pytest.FixtureRequest) -> Any:
-    """Run the independent-oracle checks against both trajectory executors."""
+    """Run the independent-oracle checks against the production trajectory sampler."""
     return request.param
 
 

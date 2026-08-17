@@ -395,9 +395,23 @@ void check_sampling_max_rank(const sampling::SamplingPlan& plan, std::optional<u
     if (!max_rank.has_value() || plan.max_active_width <= *max_rank) {
         return;
     }
-    throw std::invalid_argument("sample_noncomputational: planned active width " +
-                                std::to_string(plan.max_active_width) + " exceeds max_rank " +
-                                std::to_string(*max_rank));
+    std::string site;
+    if (plan.source_map.has_value()) {
+        for (size_t action = 0; action < plan.actions.size(); ++action) {
+            if (plan.actions[action].active_after <= *max_rank) {
+                continue;
+            }
+            const std::span<const uint32_t> lines = plan.source_map->lines_for(action);
+            if (!lines.empty()) {
+                site = " (first exceeded at circuit line " + std::to_string(lines.front()) + ")";
+            }
+            break;
+        }
+    }
+    throw std::invalid_argument(
+        "sample_noncomputational: planned active width " + std::to_string(plan.max_active_width) +
+        " exceeds max_rank " + std::to_string(*max_rank) + site +
+        "; consider damping=\"neglect\" for high-rate sites or a larger max_rank");
 }
 
 SamplingCompiledContinuation compile_sampling_continuation(
@@ -410,7 +424,16 @@ SamplingCompiledContinuation compile_sampling_continuation(
     TracedContinuation traced =
         trace_continuation(std::move(patched), rewrite.forced_traceout_node, instrument_options);
     sampling::SamplingPlan plan = sampling::plan_sampling(traced.hir);
-    check_sampling_max_rank(plan, max_rank);
+    if (max_rank.has_value() && plan.max_active_width > *max_rank) {
+        // Source provenance is retained only on the exceptional diagnostic
+        // path; successful continuations can be numerous and do not need it.
+        const sampling::SamplingPlan diagnostic =
+            sampling::plan_sampling(traced.hir, {.postselection_mask = {},
+                                                 .expected_detectors = {},
+                                                 .expected_observables = {},
+                                                 .retain_source_map = true});
+        check_sampling_max_rank(diagnostic, max_rank);
+    }
     if (plan.num_instrument_sites != rewrite.site_targets.size()) {
         throw std::logic_error("sample_noncomputational: sampling plan has " +
                                std::to_string(plan.num_instrument_sites) +

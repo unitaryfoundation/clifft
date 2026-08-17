@@ -1,5 +1,6 @@
 #include "clifft/sampling/executor.h"
 #include "clifft/sampling/state_queries.h"
+#include "clifft/sampling/state_query_limits.h"
 
 #include <bit>
 #include <cassert>
@@ -12,8 +13,6 @@
 
 namespace clifft {
 namespace {
-
-constexpr uint32_t kMaxStatevectorQubits = 10;
 
 std::complex<double> exact_clifford_factor(std::complex<float> factor, double support_magnitude) {
     if (factor == std::complex<float>{0.0F, 0.0F}) {
@@ -36,7 +35,7 @@ std::complex<double> exact_clifford_factor(std::complex<float> factor, double su
 }
 
 void validate_statevector_size(uint32_t num_qubits) {
-    if (num_qubits > kMaxStatevectorQubits) {
+    if (num_qubits > sampling::kMaxExpandedStatevectorQubits) {
         throw std::runtime_error(
             "Statevector expansion limited to 10 qubits (dense U_C matrix is 4^n)");
     }

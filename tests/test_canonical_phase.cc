@@ -144,3 +144,32 @@ TEST_CASE("Canonical phase: S absorption is invariant under qubit embedding") {
         REQUIRE_THAT(phase_wide.imag(), Catch::Matchers::WithinAbs(phase_small.imag(), 1e-9));
     }
 }
+
+TEST_CASE("Canonical phase: tableau composition matches dense stim oracle") {
+    std::mt19937_64 rng(0xC011AB1E);
+
+    for (int trial = 0; trial < 128; ++trial) {
+        CAPTURE(trial);
+        const size_t n = 1 + static_cast<size_t>(trial % 4);
+        const auto left = stim::Tableau<kStimWidth>::random(n, rng);
+        const auto right = stim::Tableau<kStimWidth>::random(n, rng);
+        const auto composed = right.then(left);
+        const auto phase = internal::tableau_composition_phase(left, right, composed);
+        const uint64_t dimension = uint64_t{1} << n;
+        const auto expected =
+            dense_matmul(dense_tableau_matrix(left), dense_tableau_matrix(right), dimension);
+        const auto actual = dense_tableau_matrix(composed);
+
+        for (uint64_t i = 0; i < dimension * dimension; ++i) {
+            CAPTURE(i);
+            REQUIRE_THAT(expected[i].real(),
+                         Catch::Matchers::WithinAbs((phase * actual[i]).real(), 1e-5));
+            REQUIRE_THAT(expected[i].imag(),
+                         Catch::Matchers::WithinAbs((phase * actual[i]).imag(), 1e-5));
+        }
+    }
+
+    const auto empty = stim::Tableau<kStimWidth>::identity(0);
+    REQUIRE(internal::tableau_composition_phase(empty, empty, empty) ==
+            std::complex<double>{1.0, 0.0});
+}

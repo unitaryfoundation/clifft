@@ -22,19 +22,14 @@ using Catch::Matchers::WithinRel;
 
 namespace {
 
-clifft::sampling::ExecutablePlan compile_sampling_circuit(
-    const std::string& stim_text, std::span<const uint8_t> postselection = {}) {
+clifft::sampling::ExecutablePlan compile_circuit(const std::string& stim_text,
+                                                 std::span<const uint8_t> postselection = {}) {
     auto hir = clifft::trace(clifft::parse(stim_text));
     auto reference = clifft::compute_reference_syndrome(hir);
     return clifft::sampling::ExecutablePlan(
         clifft::sampling::plan_sampling(hir, {.postselection_mask = postselection,
                                               .expected_detectors = reference.detectors,
                                               .expected_observables = reference.observables}));
-}
-
-// Compile a stim circuit string with normalized syndromes.
-clifft::sampling::ExecutablePlan compile_circuit(const std::string& stim_text) {
-    return compile_sampling_circuit(stim_text);
 }
 
 }  // namespace
@@ -438,7 +433,7 @@ TEST_CASE("k-fault conditioning rejects asymmetric readout noise") {
 }
 
 TEST_CASE("Symbolic conditioned sampling exposes ordered fault probabilities") {
-    auto program = compile_sampling_circuit(R"(
+    auto program = compile_circuit(R"(
         DEPOLARIZE1(0.03) 0
         X_ERROR(0.01) 1
         M(0.005) 0
@@ -466,11 +461,10 @@ TEST_CASE("Conditioned sampling preserves source noise site totals") {
     };
 
     check_probabilities(compile_circuit(circuit).noise_site_probabilities());
-    check_probabilities(compile_sampling_circuit(circuit).noise_site_probabilities());
 }
 
 TEST_CASE("Symbolic conditioned sampling forces quantum channels and readout") {
-    auto quantum = compile_sampling_circuit(R"(
+    auto quantum = compile_circuit(R"(
         X_ERROR(0.01) 0
         X_ERROR(0.05) 1
         X_ERROR(0.1) 2
@@ -483,7 +477,7 @@ TEST_CASE("Symbolic conditioned sampling forces quantum channels and readout") {
         CHECK(std::ranges::count(row, uint8_t{1}) == 2);
     }
 
-    auto readout = compile_sampling_circuit("M(0.1) 0\nOBSERVABLE_INCLUDE(0) rec[-1]\n");
+    auto readout = compile_circuit("M(0.1) 0\nOBSERVABLE_INCLUDE(0) rec[-1]\n");
     const clifft::sampling::SamplingResult readout_result =
         clifft::sampling::sample_k(readout, 100, 1, 43);
     CHECK(
@@ -491,7 +485,7 @@ TEST_CASE("Symbolic conditioned sampling forces quantum channels and readout") {
 }
 
 TEST_CASE("Symbolic conditioned Pauli channels use conditional probabilities") {
-    auto program = compile_sampling_circuit("DEPOLARIZE1(0.3) 0\nM 0\n");
+    auto program = compile_circuit("DEPOLARIZE1(0.3) 0\nM 0\n");
     const clifft::sampling::SamplingResult result =
         clifft::sampling::sample_k(program, 10000, 1, 44);
     const auto flips = std::ranges::count(result.measurements, uint8_t{1});
@@ -501,7 +495,7 @@ TEST_CASE("Symbolic conditioned Pauli channels use conditional probabilities") {
 
 TEST_CASE("Symbolic conditioned survivors preserve normalized outputs") {
     const std::array<uint8_t, 2> postselection{1, 0};
-    auto survivors = compile_sampling_circuit(R"(
+    auto survivors = compile_circuit(R"(
         X_ERROR(0.1) 0 1
         M 0 1
         DETECTOR rec[-2]
@@ -509,7 +503,7 @@ TEST_CASE("Symbolic conditioned survivors preserve normalized outputs") {
         OBSERVABLE_INCLUDE(0) rec[-1]
         EXP_VAL Z0
     )",
-                                              postselection);
+                                     postselection);
     const clifft::sampling::SamplingSurvivorResult result =
         clifft::sampling::sample_k_survivors(survivors, 1000, 1, 45, true);
     CHECK(result.total_shots == 1000);
@@ -519,7 +513,7 @@ TEST_CASE("Symbolic conditioned survivors preserve normalized outputs") {
     REQUIRE(result.exp_vals.size() == result.passed_shots);
     CHECK(std::ranges::all_of(result.exp_vals, [](double value) { return value == 1.0; }));
 
-    auto normalized = compile_sampling_circuit("X 0\nM 0\nOBSERVABLE_INCLUDE(0) rec[-1]\n");
+    auto normalized = compile_circuit("X 0\nM 0\nOBSERVABLE_INCLUDE(0) rec[-1]\n");
     const clifft::sampling::SamplingResult normalized_result =
         clifft::sampling::sample_k(normalized, 10, 0, 46);
     CHECK(std::ranges::all_of(normalized_result.observables,
@@ -527,7 +521,7 @@ TEST_CASE("Symbolic conditioned survivors preserve normalized outputs") {
 }
 
 TEST_CASE("Symbolic conditioned sampling rejects asymmetric readout noise") {
-    auto program = compile_sampling_circuit("M 0\nREADOUT_NOISE(0.1, 0.2) rec[-1]\n");
+    auto program = compile_circuit("M 0\nREADOUT_NOISE(0.1, 0.2) rec[-1]\n");
     CHECK_THROWS_WITH(program.noise_site_probabilities(),
                       Catch::Matchers::ContainsSubstring("asymmetric"));
     CHECK_THROWS_WITH(clifft::sampling::sample_k(program, 8, 1, 0),
