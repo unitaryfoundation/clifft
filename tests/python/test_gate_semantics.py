@@ -6,18 +6,16 @@ import clifft
 
 
 def _statevector(circuit: str) -> np.ndarray:
-    return clifft.get_statevector(clifft.compile(circuit))
+    return np.asarray(clifft.get_statevector(clifft.compile(circuit)))
 
 
 def _measurements(circuit: str, *, seed: int = 1) -> np.ndarray:
-    return clifft.sample(clifft.compile(circuit), 1, seed=seed).measurements[0]
+    return np.asarray(clifft.sample(clifft.compile(circuit), 1, seed=seed).measurements[0])
 
 
 def test_clifford_aliases_match() -> None:
     np.testing.assert_allclose(_statevector("H 0"), _statevector("H_XZ 0"), atol=1e-12)
-    np.testing.assert_allclose(
-        _statevector("H 0\nS 0"), _statevector("H 0\nSQRT_Z 0"), atol=1e-12
-    )
+    np.testing.assert_allclose(_statevector("H 0\nS 0"), _statevector("H 0\nSQRT_Z 0"), atol=1e-12)
     np.testing.assert_allclose(
         _statevector("H 0\nX 1\nCZSWAP 0 1"),
         _statevector("H 0\nX 1\nSWAPCZ 0 1"),
@@ -31,9 +29,7 @@ def test_clifford_aliases_match() -> None:
 
 
 def test_identity_is_a_noop_but_sets_circuit_width() -> None:
-    np.testing.assert_allclose(
-        _statevector("H 0\nI 0\nT 0"), _statevector("H 0\nT 0"), atol=1e-12
-    )
+    np.testing.assert_allclose(_statevector("H 0\nI 0\nT 0"), _statevector("H 0\nT 0"), atol=1e-12)
     state = _statevector("I 3\nH 0")
     assert state.shape == (16,)
     np.testing.assert_allclose(state[:2], [2**-0.5, 2**-0.5], atol=1e-12)
@@ -55,9 +51,7 @@ def test_iswap_phase_and_inverse() -> None:
 
 
 def test_absorbed_single_qubit_cliffords() -> None:
-    np.testing.assert_allclose(
-        _statevector("SQRT_X 0\nSQRT_X 0"), _statevector("X 0"), atol=1e-12
-    )
+    np.testing.assert_allclose(_statevector("SQRT_X 0\nSQRT_X 0"), _statevector("X 0"), atol=1e-12)
     np.testing.assert_allclose(
         np.abs(_statevector("H 0\nC_XYZ 0\nC_XYZ 0\nC_XYZ 0")),
         np.abs(_statevector("H 0")),
