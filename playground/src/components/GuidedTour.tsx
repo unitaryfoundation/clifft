@@ -69,7 +69,7 @@ const STEPS: TourStep[] = [
   {
     title: "Source Map Highlighting",
     html: `
-      <p>Click any line in any editor to highlight the related lines in the
+      <p>Outside diff view, click any line in any editor to highlight the related lines in the
       other panels. Colored ticks in the scrollbars show where those related
       lines are.</p>
       <p>This lets you trace how a source instruction changes as it moves
