@@ -75,12 +75,12 @@ def define_env(env: Any) -> None:
             "preserves_record_order": False,
             "preserves_instrument_prefix": False,
             "python_name": "StatevectorSqueezePass",
-            "summary": "Minimizes peak active dimension by reordering HIR operations.",
+            "summary": "Minimizes peak active width by reordering HIR operations.",
             "detail": (
                 "Attempts to reduce `peak_rank` by compacting qubit lifetimes. "
                 "Sweep 1 (leftward) bubbles MEASURE ops as early as possible. "
                 "Sweep 2 (rightward) bubbles T_GATE and PHASE_ROTATION ops as "
-                "late as possible. Measurements free active dimensions sooner, "
+                "late as possible. Measurements reduce active width sooner, "
                 "and non-Clifford expansions are deferred."
             ),
         },
