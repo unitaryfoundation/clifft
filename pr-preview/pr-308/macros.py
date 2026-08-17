@@ -1,4 +1,4 @@
-"""MkDocs macros hook: loads opcodes.json and pass metadata for template rendering."""
+"""MkDocs macros hook: loads HIR operation and pass metadata."""
 
 import json
 from pathlib import Path
@@ -13,41 +13,8 @@ def define_env(env: Any) -> None:
     with open(data_path) as f:
         data = json.load(f)
 
-    # -- Opcodes --
-    opcodes = data.get("opcodes", {})
-    opcode_categories_order = [
-        "Frame",
-        "Array",
-        "Subspace",
-        "Measurement",
-        "Instrument",
-        "Meta",
-    ]
-    opcodes_by_category: dict[str, list[dict[str, str]]] = {}
-    for cat in opcode_categories_order:
-        opcodes_by_category[cat] = []
-    for name, info in opcodes.items():
-        cat = info.get("category", "Meta")
-        entry = {"name": name, **info}
-        if cat not in opcodes_by_category:
-            opcodes_by_category[cat] = []
-        opcodes_by_category[cat].append(entry)
-
-    unknown_opcode_categories = sorted(set(opcodes_by_category) - set(opcode_categories_order))
-    if unknown_opcode_categories:
-        raise ValueError(
-            "docs/opcodes.json contains VM opcode categories missing from docs/macros.py: "
-            + ", ".join(unknown_opcode_categories)
-        )
-
-    env.variables["opcodes"] = opcodes
     site_url = env.conf["site_url"].rstrip("/")
     env.variables["playground_url"] = f"{site_url}/playground/"
-
-    env.variables["opcode_categories"] = [
-        c for c in opcode_categories_order if opcodes_by_category.get(c)
-    ]
-    env.variables["opcodes_by_category"] = opcodes_by_category
 
     # -- HIR ops --
     hir_ops = data.get("hir_ops", {})
@@ -149,126 +116,10 @@ def define_env(env: Any) -> None:
                 "unitary-only circuit skeleton."
             ),
         },
-        {
-            "name": "NoiseBlockPass",
-            "kind": "Bytecode",
-            "default_enabled": True,
-            "preserves_record_order": True,
-            "preserves_instrument_prefix": True,
-            "python_name": "NoiseBlockPass",
-            "summary": "Coalesces contiguous noise instructions into blocks.",
-            "detail": (
-                "Collapses contiguous OP_NOISE instructions with consecutive site "
-                "indices into single OP_NOISE_BLOCK instructions. The VM's "
-                "exponential gap-sampling already skips silent noise sites in O(1), "
-                "but without this pass the dispatch loop still individually fetches "
-                "and decodes each OP_NOISE."
-            ),
-        },
-        {
-            "name": "MultiGatePass",
-            "kind": "Bytecode",
-            "default_enabled": True,
-            "preserves_record_order": True,
-            "preserves_instrument_prefix": True,
-            "python_name": "MultiGatePass",
-            "summary": "Fuses star-graph CNOT/CZ patterns into single array sweeps.",
-            "detail": (
-                "Fuses contiguous ARRAY_CNOT instructions sharing a target axis into "
-                "OP_ARRAY_MULTI_CNOT, and contiguous ARRAY_CZ sharing a control axis "
-                "into OP_ARRAY_MULTI_CZ. These star-graph patterns arise from the "
-                "backend's Pauli localization pass. The fused instruction processes all "
-                "controls/targets in one O(2^k) array pass using popcount-based parity."
-            ),
-        },
-        {
-            "name": "ExpandTPass",
-            "kind": "Bytecode",
-            "default_enabled": True,
-            "preserves_record_order": True,
-            "preserves_instrument_prefix": True,
-            "python_name": "ExpandTPass",
-            "summary": "Fuses EXPAND + T-phase into a single array pass.",
-            "detail": (
-                "Fuses contiguous OP_EXPAND + OP_ARRAY_T (or T_DAG) pairs into "
-                "single OP_EXPAND_T (or OP_EXPAND_T_DAG) instructions. The separate "
-                "instructions cause two array passes; the fused instruction performs "
-                "both in one loop: arr[i+half] = arr[i] * exp(+/-i*pi/4)."
-            ),
-        },
-        {
-            "name": "ExpandRotPass",
-            "kind": "Bytecode",
-            "default_enabled": True,
-            "preserves_record_order": True,
-            "preserves_instrument_prefix": True,
-            "python_name": "ExpandRotPass",
-            "summary": "Fuses EXPAND + continuous rotation into a single array pass.",
-            "detail": (
-                "Fuses contiguous OP_EXPAND + OP_ARRAY_ROT pairs into single "
-                "OP_EXPAND_ROT instructions, eliminating the two-pass penalty of "
-                "separate expand and phase-rotate operations."
-            ),
-        },
-        {
-            "name": "SwapMeasPass",
-            "kind": "Bytecode",
-            "default_enabled": True,
-            "preserves_record_order": True,
-            "preserves_instrument_prefix": True,
-            "python_name": "SwapMeasPass",
-            "summary": "Fuses SWAP + measurement into one operation.",
-            "detail": (
-                "Fuses contiguous OP_ARRAY_SWAP + OP_MEAS_ACTIVE_INTERFERE pairs "
-                "into single OP_SWAP_MEAS_INTERFERE instructions. The backend emits "
-                "a SWAP to route the measurement axis to position k-1, followed by "
-                "the interfere measurement. The fused instruction eliminates the "
-                "separate O(2^k) ARRAY_SWAP memory pass."
-            ),
-        },
-        {
-            "name": "TileAxisFusionPass",
-            "kind": "Bytecode",
-            "default_enabled": True,
-            "preserves_record_order": True,
-            "preserves_instrument_prefix": True,
-            "python_name": "TileAxisFusionPass",
-            "summary": "Fuses 2-qubit tile sequences into precomputed 4x4 unitaries.",
-            "detail": (
-                "Fuses consecutive 2-qubit operations on a fixed axis pair {a, b} "
-                "into single OP_ARRAY_U4 instructions with precomputed 4x4 unitary "
-                "matrices. Pre-computes 16 matrices (one per incoming Pauli frame "
-                "state on the two axes) and stores them in the ConstantPool. A run "
-                "is only fused if it contains at least 3 array-touching operations. "
-                "Runs before SingleAxisFusionPass so it operates on raw primitives."
-            ),
-        },
-        {
-            "name": "SingleAxisFusionPass",
-            "kind": "Bytecode",
-            "default_enabled": True,
-            "preserves_record_order": True,
-            "preserves_instrument_prefix": True,
-            "python_name": "SingleAxisFusionPass",
-            "summary": "Fuses single-axis operation chains into precomputed 2x2 unitaries.",
-            "detail": (
-                "Fuses consecutive single-axis operations (ARRAY_H, ARRAY_S, ARRAY_T, "
-                "ARRAY_ROT, etc.) on the same virtual axis into a single OP_ARRAY_U2 "
-                "instruction. Pre-computes 2x2 unitary matrices for all 4 possible "
-                "incoming Pauli frame states (I, X, Z, Y). A run is fused if it "
-                "contains at least 3 array-touching operations, or at least 2 when "
-                "one is a continuous rotation."
-            ),
-        },
     ]
 
-    hir_passes = [p for p in passes if p["kind"] == "HIR"]
-    bytecode_passes = [p for p in passes if p["kind"] == "Bytecode"]
-    default_hir = [p for p in hir_passes if p["default_enabled"]]
-    default_bytecode = [p for p in bytecode_passes if p["default_enabled"]]
+    default_hir = [p for p in passes if p["default_enabled"]]
 
     env.variables["passes"] = passes
-    env.variables["hir_passes"] = hir_passes
-    env.variables["bytecode_passes"] = bytecode_passes
+    env.variables["hir_passes"] = passes
     env.variables["default_hir_passes"] = default_hir
-    env.variables["default_bytecode_passes"] = default_bytecode
