@@ -2,21 +2,21 @@
 
 Clifft is a compiler and execution engine for exact simulation of universal
 quantum circuits. For circuits where non-Clifford effects remain localized,
-it confines exponential work to a dynamic active dimension instead of the
-total physical-qubit count.
+it confines exponential work to an active-state dimension of $2^k$, set by the
+dynamic active width $k$, instead of the total physical-qubit count.
 
 ## Method Provenance
 
-The factored active-state model is part of Clifft's original simulation
-design, described by Bradley A. Chase and Farrokh Labib in the
+The original Clifft design established the factored active-state model,
+described by Bradley A. Chase and Farrokh Labib in the
 [Clifft paper](https://arxiv.org/abs/2604.27058).
 
-The symbolic sampling strategy described below draws directly on
-[SymFT](https://arxiv.org/abs/2607.28600), introduced by Wang Fang, Huazhe
-Lou, and Riling Li. In particular, Clifft adapts SymFT's symbolic
-Clifford-Pauli-frame factorization and adaptive stabilizer-coordinate
-planning. `SamplingPlan`, host-specific executable preparation, instruments
-and continuations, and the executor organization are Clifft-specific
+[SymFT](https://arxiv.org/abs/2607.28600), by Wang Fang, Huazhe Lou, and Riling
+Li, subsequently built on that foundation. It extended the design with
+symbolic Clifford-Pauli-frame factorization and adaptive stabilizer-coordinate
+planning. The current Clifft sampler brings these SymFT refinements back into
+Clifft. `SamplingPlan`, host-specific executable preparation, instruments and
+continuations, and the executor organization remain Clifft-specific
 implementation choices.
 
 ## Symbolic Clifford Coordinates
@@ -64,9 +64,10 @@ The factors have distinct roles:
 Active and dormant coordinates are basis elements, not subsets of physical
 qubits. After Clifford gates change the basis, one coordinate may represent a
 different, possibly multi-qubit, physical Pauli without changing the size of
-the active array. "Active width" therefore means the number of stabilizer
-coordinates represented in the dense coefficient array, not the number of
-physical qubits touched by the circuit.
+the active array. Throughout these docs, **active width** $k_j$ means the number
+of stabilizer coordinates represented in the dense coefficient array. The
+corresponding **active-state dimension** is $2^{k_j}$, the number of amplitudes
+in that array. Neither is the number of physical qubits touched by the circuit.
 
 For a normalized physical circuit, the unconditional noisy state is the
 ensemble over trajectories,

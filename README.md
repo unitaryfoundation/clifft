@@ -28,17 +28,19 @@ compiles them into symbolic-coordinate sampling plans. It is designed for
 circuits whose dominant structure is Clifford, but whose behavior depends on
 localized non-Clifford operations.
 
-The main simulation cost scales with the active dimension `k` of the dense state
-vector, rather than directly with the total number of physical qubits `n`.
-Non-Clifford operations can increase `k`, while measurements can reduce it.
+The dense active state has `2^k` amplitudes, where `k` is its active width. The
+main simulation cost therefore scales with `2^k`, rather than directly with the
+total number of physical qubits `n`. Non-Clifford operations can increase `k`,
+while measurements can reduce it.
 
-Clifft's symbolic sampling design draws on the
-[SymFT](https://arxiv.org/abs/2607.28600) method introduced by Wang Fang,
-Huazhe Lou, and Riling Li. In particular, it adapts symbolic
-Clifford-Pauli-frame factorization and adaptive stabilizer-coordinate planning.
+Clifft's original design established this factored active-state architecture.
+[SymFT](https://arxiv.org/abs/2607.28600), by Wang Fang, Huazhe Lou, and Riling
+Li, subsequently built on that foundation with symbolic Clifford-Pauli-frame
+factorization and adaptive stabilizer-coordinate planning. Clifft's current
+sampler brings these improvements back into Clifft alongside Clifft-specific
+planning, continuation, and API machinery.
 See the [theoretical overview](https://unitaryfoundation.github.io/clifft/theory/overview/#method-provenance)
-for the attribution and the boundary between the published method and Clifft's
-implementation choices.
+for the fuller lineage and implementation boundaries.
 
 ## Why Clifft?
 
@@ -48,7 +50,7 @@ implementation choices.
   without approximating the quantum state.
 - **Optimizing compiler pipeline**: resolve Clifford coordinates and symbolic
   dependencies once, then sample many shots from a prepared plan.
-- **Active-dimension scaling**: for low-magic circuits, runtime and memory scale
+- **Active-width scaling**: for low-magic circuits, runtime and memory scale
   with the localized active state rather than the full Hilbert space.
 
 For QEC workflows, Clifft also supports detector-based post-selection, survivor
@@ -108,7 +110,10 @@ for installation commands, minimal examples, and current limitations.
 
 ## Performance
 
-Clifft is designed for near-Clifford circuits where non-Clifford activity remains localized. In this regime, the dominant cost scales with the peak active dimension `k`, not directly with the total number of physical qubits.
+Clifft is designed for near-Clifford circuits where non-Clifford activity
+remains localized. In this regime, the dominant cost scales with the
+active-state dimension `2^k`, where `k` is the peak active width, not directly
+with the total number of physical qubits.
 
 <table>
   <thead>
