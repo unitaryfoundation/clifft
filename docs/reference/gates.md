@@ -43,9 +43,9 @@ whitespace-separated products in one instruction. Prefixing a Pauli term with
 appear only once in each product, which is stricter than Stim for some
 syntactically valid Hermitian products.
 
-`SPP` and `SPP_DAG` are absorbed into the Clifford frame and have no runtime
-cost. Their named-gate phase convention is exact, so `SPP Z0` matches `S 0`,
-including global phase.
+The default optimizer absorbs `SPP` and `SPP_DAG` into the Clifford frame, so
+they have no runtime cost. Their named-gate phase convention is exact, so
+`SPP Z0` matches `S 0`, including global phase.
 
 ## Non-Clifford Extensions
 

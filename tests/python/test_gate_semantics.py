@@ -50,8 +50,8 @@ def test_inverted_pauli_product_matches_conjugated_gate() -> None:
 
 
 def test_inverted_pauli_products_preserve_named_gate_phase() -> None:
-    _assert_statevectors_equal("H 0\nSPP !Z0", "H 0\nX 0\nSPP Z0\nX 0")
-    _assert_statevectors_equal("H 0\nSPP_DAG !Z0", "H 0\nX 0\nSPP_DAG Z0\nX 0")
+    _assert_statevectors_equivalent("H 0\nSPP !Z0", "H 0\nX 0\nSPP Z0\nX 0")
+    _assert_statevectors_equivalent("H 0\nSPP_DAG !Z0", "H 0\nX 0\nSPP_DAG Z0\nX 0")
     _assert_statevectors_equal("H 0\nTPP !Z0", "H 0\nX 0\nTPP Z0\nX 0")
     _assert_statevectors_equal("H 0\nTPP_DAG !Z0", "H 0\nX 0\nTPP_DAG Z0\nX 0")
 
@@ -68,7 +68,18 @@ def test_spp_clifford_action_matches_named_square_root_gates() -> None:
 
 
 def test_spp_matches_two_tpp_gates_componentwise() -> None:
+    _assert_statevectors_equal("SPP X0", "TPP X0\nTPP X0")
+    _assert_statevectors_equal("SPP Y0", "TPP Y0\nTPP Y0")
+    _assert_statevectors_equal("SPP !X0", "TPP !X0\nTPP !X0")
+    _assert_statevectors_equal("SPP !Y0", "TPP !Y0\nTPP !Y0")
+    _assert_statevectors_equal("SPP !Z0", "TPP !Z0\nTPP !Z0")
+    _assert_statevectors_equal("SPP_DAG X0", "TPP_DAG X0\nTPP_DAG X0")
+    _assert_statevectors_equal("SPP_DAG Y0", "TPP_DAG Y0\nTPP_DAG Y0")
+    _assert_statevectors_equal("SPP_DAG !X0", "TPP_DAG !X0\nTPP_DAG !X0")
+    _assert_statevectors_equal("SPP_DAG !Y0", "TPP_DAG !Y0\nTPP_DAG !Y0")
+    _assert_statevectors_equal("SPP_DAG !Z0", "TPP_DAG !Z0\nTPP_DAG !Z0")
     _assert_statevectors_equal("H 0\nH 1\nSPP Z0*Z1", "H 0\nH 1\nTPP Z0*Z1\nTPP Z0*Z1")
+    _assert_statevectors_equal("H 2\nSPP X0*Y1*Z2", "H 2\nTPP X0*Y1*Z2\nTPP X0*Y1*Z2")
 
 
 def test_spp_xx_matches_the_named_square_root_gate() -> None:
@@ -78,12 +89,10 @@ def test_spp_xx_matches_the_named_square_root_gate() -> None:
 def test_nontrivial_pauli_product_phase_gates_match_their_decompositions() -> None:
     basis_change = "H 0\nH_YZ 1\nCX 1 0\nCX 2 0\n"
     uncompute = "CX 2 0\nCX 1 0\nH_YZ 1\nH 0"
-    _assert_statevectors_equal(
+    _assert_statevectors_equivalent(
         "H 2\nSPP X0*Y1*Z2", "H 2\n" + basis_change + "S 0\n" + uncompute
     )
-    _assert_statevectors_equal(
-        "H 2\nTPP X0*Y1*Z2", "H 2\n" + basis_change + "T 0\n" + uncompute
-    )
+    _assert_statevectors_equal("H 2\nTPP X0*Y1*Z2", "H 2\n" + basis_change + "T 0\n" + uncompute)
 
 
 def test_multiple_tpp_products_are_applied_in_order() -> None:

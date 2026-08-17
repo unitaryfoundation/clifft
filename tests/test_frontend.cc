@@ -176,11 +176,24 @@ TEST_CASE("Frontend: multiple T gates on different qubits", "[frontend]") {
     REQUIRE(hir.stab_mask(hir.ops[1]) == 0);
 }
 
-TEST_CASE("Frontend: SPP is absorbed into the Clifford tableau", "[frontend]") {
+TEST_CASE("Frontend: SPP emits Pauli rotations with named phases", "[frontend]") {
     auto hir = trace(parse("SPP X0*Y1*Z2\nSPP_DAG !X0"));
 
-    CHECK(hir.num_ops() == 0);
-    REQUIRE(hir.final_tableau.has_value());
+    REQUIRE(hir.num_ops() == 2);
+    CHECK(hir.ops[0].op_type() == OpType::PHASE_ROTATION);
+    CHECK(hir.ops[0].alpha() == Catch::Approx(0.5));
+    CHECK(hir.destab_mask(hir.ops[0]) == (X(0) | X(1)));
+    CHECK(hir.stab_mask(hir.ops[0]) == (Z(1) | Z(2)));
+    CHECK(!hir.sign(hir.ops[0]));
+
+    CHECK(hir.ops[1].op_type() == OpType::PHASE_ROTATION);
+    CHECK(hir.ops[1].alpha() == Catch::Approx(-0.5));
+    CHECK(hir.destab_mask(hir.ops[1]) == X(0));
+    CHECK(hir.stab_mask(hir.ops[1]) == 0);
+    CHECK(hir.sign(hir.ops[1]));
+
+    CHECK(hir.global_weight.real() == Catch::Approx(0.0).margin(1e-12));
+    CHECK(hir.global_weight.imag() == Catch::Approx(-1.0).margin(1e-12));
 }
 
 TEST_CASE("Frontend: TPP emits one T gate per product", "[frontend]") {
