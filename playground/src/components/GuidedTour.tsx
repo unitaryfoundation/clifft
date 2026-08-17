@@ -54,9 +54,6 @@ const STEPS: TourStep[] = [
       <p>Each line shows the active width before and after the action.
       Operations with a nonzero <code>dense_passes</code> estimate touch the
       active coefficient state.</p>
-      <p>Use the <code>WASM</code> toggle for the advanced view of actions
-      prepared for this browser's scalar WebAssembly executor. There you can
-      see lowering choices such as fused rotations and expression registers.</p>
       <p>Useful plan actions to look for:</p>
       <ul>
         <li><code>rotate_active</code> rotates within the current active state</li>

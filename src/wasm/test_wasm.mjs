@@ -38,7 +38,6 @@ console.log("  num_qubits:", result.num_qubits);
 console.log("  peak_active_width:", result.peak_active_width);
 console.log("  hir_ops:", result.hir_ops.length, "ops");
 console.log("  sampling_plan:", result.sampling_plan.length, "actions");
-console.log("  wasm_program:", result.wasm_program.length, "actions");
 console.log("  active_width_history:", result.active_width_history);
 console.log("  hir_source_map:", result.hir_source_map);
 console.log("  sampling_plan_source_map sample:", result.sampling_plan_source_map.slice(0, 3));
@@ -48,7 +47,6 @@ assert.equal(result.num_qubits, 1, "Expected 1 qubit");
 assert.ok(result.peak_active_width >= 0, "Expected peak_active_width >= 0");
 assert.ok(result.hir_ops.length > 0, "Expected HIR ops");
 assert.ok(result.sampling_plan.length > 0, "Expected sampling plan actions");
-assert.ok(result.wasm_program.length > 0, "Expected WASM program actions");
 assert.equal(
     result.active_width_history.length,
     result.sampling_plan.length,
@@ -59,11 +57,44 @@ assert.equal(
     result.sampling_plan.length,
     "source map parallel to sampling plan"
 );
-assert.equal(result.wasm_program_source_map.length, result.wasm_program.length);
-assert.equal(result.wasm_program_plan_ranges.length, result.wasm_program.length);
 assert.ok(
     result.sampling_plan_source_map.some((lines) => lines.includes(3)),
     "Expected plan provenance for the measurement source line"
+);
+
+// --- sampling_plan compact-format grammar checks ---
+// w<k>[-><k'>] <MNEMONIC> ...
+for (const line of result.sampling_plan) {
+    assert.match(
+        line,
+        /^w\d+(?:->\d+)? [A-Z][A-Z0-9_]*\b/,
+        `sampling_plan line does not match compact grammar: ${line}`
+    );
+}
+assert.ok(
+    result.sampling_plan.some((line) => line.includes("record=r")),
+    "Expected at least one sampling_plan line with a typed record id"
+);
+const SAMPLING_PLAN_MNEMONICS = [
+    "ROTATE_ACTIVE",
+    "ROTATE_PHASE",
+    "PROMOTE_DORMANT",
+    "MEASURE_ACTIVE",
+    "MEASURE_DORMANT",
+    "RECORD_CLASSICAL",
+    "DEFINE_SYMBOL",
+    "READOUT_NOISE",
+    "WRITE_DETECTOR",
+    "WRITE_OBSERVABLE",
+    "WRITE_EXPECTATION",
+    "APPLY_INSTRUMENT",
+    "INSTRUMENT_BOUNDARY",
+];
+assert.ok(
+    result.sampling_plan.some((line) =>
+        SAMPLING_PLAN_MNEMONICS.some((mnemonic) => line.includes(mnemonic))
+    ),
+    "Expected at least one recognized SamplingPlan mnemonic"
 );
 
 // --- optimize toggle via pass config ---
@@ -99,19 +130,21 @@ assert.match(
     "Unknown pass configuration keys should fail explicitly"
 );
 
-// --- executable provenance across lowering fusion ---
-const fusedSource = "H 0\nH 1\nT 0\nT 1\nT 0\nT 1\nT 0\nM 0";
-const fused = JSON.parse(mod.compile_to_json(fusedSource, NO_PASSES));
-const fusedAction = fused.wasm_program_plan_ranges.find((range) => range.end - range.begin > 1);
-assert.ok(fusedAction, "Expected one WASM action to cover a fused plan range");
-const fusedIndex = fused.wasm_program_plan_ranges.indexOf(fusedAction);
+// --- compact expression truncation ---
+// Six independent X_ERROR draws feeding one measurement push its outcome
+// expression past the compact form's four-term cap, so the printed line
+// should truncate with a "...(+N)" suffix instead of listing every term.
+const truncationLines = [];
+for (let i = 0; i < 6; i++) truncationLines.push("X_ERROR(0.01) 0");
+truncationLines.push("M 0");
+truncationLines.push("DETECTOR rec[-1]");
+const truncationSource = truncationLines.join("\n");
+const truncationResult = JSON.parse(mod.compile_to_json(truncationSource, DEFAULTS));
+assert.equal(truncationResult.error, undefined, "Expected no error for truncation circuit");
+console.log("\nTruncation test sampling_plan:", truncationResult.sampling_plan);
 assert.ok(
-    fused.wasm_program_source_map[fusedIndex].length > 1,
-    "Expected fused WASM action to retain source lines"
-);
-assert.ok(
-    fused.wasm_program.every((action) => !action.includes("OP_")),
-    "Expected prepared symbolic actions"
+    truncationResult.sampling_plan.some((line) => line.includes("...(+")),
+    "Expected a truncated affine expression for a six-term noise chain"
 );
 
 // --- simulate_wasm ---

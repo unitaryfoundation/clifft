@@ -82,18 +82,39 @@ export const hirLanguage: languages.IMonarchLanguage = {
   },
 };
 
-// --- SamplingPlan and prepared WASM program language ---
+// --- SamplingPlan compact inspection language ---
+// Grammar: w<k>[-><k'>] <MNEMONIC> [<pauli>] key=value... [postselect] [passes=<n>]
 export const planLanguage: languages.IMonarchLanguage = {
   tokenizer: {
     root: [
-      [/\b[serdl]\d+\b/, "variable"],
-      [/\b(active_width|dense_passes|half_turns|sign|outcome|value|source|correction|kernel|mode|descriptor|pivot|pairing_bit|branch|record|detector|observable|exp_val|site|flip|p01|p10|postselected|cosine|sine|noise|symbol_prefix_size)=/, "attribute"],
-      [/\b[a-z][a-z0-9_]*(?=\s|$)/, "keyword"],
-      [/0x[0-9a-f]+/, "number.hex"],
+      // Width prefix: w0 or w0->1
+      [/\bw\d+(?:->\d+)?\b/, "keyword"],
+      // Action mnemonics (explicit list; avoids matching arbitrary identifiers)
+      [
+        /\b(?:ROTATE_ACTIVE|ROTATE_PHASE|PROMOTE_DORMANT|MEASURE_ACTIVE|MEASURE_DORMANT|RECORD_CLASSICAL|DEFINE_SYMBOL|READOUT_NOISE|WRITE_DETECTOR|WRITE_OBSERVABLE|WRITE_EXPECTATION|APPLY_INSTRUMENT|INSTRUMENT_BOUNDARY)\b/,
+        "keyword",
+      ],
+      // Flag words
+      [/\b(?:postselect|zero)\b/, "keyword"],
+      // Pauli factors: X0, Z1, Y2, and standalone identity I
+      [/\b[XYZ]\d+\b/, "type"],
+      [/\bI\b/, "type"],
+      // Typed ids: symbols, records, detectors, observables, expectation slots
+      [/\b[srdov]\d+\b/, "variable"],
+      // Attribute keys (key= as one token, matching how they appear in the plan text)
+      [
+        /\b(?:half_turns|sign|outcome|value|source|record|detector|observable|exp_val|site|mode|flip|p01|p10|pivot|branch|next_noise_site|symbol_prefix_size|passes)=/,
+        "attribute",
+      ],
+      // Truncated affine-expression tail: ...(+10)
+      [/\.\.\.\(\+\d+\)/, "comment"],
+      // Operators
       [/->/, "operator"],
-      [/\.\./, "operator"],
-      [/\b(?:\d+\.\d+(?:e[+-]?\d+)?|\d+e[+-]?\d+)\b/i, "number.float"],
-      [/\b\d+\b/, "number"],
+      [/[*^]/, "operator"],
+      // Numbers: integers, decimals, negatives, scientific notation
+      [/[+-]?\b\d+\.\d+(?:e[+-]?\d+)?\b/i, "number.float"],
+      [/[+-]?\b\d+e[+-]?\d+\b/i, "number.float"],
+      [/[+-]?\b\d+\b/, "number"],
     ],
   },
 };

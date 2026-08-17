@@ -29,7 +29,6 @@ M 1
 const DEBOUNCE_MS = 200;
 const DEFAULT_SHOTS = 10000;
 const TOUR_SEEN_KEY = "clifft-tour-seen";
-type LoweredView = "sampling-plan" | "wasm-program";
 
 function getInitialSource(): string {
   const params = new URLSearchParams(window.location.search);
@@ -145,7 +144,6 @@ export default function App() {
   const [compileResult, setCompileResult] = useState<CompileResult | null>(null);
   const [baselineResult, setBaselineResult] = useState<CompileResult | null>(null);
   const [diffView, setDiffViewRaw] = useState(false);
-  const [loweredView, setLoweredView] = useState<LoweredView>("sampling-plan");
   const [simResult, setSimResult] = useState<SimulateResult | null>(null);
   const [simElapsedMs, setSimElapsedMs] = useState<number | null>(null);
   const [simulating, setSimulating] = useState(false);
@@ -170,16 +168,14 @@ export default function App() {
 
   // Ref to avoid stale closures in editor cursor handlers
   const compileResultRef = useRef<CompileResult | null>(null);
-  const loweredViewRef = useRef<LoweredView>(loweredView);
-  const renderedLoweredViewRef = useRef<LoweredView>(loweredView);
   const suppressReadOnlyCursorEventsRef = useRef(false);
 
   // Reverse source-map indices, built once per compile result. Each
   // forward source map is `outIdx -> source_line[]`; the cursor highlight
   // wants the inverse `source_line -> outIdx[]` so it can answer "which
-  // HIR/selected-lowering lines correspond to this source line" in O(1).
+  // HIR/sampling-plan lines correspond to this source line" in O(1).
   // firstPlan is the first semantic action for a source line, used by the
-  // active-width chart even when the prepared WASM program is displayed.
+  // active-width chart.
   //
   // A single forward entry can contain the same source line more than
   // once when an upstream pass merged provenance from fused / unrolled
@@ -209,12 +205,8 @@ export default function App() {
         if (!firstPlan.has(ln)) firstPlan.set(ln, i);
       }
     });
-    const selectedSourceMap =
-      loweredView === "sampling-plan"
-        ? compileResult.sampling_plan_source_map
-        : compileResult.wasm_program_source_map;
     const lowered = new Map<number, number[]>();
-    selectedSourceMap.forEach((lines: number[], i: number) => {
+    compileResult.sampling_plan_source_map.forEach((lines: number[], i: number) => {
       const monacoLine = i + 1;
       const unique = lines.length > 1 ? new Set(lines) : lines;
       for (const ln of unique) {
@@ -224,7 +216,7 @@ export default function App() {
       }
     });
     return { hir, lowered, firstPlan };
-  }, [compileResult, loweredView]);
+  }, [compileResult]);
 
   // Derived: which semantic action maps to the cursor source line.
   const highlightedPlanAction = useMemo(() => {
@@ -281,10 +273,6 @@ export default function App() {
     compileResultRef.current = compileResult;
   }, [compileResult]);
 
-  useEffect(() => {
-    loweredViewRef.current = loweredView;
-  }, [loweredView]);
-
   // Register custom languages once before any editor mounts
   const handleBeforeMount: BeforeMount = useCallback((monaco) => {
     registerLanguages(monaco);
@@ -322,14 +310,8 @@ export default function App() {
       return;
     }
     updateReadOnlyEditor(hirEditorRef.current, compileResult.hir_ops.join("\n"));
-    const lowered =
-      loweredView === "sampling-plan"
-        ? compileResult.sampling_plan
-        : compileResult.wasm_program;
-    const preserveSelection = renderedLoweredViewRef.current === loweredView;
-    updateReadOnlyEditor(loweredEditorRef.current, lowered.join("\n"), preserveSelection);
-    renderedLoweredViewRef.current = loweredView;
-  }, [compileResult, updateReadOnlyEditor, diffView, loweredView]);
+    updateReadOnlyEditor(loweredEditorRef.current, compileResult.sampling_plan.join("\n"));
+  }, [compileResult, updateReadOnlyEditor, diffView]);
 
   // --- Bidirectional highlighting (only in non-diff mode) ---
   useEffect(() => {
@@ -445,15 +427,8 @@ export default function App() {
       const cr = compileResultRef.current;
       if (!cr || !isCompileSuccess(cr)) return;
       const actionIdx = e.position.lineNumber - 1;
-      const planAction =
-        loweredViewRef.current === "sampling-plan"
-          ? actionIdx
-          : cr.wasm_program_plan_ranges[actionIdx]?.begin;
-      setCursorPlanAction(planAction ?? null);
-      const srcLines =
-        loweredViewRef.current === "sampling-plan"
-          ? cr.sampling_plan_source_map[actionIdx]
-          : cr.wasm_program_source_map[actionIdx];
+      setCursorPlanAction(actionIdx);
+      const srcLines = cr.sampling_plan_source_map[actionIdx];
       const validLine = srcLines?.find((l: number) => l >= 1);
       if (validLine !== undefined) {
         setCursorSourceLine(validLine);
@@ -544,15 +519,8 @@ export default function App() {
   // Diff content for DiffEditor
   const hirBaseline = baselineStats ? baselineStats.hir_ops.join("\n") : "";
   const hirOptimized = stats ? stats.hir_ops.join("\n") : "";
-  const loweredBaseline = baselineStats
-    ? (loweredView === "sampling-plan"
-        ? baselineStats.sampling_plan
-        : baselineStats.wasm_program
-      ).join("\n")
-    : "";
-  const loweredOptimized = stats
-    ? (loweredView === "sampling-plan" ? stats.sampling_plan : stats.wasm_program).join("\n")
-    : "";
+  const loweredBaseline = baselineStats ? baselineStats.sampling_plan.join("\n") : "";
+  const loweredOptimized = stats ? stats.sampling_plan.join("\n") : "";
 
   return (
     <div className="app">
@@ -600,11 +568,6 @@ export default function App() {
             "Plan actions",
             stats.sampling_plan.length,
             baselineStats?.sampling_plan.length,
-          )}
-          {formatStat(
-            "WASM actions",
-            stats.wasm_program.length,
-            baselineStats?.wasm_program.length,
           )}
         </div>
       )}
@@ -686,33 +649,7 @@ export default function App() {
               <Allotment.Pane>
                 <div className="editor-pane" data-tour="lowered">
                   <div className="editor-label">
-                    <span>
-                      {loweredView === "sampling-plan" ? "Sampling Plan" : "WASM Program"}
-                    </span>
-                    <span className="editor-view-toggle" aria-label="Lowered representation">
-                      <button
-                        type="button"
-                        className={loweredView === "sampling-plan" ? "active" : ""}
-                        onClick={() => {
-                          setCursorPlanAction(null);
-                          setLoweredView("sampling-plan");
-                        }}
-                        title="Show executor-independent semantic actions"
-                      >
-                        Plan
-                      </button>
-                      <button
-                        type="button"
-                        className={loweredView === "wasm-program" ? "active" : ""}
-                        onClick={() => {
-                          setCursorPlanAction(null);
-                          setLoweredView("wasm-program");
-                        }}
-                        title="Show prepared scalar WASM actions"
-                      >
-                        WASM
-                      </button>
-                    </span>
+                    <span>Sampling Plan</span>
                     {diffView && <span className="editor-label-badge">DIFF</span>}
                   </div>
                   {diffView ? (
