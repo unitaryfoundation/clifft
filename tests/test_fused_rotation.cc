@@ -93,9 +93,9 @@ TEST_CASE("Executable rotation inspection includes prepared weights") {
     const ExecutablePlan second(rotation_plan(4, second_rotation));
     const std::string inspection = first.inspect_action(0);
 
-    REQUIRE(inspection.find("pairing_bit=0x8") != std::string::npos);
-    REQUIRE(inspection.find(" cosine=") != std::string::npos);
-    REQUIRE(inspection.find(" sine=") != std::string::npos);
+    REQUIRE(inspection.find(" pair=3") != std::string::npos);
+    REQUIRE(inspection.find(" cos=") != std::string::npos);
+    REQUIRE(inspection.find(" sin=") != std::string::npos);
     REQUIRE(inspection != second.inspect_action(0));
 }
 
@@ -134,8 +134,8 @@ TEST_CASE("Executable plan preserves optional provenance across fusion") {
     const ExecutablePlan executable(inspected);
     REQUIRE(executable.num_actions() == 1);
     REQUIRE(executable.action_plan_range(0) == ExecutablePlan::PlanActionRange{0, 3});
-    REQUIRE(executable.inspect_action(0) == "fused_rotation descriptor=0");
-    REQUIRE(executable.inspect().find("plans=[0,3) fused_rotation descriptor=0") !=
+    REQUIRE(executable.inspect_action(0) == "FUSED_ROTATION descriptor=0");
+    REQUIRE(executable.inspect().find("plans=[0,3) FUSED_ROTATION descriptor=0") !=
             std::string::npos);
     REQUIRE_THROWS_AS(executable.action_plan_range(1), std::out_of_range);
 }

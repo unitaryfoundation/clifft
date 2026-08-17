@@ -15,6 +15,7 @@ add_executable(clifft_tests
     test_frontend.cc
     test_frontend_instruments.cc
     test_sampling_plan.cc
+    test_inspection_format.cc
     test_sampling_planner.cc
     test_sampling_planner_frame.cc
     test_sampling_executor.cc
