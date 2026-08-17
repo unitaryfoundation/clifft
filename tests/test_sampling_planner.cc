@@ -86,7 +86,7 @@ TEST_CASE("Sampling planner preserves empty module metadata") {
     REQUIRE(plan.num_qubits == 3);
     REQUIRE(plan.global_weight == std::complex<double>{0.25, -0.5});
     REQUIRE(plan.initial_active_width == 0);
-    REQUIRE(plan.max_active_width == 0);
+    REQUIRE(plan.peak_active_width == 0);
     REQUIRE(plan.actions.empty());
     REQUIRE(plan.symbols.empty());
 }
@@ -98,7 +98,7 @@ TEST_CASE("Sampling planner promotes rotations and keeps later active support") 
 
     const SamplingPlan plan = plan_sampling(hir);
 
-    REQUIRE(plan.max_active_width == 1);
+    REQUIRE(plan.peak_active_width == 1);
     REQUIRE(plan.actions.size() == 2);
     const auto& promotion = action_as<PromoteDormantRotation>(plan, 0);
     REQUIRE(promotion.half_turns == 0.25);
@@ -117,7 +117,7 @@ TEST_CASE("Sampling planner emits direct multi-coordinate active Paulis") {
 
     const SamplingPlan plan = plan_sampling(hir);
 
-    REQUIRE(plan.max_active_width == 2);
+    REQUIRE(plan.peak_active_width == 2);
     REQUIRE(std::holds_alternative<PromoteDormantRotation>(plan.actions[0].action));
     REQUIRE(std::holds_alternative<PromoteDormantRotation>(plan.actions[1].action));
     const auto& rotation = action_as<RotateActivePauli>(plan, 2);
@@ -133,7 +133,7 @@ TEST_CASE("Sampling planner preserves high physical Pauli coordinates") {
 
     const SamplingPlan plan = plan_sampling(hir);
 
-    REQUIRE(plan.max_active_width == 1);
+    REQUIRE(plan.peak_active_width == 1);
     REQUIRE(std::holds_alternative<PromoteDormantRotation>(plan.actions[0].action));
     const auto& rotation = action_as<RotateActivePauli>(plan, 1);
     REQUIRE(rotation.pauli.x == 1);
@@ -283,7 +283,7 @@ TEST_CASE("Sampling planner fixes instrument source handling before execution") 
     REQUIRE(activated_instrument.source.z == 0);
     REQUIRE(activated_instrument.sign == AffineBool(false));
     REQUIRE(activated_instrument.destination_flip.has_value());
-    REQUIRE(activated.max_active_width == 2);
+    REQUIRE(activated.peak_active_width == 2);
     const auto& after_activation = action_as<MeasureActivePauli>(activated, 3);
     REQUIRE(after_activation.outcome ==
             (AffineBool::symbol(*activated_instrument.destination_flip) ^
@@ -294,7 +294,7 @@ TEST_CASE("Sampling planner fixes instrument source handling before execution") 
 
     const SamplingPlan neglected = plan_for("H 0\nLEVEL_TRANSITION[jump] 0", true);
     REQUIRE(instrument(neglected).mode == InstrumentMode::DormantTrap);
-    REQUIRE(neglected.max_active_width == 0);
+    REQUIRE(neglected.peak_active_width == 0);
 }
 
 TEST_CASE("Sampling planner keeps prefix symbols stable across continuation suffixes") {
@@ -613,5 +613,5 @@ TEST_CASE("Sampling planner target QEC plan characterization") {
     INFO(inspection);
     // After verifying that a reported inspection change is intentional, update
     // this digest to the new value shown by the failed assertion.
-    REQUIRE(fnv1a64(inspection) == 0xd795b8a081bb3a7dULL);
+    REQUIRE(fnv1a64(inspection) == 0xd6739c5e74e9339eULL);
 }

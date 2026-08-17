@@ -39,9 +39,10 @@ void validate_noncomputational_entry(const Circuit& circuit) {
 NonComputationalSample sample_noncomputational(const Circuit& circuit,
                                                const NonComputationalModel& model, uint32_t shots,
                                                std::optional<uint64_t> seed,
-                                               std::optional<uint32_t> max_rank) {
+                                               std::optional<uint32_t> max_active_width) {
     validate_noncomputational_entry(circuit);
-    return run_trajectory_driver(circuit, model, shots, make_seed_root(shots, seed), max_rank);
+    return run_trajectory_driver(circuit, model, shots, make_seed_root(shots, seed),
+                                 max_active_width);
 }
 
 }  // namespace clifft

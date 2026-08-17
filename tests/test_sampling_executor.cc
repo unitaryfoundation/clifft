@@ -68,7 +68,7 @@ namespace {
 SamplingPlan active_then_dormant_plan(double promotion_half_turns) {
     SamplingPlan plan;
     plan.num_qubits = 2;
-    plan.max_active_width = 1;
+    plan.peak_active_width = 1;
     plan.num_visible_records = 2;
     plan.symbols = {
         SymbolInfo{SymbolKind::Branch, 1, std::nullopt},
@@ -289,7 +289,7 @@ TEST_CASE("Sampling executor evaluates presampled and derived affine symbols") {
 TEST_CASE("Sampling executor applies sampled symbols to later state actions") {
     SamplingPlan plan;
     plan.num_qubits = 2;
-    plan.max_active_width = 1;
+    plan.peak_active_width = 1;
     plan.num_visible_records = 1;
     plan.symbols = {SymbolInfo{SymbolKind::Branch, 0, std::nullopt}};
     plan.actions = {
@@ -330,7 +330,7 @@ TEST_CASE("Sampling executor fuses constant rotation orbits") {
         SamplingPlan plan;
         plan.num_qubits = active_width;
         plan.initial_active_width = active_width;
-        plan.max_active_width = active_width;
+        plan.peak_active_width = active_width;
         plan.symbols = {
             SymbolInfo{SymbolKind::Presampled, std::nullopt, std::nullopt},
         };
@@ -416,7 +416,7 @@ TEST_CASE("Sampling executor fuses constant rotation orbits") {
     SamplingPlan wide_selector_plan;
     wide_selector_plan.num_qubits = 6;
     wide_selector_plan.initial_active_width = 6;
-    wide_selector_plan.max_active_width = 6;
+    wide_selector_plan.peak_active_width = 6;
     for (uint32_t axis = 0; axis < 6; ++axis) {
         wide_selector_plan.actions.push_back(PlannedAction{
             6, 6, RotateActivePauli{{0, uint64_t{1} << axis}, 0.25, AffineBool(false)}});
@@ -427,7 +427,7 @@ TEST_CASE("Sampling executor fuses constant rotation orbits") {
 TEST_CASE("Sampling replay inverts affine records and preserves branch dependencies") {
     SamplingPlan plan;
     plan.num_qubits = 2;
-    plan.max_active_width = 1;
+    plan.peak_active_width = 1;
     plan.num_visible_records = 1;
     plan.symbols = {SymbolInfo{SymbolKind::Branch, 0, std::nullopt}};
     plan.actions = {
@@ -728,7 +728,7 @@ TEST_CASE("Sampling executable preserves generic instrument activation") {
     SamplingPlan plan;
     plan.num_qubits = 2;
     plan.initial_active_width = 1;
-    plan.max_active_width = 2;
+    plan.peak_active_width = 2;
     plan.num_instrument_sites = 1;
     plan.symbols = {SymbolInfo{SymbolKind::Instrument, 0, std::nullopt}};
     plan.instrument_distributions = {InstrumentDistribution{InstrumentSiteId{0}, {}, {}}};
@@ -948,7 +948,7 @@ TEST_CASE("Sampling continuation rejects incompatible handoffs") {
     SECTION("boundary has the wrong live active width") {
         SamplingPlan continuation_plan = root_plan;
         continuation_plan.initial_active_width = 1;
-        continuation_plan.max_active_width = 1;
+        continuation_plan.peak_active_width = 1;
         continuation_plan.actions[0].active_before = 1;
         continuation_plan.actions[0].active_after = 1;
         continuation_plan.actions[1].active_before = 1;
@@ -1147,7 +1147,7 @@ TEST_CASE("Sampling continuation preserves fused rotation prefixes") {
     SamplingPlan root_plan;
     root_plan.num_qubits = kActiveWidth + 1;
     root_plan.initial_active_width = kActiveWidth;
-    root_plan.max_active_width = kActiveWidth;
+    root_plan.peak_active_width = kActiveWidth;
     root_plan.num_instrument_sites = 1;
     root_plan.instrument_distributions = {
         InstrumentDistribution{InstrumentSiteId{0}, {1.0, 1.0}, {}}};

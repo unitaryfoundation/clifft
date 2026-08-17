@@ -588,7 +588,11 @@ export default function App() {
       {stats && (
         <div className="stats-bar">
           {formatStat("Qubits", stats.num_qubits, baselineStats?.num_qubits)}
-          {formatStat("Peak k", stats.max_active_width, baselineStats?.max_active_width)}
+          {formatStat(
+            "Peak active width",
+            stats.peak_active_width,
+            baselineStats?.peak_active_width,
+          )}
           {formatStat("T gates", stats.num_t_gates, baselineStats?.num_t_gates)}
           {formatStat("Measurements", stats.num_measurements, baselineStats?.num_measurements)}
           {formatStat("HIR ops", stats.hir_ops.length, baselineStats?.hir_ops.length)}
@@ -757,7 +761,7 @@ export default function App() {
             <Allotment defaultSizes={[50, 50]}>
               <Allotment.Pane>
                 <div className="chart-pane" data-tour="active-dim">
-                  <div className="chart-label">Active Dimensions (k) Timeline</div>
+                  <div className="chart-label">Active Width (k) Timeline</div>
                   <div className="chart-container">
                     <KHistoryChart
                       history={stats?.active_width_history ?? []}

@@ -84,7 +84,7 @@ def test_00_deep_clifford_info(record_property: Any) -> None:
     record_property("total_cliffords", total_cliffords)
     record_property("measurements", m_count)
     record_property("clifft_actions", program.num_actions)
-    record_property("clifft_peak_rank", program.peak_rank)
+    record_property("clifft_peak_active_width", program.peak_active_width)
 
     compression = total_cliffords / program.num_actions if program.num_actions else 0
 

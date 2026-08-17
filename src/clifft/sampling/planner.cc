@@ -269,7 +269,7 @@ bool process_rotation(const Pauli& body, double half_turns, const AffineBool& si
                                 PromoteDormantRotation{half_turns, std::move(resolved.sign)}},
                   source_lines);
     ++active_width;
-    plan.max_active_width = std::max(plan.max_active_width, active_width);
+    plan.peak_active_width = std::max(plan.peak_active_width, active_width);
     return true;
 }
 
@@ -396,7 +396,7 @@ void process_instrument(const HirModule& hir, const HeisenbergOp& op, uint32_t n
         symbolic_frame.apply(destination_flip, AffineBool::symbol(*destination_symbol));
     }
     active_width = active_after;
-    plan.max_active_width = std::max(plan.max_active_width, active_width);
+    plan.peak_active_width = std::max(plan.peak_active_width, active_width);
     // A trapped shot resumes here so it cannot execute the instrument twice.
     append_action(plan,
                   PlannedAction{active_width, active_width,

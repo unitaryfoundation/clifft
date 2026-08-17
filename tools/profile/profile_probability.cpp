@@ -205,8 +205,8 @@ int main() {
     std::cout << " done (" << prepare_ms << " ms, " << program.num_actions() << " actions)\n";
 
     std::cout << "\nCompilation total: " << (parse_ms + trace_ms + prepare_ms) << " ms\n";
-    std::cout << "Peak active width: " << program.max_active_width() << " (statevector size: 2^"
-              << program.max_active_width() << " = " << (1ULL << program.max_active_width())
+    std::cout << "Peak active width: " << program.peak_active_width() << " (statevector size: 2^"
+              << program.peak_active_width() << " = " << (1ULL << program.peak_active_width())
               << ")\n\n";
 
     // Build query bitmasks. Random uniform bitstrings cover both in-support

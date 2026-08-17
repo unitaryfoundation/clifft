@@ -99,8 +99,8 @@ class TestTerminalMeasurementPhaseElimination:
             exact_circuit,
             hir_passes=_peephole_pass_manager(),
         )
-        assert exact_baseline.peak_rank == 2
-        assert exact_optimized.peak_rank == 0
+        assert exact_baseline.peak_active_width == 2
+        assert exact_optimized.peak_active_width == 0
 
         records = ["00", "01", "10", "11"]
         np.testing.assert_allclose(
@@ -123,8 +123,8 @@ class TestTerminalMeasurementPhaseElimination:
             noisy_circuit,
             hir_passes=_peephole_pass_manager(),
         )
-        assert baseline.peak_rank == 2
-        assert optimized.peak_rank == 0
+        assert baseline.peak_active_width == 2
+        assert optimized.peak_active_width == 0
 
         shots = 30_000
         baseline_result = clifft.sample(baseline, shots, seed=242)
@@ -165,8 +165,8 @@ class TestTerminalMeasurementPhaseElimination:
             clifft.record_probabilities(baseline, records),
             atol=1e-12,
         )
-        assert baseline.peak_rank == 1
-        assert optimized.peak_rank == 0
+        assert baseline.peak_active_width == 1
+        assert optimized.peak_active_width == 0
 
     def test_noisy_broadcast_distribution_and_classical_outputs(self) -> None:
         """The real noisy rewrite preserves the complete record distribution."""
@@ -186,8 +186,8 @@ class TestTerminalMeasurementPhaseElimination:
             circuit,
             hir_passes=_peephole_pass_manager(),
         )
-        assert baseline.peak_rank == 2
-        assert optimized.peak_rank == 0
+        assert baseline.peak_active_width == 2
+        assert optimized.peak_active_width == 0
 
         shots = 30_000
         baseline_result = clifft.sample(baseline, shots, seed=238)
@@ -351,12 +351,12 @@ def _bounded_t_mirror_circuit(
 
 
 class TestMirrorTGateAnnihilation:
-    """Verify peephole optimizer achieves peak_rank=0 on mirror circuits.
+    """Verify the peephole optimizer reaches zero peak active width on mirror circuits.
 
     Mirror circuits have structure U U-dag = I. Without the optimizer,
-    each T gate expands the active Schrodinger array (peak_rank up to
+    each T gate expands the active Schrodinger array (peak active width up to
     t_count). With the optimizer, all T/T-dag pairs should cancel
-    completely, leaving peak_rank=0 (pure Clifford).
+    completely, leaving zero peak active width (pure Clifford).
     """
 
     NUM_QUBITS = 40
@@ -364,7 +364,7 @@ class TestMirrorTGateAnnihilation:
 
     @pytest.mark.parametrize("t_count", [4, 8, 12])
     @pytest.mark.parametrize("seed", range(5))
-    def test_mirror_peak_rank_zero(self, t_count: int, seed: int) -> None:
+    def test_mirror_has_zero_peak_active_width(self, t_count: int, seed: int) -> None:
         """Optimizer cancels all T gates in mirror circuits."""
         circuit = _bounded_t_mirror_circuit(self.NUM_QUBITS, self.CLIFFORD_DEPTH, t_count, seed)
         meas = "M " + " ".join(str(i) for i in range(self.NUM_QUBITS))
@@ -374,10 +374,10 @@ class TestMirrorTGateAnnihilation:
         prog_optimized = _compile_optimized(circuit_with_meas)
 
         assert (
-            prog_baseline.peak_rank <= t_count
-        ), f"Baseline peak_rank={prog_baseline.peak_rank} > t_count={t_count}"
-        assert prog_optimized.peak_rank == 0, (
-            f"Optimized peak_rank={prog_optimized.peak_rank}, expected 0 "
+            prog_baseline.peak_active_width <= t_count
+        ), f"Baseline peak_active_width={prog_baseline.peak_active_width} > t_count={t_count}"
+        assert prog_optimized.peak_active_width == 0, (
+            f"Optimized peak_active_width={prog_optimized.peak_active_width}, expected 0 "
             f"(t_count={t_count}, seed={seed})"
         )
 
@@ -389,7 +389,7 @@ class TestMirrorTGateAnnihilation:
         circuit_with_meas = circuit + "\n" + meas
 
         prog = _compile_optimized(circuit_with_meas)
-        assert prog.peak_rank == 0
+        assert prog.peak_active_width == 0
 
         result = clifft.sample(prog, 1000, seed=seed)
         nonzero = int(result.measurements.sum(axis=1).astype(bool).sum())

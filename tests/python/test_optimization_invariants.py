@@ -23,7 +23,7 @@ from utils_fuzzing import (
 
 import clifft
 
-_MAX_PEAK_RANK = 12
+_MAX_PEAK_ACTIVE_WIDTH = 12
 _SEEDS = [0, 1, 2, 3, 4]
 
 # Default HIR pipeline against statevectors.
@@ -121,8 +121,8 @@ class TestDefaultOptimizerStatisticalEquivalence:
 
         base = clifft.compile(circuit, hir_passes=None)
         optimized = clifft.compile(circuit)
-        assert base.peak_rank <= _MAX_PEAK_RANK
-        assert optimized.peak_rank <= _MAX_PEAK_RANK
+        assert base.peak_active_width <= _MAX_PEAK_ACTIVE_WIDTH
+        assert optimized.peak_active_width <= _MAX_PEAK_ACTIVE_WIDTH
 
         base_result = clifft.sample(base, _STAT_SHOTS, seed=seed)
         optimized_result = clifft.sample(optimized, _STAT_SHOTS, seed=seed)

@@ -87,7 +87,7 @@ prog = clifft.compile(
     hir_passes=clifft.default_hir_pass_manager(),
 )
 
-print(f"Peak active width: {prog.peak_rank}")  # 4 (only 2^4 = 16 amplitudes)
+print(f"Peak active width: {prog.peak_active_width}")  # 4 (only 2^4 = 16 amplitudes)
 print(f"Detectors:      {prog.num_detectors}")    # 20
 print(f"Observables:    {prog.num_observables}")   # 1
 

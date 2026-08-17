@@ -89,7 +89,7 @@ bitstrings = [
 ps = clifft.basis_probabilities(program, bitstrings)
 
 print(f"qubits: {program.num_qubits}")
-print(f"peak active width: {program.peak_rank}")
+print(f"peak active width: {program.peak_active_width}")
 for bitstring, probability in zip(bitstrings, ps):
     print(f"{bitstring}: {probability:.12g}")
 ```
@@ -294,11 +294,10 @@ though, and the difference can be 100×+ in either direction:
   amortization, but the compiler's `StatevectorSqueezePass` can reorder
   measurements next to their non-Clifford gates to reduce active width early.
 
-A practical way to choose: compile both forms and read off
-`program.peak_rank`, which currently reports peak active width. When the
-*measured* form has a noticeably lower peak active width than the unitary
-form, `record_probabilities()` is typically faster per query. When the two
-widths match, `basis_probabilities()` wins
+A practical way to choose is to compile both forms and compare their
+`program.peak_active_width` values. When the *measured* form has a noticeably
+lower peak active width than the unitary form, `record_probabilities()` is
+typically faster per query. When the two widths match, `basis_probabilities()` wins
 because it amortizes plan execution across queries.
 
 ```python
@@ -319,11 +318,11 @@ H 0 1 2 3 4
 unitary = clifft.compile(circuit)
 measured = clifft.compile(circuit + "\nM 0 1 2 3 4")
 
-print(f"basis_probabilities()  peak active width: {unitary.peak_rank}")
-print(f"record_probabilities() peak active width: {measured.peak_rank}")
+print(f"basis_probabilities()  peak active width: {unitary.peak_active_width}")
+print(f"record_probabilities() peak active width: {measured.peak_active_width}")
 ```
 
-A gap in `peak_rank` indicates roughly a
+A gap in `peak_active_width` indicates roughly a
 $2^{(k_{\text{unitary}} - k_{\text{measured}})}$ speedup ceiling for
 `record_probabilities()` over `basis_probabilities()` on this circuit,
 independent of batch size. At equal peak active width,

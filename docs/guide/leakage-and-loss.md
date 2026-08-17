@@ -332,7 +332,7 @@ semantics and active-width cost are described in
   cost.
 - **`seed`**: same contract as ordinary sampling: a fixed seed is fully
   reproducible, `None` uses hardware entropy.
-- **`max_rank`**: caps the compiled peak active width before allocating or
+- **`max_active_width`**: caps the compiled peak active width before allocating or
   growing the state for that module.
   The cap applies to each compiled module, including branches a given shot
   never takes, so it is conservative.

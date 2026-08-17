@@ -308,7 +308,7 @@ TEST_CASE("trajectory: a cross-domain word alias does not expand to a full-state
     }
 }
 
-TEST_CASE("trajectory: max_rank rejects an over-budget compile") {
+TEST_CASE("trajectory: max_active_width rejects an over-budget compile") {
     // Each dormant-random site under exact damping adds one to k: three H-prefixed
     // sites push the peak to 3, over a cap of 2.
     ModelSpec spec;
@@ -320,9 +320,9 @@ TEST_CASE("trajectory: max_rank rejects an over-budget compile") {
         "M 0\nM 1\nM 2");
 
     REQUIRE_THROWS_WITH(
-        sample_noncomputational(circuit, model, 5, 1, /*max_rank=*/2),
-        ContainsSubstring("exceeds max_rank 2 (first exceeded at circuit line 6); consider "
-                          "damping=\"neglect\" for high-rate sites or a larger max_rank"));
+        sample_noncomputational(circuit, model, 5, 1, /*max_active_width=*/2),
+        ContainsSubstring("exceeds max_active_width 2 (first exceeded at circuit line 6); consider "
+                          "damping=\"neglect\" for high-rate sites or a larger max_active_width"));
 }
 
 TEST_CASE("trajectory: a trap-form fire keeps the fire-side correlation") {
@@ -553,23 +553,23 @@ TEST_CASE("trajectory: a hand-written multi-target annotation traps on one targe
     }
 }
 
-TEST_CASE("trajectory: neglect keeps rank flat while exact damping expands") {
+TEST_CASE("trajectory: neglect keeps active width flat while exact damping expands") {
     ModelSpec spec;
     spec.leak_from_e = 0.3;  // source-dependent: the damp is non-scalar
     spec.damping = DampingPolicy::Neglect;
     auto model = make_driver_model(spec);
     auto circuit = parse("H 0\nLEVEL_TRANSITION[leak] 0\nH 0\nM 0");
 
-    // max_rank 0 admits the neglect compile (no expansion) and would
+    // max_active_width 0 admits the neglect compile (no expansion) and would
     // reject the exact-damping one (which adds one at the site).
-    auto result = sample_noncomputational(circuit, model, 50, 37, /*max_rank=*/0);
+    auto result = sample_noncomputational(circuit, model, 50, 37, /*max_active_width=*/0);
     REQUIRE(result.measurements.size() == 50);
 
     ModelSpec exact_spec = spec;
     exact_spec.damping = DampingPolicy::Exact;
-    REQUIRE_THROWS_WITH(
-        sample_noncomputational(circuit, make_driver_model(exact_spec), 50, 37, /*max_rank=*/0),
-        ContainsSubstring("exceeds max_rank 0"));
+    REQUIRE_THROWS_WITH(sample_noncomputational(circuit, make_driver_model(exact_spec), 50, 37,
+                                                /*max_active_width=*/0),
+                        ContainsSubstring("exceeds max_active_width 0"));
 }
 
 TEST_CASE("trajectory: ternary heralds keep a uniform visible bit") {
@@ -675,10 +675,10 @@ TEST_CASE("trajectory: hand-built annotation targets reject up front") {
 
 TEST_CASE("trajectory: a smaller starting module must not shrink the reused state") {
     // A leaked initial compiles a from-the-top continuation with more
-    // hidden record slots (the MR restore) but a smaller peak rank than
+    // hidden record slots (the MR restore) but a smaller peak active width than
     // the main line, whose expand_damp site needs the array. A shot
     // sequence interleaving both starting modules used to rebuild the
-    // state to the smaller module's rank while the tracker kept the
+    // state to the smaller module's capacity while the tracker kept the
     // maximum; the next main-line shot then overran its allocation --
     // caught by the Debug kernel assert, an out-of-bounds write in
     // Release.
@@ -1002,7 +1002,7 @@ TEST_CASE("trajectory: memory-X smoke measures two qubits after a low-rate leak 
     auto model = NonComputationalModel::from_spec(pure_initial_state(Level::G), {{"leak", leak}},
                                                   std::make_optional(classifier), policy);
     auto circuit = parse("RX 0 1\nLEVEL_TRANSITION[leak] 0 1\nMX 0 1");
-    // Equal-rate loss keeps stabilizer cost under exact damping: max_rank 0.
+    // Equal-rate loss keeps stabilizer cost under exact damping: max_active_width 0.
     constexpr uint32_t kShots = 2000;
     auto result = sample_noncomputational(circuit, model, kShots, 111, 0);
     REQUIRE(result.shots == kShots);
@@ -1405,12 +1405,12 @@ TEST_CASE("trajectory: a reset truly re-prepares a restored-lost qubit") {
     }
 }
 
-// max_rank boundary behavior
+// max_active_width boundary behavior
 
-TEST_CASE("trajectory: max_rank succeeds exactly at the required rank") {
+TEST_CASE("trajectory: max_active_width succeeds exactly at the required width") {
     // Reuses the over-cap circuit from the rejection test: three H-prefixed
-    // source-dependent sites push peak rank to 3 (over a cap of 2). The
-    // same circuit must succeed with max_rank = 3 (the actual required rank).
+    // source-dependent sites push peak active width to 3 (over a cap of 2). The
+    // same circuit must succeed with max_active_width = 3 (the required width).
     ModelSpec spec;
     spec.leak_from_e = 0.2;
     auto model = make_driver_model(spec);
@@ -1419,8 +1419,8 @@ TEST_CASE("trajectory: max_rank succeeds exactly at the required rank") {
         "LEVEL_TRANSITION[leak] 0\nLEVEL_TRANSITION[leak] 1\nLEVEL_TRANSITION[leak] 2\n"
         "M 0\nM 1\nM 2");
 
-    // max_rank = 3 is exactly the peak; must succeed.
-    auto result = sample_noncomputational(circuit, model, 5, 1, /*max_rank=*/3);
+    // max_active_width = 3 is exactly the peak; must succeed.
+    auto result = sample_noncomputational(circuit, model, 5, 1, /*max_active_width=*/3);
     REQUIRE(result.shots == 5);
     REQUIRE(result.num_measurements == 3);
 }
@@ -1445,9 +1445,11 @@ TEST_CASE("trajectory: different seeds produce different records") {
     REQUIRE(a.measurements != b.measurements);
 }
 
-TEST_CASE("trajectory: max_rank is not checked against the unreachable all-computational module") {
+TEST_CASE(
+    "trajectory: max_active_width is not checked against the unreachable all-computational "
+    "module") {
     // When every qubit starts lost, the no-event module is never used;
-    // its rank must not trigger a max_rank rejection.
+    // its active width must not trigger a max_active_width rejection.
     // The lost column reads symbol 1 with certainty: a raw readout of the
     // dropped-everything |0> carriers would give 0, so all-1 records verify
     // that the classifier wrote them.
@@ -1462,7 +1464,7 @@ TEST_CASE("trajectory: max_rank is not checked against the unreachable all-compu
         {1.0, 0.0, 0.0, 0.0, 0.0}, {}, std::make_optional(classifier_matrix),
         NonComputationalPolicy{});
 
-    // Circuit with T gates -- non-trivial rank.
+    // Circuit with T gates -- nonzero peak active width.
     const std::string circuit_str =
         "H 0\n"
         "CX 0 1\nCX 0 2\nCX 0 3\nCX 0 4\nCX 0 5\n"
@@ -1470,11 +1472,11 @@ TEST_CASE("trajectory: max_rank is not checked against the unreachable all-compu
         "M 0\nM 1\nM 2\nM 3\nM 4\nM 5\n";
     const Circuit circuit = parse(circuit_str);
 
-    // Ground model at max_rank=0 must throw (the no-event module exceeds it).
+    // Ground model at max_active_width=0 must throw (the no-event module exceeds it).
     REQUIRE_THROWS_WITH(sample_noncomputational(circuit, ground_model, 4, 1, 0),
-                        ContainsSubstring("max_rank"));
+                        ContainsSubstring("max_active_width"));
 
-    // Lost model at max_rank=0 must run (the no-event module is lazy).
+    // Lost model at max_active_width=0 must run (the no-event module is lazy).
     const NonComputationalSample r = sample_noncomputational(circuit, lost_model, 16, 1, 0);
     for (const uint8_t bit : r.measurements) {
         REQUIRE(bit == 1);

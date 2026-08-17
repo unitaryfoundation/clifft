@@ -391,14 +391,15 @@ void prepend_initial_excited_preparations(Circuit& circuit, std::span<const Leve
                          std::make_move_iterator(preparations.end()));
 }
 
-void check_sampling_max_rank(const sampling::SamplingPlan& plan, std::optional<uint32_t> max_rank) {
-    if (!max_rank.has_value() || plan.max_active_width <= *max_rank) {
+void enforce_sampling_active_width_cap(const sampling::SamplingPlan& plan,
+                                       std::optional<uint32_t> max_active_width_cap) {
+    if (!max_active_width_cap.has_value() || plan.peak_active_width <= *max_active_width_cap) {
         return;
     }
     std::string site;
     if (plan.source_map.has_value()) {
         for (size_t action = 0; action < plan.actions.size(); ++action) {
-            if (plan.actions[action].active_after <= *max_rank) {
+            if (plan.actions[action].active_after <= *max_active_width_cap) {
                 continue;
             }
             const std::span<const uint32_t> lines = plan.source_map->lines_for(action);
@@ -409,14 +410,15 @@ void check_sampling_max_rank(const sampling::SamplingPlan& plan, std::optional<u
         }
     }
     throw std::invalid_argument(
-        "sample_noncomputational: planned active width " + std::to_string(plan.max_active_width) +
-        " exceeds max_rank " + std::to_string(*max_rank) + site +
-        "; consider damping=\"neglect\" for high-rate sites or a larger max_rank");
+        "sample_noncomputational: planned peak active width " +
+        std::to_string(plan.peak_active_width) + " exceeds max_active_width " +
+        std::to_string(*max_active_width_cap) + site +
+        "; consider damping=\"neglect\" for high-rate sites or a larger max_active_width");
 }
 
 SamplingCompiledContinuation compile_sampling_continuation(
     ContinuationRewrite rewrite, const std::vector<uint8_t>& herald_flags,
-    const InstrumentTraceOptions& instrument_options, std::optional<uint32_t> max_rank,
+    const InstrumentTraceOptions& instrument_options, std::optional<uint32_t> max_active_width_cap,
     std::span<const Level> initial_levels) {
     Circuit patched = std::move(rewrite.circuit);
     patch_heralded_measurements(patched, rewrite.classified_measurements, herald_flags);
@@ -424,7 +426,7 @@ SamplingCompiledContinuation compile_sampling_continuation(
     TracedContinuation traced =
         trace_continuation(std::move(patched), rewrite.forced_traceout_node, instrument_options);
     sampling::SamplingPlan plan = sampling::plan_sampling(traced.hir);
-    if (max_rank.has_value() && plan.max_active_width > *max_rank) {
+    if (max_active_width_cap.has_value() && plan.peak_active_width > *max_active_width_cap) {
         // Source provenance is retained only on the exceptional diagnostic
         // path; successful continuations can be numerous and do not need it.
         const sampling::SamplingPlan diagnostic =
@@ -432,7 +434,7 @@ SamplingCompiledContinuation compile_sampling_continuation(
                                                  .expected_detectors = {},
                                                  .expected_observables = {},
                                                  .retain_source_map = true});
-        check_sampling_max_rank(diagnostic, max_rank);
+        enforce_sampling_active_width_cap(diagnostic, max_active_width_cap);
     }
     if (plan.num_instrument_sites != rewrite.site_targets.size()) {
         throw std::logic_error("sample_noncomputational: sampling plan has " +
@@ -555,7 +557,7 @@ Circuit prepare_trajectory_circuit(const Circuit& circuit, const NonComputationa
 NonComputationalSample run_trajectory_driver(const Circuit& circuit,
                                              const NonComputationalModel& model, uint32_t shots,
                                              const SeedRoot& root,
-                                             std::optional<uint32_t> max_rank) {
+                                             std::optional<uint32_t> max_active_width_cap) {
     NonComputationalSample result;
     result.shots = shots;
     result.num_qubits = circuit.num_qubits;
@@ -624,8 +626,9 @@ NonComputationalSample run_trajectory_driver(const Circuit& circuit,
             extend_classical_outcomes(annotated, events, model, driver_rng);
             ContinuationRewrite rewrite = rewrite_continuation(annotated, events, false, model);
             const std::vector<uint8_t> flags = flags_for(rewrite);
-            shot_start.emplace(compile_sampling_continuation(
-                std::move(rewrite), flags, instrument_options, max_rank, initial_levels));
+            shot_start.emplace(compile_sampling_continuation(std::move(rewrite), flags,
+                                                             instrument_options,
+                                                             max_active_width_cap, initial_levels));
             continuation = &*shot_start;
         } else {
             if (!all_ground_start.has_value()) {
@@ -633,8 +636,9 @@ NonComputationalSample run_trajectory_driver(const Circuit& circuit,
                     rewrite_continuation(annotated, no_events, false, model);
                 assert(rewrite.classified_measurements.empty() &&
                        "an all-ground continuation has no classified measurements");
-                all_ground_start.emplace(compile_sampling_continuation(
-                    std::move(rewrite), {}, instrument_options, max_rank, initial_levels));
+                all_ground_start.emplace(
+                    compile_sampling_continuation(std::move(rewrite), {}, instrument_options,
+                                                  max_active_width_cap, initial_levels));
             }
             continuation = &*all_ground_start;
         }
@@ -699,9 +703,10 @@ NonComputationalSample run_trajectory_driver(const Circuit& circuit,
             ContinuationRewrite next_rewrite =
                 rewrite_continuation(annotated, events, force, model);
             const std::vector<uint8_t> next_flags = flags_for(next_rewrite);
-            auto next = std::make_unique<SamplingCompiledContinuation>(
-                compile_sampling_continuation(std::move(next_rewrite), next_flags,
-                                              instrument_options, max_rank, initial_levels));
+            auto next =
+                std::make_unique<SamplingCompiledContinuation>(compile_sampling_continuation(
+                    std::move(next_rewrite), next_flags, instrument_options, max_active_width_cap,
+                    initial_levels));
 
             std::optional<sampling::ForcedTraceOut> forced_trace_out;
             if (force) {

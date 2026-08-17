@@ -120,16 +120,16 @@ void register_noncomp(nb::module_& m) {
     m.def(
         "_sample_noncomputational",
         [](const clifft::Circuit& circuit, const clifft::NonComputationalModel& model,
-           uint32_t shots, std::optional<uint64_t> seed, std::optional<uint32_t> max_rank) {
+           uint32_t shots, std::optional<uint64_t> seed, std::optional<uint32_t> max_active_width) {
             clifft::NonComputationalSample r;
             {
                 nb::gil_scoped_release release;
-                r = clifft::sample_noncomputational(circuit, model, shots, seed, max_rank);
+                r = clifft::sample_noncomputational(circuit, model, shots, seed, max_active_width);
             }
             return noncomp_sample_to_python(std::move(r), shots);
         },
         nb::arg("circuit"), nb::arg("model"), nb::arg("shots"), nb::arg("seed") = nb::none(),
-        nb::arg("max_rank") = nb::none(),
+        nb::arg("max_active_width") = nb::none(),
         "Sample a noncomputational model with the symbolic-coordinate backend.");
 }
 
@@ -547,7 +547,7 @@ NB_MODULE(_clifft_core, m) {
     nb::class_<clifft::StatevectorSqueezePass, clifft::HirPass>(
         m, "StatevectorSqueezePass",
         "Bidirectional bubble sort: moves measurements leftward and\n"
-        "non-Clifford gates rightward to minimize peak active rank.")
+        "non-Clifford gates rightward to minimize peak active width.")
         .def(nb::init<>());
 
     nb::class_<clifft::RemoveNoisePass, clifft::HirPass>(
@@ -607,7 +607,18 @@ NB_MODULE(_clifft_core, m) {
 
     nb::class_<clifft::sampling::ExecutablePlan>(m, "Program",
                                                  "A compiled symbolic-coordinate program")
-        .def_prop_ro("peak_rank", &clifft::sampling::ExecutablePlan::max_active_width)
+        .def_prop_ro("peak_active_width", &clifft::sampling::ExecutablePlan::peak_active_width,
+                     "Largest active width reached by the compiled program.")
+        .def_prop_ro(
+            "peak_rank",
+            [](const clifft::sampling::ExecutablePlan& p) {
+                if (PyErr_WarnEx(PyExc_DeprecationWarning,
+                                 "Program.peak_rank is deprecated; use peak_active_width", 1) < 0) {
+                    throw nb::python_error();
+                }
+                return p.peak_active_width();
+            },
+            "Deprecated alias for peak_active_width.")
         .def_prop_ro("num_qubits", &clifft::sampling::ExecutablePlan::num_qubits)
         .def_prop_ro("num_measurements", &clifft::sampling::ExecutablePlan::num_visible_records)
         .def_prop_ro("num_hidden_measurements",
@@ -628,7 +639,7 @@ NB_MODULE(_clifft_core, m) {
             "Per-site total fault probabilities: quantum noise sites followed by readout noise.")
         .def("__repr__", [](const clifft::sampling::ExecutablePlan& p) {
             return "Program(" + std::to_string(p.num_actions()) +
-                   " actions, peak_rank=" + std::to_string(p.max_active_width()) + ", " +
+                   " actions, peak_active_width=" + std::to_string(p.peak_active_width()) + ", " +
                    std::to_string(p.num_visible_records()) + " measurements)";
         });
 

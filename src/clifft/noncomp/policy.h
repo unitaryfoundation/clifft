@@ -8,7 +8,7 @@ namespace clifft {
 
 // Exact applies the no-jump back-action for source-dependent transition
 // rates. On a coherent dormant qubit, this may promote the qubit into the
-// active state and increase the active dimension. Neglect avoids that cost by
+// active state and increase the active width. Neglect avoids that cost by
 // omitting the back-action, introducing a survivorship tilt of order
 // |p_g - p_e|. It remains exact when the total transition rate is
 // source-independent. Fired transitions retain their source and destination

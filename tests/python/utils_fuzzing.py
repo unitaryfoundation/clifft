@@ -176,7 +176,7 @@ def generate_star_graph_stress_circuit(num_qubits: int, depth: int, seed: int) -
 
 # Maximum total T-gates in the uncomputation ladder's forward pass.
 # Each unique T-gate can expand active_k by 1 in the unoptimized baseline,
-# so this directly bounds peak_rank.
+# so this directly bounds peak active width.
 _LADDER_MAX_T_GATES = 10
 
 
@@ -194,7 +194,7 @@ def generate_uncomputation_ladder(
     must produce identical stochastic records.
 
     Memory bound: T gates restricted to qubits 0..3 AND total T-count
-    capped at _LADDER_MAX_T_GATES to keep peak_rank bounded.
+    capped at _LADDER_MAX_T_GATES to keep peak active width bounded.
 
     Args:
         num_qubits: Total number of qubits in the circuit.

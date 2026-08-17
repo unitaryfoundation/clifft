@@ -260,13 +260,12 @@ See the [Importance Sampling Tutorial](importance-sampling.md) for a complete wa
 
 ## Performance and Limits
 
-Clifft's simulation cost is controlled primarily by the peak active width,
-which the current API reports as `program.peak_rank`, rather than by the total
-number of physical qubits. The executor stores and updates a dense active state
-of dimension $2^k$, where $k$ is the number of simultaneously active symbolic
-coordinates.
+Clifft's simulation cost is controlled primarily by `program.peak_active_width`,
+rather than by the total number of physical qubits. The executor stores and
+updates a dense active state of dimension $2^k$, where $k$ is the number of
+simultaneously active symbolic coordinates.
 
 This means Clifft can handle circuits with many physical qubits when
 non-Clifford effects remain localized. It also means performance degrades as
-`program.peak_rank` grows: circuits with large sustained active width approach
+`program.peak_active_width` grows: circuits with large sustained active width approach
 the cost of dense state-vector simulation.

@@ -9,8 +9,8 @@ namespace clifft {
 /// - Sweep 2 (rightward): bubbles T_GATE and PHASE_ROTATION
 ///   ops as late as possible
 ///
-/// This reduces peak_rank by compacting qubit lifetimes: measurements free
-/// active dimensions sooner, and non-Clifford expansions are deferred.
+/// This reduces peak active width by compacting qubit lifetimes: measurements free
+/// active coordinates sooner, and non-Clifford expansions are deferred.
 class StatevectorSqueezePass : public HirPass {
   public:
     void run(HirModule& hir) override;
