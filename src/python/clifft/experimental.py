@@ -1,4 +1,4 @@
-"""Compatibility aliases for APIs that now use the symbolic backend by default."""
+"""Compatibility aliases for APIs now available directly from ``clifft``."""
 
 from clifft import (
     Circuit as Circuit,

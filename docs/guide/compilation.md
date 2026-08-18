@@ -1,9 +1,9 @@
 # Compiling Circuits
 
-Clifft compiles Stim-format circuit text into an executable symbolic-coordinate
-sampling plan. For most users, `clifft.compile()` is the only compilation API
-needed. Lower-level APIs remain available for inspecting the circuit and
-Heisenberg IR or for supplying a custom HIR optimization pipeline.
+Clifft compiles Stim-format circuit text into a reusable sampling `Program`.
+For most users, `clifft.compile()` is the only compilation API needed.
+Lower-level APIs remain available for inspecting the circuit and Heisenberg IR
+or for supplying a custom HIR optimization pipeline.
 
 !!! note "Leakage and loss"
     Circuits containing `LEAKAGE`, `LOSS`, or `LEVEL_TRANSITION` annotations
@@ -19,7 +19,7 @@ Heisenberg IR or for supplying a custom HIR optimization pipeline.
 ## One-Step Compilation
 
 `clifft.compile()` parses the circuit, traces Clifford operations into the
-Heisenberg IR, applies the default HIR passes, plans active symbolic
+Heisenberg IR, applies the default HIR passes, plans active stabilizer
 coordinates, and prepares an executable plan:
 
 ```python
@@ -100,8 +100,8 @@ pm.run(hir)
 
 ### 4. Plan and Prepare Execution
 
-`clifft.lower()` converts an optimized `HirModule` into the same `Program`
-type returned by `clifft.compile()`:
+`clifft.lower()` plans and prepares an optimized `HirModule`, returning the
+same `Program` type as `clifft.compile()`:
 
 <!--pytest-codeblocks:cont-->
 

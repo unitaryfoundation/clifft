@@ -171,7 +171,7 @@ flag.
 
 Ordinary Clifft compiles a circuit once and reuses the program for many shots.
 The compiler absorbs deterministic Clifford evolution into an offline frame,
-plans active symbolic coordinates, and prepares fixed actions for the
+plans active stabilizer coordinates, and prepares fixed actions for the
 symbolic-coordinate executor.
 
 With noncomputational transitions, the sampled history can change which later

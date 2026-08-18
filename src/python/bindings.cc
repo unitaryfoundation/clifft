@@ -130,7 +130,7 @@ void register_noncomp(nb::module_& m) {
         },
         nb::arg("circuit"), nb::arg("model"), nb::arg("shots"), nb::arg("seed") = nb::none(),
         nb::arg("max_active_width") = nb::none(),
-        "Sample a noncomputational model with the symbolic-coordinate backend.");
+        "Sample a noncomputational model with Clifft's sampler.");
 }
 
 NB_MODULE(_clifft_core, m) {
@@ -610,7 +610,7 @@ NB_MODULE(_clifft_core, m) {
         nb::rv_policy::move, "Return an HirPassManager pre-loaded with the default passes.");
 
     nb::class_<clifft::sampling::ExecutablePlan>(m, "Program",
-                                                 "A compiled symbolic-coordinate program")
+                                                 "A reusable compiled sampling program")
         .def_prop_ro("peak_active_width", &clifft::sampling::ExecutablePlan::peak_active_width,
                      "Largest active width reached by the compiled program.")
         .def_prop_ro(
@@ -668,7 +668,7 @@ NB_MODULE(_clifft_core, m) {
         nb::arg("hir"), nb::arg("postselection_mask") = std::vector<uint8_t>{},
         nb::arg("expected_detectors") = std::vector<uint8_t>{},
         nb::arg("expected_observables") = std::vector<uint8_t>{},
-        "Lower a Heisenberg IR module to an executable symbolic-coordinate plan.\n\n"
+        "Lower a Heisenberg IR module to an executable sampling program.\n\n"
         "Args:\n"
         "    hir: The Heisenberg IR module to lower.\n"
         "    postselection_mask: Optional list of uint8 flags, one per detector.\n"
@@ -695,7 +695,7 @@ NB_MODULE(_clifft_core, m) {
         nb::arg("expected_observables") = std::vector<uint8_t>{},
         nb::arg("normalize_syndromes") = false, nb::arg("hir_passes") = nb::none(),
         "Compile a quantum circuit string to an executable program.\n\n"
-        "Compilation lowers optimized HIR to the symbolic-coordinate sampler.\n"
+        "Compilation plans optimized HIR and prepares it for Clifft's sampler.\n"
         "\n"
         "When normalize_syndromes=True, a noiseless reference shot is\n"
         "executed internally to extract expected detector and observable\n"
@@ -882,7 +882,7 @@ NB_MODULE(_clifft_core, m) {
             return vec_to_numpy(std::move(statevector), {size});
         },
         nb::arg("program"),
-        "Return the dense final statevector of a symbolic pure-unitary program.");
+        "Return the dense final statevector of a compiled pure-unitary program.");
 
     m.def(
         "_basis_probabilities_from_bitmasks",

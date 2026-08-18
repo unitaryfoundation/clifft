@@ -3,7 +3,7 @@
 This module is new and actively evolving. Its API and supported models may
 change as use cases develop.
 
-Samples five-level leakage/loss trajectories using Clifft's symbolic executor:
+Samples five-level leakage/loss trajectories using Clifft's executor:
 
     import clifft
     from clifft import noncomp
