@@ -1,7 +1,8 @@
 #include "clifft/sampling/executable_plan.h"
+#include "clifft/sampling/inspection_format.h"
 
+#include <bit>
 #include <cassert>
-#include <iomanip>
 #include <ostream>
 #include <sstream>
 #include <stdexcept>
@@ -64,8 +65,10 @@ std::string_view new_x_instrument_kernel_name(NewXInstrumentKernel kernel) {
 }
 
 void write_prepared_pauli(std::ostream& out, const PreparedPauli& pauli) {
-    out << "active_width=" << pauli.active_width << " x=0x" << std::hex << pauli.x << " z=0x"
-        << pauli.z << " pairing_bit=0x" << pauli.pairing_bit << std::dec;
+    out << 'w' << pauli.active_width << ' ' << format_pauli_product(pauli.x, pauli.z);
+    if (pauli.pairing_bit != 0) {
+        out << " pair=" << std::countr_zero(pauli.pairing_bit);
+    }
 }
 
 }  // namespace
@@ -89,28 +92,33 @@ std::string ExecutablePlan::inspect() const {
 std::string ExecutablePlan::inspect_action(size_t action) const {
     const Action& selected = actions_.at(action);
     std::ostringstream out;
-    out << std::setprecision(17);
     std::visit(
         Overloaded{
             [&](const ExecuteRotation& typed) {
-                out << "rotate ";
-                write_prepared_pauli(out, typed.rotation.pauli);
-                out << " cosine=" << typed.rotation.cosine << " sine=" << typed.rotation.sine
-                    << " sign=e" << typed.sign.register_id
+                if (typed.rotation.pauli.is_identity()) {
+                    out << "ROTATE_PHASE w" << typed.rotation.pauli.active_width;
+                } else {
+                    out << "ROTATE ";
+                    write_prepared_pauli(out, typed.rotation.pauli);
+                }
+                out << " cos=" << format_double_roundtrip(typed.rotation.cosine)
+                    << " sin=" << format_double_roundtrip(typed.rotation.sine) << " sign=e"
+                    << typed.sign.register_id
                     << " kernel=" << direct_rotation_kernel_name(typed.kernel);
             },
             [&](const ExecuteFusedRotation& typed) {
-                out << "fused_rotation descriptor=" << typed.rotation_index;
+                out << "FUSED_ROTATION descriptor=" << typed.rotation_index;
             },
             [&](const ExecuteDynamicFusedRotation& typed) {
-                out << "dynamic_fused_rotation descriptor=" << typed.rotation_index;
+                out << "DYNAMIC_FUSED_ROTATION descriptor=" << typed.rotation_index;
             },
             [&](const ExecutePromotion& typed) {
-                out << "promote cosine=" << typed.promotion.cosine
-                    << " sine=" << typed.promotion.sine << " sign=e" << typed.sign.register_id;
+                out << "PROMOTE cos=" << format_double_roundtrip(typed.promotion.cosine)
+                    << " sin=" << format_double_roundtrip(typed.promotion.sine) << " sign=e"
+                    << typed.sign.register_id;
             },
             [&](const ExecuteActiveMeasurement& typed) {
-                out << "measure_active ";
+                out << "MEASURE_ACTIVE ";
                 write_prepared_pauli(out, typed.measurement.pauli);
                 out << " pivot=" << typed.measurement.pivot << " branch=s" << typed.branch
                     << " record=r" << typed.record << " correction=e"
@@ -118,31 +126,35 @@ std::string ExecutablePlan::inspect_action(size_t action) const {
                     << " kernel=" << active_measurement_kernel_name(typed.kernel);
             },
             [&](const ExecuteDormantMeasurement& typed) {
-                out << "measure_dormant branch=s" << typed.branch << " record=r" << typed.record
+                out << "MEASURE_DORMANT branch=s" << typed.branch << " record=r" << typed.record
                     << " correction=e" << typed.correction.register_id;
             },
             [&](const ExecuteClassicalRecord& typed) {
-                out << "record_classical record=r" << typed.record << " outcome=e"
+                out << "RECORD_CLASSICAL record=r" << typed.record << " outcome=e"
                     << typed.outcome.register_id;
             },
             [&](const ExecuteSymbolDefinition& typed) {
-                out << "define_symbol s" << typed.symbol << " value=e" << typed.value.register_id;
+                out << "DEFINE_SYMBOL s" << typed.symbol << " value=e" << typed.value.register_id;
             },
             [&](const ExecuteReadoutNoise& typed) {
-                out << "readout_noise site=" << typed.site << " flip=s" << typed.flip << " record=r"
+                out << "READOUT_NOISE site=" << typed.site << " flip=s" << typed.flip << " record=r"
                     << typed.record << " source=e" << typed.source.register_id
-                    << " p01=" << typed.prob_zero_to_one << " p10=" << typed.prob_one_to_zero;
+                    << " p01=" << format_double_roundtrip(typed.prob_zero_to_one)
+                    << " p10=" << format_double_roundtrip(typed.prob_one_to_zero);
             },
             [&](const ExecuteDetector& typed) {
-                out << "write_detector detector=d" << typed.detector << " outcome=e"
-                    << typed.outcome.register_id << " postselected=" << typed.postselected;
+                out << "WRITE_DETECTOR detector=d" << typed.detector << " outcome=e"
+                    << typed.outcome.register_id;
+                if (typed.postselected) {
+                    out << " postselect";
+                }
             },
             [&](const ExecuteObservable& typed) {
-                out << "write_observable observable=l" << typed.observable << " outcome=e"
+                out << "WRITE_OBSERVABLE observable=o" << typed.observable << " outcome=e"
                     << typed.outcome.register_id;
             },
             [&](const ExecuteExpectation& typed) {
-                out << "write_expectation exp_val=" << typed.exp_val << ' ';
+                out << "WRITE_EXPECTATION exp_val=v" << typed.exp_val << ' ';
                 if (typed.active_projection.has_value()) {
                     write_prepared_pauli(out, *typed.active_projection);
                     out << " sign=e" << typed.sign.register_id;
@@ -154,27 +166,27 @@ std::string ExecutablePlan::inspect_action(size_t action) const {
                 std::visit(
                     Overloaded{
                         [&](const ExecuteDormantInstrumentTrap& instrument) {
-                            out << "instrument_dormant_trap site=" << instrument.site;
+                            out << "INSTRUMENT_DORMANT_TRAP site=" << instrument.site;
                         },
                         [&](const ExecuteClassicalInstrument& instrument) {
-                            out << "instrument_classical site=" << instrument.site << " sign=e"
+                            out << "INSTRUMENT_CLASSICAL site=" << instrument.site << " sign=e"
                                 << instrument.sign.register_id << " flip=s"
                                 << instrument.destination_flip;
                         },
                         [&](const ExecuteActiveInstrument& instrument) {
-                            out << "instrument_active site=" << instrument.site << ' ';
+                            out << "INSTRUMENT_ACTIVE site=" << instrument.site << ' ';
                             write_prepared_pauli(out, instrument.measurement.pauli);
                             out << " sign=e" << instrument.sign.register_id << " flip=s"
                                 << instrument.destination_flip;
                         },
                         [&](const ExecuteMeasuredInstrumentActivation& instrument) {
-                            out << "instrument_activate_measured site=" << instrument.site << ' ';
+                            out << "INSTRUMENT_ACTIVATE_MEASURED site=" << instrument.site << ' ';
                             write_prepared_pauli(out, instrument.measurement.pauli);
                             out << " sign=e" << instrument.sign.register_id << " flip=s"
                                 << instrument.destination_flip;
                         },
                         [&](const ExecuteNewXInstrumentActivation& instrument) {
-                            out << "instrument_activate_new_x site=" << instrument.site << " sign=e"
+                            out << "INSTRUMENT_ACTIVATE_NEW_X site=" << instrument.site << " sign=e"
                                 << instrument.sign.register_id << " flip=s"
                                 << instrument.destination_flip
                                 << " kernel=" << new_x_instrument_kernel_name(instrument.kernel);
@@ -183,7 +195,7 @@ std::string ExecutablePlan::inspect_action(size_t action) const {
                     typed.form);
             },
             [&](const ExecuteBoundary& typed) {
-                out << "instrument_boundary site=" << typed.site
+                out << "INSTRUMENT_BOUNDARY site=" << typed.site
                     << " active_width=" << typed.active_width << " noise=[" << typed.noise_begin
                     << ',' << typed.noise_end << ')'
                     << " symbol_prefix_size=" << typed.symbol_prefix_size;

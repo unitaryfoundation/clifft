@@ -111,6 +111,7 @@ nav:
     - Noncomputational States: theory/noncomputational.md
   - Reference:
     - Supported Gates: reference/gates.md
+    - Instruction Reference: reference/instructions.md
     - Optimization Passes: reference/passes.md
     - Python API: reference/python-api.md
   - Development:

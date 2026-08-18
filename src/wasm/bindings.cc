@@ -14,11 +14,9 @@
 #include "clifft/sampling/sampler.h"
 #include "clifft/util/hir_introspection.h"
 
-#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <emscripten/bind.h>
-#include <memory>
 #include <nlohmann/json.hpp>
 #include <optional>
 #include <sstream>
@@ -37,14 +35,16 @@ constexpr uint32_t MAX_BROWSER_ACTIVE_WIDTH = 24;
 struct PipelineResult {
     clifft::HirModule hir;
     std::optional<clifft::sampling::SamplingPlan> plan;
-    std::unique_ptr<clifft::sampling::ExecutablePlan> program;
+    std::optional<clifft::sampling::ExecutablePlan> program;
     std::string error;
 };
 
 // Parse passes_json: {"hir": [...]}
-// Empty string or "{}" means use defaults.
+// Empty string or "{}" means use defaults. build_executable lowers the
+// SamplingPlan into an ExecutablePlan; the compile-for-inspection path
+// leaves it unset since it only needs the SamplingPlan's own inspection.
 PipelineResult run_pipeline(const std::string& source, const std::string& passes_json,
-                            bool retain_source_map) {
+                            bool retain_source_map, bool build_executable) {
     PipelineResult result;
     try {
         auto circuit = clifft::parse(source, MAX_OPS);
@@ -78,7 +78,9 @@ PipelineResult run_pipeline(const std::string& source, const std::string& passes
         clifft::sampling::SamplingPlanOptions options;
         options.retain_source_map = retain_source_map;
         result.plan.emplace(clifft::sampling::plan_sampling(result.hir, options));
-        result.program = std::make_unique<clifft::sampling::ExecutablePlan>(*result.plan);
+        if (build_executable) {
+            result.program.emplace(*result.plan);
+        }
     } catch (const std::exception& e) {
         result.error = e.what();
     }
@@ -105,35 +107,14 @@ json source_map_json(const clifft::sampling::PlanSourceMap& source_map) {
     return entries;
 }
 
-json executable_source_map_json(const clifft::sampling::SamplingPlan& plan,
-                                const clifft::sampling::ExecutablePlan& program) {
-    json entries = json::array();
-    for (size_t i = 0; i < program.num_actions(); ++i) {
-        std::vector<uint32_t> source_lines;
-        const auto range = program.action_plan_range(i);
-        if (range.has_value()) {
-            for (uint32_t action = range->begin; action < range->end; ++action) {
-                for (uint32_t line : plan.source_map->lines_for(action)) {
-                    source_lines.push_back(line);
-                }
-            }
-        }
-        std::ranges::sort(source_lines);
-        source_lines.erase(std::unique(source_lines.begin(), source_lines.end()),
-                           source_lines.end());
-        entries.push_back(std::move(source_lines));
-    }
-    return entries;
-}
-
 std::string compile_to_json(const std::string& source, const std::string& passes_json) {
-    auto result = run_pipeline(source, passes_json, true);
+    auto result = run_pipeline(source, passes_json, /*retain_source_map=*/true,
+                               /*build_executable=*/false);
     if (!result.error.empty()) {
         return json({{"error", result.error}}).dump();
     }
     const auto& hir = result.hir;
     const auto& plan = *result.plan;
-    const auto& program = *result.program;
 
     std::vector<std::string> hir_strs;
     hir_strs.reserve(hir.ops.size());
@@ -151,15 +132,6 @@ std::string compile_to_json(const std::string& source, const std::string& passes
         active_width_history.push_back(plan.actions[i].active_after);
     }
 
-    std::vector<std::string> program_strs;
-    program_strs.reserve(program.num_actions());
-    json program_plan_ranges = json::array();
-    for (size_t i = 0; i < program.num_actions(); ++i) {
-        program_strs.push_back(program.inspect_action(i));
-        const auto range = program.action_plan_range(i).value();
-        program_plan_ranges.push_back({{"begin", range.begin}, {"end", range.end}});
-    }
-
     json j = {
         {"num_qubits", plan.num_qubits},
         {"peak_active_width", plan.peak_active_width},
@@ -167,11 +139,8 @@ std::string compile_to_json(const std::string& source, const std::string& passes
         {"num_t_gates", hir.num_t_gates()},
         {"hir_ops", hir_strs},
         {"sampling_plan", plan_strs},
-        {"wasm_program", program_strs},
         {"hir_source_map", hir.source_map},
         {"sampling_plan_source_map", source_map_json(*plan.source_map)},
-        {"wasm_program_source_map", executable_source_map_json(plan, program)},
-        {"wasm_program_plan_ranges", program_plan_ranges},
         {"active_width_history", active_width_history},
     };
     return j.dump();
@@ -221,7 +190,8 @@ std::string simulate_wasm(const std::string& source, uint32_t shots,
         return json({{"error", "ShotsLimitExceeded: max " + std::to_string(MAX_SHOTS)}}).dump();
     }
 
-    auto result = run_pipeline(source, passes_json, false);
+    auto result = run_pipeline(source, passes_json, /*retain_source_map=*/false,
+                               /*build_executable=*/true);
     if (!result.error.empty()) {
         return json({{"error", result.error}}).dump();
     }

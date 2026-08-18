@@ -35,11 +35,12 @@ add_library(clifft_core STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/remove_noise_pass.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/statevector_squeeze_pass.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/sampling/plan.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/sampling/plan_inspection.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/sampling/inspection_format.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/sampling/planner.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/sampling/planner_frame.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/sampling/kernel_dispatch.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/sampling/executable_plan.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/sampling/executable_plan_inspection.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/sampling/executable_plan_builder.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/sampling/executor.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/sampling/fused_rotation.cc

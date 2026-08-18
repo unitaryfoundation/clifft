@@ -15,6 +15,7 @@ add_executable(clifft_tests
     test_frontend.cc
     test_frontend_instruments.cc
     test_sampling_plan.cc
+    test_inspection_format.cc
     test_sampling_planner.cc
     test_sampling_planner_frame.cc
     test_sampling_executor.cc
@@ -45,6 +46,7 @@ target_link_libraries(clifft_tests PRIVATE
 # Provide absolute path to test fixture files so benchmarks work from any cwd.
 target_compile_definitions(clifft_tests PRIVATE
     CLIFFT_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures"
+    CLIFFT_DOCS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../docs"
 )
 
 # Tests that call the x86 kernel entry points directly can only link on

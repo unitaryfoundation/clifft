@@ -218,7 +218,7 @@ TEST_CASE("Sampling planner retains source provenance only when requested") {
     REQUIRE(std::ranges::equal(inspected.source_map->lines_for(0), std::array<uint32_t, 1>{2}));
     REQUIRE(std::ranges::equal(inspected.source_map->lines_for(1), std::array<uint32_t, 1>{3}));
     REQUIRE(std::ranges::equal(inspected.source_map->lines_for(2), std::array<uint32_t, 1>{4}));
-    REQUIRE(inspected.inspect_action(0).find("promote_dormant") != std::string::npos);
+    REQUIRE(inspected.inspect_action(0).find("PROMOTE_DORMANT") != std::string::npos);
     REQUIRE_THROWS_AS(inspected.inspect_action(inspected.actions.size()), std::out_of_range);
 }
 
@@ -613,5 +613,5 @@ TEST_CASE("Sampling planner target QEC plan characterization") {
     INFO(inspection);
     // After verifying that a reported inspection change is intentional, update
     // this digest to the new value shown by the failed assertion.
-    REQUIRE(fnv1a64(inspection) == 0xd6739c5e74e9339eULL);
+    REQUIRE(fnv1a64(inspection) == 0x3582c678c0c8731cULL);
 }

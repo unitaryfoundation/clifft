@@ -4,11 +4,6 @@ export interface PassInfo {
   default: boolean;
 }
 
-export interface PlanActionRange {
-  begin: number;
-  end: number;
-}
-
 export interface CompileSuccess {
   error?: undefined;
   num_qubits: number;
@@ -17,11 +12,8 @@ export interface CompileSuccess {
   num_t_gates: number;
   hir_ops: string[];
   sampling_plan: string[];
-  wasm_program: string[];
   hir_source_map: number[][];
   sampling_plan_source_map: number[][];
-  wasm_program_source_map: number[][];
-  wasm_program_plan_ranges: PlanActionRange[];
   active_width_history: number[];
 }
 

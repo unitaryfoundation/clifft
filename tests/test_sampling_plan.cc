@@ -153,10 +153,9 @@ TEST_CASE("Sampling plan validates symbolic and active state invariants") {
     const std::string text = plan.inspect();
     REQUIRE(text.find("sampling_plan qubits=2 initial_width=0 peak_width=1") != std::string::npos);
     REQUIRE(text.find("s0 kind=presampled noise_site=0") != std::string::npos);
-    REQUIRE(text.find("1 active_width=1->0 dense_passes=2 measure_active") != std::string::npos);
-    REQUIRE(text.find("outcome=s0 ^ s1 record=0") != std::string::npos);
-    REQUIRE(text.find("5 active_width=0->0 dense_passes=0 instrument_boundary site=0 ") !=
-            std::string::npos);
+    REQUIRE(text.find("1 w1->0 dense_passes=2 MEASURE_ACTIVE X0") != std::string::npos);
+    REQUIRE(text.find("outcome=s0^s1 record=r0") != std::string::npos);
+    REQUIRE(text.find("5 w0 dense_passes=0 INSTRUMENT_BOUNDARY site=0 ") != std::string::npos);
 }
 
 TEST_CASE("Sampling plan compact inspection bounds affine expressions") {
@@ -173,8 +172,8 @@ TEST_CASE("Sampling plan compact inspection bounds affine expressions") {
 
     REQUIRE(plan.inspect_action(0).find("s11") != std::string::npos);
     const std::string compact = plan.inspect_action_compact(0);
-    REQUIRE(compact.find("s7 ^ ... (12 terms)") != std::string::npos);
-    REQUIRE(compact.find("s8") == std::string::npos);
+    REQUIRE(compact.find("s0^s1^s2^s3^...(+8)") != std::string::npos);
+    REQUIRE(compact.find("s4") == std::string::npos);
 }
 
 TEST_CASE("Sampling plan rejects inconsistent noise site totals") {
@@ -542,7 +541,7 @@ TEST_CASE("Sampling plan distinguishes dormant branch labels from records") {
         AffineBool::symbol(branch) ^ true;
 
     REQUIRE_NOTHROW(plan.validate());
-    REQUIRE(plan.inspect().find("branch=s0 outcome=1 ^ s0 record=0") != std::string::npos);
+    REQUIRE(plan.inspect().find("branch=s0 outcome=1^s0 record=r0") != std::string::npos);
 }
 
 TEST_CASE("Sampling plan validates expectation output slots and zero probes") {
@@ -559,8 +558,8 @@ TEST_CASE("Sampling plan validates expectation output slots and zero probes") {
 
     REQUIRE_NOTHROW(plan.validate());
     const std::string text = plan.inspect();
-    REQUIRE(text.find("dense_passes=1 write_expectation") != std::string::npos);
-    REQUIRE(text.find("dense_passes=0 write_expectation zero exp_val=1") != std::string::npos);
+    REQUIRE(text.find("dense_passes=1 WRITE_EXPECTATION") != std::string::npos);
+    REQUIRE(text.find("dense_passes=0 WRITE_EXPECTATION zero exp_val=v1") != std::string::npos);
 
     SECTION("duplicate slot") {
         std::get<WriteExpectationValue>(plan.actions[1].action).exp_val = ExpValSlot{0};

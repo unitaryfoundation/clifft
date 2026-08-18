@@ -2,7 +2,7 @@
 
 import type { languages, editor, IMarkdownString, Position } from "monaco-editor";
 import type { Monaco } from "@monaco-editor/react";
-import hirMetadata from "@docs/opcodes.json";
+import opcodeMetadata from "@docs/opcodes.json";
 
 interface OpDoc {
   category: string;
@@ -12,7 +12,14 @@ interface OpDoc {
   display?: string[];
 }
 
-const hirMap = hirMetadata.hir_ops as Record<string, OpDoc>;
+const hirMap = opcodeMetadata.hir_ops as Record<string, OpDoc>;
+const planActionMap = opcodeMetadata.plan_actions as Record<string, OpDoc>;
+
+// Derived from the shared metadata so the tokenizer cannot drift from the
+// mnemonics documented in plan_actions.
+const planActionMnemonicPattern = new RegExp(
+  "\\b(?:" + Object.keys(planActionMap).join("|") + ")\\b",
+);
 
 // Build a reverse lookup from HIR display names (T, T_DAG, MEASURE, etc.) to docs
 const hirDisplayMap: Record<string, OpDoc> = {};
@@ -82,18 +89,36 @@ export const hirLanguage: languages.IMonarchLanguage = {
   },
 };
 
-// --- SamplingPlan and prepared WASM program language ---
+// --- SamplingPlan compact inspection language ---
+// Grammar: w<k>[-><k'>] <MNEMONIC> [<pauli>] key=value... [postselect] [passes=<n>]
 export const planLanguage: languages.IMonarchLanguage = {
   tokenizer: {
     root: [
-      [/\b[serdl]\d+\b/, "variable"],
-      [/\b(active_width|dense_passes|half_turns|sign|outcome|value|source|correction|kernel|mode|descriptor|pivot|pairing_bit|branch|record|detector|observable|exp_val|site|flip|p01|p10|postselected|cosine|sine|noise|symbol_prefix_size)=/, "attribute"],
-      [/\b[a-z][a-z0-9_]*(?=\s|$)/, "keyword"],
-      [/0x[0-9a-f]+/, "number.hex"],
+      // Width prefix: w0 or w0->1
+      [/\bw\d+(?:->\d+)?\b/, "keyword"],
+      // Action mnemonics (avoids matching arbitrary identifiers)
+      [planActionMnemonicPattern, "keyword"],
+      // Flag words
+      [/\b(?:postselect|zero)\b/, "keyword"],
+      // Pauli factors: X0, Z1, Y2, and standalone identity I
+      [/\b[XYZ]\d+\b/, "type"],
+      [/\bI\b/, "type"],
+      // Typed ids: symbols, records, detectors, observables, expectation slots
+      [/\b[srdov]\d+\b/, "variable"],
+      // Attribute keys (key= as one token, matching how they appear in the plan text)
+      [
+        /\b(?:half_turns|sign|outcome|value|source|record|detector|observable|exp_val|site|mode|flip|p01|p10|pivot|branch|next_noise_site|symbol_prefix_size|passes)=/,
+        "attribute",
+      ],
+      // Truncated affine-expression tail: ...(+10)
+      [/\.\.\.\(\+\d+\)/, "comment"],
+      // Operators
       [/->/, "operator"],
-      [/\.\./, "operator"],
-      [/\b(?:\d+\.\d+(?:e[+-]?\d+)?|\d+e[+-]?\d+)\b/i, "number.float"],
-      [/\b\d+\b/, "number"],
+      [/[*^]/, "operator"],
+      // Numbers: integers, decimals, negatives, scientific notation
+      [/[+-]?\b\d+\.\d+(?:e[+-]?\d+)?\b/i, "number.float"],
+      [/[+-]?\b\d+e[+-]?\d+\b/i, "number.float"],
+      [/[+-]?\b\d+\b/, "number"],
     ],
   },
 };
@@ -165,6 +190,70 @@ export function registerLanguages(monaco: Monaco): void {
         },
         contents: [formatOperationHover(kwName, doc)],
       };
+    },
+  });
+
+  // SamplingPlan: hover over action mnemonics (ROTATE_ACTIVE, MEASURE_ACTIVE,
+  // etc.) and over the affine-expression attribute keys (sign, outcome,
+  // value, source).
+  const AFFINE_FIELD_NAMES = new Set(["sign", "outcome", "value", "source"]);
+  const AFFINE_EXPLAINER: IMarkdownString = {
+    value: [
+      "**Affine expression**",
+      "",
+      "- `^` is Boolean XOR over per-shot symbols.",
+      "- A leading `1^` is the affine constant (the expression is inverted).",
+      "- `...(+N)` means N further symbol terms were omitted from the compact display; the full expression exists in the plan.",
+    ].join("\n"),
+    isTrusted: true,
+  };
+
+  monaco.languages.registerHoverProvider("clifft-plan", {
+    provideHover(
+      model: editor.ITextModel,
+      position: Position,
+    ) {
+      const word = model.getWordAtPosition(position);
+      if (!word) return null;
+
+      const line = model.getLineContent(position.lineNumber);
+
+      // Action mnemonic: the ALL_CAPS token right after the width prefix.
+      const mnemonicMatch = line.match(/^w\d+(?:->\d+)?\s+([A-Z][A-Z0-9_]*)/);
+      if (mnemonicMatch) {
+        const mnemonic = mnemonicMatch[1];
+        const startCol = mnemonicMatch.index! + mnemonicMatch[0].length - mnemonic.length + 1;
+        const endCol = startCol + mnemonic.length;
+        if (position.column >= startCol && position.column <= endCol) {
+          const doc = planActionMap[mnemonic];
+          if (doc) {
+            return {
+              range: {
+                startLineNumber: position.lineNumber,
+                startColumn: startCol,
+                endLineNumber: position.lineNumber,
+                endColumn: endCol,
+              },
+              contents: [formatOperationHover(mnemonic, doc)],
+            };
+          }
+        }
+      }
+
+      // Affine-expression attribute keys: sign=, outcome=, value=, source=
+      if (AFFINE_FIELD_NAMES.has(word.word) && line[word.endColumn - 1] === "=") {
+        return {
+          range: {
+            startLineNumber: position.lineNumber,
+            startColumn: word.startColumn,
+            endLineNumber: position.lineNumber,
+            endColumn: word.endColumn,
+          },
+          contents: [AFFINE_EXPLAINER],
+        };
+      }
+
+      return null;
     },
   });
 }

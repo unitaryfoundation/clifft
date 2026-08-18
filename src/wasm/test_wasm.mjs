@@ -2,11 +2,20 @@
 // Run via: just test-wasm
 
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 const createModule = require("../../build-wasm/clifft_wasm.js");
 
 const mod = await createModule();
+
+// Plan-action documentation, keyed by mnemonic (ROTATE_ACTIVE, MEASURE_ACTIVE,
+// etc.). Every sampling_plan mnemonic emitted below must have an entry here,
+// so a new planner action without documentation fails this smoke test.
+const opcodeMetadata = JSON.parse(
+    readFileSync(new URL("../../docs/opcodes.json", import.meta.url))
+);
+const planActions = opcodeMetadata.plan_actions;
 
 // Default passes config (empty string = use defaults)
 const DEFAULTS = "";
@@ -38,7 +47,6 @@ console.log("  num_qubits:", result.num_qubits);
 console.log("  peak_active_width:", result.peak_active_width);
 console.log("  hir_ops:", result.hir_ops.length, "ops");
 console.log("  sampling_plan:", result.sampling_plan.length, "actions");
-console.log("  wasm_program:", result.wasm_program.length, "actions");
 console.log("  active_width_history:", result.active_width_history);
 console.log("  hir_source_map:", result.hir_source_map);
 console.log("  sampling_plan_source_map sample:", result.sampling_plan_source_map.slice(0, 3));
@@ -48,7 +56,6 @@ assert.equal(result.num_qubits, 1, "Expected 1 qubit");
 assert.ok(result.peak_active_width >= 0, "Expected peak_active_width >= 0");
 assert.ok(result.hir_ops.length > 0, "Expected HIR ops");
 assert.ok(result.sampling_plan.length > 0, "Expected sampling plan actions");
-assert.ok(result.wasm_program.length > 0, "Expected WASM program actions");
 assert.equal(
     result.active_width_history.length,
     result.sampling_plan.length,
@@ -59,12 +66,46 @@ assert.equal(
     result.sampling_plan.length,
     "source map parallel to sampling plan"
 );
-assert.equal(result.wasm_program_source_map.length, result.wasm_program.length);
-assert.equal(result.wasm_program_plan_ranges.length, result.wasm_program.length);
 assert.ok(
     result.sampling_plan_source_map.some((lines) => lines.includes(3)),
     "Expected plan provenance for the measurement source line"
 );
+
+// --- sampling_plan compact-format grammar checks ---
+// w<k>[-><k'>] <MNEMONIC> ...
+for (const line of result.sampling_plan) {
+    assert.match(
+        line,
+        /^w\d+(?:->\d+)? [A-Z][A-Z0-9_]*\b/,
+        `sampling_plan line does not match compact grammar: ${line}`
+    );
+}
+assert.ok(
+    result.sampling_plan.some((line) => line.includes("record=r")),
+    "Expected at least one sampling_plan line with a typed record id"
+);
+const SAMPLING_PLAN_MNEMONICS = Object.keys(planActions);
+assert.ok(
+    result.sampling_plan.some((line) =>
+        SAMPLING_PLAN_MNEMONICS.some((mnemonic) => line.includes(mnemonic))
+    ),
+    "Expected at least one recognized SamplingPlan mnemonic"
+);
+
+// --- sampling_plan mnemonics stay in sync with docs/opcodes.json ---
+// A new planner action that lands without a plan_actions entry should fail
+// this smoke test rather than shipping undocumented.
+function assertMnemonicsAreDocumented(samplingPlan) {
+    for (const line of samplingPlan) {
+        const match = line.match(/^w\d+(?:->\d+)? ([A-Z][A-Z0-9_]*)\b/);
+        assert.ok(match, `sampling_plan line has no recognizable mnemonic: ${line}`);
+        assert.ok(
+            Object.prototype.hasOwnProperty.call(planActions, match[1]),
+            `sampling_plan mnemonic "${match[1]}" is missing a docs/opcodes.json plan_actions entry`
+        );
+    }
+}
+assertMnemonicsAreDocumented(result.sampling_plan);
 
 // --- optimize toggle via pass config ---
 // T T = S; peephole fusion should reduce 2 T ops to 1 S op
@@ -79,6 +120,8 @@ assert.ok(
     unopt.hir_ops.length > opt.hir_ops.length,
     "Optimized should have fewer ops (T+T fused to S)"
 );
+assertMnemonicsAreDocumented(unopt.sampling_plan);
+assertMnemonicsAreDocumented(opt.sampling_plan);
 
 // --- selective passes ---
 const hirOnlyJson = mod.compile_to_json(
@@ -89,6 +132,7 @@ const hirOnly = JSON.parse(hirOnlyJson);
 console.log("\nSelective passes (HIR only):");
 console.log("  HIR ops:", hirOnly.hir_ops.length);
 assert.ok(hirOnly.hir_ops.length <= opt.hir_ops.length, "HIR-only should still fuse T+T");
+assertMnemonicsAreDocumented(hirOnly.sampling_plan);
 
 const unknownPassConfig = JSON.parse(
     mod.compile_to_json("M 0", JSON.stringify({ hir: [], unknown: [] }))
@@ -99,20 +143,23 @@ assert.match(
     "Unknown pass configuration keys should fail explicitly"
 );
 
-// --- executable provenance across lowering fusion ---
-const fusedSource = "H 0\nH 1\nT 0\nT 1\nT 0\nT 1\nT 0\nM 0";
-const fused = JSON.parse(mod.compile_to_json(fusedSource, NO_PASSES));
-const fusedAction = fused.wasm_program_plan_ranges.find((range) => range.end - range.begin > 1);
-assert.ok(fusedAction, "Expected one WASM action to cover a fused plan range");
-const fusedIndex = fused.wasm_program_plan_ranges.indexOf(fusedAction);
+// --- compact expression truncation ---
+// Six independent X_ERROR draws feeding one measurement push its outcome
+// expression past the compact form's four-term cap, so the printed line
+// should truncate with a "...(+N)" suffix instead of listing every term.
+const truncationLines = [];
+for (let i = 0; i < 6; i++) truncationLines.push("X_ERROR(0.01) 0");
+truncationLines.push("M 0");
+truncationLines.push("DETECTOR rec[-1]");
+const truncationSource = truncationLines.join("\n");
+const truncationResult = JSON.parse(mod.compile_to_json(truncationSource, DEFAULTS));
+assert.equal(truncationResult.error, undefined, "Expected no error for truncation circuit");
+console.log("\nTruncation test sampling_plan:", truncationResult.sampling_plan);
 assert.ok(
-    fused.wasm_program_source_map[fusedIndex].length > 1,
-    "Expected fused WASM action to retain source lines"
+    truncationResult.sampling_plan.some((line) => line.includes("...(+")),
+    "Expected a truncated affine expression for a six-term noise chain"
 );
-assert.ok(
-    fused.wasm_program.every((action) => !action.includes("OP_")),
-    "Expected prepared symbolic actions"
-);
+assertMnemonicsAreDocumented(truncationResult.sampling_plan);
 
 // --- simulate_wasm ---
 const simJson = mod.simulate_wasm("H 0\nM 0", 1000, DEFAULTS);
