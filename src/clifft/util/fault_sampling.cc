@@ -54,6 +54,7 @@ KFaultSampler::KFaultSampler(std::span<const double> probabilities, uint32_t k) 
         uncertain_sites_, [&](uint32_t site) { return probabilities[site] == first_probability; });
     if (uniform_mode_) {
         uniform_pool_ = uncertain_sites_;
+        swap_targets_.resize(remaining_k_);
         return;
     }
 

@@ -15,7 +15,7 @@
 #include "clifft/circuit/circuit.h"
 #include "clifft/noncomp/model.h"
 #include "clifft/noncomp/sample.h"
-#include "clifft/noncomp/seed.h"
+#include "clifft/util/shot_seed.h"
 
 #include <cstdint>
 #include <optional>

@@ -57,6 +57,21 @@ TEST_CASE("Conditioned fault sampler honors certain and impossible sites") {
     CHECK_THROWS_AS(clifft::KFaultSampler(probabilities, 4), std::invalid_argument);
 }
 
+TEST_CASE("Conditioned uniform fault draws do not retain prior-shot permutations") {
+    clifft::KFaultSampler sampler(std::array<double, 5>{0.2, 0.2, 0.2, 0.2, 0.2}, 2);
+    const std::array<double, 2> draws{0.7, 0.1};
+
+    size_t cursor = 0;
+    const auto first_span = sampler.sample([&]() { return draws[cursor++]; });
+    const std::vector<uint32_t> first(first_span.begin(), first_span.end());
+
+    cursor = 0;
+    const auto second_span = sampler.sample([&]() { return draws[cursor++]; });
+    const std::vector<uint32_t> second(second_span.begin(), second_span.end());
+
+    REQUIRE(second == first);
+}
+
 // =============================================================================
 // noise_site_probabilities
 // =============================================================================

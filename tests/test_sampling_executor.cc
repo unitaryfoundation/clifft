@@ -5,6 +5,7 @@
 #include "clifft/sampling/sampler.h"
 #include "clifft/sampling/state_queries.h"
 #include "clifft/util/noise_sampling.h"
+#include "clifft/util/shot_seed.h"
 #include "clifft/util/xoshiro.h"
 
 #include "instrument_test_helpers.h"
@@ -1263,6 +1264,24 @@ TEST_CASE("Sampling executor presamples mutually exclusive Pauli noise") {
     REQUIRE(q0_ones < 5500);
     REQUIRE(q1_ones > 2000);
     REQUIRE(q1_ones < 3000);
+}
+
+TEST_CASE("Sampling driver derives an independent RNG stream for each shot") {
+    const clifft::HirModule hir = clifft::trace(clifft::parse("H 0\nM 0"));
+    const ExecutablePlan executable(clifft::sampling::plan_sampling(hir));
+    constexpr uint32_t shots = 32;
+    constexpr uint64_t seed = 9182;
+    const clifft::sampling::SamplingResult result =
+        clifft::sampling::sample(executable, shots, seed);
+    const clifft::SeedRoot root = clifft::seed_root_from_seed(seed);
+    Executor executor(executable);
+
+    for (uint32_t shot = 0; shot < shots; ++shot) {
+        const auto words = clifft::derive_state(root, shot, clifft::kSamplingExecutorDomain);
+        executor.reseed_full(words[0], words[1], words[2], words[3]);
+        executor.run_shot();
+        REQUIRE(result.measurements[shot] == executor.visible_records()[0]);
+    }
 }
 
 TEST_CASE("Sampling survivor execution normalizes and rejects detectors") {
