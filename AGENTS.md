@@ -58,6 +58,9 @@ architecture cannot support it:
 - Never commit directly to `main`; use a feature branch.
 - Keep commits atomic and use conventional prefixes such as `feat:`, `fix:`,
   `test:`, and `docs:`.
+- Mark a commit that removes or renames a public API with a `!` after the type
+  (`feat(api)!:`) and a `BREAKING CHANGE:` footer describing the migration. The
+  changelog surfaces both; without them the entry reads as an ordinary feature.
 - Run `uv run --frozen --only-group dev pre-commit run --all-files --show-diff-on-failure`
   before every commit, in addition to the tests appropriate for the change.
 - Include an `Assisted-by:` trailer identifying the agent that actually
