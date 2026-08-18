@@ -7,7 +7,7 @@
 
 [![Unitary Foundation](https://img.shields.io/badge/Supported%20By-Unitary%20Foundation-FFFF00.svg)](https://unitary.foundation)
 [![Docs](https://img.shields.io/badge/docs-online-blue.svg)](https://unitaryfoundation.github.io/clifft/)
-[![arXiv](https://img.shields.io/badge/arXiv-1234.56789-b31b1b.svg)](https://arxiv.org/abs/2604.27058)
+[![arXiv](https://img.shields.io/badge/arXiv-2604.27058-b31b1b.svg)](https://arxiv.org/abs/2604.27058)
 [![License](https://img.shields.io/github/license/unitaryfoundation/clifft.svg)](https://github.com/unitaryfoundation/clifft/blob/main/LICENSE)
 [![Discord Chat](https://img.shields.io/badge/dynamic/json?color=orange&label=Discord&query=approximate_presence_count&suffix=%20online.&url=https%3A%2F%2Fdiscord.com%2Fapi%2Finvites%2FJqVGmpkP96%3Fwith_counts%3Dtrue)](http://discord.unitary.foundation)
 
