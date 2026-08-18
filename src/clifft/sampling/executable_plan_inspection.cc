@@ -18,6 +18,9 @@ struct Overloaded : Visitors... {
     using Visitors::operator()...;
 };
 
+template <class... Visitors>
+Overloaded(Visitors...) -> Overloaded<Visitors...>;
+
 std::string_view backend_name(ExecutorBackend backend) {
     switch (backend) {
         case ExecutorBackend::Scalar:
