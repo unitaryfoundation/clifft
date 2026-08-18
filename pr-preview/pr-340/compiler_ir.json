@@ -1,0 +1,166 @@
+{
+  "hir_ops": {
+    "T_GATE": {
+      "category": "Non-Clifford",
+      "summary": "T or T-dagger gate: pi/8 phase rotation on a Pauli product.",
+      "detail": "The primary non-Clifford operation. Applies exp(i*pi/8 * P) where P is the Pauli product shown (e.g. +X0*Z1). T_DAG applies the conjugate rotation. These cannot be absorbed into the offline Clifford frame U_C and remain explicit through sampling-plan preparation.",
+      "display": [
+        "T",
+        "T_DAG"
+      ]
+    },
+    "MEASURE": {
+      "category": "Measurement",
+      "summary": "Destructive measurement of a Pauli observable.",
+      "detail": "Measures the Pauli product shown (e.g. +X0, -Z0*Z1) and stores the outcome in the measurement record. The Pauli is the effective observable after the Heisenberg mapping U_C^dag P U_C -- it may differ from the original circuit's measurement basis.",
+      "display": [
+        "MEASURE"
+      ]
+    },
+    "CONDITIONAL_PAULI": {
+      "category": "Feedback",
+      "summary": "Classical feedback: apply Pauli correction conditioned on a measurement.",
+      "detail": "If the referenced measurement record entry is 1, applies the shown Pauli product to the frame. Implements feed-forward operations like teleportation corrections and QEC feedback.",
+      "display": [
+        "IF",
+        "THEN"
+      ]
+    },
+    "NOISE": {
+      "category": "Noise",
+      "summary": "Stochastic Pauli noise channel.",
+      "detail": "Represents a noise process (depolarizing, dephasing, etc.) that may randomly apply a Pauli operator. References a NoiseSite side-table with the channel probabilities.",
+      "display": [
+        "NOISE"
+      ]
+    },
+    "READOUT_NOISE": {
+      "category": "Noise",
+      "summary": "Classical bit-flip noise on a measurement result.",
+      "detail": "Models measurement readout errors as a classical bit-flip probability applied to the measurement record after the quantum measurement.",
+      "display": [
+        "READOUT_NOISE"
+      ]
+    },
+    "DETECTOR": {
+      "category": "QEC",
+      "summary": "Detector: parity check over measurement records.",
+      "detail": "Defines a parity check (XOR) over a set of measurement record entries. In error correction, detectors flag syndrome changes between rounds.",
+      "display": [
+        "DETECTOR"
+      ]
+    },
+    "OBSERVABLE": {
+      "category": "QEC",
+      "summary": "Logical observable accumulator.",
+      "detail": "Accumulates measurement record parities into a logical observable for error correction tracking.",
+      "display": [
+        "OBSERVABLE"
+      ]
+    },
+    "PHASE_ROTATION": {
+      "category": "Non-Clifford",
+      "summary": "Continuous Z-rotation by angle alpha (half-turns) on a Pauli product.",
+      "detail": "Applies exp(-i*alpha*pi/2 * P) where P is the rewound Pauli product and alpha is in half-turn units. The front-end factors out the global phase e^{-i*alpha*pi/2} into global_weight. All single-qubit rotations and multi-qubit Pauli rotations are reduced to this HIR type via Clifford absorption.",
+      "display": [
+        "PHASE_ROTATION"
+      ]
+    },
+    "EXP_VAL": {
+      "category": "Measurement",
+      "summary": "Non-destructive expectation value of a rewound Pauli product.",
+      "detail": "Evaluates <P> for the rewound Pauli product P at the point in the circuit where the probe appears. Does not collapse the state, mutate the Pauli frame, or affect measurement, detector, or observable records.",
+      "display": [
+        "EXP_VAL"
+      ]
+    },
+    "INSTRUMENT": {
+      "category": "Instrument",
+      "summary": "State-dependent jump site: a transition instrument on one qubit.",
+      "detail": "Carries the rewound source observable Z_q and references an InstrumentSite side table with per-source fire probabilities and computational-destination splits. Instruments are optimization fences so a recompiled continuation preserves the prefix consumed by an already-running executor.",
+      "display": [
+        "INSTRUMENT"
+      ]
+    }
+  },
+  "plan_actions": {
+    "ROTATE_ACTIVE": {
+      "category": "Rotation",
+      "summary": "Rotation about a Pauli product on the active coordinates.",
+      "detail": "Applies exp(-i*pi*half_turns/2 * P) where P is the Pauli product shown over active symbolic coordinates. This traverses the dense 2^k coefficient state. When the per-shot sign expression evaluates true the rotation direction is reversed; this is how earlier stochastic events such as noise and measurement branches steer later physics without re-planning.",
+      "operands": "Pauli product, half_turns, sign"
+    },
+    "ROTATE_PHASE": {
+      "category": "Rotation",
+      "summary": "Sign-conditioned global phase from a rotation whose Pauli reduced to the identity.",
+      "detail": "A rotation whose Pauli product reduced to the identity during planning. It multiplies the global scalar by a phase determined by the per-shot sign expression and does not traverse the coefficient state. The phase is retained so exact statevector reconstruction preserves the program's global phase; it does not affect sampling, later interference, basis probabilities, record probabilities, or expectation values.",
+      "operands": "half_turns, sign"
+    },
+    "PROMOTE_DORMANT": {
+      "category": "Rotation",
+      "summary": "Grows the active state by one coordinate and applies the rotation that introduced it.",
+      "detail": "A non-Clifford rotation on a coordinate that was stabilizer-only until now. The active width increases by one, doubling the coefficient state, and the promoting rotation is applied in the same pass. Later operations were already rewritten into the new basis during planning. The sign expression conditions the rotation direction per shot.",
+      "operands": "half_turns, sign"
+    },
+    "MEASURE_ACTIVE": {
+      "category": "Measurement",
+      "summary": "Measures a Pauli product on the active coordinates, collapsing the coefficient state.",
+      "detail": "Samples the branch symbol from the coefficient amplitudes and collapses onto the selected eigenspace. The pivot coordinate is removed afterwards, so the active width decreases by one and the coefficient state halves. The record bit is the raw branch XORed with the outcome expression's corrections from earlier stochastic events.",
+      "operands": "Pauli product, pivot, branch, outcome, record"
+    },
+    "MEASURE_DORMANT": {
+      "category": "Measurement",
+      "summary": "Measures a random-outcome Pauli outside the active coefficient state.",
+      "detail": "The measured observable anticommutes with a dormant stabilizer, so the outcome is an unbiased coin flip handled algebraically: the branch symbol is sampled, the dormant stabilizer at the pivot is replaced, and the coefficient state is untouched. The record bit combines the branch with the outcome expression's corrections.",
+      "operands": "pivot, branch, outcome, record"
+    },
+    "RECORD_CLASSICAL": {
+      "category": "Classical",
+      "summary": "Writes a deterministic expression to the measurement record.",
+      "detail": "Used when a measurement outcome is fully determined by the initial state and earlier symbols, such as a stabilizer measurement whose value follows from the frame. No state work is needed: the record bit is the affine expression, an XOR of earlier symbols and an optional constant.",
+      "operands": "outcome, record"
+    },
+    "DEFINE_SYMBOL": {
+      "category": "Classical",
+      "summary": "Names an affine expression as a reusable symbol without writing a record.",
+      "detail": "Gives a parity of previously available symbols its own symbol id so later actions can reference it compactly. Pure bookkeeping: no record slot is written and no state is touched.",
+      "operands": "symbol, value"
+    },
+    "READOUT_NOISE": {
+      "category": "Classical",
+      "summary": "Samples whether a completed measurement record flips.",
+      "detail": "Classical readout error applied after a record is written. The flip probability may depend on the record's value before the flip (p01 versus p10), so the flip symbol is defined at this circuit position instead of being presampled before the shot. The record slot is updated in place.",
+      "operands": "flip, source, record, p01, p10"
+    },
+    "WRITE_DETECTOR": {
+      "category": "Output",
+      "summary": "Writes a detector parity; with postselect, a nonzero parity rejects the shot.",
+      "detail": "The outcome expression already includes the noiseless reference parity, so the written bit is 1 exactly when the detector fired. When marked postselect, a nonzero value aborts the shot immediately.",
+      "operands": "outcome, detector"
+    },
+    "WRITE_OBSERVABLE": {
+      "category": "Output",
+      "summary": "Writes one fully accumulated logical observable bit.",
+      "detail": "The outcome expression combines every contributing measurement record and the noiseless reference parity, so the written bit is 1 exactly when the logical observable flipped.",
+      "operands": "outcome, observable"
+    },
+    "WRITE_EXPECTATION": {
+      "category": "Output",
+      "summary": "Records a non-destructive Pauli expectation value of the current state.",
+      "detail": "Probes the expectation of a Pauli observable without collapsing anything. When an active projection is shown, one pass over the coefficient state computes it, with the sign expression conditioning its overall sign per shot. The zero marker means planning already proved the expectation vanishes because the transformed observable has X or Y support outside the active coordinates.",
+      "operands": "Pauli product or zero, sign, exp_val"
+    },
+    "APPLY_INSTRUMENT": {
+      "category": "Instrument",
+      "summary": "Evaluates a state-dependent transition site such as leakage, loss, or relaxation.",
+      "detail": "The transition fires with a probability that depends on which computational level the qubit occupies, so the source projector is evaluated against the live state. The mode records how the source enters the coefficient state: as a pure sign (classical), on existing active coordinates (active), by adding one coordinate (activate), or as a dormant-random trap resolved by a continuation. The flip symbol is true exactly when the sampled computational destination differs from its source.",
+      "operands": "Pauli product (omitted for identity sources), site, mode, sign, flip"
+    },
+    "INSTRUMENT_BOUNDARY": {
+      "category": "Instrument",
+      "summary": "Marks where a continuation may resume after an instrument traps.",
+      "detail": "Divides the plan into ahead-of-time execution segments. A continuation resumes at this marker with the live coefficients, active-coordinate meaning and order, symbol and record values, and RNG position preserved, then samples only the replacement suffix's remaining presampled noise.",
+      "operands": "site, next_noise_site, symbol_prefix_size"
+    }
+  }
+}
