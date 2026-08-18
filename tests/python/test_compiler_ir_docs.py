@@ -1,7 +1,7 @@
-"""Ensure every HIR op type is documented in docs/compiler_ir.json.
+"""Validate the HIR and sampling-plan entries in docs/compiler_ir.json.
 
-This test parses the C++ HIR enum and verifies that the compiler IR metadata
-has a matching entry.
+These tests check HIR-op completeness against the C++ enum and require the
+documented fields used to render both HIR operations and sampling-plan actions.
 """
 
 import json

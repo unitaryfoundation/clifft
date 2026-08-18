@@ -65,8 +65,9 @@ w1->0 MEASURE_ACTIVE Z0 pivot=0 branch=s3 outcome=s0^s1^s3 record=r0 passes=2
   after) the action. The dense coefficient state holds $2^k$ amplitudes for
   the currently active stabilizer coordinates.
 * **Pauli products** such as `Z0` or `X0*Z1` are written over **active
-  stabilizer coordinates, not physical qubits**. The coordinate frame maps
-  between the two.
+  stabilizer coordinates, not physical qubits**. The planner's coordinate
+  frame tracks the mapping between physical qubits and those packed
+  coordinates.
 * **Affine expressions** such as `1^s0^s3` are XORs of Boolean symbols, with
   a leading `1` for the affine constant. Symbols are sampled noise outcomes,
   measurement branches, or derived parities. The Playground's compact view

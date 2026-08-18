@@ -13,9 +13,9 @@ namespace clifft {
 // planner must reject that width before allocation or bit-index arithmetic.
 inline constexpr uint32_t kDenseActiveWidthLimit = 60;
 
-// Relative epsilon shared by branch sampling and forced replay when
-// analytically-zero probabilities contain floating-point dust. This is part
-// of Clifft's record-reachability semantics.
+// Relative epsilon shared by measurement-branch handling and instrument
+// sampling when analytically-zero probabilities contain floating-point dust.
+// This is part of Clifft's record-reachability semantics.
 inline constexpr double kMeasurementDustEpsilon = 1e-18;
 
 // The IEEE 754 bit trick below assumes that layout. Make it explicit.
