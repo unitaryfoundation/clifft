@@ -2,7 +2,13 @@
 
 # Tutorial: Surface Code Sampling with Clifft and Stim
 
-This tutorial demonstrates using Clifft to sample quantum error correction experiments. We reproduce a surface code error suppression plot similar to Stim's [getting started notebook](https://github.com/quantumlib/Stim/blob/main/doc/getting_started.ipynb), running **both Clifft and Stim** side-by-side to verify statistical equivalence and compare performance. Since this is a Clifford-only circuit, we expect Stim to outperform Clifft. But it's still instructive to confirm they give similar results, and to understand Clifft's relative performance on Clifford-only circuits.
+This tutorial demonstrates using Clifft to sample quantum error correction
+experiments. We reproduce a surface code error suppression plot similar to
+Stim's [getting started notebook](https://github.com/quantumlib/Stim/blob/main/doc/getting_started.ipynb),
+running **both Clifft and Stim** side-by-side to verify statistical
+equivalence. Since this is a Clifford-only circuit, Stim is the more
+specialized tool, but the comparison is useful for checking that both
+samplers produce the same detector and logical statistics.
 
 We use [PyMatching](https://github.com/oscarhiggott/PyMatching) for minimum-weight perfect matching (MWPM) decoding with both samplers.
 
@@ -227,11 +233,11 @@ The classic threshold behavior of the surface code is visible:
 
 ### Performance Comparison
 
-Representative timing on an x86-64 Linux system (20,000 shots):
-
-| | Clifft (d=3) | Stim (d=3) | Clifft (d=5) | Stim (d=5) |
-|---|---|---|---|---|
-| **Compile** | ~2 ms | ~0.1 ms | ~13 ms | ~0.1 ms |
-| **Sample** | ~20 ms | ~5 ms | ~120 ms | ~20 ms |
-
-Both Clifft and Stim have a similar compilation phase that resolves deterministic Clifford impacts ahead of time. The sampling speed difference comes down to vectorization: because Stim is Clifford-only, it never needs an active state vector array, so it can pack the Pauli frame and measurement sampling into wide SIMD operations — processing hundreds of shots per instruction. The key takeaway is that Clifft produces **correct results** — the logical error rates agree — while offering a compilation pipeline that generalizes beyond stabilizer circuits.
+The script prints compilation and sampling times for the local run, but those
+numbers depend on the installed versions, hardware, and execution target.
+Stim is expected to be faster here: because it is Clifford-only, it never
+needs an active statevector array and can pack work from many shots into SIMD
+instructions. The key result of this tutorial is that the logical error rates
+agree while Clifft's compiler and sampler also generalize beyond stabilizer
+circuits. See [Performance](performance.md) for maintained Clifft measurements
+and guidance on comparing simulators.
