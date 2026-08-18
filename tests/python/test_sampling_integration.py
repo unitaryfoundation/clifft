@@ -1,5 +1,6 @@
-"""Conformance and boundary tests for the explicitly selected sampling backend."""
+"""Integration and boundary tests for the public sampling API."""
 
+import importlib.util
 import os
 import platform
 import subprocess
@@ -11,25 +12,28 @@ import pytest
 import stim
 
 import clifft
-import clifft.experimental as experimental
 
 _RUNTIME_DISPATCH_BUILD = platform.machine().lower() in {"amd64", "x86_64"} and not (
     platform.python_compiler().startswith("MSC")
 )
 
 
+def test_transition_only_experimental_module_is_absent() -> None:
+    assert importlib.util.find_spec("clifft.experimental") is None
+
+
 @pytest.mark.skipif(
     not _RUNTIME_DISPATCH_BUILD,
     reason="CLIFFT_FORCE_ISA is ignored when runtime dispatch is not compiled",
 )
-def test_unknown_forced_isa_is_rejected_by_symbolic_compile() -> None:
+def test_unknown_forced_isa_is_rejected_by_compile() -> None:
     environment = os.environ.copy()
     environment["CLIFFT_FORCE_ISA"] = "not-an-isa"
     completed = subprocess.run(
         [
             sys.executable,
             "-c",
-            "from clifft import experimental; experimental.compile('M 0')",
+            "import clifft; clifft.compile('M 0')",
         ],
         capture_output=True,
         check=False,
@@ -42,23 +46,19 @@ def test_unknown_forced_isa_is_rejected_by_symbolic_compile() -> None:
     assert "unrecognized value" in completed.stderr
 
 
-def test_experimental_program_aliases_public_program() -> None:
-    public = clifft.compile("H 0\nT 0\nM 0")
-    program = experimental.compile("H 0\nT 0\nM 0")
+def test_compile_returns_public_program() -> None:
+    program = clifft.compile("H 0\nT 0\nM 0")
 
-    assert isinstance(public, clifft.Program)
-    assert isinstance(program, experimental.Program)
     assert isinstance(program, clifft.Program)
-    assert experimental.Program is clifft.Program
     assert program.num_qubits == 1
     assert program.num_measurements == 1
     assert program.num_hidden_measurements == 0
     assert program.num_actions > 0
 
 
-def test_expectation_probes_are_available_through_compatibility_alias() -> None:
-    program = experimental.compile("EXP_VAL X0 Z0")
-    result = experimental.sample(program, 3, seed=1)
+def test_expectation_probes_are_available_through_public_api() -> None:
+    program = clifft.compile("EXP_VAL X0 Z0")
+    result = clifft.sample(program, 3, seed=1)
 
     assert program.num_exp_vals == 2
     np.testing.assert_allclose(result.exp_vals, [[0.0, 1.0]] * 3, atol=1e-12)
@@ -74,7 +74,7 @@ def test_noise_readout_feedback_and_syndrome_share_one_symbolic_record() -> None
         DETECTOR rec[-1] rec[-2]
         OBSERVABLE_INCLUDE(0) rec[-1]
     """
-    result = experimental.sample(experimental.compile(circuit), shots=32, seed=7)
+    result = clifft.sample(clifft.compile(circuit), shots=32, seed=7)
 
     np.testing.assert_array_equal(result.measurements, np.zeros((32, 2), dtype=np.uint8))
     np.testing.assert_array_equal(result.detectors, np.zeros((32, 1), dtype=np.uint8))
@@ -82,24 +82,22 @@ def test_noise_readout_feedback_and_syndrome_share_one_symbolic_record() -> None
 
 
 def test_asymmetric_readout_noise_uses_the_pre_flip_record() -> None:
-    zero = experimental.sample(experimental.compile("M 0\nREADOUT_NOISE(1, 0) rec[-1]"), 16, seed=1)
-    one = experimental.sample(
-        experimental.compile("X 0\nM 0\nREADOUT_NOISE(0, 1) rec[-1]"), 16, seed=1
-    )
+    zero = clifft.sample(clifft.compile("M 0\nREADOUT_NOISE(1, 0) rec[-1]"), 16, seed=1)
+    one = clifft.sample(clifft.compile("X 0\nM 0\nREADOUT_NOISE(0, 1) rec[-1]"), 16, seed=1)
 
     assert np.all(zero.measurements == 1)
     assert np.all(one.measurements == 0)
 
 
 def test_postselection_survivor_metadata_and_records() -> None:
-    program = experimental.compile(
+    program = clifft.compile(
         "H 0\nEXP_VAL X0\nM 0\nDETECTOR rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]",
         postselection_mask=[1],
     )
     with pytest.raises(ValueError, match="sample_survivors"):
-        experimental.sample(program, 10, seed=1)
+        clifft.sample(program, 10, seed=1)
 
-    result = experimental.sample_survivors(program, 1000, seed=1, keep_records=True)
+    result = clifft.sample_survivors(program, 1000, seed=1, keep_records=True)
     assert result.passed_shots is not None
     assert result.total_shots is not None
     assert result.discards is not None
@@ -113,9 +111,9 @@ def test_postselection_survivor_metadata_and_records() -> None:
 
 
 def test_noisy_record_probabilities_remain_explicitly_unsupported() -> None:
-    program = experimental.compile("X_ERROR(0.1) 0\nM 0")
+    program = clifft.compile("X_ERROR(0.1) 0\nM 0")
     with pytest.raises(ValueError, match="pure-state evolution"):
-        experimental.record_probabilities(program, ["0"])
+        clifft.record_probabilities(program, ["0"])
 
 
 @pytest.mark.parametrize(
@@ -126,8 +124,8 @@ def test_noisy_record_probabilities_remain_explicitly_unsupported() -> None:
     ],
 )
 def test_representative_qec_fixtures_execute(fixture: str) -> None:
-    program = experimental.compile(Path(fixture).read_text())
-    result = experimental.sample(program, shots=1, seed=3)
+    program = clifft.compile(Path(fixture).read_text())
+    result = clifft.sample(program, shots=1, seed=3)
 
     assert result.measurements.shape == (1, program.num_measurements)
     assert result.detectors.shape == (1, program.num_detectors)
@@ -141,8 +139,8 @@ def test_generated_surface_code_executes_with_reference_normalization() -> None:
         rounds=3,
         after_clifford_depolarization=0.001,
     )
-    program = experimental.compile(str(circuit), normalize_syndromes=True)
-    result = experimental.sample(program, shots=2, seed=5)
+    program = clifft.compile(str(circuit), normalize_syndromes=True)
+    result = clifft.sample(program, shots=2, seed=5)
 
     assert result.detectors.shape == (2, circuit.num_detectors)
     assert result.observables.shape == (2, circuit.num_observables)

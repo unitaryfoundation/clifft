@@ -1,10 +1,8 @@
 # Python API Reference
 
 `clifft.compile()` returns a reusable `Program` consumed by the sampling and
-exact-query functions below. `clifft.experimental` remains as a compatibility
-alias for code written while symbolic-coordinate sampling was opt-in; new code
-should import these APIs directly from `clifft`. There is no separate sampler
-selected through that module.
+exact-query functions below. All public sampling functions use that program
+directly; there is no sampler-selection module or backend switch.
 
 ## Compilation
 

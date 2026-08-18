@@ -833,28 +833,13 @@ def test_sample_type_hints_resolve_at_runtime():
     real module-level name, not a TYPE_CHECKING-only import."""
     from typing import get_type_hints
 
-    from clifft import experimental
-
     hints = get_type_hints(noncomp.sample)
     assert "circuit" in hints
-    experimental_hints = get_type_hints(experimental.sample_noncomputational)
-    assert "circuit" in experimental_hints
 
 
-def test_experimental_noncomp_accepts_a_parsed_circuit():
-    from clifft import experimental
-
-    r = experimental.sample_noncomputational(clifft.parse("M 0"), noncomp.Model(), shots=4, seed=1)
-    assert np.array_equal(r.measurements, np.zeros((4, 1), dtype=np.uint8))
-
-
-def test_experimental_noncomp_preserves_true_prefix_expressions_across_continuations():
-    from clifft import experimental
-
+def test_noncomp_preserves_true_prefix_expressions_across_continuations():
     model = noncomp.Model(classifier=classifier_for(LEAK_G, [1.0, 0.0]))
-    result = experimental.sample_noncomputational(
-        "X_ERROR(1) 0\nLEAKAGE(1) 1\nM 0", model, shots=8, seed=280
-    )
+    result = noncomp.sample("X_ERROR(1) 0\nLEAKAGE(1) 1\nM 0", model, shots=8, seed=280)
     assert np.array_equal(result.measurements, np.ones((8, 1), dtype=np.uint8))
 
 
