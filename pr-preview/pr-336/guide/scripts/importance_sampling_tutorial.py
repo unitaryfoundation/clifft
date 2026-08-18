@@ -129,7 +129,9 @@ def run_stratified_is(
 
     site_probs: NDArray[np.float64] = prog.noise_site_probabilities
     n_sites = len(site_probs)
-    print(f"  peak_rank={prog.peak_rank}, {num_det} detectors, {n_sites} noise sites")
+    print(
+        f"  peak_active_width={prog.peak_active_width}, {num_det} detectors, {n_sites} noise sites"
+    )
 
     pmf = uniform_fault_pmf(site_probs, MAX_K)
 
