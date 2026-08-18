@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786948439232,
+  "lastUpdate": 1787034777118,
   "repoUrl": "https://github.com/unitaryfoundation/clifft",
   "entries": {
     "C++ Catch2 benchmarks (AVX2)": [
@@ -5822,6 +5822,70 @@ window.BENCHMARK_DATA = {
             "name": "exp-val 20q 200 probes x100k",
             "value": 153.214,
             "range": "± 430.543",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Brad Chase",
+            "username": "bachase",
+            "email": "14430+bachase@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "164ca9e5f016ec86981bd14dab561193125b554f",
+          "message": "docs: explain the symbolic sampling architecture (#337)\n\ndocs: document the symbolic sampling architecture\n\nExplain the HIR-to-executor pipeline, planning and execution boundaries,\nruntime dispatch, validation, and testing strategy. Clarify SymFT provenance\nand standardize active width versus active-state dimension terminology.\n\nCloses #306\n\nAssisted-by: Codex (GPT-5) <noreply@openai.com>",
+          "timestamp": "2026-08-17T21:59:48Z",
+          "url": "https://github.com/unitaryfoundation/clifft/commit/164ca9e5f016ec86981bd14dab561193125b554f"
+        },
+        "date": 1787034776223,
+        "tool": "catch2",
+        "benches": [
+          {
+            "name": "QV-10 x100 shots",
+            "value": 7.5146,
+            "range": "± 62.5958",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "cultivation-d5 x1000 shots",
+            "value": 33.274,
+            "range": "± 98.6288",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d7-r7 p=1e-3 x10000 shots",
+            "value": 55.219,
+            "range": "± 345.357",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d5-r5 p=0.05 x10000 shots",
+            "value": 64.0671,
+            "range": "± 2.39447",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d11-r11 p=1e-3 x1000 shots",
+            "value": 19.9102,
+            "range": "± 468.283",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "exp-val 20q 200 probes x100k",
+            "value": 96.5492,
+            "range": "± 648.941",
             "unit": "ms",
             "extra": "100 samples\n1 iterations"
           }
