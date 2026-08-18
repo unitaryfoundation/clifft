@@ -23,6 +23,10 @@ The [Theoretical Overview](overview.md) explains the state factorization and
 symbolic-coordinate method. This page focuses on how the implementation
 prepares and executes that model.
 
+The original Clifft preprint documents the earlier localized-Pauli SVM. See
+[Symbolic Sampling in Clifft](../updates/symbolic-sampling.md) for how the
+implementation moved from that design to the pipeline described here.
+
 ## Repository Layout
 
 | Directory | Role |

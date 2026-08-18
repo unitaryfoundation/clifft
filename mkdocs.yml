@@ -112,6 +112,8 @@ nav:
     - Architecture: theory/architecture.md
     - Basis-State Probabilities: theory/basis_probabilities.md
     - Noncomputational States: theory/noncomputational.md
+  - Updates:
+    - "v0.8.0 (August 2026): Symbolic Sampling": updates/symbolic-sampling.md
   - Reference:
     - Supported Gates: reference/gates.md
     - Compiler IR Reference: reference/compiler-ir.md
