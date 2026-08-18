@@ -1,4 +1,4 @@
-"""MkDocs macros hook: loads HIR operation and pass metadata."""
+"""MkDocs macros hook: loads compiler IR and pass metadata."""
 
 import json
 from pathlib import Path
@@ -8,7 +8,7 @@ from typing import Any
 def define_env(env: Any) -> None:
     """Called by mkdocs-macros-plugin to inject template variables."""
     docs_dir = Path(env.conf["docs_dir"])
-    data_path = docs_dir / "opcodes.json"
+    data_path = docs_dir / "compiler_ir.json"
 
     with open(data_path) as f:
         data = json.load(f)
@@ -39,7 +39,7 @@ def define_env(env: Any) -> None:
     unknown_hir_categories = sorted(set(hir_by_category) - set(hir_categories_order))
     if unknown_hir_categories:
         raise ValueError(
-            "docs/opcodes.json contains HIR categories missing from docs/macros.py: "
+            "docs/compiler_ir.json contains HIR categories missing from docs/macros.py: "
             + ", ".join(unknown_hir_categories)
         )
 
@@ -69,7 +69,7 @@ def define_env(env: Any) -> None:
     unknown_plan_categories = sorted(set(plan_by_category) - set(plan_categories_order))
     if unknown_plan_categories:
         raise ValueError(
-            "docs/opcodes.json contains sampling-plan categories missing from docs/macros.py: "
+            "docs/compiler_ir.json contains sampling-plan categories missing from docs/macros.py: "
             + ", ".join(unknown_plan_categories)
         )
 

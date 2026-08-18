@@ -22,6 +22,12 @@ pm.add(clifft.PeepholeFusionPass())
 pm.add(clifft.StatevectorSqueezePass())
 ```
 
+Optimization passes end at the HIR boundary. `SamplingPlan` is a private,
+target-independent semantic representation, not a second public pass pipeline.
+Executable preparation may combine adjacent actions and select specialized
+kernels for its target, but those transformations are implementation details,
+not public passes or a stable executable-plan ABI.
+
 ## Trajectory Safety Metadata
 
 Some workflows require measurements to remain in their original order,

@@ -220,19 +220,19 @@ def test_rejects_hidden_measurement_slots() -> None:
         clifft.record_probabilities(prog, ["00", "11"])
 
 
-def test_rejects_noise_opcodes() -> None:
+def test_rejects_noise_operations() -> None:
     prog = clifft.compile("X_ERROR(0.1) 0\nM 0")
     with pytest.raises(ValueError, match="pure-state evolution"):
         clifft.record_probabilities(prog, ["0"])
 
 
-def test_rejects_detector_opcodes() -> None:
+def test_rejects_detector_operations() -> None:
     prog = clifft.compile("M 0\nDETECTOR rec[-1]")
     with pytest.raises(ValueError, match="pure-state evolution"):
         clifft.record_probabilities(prog, ["0"])
 
 
-def test_rejects_observable_opcodes() -> None:
+def test_rejects_observable_operations() -> None:
     prog = clifft.compile("M 0\nOBSERVABLE_INCLUDE(0) rec[-1]")
     with pytest.raises(ValueError, match="pure-state evolution"):
         clifft.record_probabilities(prog, ["0"])

@@ -37,8 +37,8 @@ class KFaultSampler {
                 const uint32_t pick = j + static_cast<uint32_t>(draw * remaining);
                 std::swap(uniform_pool_[j], uniform_pool_[pick]);
             }
-            // Preserve the legacy sampler's persistent-pool evolution as well
-            // as returning sites in circuit order.
+            // Keep the pool permutation across calls so a seeded sampler has
+            // one stable RNG evolution while still returning circuit order.
             std::sort(uniform_pool_.begin(), uniform_pool_.begin() + remaining_k_);
             for (uint32_t j = 0; j < remaining_k_; ++j) {
                 selected_sites_.push_back(uniform_pool_[j]);

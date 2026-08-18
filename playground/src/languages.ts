@@ -2,7 +2,7 @@
 
 import type { languages, editor, IMarkdownString, Position } from "monaco-editor";
 import type { Monaco } from "@monaco-editor/react";
-import opcodeMetadata from "@docs/opcodes.json";
+import compilerIrMetadata from "@docs/compiler_ir.json";
 
 interface OpDoc {
   category: string;
@@ -12,8 +12,8 @@ interface OpDoc {
   display?: string[];
 }
 
-const hirMap = opcodeMetadata.hir_ops as Record<string, OpDoc>;
-const planActionMap = opcodeMetadata.plan_actions as Record<string, OpDoc>;
+const hirMap = compilerIrMetadata.hir_ops as Record<string, OpDoc>;
+const planActionMap = compilerIrMetadata.plan_actions as Record<string, OpDoc>;
 
 // Derived from the shared metadata so the tokenizer cannot drift from the
 // mnemonics documented in plan_actions.

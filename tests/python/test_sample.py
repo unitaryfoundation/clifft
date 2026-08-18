@@ -483,10 +483,10 @@ class TestSamplingValidation:
         assert abs(stim_11 - 0.5) < tolerance, f"Stim |11>={stim_11} outside {tolerance:.4f} tol"
 
     def test_meas_active_interfere_y_observable(self, sampling_api: Any) -> None:
-        """OP_MEAS_ACTIVE_INTERFERE correctly computes interference with Y-phases."""
+        """An active Y measurement correctly computes phase-sensitive interference."""
         # H 0; T 0 rotates the state to (|0> + e^{ipi/4}|1>)/sqrt(2)
         # S 0 adds phase: (|0> + e^{i*3pi/4}|1>)/sqrt(2)
-        # MX 0 forces an OP_MEAS_ACTIVE_INTERFERE where the rewound observable is Y.
+        # MX 0 plans MEASURE_ACTIVE with a rewound Y observable.
         circuit = "H 0\nT 0\nS 0\nMX 0"
         prog = sampling_api.compile(circuit)
 
