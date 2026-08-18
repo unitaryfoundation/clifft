@@ -1,6 +1,6 @@
 # Simulation
 
-Clifft's symbolic-coordinate executor runs compiled programs. The main simulation APIs are:
+Clifft runs compiled programs through the following simulation APIs:
 
 - `sample()` for ordinary shot-based sampling
 - [`noncomp.sample()`](leakage-and-loss.md) for leakage and loss trajectories
@@ -263,7 +263,7 @@ See the [Importance Sampling Tutorial](importance-sampling.md) for a complete wa
 Clifft's simulation cost is controlled primarily by `program.peak_active_width`,
 rather than by the total number of physical qubits. The executor stores and
 updates a dense active state of dimension $2^k$, where $k$ is the number of
-simultaneously active symbolic coordinates.
+simultaneously active stabilizer coordinates.
 
 This means Clifft can handle circuits with many physical qubits when
 non-Clifford effects remain localized. It also means performance degrades as

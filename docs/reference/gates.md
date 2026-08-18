@@ -50,8 +50,8 @@ they have no runtime cost. Their named-gate phase convention is exact, so
 ## Non-Clifford Extensions
 
 Clifft extends Stim with discrete and arbitrary-angle non-Clifford gates.
-These operations can add symbolic coordinates and expand the active state
-vector.
+These operations can add active stabilizer coordinates and expand the active
+state vector.
 
 ### T Gates
 

@@ -1,5 +1,9 @@
 # Python API Reference
 
+`clifft.compile()` returns a reusable `Program` consumed by the sampling and
+exact-query functions below. All public sampling functions use that program
+directly; there is no sampler-selection module or backend switch.
+
 ## Compilation
 
 ::: clifft.compile

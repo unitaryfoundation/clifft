@@ -2,19 +2,19 @@
 
 # Tutorial: Surface Code Sampling with Clifft and Stim
 
-This tutorial demonstrates using Clifft as a sampling backend for quantum error correction experiments. We reproduce a surface code error suppression plot similar to Stim's [getting started notebook](https://github.com/quantumlib/Stim/blob/main/doc/getting_started.ipynb), running **both Clifft and Stim** side-by-side to verify statistical equivalence and compare performance. Since this is a Clifford-only circuit, we expect Stim to outperform Clifft. But it's still instructive to confirm they give similar results, and to understand Clifft's relative performance on Clifford-only circuits.
+This tutorial demonstrates using Clifft to sample quantum error correction experiments. We reproduce a surface code error suppression plot similar to Stim's [getting started notebook](https://github.com/quantumlib/Stim/blob/main/doc/getting_started.ipynb), running **both Clifft and Stim** side-by-side to verify statistical equivalence and compare performance. Since this is a Clifford-only circuit, we expect Stim to outperform Clifft. But it's still instructive to confirm they give similar results, and to understand Clifft's relative performance on Clifford-only circuits.
 
-We use [PyMatching](https://github.com/oscarhiggott/PyMatching) for minimum-weight perfect matching (MWPM) decoding on both backends.
+We use [PyMatching](https://github.com/oscarhiggott/PyMatching) for minimum-weight perfect matching (MWPM) decoding with both samplers.
 
 ![Surface Code Error Suppression: Clifft vs Stim](images/surface_code_plot.png)
 
 ## Pipeline
 
-The experiment follows four steps, executed for both backends:
+The experiment follows four steps, executed for both samplers:
 
 1. **Generate** a rotated surface code memory-Z circuit with `stim.Circuit.generated()`
 2. **Compile** the circuit (Clifft: `clifft.compile()` with full optimization; Stim: `compile_detector_sampler()`)
-3. **Sample** detector and observable data, timing each backend
+3. **Sample** detector and observable data, timing each sampler
 4. **Decode** detector syndromes with PyMatching's MWPM decoder and compare logical error rates
 
 ## Prerequisites
@@ -213,7 +213,7 @@ Stim's `compile_detector_sampler()` compiles the circuit into an optimized Cliff
 
 ### Decoding
 
-Both backends produce detector and observable arrays in the same format. PyMatching constructs a matching graph from Stim's detector error model and performs MWPM decoding on the detector syndromes. The logical error rate is the fraction of shots where the decoder's prediction disagrees with the actual observable value.
+Both samplers produce detector and observable arrays in the same format. PyMatching constructs a matching graph from Stim's detector error model and performs MWPM decoding on the detector syndromes. The logical error rate is the fraction of shots where the decoder's prediction disagrees with the actual observable value.
 
 ### Results
 

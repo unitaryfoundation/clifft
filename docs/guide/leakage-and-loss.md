@@ -376,7 +376,7 @@ forced, hidden trace-out measurement. Moving another measurement across that
 collapse can change correlations. Record-order preservation is necessary but
 not sufficient for resuming a shot: recompiling the remainder must also
 reproduce the executable-plan prefix already consumed, because `resume()`
-reuses the existing symbolic executor state directly. `noncomp.sample`
+reuses the existing executor state directly. `noncomp.sample`
 therefore uses a fixed internal pipeline and validates each recompiled prefix
 before resuming. It does not currently accept custom pass managers. The theory page
 explains

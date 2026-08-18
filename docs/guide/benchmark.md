@@ -71,7 +71,7 @@ The key insight is Clifft's factored-state representation:
 $$|\psi\rangle = \gamma \, U_C \, P \, (|\phi\rangle_A \otimes |0\rangle_D)$$
 
 The compiler absorbs Clifford evolution into an offline frame and chooses the
-symbolic coordinates needed by later operations. Only the active state over
+stabilizer coordinates needed by later operations. Only the active state over
 those coordinates (dimension $2^k$) is stored and evolved by the executor.
 Noise, measurements, and conditional operations use prepared affine Boolean
 expressions; the runtime does not evolve the Clifford tableau. Dormant

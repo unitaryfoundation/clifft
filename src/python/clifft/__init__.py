@@ -289,8 +289,8 @@ def compile(
 ) -> Program:
     """Compile a quantum circuit string to an executable sampling program.
 
-    Ordinary compilation runs parse -> trace -> [HIR optimize] and lowers the
-    result to Clifft's symbolic-coordinate sampler.
+    Ordinary compilation runs parse -> trace -> [HIR optimize], then plans and
+    prepares the result as a reusable sampling program.
 
     When ``normalize_syndromes=True``, a noiseless reference shot is
     executed internally to extract expected detector and observable

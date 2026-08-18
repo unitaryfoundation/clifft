@@ -87,7 +87,7 @@
     "ROTATE_ACTIVE": {
       "category": "Rotation",
       "summary": "Rotation about a Pauli product on the active coordinates.",
-      "detail": "Applies exp(-i*pi*half_turns/2 * P) where P is the Pauli product shown over active symbolic coordinates. This traverses the dense 2^k coefficient state. When the per-shot sign expression evaluates true the rotation direction is reversed; this is how earlier stochastic events such as noise and measurement branches steer later physics without re-planning.",
+      "detail": "Applies exp(-i*pi*half_turns/2 * P) where P is the Pauli product shown over active stabilizer coordinates. This traverses the dense 2^k coefficient state. When the per-shot sign expression evaluates true the rotation direction is reversed; this is how earlier stochastic events such as noise and measurement branches steer later physics without re-planning.",
       "operands": "Pauli product, half_turns, sign"
     },
     "ROTATE_PHASE": {
