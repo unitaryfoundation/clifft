@@ -1,5 +1,8 @@
 """Smoke tests for the Clifft Python API."""
 
+import os
+import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -21,6 +24,23 @@ def test_version() -> None:
 def test_module_version_attribute() -> None:
     """Test that __version__ matches version()."""
     assert clifft.__version__ == clifft.version()
+
+
+def test_runtime_isa_reports_a_kernel_backend() -> None:
+    """Test that runtime_isa() reports one of the known kernel backends."""
+    assert clifft.runtime_isa() in {"scalar", "avx2", "avx512"}
+
+
+def test_runtime_isa_reflects_forced_scalar_backend() -> None:
+    """Test that CLIFFT_FORCE_ISA=scalar resolves to scalar, even on non-dispatch builds."""
+    environment = os.environ.copy()
+    environment["CLIFFT_FORCE_ISA"] = "scalar"
+    output = subprocess.check_output(
+        [sys.executable, "-c", "import clifft; print(clifft.runtime_isa())"],
+        env=environment,
+        text=True,
+    )
+    assert output.strip() == "scalar"
 
 
 # --------------------------------------------------------------------------
