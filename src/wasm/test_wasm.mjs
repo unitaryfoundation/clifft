@@ -12,10 +12,10 @@ const mod = await createModule();
 // Plan-action documentation, keyed by mnemonic (ROTATE_ACTIVE, MEASURE_ACTIVE,
 // etc.). Every sampling_plan mnemonic emitted below must have an entry here,
 // so a new planner action without documentation fails this smoke test.
-const opcodeMetadata = JSON.parse(
-    readFileSync(new URL("../../docs/opcodes.json", import.meta.url))
+const compilerIrMetadata = JSON.parse(
+    readFileSync(new URL("../../docs/compiler_ir.json", import.meta.url))
 );
-const planActions = opcodeMetadata.plan_actions;
+const planActions = compilerIrMetadata.plan_actions;
 
 // Default passes config (empty string = use defaults)
 const DEFAULTS = "";
@@ -92,7 +92,7 @@ assert.ok(
     "Expected at least one recognized SamplingPlan mnemonic"
 );
 
-// --- sampling_plan mnemonics stay in sync with docs/opcodes.json ---
+// --- sampling_plan mnemonics stay in sync with docs/compiler_ir.json ---
 // A new planner action that lands without a plan_actions entry should fail
 // this smoke test rather than shipping undocumented.
 function assertMnemonicsAreDocumented(samplingPlan) {
@@ -101,7 +101,7 @@ function assertMnemonicsAreDocumented(samplingPlan) {
         assert.ok(match, `sampling_plan line has no recognizable mnemonic: ${line}`);
         assert.ok(
             Object.prototype.hasOwnProperty.call(planActions, match[1]),
-            `sampling_plan mnemonic "${match[1]}" is missing a docs/opcodes.json plan_actions entry`
+            `sampling_plan mnemonic "${match[1]}" is missing a docs/compiler_ir.json plan_actions entry`
         );
     }
 }

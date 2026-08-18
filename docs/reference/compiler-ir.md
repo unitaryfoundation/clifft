@@ -1,9 +1,13 @@
-# Instruction Reference
+# Compiler IR Reference
 
-This page documents the operation types used by the Clifft compiler at both
-levels of the pipeline: the **Heisenberg IR** (HIR) produced by the front-end,
-and the **Sampling Plan actions** produced by the planner and executed by the
-sampling backend.
+This page documents two internal semantic representations used by the Clifft
+compiler: the **Heisenberg IR** (HIR) produced by the front end and the
+**Sampling Plan actions** produced by coordinate planning.
+
+These names and text formats support inspection and debugging. They are not a
+serialized program format, bytecode, or stable public ABI. User code should
+compile circuits into a `Program` and use the public sampling and exact-query
+APIs rather than depend on plan-action layout.
 
 The same data powers the hover tooltips in the
 [Playground]({{ playground_url }}).
@@ -18,8 +22,8 @@ The same data powers the hover tooltips in the
 
 The Heisenberg IR is the intermediate representation produced by the front-end.
 Clifford gates are absorbed into the offline Clifford frame $U_C$ and do not
-appear in the HIR. What remains are non-Clifford operations, measurements, and
-meta-instructions.
+appear in the HIR. What remains are non-Clifford operations, measurements,
+noise, feedback, and output metadata.
 
 {% for cat in hir_categories %}
 ### {{ cat }}
@@ -40,10 +44,16 @@ meta-instructions.
 
 ## Sampling Plan Actions
 
-The planner compiles optimized HIR into a sampling plan: a fixed sequence of
-actions in which every Clifford has been absorbed and every stochastic event
-appears as a Boolean **symbol**. The plan is what repeated sampling executes,
-and it is what the Playground's Sampling Plan panel displays.
+The planner compiles optimized HIR into a target-independent `SamplingPlan`: a
+fixed sequence of semantic actions in which every Clifford has been absorbed
+and every stochastic event appears as a Boolean **symbol**. The Playground's
+Sampling Plan panel displays this representation. Before repeated sampling,
+Clifft prepares a target-specific `ExecutablePlan` containing the compact
+descriptors, dependency tables, fused actions, and kernel selections consumed
+by the executor.
+
+See [Software Architecture](../theory/architecture.md) for the responsibilities
+of HIR, `SamplingPlan`, `ExecutablePlan`, and the executor.
 
 ### Reading a plan line
 
@@ -53,10 +63,11 @@ w1->0 MEASURE_ACTIVE Z0 pivot=0 branch=s3 outcome=s0^s1^s3 record=r0 passes=2
 
 * **`w<k>` / `w<k>-><k'>`** — the active width before (and, when it changes,
   after) the action. The dense coefficient state holds $2^k$ amplitudes for
-  the currently active symbolic coordinates.
+  the currently active stabilizer coordinates.
 * **Pauli products** such as `Z0` or `X0*Z1` are written over **active
-  symbolic coordinates, not physical qubits**. The Clifford frame maps
-  between the two.
+  stabilizer coordinates, not physical qubits**. The planner's coordinate
+  frame tracks the mapping between physical qubits and those packed
+  coordinates.
 * **Affine expressions** such as `1^s0^s3` are XORs of Boolean symbols, with
   a leading `1` for the affine constant. Symbols are sampled noise outcomes,
   measurement branches, or derived parities. The Playground's compact view
@@ -64,10 +75,12 @@ w1->0 MEASURE_ACTIVE Z0 pivot=0 branch=s3 outcome=s0^s1^s3 record=r0 passes=2
 * **Typed ids** name output slots: `r` measurement records, `d` detectors,
   `o` observables, `v` expectation values, and `s` symbols.
 * **`passes=<n>`** estimates full traversals of the dense coefficient state
-  for a direct lowering of the action; actions without it touch no dense
-  state.
+  before executable preparation combines or specializes operations. It is a
+  diagnostic cost estimate, not an execution ABI or a guarantee of the final
+  kernel count; actions without it require no dense-state traversal on their
+  own.
 
-### Action types
+### Semantic action types
 
 {% for cat in plan_categories %}
 #### {{ cat }}

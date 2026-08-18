@@ -256,12 +256,12 @@ class TestActiveInterfereErrorTracking:
     """Test error frame tracking through active interference and array compaction."""
 
     def test_x_error_with_active_interfere(self) -> None:
-        """Error frame tracking must survive OP_MEAS_ACTIVE_INTERFERE.
+        """Error-frame tracking must survive an active measurement.
 
         H 0 -> |+>
         T 0 -> creates an active coordinate (interference required)
         X_ERROR(1) 0 -> error_parity = 1
-        M 0 -> OP_MEAS_ACTIVE_INTERFERE + array compaction
+        M 0 -> MEASURE_ACTIVE + coefficient compaction
         M 0 -> deterministic re-measurement (checks error frame integrity)
         DETECTOR -> two consecutive measurements must always match
         """

@@ -188,7 +188,7 @@ TEST_CASE("Executable rotation prints a pairing index only for X-type prepared P
 TEST_CASE("Compact inspection mnemonics cover every SamplingAction and its docs entry") {
     // Adding, removing, or renaming a SamplingAction alternative changes this
     // count. Extend the action list below and the plan_actions table in
-    // docs/opcodes.json together, then update this assertion.
+    // docs/compiler_ir.json together, then update this assertion.
     static_assert(std::variant_size_v<SamplingAction> == 12);
 
     const SymbolId s0{0};
@@ -241,7 +241,7 @@ TEST_CASE("Compact inspection mnemonics cover every SamplingAction and its docs 
     // that the playground tokenizer and hover text derive from. This is a
     // plain substring search, not a JSON parser, so it only confirms the key
     // is present, not the shape of its value.
-    std::ifstream docs_file(std::string(CLIFFT_DOCS_DIR) + "/opcodes.json");
+    std::ifstream docs_file(std::string(CLIFFT_DOCS_DIR) + "/compiler_ir.json");
     REQUIRE(docs_file.is_open());
     const std::string docs_text((std::istreambuf_iterator<char>(docs_file)),
                                 std::istreambuf_iterator<char>());

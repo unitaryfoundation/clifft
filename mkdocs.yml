@@ -68,6 +68,9 @@ hooks:
 
 plugins:
   - search
+  - redirects:
+      redirect_maps:
+        reference/instructions.md: reference/compiler-ir.md
   - macros:
       module_name: docs/macros
   - minify:
@@ -111,7 +114,7 @@ nav:
     - Noncomputational States: theory/noncomputational.md
   - Reference:
     - Supported Gates: reference/gates.md
-    - Instruction Reference: reference/instructions.md
+    - Compiler IR Reference: reference/compiler-ir.md
     - Optimization Passes: reference/passes.md
     - Python API: reference/python-api.md
   - Development:

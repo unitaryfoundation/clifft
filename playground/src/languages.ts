@@ -2,9 +2,9 @@
 
 import type { languages, editor, IMarkdownString, Position } from "monaco-editor";
 import type { Monaco } from "@monaco-editor/react";
-import opcodeMetadata from "@docs/opcodes.json";
+import compilerIrMetadata from "@docs/compiler_ir.json";
 
-interface OpDoc {
+interface DocEntry {
   category: string;
   summary: string;
   detail: string;
@@ -12,8 +12,8 @@ interface OpDoc {
   display?: string[];
 }
 
-const hirMap = opcodeMetadata.hir_ops as Record<string, OpDoc>;
-const planActionMap = opcodeMetadata.plan_actions as Record<string, OpDoc>;
+const hirMap = compilerIrMetadata.hir_ops as Record<string, DocEntry>;
+const planActionMap = compilerIrMetadata.plan_actions as Record<string, DocEntry>;
 
 // Derived from the shared metadata so the tokenizer cannot drift from the
 // mnemonics documented in plan_actions.
@@ -22,7 +22,7 @@ const planActionMnemonicPattern = new RegExp(
 );
 
 // Build a reverse lookup from HIR display names (T, T_DAG, MEASURE, etc.) to docs
-const hirDisplayMap: Record<string, OpDoc> = {};
+const hirDisplayMap: Record<string, DocEntry> = {};
 for (const [, doc] of Object.entries(hirMap)) {
   if (doc.display) {
     for (const name of doc.display) {
@@ -128,7 +128,7 @@ export const planLanguage: languages.IMonarchLanguage = {
 let registered = false;
 
 /** Format an HIR operation as Monaco-flavored Markdown for the hover widget. */
-function formatOperationHover(name: string, doc: OpDoc): IMarkdownString {
+function formatOperationHover(name: string, doc: DocEntry): IMarkdownString {
   const lines = [
     `**\`${name}\`** &mdash; _${doc.category}_`,
     "",

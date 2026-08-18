@@ -28,5 +28,5 @@
     "noFallthroughCasesInSwitch": true,
     "noUncheckedSideEffectImports": true
   },
-  "include": ["src", "../docs/opcodes.json"]
+  "include": ["src", "../docs/compiler_ir.json"]
 }
