@@ -8,7 +8,7 @@ logical error thresholds with the Pauli Frame Sparse Representation" by
 Thomas Tuloup and Thomas Ayral (arXiv:2603.14670).
 
 Usage:
-    uv run python docs/guide/scripts/importance_sampling_tutorial.py
+    uv run --with matplotlib python docs/guide/scripts/importance_sampling_tutorial.py
 
 Generates:
     docs/guide/images/is_pmf_and_error_rate.png
@@ -113,7 +113,6 @@ def run_stratified_is(
         circuit_text,
         normalize_syndromes=True,
         hir_passes=clifft.default_hir_pass_manager(),
-        bytecode_passes=clifft.default_bytecode_pass_manager(),
     )
     # Today we compile once to discover the detector count, then again with an
     # all-detector postselection mask. A front-end detector count query would
@@ -126,12 +125,13 @@ def run_stratified_is(
         normalize_syndromes=True,
         postselection_mask=mask,
         hir_passes=clifft.default_hir_pass_manager(),
-        bytecode_passes=clifft.default_bytecode_pass_manager(),
     )
 
     site_probs: NDArray[np.float64] = prog.noise_site_probabilities
     n_sites = len(site_probs)
-    print(f"  peak_rank={prog.peak_rank}, {num_det} detectors, {n_sites} noise sites")
+    print(
+        f"  peak_active_width={prog.peak_active_width}, {num_det} detectors, {n_sites} noise sites"
+    )
 
     pmf = uniform_fault_pmf(site_probs, MAX_K)
 

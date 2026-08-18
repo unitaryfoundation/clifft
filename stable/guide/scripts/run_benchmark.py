@@ -1,4 +1,4 @@
-"""Standalone benchmark: Clifft vs Qiskit-Aer.
+"""Standalone scaling experiment: Clifft and Qiskit Aer.
 
 Generates circuits in Qiskit, converts to Stim format for Clifft,
 runs both simulators across two parameter sweeps, and plots results.
@@ -29,7 +29,7 @@ RESULTS_FILE = os.path.join(os.path.dirname(__file__), "benchmark_results.csv")
 CSV_HEADER = ["Sweep", "N", "t", "k", "Tool", "Status", "Exec_s", "PeakMem_MB"]
 
 QUBIT_N_VALUES = [16, 20, 24, 26, 28, 29]
-RANK_K_VALUES = [8, 12, 16, 20, 22, 24, 25]
+ACTIVE_WIDTH_VALUES = [8, 12, 16, 20, 22, 24, 25]
 
 
 # ---------------------------------------------------------------------------
@@ -260,16 +260,16 @@ def run_sweeps() -> str:
             print(f"{status} ({res['exec_s']:.2f}s | {res['peak_mb']:.1f}MB)")
             rows.append(["qubit_scaling", n, t_a, k_a, tool, status, res["exec_s"], res["peak_mb"]])
 
-    # Sweep B: rank scaling
+    # Sweep B: active-width scaling
     n_b, t_b = 24, 40
-    for k in RANK_K_VALUES:
+    for k in ACTIVE_WIDTH_VALUES:
         for tool in ["clifft", "qiskit"]:
-            label = f"[rank_scaling]  {tool:<7} k={k}"
+            label = f"[active_width]  {tool:<7} k={k}"
             print(f"{label} -> ", end="", flush=True)
 
             if check_theoretical_oom(tool, n_b, k):
                 print("SKIPPED (OOM)")
-                rows.append(["rank_scaling", n_b, t_b, k, tool, "OOM", 0.0, 0.0])
+                rows.append(["active_width", n_b, t_b, k, tool, "OOM", 0.0, 0.0])
                 continue
 
             qasm = build_circuit_qiskit(n_b, t_b, k)
@@ -277,7 +277,7 @@ def run_sweeps() -> str:
             res = run_worker(tool, qasm, stim)
             status = res["status"]
             print(f"{status} ({res['exec_s']:.2f}s | {res['peak_mb']:.1f}MB)")
-            rows.append(["rank_scaling", n_b, t_b, k, tool, status, res["exec_s"], res["peak_mb"]])
+            rows.append(["active_width", n_b, t_b, k, tool, status, res["exec_s"], res["peak_mb"]])
 
     with open(RESULTS_FILE, "w", newline="") as f:
         w = csv.writer(f)
@@ -302,7 +302,7 @@ def plot_results(csv_path: str, output_path: str) -> None:
     import matplotlib.ticker as ticker
 
     TOOL_STYLE = {
-        "qiskit": {"color": "#E74C3C", "marker": "s", "label": "Qiskit-Aer (statevector)"},
+        "qiskit": {"color": "#E74C3C", "marker": "s", "label": "Qiskit Aer (statevector)"},
         "clifft": {"color": "#2ECC71", "marker": "o", "label": "Clifft"},
     }
 
@@ -316,7 +316,7 @@ def plot_results(csv_path: str, output_path: str) -> None:
 
     panels = [
         ("qubit_scaling", "N", "Physical Qubits (N)", "Qubit Scaling (k=12, t=20)"),
-        ("rank_scaling", "k", "Active Rank (k)", "Rank Scaling (N=24, t=40)"),
+        ("active_width", "k", "Active Width (k)", "Active-Width Scaling (N=24, t=40)"),
     ]
 
     # Compute shared Y limits across both panels
@@ -452,7 +452,7 @@ def plot_results(csv_path: str, output_path: str) -> None:
     )
 
     fig.suptitle(
-        "Clifft vs Qiskit-Aer: Simulation Performance",
+        "Clifft and Qiskit Aer: Simulation Scaling",
         fontsize=13,
         fontweight="bold",
     )
@@ -469,7 +469,7 @@ def plot_results(csv_path: str, output_path: str) -> None:
 
 def main() -> None:
     """Entry point."""
-    parser = argparse.ArgumentParser(description="Clifft vs Qiskit-Aer benchmark")
+    parser = argparse.ArgumentParser(description="Clifft and Qiskit Aer scaling experiment")
     parser.add_argument(
         "--internal-worker",
         nargs=3,
