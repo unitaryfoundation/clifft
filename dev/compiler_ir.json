@@ -147,7 +147,7 @@
     "WRITE_EXPECTATION": {
       "category": "Output",
       "summary": "Records a non-destructive Pauli expectation value of the current state.",
-      "detail": "Probes the expectation of a Pauli observable without collapsing anything. When an active projection is shown, one pass over the coefficient state computes it, with the sign expression conditioning its overall sign per shot. The word zero means planning already proved the expectation vanishes because the transformed observable has X or Y support outside the active coordinates.",
+      "detail": "Probes the expectation of a Pauli observable without collapsing anything. When an active projection is shown, one pass over the coefficient state computes it, with the sign expression conditioning its overall sign per shot. The zero marker means planning already proved the expectation vanishes because the transformed observable has X or Y support outside the active coordinates.",
       "operands": "Pauli product or zero, sign, exp_val"
     },
     "APPLY_INSTRUMENT": {
