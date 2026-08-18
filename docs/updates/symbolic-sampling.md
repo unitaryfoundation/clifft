@@ -1,6 +1,4 @@
-# Symbolic Sampling in Clifft
-
-August 2026
+# Symbolic Sampling in Clifft (v0.8.0, August 2026)
 
 Clifft has replaced its original localized-Pauli Schrodinger virtual machine
 (SVM) with a symbolic-coordinate compiler and sampler. The main Python
@@ -19,16 +17,24 @@ trajectory in a dense active state with $2^k$ amplitudes, where $k$ is the
 active width. What changed is how Clifft represents and executes everything
 around that state.
 
-The old SVM lowered a circuit to public VM bytecode. During each shot it used
-Clifford array operations to localize an active Pauli onto a designated virtual
-axis, ran a narrow state-vector kernel, and continued through the resulting
-layout.
+The old compiler lowered a circuit to public SVM bytecode. For each active
+Pauli, lowering chose a Clifford localization and emitted the corresponding
+array operations followed by a narrow state-vector operation. A shot did not
+discover how to localize the Pauli; it executed those precomputed Clifford
+array transformations, whose runtime cost could include several dense passes.
 
-The new compiler instead resolves the Clifford basis, active coordinates,
-branch-dependent signs, and Pauli shapes ahead of time. A shot evaluates
-prepared Boolean expressions and applies rotations or measurements directly
-to their active-coordinate Paulis. It performs no tableau evolution, Pauli
-localization, commutation analysis, or dependency discovery.
+The rewrite incorporates two separate insights from SymFT. First, a prepared
+kernel can apply a multi-coordinate Pauli directly, so localization is no
+longer required to obtain a regular dense operation. Second, the effects of
+stochastic Pauli noise, measurements, and feedback can be propagated during
+planning as symbolic Boolean expressions. Each shot supplies the event values
+and evaluates the affected signs instead of evolving a mutable Pauli frame.
+
+Together, these changes let the compiler resolve the Clifford basis, active
+coordinates, branch-dependent structure, and Pauli shapes ahead of time. A
+shot performs no tableau evolution, localization analysis, commutation
+analysis, or dependency discovery, and it executes no localization-induced
+Clifford array operations.
 
 The current pipeline is:
 
@@ -66,7 +72,20 @@ differently.
 
 ## What disappeared under the hood?
 
-The rewrite retires the old execution stack instead of carrying two backends:
+The SVM and its bytecode were an elegant fit for the original model: lowering
+translated simulation into a compact instruction vocabulary, bytecode passes
+combined useful patterns, and several interpreters implemented that same
+contract for different CPU targets.
+
+The symbolic plan needs richer prepared data: active-Pauli masks, affine
+dependencies, measurement descriptors, fused matrices, and optional
+ISA-specific sidecars. In this design, the old bytecode's small instructions
+and uniform structure were no longer important sources of speed. Keeping them
+would preserve a second representation and force direct symbolic actions back
+through the vocabulary of localization.
+
+The rewrite therefore retires the old execution stack instead of carrying two
+backends:
 
 - The SVM and its separate scalar, AVX2, and AVX-512 interpreters are gone.
 - The localized VM `Opcode`, `Instruction`, and `CompiledModule` bytecode types
@@ -92,13 +111,20 @@ These low-level interfaces had no cross-version stability guarantee. The
 [compilation guide](../guide/compilation.md) documents the current inspection
 and HIR-pass workflow.
 
+This does not rule out a bytecode or another compact command stream in the
+future. A GPU or another execution target may benefit from one, but it should
+be designed around that target and the symbolic plan rather than preserve the
+removed SVM's instruction set.
+
 ## Why is Pauli localization no longer necessary?
 
-An active Pauli can involve several active coordinates. The old SVM handled
-this by executing a Clifford change of basis on the dense array until the
-Pauli became a simple virtual-axis operation. That made the final rotation or
-measurement kernel regular, but the localization itself could require several
-full coefficient-array sweeps.
+An active Pauli can involve several active coordinates. The old lowerer handled
+this by finding a Clifford change of basis that made the Pauli a simple
+virtual-axis operation, then emitting that change as SVM array instructions.
+The localization decision was made at compile time. During every shot,
+however, the SVM still executed the planned transformations on the dense
+array, potentially requiring several full coefficient sweeps before reaching
+the final rotation or measurement kernel.
 
 The symbolic planner already knows the Pauli's active-coordinate $X$ and $Z$
 masks. A direct kernel can therefore do the same operation without changing
@@ -111,8 +137,8 @@ basis:
 
 For example, a rotation about $X_0 Z_2$ can pair each basis index $a$ directly
 with $a \mathbin{\mathrm{xor}} 001$ and obtain the sign from bit 2. The old
-path first transformed that Pauli into a designated axis, applied a simple
-kernel there, and paid for the associated array transformations.
+compiled path instead executed the already-planned transformations that mapped
+the Pauli to a designated axis, then applied a simple kernel there.
 
 A general dense Pauli rotation must already visit essentially every active
 coefficient. Direct diagonal and paired-amplitude kernels make that necessary
@@ -123,6 +149,28 @@ later operations, but it is no longer required as the universal execution
 mechanism. Once direct prepared actions covered rotations, measurements,
 instruments, and output semantics, retaining the SVM and its localization
 bytecode added a second implementation without providing a needed capability.
+
+## What does "symbolic" mean here?
+
+Noise events, measurement branches, and record-controlled feedback vary from
+shot to shot, but their possible effects are known during compilation. The
+planner gives the relevant binary events Boolean symbols and expresses a
+branch-dependent sign as an affine formula such as
+
+$$
+c \oplus s_2 \oplus s_5.
+$$
+
+It then propagates these formulas through the Clifford-Pauli frame and attaches
+the resulting expressions to rotations, measurements, records, detectors, and
+observables. The plan therefore fixes which events can affect each action even
+though it cannot know their values yet.
+
+During a shot, the executor assigns each sampled symbol once and incrementally
+updates only the expressions that depend on it. This replaces per-shot tableau
+evolution and physical-qubit Pauli-frame updates with Boolean assignments and
+prepared active-state actions. The structure is compiled once; only the
+branch values remain dynamic.
 
 ## Where did the new method come from?
 
