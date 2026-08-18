@@ -77,7 +77,7 @@ def define_env(env: Any) -> None:
             "python_name": "StatevectorSqueezePass",
             "summary": "Minimizes peak active width by reordering HIR operations.",
             "detail": (
-                "Attempts to reduce `peak_rank` by compacting qubit lifetimes. "
+                "Attempts to reduce `peak_active_width` by compacting qubit lifetimes. "
                 "Sweep 1 (leftward) bubbles MEASURE ops as early as possible. "
                 "Sweep 2 (rightward) bubbles T_GATE and PHASE_ROTATION ops as "
                 "late as possible. Measurements reduce active width sooner, "
