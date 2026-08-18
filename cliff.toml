@@ -31,7 +31,7 @@ body = """
           {% if commit.remote.pr_number %} in \
             [#{{ commit.remote.pr_number }}]({{ self::remote_url() }}/pull/{{ commit.remote.pr_number }})\
           {%- endif -%}
-          {% if commit.breaking and commit.breaking_description | trim != subject %} -- **BREAKING CHANGE:** {{ commit.breaking_description | trim }}{%- endif %}
+          {% if commit.breaking and commit.breaking_description | trim != subject %} -- **BREAKING CHANGE:** {{ commit.breaking_description | trim | replace(from="\n", to=" ") | replace(from="  ", to=" ") }}{%- endif %}
     {%- endfor %}
 {% endfor %}\n
 """
