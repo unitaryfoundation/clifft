@@ -7,25 +7,42 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <fstream>
+#include <iterator>
 #include <numbers>
+#include <set>
 #include <string>
+#include <variant>
 #include <vector>
 
 using clifft::sampling::ActivePauli;
 using clifft::sampling::AffineBool;
+using clifft::sampling::ApplyInstrument;
+using clifft::sampling::ApplyReadoutNoise;
+using clifft::sampling::DefineSymbol;
 using clifft::sampling::DetectorSlot;
 using clifft::sampling::ExecutablePlan;
+using clifft::sampling::ExpValSlot;
 using clifft::sampling::format_double_roundtrip;
 using clifft::sampling::format_pauli_product;
 using clifft::sampling::format_width_prefix;
+using clifft::sampling::InstrumentBoundary;
+using clifft::sampling::InstrumentMode;
+using clifft::sampling::InstrumentSiteId;
+using clifft::sampling::MeasureActivePauli;
+using clifft::sampling::MeasureDormantRandom;
+using clifft::sampling::ObservableSlot;
 using clifft::sampling::PlannedAction;
 using clifft::sampling::PromoteDormantRotation;
 using clifft::sampling::RecordClassical;
 using clifft::sampling::RecordSlot;
 using clifft::sampling::RotateActivePauli;
+using clifft::sampling::SamplingAction;
 using clifft::sampling::SamplingPlan;
 using clifft::sampling::SymbolId;
 using clifft::sampling::WriteDetector;
+using clifft::sampling::WriteExpectationValue;
+using clifft::sampling::WriteObservable;
 
 namespace {
 
@@ -166,4 +183,70 @@ TEST_CASE("Executable rotation prints a pairing index only for X-type prepared P
     };
     const ExecutablePlan diagonal_executable(diagonal_plan);
     CHECK(diagonal_executable.inspect_action(0).find(" pair=") == std::string::npos);
+}
+
+TEST_CASE("Compact inspection mnemonics cover every SamplingAction and its docs entry") {
+    // Adding, removing, or renaming a SamplingAction alternative changes this
+    // count. Extend the action list below and the plan_actions table in
+    // docs/opcodes.json together, then update this assertion.
+    static_assert(std::variant_size_v<SamplingAction> == 12);
+
+    const SymbolId s0{0};
+    const AffineBool empty{};
+    const AffineBool branch_outcome = AffineBool::symbol(s0);
+
+    SamplingPlan plan;
+    plan.actions = {
+        // Rotation has two renderings that pick different mnemonics: an
+        // identity Pauli renders ROTATE_PHASE, a non-identity Pauli renders
+        // ROTATE_ACTIVE. Both are covered explicitly.
+        PlannedAction{1, 1, RotateActivePauli{ActivePauli{0, 0}, 0.25, empty}},
+        PlannedAction{1, 1, RotateActivePauli{ActivePauli{1, 0}, 0.25, empty}},
+        PlannedAction{0, 1, PromoteDormantRotation{0.25, empty}},
+        PlannedAction{1, 0,
+                      MeasureActivePauli{ActivePauli{1, 0}, 0, s0, branch_outcome, RecordSlot{0}}},
+        PlannedAction{0, 0, MeasureDormantRandom{0, s0, branch_outcome, RecordSlot{0}}},
+        PlannedAction{0, 0, RecordClassical{empty, RecordSlot{0}}},
+        PlannedAction{0, 0, DefineSymbol{s0, empty}},
+        PlannedAction{0, 0, ApplyReadoutNoise{s0, empty, RecordSlot{0}, 0.0, 0.0}},
+        PlannedAction{0, 0, WriteDetector{empty, DetectorSlot{0}, false}},
+        PlannedAction{0, 0, WriteObservable{empty, ObservableSlot{0}}},
+        PlannedAction{0, 0, WriteExpectationValue{ActivePauli{}, empty, ExpValSlot{0}}},
+        PlannedAction{0, 0,
+                      ApplyInstrument{InstrumentSiteId{0}, InstrumentMode::Classical, ActivePauli{},
+                                      empty, s0}},
+        PlannedAction{0, 0, InstrumentBoundary{InstrumentSiteId{0}, 0, 0}},
+    };
+
+    std::set<std::string> mnemonics;
+    for (size_t i = 0; i < plan.actions.size(); ++i) {
+        const std::string compact = plan.inspect_action_compact(i);
+        // The compact form is "<width> <MNEMONIC> ...": the mnemonic is the
+        // token following the width prefix's single trailing space.
+        const size_t width_end = compact.find(' ');
+        REQUIRE(width_end != std::string::npos);
+        const size_t mnemonic_end = compact.find(' ', width_end + 1);
+        mnemonics.insert(compact.substr(width_end + 1, mnemonic_end - (width_end + 1)));
+    }
+
+    const std::set<std::string> expected = {
+        "ROTATE_ACTIVE",       "ROTATE_PHASE",     "PROMOTE_DORMANT",   "MEASURE_ACTIVE",
+        "MEASURE_DORMANT",     "RECORD_CLASSICAL", "DEFINE_SYMBOL",     "READOUT_NOISE",
+        "WRITE_DETECTOR",      "WRITE_OBSERVABLE", "WRITE_EXPECTATION", "APPLY_INSTRUMENT",
+        "INSTRUMENT_BOUNDARY",
+    };
+    REQUIRE(mnemonics == expected);
+
+    // Cross-check that every mnemonic also has an entry in the docs metadata
+    // that the playground tokenizer and hover text derive from. This is a
+    // plain substring search, not a JSON parser, so it only confirms the key
+    // is present, not the shape of its value.
+    std::ifstream docs_file(std::string(CLIFFT_DOCS_DIR) + "/opcodes.json");
+    REQUIRE(docs_file.is_open());
+    const std::string docs_text((std::istreambuf_iterator<char>(docs_file)),
+                                std::istreambuf_iterator<char>());
+    for (const std::string& name : expected) {
+        CAPTURE(name);
+        REQUIRE(docs_text.find("\"" + name + "\":") != std::string::npos);
+    }
 }

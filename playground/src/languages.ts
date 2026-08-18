@@ -15,6 +15,12 @@ interface OpDoc {
 const hirMap = opcodeMetadata.hir_ops as Record<string, OpDoc>;
 const planActionMap = opcodeMetadata.plan_actions as Record<string, OpDoc>;
 
+// Derived from the shared metadata so the tokenizer cannot drift from the
+// mnemonics documented in plan_actions.
+const planActionMnemonicPattern = new RegExp(
+  "\\b(?:" + Object.keys(planActionMap).join("|") + ")\\b",
+);
+
 // Build a reverse lookup from HIR display names (T, T_DAG, MEASURE, etc.) to docs
 const hirDisplayMap: Record<string, OpDoc> = {};
 for (const [, doc] of Object.entries(hirMap)) {
@@ -90,11 +96,8 @@ export const planLanguage: languages.IMonarchLanguage = {
     root: [
       // Width prefix: w0 or w0->1
       [/\bw\d+(?:->\d+)?\b/, "keyword"],
-      // Action mnemonics (explicit list; avoids matching arbitrary identifiers)
-      [
-        /\b(?:ROTATE_ACTIVE|ROTATE_PHASE|PROMOTE_DORMANT|MEASURE_ACTIVE|MEASURE_DORMANT|RECORD_CLASSICAL|DEFINE_SYMBOL|READOUT_NOISE|WRITE_DETECTOR|WRITE_OBSERVABLE|WRITE_EXPECTATION|APPLY_INSTRUMENT|INSTRUMENT_BOUNDARY)\b/,
-        "keyword",
-      ],
+      // Action mnemonics (avoids matching arbitrary identifiers)
+      [planActionMnemonicPattern, "keyword"],
       // Flag words
       [/\b(?:postselect|zero)\b/, "keyword"],
       // Pauli factors: X0, Z1, Y2, and standalone identity I
