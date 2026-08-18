@@ -25,11 +25,13 @@ body = """
 {% for group, commits in commits | group_by(attribute="group") %}
     ### {{ group | striptags | trim | upper_first }}
     {% for commit in commits %}
-        - {{ commit.message | split(pat="\n") | first | trim }}\
+        {% set subject = commit.message | split(pat="\n") | first | trim -%}
+        - {% if commit.breaking %}**[breaking]** {% endif %}{{ subject }}\
           {% if commit.remote.username %} by @{{ commit.remote.username }}{%- endif -%}
           {% if commit.remote.pr_number %} in \
             [#{{ commit.remote.pr_number }}]({{ self::remote_url() }}/pull/{{ commit.remote.pr_number }})\
-          {%- endif %}
+          {%- endif -%}
+          {% if commit.breaking and commit.breaking_description | trim != subject %} -- **BREAKING CHANGE:** {{ commit.breaking_description | trim | replace(from="\n", to=" ") | replace(from="  ", to=" ") }}{%- endif %}
     {%- endfor %}
 {% endfor %}\n
 """
