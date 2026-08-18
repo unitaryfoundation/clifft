@@ -1,5 +1,6 @@
 #include "clifft/frontend/frontend.h"
 
+#include "clifft/util/constants.h"
 #include "clifft/util/numeric.h"
 
 #include "stim.h"
@@ -381,6 +382,10 @@ size_t count_pauli_masks(const Circuit& circuit) {
                 count += n_targets / 2;
                 break;
             case GateType::R_PAULI:
+            case GateType::SPP:
+            case GateType::SPP_DAG:
+            case GateType::TPP:
+            case GateType::TPP_DAG:
             case GateType::EXP_VAL:
             case GateType::MPP:
                 count += 1;
@@ -582,6 +587,31 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                         slot.set_sign(sign);
                     });
                 }
+                break;
+            }
+
+            case GateType::SPP:
+            case GateType::SPP_DAG: {
+                bool inversion_parity;
+                auto obs = build_pauli_string(node.targets, circuit.num_qubits, inversion_parity);
+                obs.sign = inversion_parity;
+                const bool dagger = node.gate == GateType::SPP_DAG;
+                trace_pauli_rotation(sim, hir, obs, dagger ? -0.5 : 0.5);
+                hir.global_weight *= dagger ? kExpMinusIPiOver4 : kExpIPiOver4;
+                break;
+            }
+
+            case GateType::TPP:
+            case GateType::TPP_DAG: {
+                bool inversion_parity;
+                auto obs = build_pauli_string(node.targets, circuit.num_qubits, inversion_parity);
+                stim::PauliString<kStimWidth> rewound = sim.inv_state(obs);
+                uint32_t n = sim.inv_state.num_qubits;
+                bool dagger = node.gate == GateType::TPP_DAG;
+                hir.append_tgate(dagger, [&](MutablePauliMaskView slot) {
+                    copy_rewound_into(rewound, n, slot.x(), slot.z());
+                    slot.set_sign(rewound.sign ^ inversion_parity);
+                });
                 break;
             }
 

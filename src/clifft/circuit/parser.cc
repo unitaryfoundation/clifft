@@ -350,6 +350,12 @@ class Parser {
         if (gate == GateType::EXP_VAL && !args.empty()) {
             throw ParseError("EXP_VAL takes no arguments", line_num);
         }
+        if ((gate == GateType::SPP || gate == GateType::SPP_DAG || gate == GateType::TPP ||
+             gate == GateType::TPP_DAG) &&
+            !args.empty()) {
+            throw ParseError(std::string(clifft::gate_name(gate)) + " takes no arguments",
+                             line_num);
+        }
         if (gate == GateType::LEVEL_TRANSITION) {
             if (tag.empty()) {
                 throw ParseError(
@@ -388,6 +394,12 @@ class Parser {
         switch (gate) {
             case GateType::MPP:
                 parse_mpp(rest, line_num, circuit, arg);
+                break;
+            case GateType::SPP:
+            case GateType::SPP_DAG:
+            case GateType::TPP:
+            case GateType::TPP_DAG:
+                parse_pauli_product_phases(gate, rest, line_num, circuit);
                 break;
             case GateType::EXP_VAL:
                 parse_exp_val(rest, line_num, circuit);
@@ -962,7 +974,10 @@ class Parser {
 
             bool inverted = false;
             if (product_str[pos] == '!') {
-                if (!is_measurement(gate)) {
+                const bool supports_inversion = is_measurement(gate) || gate == GateType::SPP ||
+                                                gate == GateType::SPP_DAG ||
+                                                gate == GateType::TPP || gate == GateType::TPP_DAG;
+                if (!supports_inversion) {
                     throw_invalid_target_modifiers(target_token_at(product_str, pos), gate_name,
                                                    line_num);
                 }
@@ -1072,6 +1087,14 @@ class Parser {
         }
 
         return products;
+    }
+
+    void parse_pauli_product_phases(GateType gate, std::string_view targets_str, uint32_t line_num,
+                                    Circuit& circuit) {
+        auto products = parse_pauli_products(targets_str, gate, line_num, circuit);
+        for (auto& pauli_targets : products) {
+            circuit.nodes.push_back({gate, std::move(pauli_targets), {}, line_num});
+        }
     }
 
     std::vector<Target> parse_correlated_pauli_targets(std::string_view targets_str,

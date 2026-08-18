@@ -393,6 +393,43 @@ TEST_CASE("Parse MPP multiple products", "[parser]") {
     REQUIRE(circuit.nodes[2].targets[0].pauli() == Target::kPauliY);
 }
 
+TEST_CASE("Parse Pauli-product phase gates", "[parser]") {
+    const GateType gates[] = {GateType::SPP, GateType::SPP_DAG, GateType::TPP, GateType::TPP_DAG};
+    const char* names[] = {"SPP", "SPP_DAG", "TPP", "TPP_DAG"};
+
+    for (size_t i = 0; i < 4; ++i) {
+        CAPTURE(names[i]);
+        auto circuit = parse(std::string(names[i]) + " !X0*Y1 Z2");
+        REQUIRE(circuit.nodes.size() == 2);
+        CHECK(circuit.nodes[0].gate == gates[i]);
+        REQUIRE(circuit.nodes[0].targets.size() == 2);
+        CHECK(circuit.nodes[0].targets[0].is_inverted());
+        CHECK(circuit.nodes[0].targets[0].pauli() == Target::kPauliX);
+        CHECK(circuit.nodes[0].targets[1].pauli() == Target::kPauliY);
+        CHECK(circuit.nodes[1].gate == gates[i]);
+        REQUIRE(circuit.nodes[1].targets.size() == 1);
+        CHECK(circuit.nodes[1].targets[0].pauli() == Target::kPauliZ);
+        CHECK(circuit.num_qubits == 3);
+        CHECK(circuit.num_measurements == 0);
+    }
+}
+
+TEST_CASE("Pauli-product phase gates reject duplicate qubits", "[parser]") {
+    CHECK_THROWS_AS(parse("SPP X0*Z0"), ParseError);
+    CHECK_THROWS_AS(parse("SPP_DAG Y1*X1"), ParseError);
+    CHECK_THROWS_AS(parse("TPP X0*Z0"), ParseError);
+    CHECK_THROWS_AS(parse("TPP_DAG Y1*X1"), ParseError);
+    CHECK_NOTHROW(parse("SPP X0 Z0"));
+    CHECK_NOTHROW(parse("TPP X0 Z0"));
+}
+
+TEST_CASE("Pauli-product phase gates reject arguments", "[parser]") {
+    CHECK_THROWS_AS(parse("SPP(0.5) Z0"), ParseError);
+    CHECK_THROWS_AS(parse("SPP_DAG(0.5) Z0"), ParseError);
+    CHECK_THROWS_AS(parse("TPP(0.25) Z0"), ParseError);
+    CHECK_THROWS_AS(parse("TPP_DAG(0.25) Z0"), ParseError);
+}
+
 TEST_CASE("Parse noisy MPP decomposes to MPP plus READOUT_NOISE", "[parser][noise]") {
     // MPP(p) X0*Z1 should decompose to MPP + READOUT_NOISE
     auto circuit = parse("MPP(0.001) X0*Z1");
@@ -1748,6 +1785,19 @@ TEST_CASE("GateTraits: non-Clifford T gates", "[gate_data]") {
     CHECK(gate_arity(GateType::T) == GateArity::SINGLE);
     CHECK(gate_name(GateType::T) == "T");
     CHECK(gate_name(GateType::T_DAG) == "T_DAG");
+}
+
+TEST_CASE("GateTraits: Pauli-product phase gates", "[gate_data]") {
+    CHECK(gate_arity(GateType::SPP) == GateArity::MULTI);
+    CHECK(gate_arity(GateType::SPP_DAG) == GateArity::MULTI);
+    CHECK(gate_arity(GateType::TPP) == GateArity::MULTI);
+    CHECK(gate_arity(GateType::TPP_DAG) == GateArity::MULTI);
+    CHECK(is_clifford(GateType::SPP));
+    CHECK(is_clifford(GateType::SPP_DAG));
+    CHECK(!is_clifford(GateType::TPP));
+    CHECK(!is_clifford(GateType::TPP_DAG));
+    CHECK(is_unitary(GateType::SPP));
+    CHECK(is_unitary(GateType::TPP));
 }
 
 TEST_CASE("GateTraits: two-qubit Cliffords are PAIR arity", "[gate_data]") {

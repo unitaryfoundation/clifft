@@ -30,6 +30,23 @@ one.
 
 All single-qubit Cliffords are absorbed AOT — they update the Clifford frame $U_C$ at compile time and have zero cost at runtime.
 
+## Pauli-Product Clifford Gates
+
+| Gate | Syntax | Notes |
+|------|--------|-------|
+| `SPP` | `SPP X0*Y1*Z2` | Generalized `S` gate over a Pauli product |
+| `SPP_DAG` | `SPP_DAG X0*Y1*Z2` | Inverse generalized `S` gate |
+
+These gates accept the same product syntax as `MPP`, including multiple
+whitespace-separated products in one instruction. Prefixing a Pauli term with
+`!` negates the product and reverses the corresponding phase gate. A qubit may
+appear only once in each product, which is stricter than Stim for some
+syntactically valid Hermitian products.
+
+The default optimizer absorbs `SPP` and `SPP_DAG` into the Clifford frame, so
+they have no runtime cost. Their named-gate phase convention is exact, so
+`SPP Z0` matches `S 0`, including global phase.
+
 ## Non-Clifford Extensions
 
 Clifft extends Stim with discrete and arbitrary-angle non-Clifford gates.
@@ -42,6 +59,23 @@ vector.
 |------|-------|
 | `T` | $\pi/8$ gate |
 | `T_DAG` | Inverse $\pi/8$ gate |
+
+### Pauli-Product Phase Gates
+
+| Gate | Syntax | Notes |
+|------|--------|-------|
+| `TPP` | `TPP X0*Y1*Z2` | Generalized `T` gate over a Pauli product |
+| `TPP_DAG` | `TPP_DAG X0*Y1*Z2` | Inverse generalized `T` gate |
+
+These gates accept the same product syntax as `MPP`, including multiple
+whitespace-separated products in one instruction. Prefixing a Pauli term with
+`!` negates the product and reverses the corresponding phase gate. A qubit may
+appear only once in each product, which is stricter than Stim for some
+syntactically valid Hermitian products.
+
+`TPP` and `TPP_DAG` emit one generalized T operation per product. Their
+named-gate phase convention is exact, so `TPP Z0` matches `T 0`, including
+global phase.
 
 ### Rewrite Gates
 
@@ -246,4 +280,3 @@ Results are available via `SampleResult.exp_vals` (shape `(shots, num_exp_vals)`
 |------|----------|--------|
 | `HERALDED_ERASE` | Noise | Heralded erasure not modeled |
 | `HERALDED_PAULI_CHANNEL_1` | Noise | Heralded channel not modeled |
-| `SPP`, `SPP_DAG` | Pauli product phase | Generalized S/S_DAG gate over Pauli products |

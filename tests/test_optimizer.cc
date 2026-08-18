@@ -566,6 +566,24 @@ TEST_CASE("Peephole: PHASE_ROTATION demotes to absorbed S and T gates", "[optimi
     REQUIRE(hir_tdag.ops[0].is_dagger() == true);
 }
 
+TEST_CASE("Peephole: SPP uses rotation fusion and absorption", "[optimizer]") {
+    auto hir_spp = hir_from("SPP X0*Y1");
+    REQUIRE(hir_spp.ops.size() == 1);
+    REQUIRE(hir_spp.ops[0].op_type() == OpType::PHASE_ROTATION);
+
+    PeepholeFusionPass pass_spp;
+    pass_spp.run(hir_spp);
+    REQUIRE(hir_spp.ops.empty());
+
+    auto hir_cancel = hir_from("SPP X0*Y1\nSPP_DAG X0*Y1");
+    REQUIRE(hir_cancel.ops.size() == 2);
+
+    PeepholeFusionPass pass_cancel;
+    pass_cancel.run(hir_cancel);
+    REQUIRE(hir_cancel.ops.empty());
+    REQUIRE(pass_cancel.cancellations() == 1);
+}
+
 TEST_CASE("Peephole: S absorption conjugates anti-commuting downstream measure", "[optimizer]") {
     // T 0; T 0; H 0; M 0
     // T+T fuses to S on Z(0). The S is absorbed downstream.
