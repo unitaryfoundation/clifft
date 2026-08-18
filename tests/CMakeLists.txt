@@ -26,6 +26,7 @@ add_executable(clifft_tests
     test_source_map.cc
     test_importance_sampling.cc
     test_runtime_isa.cc
+    test_shot_parallel.cc
     test_fuzz.cc
     test_noncomp_value_types.cc
     test_noncomp_transition_instrument.cc

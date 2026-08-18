@@ -139,6 +139,25 @@ class TestSample:
         result2 = sampling_api.sample(prog, 100, seed=12345)
         assert np.array_equal(result1.measurements, result2.measurements)
 
+    @pytest.mark.parametrize("threads", [2, "auto"])
+    def test_sample_threads_preserve_seeded_rows(self, sampling_api: Any, threads: Any) -> None:
+        """Worker count and dynamic scheduling do not change seeded rows."""
+        prog = sampling_api.compile(
+            "H 0 1\nT 0\nM 0 1\nDETECTOR rec[-2] rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]"
+        )
+        serial = sampling_api.sample(prog, 257, seed=12345, threads=1)
+        threaded = sampling_api.sample(prog, 257, seed=12345, threads=threads)
+        np.testing.assert_array_equal(threaded.measurements, serial.measurements)
+        np.testing.assert_array_equal(threaded.detectors, serial.detectors)
+        np.testing.assert_array_equal(threaded.observables, serial.observables)
+
+    @pytest.mark.parametrize("threads", [0, -1, "all", 1.5])
+    def test_sample_rejects_invalid_threads(self, sampling_api: Any, threads: Any) -> None:
+        """Only positive integers and the auto sentinel are accepted."""
+        prog = sampling_api.compile("M 0")
+        with pytest.raises((TypeError, ValueError), match="threads|incompatible"):
+            sampling_api.sample(prog, 1, threads=threads)
+
     def test_sample_different_seeds(self, sampling_api: Any) -> None:
         """Different seeds produce different results."""
         prog = sampling_api.compile("H 0\nM 0")
@@ -827,6 +846,24 @@ class TestSampleSurvivors:
         assert np.all(result.detectors[:, 0] == 0)
         # All surviving observables should be 0
         assert np.all(result.observables == 0)
+
+    @pytest.mark.parametrize("threads", [3, "auto"])
+    def test_threads_preserve_survivor_rows(self, sampling_api: Any, threads: Any) -> None:
+        """Survivor compaction remains ordered across worker schedules."""
+        prog = sampling_api.compile(
+            "H 0\nM 0\nDETECTOR rec[-1]\nH 1\nM 1\nOBSERVABLE_INCLUDE(0) rec[-1]",
+            postselection_mask=[1],
+        )
+        serial = sampling_api.sample_survivors(prog, 257, seed=54321, keep_records=True, threads=1)
+        threaded = sampling_api.sample_survivors(
+            prog, 257, seed=54321, keep_records=True, threads=threads
+        )
+        assert threaded.passed_shots == serial.passed_shots
+        assert threaded.logical_errors == serial.logical_errors
+        np.testing.assert_array_equal(threaded.observable_ones, serial.observable_ones)
+        np.testing.assert_array_equal(threaded.measurements, serial.measurements)
+        np.testing.assert_array_equal(threaded.detectors, serial.detectors)
+        np.testing.assert_array_equal(threaded.observables, serial.observables)
 
     def test_no_postselection_all_pass(self, sampling_api: Any) -> None:
         """Without postselection, all shots pass."""

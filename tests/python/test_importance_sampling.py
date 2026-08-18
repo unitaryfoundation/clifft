@@ -154,6 +154,12 @@ class TestSampleK(_ImportanceBackendMixin):
         np.testing.assert_array_equal(r1.detectors, r2.detectors)
         np.testing.assert_array_equal(r1.observables, r2.observables)
 
+    def test_threads_preserve_seeded_rows(self) -> None:
+        prog = self.compile("X_ERROR(0.1) 0 1 2\nM 0 1 2")
+        serial = self.sampling_api.sample_k(prog, shots=257, k=1, seed=99, threads=1)
+        threaded = self.sampling_api.sample_k(prog, shots=257, k=1, seed=99, threads="auto")
+        np.testing.assert_array_equal(threaded.measurements, serial.measurements)
+
     def test_readout_noise_forcing(self) -> None:
         """k=1 with only readout noise should flip every shot."""
         prog = self.compile(
@@ -206,6 +212,24 @@ class TestSampleKSurvivors(_ImportanceBackendMixin):
         assert result.measurements.shape == (passed, prog.num_measurements)
         assert result.detectors.shape == (passed, prog.num_detectors)
         assert result.observables.shape == (passed, prog.num_observables)
+
+    def test_threads_preserve_seeded_survivors(self) -> None:
+        prog = self.sampling_api.compile(
+            "X_ERROR(0.1) 0 1 2\nM 0 1 2\nDETECTOR rec[-3]\n" "OBSERVABLE_INCLUDE(0) rec[-1]",
+            postselection_mask=[1],
+        )
+        serial = self.sampling_api.sample_k_survivors(
+            prog, shots=257, k=1, seed=100, keep_records=True, threads=1
+        )
+        threaded = self.sampling_api.sample_k_survivors(
+            prog, shots=257, k=1, seed=100, keep_records=True, threads=3
+        )
+        assert threaded.passed_shots == serial.passed_shots
+        assert threaded.logical_errors == serial.logical_errors
+        np.testing.assert_array_equal(threaded.observable_ones, serial.observable_ones)
+        np.testing.assert_array_equal(threaded.measurements, serial.measurements)
+        np.testing.assert_array_equal(threaded.detectors, serial.detectors)
+        np.testing.assert_array_equal(threaded.observables, serial.observables)
 
 
 class TestImportanceSamplingEndToEnd(_ImportanceBackendMixin):

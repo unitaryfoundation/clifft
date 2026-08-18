@@ -39,8 +39,12 @@ struct SamplingSurvivorResult {
 // plan and executor are prepared once, and all output is allocated before the
 // first shot enters hot execution. Plans with presampled symbols are rejected
 // until their sampling distribution is part of the executable contract.
+// threads=0 selects the implementation-reported hardware concurrency; the
+// public Python API spells this as threads="auto". Explicit worker counts are
+// capped at the number of shots.
 [[nodiscard]] std::vector<uint8_t> sample_records(const ExecutablePlan& plan, uint32_t shots,
-                                                  std::optional<uint64_t> seed = std::nullopt);
+                                                  std::optional<uint64_t> seed = std::nullopt,
+                                                  uint32_t threads = 1);
 
 // Replays each row-major visible record and returns its joint log probability.
 // Unreachable records map to the lowest finite double because release builds
@@ -52,18 +56,22 @@ struct SamplingSurvivorResult {
                                                            size_t num_records);
 
 [[nodiscard]] SamplingResult sample(const ExecutablePlan& plan, uint32_t shots,
-                                    std::optional<uint64_t> seed = std::nullopt);
+                                    std::optional<uint64_t> seed = std::nullopt,
+                                    uint32_t threads = 1);
 
 [[nodiscard]] SamplingSurvivorResult sample_survivors(const ExecutablePlan& plan, uint32_t shots,
                                                       std::optional<uint64_t> seed = std::nullopt,
-                                                      bool keep_records = false);
+                                                      bool keep_records = false,
+                                                      uint32_t threads = 1);
 
 [[nodiscard]] SamplingResult sample_k(const ExecutablePlan& plan, uint32_t shots, uint32_t k,
-                                      std::optional<uint64_t> seed = std::nullopt);
+                                      std::optional<uint64_t> seed = std::nullopt,
+                                      uint32_t threads = 1);
 
 [[nodiscard]] SamplingSurvivorResult sample_k_survivors(const ExecutablePlan& plan, uint32_t shots,
                                                         uint32_t k,
                                                         std::optional<uint64_t> seed = std::nullopt,
-                                                        bool keep_records = false);
+                                                        bool keep_records = false,
+                                                        uint32_t threads = 1);
 
 }  // namespace clifft::sampling

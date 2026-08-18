@@ -331,7 +331,7 @@ postselection. Key observations:
 
 ## API Reference
 
-### `clifft.sample_k(program, shots, k, seed=None)`
+### `clifft.sample_k(program, shots, k, seed=None, threads=1)`
 
 Sample with exactly `k` forced faults per shot. Returns
 a `SampleResult`, just like `clifft.sample()`. Results must be weighted by $P(K=k)$ for correct
@@ -344,7 +344,7 @@ discarded shots.
 Raises `ValueError` if the stratum has zero probability mass (e.g., `k`
 exceeds the number of non-zero-probability sites).
 
-### `clifft.sample_k_survivors(program, shots, k, seed=None, keep_records=False)`
+### `clifft.sample_k_survivors(program, shots, k, seed=None, keep_records=False, threads=1)`
 
 Sample survivors with exactly `k` forced faults per shot. Returns a
 `SampleResult` whose `.measurements`, `.detectors`, and `.observables`
