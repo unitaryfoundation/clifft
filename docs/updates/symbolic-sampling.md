@@ -4,55 +4,45 @@ August 2026
 
 Clifft has replaced its original localized-Pauli Schrodinger virtual machine
 (SVM) with a symbolic-coordinate compiler and sampler. The main Python
-sampling APIs and their output contracts remain, but the compiled program,
-planning model, and execution kernels have changed.
+sampling APIs and their output contracts remain, but the machinery beneath
+them is new.
 
-This update explains the method's lineage, what changed for users, and how the
-new sampler compares with the last legacy Clifft SVM and the current CPU paths
-in SymFT. The [theoretical overview](../theory/overview.md) and
+This update answers the main questions about the rewrite. The
+[theoretical overview](../theory/overview.md) and
 [software architecture](../theory/architecture.md) remain the evergreen
 references for the current design.
 
-## From the original Clifft method to symbolic coordinates
+## What changed?
 
-The [original Clifft paper](https://arxiv.org/abs/2604.27058) introduced the
-factored active-state representation. It stores the non-stabilizer part of a
-trajectory in a dense vector with $2^k$ amplitudes, where $k$ is the active
-width, rather than allocating a full $2^n$ statevector for $n$ physical
-qubits. The original implementation localized each active Pauli to a virtual
-axis by executing Clifford transformations on that dense vector.
+The original and current samplers both keep the non-stabilizer part of a
+trajectory in a dense active state with $2^k$ amplitudes, where $k$ is the
+active width. What changed is how Clifft represents and executes everything
+around that state.
 
-[SymFT](https://arxiv.org/abs/2607.28600), by Wang Fang, Huazhe Lou, and
-Riling Li, is the second-generation successor to
-[SOFT](https://arxiv.org/abs/2512.23037). Its paper describes a planner that
-combines SOFT's generalized-stabilizer simulation with Clifft's dense
-active-state representation. It adds symbolic Clifford-Pauli-frame
-factorization, adaptive stabilizer-coordinate planning, and direct
-multi-coordinate instructions that avoid runtime Pauli localization.
+The old SVM lowered a circuit to public VM bytecode. During each shot it used
+Clifford array operations to localize an active Pauli onto a designated virtual
+axis, ran a narrow state-vector kernel, and continued through the resulting
+layout.
 
-The current Clifft sampler adopts those SymFT developments in a Clifft-specific
-compiler and execution stack:
+The new compiler instead resolves the Clifford basis, active coordinates,
+branch-dependent signs, and Pauli shapes ahead of time. A shot evaluates
+prepared Boolean expressions and applies rotations or measurements directly
+to their active-coordinate Paulis. It performs no tableau evolution, Pauli
+localization, commutation analysis, or dependency discovery.
 
-- `SamplingPlan` records target-independent symbolic expressions,
-  active-coordinate actions, width transitions, outputs, and continuation
-  boundaries.
-- Executable preparation fixes storage, transposes symbolic dependencies,
-  combines supported rotation runs, and selects scalar or SIMD kernels once
-  for the host.
-- Each shot assigns event symbols and incrementally updates only the affected
-  affine expressions. It does not evolve a tableau or localize Paulis.
-- Direct Pauli kernels operate on the active coordinates. Rotation fusion and
-  explicit AVX2 and AVX-512 kernels reduce repeated coefficient sweeps.
-- Instruments and trajectory-specific continuations extend the same symbolic
-  state model to leakage and loss workflows.
+The current pipeline is:
 
-The active-state factorization is therefore continuous with the original
-Clifft method, while the symbolic frame, planner, and direct execution model
-come from the later SymFT architecture. Clifft's HIR optimization,
-`SamplingPlan` boundary, executable lowering, continuation machinery, public
-APIs, and kernel implementation are its own integration of those ideas.
+```text
+Circuit -> HIR -> SamplingPlan -> ExecutablePlan -> Executor -> results
+```
 
-## What changed for users
+`SamplingPlan` is the target-independent semantic plan. Executable preparation
+then fixes storage, transposes symbolic dependencies, combines supported
+rotation runs, and selects a scalar, AVX2, or AVX-512 executor for the host.
+The resulting action tape is a private prepared representation, not public or
+stable VM bytecode.
+
+## What stays the same for users?
 
 The usual workflow is unchanged:
 
@@ -66,51 +56,109 @@ result = clifft.sample(program, shots=100_000, seed=42)
 `sample()`, `sample_survivors()`, `sample_k()`,
 `sample_k_survivors()`, `record_probabilities()`,
 `basis_probabilities()`, `get_statevector()`, and `clifft.noncomp.sample()`
-all use the symbolic sampler. Detector and observable normalization,
+all use the new sampler. Detector and observable normalization,
 postselection, record layout, survivor accounting, importance strata, and
-expectation-value outputs retain their public meanings. A fixed seed remains
-reproducible, but exact sampled rows are not promised to match the removed SVM
-because the two executors consume randomness differently.
+expectation-value outputs retain their public meanings.
 
-The intentional low-level changes are:
+A fixed seed remains reproducible, but exact sampled rows are not promised to
+match the removed SVM because the two executors consume randomness
+differently.
 
-- `clifft.compile()` now returns a prepared symbolic `Program`, not iterable
-  VM bytecode. Use `program.inspect()` for diagnostic executable-plan text.
-- `program.peak_active_width` names the width of the dense active state.
-  `peak_rank` remains temporarily as a deprecated alias.
-- `num_actions` replaces `num_instructions`. The old `Opcode`, `Instruction`,
-  bytecode pass manager, and instruction-list interfaces were removed.
-- HIR passes remain the supported customization boundary. The post-lowering
-  `bytecode_passes` argument was removed from `compile()`.
-- The old mutable `State` plus `execute()` inspection path was removed.
+## What disappeared under the hood?
+
+The rewrite retires the old execution stack instead of carrying two backends:
+
+- The SVM and its separate scalar, AVX2, and AVX-512 interpreters are gone.
+- The localized VM `Opcode`, `Instruction`, and `CompiledModule` bytecode types
+  are gone.
+- Bytecode optimization passes and the `bytecode_passes` argument to
+  `compile()` are gone. HIR passes remain the supported compiler-customization
+  boundary.
+- Runtime frame and localization instructions are gone. Their work is either
+  resolved during planning or replaced by direct active-Pauli actions.
+- The mutable `State` plus `execute()` inspection path is gone.
   `get_statevector(program)` remains available for eligible final states.
-- SVM-specific backend and OpenMP controls were removed. The current sampler
-  selects its scalar, AVX2, or AVX-512 executor when preparing a program and is
-  single-threaded today.
+- SVM-specific backend and OpenMP controls are gone. Parallel sampling and
+  intra-shot parallel kernels are future work rather than compatibility layers
+  around the removed SVM.
+
+`clifft.compile()` now returns a prepared symbolic `Program`. It is no longer
+an iterable bytecode sequence: use `program.inspect()` for diagnostic
+executable-plan text. `num_actions` replaces `num_instructions`, and
+`program.peak_active_width` names the dense state's width. `peak_rank` remains
+temporarily as a deprecated alias.
 
 These low-level interfaces had no cross-version stability guarantee. The
 [compilation guide](../guide/compilation.md) documents the current inspection
 and HIR-pass workflow.
 
-## Matched CPU comparison
+## Why is Pauli localization no longer necessary?
 
-The tables below report medians from 12 balanced process-level runs on one
-pinned core of an AMD EPYC 9554P (Zen 4) KVM host. Each process used one thread,
-a fresh paired seed, an excluded warmup, and enough shots to target about 1.5
-seconds. Clifft used GCC 13.3 `Release` builds (`-O3 -DNDEBUG`) with an
-`x86-64-v2` baseline and the AVX-512 runtime path forced. SymFT used its native
-CPU build at the corrected reference-normalization commit.
+An active Pauli can involve several active coordinates. The old SVM handled
+this by executing a Clifford change of basis on the dense array until the
+Pauli became a simple virtual-axis operation. That made the final rotation or
+measurement kernel regular, but the localization itself could require several
+full coefficient-array sweeps.
 
-Every arm received the same circuit view, explicit noiseless detector and
-observable references, detector postselection, and aggregate survivor-output
-contract. Shot counts were calibrated independently per arm to give comparable
-timed durations and are recorded in the raw data. Throughput counts attempted
-shots, including shots discarded by postselection. The SymFT batched column
-uses its packed cross-shot counts path; it is an architectural throughput
-comparison, not the same execution mode as Clifft's current one-shot-at-a-time
-sampler.
+The symbolic planner already knows the Pauli's active-coordinate $X$ and $Z$
+masks. A direct kernel can therefore do the same operation without changing
+basis:
+
+- a diagonal Pauli changes each amplitude using the parity selected by its
+  $Z$ mask; and
+- a non-diagonal Pauli updates amplitude pairs whose indices differ by its
+  $X$ mask, with phases determined by the $Z$ mask.
+
+For example, a rotation about $X_0 Z_2$ can pair each basis index $a$ directly
+with $a \mathbin{\mathrm{xor}} 001$ and obtain the sign from bit 2. The old
+path first transformed that Pauli into a designated axis, applied a simple
+kernel there, and paid for the associated array transformations.
+
+A general dense Pauli rotation must already visit essentially every active
+coefficient. Direct diagonal and paired-amplitude kernels make that necessary
+sweep the operation itself, rather than adding localization sweeps around it.
+Prepared rotation fusion can also combine compatible runs into one traversal.
+Localization can still be useful when a layout change is amortized across many
+later operations, but it is no longer required as the universal execution
+mechanism. Once direct prepared actions covered rotations, measurements,
+instruments, and output semantics, retaining the SVM and its localization
+bytecode added a second implementation without providing a needed capability.
+
+## Where did the new method come from?
+
+The [original Clifft paper](https://arxiv.org/abs/2604.27058), by Bradley A.
+Chase and Farrokh Labib, introduced Clifft's factored active-state
+representation and describes the earlier localized-Pauli SVM.
+
+[SymFT](https://arxiv.org/abs/2607.28600), by Wang Fang, Huazhe Lou, and
+Riling Li, is the second-generation successor to
+[SOFT](https://arxiv.org/abs/2512.23037). Its paper describes a planner that
+combines SOFT's generalized-stabilizer simulation with Clifft's dense
+active-state representation. It adds symbolic Clifford-Pauli-frame
+factorization, adaptive stabilizer-coordinate planning, and direct
+multi-coordinate instructions.
+
+The current Clifft sampler adopts those SymFT developments. Clifft's HIR
+optimization, `SamplingPlan` boundary, executable lowering, incremental
+expression execution, rotation fusion, scalar and SIMD kernels, instruments
+and continuations, and public APIs are its own integration of those ideas.
+
+The active-state factorization is therefore continuous with the original
+Clifft method, while the symbolic frame, planner, and direct execution model
+come from the later SymFT architecture.
+
+## Is the new sampler faster?
+
+Across the seven real workloads below, current Clifft is faster than the last
+legacy SVM on five and remains close on the other two. The same campaign also
+compares SymFT's non-batched CPU sampler and its packed cross-shot counts path.
+The latter is an architectural throughput comparison, not the same execution
+mode as Clifft's current one-shot-at-a-time sampler.
 
 ### Sampling throughput
+
+These are median attempted shots per second, including shots discarded by
+postselection. Higher is better.
 
 | Circuit | Peak $k$ | Legacy Clifft | Current Clifft | SymFT single | SymFT batch |
 |---|---:|---:|---:|---:|---:|
@@ -122,26 +170,24 @@ sampler.
 | Coherent `d=3, r=3` | 7 | 346k/s | 394k/s | 425k/s | 664k/s |
 | Coherent `d=5, r=1` | 12 | 15.2k/s | 14.1k/s | 32.3k/s | 30.5k/s |
 
-Current Clifft is faster than the legacy SVM on five of these seven real
-workloads. It is within 2% on coherent `d=3, r=1` and about 7% on coherent
-`d=5, r=1`. Relative median absolute deviation for the current-Clifft cells
-ranged from 0.5% to 3.6%.
+Current Clifft is within 2% of the legacy SVM on coherent `d=3, r=1` and
+about 7% on coherent `d=5, r=1`. Relative median absolute deviation for the
+current-Clifft cells ranged from 0.5% to 3.6%.
 
 Against SymFT's non-batched path, current Clifft leads on five rows, trails by
 about 8% on coherent `d=3, r=3`, and trails by 2.29x on coherent `d=5, r=1`.
 SymFT selected exact product-component execution only for the latter circuit;
 Clifft currently uses one monolithic active vector. This is a useful measured
-case for the separate [product-component investigation](https://github.com/unitaryfoundation/clifft/issues/314),
+case for the [product-component investigation](https://github.com/unitaryfoundation/clifft/issues/314),
 not evidence that every width-12 circuit has the same gap.
 
-SymFT batching is most valuable when per-shot active-state work is small enough
-for packed symbolic and output work to dominate. It provides the largest gains
-on the active-width-zero and low-width rows and much less on cultivation
-`d=5`. On coherent `d=5, r=1`, batching adds no gain over SymFT's component
-path. Clifft tracks packed cross-shot execution separately rather than folding
-it into this cutover.
+SymFT batching provides its largest gains on the active-width-zero and
+low-width rows and much less on cultivation `d=5`. On coherent `d=5, r=1`,
+batching adds no gain over SymFT's component path.
 
 ### Compilation time
+
+These are median end-to-end compilation times. Lower is better.
 
 | Circuit | Legacy Clifft | Current Clifft | SymFT single | SymFT batch |
 |---|---:|---:|---:|---:|
@@ -156,45 +202,52 @@ it into this cutover.
 Symbolic planning does more work than legacy localization on some circuits,
 especially the Clifford-heavy surface and cultivation cases. Compilation still
 finishes in milliseconds here, and current Clifft compiles every row faster
-than either tested SymFT preparation mode. Compilation and sampling were timed
-separately; a shared reference-syndrome calculation was excluded.
+than either tested SymFT preparation mode.
 
-## Reproduction and limits
+??? note "Benchmark protocol, revisions, and raw data"
+    The campaign used 12 balanced process-level runs on one pinned core of an
+    AMD EPYC 9554P (Zen 4) KVM host. Each process used one thread, a fresh
+    paired seed, an excluded warmup, and an independently calibrated shot count
+    targeting about 1.5 seconds. Clifft used GCC 13.3 `Release` builds
+    (`-O3 -DNDEBUG`) with an `x86-64-v2` baseline and the AVX-512 runtime path
+    forced. SymFT used its native CPU build.
 
-The measured revisions were:
+    Every arm received the same circuit view, explicit noiseless detector and
+    observable references, detector postselection, and aggregate
+    survivor-output contract. Compilation and sampling were timed separately;
+    a shared reference-syndrome calculation was excluded. Shot counts and all
+    process results are recorded in the raw data.
 
-- current Clifft
-  [`04c4fe6`](https://github.com/unitaryfoundation/clifft/commit/04c4fe662d9b42d06817450096dbb56a541e709d),
-  after the sampler cutover and legacy removal;
-- legacy Clifft
-  [`aa7e7a3`](https://github.com/unitaryfoundation/clifft/commit/aa7e7a3d3e03d0414bb4f5757d9a7204b082539c),
-  the last legacy-default SVM revision; and
-- SymFT
-  [`c89b985`](https://github.com/haoliri0/SOFT/commit/c89b98514a919240b8afa53a271e08d926d3c987),
-  including corrected CPU reference normalization.
+    The measured revisions were current Clifft
+    [`04c4fe6`](https://github.com/unitaryfoundation/clifft/commit/04c4fe662d9b42d06817450096dbb56a541e709d),
+    the legacy-default Clifft SVM
+    [`aa7e7a3`](https://github.com/unitaryfoundation/clifft/commit/aa7e7a3d3e03d0414bb4f5757d9a7204b082539c),
+    and SymFT
+    [`c89b985`](https://github.com/haoliri0/SOFT/commit/c89b98514a919240b8afa53a271e08d926d3c987),
+    including corrected CPU reference normalization. The QEC inputs are pinned
+    to the
+    [Clifft paper corpus at `db7dc9f`](https://github.com/unitaryfoundation/clifft-paper/tree/db7dc9f13a2c2854690e92390c779048a1ac1400/qec_bench).
 
-The QEC inputs are pinned to the
-[Clifft paper corpus at `db7dc9f`](https://github.com/unitaryfoundation/clifft-paper/tree/db7dc9f13a2c2854690e92390c779048a1ac1400/qec_bench).
-The complete artifacts record circuit and benchmark-view SHA-256 hashes,
-expected detector and observable strings, compiler flags, calibration,
-per-round shots, times, counts, memory peaks, medians, dispersion, and a
-forced-AVX2 portability cross-check:
+    - [Summary and all cell statistics](../assets/updates/symbolic-sampler-2026-08/summary.json)
+    - [All primary AVX-512 process samples (gzip-compressed JSON)](../assets/updates/symbolic-sampler-2026-08/raw-avx512.json.gz)
+    - [All forced-AVX2 process samples](../assets/updates/symbolic-sampler-2026-08/raw-avx2.json)
 
-- [summary and all cell statistics](../assets/updates/symbolic-sampler-2026-08/summary.json)
-- [all primary AVX-512 process samples (gzip-compressed JSON)](../assets/updates/symbolic-sampler-2026-08/raw-avx512.json.gz)
-- [all forced-AVX2 process samples](../assets/updates/symbolic-sampler-2026-08/raw-avx2.json)
+    The artifacts include circuit hashes, expected detector and observable
+    strings, compiler flags, calibration, shots, seeds, times, counts, memory
+    peaks, medians, and dispersion. They also retain controlled
+    active-width-12, QV-10, QV-20, and coherent `d=5, r=5` guards. QV-20 and
+    coherent `d=5, r=5` completed too few shots per process for precise
+    throughput claims, so they are absent from the headline table.
 
-The full campaign also includes controlled active-width-12, QV-10, QV-20,
-and coherent `d=5, r=5` guards. QV-20 and coherent `d=5, r=5` completed too
-few shots per process for precise throughput claims, so they are deliberately
-absent from the headline table. These measurements describe one CPU, compiler,
-and corpus; they are not general performance guarantees. The public
-[clifft-bench](https://github.com/unitaryfoundation/clifft-bench) project is
-the planned home for ongoing cross-simulator benchmarks.
+    These measurements describe one CPU, compiler, and corpus; they are not
+    performance guarantees. The public
+    [clifft-bench](https://github.com/unitaryfoundation/clifft-bench) project is
+    the planned home for ongoing cross-simulator benchmarks.
 
-## What remains deliberately separate
+## What future work was deferred from this rewrite?
 
-The symbolic sampler cutover does not depend on these follow-up features:
+As of this rewrite, Clifft deliberately deferred several independent
+performance approaches to focused follow-ups:
 
 - [packed single-threaded cross-shot execution](https://github.com/unitaryfoundation/clifft/issues/313);
 - [exact product-component active states](https://github.com/unitaryfoundation/clifft/issues/314);
@@ -202,5 +255,6 @@ The symbolic sampler cutover does not depend on these follow-up features:
 - [cross-shot worker parallelism](https://github.com/unitaryfoundation/clifft/issues/343); and
 - [Apple Silicon-specific kernels](https://github.com/unitaryfoundation/clifft/issues/299).
 
-They target different workload regimes and can be evaluated independently
+The cutover establishes the single-shot symbolic baseline first. These
+features target different workload regimes and can now be measured and added
 without retaining the legacy SVM.
