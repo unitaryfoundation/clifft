@@ -67,3 +67,7 @@ venv/
 *digest.txt
 *.patch
 results/
+
+# Locally generated documentation benchmark outputs
+docs/guide/images/benchmark_comparison.png
+docs/guide/scripts/benchmark_results.csv

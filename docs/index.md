@@ -105,17 +105,16 @@ For QEC workflows, Clifft also supports detector-based post-selection, survivor 
 
 [Use Qiskit or Cirq](getting-started/integrations.md){ .md-button }
 
-## What's New in 0.7.0
+## What's New in 0.8.0
 
-Clifft 0.7.0 adds experimental simulation of leakage and loss through the new
-`clifft.noncomp` Python API. Define state-dependent transitions among two
-computational levels, two leaked levels, and loss; attach them to gates or
-explicit circuit instructions; and sample measurement, detector, observable,
-herald, and final-status data while accounting for quantum back-action.
+Clifft 0.8.0 replaces the original localized-Pauli SVM with a
+symbolic-coordinate compiler and sampler. The main `compile()` and sampling
+workflows remain, while the public VM bytecode and backend-selection APIs have
+been removed. Compiled programs now expose `peak_active_width` and an
+`inspect()` view of the sampling plan.
 
-The [Leakage and Loss guide](guide/leakage-and-loss.md) introduces the model
-and API. The [Delayed Loss tutorial](guide/delayed-loss.md) follows data-qubit
-loss through a surface-code memory experiment and shows why the time of a loss
-matters even when the final herald is the same.
+Read [Symbolic Sampling in Clifft](updates/symbolic-sampling.md) for the design
+motivation, API migration notes, matched performance results, and deferred
+follow-up work.
 
 [Full Changelog](https://github.com/unitaryfoundation/clifft/blob/main/CHANGELOG.md){ .md-button }

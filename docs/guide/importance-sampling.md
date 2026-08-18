@@ -366,7 +366,7 @@ The plots in this tutorial can be reproduced with the script at
 [`docs/guide/scripts/importance_sampling_tutorial.py`](scripts/importance_sampling_tutorial.py):
 
 ```bash
-uv run python docs/guide/scripts/importance_sampling_tutorial.py
+uv run --with matplotlib python docs/guide/scripts/importance_sampling_tutorial.py
 ```
 
 ## Further Reading

@@ -1,15 +1,14 @@
 <!--pytest-codeblocks:skipfile-->
 
-# Benchmark: Clifft vs Qiskit-Aer
+# Scaling Experiment: Clifft and Qiskit Aer
 
 Clifft's factored-state architecture means simulation cost scales with the
 circuit's active width $k$, not the total qubit count $N$. The corresponding
-active-state dimension is $2^k$. This page compares Clifft against Qiskit-Aer's
-state vector simulator on two parameter sweeps that isolate each scaling axis.
-It is a small, locally reproducible benchmark designed to isolate Clifft's
-scaling behavior.
-
-![Clifft vs Qiskit-Aer: Simulation Performance](images/benchmark_comparison.png)
+active-state dimension is $2^k$. This page compares Clifft against Qiskit Aer's
+statevector simulator on two parameter sweeps that isolate each scaling axis.
+It is a locally reproducible experiment, not a release benchmark or a
+cross-simulator leaderboard. Canonical published comparisons will live in the
+[clifft-bench](https://github.com/unitaryfoundation/clifft-bench) project.
 
 ## Circuit Design
 
@@ -19,27 +18,37 @@ The benchmark circuit has three parameters:
 - **k** — active width (the number of qubits that receive non-Clifford T-gates in this benchmark)
 - **t** — total T-gates applied
 
-The circuit places T-gates interleaved with Hadamard and CNOT gates on the first $k$ qubits, then pads the remaining $N - k$ qubits with a Clifford entangling layer (Hadamards followed by a CNOT chain across all $N$ qubits).
+The circuit places T-gates interleaved with Hadamard and CNOT gates on the
+first $k$ qubits, then pads the remaining $N - k$ qubits with a Clifford
+entangling layer: Hadamards followed by a CNOT chain across all $N$ qubits.
 
-A dense state vector simulator like Qiskit-Aer must allocate $2^N$ complex amplitudes regardless of circuit structure. Clifft's compiler recognizes that the Clifford padding can be absorbed into an offline Clifford frame $U_C$, so its symbolic executor only allocates $2^k$ amplitudes.
+A dense statevector simulator like Qiskit Aer must allocate $2^N$ complex
+amplitudes regardless of circuit structure. Clifft's compiler recognizes that
+the Clifford padding can be absorbed into an offline Clifford frame $U_C$, so
+its executor only allocates $2^k$ amplitudes.
 
 ## Two Sweeps
 
-### Qubit Scaling (left panels)
+### Qubit Scaling
 
 Fix $k = 12$ and $t = 20$, sweep $N$ from 16 to 29.
 
-- **Clifft** stays flat at ~60ms and ~73MB regardless of $N$, because its active array is always $2^{12}$.
-- **Qiskit-Aer** doubles in time and memory with each additional qubit. It times out at $N = 28$ (>120s) and exceeds available RAM at $N = 29$.
+This sweep checks the architectural distinction directly. Clifft's active
+array remains $2^{12}$, while Qiskit Aer allocates a dense state over all $N$
+qubits. Front-end and fixed per-circuit costs mean measured runtime need not be
+perfectly flat or double at every step.
 
-### Active-Width Scaling (right panels)
+### Active-Width Scaling
 
 Fix $N = 24$ and $t = 40$, sweep $k$ from 8 to 25.
 
-- **Qiskit-Aer** is constant at ~10s and ~343MB, since it always tracks $2^{24}$ amplitudes.
-- **Clifft** scales as $O(2^k)$. For small $k$ it is over 100x faster; by $k = 24$ the two converge because Clifft's active array approaches Qiskit's full state vector.
+This sweep holds Qiskit Aer's dense state at $2^{24}$ amplitudes while
+increasing Clifft's active state from $2^8$ toward the dense limit. Clifft's
+coefficient storage and dense kernel work grow as $O(2^k)$.
 
-This is the honest tradeoff: Clifft wins when $k \ll N$, which is the regime relevant to most error-corrected and near-term circuits where Clifford gates dominate.
+The experiment demonstrates why active width, rather than total qubit count,
+is the useful first-order predictor for Clifft. It does not establish which
+simulator is faster for an arbitrary application circuit.
 
 ## Prerequisites
 
@@ -49,20 +58,25 @@ pip install clifft qiskit qiskit-aer matplotlib
 
 ## Running the Benchmark
 
-The benchmark script is self-contained. It generates circuits in Qiskit, converts them to Stim format for Clifft, runs both simulators in isolated subprocesses (for clean memory measurement), and produces the plot.
+The benchmark script is self-contained. It generates circuits in Qiskit,
+converts them to Stim format for Clifft, runs both simulators in isolated
+subprocesses for clean memory measurement, and produces the plot.
 
 ```bash
-# Run full benchmark and generate plot
+# Run the benchmark and generate a local CSV and plot
 python docs/guide/scripts/run_benchmark.py
 
-# Re-plot from existing results without re-running
+# Re-plot after a completed local run
 python docs/guide/scripts/run_benchmark.py --plot-only
 
 # Custom output path
 python docs/guide/scripts/run_benchmark.py -o my_plot.png
 ```
 
-On an 8GB machine, the full sweep takes approximately 5-10 minutes. Qiskit will naturally time out or OOM on the larger qubit counts.
+The script applies a 120-second timeout and a 6.5 GiB worker memory limit, so
+larger dense-state points may time out or run out of memory. Before publishing
+results, record the Clifft revision, package versions, CPU, execution target,
+thread count, and operating system alongside the generated CSV.
 
 ### Why Clifft Is Faster at Low Active Width
 
@@ -77,7 +91,11 @@ Noise, measurements, and conditional operations use prepared affine Boolean
 expressions; the runtime does not evolve the Clifford tableau. Dormant
 Clifford structure therefore adds no coefficient storage.
 
-Qiskit-Aer has no such factorization — it must allocate and evolve a full $2^N$ state vector for every circuit.
+Qiskit Aer has no such factorization: it must allocate and evolve a full
+$2^N$ statevector for every circuit.
 
-!!! note "Reproducing results"
-    Exact timings depend on hardware. The qualitative scaling behavior (Clifft flat in N, exponential in k; Qiskit exponential in N, flat in k) is consistent across machines. The pre-generated plot was produced on a single-core Linux VM with 8GB RAM.
+!!! note "Interpreting results"
+    Exact timings depend on hardware, compiler, package versions, and the
+    selected Clifft kernels. Use this experiment to inspect scaling on one
+    controlled machine; use `clifft-bench` for maintained published
+    comparisons.

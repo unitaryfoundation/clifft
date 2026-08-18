@@ -1,4 +1,4 @@
-"""Standalone benchmark: Clifft vs Qiskit-Aer.
+"""Standalone scaling experiment: Clifft and Qiskit Aer.
 
 Generates circuits in Qiskit, converts to Stim format for Clifft,
 runs both simulators across two parameter sweeps, and plots results.
@@ -302,7 +302,7 @@ def plot_results(csv_path: str, output_path: str) -> None:
     import matplotlib.ticker as ticker
 
     TOOL_STYLE = {
-        "qiskit": {"color": "#E74C3C", "marker": "s", "label": "Qiskit-Aer (statevector)"},
+        "qiskit": {"color": "#E74C3C", "marker": "s", "label": "Qiskit Aer (statevector)"},
         "clifft": {"color": "#2ECC71", "marker": "o", "label": "Clifft"},
     }
 
@@ -452,7 +452,7 @@ def plot_results(csv_path: str, output_path: str) -> None:
     )
 
     fig.suptitle(
-        "Clifft vs Qiskit-Aer: Simulation Performance",
+        "Clifft and Qiskit Aer: Simulation Scaling",
         fontsize=13,
         fontweight="bold",
     )
@@ -469,7 +469,7 @@ def plot_results(csv_path: str, output_path: str) -> None:
 
 def main() -> None:
     """Entry point."""
-    parser = argparse.ArgumentParser(description="Clifft vs Qiskit-Aer benchmark")
+    parser = argparse.ArgumentParser(description="Clifft and Qiskit Aer scaling experiment")
     parser.add_argument(
         "--internal-worker",
         nargs=3,
