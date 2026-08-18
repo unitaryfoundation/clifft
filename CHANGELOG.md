@@ -5,6 +5,80 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.8.0] - 2026-08-18
+
+Clifft 0.8.0 replaces the original localized-Pauli Schrodinger virtual
+machine (SVM) with a symbolic-coordinate compiler and sampler. Drawing on the
+recent [SymFT paper](https://arxiv.org/abs/2607.28600) and
+[reference implementation](https://github.com/haoliri0/SOFT), the new backend
+combines symbolic Clifford-Pauli-frame factorization and adaptive
+stabilizer-coordinate planning with Clifft's
+[original factored active-state representation](https://arxiv.org/abs/2604.27058).
+Its planner resolves Clifford coordinates, affine Pauli-frame effects, active
+Pauli shapes, and symbolic dependencies ahead of time, while prepared scalar,
+AVX2, and AVX-512 kernels apply multi-coordinate operations directly. The usual
+`compile()` and sampling APIs retain their output contracts, and the new path
+also powers exact state queries and leakage/loss continuations.
+
+Across the release benchmark corpus, the new sampler is faster than the SVM
+on five of seven real workloads and remains close on the other two. See
+[Symbolic Sampling in Clifft](https://unitaryfoundation.github.io/clifft/updates/symbolic-sampling/)
+for the design, API migration guide, matched benchmark results, and method
+provenance.
+
+### Added
+
+- Added `Program.inspect()` and `Program.inspect_action()` for diagnostic
+  views of prepared sampling plans. The playground now presents the same
+  symbolic plan with circuit-source provenance.
+- Added generalized Pauli-product phase gates: Clifford `SPP` / `SPP_DAG`
+  and non-Clifford `TPP` / `TPP_DAG` by @danielgaskins in
+  [#333](https://github.com/unitaryfoundation/clifft/pull/333).
+- Added the `LEAKAGE(p)` circuit annotation for source-preserving transitions
+  from `g` to `leak_g` and `e` to `leak_e` by @bachase in
+  [#244](https://github.com/unitaryfoundation/clifft/pull/244).
+- Added `Program.peak_active_width` as the canonical name for the largest
+  dense active-state width. `Program.peak_rank` remains as a deprecated alias
+  for this release, by @bachase in
+  [#338](https://github.com/unitaryfoundation/clifft/pull/338).
+
+### Changed
+
+- `clifft.compile()` now returns the symbolic sampling `Program`. It is an
+  opaque, reusable compiled program rather than an iterable bytecode module;
+  `num_actions` replaces `num_instructions` for diagnostic action counts.
+- `clifft.noncomp.sample(..., max_rank=...)` is now
+  `clifft.noncomp.sample(..., max_active_width=...)`.
+- The default optimizer removes rotations whose phase is unobservable at a
+  later terminal measurement, including safe cases across resets, disjoint
+  conditional corrections, noise, and classical bookkeeping, by @bachase in
+  [#239](https://github.com/unitaryfoundation/clifft/pull/239) and
+  [#243](https://github.com/unitaryfoundation/clifft/pull/243).
+- A fixed seed remains reproducible for a fixed version and call, but sampled
+  rows need not match v0.7 because the new executor has a different random
+  number schedule.
+
+### Removed
+
+- Removed the SVM, public `Opcode`, `Instruction`, bytecode `Program`
+  iteration and inspection helpers (`source_map`, `active_k_history`, and
+  `as_dict()`), bytecode pass APIs, and the `bytecode_passes` argument to
+  `compile()`. Use `Program.inspect()` for diagnostic plan text; HIR passes
+  remain the supported compiler-customization boundary.
+- Removed the mutable `State` / `execute()` inspection workflow. Use
+  `get_statevector(program)` for eligible final states.
+- Removed the SVM backend and OpenMP controls: `svm_backend()`,
+  `get_num_threads()`, and `set_num_threads()`. Parallel sampling and
+  intra-shot parallel kernels are tracked as future work.
+
+### Fixed
+
+- Reject invalid inverted targets instead of accepting inversion on
+  operations where it has no defined meaning, by @bachase in
+  [#241](https://github.com/unitaryfoundation/clifft/pull/241).
+- Harden noncomputational continuation planning and reuse its storage without
+  changing trajectory semantics.
+
 ## [0.7.0] - 2026-07-31
 
 Clifft 0.7.0 adds experimental simulation of leakage and loss through the new

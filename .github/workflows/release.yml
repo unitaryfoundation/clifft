@@ -10,9 +10,9 @@ on:
     # PyPI publishing requires a version tag push.
     inputs:
       test_version:
-        description: "Version for TestPyPI (e.g. 0.1.0.dev1). Required because PyPI rejects local version specifiers from untagged builds."
+        description: "Version for TestPyPI (e.g. 0.8.0.dev1). Required because PyPI rejects local version specifiers from untagged builds."
         required: true
-        default: "0.1.0.dev1"
+        default: "0.8.0.dev1"
 
 permissions:
   contents: read
