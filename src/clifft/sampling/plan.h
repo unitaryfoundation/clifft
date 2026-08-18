@@ -330,10 +330,10 @@ struct SamplingPlan {
 
     // Active width is the number of stabilizer coordinates represented in the
     // dense coefficient state, which contains 2^active_width entries. The
-    // planner computes its maximum while emitting actions so runtime lowering
+    // planner computes the peak while emitting actions so runtime lowering
     // can preallocate storage.
     uint32_t initial_active_width = 0;
-    uint32_t max_active_width = 0;
+    uint32_t peak_active_width = 0;
     uint32_t num_visible_records = 0;
     uint32_t num_hidden_records = 0;
     uint32_t num_noise_sites = 0;

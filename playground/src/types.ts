@@ -12,7 +12,7 @@ export interface PlanActionRange {
 export interface CompileSuccess {
   error?: undefined;
   num_qubits: number;
-  max_active_width: number;
+  peak_active_width: number;
   num_measurements: number;
   num_t_gates: number;
   hir_ops: string[];

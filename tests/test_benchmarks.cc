@@ -63,7 +63,7 @@ static std::string surface_code_text(uint32_t distance, uint64_t rounds, double 
 
 // EXP_VAL-heavy synthetic circuit: prepares a Clifford state on n qubits,
 // then evaluates `num_probes` weight-3 multi-Pauli expectation values per shot.
-// Stays at peak_rank=0 (fully Clifford prep) so the cost is dominated by the
+// Stays at zero peak active width (fully Clifford prep) so the cost is dominated by the
 // EXP_VAL frame-conjugation path.
 static std::string exp_val_heavy_text(uint32_t num_qubits, uint32_t num_probes) {
     std::ostringstream s;
@@ -87,12 +87,12 @@ static std::string exp_val_heavy_text(uint32_t num_qubits, uint32_t num_probes) 
 }
 
 // ---------------------------------------------------------------------------
-// QV-10: 10 qubits, peak_rank=10, dense SU(4) layers with measurements.
+// QV-10: 10 qubits, peak active width 10, dense SU(4) layers with measurements.
 // ~1ms/shot baseline -> 100 shots ~= 100ms.
 // ---------------------------------------------------------------------------
 TEST_CASE("Bench: QV-10 sampling 100 shots", "[bench]") {
     auto mod = compile_circuit(fixture("qv10.stim"));
-    REQUIRE(mod.max_active_width() == 10);
+    REQUIRE(mod.peak_active_width() == 10);
 
     BENCHMARK("QV-10 x100 shots") {
         return sampling::sample(mod, 100, 0);
@@ -100,13 +100,13 @@ TEST_CASE("Bench: QV-10 sampling 100 shots", "[bench]") {
 }
 
 // ---------------------------------------------------------------------------
-// Magic state cultivation d=5: 42 physical qubits, peak_rank=10,
+// Magic state cultivation d=5: 42 physical qubits, peak active width 10,
 // sparse QEC with noise, T gates, postselection.
 // ~0.09ms/shot baseline -> 1000 shots ~= 90ms.
 // ---------------------------------------------------------------------------
 TEST_CASE("Bench: cultivation d5 sampling 1000 shots", "[bench]") {
     auto mod = compile_circuit(fixture("cultivation_d5.stim"));
-    REQUIRE(mod.max_active_width() == 10);
+    REQUIRE(mod.peak_active_width() == 10);
 
     BENCHMARK("cultivation-d5 x1000 shots") {
         return sampling::sample_survivors(mod, 1000, 0, false);
@@ -115,12 +115,12 @@ TEST_CASE("Bench: cultivation d5 sampling 1000 shots", "[bench]") {
 
 // ---------------------------------------------------------------------------
 // Surface code d=7 r=7 p=1e-3: paper QEC throughput benchmark.
-// ~118 qubits, fully Clifford (peak_rank=0), low noise so most NOISE sites
+// ~118 qubits, fully Clifford (zero peak active width), low noise so most NOISE sites
 // stay silent. Throughput is dominated by symbolic actions and the gap-sampler.
 // ---------------------------------------------------------------------------
 TEST_CASE("Bench: surface d7 r7 p1e-3 sampling 10000 shots", "[bench]") {
     auto mod = compile_text(surface_code_text(7, 7, 1e-3));
-    REQUIRE(mod.max_active_width() == 0);
+    REQUIRE(mod.peak_active_width() == 0);
     REQUIRE(mod.num_qubits() <= 128);
 
     BENCHMARK("surface-d7-r7 p=1e-3 x10000 shots") {
@@ -148,7 +148,7 @@ TEST_CASE("Bench: surface d5 r5 high-noise APPLY_PAULI heavy", "[bench]") {
 // ---------------------------------------------------------------------------
 TEST_CASE("Bench: surface d11 r11 p1e-3 sampling 1000 shots", "[bench]") {
     auto mod = compile_text(surface_code_text(11, 11, 1e-3));
-    REQUIRE(mod.max_active_width() == 0);
+    REQUIRE(mod.peak_active_width() == 0);
     REQUIRE(mod.num_qubits() > 128);
 
     BENCHMARK("surface-d11-r11 p=1e-3 x1000 shots") {

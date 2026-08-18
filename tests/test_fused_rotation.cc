@@ -37,7 +37,7 @@ SamplingPlan rotation_plan(uint32_t active_width, std::span<const RotateActivePa
     SamplingPlan plan;
     plan.num_qubits = active_width;
     plan.initial_active_width = active_width;
-    plan.max_active_width = active_width;
+    plan.peak_active_width = active_width;
     plan.symbols = {SymbolInfo{SymbolKind::Presampled, std::nullopt, std::nullopt}};
     for (const RotateActivePauli& rotation : rotations) {
         plan.actions.push_back(PlannedAction{active_width, active_width, rotation});
@@ -52,7 +52,7 @@ void require_matches_scalar(const SamplingPlan& plan, uint8_t presampled_value,
     Executor executor(executable);
     executor.run_shot(std::array<uint8_t, 1>{presampled_value});
 
-    State expected(plan.max_active_width, plan.initial_active_width, plan.global_weight);
+    State expected(plan.peak_active_width, plan.initial_active_width, plan.global_weight);
     for (const PlannedAction& planned : plan.actions) {
         const auto& rotation = std::get<RotateActivePauli>(planned.action);
         bool sign = rotation.sign.constant();
@@ -187,7 +187,7 @@ TEST_CASE("Dynamic fused rotation matches scalar across affine sign values") {
     SamplingPlan plan;
     plan.num_qubits = 6;
     plan.initial_active_width = 6;
-    plan.max_active_width = 6;
+    plan.peak_active_width = 6;
     plan.symbols = {
         SymbolInfo{SymbolKind::Presampled, std::nullopt, std::nullopt},
         SymbolInfo{SymbolKind::Presampled, std::nullopt, std::nullopt},

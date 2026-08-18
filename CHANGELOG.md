@@ -149,11 +149,11 @@ Beyond the probability work, 0.4.0 lands a scheduled benchmark-history workflow 
 
 ## [0.3.0] - 2026-05-08
 
-This release adds strong simulation for unitary circuits through exact computational-basis probability queries of the factored state. The new `clifft.probabilities()` API evaluates selected bitstrings without materializing the full $2^n$ statevector, so sparse output queries can scale with active rank rather than output-space size. See the [strong-simulation tutorial](https://unitaryfoundation.github.io/clifft/guide/strong-simulation/) for examples.
+This release adds strong simulation for unitary circuits through exact computational-basis probability queries of the factored state. The new `clifft.probabilities()` API evaluates selected bitstrings without materializing the full $2^n$ statevector, so sparse output queries can scale with active width rather than output-space size. See the [strong-simulation tutorial](https://unitaryfoundation.github.io/clifft/guide/strong-simulation/) for examples.
 
 Clifft 0.3.0 also removes the old compile-time qubit ceiling by moving Pauli mask storage to runtime-width arenas. That fixed-width limit kept the early implementation simple and fast; the new arena path keeps the overhead localized while supporting circuits above the former inline-width bound.
 
-The release also improves performance in the playground for larger circuits. The prior playground had some pauses when unnecessarily re-rendering the current program counter line in the active dimensions timeline.
+The release also improves performance in the playground for larger circuits. The prior playground had some pauses when unnecessarily re-rendering the current program counter line in the active-width timeline.
 
 ### Bug Fixes
 

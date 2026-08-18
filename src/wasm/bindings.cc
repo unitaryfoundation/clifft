@@ -32,7 +32,7 @@ using json = nlohmann::json;
 
 constexpr uint32_t MAX_SHOTS = 100000;
 constexpr uint32_t MAX_OPS = 50000;
-constexpr uint32_t MAX_ACTIVE_WIDTH = 24;
+constexpr uint32_t MAX_BROWSER_ACTIVE_WIDTH = 24;
 
 struct PipelineResult {
     clifft::HirModule hir;
@@ -162,7 +162,7 @@ std::string compile_to_json(const std::string& source, const std::string& passes
 
     json j = {
         {"num_qubits", plan.num_qubits},
-        {"max_active_width", plan.max_active_width},
+        {"peak_active_width", plan.peak_active_width},
         {"num_measurements", plan.num_visible_records},
         {"num_t_gates", hir.num_t_gates()},
         {"hir_ops", hir_strs},
@@ -227,7 +227,7 @@ std::string simulate_wasm(const std::string& source, uint32_t shots,
     }
     const auto& program = *result.program;
 
-    if (program.max_active_width() > MAX_ACTIVE_WIDTH) {
+    if (program.peak_active_width() > MAX_BROWSER_ACTIVE_WIDTH) {
         return json({{"error", "MemoryLimitExceeded"}}).dump();
     }
 

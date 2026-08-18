@@ -47,7 +47,7 @@ SamplingPlan valid_plan() {
 
     SamplingPlan plan;
     plan.num_qubits = 2;
-    plan.max_active_width = 1;
+    plan.peak_active_width = 1;
     plan.num_visible_records = 1;
     plan.num_hidden_records = 1;
     plan.num_noise_sites = 1;
@@ -82,7 +82,7 @@ SamplingPlan valid_rotation_plan() {
     SamplingPlan plan;
     plan.num_qubits = 1;
     plan.initial_active_width = 1;
-    plan.max_active_width = 1;
+    plan.peak_active_width = 1;
     plan.actions = {
         PlannedAction{1, 1, RotateActivePauli{ActivePauli{1, 0}, 0.25, AffineBool{}}},
     };
@@ -151,7 +151,7 @@ TEST_CASE("Sampling plan validates symbolic and active state invariants") {
     REQUIRE_NOTHROW(plan.validate());
 
     const std::string text = plan.inspect();
-    REQUIRE(text.find("sampling_plan qubits=2 initial_width=0 max_width=1") != std::string::npos);
+    REQUIRE(text.find("sampling_plan qubits=2 initial_width=0 peak_width=1") != std::string::npos);
     REQUIRE(text.find("s0 kind=presampled noise_site=0") != std::string::npos);
     REQUIRE(text.find("1 active_width=1->0 dense_passes=2 measure_active") != std::string::npos);
     REQUIRE(text.find("outcome=s0 ^ s1 record=0") != std::string::npos);
@@ -297,7 +297,7 @@ TEST_CASE("Sampling plan rejects measurement pivots outside Pauli support") {
     SamplingPlan plan;
     plan.num_qubits = 2;
     plan.initial_active_width = 2;
-    plan.max_active_width = 2;
+    plan.peak_active_width = 2;
     plan.num_visible_records = 1;
     plan.symbols = {SymbolInfo{SymbolKind::Branch, 0, std::nullopt}};
     plan.actions = {
@@ -331,20 +331,20 @@ TEST_CASE("Sampling plan rejects invalid dimensions and action contracts") {
     SECTION("initial width exceeds the circuit") {
         SamplingPlan plan;
         plan.initial_active_width = 1;
-        plan.max_active_width = 1;
+        plan.peak_active_width = 1;
         REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
     }
 
-    SECTION("maximum width is below the initial width") {
+    SECTION("peak width is below the initial width") {
         SamplingPlan plan;
         plan.num_qubits = 1;
         plan.initial_active_width = 1;
         REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
     }
 
-    SECTION("declared maximum is not reached") {
+    SECTION("declared peak is not reached") {
         SamplingPlan plan = valid_plan();
-        plan.max_active_width = 2;
+        plan.peak_active_width = 2;
         REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
     }
 
@@ -506,7 +506,7 @@ TEST_CASE("Sampling plan rejects active widths unsupported by dense storage") {
     SamplingPlan plan;
     plan.num_qubits = clifft::kDenseActiveWidthLimit;
     plan.initial_active_width = clifft::kDenseActiveWidthLimit;
-    plan.max_active_width = clifft::kDenseActiveWidthLimit;
+    plan.peak_active_width = clifft::kDenseActiveWidthLimit;
 
     REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
 }
@@ -515,7 +515,7 @@ TEST_CASE("Sampling plan safely rejects a transition stream above dense width") 
     constexpr uint32_t kMalformedWidth = clifft::kDenseActiveWidthLimit + 10;
     SamplingPlan plan;
     plan.num_qubits = kMalformedWidth;
-    plan.max_active_width = clifft::kDenseActiveWidthLimit - 1;
+    plan.peak_active_width = clifft::kDenseActiveWidthLimit - 1;
     for (uint32_t width = 0; width < kMalformedWidth; ++width) {
         plan.actions.push_back(
             PlannedAction{width, width + 1, PromoteDormantRotation{0.25, AffineBool{}}});
@@ -549,7 +549,7 @@ TEST_CASE("Sampling plan validates expectation output slots and zero probes") {
     SamplingPlan plan;
     plan.num_qubits = 1;
     plan.initial_active_width = 1;
-    plan.max_active_width = 1;
+    plan.peak_active_width = 1;
     plan.num_exp_vals = 2;
     plan.actions = {
         PlannedAction{1, 1,

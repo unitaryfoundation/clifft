@@ -54,12 +54,12 @@ struct NonComputationalSample {
 // classifier the model does not provide. (Classifier shape -- two or
 // three symbols, stochastic columns -- is the model's own construction
 // contract, enforced before a circuit ever meets it.)
-// `max_rank` caps the compiled peak rank. Compilation reports the first
+// `max_active_width` caps the compiled peak active width. Compilation reports the first
 // offending active width before allocating or growing the executor state.
 // Unlimited when unset.
-NonComputationalSample sample_noncomputational(const Circuit& circuit,
-                                               const NonComputationalModel& model, uint32_t shots,
-                                               std::optional<uint64_t> seed = std::nullopt,
-                                               std::optional<uint32_t> max_rank = std::nullopt);
+NonComputationalSample sample_noncomputational(
+    const Circuit& circuit, const NonComputationalModel& model, uint32_t shots,
+    std::optional<uint64_t> seed = std::nullopt,
+    std::optional<uint32_t> max_active_width = std::nullopt);
 
 }  // namespace clifft

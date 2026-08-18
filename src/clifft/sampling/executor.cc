@@ -52,7 +52,7 @@ struct MeasurementBranchClassification {
 Executor::Executor(const ExecutablePlan& plan, uint64_t seed)
     : root_plan_(&plan),
       plan_(&plan),
-      state_(plan.max_active_width_, plan.initial_active_width_, plan.global_weight_),
+      state_(plan.peak_active_width_, plan.initial_active_width_, plan.global_weight_),
       symbols_(plan.num_symbols_, 0),
       expression_registers_(plan.expression_register_constants_),
       records_(static_cast<size_t>(plan.num_visible_records_) + plan.num_hidden_records_, 0),
@@ -144,7 +144,7 @@ void Executor::resume(const ExecutablePlan& continuation,
             "sampling continuation requires distributions for every presampled symbol");
     }
 
-    state_.ensure_capacity(continuation.max_active_width_);
+    state_.ensure_capacity(continuation.peak_active_width_);
     symbols_.resize(std::max(symbols_.size(), static_cast<size_t>(continuation.num_symbols_)), 0);
     std::fill(symbols_.begin() + boundary->symbol_prefix_size, symbols_.end(), uint8_t{0});
     expression_registers_.resize(

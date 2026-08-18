@@ -140,7 +140,7 @@ class Model:
             transition probability differs between ``g`` and ``e`` for a
             coherent qubit that is not yet represented in the state vector.
             ``"exact"`` (the default) adds the qubit to the state vector at
-            that site, increasing peak rank by one. ``"neglect"`` avoids the
+            that site, increasing peak active width by one. ``"neglect"`` avoids the
             expansion but omits the state update caused by observing that no
             transition occurred. It is exact when ``g`` and ``e`` have the
             same total transition probability; otherwise the bias is of order
@@ -290,7 +290,7 @@ def sample(
     model: Model,
     shots: int,
     seed: int | None = None,
-    max_rank: int | None = None,
+    max_active_width: int | None = None,
 ) -> NonComputationalSample:
     """Sample ``circuit`` under ``model`` for ``shots`` shots.
 
@@ -313,7 +313,7 @@ def sample(
         seed: Seed for reproducible sampling. The same seed and arguments
             produce identical results. When ``None``, each call uses fresh OS
             entropy.
-        max_rank: Optional cap on the peak rank of every compiled
+        max_active_width: Optional cap on the peak active width of every compiled
             continuation. The check is conservative because a continuation
             may contain branches that the current shot will not take.
 
@@ -324,14 +324,14 @@ def sample(
 
     Raises:
         ValueError: If a model or circuit contract is violated, an annotation
-            is malformed, or a continuation exceeds ``max_rank``.
+            is malformed, or a continuation exceeds ``max_active_width``.
     """
     return _sample_with(
         circuit,
         model,
         shots,
         seed,
-        max_rank,
+        max_active_width,
         _clifft_core._sample_noncomputational,
     )
 
@@ -341,13 +341,13 @@ def _sample_with(
     model: Model,
     shots: int,
     seed: int | None,
-    max_rank: int | None,
+    max_active_width: int | None,
     sampler: Callable,
 ) -> NonComputationalSample:
     if isinstance(circuit, str):
         circuit = _clifft_core.parse(circuit)
     meas, det, obs, status, heralds, num_qubits, num_meas, num_det, num_obs = sampler(
-        circuit, model._handle, shots, seed, max_rank
+        circuit, model._handle, shots, seed, max_active_width
     )
     return NonComputationalSample(
         meas, det, obs, status, heralds, num_qubits, num_meas, num_det, num_obs

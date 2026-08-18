@@ -496,12 +496,12 @@ def test_policy_knob_strings_validate():
 def test_loss_only_exact_damping_stays_at_stabilizer_cost(noncomp_sampling_api):
     """Equal per-source rates (LOSS always qualifies) take the trap-form
     lowering under damping="exact", so a loss-only model compiles at the
-    neglect rank -- max_rank=0 passes -- while the physics stays exact:
+    neglect width -- max_active_width=0 passes -- while the physics stays exact:
     survivors keep full interference and the loss rate is right."""
     circuit = "H 0\nLOSS(0.3) 0\nH 0\nM 0"
     cls = noncomp.Classifier([[1, 0, 1, 0, 0], [0, 1, 0, 1, 1]])
     model = noncomp.Model(classifier=cls)  # damping="exact" default
-    r = noncomp_sampling_api(circuit, model, shots=4000, seed=17, max_rank=0)
+    r = noncomp_sampling_api(circuit, model, shots=4000, seed=17, max_active_width=0)
     meas = r.measurements[:, 0]
     lost = r.final_status[:, 0] == noncomp.QubitStatus.LOST
     # Survivors: the H .. H sandwich returns |0> deterministically; a lost
@@ -513,23 +513,25 @@ def test_loss_only_exact_damping_stays_at_stabilizer_cost(noncomp_sampling_api):
 
 
 def test_loss_on_many_coherent_qubits_compiles_flat(noncomp_sampling_api):
-    """Per-qubit LOSS sites do not accumulate rank under damping="exact"."""
+    """Per-qubit LOSS sites do not accumulate active width under damping="exact"."""
     circuit = (
         "".join(f"H {i}\n" for i in range(5))
         + "".join(f"LOSS(0.01) {i}\n" for i in range(5))
         + "".join(f"H {i}\nM {i}\n" for i in range(5))
     )
     cls = noncomp.Classifier([[1, 0, 1, 0, 0], [0, 1, 0, 1, 1]])
-    r = noncomp_sampling_api(circuit, noncomp.Model(classifier=cls), shots=8, seed=3, max_rank=0)
+    r = noncomp_sampling_api(
+        circuit, noncomp.Model(classifier=cls), shots=8, seed=3, max_active_width=0
+    )
     assert r.num_measurements == 5
 
 
-def test_max_rank_rejects_over_budget_exact_but_neglect_fits(noncomp_sampling_api):
+def test_max_active_width_rejects_over_budget_exact_but_neglect_fits(noncomp_sampling_api):
     # A source-dependent leak (only out of e) on a coherent dormant qubit is
     # genuinely non-Clifford: damping="exact" expands it into the amplitude
-    # array, adding one to the compiled rank per site. Three H-prefixed sites
+    # array, adding one to the compiled active width per site. Three H-prefixed sites
     # push the peak to 3, over a cap of 2, so exact rejects (naming the
-    # offending line); damping="neglect" keeps the rank flat and fits.
+    # offending line); damping="neglect" keeps the active width flat and fits.
     leak_from_e = _zeros(5, 5)
     leak_from_e[LEAK_E][noncomp.Level.E] = 0.2  # T[to][from]; nothing out of g
     circuit = (
@@ -546,16 +548,16 @@ def test_max_rank_rejects_over_budget_exact_but_neglect_fits(noncomp_sampling_ap
             damping=damping,
         )
 
-    with pytest.raises(ValueError, match="max_rank"):
-        noncomp_sampling_api(circuit, model("exact"), shots=4, seed=1, max_rank=2)
+    with pytest.raises(ValueError, match="max_active_width"):
+        noncomp_sampling_api(circuit, model("exact"), shots=4, seed=1, max_active_width=2)
 
-    r = noncomp_sampling_api(circuit, model("neglect"), shots=4, seed=1, max_rank=2)
+    r = noncomp_sampling_api(circuit, model("neglect"), shots=4, seed=1, max_active_width=2)
     assert r.num_measurements == 3
 
 
-def test_max_rank_ignores_the_unreachable_all_computational_module(noncomp_sampling_api):
+def test_max_active_width_ignores_the_unreachable_all_computational_module(noncomp_sampling_api):
     """A model whose initial state has zero computational mass never runs the
-    no-event module; its rank must not be able to reject the run."""
+    no-event module; its active width must not be able to reject the run."""
     circuit = (
         "H 0\n"
         + "".join(f"CX 0 {i}\n" for i in range(1, 6))
@@ -564,11 +566,13 @@ def test_max_rank_ignores_the_unreachable_all_computational_module(noncomp_sampl
     )
     cls = noncomp.Classifier([[1, 0, 1, 0, 0], [0, 1, 0, 1, 1]])
     # Control: with computational initials the no-event module is real and
-    # its rank exceeds the cap -- this is what makes the test discriminating.
-    with pytest.raises(ValueError, match="max_rank"):
-        noncomp_sampling_api(circuit, noncomp.Model(classifier=cls), shots=4, seed=3, max_rank=0)
+    # its active width exceeds the cap -- this is what makes the test discriminating.
+    with pytest.raises(ValueError, match="max_active_width"):
+        noncomp_sampling_api(
+            circuit, noncomp.Model(classifier=cls), shots=4, seed=3, max_active_width=0
+        )
     lost = noncomp.Model(initial_state=[0, 0, 0, 0, 1], classifier=cls)
-    r = noncomp_sampling_api(circuit, lost, shots=16, seed=3, max_rank=0)
+    r = noncomp_sampling_api(circuit, lost, shots=16, seed=3, max_active_width=0)
     assert (r.final_status == noncomp.QubitStatus.LOST).all()
     # The lost column reads symbol 1 with certainty: a raw readout of the
     # dropped-everything |0> carriers would give 0, so all-1 records verify

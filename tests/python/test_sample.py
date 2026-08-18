@@ -1,5 +1,6 @@
 """Python integration tests for clifft.compile and clifft.sample."""
 
+import warnings
 from typing import Any
 
 import numpy as np
@@ -19,25 +20,37 @@ class TestCompile:
     def test_compile_simple(self) -> None:
         """Compile a simple circuit."""
         prog = clifft.compile("H 0\nT 0\nM 0", hir_passes=None)
-        assert prog.peak_rank == 1
+        assert prog.peak_active_width == 1
         assert prog.num_measurements == 1
         assert prog.num_actions >= 1
 
+    def test_peak_rank_is_a_deprecated_alias(self) -> None:
+        prog = clifft.compile("H 0\nT 0", hir_passes=None)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            expected = prog.peak_active_width
+        with pytest.warns(DeprecationWarning, match="peak_active_width"):
+            assert prog.peak_rank == expected
+
+    def test_repr_names_peak_active_width(self) -> None:
+        prog = clifft.compile("H 0\nT 0", hir_passes=None)
+        assert ", peak_active_width=1, " in repr(prog)
+
     def test_compile_pure_clifford(self) -> None:
-        """Pure Clifford circuit has peak_rank 0."""
+        """Pure Clifford circuits have peak active width zero."""
         prog = clifft.compile("H 0\nCX 0 1\nM 0\nM 1")
-        assert prog.peak_rank == 0
+        assert prog.peak_active_width == 0
         assert prog.num_measurements == 2
 
     def test_compile_multiple_t_gates(self) -> None:
-        """Multiple independent T gates increase peak_rank."""
+        """Multiple independent T gates increase peak active width."""
         prog = clifft.compile("""
             H 0
             H 1
             T 0
             T 1
         """)
-        assert prog.peak_rank == 2
+        assert prog.peak_active_width == 2
 
     def test_lower_returns_the_public_program_type(self) -> None:
         """Explicit parse and trace use the same production lowering boundary."""
@@ -113,7 +126,7 @@ class TestSample:
         lines.append("M 0")
 
         program = sampling_api.compile("\n".join(lines), hir_passes=None)
-        assert program.peak_rank == 2
+        assert program.peak_active_width == 2
 
         result = sampling_api.sample(program, shots=64, seed=7)
         assert result.measurements.shape == (64, rounds + 1)

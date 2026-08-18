@@ -1,6 +1,6 @@
 """Performance benchmarks for large-statevector circuits.
 
-Uses a pre-generated 20-qubit Quantum Volume circuit (peak rank 20,
+Uses a pre-generated 20-qubit Quantum Volume circuit (peak active width 20,
 16 MB statevector) to measure per-shot throughput when dense active-state
 kernels dominate execution time.
 

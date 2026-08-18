@@ -259,7 +259,7 @@ class TestActiveInterfereErrorTracking:
         """Error frame tracking must survive OP_MEAS_ACTIVE_INTERFERE.
 
         H 0 -> |+>
-        T 0 -> creates active dimension (interference required)
+        T 0 -> creates an active coordinate (interference required)
         X_ERROR(1) 0 -> error_parity = 1
         M 0 -> OP_MEAS_ACTIVE_INTERFERE + array compaction
         M 0 -> deterministic re-measurement (checks error frame integrity)

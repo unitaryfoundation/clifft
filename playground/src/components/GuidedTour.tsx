@@ -77,10 +77,10 @@ const STEPS: TourStep[] = [
     `,
   },
   {
-    title: "Active Dimension Timeline",
+    title: "Active Width Timeline",
     target: '[data-tour="active-dim"]',
     html: `
-      <p>This chart tracks the active dimension <code>k</code> across the
+      <p>This chart tracks the active width <code>k</code> across the
       sampling plan. Clifft's active state vector has size <code>2^k</code>, so
       keeping <code>k</code> small is the key to fast simulation.</p>
       <p><code>k</code> grows when a dormant coordinate is promoted into the

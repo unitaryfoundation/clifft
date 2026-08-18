@@ -249,7 +249,7 @@ TEST_CASE("Peephole: terminal phases cross disjoint measure-reset corrections", 
 
             REQUIRE(count_ops(hir, OpType::PHASE_ROTATION) == 0);
             REQUIRE(pass.cancellations() == 2);
-            REQUIRE(clifft::sampling::plan_sampling(hir).max_active_width == 0);
+            REQUIRE(clifft::sampling::plan_sampling(hir).peak_active_width == 0);
         }
     }
 }
@@ -264,7 +264,7 @@ TEST_CASE("Peephole: terminal phase belonging only to a later reset target is re
 
     REQUIRE(count_ops(hir, OpType::PHASE_ROTATION) == 0);
     REQUIRE(pass.cancellations() == 1);
-    REQUIRE(clifft::sampling::plan_sampling(hir).max_active_width == 0);
+    REQUIRE(clifft::sampling::plan_sampling(hir).peak_active_width == 0);
 }
 
 TEST_CASE("Peephole: disjoint feedback controlled by a crossed measurement is transparent",

@@ -520,12 +520,12 @@ void SamplingPlan::validate() const {
     if (initial_active_width > num_qubits) {
         invalid_plan("initial active width exceeds qubit count");
     }
-    if (max_active_width > num_qubits || max_active_width < initial_active_width) {
-        invalid_plan("maximum active width is inconsistent with plan dimensions");
+    if (peak_active_width > num_qubits || peak_active_width < initial_active_width) {
+        invalid_plan("peak active width is inconsistent with plan dimensions");
     }
-    if (max_active_width >= kDenseActiveWidthLimit) {
-        invalid_plan("maximum active width must be below " +
-                     std::to_string(kDenseActiveWidthLimit) + " for dense coefficient storage");
+    if (peak_active_width >= kDenseActiveWidthLimit) {
+        invalid_plan("peak active width must be below " + std::to_string(kDenseActiveWidthLimit) +
+                     " for dense coefficient storage");
     }
     const uint64_t total_records = static_cast<uint64_t>(num_visible_records) + num_hidden_records;
     if (total_records > std::numeric_limits<uint32_t>::max()) {
@@ -690,7 +690,7 @@ void SamplingPlan::validate() const {
     }
 
     uint32_t active_width = initial_active_width;
-    uint32_t observed_max = active_width;
+    uint32_t observed_peak = active_width;
     std::unordered_set<uint32_t> written_records;
     std::unordered_set<uint32_t> written_detectors;
     std::unordered_set<uint32_t> written_observables;
@@ -878,10 +878,10 @@ void SamplingPlan::validate() const {
             planned.action);
 
         active_width = planned.active_after;
-        observed_max = std::max(observed_max, active_width);
+        observed_peak = std::max(observed_peak, active_width);
     }
-    if (observed_max != max_active_width) {
-        invalid_plan("declared maximum active width does not match the action stream");
+    if (observed_peak != peak_active_width) {
+        invalid_plan("declared peak active width does not match the action stream");
     }
     if (written_records.size() != total_records) {
         invalid_plan("declared record count does not match the action stream");
@@ -906,7 +906,7 @@ std::string SamplingPlan::inspect() const {
     std::ostringstream out;
     out << std::setprecision(17);
     out << "sampling_plan qubits=" << num_qubits << " initial_width=" << initial_active_width
-        << " max_width=" << max_active_width << " visible_records=" << num_visible_records
+        << " peak_width=" << peak_active_width << " visible_records=" << num_visible_records
         << " hidden_records=" << num_hidden_records << " noise_sites=" << num_noise_sites
         << " instrument_sites=" << num_instrument_sites << " detectors=" << num_detectors
         << " observables=" << num_observables << " exp_vals=" << num_exp_vals

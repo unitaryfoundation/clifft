@@ -16,7 +16,7 @@ def test_compile_default_matches_explicit_pipeline() -> None:
     manual = clifft.lower(hir)
 
     assert compiled.num_actions == manual.num_actions
-    assert compiled.peak_rank == manual.peak_rank
+    assert compiled.peak_active_width == manual.peak_active_width
 
 
 def test_compile_explicit_none_skips_optimization() -> None:
@@ -25,14 +25,14 @@ def test_compile_explicit_none_skips_optimization() -> None:
     manual = clifft.lower(clifft.trace(clifft.parse(text)))
 
     assert compiled.num_actions == manual.num_actions
-    assert compiled.peak_rank == manual.peak_rank
+    assert compiled.peak_active_width == manual.peak_active_width
 
 
 def test_hir_passes_reduce_t_cancellation() -> None:
     text = "H 0\nT 0\nT_DAG 0\nM 0"
     unoptimized = clifft.compile(text, hir_passes=None)
     optimized = clifft.compile(text)
-    assert optimized.peak_rank <= unoptimized.peak_rank
+    assert optimized.peak_active_width <= unoptimized.peak_active_width
 
 
 def test_compile_postselection_with_passes() -> None:
@@ -61,4 +61,4 @@ def test_custom_pass_manager_via_compile() -> None:
     manager = clifft.HirPassManager()
     manager.add(clifft.PeepholeFusionPass())
     program = clifft.compile("H 0\nT 0\nT_DAG 0\nM 0", hir_passes=manager)
-    assert program.peak_rank == 0
+    assert program.peak_active_width == 0

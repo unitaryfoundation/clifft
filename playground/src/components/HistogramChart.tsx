@@ -52,9 +52,9 @@ export function HistogramChart({ result, elapsedMs, colors }: Props) {
           <>
             <strong>Circuit too large for browser simulation.</strong>
             <br />
-            Peak rank exceeds 24 (~256 MB statevector). Near-Clifford circuits
-            with many qubits but few T gates have low peak rank and should work
-            fine. Use the native Python CLI for high-rank circuits.
+            Peak active width exceeds 24 (~256 MB statevector). Near-Clifford
+            circuits with many qubits but few T gates have low peak active width
+            and should work fine. Use the native Python CLI for wider circuits.
           </>
         ) : isNoncompAnnotationError(result.error) ? (
           <NoncompNotice />

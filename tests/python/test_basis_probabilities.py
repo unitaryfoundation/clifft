@@ -254,13 +254,13 @@ def test_probabilities_match_qiskit_for_random_small_circuits(
     )
 
 
-def test_probabilities_supports_active_rank_beyond_dense_statevector_limit(
+def test_probabilities_supports_active_width_beyond_dense_statevector_limit(
     basis_probabilities_api: Any,
 ) -> None:
     circuit = "\n".join(f"H {q}\nT {q}" for q in range(12))
     prog = basis_probabilities_api.compile(circuit)
     assert prog.num_qubits == 12
-    assert prog.peak_rank > 10
+    assert prog.peak_active_width > 10
     with pytest.raises(RuntimeError, match="Statevector expansion limited"):
         clifft.get_statevector(prog)
 
@@ -287,13 +287,13 @@ def test_probabilities_match_formula_for_continuous_z_rotation(
     )
 
 
-def test_probabilities_sum_to_one_at_high_active_rank(basis_probabilities_api: Any) -> None:
-    # Unitarity invariant on a circuit whose peak_rank exceeds the
+def test_probabilities_sum_to_one_at_high_active_width(basis_probabilities_api: Any) -> None:
+    # Unitarity invariant on a circuit whose peak active width exceeds the
     # statevector-expansion limit, so this catches normalization regressions
     # that the small-circuit statevector cross-check cannot.
     circuit = "\n".join(f"H {q}\nT {q}" for q in range(12))
     prog = basis_probabilities_api.compile(circuit)
-    assert prog.peak_rank > 10
+    assert prog.peak_active_width > 10
     n = prog.num_qubits
     bitstrings = [format(i, f"0{n}b") for i in range(1 << n)]
     np.testing.assert_allclose(
@@ -349,14 +349,14 @@ def _statevector_probs(prog: clifft.Program) -> npt.NDArray[np.float64]:
     return cast(npt.NDArray[np.float64], np.abs(clifft.get_statevector(prog)) ** 2)
 
 
-def test_probabilities_pure_clifford_zero_active_rank(basis_probabilities_api: Any) -> None:
-    # Pure Clifford circuit: peak_rank == 0, so the Gray code walk degenerates
+def test_probabilities_pure_clifford_zero_active_width(basis_probabilities_api: Any) -> None:
+    # Pure Clifford circuit: peak active width is zero, so the Gray code walk degenerates
     # to a single iteration (r_A = 0). The H-on-every-qubit prefix makes the
     # inverse tableau's Z-block fully X-rotated, so every dormant column is a
     # pivot and the fast path engages.
     circuit = "H 0\nH 1\nH 2\nCX 0 1\nCX 1 2\nS 0"
     prog = basis_probabilities_api.compile(circuit)
-    assert prog.peak_rank == 0
+    assert prog.peak_active_width == 0
 
     bitstrings = _all_bitstrings(prog.num_qubits)
     np.testing.assert_allclose(

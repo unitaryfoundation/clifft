@@ -150,7 +150,7 @@ int main() {
     samples.reserve(iterations);
 
     size_t parsed_ops = 0;
-    uint32_t max_active_width = 0;
+    uint32_t peak_active_width = 0;
     uint32_t total_qubits = 0;
     size_t planned_actions = 0;
     size_t executable_actions = 0;
@@ -199,7 +199,7 @@ int main() {
         if (iter == 0) {
             planned_actions = plan.actions.size();
             planned_symbols = plan.symbols.size();
-            max_active_width = plan.max_active_width;
+            peak_active_width = plan.peak_active_width;
             estimated_symbolic_frame_bytes =
                 clifft::sampling::internal::SymbolicPauliFrame::estimated_workspace_bytes(
                     total_qubits, static_cast<uint32_t>(planned_symbols));
@@ -224,7 +224,7 @@ int main() {
             std::cout << "  prepare: " << t.prepare_ms << " ms\n";
             std::cout << "  total:  " << total_ms(t) << " ms\n";
             std::cout << "Module: " << total_qubits << " qubits, ";
-            std::cout << "max_active_width " << max_active_width << ", " << parsed_ops
+            std::cout << "peak_active_width " << peak_active_width << ", " << parsed_ops
                       << " parsed ops, " << planned_actions << " -> " << executable_actions
                       << " actions, " << planned_symbols << " symbols, "
                       << estimated_symbolic_frame_bytes

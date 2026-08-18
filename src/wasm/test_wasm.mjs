@@ -35,7 +35,7 @@ const result = JSON.parse(json);
 
 console.log("compile_to_json result:");
 console.log("  num_qubits:", result.num_qubits);
-console.log("  max_active_width:", result.max_active_width);
+console.log("  peak_active_width:", result.peak_active_width);
 console.log("  hir_ops:", result.hir_ops.length, "ops");
 console.log("  sampling_plan:", result.sampling_plan.length, "actions");
 console.log("  wasm_program:", result.wasm_program.length, "actions");
@@ -45,7 +45,7 @@ console.log("  sampling_plan_source_map sample:", result.sampling_plan_source_ma
 
 assert.equal(result.error, undefined, "Expected no error");
 assert.equal(result.num_qubits, 1, "Expected 1 qubit");
-assert.ok(result.max_active_width >= 0, "Expected max_active_width >= 0");
+assert.ok(result.peak_active_width >= 0, "Expected peak_active_width >= 0");
 assert.ok(result.hir_ops.length > 0, "Expected HIR ops");
 assert.ok(result.sampling_plan.length > 0, "Expected sampling plan actions");
 assert.ok(result.wasm_program.length > 0, "Expected WASM program actions");
