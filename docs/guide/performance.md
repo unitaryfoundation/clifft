@@ -1,118 +1,140 @@
 # Performance
 
-Clifft is optimized for circuits that sit between pure stabilizer simulation and
-fully dense statevector simulation: large circuits with mostly Clifford
-structure, localized non-Clifford operations, noise, measurements, detectors,
-and observables.
+Clifft targets circuits between pure stabilizer simulation and fully dense
+statevector simulation: large circuits with mostly Clifford structure, localized
+non-Clifford effects, noise, measurements, detectors, and observables.
 
-The main quantity to watch is the peak active width `k`. Non-Clifford
-operations can increase `k`, while measurements can reduce it. When `k` stays
-small relative to the total number of physical qubits, Clifft can sample large
-circuits exactly at high throughput.
+The main quantity to watch is the peak active width $k$. Non-Clifford operations
+can increase $k$, while measurements can reduce it. The active state contains
+$2^k$ amplitudes, so both the peak width and the time spent at each width matter.
+Total qubit count and non-Clifford gate count alone are poor performance
+predictors.
 
-## Summary
+## Choosing a simulator
 
-| Regime | Recommended tool | What the benchmarks show |
+| Regime | Recommended tool | Why |
 |---|---|---|
-| Pure Clifford QEC | Stim | Stim remains faster for fully Clifford circuits. Clifft is useful here mainly when you want one workflow that also supports nearby non-Clifford variants. |
-| Low-magic / near-Clifford FT circuits | Clifft | Clifft gives its largest gains when non-Clifford effects remain localized and frequent measurements keep `k` small. |
-| Dense universal circuits | Statevector tools or Clifft | When `k = n`, Clifft behaves like a dense statevector simulator and remains competitive with leading CPU simulators. |
+| Pure Clifford QEC | Stim | Stim packs stabilizer-frame work across shots and remains the better specialist when the active width is always zero. |
+| Low-magic or near-Clifford circuits | Clifft | Clifft is most effective when non-Clifford effects stay localized and measurements repeatedly shrink the active state. |
+| Dense universal circuits | A statevector simulator or Clifft | When $k=n$, Clifft is exact but has the same exponential state-size limit as dense statevector simulation. |
 
 Clifft is not intended to replace Stim for fully Clifford workloads. Its main
-target is the middle regime where exact non-Clifford effects matter, but the
-non-Clifford activity remains small enough to avoid full dense-statevector
-scaling.
+target is the middle regime, where exact non-Clifford effects matter without
+forcing the entire physical system into one dense state.
 
-## QEC benchmark throughput
+## Representative CPU results
 
-The table below reports sample-time throughput in effective shots per second.
-`kmax` is the peak active width reached during execution. For
-near-Clifford circuits, this is often a better predictor of Clifft performance
-than the total qubit count or raw non-Clifford operation count.
+The following results use the current Clifft sampler at commit
+[`04c4fe6`](https://github.com/unitaryfoundation/clifft/commit/04c4fe662d9b42d06817450096dbb56a541e709d).
+They report median single-threaded CPU performance from 12 balanced process-level
+runs. Sampling throughput counts all attempted shots, including shots rejected by
+detector postselection. The percentage in parentheses is the relative median
+absolute deviation.
 
-| Circuit | Qubits | Ops | Non-Clifford ops | `kmax` | Clifft | Stim | Tsim |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| Surface code `d=7, r=7` | 118 | 4,667 | 0 | 0 | 2.2M | 20.1M | 314.7k |
-| Cultivation `d=3` | 15 | 676 | 29 | 4 | 10.4M | — | 27.9k |
-| Cultivation `d=5` | 42 | 4,379 | 91 | 10 | 314.4k | — | DNC |
-| Distillation | 85 | 1,163 | 10 | 5 | 1.5M | — | 1.5M |
-| Surface code `d=3, r=1` with coherent noise | 26 | 173 | 65 | 5 | 19.4M | — | 14.4M |
-| Surface code `d=3, r=3` with coherent noise | 26 | 415 | 195 | 8 | 1.7M | — | DNC |
-| Surface code `d=5, r=1` with coherent noise | 64 | 533 | 209 | 13 | 133.1k | — | 570.9k |
-| Surface code `d=5, r=5` with coherent noise | 64 | 2,073 | 1,045 | 24 | 0.7 | — | DNC |
+| Circuit | Qubits | Peak $k$ | Compile | Attempted shots/s |
+|---|---:|---:|---:|---:|
+| Surface code `d=7, r=7`, $p=10^{-3}$ | 118 | 0 | 12.2 ms | 453k (1.3%) |
+| Cultivation `d=3` | 15 | 4 | 1.38 ms | 1.07M (0.5%) |
+| Cultivation `d=5` | 42 | 10 | 11.3 ms | 125k (3.6%) |
+| Distillation | 85 | 5 | 2.18 ms | 534k (1.2%) |
+| Coherent surface code `d=3, r=1` | 26 | 4 | 0.360 ms | 1.33M (0.9%) |
+| Coherent surface code `d=3, r=3` | 26 | 7 | 0.634 ms | 394k (1.0%) |
+| Coherent surface code `d=5, r=1` | 64 | 12 | 1.24 ms | 14.1k (1.2%) |
 
-`DNC` means the circuit did not compile within the benchmark time limit. Stim
-entries are shown as `—` for non-Clifford circuits because Stim does not support
-those operations directly.
+The coherent `d=5, r=5` circuit reaches peak width 22. Under the explicit reference
+postselection used here, every attempted shot was discarded and each process
+completed only a handful of shots. It is therefore retained as a setup and API
+guard in the campaign, not reported as a meaningful throughput result.
 
-These numbers should be read as representative benchmark points, not as universal
-performance guarantees. Throughput depends on the circuit structure, noise model,
-measurement schedule, active width, and hardware.
+## Reading the active-width regimes
 
-## Interpreting the results
+### Active width zero
 
-### Pure Clifford circuits
+At active width zero, coefficient-array work disappears, but Clifft still evaluates
+the circuit's sampling actions and symbolic expressions. Stim has an architectural
+advantage in this regime: a Clifford-only engine can pack work from many shots into
+each SIMD instruction, while Clifft retains machinery that also supports
+non-Clifford variants.
 
-For fully Clifford circuits, Stim remains the right tool. It is purpose-built for
-that regime and can vectorize stabilizer-frame work across many shots.
+### Low and moderate active width
 
-Clifft pays some overhead to maintain the frame-factored representation even when
-`kmax = 0`. The benefit is that the same workflow can also support non-Clifford
-variants of the circuit.
+Cultivation and distillation are Clifft's main target regime. Their physical
+circuits contain many more qubits than the active state, and measurements can
+remove active coordinates during execution. Clifft therefore performs dense work
+over the smaller $2^k$ active state instead of the full $2^n$ physical state.
 
-### Low-magic fault-tolerant circuits
+The same peak width does not imply the same throughput. Circuit length, the width
+at each action, measurement and detector work, postselection timing, and the shape
+of active Pauli operations all affect the amount of work per attempted shot.
 
-This is Clifft's main target regime. In circuits such as magic-state cultivation,
-the physical circuit can involve many operations and many qubits, but the
-non-Clifford effects remain localized. Frequent measurements can also shrink the
-active state during execution.
+### Larger active width and the dense limit
 
-In this setting, Clifft can avoid dense-statevector scaling in the full physical
-qubit count and instead operate on the smaller active state.
+As $k$ grows, coefficient-array work dominates and Clifft approaches ordinary
+dense-statevector scaling. A controlled width-12 diagnostic with 512 active
+operations reached 62.9k attempted shots/s on the benchmark host. This diagnostic
+isolates sustained active-state work; it is not intended to represent an application
+workload.
 
-### Coherent-noise and larger-`k` circuits
+Quantum Volume circuits provide dense execution guards rather than a broad
+cross-simulator claim in this campaign. The current sampler reached 19.5k attempted
+shots/s on the checked QV-10 fixture. QV performance is sensitive to the generated
+circuit's mix of fused, directly vectorized, and scalar operations, so one fixture
+should not be treated as a universal QV scaling result. QV-20 took roughly 0.2
+seconds per shot and completed only four shots per timed process, which is too few
+for a precise rate comparison.
 
-The coherent-noise benchmarks show how performance changes as `kmax` grows. As
-the active width increases, Clifft gradually transitions toward dense
-statevector behavior. This is expected: the active-state dimension is $2^k$,
-so active-state operations scale exponentially in `k`.
+## ISA portability check
 
-The important point is that the transition is controlled by the active width,
-not simply by the total number of physical qubits.
+The Linux wheels use an `x86-64-v2` baseline and select ISA-specific kernels at
+runtime. The primary table forced AVX-512 so that its execution target was
+unambiguous. In a separate eight-round forced-AVX2 check, the real QEC workload
+medians ranged from 0.97x to 1.16x their AVX-512 rates. This is a portability guard,
+not evidence that one ISA is universally faster: individual circuits exercise
+different mixtures of specialized and scalar kernels.
 
-## Dense-statevector limit
+## Methodology
 
-When `k = n`, Clifft no longer benefits from near-Clifford structure and behaves
-like a dense statevector simulator. This is not its primary target regime, but it
-is still useful to understand the worst case.
+The campaign ran on one pinned core of an AMD EPYC 9554P (Zen 4) KVM host. Clifft
+used GCC 13.3, CMake `Release` (`-O3 -DNDEBUG`), an `x86-64-v2` baseline, and
+runtime ISA dispatch. Each timed cell ran in a fresh process with one thread, a
+warmup excluded from timing, and enough shots to target approximately 1.5 seconds.
+The 12 rounds used distinct seeds, and the process schedule was balanced to reduce
+temporal drift.
 
-On random Quantum Volume circuits at depth `D = N`, Clifft remains competitive
-with leading CPU statevector simulators such as Qiskit Aer, qsim, Qrack, and
-Qulacs.
+Each circuit used an explicit noiseless detector and observable reference.
+Postselected circuits used the same detector mask. The benchmark view retained only
+observable 0; QV fixtures without an observable declaration used the final measured
+bit as observable 0. Sampling returned survivor counts rather than raw records, and
+every result was consumed. Compilation and sampling were timed separately; the
+reference calculation was excluded from compilation time.
 
-![Quantum Volume dense-limit benchmark](images/qv_scaling.png)
+The QEC circuits come from the
+[Clifft paper corpus at `db7dc9f`](https://github.com/unitaryfoundation/clifft-paper/tree/db7dc9f13a2c2854690e92390c779048a1ac1400/qec_bench).
+The QV fixtures are pinned in the Clifft repository at the measured commit.
 
-## Hardware and methodology notes
+These numbers are representative benchmark points, not performance guarantees.
+Hardware, compiler, ISA, noise model, postselection rate, and circuit structure all
+matter.
 
-The benchmark table reports sample-time throughput. Clifft and Stim were run on
-a single cloud CPU instance, while Tsim was run on a GPU instance. The benchmark
-values are intended to compare practical throughput on representative hardware,
-not to isolate every architectural difference between CPUs and GPUs.
+## Cross-simulator benchmarks
 
-Compilation time is amortized for Clifft and Stim. For the QEC circuits shown
-above, Clifft compilation is small compared with repeated sampling. Tsim numbers
-exclude compilation time and a warmup run.
+The public [clifft-bench](https://github.com/unitaryfoundation/clifft-bench)
+project is developing the canonical, reproducible comparison of Clifft with other
+near-Clifford simulators. Its initial phase is CPU-only and records Clifft and
+SymFT compilation, warmup, correctness, and sampling separately on an immutable
+circuit corpus. Stim comparisons belong on compatible Clifford workloads; GPU
+simulators require a separately scoped hardware comparison. In particular, the
+published Tsim results used GPU hardware and should not be mixed into a CPU-only
+table.
 
-Some simulators are sensitive to physical noise rate, circuit structure, and
-backend-specific optimizations. In particular, non-Clifford operation count alone
-is not enough to predict performance. For Clifft, the most important quantities
-are the active width `k`, how long the circuit spends at each active width, and
-whether measurements collapse the active state.
+Until that project selects its canonical host and publishes result sets, this page
+focuses on Clifft's own performance model and representative current measurements
+instead of maintaining a second cross-simulator leaderboard.
 
-## Reproducing benchmarks
+## Historical results
 
-The full benchmark methodology, hardware details, circuits, and analysis scripts
-are described in the Clifft paper and companion benchmark repository.
-
-- Paper: [https://arxiv.org/abs/2604.27058](TODO)
-- Benchmark circuits and scripts: [clifft-paper](https://github.com/unitaryfoundation/clifft-paper)
+The [original Clifft preprint](https://arxiv.org/abs/2604.27058) and its companion
+repository report the earlier localized-Pauli SVM and include GPU and broad
+Quantum Volume comparisons. Those results remain useful for understanding the
+original method, but they should not be read as measurements of the current
+symbolic-coordinate sampling pipeline.
