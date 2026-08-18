@@ -138,3 +138,7 @@ repository report the earlier localized-Pauli SVM and include GPU and broad
 Quantum Volume comparisons. Those results remain useful for understanding the
 original method, but they should not be read as measurements of the current
 symbolic-coordinate sampling pipeline.
+
+The [symbolic sampling update](../updates/symbolic-sampling.md) gives the
+release-oriented migration history and a matched comparison of the last legacy
+SVM, current Clifft, and SymFT's CPU execution modes.

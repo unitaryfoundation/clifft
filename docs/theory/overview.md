@@ -22,6 +22,9 @@ The current Clifft sampler adopts these SymFT developments. `SamplingPlan`,
 host-specific executable preparation, instruments and continuations, and the
 executor organization remain Clifft-specific implementation choices.
 
+See [Symbolic Sampling in Clifft](../updates/symbolic-sampling.md) for the
+release-oriented migration history and matched performance comparison.
+
 ## Symbolic Clifford Coordinates
 
 Sampling a circuit with noise or mid-circuit measurements produces a

@@ -44,7 +44,10 @@ adaptive stabilizer-coordinate planning, and direct multi-coordinate kernels.
 Clifft's current sampler adopts these SymFT developments alongside
 Clifft-specific compiler, continuation, and API machinery.
 See the [theoretical overview](https://unitaryfoundation.github.io/clifft/theory/overview/#method-provenance)
-for the fuller lineage and implementation boundaries.
+for the fuller lineage and implementation boundaries. The
+[symbolic sampling update](https://unitaryfoundation.github.io/clifft/updates/symbolic-sampling/)
+explains the migration from the original SVM and reports matched release-target
+benchmarks.
 
 ## Why Clifft?
 
@@ -185,7 +188,12 @@ _Throughput numbers above were measured on cloud instances; the links to the in-
 
 For benchmark details, plots, hardware notes, and guidance on when Clifft is a good fit, see the [performance](https://unitaryfoundation.github.io/clifft/guide/performance/) section of the documentation.
 
-The full methodology and scientific results are described in the [Clifft paper](https://arxiv.org/abs/2604.27058) and companion [clifft-paper repo](https://github.com/unitaryfoundation/clifft-paper).
+The [Clifft paper](https://arxiv.org/abs/2604.27058) and companion
+[clifft-paper repo](https://github.com/unitaryfoundation/clifft-paper)
+describe the original factored-state method and localized-Pauli SVM. The
+current symbolic-coordinate implementation and its matched performance
+comparison are documented in the
+[symbolic sampling update](https://unitaryfoundation.github.io/clifft/updates/symbolic-sampling/).
 
 ## Citation
 
