@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787121258628,
+  "lastUpdate": 1787166118070,
   "repoUrl": "https://github.com/unitaryfoundation/clifft",
   "entries": {
     "C++ Catch2 benchmarks (AVX2)": [
@@ -5950,6 +5950,70 @@ window.BENCHMARK_DATA = {
             "name": "exp-val 20q 200 probes x100k",
             "value": 95.8422,
             "range": "± 346.021",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Brad Chase",
+            "username": "bachase",
+            "email": "brad@unitary.foundation"
+          },
+          "committer": {
+            "name": "Brad Chase",
+            "username": "bachase",
+            "email": "brad@unitary.foundation"
+          },
+          "id": "b76a9f661acb9a58dc5f02d42526658ae2f5a5ee",
+          "message": "ci: protect benchmark partial-publish paths\n\nWrite each benchmark output to a temporary name and rename only on\nsuccess, so a failed command cannot upload a partial file that\nhashFiles would treat as publishable. Drop continue-on-error from the\nartifact download, whose pattern form already succeeds on zero\nmatches, so real download errors surface. Make every publish step's\ncondition explicitly !cancelled() so one failed publish does not\nimplicitly skip the remaining histories.\n\nAssisted-by: Claude (Fable 5) <noreply@anthropic.com>",
+          "timestamp": "2026-08-19T18:58:15Z",
+          "url": "https://github.com/unitaryfoundation/clifft/commit/b76a9f661acb9a58dc5f02d42526658ae2f5a5ee"
+        },
+        "date": 1787166117241,
+        "tool": "catch2",
+        "benches": [
+          {
+            "name": "QV-10 x100 shots",
+            "value": 7.69257,
+            "range": "± 84.0866",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "cultivation-d5 x1000 shots",
+            "value": 33.4563,
+            "range": "± 148.307",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d7-r7 p=1e-3 x10000 shots",
+            "value": 56.037,
+            "range": "± 1.49603",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d5-r5 p=0.05 x10000 shots",
+            "value": 64.0339,
+            "range": "± 849.881",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d11-r11 p=1e-3 x1000 shots",
+            "value": 20.101,
+            "range": "± 328.032",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "exp-val 20q 200 probes x100k",
+            "value": 103.198,
+            "range": "± 2.04062",
             "unit": "ms",
             "extra": "100 samples\n1 iterations"
           }
