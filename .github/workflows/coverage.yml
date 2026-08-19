@@ -15,19 +15,26 @@ concurrency:
 jobs:
   coverage:
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     env:
       CMAKE_BUILD_TYPE: Debug
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install system dependencies
+      - name: Install ninja and ccache
+        uses: ./.github/actions/setup-native-tools
+
+      # apt remains only for lcov, which has no pinned upstream binary;
+      # the wall-clock bound turns an Azure mirror stall into a fast
+      # failure instead of an hour-long hang.
+      - name: Install lcov
         run: |
-          sudo apt-get update
-          sudo apt-get install -y ninja-build lcov
+          sudo timeout 300 apt-get update -o Acquire::Retries=3 -o Acquire::http::Timeout=30 || true
+          sudo timeout 300 apt-get install -y -o Acquire::Retries=3 -o Acquire::http::Timeout=30 lcov
 
       - name: Setup uv and Python
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
           python-version: "3.12"
