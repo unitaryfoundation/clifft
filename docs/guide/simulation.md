@@ -239,6 +239,27 @@ If `seed` is omitted or set to `None`, Clifft uses hardware entropy from the ope
 Each shot derives an independent random stream from the call seed and its shot
 index. Seeded results therefore do not depend on how shots are scheduled.
 
+## Parallel Shots
+
+`sample()`, `sample_survivors()`, `sample_k()`, and
+`sample_k_survivors()` accept a `threads` argument. It defaults to `1`, so
+existing calls remain serial. Pass a positive worker count to control resource
+use, or `threads="auto"` to use the implementation-reported hardware
+concurrency. Clifft never creates more workers than shots. In containers or
+processes with CPU-affinity limits, set an explicit count if the reported
+hardware concurrency exceeds the available CPU quota.
+
+Workers dynamically claim contiguous shot ranges from a shared scheduler.
+With a fixed seed, changing `threads` produces exactly the same result.
+`sample()` and `sample_k()` keep each shot at the same row, and the survivor
+APIs return accepted shots in the same order as the corresponding one-thread
+run.
+
+Each worker owns a separate executor. Its dense coefficient and measurement
+scratch storage uses roughly $24 \times 2^k$ bytes at peak active width $k$,
+plus symbolic state, records, and other executor metadata. Set an explicit
+worker count when memory is more constrained than CPU availability.
+
 ## Importance Sampling (Forced k-Faults)
 
 For circuits where logical errors are rare, standard Monte Carlo can require an impractical number of shots. Clifft provides stratified importance sampling via `sample_k` and `sample_k_survivors`, which force exactly `k` physical faults per shot. Results from different `k` strata must be combined using the corresponding Poisson-binomial probability $P(K = k)$.
@@ -254,8 +275,8 @@ result = clifft.sample_k_survivors(prog, shots=50_000, k=3, seed=42)
 
 Key API:
 
-- **`clifft.sample_k(program, shots, k, seed=None)`** -- Like `sample()`, but forces exactly `k` faults. Only valid for programs without post-selection; post-selected programs must use `sample_k_survivors()`. Returns a `SampleResult` with `.measurements`, `.detectors`, and `.observables`.
-- **`clifft.sample_k_survivors(program, shots, k, seed=None, keep_records=False)`** -- Like `sample_survivors()`, but forces exactly `k` faults. Returns a `SampleResult` whose arrays contain only surviving shots plus survivor metadata.
+- **`clifft.sample_k(program, shots, k, seed=None, threads=1)`** -- Like `sample()`, but forces exactly `k` faults. Only valid for programs without post-selection; post-selected programs must use `sample_k_survivors()`. Returns a `SampleResult` with `.measurements`, `.detectors`, and `.observables`.
+- **`clifft.sample_k_survivors(program, shots, k, seed=None, keep_records=False, threads=1)`** -- Like `sample_survivors()`, but forces exactly `k` faults. Returns a `SampleResult` whose arrays contain only surviving shots plus survivor metadata.
 - **`program.noise_site_probabilities`** -- 1D NumPy array of per-site fault probabilities, with quantum noise sites followed by readout noise entries. Use this for computing the Poisson-binomial PMF.
 
 See the [Importance Sampling Tutorial](importance-sampling.md) for a complete walkthrough.

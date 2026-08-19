@@ -20,19 +20,38 @@
 #include "clifft/util/runtime_isa.h"
 #include "clifft/util/version.h"
 
+#include <limits>
 #include <nanobind/nanobind.h>
 #include <nanobind/ndarray.h>
 #include <nanobind/stl/map.h>
 #include <nanobind/stl/optional.h>
 #include <nanobind/stl/string.h>
 #include <nanobind/stl/string_view.h>
+#include <nanobind/stl/variant.h>
 #include <nanobind/stl/vector.h>
 #include <span>
 #include <stdexcept>
+#include <variant>
 
 namespace nb = nanobind;
 
 namespace {
+
+using ThreadOption = std::variant<int64_t, std::string>;
+
+uint32_t parse_thread_option(const ThreadOption& option) {
+    if (const auto* name = std::get_if<std::string>(&option)) {
+        if (*name == "auto") {
+            return 0;
+        }
+        throw std::invalid_argument("threads must be a positive integer or 'auto'");
+    }
+    const int64_t count = std::get<int64_t>(option);
+    if (count <= 0 || static_cast<uint64_t>(count) > std::numeric_limits<uint32_t>::max()) {
+        throw std::invalid_argument("threads must be a positive integer or 'auto'");
+    }
+    return static_cast<uint32_t>(count);
+}
 
 // Zero-copy transfer: move a std::vector into a numpy array via capsule ownership.
 // Uses unique_ptr for exception safety: if capsule construction throws,
@@ -722,17 +741,18 @@ NB_MODULE(_clifft_core, m) {
     m.def(
         "sample",
         [](const clifft::sampling::ExecutablePlan& program, uint32_t shots,
-           std::optional<uint64_t> seed) {
+           std::optional<uint64_t> seed, const ThreadOption& thread_option) {
             if (program.has_postselection()) {
                 throw nb::value_error(
                     "sample() cannot be used with post-selected programs because it "
                     "returns a fixed number of rows and cannot discard shots. "
                     "Use sample_survivors(program, shots, keep_records=True) instead.");
             }
+            const uint32_t threads = parse_thread_option(thread_option);
             clifft::sampling::SamplingResult result;
             {
                 nb::gil_scoped_release release;
-                result = clifft::sampling::sample(program, shots, seed);
+                result = clifft::sampling::sample(program, shots, seed, threads);
             }
 
             auto meas_arr = vec_to_numpy(std::move(result.measurements),
@@ -748,27 +768,31 @@ NB_MODULE(_clifft_core, m) {
                                             nb::none(), nb::none(), ev_arr);
         },
         nb::arg("program"), nb::arg("shots"), nb::arg("seed") = nb::none(),
+        nb::arg("threads") = int64_t{1},
         "Run a compiled program and return a SampleResult.\n\n"
         "Raises ValueError for post-selected programs because fixed-row output\n"
         "cannot represent discarded shots. Use sample_survivors() instead.\n\n"
-        "If seed is None (default), uses hardware entropy.\n\n"
+        "If seed is None (default), uses hardware entropy. threads is a positive\n"
+        "worker count or 'auto' to use the implementation-reported hardware\n"
+        "concurrency; it defaults to 1.\n\n"
         "Returns a SampleResult with .measurements, .detectors, .observables attributes.\n"
         "Supports tuple unpacking: m, d, o = clifft.sample(prog, shots)");
 
     m.def(
         "sample_k",
         [](const clifft::sampling::ExecutablePlan& program, uint32_t shots, uint32_t k,
-           std::optional<uint64_t> seed) {
+           std::optional<uint64_t> seed, const ThreadOption& thread_option) {
             if (program.has_postselection()) {
                 throw nb::value_error(
                     "sample_k() cannot be used with post-selected programs because it "
                     "returns a fixed number of rows and cannot discard shots. "
                     "Use sample_k_survivors(program, shots, k, keep_records=True) instead.");
             }
+            const uint32_t threads = parse_thread_option(thread_option);
             clifft::sampling::SamplingResult result;
             {
                 nb::gil_scoped_release release;
-                result = clifft::sampling::sample_k(program, shots, k, seed);
+                result = clifft::sampling::sample_k(program, shots, k, seed, threads);
             }
 
             auto meas_arr = vec_to_numpy(std::move(result.measurements),
@@ -784,6 +808,7 @@ NB_MODULE(_clifft_core, m) {
                                             nb::none(), nb::none(), ev_arr);
         },
         nb::arg("program"), nb::arg("shots"), nb::arg("k"), nb::arg("seed") = nb::none(),
+        nb::arg("threads") = int64_t{1},
         "Sample with exactly k forced faults per shot (importance sampling).\n\n"
         "Sites are drawn from the exact conditional Poisson-Binomial\n"
         "distribution. Results are conditioned on K=k and must be combined\n"
@@ -796,7 +821,9 @@ NB_MODULE(_clifft_core, m) {
         "Raises ValueError if the k-fault stratum has zero probability mass\n"
         "(e.g. k exceeds the number of non-zero-probability sites).\n\n"
         "When all site probabilities are equal, an O(k) Fisher-Yates\n"
-        "sampler is used automatically.\n\n"
+        "sampler is used automatically. threads is a positive worker count\n"
+        "or 'auto' to use the implementation-reported hardware concurrency;\n"
+        "it defaults to 1.\n\n"
         "Returns a SampleResult with .measurements, .detectors, .observables attributes.\n"
         "Supports tuple unpacking: m, d, o = clifft.sample_k(prog, shots, k)");
 
@@ -831,24 +858,28 @@ NB_MODULE(_clifft_core, m) {
     m.def(
         "sample_k_survivors",
         [make_survivor_result](const clifft::sampling::ExecutablePlan& program, uint32_t shots,
-                               uint32_t k, std::optional<uint64_t> seed, bool keep_records) {
+                               uint32_t k, std::optional<uint64_t> seed, bool keep_records,
+                               const ThreadOption& thread_option) {
+            const uint32_t threads = parse_thread_option(thread_option);
             clifft::sampling::SamplingSurvivorResult result;
             {
                 nb::gil_scoped_release release;
-                result =
-                    clifft::sampling::sample_k_survivors(program, shots, k, seed, keep_records);
+                result = clifft::sampling::sample_k_survivors(program, shots, k, seed, keep_records,
+                                                              threads);
             }
             return make_survivor_result(std::move(result), program, keep_records);
         },
         nb::arg("program"), nb::arg("shots"), nb::arg("k"), nb::arg("seed") = nb::none(),
-        nb::arg("keep_records") = false,
+        nb::arg("keep_records") = false, nb::arg("threads") = int64_t{1},
         "Sample survivors with exactly k forced faults per shot.\n\n"
         "Results are conditioned on K=k. To estimate the overall logical\n"
         "error rate across strata, weight numerator and denominator\n"
         "separately to account for k-dependent survival probability:\n"
         "  p_fail = sum(P(K=k)*logical_errors_k/shots_k)\n"
         "         / sum(P(K=k)*passed_k/shots_k)\n\n"
-        "Raises ValueError if the k-fault stratum has zero probability mass.\n\n"
+        "Raises ValueError if the k-fault stratum has zero probability mass.\n"
+        "threads is a positive worker count or 'auto' to use the\n"
+        "implementation-reported hardware concurrency; it defaults to 1.\n\n"
         "Returns a SampleResult. Survivor metadata is always populated via\n"
         ".total_shots, .passed_shots, .discards, .logical_errors, and\n"
         ".observable_ones. Per-shot record arrays\n"
@@ -858,18 +889,23 @@ NB_MODULE(_clifft_core, m) {
     m.def(
         "sample_survivors",
         [make_survivor_result](const clifft::sampling::ExecutablePlan& program, uint32_t shots,
-                               std::optional<uint64_t> seed, bool keep_records) {
+                               std::optional<uint64_t> seed, bool keep_records,
+                               const ThreadOption& thread_option) {
+            const uint32_t threads = parse_thread_option(thread_option);
             clifft::sampling::SamplingSurvivorResult result;
             {
                 nb::gil_scoped_release release;
-                result = clifft::sampling::sample_survivors(program, shots, seed, keep_records);
+                result =
+                    clifft::sampling::sample_survivors(program, shots, seed, keep_records, threads);
             }
             return make_survivor_result(std::move(result), program, keep_records);
         },
         nb::arg("program"), nb::arg("shots"), nb::arg("seed") = nb::none(),
-        nb::arg("keep_records") = false,
+        nb::arg("keep_records") = false, nb::arg("threads") = int64_t{1},
         "Sample shots and return results only for surviving (non-discarded) shots.\n\n"
-        "If seed is None (default), uses hardware entropy.\n\n"
+        "If seed is None (default), uses hardware entropy. threads is a positive\n"
+        "worker count or 'auto' to use the implementation-reported hardware\n"
+        "concurrency; it defaults to 1.\n\n"
         "Returns a SampleResult. Survivor metadata is always populated via\n"
         ".total_shots, .passed_shots, .discards, .logical_errors, and\n"
         ".observable_ones. Per-shot record arrays\n"

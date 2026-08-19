@@ -74,6 +74,9 @@ target_link_libraries(clifft_core PUBLIC
 
 target_link_libraries(clifft_core PRIVATE fast_float)
 
+find_package(Threads REQUIRED)
+target_link_libraries(clifft_core PUBLIC Threads::Threads)
+
 target_compile_features(clifft_core PUBLIC cxx_std_20)
 
 # Code coverage instrumentation (only for Clifft code, not dependencies)

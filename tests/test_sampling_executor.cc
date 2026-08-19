@@ -1284,6 +1284,60 @@ TEST_CASE("Sampling driver derives an independent RNG stream for each shot") {
     }
 }
 
+TEST_CASE("Threaded fixed-row sampling preserves seeded shot order") {
+    const ExecutablePlan executable(clifft::sampling::plan_sampling(clifft::trace(clifft::parse(R"(
+        H 0 1
+        T 0
+        M 0 1
+        DETECTOR rec[-2] rec[-1]
+        OBSERVABLE_INCLUDE(0) rec[-1]
+        EXP_VAL Z0
+    )"))));
+    const clifft::sampling::SamplingResult serial =
+        clifft::sampling::sample(executable, 257, uint64_t{9183}, 1);
+
+    for (uint32_t threads : std::array<uint32_t, 2>{2, 0}) {
+        const clifft::sampling::SamplingResult threaded =
+            clifft::sampling::sample(executable, 257, uint64_t{9183}, threads);
+        CAPTURE(threads);
+        REQUIRE(threaded.measurements == serial.measurements);
+        REQUIRE(threaded.detectors == serial.detectors);
+        REQUIRE(threaded.observables == serial.observables);
+        REQUIRE(threaded.exp_vals == serial.exp_vals);
+    }
+}
+
+TEST_CASE("Threaded survivor sampling preserves seeded survivors and records") {
+    const std::array<uint8_t, 1> postselection{1};
+    const ExecutablePlan executable(
+        clifft::sampling::plan_sampling(clifft::trace(clifft::parse(R"(
+            H 0
+            M 0
+            DETECTOR rec[-1]
+            H 1
+            M 1
+            OBSERVABLE_INCLUDE(0) rec[-1]
+            EXP_VAL Z1
+        )")),
+                                        {.postselection_mask = postselection}));
+    const clifft::sampling::SamplingSurvivorResult serial =
+        clifft::sampling::sample_survivors(executable, 257, uint64_t{9184}, true, 1);
+
+    for (uint32_t threads : std::array<uint32_t, 2>{3, 0}) {
+        const clifft::sampling::SamplingSurvivorResult threaded =
+            clifft::sampling::sample_survivors(executable, 257, uint64_t{9184}, true, threads);
+        CAPTURE(threads);
+        REQUIRE(threaded.total_shots == serial.total_shots);
+        REQUIRE(threaded.passed_shots == serial.passed_shots);
+        REQUIRE(threaded.logical_errors == serial.logical_errors);
+        REQUIRE(threaded.observable_ones == serial.observable_ones);
+        REQUIRE(threaded.measurements == serial.measurements);
+        REQUIRE(threaded.detectors == serial.detectors);
+        REQUIRE(threaded.observables == serial.observables);
+        REQUIRE(threaded.exp_vals == serial.exp_vals);
+    }
+}
+
 TEST_CASE("Sampling survivor execution normalizes and rejects detectors") {
     const clifft::HirModule hir = clifft::trace(clifft::parse(R"(
         H 0

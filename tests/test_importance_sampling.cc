@@ -535,6 +535,43 @@ TEST_CASE("Symbolic conditioned survivors preserve normalized outputs") {
                               [](uint8_t value) { return value == 0; }));
 }
 
+TEST_CASE("Threaded conditioned sampling preserves seeded rows and survivors") {
+    auto fixed = compile_circuit(R"(
+        X_ERROR(0.1) 0 1 2
+        M 0 1 2
+        OBSERVABLE_INCLUDE(0) rec[-1]
+    )");
+    const clifft::sampling::SamplingResult fixed_serial =
+        clifft::sampling::sample_k(fixed, 257, 1, 47, 1);
+    const clifft::sampling::SamplingResult fixed_threaded =
+        clifft::sampling::sample_k(fixed, 257, 1, 47, 3);
+    REQUIRE(fixed_threaded.measurements == fixed_serial.measurements);
+    REQUIRE(fixed_threaded.detectors == fixed_serial.detectors);
+    REQUIRE(fixed_threaded.observables == fixed_serial.observables);
+    REQUIRE(fixed_threaded.exp_vals == fixed_serial.exp_vals);
+
+    const std::array<uint8_t, 1> postselection{1};
+    auto survivors = compile_circuit(R"(
+        X_ERROR(0.1) 0 1 2
+        M 0 1 2
+        DETECTOR rec[-3]
+        OBSERVABLE_INCLUDE(0) rec[-1]
+    )",
+                                     postselection);
+    const clifft::sampling::SamplingSurvivorResult survivor_serial =
+        clifft::sampling::sample_k_survivors(survivors, 257, 1, 48, true, 1);
+    const clifft::sampling::SamplingSurvivorResult survivor_threaded =
+        clifft::sampling::sample_k_survivors(survivors, 257, 1, 48, true, 3);
+    REQUIRE(survivor_threaded.total_shots == survivor_serial.total_shots);
+    REQUIRE(survivor_threaded.passed_shots == survivor_serial.passed_shots);
+    REQUIRE(survivor_threaded.logical_errors == survivor_serial.logical_errors);
+    REQUIRE(survivor_threaded.observable_ones == survivor_serial.observable_ones);
+    REQUIRE(survivor_threaded.measurements == survivor_serial.measurements);
+    REQUIRE(survivor_threaded.detectors == survivor_serial.detectors);
+    REQUIRE(survivor_threaded.observables == survivor_serial.observables);
+    REQUIRE(survivor_threaded.exp_vals == survivor_serial.exp_vals);
+}
+
 TEST_CASE("Symbolic conditioned sampling rejects asymmetric readout noise") {
     auto program = compile_circuit("M 0\nREADOUT_NOISE(0.1, 0.2) rec[-1]\n");
     CHECK_THROWS_WITH(program.noise_site_probabilities(),
