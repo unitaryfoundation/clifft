@@ -17,6 +17,7 @@
 #include "clifft/sampling/state_queries.h"
 #include "clifft/util/config.h"
 #include "clifft/util/hir_introspection.h"
+#include "clifft/util/runtime_isa.h"
 #include "clifft/util/version.h"
 
 #include <nanobind/nanobind.h>
@@ -139,6 +140,11 @@ NB_MODULE(_clifft_core, m) {
     nb::exception<clifft::ParseError>(m, "ParseError");
 
     m.def("version", []() { return clifft::kVersion; }, "Return the Clifft version string");
+    m.def(
+        "runtime_isa",
+        []() { return clifft::internal::runtime_isa_name(clifft::internal::runtime_isa()); },
+        "Return the resolved kernel ISA: 'scalar', 'avx2', 'avx512', or a 'trap:...' value when "
+        "CLIFFT_FORCE_ISA requests an unavailable backend");
 
     register_noncomp(m);
 

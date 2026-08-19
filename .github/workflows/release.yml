@@ -95,15 +95,26 @@ jobs:
             &&
             python {project}/tools/ci/audit_python_exports.py
 
-      # QEMU smoke against the just-built Linux x86_64 wheel. Catches
-      # AVX-512 leakage into the AVX-2 dispatch path (would SIGILL the
-      # emulated sub-AVX-512 CPU) and validates CLIFFT_FORCE_ISA traps
-      # on the wheel that will actually be published. Skipped on other
-      # arches/OSes since QEMU user-mode is x86_64-specific and the
-      # other matrix entries use the generic baseline.
+      # QEMU and SDE smoke against the just-built Linux x86_64 wheel.
+      # Catches AVX-512 leakage into the AVX-2 dispatch path (would SIGILL
+      # the emulated CPU) and validates CLIFFT_FORCE_ISA traps on the
+      # wheel that will actually be published. QEMU's TCG engine cannot
+      # execute AVX-512 instructions, so the SDE legs are what execute the
+      # AVX-512 backend deterministically. Skipped on other arches/OSes
+      # since both emulators are x86_64-specific and the other matrix
+      # entries use the generic baseline.
       - name: Install qemu-user (Linux x86_64 wheel only)
         if: matrix.os == 'ubuntu-24.04' && matrix.arch == 'x86_64'
         run: sudo apt-get update && sudo apt-get install -y qemu-user
+
+      - name: Install Intel SDE (Linux x86_64 wheel only)
+        if: matrix.os == 'ubuntu-24.04' && matrix.arch == 'x86_64'
+        run: |
+          curl -fsSL -o /tmp/sde.tar.xz \
+            https://downloadmirror.intel.com/924984/sde-external-10.13.1-2026-07-28-lin.tar.xz
+          echo "94e97d623fec54385686e1e7ba65ebc9941748c05ee451423948334892bf2b50  /tmp/sde.tar.xz" | sha256sum --check
+          tar -C "$RUNNER_TEMP" -xf /tmp/sde.tar.xz
+          echo "SDE64=$RUNNER_TEMP/sde-external-10.13.1-2026-07-28-lin/sde64" >> "$GITHUB_ENV"
 
       - name: Smoke-install the built wheel
         if: matrix.os == 'ubuntu-24.04' && matrix.arch == 'x86_64'
@@ -114,19 +125,25 @@ jobs:
 
       - name: QEMU smoke -- Haswell (auto-detect)
         if: matrix.os == 'ubuntu-24.04' && matrix.arch == 'x86_64'
-        run: PYTHON=$(pwd)/.smoke-venv/bin/python .github/scripts/wheel_smoke.sh Haswell auto pass
+        run: PYTHON=$(pwd)/.smoke-venv/bin/python .github/scripts/wheel_smoke.sh qemu Haswell auto pass avx2
       - name: QEMU smoke -- Haswell + FORCE_ISA=avx2
         if: matrix.os == 'ubuntu-24.04' && matrix.arch == 'x86_64'
-        run: PYTHON=$(pwd)/.smoke-venv/bin/python .github/scripts/wheel_smoke.sh Haswell avx2 pass
+        run: PYTHON=$(pwd)/.smoke-venv/bin/python .github/scripts/wheel_smoke.sh qemu Haswell avx2 pass avx2
       - name: QEMU smoke -- Haswell + FORCE_ISA=avx512 (clean trap)
         if: matrix.os == 'ubuntu-24.04' && matrix.arch == 'x86_64'
-        run: PYTHON=$(pwd)/.smoke-venv/bin/python .github/scripts/wheel_smoke.sh Haswell avx512 fail
+        run: PYTHON=$(pwd)/.smoke-venv/bin/python .github/scripts/wheel_smoke.sh qemu Haswell avx512 fail
       - name: QEMU smoke -- Nehalem (auto-detect)
         if: matrix.os == 'ubuntu-24.04' && matrix.arch == 'x86_64'
-        run: PYTHON=$(pwd)/.smoke-venv/bin/python .github/scripts/wheel_smoke.sh Nehalem auto pass
+        run: PYTHON=$(pwd)/.smoke-venv/bin/python .github/scripts/wheel_smoke.sh qemu Nehalem auto pass scalar
       - name: QEMU smoke -- Nehalem + FORCE_ISA=avx2 (clean trap)
         if: matrix.os == 'ubuntu-24.04' && matrix.arch == 'x86_64'
-        run: PYTHON=$(pwd)/.smoke-venv/bin/python .github/scripts/wheel_smoke.sh Nehalem avx2 fail
+        run: PYTHON=$(pwd)/.smoke-venv/bin/python .github/scripts/wheel_smoke.sh qemu Nehalem avx2 fail
+      - name: SDE smoke -- Skylake-X (auto-detect)
+        if: matrix.os == 'ubuntu-24.04' && matrix.arch == 'x86_64'
+        run: PYTHON=$(pwd)/.smoke-venv/bin/python .github/scripts/wheel_smoke.sh sde skx auto pass avx512
+      - name: SDE smoke -- Skylake-X + FORCE_ISA=avx512
+        if: matrix.os == 'ubuntu-24.04' && matrix.arch == 'x86_64'
+        run: PYTHON=$(pwd)/.smoke-venv/bin/python .github/scripts/wheel_smoke.sh sde skx avx512 pass avx512
 
       - uses: actions/upload-artifact@v4
         with:

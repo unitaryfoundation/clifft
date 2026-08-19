@@ -72,7 +72,8 @@ implementation.
 `CLIFFT_FORCE_ISA=scalar`, `avx2`, or `avx512` can force an available backend
 in a runtime-dispatch build. This is a diagnostic and testing control, not a
 portable deployment setting; requesting features that the host lacks is an
-error.
+error. `clifft.runtime_isa()` reports which backend the process resolved,
+which is useful for verifying dispatch in tests and emulated environments.
 
 ## Standalone C++ Build
 

@@ -151,8 +151,8 @@ jobs:
           python3 tools/ci/audit_build_flags.py \
             --compile-commands build/compile_commands.json
 
-      - name: Check AVX2 kernel CPU flags
-        id: avx2_check
+      - name: Check x86 kernel CPU flags
+        id: isa_check
         run: |
           python3 - <<'PY'
           import os
@@ -164,13 +164,22 @@ jobs:
                   flags = set(line.split(":", 1)[1].split())
                   break
 
-          required = [{"avx2"}, {"bmi2"}, {"fma"}]
-          missing = ["|".join(sorted(g)) for g in required if not (g & flags)]
-          supported = not missing
-          if missing:
-              print(f"::notice::Skipping forced AVX2 tests; missing CPU flags: {' '.join(missing)}")
+          avx2_required = [{"avx2"}, {"bmi2"}, {"fma"}]
+          # The AVX-512 kernel TU is compiled with -mavx512f -mavx512dq on
+          # top of the AVX2 flags, so it needs the AVX2 set plus both.
+          avx512_required = avx2_required + [{"avx512f"}, {"avx512dq"}]
+
+          def check(isa: str, required: list[set[str]]) -> bool:
+              missing = ["|".join(sorted(g)) for g in required if not (g & flags)]
+              if missing:
+                  print(f"::notice::Skipping forced {isa} tests; missing CPU flags: {' '.join(missing)}")
+              return not missing
+
+          avx2_supported = check("AVX2", avx2_required)
+          avx512_supported = check("AVX-512", avx512_required)
           with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
-              fh.write(f"supported={str(supported).lower()}\n")
+              fh.write(f"avx2_supported={str(avx2_supported).lower()}\n")
+              fh.write(f"avx512_supported={str(avx512_supported).lower()}\n")
           PY
 
       - name: Run C++ tests (default ISA)
@@ -196,9 +205,26 @@ jobs:
         shell: bash
 
       - name: Run C++ tests (avx2 ISA)
-        if: steps.avx2_check.outputs.supported == 'true'
+        if: steps.isa_check.outputs.avx2_supported == 'true'
         env:
           CLIFFT_FORCE_ISA: avx2
+        run: |
+          ctest --test-dir build \
+            --build-config ${{ env.CMAKE_BUILD_TYPE }} \
+            --output-on-failure \
+            --parallel \
+            --timeout 300 \
+            -E "Bench"
+        shell: bash
+
+      # Supplemental host-dependent coverage: runner CPU models vary, so
+      # this leg only runs when the runner happens to support AVX-512.
+      # The deterministic AVX-512 check is the SDE smoke in
+      # release-cpp-smoke, which executes on a fixed emulated CPU model.
+      - name: Run C++ tests (avx512 ISA)
+        if: steps.isa_check.outputs.avx512_supported == 'true'
+        env:
+          CLIFFT_FORCE_ISA: avx512
         run: |
           ctest --test-dir build \
             --build-config ${{ env.CMAKE_BUILD_TYPE }} \
@@ -240,6 +266,14 @@ jobs:
 
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y ninja-build qemu-user ccache
+
+      - name: Install Intel SDE
+        run: |
+          curl -fsSL -o /tmp/sde.tar.xz \
+            https://downloadmirror.intel.com/924984/sde-external-10.13.1-2026-07-28-lin.tar.xz
+          echo "94e97d623fec54385686e1e7ba65ebc9941748c05ee451423948334892bf2b50  /tmp/sde.tar.xz" | sha256sum --check
+          tar -C "$RUNNER_TEMP" -xf /tmp/sde.tar.xz
+          echo "SDE64=$RUNNER_TEMP/sde-external-10.13.1-2026-07-28-lin/sde64" >> "$GITHUB_ENV"
 
       - name: Setup ccache
         uses: hendrikmuhs/ccache-action@v1.2
@@ -294,17 +328,23 @@ jobs:
       # Run a small QEMU-emulated CPU matrix against the release-baseline
       # Python install. Catches AVX-512 leakage into the AVX-2 dispatch
       # path (would SIGILL the emulated CPU) and validates that
-      # CLIFFT_FORCE_ISA traps fire cleanly on incompatible hosts.
+      # CLIFFT_FORCE_ISA traps fire cleanly on incompatible hosts. QEMU's
+      # TCG engine cannot execute AVX-512 instructions, so the SDE legs
+      # below are what execute the AVX-512 backend deterministically.
       - name: QEMU smoke -- Haswell (auto-detect)
-        run: PYTHON=$(pwd)/.smoke-venv/bin/python .github/scripts/wheel_smoke.sh Haswell auto pass
+        run: PYTHON=$(pwd)/.smoke-venv/bin/python .github/scripts/wheel_smoke.sh qemu Haswell auto pass avx2
       - name: QEMU smoke -- Haswell + FORCE_ISA=avx2
-        run: PYTHON=$(pwd)/.smoke-venv/bin/python .github/scripts/wheel_smoke.sh Haswell avx2 pass
+        run: PYTHON=$(pwd)/.smoke-venv/bin/python .github/scripts/wheel_smoke.sh qemu Haswell avx2 pass avx2
       - name: QEMU smoke -- Haswell + FORCE_ISA=avx512 (clean trap)
-        run: PYTHON=$(pwd)/.smoke-venv/bin/python .github/scripts/wheel_smoke.sh Haswell avx512 fail
+        run: PYTHON=$(pwd)/.smoke-venv/bin/python .github/scripts/wheel_smoke.sh qemu Haswell avx512 fail
       - name: QEMU smoke -- Nehalem (auto-detect)
-        run: PYTHON=$(pwd)/.smoke-venv/bin/python .github/scripts/wheel_smoke.sh Nehalem auto pass
+        run: PYTHON=$(pwd)/.smoke-venv/bin/python .github/scripts/wheel_smoke.sh qemu Nehalem auto pass scalar
       - name: QEMU smoke -- Nehalem + FORCE_ISA=avx2 (clean trap)
-        run: PYTHON=$(pwd)/.smoke-venv/bin/python .github/scripts/wheel_smoke.sh Nehalem avx2 fail
+        run: PYTHON=$(pwd)/.smoke-venv/bin/python .github/scripts/wheel_smoke.sh qemu Nehalem avx2 fail
+      - name: SDE smoke -- Skylake-X (auto-detect)
+        run: PYTHON=$(pwd)/.smoke-venv/bin/python .github/scripts/wheel_smoke.sh sde skx auto pass avx512
+      - name: SDE smoke -- Skylake-X + FORCE_ISA=avx512
+        run: PYTHON=$(pwd)/.smoke-venv/bin/python .github/scripts/wheel_smoke.sh sde skx avx512 pass avx512
 
   cross-platform:
     name: cross-platform (${{ matrix.label }})
