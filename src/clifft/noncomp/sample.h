@@ -57,9 +57,11 @@ struct NonComputationalSample {
 // `max_active_width` caps the compiled peak active width. Compilation reports the first
 // offending active width before allocating or growing the executor state.
 // Unlimited when unset.
+// `threads` selects cross-shot workers. One worker is used by default; zero
+// selects the implementation-reported hardware concurrency.
 NonComputationalSample sample_noncomputational(
     const Circuit& circuit, const NonComputationalModel& model, uint32_t shots,
     std::optional<uint64_t> seed = std::nullopt,
-    std::optional<uint32_t> max_active_width = std::nullopt);
+    std::optional<uint32_t> max_active_width = std::nullopt, uint32_t threads = 1);
 
 }  // namespace clifft

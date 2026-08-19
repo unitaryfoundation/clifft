@@ -332,6 +332,13 @@ semantics and active-width cost are described in
   cost.
 - **`seed`**: same contract as ordinary sampling: a fixed seed is fully
   reproducible, `None` uses hardware entropy.
+- **`threads`** (default `1`): number of cross-shot workers. Use a positive
+  integer to bound resource use or `"auto"` for the implementation-reported
+  hardware concurrency.
+  Workers dynamically claim shot ranges because trajectories can require
+  different numbers of continuations. A fixed seed produces identical rows,
+  sidecars, and ordering for every worker count. Each worker owns its executor
+  and compiled continuations, so memory use grows with the worker count.
 - **`max_active_width`**: caps the compiled peak active width before allocating or
   growing the state for that module.
   The cap applies to each compiled module, including branches a given shot

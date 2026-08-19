@@ -22,10 +22,11 @@ void validate_noncomputational_entry(const Circuit& circuit) {
 NonComputationalSample sample_noncomputational(const Circuit& circuit,
                                                const NonComputationalModel& model, uint32_t shots,
                                                std::optional<uint64_t> seed,
-                                               std::optional<uint32_t> max_active_width) {
+                                               std::optional<uint32_t> max_active_width,
+                                               uint32_t threads) {
     validate_noncomputational_entry(circuit);
     return run_trajectory_driver(circuit, model, shots, make_seed_root(shots, seed),
-                                 max_active_width);
+                                 max_active_width, threads);
 }
 
 }  // namespace clifft

@@ -30,7 +30,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from enum import IntEnum
-from typing import Callable, Iterator
+from typing import Callable, Iterator, Literal
 
 import numpy as np
 import numpy.typing as npt
@@ -291,6 +291,7 @@ def sample(
     shots: int,
     seed: int | None = None,
     max_active_width: int | None = None,
+    threads: int | Literal["auto"] = 1,
 ) -> NonComputationalSample:
     """Sample ``circuit`` under ``model`` for ``shots`` shots.
 
@@ -316,6 +317,9 @@ def sample(
         max_active_width: Optional cap on the peak active width of every compiled
             continuation. The check is conservative because a continuation
             may contain branches that the current shot will not take.
+        threads: Number of cross-shot workers. Defaults to 1. Pass ``"auto"``
+            to use the implementation-reported hardware concurrency. Seeded
+            results are identical for every worker count.
 
     Returns:
         [NonComputationalSample][clifft.noncomp.NonComputationalSample]
@@ -332,6 +336,7 @@ def sample(
         shots,
         seed,
         max_active_width,
+        threads,
         _clifft_core._sample_noncomputational,
     )
 
@@ -342,12 +347,13 @@ def _sample_with(
     shots: int,
     seed: int | None,
     max_active_width: int | None,
+    threads: int | Literal["auto"],
     sampler: Callable,
 ) -> NonComputationalSample:
     if isinstance(circuit, str):
         circuit = _clifft_core.parse(circuit)
     meas, det, obs, status, heralds, num_qubits, num_meas, num_det, num_obs = sampler(
-        circuit, model._handle, shots, seed, max_active_width
+        circuit, model._handle, shots, seed, max_active_width, threads
     )
     return NonComputationalSample(
         meas, det, obs, status, heralds, num_qubits, num_meas, num_det, num_obs

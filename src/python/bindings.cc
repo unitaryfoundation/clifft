@@ -140,16 +140,19 @@ void register_noncomp(nb::module_& m) {
     m.def(
         "_sample_noncomputational",
         [](const clifft::Circuit& circuit, const clifft::NonComputationalModel& model,
-           uint32_t shots, std::optional<uint64_t> seed, std::optional<uint32_t> max_active_width) {
+           uint32_t shots, std::optional<uint64_t> seed, std::optional<uint32_t> max_active_width,
+           const ThreadOption& threads) {
+            const uint32_t thread_count = parse_thread_option(threads);
             clifft::NonComputationalSample r;
             {
                 nb::gil_scoped_release release;
-                r = clifft::sample_noncomputational(circuit, model, shots, seed, max_active_width);
+                r = clifft::sample_noncomputational(circuit, model, shots, seed, max_active_width,
+                                                    thread_count);
             }
             return noncomp_sample_to_python(std::move(r), shots);
         },
         nb::arg("circuit"), nb::arg("model"), nb::arg("shots"), nb::arg("seed") = nb::none(),
-        nb::arg("max_active_width") = nb::none(),
+        nb::arg("max_active_width") = nb::none(), nb::arg("threads") = ThreadOption{int64_t{1}},
         "Sample a noncomputational model with Clifft's sampler.");
 }
 

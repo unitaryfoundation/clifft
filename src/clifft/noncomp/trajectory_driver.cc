@@ -24,9 +24,11 @@
 #include "clifft/optimizer/pass_registry.h"
 #include "clifft/sampling/executor.h"
 #include "clifft/sampling/planner.h"
+#include "clifft/util/shot_parallel.h"
 #include "clifft/util/shot_seed.h"
 #include "clifft/util/xoshiro.h"
 
+#include <algorithm>
 #include <cassert>
 #include <cstdint>
 #include <iterator>
@@ -282,6 +284,14 @@ struct SamplingCompiledContinuation {
     std::vector<AnnotationTarget> site_targets;
     std::vector<QubitStatus> final_status;
     std::optional<size_t> forced_traceout_slot;
+};
+
+struct TrajectoryWorker {
+    // The start shared by shots whose initial levels are all G remains lazy:
+    // other initial levels can make it unreachable, including when compiling it
+    // would exceed the active-width cap.
+    std::optional<SamplingCompiledContinuation> shared_start;
+    std::optional<sampling::Executor> shared_start_executor;
 };
 
 // Build the HIR pass pipeline from default passes that preserve measurement
@@ -557,7 +567,8 @@ Circuit prepare_trajectory_circuit(const Circuit& circuit, const NonComputationa
 NonComputationalSample run_trajectory_driver(const Circuit& circuit,
                                              const NonComputationalModel& model, uint32_t shots,
                                              const SeedRoot& root,
-                                             std::optional<uint32_t> max_active_width_cap) {
+                                             std::optional<uint32_t> max_active_width_cap,
+                                             uint32_t threads) {
     NonComputationalSample result;
     result.shots = shots;
     result.num_qubits = circuit.num_qubits;
@@ -572,19 +583,16 @@ NonComputationalSample run_trajectory_driver(const Circuit& circuit,
     }
 
     const size_t shot_count = shots;
-    result.measurements.reserve(shot_count * circuit.num_measurements);
-    result.detectors.reserve(shot_count * circuit.num_detectors);
-    result.observables.reserve(shot_count * circuit.num_observables);
-    result.final_status.reserve(shot_count * circuit.num_qubits);
-    result.heralds.reserve(shot_count * circuit.num_measurements);
+    result.measurements.resize(shot_count * circuit.num_measurements);
+    result.detectors.resize(shot_count * circuit.num_detectors);
+    result.observables.resize(shot_count * circuit.num_observables);
+    result.final_status.resize(shot_count * circuit.num_qubits);
+    result.heralds.resize(shot_count * circuit.num_measurements);
 
     const InstrumentTraceOptions instrument_options = instrument_trace_options(model);
     TrajectoryEvents no_events;
     no_events.initial_status.assign(circuit.num_qubits, QubitStatus::Computational);
-    std::optional<SamplingCompiledContinuation> all_ground_start;
-    std::optional<sampling::Executor> shared_executor;
-
-    for (uint32_t shot = 0; shot < shots; ++shot) {
+    auto run_shot = [&](TrajectoryWorker& worker, uint32_t shot) {
         const auto driver_words = derive_state(root, shot, kTrajectoryDriverDomain);
         Xoshiro256PlusPlus driver_rng(0);
         driver_rng.seed_full(driver_words[0], driver_words[1], driver_words[2], driver_words[3]);
@@ -631,16 +639,16 @@ NonComputationalSample run_trajectory_driver(const Circuit& circuit,
                                                              max_active_width_cap, initial_levels));
             continuation = &*shot_start;
         } else {
-            if (!all_ground_start.has_value()) {
+            if (!worker.shared_start.has_value()) {
                 ContinuationRewrite rewrite =
                     rewrite_continuation(annotated, no_events, false, model);
                 assert(rewrite.classified_measurements.empty() &&
-                       "an all-ground continuation has no classified measurements");
-                all_ground_start.emplace(
+                       "the shared initial continuation has no classified measurements");
+                worker.shared_start.emplace(
                     compile_sampling_continuation(std::move(rewrite), {}, instrument_options,
                                                   max_active_width_cap, initial_levels));
             }
-            continuation = &*all_ground_start;
+            continuation = &*worker.shared_start;
         }
 
         // Executor borrows its current plan. Pointer-own each replacement so
@@ -651,10 +659,10 @@ NonComputationalSample run_trajectory_driver(const Circuit& circuit,
         std::optional<sampling::Executor> shot_executor;
         sampling::Executor* executor = nullptr;
         if (uses_shared_start) {
-            if (!shared_executor.has_value()) {
-                shared_executor.emplace(continuation->program);
+            if (!worker.shared_start_executor.has_value()) {
+                worker.shared_start_executor.emplace(continuation->program);
             }
-            executor = &*shared_executor;
+            executor = &*worker.shared_start_executor;
         } else {
             shot_executor.emplace(continuation->program);
             executor = &*shot_executor;
@@ -726,21 +734,29 @@ NonComputationalSample run_trajectory_driver(const Circuit& circuit,
         }
 
         const std::span<const uint8_t> measurements = executor->visible_records();
-        result.measurements.insert(result.measurements.end(), measurements.begin(),
-                                   measurements.end());
+        std::copy(
+            measurements.begin(), measurements.end(),
+            result.measurements.begin() + static_cast<size_t>(shot) * circuit.num_measurements);
         const std::span<const uint8_t> detectors = executor->detectors();
-        result.detectors.insert(result.detectors.end(), detectors.begin(), detectors.end());
+        std::copy(detectors.begin(), detectors.end(),
+                  result.detectors.begin() + static_cast<size_t>(shot) * circuit.num_detectors);
         const std::span<const uint8_t> observables = executor->observables();
-        result.observables.insert(result.observables.end(), observables.begin(), observables.end());
+        std::copy(observables.begin(), observables.end(),
+                  result.observables.begin() + static_cast<size_t>(shot) * circuit.num_observables);
         executor->return_to_root_plan();
-        result.final_status.insert(result.final_status.end(), continuation->final_status.begin(),
-                                   continuation->final_status.end());
-        std::vector<uint8_t> shot_heralds(circuit.num_measurements, 0);
+        std::copy(continuation->final_status.begin(), continuation->final_status.end(),
+                  result.final_status.begin() + static_cast<size_t>(shot) * circuit.num_qubits);
         for (const auto& [slot, flag] : herald_flags) {
-            shot_heralds[slot] = flag;
+            result.heralds[static_cast<size_t>(shot) * circuit.num_measurements + slot] = flag;
         }
-        result.heralds.insert(result.heralds.end(), shot_heralds.begin(), shot_heralds.end());
-    }
+    };
+    run_shot_ranges(
+        shots, threads, [](uint32_t) { return std::make_unique<TrajectoryWorker>(); },
+        [&](const std::unique_ptr<TrajectoryWorker>& worker, ShotRange range) {
+            for (uint32_t shot = range.begin; shot < range.end; ++shot) {
+                run_shot(*worker, shot);
+            }
+        });
 
     return result;
 }
