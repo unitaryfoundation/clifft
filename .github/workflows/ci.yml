@@ -353,6 +353,75 @@ jobs:
       - name: SDE smoke -- Skylake-X + FORCE_ISA=avx512
         run: PYTHON=$(pwd)/.smoke-venv/bin/python .github/scripts/wheel_smoke.sh sde skx avx512 pass avx512
 
+  # Round-trips the packaging pipeline on every pull request: the sdist
+  # must be complete and buildable, it must produce a cp312-abi3 wheel,
+  # and that wheel must install and run on the newest stable CPython,
+  # which is newer than the 3.12 interpreter the wheel targets. The
+  # release workflow separately smokes the exact published artifact.
+  package-smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      CLIFFT_CPU_BASELINE: x86-64-v2
+      SKBUILD_CMAKE_BUILD_TYPE: Release
+      CMAKE_GENERATOR: Ninja
+      CMAKE_C_COMPILER_LAUNCHER: ccache
+      CMAKE_CXX_COMPILER_LAUNCHER: ccache
+      CCACHE_COMPILERCHECK: content
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for setuptools-scm
+
+      - name: Install ninja and ccache
+        uses: ./.github/actions/setup-native-tools
+
+      # Same key as release-cpp-smoke (Release build, same CPU baseline),
+      # so this job reuses that job's ccache instead of building cold.
+      - name: Setup ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ${{ runner.os }}-ccache-Release-${{ env.CLIFFT_CPU_BASELINE }}
+          # Caches saved from PR runs are scoped to the PR ref and cannot be
+          # reused elsewhere; saving only on main limits repo cache eviction.
+          save: ${{ github.ref == 'refs/heads/main' }}
+          evict-old-files: job
+
+      - name: Setup uv and Python
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          python-version: "3.12"
+
+      - name: Build sdist
+        run: uv build --sdist
+
+      # Build from the sdist, not the checkout, so a file missing from
+      # the sdist manifest fails here instead of only at publish time.
+      - name: Build wheel from sdist
+        run: uv build --wheel --out-dir wheelhouse dist/*.tar.gz
+
+      # Catches a silent regression of the wheel.py-api pin.
+      - name: Assert the wheel is stable-ABI (cp312-abi3)
+        run: ls wheelhouse/clifft-*cp312-abi3*.whl
+
+      - name: Install the wheel on the newest stable CPython
+        run: |
+          uv venv --python 3.14 .abi3-venv
+          uv pip install --python .abi3-venv/bin/python wheelhouse/*.whl
+
+      - name: Run the packaging smoke
+        run: .abi3-venv/bin/python .github/scripts/artifact_smoke.py --expect-python 3.14
+
+      # The suite adds interpreter-behavior coverage for the wrapper; PRs
+      # get the focused smoke above.
+      - name: Run Python tests against the installed wheel (main only)
+        if: github.event_name == 'push'
+        run: |
+          uv pip install --python .abi3-venv/bin/python --group dev
+          .abi3-venv/bin/python -m pytest tests/python/ -n logical --maxprocesses 4 -v
+
   cross-platform:
     name: cross-platform (${{ matrix.label }})
     strategy:
@@ -460,6 +529,7 @@ jobs:
       - playground-lint
       - build-and-test
       - release-cpp-smoke
+      - package-smoke
       - cross-platform
     runs-on: ubuntu-24.04
     steps:
