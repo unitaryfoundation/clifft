@@ -1,4 +1,4 @@
-const LEAKAGE_LOSS_GUIDE_URL = "https://unitaryfoundation.github.io/clifft/guide/leakage-and-loss/";
+const LEAKAGE_LOSS_GUIDE_URL = "https://unitaryfoundation.github.io/clifft/stable/guide/leakage-and-loss/";
 
 // Friendly explanation shown in place of the raw compiler error when a
 // pasted circuit uses LOSS or LEVEL_TRANSITION. Those annotations require a

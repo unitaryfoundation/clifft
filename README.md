@@ -43,9 +43,9 @@ representation. SymFT adds symbolic Clifford-Pauli-frame factorization,
 adaptive stabilizer-coordinate planning, and direct multi-coordinate kernels.
 Clifft's current sampler adopts these SymFT developments alongside
 Clifft-specific compiler, continuation, and API machinery.
-See the [theoretical overview](https://unitaryfoundation.github.io/clifft/theory/overview/#method-provenance)
+See the [theoretical overview](https://unitaryfoundation.github.io/clifft/stable/theory/overview/#method-provenance)
 for the fuller lineage and implementation boundaries. The
-[symbolic sampling update](https://unitaryfoundation.github.io/clifft/updates/symbolic-sampling/)
+[symbolic sampling update](https://unitaryfoundation.github.io/clifft/stable/updates/symbolic-sampling/)
 explains the migration from the original SVM and reports matched release-target
 benchmarks.
 
@@ -79,7 +79,7 @@ pip install clifft
 | Windows `amd64` | Supported |
 
 All other platforms and CPU families should build from source. See the
-[installation docs](https://unitaryfoundation.github.io/clifft/getting-started/installation/#from-source).
+[installation docs](https://unitaryfoundation.github.io/clifft/stable/getting-started/installation/#from-source).
 
 ## Quick Start
 
@@ -112,7 +112,7 @@ discoverable:
   converts parameter-resolved `cirq.Circuit` instances to Clifft text and
   provides a Cirq-style sampler backed by Clifft.
 
-See the [front-end integrations guide](https://unitaryfoundation.github.io/clifft/getting-started/integrations/)
+See the [front-end integrations guide](https://unitaryfoundation.github.io/clifft/stable/getting-started/integrations/)
 for installation commands, minimal examples, and current limitations.
 
 ## Citation
@@ -132,7 +132,7 @@ If you use Clifft in your work, please cite the arXiv [preprint](https://arxiv.o
 
 ## Development
 
-See the [building from source](https://unitaryfoundation.github.io/clifft/development/building/) guide for build
+See the [building from source](https://unitaryfoundation.github.io/clifft/stable/development/building/) guide for build
 instructions.
 
 ## AI Acknowledgement
