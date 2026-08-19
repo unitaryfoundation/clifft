@@ -103,9 +103,12 @@ jobs:
       # AVX-512 backend deterministically. Skipped on other arches/OSes
       # since both emulators are x86_64-specific and the other matrix
       # entries use the generic baseline.
-      - name: Install qemu-user (Linux x86_64 wheel only)
+      - name: Install QEMU (Linux x86_64 wheel only)
         if: matrix.os == 'ubuntu-24.04' && matrix.arch == 'x86_64'
-        run: sudo apt-get update && sudo apt-get install -y qemu-user
+        uses: ./.github/actions/setup-native-tools
+        with:
+          install-build-tools: "false"
+          install-qemu: "true"
 
       - name: Install Intel SDE (Linux x86_64 wheel only)
         if: matrix.os == 'ubuntu-24.04' && matrix.arch == 'x86_64'
