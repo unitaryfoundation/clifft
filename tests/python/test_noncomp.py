@@ -448,6 +448,30 @@ def test_deterministic_in_seed(noncomp_sampling_api):
     assert np.array_equal(a.final_status, b.final_status)
 
 
+@pytest.mark.parametrize("threads", [3, "auto"])
+def test_threads_preserve_seeded_rows_and_sidecars(threads):
+    model = noncomp.Model(
+        initial_state=[0.4, 0.3, 0.0, 0.3, 0.0],
+        transitions={"leak": transition_to(LEAK_E)},
+        classifier=classifier_for(LEAK_E, [0.2, 0.1, 0.7]),
+    )
+    circuit = (
+        "H 1\nCX 1 0\nLEVEL_TRANSITION[leak] 0\nM 0\nM 1\n"
+        "DETECTOR rec[-1] rec[-2]\nOBSERVABLE_INCLUDE(0) rec[-1]\n"
+    )
+    serial = noncomp.sample(circuit, model, shots=257, seed=12345, threads=1)
+    parallel = noncomp.sample(circuit, model, shots=257, seed=12345, threads=threads)
+
+    for field in ("measurements", "detectors", "observables", "final_status", "heralds"):
+        assert np.array_equal(getattr(parallel, field), getattr(serial, field))
+
+
+@pytest.mark.parametrize("threads", [0, -1, "all", 1.5])
+def test_sample_rejects_invalid_threads(threads):
+    with pytest.raises((TypeError, ValueError), match="threads|incompatible"):
+        noncomp.sample("M 0", noncomp.Model(), shots=1, threads=threads)
+
+
 def test_different_seeds_differ(noncomp_sampling_api):
     # The companion to the determinism check: a different seed must actually
     # change the draws, so a fixed-sequence regression cannot masquerade as

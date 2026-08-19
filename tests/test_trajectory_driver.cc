@@ -274,6 +274,34 @@ TEST_CASE("trajectory: same seed reproduces identical runs") {
     }
 }
 
+TEST_CASE("trajectory: worker counts preserve seeded rows and sidecars") {
+    ModelSpec spec;
+    spec.leak_from_g = 0.35;
+    spec.leak_from_e = 0.65;
+    spec.initial = {0.4, 0.3, 0.0, 0.3, 0.0};
+    const NonComputationalModel model = make_driver_model(spec);
+    const Circuit circuit = parse(
+        "H 1\nCX 1 0\nLEVEL_TRANSITION[leak] 0\nM 0\nM 1\n"
+        "DETECTOR rec[-1] rec[-2]\nOBSERVABLE_INCLUDE(0) rec[-1]\n");
+
+    const NonComputationalSample serial =
+        sample_noncomputational(circuit, model, 257, 12345, std::nullopt, 1);
+    for (const uint32_t threads : {3U, 0U}) {
+        const NonComputationalSample parallel =
+            sample_noncomputational(circuit, model, 257, 12345, std::nullopt, threads);
+        REQUIRE(parallel.shots == serial.shots);
+        REQUIRE(parallel.num_qubits == serial.num_qubits);
+        REQUIRE(parallel.num_measurements == serial.num_measurements);
+        REQUIRE(parallel.num_detectors == serial.num_detectors);
+        REQUIRE(parallel.num_observables == serial.num_observables);
+        REQUIRE(parallel.measurements == serial.measurements);
+        REQUIRE(parallel.detectors == serial.detectors);
+        REQUIRE(parallel.observables == serial.observables);
+        REQUIRE(parallel.final_status == serial.final_status);
+        REQUIRE(parallel.heralds == serial.heralds);
+    }
+}
+
 TEST_CASE("trajectory: the driver and executor seed streams are domain-separated") {
     // The host draws (initial levels, trap destinations, classifier consults)
     // and the in-executor Born draws run on independent streams; handing the same
@@ -320,7 +348,7 @@ TEST_CASE("trajectory: max_active_width rejects an over-budget compile") {
         "M 0\nM 1\nM 2");
 
     REQUIRE_THROWS_WITH(
-        sample_noncomputational(circuit, model, 5, 1, /*max_active_width=*/2),
+        sample_noncomputational(circuit, model, 5, 1, /*max_active_width=*/2, /*threads=*/3),
         ContainsSubstring("exceeds max_active_width 2 (first exceeded at circuit line 6); consider "
                           "damping=\"neglect\" for high-rate sites or a larger max_active_width"));
 }
@@ -1477,7 +1505,7 @@ TEST_CASE(
                         ContainsSubstring("max_active_width"));
 
     // Lost model at max_active_width=0 must run (the no-event module is lazy).
-    const NonComputationalSample r = sample_noncomputational(circuit, lost_model, 16, 1, 0);
+    const NonComputationalSample r = sample_noncomputational(circuit, lost_model, 16, 1, 0, 3);
     for (const uint8_t bit : r.measurements) {
         REQUIRE(bit == 1);
     }

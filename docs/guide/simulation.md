@@ -241,13 +241,13 @@ index. Seeded results therefore do not depend on how shots are scheduled.
 
 ## Parallel Shots
 
-`sample()`, `sample_survivors()`, `sample_k()`, and
-`sample_k_survivors()` accept a `threads` argument. It defaults to `1`, so
-existing calls remain serial. Pass a positive worker count to control resource
-use, or `threads="auto"` to use the implementation-reported hardware
-concurrency. Clifft never creates more workers than shots. In containers or
-processes with CPU-affinity limits, set an explicit count if the reported
-hardware concurrency exceeds the available CPU quota.
+`sample()`, `sample_survivors()`, `sample_k()`, `sample_k_survivors()`, and
+[`noncomp.sample()`](leakage-and-loss.md) accept a `threads` argument. It
+defaults to `1`, so existing calls remain serial. Pass a positive worker count
+to control resource use, or `threads="auto"` to use the implementation-reported
+hardware concurrency. Clifft never creates more workers than shots. In
+containers or processes with CPU-affinity limits, set an explicit count if the
+reported hardware concurrency exceeds the available CPU quota.
 
 Workers dynamically claim contiguous shot ranges from a shared scheduler.
 With a fixed seed, changing `threads` produces exactly the same result.
@@ -259,6 +259,8 @@ Each worker owns a separate executor. Its dense coefficient and measurement
 scratch storage uses roughly $24 \times 2^k$ bytes at peak active width $k$,
 plus symbolic state, records, and other executor metadata. Set an explicit
 worker count when memory is more constrained than CPU availability.
+Noncomputational workers also own their trajectory continuations and compile
+new continuations independently as their shots encounter jumps.
 
 ## Importance Sampling (Forced k-Faults)
 

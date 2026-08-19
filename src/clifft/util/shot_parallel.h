@@ -1,8 +1,10 @@
 #pragma once
 
 // Shared cross-shot scheduling for sampling frontends. The worker factory
-// creates every fully allocated context before this helper starts dispatch,
-// then workers claim disjoint global shot ranges dynamically.
+// creates every base context before this helper starts dispatch, then workers
+// claim disjoint global shot ranges dynamically. Fixed-plan samplers fully
+// allocate those contexts up front; trajectory samplers may grow them only at
+// explicit continuation boundaries.
 
 #include <algorithm>
 #include <atomic>

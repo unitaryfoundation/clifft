@@ -25,6 +25,7 @@ namespace clifft {
 NonComputationalSample run_trajectory_driver(const Circuit& circuit,
                                              const NonComputationalModel& model, uint32_t shots,
                                              const SeedRoot& root,
-                                             std::optional<uint32_t> max_active_width_cap);
+                                             std::optional<uint32_t> max_active_width_cap,
+                                             uint32_t threads);
 
 }  // namespace clifft
