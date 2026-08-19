@@ -11,7 +11,8 @@
 // 2. For each gate in the circuit:
 //    - Clifford gates: apply to simulator (absorbed into tableau)
 //    - T/TPP gates: emit T_GATE ops with rewound Pauli masks
-//    - SPP and rotation gates: emit PHASE_ROTATION ops for the optimizer
+//    - SPP and non-Clifford rotations: emit PHASE_ROTATION ops for the optimizer
+//    - Canonicalized single-qubit Clifford rotations: absorb into the tableau
 //    - Measurement: extract rewound observable, emit MEASURE
 //    - Classical feedback: extract rewound Pauli, emit CONDITIONAL_PAULI
 // 3. Return HirModule with all emitted operations
@@ -53,7 +54,8 @@ struct InstrumentTraceOptions {
 // This is the main entry point for the Front-End. It:
 // - Absorbs Clifford gates into the tableau
 // - Emits T_GATE ops for T/T_DAG and TPP/TPP_DAG
-// - Emits PHASE_ROTATION ops for SPP/SPP_DAG and rotation gates
+// - Emits PHASE_ROTATION ops for SPP/SPP_DAG and non-Clifford rotations
+// - Absorbs R_X/R_Y/R_Z components within 1e-12 half-turns of a Clifford angle
 // - Emits HeisenbergOps for measurements
 // - Emits HeisenbergOps for classical feedback (CX/CZ with rec targets)
 // - With `instruments` supplied, materializes LEVEL_TRANSITION, LEAKAGE, and

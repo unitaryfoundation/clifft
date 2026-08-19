@@ -103,6 +103,14 @@ parameters are in **half-turns** (multiply by pi to get radians).
 | `U3`  | `U3(theta,phi,lambda) target` | General SU(2) gate = `R_Z(phi) R_Y(theta) R_Z(lambda)` |
 | `U`   | `U(theta,phi,lambda) target` | Alias for `U3` |
 
+Finite angles within an absolute tolerance of `1e-12` half-turns of a multiple
+of `0.5`, such as `0.5`, `-1`, and `1.5`, are canonicalized to that Clifford
+rotation during tracing. This policy intentionally absorbs small numerical
+errors introduced by circuit generation or serialization; a deliberate
+overrotation smaller than the tolerance is therefore treated as the canonical
+Clifford. Deviations outside the tolerance remain continuous rotations. Each
+`U3` component receives the same treatment.
+
 !!! note "Name conflicts with Stim"
     Clifft uses `R_X`, `R_Y`, `R_Z` (with underscores) to avoid collision with
     Stim's `RX` / `RY` reset-in-basis instructions.

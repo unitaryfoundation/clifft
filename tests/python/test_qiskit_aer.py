@@ -233,6 +233,21 @@ class TestArbitraryRotations(_StatevectorBackendMixin):
     def test_ry_single_qubit(self) -> None:
         self._check_amplitudes("R_Y(0.3) 0")
 
+    @pytest.mark.parametrize("axis", ["X", "Y", "Z"])
+    @pytest.mark.parametrize(
+        "alpha",
+        [-3.0, -2.5, -2.0, -1.5, -1.0, -0.5, 0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0],
+    )
+    def test_exact_clifford_rotations(self, axis: str, alpha: float) -> None:
+        self._check_amplitudes(f"H 0\nR_{axis}({alpha}) 0")
+
+    @pytest.mark.parametrize(
+        "angles",
+        ["0.5, -1.0, 1.5", "-2.5, 2.0, -1.5"],
+    )
+    def test_u3_with_exact_clifford_components(self, angles: str) -> None:
+        self._check_amplitudes(f"H 0\nU3({angles}) 0")
+
     def test_u3_gate(self) -> None:
         self._check_amplitudes("U3(0.5, 0.25, 0.125) 0")
 

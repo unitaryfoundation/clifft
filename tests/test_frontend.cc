@@ -6,6 +6,7 @@
 
 #include "clifft/circuit/parser.h"
 #include "clifft/frontend/frontend.h"
+#include "clifft/util/numeric.h"
 
 #include "test_helpers.h"
 
@@ -14,6 +15,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
+#include <limits>
 #include <random>
 #include <stdexcept>
 #include <string>
@@ -1549,37 +1551,133 @@ TEST_CASE("Frontend: R_Z emits PHASE_ROTATION", "[frontend][rotation]") {
     CHECK(hir.ops[0].alpha() == Catch::Approx(0.25));
 }
 
-TEST_CASE("Frontend: R_X desugars through Hadamard", "[frontend][rotation]") {
-    auto circuit = parse("R_X(0.5) 0");
-    auto hir = trace(circuit);
+TEST_CASE("Frontend: non-Clifford R_X and R_Y emit rotations", "[frontend][rotation]") {
+    for (const char* source : {"R_X(0.3) 0", "R_Y(0.3) 0"}) {
+        CAPTURE(source);
+        auto hir = trace(parse(source));
 
-    REQUIRE(hir.num_ops() == 1);
-    CHECK(hir.ops[0].op_type() == OpType::PHASE_ROTATION);
-    CHECK(hir.ops[0].alpha() == Catch::Approx(0.5));
+        REQUIRE(hir.num_ops() == 1);
+        CHECK(hir.ops[0].op_type() == OpType::PHASE_ROTATION);
+        CHECK(hir.ops[0].alpha() == Catch::Approx(0.3));
+        CHECK(hir.pauli_masks.size() == 1);
+    }
 }
 
-TEST_CASE("Frontend: R_Y desugars through H_YZ", "[frontend][rotation]") {
-    auto circuit = parse("R_Y(0.5) 0");
-    auto hir = trace(circuit);
-
-    REQUIRE(hir.num_ops() == 1);
-    CHECK(hir.ops[0].op_type() == OpType::PHASE_ROTATION);
-    CHECK(hir.ops[0].alpha() == Catch::Approx(0.5));
-}
-
-TEST_CASE("Frontend: U3 emits three PHASE_ROTATION ops", "[frontend][rotation]") {
+TEST_CASE("Frontend: U3 absorbs exact Clifford components", "[frontend][rotation]") {
     auto circuit = parse("U3(0.5, 0.25, 0.125) 0");
     auto hir = trace(circuit);
 
-    // U3 = R_Z(phi) * R_Y(theta) * R_Z(lambda) -> 3 rotations
-    REQUIRE(hir.num_ops() == 3);
-    for (size_t i = 0; i < 3; ++i) {
+    // U3 = R_Z(phi) * R_Y(theta) * R_Z(lambda). The R_Y(0.5)
+    // component is absorbed, leaving lambda and phi as rotations.
+    REQUIRE(hir.num_ops() == 2);
+    CHECK(hir.pauli_masks.size() == 2);
+    for (size_t i = 0; i < 2; ++i) {
         CHECK(hir.ops[i].op_type() == OpType::PHASE_ROTATION);
     }
-    // lambda=0.125 first, then theta=0.5, then phi=0.25
+    // lambda=0.125 first, then phi=0.25
     CHECK(hir.ops[0].alpha() == Catch::Approx(0.125));
-    CHECK(hir.ops[1].alpha() == Catch::Approx(0.5));
-    CHECK(hir.ops[2].alpha() == Catch::Approx(0.25));
+    CHECK(hir.ops[1].alpha() == Catch::Approx(0.25));
+}
+
+TEST_CASE("Frontend: U3 absorbs components within the Clifford tolerance", "[frontend][rotation]") {
+    constexpr double delta = 0.5 * kRotationCanonicalizationTolerance;
+    Circuit circuit;
+    circuit.num_qubits = 1;
+    circuit.nodes.push_back(
+        {GateType::U3, {Target::qubit(0)}, {0.5 + delta, -1.0 - delta, 1.5 - delta}, 1});
+    const auto hir = trace(circuit);
+    const auto reference = trace(parse("U3(0.5, -1.0, 1.5) 0"));
+
+    CHECK(hir.num_ops() == 0);
+    CHECK(hir.pauli_masks.size() == 0);
+    REQUIRE(hir.final_tableau.has_value());
+    REQUIRE(reference.final_tableau.has_value());
+    CHECK(*hir.final_tableau == *reference.final_tableau);
+}
+
+TEST_CASE("Frontend: exact Clifford axis rotations match named gates", "[frontend][rotation]") {
+    struct AxisCase {
+        const char* axis;
+        const char* sqrt_gate;
+        const char* pauli_gate;
+        const char* sqrt_dag_gate;
+    };
+    const AxisCase axes[] = {
+        {"X", "SQRT_X", "X", "SQRT_X_DAG"},
+        {"Y", "SQRT_Y", "Y", "SQRT_Y_DAG"},
+        {"Z", "S", "Z", "S_DAG"},
+    };
+
+    struct AngleCase {
+        const char* alpha;
+        int residue;
+    };
+    const AngleCase angles[] = {
+        {"-3.0", 2}, {"-2.5", 3}, {"-2.0", 0}, {"-1.5", 1}, {"-1.0", 2}, {"-0.5", 3}, {"0.0", 0},
+        {"0.5", 1},  {"1.0", 2},  {"1.5", 3},  {"2.0", 0},  {"2.5", 1},  {"3.0", 2},
+    };
+
+    for (const auto& axis : axes) {
+        const char* named_gates[] = {"I", axis.sqrt_gate, axis.pauli_gate, axis.sqrt_dag_gate};
+        for (const auto& angle : angles) {
+            CAPTURE(axis.axis, angle.alpha);
+            const std::string source = "R_" + std::string(axis.axis) + "(" + angle.alpha + ") 0";
+            const std::string reference_source = std::string(named_gates[angle.residue]) + " 0";
+            auto hir = trace(parse(source));
+            const auto reference = trace(parse(reference_source));
+
+            CHECK(hir.num_ops() == 0);
+            CHECK(hir.pauli_masks.size() == 0);
+            REQUIRE(hir.final_tableau.has_value());
+            REQUIRE(reference.final_tableau.has_value());
+            CHECK(*hir.final_tableau == *reference.final_tableau);
+        }
+    }
+}
+
+TEST_CASE("Frontend: Clifford tolerance has an explicit boundary", "[frontend][rotation]") {
+    constexpr double inside = 0.5 + 0.5 * kRotationCanonicalizationTolerance;
+    Circuit inside_circuit;
+    inside_circuit.num_qubits = 1;
+    inside_circuit.nodes.push_back({GateType::R_Z, {Target::qubit(0)}, {inside}, 1});
+    const auto inside_hir = trace(inside_circuit);
+    const auto reference = trace(parse("S 0"));
+
+    CHECK(inside_hir.num_ops() == 0);
+    CHECK(inside_hir.pauli_masks.size() == 0);
+    REQUIRE(inside_hir.final_tableau.has_value());
+    REQUIRE(reference.final_tableau.has_value());
+    CHECK(*inside_hir.final_tableau == *reference.final_tableau);
+
+    constexpr double outside = 0.5 + 2.0 * kRotationCanonicalizationTolerance;
+    Circuit outside_circuit;
+    outside_circuit.num_qubits = 1;
+    outside_circuit.nodes.push_back({GateType::R_Z, {Target::qubit(0)}, {outside}, 1});
+    const auto outside_hir = trace(outside_circuit);
+
+    REQUIRE(outside_hir.num_ops() == 1);
+    CHECK(outside_hir.ops[0].op_type() == OpType::PHASE_ROTATION);
+    CHECK(outside_hir.ops[0].alpha() == outside);
+    CHECK(outside_hir.pauli_masks.size() == 1);
+}
+
+TEST_CASE("Frontend: largest finite rotation angle is classified without overflow",
+          "[frontend][rotation]") {
+    const auto reference = trace(parse("I 0"));
+    for (GateType gate : {GateType::R_X, GateType::R_Y, GateType::R_Z}) {
+        CAPTURE(gate_name(gate));
+        Circuit circuit;
+        circuit.num_qubits = 1;
+        circuit.nodes.push_back(
+            {gate, {Target::qubit(0)}, {std::numeric_limits<double>::max()}, 1});
+        const auto hir = trace(circuit);
+
+        CHECK(hir.num_ops() == 0);
+        CHECK(hir.pauli_masks.size() == 0);
+        REQUIRE(hir.final_tableau.has_value());
+        REQUIRE(reference.final_tableau.has_value());
+        CHECK(*hir.final_tableau == *reference.final_tableau);
+    }
 }
 
 TEST_CASE("Frontend: R_ZZ emits PHASE_ROTATION on two-qubit Pauli", "[frontend][rotation]") {
@@ -1624,12 +1722,12 @@ TEST_CASE("Frontend: R_PAULI emits PHASE_ROTATION on arbitrary Pauli", "[fronten
 }
 
 TEST_CASE("Frontend: R_Z global phase accumulation", "[frontend][rotation]") {
-    auto circuit = parse("R_Z(0.5) 0");
+    auto circuit = parse("R_Z(0.25) 0");
     auto hir = trace(circuit);
 
-    // Global phase: e^{-i*0.5*pi/2} = e^{-i*pi/4}
-    double expected_re = std::cos(-0.5 * std::numbers::pi / 2.0);
-    double expected_im = std::sin(-0.5 * std::numbers::pi / 2.0);
+    double expected_re = std::cos(-0.25 * std::numbers::pi / 2.0);
+    double expected_im = std::sin(-0.25 * std::numbers::pi / 2.0);
+    CHECK(hir.num_ops() == 1);
     CHECK(hir.global_weight.real() == Catch::Approx(expected_re).epsilon(1e-12));
     CHECK(hir.global_weight.imag() == Catch::Approx(expected_im).epsilon(1e-12));
 }

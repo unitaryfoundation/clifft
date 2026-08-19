@@ -61,7 +61,7 @@
     "PHASE_ROTATION": {
       "category": "Non-Clifford",
       "summary": "Continuous Z-rotation by angle alpha (half-turns) on a Pauli product.",
-      "detail": "Applies exp(-i*alpha*pi/2 * P) where P is the rewound Pauli product and alpha is in half-turn units. The front-end factors out the global phase e^{-i*alpha*pi/2} into global_weight. All single-qubit rotations and multi-qubit Pauli rotations are reduced to this HIR type via Clifford absorption.",
+      "detail": "Applies exp(-i*alpha*pi/2 * P) where P is the rewound Pauli product and alpha is in half-turn units. For rotations emitted as this HIR type, the front-end factors the source representation's global phase into global_weight. R_X, R_Y, and R_Z rotations within the documented 1e-12 half-turn canonicalization tolerance of a Clifford angle, including U3 components, are instead absorbed directly into the Clifford frame and emit no PHASE_ROTATION. The peephole pass uses the same tolerance when canonicalizing HIR rotations.",
       "display": [
         "PHASE_ROTATION"
       ]
