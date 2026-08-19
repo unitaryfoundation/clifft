@@ -22,7 +22,7 @@ also powers exact state queries and leakage/loss continuations.
 
 Across the release benchmark corpus, the new sampler is faster than the SVM
 on five of seven real workloads and remains close on the other two. See
-[Symbolic Sampling in Clifft](https://unitaryfoundation.github.io/clifft/updates/symbolic-sampling/)
+[Symbolic Sampling in Clifft](https://unitaryfoundation.github.io/clifft/stable/updates/symbolic-sampling/)
 for the design, API migration guide, matched benchmark results, and method
 provenance.
 
@@ -89,8 +89,8 @@ Transitions can be attached to gates or placed explicitly in the circuit, and
 results include measurement records, detector and observable values, heralds,
 and final per-qubit status.
 
-The [Leakage and Loss guide](https://unitaryfoundation.github.io/clifft/guide/leakage-and-loss/)
-introduces the model and API. The [Delayed Loss tutorial](https://unitaryfoundation.github.io/clifft/guide/delayed-loss/)
+The [Leakage and Loss guide](https://unitaryfoundation.github.io/clifft/stable/guide/leakage-and-loss/)
+introduces the model and API. The [Delayed Loss tutorial](https://unitaryfoundation.github.io/clifft/stable/guide/delayed-loss/)
 applies it to a surface-code memory experiment, where losses of the same data
 qubit at different times produce the same final herald but different detector
 histories.
@@ -115,7 +115,7 @@ histories.
 
 Clifft 0.6.0 adds Stim-compatible correlated Pauli noise chains through
 `CORRELATED_ERROR` / `E` and `ELSE_CORRELATED_ERROR`. It also adds a dedicated
-[front-end integrations guide](https://unitaryfoundation.github.io/clifft/getting-started/integrations/)
+[front-end integrations guide](https://unitaryfoundation.github.io/clifft/stable/getting-started/integrations/)
 for using Clifft from Qiskit and Cirq through their separately maintained
 companion packages.
 
@@ -180,7 +180,7 @@ This patch makes Linux wheel CPU targeting consistent and portable across Clifft
 
 ## [0.4.0] - 2026-05-15
 
-This release expands strong simulation with a new `clifft.record_probabilities()` API that returns the joint probability `sample()` would assign to a given measurement record (or batch of records). Combined with the existing basis-probability path, Clifft now answers two complementary "what's the exact probability of …" questions: bitstring outcomes for unitary circuits, and measurement-record outcomes for circuits that contain measurements with or without classical feedback. See the [strong-simulation tutorial](https://unitaryfoundation.github.io/clifft/guide/strong-simulation/) for both APIs side-by-side and more detail on when to choose one versus anothr.
+This release expands strong simulation with a new `clifft.record_probabilities()` API that returns the joint probability `sample()` would assign to a given measurement record (or batch of records). Combined with the existing basis-probability path, Clifft now answers two complementary "what's the exact probability of …" questions: bitstring outcomes for unitary circuits, and measurement-record outcomes for circuits that contain measurements with or without classical feedback. See the [strong-simulation tutorial](https://unitaryfoundation.github.io/clifft/stable/guide/strong-simulation/) for both APIs side-by-side and more detail on when to choose one versus anothr.
 
 The probability surface is also faster and clearer. `basis_probabilities()` is roughly 17× faster on representative inputs via a Gray-code walk over X-generators when the dormant block reduces cleanly during RREF. As part of unifying the docs, the two queries were renamed to make the queried object explicit:
 
@@ -223,7 +223,7 @@ Beyond the probability work, 0.4.0 lands a scheduled benchmark-history workflow 
 
 ## [0.3.0] - 2026-05-08
 
-This release adds strong simulation for unitary circuits through exact computational-basis probability queries of the factored state. The new `clifft.probabilities()` API evaluates selected bitstrings without materializing the full $2^n$ statevector, so sparse output queries can scale with active width rather than output-space size. See the [strong-simulation tutorial](https://unitaryfoundation.github.io/clifft/guide/strong-simulation/) for examples.
+This release adds strong simulation for unitary circuits through exact computational-basis probability queries of the factored state. The new `clifft.probabilities()` API evaluates selected bitstrings without materializing the full $2^n$ statevector, so sparse output queries can scale with active width rather than output-space size. See the [strong-simulation tutorial](https://unitaryfoundation.github.io/clifft/stable/guide/strong-simulation/) for examples.
 
 Clifft 0.3.0 also removes the old compile-time qubit ceiling by moving Pauli mask storage to runtime-width arenas. That fixed-width limit kept the early implementation simple and fast; the new arena path keeps the overhead localized while supporting circuits above the former inline-width bound.
 

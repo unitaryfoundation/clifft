@@ -45,6 +45,14 @@ This prepends only the unreleased changes since the previous tag and preserves
 older hand-edited release sections. Do not use `-o CHANGELOG.md` for routine
 releases unless you intentionally want to regenerate the entire changelog.
 
+Write documentation links in changelog entries (and the README) with the
+versioned `stable/` prefix, e.g.
+`https://unitaryfoundation.github.io/clifft/stable/guide/strong-simulation/`.
+The docs site only redirects at its root, so unversioned deep links 404; the
+GitHub release notes extracted from the changelog inherit whatever links are
+written here. The root `playground/` and `bench/` URLs are the intentional
+unversioned exceptions.
+
 Review, edit if needed (add the release summary, fix typos, clarify entries,
 remove noise), then commit:
 
