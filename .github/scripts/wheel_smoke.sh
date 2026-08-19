@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Emulated-CPU wheel smoke for clifft.
 #
-# Runs a tiny clifft program under an x86 emulator to verify that the
-# installed wheel/extension dispatches correctly across CPU generations.
+# Runs the shared artifact_smoke.py program under an x86 emulator to
+# verify that the installed wheel/extension dispatches correctly
+# across CPU generations.
 # Catches the "AVX-512 leaks into the AVX-2 dispatch code path" class of
 # bug deterministically (it would SIGILL the emulated CPU) and validates
 # that `CLIFFT_FORCE_ISA` traps fire cleanly on incompatible hosts.
@@ -83,19 +84,6 @@ if [ "$emulator" = "sde" ] && ! command -v "${SDE64:-sde64}" >/dev/null 2>&1; th
     exit 2
 fi
 
-script='from pathlib import Path
-import clifft
-print(f"version={clifft.__version__}  baseline={clifft.CPU_BASELINE}", flush=True)
-print(f"isa={clifft.runtime_isa()}", flush=True)
-symbolic = clifft.compile(Path("tests/fixtures/qv10.stim").read_text())
-result = clifft.sample(symbolic, shots=1, seed=280)
-assert result.measurements.shape[0] == 1, result.measurements.shape
-prog = clifft.compile("H 0\nCX 0 1\nM 0 1")
-ps = clifft.record_probabilities(prog, ["00", "11"])
-assert abs(float(ps[0]) - 0.5) < 1e-12 and abs(float(ps[1]) - 0.5) < 1e-12, ps
-print("smoke ok", flush=True)
-'
-
 echo "==> wheel_smoke: emulator=$emulator cpu=$cpu_model force=$force_isa expected=$expected"
 
 if [ "$emulator" = "qemu" ]; then
@@ -105,7 +93,7 @@ if [ "$emulator" = "qemu" ]; then
     if [ "$force_isa" != "auto" ]; then
         qemu_env+=(-E "CLIFFT_FORCE_ISA=$force_isa")
     fi
-    output=$("${QEMU_X86_64:-qemu-x86_64}" -cpu "$cpu_model" "${qemu_env[@]}" "$PYTHON" -c "$script" 2>&1)
+    output=$("${QEMU_X86_64:-qemu-x86_64}" -cpu "$cpu_model" "${qemu_env[@]}" "$PYTHON" .github/scripts/artifact_smoke.py 2>&1)
     exit_code=$?
 else
     # SDE children inherit the environment, so export CLIFFT_FORCE_ISA
@@ -113,7 +101,7 @@ else
     if [ "$force_isa" != "auto" ]; then
         export CLIFFT_FORCE_ISA="$force_isa"
     fi
-    output=$("${SDE64:-sde64}" -"$cpu_model" -- "$PYTHON" -c "$script" 2>&1)
+    output=$("${SDE64:-sde64}" -"$cpu_model" -- "$PYTHON" .github/scripts/artifact_smoke.py 2>&1)
     exit_code=$?
 fi
 echo "$output"

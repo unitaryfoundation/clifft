@@ -166,20 +166,7 @@ jobs:
         run: |
           uv venv --python 3.14 .abi3-venv
           uv pip install --python .abi3-venv/bin/python wheelhouse/*.whl
-          .abi3-venv/bin/python - <<'PY'
-          import sys
-          from pathlib import Path
-          import clifft
-          assert sys.version_info[:2] == (3, 14), sys.version_info
-          print(f"python={sys.version.split()[0]} clifft={clifft.__version__} isa={clifft.runtime_isa()}")
-          symbolic = clifft.compile(Path("tests/fixtures/qv10.stim").read_text())
-          result = clifft.sample(symbolic, shots=1, seed=280)
-          assert result.measurements.shape[0] == 1, result.measurements.shape
-          prog = clifft.compile("H 0\nCX 0 1\nM 0 1")
-          ps = clifft.record_probabilities(prog, ["00", "11"])
-          assert abs(float(ps[0]) - 0.5) < 1e-12 and abs(float(ps[1]) - 0.5) < 1e-12, ps
-          print("abi3 smoke ok")
-          PY
+          .abi3-venv/bin/python .github/scripts/artifact_smoke.py --expect-python 3.14
 
       - uses: actions/upload-artifact@v4
         with:
