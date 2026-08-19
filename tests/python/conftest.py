@@ -74,16 +74,33 @@ def noncomp_classifier_matrix_with_column(
 
 
 def assert_statevectors_equiv(
-    actual: np.ndarray, expected: np.ndarray, *, rtol: float = 1e-4, msg: str = ""
+    actual: npt.ArrayLike,
+    expected: npt.ArrayLike,
+    *,
+    atol: float = 1e-12,
+    rtol: float = 0.0,
+    msg: str = "",
 ) -> None:
-    """Assert two statevectors are equivalent up to global phase.
+    """Assert amplitudes match componentwise after aligning global phase."""
+    actual_array = np.asarray(actual)
+    expected_array = np.asarray(expected)
+    if actual_array.shape != expected_array.shape:
+        raise AssertionError(
+            f"Statevector shapes differ: {actual_array.shape} != {expected_array.shape}. {msg}"
+        )
 
-    Uses fidelity: abs(|<psi|phi>|^2 - 1) <= rtol.
-    Catches both underflow (imperfect overlap) and overflow (numerical error).
-    """
-    fidelity = float(np.abs(np.vdot(expected, actual)) ** 2)
-    if abs(fidelity - 1.0) > rtol:
-        raise AssertionError(f"Fidelity {fidelity:.6f}, expected ~1.0 (rtol={rtol}). {msg}")
+    overlap = np.vdot(expected_array, actual_array)
+    if not np.isfinite(overlap) or np.abs(overlap) == 0:
+        raise AssertionError(f"Statevectors have no finite, nonzero overlap. {msg}")
+
+    phase = overlap / np.abs(overlap)
+    np.testing.assert_allclose(
+        actual_array,
+        phase * expected_array,
+        atol=atol,
+        rtol=rtol,
+        err_msg=msg,
+    )
 
 
 def binomial_tolerance(p: float, n: int, *, sigma: float = 5.0) -> float:

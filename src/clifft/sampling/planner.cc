@@ -678,9 +678,8 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
     }
 
     if (plan.final_tableau.has_value() && final_coordinates_changed) {
-        const Tableau physical = *plan.final_tableau;
         const Tableau& coordinates_to_physical = coordinates.current_to_initial();
-        plan.final_tableau = coordinates_to_physical.then(physical);
+        plan.final_tableau = coordinates_to_physical.then(*plan.final_tableau);
     }
 
     plan.validate();

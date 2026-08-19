@@ -1,8 +1,7 @@
 """Tests for compile() with configurable HIR optimization passes."""
 
-import numpy as np
 import pytest
-from conftest import random_dense_clifford_t_circuit
+from conftest import assert_statevectors_equiv, random_dense_clifford_t_circuit
 
 import clifft
 
@@ -53,8 +52,7 @@ def test_statevector_equiv_with_passes(num_qubits: int, depth: int, seed: int) -
     text = random_dense_clifford_t_circuit(num_qubits, depth, seed)
     baseline = clifft.get_statevector(clifft.compile(text, hir_passes=None))
     optimized = clifft.get_statevector(clifft.compile(text))
-    fidelity = float(np.abs(np.vdot(baseline, optimized)) ** 2)
-    assert fidelity > 0.999999
+    assert_statevectors_equiv(optimized, baseline)
 
 
 def test_custom_pass_manager_via_compile() -> None:

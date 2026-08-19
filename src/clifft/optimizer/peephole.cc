@@ -10,7 +10,6 @@
 #include <complex>
 #include <cstddef>
 #include <cstdint>
-#include <iterator>
 #include <span>
 #include <utility>
 #include <vector>
@@ -182,9 +181,9 @@ void apply_virtual_s_downstream(HirModule& hir, size_t start_idx, MaskView x_v, 
                 // If S-conjugation flipped the Pauli axis sign, do NOT
                 // negate alpha. The physical SU(2) rotation direction is
                 // preserved natively by the backend's own sign handling.
-                // However, the front-end extracted the U(1) global phase
-                // using the OLD sign, and the backend expects global_weight
-                // to match the NEW sign. Patch the difference.
+                // The front-end initialized global_weight for the old signed
+                // representation. Update it so the HIR's chosen representative
+                // remains consistent after changing the sign.
                 if (sign_i != sign_before) {
                     double corr = op.alpha() * std::numbers::pi * (sign_before ? -1.0 : 1.0);
                     hir.global_weight *= std::complex<double>(std::cos(corr), std::sin(corr));

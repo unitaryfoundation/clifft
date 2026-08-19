@@ -250,14 +250,14 @@ class TestPeepholeProjectiveState:
         prog = _compile_optimized("H 0\nT 0\nT 0\nH 0")
         sv = np.asarray(clifft.get_statevector(prog))
         expected = np.asarray([0.5 + 0.5j, 0.5 - 0.5j])
-        assert_statevectors_equiv(sv, expected, rtol=1e-10)
+        assert_statevectors_equiv(sv, expected, atol=1e-10)
 
     @pytest.mark.parametrize("circuit", S_ABSORPTION_CIRCUITS)
     def test_statevector_match(self, circuit: str) -> None:
         """Optimization preserves the projective state."""
         sv_baseline = _clifft_statevector(circuit)
         sv_optimized = _clifft_statevector(circuit, optimize=True)
-        assert_statevectors_equiv(sv_optimized, sv_baseline, rtol=1e-10)
+        assert_statevectors_equiv(sv_optimized, sv_baseline, atol=1e-10)
 
     @pytest.mark.parametrize("seed", range(100))
     def test_random_circuits(self, seed: int) -> None:
@@ -265,7 +265,7 @@ class TestPeepholeProjectiveState:
         circuit = random_clifford_t_circuit(5, depth=30, seed=seed)
         sv_baseline = _clifft_statevector(circuit)
         sv_optimized = _clifft_statevector(circuit, optimize=True)
-        assert_statevectors_equiv(sv_optimized, sv_baseline, rtol=1e-8)
+        assert_statevectors_equiv(sv_optimized, sv_baseline, atol=1e-8)
 
     @pytest.mark.parametrize("seed", range(20))
     def test_random_deep_8q(self, seed: int) -> None:
@@ -274,14 +274,14 @@ class TestPeepholeProjectiveState:
         circuit = random_clifford_t_circuit(8, depth=60, seed=seed)
         sv_baseline = _clifft_statevector(circuit)
         sv_optimized = _clifft_statevector(circuit, optimize=True)
-        assert_statevectors_equiv(sv_optimized, sv_baseline, rtol=1e-8)
+        assert_statevectors_equiv(sv_optimized, sv_baseline, atol=1e-8)
 
     @pytest.mark.parametrize("seed", range(5))
     def test_dense_random_circuits(self, seed: int) -> None:
         circuit = random_dense_clifford_t_circuit(5, depth=40, seed=seed)
         sv_baseline = _clifft_statevector(circuit)
         sv_optimized = _clifft_statevector(circuit, optimize=True)
-        assert_statevectors_equiv(sv_optimized, sv_baseline, rtol=1e-8)
+        assert_statevectors_equiv(sv_optimized, sv_baseline, atol=1e-8)
 
 
 # Mirror-circuit T-gate cancellation.

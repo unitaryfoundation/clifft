@@ -1,7 +1,8 @@
 """Independent Qiskit-Aer validation of Clifft statevector correctness.
 
-These tests compare Clifft statevectors to Qiskit-Aer by fidelity, matching the
-public contract that statevectors are defined up to global phase.
+These tests phase-align Clifft and Qiskit-Aer statevectors before comparing
+amplitudes, matching the projective public contract without losing sensitivity
+to relative-amplitude errors.
 """
 
 from collections.abc import Callable
@@ -202,30 +203,17 @@ class TestArbitraryRotations(_StatevectorBackendMixin):
     """Validate continuous rotation gates against Qiskit Aer."""
 
     def _check_amplitudes(self, stim_text: str, atol: float = 1e-6) -> None:
-        """Compile+execute with Clifft, compare relative amplitudes against Qiskit.
-
-        Because Stim's to_flat_unitary_matrix (used in the get_statevector
-        oracle) canonicalizes global phase, the oracle U_C matrix may differ
-        from Qiskit's convention by a scalar. We project out
-        this single global scalar and then enforce strict equality across
-        all relative amplitudes.
-        """
+        """Compile with Clifft and compare projective amplitudes to Qiskit."""
         clifft_sv = self.statevector(stim_text)
 
         qc = stim_to_qiskit_noiseless(stim_text)
         qiskit_sv = qiskit_statevector(qc)
 
-        # Align global phase before comparison to factor out Stim's artifact
-        overlap = np.vdot(clifft_sv, qiskit_sv)
-        if np.abs(overlap) > 1e-8:
-            phase = overlap / np.abs(overlap)
-            clifft_sv = clifft_sv * phase
-
-        np.testing.assert_allclose(
+        assert_statevectors_equiv(
             clifft_sv,
             qiskit_sv,
             atol=atol,
-            err_msg=(
+            msg=(
                 f"Amplitude mismatch after phase alignment\n"
                 f"Clifft:    {clifft_sv[:8]}\n"
                 f"Qiskit: {qiskit_sv[:8]}"

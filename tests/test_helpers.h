@@ -167,8 +167,8 @@ inline void check_complex(std::complex<double> actual, std::complex<double> expe
     CHECK_THAT(actual.imag(), Catch::Matchers::WithinAbs(expected.imag(), tol));
 }
 
-// Dense-matrix oracle helpers for canonical-phase tests. Row-major
-// dim x dim complex matrices in little-endian basis order.
+// Dense-matrix oracle helpers. Row-major dim x dim complex matrices in
+// little-endian basis order.
 using DenseMatrix = std::vector<std::complex<double>>;
 
 inline DenseMatrix dense_tableau_matrix(const stim::Tableau<kStimWidth>& tab) {
