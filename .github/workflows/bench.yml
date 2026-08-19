@@ -95,6 +95,8 @@ jobs:
           python3 tools/ci/audit_build_flags.py \
             --compile-commands build/compile_commands.json
 
+      # Each run writes to a temporary name and renames only on success,
+      # so a failed command cannot upload a partial file as a valid result.
       - name: Run Catch2 benchmarks (scalar)
         # Action parser requires the console reporter (XML is not yet
         # supported by benchmark-action/github-action-benchmark@v1).
@@ -103,7 +105,8 @@ jobs:
         run: |
           build/tests/clifft_tests "[bench]" \
             --reporter console \
-            --out cpp-bench-scalar.txt
+            --out cpp-bench-scalar.txt.tmp
+          mv cpp-bench-scalar.txt.tmp cpp-bench-scalar.txt
 
       - name: Run Catch2 benchmarks (AVX2)
         if: steps.cpu_modes.outputs.avx2 == 'true'
@@ -112,7 +115,8 @@ jobs:
         run: |
           build/tests/clifft_tests "[bench]" \
             --reporter console \
-            --out cpp-bench-avx2.txt
+            --out cpp-bench-avx2.txt.tmp
+          mv cpp-bench-avx2.txt.tmp cpp-bench-avx2.txt
 
       - name: Run Catch2 benchmarks (AVX-512)
         if: steps.cpu_modes.outputs.avx512 == 'true'
@@ -121,7 +125,8 @@ jobs:
         run: |
           build/tests/clifft_tests "[bench]" \
             --reporter console \
-            --out cpp-bench-avx512.txt
+            --out cpp-bench-avx512.txt.tmp
+          mv cpp-bench-avx512.txt.tmp cpp-bench-avx512.txt
 
       - name: Upload benchmark results
         if: ${{ !cancelled() }}
@@ -163,7 +168,8 @@ jobs:
         run: |
           uv run --locked pytest tools/bench/ \
             --benchmark-only \
-            --benchmark-json=python-bench.json
+            --benchmark-json=python-bench.json.tmp
+          mv python-bench.json.tmp python-bench.json
 
       - name: Upload benchmark results
         if: ${{ !cancelled() }}
@@ -192,15 +198,16 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # A pattern that matches no artifacts succeeds with an empty
+      # workspace, so any failure of this step is a real download error.
       - name: Download benchmark results
         uses: actions/download-artifact@v4
-        continue-on-error: true
         with:
           pattern: bench-*-results
           merge-multiple: true
 
       - name: Publish scalar C++ benchmarks to gh-pages
-        if: ${{ hashFiles('cpp-bench-scalar.txt') != '' }}
+        if: ${{ !cancelled() && hashFiles('cpp-bench-scalar.txt') != '' }}
         uses: benchmark-action/github-action-benchmark@v1
         with:
           name: C++ Catch2 benchmarks (scalar)
@@ -216,7 +223,7 @@ jobs:
           comment-on-alert: false
 
       - name: Publish AVX2 C++ benchmarks to gh-pages
-        if: ${{ hashFiles('cpp-bench-avx2.txt') != '' }}
+        if: ${{ !cancelled() && hashFiles('cpp-bench-avx2.txt') != '' }}
         uses: benchmark-action/github-action-benchmark@v1
         with:
           name: C++ Catch2 benchmarks (AVX2)
@@ -231,7 +238,7 @@ jobs:
           comment-on-alert: false
 
       - name: Publish AVX-512 C++ benchmarks to gh-pages
-        if: ${{ hashFiles('cpp-bench-avx512.txt') != '' }}
+        if: ${{ !cancelled() && hashFiles('cpp-bench-avx512.txt') != '' }}
         uses: benchmark-action/github-action-benchmark@v1
         with:
           name: C++ Catch2 benchmarks (AVX-512)
@@ -246,7 +253,7 @@ jobs:
           comment-on-alert: false
 
       - name: Publish to gh-pages
-        if: ${{ hashFiles('python-bench.json') != '' }}
+        if: ${{ !cancelled() && hashFiles('python-bench.json') != '' }}
         uses: benchmark-action/github-action-benchmark@v1
         with:
           name: Python pytest-benchmark suite
