@@ -23,12 +23,13 @@ jobs:
   # -----------------------------------------------------------
   sdist:
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0  # Full history for setuptools-scm
 
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v6
         with:
           python-version: "3.12"
 
@@ -68,6 +69,7 @@ jobs:
             cibw_archs: AMD64
             cpu_baseline: generic
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
         with:
@@ -157,7 +159,7 @@ jobs:
       # the version below when a newer stable CPython is supported.
       - name: Setup uv (Linux x86_64 wheel only)
         if: matrix.os == 'ubuntu-24.04' && matrix.arch == 'x86_64'
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v6
 
       - name: Verify abi3 wheel on newest stable CPython (Linux x86_64 wheel only)
         if: matrix.os == 'ubuntu-24.04' && matrix.arch == 'x86_64'
@@ -190,6 +192,7 @@ jobs:
   publish-testpypi:
     needs: [sdist, wheels]
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     environment: testpypi
     permissions:
       id-token: write  # Required for trusted publishing
@@ -212,6 +215,7 @@ jobs:
     # Only publish to PyPI on tag pushes — never on manual dispatch.
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     environment: pypi
     permissions:
       id-token: write  # Required for trusted publishing
@@ -231,6 +235,7 @@ jobs:
     needs: [publish-pypi]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     permissions:
       contents: write
     steps:
@@ -266,6 +271,7 @@ jobs:
     needs: [github-release]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     concurrency:
       group: docs-deploy
       cancel-in-progress: false

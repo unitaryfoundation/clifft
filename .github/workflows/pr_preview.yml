@@ -19,6 +19,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     if: github.event.action != 'closed'
     permissions:
       contents: read
@@ -75,6 +76,7 @@ jobs:
   deploy:
     needs: build
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     if: github.event.pull_request.head.repo.fork == false
     concurrency:
       group: docs-deploy
@@ -103,6 +105,7 @@ jobs:
 
   cleanup:
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     if: github.event.action == 'closed' && github.event.pull_request.head.repo.fork == false
     concurrency:
       group: docs-deploy
