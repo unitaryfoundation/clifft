@@ -96,13 +96,16 @@ they reach execution. Debug builds additionally assert internal invariants in
 the ordinary dispatch loop and kernels, where exceptions and allocations are
 deliberately avoided.
 
-The C++ suite runs through default dispatch, forced scalar execution, and
-forced AVX2 execution when the CI host supports it. Focused kernel tests also
-compare AVX-512 implementations against the scalar reference on capable
-hosts. Cross-platform builds exercise configurations without runtime dispatch,
-and release smoke tests emulate older x86 CPUs so architecture-specific
-instructions cannot leak into fallback paths. WebAssembly has a separate smoke
-suite for compilation, plan inspection, and browser sampling.
+CI exercises the scalar, AVX2, and AVX-512 execution paths. Native runners
+cover the instruction sets available on their hosts, while emulation provides
+deterministic coverage of older x86 CPUs and AVX-512. These tests verify both
+automatic backend selection and clean rejection of forced, unsupported
+backends. The Release smoke job also runs the full Python suite against an
+optimized build with internal assertions enabled.
+
+Separate jobs cover Linux arm64, macOS, Windows, and WebAssembly. Nightly
+sanitizer jobs check for memory errors, undefined behavior, and data races,
+while a weekly job records combined C++ and Python coverage.
 
 ## Running the Tests
 

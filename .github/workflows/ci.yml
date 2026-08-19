@@ -4,12 +4,6 @@ on:
   push:
     branches: [main]
   pull_request:
-    paths-ignore:
-      - 'docs/**'
-      - 'playground/**'
-      - '*.md'
-      - '.github/workflows/docs.yml'
-      - '.github/workflows/pr_preview.yml'
 
 permissions:
   contents: read
@@ -20,6 +14,7 @@ concurrency:
 
 jobs:
   wasm:
+    timeout-minutes: 20
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout code
@@ -38,6 +33,7 @@ jobs:
             node --experimental-vm-modules src/wasm/test_wasm.mjs
 
   lint:
+    timeout-minutes: 20
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout code
@@ -72,6 +68,7 @@ jobs:
         run: uv run --frozen --only-group dev pre-commit run --all-files --show-diff-on-failure
 
   playground-lint:
+    timeout-minutes: 20
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout code
@@ -94,6 +91,7 @@ jobs:
         run: cd playground && npm run lint
 
   build-and-test:
+    timeout-minutes: 45
     runs-on: ubuntu-24.04
     env:
       CMAKE_BUILD_TYPE: Debug
@@ -111,16 +109,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install ninja and ccache
-        run: |
-          curl -fsSL -o /tmp/ninja-linux.zip \
-            https://github.com/ninja-build/ninja/releases/download/v1.12.1/ninja-linux.zip
-          echo "6f98805688d19672bd699fbbfa2c2cf0fc054ac3df1f0e6a47664d963d530255  /tmp/ninja-linux.zip" | sha256sum --check
-          sudo unzip -o -q /tmp/ninja-linux.zip -d /usr/local/bin
-          curl -fsSL -o /tmp/ccache.tar.xz \
-            https://github.com/ccache/ccache/releases/download/v4.10.2/ccache-4.10.2-linux-x86_64.tar.xz
-          echo "80cab87bd510eca796467aee8e663c398239e0df1c4800a0b5dff11dca0b4f18  /tmp/ccache.tar.xz" | sha256sum --check
-          tar -C /tmp -xf /tmp/ccache.tar.xz ccache-4.10.2-linux-x86_64/ccache
-          sudo mv /tmp/ccache-4.10.2-linux-x86_64/ccache /usr/local/bin/ccache
+        uses: ./.github/actions/setup-native-tools
 
       - name: Setup ccache
         uses: hendrikmuhs/ccache-action@v1.2
@@ -252,6 +241,7 @@ jobs:
         run: uv run --locked pytest --codeblocks docs/ README.md -v
 
   release-cpp-smoke:
+    timeout-minutes: 45
     runs-on: ubuntu-24.04
     env:
       CMAKE_BUILD_TYPE: Release
@@ -264,12 +254,20 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y ninja-build qemu-user ccache
+      # Direct, checksum-verified downloads avoid apt metadata and dependency
+      # fetches. QEMU is intentionally pinned to Noble's stable GA package;
+      # this smoke needs reproducible CPU emulation rather than distro updates.
+      - name: Install pinned build and emulation tools
+        uses: ./.github/actions/setup-native-tools
+        with:
+          install-qemu: "true"
 
       - name: Install Intel SDE
         run: |
-          curl -fsSL -o /tmp/sde.tar.xz \
+          curl --fail --silent --show-error --location \
+            --retry 3 --retry-delay 2 --retry-all-errors \
+            --connect-timeout 15 --max-time 180 \
+            --output /tmp/sde.tar.xz \
             https://downloadmirror.intel.com/924984/sde-external-10.13.1-2026-07-28-lin.tar.xz
           echo "94e97d623fec54385686e1e7ba65ebc9941748c05ee451423948334892bf2b50  /tmp/sde.tar.xz" | sha256sum --check
           tar -C "$RUNNER_TEMP" -xf /tmp/sde.tar.xz
@@ -383,6 +381,7 @@ jobs:
             skbuild-type: RelWithDebInfo
             skbuild-cmake-args: "-DCLIFFT_FORCE_ASSERTS=ON"
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
     env:
       CMAKE_BUILD_TYPE: Debug
       SKBUILD_CMAKE_BUILD_TYPE: ${{ matrix.skbuild-type }}
@@ -447,3 +446,23 @@ jobs:
 
       - name: Run Python tests
         run: uv run --locked pytest tests/python/ -n logical --maxprocesses 4 -v
+
+  # Single aggregate check for branch protection. Requiring this job
+  # instead of enumerating every job means new or renamed jobs cannot
+  # silently drop out of enforcement, and it reports success only when
+  # every needed job succeeded.
+  ci-gate:
+    timeout-minutes: 10
+    if: always()
+    needs:
+      - wasm
+      - lint
+      - playground-lint
+      - build-and-test
+      - release-cpp-smoke
+      - cross-platform
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require every needed job to succeed
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped')
+        run: exit 1

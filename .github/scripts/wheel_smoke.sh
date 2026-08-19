@@ -29,7 +29,8 @@
 #   wheel_smoke.sh sde  skx     avx512 pass  avx512  # SDE force avx512 explicitly
 #
 # Requires:
-#   - qemu mode: qemu-x86_64 in PATH.
+#   - qemu mode: the QEMU_X86_64 env var pointing at the qemu-x86_64
+#     binary, or qemu-x86_64 in PATH.
 #   - sde mode: the SDE64 env var pointing at the sde64 binary, or sde64 in PATH.
 #   - PYTHON env var (or `python` in PATH) pointing at an interpreter
 #     with clifft installed.
@@ -73,8 +74,8 @@ esac
 
 PYTHON="${PYTHON:-python3}"
 
-if [ "$emulator" = "qemu" ] && ! command -v qemu-x86_64 >/dev/null 2>&1; then
-    echo "error: qemu-x86_64 not found in PATH" >&2
+if [ "$emulator" = "qemu" ] && ! command -v "${QEMU_X86_64:-qemu-x86_64}" >/dev/null 2>&1; then
+    echo "error: ${QEMU_X86_64:-qemu-x86_64} not found" >&2
     exit 2
 fi
 if [ "$emulator" = "sde" ] && ! command -v "${SDE64:-sde64}" >/dev/null 2>&1; then
@@ -104,7 +105,7 @@ if [ "$emulator" = "qemu" ]; then
     if [ "$force_isa" != "auto" ]; then
         qemu_env+=(-E "CLIFFT_FORCE_ISA=$force_isa")
     fi
-    output=$(qemu-x86_64 -cpu "$cpu_model" "${qemu_env[@]}" "$PYTHON" -c "$script" 2>&1)
+    output=$("${QEMU_X86_64:-qemu-x86_64}" -cpu "$cpu_model" "${qemu_env[@]}" "$PYTHON" -c "$script" 2>&1)
     exit_code=$?
 else
     # SDE children inherit the environment, so export CLIFFT_FORCE_ISA
@@ -123,7 +124,7 @@ if [ "$expected" = "pass" ]; then
         echo "FAIL: expected pass but got exit code $exit_code" >&2
         if [ "$emulator" = "qemu" ]; then
             echo "available qemu cpus (truncated):" >&2
-            qemu-x86_64 -cpu help 2>&1 | head -30 >&2
+            "${QEMU_X86_64:-qemu-x86_64}" -cpu help 2>&1 | head -30 >&2
         fi
         exit 1
     fi
