@@ -68,8 +68,8 @@ jobs:
       - name: Install Python package with coverage
         run: uv sync --locked
         env:
-          CMAKE_ARGS: "-DCLIFFT_COVERAGE=ON"
-          SKBUILD_BUILD_TYPE: Debug
+          SKBUILD_CMAKE_ARGS: "-DCLIFFT_COVERAGE=ON"
+          SKBUILD_CMAKE_BUILD_TYPE: Debug
 
       # Reset counters before Python tests
       - name: Reset coverage counters
@@ -83,10 +83,6 @@ jobs:
 
       - name: Capture C++ coverage from Python tests
         run: |
-          # Find where scikit-build put the build
-          BUILD_DIR=$(find build -name '*.gcda' -printf '%h\n' 2>/dev/null | head -1 || echo "build")
-          echo "Found .gcda files in: $BUILD_DIR"
-
           lcov --capture \
                --directory . \
                --output-file build/cpp-from-python.info \
