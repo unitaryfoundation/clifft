@@ -415,11 +415,16 @@ jobs:
         run: .abi3-venv/bin/python .github/scripts/artifact_smoke.py --expect-python 3.14
 
       # The suite adds interpreter-behavior coverage for the wrapper; PRs
-      # get the focused smoke above.
+      # get the focused smoke above. Test dependencies install at their
+      # locked versions so an unrelated PyPI release cannot fail this
+      # main-only step; the wheel stays the artifact under test.
       - name: Run Python tests against the installed wheel (main only)
         if: github.event_name == 'push'
         run: |
-          uv pip install --python .abi3-venv/bin/python --group dev
+          uv export --frozen --only-group dev --no-emit-project \
+            --output-file /tmp/dev-requirements.txt
+          uv pip install --python .abi3-venv/bin/python \
+            --requirements /tmp/dev-requirements.txt
           .abi3-venv/bin/python -m pytest tests/python/ -n logical --maxprocesses 4 -v
 
   cross-platform:
