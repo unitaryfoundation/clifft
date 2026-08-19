@@ -287,10 +287,11 @@ struct SamplingCompiledContinuation {
 };
 
 struct TrajectoryWorker {
-    // The all-ground path remains lazy because a noncomputational initial
-    // state can make it unreachable, including paths rejected by a width cap.
-    std::optional<SamplingCompiledContinuation> all_ground_start;
-    std::optional<sampling::Executor> all_ground_executor;
+    // The start shared by shots whose initial levels are all G remains lazy:
+    // other initial levels can make it unreachable, including when compiling it
+    // would exceed the active-width cap.
+    std::optional<SamplingCompiledContinuation> shared_start;
+    std::optional<sampling::Executor> shared_start_executor;
 };
 
 // Build the HIR pass pipeline from default passes that preserve measurement
@@ -638,16 +639,16 @@ NonComputationalSample run_trajectory_driver(const Circuit& circuit,
                                                              max_active_width_cap, initial_levels));
             continuation = &*shot_start;
         } else {
-            if (!worker.all_ground_start.has_value()) {
+            if (!worker.shared_start.has_value()) {
                 ContinuationRewrite rewrite =
                     rewrite_continuation(annotated, no_events, false, model);
                 assert(rewrite.classified_measurements.empty() &&
-                       "an all-ground continuation has no classified measurements");
-                worker.all_ground_start.emplace(
+                       "the shared initial continuation has no classified measurements");
+                worker.shared_start.emplace(
                     compile_sampling_continuation(std::move(rewrite), {}, instrument_options,
                                                   max_active_width_cap, initial_levels));
             }
-            continuation = &*worker.all_ground_start;
+            continuation = &*worker.shared_start;
         }
 
         // Executor borrows its current plan. Pointer-own each replacement so
@@ -658,10 +659,10 @@ NonComputationalSample run_trajectory_driver(const Circuit& circuit,
         std::optional<sampling::Executor> shot_executor;
         sampling::Executor* executor = nullptr;
         if (uses_shared_start) {
-            if (!worker.all_ground_executor.has_value()) {
-                worker.all_ground_executor.emplace(continuation->program);
+            if (!worker.shared_start_executor.has_value()) {
+                worker.shared_start_executor.emplace(continuation->program);
             }
-            executor = &*worker.all_ground_executor;
+            executor = &*worker.shared_start_executor;
         } else {
             shot_executor.emplace(continuation->program);
             executor = &*shot_executor;
