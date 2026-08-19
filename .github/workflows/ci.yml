@@ -263,8 +263,14 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # The Azure apt mirror intermittently stalls mid-fetch with no
+      # timeout of its own; bound each fetch and tolerate a partial
+      # index refresh so a mirror outage degrades to a fast, bounded
+      # failure instead of hanging the job.
       - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y ninja-build qemu-user ccache
+        run: |
+          sudo apt-get update -o Acquire::Retries=3 -o Acquire::http::Timeout=30 || true
+          sudo apt-get install -y -o Acquire::Retries=3 -o Acquire::http::Timeout=30 ninja-build qemu-user ccache
 
       - name: Install Intel SDE
         run: |
