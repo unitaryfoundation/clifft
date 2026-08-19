@@ -314,16 +314,25 @@ jobs:
           enable-cache: true
           python-version: "3.12"
 
-      - name: Install Python package (release baseline)
+      # assert() stays active in the optimized extension so the full
+      # Python suite checks invariants through GCC optimized codegen and
+      # -ffast-math. ISA dispatch does not depend on NDEBUG, so the
+      # emulated smokes below reuse this wheel; the published artifact
+      # keeps its own smoke in the release workflow.
+      - name: Install Python package (release baseline, asserts on)
         env:
           SKBUILD_CMAKE_BUILD_TYPE: Release
+          SKBUILD_CMAKE_ARGS: "-DCLIFFT_FORCE_ASSERTS=ON"
         run: |
           uv venv .smoke-venv
           . .smoke-venv/bin/activate
-          uv sync --locked --active --no-dev
+          uv sync --locked --active
 
       - name: Audit Python extension exports
         run: .smoke-venv/bin/python tools/ci/audit_python_exports.py
+
+      - name: Run Python tests (optimized extension)
+        run: .smoke-venv/bin/python -m pytest tests/python/ -n logical --maxprocesses 4 -v
 
       # Run a small QEMU-emulated CPU matrix against the release-baseline
       # Python install. Catches AVX-512 leakage into the AVX-2 dispatch
