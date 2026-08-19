@@ -352,6 +352,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # Covers GCC and Linux platform behavior on the architecture of
+          # the published aarch64 wheel; no other pull-request job runs on
+          # arm64.
+          - label: Linux arm64
+            os: ubuntu-24.04-arm
+            install-deps: sudo apt-get update && sudo apt-get install -y ninja-build
+            skbuild-type: Debug
+            skbuild-cmake-args: ""
           - label: macOS
             os: macos-latest
             install-deps: brew install ninja
