@@ -36,12 +36,16 @@ class KFaultSampler {
                 assert(draw >= 0.0 && draw < 1.0 && "fault selection draw must be in [0, 1)");
                 const uint32_t pick = j + static_cast<uint32_t>(draw * remaining);
                 std::swap(uniform_pool_[j], uniform_pool_[pick]);
+                swap_targets_[j] = pick;
             }
-            // Keep the pool permutation across calls so a seeded sampler has
-            // one stable RNG evolution while still returning circuit order.
-            std::sort(uniform_pool_.begin(), uniform_pool_.begin() + remaining_k_);
             for (uint32_t j = 0; j < remaining_k_; ++j) {
                 selected_sites_.push_back(uniform_pool_[j]);
+            }
+            // Restore the canonical pool so a shot's subset depends only on
+            // its own RNG stream, not on which earlier shots used this worker.
+            for (uint32_t j = remaining_k_; j > 0; --j) {
+                const uint32_t index = j - 1;
+                std::swap(uniform_pool_[index], uniform_pool_[swap_targets_[index]]);
             }
         } else {
             const uint32_t count = static_cast<uint32_t>(uncertain_sites_.size());
@@ -83,6 +87,7 @@ class KFaultSampler {
     std::vector<double> odds_ratios_;
     std::vector<double> dp_;
     std::vector<uint32_t> uniform_pool_;
+    std::vector<uint32_t> swap_targets_;
     std::vector<uint32_t> selected_sites_;
 };
 

@@ -236,6 +236,8 @@ assert (r1.measurements == r2.measurements).all()  # Identical
 ```
 
 If `seed` is omitted or set to `None`, Clifft uses hardware entropy from the operating system.
+Each shot derives an independent random stream from the call seed and its shot
+index. Seeded results therefore do not depend on how shots are scheduled.
 
 ## Importance Sampling (Forced k-Faults)
 

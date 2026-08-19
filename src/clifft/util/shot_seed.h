@@ -1,24 +1,22 @@
 #pragma once
 
-// Derives separate per-shot RNG states for the driver and executor. Keeping these
-// streams separate means that adding a driver-side random draw cannot consume
-// from or shift the executor's measurement sequence. Unseeded runs start with 256
-// bits of OS entropy; seeded runs expand the user's 64-bit seed
-// deterministically. Within either stream, different shots always receive
-// different 256-bit states. Each state word is mixed differently, so a match
-// in one word does not automatically repeat in the other three. For
-// independently generated roots, a given pair of states matches with
-// probability about 2^-256.
+// Derives deterministic per-shot RNG states from one call-level seed root.
+// A shot's stream depends only on the root, its global shot index, and a
+// domain label, so scheduling and worker count cannot change seeded results.
 
 #include "clifft/util/xoshiro.h"
 
 #include <array>
 #include <cstdint>
+#include <optional>
 
 namespace clifft {
 
-// Driver-side draws (initial levels, trap destinations, classical
-// consults, herald flags) vs. the in-executor Born measurement randomness.
+// Ordinary and fixed-fault sampling use one executor stream per shot.
+inline constexpr uint64_t kSamplingExecutorDomain = 0x01;
+
+// Driver-side trajectory draws (initial levels, trap destinations, classical
+// consults, and herald flags) must not shift in-executor Born randomness.
 inline constexpr uint64_t kTrajectoryDriverDomain = 0x11;
 inline constexpr uint64_t kTrajectoryExecutorDomain = 0x12;
 
@@ -36,9 +34,24 @@ inline SeedRoot seed_root_from_seed(uint64_t seed) {
     return root;
 }
 
-// Uses the SplitMix64 golden-gamma constant and mixing finalizer:
-// https://prng.di.unimi.it/splitmix64.c
-//
+// Seeded calls expand the user seed. Unseeded calls read OS entropy once and
+// derive every shot from that root. Zero-shot calls deliberately read no
+// entropy so their observable behavior stays empty and side-effect free.
+inline SeedRoot make_seed_root(uint32_t shots, std::optional<uint64_t> seed) {
+    if (seed.has_value()) {
+        return seed_root_from_seed(*seed);
+    }
+    SeedRoot root{};
+    if (shots != 0) {
+        const std::array<uint64_t, 4> words = entropy_seed_words();
+        root.w[0] = words[0];
+        root.w[1] = words[1];
+        root.w[2] = words[2];
+        root.w[3] = words[3];
+    }
+    return root;
+}
+
 // The odd shot multiplier preserves distinct shot indices modulo 2^64.
 // Including the word number in the stream label prevents a match in one
 // state word from automatically repeating in all four.

@@ -7,7 +7,7 @@
 // ordinary sample records plus final-status and herald sidecars.
 //
 // Randomness is deterministic in `seed`: per-shot driver and executor streams
-// derive from domain-separated sub-seeds (seed.h). Stochastic classifier
+// derive from domain-separated sub-seeds (shot_seed.h). Stochastic classifier
 // bits are drawn by the executor's own stream at the rewriter's READOUT_NOISE
 // sites. With no seed, a global seed is drawn from OS entropy and the
 // run is non-reproducible.

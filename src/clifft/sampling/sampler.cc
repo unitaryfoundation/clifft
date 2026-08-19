@@ -2,14 +2,21 @@
 
 #include "clifft/sampling/executor.h"
 #include "clifft/util/fault_sampling.h"
+#include "clifft/util/shot_seed.h"
 
 #include <algorithm>
+#include <array>
 #include <limits>
 #include <stdexcept>
 
 namespace clifft::sampling {
 
 namespace {
+
+void reseed_executor_for_shot(Executor& executor, const SeedRoot& root, uint32_t shot) noexcept {
+    const std::array<uint64_t, 4> words = derive_state(root, shot, kSamplingExecutorDomain);
+    executor.reseed_full(words[0], words[1], words[2], words[3]);
+}
 
 template <typename RunShot>
 SamplingResult sample_fixed_rows(const ExecutablePlan& plan, uint32_t shots,
@@ -30,30 +37,22 @@ SamplingResult sample_fixed_rows(const ExecutablePlan& plan, uint32_t shots,
         return result;
     }
 
-    auto run = [&](Executor& executor) {
-        for (uint32_t shot = 0; shot < shots; ++shot) {
-            run_shot(executor);
-            std::ranges::copy(executor.visible_records(),
-                              result.measurements.begin() +
-                                  static_cast<size_t>(shot) * plan.num_visible_records());
-            std::ranges::copy(
-                executor.detectors(),
-                result.detectors.begin() + static_cast<size_t>(shot) * plan.num_detectors());
-            std::ranges::copy(
-                executor.observables(),
-                result.observables.begin() + static_cast<size_t>(shot) * plan.num_observables());
-            std::ranges::copy(
-                executor.exp_vals(),
-                result.exp_vals.begin() + static_cast<size_t>(shot) * plan.num_exp_vals());
-        }
-    };
-    if (seed.has_value()) {
-        Executor executor(plan, *seed);
-        run(executor);
-    } else {
-        Executor executor(plan);
-        executor.reseed_from_entropy();
-        run(executor);
+    const SeedRoot root = make_seed_root(shots, seed);
+    Executor executor(plan);
+    for (uint32_t shot = 0; shot < shots; ++shot) {
+        reseed_executor_for_shot(executor, root, shot);
+        run_shot(executor);
+        std::ranges::copy(
+            executor.visible_records(),
+            result.measurements.begin() + static_cast<size_t>(shot) * plan.num_visible_records());
+        std::ranges::copy(
+            executor.detectors(),
+            result.detectors.begin() + static_cast<size_t>(shot) * plan.num_detectors());
+        std::ranges::copy(
+            executor.observables(),
+            result.observables.begin() + static_cast<size_t>(shot) * plan.num_observables());
+        std::ranges::copy(executor.exp_vals(), result.exp_vals.begin() +
+                                                   static_cast<size_t>(shot) * plan.num_exp_vals());
     }
     return result;
 }
@@ -80,40 +79,33 @@ SamplingSurvivorResult sample_surviving_rows(const ExecutablePlan& plan, uint32_
         result.observables.reserve(checked_reserve(plan.num_observables()));
         result.exp_vals.reserve(checked_reserve(plan.num_exp_vals()));
     }
-    auto run = [&](Executor& executor) {
-        for (uint32_t shot = 0; shot < shots; ++shot) {
-            run_shot(executor);
-            if (executor.discarded()) {
-                continue;
-            }
-            ++result.passed_shots;
-            bool logical_error = false;
-            for (uint32_t observable = 0; observable < plan.num_observables(); ++observable) {
-                const bool value = executor.observables()[observable] != 0;
-                result.observable_ones[observable] += static_cast<uint64_t>(value);
-                logical_error |= value;
-            }
-            result.logical_errors += static_cast<uint32_t>(logical_error);
-            if (keep_records) {
-                result.measurements.insert(result.measurements.end(),
-                                           executor.visible_records().begin(),
-                                           executor.visible_records().end());
-                result.detectors.insert(result.detectors.end(), executor.detectors().begin(),
-                                        executor.detectors().end());
-                result.observables.insert(result.observables.end(), executor.observables().begin(),
-                                          executor.observables().end());
-                result.exp_vals.insert(result.exp_vals.end(), executor.exp_vals().begin(),
-                                       executor.exp_vals().end());
-            }
+    const SeedRoot root = make_seed_root(shots, seed);
+    Executor executor(plan);
+    for (uint32_t shot = 0; shot < shots; ++shot) {
+        reseed_executor_for_shot(executor, root, shot);
+        run_shot(executor);
+        if (executor.discarded()) {
+            continue;
         }
-    };
-    if (seed.has_value()) {
-        Executor executor(plan, *seed);
-        run(executor);
-    } else {
-        Executor executor(plan);
-        executor.reseed_from_entropy();
-        run(executor);
+        ++result.passed_shots;
+        bool logical_error = false;
+        for (uint32_t observable = 0; observable < plan.num_observables(); ++observable) {
+            const bool value = executor.observables()[observable] != 0;
+            result.observable_ones[observable] += static_cast<uint64_t>(value);
+            logical_error |= value;
+        }
+        result.logical_errors += static_cast<uint32_t>(logical_error);
+        if (keep_records) {
+            result.measurements.insert(result.measurements.end(),
+                                       executor.visible_records().begin(),
+                                       executor.visible_records().end());
+            result.detectors.insert(result.detectors.end(), executor.detectors().begin(),
+                                    executor.detectors().end());
+            result.observables.insert(result.observables.end(), executor.observables().begin(),
+                                      executor.observables().end());
+            result.exp_vals.insert(result.exp_vals.end(), executor.exp_vals().begin(),
+                                   executor.exp_vals().end());
+        }
     }
     return result;
 }
