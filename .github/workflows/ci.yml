@@ -14,6 +14,7 @@ concurrency:
 
 jobs:
   wasm:
+    timeout-minutes: 20
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout code
@@ -32,6 +33,7 @@ jobs:
             node --experimental-vm-modules src/wasm/test_wasm.mjs
 
   lint:
+    timeout-minutes: 20
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout code
@@ -66,6 +68,7 @@ jobs:
         run: uv run --frozen --only-group dev pre-commit run --all-files --show-diff-on-failure
 
   playground-lint:
+    timeout-minutes: 20
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout code
@@ -88,6 +91,7 @@ jobs:
         run: cd playground && npm run lint
 
   build-and-test:
+    timeout-minutes: 45
     runs-on: ubuntu-24.04
     env:
       CMAKE_BUILD_TYPE: Debug
@@ -246,6 +250,7 @@ jobs:
         run: uv run --locked pytest --codeblocks docs/ README.md -v
 
   release-cpp-smoke:
+    timeout-minutes: 45
     runs-on: ubuntu-24.04
     env:
       CMAKE_BUILD_TYPE: Release
@@ -377,6 +382,7 @@ jobs:
             skbuild-type: RelWithDebInfo
             skbuild-cmake-args: "-DCLIFFT_FORCE_ASSERTS=ON"
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
     env:
       CMAKE_BUILD_TYPE: Debug
       SKBUILD_CMAKE_BUILD_TYPE: ${{ matrix.skbuild-type }}
@@ -447,6 +453,7 @@ jobs:
   # silently drop out of enforcement, and it reports success only when
   # every needed job succeeded.
   ci-gate:
+    timeout-minutes: 10
     if: always()
     needs:
       - wasm
