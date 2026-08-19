@@ -1,8 +1,6 @@
 #include "clifft/sampling/planner.h"
 
 #include "clifft/sampling/planner_frame.h"
-#include "clifft/sampling/state_query_limits.h"
-#include "clifft/util/canonical_phase.h"
 #include "clifft/util/hir_introspection.h"
 #include "clifft/util/numeric.h"
 #include "clifft/util/stim_mask.h"
@@ -682,15 +680,7 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
     if (plan.final_tableau.has_value() && final_coordinates_changed) {
         const Tableau physical = *plan.final_tableau;
         const Tableau& coordinates_to_physical = coordinates.current_to_initial();
-        Tableau composed = coordinates_to_physical.then(physical);
-        // Exact statevectors expose the global phase chosen by Stim's
-        // canonical tableau representation. Restore the phase lost when the
-        // physical map and planner coordinate map are composed.
-        if (plan.num_qubits <= kMaxExpandedStatevectorQubits) {
-            plan.global_weight *= clifft::internal::tableau_composition_phase(
-                physical, coordinates_to_physical, composed);
-        }
-        plan.final_tableau = std::move(composed);
+        plan.final_tableau = coordinates_to_physical.then(physical);
     }
 
     plan.validate();

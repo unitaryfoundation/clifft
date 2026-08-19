@@ -22,7 +22,6 @@ add_executable(clifft_tests
     test_fused_rotation.cc
     test_sampling_kernels.cc
     test_optimizer.cc
-    test_canonical_phase.cc
     test_source_map.cc
     test_importance_sampling.cc
     test_runtime_isa.cc

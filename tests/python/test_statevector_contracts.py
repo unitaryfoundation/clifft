@@ -4,17 +4,17 @@ from typing import Any
 
 import numpy as np
 import pytest
+from conftest import assert_statevectors_equiv
 
 import clifft
 
 
-def test_statevector_preserves_exact_global_phase() -> None:
+def test_statevector_preserves_relative_amplitudes() -> None:
     program = clifft.compile("H 0\nT 0\nT 0\nH 0")
-    np.testing.assert_allclose(
-        clifft.get_statevector(program),
-        np.array([0.5 + 0.5j, 0.5 - 0.5j]),
-        atol=1e-6,
-        rtol=0,
+    assert_statevectors_equiv(
+        np.asarray(clifft.get_statevector(program)),
+        np.asarray([0.5 + 0.5j, 0.5 - 0.5j]),
+        rtol=1e-10,
     )
 
 
@@ -39,11 +39,10 @@ def test_statevector_rejects_nonunitary_programs(circuit: str, kwargs: dict[str,
 def test_statevector_allows_expectation_probes() -> None:
     with_probe = clifft.compile("H 0\nEXP_VAL X0")
     without_probe = clifft.compile("H 0")
-    np.testing.assert_allclose(
-        clifft.get_statevector(with_probe),
-        clifft.get_statevector(without_probe),
-        atol=1e-12,
-        rtol=0,
+    assert_statevectors_equiv(
+        np.asarray(clifft.get_statevector(with_probe)),
+        np.asarray(clifft.get_statevector(without_probe)),
+        rtol=1e-10,
     )
 
 
@@ -52,8 +51,10 @@ def test_drop_non_unitary_pass_enables_unitary_skeleton() -> None:
     passes.add(clifft.DropNonUnitaryPass())
     program = clifft.compile("H 0\nM 0\nX_ERROR(0.1) 0", hir_passes=passes)
     expected = 1.0 / np.sqrt(2.0)
-    np.testing.assert_allclose(
-        clifft.get_statevector(program), [expected, expected], atol=1e-6, rtol=0
+    assert_statevectors_equiv(
+        np.asarray(clifft.get_statevector(program)),
+        np.asarray([expected, expected]),
+        rtol=1e-10,
     )
 
 

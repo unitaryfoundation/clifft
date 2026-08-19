@@ -1,7 +1,6 @@
 #include "clifft/optimizer/peephole.h"
 
 #include "clifft/optimizer/commutation.h"
-#include "clifft/util/canonical_phase.h"
 #include "clifft/util/constants.h"
 
 #include <algorithm>
@@ -13,7 +12,6 @@
 #include <cstdint>
 #include <iterator>
 #include <span>
-#include <stdexcept>
 #include <utility>
 #include <vector>
 
@@ -132,58 +130,6 @@ void apply_s_to_tableau(stim::Tableau<kStimWidth>& tab, MaskView x_v, MaskView z
     }
 }
 
-// The fused rotation R = Pi_+ + (+-i) Pi_- (projector form, including its
-// intrinsic e^{+-i*pi/4} relative to the SU(2) rotation) was replaced by
-// the tableau update U_C' = U_C * S_P, so canonical(U_C') matches
-// canonical(U_C) * R only up to an eighth root of unity. Evaluate
-// canonical(U_C) * R at the new canonical anchor to recover that root.
-std::complex<double> s_absorption_phase(const stim::Tableau<kStimWidth>& original,
-                                        const stim::Tableau<kStimWidth>& updated, MaskView x_v,
-                                        MaskView z_v, bool sign_v, bool is_dagger) {
-    const ChoiSupport old_support = build_choi_support(original);
-    const ChoiSupport new_support = build_choi_support(updated);
-
-    // R = a*I + b*P in matrix form, so column c of R has entries a at row c
-    // and b * phase(P|c>) at row c ^ x. The new canonical anchor packs
-    // (row << n) | col, with col in the low half, so the partner flat index
-    // is anchor ^ x_v.
-    const std::complex<double> a =
-        is_dagger ? std::complex<double>{0.5, -0.5} : std::complex<double>{0.5, 0.5};
-    const std::complex<double> b =
-        is_dagger ? std::complex<double>{0.5, 0.5} : std::complex<double>{0.5, -0.5};
-
-    const ChoiIndex& anchor = new_support.anchor;
-    const uint32_t mask_words =
-        std::min<uint32_t>(x_v.num_words(), static_cast<uint32_t>(anchor.size()));
-
-    // phase(P|c>) for c = low half of the anchor. Mask words beyond the
-    // input half never overlap z_v, whose bits above n are zero.
-    uint32_t alpha_idx = sign_v ? 2U : 0U;
-    for (uint32_t w = 0; w < mask_words; ++w) {
-        alpha_idx += static_cast<uint32_t>(std::popcount(x_v.words[w] & z_v.words[w]));
-        alpha_idx += 2U * (static_cast<uint32_t>(std::popcount(z_v.words[w] & anchor[w])) & 1U);
-    }
-    const std::complex<double> alpha = kImagPow[alpha_idx & 3U];
-
-    // For a pure-Z Pauli the partner coincides with the anchor and the two
-    // terms add up to the diagonal entry (a + b * alpha).
-    ChoiIndex partner = anchor;
-    for (uint32_t w = 0; w < mask_words; ++w) {
-        partner[w] ^= x_v.words[w];
-    }
-    const std::complex<double> w_entry =
-        a * choi_amplitude(old_support, anchor) + b * alpha * choi_amplitude(old_support, partner);
-
-    // Hard check rather than an assert: a zero entry here means the tableau
-    // pair is not related by this S rewrite, and dividing through would
-    // silently poison global_weight with NaN in release builds.
-    const double mag = std::abs(w_entry);
-    if (mag < 0.25) {
-        throw std::logic_error("S absorption phase: canonical anchor outside prior support");
-    }
-    return w_entry / mag;
-}
-
 }  // namespace internal
 
 namespace {
@@ -268,13 +214,7 @@ void apply_virtual_s_downstream(HirModule& hir, size_t start_idx, MaskView x_v, 
 
     // 2. Final Tableau: U_C' = U_C S (requires inverted dagger flag)
     if (hir.final_tableau.has_value()) {
-        const stim::Tableau<kStimWidth> original = *hir.final_tableau;
         internal::apply_s_to_tableau(*hir.final_tableau, x_v, z_v, sign_v, is_dagger);
-
-        // The op stream lost the exact rotation R but the tableau only
-        // gained its symplectic action; restore the dropped global phase.
-        hir.global_weight *=
-            internal::s_absorption_phase(original, *hir.final_tableau, x_v, z_v, sign_v, is_dagger);
     }
 }
 

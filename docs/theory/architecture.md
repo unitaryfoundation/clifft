@@ -125,8 +125,9 @@ all consume that same type. One compiled program can be reused for many calls
 and shot counts.
 
 `clifft.get_statevector(program)` expands an eligible pure-state program into
-the full physical-qubit state vector for debugging and validation. Its final
-coordinate metadata is not read during ordinary sampling.
+the full physical-qubit state vector for debugging and validation. The result
+represents the final state ray and is defined only up to global phase. Its
+final coordinate metadata is not read during ordinary sampling.
 
 See [Compiling Circuits](../guide/compilation.md) and
 [Simulation](../guide/simulation.md) for API examples.

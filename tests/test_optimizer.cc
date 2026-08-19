@@ -941,7 +941,7 @@ TEST_CASE("Peephole: commuting NOISE does not bypass EXP_VAL barrier", "[optimiz
 }
 
 // =============================================================================
-// Canonical phase of S absorption -- dense stim oracle
+// Projective correctness of S absorption -- dense stim oracle
 // =============================================================================
 
 namespace {
@@ -979,12 +979,30 @@ DenseMatrix dense_hir_value(const HirModule& hir) {
     return value;
 }
 
+void require_projective_matrix_equivalence(const DenseMatrix& actual, const DenseMatrix& expected,
+                                           double tolerance) {
+    REQUIRE(actual.size() == expected.size());
+    double actual_norm = 0.0;
+    double expected_norm = 0.0;
+    std::complex<double> overlap{0.0, 0.0};
+    for (size_t i = 0; i < actual.size(); ++i) {
+        actual_norm += std::norm(actual[i]);
+        expected_norm += std::norm(expected[i]);
+        overlap += std::conj(expected[i]) * actual[i];
+    }
+
+    REQUIRE_THAT(actual_norm, Catch::Matchers::WithinAbs(expected_norm, tolerance));
+    REQUIRE(actual_norm > 0.0);
+    REQUIRE(expected_norm > 0.0);
+    const double fidelity = std::norm(overlap) / (actual_norm * expected_norm);
+    REQUIRE_THAT(fidelity, Catch::Matchers::WithinAbs(1.0, tolerance));
+}
+
 }  // namespace
 
-TEST_CASE("Peephole: pass preserves dense HIR value on random circuits", "[optimizer]") {
-    // Value-preservation fuzz: the pass must keep
-    // global_weight * canonical(final_tableau) * (op stream) exact as a
-    // matrix, componentwise with no global-phase alignment. The gate mix is
+TEST_CASE("Peephole: pass preserves projective HIR value on random circuits", "[optimizer]") {
+    // Value-preservation fuzz: the pass must preserve the matrix up to global
+    // phase. The gate mix is
     // chosen so the trials collectively reach every S absorption call site
     // (T+T fusion, rotation fusion to S/S_dag, standalone S-angle demotion)
     // and their interaction with sign normalization and downstream
@@ -1024,11 +1042,7 @@ TEST_CASE("Peephole: pass preserves dense HIR value on random circuits", "[optim
         const DenseMatrix after = dense_hir_value(hir);
         total_fusions += pass.fusions();
 
-        for (size_t i = 0; i < before.size(); ++i) {
-            CAPTURE(i);
-            REQUIRE_THAT(after[i].real(), Catch::Matchers::WithinAbs(before[i].real(), 1e-5));
-            REQUIRE_THAT(after[i].imag(), Catch::Matchers::WithinAbs(before[i].imag(), 1e-5));
-        }
+        require_projective_matrix_equivalence(after, before, 1e-5);
     }
 
     // Vacuity guard: the fuzz only validates S absorption if fusions occur.
@@ -1036,9 +1050,7 @@ TEST_CASE("Peephole: pass preserves dense HIR value on random circuits", "[optim
 }
 
 TEST_CASE("Peephole: S absorption on wide multi-word Pauli axes", "[optimizer]") {
-    // Exercise the canonical phase machinery across 64-bit word boundaries
-    // (Choi indices span 2n bits). Debug asserts inside s_absorption_phase
-    // validate the canonical anchor against the old support.
+    // Exercise the symplectic tableau update across 64-bit word boundaries.
     std::string src;
     for (int q = 0; q < 70; q += 7) {
         src += "H " + std::to_string(q) + "\nCX " + std::to_string(q) + " " +

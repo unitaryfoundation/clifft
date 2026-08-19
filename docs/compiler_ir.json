@@ -93,7 +93,7 @@
     "ROTATE_PHASE": {
       "category": "Rotation",
       "summary": "Sign-conditioned global phase from a rotation whose Pauli reduced to the identity.",
-      "detail": "A rotation whose Pauli product reduced to the identity during planning. It multiplies the global scalar by a phase determined by the per-shot sign expression and does not traverse the coefficient state. The phase is retained so exact statevector reconstruction preserves the program's global phase; it does not affect sampling, later interference, basis probabilities, record probabilities, or expectation values.",
+      "detail": "A rotation whose Pauli product reduced to the identity during planning. It multiplies the global scalar by a phase determined by the per-shot sign expression and does not traverse the coefficient state. This selects a statevector representative but does not affect sampling, later interference, basis probabilities, record probabilities, or expectation values; the public statevector is defined only up to global phase.",
       "operands": "half_turns, sign"
     },
     "PROMOTE_DORMANT": {

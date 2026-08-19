@@ -1,8 +1,7 @@
 """Independent Qiskit-Aer validation of Clifft statevector correctness.
 
-These tests compare Clifft statevectors to Qiskit-Aer by fidelity, so they
-validate statevector equivalence up to global phase. Componentwise
-global-phase checks live in the peephole/canonical-phase suites.
+These tests compare Clifft statevectors to Qiskit-Aer by fidelity, matching the
+public contract that statevectors are defined up to global phase.
 """
 
 from collections.abc import Callable

@@ -882,7 +882,10 @@ NB_MODULE(_clifft_core, m) {
             return vec_to_numpy(std::move(statevector), {size});
         },
         nb::arg("program"),
-        "Return the dense final statevector of a compiled pure-unitary program.");
+        "Return a dense representative of a compiled pure-unitary program's final state.\n\n"
+        "The result is normalized and defined only up to global phase. Relative amplitudes\n"
+        "and phases are preserved, but the global phase may vary across equivalent source\n"
+        "circuits, compiler pass configurations, or Clifft versions.");
 
     m.def(
         "_basis_probabilities_from_bitmasks",

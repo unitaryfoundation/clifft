@@ -86,24 +86,6 @@ def assert_statevectors_equiv(
         raise AssertionError(f"Fidelity {fidelity:.6f}, expected ~1.0 (rtol={rtol}). {msg}")
 
 
-def assert_statevectors_componentwise_equal(
-    actual: npt.ArrayLike,
-    expected: npt.ArrayLike,
-    *,
-    atol: float = 1e-6,
-    rtol: float = 0.0,
-    msg: str = "",
-) -> None:
-    """Assert amplitudes match componentwise, including global phase."""
-    np.testing.assert_allclose(
-        np.asarray(actual),
-        np.asarray(expected),
-        atol=atol,
-        rtol=rtol,
-        err_msg=msg,
-    )
-
-
 def binomial_tolerance(p: float, n: int, *, sigma: float = 5.0) -> float:
     """Compute tolerance for binomial proportion estimate.
 

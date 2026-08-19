@@ -474,8 +474,8 @@ struct HirModule {
 
     /// True when the evolution is a fixed unitary: no measurements, noise,
     /// readout noise, or measurement-conditioned Paulis. Deterministic
-    /// modules have a well-defined final statevector including its global
-    /// phase; stochastic ones are only defined per shot.
+    /// modules have a well-defined final state ray; stochastic ones are only
+    /// defined per shot.
     [[nodiscard]] bool is_deterministic() const {
         for (const auto& op : ops) {
             const OpType type = op.op_type();

@@ -13,15 +13,6 @@ def _measurements(circuit: str, *, seed: int = 1) -> np.ndarray:
     return np.asarray(clifft.sample(clifft.compile(circuit), 1, seed=seed).measurements[0])
 
 
-def _assert_statevectors_equal(actual_circuit: str, expected_circuit: str) -> None:
-    np.testing.assert_allclose(
-        _statevector(actual_circuit),
-        _statevector(expected_circuit),
-        atol=1e-12,
-        rtol=0,
-    )
-
-
 def _assert_statevectors_equivalent(actual_circuit: str, expected_circuit: str) -> None:
     actual = _statevector(actual_circuit)
     expected = _statevector(expected_circuit)
@@ -39,25 +30,25 @@ def _assert_statevectors_differ(first_circuit: str, second_circuit: str) -> None
 
 
 def test_pauli_product_phase_gates_match_named_single_qubit_gates() -> None:
-    _assert_statevectors_equal("H 0\nSPP Z0", "H 0\nS 0")
-    _assert_statevectors_equal("H 0\nSPP_DAG Z0", "H 0\nS_DAG 0")
-    _assert_statevectors_equal("H 0\nTPP Z0", "H 0\nT 0")
-    _assert_statevectors_equal("H 0\nTPP_DAG Z0", "H 0\nT_DAG 0")
+    _assert_statevectors_equivalent("H 0\nSPP Z0", "H 0\nS 0")
+    _assert_statevectors_equivalent("H 0\nSPP_DAG Z0", "H 0\nS_DAG 0")
+    _assert_statevectors_equivalent("H 0\nTPP Z0", "H 0\nT 0")
+    _assert_statevectors_equivalent("H 0\nTPP_DAG Z0", "H 0\nT_DAG 0")
 
 
 def test_inverted_pauli_product_matches_conjugated_gate() -> None:
-    _assert_statevectors_equal("SPP !X0", "Z 0\nSPP X0\nZ 0")
+    _assert_statevectors_equivalent("SPP !X0", "Z 0\nSPP X0\nZ 0")
 
 
-def test_inverted_pauli_products_preserve_named_gate_phase() -> None:
+def test_inverted_pauli_products_match_conjugated_actions() -> None:
     _assert_statevectors_equivalent("H 0\nSPP !Z0", "H 0\nX 0\nSPP Z0\nX 0")
     _assert_statevectors_equivalent("H 0\nSPP_DAG !Z0", "H 0\nX 0\nSPP_DAG Z0\nX 0")
-    _assert_statevectors_equal("H 0\nTPP !Z0", "H 0\nX 0\nTPP Z0\nX 0")
-    _assert_statevectors_equal("H 0\nTPP_DAG !Z0", "H 0\nX 0\nTPP_DAG Z0\nX 0")
+    _assert_statevectors_equivalent("H 0\nTPP !Z0", "H 0\nX 0\nTPP Z0\nX 0")
+    _assert_statevectors_equivalent("H 0\nTPP_DAG !Z0", "H 0\nX 0\nTPP_DAG Z0\nX 0")
 
 
-def test_negative_rewound_tpp_preserves_named_gate_phase() -> None:
-    _assert_statevectors_equal("H 0\nX 0\nTPP Z0\nX 0", "H 0\nX 0\nT 0\nX 0")
+def test_negative_rewound_tpp_matches_named_gate_action() -> None:
+    _assert_statevectors_equivalent("H 0\nX 0\nTPP Z0\nX 0", "H 0\nX 0\nT 0\nX 0")
 
 
 def test_spp_clifford_action_matches_named_square_root_gates() -> None:
@@ -67,19 +58,19 @@ def test_spp_clifford_action_matches_named_square_root_gates() -> None:
     _assert_statevectors_equivalent("H 0\nH 1\nSPP Z0*Z1", "H 0\nH 1\nSQRT_ZZ 0 1")
 
 
-def test_spp_matches_two_tpp_gates_componentwise() -> None:
-    _assert_statevectors_equal("SPP X0", "TPP X0\nTPP X0")
-    _assert_statevectors_equal("SPP Y0", "TPP Y0\nTPP Y0")
-    _assert_statevectors_equal("SPP !X0", "TPP !X0\nTPP !X0")
-    _assert_statevectors_equal("SPP !Y0", "TPP !Y0\nTPP !Y0")
-    _assert_statevectors_equal("SPP !Z0", "TPP !Z0\nTPP !Z0")
-    _assert_statevectors_equal("SPP_DAG X0", "TPP_DAG X0\nTPP_DAG X0")
-    _assert_statevectors_equal("SPP_DAG Y0", "TPP_DAG Y0\nTPP_DAG Y0")
-    _assert_statevectors_equal("SPP_DAG !X0", "TPP_DAG !X0\nTPP_DAG !X0")
-    _assert_statevectors_equal("SPP_DAG !Y0", "TPP_DAG !Y0\nTPP_DAG !Y0")
-    _assert_statevectors_equal("SPP_DAG !Z0", "TPP_DAG !Z0\nTPP_DAG !Z0")
-    _assert_statevectors_equal("H 0\nH 1\nSPP Z0*Z1", "H 0\nH 1\nTPP Z0*Z1\nTPP Z0*Z1")
-    _assert_statevectors_equal("H 2\nSPP X0*Y1*Z2", "H 2\nTPP X0*Y1*Z2\nTPP X0*Y1*Z2")
+def test_spp_matches_two_tpp_gates() -> None:
+    _assert_statevectors_equivalent("SPP X0", "TPP X0\nTPP X0")
+    _assert_statevectors_equivalent("SPP Y0", "TPP Y0\nTPP Y0")
+    _assert_statevectors_equivalent("SPP !X0", "TPP !X0\nTPP !X0")
+    _assert_statevectors_equivalent("SPP !Y0", "TPP !Y0\nTPP !Y0")
+    _assert_statevectors_equivalent("SPP !Z0", "TPP !Z0\nTPP !Z0")
+    _assert_statevectors_equivalent("SPP_DAG X0", "TPP_DAG X0\nTPP_DAG X0")
+    _assert_statevectors_equivalent("SPP_DAG Y0", "TPP_DAG Y0\nTPP_DAG Y0")
+    _assert_statevectors_equivalent("SPP_DAG !X0", "TPP_DAG !X0\nTPP_DAG !X0")
+    _assert_statevectors_equivalent("SPP_DAG !Y0", "TPP_DAG !Y0\nTPP_DAG !Y0")
+    _assert_statevectors_equivalent("SPP_DAG !Z0", "TPP_DAG !Z0\nTPP_DAG !Z0")
+    _assert_statevectors_equivalent("H 0\nH 1\nSPP Z0*Z1", "H 0\nH 1\nTPP Z0*Z1\nTPP Z0*Z1")
+    _assert_statevectors_equivalent("H 2\nSPP X0*Y1*Z2", "H 2\nTPP X0*Y1*Z2\nTPP X0*Y1*Z2")
 
 
 def test_spp_xx_matches_the_named_square_root_gate() -> None:
@@ -92,23 +83,25 @@ def test_nontrivial_pauli_product_phase_gates_match_their_decompositions() -> No
     _assert_statevectors_equivalent(
         "H 2\nSPP X0*Y1*Z2", "H 2\n" + basis_change + "S 0\n" + uncompute
     )
-    _assert_statevectors_equal("H 2\nTPP X0*Y1*Z2", "H 2\n" + basis_change + "T 0\n" + uncompute)
+    _assert_statevectors_equivalent(
+        "H 2\nTPP X0*Y1*Z2", "H 2\n" + basis_change + "T 0\n" + uncompute
+    )
 
 
 def test_multiple_tpp_products_are_applied_in_order() -> None:
-    _assert_statevectors_equal("H 0\nTPP Z0 X1", "H 0\nT 0\nH 1\nT 1\nH 1")
+    _assert_statevectors_equivalent("H 0\nTPP Z0 X1", "H 0\nT 0\nH 1\nT 1\nH 1")
 
 
 def test_multiple_spp_products_are_applied_in_order() -> None:
-    _assert_statevectors_equal("SPP X0 Z0", "SPP X0\nSPP Z0")
-    _assert_statevectors_equal("SPP Z0 X0", "SPP Z0\nSPP X0")
+    _assert_statevectors_equivalent("SPP X0 Z0", "SPP X0\nSPP Z0")
+    _assert_statevectors_equivalent("SPP Z0 X0", "SPP Z0\nSPP X0")
     _assert_statevectors_differ("SPP X0 Z0", "SPP Z0 X0")
     _assert_statevectors_differ("SPP Z0 X0", "I 0")
 
 
 def test_pauli_product_phase_gates_are_independent_of_term_order() -> None:
-    _assert_statevectors_equal("H 0\nH 1\nSPP X0*Y1*Z2", "H 0\nH 1\nSPP Z2*X0*Y1")
-    _assert_statevectors_equal("H 0\nH 1\nTPP X0*Y1*Z2", "H 0\nH 1\nTPP Z2*X0*Y1")
+    _assert_statevectors_equivalent("H 0\nH 1\nSPP X0*Y1*Z2", "H 0\nH 1\nSPP Z2*X0*Y1")
+    _assert_statevectors_equivalent("H 0\nH 1\nTPP X0*Y1*Z2", "H 0\nH 1\nTPP Z2*X0*Y1")
 
 
 def test_clifford_aliases_match() -> None:
