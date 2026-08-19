@@ -1,0 +1,84 @@
+name: Sanitizers
+
+on:
+  workflow_dispatch:  # Manual trigger
+  schedule:
+    - cron: '0 4 * * *'  # Nightly: 4am UTC
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sanitizers-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tsan:
+    runs-on: ubuntu-24.04
+    env:
+      CMAKE_BUILD_TYPE: Debug
+      CMAKE_GENERATOR: Ninja
+      # TSan flags: compile and link with -fsanitize=thread.
+      TSAN_OPTIONS: "second_deadlock_stack=1"
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+
+      - name: Configure C++ build with TSan
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_C_COMPILER=clang \
+            -DCMAKE_CXX_COMPILER=clang++ \
+            -DCMAKE_CXX_FLAGS="-fsanitize=thread -g -O1" \
+            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=thread" \
+            -DCMAKE_SHARED_LINKER_FLAGS="-fsanitize=thread"
+
+      - name: Build C++
+        run: cmake --build build --parallel
+
+      - name: Run C++ tests under TSan (skip benchmarks)
+        run: |
+          ctest --test-dir build \
+            --output-on-failure \
+            --timeout 600 \
+            -E "Bench"
+
+  asan-ubsan:
+    runs-on: ubuntu-24.04
+    env:
+      CMAKE_BUILD_TYPE: Debug
+      CMAKE_GENERATOR: Ninja
+      ASAN_OPTIONS: "halt_on_error=1"
+      UBSAN_OPTIONS: "halt_on_error=1:print_stacktrace=1"
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+
+      # -fno-sanitize-recover=all turns UBSan diagnostics into failures
+      # instead of warnings that pass the suite.
+      - name: Configure C++ build with ASan and UBSan
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_C_COMPILER=clang \
+            -DCMAKE_CXX_COMPILER=clang++ \
+            -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -g -O1" \
+            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined" \
+            -DCMAKE_SHARED_LINKER_FLAGS="-fsanitize=address,undefined"
+
+      - name: Build C++
+        run: cmake --build build --parallel
+
+      - name: Run C++ tests under ASan and UBSan (skip benchmarks)
+        run: |
+          ctest --test-dir build \
+            --output-on-failure \
+            --timeout 600 \
+            -E "Bench"
