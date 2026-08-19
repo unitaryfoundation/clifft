@@ -105,9 +105,10 @@ auto run_shot_ranges(uint32_t shots, uint32_t requested_threads, MakeWorker&& ma
         }
     };
 
-    // std::thread keeps the documented compiler-library floor. This guard is
-    // needed because constructing a later thread can throw after earlier ones
-    // have started; every exit must join those threads before destroying them.
+    // std::jthread is unavailable on some of the minimum compiler and standard
+    // library versions we support. This lifetime helper ensures every std::thread
+    // is joined, including when constructing a later thread throws after earlier
+    // workers have started.
     struct JoiningThreads {
         std::vector<std::thread>& threads;
 

@@ -250,8 +250,10 @@ processes with CPU-affinity limits, set an explicit count if the reported
 hardware concurrency exceeds the available CPU quota.
 
 Workers dynamically claim contiguous shot ranges from a shared scheduler.
-Seeded rows and surviving-row order are identical for `threads=1`, an explicit
-worker count, and `threads="auto"`.
+With a fixed seed, changing `threads` produces exactly the same result.
+`sample()` and `sample_k()` keep each shot at the same row, and the survivor
+APIs return accepted shots in the same order as the corresponding one-thread
+run.
 
 Each worker owns a separate executor. Its dense coefficient and measurement
 scratch storage uses roughly $24 \times 2^k$ bytes at peak active width $k$,
