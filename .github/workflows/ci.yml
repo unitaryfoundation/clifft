@@ -109,16 +109,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install ninja and ccache
-        run: |
-          curl -fsSL -o /tmp/ninja-linux.zip \
-            https://github.com/ninja-build/ninja/releases/download/v1.12.1/ninja-linux.zip
-          echo "6f98805688d19672bd699fbbfa2c2cf0fc054ac3df1f0e6a47664d963d530255  /tmp/ninja-linux.zip" | sha256sum --check
-          sudo unzip -o -q /tmp/ninja-linux.zip -d /usr/local/bin
-          curl -fsSL -o /tmp/ccache.tar.xz \
-            https://github.com/ccache/ccache/releases/download/v4.10.2/ccache-4.10.2-linux-x86_64.tar.xz
-          echo "80cab87bd510eca796467aee8e663c398239e0df1c4800a0b5dff11dca0b4f18  /tmp/ccache.tar.xz" | sha256sum --check
-          tar -C /tmp -xf /tmp/ccache.tar.xz ccache-4.10.2-linux-x86_64/ccache
-          sudo mv /tmp/ccache-4.10.2-linux-x86_64/ccache /usr/local/bin/ccache
+        uses: ./.github/actions/setup-native-tools
 
       - name: Setup ccache
         uses: hendrikmuhs/ccache-action@v1.2
@@ -263,31 +254,20 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # Every tool comes from a pinned, checksum-verified download so
-      # this job does not depend on the runner's apt mirror, which has
-      # stalled mid-fetch for an hour at a time. The static qemu build
-      # is the same version apt installs on this image, taken from the
-      # noble release pocket, whose pool URLs are permanent.
+      # Direct, checksum-verified downloads avoid apt metadata and dependency
+      # fetches. QEMU is intentionally pinned to Noble's stable GA package;
+      # this smoke needs reproducible CPU emulation rather than distro updates.
       - name: Install pinned build and emulation tools
-        run: |
-          curl -fsSL -o /tmp/ninja-linux.zip \
-            https://github.com/ninja-build/ninja/releases/download/v1.12.1/ninja-linux.zip
-          echo "6f98805688d19672bd699fbbfa2c2cf0fc054ac3df1f0e6a47664d963d530255  /tmp/ninja-linux.zip" | sha256sum --check
-          sudo unzip -o -q /tmp/ninja-linux.zip -d /usr/local/bin
-          curl -fsSL -o /tmp/ccache.tar.xz \
-            https://github.com/ccache/ccache/releases/download/v4.10.2/ccache-4.10.2-linux-x86_64.tar.xz
-          echo "80cab87bd510eca796467aee8e663c398239e0df1c4800a0b5dff11dca0b4f18  /tmp/ccache.tar.xz" | sha256sum --check
-          tar -C /tmp -xf /tmp/ccache.tar.xz ccache-4.10.2-linux-x86_64/ccache
-          sudo mv /tmp/ccache-4.10.2-linux-x86_64/ccache /usr/local/bin/ccache
-          curl -fsSL -o /tmp/qemu-user-static.deb \
-            https://archive.ubuntu.com/ubuntu/pool/universe/q/qemu/qemu-user-static_8.2.2+ds-0ubuntu1_amd64.deb
-          echo "83ad62bfe0e28a5645cb6a40d8b99e7a629fdac9e1a9cea9949d1c59a01322c7  /tmp/qemu-user-static.deb" | sha256sum --check
-          dpkg-deb -x /tmp/qemu-user-static.deb /tmp/qemu-user-static
-          echo "QEMU_X86_64=/tmp/qemu-user-static/usr/bin/qemu-x86_64-static" >> "$GITHUB_ENV"
+        uses: ./.github/actions/setup-native-tools
+        with:
+          install-qemu: "true"
 
       - name: Install Intel SDE
         run: |
-          curl -fsSL -o /tmp/sde.tar.xz \
+          curl --fail --silent --show-error --location \
+            --retry 3 --retry-delay 2 --retry-all-errors \
+            --connect-timeout 15 --max-time 180 \
+            --output /tmp/sde.tar.xz \
             https://downloadmirror.intel.com/924984/sde-external-10.13.1-2026-07-28-lin.tar.xz
           echo "94e97d623fec54385686e1e7ba65ebc9941748c05ee451423948334892bf2b50  /tmp/sde.tar.xz" | sha256sum --check
           tar -C "$RUNNER_TEMP" -xf /tmp/sde.tar.xz

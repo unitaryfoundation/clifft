@@ -1,0 +1,53 @@
+name: Set Up Native CI Tools
+description: Install pinned Ninja, ccache, and optional QEMU binaries
+
+inputs:
+  install-qemu:
+    description: Install the pinned QEMU user-mode emulator
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - name: Install pinned native tools
+      shell: bash
+      env:
+        INSTALL_QEMU: ${{ inputs.install-qemu }}
+      run: |
+        set -euo pipefail
+
+        download() {
+          curl --fail --silent --show-error --location \
+            --retry 3 --retry-delay 2 --retry-all-errors \
+            --connect-timeout 15 --max-time 180 \
+            --output "$2" "$1"
+        }
+
+        tools_dir="$RUNNER_TEMP/clifft-native-tools"
+        mkdir -p "$tools_dir/bin"
+
+        download \
+          https://github.com/ninja-build/ninja/releases/download/v1.12.1/ninja-linux.zip \
+          "$tools_dir/ninja-linux.zip"
+        echo "6f98805688d19672bd699fbbfa2c2cf0fc054ac3df1f0e6a47664d963d530255  $tools_dir/ninja-linux.zip" | sha256sum --check
+        unzip -o -q "$tools_dir/ninja-linux.zip" -d "$tools_dir/bin"
+
+        download \
+          https://github.com/ccache/ccache/releases/download/v4.10.2/ccache-4.10.2-linux-x86_64.tar.xz \
+          "$tools_dir/ccache.tar.xz"
+        echo "80cab87bd510eca796467aee8e663c398239e0df1c4800a0b5dff11dca0b4f18  $tools_dir/ccache.tar.xz" | sha256sum --check
+        tar -C "$tools_dir" -xf "$tools_dir/ccache.tar.xz" \
+          ccache-4.10.2-linux-x86_64/ccache
+        mv "$tools_dir/ccache-4.10.2-linux-x86_64/ccache" "$tools_dir/bin/ccache"
+
+        echo "$tools_dir/bin" >> "$GITHUB_PATH"
+
+        if [[ "$INSTALL_QEMU" == "true" ]]; then
+          download \
+            https://archive.ubuntu.com/ubuntu/pool/universe/q/qemu/qemu-user-static_8.2.2+ds-0ubuntu1_amd64.deb \
+            "$tools_dir/qemu-user-static.deb"
+          echo "83ad62bfe0e28a5645cb6a40d8b99e7a629fdac9e1a9cea9949d1c59a01322c7  $tools_dir/qemu-user-static.deb" | sha256sum --check
+          dpkg-deb -x "$tools_dir/qemu-user-static.deb" "$tools_dir/qemu-user-static"
+          echo "QEMU_X86_64=$tools_dir/qemu-user-static/usr/bin/qemu-x86_64-static" >> "$GITHUB_ENV"
+        fi

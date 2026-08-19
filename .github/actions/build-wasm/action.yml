@@ -25,7 +25,10 @@ runs:
       if: steps.wasm-cache.outputs.cache-hit != 'true'
       shell: bash
       run: |
-        curl -fsSL -o /tmp/ccache.tar.xz \
+        curl --fail --silent --show-error --location \
+          --retry 3 --retry-delay 2 --retry-all-errors \
+          --connect-timeout 15 --max-time 180 \
+          --output /tmp/ccache.tar.xz \
           https://github.com/ccache/ccache/releases/download/v4.10.2/ccache-4.10.2-linux-x86_64.tar.xz
         echo "80cab87bd510eca796467aee8e663c398239e0df1c4800a0b5dff11dca0b4f18  /tmp/ccache.tar.xz" | sha256sum --check
         mkdir -p "$RUNNER_TEMP/ccache-bin"
