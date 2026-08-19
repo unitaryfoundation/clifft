@@ -5,6 +5,11 @@ name: Benchmark history
 # and bench/python. Each path hosts a Chart.js viewer rendered by
 # benchmark-action/github-action-benchmark.
 #
+# The bench-cpp and bench-python jobs run in parallel and upload their
+# results as artifacts; only the final publish job holds the shared
+# gh-pages lock, so a slow build or benchmark run no longer blocks
+# other gh-pages publishers.
+#
 # Triggers: daily at 06:17 UTC and on manual dispatch. Not run on PRs.
 # Scope is record-only — no alerts, no PR comments, no CI failures on
 # regression. See docs/development/benchmark-history.md.
@@ -16,12 +21,6 @@ on:
 
 permissions:
   contents: write
-
-concurrency:
-  # Share the gh-pages-writer group with docs.yml, release.yml, and the
-  # PR preview workflow so scheduled bench runs cannot race a mike push.
-  group: docs-deploy
-  cancel-in-progress: false
 
 jobs:
   bench-cpp:
@@ -96,6 +95,8 @@ jobs:
           python3 tools/ci/audit_build_flags.py \
             --compile-commands build/compile_commands.json
 
+      # Each run writes to a temporary name and renames only on success,
+      # so a failed command cannot upload a partial file as a valid result.
       - name: Run Catch2 benchmarks (scalar)
         # Action parser requires the console reporter (XML is not yet
         # supported by benchmark-action/github-action-benchmark@v1).
@@ -104,22 +105,8 @@ jobs:
         run: |
           build/tests/clifft_tests "[bench]" \
             --reporter console \
-            --out cpp-bench-scalar.txt
-
-      - name: Publish scalar C++ benchmarks to gh-pages
-        uses: benchmark-action/github-action-benchmark@v1
-        with:
-          name: C++ Catch2 benchmarks (scalar)
-          tool: catch2
-          output-file-path: cpp-bench-scalar.txt
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          gh-pages-branch: gh-pages
-          benchmark-data-dir-path: bench/cpp-scalar
-          auto-push: true
-          # Record-only mode: alerts and comments are out of scope per #38.
-          alert-threshold: '200%'
-          fail-on-alert: false
-          comment-on-alert: false
+            --out cpp-bench-scalar.txt.tmp
+          mv cpp-bench-scalar.txt.tmp cpp-bench-scalar.txt
 
       - name: Run Catch2 benchmarks (AVX2)
         if: steps.cpu_modes.outputs.avx2 == 'true'
@@ -128,22 +115,8 @@ jobs:
         run: |
           build/tests/clifft_tests "[bench]" \
             --reporter console \
-            --out cpp-bench-avx2.txt
-
-      - name: Publish AVX2 C++ benchmarks to gh-pages
-        if: steps.cpu_modes.outputs.avx2 == 'true'
-        uses: benchmark-action/github-action-benchmark@v1
-        with:
-          name: C++ Catch2 benchmarks (AVX2)
-          tool: catch2
-          output-file-path: cpp-bench-avx2.txt
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          gh-pages-branch: gh-pages
-          benchmark-data-dir-path: bench/cpp-avx2
-          auto-push: true
-          alert-threshold: '200%'
-          fail-on-alert: false
-          comment-on-alert: false
+            --out cpp-bench-avx2.txt.tmp
+          mv cpp-bench-avx2.txt.tmp cpp-bench-avx2.txt
 
       - name: Run Catch2 benchmarks (AVX-512)
         if: steps.cpu_modes.outputs.avx512 == 'true'
@@ -152,32 +125,18 @@ jobs:
         run: |
           build/tests/clifft_tests "[bench]" \
             --reporter console \
-            --out cpp-bench-avx512.txt
+            --out cpp-bench-avx512.txt.tmp
+          mv cpp-bench-avx512.txt.tmp cpp-bench-avx512.txt
 
-      - name: Publish AVX-512 C++ benchmarks to gh-pages
-        if: steps.cpu_modes.outputs.avx512 == 'true'
-        uses: benchmark-action/github-action-benchmark@v1
+      - name: Upload benchmark results
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
         with:
-          name: C++ Catch2 benchmarks (AVX-512)
-          tool: catch2
-          output-file-path: cpp-bench-avx512.txt
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          gh-pages-branch: gh-pages
-          benchmark-data-dir-path: bench/cpp-avx512
-          auto-push: true
-          alert-threshold: '200%'
-          fail-on-alert: false
-          comment-on-alert: false
+          name: bench-cpp-results
+          path: cpp-bench-*.txt
+          if-no-files-found: ignore
 
   bench-python:
-    # Wait for bench-cpp before pushing so the two jobs don't race each
-    # other on gh-pages. `always() && !cancelled()` keeps the "a C++
-    # failure doesn't gate Python history" property intact (Python runs
-    # even if bench-cpp failed) while honoring explicit workflow
-    # cancellation -- a bare `always()` would publish data even on a
-    # cancelled run.
-    needs: bench-cpp
-    if: ${{ always() && !cancelled() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
@@ -209,9 +168,92 @@ jobs:
         run: |
           uv run --locked pytest tools/bench/ \
             --benchmark-only \
-            --benchmark-json=python-bench.json
+            --benchmark-json=python-bench.json.tmp
+          mv python-bench.json.tmp python-bench.json
+
+      - name: Upload benchmark results
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-python-results
+          path: python-bench.json
+          if-no-files-found: ignore
+
+  publish:
+    # A C++ failure doesn't gate Python history and vice versa: publish
+    # whatever results the two bench jobs produced even if one of them
+    # failed, but not on explicit workflow cancellation.
+    needs: [bench-cpp, bench-python]
+    if: ${{ always() && !cancelled() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    concurrency:
+      # Share the gh-pages-writer group with docs.yml, release.yml, and the
+      # PR preview workflow so scheduled bench runs cannot race a mike push.
+      # Only this publish step holds the lock -- benchmark compilation and
+      # runtime happen in bench-cpp/bench-python above, outside the group.
+      group: docs-deploy
+      cancel-in-progress: false
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # A pattern that matches no artifacts succeeds with an empty
+      # workspace, so any failure of this step is a real download error.
+      - name: Download benchmark results
+        uses: actions/download-artifact@v4
+        with:
+          pattern: bench-*-results
+          merge-multiple: true
+
+      - name: Publish scalar C++ benchmarks to gh-pages
+        if: ${{ !cancelled() && hashFiles('cpp-bench-scalar.txt') != '' }}
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          name: C++ Catch2 benchmarks (scalar)
+          tool: catch2
+          output-file-path: cpp-bench-scalar.txt
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          gh-pages-branch: gh-pages
+          benchmark-data-dir-path: bench/cpp-scalar
+          auto-push: true
+          # Record-only mode: alerts and comments are out of scope per #38.
+          alert-threshold: '200%'
+          fail-on-alert: false
+          comment-on-alert: false
+
+      - name: Publish AVX2 C++ benchmarks to gh-pages
+        if: ${{ !cancelled() && hashFiles('cpp-bench-avx2.txt') != '' }}
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          name: C++ Catch2 benchmarks (AVX2)
+          tool: catch2
+          output-file-path: cpp-bench-avx2.txt
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          gh-pages-branch: gh-pages
+          benchmark-data-dir-path: bench/cpp-avx2
+          auto-push: true
+          alert-threshold: '200%'
+          fail-on-alert: false
+          comment-on-alert: false
+
+      - name: Publish AVX-512 C++ benchmarks to gh-pages
+        if: ${{ !cancelled() && hashFiles('cpp-bench-avx512.txt') != '' }}
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          name: C++ Catch2 benchmarks (AVX-512)
+          tool: catch2
+          output-file-path: cpp-bench-avx512.txt
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          gh-pages-branch: gh-pages
+          benchmark-data-dir-path: bench/cpp-avx512
+          auto-push: true
+          alert-threshold: '200%'
+          fail-on-alert: false
+          comment-on-alert: false
 
       - name: Publish to gh-pages
+        if: ${{ !cancelled() && hashFiles('python-bench.json') != '' }}
         uses: benchmark-action/github-action-benchmark@v1
         with:
           name: Python pytest-benchmark suite
