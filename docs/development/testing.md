@@ -97,12 +97,24 @@ the ordinary dispatch loop and kernels, where exceptions and allocations are
 deliberately avoided.
 
 The C++ suite runs through default dispatch, forced scalar execution, and
-forced AVX2 execution when the CI host supports it. Focused kernel tests also
-compare AVX-512 implementations against the scalar reference on capable
-hosts. Cross-platform builds exercise configurations without runtime dispatch,
-and release smoke tests emulate older x86 CPUs so architecture-specific
-instructions cannot leak into fallback paths. WebAssembly has a separate smoke
-suite for compilation, plan inspection, and browser sampling.
+forced AVX2 and AVX-512 execution when the CI runner's CPU supports them.
+Focused kernel tests also compare the AVX2 and AVX-512 implementations
+against the scalar reference on capable hosts. The
+Release smoke job runs an emulated CPU matrix: QEMU legs cover sub-AVX2 hosts
+and confirm that `CLIFFT_FORCE_ISA` traps cleanly on incompatible CPUs
+instead of executing an unsupported instruction, and Intel SDE legs pinned to
+a Skylake-X model make AVX-512 kernel execution deterministic in CI, since
+QEMU's TCG engine cannot execute AVX-512 instructions. Passing legs also
+check the resolved ISA through `clifft.runtime_isa()`. That same job runs the
+full Python suite against an optimized (non-Debug) extension built with
+`assert()` kept active, so release codegen is checked against the same
+invariants as debug builds. Cross-platform jobs cover Linux arm64, macOS, and
+Windows. WebAssembly has a separate smoke suite for compilation, plan
+inspection, and browser sampling.
+
+A nightly workflow runs the C++ suite under ThreadSanitizer and under
+AddressSanitizer combined with UndefinedBehaviorSanitizer. A weekly workflow
+records combined C++ and Python coverage.
 
 ## Running the Tests
 

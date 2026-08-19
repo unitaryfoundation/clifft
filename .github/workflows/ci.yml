@@ -4,12 +4,6 @@ on:
   push:
     branches: [main]
   pull_request:
-    paths-ignore:
-      - 'docs/**'
-      - 'playground/**'
-      - '*.md'
-      - '.github/workflows/docs.yml'
-      - '.github/workflows/pr_preview.yml'
 
 permissions:
   contents: read
@@ -447,3 +441,22 @@ jobs:
 
       - name: Run Python tests
         run: uv run --locked pytest tests/python/ -n logical --maxprocesses 4 -v
+
+  # Single aggregate check for branch protection. Requiring this job
+  # instead of enumerating every job means new or renamed jobs cannot
+  # silently drop out of enforcement, and it reports success only when
+  # every needed job succeeded.
+  ci-gate:
+    if: always()
+    needs:
+      - wasm
+      - lint
+      - playground-lint
+      - build-and-test
+      - release-cpp-smoke
+      - cross-platform
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require every needed job to succeed
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped')
+        run: exit 1
