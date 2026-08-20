@@ -377,12 +377,13 @@ jobs:
       - name: Install ninja and ccache
         uses: ./.github/actions/setup-native-tools
 
-      # Same key as release-cpp-smoke (Release build, same CPU baseline),
-      # so this job reuses that job's ccache instead of building cold.
+      # Distinct key from release-cpp-smoke: both jobs save timestamped
+      # entries and restores take the newest prefix match, so a shared
+      # prefix lets each job clobber the other's warm objects.
       - name: Setup ccache
         uses: hendrikmuhs/ccache-action@v1.2
         with:
-          key: ${{ runner.os }}-ccache-Release-${{ env.CLIFFT_CPU_BASELINE }}
+          key: ${{ runner.os }}-ccache-package-Release-${{ env.CLIFFT_CPU_BASELINE }}
           # Caches saved from PR runs are scoped to the PR ref and cannot be
           # reused elsewhere; saving only on main limits repo cache eviction.
           save: ${{ github.ref == 'refs/heads/main' }}
