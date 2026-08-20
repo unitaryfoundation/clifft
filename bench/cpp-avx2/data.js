@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787166118070,
+  "lastUpdate": 1787207675493,
   "repoUrl": "https://github.com/unitaryfoundation/clifft",
   "entries": {
     "C++ Catch2 benchmarks (AVX2)": [
@@ -6014,6 +6014,70 @@ window.BENCHMARK_DATA = {
             "name": "exp-val 20q 200 probes x100k",
             "value": 103.198,
             "range": "± 2.04062",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Brad Chase",
+            "username": "bachase",
+            "email": "14430+bachase@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "92ea7e79e5c699e36ff139d2d01b9659160acf37",
+          "message": "ci: round-trip the packaging pipeline on every pull request (#370)\n\nBuild the sdist, build the cp312-abi3 wheel from that sdist rather than the checkout, install it on the newest stable CPython, and run a focused artifact smoke, so an incomplete sdist manifest, a stable-ABI regression, or a forward-compatibility break surfaces at review time instead of at release time. Pushes to main additionally run the full Python suite against the installed wheel with lockfile-pinned test dependencies. The smoke program is extracted into a shared artifact_smoke.py used by the emulated wheel smokes and the release workflow's abi3 check.\n\nAssisted-by: Claude (Fable 5) <noreply@anthropic.com>",
+          "timestamp": "2026-08-19T20:31:28Z",
+          "url": "https://github.com/unitaryfoundation/clifft/commit/92ea7e79e5c699e36ff139d2d01b9659160acf37"
+        },
+        "date": 1787207674460,
+        "tool": "catch2",
+        "benches": [
+          {
+            "name": "QV-10 x100 shots",
+            "value": 7.65094,
+            "range": "± 101.248",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "cultivation-d5 x1000 shots",
+            "value": 33.8449,
+            "range": "± 298.505",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d7-r7 p=1e-3 x10000 shots",
+            "value": 56.8823,
+            "range": "± 632.487",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d5-r5 p=0.05 x10000 shots",
+            "value": 64.7917,
+            "range": "± 251.405",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d11-r11 p=1e-3 x1000 shots",
+            "value": 20.841,
+            "range": "± 261.117",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "exp-val 20q 200 probes x100k",
+            "value": 101.268,
+            "range": "± 1.2725",
             "unit": "ms",
             "extra": "100 samples\n1 iterations"
           }
