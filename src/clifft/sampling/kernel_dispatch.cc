@@ -17,13 +17,12 @@ ActiveMeasurementKernel select_active_measurement(const PreparedMeasurement& mea
     if (measurement.pauli.active_width < min_active_width) {
         return ActiveMeasurementKernel::Scalar;
     }
+    const uint64_t pivot_bit = uint64_t{1} << measurement.pivot;
     if (measurement.pauli.is_diagonal()) {
-        const uint64_t pivot_bit = uint64_t{1} << measurement.pivot;
         // Removing the lowest measured coordinate preserves packed output order.
         return (measurement.pauli.z & (pivot_bit - 1)) == 0 ? ActiveMeasurementKernel::Diagonal
                                                             : ActiveMeasurementKernel::Scalar;
     }
-    const uint64_t pivot_bit = uint64_t{1} << measurement.pivot;
     if (measurement.pauli.pairing_bit == pivot_bit && pivot_bit >= vector_lanes) {
         return ActiveMeasurementKernel::HighPivot;
     }

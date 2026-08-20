@@ -545,6 +545,8 @@ TEST_CASE("Active measurement SIMD matches scalar Pauli compaction") {
     const ExecutorBackend backend =
         runtime_isa == RuntimeIsa::Avx512 ? ExecutorBackend::Avx512 : ExecutorBackend::Avx2;
 
+    const uint64_t vector_lanes = runtime_isa == RuntimeIsa::Avx512 ? 8 : 4;
+    const uint32_t lane_index_bits = runtime_isa == RuntimeIsa::Avx512 ? 3 : 2;
     const uint32_t min_profitable_width = runtime_isa == RuntimeIsa::Avx512 ? 4 : 2;
     for (uint32_t active_width = min_profitable_width; active_width <= 6; ++active_width) {
         const uint64_t z_limit = uint64_t{1} << active_width;
@@ -557,7 +559,15 @@ TEST_CASE("Active measurement SIMD matches scalar Pauli compaction") {
                         prepare_measurement({x, z}, active_width, pivot);
                     const ActiveMeasurementKernel selected =
                         resolve_active_measurement_kernel(measurement, backend);
-                    if (selected == ActiveMeasurementKernel::Scalar) {
+                    const uint64_t pivot_bit = uint64_t{1} << pivot;
+                    ActiveMeasurementKernel expected_kernel = ActiveMeasurementKernel::Scalar;
+                    if (std::bit_floor(x) == pivot_bit && pivot_bit >= vector_lanes) {
+                        expected_kernel = ActiveMeasurementKernel::HighPivot;
+                    } else if (x < vector_lanes && pivot < lane_index_bits) {
+                        expected_kernel = ActiveMeasurementKernel::LanePaired;
+                    }
+                    REQUIRE(selected == expected_kernel);
+                    if (expected_kernel == ActiveMeasurementKernel::Scalar) {
                         continue;
                     }
 
