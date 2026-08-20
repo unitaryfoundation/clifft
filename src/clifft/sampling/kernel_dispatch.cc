@@ -14,11 +14,22 @@ constexpr uint32_t kMinProfitableAvx512MeasurementWidth = 4;
 ActiveMeasurementKernel select_active_measurement(const PreparedMeasurement& measurement,
                                                   uint64_t vector_lanes, uint32_t lane_index_bits,
                                                   uint32_t min_active_width) noexcept {
-    if (measurement.pauli.is_diagonal() || measurement.pauli.x >= vector_lanes ||
-        measurement.pivot >= lane_index_bits || measurement.pauli.active_width < min_active_width) {
+    if (measurement.pauli.active_width < min_active_width) {
         return ActiveMeasurementKernel::Scalar;
     }
-    return ActiveMeasurementKernel::LanePaired;
+    const uint64_t pivot_bit = uint64_t{1} << measurement.pivot;
+    if (measurement.pauli.is_diagonal()) {
+        // Removing the lowest measured coordinate preserves packed output order.
+        return (measurement.pauli.z & (pivot_bit - 1)) == 0 ? ActiveMeasurementKernel::Diagonal
+                                                            : ActiveMeasurementKernel::Scalar;
+    }
+    if (measurement.pauli.pairing_bit == pivot_bit && pivot_bit >= vector_lanes) {
+        return ActiveMeasurementKernel::HighPivot;
+    }
+    if (measurement.pauli.x < vector_lanes && measurement.pivot < lane_index_bits) {
+        return ActiveMeasurementKernel::LanePaired;
+    }
+    return ActiveMeasurementKernel::Scalar;
 }
 
 constexpr uint64_t kNoExcludedPairingBit = 0;

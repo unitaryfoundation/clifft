@@ -56,9 +56,9 @@ void require_same_coordinate_map(const CoordinateFrame& direct, const Coordinate
 
 std::optional<uint32_t> active_measurement_pivot(const PlannerPauli& measured,
                                                  uint32_t active_width) {
-    for (uint32_t q = 0; q < active_width; ++q) {
-        if (measured.xs[q]) {
-            return q;
+    for (uint32_t q = active_width; q > 0; --q) {
+        if (measured.xs[q - 1]) {
+            return q - 1;
         }
     }
     for (uint32_t q = 0; q < active_width; ++q) {
