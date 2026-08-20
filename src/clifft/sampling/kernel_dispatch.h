@@ -33,6 +33,7 @@ enum class DirectRotationKernel : uint8_t {
 
 enum class ActiveMeasurementKernel : uint8_t {
     Scalar,
+    Diagonal,
     HighPivot,
     LanePaired,
 };

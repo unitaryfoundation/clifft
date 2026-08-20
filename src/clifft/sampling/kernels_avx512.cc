@@ -55,6 +55,21 @@ constexpr std::array<LaneIndices, kLanes> make_lane_permutations() {
     return result;
 }
 
+constexpr std::array<std::array<LaneIndices, 2>, kLanes> make_diagonal_compaction_permutations() {
+    std::array<std::array<LaneIndices, 2>, kLanes> result{};
+    for (size_t z = 1; z < kLanes; ++z) {
+        for (size_t parity = 0; parity < 2; ++parity) {
+            size_t destination = 0;
+            for (size_t lane = 0; lane < kLanes; ++lane) {
+                if ((std::popcount(z & lane) & 1U) == parity) {
+                    result[z][parity][destination++] = lane;
+                }
+            }
+        }
+    }
+    return result;
+}
+
 constexpr std::array<LaneSigns, kLanes> make_lane_parity_signs() {
     std::array<LaneSigns, kLanes> result{};
     for (size_t z = 0; z < kLanes; ++z) {
@@ -67,6 +82,8 @@ constexpr std::array<LaneSigns, kLanes> make_lane_parity_signs() {
 
 alignas(64) constexpr auto kLanePermutations = make_lane_permutations();
 alignas(64) constexpr auto kLaneParitySigns = make_lane_parity_signs();
+alignas(64) constexpr auto kDiagonalCompactionPermutations =
+    make_diagonal_compaction_permutations();
 
 struct alignas(64) LanePermutation {
     std::array<uint64_t, kLanes> indices{};
@@ -294,6 +311,68 @@ void apply_fused_rotation_avx512(State& state, const PreparedFusedRotation& rota
     }
 }
 
+MeasurementProbabilities active_diagonal_measurement_probabilities_avx512_impl(
+    const State& state, const PreparedMeasurement& measurement) noexcept {
+    const double* const real = state.real_data();
+    const double* const imag = state.imag_data();
+    __m512d zero_sum = _mm512_setzero_pd();
+    __m512d one_sum = _mm512_setzero_pd();
+
+    for (uint64_t basis = 0; basis < state.size(); basis += kLanes) {
+        const __m512d input_real = _mm512_load_pd(real + basis);
+        const __m512d input_imag = _mm512_load_pd(imag + basis);
+        const __m512d norm =
+            _mm512_fmadd_pd(input_real, input_real, _mm512_mul_pd(input_imag, input_imag));
+        const __m512d parity = signed_sine_lanes(basis, measurement.pauli.z, 1.0);
+        const __mmask8 zero_mask = _mm512_cmp_pd_mask(parity, _mm512_setzero_pd(), _CMP_GT_OQ);
+        zero_sum = _mm512_mask_add_pd(zero_sum, zero_mask, zero_sum, norm);
+        one_sum = _mm512_mask_add_pd(one_sum, static_cast<__mmask8>(~zero_mask), one_sum, norm);
+    }
+    return MeasurementProbabilities{_mm512_reduce_add_pd(zero_sum), _mm512_reduce_add_pd(one_sum)};
+}
+
+void collapse_active_diagonal_measurement_avx512_impl(State& state,
+                                                      const PreparedMeasurement& measurement,
+                                                      bool branch,
+                                                      double branch_probability) noexcept {
+    double* const real = state.real_data();
+    double* const imag = state.imag_data();
+    const uint64_t pivot_bit = uint64_t{1} << measurement.pivot;
+    const __m512d scale = _mm512_set1_pd(1.0 / std::sqrt(branch_probability));
+    assert((measurement.pauli.z & (pivot_bit - 1)) == 0 &&
+           "AVX-512 diagonal compaction requires the lowest measured pivot");
+
+    if (measurement.pivot >= 3) {
+        for (uint64_t packed = 0; packed < measurement.output_size; packed += kLanes) {
+            const uint64_t source0 = insert_zero_bit(packed, measurement.pivot);
+            const bool other_parity =
+                (std::popcount(source0 & measurement.z_without_pivot) & 1U) != 0;
+            const uint64_t source = source0 | (branch != other_parity ? pivot_bit : 0);
+            const __m512d selected_real = _mm512_load_pd(real + source);
+            const __m512d selected_imag = _mm512_load_pd(imag + source);
+            _mm512_store_pd(real + packed, _mm512_mul_pd(scale, selected_real));
+            _mm512_store_pd(imag + packed, _mm512_mul_pd(scale, selected_imag));
+        }
+    } else {
+        const uint64_t lane_z = measurement.pauli.z & (kLanes - 1);
+        for (uint64_t basis = 0; basis < state.size(); basis += kLanes) {
+            const bool high_parity = (std::popcount(basis & measurement.pauli.z) & 1U) != 0;
+            const size_t selected_lane_parity = static_cast<size_t>(branch != high_parity);
+            const __m512i compaction = _mm512_load_si512(
+                kDiagonalCompactionPermutations[lane_z][selected_lane_parity].data());
+            const __m256d selected_real = _mm512_castpd512_pd256(
+                _mm512_permutexvar_pd(compaction, _mm512_load_pd(real + basis)));
+            const __m256d selected_imag = _mm512_castpd512_pd256(
+                _mm512_permutexvar_pd(compaction, _mm512_load_pd(imag + basis)));
+            _mm256_storeu_pd(real + basis / 2,
+                             _mm256_mul_pd(_mm512_castpd512_pd256(scale), selected_real));
+            _mm256_storeu_pd(imag + basis / 2,
+                             _mm256_mul_pd(_mm512_castpd512_pd256(scale), selected_imag));
+        }
+    }
+    state.set_active_width(state.active_width() - 1);
+}
+
 template <bool RealPhase>
 MeasurementProbabilities active_measurement_probabilities_avx512_impl(
     const State& state, const PreparedMeasurement& measurement) noexcept {
@@ -501,9 +580,15 @@ MeasurementProbabilities active_measurement_probabilities_avx512(
     const State& state, const PreparedMeasurement& measurement,
     ActiveMeasurementKernel kernel) noexcept {
     assert(state.active_width() == measurement.pauli.active_width &&
-           !measurement.pauli.is_diagonal() && measurement.pauli.active_width >= 3 &&
-           kernel != ActiveMeasurementKernel::Scalar &&
-           "AVX-512 active measurement requires a vectorized pairing");
+           measurement.pauli.active_width >= 4 && kernel != ActiveMeasurementKernel::Scalar &&
+           "AVX-512 active measurement requires a profitable vector width");
+    if (kernel == ActiveMeasurementKernel::Diagonal) {
+        assert(measurement.pauli.is_diagonal() &&
+               "AVX-512 diagonal measurement requires a diagonal Pauli");
+        return active_diagonal_measurement_probabilities_avx512_impl(state, measurement);
+    }
+    assert(!measurement.pauli.is_diagonal() &&
+           "AVX-512 paired measurement requires a non-diagonal Pauli");
     if (kernel == ActiveMeasurementKernel::HighPivot) {
         assert(measurement.pauli.pairing_bit == (uint64_t{1} << measurement.pivot) &&
                measurement.pauli.pairing_bit >= kLanes &&
@@ -527,10 +612,18 @@ void collapse_active_measurement_avx512(State& state, const PreparedMeasurement&
                                         ActiveMeasurementKernel kernel, bool branch,
                                         double branch_probability) noexcept {
     assert(state.active_width() == measurement.pauli.active_width &&
-           !measurement.pauli.is_diagonal() && measurement.pauli.active_width >= 3 &&
-           kernel != ActiveMeasurementKernel::Scalar && is_finite_robust(branch_probability) &&
-           branch_probability > 0.0 &&
-           "AVX-512 active measurement requires a positive-probability vectorized pairing");
+           measurement.pauli.active_width >= 4 && kernel != ActiveMeasurementKernel::Scalar &&
+           is_finite_robust(branch_probability) && branch_probability > 0.0 &&
+           "AVX-512 active measurement requires a positive-probability vector width");
+    if (kernel == ActiveMeasurementKernel::Diagonal) {
+        assert(measurement.pauli.is_diagonal() &&
+               "AVX-512 diagonal measurement requires a diagonal Pauli");
+        collapse_active_diagonal_measurement_avx512_impl(state, measurement, branch,
+                                                         branch_probability);
+        return;
+    }
+    assert(!measurement.pauli.is_diagonal() &&
+           "AVX-512 paired measurement requires a non-diagonal Pauli");
     if (kernel == ActiveMeasurementKernel::HighPivot) {
         assert(measurement.pauli.pairing_bit == (uint64_t{1} << measurement.pivot) &&
                measurement.pauli.pairing_bit >= kLanes &&
