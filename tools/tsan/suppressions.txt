@@ -1,0 +1,15 @@
+# OpenMP runtimes maintain internal worker pools and barriers in uninstrumented
+# code. Suppress only their runtime frames so races in Clifft kernels remain
+# visible to ThreadSanitizer.
+
+# LLVM libomp
+race:__kmp_resume_64
+race:__kmp_suspend_64
+race:__kmp_launch_monitor
+race:__kmp_create_worker
+race:__kmp_set_num_threads
+race:__kmp_internal_end_atexit
+
+# GCC libgomp
+race:gomp_team_start
+race:gomp_thread_start

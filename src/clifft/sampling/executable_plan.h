@@ -33,6 +33,15 @@ class PreparedFusedRotationExecution {
         }
     }
 
+    void apply_parallel(State& state, uint32_t workers, uint32_t min_active_width) const noexcept {
+        if (sidecar_.storage != nullptr && sidecar_.parallel_kernel != nullptr) {
+            sidecar_.parallel_kernel(state, rotation_, sidecar_.storage.get(), workers,
+                                     min_active_width);
+        } else {
+            apply_fused_rotation_parallel(state, rotation_, workers, min_active_width);
+        }
+    }
+
   private:
     PreparedFusedRotation rotation_;
     FusedRotationSidecar sidecar_;

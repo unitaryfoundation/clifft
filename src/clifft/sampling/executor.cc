@@ -1,12 +1,14 @@
 #include "clifft/sampling/executor.h"
 
 #include "clifft/util/fault_sampling.h"
+#include "clifft/util/intra_shot_parallel.h"
 #include "clifft/util/noise_sampling.h"
 #include "clifft/util/numeric.h"
 
 #include <algorithm>
 #include <cassert>
 #include <cmath>
+#include <limits>
 #include <numbers>
 
 namespace clifft::sampling {
@@ -27,6 +29,18 @@ struct MeasurementBranchClassification {
     MeasurementBranchKind kind = MeasurementBranchKind::Random;
     bool clamped_dust = false;
 };
+
+uint32_t resolve_intra_shot_workers(const ExecutablePlan& plan, uint32_t requested_workers,
+                                    uint32_t min_active_width) {
+    if (requested_workers == 0 ||
+        requested_workers > static_cast<uint32_t>(std::numeric_limits<int>::max())) {
+        throw std::invalid_argument("sampling executor intra-shot worker count is invalid");
+    }
+    return should_parallelize_intra_shot(plan.peak_active_width(), requested_workers,
+                                         min_active_width)
+               ? requested_workers
+               : 1;
+}
 
 [[nodiscard]] MeasurementBranchClassification classify_measurement_branch(
     MeasurementProbabilities probabilities) noexcept {
@@ -49,10 +63,13 @@ struct MeasurementBranchClassification {
 
 }  // namespace
 
-Executor::Executor(const ExecutablePlan& plan, uint64_t seed)
-    : root_plan_(&plan),
+Executor::Executor(const ExecutablePlan& plan, uint64_t seed, uint32_t intra_shot_workers,
+                   uint32_t intra_shot_min_active_width)
+      : root_plan_(&plan),
       plan_(&plan),
-      state_(plan.peak_active_width_, plan.initial_active_width_),
+      state_(plan.peak_active_width_, plan.initial_active_width_,
+             resolve_intra_shot_workers(plan, intra_shot_workers, intra_shot_min_active_width),
+             intra_shot_min_active_width),
       symbols_(plan.num_symbols_, 0),
       expression_registers_(plan.expression_register_constants_),
       records_(static_cast<size_t>(plan.num_visible_records_) + plan.num_hidden_records_, 0),
@@ -62,7 +79,10 @@ Executor::Executor(const ExecutablePlan& plan, uint64_t seed)
       forced_record_mask_(records_.size(), 0),
       forced_record_values_(records_.size(), 0),
       rng_(seed),
-      backend_(plan.backend_) {
+      backend_(plan.backend_),
+      intra_shot_workers_(
+          resolve_intra_shot_workers(plan, intra_shot_workers, intra_shot_min_active_width)),
+      intra_shot_min_active_width_(intra_shot_min_active_width) {
     previous_presampled_ones_.reserve(plan.presampled_symbols_.size());
 }
 
@@ -195,7 +215,7 @@ ReplayResult Executor::replay_shot(std::span<const uint8_t> forced_records,
 }
 
 void Executor::reset_shot() noexcept {
-    state_.reset();
+    state_.reset_parallel(intra_shot_workers_, intra_shot_min_active_width_);
     // Validation guarantees that every mutable symbol and output is overwritten
     // before use on a completed shot. Only nonfiring noise symbols need restoring.
     for (uint32_t symbol : previous_presampled_ones_) {
@@ -314,31 +334,54 @@ void Executor::assign_forced_quantum_faults() noexcept {
     }
 }
 
-template <ExecutorBackend Backend>
+template <ExecutorBackend Backend, bool Parallel>
 void Executor::execute_action(const ExecutablePlan::ExecuteRotation& action,
                               std::span<const uint8_t>, ReplayResult&) noexcept {
     const bool sign = evaluate(action.sign);
     if (action.kernel == DirectRotationKernel::Scalar) {
-        apply_rotation(state_, action.rotation, sign);
+        if constexpr (Parallel) {
+            apply_rotation_parallel(state_, action.rotation, sign, intra_shot_workers_,
+                                    intra_shot_min_active_width_);
+        } else {
+            apply_rotation(state_, action.rotation, sign);
+        }
         return;
     }
     if constexpr (Backend == ExecutorBackend::Avx2) {
-        apply_direct_rotation_avx2(state_, action.rotation, action.kernel, sign);
+        if constexpr (Parallel) {
+            apply_direct_rotation_avx2_parallel(state_, action.rotation, action.kernel, sign,
+                                                intra_shot_workers_, intra_shot_min_active_width_);
+        } else {
+            apply_direct_rotation_avx2(state_, action.rotation, action.kernel, sign);
+        }
     } else if constexpr (Backend == ExecutorBackend::Avx512) {
-        apply_direct_rotation_avx512(state_, action.rotation, action.kernel, sign);
+        if constexpr (Parallel) {
+            apply_direct_rotation_avx512_parallel(state_, action.rotation, action.kernel, sign,
+                                                  intra_shot_workers_,
+                                                  intra_shot_min_active_width_);
+        } else {
+            apply_direct_rotation_avx512(state_, action.rotation, action.kernel, sign);
+        }
     } else {
         assert(false && "scalar executor requires scalar direct-rotation actions");
         apply_rotation(state_, action.rotation, sign);
     }
 }
 
+template <bool Parallel>
 void Executor::execute_action(const ExecutablePlan::ExecuteFusedRotation& action,
                               std::span<const uint8_t>, ReplayResult&) noexcept {
     assert(action.rotation_index < plan_->fused_rotations_.size() &&
            "fused rotation action must reference prepared execution");
-    plan_->fused_rotations_[action.rotation_index].apply(state_);
+    if constexpr (Parallel) {
+        plan_->fused_rotations_[action.rotation_index].apply_parallel(state_, intra_shot_workers_,
+                                                                      intra_shot_min_active_width_);
+    } else {
+        plan_->fused_rotations_[action.rotation_index].apply(state_);
+    }
 }
 
+template <bool Parallel>
 void Executor::execute_action(const ExecutablePlan::ExecuteDynamicFusedRotation& action,
                               std::span<const uint8_t>, ReplayResult&) noexcept {
     assert(action.rotation_index < plan_->dynamic_fused_rotations_.size() &&
@@ -350,12 +393,23 @@ void Executor::execute_action(const ExecutablePlan::ExecuteDynamicFusedRotation&
     }
     assert(variant < rotation.variants.size() &&
            "dynamic fused sign value must select a prepared variant");
-    rotation.variants[variant].apply(state_);
+    if constexpr (Parallel) {
+        rotation.variants[variant].apply_parallel(state_, intra_shot_workers_,
+                                                  intra_shot_min_active_width_);
+    } else {
+        rotation.variants[variant].apply(state_);
+    }
 }
 
+template <bool Parallel>
 void Executor::execute_action(const ExecutablePlan::ExecutePromotion& action,
                               std::span<const uint8_t>, ReplayResult&) noexcept {
-    apply_promotion(state_, action.promotion, evaluate(action.sign));
+    if constexpr (Parallel) {
+        apply_promotion_parallel(state_, action.promotion, evaluate(action.sign),
+                                 intra_shot_workers_, intra_shot_min_active_width_);
+    } else {
+        apply_promotion(state_, action.promotion, evaluate(action.sign));
+    }
 }
 
 template <ExecutorBackend Backend, Executor::ShotMode Mode>
@@ -687,7 +741,7 @@ void Executor::execute_action(const ExecutablePlan::ExecuteBoundary& action,
     }
 }
 
-template <ExecutorBackend Backend, Executor::ShotMode Mode>
+template <ExecutorBackend Backend, Executor::ShotMode Mode, bool Parallel>
 ReplayResult Executor::execute_actions(std::span<const uint8_t> forced_records,
                                        uint32_t begin) noexcept {
     ReplayResult result;
@@ -703,7 +757,12 @@ ReplayResult Executor::execute_actions(std::span<const uint8_t> forced_records,
                               std::is_same_v<T, ExecutablePlan::ExecuteClassicalRecord>) {
                     execute_action<Mode>(typed, forced_records, result);
                 } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteRotation>) {
-                    execute_action<Backend>(typed, forced_records, result);
+                    execute_action<Backend, Parallel>(typed, forced_records, result);
+                } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteFusedRotation> ||
+                                     std::is_same_v<T,
+                                                    ExecutablePlan::ExecuteDynamicFusedRotation> ||
+                                     std::is_same_v<T, ExecutablePlan::ExecutePromotion>) {
+                    execute_action<Parallel>(typed, forced_records, result);
                 } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteActiveMeasurement> ||
                                      std::is_same_v<T, ExecutablePlan::ExecuteInstrument>) {
                     execute_action<Backend, Mode>(typed, forced_records, result);
@@ -730,18 +789,38 @@ ReplayResult Executor::execute_actions(std::span<const uint8_t> forced_records,
 template <Executor::ShotMode Mode>
 ReplayResult Executor::execute_actions_for_backend(std::span<const uint8_t> forced_records,
                                                    uint32_t begin) noexcept {
+    if (intra_shot_workers_ > 1) {
+        switch (backend_) {
+            case ExecutorBackend::Scalar:
+                return execute_actions<ExecutorBackend::Scalar, Mode, true>(forced_records, begin);
+            case ExecutorBackend::Avx2:
+#if defined(CLIFFT_ENABLE_RUNTIME_DISPATCH)
+                return execute_actions<ExecutorBackend::Avx2, Mode, true>(forced_records, begin);
+#else
+                break;
+#endif
+            case ExecutorBackend::Avx512:
+#if defined(CLIFFT_ENABLE_RUNTIME_DISPATCH)
+                return execute_actions<ExecutorBackend::Avx512, Mode, true>(forced_records, begin);
+#else
+                break;
+#endif
+        }
+        assert(false && "unhandled sampling executor backend");
+        return {};
+    }
     switch (backend_) {
         case ExecutorBackend::Scalar:
-            return execute_actions<ExecutorBackend::Scalar, Mode>(forced_records, begin);
+            return execute_actions<ExecutorBackend::Scalar, Mode, false>(forced_records, begin);
         case ExecutorBackend::Avx2:
 #if defined(CLIFFT_ENABLE_RUNTIME_DISPATCH)
-            return execute_actions<ExecutorBackend::Avx2, Mode>(forced_records, begin);
+            return execute_actions<ExecutorBackend::Avx2, Mode, false>(forced_records, begin);
 #else
             break;
 #endif
         case ExecutorBackend::Avx512:
 #if defined(CLIFFT_ENABLE_RUNTIME_DISPATCH)
-            return execute_actions<ExecutorBackend::Avx512, Mode>(forced_records, begin);
+            return execute_actions<ExecutorBackend::Avx512, Mode, false>(forced_records, begin);
 #else
             break;
 #endif

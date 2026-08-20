@@ -54,5 +54,7 @@ struct DynamicFusedRotationRun {
 [[nodiscard]] DynamicFusedRotationRun prepare_dynamic_fused_rotation_run(
     std::span<const PlannedAction> actions);
 void apply_fused_rotation(State& state, const PreparedFusedRotation& rotation) noexcept;
+void apply_fused_rotation_parallel(State& state, const PreparedFusedRotation& rotation,
+                                   uint32_t workers, uint32_t min_active_width) noexcept;
 
 }  // namespace clifft::sampling

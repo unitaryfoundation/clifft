@@ -1,5 +1,6 @@
 #pragma once
 
+#include "clifft/util/intra_shot_parallel.h"
 #include "clifft/util/page_allocation.h"
 
 #include <cstddef>
@@ -15,7 +16,9 @@ class State {
   public:
     // Immediately allocates all coefficient and temporary storage required by
     // max_active_width, even when initial_active_width is smaller.
-    explicit State(uint32_t max_active_width, uint32_t initial_active_width = 0);
+    explicit State(uint32_t max_active_width, uint32_t initial_active_width = 0,
+                   uint32_t initialization_workers = 1,
+                   uint32_t intra_shot_min_active_width = kDefaultIntraShotMinActiveWidth);
     ~State();
 
     State(const State&) = delete;
@@ -26,6 +29,7 @@ class State {
     // Restore the configured initial width and |0...0> coefficients.
     // The allocation and all array addresses remain unchanged.
     void reset() noexcept;
+    void reset_parallel(uint32_t workers, uint32_t min_active_width) noexcept;
 
     // A continuation boundary may require a wider dense state than the plan
     // that began the shot. Grow without changing live coefficients or the

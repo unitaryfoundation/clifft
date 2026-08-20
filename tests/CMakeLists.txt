@@ -55,6 +55,14 @@ if(CLIFFT_X86_RUNTIME_DISPATCH)
     target_compile_definitions(clifft_tests PRIVATE CLIFFT_TESTS_HAVE_X86_KERNELS)
 endif()
 
+if(CLIFFT_OPENMP_ENABLED)
+    target_link_libraries(clifft_tests PRIVATE OpenMP::OpenMP_CXX)
+    target_compile_definitions(clifft_tests PRIVATE
+        CLIFFT_TESTS_HAVE_OPENMP
+        CLIFFT_USE_OPENMP
+    )
+endif()
+
 # Code coverage instrumentation for test executable
 if(CLIFFT_COVERAGE)
     target_compile_options(clifft_tests PRIVATE --coverage)

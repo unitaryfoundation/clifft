@@ -2,6 +2,7 @@
 
 #include "clifft/sampling/executor.h"
 #include "clifft/util/fault_sampling.h"
+#include "clifft/util/intra_shot_parallel.h"
 #include "clifft/util/shot_parallel.h"
 #include "clifft/util/shot_seed.h"
 
@@ -21,15 +22,19 @@ void reseed_executor_for_shot(Executor& executor, const SeedRoot& root, uint32_t
 }
 
 struct SamplingWorker {
-    explicit SamplingWorker(const ExecutablePlan& plan) : executor(plan) {}
+    SamplingWorker(const ExecutablePlan& plan, uint32_t intra_shot_workers,
+                   uint32_t intra_shot_min_active_width)
+        : executor(plan, 0, intra_shot_workers, intra_shot_min_active_width) {}
 
     Executor executor;
 };
 
 struct ConditionedSamplingWorker {
     ConditionedSamplingWorker(const ExecutablePlan& plan, std::span<const double> probabilities,
-                              uint32_t k)
-        : executor(plan), fault_sampler(probabilities, k) {}
+                              uint32_t k, uint32_t intra_shot_workers,
+                              uint32_t intra_shot_min_active_width)
+        : executor(plan, 0, intra_shot_workers, intra_shot_min_active_width),
+          fault_sampler(probabilities, k) {}
 
     Executor executor;
     KFaultSampler fault_sampler;
@@ -44,8 +49,10 @@ struct SurvivorCounts {
 };
 
 struct SurvivorWorker {
-    explicit SurvivorWorker(const ExecutablePlan& plan)
-        : executor(plan), counts(plan.num_observables()) {}
+    SurvivorWorker(const ExecutablePlan& plan, uint32_t intra_shot_workers,
+                   uint32_t intra_shot_min_active_width)
+        : executor(plan, 0, intra_shot_workers, intra_shot_min_active_width),
+          counts(plan.num_observables()) {}
 
     Executor executor;
     SurvivorCounts counts;
@@ -53,13 +60,56 @@ struct SurvivorWorker {
 
 struct ConditionedSurvivorWorker {
     ConditionedSurvivorWorker(const ExecutablePlan& plan, std::span<const double> probabilities,
-                              uint32_t k)
-        : executor(plan), fault_sampler(probabilities, k), counts(plan.num_observables()) {}
+                              uint32_t k, uint32_t intra_shot_workers,
+                              uint32_t intra_shot_min_active_width)
+        : executor(plan, 0, intra_shot_workers, intra_shot_min_active_width),
+          fault_sampler(probabilities, k),
+          counts(plan.num_observables()) {}
 
     Executor executor;
     KFaultSampler fault_sampler;
     SurvivorCounts counts;
 };
+
+ThreadLayout resolve_thread_layout(const ExecutablePlan& plan, uint32_t shots,
+                                   uint32_t requested_threads,
+                                   std::optional<ThreadLayout> override) {
+    if (override.has_value()) {
+        if (override->shot_workers == 0 || override->intra_shot_workers == 0) {
+            throw std::invalid_argument("thread_layout worker counts must be positive");
+        }
+        if (override->intra_shot_workers > 1 && !intra_shot_parallelism_available()) {
+            throw std::invalid_argument(
+                "thread_layout intra-shot workers require an OpenMP-enabled build");
+        }
+        if (override->intra_shot_workers > static_cast<uint32_t>(std::numeric_limits<int>::max())) {
+            throw std::invalid_argument("thread_layout intra-shot worker count is too large");
+        }
+        override->shot_workers = std::min(override->shot_workers, shots);
+        if (!should_parallelize_intra_shot(plan.peak_active_width(), override->intra_shot_workers,
+                                           override->intra_shot_min_active_width)) {
+            override->intra_shot_workers = 1;
+        }
+        if (override->shot_workers > 1 && override->intra_shot_workers > 1 &&
+            openmp_process_binding_active()) {
+            throw std::invalid_argument("hybrid thread_layout requires OMP_PROC_BIND=false");
+        }
+        return *override;
+    }
+
+    const uint32_t budget = resolve_thread_budget(requested_threads);
+    if (shots != 0 && shots < budget &&
+        should_parallelize_intra_shot(plan.peak_active_width(), budget,
+                                      kDefaultIntraShotMinActiveWidth)) {
+        if (budget > static_cast<uint32_t>(std::numeric_limits<int>::max())) {
+            throw std::invalid_argument("intra-shot thread budget is too large");
+        }
+        return {.shot_workers = 1,
+                .intra_shot_workers = budget,
+                .intra_shot_min_active_width = kDefaultIntraShotMinActiveWidth};
+    }
+    return {.shot_workers = std::min(shots, budget), .intra_shot_workers = 1};
+}
 
 template <typename T>
 void compact_survivor_rows(std::vector<T>& values, std::span<const uint8_t> survived, size_t stride,
@@ -82,7 +132,7 @@ void compact_survivor_rows(std::vector<T>& values, std::span<const uint8_t> surv
 
 template <typename MakeWorker, typename RunShot>
 SamplingResult sample_fixed_rows(const ExecutablePlan& plan, uint32_t shots,
-                                 std::optional<uint64_t> seed, uint32_t threads,
+                                 std::optional<uint64_t> seed, ThreadLayout thread_layout,
                                  MakeWorker&& make_worker, RunShot&& run_shot) {
     auto checked_size = [shots](size_t stride) {
         if (stride != 0 && shots > std::numeric_limits<size_t>::max() / stride) {
@@ -102,7 +152,7 @@ SamplingResult sample_fixed_rows(const ExecutablePlan& plan, uint32_t shots,
 
     const SeedRoot root = make_seed_root(shots, seed);
     (void)run_shot_ranges(
-        shots, threads, std::forward<MakeWorker>(make_worker),
+        shots, thread_layout.shot_workers, std::forward<MakeWorker>(make_worker),
         [&](auto& worker_handle, ShotRange range) {
             auto& worker = *worker_handle;
             Executor& executor = worker.executor;
@@ -129,7 +179,7 @@ SamplingResult sample_fixed_rows(const ExecutablePlan& plan, uint32_t shots,
 template <typename MakeWorker, typename RunShot>
 SamplingSurvivorResult sample_surviving_rows(const ExecutablePlan& plan, uint32_t shots,
                                              std::optional<uint64_t> seed, bool keep_records,
-                                             uint32_t threads, MakeWorker&& make_worker,
+                                             ThreadLayout thread_layout, MakeWorker&& make_worker,
                                              RunShot&& run_shot) {
     SamplingSurvivorResult result;
     result.total_shots = shots;
@@ -152,7 +202,7 @@ SamplingSurvivorResult sample_surviving_rows(const ExecutablePlan& plan, uint32_
     std::vector<uint8_t> survived(keep_records ? shots : 0, 0);
     const SeedRoot root = make_seed_root(shots, seed);
     auto workers = run_shot_ranges(
-        shots, threads, std::forward<MakeWorker>(make_worker),
+        shots, thread_layout.shot_workers, std::forward<MakeWorker>(make_worker),
         [&](auto& worker_handle, ShotRange range) {
             auto& worker = *worker_handle;
             Executor& executor = worker.executor;
@@ -210,7 +260,7 @@ SamplingSurvivorResult sample_surviving_rows(const ExecutablePlan& plan, uint32_
 }  // namespace
 
 SamplingResult sample(const ExecutablePlan& plan, uint32_t shots, std::optional<uint64_t> seed,
-                      uint32_t threads) {
+                      uint32_t threads, std::optional<ThreadLayout> thread_layout) {
     if (plan.has_instruments()) {
         throw std::invalid_argument(
             "fixed-plan sampling does not support instrument traps; use the trajectory driver");
@@ -224,20 +274,26 @@ SamplingResult sample(const ExecutablePlan& plan, uint32_t shots, std::optional<
             "fixed-row sampling does not support postselection; use sample_survivors");
     }
 
+    const ThreadLayout resolved = resolve_thread_layout(plan, shots, threads, thread_layout);
     return sample_fixed_rows(
-        plan, shots, seed, threads,
-        [&](uint32_t) { return std::make_unique<SamplingWorker>(plan); },
+        plan, shots, seed, resolved,
+        [&](uint32_t) {
+            return std::make_unique<SamplingWorker>(plan, resolved.intra_shot_workers,
+                                                    resolved.intra_shot_min_active_width);
+        },
         [](SamplingWorker& worker) noexcept { worker.executor.run_shot(); });
 }
 
 std::vector<uint8_t> sample_records(const ExecutablePlan& plan, uint32_t shots,
-                                    std::optional<uint64_t> seed, uint32_t threads) {
-    return sample(plan, shots, seed, threads).measurements;
+                                    std::optional<uint64_t> seed, uint32_t threads,
+                                    std::optional<ThreadLayout> thread_layout) {
+    return sample(plan, shots, seed, threads, thread_layout).measurements;
 }
 
 SamplingSurvivorResult sample_survivors(const ExecutablePlan& plan, uint32_t shots,
                                         std::optional<uint64_t> seed, bool keep_records,
-                                        uint32_t threads) {
+                                        uint32_t threads,
+                                        std::optional<ThreadLayout> thread_layout) {
     if (plan.has_instruments()) {
         throw std::invalid_argument(
             "survivor sampling does not support instrument traps; use the trajectory driver");
@@ -247,14 +303,19 @@ SamplingSurvivorResult sample_survivors(const ExecutablePlan& plan, uint32_t sho
             "survivor sampling requires a distribution for every presampled symbol");
     }
 
+    const ThreadLayout resolved = resolve_thread_layout(plan, shots, threads, thread_layout);
     return sample_surviving_rows(
-        plan, shots, seed, keep_records, threads,
-        [&](uint32_t) { return std::make_unique<SurvivorWorker>(plan); },
+        plan, shots, seed, keep_records, resolved,
+        [&](uint32_t) {
+            return std::make_unique<SurvivorWorker>(plan, resolved.intra_shot_workers,
+                                                    resolved.intra_shot_min_active_width);
+        },
         [](SurvivorWorker& worker) noexcept { worker.executor.run_shot(); });
 }
 
 SamplingResult sample_k(const ExecutablePlan& plan, uint32_t shots, uint32_t k,
-                        std::optional<uint64_t> seed, uint32_t threads) {
+                        std::optional<uint64_t> seed, uint32_t threads,
+                        std::optional<ThreadLayout> thread_layout) {
     if (plan.has_instruments()) {
         throw std::invalid_argument(
             "forced-fault sampling does not support instrument traps or trajectory drivers");
@@ -268,17 +329,23 @@ SamplingResult sample_k(const ExecutablePlan& plan, uint32_t shots, uint32_t k,
             "fixed-row forced-fault sampling does not support postselection; use "
             "sample_k_survivors");
     }
+    const ThreadLayout resolved = resolve_thread_layout(plan, shots, threads, thread_layout);
     if (shots == 0) {
         return sample_fixed_rows(
-            plan, shots, seed, threads,
-            [&](uint32_t) { return std::make_unique<SamplingWorker>(plan); },
+            plan, shots, seed, resolved,
+            [&](uint32_t) {
+                return std::make_unique<SamplingWorker>(plan, resolved.intra_shot_workers,
+                                                        resolved.intra_shot_min_active_width);
+            },
             [](SamplingWorker& worker) noexcept { worker.executor.run_shot(); });
     }
     const std::vector<double> probabilities = plan.noise_site_probabilities();
     return sample_fixed_rows(
-        plan, shots, seed, threads,
+        plan, shots, seed, resolved,
         [&](uint32_t) {
-            return std::make_unique<ConditionedSamplingWorker>(plan, probabilities, k);
+            return std::make_unique<ConditionedSamplingWorker>(
+                plan, probabilities, k, resolved.intra_shot_workers,
+                resolved.intra_shot_min_active_width);
         },
         [](ConditionedSamplingWorker& worker) noexcept {
             worker.executor.run_shot(worker.fault_sampler);
@@ -287,7 +354,8 @@ SamplingResult sample_k(const ExecutablePlan& plan, uint32_t shots, uint32_t k,
 
 SamplingSurvivorResult sample_k_survivors(const ExecutablePlan& plan, uint32_t shots, uint32_t k,
                                           std::optional<uint64_t> seed, bool keep_records,
-                                          uint32_t threads) {
+                                          uint32_t threads,
+                                          std::optional<ThreadLayout> thread_layout) {
     if (plan.has_instruments()) {
         throw std::invalid_argument(
             "forced-fault survivor sampling does not support instrument traps or trajectory "
@@ -297,17 +365,23 @@ SamplingSurvivorResult sample_k_survivors(const ExecutablePlan& plan, uint32_t s
         throw std::invalid_argument(
             "forced-fault survivor sampling requires a distribution for every presampled symbol");
     }
+    const ThreadLayout resolved = resolve_thread_layout(plan, shots, threads, thread_layout);
     if (shots == 0) {
         return sample_surviving_rows(
-            plan, shots, seed, keep_records, threads,
-            [&](uint32_t) { return std::make_unique<SurvivorWorker>(plan); },
+            plan, shots, seed, keep_records, resolved,
+            [&](uint32_t) {
+                return std::make_unique<SurvivorWorker>(plan, resolved.intra_shot_workers,
+                                                        resolved.intra_shot_min_active_width);
+            },
             [](SurvivorWorker& worker) noexcept { worker.executor.run_shot(); });
     }
     const std::vector<double> probabilities = plan.noise_site_probabilities();
     return sample_surviving_rows(
-        plan, shots, seed, keep_records, threads,
+        plan, shots, seed, keep_records, resolved,
         [&](uint32_t) {
-            return std::make_unique<ConditionedSurvivorWorker>(plan, probabilities, k);
+            return std::make_unique<ConditionedSurvivorWorker>(
+                plan, probabilities, k, resolved.intra_shot_workers,
+                resolved.intra_shot_min_active_width);
         },
         [](ConditionedSurvivorWorker& worker) noexcept {
             worker.executor.run_shot(worker.fault_sampler);

@@ -76,6 +76,11 @@ target_link_libraries(clifft_core PRIVATE fast_float)
 find_package(Threads REQUIRED)
 target_link_libraries(clifft_core PUBLIC Threads::Threads)
 
+if(CLIFFT_OPENMP_ENABLED)
+    target_link_libraries(clifft_core PRIVATE OpenMP::OpenMP_CXX)
+    target_compile_definitions(clifft_core PRIVATE CLIFFT_USE_OPENMP)
+endif()
+
 target_compile_features(clifft_core PUBLIC cxx_std_20)
 
 # Code coverage instrumentation (only for Clifft code, not dependencies)

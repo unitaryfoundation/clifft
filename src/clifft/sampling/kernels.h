@@ -68,6 +68,10 @@ struct MeasurementProbabilities {
 // sign negates the Pauli, equivalently negating the prepared sine.
 void apply_rotation(State& state, const PreparedRotation& rotation, bool sign) noexcept;
 void apply_promotion(State& state, const PreparedPromotion& promotion, bool sign) noexcept;
+void apply_rotation_parallel(State& state, const PreparedRotation& rotation, bool sign,
+                             uint32_t workers, uint32_t min_active_width) noexcept;
+void apply_promotion_parallel(State& state, const PreparedPromotion& promotion, bool sign,
+                              uint32_t workers, uint32_t min_active_width) noexcept;
 
 // Probability evaluation does not mutate the normalized coefficient arrays.
 // Collapse consumes the selected probability so the caller can sample or force

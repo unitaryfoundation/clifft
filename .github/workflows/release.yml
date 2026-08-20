@@ -91,6 +91,8 @@ jobs:
             ${{ inputs.test_version && format('SETUPTOOLS_SCM_PRETEND_VERSION={0}', inputs.test_version) || '' }}
           # Install build dependencies inside the cibuildwheel container
           CIBW_BEFORE_BUILD: pip install setuptools-scm
+          # Apple Clang needs Homebrew's runtime for intra-shot OpenMP kernels.
+          CIBW_BEFORE_ALL_MACOS: brew install libomp
           # Smoke-test: import the built package and audit exported symbols
           CIBW_TEST_COMMAND: >-
             python -c "import clifft; print(clifft.__version__); print(clifft.CPU_BASELINE); print(type(clifft.compile('M 0')).__name__)"

@@ -49,4 +49,6 @@ uv run python -c "import clifft; print(clifft.version())"
 - **C++ compiler** with C++20 support (GCC 10+, Clang 12+, or Xcode CLT)
 - **Python** 3.12+
 - **uv** (recommended) — `curl -LsSf https://astral.sh/uv/install.sh | sh`
+- **OpenMP runtime** (optional) — detected automatically; Apple Clang users can
+  install Homebrew `libomp` for intra-shot parallel sampling
 See [Building from Source](../development/building.md) for the full development setup.

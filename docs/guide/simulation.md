@@ -243,15 +243,51 @@ If `seed` is omitted or set to `None`, Clifft uses hardware entropy from the ope
 Each shot derives an independent random stream from the call seed and its shot
 index. Seeded results therefore do not depend on how shots are scheduled.
 
-## Parallel Shots
+## Parallel Sampling
 
 `sample()`, `sample_survivors()`, `sample_k()`, `sample_k_survivors()`, and
-[`noncomp.sample()`](leakage-and-loss.md) accept a `threads` argument. It
-defaults to `1`, so existing calls remain serial. Pass a positive worker count
-to control resource use, or `threads="auto"` to use the implementation-reported
-hardware concurrency. Clifft never creates more workers than shots. In
-containers or processes with CPU-affinity limits, set an explicit count if the
-reported hardware concurrency exceeds the available CPU quota.
+[`noncomp.sample()`](leakage-and-loss.md) accept a `threads` argument. It defaults
+to `1`, so existing calls remain serial. Pass a positive count to set the total
+worker budget, or `threads="auto"` to use the implementation-reported hardware
+concurrency. In containers or processes with CPU-affinity limits, set an
+explicit count if the reported hardware concurrency exceeds the available CPU
+quota.
+
+For the fixed-plan symbolic sampler, Clifft automatically chooses one of two
+layouts. It uses cross-shot workers when there are enough shots to occupy the
+budget. For a smaller batch whose peak active width is at least 18, an
+OpenMP-enabled build instead uses the budget within one shot at a time. This
+either-or policy avoids nested thread pools and their affinity and
+oversubscription hazards. Builds without OpenMP always use cross-shot workers.
+`noncomp.sample()` continues to interpret `threads` as cross-shot workers.
+
+The symbolic sampling functions also accept the advanced override
+`thread_layout=(shot_workers, intra_shot_workers)`. The override replaces the
+automatic choice, ignores `threads`, and may request a hybrid layout. Both
+counts must be positive, and an intra-shot count above one requires an
+OpenMP-enabled build. The active-width threshold still applies within each
+executor. Keep the layout's worker-count product within the CPUs available to
+the process.
+
+Expert callers can change the threshold for an explicit layout with
+`intra_shot_min_active_width`. It defaults to 18 and is resolved before hot
+execution, so changing it does not add policy or allocation work inside a
+kernel:
+
+```python
+result = clifft.sample(
+    program,
+    shots=8,
+    thread_layout=(2, 4),
+    intra_shot_min_active_width=17,
+)
+```
+
+Hybrid layouts use ordinary shot workers around OpenMP kernel teams and
+therefore require OpenMP processor binding to be disabled. Clifft rejects a
+hybrid layout when `OMP_PROC_BIND` is active instead of silently
+oversubscribing a restricted CPU set. Pure cross-shot and pure intra-shot
+layouts honor active OpenMP binding.
 
 Workers dynamically claim contiguous shot ranges from a shared scheduler.
 With a fixed seed, changing `threads` produces exactly the same result.
@@ -259,10 +295,11 @@ With a fixed seed, changing `threads` produces exactly the same result.
 APIs return accepted shots in the same order as the corresponding one-thread
 run.
 
-Each worker owns a separate executor. Its dense coefficient and measurement
-scratch storage uses roughly $24 \times 2^k$ bytes at peak active width $k$,
+Each cross-shot worker owns a separate executor. Its dense coefficient and
+measurement scratch storage uses roughly $24 \times 2^k$ bytes at peak active width $k$,
 plus symbolic state, records, and other executor metadata. Set an explicit
-worker count when memory is more constrained than CPU availability.
+layout when memory is more constrained than CPU availability. Intra-shot
+workers cooperate on one executor and do not replicate this storage.
 Noncomputational workers also own their trajectory continuations and compile
 new continuations independently as their shots encounter jumps.
 
@@ -281,8 +318,8 @@ result = clifft.sample_k_survivors(prog, shots=50_000, k=3, seed=42)
 
 Key API:
 
-- **`clifft.sample_k(program, shots, k, seed=None, threads=1)`** -- Like `sample()`, but forces exactly `k` faults. Only valid for programs without post-selection; post-selected programs must use `sample_k_survivors()`. Returns a `SampleResult` with `.measurements`, `.detectors`, and `.observables`.
-- **`clifft.sample_k_survivors(program, shots, k, seed=None, keep_records=False, threads=1)`** -- Like `sample_survivors()`, but forces exactly `k` faults. Returns a `SampleResult` whose arrays contain only surviving shots plus survivor metadata.
+- **`clifft.sample_k(program, shots, k, seed=None, threads=1, thread_layout=None, intra_shot_min_active_width=None)`** -- Like `sample()`, but forces exactly `k` faults. Only valid for programs without post-selection; post-selected programs must use `sample_k_survivors()`. Returns a `SampleResult` with `.measurements`, `.detectors`, and `.observables`.
+- **`clifft.sample_k_survivors(program, shots, k, seed=None, keep_records=False, threads=1, thread_layout=None, intra_shot_min_active_width=None)`** -- Like `sample_survivors()`, but forces exactly `k` faults. Returns a `SampleResult` whose arrays contain only surviving shots plus survivor metadata.
 - **`program.noise_site_probabilities`** -- 1D NumPy array of per-site fault probabilities, with quantum noise sites followed by readout noise entries. Use this for computing the Poisson-binomial PMF.
 
 See the [Importance Sampling Tutorial](importance-sampling.md) for a complete walkthrough.

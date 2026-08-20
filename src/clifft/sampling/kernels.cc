@@ -1,6 +1,7 @@
 #include "clifft/sampling/kernels.h"
 
 #include "clifft/sampling/indexing.h"
+#include "clifft/util/intra_shot_parallel.h"
 #include "clifft/util/numeric.h"
 
 #include <algorithm>
@@ -72,6 +73,45 @@ void apply_nondiagonal_rotation(State& state, const PreparedRotation& rotation,
             }
         }
     }
+}
+
+template <bool RealPhase>
+void apply_nondiagonal_rotation_parallel(State& state, const PreparedRotation& rotation,
+                                         double sine, uint32_t workers) noexcept {
+    double* const real = state.real_data();
+    double* const imag = state.imag_data();
+    const uint64_t size = state.size();
+    const uint64_t pair_stride = rotation.pauli.pairing_bit;
+    const uint64_t lower_mask = pair_stride - 1;
+    const double base_phase =
+        RealPhase ? rotation.pauli.even_phase.real() : rotation.pauli.even_phase.imag();
+    const double even_left_sine = sine * base_phase;
+
+    intra_shot_parallel_ranges(size / 2, workers, [&](uint64_t begin, uint64_t end) noexcept {
+        for (uint64_t packed = begin; packed < end; ++packed) {
+            const uint64_t left = (packed & lower_mask) | ((packed & ~lower_mask) << 1);
+            const uint64_t right = left ^ rotation.pauli.x;
+            const double left_real = real[left];
+            const double left_imag = imag[left];
+            const double right_real = real[right];
+            const double right_imag = imag[right];
+            const bool odd_phase = (std::popcount(left & rotation.pauli.z) & 1U) != 0;
+            const double left_sine = odd_phase ? -even_left_sine : even_left_sine;
+            const double right_sine = RealPhase ? left_sine : -left_sine;
+
+            if constexpr (RealPhase) {
+                real[left] = rotation.cosine * left_real + right_sine * right_imag;
+                imag[left] = rotation.cosine * left_imag - right_sine * right_real;
+                real[right] = rotation.cosine * right_real + left_sine * left_imag;
+                imag[right] = rotation.cosine * right_imag - left_sine * left_real;
+            } else {
+                real[left] = rotation.cosine * left_real + right_sine * right_real;
+                imag[left] = rotation.cosine * left_imag + right_sine * right_imag;
+                real[right] = rotation.cosine * right_real + left_sine * left_real;
+                imag[right] = rotation.cosine * right_imag + left_sine * left_imag;
+            }
+        }
+    });
 }
 
 uint64_t diagonal_source(const PreparedMeasurement& measurement, uint64_t packed, bool branch) {
@@ -206,6 +246,41 @@ void apply_rotation(State& state, const PreparedRotation& rotation, bool sign) n
     }
 }
 
+void apply_rotation_parallel(State& state, const PreparedRotation& rotation, bool sign,
+                             uint32_t workers, uint32_t min_active_width) noexcept {
+    if (!should_parallelize_intra_shot(state.active_width(), workers, min_active_width)) {
+        apply_rotation(state, rotation, sign);
+        return;
+    }
+    assert_descriptor_width(state, rotation.pauli);
+    assert(!rotation.pauli.is_identity() && "identity rotations must be removed during planning");
+    const double sine = sign ? -rotation.sine : rotation.sine;
+
+    double* real = state.real_data();
+    double* imag = state.imag_data();
+    const uint64_t size = state.size();
+    if (rotation.pauli.is_diagonal()) {
+        intra_shot_parallel_ranges(size, workers, [&](uint64_t begin, uint64_t end) noexcept {
+            for (uint64_t basis = begin; basis < end; ++basis) {
+                const double eigenvalue =
+                    (std::popcount(basis & rotation.pauli.z) & 1U) != 0 ? -1.0 : 1.0;
+                const double r = real[basis];
+                const double i = imag[basis];
+                const double signed_sine = sine * eigenvalue;
+                real[basis] = rotation.cosine * r + signed_sine * i;
+                imag[basis] = rotation.cosine * i - signed_sine * r;
+            }
+        });
+        return;
+    }
+
+    if (rotation.pauli.even_phase.real() != 0.0) {
+        apply_nondiagonal_rotation_parallel<true>(state, rotation, sine, workers);
+    } else {
+        apply_nondiagonal_rotation_parallel<false>(state, rotation, sine, workers);
+    }
+}
+
 void apply_promotion(State& state, const PreparedPromotion& promotion, bool sign) noexcept {
     assert(state.active_width() < state.max_active_width() &&
            "promotion must fit the sampling state allocation");
@@ -221,6 +296,31 @@ void apply_promotion(State& state, const PreparedPromotion& promotion, bool sign
         real[old_size + basis] = sine * i;
         imag[old_size + basis] = -sine * r;
     }
+    state.set_active_width(state.active_width() + 1);
+}
+
+void apply_promotion_parallel(State& state, const PreparedPromotion& promotion, bool sign,
+                              uint32_t workers, uint32_t min_active_width) noexcept {
+    if (!should_parallelize_intra_shot(state.active_width(), workers, min_active_width)) {
+        apply_promotion(state, promotion, sign);
+        return;
+    }
+    assert(state.active_width() < state.max_active_width() &&
+           "promotion must fit the sampling state allocation");
+    const double sine = sign ? -promotion.sine : promotion.sine;
+    double* real = state.real_data();
+    double* imag = state.imag_data();
+    const uint64_t old_size = state.size();
+    intra_shot_parallel_ranges(old_size, workers, [&](uint64_t begin, uint64_t end) noexcept {
+        for (uint64_t basis = begin; basis < end; ++basis) {
+            const double r = real[basis];
+            const double i = imag[basis];
+            real[basis] = promotion.cosine * r;
+            imag[basis] = promotion.cosine * i;
+            real[old_size + basis] = sine * i;
+            imag[old_size + basis] = -sine * r;
+        }
+    });
     state.set_active_width(state.active_width() + 1);
 }
 
