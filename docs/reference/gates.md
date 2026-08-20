@@ -44,8 +44,8 @@ appear only once in each product, which is stricter than Stim for some
 syntactically valid Hermitian products.
 
 The default optimizer absorbs `SPP` and `SPP_DAG` into the Clifford frame, so
-they have no runtime cost. Their named-gate phase convention is exact, so
-`SPP Z0` matches `S 0`, including global phase.
+they have no runtime cost. `SPP Z0` and `S 0` represent the same projective
+Clifford operation.
 
 ## Non-Clifford Extensions
 
@@ -73,9 +73,8 @@ whitespace-separated products in one instruction. Prefixing a Pauli term with
 appear only once in each product, which is stricter than Stim for some
 syntactically valid Hermitian products.
 
-`TPP` and `TPP_DAG` emit one generalized T operation per product. Their
-named-gate phase convention is exact, so `TPP Z0` matches `T 0`, including
-global phase.
+`TPP` and `TPP_DAG` emit one generalized T operation per product. `TPP Z0`
+and `T 0` represent the same projective operation.
 
 ### Rewrite Gates
 

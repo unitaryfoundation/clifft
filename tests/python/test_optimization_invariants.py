@@ -38,9 +38,9 @@ class TestDefaultHirStatevectorEquivalence:
     """Check that the default HIR pipeline preserves noiseless statevectors.
 
     For small noiseless Clifford+T circuits, expand both the unoptimized and
-    HIR-optimized factored states to dense 2^n statevectors and assert
-    fidelity ~= 1. This validates algebraic correctness up to global phase,
-    regardless of active/dormant geometry changes.
+    HIR-optimized factored states to dense 2^n statevectors and compare their
+    phase-aligned amplitudes. This validates algebraic correctness up to global
+    phase regardless of active/dormant geometry changes.
     """
 
     @pytest.mark.parametrize("seed", _SEEDS)

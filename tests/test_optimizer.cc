@@ -518,8 +518,7 @@ TEST_CASE("Peephole: T plus T fusion leaves global_weight unchanged", "[optimize
     PeepholeFusionPass pass;
     pass.run(hir);
 
-    // For positive-sign Pauli, the canonical S phase is carried by the
-    // tableau absorption -- global_weight is not modified.
+    // Positive-sign fusion needs no sign-normalization factor.
     REQUIRE(std::abs(hir.global_weight - initial_weight) < 1e-12);
 }
 
@@ -530,7 +529,7 @@ TEST_CASE("Peephole: T_dag plus T_dag fusion leaves global_weight unchanged", "[
     PeepholeFusionPass pass;
     pass.run(hir);
 
-    // Same as above: positive-sign Pauli, phase carried by tableau.
+    // Positive-sign fusion needs no sign-normalization factor.
     REQUIRE(std::abs(hir.global_weight - initial_weight) < 1e-12);
 }
 
@@ -941,7 +940,7 @@ TEST_CASE("Peephole: commuting NOISE does not bypass EXP_VAL barrier", "[optimiz
 }
 
 // =============================================================================
-// Canonical phase of S absorption -- dense stim oracle
+// Projective correctness of S absorption -- dense stim oracle
 // =============================================================================
 
 namespace {
@@ -979,12 +978,39 @@ DenseMatrix dense_hir_value(const HirModule& hir) {
     return value;
 }
 
+void require_projective_matrix_equivalence(const DenseMatrix& actual, const DenseMatrix& expected,
+                                           double tolerance) {
+    REQUIRE(actual.size() == expected.size());
+    double actual_norm = 0.0;
+    double expected_norm = 0.0;
+    std::complex<double> overlap{0.0, 0.0};
+    for (size_t i = 0; i < actual.size(); ++i) {
+        actual_norm += std::norm(actual[i]);
+        expected_norm += std::norm(expected[i]);
+        overlap += std::conj(expected[i]) * actual[i];
+    }
+
+    REQUIRE_THAT(actual_norm, Catch::Matchers::WithinAbs(expected_norm, tolerance));
+    REQUIRE(actual_norm > 0.0);
+    REQUIRE(expected_norm > 0.0);
+    REQUIRE(std::abs(overlap) > 0.0);
+
+    const std::complex<double> phase = overlap / std::abs(overlap);
+    for (size_t i = 0; i < actual.size(); ++i) {
+        CAPTURE(i);
+        const std::complex<double> aligned_expected = phase * expected[i];
+        REQUIRE_THAT(actual[i].real(),
+                     Catch::Matchers::WithinAbs(aligned_expected.real(), tolerance));
+        REQUIRE_THAT(actual[i].imag(),
+                     Catch::Matchers::WithinAbs(aligned_expected.imag(), tolerance));
+    }
+}
+
 }  // namespace
 
-TEST_CASE("Peephole: pass preserves dense HIR value on random circuits", "[optimizer]") {
-    // Value-preservation fuzz: the pass must keep
-    // global_weight * canonical(final_tableau) * (op stream) exact as a
-    // matrix, componentwise with no global-phase alignment. The gate mix is
+TEST_CASE("Peephole: pass preserves projective HIR value on random circuits", "[optimizer]") {
+    // Value-preservation fuzz: the pass must preserve the matrix up to global
+    // phase. The gate mix is
     // chosen so the trials collectively reach every S absorption call site
     // (T+T fusion, rotation fusion to S/S_dag, standalone S-angle demotion)
     // and their interaction with sign normalization and downstream
@@ -1024,11 +1050,7 @@ TEST_CASE("Peephole: pass preserves dense HIR value on random circuits", "[optim
         const DenseMatrix after = dense_hir_value(hir);
         total_fusions += pass.fusions();
 
-        for (size_t i = 0; i < before.size(); ++i) {
-            CAPTURE(i);
-            REQUIRE_THAT(after[i].real(), Catch::Matchers::WithinAbs(before[i].real(), 1e-5));
-            REQUIRE_THAT(after[i].imag(), Catch::Matchers::WithinAbs(before[i].imag(), 1e-5));
-        }
+        require_projective_matrix_equivalence(after, before, 1e-5);
     }
 
     // Vacuity guard: the fuzz only validates S absorption if fusions occur.
@@ -1036,20 +1058,40 @@ TEST_CASE("Peephole: pass preserves dense HIR value on random circuits", "[optim
 }
 
 TEST_CASE("Peephole: S absorption on wide multi-word Pauli axes", "[optimizer]") {
-    // Exercise the canonical phase machinery across 64-bit word boundaries
-    // (Choi indices span 2n bits). Debug asserts inside s_absorption_phase
-    // validate the canonical anchor against the old support.
-    std::string src;
-    for (int q = 0; q < 70; q += 7) {
-        src += "H " + std::to_string(q) + "\nCX " + std::to_string(q) + " " +
-               std::to_string(q + 1) + "\n";
+    // The reference decomposes the same Pauli-product S action into named
+    // Clifford gates, so the frontend constructs its tableau independently
+    // of the optimizer's multi-word update.
+    const std::string prefix = "H 0\nCX 0 63\nS 64\nH 69\n";
+    const std::string basis_change = "H 0\nH_YZ 63\nH 69\nCX 63 0\nCX 64 0\nCX 69 0\n";
+    const std::string uncompute = "CX 69 0\nCX 64 0\nCX 63 0\nH 69\nH_YZ 63\nH 0\n";
+
+    struct FusionCase {
+        const char* t_gate;
+        const char* axis;
+        const char* fused_gate;
+    };
+    const FusionCase cases[] = {
+        {"TPP", "X0*Y63*Z64*X69", "S"},
+        {"TPP_DAG", "X0*Y63*Z64*X69", "S_DAG"},
+        {"TPP", "!X0*Y63*Z64*X69", "S_DAG"},
+        {"TPP_DAG", "!X0*Y63*Z64*X69", "S"},
+    };
+
+    for (const auto& test_case : cases) {
+        CAPTURE(test_case.t_gate, test_case.axis, test_case.fused_gate);
+        const std::string source = prefix + test_case.t_gate + " " + test_case.axis + "\n" +
+                                   test_case.t_gate + " " + test_case.axis + "\n";
+        const std::string reference_source =
+            prefix + basis_change + test_case.fused_gate + " 0\n" + uncompute;
+
+        auto hir = hir_from(source.c_str());
+        const auto reference = hir_from(reference_source.c_str());
+        PeepholeFusionPass pass;
+        pass.run(hir);
+
+        REQUIRE(pass.fusions() == 1);
+        REQUIRE(hir.ops.empty());
+        REQUIRE(reference.ops.empty());
+        REQUIRE(hir.final_tableau == reference.final_tableau);
     }
-    src += "T 69\nT 69\nS_DAG 68\nH 68\nT 68\nT 68\n";
-
-    auto hir = hir_from(src.c_str());
-    PeepholeFusionPass pass;
-    pass.run(hir);
-
-    REQUIRE(pass.fusions() == 2);
-    REQUIRE(hir.ops.empty());
 }

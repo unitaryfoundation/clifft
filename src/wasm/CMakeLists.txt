@@ -47,7 +47,6 @@ add_library(clifft_core STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/sampling/kernels.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/sampling/sampler.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/sampling/state.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/util/canonical_phase.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/util/fault_sampling.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/util/hir_introspection.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/util/page_allocation.cc

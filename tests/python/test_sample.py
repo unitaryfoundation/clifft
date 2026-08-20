@@ -380,7 +380,7 @@ class TestCliffordValidation:
             sim.do_circuit(stim_circuit)
             stim_sv = sim.state_vector(endian="little")
 
-            assert_statevectors_equiv(clifft_sv, stim_sv, msg=f"circuit:\n{circuit_str}")
+            assert_statevectors_equiv(clifft_sv, stim_sv, atol=1e-7, msg=f"circuit:\n{circuit_str}")
 
     def test_random_clifford_multi_qubit(self, statevector_from_circuit: Any) -> None:
         """Random 2-4 qubit Clifford circuits match Stim."""
@@ -399,7 +399,10 @@ class TestCliffordValidation:
                 stim_sv = sim.state_vector(endian="little")
 
                 assert_statevectors_equiv(
-                    clifft_sv, stim_sv, msg=f"{num_qubits}q circuit:\n{circuit_str}"
+                    clifft_sv,
+                    stim_sv,
+                    atol=1e-7,
+                    msg=f"{num_qubits}q circuit:\n{circuit_str}",
                 )
 
 

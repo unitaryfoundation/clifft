@@ -28,7 +28,6 @@ add_library(clifft_core STATIC
     api/basis_probabilities.cc
     api/reference_syndrome.cc
     api/statevector.cc
-    util/canonical_phase.cc
     util/fault_sampling.cc
     util/hir_introspection.cc
     util/page_allocation.cc

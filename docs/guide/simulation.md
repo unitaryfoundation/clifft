@@ -69,7 +69,11 @@ print(sv)  # [0.707+0j, 0+0j, 0+0j, 0.707+0j]
 !!! warning "State vector extraction is for small circuits"
     `get_statevector()` expands Clifft's factored representation into a dense
     $2^n$ state vector over all physical qubits. This is useful for debugging
-    and validation, but it is not the scalable simulation path.
+    and validation, but it is not the scalable simulation path. The returned
+    vector is normalized and defined only up to global phase: relative
+    amplitudes and phases are preserved, but the global phase may vary across
+    equivalent source circuits, compiler pass configurations, or Clifft
+    versions. The current dense expansion is limited to 10 qubits.
 
 ## Exact Probabilities
 

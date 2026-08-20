@@ -1,6 +1,6 @@
 """Peephole optimizer correctness tests.
 
-The tests compare amplitudes with the pass enabled and disabled, exercise
+The tests compare state rays with the pass enabled and disabled, exercise
 specific algebraic identities, and check complete T/T-dag cancellation in
 U U-dag mirror circuits.
 """
@@ -8,7 +8,6 @@ U U-dag mirror circuits.
 import numpy as np
 import pytest
 from conftest import (
-    assert_statevectors_componentwise_equal,
     assert_statevectors_equiv,
     cross_binomial_tolerance,
     random_clifford_t_circuit,
@@ -210,17 +209,16 @@ class TestTerminalMeasurementPhaseElimination:
             np.testing.assert_array_equal(result.observables[:, 0], result.measurements[:, 2])
 
 
-# Componentwise global-phase preservation of S absorption.
+# Projective state preservation across S absorption.
 
 
-class TestPeepholeExactGlobalPhase:
-    """S absorption must preserve the API-visible global phase.
+class TestPeepholeProjectiveState:
+    """S absorption must preserve relative amplitudes and phases.
 
     When the peephole pass fuses two T gates (or S-angle phase rotations)
     and absorbs the resulting S/S_dag into the Clifford frame, the tableau
-    fixes the frame only up to global phase. The known H-T-T-H case below
-    checks the exact convention, and the broader cases ensure composition of
-    the physical and planner-coordinate tableaus keeps that same convention.
+    fixes the frame only up to global phase. These cases validate the physical
+    state ray across signed, entangled, and composed coordinate frames.
     """
 
     # Each circuit triggers at least one S absorption: T+T fusion,
@@ -240,49 +238,50 @@ class TestPeepholeExactGlobalPhase:
         "Y 0\nH 0\nT 0\nT 0\nT 0\nT 0",
         "H 1\nCX 1 0\nR_Z(0.75) 0\nR_Z(0.75) 0\nH 0",
         # Absorptions that leave rotations needing virtual-frame routing at
-        # lowering; these exercise the frame composition phase tracking.
+        # lowering; these exercise composed physical and planner frames.
         "H 0\nT 0\nT 0\nT 0\nH 0\nT 0",
         "CX 0 1\nY 1\nH 0\nR_Z(0.5) 0\nX 0",
         "CX 0 1\nY 1\nH 0\nT_DAG 0\nT_DAG 0\nX 0",
         "S_DAG 0\nH 0\nCX 2 3\nT 0\nCX 3 1\nT 0\nH 1\nT 1",
     ]
 
-    def test_h_t_t_h_exact_amplitudes(self) -> None:
-        """H T T H |0> = [0.5+0.5j, 0.5-0.5j] after peephole fusion."""
+    def test_h_t_t_h_relative_amplitudes(self) -> None:
+        """H T T H preserves its expected state ray after peephole fusion."""
         prog = _compile_optimized("H 0\nT 0\nT 0\nH 0")
-        sv = clifft.get_statevector(prog)
-        assert_statevectors_componentwise_equal(sv, [0.5 + 0.5j, 0.5 - 0.5j], atol=1e-6)
+        sv = np.asarray(clifft.get_statevector(prog))
+        expected = np.asarray([0.5 + 0.5j, 0.5 - 0.5j])
+        assert_statevectors_equiv(sv, expected, atol=1e-10)
 
     @pytest.mark.parametrize("circuit", S_ABSORPTION_CIRCUITS)
     def test_statevector_match(self, circuit: str) -> None:
-        """Optimization preserves the API-visible global phase."""
+        """Optimization preserves the projective state."""
         sv_baseline = _clifft_statevector(circuit)
         sv_optimized = _clifft_statevector(circuit, optimize=True)
-        assert_statevectors_componentwise_equal(sv_optimized, sv_baseline, atol=1e-6)
+        assert_statevectors_equiv(sv_optimized, sv_baseline, atol=1e-10)
 
     @pytest.mark.parametrize("seed", range(100))
     def test_random_circuits(self, seed: int) -> None:
-        """Random Clifford+T circuits agree componentwise."""
+        """Random Clifford+T circuits agree projectively."""
         circuit = random_clifford_t_circuit(5, depth=30, seed=seed)
         sv_baseline = _clifft_statevector(circuit)
         sv_optimized = _clifft_statevector(circuit, optimize=True)
-        assert_statevectors_componentwise_equal(sv_optimized, sv_baseline, atol=1e-5)
+        assert_statevectors_equiv(sv_optimized, sv_baseline, atol=1e-8)
 
     @pytest.mark.parametrize("seed", range(20))
     def test_random_deep_8q(self, seed: int) -> None:
         """Deeper 8-qubit circuits accumulate long virtual-frame gate logs,
-        stressing the chained composition phase across many links."""
+        stressing chained coordinate composition across many links."""
         circuit = random_clifford_t_circuit(8, depth=60, seed=seed)
         sv_baseline = _clifft_statevector(circuit)
         sv_optimized = _clifft_statevector(circuit, optimize=True)
-        assert_statevectors_componentwise_equal(sv_optimized, sv_baseline, atol=1e-5)
+        assert_statevectors_equiv(sv_optimized, sv_baseline, atol=1e-8)
 
     @pytest.mark.parametrize("seed", range(5))
     def test_dense_random_circuits(self, seed: int) -> None:
         circuit = random_dense_clifford_t_circuit(5, depth=40, seed=seed)
         sv_baseline = _clifft_statevector(circuit)
         sv_optimized = _clifft_statevector(circuit, optimize=True)
-        assert_statevectors_componentwise_equal(sv_optimized, sv_baseline, atol=1e-5)
+        assert_statevectors_equiv(sv_optimized, sv_baseline, atol=1e-8)
 
 
 # Mirror-circuit T-gate cancellation.
@@ -437,12 +436,12 @@ class TestPeepholePassMetadata:
 #
 # These tests compile each circuit twice -- once with no optimizations
 # (forcing the executor to apply physical T/rotation actions) and once with
-# peephole S-absorption active -- then assert the dense statevectors match.
-# This checks symplectic conjugation, tableau basis transformation, and
-# global-phase tracking against physical gate application.
+# peephole S-absorption active -- then assert the dense state rays match.
+# This checks symplectic conjugation and tableau basis transformation against
+# physical gate application.
 
 
-def _assert_absorption_preserves_state(stim_text: str, atol: float = 1e-6) -> clifft.Program:
+def _assert_absorption_preserves_state(stim_text: str, rtol: float = 1e-6) -> clifft.Program:
     """Compile with and without optimization; assert statevector equivalence."""
     # Baseline: no HIR passes.
     prog_base = clifft.compile(stim_text, hir_passes=None)
@@ -452,51 +451,42 @@ def _assert_absorption_preserves_state(stim_text: str, atol: float = 1e-6) -> cl
     prog_opt = clifft.compile(stim_text, hir_passes=_peephole_pass_manager())
     sv_opt = np.array(clifft.get_statevector(prog_opt))
 
-    # Align global phase before comparison. Stim's
-    # Tableau::to_flat_unitary_matrix canonicalizes the first non-zero
-    # amplitude to positive-real, which arbitrarily strips the physical
-    # global phase when the peephole absorbs S gates into the tableau.
-    idx = int(np.argmax(np.abs(sv_base)))
-    if np.abs(sv_base[idx]) > 1e-8 and np.abs(sv_opt[idx]) > 1e-8:
-        phase_diff = sv_base[idx] / sv_opt[idx]
-        sv_opt = sv_opt * (phase_diff / np.abs(phase_diff))
-
-    np.testing.assert_allclose(
+    assert_statevectors_equiv(
         sv_opt,
         sv_base,
-        atol=atol,
-        err_msg=f"Statevector mismatch for:\n{stim_text}",
+        rtol=rtol,
+        msg=f"Statevector mismatch for:\n{stim_text}",
     )
     return prog_opt
 
 
 class TestNegativeSignTFusion:
-    """Global-phase checks for T gates with negative Pauli signs.
+    """Projective-state checks for T gates with negative Pauli signs.
 
     When the front-end encounters T after X (which conjugates Z -> -Z), the
     HIR T gate has sign=true. The identity T(-P) = exp(i*pi/4) * T_dag(+P)
-    means that fusing or canceling negative-sign T gates must track the
-    extra global phase. The cases below exercise both fusion directions.
+    permits sign normalization up to global phase. The cases below exercise
+    both fusion directions and verify their relative action.
     """
 
     def test_negative_sign_t_fusion(self) -> None:
-        """T(-Z) + T(-Z) = i * S_dag: must preserve exp(i*pi/2) global phase."""
+        """Two T gates on -Z are projectively equivalent to S_dag."""
         _assert_absorption_preserves_state("X 0\nT 0\nT 0")
 
     def test_negative_sign_t_dag_fusion(self) -> None:
-        """T_dag(-Z) + T_dag(-Z) = -i * S: must preserve exp(-i*pi/2) global phase."""
+        """Two T_dag gates on -Z are projectively equivalent to S."""
         _assert_absorption_preserves_state("X 0\nT_DAG 0\nT_DAG 0")
 
     def test_negative_sign_t_cancellation(self) -> None:
         """T(-Z) + T_dag(-Z) = identity: cancellation should not corrupt phase."""
         _assert_absorption_preserves_state("X 0\nT 0\nT_DAG 0")
 
-    def test_mixed_sign_t_cancellation_global_phase(self) -> None:
-        """T(+Z) and T(-Z) cancel but leave exp(i*pi/4) global phase."""
+    def test_mixed_sign_t_cancellation_projective(self) -> None:
+        """T gates on opposite axes cancel projectively."""
         _assert_absorption_preserves_state("T 0\nX 0\nT 0")
 
-    def test_mixed_sign_t_fusion_global_phase(self) -> None:
-        """T(+Z) and T_dag(-Z) fuse to S, leaving a global phase."""
+    def test_mixed_sign_t_fusion_projective(self) -> None:
+        """T(+Z) and T_dag(-Z) fuse projectively to S."""
         _assert_absorption_preserves_state("T 0\nX 0\nT_DAG 0")
 
     def test_s_absorption_creates_negative_t_then_fuses(self) -> None:
@@ -515,8 +505,7 @@ class TestNegativeSignTFusion:
     def test_s_absorption_flips_phase_rotation_sign(self) -> None:
         """S absorbed on Z(0) conjugates downstream R_Z on X(0), flipping sign.
 
-        The sign flip must be accompanied by alpha negation to maintain the
-        physical gate identity, or the backend global phase correction breaks.
+        The sign handling must preserve the relative rotation direction.
         """
         _assert_absorption_preserves_state("T 0\nT 0\nH 0\nR_Z(0.3) 0")
 
@@ -527,8 +516,7 @@ class TestNegativeSignTFusion:
     def test_chain_of_negative_sign_fusions(self) -> None:
         """Deep chain exercising repeated negative-sign normalization.
 
-        Six T(-Z) gates: three fusions, each contributing exp(i*pi/2) = i.
-        Net global phase = i^3 = -i. Net S_dag^3 = S_dag.
+        Six T(-Z) gates produce three fusions with net projective action S_dag.
         """
         _assert_absorption_preserves_state("X 0\nT 0\nT 0\nT 0\nT 0\nT 0\nT 0")
 
@@ -573,8 +561,7 @@ class TestSAbsorptionDifferential:
     def test_phase_rotation_demotion(self) -> None:
         """PHASE_ROTATION at S/S_dag angles demoted and absorbed.
 
-        The front-end extracts the absolute global phase for continuous
-        rotations. S-absorption must not double-count it. If wrong, the
-        output differs by exactly 45 degrees.
+        The two axes exercise both S and S_dag demotion while preserving the
+        relative state amplitudes.
         """
         _assert_absorption_preserves_state("R_Z(0.5) 0\nH 1\nR_Z(1.5) 1")

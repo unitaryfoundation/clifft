@@ -260,13 +260,17 @@ spans the boundary even though the replacement suffix is planned later.
 See [Noncomputational States](noncomputational.md) for the hybrid
 quantum-classical model.
 
-## Exact Final-State Queries
+## Final-State Queries
 
 For eligible pure-state plans, Clifft retains the final Clifford coordinate map
 needed to relate the active coefficient state back to physical qubits. This
 metadata is not read by ordinary sampling dispatch. It supports exact queries
 such as dense statevector expansion and sparse computational-basis
 probabilities.
+
+Dense statevectors preserve relative amplitudes and phases but are defined
+only up to global phase. Basis and record probabilities are exact and are
+invariant under that choice of statevector representative.
 
 [`clifft.basis_probabilities()`](basis_probabilities.md) computes selected
 full-register probabilities without expanding the full $2^n$ statevector. Its

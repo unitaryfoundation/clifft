@@ -17,6 +17,8 @@ namespace clifft::sampling {
                                                       size_t num_basis_masks,
                                                       size_t words_per_basis_mask);
 
+// The returned vector is normalized and represents the final state ray. Its
+// global phase is unspecified.
 [[nodiscard]] std::vector<std::complex<double>> get_statevector(const ExecutablePlan& plan);
 
 }  // namespace clifft::sampling

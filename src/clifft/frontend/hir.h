@@ -458,6 +458,9 @@ struct HirModule {
     // InstrumentSite.
     bool neglect_instrument_damping = false;
 
+    /// Scales every amplitude represented by this module. Its magnitude is
+    /// semantically significant; its phase only selects an unspecified
+    /// representative of the final state ray.
     std::complex<double> global_weight = {1.0, 0.0};
 
     /// Parallel to ops: source_map[i] lists the source line(s) that
@@ -474,8 +477,8 @@ struct HirModule {
 
     /// True when the evolution is a fixed unitary: no measurements, noise,
     /// readout noise, or measurement-conditioned Paulis. Deterministic
-    /// modules have a well-defined final statevector including its global
-    /// phase; stochastic ones are only defined per shot.
+    /// modules have a well-defined final state ray; stochastic ones are only
+    /// defined per shot.
     [[nodiscard]] bool is_deterministic() const {
         for (const auto& op : ops) {
             const OpType type = op.op_type();
