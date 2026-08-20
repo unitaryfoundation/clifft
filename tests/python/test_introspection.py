@@ -16,6 +16,15 @@ import clifft
 class TestHirIntrospection:
     """HIR-level introspection: HeisenbergOp, OpType, iteration."""
 
+    def test_trace_rotation_canonicalization_tolerance(self) -> None:
+        inside = clifft.trace(clifft.parse("R_Z(0.5000000000005) 0"))
+        outside = clifft.trace(clifft.parse("R_Z(0.500000000002) 0"))
+
+        assert inside.num_ops == 0
+        assert outside.num_ops == 1
+        assert outside[0].op_type == clifft.OpType.PHASE_ROTATION
+        assert outside[0].as_dict()["alpha"] == 0.500000000002
+
     def test_source_map_preserves_python_line_provenance(self) -> None:
         hir = clifft.trace(clifft.parse("H 0\nT 0\nM 0"))
 

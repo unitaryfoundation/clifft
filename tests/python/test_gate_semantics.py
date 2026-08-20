@@ -143,6 +143,15 @@ def test_absorbed_single_qubit_cliffords() -> None:
     assert_statevectors_equiv(_statevector("H_XY 0"), [0, 1])
 
 
+def test_exact_clifford_rotations_match_named_gates() -> None:
+    _assert_statevectors_equivalent("R_X(0.5) 0", "SQRT_X 0")
+    _assert_statevectors_equivalent("R_X(-0.5) 0", "SQRT_X_DAG 0")
+    _assert_statevectors_equivalent("R_Y(0.5) 0", "SQRT_Y 0")
+    _assert_statevectors_equivalent("R_Y(-0.5) 0", "SQRT_Y_DAG 0")
+    _assert_statevectors_equivalent("H 0\nR_Z(0.5) 0", "H 0\nS 0")
+    _assert_statevectors_equivalent("H 0\nR_Z(1.5) 0", "H 0\nS_DAG 0")
+
+
 def test_mpad_and_inverted_measurements() -> None:
     np.testing.assert_array_equal(_measurements("MPAD 1 0 1 0"), [1, 0, 1, 0])
     np.testing.assert_array_equal(_measurements("MPAD !0 !1"), [1, 0])

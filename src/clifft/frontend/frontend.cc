@@ -8,6 +8,7 @@
 #include <cmath>
 #include <initializer_list>
 #include <numbers>
+#include <optional>
 #include <random>
 #include <stdexcept>
 #include <string>
@@ -43,6 +44,18 @@ void apply_single_qubit_clifford(stim::TableauSimulator<kStimWidth>& sim, GateTy
             return;
         case GateType::Z:
             sim.inv_state.prepend_Z(q);
+            return;
+        case GateType::SQRT_X:
+            sim.inv_state.prepend_SQRT_X_DAG(q);
+            return;
+        case GateType::SQRT_X_DAG:
+            sim.inv_state.prepend_SQRT_X(q);
+            return;
+        case GateType::SQRT_Y:
+            sim.inv_state.prepend_SQRT_Y_DAG(q);
+            return;
+        case GateType::SQRT_Y_DAG:
+            sim.inv_state.prepend_SQRT_Y(q);
             return;
         default:
             break;
@@ -266,6 +279,32 @@ void accumulate_rz_global_phase(HirModule& hir, double alpha) {
     hir.global_weight *= std::complex<double>(std::cos(angle), std::sin(angle));
 }
 
+// Absorb a native Clifford representative. Its omitted scalar phase is
+// permitted by the projective statevector contract.
+bool try_absorb_clifford_axis_rotation(stim::TableauSimulator<kStimWidth>& sim, uint32_t qubit,
+                                       double alpha, GateType sqrt_gate, GateType pauli_gate,
+                                       GateType sqrt_dag_gate) {
+    const auto rotation = classify_clifford_rotation(alpha);
+    if (!rotation.has_value()) {
+        return false;
+    }
+
+    switch (*rotation) {
+        case CliffordRotation::IDENTITY:
+            break;
+        case CliffordRotation::SQRT:
+            apply_single_qubit_clifford(sim, sqrt_gate, qubit);
+            break;
+        case CliffordRotation::PAULI:
+            apply_single_qubit_clifford(sim, pauli_gate, qubit);
+            break;
+        case CliffordRotation::SQRT_DAG:
+            apply_single_qubit_clifford(sim, sqrt_dag_gate, qubit);
+            break;
+    }
+    return true;
+}
+
 // Trace R_Z(alpha) on a single qubit: extract the rewound Z, emit
 // PHASE_ROTATION, accumulate global phase.
 //
@@ -275,6 +314,11 @@ void accumulate_rz_global_phase(HirModule& hir, double alpha) {
 // to the global phase accumulator so the tracked phase stays correct.
 void trace_rz(stim::TableauSimulator<kStimWidth>& sim, HirModule& hir, uint32_t qubit,
               double alpha) {
+    if (try_absorb_clifford_axis_rotation(sim, qubit, alpha, GateType::S, GateType::Z,
+                                          GateType::S_DAG)) {
+        return;
+    }
+
     bool sign = false;
     hir.append_phase_rotation(alpha, [&](MutablePauliMaskView slot) {
         extract_rewound_z_into(sim, qubit, slot.x(), slot.z(), sign);
@@ -368,14 +412,23 @@ size_t count_pauli_masks(const Circuit& circuit) {
             case GateType::MX:
             case GateType::MY:
             case GateType::MPAD:
+                count += n_targets;
+                break;
             case GateType::R_Z:
             case GateType::R_X:
             case GateType::R_Y:
-                count += n_targets;
+                if (!classify_clifford_rotation(node.args[0]).has_value()) {
+                    count += n_targets;
+                }
                 break;
-            case GateType::U3:
-                count += 3 * n_targets;
+            case GateType::U3: {
+                size_t rotations_per_target = 0;
+                for (double alpha : node.args) {
+                    rotations_per_target += !classify_clifford_rotation(alpha).has_value();
+                }
+                count += rotations_per_target * n_targets;
                 break;
+            }
             case GateType::R_XX:
             case GateType::R_YY:
             case GateType::R_ZZ:
@@ -626,6 +679,11 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
             case GateType::R_X: {
                 double alpha = node.args[0];
                 for (const auto& target : node.targets) {
+                    if (try_absorb_clifford_axis_rotation(sim, target.value(), alpha,
+                                                          GateType::SQRT_X, GateType::X,
+                                                          GateType::SQRT_X_DAG)) {
+                        continue;
+                    }
                     size_t q = static_cast<size_t>(target.value());
                     sim.inv_state.prepend_H_XZ(q);
                     trace_rz(sim, hir, target.value(), alpha);
@@ -637,6 +695,11 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
             case GateType::R_Y: {
                 double alpha = node.args[0];
                 for (const auto& target : node.targets) {
+                    if (try_absorb_clifford_axis_rotation(sim, target.value(), alpha,
+                                                          GateType::SQRT_Y, GateType::Y,
+                                                          GateType::SQRT_Y_DAG)) {
+                        continue;
+                    }
                     size_t q = static_cast<size_t>(target.value());
                     sim.inv_state.prepend_H_YZ(q);
                     trace_rz(sim, hir, target.value(), alpha);
@@ -656,9 +719,12 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
 
                     trace_rz(sim, hir, qubit, lambda);
 
-                    sim.inv_state.prepend_H_YZ(q);
-                    trace_rz(sim, hir, qubit, theta);
-                    sim.inv_state.prepend_H_YZ(q);
+                    if (!try_absorb_clifford_axis_rotation(sim, qubit, theta, GateType::SQRT_Y,
+                                                           GateType::Y, GateType::SQRT_Y_DAG)) {
+                        sim.inv_state.prepend_H_YZ(q);
+                        trace_rz(sim, hir, qubit, theta);
+                        sim.inv_state.prepend_H_YZ(q);
+                    }
 
                     trace_rz(sim, hir, qubit, phi);
 

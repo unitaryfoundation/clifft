@@ -2,6 +2,7 @@
 
 #include "clifft/optimizer/commutation.h"
 #include "clifft/util/constants.h"
+#include "clifft/util/numeric.h"
 
 #include <algorithm>
 #include <bit>
@@ -456,26 +457,26 @@ void PeepholeFusionPass::run(HirModule& hir) {
                     // Normalize to [0, 2) relative phase range
                     fused = fused - 2.0 * std::floor(fused / 2.0);
 
-                    constexpr double kDemoteEps = 1e-12;
-                    if (std::abs(fused) < kDemoteEps || std::abs(fused - 2.0) < kDemoteEps) {
+                    const auto clifford = classify_clifford_rotation(fused);
+                    if (clifford == CliffordRotation::IDENTITY) {
                         deleted[i] = true;
                         deleted[j] = true;
                         ++cancellations_;
-                    } else if (std::abs(fused - 0.5) < kDemoteEps) {
+                    } else if (clifford == CliffordRotation::SQRT) {
                         // S gate: absorb downstream (phase already in global_weight)
                         deleted[i] = true;
                         deleted[j] = true;
                         apply_virtual_s_downstream(hir, j + 1, destab_i, stab_i, false, false,
                                                    deleted);
                         ++fusions_;
-                    } else if (std::abs(fused - 1.5) < kDemoteEps) {
+                    } else if (clifford == CliffordRotation::SQRT_DAG) {
                         // S_dag gate: absorb downstream (phase already in global_weight)
                         deleted[i] = true;
                         deleted[j] = true;
                         apply_virtual_s_downstream(hir, j + 1, destab_i, stab_i, false, true,
                                                    deleted);
                         ++fusions_;
-                    } else if (std::abs(fused - 0.25) < kDemoteEps) {
+                    } else if (std::abs(fused - 0.25) < kRotationCanonicalizationTolerance) {
                         hir.demote_to_tgate(hir.ops[i], false);
                         if (has_source_map) {
                             auto& dst = hir.source_map[i];
@@ -484,7 +485,7 @@ void PeepholeFusionPass::run(HirModule& hir) {
                         }
                         deleted[j] = true;
                         ++fusions_;
-                    } else if (std::abs(fused - 1.75) < kDemoteEps) {
+                    } else if (std::abs(fused - 1.75) < kRotationCanonicalizationTolerance) {
                         hir.demote_to_tgate(hir.ops[i], /*dagger=*/true);
                         if (has_source_map) {
                             auto& dst = hir.source_map[i];
@@ -524,30 +525,30 @@ void PeepholeFusionPass::run(HirModule& hir) {
             double alpha = hir.ops[i].alpha() * (hir.sign(hir.ops[i]) ? -1.0 : 1.0);
             double a_mod2 = alpha - 2.0 * std::floor(alpha / 2.0);
 
-            constexpr double kDemoteEps = 1e-12;
-            if (std::abs(a_mod2) < kDemoteEps || std::abs(a_mod2 - 2.0) < kDemoteEps) {
+            const auto clifford = classify_clifford_rotation(a_mod2);
+            if (clifford == CliffordRotation::IDENTITY) {
                 deleted[i] = true;
                 ++cancellations_;
                 changed = true;
-            } else if (std::abs(a_mod2 - 0.5) < kDemoteEps) {
+            } else if (clifford == CliffordRotation::SQRT) {
                 // S: absorb downstream (phase already in global_weight)
                 apply_virtual_s_downstream(hir, i + 1, hir.destab_mask(hir.ops[i]),
                                            hir.stab_mask(hir.ops[i]), false, false, deleted);
                 deleted[i] = true;
                 ++fusions_;
                 changed = true;
-            } else if (std::abs(a_mod2 - 1.5) < kDemoteEps) {
+            } else if (clifford == CliffordRotation::SQRT_DAG) {
                 // S_dag: absorb downstream (phase already in global_weight)
                 apply_virtual_s_downstream(hir, i + 1, hir.destab_mask(hir.ops[i]),
                                            hir.stab_mask(hir.ops[i]), false, true, deleted);
                 deleted[i] = true;
                 ++fusions_;
                 changed = true;
-            } else if (std::abs(a_mod2 - 0.25) < kDemoteEps) {
+            } else if (std::abs(a_mod2 - 0.25) < kRotationCanonicalizationTolerance) {
                 hir.demote_to_tgate(hir.ops[i], false);
                 ++fusions_;
                 changed = true;
-            } else if (std::abs(a_mod2 - 1.75) < kDemoteEps) {
+            } else if (std::abs(a_mod2 - 1.75) < kRotationCanonicalizationTolerance) {
                 hir.demote_to_tgate(hir.ops[i], /*dagger=*/true);
                 ++fusions_;
                 changed = true;

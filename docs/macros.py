@@ -93,6 +93,8 @@ def define_env(env: Any) -> None:
                 "Scans the HIR to cancel or fuse T/T_dag gates acting on the "
                 "same virtual Pauli axis using the symplectic inner product as "
                 "a commutation check. T+T fuses to S, T+T_dag cancels to identity. "
+                "Phase rotations within an absolute tolerance of 1e-12 half-turns "
+                "of supported Clifford or T angles are canonicalized. "
                 "It also removes a T gate or Pauli phase rotation when a later "
                 "same-axis measurement consumes the phase; intervening Pauli "
                 "noise is left in place."

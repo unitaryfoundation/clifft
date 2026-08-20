@@ -248,7 +248,7 @@ class TestSqueezeSweep2Expansion:
 
     def test_phase_rotation_bubbles_right(self) -> None:
         """PHASE_ROTATION (from R_Z) should bubble rightward in Sweep 2."""
-        circuit = "H 0\nH 1\nR_Z(0.3) 0\nR_Z(0.5) 1\nM 0\nM 1"
+        circuit = "H 0\nH 1\nR_Z(0.3) 0\nR_Z(0.4) 1\nM 0\nM 1"
         base = clifft.compile(circuit, hir_passes=None)
         squeezed = clifft.compile(circuit, hir_passes=_squeeze_only_pass_manager())
 

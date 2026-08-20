@@ -8,6 +8,7 @@
 #include "clifft/optimizer/statevector_squeeze_pass.h"
 #include "clifft/sampling/planner.h"
 #include "clifft/util/constants.h"
+#include "clifft/util/numeric.h"
 
 #include "test_helpers.h"
 
@@ -535,14 +536,16 @@ TEST_CASE("Peephole: T_dag plus T_dag fusion leaves global_weight unchanged", "[
 
 TEST_CASE("Peephole: PHASE_ROTATION demotes to absorbed S and T gates", "[optimizer]") {
     // 0.5 half-turns = S gate -> absorbed (no ops remain)
-    auto hir_s = hir_from("R_Z(0.5) 0");
+    HirModule hir_s(1, 1);
+    clifft::test::append_phase_rotation(hir_s, 0, Z(0), false, 0.5);
     PeepholeFusionPass pass_s;
     pass_s.run(hir_s);
     REQUIRE(hir_s.ops.empty());
     REQUIRE(pass_s.fusions() == 1);
 
     // 1.5 half-turns = S_dag gate -> absorbed (no ops remain)
-    auto hir_sdag = hir_from("R_Z(1.5) 0");
+    HirModule hir_sdag(1, 1);
+    clifft::test::append_phase_rotation(hir_sdag, 0, Z(0), false, 1.5);
     PeepholeFusionPass pass_sdag;
     pass_sdag.run(hir_sdag);
     REQUIRE(hir_sdag.ops.empty());
@@ -563,6 +566,27 @@ TEST_CASE("Peephole: PHASE_ROTATION demotes to absorbed S and T gates", "[optimi
     REQUIRE(hir_tdag.ops.size() == 1);
     REQUIRE(hir_tdag.ops[0].op_type() == OpType::T_GATE);
     REQUIRE(hir_tdag.ops[0].is_dagger() == true);
+}
+
+TEST_CASE("Peephole: rotation canonicalization uses the shared tolerance", "[optimizer]") {
+    constexpr double inside = 0.5 + 0.5 * kRotationCanonicalizationTolerance;
+    HirModule hir_inside(1, 1);
+    clifft::test::append_phase_rotation(hir_inside, 0, Z(0), false, inside);
+    PeepholeFusionPass inside_pass;
+    inside_pass.run(hir_inside);
+    CHECK(hir_inside.ops.empty());
+    CHECK(inside_pass.fusions() == 1);
+
+    constexpr double outside = 0.5 + 2.0 * kRotationCanonicalizationTolerance;
+    HirModule hir_outside(1, 1);
+    clifft::test::append_phase_rotation(hir_outside, 0, Z(0), false, outside);
+    PeepholeFusionPass outside_pass;
+    outside_pass.run(hir_outside);
+    REQUIRE(hir_outside.ops.size() == 1);
+    CHECK(hir_outside.ops[0].op_type() == OpType::PHASE_ROTATION);
+    CHECK(hir_outside.ops[0].alpha() == outside);
+    CHECK(outside_pass.fusions() == 0);
+    CHECK(outside_pass.cancellations() == 0);
 }
 
 TEST_CASE("Peephole: SPP uses rotation fusion and absorption", "[optimizer]") {

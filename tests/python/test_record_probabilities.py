@@ -147,7 +147,7 @@ def test_matches_qiskit_for_random_small_circuits(
     "circuit,num_qubits",
     [
         ("H 0\nR_Z(0.25) 0\nH 0", 1),
-        ("R_X(0.5) 0", 1),
+        ("R_X(0.3) 0", 1),
         ("R_Y(0.3) 0", 1),
         ("U3(0.5, 0.25, 0.125) 0", 1),
         ("H 0\nH 1\nR_ZZ(0.3) 0 1\nH 0\nH 1", 2),

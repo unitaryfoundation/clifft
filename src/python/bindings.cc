@@ -560,14 +560,16 @@ NB_MODULE(_clifft_core, m) {
         },
         nb::arg("circuit"),
         "Trace a parsed circuit through the Clifford front-end to produce the "
-        "Heisenberg IR.");
+        "Heisenberg IR. Single-qubit rotations within 1e-12 half-turns of a "
+        "Clifford angle are canonicalized.");
 
     nb::class_<clifft::HirPass>(m, "HirPass", "Abstract base class for HIR optimization passes.");
 
     nb::class_<clifft::PeepholeFusionPass, clifft::HirPass>(
         m, "PeepholeFusionPass",
         "Symplectic peephole optimization: cancels and fuses T/T-dag gates, "
-        "and removes terminal phases consumed by same-axis measurements.")
+        "canonicalizes rotations within 1e-12 half-turns, and removes terminal "
+        "phases consumed by same-axis measurements.")
         .def(nb::init<>())
         .def_prop_ro("cancellations", &clifft::PeepholeFusionPass::cancellations)
         .def_prop_ro("fusions", &clifft::PeepholeFusionPass::fusions)

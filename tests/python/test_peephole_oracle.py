@@ -222,14 +222,14 @@ class TestPeepholeProjectiveState:
     """
 
     # Each circuit triggers at least one S absorption: T+T fusion,
-    # T_DAG+T_DAG fusion, rotation fusion to S/S_dag, standalone S-angle
-    # demotion, and absorptions on signed, Y-type, and multi-qubit axes.
+    # T_DAG+T_DAG fusion, rotation fusion to S/S_dag, and absorptions on
+    # signed, Y-type, and multi-qubit axes.
     S_ABSORPTION_CIRCUITS = [
         "H 0\nT 0\nT 0\nH 0",
         "H 0\nT_DAG 0\nT_DAG 0\nH 0",
         "H 0\nR_Z(0.25) 0\nR_Z(0.25) 0\nH 0",
-        "H 0\nR_Z(0.5) 0\nH 0",
-        "H 0\nR_Z(1.5) 0\nH 0",
+        "H 0\nR_Z(0.125) 0\nR_Z(0.375) 0\nH 0",
+        "H 0\nR_Z(0.75) 0\nR_Z(0.75) 0\nH 0",
         "S_DAG 0\nH 0\nT 0\nT 0",
         "S_DAG 0\nH 0\nCX 2 3\nT 0\nCX 3 1\nT 0",
         "H 0\nCX 0 1\nT 1\nT 1\nCX 0 1\nH 0",
@@ -240,7 +240,7 @@ class TestPeepholeProjectiveState:
         # Absorptions that leave rotations needing virtual-frame routing at
         # lowering; these exercise composed physical and planner frames.
         "H 0\nT 0\nT 0\nT 0\nH 0\nT 0",
-        "CX 0 1\nY 1\nH 0\nR_Z(0.5) 0\nX 0",
+        "CX 0 1\nY 1\nH 0\nR_Z(0.25) 0\nR_Z(0.25) 0\nX 0",
         "CX 0 1\nY 1\nH 0\nT_DAG 0\nT_DAG 0\nX 0",
         "S_DAG 0\nH 0\nCX 2 3\nT 0\nCX 3 1\nT 0\nH 1\nT 1",
     ]
@@ -558,10 +558,17 @@ class TestSAbsorptionDifferential:
             "H 0\nH 1\nR_XX(0.25) 0 1\nR_XX(0.25) 0 1\nR_YY(0.25) 0 1"
         )
 
-    def test_phase_rotation_demotion(self) -> None:
-        """PHASE_ROTATION at S/S_dag angles demoted and absorbed.
+    def test_phase_rotation_fusion(self) -> None:
+        """PHASE_ROTATION pairs fuse to S/S_dag and are absorbed.
 
         The two axes exercise both S and S_dag demotion while preserving the
         relative state amplitudes.
         """
-        _assert_absorption_preserves_state("R_Z(0.5) 0\nH 1\nR_Z(1.5) 1")
+        _assert_absorption_preserves_state(
+            "R_Z(0.25) 0\nR_Z(0.25) 0\nH 1\nR_Z(0.75) 1\nR_Z(0.75) 1"
+        )
+
+    @pytest.mark.parametrize("angle", [0.5, 1.5])
+    def test_standalone_multi_qubit_phase_rotation_demotion(self, angle: float) -> None:
+        """Standalone multi-qubit S/S_dag rotations reach peephole absorption."""
+        _assert_absorption_preserves_state(f"R_XX({angle}) 0 1")
