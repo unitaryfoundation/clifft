@@ -347,6 +347,60 @@ MeasurementProbabilities active_measurement_probabilities_avx512_impl(
 }
 
 template <bool RealPhase>
+MeasurementProbabilities active_measurement_probabilities_high_pivot_avx512_impl(
+    const State& state, const PreparedMeasurement& measurement) noexcept {
+    const double* const real = state.real_data();
+    const double* const imag = state.imag_data();
+    const uint64_t pair_stride = measurement.pauli.pairing_bit;
+    const uint64_t pair_period = pair_stride << 1;
+    const uint64_t lane_xor = measurement.pauli.x & (kLanes - 1);
+    const __m512i permutation = _mm512_load_si512(kLanePermutations[lane_xor].data());
+    const double base_coefficient =
+        RealPhase ? measurement.pauli.even_phase.real() : -measurement.pauli.even_phase.imag();
+    __m512d zero_sum = _mm512_setzero_pd();
+    __m512d one_sum = _mm512_setzero_pd();
+
+    for (uint64_t block = 0; block < state.size(); block += pair_period) {
+        for (uint64_t offset = 0; offset < pair_stride; offset += kLanes) {
+            const uint64_t left = block + offset;
+            const uint64_t right_base = (left ^ measurement.pauli.x) & ~(uint64_t{kLanes - 1});
+            const __m512d left_real = _mm512_load_pd(real + left);
+            const __m512d left_imag = _mm512_load_pd(imag + left);
+            const __m512d right_real =
+                _mm512_permutexvar_pd(permutation, _mm512_load_pd(real + right_base));
+            const __m512d right_imag =
+                _mm512_permutexvar_pd(permutation, _mm512_load_pd(imag + right_base));
+            const __m512d coefficient =
+                signed_sine_lanes(left, measurement.pauli.z, base_coefficient);
+
+            __m512d zero_real;
+            __m512d zero_imag;
+            __m512d one_real;
+            __m512d one_imag;
+            if constexpr (RealPhase) {
+                zero_real = _mm512_fmadd_pd(coefficient, right_real, left_real);
+                zero_imag = _mm512_fmadd_pd(coefficient, right_imag, left_imag);
+                one_real = _mm512_fnmadd_pd(coefficient, right_real, left_real);
+                one_imag = _mm512_fnmadd_pd(coefficient, right_imag, left_imag);
+            } else {
+                zero_real = _mm512_fnmadd_pd(coefficient, right_imag, left_real);
+                zero_imag = _mm512_fmadd_pd(coefficient, right_real, left_imag);
+                one_real = _mm512_fmadd_pd(coefficient, right_imag, left_real);
+                one_imag = _mm512_fnmadd_pd(coefficient, right_real, left_imag);
+            }
+            const __m512d zero_norm =
+                _mm512_fmadd_pd(zero_real, zero_real, _mm512_mul_pd(zero_imag, zero_imag));
+            const __m512d one_norm =
+                _mm512_fmadd_pd(one_real, one_real, _mm512_mul_pd(one_imag, one_imag));
+            zero_sum = _mm512_add_pd(zero_sum, zero_norm);
+            one_sum = _mm512_add_pd(one_sum, one_norm);
+        }
+    }
+    return MeasurementProbabilities{0.5 * _mm512_reduce_add_pd(zero_sum),
+                                    0.5 * _mm512_reduce_add_pd(one_sum)};
+}
+
+template <bool RealPhase>
 void collapse_active_measurement_avx512_impl(State& state, const PreparedMeasurement& measurement,
                                              bool branch, double branch_probability) noexcept {
     double* const real = state.real_data();
@@ -392,14 +446,77 @@ void collapse_active_measurement_avx512_impl(State& state, const PreparedMeasure
     state.set_active_width(state.active_width() - 1);
 }
 
+template <bool RealPhase>
+void collapse_active_measurement_high_pivot_avx512_impl(State& state,
+                                                        const PreparedMeasurement& measurement,
+                                                        bool branch,
+                                                        double branch_probability) noexcept {
+    double* const real = state.real_data();
+    double* const imag = state.imag_data();
+    const uint64_t pair_stride = measurement.pauli.pairing_bit;
+    const uint64_t pair_period = pair_stride << 1;
+    const uint64_t lane_xor = measurement.pauli.x & (kLanes - 1);
+    const __m512i permutation = _mm512_load_si512(kLanePermutations[lane_xor].data());
+    const double eigenvalue = branch ? -1.0 : 1.0;
+    const double base_coefficient = eigenvalue * (RealPhase ? measurement.pauli.even_phase.real()
+                                                            : -measurement.pauli.even_phase.imag());
+    const __m512d scale = _mm512_set1_pd(kInvSqrt2 / std::sqrt(branch_probability));
+
+    // A highest-bit pivot splits each pair period into contiguous source
+    // halves. Loading both halves before writing their compacted destination
+    // keeps forward traversal safe without scratch storage.
+    for (uint64_t block = 0; block < state.size(); block += pair_period) {
+        for (uint64_t offset = 0; offset < pair_stride; offset += kLanes) {
+            const uint64_t left = block + offset;
+            const uint64_t right_base = (left ^ measurement.pauli.x) & ~(uint64_t{kLanes - 1});
+            const __m512d left_real = _mm512_load_pd(real + left);
+            const __m512d left_imag = _mm512_load_pd(imag + left);
+            const __m512d right_real =
+                _mm512_permutexvar_pd(permutation, _mm512_load_pd(real + right_base));
+            const __m512d right_imag =
+                _mm512_permutexvar_pd(permutation, _mm512_load_pd(imag + right_base));
+            const __m512d coefficient =
+                signed_sine_lanes(left, measurement.pauli.z, base_coefficient);
+
+            __m512d output_real;
+            __m512d output_imag;
+            if constexpr (RealPhase) {
+                output_real = _mm512_fmadd_pd(coefficient, right_real, left_real);
+                output_imag = _mm512_fmadd_pd(coefficient, right_imag, left_imag);
+            } else {
+                output_real = _mm512_fnmadd_pd(coefficient, right_imag, left_real);
+                output_imag = _mm512_fmadd_pd(coefficient, right_real, left_imag);
+            }
+            const uint64_t destination = block / 2 + offset;
+            _mm512_store_pd(real + destination, _mm512_mul_pd(scale, output_real));
+            _mm512_store_pd(imag + destination, _mm512_mul_pd(scale, output_imag));
+        }
+    }
+    state.set_active_width(state.active_width() - 1);
+}
+
 }  // namespace
 
 MeasurementProbabilities active_measurement_probabilities_avx512(
-    const State& state, const PreparedMeasurement& measurement) noexcept {
+    const State& state, const PreparedMeasurement& measurement,
+    ActiveMeasurementKernel kernel) noexcept {
     assert(state.active_width() == measurement.pauli.active_width &&
-           !measurement.pauli.is_diagonal() && measurement.pauli.x < kLanes &&
-           measurement.pivot < 3 && measurement.pauli.active_width >= 3 &&
-           "AVX-512 active measurement requires a low-lane Pauli pairing");
+           !measurement.pauli.is_diagonal() && measurement.pauli.active_width >= 3 &&
+           kernel != ActiveMeasurementKernel::Scalar &&
+           "AVX-512 active measurement requires a vectorized pairing");
+    if (kernel == ActiveMeasurementKernel::HighPivot) {
+        assert(measurement.pauli.pairing_bit == (uint64_t{1} << measurement.pivot) &&
+               measurement.pauli.pairing_bit >= kLanes &&
+               "AVX-512 high-pivot measurement requires the highest X bit");
+        if (measurement.pauli.even_phase.real() != 0.0) {
+            return active_measurement_probabilities_high_pivot_avx512_impl<true>(state,
+                                                                                 measurement);
+        }
+        return active_measurement_probabilities_high_pivot_avx512_impl<false>(state, measurement);
+    }
+    assert(kernel == ActiveMeasurementKernel::LanePaired && measurement.pauli.x < kLanes &&
+           measurement.pivot < 3 &&
+           "AVX-512 lane-paired measurement requires a low-lane Pauli pairing");
     if (measurement.pauli.even_phase.real() != 0.0) {
         return active_measurement_probabilities_avx512_impl<true>(state, measurement);
     }
@@ -407,12 +524,29 @@ MeasurementProbabilities active_measurement_probabilities_avx512(
 }
 
 void collapse_active_measurement_avx512(State& state, const PreparedMeasurement& measurement,
-                                        bool branch, double branch_probability) noexcept {
+                                        ActiveMeasurementKernel kernel, bool branch,
+                                        double branch_probability) noexcept {
     assert(state.active_width() == measurement.pauli.active_width &&
-           !measurement.pauli.is_diagonal() && measurement.pauli.x < kLanes &&
-           measurement.pivot < 3 && measurement.pauli.active_width >= 3 &&
-           is_finite_robust(branch_probability) && branch_probability > 0.0 &&
-           "AVX-512 active measurement requires a positive-probability low-lane pairing");
+           !measurement.pauli.is_diagonal() && measurement.pauli.active_width >= 3 &&
+           kernel != ActiveMeasurementKernel::Scalar && is_finite_robust(branch_probability) &&
+           branch_probability > 0.0 &&
+           "AVX-512 active measurement requires a positive-probability vectorized pairing");
+    if (kernel == ActiveMeasurementKernel::HighPivot) {
+        assert(measurement.pauli.pairing_bit == (uint64_t{1} << measurement.pivot) &&
+               measurement.pauli.pairing_bit >= kLanes &&
+               "AVX-512 high-pivot measurement requires the highest X bit");
+        if (measurement.pauli.even_phase.real() != 0.0) {
+            collapse_active_measurement_high_pivot_avx512_impl<true>(state, measurement, branch,
+                                                                     branch_probability);
+        } else {
+            collapse_active_measurement_high_pivot_avx512_impl<false>(state, measurement, branch,
+                                                                      branch_probability);
+        }
+        return;
+    }
+    assert(kernel == ActiveMeasurementKernel::LanePaired && measurement.pauli.x < kLanes &&
+           measurement.pivot < 3 &&
+           "AVX-512 lane-paired measurement requires a low-lane Pauli pairing");
     if (measurement.pauli.even_phase.real() != 0.0) {
         collapse_active_measurement_avx512_impl<true>(state, measurement, branch,
                                                       branch_probability);

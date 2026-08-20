@@ -33,6 +33,7 @@ enum class DirectRotationKernel : uint8_t {
 
 enum class ActiveMeasurementKernel : uint8_t {
     Scalar,
+    HighPivot,
     LanePaired,
 };
 
@@ -64,13 +65,17 @@ void apply_direct_rotation_avx512(State& state, const PreparedRotation& rotation
                                   DirectRotationKernel kernel, bool sign) noexcept;
 
 [[nodiscard]] MeasurementProbabilities active_measurement_probabilities_avx2(
-    const State& state, const PreparedMeasurement& measurement) noexcept;
+    const State& state, const PreparedMeasurement& measurement,
+    ActiveMeasurementKernel kernel) noexcept;
 void collapse_active_measurement_avx2(State& state, const PreparedMeasurement& measurement,
-                                      bool branch, double branch_probability) noexcept;
+                                      ActiveMeasurementKernel kernel, bool branch,
+                                      double branch_probability) noexcept;
 [[nodiscard]] MeasurementProbabilities active_measurement_probabilities_avx512(
-    const State& state, const PreparedMeasurement& measurement) noexcept;
+    const State& state, const PreparedMeasurement& measurement,
+    ActiveMeasurementKernel kernel) noexcept;
 void collapse_active_measurement_avx512(State& state, const PreparedMeasurement& measurement,
-                                        bool branch, double branch_probability) noexcept;
+                                        ActiveMeasurementKernel kernel, bool branch,
+                                        double branch_probability) noexcept;
 
 [[nodiscard]] FusedRotationSidecar prepare_fused_rotation_avx2_sidecar(
     const PreparedFusedRotation& rotation);

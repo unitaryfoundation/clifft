@@ -85,10 +85,10 @@ std::optional<uint32_t> first_x_at_or_above(const Pauli& pauli, uint32_t begin) 
     return std::nullopt;
 }
 
-std::optional<uint32_t> first_x_below(const Pauli& pauli, uint32_t end) {
-    for (uint32_t q = 0; q < end; ++q) {
-        if (pauli.xs[q]) {
-            return q;
+std::optional<uint32_t> last_x_below(const Pauli& pauli, uint32_t end) {
+    for (uint32_t q = end; q > 0; --q) {
+        if (pauli.xs[q - 1]) {
+            return q - 1;
         }
     }
     return std::nullopt;
@@ -303,7 +303,7 @@ AffineBool process_measurement(const Pauli& body, const AffineBool& sign, Record
         return resolved.sign;
     }
 
-    std::optional<uint32_t> pivot = first_x_below(resolved.body, active_width);
+    std::optional<uint32_t> pivot = last_x_below(resolved.body, active_width);
     if (!pivot.has_value()) {
         pivot = first_z_below(resolved.body, active_width);
     }

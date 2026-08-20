@@ -367,9 +367,10 @@ void Executor::execute_action(const ExecutablePlan::ExecuteActiveMeasurement& ac
             return measurement_probabilities(state_, action.measurement);
         }
         if constexpr (Backend == ExecutorBackend::Avx2) {
-            return active_measurement_probabilities_avx2(state_, action.measurement);
+            return active_measurement_probabilities_avx2(state_, action.measurement, action.kernel);
         } else if constexpr (Backend == ExecutorBackend::Avx512) {
-            return active_measurement_probabilities_avx512(state_, action.measurement);
+            return active_measurement_probabilities_avx512(state_, action.measurement,
+                                                           action.kernel);
         } else {
             assert(false && "scalar executor requires scalar active-measurement actions");
             return measurement_probabilities(state_, action.measurement);
@@ -401,9 +402,11 @@ void Executor::execute_action(const ExecutablePlan::ExecuteActiveMeasurement& ac
     if (action.kernel == ActiveMeasurementKernel::Scalar) {
         collapse_measurement(state_, action.measurement, branch, branch_probability);
     } else if constexpr (Backend == ExecutorBackend::Avx2) {
-        collapse_active_measurement_avx2(state_, action.measurement, branch, branch_probability);
+        collapse_active_measurement_avx2(state_, action.measurement, action.kernel, branch,
+                                         branch_probability);
     } else if constexpr (Backend == ExecutorBackend::Avx512) {
-        collapse_active_measurement_avx512(state_, action.measurement, branch, branch_probability);
+        collapse_active_measurement_avx512(state_, action.measurement, action.kernel, branch,
+                                           branch_probability);
     } else {
         assert(false && "scalar executor requires scalar active-measurement actions");
         collapse_measurement(state_, action.measurement, branch, branch_probability);

@@ -51,6 +51,8 @@ std::string_view active_measurement_kernel_name(ActiveMeasurementKernel kernel) 
     switch (kernel) {
         case ActiveMeasurementKernel::Scalar:
             return "scalar";
+        case ActiveMeasurementKernel::HighPivot:
+            return "high_pivot";
         case ActiveMeasurementKernel::LanePaired:
             return "lane_paired";
     }

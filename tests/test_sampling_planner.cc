@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <cmath>
@@ -390,6 +391,9 @@ TEST_CASE("Sampling planner correlates arbitrary repeated active measurements") 
             const SamplingPlan plan = plan_sampling(hir);
 
             const auto& first = action_as<MeasureActivePauli>(plan, 2);
+            if (first.pauli.x != 0) {
+                REQUIRE(first.active_pivot == 63U - std::countl_zero(first.pauli.x));
+            }
             const auto& repeated = action_as<RecordClassical>(plan, 3);
             REQUIRE(repeated.outcome == first.outcome);
         }

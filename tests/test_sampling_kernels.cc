@@ -389,14 +389,15 @@ TEST_CASE("Active measurement SIMD selection preserves scalar boundaries") {
     REQUIRE(select({0b001, 0b110}, 3, 0) == ActiveMeasurementKernel::Scalar);
     REQUIRE(select({0b001, 0b1110}, 4, 0) == ActiveMeasurementKernel::LanePaired);
     REQUIRE(select({0b111, 0b101000}, 6, 2) == ActiveMeasurementKernel::LanePaired);
-    REQUIRE(select({0b1000, 0b0111}, 4, 3) == ActiveMeasurementKernel::Scalar);
+    REQUIRE(select({0b1000, 0b0111}, 4, 3) == ActiveMeasurementKernel::HighPivot);
     REQUIRE(select({0b01, 0b10}, 2, 0, ExecutorBackend::Avx2) ==
             ActiveMeasurementKernel::LanePaired);
     REQUIRE(select({0b01, 0b110}, 3, 0, ExecutorBackend::Avx2) ==
             ActiveMeasurementKernel::LanePaired);
     REQUIRE(select({0b10, 0b101}, 3, 1, ExecutorBackend::Avx2) ==
             ActiveMeasurementKernel::LanePaired);
-    REQUIRE(select({0b100, 0b011}, 3, 2, ExecutorBackend::Avx2) == ActiveMeasurementKernel::Scalar);
+    REQUIRE(select({0b100, 0b011}, 3, 2, ExecutorBackend::Avx2) ==
+            ActiveMeasurementKernel::HighPivot);
     REQUIRE(select({0b01, 0b110}, 3, 0, ExecutorBackend::Scalar) ==
             ActiveMeasurementKernel::Scalar);
 }
@@ -536,7 +537,7 @@ TEST_CASE("Sampling kernels measurements match dense projectors for every small 
 }
 
 #if defined(CLIFFT_TESTS_HAVE_X86_KERNELS)
-TEST_CASE("Active measurement SIMD matches scalar low-lane Pauli compaction") {
+TEST_CASE("Active measurement SIMD matches scalar Pauli compaction") {
     const RuntimeIsa runtime_isa = clifft::internal::runtime_isa();
     if (runtime_isa != RuntimeIsa::Avx2 && runtime_isa != RuntimeIsa::Avx512) {
         return;
@@ -544,26 +545,21 @@ TEST_CASE("Active measurement SIMD matches scalar low-lane Pauli compaction") {
     const ExecutorBackend backend =
         runtime_isa == RuntimeIsa::Avx512 ? ExecutorBackend::Avx512 : ExecutorBackend::Avx2;
 
-    const uint64_t vector_lanes = runtime_isa == RuntimeIsa::Avx512 ? 8 : 4;
-    const uint32_t lane_index_bits = runtime_isa == RuntimeIsa::Avx512 ? 3 : 2;
     const uint32_t min_profitable_width = runtime_isa == RuntimeIsa::Avx512 ? 4 : 2;
     for (uint32_t active_width = min_profitable_width; active_width <= 6; ++active_width) {
         const uint64_t z_limit = uint64_t{1} << active_width;
         const std::vector<std::complex<double>> input = deterministic_state(active_width);
-        for (uint64_t x = 1; x < vector_lanes; ++x) {
+        for (uint64_t x = 1; x < z_limit; ++x) {
             for (uint64_t z = 0; z < z_limit; ++z) {
                 for (uint32_t pivot : valid_measurement_pivots(x, z, active_width)) {
-                    if (pivot >= lane_index_bits || (x & (uint64_t{1} << pivot)) == 0) {
-                        continue;
-                    }
                     CAPTURE(active_width, x, z, pivot);
                     const PreparedMeasurement measurement =
                         prepare_measurement({x, z}, active_width, pivot);
                     const ActiveMeasurementKernel selected =
                         resolve_active_measurement_kernel(measurement, backend);
-                    REQUIRE(selected == (active_width >= min_profitable_width
-                                             ? ActiveMeasurementKernel::LanePaired
-                                             : ActiveMeasurementKernel::Scalar));
+                    if (selected == ActiveMeasurementKernel::Scalar) {
+                        continue;
+                    }
 
                     State scalar_probability_state(active_width, active_width);
                     load_state(scalar_probability_state, input);
@@ -575,9 +571,9 @@ TEST_CASE("Active measurement SIMD matches scalar low-lane Pauli compaction") {
                     const MeasurementProbabilities actual =
                         runtime_isa == RuntimeIsa::Avx512
                             ? active_measurement_probabilities_avx512(vector_probability_state,
-                                                                      measurement)
+                                                                      measurement, selected)
                             : active_measurement_probabilities_avx2(vector_probability_state,
-                                                                    measurement);
+                                                                    measurement, selected);
                     REQUIRE_THAT(actual.zero,
                                  Catch::Matchers::WithinAbs(expected.zero, kTolerance));
                     REQUIRE_THAT(actual.one, Catch::Matchers::WithinAbs(expected.one, kTolerance));
@@ -591,11 +587,11 @@ TEST_CASE("Active measurement SIMD matches scalar low-lane Pauli compaction") {
                         State vector_state(active_width, active_width);
                         load_state(vector_state, input);
                         if (runtime_isa == RuntimeIsa::Avx512) {
-                            collapse_active_measurement_avx512(vector_state, measurement, branch,
-                                                               actual.for_branch(branch));
+                            collapse_active_measurement_avx512(vector_state, measurement, selected,
+                                                               branch, actual.for_branch(branch));
                         } else {
-                            collapse_active_measurement_avx2(vector_state, measurement, branch,
-                                                             actual.for_branch(branch));
+                            collapse_active_measurement_avx2(vector_state, measurement, selected,
+                                                             branch, actual.for_branch(branch));
                         }
 
                         require_vectors_close(coefficients(vector_state),
