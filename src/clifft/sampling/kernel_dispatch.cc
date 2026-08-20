@@ -38,9 +38,7 @@ constexpr uint64_t kPivotFourPairingBit = uint64_t{1} << 4;
 DirectRotationKernel select_direct_rotation(const PreparedRotation& rotation, uint64_t vector_lanes,
                                             uint32_t min_active_width,
                                             uint64_t excluded_pairing_bit) noexcept {
-    if (rotation.pauli.is_identity()) {
-        return DirectRotationKernel::Scalar;
-    }
+    assert(!rotation.pauli.is_identity() && "identity rotations must be removed during planning");
     if (rotation.pauli.is_diagonal()) {
         return rotation.pauli.active_width >= min_active_width ? DirectRotationKernel::Diagonal
                                                                : DirectRotationKernel::Scalar;

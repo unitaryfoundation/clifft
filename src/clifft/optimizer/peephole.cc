@@ -1,14 +1,12 @@
 #include "clifft/optimizer/peephole.h"
 
 #include "clifft/optimizer/commutation.h"
-#include "clifft/util/constants.h"
 #include "clifft/util/numeric.h"
 
 #include <algorithm>
 #include <bit>
 #include <cassert>
 #include <cmath>
-#include <complex>
 #include <cstddef>
 #include <cstdint>
 #include <span>
@@ -175,21 +173,8 @@ void apply_virtual_s_downstream(HirModule& hir, size_t start_idx, MaskView x_v, 
 
             case OpType::PHASE_ROTATION: {
                 auto m = hir.mask_at(op);
-                bool sign_before = m.sign();
-                bool sign_i = sign_before;
+                bool sign_i = m.sign();
                 conjugate_pauli_by_S(x_v, z_v, sign_v, m.x(), m.z(), sign_i, is_dagger);
-
-                // If S-conjugation flipped the Pauli axis sign, do NOT
-                // negate alpha. The physical SU(2) rotation direction is
-                // preserved natively by the backend's own sign handling.
-                // The front-end initialized global_weight for the old signed
-                // representation. Update it so the HIR's chosen representative
-                // remains consistent after changing the sign.
-                if (sign_i != sign_before) {
-                    double corr = op.alpha() * std::numbers::pi * (sign_before ? -1.0 : 1.0);
-                    hir.global_weight *= std::complex<double>(std::cos(corr), std::sin(corr));
-                }
-
                 m.set_sign(sign_i);
                 break;
             }
@@ -222,16 +207,10 @@ void apply_virtual_s_downstream(HirModule& hir, size_t start_idx, MaskView x_v, 
 // Peephole helpers
 // =========================================================================
 
-/// Normalize a T gate to a positive Pauli sign, absorbing the phase
-/// difference into global_weight. The identity is:
-///   T(-P) = exp(+i*pi/4) * T_dag(+P)
-///   T_dag(-P) = exp(-i*pi/4) * T(+P)
-/// After normalization, all T gates have sign=false and the effective
-/// rotation direction is determined solely by the dagger flag.
-inline void normalize_t_sign(HirModule& hir, HeisenbergOp& op,
-                             std::complex<double>& global_weight) {
+/// Normalize a T gate to a positive Pauli sign. Reversing its direction can
+/// change only the omitted global phase, so no scalar correction is needed.
+inline void normalize_t_sign(HirModule& hir, HeisenbergOp& op) {
     if (op.op_type() == OpType::T_GATE && hir.sign(op)) {
-        global_weight *= op.is_dagger() ? kExpMinusIPiOver4 : kExpIPiOver4;
         op.set_dagger(!op.is_dagger());
         hir.set_sign(op, false);
     }
@@ -374,7 +353,7 @@ void PeepholeFusionPass::run(HirModule& hir) {
             if (hir.ops[i].op_type() != OpType::T_GATE)
                 continue;
 
-            normalize_t_sign(hir, hir.ops[i], hir.global_weight);
+            normalize_t_sign(hir, hir.ops[i]);
             // After normalization the mask handle is unchanged; capture the
             // arena-resident views once so we can compare against later ops.
             auto destab_i = hir.destab_mask(hir.ops[i]);
@@ -387,7 +366,7 @@ void PeepholeFusionPass::run(HirModule& hir) {
                 // Normalize candidate T gates before comparison so that
                 // sign-induced dagger flips are accounted for in effective_angle.
                 if (hir.ops[j].op_type() == OpType::T_GATE)
-                    normalize_t_sign(hir, hir.ops[j], hir.global_weight);
+                    normalize_t_sign(hir, hir.ops[j]);
 
                 // Re-fetch op_i in case anything mutated it (it didn't, but
                 // be explicit since views must remain valid).
@@ -463,14 +442,14 @@ void PeepholeFusionPass::run(HirModule& hir) {
                         deleted[j] = true;
                         ++cancellations_;
                     } else if (clifford == CliffordRotation::SQRT) {
-                        // S gate: absorb downstream (phase already in global_weight)
+                        // S gate: absorb downstream.
                         deleted[i] = true;
                         deleted[j] = true;
                         apply_virtual_s_downstream(hir, j + 1, destab_i, stab_i, false, false,
                                                    deleted);
                         ++fusions_;
                     } else if (clifford == CliffordRotation::SQRT_DAG) {
-                        // S_dag gate: absorb downstream (phase already in global_weight)
+                        // S_dag gate: absorb downstream.
                         deleted[i] = true;
                         deleted[j] = true;
                         apply_virtual_s_downstream(hir, j + 1, destab_i, stab_i, false, true,
@@ -531,14 +510,14 @@ void PeepholeFusionPass::run(HirModule& hir) {
                 ++cancellations_;
                 changed = true;
             } else if (clifford == CliffordRotation::SQRT) {
-                // S: absorb downstream (phase already in global_weight)
+                // S: absorb downstream.
                 apply_virtual_s_downstream(hir, i + 1, hir.destab_mask(hir.ops[i]),
                                            hir.stab_mask(hir.ops[i]), false, false, deleted);
                 deleted[i] = true;
                 ++fusions_;
                 changed = true;
             } else if (clifford == CliffordRotation::SQRT_DAG) {
-                // S_dag: absorb downstream (phase already in global_weight)
+                // S_dag: absorb downstream.
                 apply_virtual_s_downstream(hir, i + 1, hir.destab_mask(hir.ops[i]),
                                            hir.stab_mask(hir.ops[i]), false, true, deleted);
                 deleted[i] = true;

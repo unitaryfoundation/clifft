@@ -13,7 +13,6 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <cmath>
-#include <complex>
 #include <numbers>
 #include <stdexcept>
 #include <string>
@@ -55,12 +54,6 @@ const T& action_as(const SamplingPlan& plan, size_t index) {
     return std::get<T>(plan.actions.at(index).action);
 }
 
-void require_global_phase(const SamplingPlan& plan, double angle) {
-    const std::complex<double> expected{std::cos(angle), std::sin(angle)};
-    REQUIRE_THAT(plan.global_weight.real(), Catch::Matchers::WithinAbs(expected.real(), 1e-12));
-    REQUIRE_THAT(plan.global_weight.imag(), Catch::Matchers::WithinAbs(expected.imag(), 1e-12));
-}
-
 uint64_t fnv1a64(std::string_view text) {
     uint64_t digest = 14695981039346656037ULL;
     for (unsigned char byte : text) {
@@ -80,12 +73,12 @@ SamplingPlanOptions source_map_options() {
 
 TEST_CASE("Sampling planner preserves empty module metadata") {
     HirModule hir(3, 0);
-    hir.global_weight = {0.25, -0.5};
+    hir.amplitude_scale = 0.25;
 
     const SamplingPlan plan = plan_sampling(hir);
 
     REQUIRE(plan.num_qubits == 3);
-    REQUIRE(plan.global_weight == std::complex<double>{0.25, -0.5});
+    REQUIRE(plan.amplitude_scale == 0.25);
     REQUIRE(plan.initial_active_width == 0);
     REQUIRE(plan.peak_active_width == 0);
     REQUIRE(plan.actions.empty());
@@ -413,41 +406,37 @@ TEST_CASE("Sampling planner keeps geometric Pauli signs") {
     REQUIRE(rotation.sign == AffineBool(true));
 }
 
-TEST_CASE("Sampling planner retains balanced rotation global factors") {
+TEST_CASE("Sampling planner omits identity rotations and preserves amplitude scale") {
     HirModule hir(1, 2);
-    hir.global_weight = {std::cos(-std::numbers::pi / 4.0), std::sin(-std::numbers::pi / 4.0)};
+    hir.amplitude_scale = 0.25;
     clifft::test::append_phase_rotation(hir, 0, Z(0), false, 0.5);
     clifft::test::append_tgate(hir, 0, Z(0), false);
 
     const SamplingPlan plan = plan_sampling(hir);
 
-    REQUIRE(plan.actions.size() == 2);
-    REQUIRE(action_as<RotateActivePauli>(plan, 0).pauli.is_identity());
-    REQUIRE(action_as<RotateActivePauli>(plan, 1).pauli.is_identity());
-    require_global_phase(plan, std::numbers::pi / 8.0);
+    CHECK(plan.actions.empty());
+    CHECK(plan.amplitude_scale == 0.25);
 }
 
-TEST_CASE("Sampling planner preserves sign flipped rotation global factors") {
-    SECTION("T gate factor is sign independent") {
+TEST_CASE("Sampling planner omits signed identity rotations") {
+    SECTION("constant sign") {
         HirModule hir(1, 1);
         clifft::test::append_tgate(hir, 0, Z(0), true);
 
         const SamplingPlan plan = plan_sampling(hir);
 
-        REQUIRE(action_as<RotateActivePauli>(plan, 0).pauli.is_identity());
-        REQUIRE(action_as<RotateActivePauli>(plan, 0).sign == AffineBool(true));
-        require_global_phase(plan, std::numbers::pi / 8.0);
+        CHECK(plan.actions.empty());
+        CHECK(plan.amplitude_scale == 1.0);
     }
 
-    SECTION("phase rotation factor follows signed axis") {
-        HirModule hir(1, 1);
-        clifft::test::append_phase_rotation(hir, 0, Z(0), true, 0.5);
+    SECTION("symbolic sign") {
+        const HirModule hir = clifft::trace(clifft::parse("X_ERROR(0.1) 0\nR_Z(0.3) 0"));
 
         const SamplingPlan plan = plan_sampling(hir);
 
-        REQUIRE(action_as<RotateActivePauli>(plan, 0).pauli.is_identity());
-        REQUIRE(action_as<RotateActivePauli>(plan, 0).sign == AffineBool(true));
-        require_global_phase(plan, -std::numbers::pi / 4.0);
+        REQUIRE(plan.symbols.size() == 1);
+        CHECK(plan.actions.empty());
+        CHECK(plan.amplitude_scale == 1.0);
     }
 }
 
@@ -617,5 +606,5 @@ TEST_CASE("Sampling planner target QEC plan characterization") {
     INFO(inspection);
     // After verifying that a reported inspection change is intentional, update
     // this digest to the new value shown by the failed assertion.
-    REQUIRE(fnv1a64(inspection) == 0x3582c678c0c8731cULL);
+    REQUIRE(fnv1a64(inspection) == 0x5af800fe8fc51fe0ULL);
 }

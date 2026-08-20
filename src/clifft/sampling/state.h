@@ -3,24 +3,22 @@
 #include "clifft/util/numeric.h"
 #include "clifft/util/page_allocation.h"
 
-#include <complex>
 #include <cstddef>
 #include <cstdint>
 #include <span>
 
 namespace clifft::sampling {
 
-// Holds one shot's state-vector coefficients for direct-Pauli execution. An
-// executor initializes the scalar from SamplingPlan::global_weight; it may have
-// non-unit magnitude and accumulates signed-identity phases while the real and
-// imaginary coefficient arrays remain normalized. The same allocation contains
-// temporary arrays used while collapsing a non-diagonal measurement.
+// Holds one shot's state-vector coefficients for direct-Pauli execution. The
+// real amplitude scale may be non-unit while the coefficient arrays remain
+// normalized. The same allocation contains temporary arrays used while
+// collapsing a non-diagonal measurement.
 class State {
   public:
     // Immediately allocates all coefficient and temporary storage required by
     // max_active_width, even when initial_active_width is smaller.
     explicit State(uint32_t max_active_width, uint32_t initial_active_width = 0,
-                   std::complex<double> initial_global_scalar = {1.0, 0.0});
+                   double amplitude_scale = 1.0);
     ~State();
 
     State(const State&) = delete;
@@ -28,7 +26,7 @@ class State {
     State(State&& other) noexcept;
     State& operator=(State&& other) noexcept;
 
-    // Restore the configured initial width, scalar, and |0...0> coefficients.
+    // Restore the configured initial width and |0...0> coefficients.
     // The allocation and all array addresses remain unchanged.
     void reset() noexcept;
 
@@ -62,9 +60,7 @@ class State {
     [[nodiscard]] double* scratch_imag_data() { return scratch_imag_; }
     [[nodiscard]] const double* scratch_imag_data() const { return scratch_imag_; }
 
-    [[nodiscard]] std::complex<double> global_scalar() const { return global_scalar_; }
-    void set_global_scalar(std::complex<double> value);
-    void multiply_global_scalar(std::complex<double> value) noexcept;
+    [[nodiscard]] double amplitude_scale() const { return amplitude_scale_; }
 
     // Kernel-only width transition. The caller must stay within the maximum
     // chosen at construction.
@@ -85,8 +81,7 @@ class State {
     uint32_t initial_active_width_ = 0;
     uint32_t active_width_ = 0;
     uint32_t max_active_width_ = 0;
-    std::complex<double> initial_global_scalar_ = {1.0, 0.0};
-    std::complex<double> global_scalar_ = {1.0, 0.0};
+    double amplitude_scale_ = 1.0;
 };
 
 }  // namespace clifft::sampling

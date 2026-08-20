@@ -194,8 +194,7 @@ TEST_CASE("Frontend: SPP emits Pauli rotations with named phases", "[frontend]")
     CHECK(hir.stab_mask(hir.ops[1]) == 0);
     CHECK(hir.sign(hir.ops[1]));
 
-    CHECK(hir.global_weight.real() == Catch::Approx(0.0).margin(1e-12));
-    CHECK(hir.global_weight.imag() == Catch::Approx(-1.0).margin(1e-12));
+    CHECK(hir.amplitude_scale == 1.0);
 }
 
 TEST_CASE("Frontend: TPP emits one T gate per product", "[frontend]") {
@@ -1721,15 +1720,12 @@ TEST_CASE("Frontend: R_PAULI emits PHASE_ROTATION on arbitrary Pauli", "[fronten
     CHECK(hir.stab_mask(hir.ops[0]).bit_get(2));
 }
 
-TEST_CASE("Frontend: R_Z global phase accumulation", "[frontend][rotation]") {
+TEST_CASE("Frontend: R_Z omits its source-representation global phase", "[frontend][rotation]") {
     auto circuit = parse("R_Z(0.25) 0");
     auto hir = trace(circuit);
 
-    double expected_re = std::cos(-0.25 * std::numbers::pi / 2.0);
-    double expected_im = std::sin(-0.25 * std::numbers::pi / 2.0);
     CHECK(hir.num_ops() == 1);
-    CHECK(hir.global_weight.real() == Catch::Approx(expected_re).epsilon(1e-12));
-    CHECK(hir.global_weight.imag() == Catch::Approx(expected_im).epsilon(1e-12));
+    CHECK(hir.amplitude_scale == 1.0);
 }
 
 TEST_CASE("Trace rejects a programmatic inverted READOUT_NOISE target") {

@@ -34,7 +34,7 @@ sampled so far. The resulting pure state has the factorization
 $$
 |\psi_j(s_{\le j})\rangle
 =
-\gamma_j(s_{\le j})\,
+a_j\,
 C_j\,
 P_j(s_{\le j})\,
 \Big(
@@ -64,8 +64,9 @@ The factors have distinct roles:
   of size $2^{k_j}$ containing the non-Clifford interference. Ordinary sampling
   keeps this coefficient state normalized up to floating-point drift.
 
-- **$\gamma_j$ (global scalar):** Carries a common complex weight and phase
-  outside the active coefficient array.
+- **$a_j$ (amplitude scale):** Carries a common nonnegative real weight outside
+  the active coefficient array. Global phase is intentionally omitted because
+  Clifft represents the state ray.
 
 Active and dormant coordinates are basis elements, not subsets of physical
 qubits. After Clifford gates change the basis, one coordinate may represent a

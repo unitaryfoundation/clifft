@@ -44,7 +44,7 @@ void validate_statevector_size(uint32_t num_qubits) {
 template <typename CoefficientAt>
 std::vector<std::complex<double>> expand_factored_state(
     uint32_t num_qubits, uint32_t active_width, uint64_t active_size, uint64_t pauli_x,
-    uint64_t pauli_z, const stim::Tableau<kStimWidth>* final_tableau, std::complex<double> scale,
+    uint64_t pauli_z, const stim::Tableau<kStimWidth>* final_tableau, double scale,
     CoefficientAt coefficient_at) {
     validate_statevector_size(num_qubits);
     const uint64_t dimension = uint64_t{1} << num_qubits;
@@ -111,7 +111,7 @@ std::vector<std::complex<double>> get_statevector(const ExecutablePlan& plan) {
     executor.run_shot();
     const State& state = executor.state();
     return expand_factored_state(plan.num_qubits(), state.active_width(), state.size(), 0, 0,
-                                 final_tableau, state.global_scalar(), [&](uint64_t index) {
+                                 final_tableau, state.amplitude_scale(), [&](uint64_t index) {
                                      return std::complex<double>{state.real_data()[index],
                                                                  state.imag_data()[index]};
                                  });

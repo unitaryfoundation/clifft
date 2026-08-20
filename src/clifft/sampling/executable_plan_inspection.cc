@@ -102,12 +102,8 @@ std::string ExecutablePlan::inspect_action(size_t action) const {
     std::visit(
         Overloaded{
             [&](const ExecuteRotation& typed) {
-                if (typed.rotation.pauli.is_identity()) {
-                    out << "ROTATE_PHASE w" << typed.rotation.pauli.active_width;
-                } else {
-                    out << "ROTATE ";
-                    write_prepared_pauli(out, typed.rotation.pauli);
-                }
+                out << "ROTATE ";
+                write_prepared_pauli(out, typed.rotation.pauli);
                 out << " cos=" << format_double_roundtrip(typed.rotation.cosine)
                     << " sin=" << format_double_roundtrip(typed.rotation.sine) << " sign=e"
                     << typed.sign.register_id

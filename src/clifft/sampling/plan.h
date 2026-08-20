@@ -23,7 +23,6 @@
 #include "clifft/util/stim_mask.h"
 
 #include <array>
-#include <complex>
 #include <cstdint>
 #include <limits>
 #include <optional>
@@ -343,10 +342,9 @@ struct SamplingPlan {
     uint32_t num_exp_vals = 0;
     bool has_postselection = false;
 
-    // Scales every amplitude represented by this plan. Its magnitude is
-    // semantically significant; its phase only selects an unspecified
-    // representative of the final state ray.
-    std::complex<double> global_weight = {1.0, 0.0};
+    // Nonnegative scale applied to every amplitude represented by this plan.
+    // Global phase is intentionally not represented.
+    double amplitude_scale = 1.0;
 
     // Present only for pure-state plans eligible for exact final-state
     // queries. It maps the final stabilizer coordinates used by the action

@@ -1,13 +1,11 @@
 #include "clifft/frontend/frontend.h"
 
-#include "clifft/util/constants.h"
 #include "clifft/util/numeric.h"
 
 #include "stim.h"
 
 #include <cmath>
 #include <initializer_list>
-#include <numbers>
 #include <optional>
 #include <random>
 #include <stdexcept>
@@ -268,17 +266,6 @@ NoiseSite make_depolarize3_noise_site(HirModule& hir, const stim::TableauSimulat
     return site;
 }
 
-// Accumulate the global phase contribution of R_Z(alpha) into hir.global_weight.
-// R_Z(alpha) = exp(-i*alpha*pi/2 * Z) factors as
-//   global:   e^{-i*alpha*pi/2}
-//   relative: diag(1, e^{i*alpha*pi})
-// This function tracks only the global piece; the relative phase is encoded
-// by the emitted PHASE_ROTATION op.
-void accumulate_rz_global_phase(HirModule& hir, double alpha) {
-    double angle = -alpha * std::numbers::pi / 2.0;
-    hir.global_weight *= std::complex<double>(std::cos(angle), std::sin(angle));
-}
-
 // Absorb a native Clifford representative. Its omitted scalar phase is
 // permitted by the projective statevector contract.
 bool try_absorb_clifford_axis_rotation(stim::TableauSimulator<kStimWidth>& sim, uint32_t qubit,
@@ -305,13 +292,9 @@ bool try_absorb_clifford_axis_rotation(stim::TableauSimulator<kStimWidth>& sim, 
     return true;
 }
 
-// Trace R_Z(alpha) on a single qubit: extract the rewound Z, emit
-// PHASE_ROTATION, accumulate global phase.
-//
-// When the rewound sign is negative, the rewound Pauli is -Z, so the
-// physical operator is exp(-i*alpha*pi/2 * (-Z)) = exp(+i*alpha*pi/2 * Z),
-// whose global phase is e^{+i*alpha*pi/2}. We pass the sign-adjusted alpha
-// to the global phase accumulator so the tracked phase stays correct.
+// Trace R_Z(alpha) on a single qubit by extracting its rewound Z axis. The
+// source gate and emitted exponential may differ by a global phase, which is
+// intentionally omitted by the projective state contract.
 void trace_rz(stim::TableauSimulator<kStimWidth>& sim, HirModule& hir, uint32_t qubit,
               double alpha) {
     if (try_absorb_clifford_axis_rotation(sim, qubit, alpha, GateType::S, GateType::Z,
@@ -324,12 +307,9 @@ void trace_rz(stim::TableauSimulator<kStimWidth>& sim, HirModule& hir, uint32_t 
         extract_rewound_z_into(sim, qubit, slot.x(), slot.z(), sign);
         slot.set_sign(sign);
     });
-    double effective_alpha = sign ? -alpha : alpha;
-    accumulate_rz_global_phase(hir, effective_alpha);
 }
 
-// Trace an arbitrary Pauli rotation exp(-i*alpha*pi/2 * P) where P is a
-// stim::PauliString. Same sign-adjusted global phase logic as trace_rz.
+// Trace an arbitrary Pauli rotation exp(-i*alpha*pi/2 * P).
 void trace_pauli_rotation(stim::TableauSimulator<kStimWidth>& sim, HirModule& hir,
                           const stim::PauliString<kStimWidth>& obs, double alpha) {
     stim::PauliString<kStimWidth> rewound = sim.inv_state(obs);
@@ -338,8 +318,6 @@ void trace_pauli_rotation(stim::TableauSimulator<kStimWidth>& sim, HirModule& hi
         copy_rewound_into(rewound, n, slot.x(), slot.z());
         slot.set_sign(rewound.sign);
     });
-    double effective_alpha = rewound.sign ? -alpha : alpha;
-    accumulate_rz_global_phase(hir, effective_alpha);
 }
 
 /// Build a stim::PauliString from an MPP/EXP_VAL/R_PAULI target list.
@@ -650,7 +628,6 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                 obs.sign = inversion_parity;
                 const bool dagger = node.gate == GateType::SPP_DAG;
                 trace_pauli_rotation(sim, hir, obs, dagger ? -0.5 : 0.5);
-                hir.global_weight *= dagger ? kExpMinusIPiOver4 : kExpIPiOver4;
                 break;
             }
 
@@ -727,10 +704,6 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                     }
 
                     trace_rz(sim, hir, qubit, phi);
-
-                    double u3_phase = (phi + lambda) * std::numbers::pi / 2.0;
-                    hir.global_weight *=
-                        std::complex<double>(std::cos(u3_phase), std::sin(u3_phase));
                 }
                 break;
             }

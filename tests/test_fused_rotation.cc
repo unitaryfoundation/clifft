@@ -52,7 +52,7 @@ void require_matches_scalar(const SamplingPlan& plan, uint8_t presampled_value,
     Executor executor(executable);
     executor.run_shot(std::array<uint8_t, 1>{presampled_value});
 
-    State expected(plan.peak_active_width, plan.initial_active_width, plan.global_weight);
+    State expected(plan.peak_active_width, plan.initial_active_width, plan.amplitude_scale);
     for (const PlannedAction& planned : plan.actions) {
         const auto& rotation = std::get<RotateActivePauli>(planned.action);
         bool sign = rotation.sign.constant();
@@ -66,10 +66,7 @@ void require_matches_scalar(const SamplingPlan& plan, uint8_t presampled_value,
     }
 
     REQUIRE(executor.state().size() == expected.size());
-    REQUIRE_THAT(executor.state().global_scalar().real(),
-                 Catch::Matchers::WithinAbs(expected.global_scalar().real(), 1e-12));
-    REQUIRE_THAT(executor.state().global_scalar().imag(),
-                 Catch::Matchers::WithinAbs(expected.global_scalar().imag(), 1e-12));
+    REQUIRE(executor.state().amplitude_scale() == expected.amplitude_scale());
     for (uint64_t basis = 0; basis < expected.size(); ++basis) {
         CAPTURE(presampled_value, basis);
         REQUIRE_THAT(executor.state().real_data()[basis],
@@ -138,19 +135,6 @@ TEST_CASE("Executable plan preserves optional provenance across fusion") {
     REQUIRE(executable.inspect().find("plans=[0,3) FUSED_ROTATION descriptor=0") !=
             std::string::npos);
     REQUIRE_THROWS_AS(executable.action_plan_range(1), std::out_of_range);
-}
-
-TEST_CASE("Fused rotation preserves a signed identity barrier") {
-    const std::array rotations = {
-        RotateActivePauli{{0b01, 0b00}, 0.25, AffineBool(false)},
-        RotateActivePauli{{0b10, 0b01}, -0.3, AffineBool(true)},
-        RotateActivePauli{{0b11, 0b11}, 0.4, AffineBool(false)},
-        RotateActivePauli{{0b00, 0b00}, 0.5, AffineBool(true)},
-        RotateActivePauli{{0b01, 0b10}, -0.1, AffineBool(false)},
-        RotateActivePauli{{0b10, 0b11}, 0.35, AffineBool(true)},
-        RotateActivePauli{{0b11, 0b01}, -0.45, AffineBool(false)},
-    };
-    require_matches_scalar(rotation_plan(2, rotations), 0, 3);
 }
 
 TEST_CASE("Fused rotation leaves a below threshold run unfused") {
@@ -295,13 +279,6 @@ TEST_CASE("Dynamic fused rotation stops at execution barriers") {
             6, 6, RotateActivePauli{{kXMasks[i % 3], uint64_t{1} << (i % 6)}, 0.2, signs[i % 3]}});
     }
 
-    std::vector<PlannedAction> identity_barrier = actions;
-    identity_barrier.push_back(
-        PlannedAction{6, 6, RotateActivePauli{{0, 0}, 0.25, AffineBool::symbol(first_sign)}});
-    const auto identity_run = prepare_dynamic_fused_rotation_run(identity_barrier);
-    REQUIRE(identity_run.action_count == actions.size());
-    REQUIRE(identity_run.rotation.has_value());
-
     std::vector<PlannedAction> width_barrier = actions;
     width_barrier.push_back(PlannedAction{
         5, 5, RotateActivePauli{{0b001000, 0b000101}, 0.25, AffineBool::symbol(first_sign)}});
@@ -312,7 +289,6 @@ TEST_CASE("Dynamic fused rotation stops at execution barriers") {
 
 TEST_CASE("Direct rotation SIMD matches scalar across eligible shapes") {
     const std::array rotations = {
-        RotateActivePauli{{0, 0}, 0.125, AffineBool::symbol(SymbolId{0})},
         RotateActivePauli{{0, 0b101011}, -0.3, AffineBool::symbol(SymbolId{0})},
         RotateActivePauli{{0b001011, 0b000011}, 0.2, AffineBool::symbol(SymbolId{0})},
         RotateActivePauli{{0b011001, 0b010101}, -0.4, AffineBool::symbol(SymbolId{0})},

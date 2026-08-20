@@ -193,7 +193,7 @@ TEST_CASE("HirModule construction and accessors", "[hir]") {
 
     REQUIRE(hir.num_ops() == 0);
     REQUIRE(hir.num_t_gates() == 0);
-    REQUIRE(hir.global_weight == std::complex<double>(1.0, 0.0));
+    REQUIRE(hir.amplitude_scale == 1.0);
 
     clifft::test::append_tgate(hir, X(0), 0, false);        // T
     clifft::test::append_tgate(hir, X(1), 0, false, true);  // T_dag

@@ -326,7 +326,7 @@ uint32_t predicted_dense_passes(const SamplingAction& action) {
         [](const auto& typed) -> uint32_t {
             using T = std::decay_t<decltype(typed)>;
             if constexpr (std::is_same_v<T, RotateActivePauli>) {
-                return typed.pauli.is_identity() ? 0 : 1;
+                return 1;
             } else if constexpr (std::is_same_v<T, PromoteDormantRotation>) {
                 return 1;
             } else if constexpr (std::is_same_v<T, MeasureActivePauli>) {
@@ -379,8 +379,8 @@ void SamplingPlan::validate() const {
     if (total_records > std::numeric_limits<uint32_t>::max()) {
         invalid_plan("record count exceeds uint32 range");
     }
-    if (!is_finite_robust(global_weight.real()) || !is_finite_robust(global_weight.imag())) {
-        invalid_plan("global weight is not finite");
+    if (!is_finite_robust(amplitude_scale) || amplitude_scale < 0.0) {
+        invalid_plan("amplitude scale must be finite and nonnegative");
     }
     if (final_tableau.has_value() && final_tableau->num_qubits != num_qubits) {
         invalid_plan("final tableau width does not match the qubit count");
@@ -580,6 +580,9 @@ void SamplingPlan::validate() const {
                         invalid_plan("active rotation changes active width");
                     }
                     validate_pauli(typed.pauli, planned.active_before, action_index);
+                    if (typed.pauli.is_identity()) {
+                        invalid_plan("active rotation Pauli is identity");
+                    }
                     if (!is_finite_robust(typed.half_turns)) {
                         invalid_plan("active rotation angle is not finite");
                     }

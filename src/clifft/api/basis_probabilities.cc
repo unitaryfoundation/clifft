@@ -408,7 +408,7 @@ std::complex<double> BoundStabilizerAmplitudeQuery::amplitude(MaskView basis,
 template <typename CoefficientAt>
 std::vector<double> basis_probabilities_from_factored_state(
     uint32_t n, uint32_t active_width, uint64_t active_size,
-    const stim::Tableau<kStimWidth>& final_tableau, std::complex<double> scale, MaskView state_px,
+    const stim::Tableau<kStimWidth>& final_tableau, double scale, MaskView state_px,
     uint64_t active_z_mask, CoefficientAt coefficient_at, std::span<const uint64_t> basis_masks,
     size_t num_basis_masks, size_t words_per_basis_mask) {
     // The factored state is scale * U_C * P * (|phi>_A x |0>_D). The inverse
@@ -577,7 +577,7 @@ std::vector<double> basis_probabilities(const ExecutablePlan& plan,
     BasisMask zero_frame = zero_basis_mask(plan.num_qubits());
     return basis_probabilities_from_factored_state(
         plan.num_qubits(), state.active_width(), state.size(), *final_tableau,
-        state.global_scalar(), basis_mask_view(zero_frame), 0,
+        state.amplitude_scale(), basis_mask_view(zero_frame), 0,
         [&](uint64_t active_index) {
             return std::complex<double>{state.real_data()[active_index],
                                         state.imag_data()[active_index]};

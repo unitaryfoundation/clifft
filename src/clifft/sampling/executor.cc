@@ -52,7 +52,7 @@ struct MeasurementBranchClassification {
 Executor::Executor(const ExecutablePlan& plan, uint64_t seed)
     : root_plan_(&plan),
       plan_(&plan),
-      state_(plan.peak_active_width_, plan.initial_active_width_, plan.global_weight_),
+      state_(plan.peak_active_width_, plan.initial_active_width_, plan.amplitude_scale_),
       symbols_(plan.num_symbols_, 0),
       expression_registers_(plan.expression_register_constants_),
       records_(static_cast<size_t>(plan.num_visible_records_) + plan.num_hidden_records_, 0),

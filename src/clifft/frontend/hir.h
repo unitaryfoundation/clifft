@@ -20,7 +20,6 @@
 
 #include <algorithm>
 #include <cassert>
-#include <complex>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -458,10 +457,9 @@ struct HirModule {
     // InstrumentSite.
     bool neglect_instrument_damping = false;
 
-    /// Scales every amplitude represented by this module. Its magnitude is
-    /// semantically significant; its phase only selects an unspecified
-    /// representative of the final state ray.
-    std::complex<double> global_weight = {1.0, 0.0};
+    /// Nonnegative scale applied to every amplitude represented by this module.
+    /// Global phase is intentionally not represented.
+    double amplitude_scale = 1.0;
 
     /// Parallel to ops: source_map[i] lists the source line(s) that
     /// produced ops[i]. Empty inner vector means an optimizer pass

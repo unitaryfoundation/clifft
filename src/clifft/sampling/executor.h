@@ -34,7 +34,7 @@ struct ForcedTraceOut {
     uint8_t source = 0;
 };
 
-// Holds the dense active-coordinate coefficients and global scalar, Boolean
+// Holds the dense active-coordinate coefficients and amplitude scale, Boolean
 // symbols carrying stochastic frame dependencies, visible and hidden records,
 // measurement RNG, and numerical-dust telemetry for repeated shots. The plan
 // must outlive the executor. Construction allocates all storage; run_shot only

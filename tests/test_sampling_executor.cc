@@ -681,23 +681,19 @@ TEST_CASE("Sampling executor clamps active measurement dust to branch one") {
     REQUIRE(executor.dust_clamps() == 1);
 }
 
-TEST_CASE("Sampling executor retains exact identity rotation scalars") {
+TEST_CASE("Sampling executor receives no identity rotation actions") {
     clifft::HirModule hir(1, 1);
     hir.append_tgate(false, [](clifft::MutablePauliMaskView slot) {
         slot.z().bit_set(0, true);
         slot.set_sign(true);
     });
     const ExecutablePlan executable(clifft::sampling::plan_sampling(hir));
+    REQUIRE(executable.num_actions() == 0);
     Executor executor(executable);
 
     executor.run_shot();
 
-    const std::complex<double> expected{std::cos(std::numbers::pi / 4.0),
-                                        std::sin(std::numbers::pi / 4.0)};
-    REQUIRE_THAT(executor.state().global_scalar().real(),
-                 Catch::Matchers::WithinAbs(expected.real(), 1e-12));
-    REQUIRE_THAT(executor.state().global_scalar().imag(),
-                 Catch::Matchers::WithinAbs(expected.imag(), 1e-12));
+    CHECK(executor.state().amplitude_scale() == 1.0);
 }
 
 TEST_CASE("Sampling executor prepares instrument boundaries before dispatch") {
@@ -1149,6 +1145,7 @@ TEST_CASE("Sampling continuation preserves fused rotation prefixes") {
     root_plan.num_qubits = kActiveWidth + 1;
     root_plan.initial_active_width = kActiveWidth;
     root_plan.peak_active_width = kActiveWidth;
+    root_plan.amplitude_scale = 0.25;
     root_plan.num_instrument_sites = 1;
     root_plan.instrument_distributions = {
         InstrumentDistribution{InstrumentSiteId{0}, {1.0, 1.0}, {}}};
@@ -1163,6 +1160,7 @@ TEST_CASE("Sampling continuation preserves fused rotation prefixes") {
         PlannedAction{kActiveWidth, kActiveWidth, InstrumentBoundary{InstrumentSiteId{0}, 0, 0}});
 
     SamplingPlan continuation_plan = root_plan;
+    continuation_plan.amplitude_scale = 0.75;
     for (const RotateActivePauli& rotation : continuation_rotations) {
         continuation_plan.actions.push_back(PlannedAction{kActiveWidth, kActiveWidth, rotation});
     }
@@ -1172,7 +1170,7 @@ TEST_CASE("Sampling continuation preserves fused rotation prefixes") {
     REQUIRE(root.num_actions() == 3);
     REQUIRE(continuation.num_actions() == 4);
 
-    State expected(kActiveWidth, kActiveWidth);
+    State expected(kActiveWidth, kActiveWidth, root_plan.amplitude_scale);
     for (const RotateActivePauli& rotation : prefix_rotations) {
         apply_rotation(expected,
                        prepare_rotation(rotation.pauli, kActiveWidth, rotation.half_turns),
@@ -1183,6 +1181,7 @@ TEST_CASE("Sampling continuation preserves fused rotation prefixes") {
     executor.run_shot();
     REQUIRE(executor.pending_trap().has_value());
     REQUIRE(executor.pending_trap()->destination_pending);
+    REQUIRE(executor.state().amplitude_scale() == root_plan.amplitude_scale);
     for (uint64_t basis = 0; basis < expected.size(); ++basis) {
         CAPTURE(basis);
         REQUIRE_THAT(executor.state().real_data()[basis],
@@ -1198,6 +1197,7 @@ TEST_CASE("Sampling continuation preserves fused rotation prefixes") {
     }
     executor.resume(continuation);
     REQUIRE_FALSE(executor.pending_trap().has_value());
+    REQUIRE(executor.state().amplitude_scale() == root_plan.amplitude_scale);
     for (uint64_t basis = 0; basis < expected.size(); ++basis) {
         CAPTURE(basis);
         REQUIRE_THAT(executor.state().real_data()[basis],

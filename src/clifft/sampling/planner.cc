@@ -9,10 +9,8 @@
 
 #include <algorithm>
 #include <cmath>
-#include <complex>
 #include <cstdint>
 #include <limits>
-#include <numbers>
 #include <optional>
 #include <span>
 #include <stdexcept>
@@ -139,10 +137,6 @@ void define_symbol(SamplingPlan& plan, SymbolId symbol, SymbolKind kind, uint32_
     info = SymbolInfo{kind, action, std::nullopt};
 }
 
-void multiply_phase(std::complex<double>& weight, double angle) {
-    weight *= std::complex<double>(std::cos(angle), std::sin(angle));
-}
-
 bool option_bit(std::span<const uint8_t> values, uint32_t index) {
     return index < values.size() && values[index] != 0;
 }
@@ -246,11 +240,14 @@ bool process_rotation(const Pauli& body, double half_turns, const AffineBool& si
     ResolvedPauli resolved = resolve_pauli(body, sign, coordinates, symbolic_frame);
     const std::optional<uint32_t> dormant_pivot = first_x_at_or_above(resolved.body, active_width);
     if (!dormant_pivot.has_value()) {
+        const ActivePauli active = active_projection(resolved.body, active_width);
+        if (active.is_identity()) {
+            return false;
+        }
         append_action(
             plan,
             PlannedAction{active_width, active_width,
-                          RotateActivePauli{active_projection(resolved.body, active_width),
-                                            half_turns, std::move(resolved.sign)}},
+                          RotateActivePauli{active, half_turns, std::move(resolved.sign)}},
             source_lines);
         return false;
     }
@@ -414,7 +411,7 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
     plan.num_detectors = hir.num_detectors;
     plan.num_observables = hir.num_observables;
     plan.num_exp_vals = hir.num_exp_vals;
-    plan.global_weight = hir.global_weight;
+    plan.amplitude_scale = hir.amplitude_scale;
     if (options.retain_source_map) {
         if (hir.source_map.size() != hir.ops.size()) {
             throw std::invalid_argument(
@@ -490,8 +487,6 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
                 final_coordinates_changed |=
                     process_rotation(body, half_turns, AffineBool(hir.sign(op)), plan, active_width,
                                      coordinates, symbolic_frame, source_lines);
-                multiply_phase(plan.global_weight,
-                               (op.is_dagger() ? -1.0 : 1.0) * std::numbers::pi / 8.0);
                 break;
             }
             case OpType::PHASE_ROTATION: {
@@ -499,8 +494,6 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
                 final_coordinates_changed |=
                     process_rotation(body, op.alpha(), AffineBool(hir.sign(op)), plan, active_width,
                                      coordinates, symbolic_frame, source_lines);
-                const double signed_alpha = hir.sign(op) ? -op.alpha() : op.alpha();
-                multiply_phase(plan.global_weight, signed_alpha * std::numbers::pi / 2.0);
                 break;
             }
             case OpType::MEASURE: {

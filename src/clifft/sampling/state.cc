@@ -19,25 +19,13 @@ uint64_t round_array_stride(uint64_t entries) {
                     (entries + kDoublesPerAlignment - 1) & ~(kDoublesPerAlignment - 1));
 }
 
-bool is_finite_scalar(std::complex<double> value) {
-    return is_finite_robust(value.real()) && is_finite_robust(value.imag());
-}
-
-void validate_scalar(std::complex<double> value) {
-    if (!is_finite_scalar(value)) {
-        throw std::invalid_argument("sampling state global scalar must be finite");
-    }
-}
-
 }  // namespace
 
-State::State(uint32_t max_active_width, uint32_t initial_active_width,
-             std::complex<double> initial_global_scalar)
+State::State(uint32_t max_active_width, uint32_t initial_active_width, double amplitude_scale)
     : initial_active_width_(initial_active_width),
       active_width_(initial_active_width),
       max_active_width_(max_active_width),
-      initial_global_scalar_(initial_global_scalar),
-      global_scalar_(initial_global_scalar) {
+      amplitude_scale_(amplitude_scale) {
     if (max_active_width >= kDenseActiveWidthLimit) {
         throw std::invalid_argument("sampling state maximum active width must be below " +
                                     std::to_string(kDenseActiveWidthLimit));
@@ -45,7 +33,10 @@ State::State(uint32_t max_active_width, uint32_t initial_active_width,
     if (initial_active_width > max_active_width) {
         throw std::invalid_argument("sampling state initial active width exceeds its maximum");
     }
-    validate_scalar(initial_global_scalar);
+    if (!is_finite_robust(amplitude_scale) || amplitude_scale < 0.0) {
+        throw std::invalid_argument(
+            "sampling state amplitude scale must be finite and nonnegative");
+    }
 
     capacity_ = uint64_t{1} << max_active_width;
     coefficient_stride_ = round_array_stride(capacity_);
@@ -83,7 +74,6 @@ State& State::operator=(State&& other) noexcept {
 void State::reset() noexcept {
     assert(!allocation_.empty() && "cannot reset a moved-from sampling state");
     active_width_ = initial_active_width_;
-    global_scalar_ = initial_global_scalar_;
     // Only the live prefix is observable. Promotions overwrite both halves of
     // each newly active range, and measurement scratch is overwritten on use.
     std::fill_n(real_, static_cast<size_t>(size()), 0.0);
@@ -129,18 +119,6 @@ void State::ensure_capacity(uint32_t max_active_width) {
     max_active_width_ = max_active_width;
 }
 
-void State::set_global_scalar(std::complex<double> value) {
-    validate_scalar(value);
-    global_scalar_ = value;
-}
-
-void State::multiply_global_scalar(std::complex<double> value) noexcept {
-    assert(is_finite_scalar(value) && "global scalar factor must be finite");
-    const std::complex<double> updated = global_scalar_ * value;
-    assert(is_finite_scalar(updated) && "updated global scalar must be finite");
-    global_scalar_ = updated;
-}
-
 void State::set_active_width(uint32_t width) noexcept {
     assert(width <= max_active_width_ && "active width must fit the sampling state allocation");
     active_width_ = width;
@@ -166,9 +144,7 @@ void State::move_from(State&& other) noexcept {
     initial_active_width_ = std::exchange(other.initial_active_width_, 0);
     active_width_ = std::exchange(other.active_width_, 0);
     max_active_width_ = std::exchange(other.max_active_width_, 0);
-    initial_global_scalar_ =
-        std::exchange(other.initial_global_scalar_, std::complex<double>{1.0, 0.0});
-    global_scalar_ = std::exchange(other.global_scalar_, std::complex<double>{1.0, 0.0});
+    amplitude_scale_ = std::exchange(other.amplitude_scale_, 1.0);
 }
 
 }  // namespace clifft::sampling
