@@ -43,9 +43,9 @@ whitespace-separated products in one instruction. Prefixing a Pauli term with
 appear only once in each product, which is stricter than Stim for some
 syntactically valid Hermitian products.
 
-The default optimizer absorbs `SPP` and `SPP_DAG` into the Clifford frame, so
-they have no runtime cost. `SPP Z0` and `S 0` represent the same projective
-Clifford operation.
+The frontend absorbs `SPP` and `SPP_DAG` into the Clifford frame during
+tracing, so they have no runtime cost. `SPP Z0` and `S 0` represent the same
+projective Clifford operation.
 
 ## Non-Clifford Extensions
 
@@ -133,6 +133,12 @@ Duplicate target qubits (e.g. `R_XX(0.5) 3 3`) are rejected at parse time.
 
 The target list uses Stim's Pauli product syntax (e.g. `X0*Y1*Z2`). Maximum
 target count is 64 qubits per instruction.
+
+For two- and multi-qubit Pauli rotations, finite angles within the shared
+`1e-12` half-turn tolerance of a Clifford angle are absorbed into the Clifford
+frame during tracing. This includes square-root Pauli rotations at half-integer
+angles and projective Pauli gates at odd-integer angles. The peephole pass
+applies the same rule to HIR rotations produced directly or by fusion.
 
 ## Two-Qubit Clifford Gates
 

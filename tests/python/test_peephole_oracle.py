@@ -568,7 +568,30 @@ class TestSAbsorptionDifferential:
             "R_Z(0.25) 0\nR_Z(0.25) 0\nH 1\nR_Z(0.75) 1\nR_Z(0.75) 1"
         )
 
-    @pytest.mark.parametrize("angle", [0.5, 1.5])
-    def test_standalone_multi_qubit_phase_rotation_demotion(self, angle: float) -> None:
-        """Standalone multi-qubit S/S_dag rotations reach peephole absorption."""
-        _assert_absorption_preserves_state(f"R_XX({angle}) 0 1")
+    @pytest.mark.parametrize("angles", [(0.2, 0.3), (0.7, 0.8)])
+    def test_fused_multi_qubit_phase_rotation_demotion(self, angles: tuple[float, float]) -> None:
+        """Fused multi-qubit S/S_dag rotations reach peephole absorption."""
+        first, second = angles
+        _assert_absorption_preserves_state(f"R_XX({first}) 0 1\nR_XX({second}) 0 1")
+
+
+class TestPauliRotationAbsorption:
+    """Pauli-valued rotations are folded into the Clifford frame."""
+
+    def test_fused_pauli_residue_preserves_state_ray(self) -> None:
+        circuit = "H 0\nR_Z(0.3) 0\nR_Z(0.7) 0\nR_X(0.2) 0"
+        optimized = _assert_absorption_preserves_state(circuit)
+        assert optimized.peak_active_width == 0
+
+    def test_fused_pauli_residue_preserves_record_probabilities(self) -> None:
+        circuit = "H 0\nR_Z(0.3) 0\nR_Z(0.7) 0\nH 0\nM 0"
+        baseline = clifft.compile(circuit, hir_passes=None)
+        optimized = clifft.compile(circuit, hir_passes=_peephole_pass_manager())
+
+        np.testing.assert_allclose(
+            clifft.record_probabilities(optimized, ["0", "1"]),
+            clifft.record_probabilities(baseline, ["0", "1"]),
+            atol=1e-12,
+        )
+        assert baseline.peak_active_width == 1
+        assert optimized.peak_active_width == 0

@@ -128,6 +128,22 @@ void apply_s_to_tableau(stim::Tableau<kStimWidth>& tab, MaskView x_v, MaskView z
     }
 }
 
+void apply_pauli_to_tableau(stim::Tableau<kStimWidth>& tab, MaskView x_v, MaskView z_v) {
+    assert(x_v.num_words() == z_v.num_words());
+    const size_t tableau_words = (tab.num_qubits + 63) / 64;
+    assert(tableau_words <= x_v.num_words());
+    const size_t words = std::min({tableau_words, static_cast<size_t>(x_v.num_words()),
+                                   static_cast<size_t>(z_v.num_words())});
+    for (size_t w = 0; w < words; ++w) {
+        uint64_t valid_bits = UINT64_MAX;
+        if (w + 1 == tableau_words && tab.num_qubits % 64 != 0) {
+            valid_bits = (uint64_t{1} << (tab.num_qubits % 64)) - 1;
+        }
+        tab.zs.signs.u64[w] ^= x_v.words[w] & valid_bits;
+        tab.xs.signs.u64[w] ^= z_v.words[w] & valid_bits;
+    }
+}
+
 }  // namespace internal
 
 namespace {
@@ -200,6 +216,53 @@ void apply_virtual_s_downstream(HirModule& hir, size_t start_idx, MaskView x_v, 
     // 2. Final Tableau: U_C' = U_C S (requires inverted dagger flag)
     if (hir.final_tableau.has_value()) {
         internal::apply_s_to_tableau(*hir.final_tableau, x_v, z_v, sign_v, is_dagger);
+    }
+}
+
+/// Absorb a virtual Pauli into downstream signs and the final Clifford frame.
+void apply_virtual_pauli_downstream(HirModule& hir, size_t start_idx, MaskView x_v, MaskView z_v,
+                                    const std::vector<uint8_t>& deleted) {
+    auto conjugate_mask = [&](MutablePauliMaskView mask) {
+        if (anti_commute(x_v, z_v, mask.x(), mask.z())) {
+            mask.set_sign(!mask.sign());
+        }
+    };
+
+    for (size_t k = start_idx; k < hir.ops.size(); ++k) {
+        if (deleted[k]) {
+            continue;
+        }
+        auto& op = hir.ops[k];
+        switch (op.op_type()) {
+            case OpType::T_GATE:
+            case OpType::PHASE_ROTATION:
+            case OpType::MEASURE:
+            case OpType::CONDITIONAL_PAULI:
+            case OpType::EXP_VAL:
+                conjugate_mask(hir.mask_at(op));
+                break;
+
+            case OpType::INSTRUMENT: {
+                conjugate_mask(hir.mask_at(op));
+                const auto& site =
+                    hir.instrument_sites[static_cast<uint32_t>(op.instrument_site_idx())];
+                conjugate_mask(hir.pauli_masks.mut_at(site.destination_flip_mask));
+                break;
+            }
+
+            // Pauli-channel signs are physically irrelevant, and these ops
+            // carry no coherent Pauli axis to conjugate.
+            case OpType::NOISE:
+            case OpType::READOUT_NOISE:
+            case OpType::DETECTOR:
+            case OpType::OBSERVABLE:
+            case OpType::NUM_OP_TYPES:
+                break;
+        }
+    }
+
+    if (hir.final_tableau.has_value()) {
+        internal::apply_pauli_to_tableau(*hir.final_tableau, x_v, z_v);
     }
 }
 
@@ -455,6 +518,12 @@ void PeepholeFusionPass::run(HirModule& hir) {
                         apply_virtual_s_downstream(hir, j + 1, destab_i, stab_i, false, true,
                                                    deleted);
                         ++fusions_;
+                    } else if (clifford == CliffordRotation::PAULI) {
+                        // A Pauli rotation is Clifford up to global phase.
+                        deleted[i] = true;
+                        deleted[j] = true;
+                        apply_virtual_pauli_downstream(hir, j + 1, destab_i, stab_i, deleted);
+                        ++fusions_;
                     } else if (std::abs(fused - 0.25) < kRotationCanonicalizationTolerance) {
                         hir.demote_to_tgate(hir.ops[i], false);
                         if (has_source_map) {
@@ -520,6 +589,12 @@ void PeepholeFusionPass::run(HirModule& hir) {
                 // S_dag: absorb downstream.
                 apply_virtual_s_downstream(hir, i + 1, hir.destab_mask(hir.ops[i]),
                                            hir.stab_mask(hir.ops[i]), false, true, deleted);
+                deleted[i] = true;
+                ++fusions_;
+                changed = true;
+            } else if (clifford == CliffordRotation::PAULI) {
+                apply_virtual_pauli_downstream(hir, i + 1, hir.destab_mask(hir.ops[i]),
+                                               hir.stab_mask(hir.ops[i]), deleted);
                 deleted[i] = true;
                 ++fusions_;
                 changed = true;

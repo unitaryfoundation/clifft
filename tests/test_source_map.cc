@@ -98,6 +98,14 @@ TEST_CASE("Source map: T plus T_dag cancellation removes both from map", "[sourc
     }
 }
 
+TEST_CASE("Source map: absorbed Pauli residue removes only its source entries", "[source_map]") {
+    auto hir = hir_optimized("R_Z(0.3) 0\nR_Z(0.7) 0\nR_X(0.2) 0");
+
+    REQUIRE(hir.ops.size() == 1);
+    REQUIRE(hir.ops[0].op_type() == OpType::PHASE_ROTATION);
+    REQUIRE(hir.source_map == std::vector<std::vector<uint32_t>>{{3}});
+}
+
 TEST_CASE("Source map: terminal reset phase elimination removes only phase entries",
           "[source_map]") {
     auto hir = hir_optimized(
