@@ -5,6 +5,7 @@ include(CTest)
 include(Catch)
 
 add_executable(clifft_tests
+    test_accelerator_plan_support.cc
     test_benchmarks.cc
     test_bitmask.cc
     test_mask_view.cc
