@@ -102,15 +102,6 @@ TEST_CASE("Sampling plan promotion inspection starts with the width change and m
     CHECK(plan.inspect_action_compact(0).starts_with("w0->1 PROMOTE_DORMANT"));
 }
 
-TEST_CASE("Rotation inspection renders ROTATE_PHASE without a Pauli operand for the identity") {
-    SamplingPlan plan;
-    plan.actions = {
-        PlannedAction{1, 1, RotateActivePauli{ActivePauli{0, 0}, 0.25, AffineBool{}}},
-    };
-
-    CHECK(plan.inspect_action(0) == "w1 dense_passes=0 ROTATE_PHASE half_turns=0.25 sign=0");
-}
-
 TEST_CASE("Full inspection reports dense_passes while compact reports a trailing passes field") {
     SamplingPlan dense_plan;
     dense_plan.actions = {
@@ -197,10 +188,6 @@ TEST_CASE("Compact inspection mnemonics cover every SamplingAction and its docs 
 
     SamplingPlan plan;
     plan.actions = {
-        // Rotation has two renderings that pick different mnemonics: an
-        // identity Pauli renders ROTATE_PHASE, a non-identity Pauli renders
-        // ROTATE_ACTIVE. Both are covered explicitly.
-        PlannedAction{1, 1, RotateActivePauli{ActivePauli{0, 0}, 0.25, empty}},
         PlannedAction{1, 1, RotateActivePauli{ActivePauli{1, 0}, 0.25, empty}},
         PlannedAction{0, 1, PromoteDormantRotation{0.25, empty}},
         PlannedAction{1, 0,
@@ -230,10 +217,9 @@ TEST_CASE("Compact inspection mnemonics cover every SamplingAction and its docs 
     }
 
     const std::set<std::string> expected = {
-        "ROTATE_ACTIVE",       "ROTATE_PHASE",     "PROMOTE_DORMANT",   "MEASURE_ACTIVE",
-        "MEASURE_DORMANT",     "RECORD_CLASSICAL", "DEFINE_SYMBOL",     "READOUT_NOISE",
-        "WRITE_DETECTOR",      "WRITE_OBSERVABLE", "WRITE_EXPECTATION", "APPLY_INSTRUMENT",
-        "INSTRUMENT_BOUNDARY",
+        "ROTATE_ACTIVE",    "PROMOTE_DORMANT",   "MEASURE_ACTIVE",   "MEASURE_DORMANT",
+        "RECORD_CLASSICAL", "DEFINE_SYMBOL",     "READOUT_NOISE",    "WRITE_DETECTOR",
+        "WRITE_OBSERVABLE", "WRITE_EXPECTATION", "APPLY_INSTRUMENT", "INSTRUMENT_BOUNDARY",
     };
     REQUIRE(mnemonics == expected);
 

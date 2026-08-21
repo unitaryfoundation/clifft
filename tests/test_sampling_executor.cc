@@ -709,23 +709,38 @@ TEST_CASE("Sampling executor clamps active measurement dust to branch one") {
     REQUIRE(executor.dust_clamps() == 1);
 }
 
-TEST_CASE("Sampling executor retains exact identity rotation scalars") {
+TEST_CASE("Sampling executor receives no identity rotation actions") {
     clifft::HirModule hir(1, 1);
     hir.append_tgate(false, [](clifft::MutablePauliMaskView slot) {
         slot.z().bit_set(0, true);
         slot.set_sign(true);
     });
     const ExecutablePlan executable(clifft::sampling::plan_sampling(hir));
+    REQUIRE(executable.num_actions() == 0);
     Executor executor(executable);
 
     executor.run_shot();
+}
 
-    const std::complex<double> expected{std::cos(std::numbers::pi / 4.0),
-                                        std::sin(std::numbers::pi / 4.0)};
-    REQUIRE_THAT(executor.state().global_scalar().real(),
-                 Catch::Matchers::WithinAbs(expected.real(), 1e-12));
-    REQUIRE_THAT(executor.state().global_scalar().imag(),
-                 Catch::Matchers::WithinAbs(expected.imag(), 1e-12));
+TEST_CASE("Sampling identity rotation elision preserves active rotation fusion") {
+    const SamplingPlan plan = plan_from(R"(
+        R_X(0.1) 0
+        R_Z(0.2) 1
+        R_Z(0.2) 0
+        R_Z(0.3) 2
+        R_Y(0.3) 0
+        R_X(0.4) 0
+    )");
+
+    REQUIRE(plan.actions.size() == 4);
+    REQUIRE(std::holds_alternative<PromoteDormantRotation>(plan.actions[0].action));
+    for (size_t i = 1; i < plan.actions.size(); ++i) {
+        REQUIRE(std::holds_alternative<RotateActivePauli>(plan.actions[i].action));
+    }
+
+    const ExecutablePlan executable(plan);
+    REQUIRE(executable.num_actions() == 2);
+    CHECK(executable.inspect_action(1) == "FUSED_ROTATION descriptor=0");
 }
 
 TEST_CASE("Sampling executor prepares instrument boundaries before dispatch") {

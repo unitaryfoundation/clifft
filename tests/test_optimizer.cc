@@ -7,7 +7,6 @@
 #include "clifft/optimizer/peephole.h"
 #include "clifft/optimizer/statevector_squeeze_pass.h"
 #include "clifft/sampling/planner.h"
-#include "clifft/util/constants.h"
 #include "clifft/util/numeric.h"
 
 #include "test_helpers.h"
@@ -19,7 +18,6 @@
 #include <cmath>
 #include <complex>
 #include <cstdint>
-#include <numbers>
 #include <random>
 #include <span>
 #include <string>
@@ -512,28 +510,6 @@ TEST_CASE("Peephole: S absorption propagates through downstream T", "[optimizer]
     REQUIRE(hir.stab_mask(hir.ops[0]) == Z(0));
 }
 
-TEST_CASE("Peephole: T plus T fusion leaves global_weight unchanged", "[optimizer]") {
-    auto hir = hir_from("T 0\nT 0");
-    auto initial_weight = hir.global_weight;
-
-    PeepholeFusionPass pass;
-    pass.run(hir);
-
-    // Positive-sign fusion needs no sign-normalization factor.
-    REQUIRE(std::abs(hir.global_weight - initial_weight) < 1e-12);
-}
-
-TEST_CASE("Peephole: T_dag plus T_dag fusion leaves global_weight unchanged", "[optimizer]") {
-    auto hir = hir_from("T_DAG 0\nT_DAG 0");
-    auto initial_weight = hir.global_weight;
-
-    PeepholeFusionPass pass;
-    pass.run(hir);
-
-    // Positive-sign fusion needs no sign-normalization factor.
-    REQUIRE(std::abs(hir.global_weight - initial_weight) < 1e-12);
-}
-
 TEST_CASE("Peephole: PHASE_ROTATION demotes to absorbed S and T gates", "[optimizer]") {
     // 0.5 half-turns = S gate -> absorbed (no ops remain)
     HirModule hir_s(1, 1);
@@ -666,79 +642,59 @@ TEST_CASE("Peephole: S absorption conjugates noise and conditional Pauli", "[opt
 }
 
 // =============================================================================
-// Negative-sign T fusion: Bug regression tests
-//
-// When the front-end encounters T after X (which conjugates Z -> -Z), the
-// T gate has sign=true. Fusing two such negative-sign T gates must preserve
-// the global phase exp(i*pi/4) per negative T gate. These tests catch
-// the global phase loss that occurs when the optimizer ignores sign during
-// T+T fusion.
+// Negative-sign T fusion must preserve the state ray.
 // =============================================================================
 
-TEST_CASE("Peephole: negative-sign T plus T preserves global phase", "[optimizer]") {
+TEST_CASE("Peephole: negative-sign T plus T preserves the state ray", "[optimizer]") {
     // X conjugates Z -> -Z, so both T gates see -Z axis (sign=true).
     // T(-Z) = exp(i*pi/4) * T_dag(+Z), so T(-Z)+T(-Z) = exp(i*pi/2) * S_dag(+Z) = i * S_dag.
     HirModule hir(1, /*pauli_capacity=*/16);
+    hir.final_tableau.emplace(1);
 
     clifft::test::append_tgate(hir, 0, Z(0), /*sign=*/true);
     clifft::test::append_tgate(hir, 0, Z(0), /*sign=*/true);
-    auto initial_weight = hir.global_weight;
-
+    const HirModule reference = hir_from("S_DAG 0");
     PeepholeFusionPass pass;
     pass.run(hir);
 
     // Both T gates absorbed (S absorbed into tableau)
     REQUIRE(hir.ops.empty());
     REQUIRE(pass.fusions() == 1);
-
-    // The normalization of two negative-sign T gates produces a net phase.
-    // T(-Z) -> exp(i*pi/4) * T_dag(+Z), so two of them: exp(i*pi/2) = i.
-    // Verify global_weight changed by exactly i relative to initial.
-    auto ratio = hir.global_weight / initial_weight;
-    CHECK_THAT(ratio.real(), Catch::Matchers::WithinAbs(0.0, 1e-12));
-    CHECK_THAT(ratio.imag(), Catch::Matchers::WithinAbs(1.0, 1e-12));
+    REQUIRE(hir.final_tableau == reference.final_tableau);
 }
 
-TEST_CASE("Peephole: negative-sign T_dag plus T_dag preserves global phase", "[optimizer]") {
+TEST_CASE("Peephole: negative-sign T_dag plus T_dag preserves the state ray", "[optimizer]") {
     // T_dag(-Z) = exp(-i*pi/4) * T(+Z), two of them: exp(-i*pi/2) * S(+Z) = -i * S.
     HirModule hir(1, /*pauli_capacity=*/16);
+    hir.final_tableau.emplace(1);
 
     clifft::test::append_tgate(hir, 0, Z(0), /*sign=*/true, /*dagger=*/true);
     clifft::test::append_tgate(hir, 0, Z(0), /*sign=*/true, /*dagger=*/true);
-    auto initial_weight = hir.global_weight;
-
+    const HirModule reference = hir_from("S 0");
     PeepholeFusionPass pass;
     pass.run(hir);
 
     REQUIRE(hir.ops.empty());
     REQUIRE(pass.fusions() == 1);
-
-    // exp(-i*pi/2) = -i
-    auto ratio = hir.global_weight / initial_weight;
-    CHECK_THAT(ratio.real(), Catch::Matchers::WithinAbs(0.0, 1e-12));
-    CHECK_THAT(ratio.imag(), Catch::Matchers::WithinAbs(-1.0, 1e-12));
+    REQUIRE(hir.final_tableau == reference.final_tableau);
 }
 
-TEST_CASE("Peephole: mixed-sign T cancellation preserves global phase", "[optimizer]") {
+TEST_CASE("Peephole: mixed-sign T cancellation preserves the state ray", "[optimizer]") {
     // T(+Z) + T(-Z): effective_angles sum to 0 (cancellation), but
     // T(-Z) = exp(i*pi/4) * T_dag(+Z), so the physical result is
     // T(+Z) * exp(i*pi/4) * T_dag(+Z) = exp(i*pi/4) * I.
     HirModule hir(1, /*pauli_capacity=*/16);
+    hir.final_tableau.emplace(1);
 
     clifft::test::append_tgate(hir, 0, Z(0), /*sign=*/false);
     clifft::test::append_tgate(hir, 0, Z(0), /*sign=*/true);
-    auto initial_weight = hir.global_weight;
-
+    const HirModule reference = hir_from("I 0");
     PeepholeFusionPass pass;
     pass.run(hir);
 
     REQUIRE(hir.ops.empty());
     REQUIRE(pass.cancellations() == 1);
-
-    // exp(i*pi/4)
-    auto ratio = hir.global_weight / initial_weight;
-    CHECK_THAT(ratio.real(), Catch::Matchers::WithinAbs(kExpIPiOver4.real(), 1e-12));
-    CHECK_THAT(ratio.imag(), Catch::Matchers::WithinAbs(kExpIPiOver4.imag(), 1e-12));
+    REQUIRE(hir.final_tableau == reference.final_tableau);
 }
 
 TEST_CASE("Peephole: S absorption creates negative T that subsequently fuses", "[optimizer]") {
@@ -974,10 +930,8 @@ using clifft::test::dense_matmul;
 using clifft::test::dense_tableau_matrix;
 using clifft::test::DenseMatrix;
 
-// Dense value of an HIR module: global_weight * canonical(final_tableau)
-// applied after the op stream. T_GATE is projector-form on the signed axis;
-// PHASE_ROTATION means D(P, (-1)^sign * alpha) because the front-end already
-// extracted the sign-adjusted global phase.
+// Dense value of an HIR module: canonical(final_tableau) applied after the op
+// stream. Global phase is intentionally unspecified.
 DenseMatrix dense_hir_value(const HirModule& hir) {
     const size_t n = hir.num_qubits;
     const uint64_t dim = uint64_t{1} << n;
@@ -995,9 +949,6 @@ DenseMatrix dense_hir_value(const HirModule& hir) {
             value = dense_matmul(
                 value, dense_axis_rotation(x, z, false, sign ? -op.alpha() : op.alpha(), n), dim);
         }
-    }
-    for (auto& v : value) {
-        v *= hir.global_weight;
     }
     return value;
 }

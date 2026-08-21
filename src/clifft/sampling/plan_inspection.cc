@@ -92,14 +92,9 @@ void write_action_body(std::ostream& out, const SamplingAction& action,
         [&](const auto& typed) {
             using T = std::decay_t<decltype(typed)>;
             if constexpr (std::is_same_v<T, RotateActivePauli>) {
-                if (typed.pauli.is_identity()) {
-                    out << "ROTATE_PHASE half_turns=" << format_double_roundtrip(typed.half_turns)
-                        << " sign=" << format_expression(typed.sign, max_expression_terms);
-                } else {
-                    out << "ROTATE_ACTIVE " << format_pauli_product(typed.pauli.x, typed.pauli.z)
-                        << " half_turns=" << format_double_roundtrip(typed.half_turns)
-                        << " sign=" << format_expression(typed.sign, max_expression_terms);
-                }
+                out << "ROTATE_ACTIVE " << format_pauli_product(typed.pauli.x, typed.pauli.z)
+                    << " half_turns=" << format_double_roundtrip(typed.half_turns)
+                    << " sign=" << format_expression(typed.sign, max_expression_terms);
             } else if constexpr (std::is_same_v<T, PromoteDormantRotation>) {
                 out << "PROMOTE_DORMANT half_turns=" << format_double_roundtrip(typed.half_turns)
                     << " sign=" << format_expression(typed.sign, max_expression_terms);
@@ -203,8 +198,6 @@ std::string SamplingPlan::inspect() const {
         << " postselection=" << has_postselection
         << " final_state_queries=" << final_tableau.has_value()
         << " dust_epsilon=" << format_double_roundtrip(kMeasurementDustEpsilon) << '\n';
-    out << "global_weight=" << format_double_roundtrip(global_weight.real()) << ','
-        << format_double_roundtrip(global_weight.imag()) << '\n';
     out << "symbols=" << symbols.size() << '\n';
     for (uint32_t i = 0; i < symbols.size(); ++i) {
         out << "  s" << i << " kind=" << symbol_kind_name(symbols[i].kind);

@@ -8,11 +8,12 @@ usage examples, see [Strong Simulation with Exact Probabilities](../guide/strong
 Clifft starts from the factored state
 
 $$
-|\psi\rangle = \gamma \, U_C \, P \, \Big( |\phi\rangle_A \otimes |0\rangle_D \Big),
+|\psi\rangle \sim U_C \, P \, \Big( |\phi\rangle_A \otimes |0\rangle_D \Big),
 $$
 
-where $U_C$ is the Clifford frame, $P$ is the Pauli frame, and
-$|\phi\rangle_A$ is the dense active state over $k$ active qubits. Writing
+where $\sim$ denotes equality up to global phase, $U_C$ is the Clifford frame,
+$P$ is the Pauli frame, and $|\phi\rangle_A$ is the normalized dense active
+state over $k$ active qubits. Writing
 
 $$
 |\phi\rangle_A = \sum_{i \in \{0,1\}^k} v_i |i\rangle_A,
@@ -23,7 +24,7 @@ $$
 the probability of a physical bitstring $x$ is
 
 $$
-\Pr[x] = \left| \gamma \sum_{i \in \{0,1\}^k} v_i \, (-1)^{\langle p_z[A], i\rangle} \, \langle x | U_C | y(i)\rangle \right|^2,
+\Pr[x] = \left| \sum_{i \in \{0,1\}^k} v_i \, (-1)^{\langle p_z[A], i\rangle} \, \langle x | U_C | y(i)\rangle \right|^2,
 $$
 
 where $y(i) = p_x \oplus (i, 0_D)$. The sum ranges over $2^k$ active basis

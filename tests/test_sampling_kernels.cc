@@ -94,14 +94,6 @@ std::vector<std::complex<double>> coefficients(const State& state) {
     return result;
 }
 
-std::vector<std::complex<double>> physical_coefficients(const State& state) {
-    std::vector<std::complex<double>> result = coefficients(state);
-    for (std::complex<double>& value : result) {
-        value *= state.global_scalar();
-    }
-    return result;
-}
-
 std::vector<std::complex<double>> balanced_rotation(const std::vector<std::complex<double>>& input,
                                                     uint64_t x, uint64_t z, bool sign,
                                                     double half_turns, uint32_t active_width) {
@@ -230,14 +222,12 @@ std::vector<uint32_t> valid_measurement_pivots(uint64_t x, uint64_t z, uint32_t 
 }  // namespace
 
 TEST_CASE("Sampling kernel state owns stable aligned storage") {
-    const std::complex<double> initial_scalar{0.6, 0.8};
-    State state(4, 2, initial_scalar);
+    State state(4, 2);
 
     REQUIRE(state.active_width() == 2);
     REQUIRE(state.max_active_width() == 4);
     REQUIRE(state.capacity() == 16);
     REQUIRE(state.size() == 4);
-    REQUIRE(state.global_scalar() == initial_scalar);
     REQUIRE(state.real_data()[0] == 1.0);
     for (uint64_t i = 1; i < state.size(); ++i) {
         REQUIRE(state.real_data()[i] == 0.0);
@@ -259,11 +249,9 @@ TEST_CASE("Sampling kernel state owns stable aligned storage") {
     state.set_active_width(4);
     state.real_data()[3] = 2.0;
     state.imag_data()[2] = -3.0;
-    state.set_global_scalar({-1.0, 0.0});
     state.reset();
 
     REQUIRE(state.active_width() == 2);
-    REQUIRE(state.global_scalar() == initial_scalar);
     REQUIRE(state.real_data() == real);
     REQUIRE(state.imag_data() == imag);
     REQUIRE(state.scratch_real_data() == scratch_real);
@@ -284,8 +272,7 @@ TEST_CASE("Sampling kernel state owns stable aligned storage") {
 }
 
 TEST_CASE("Sampling state grows only at a continuation boundary and preserves live data") {
-    const std::complex<double> scalar{0.6, 0.8};
-    State state(1, 1, scalar);
+    State state(1, 1);
     const std::vector<std::complex<double>> input = deterministic_state(1);
     load_state(state, input);
 
@@ -295,7 +282,6 @@ TEST_CASE("Sampling state grows only at a continuation boundary and preserves li
     REQUIRE(state.initial_active_width() == 1);
     REQUIRE(state.max_active_width() == 3);
     REQUIRE(state.capacity() == 8);
-    REQUIRE(state.global_scalar() == scalar);
     require_vectors_close(coefficients(state), input);
     REQUIRE(reinterpret_cast<uintptr_t>(state.real_data()) %
                 clifft::PageAlignedAllocation::kBaseAlignment ==
@@ -303,23 +289,24 @@ TEST_CASE("Sampling state grows only at a continuation boundary and preserves li
 
     state.reset();
     REQUIRE(state.active_width() == 1);
-    REQUIRE(state.global_scalar() == scalar);
     REQUIRE(state.real_data()[0] == 1.0);
     REQUIRE(state.real_data()[1] == 0.0);
 }
 
 TEST_CASE("Sampling kernels rotations match the existing dense matrix oracle") {
     static constexpr double kAngles[] = {-0.75, -0.25, 0.0, 0.3};
-    for (uint32_t active_width = 0; active_width <= 4; ++active_width) {
+    for (uint32_t active_width = 1; active_width <= 4; ++active_width) {
         const uint64_t mask_limit = uint64_t{1} << active_width;
         const std::vector<std::complex<double>> input = deterministic_state(active_width);
         for (uint64_t x = 0; x < mask_limit; ++x) {
             for (uint64_t z = 0; z < mask_limit; ++z) {
+                if (x == 0 && z == 0) {
+                    continue;
+                }
                 for (bool sign : {false, true}) {
                     for (double half_turns : kAngles) {
                         CAPTURE(active_width, x, z, sign, half_turns);
-                        const std::complex<double> scalar{0.3, 0.4};
-                        State state(active_width, active_width, scalar);
+                        State state(active_width, active_width);
                         load_state(state, input);
                         double* const real = state.real_data();
                         double* const imag = state.imag_data();
@@ -329,10 +316,7 @@ TEST_CASE("Sampling kernels rotations match the existing dense matrix oracle") {
 
                         std::vector<std::complex<double>> expected =
                             balanced_rotation(input, x, z, sign, half_turns, active_width);
-                        for (std::complex<double>& value : expected) {
-                            value *= scalar;
-                        }
-                        require_vectors_close(physical_coefficients(state), expected);
+                        require_vectors_close(coefficients(state), expected);
                         REQUIRE(state.real_data() == real);
                         REQUIRE(state.imag_data() == imag);
                         REQUIRE(state.active_width() == active_width);
@@ -349,7 +333,6 @@ TEST_CASE("Direct rotation SIMD selection preserves scalar boundaries") {
         return resolve_direct_rotation_kernel(prepare_rotation(pauli, active_width, 0.3), backend);
     };
 
-    REQUIRE(select({0, 0}, 4) == DirectRotationKernel::Scalar);
     REQUIRE(select({0, 0b11}, 2) == DirectRotationKernel::Scalar);
     REQUIRE(select({0, 0b101}, 3) == DirectRotationKernel::Diagonal);
     REQUIRE(select({0b10, 0b01}, 2) == DirectRotationKernel::Scalar);
@@ -422,7 +405,7 @@ TEST_CASE("Sampling kernel expectation values match the existing dense matrix or
         for (uint64_t x = 0; x < mask_limit; ++x) {
             for (uint64_t z = 0; z < mask_limit; ++z) {
                 CAPTURE(active_width, x, z);
-                State state(active_width, active_width, {0.3, 0.4});
+                State state(active_width, active_width);
                 load_state(state, input);
 
                 const std::vector<std::complex<double>> applied =
@@ -447,8 +430,7 @@ TEST_CASE("Sampling kernels promotion matches a new-axis dense rotation") {
         for (bool sign : {false, true}) {
             for (double half_turns : kAngles) {
                 CAPTURE(active_width, sign, half_turns);
-                const std::complex<double> scalar{0.3, 0.4};
-                State state(active_width + 1, active_width, scalar);
+                State state(active_width + 1, active_width);
                 load_state(state, input);
                 double* const real = state.real_data();
                 double* const imag = state.imag_data();
@@ -459,10 +441,7 @@ TEST_CASE("Sampling kernels promotion matches a new-axis dense rotation") {
                 std::copy(input.begin(), input.end(), expanded.begin());
                 std::vector<std::complex<double>> expected = balanced_rotation(
                     expanded, uint64_t{1} << active_width, 0, sign, half_turns, active_width + 1);
-                for (std::complex<double>& value : expected) {
-                    value *= scalar;
-                }
-                require_vectors_close(physical_coefficients(state), expected);
+                require_vectors_close(coefficients(state), expected);
                 REQUIRE(state.real_data() == real);
                 REQUIRE(state.imag_data() == imag);
                 REQUIRE(state.active_width() == active_width + 1);
@@ -484,8 +463,7 @@ TEST_CASE("Sampling kernels measurements match dense projectors for every small 
                     CAPTURE(active_width, x, z, pivot);
                     const PreparedMeasurement measurement =
                         prepare_measurement({x, z}, active_width, pivot);
-                    const std::complex<double> scalar{0.3, 0.4};
-                    State probability_state(active_width, active_width, scalar);
+                    State probability_state(active_width, active_width);
                     load_state(probability_state, input);
                     const MeasurementProbabilities probabilities =
                         measurement_probabilities(probability_state, measurement);
@@ -503,7 +481,7 @@ TEST_CASE("Sampling kernels measurements match dense projectors for every small 
                     for (bool branch : {false, true}) {
                         const ProjectedBranch& expected = branch ? expected_one : expected_zero;
                         REQUIRE(expected.probability > 1e-12);
-                        State state(active_width, active_width, scalar);
+                        State state(active_width, active_width);
                         load_state(state, input);
                         double* const real = state.real_data();
                         double* const imag = state.imag_data();
@@ -515,20 +493,12 @@ TEST_CASE("Sampling kernels measurements match dense projectors for every small 
 
                         std::vector<std::complex<double>> expanded =
                             expand_compacted(coefficients(state), measurement, branch);
-                        for (std::complex<double>& value : expanded) {
-                            value *= scalar;
-                        }
-                        std::vector<std::complex<double>> expected_physical = expected.normalized;
-                        for (std::complex<double>& value : expected_physical) {
-                            value *= scalar;
-                        }
-                        require_vectors_close(expanded, expected_physical);
+                        require_vectors_close(expanded, expected.normalized);
                         REQUIRE(state.real_data() == real);
                         REQUIRE(state.imag_data() == imag);
                         REQUIRE(state.scratch_real_data() == scratch_real);
                         REQUIRE(state.scratch_imag_data() == scratch_imag);
                         REQUIRE(state.active_width() == active_width - 1);
-                        REQUIRE(state.global_scalar() == scalar);
                     }
                 }
             }
@@ -857,8 +827,7 @@ TEST_CASE("Sampling AVX2 new X instrument activation matches scalar") {
 TEST_CASE("Sampling kernels compose across collapse and promotion") {
     constexpr uint32_t kInitialWidth = 2;
     constexpr uint32_t kExpandedWidth = kInitialWidth + 1;
-    const std::complex<double> scalar{0.3, 0.4};
-    State state(kExpandedWidth, kInitialWidth, scalar);
+    State state(kExpandedWidth, kInitialWidth);
     std::vector<std::complex<double>> expected = deterministic_state(kInitialWidth);
     load_state(state, expected);
     double* const real = state.real_data();
@@ -908,16 +877,11 @@ TEST_CASE("Sampling kernels compose across collapse and promotion") {
     std::copy(expected.begin(), expected.end(), expanded.begin());
     expected = balanced_rotation(expanded, uint64_t{1} << kInitialWidth, 0, false,
                                  kSecondPromotionAngle, kExpandedWidth);
-    for (std::complex<double>& value : expected) {
-        value *= scalar;
-    }
-
-    require_vectors_close(physical_coefficients(state), expected);
+    require_vectors_close(coefficients(state), expected);
     REQUIRE(state.real_data() == real);
     REQUIRE(state.imag_data() == imag);
     REQUIRE(state.scratch_real_data() == scratch_real);
     REQUIRE(state.scratch_imag_data() == scratch_imag);
-    REQUIRE(state.global_scalar() == scalar);
 }
 
 TEST_CASE("Sampling kernel preparation precomputes non-diagonal pairing metadata") {
@@ -927,7 +891,7 @@ TEST_CASE("Sampling kernel preparation precomputes non-diagonal pairing metadata
 TEST_CASE("Sampling kernel preparation rejects malformed inputs") {
     REQUIRE_THROWS_AS(State(clifft::kDenseActiveWidthLimit), std::invalid_argument);
     REQUIRE_THROWS_AS(State(1, 2), std::invalid_argument);
-    REQUIRE_THROWS_AS(State(1, 0, {clifft::test::opaque_nan(), 0.0}), std::invalid_argument);
+    REQUIRE_THROWS_AS(prepare_rotation({}, 1, 0.25), std::invalid_argument);
     REQUIRE_THROWS_AS(prepare_rotation({2, 0}, 1, 0.25), std::invalid_argument);
     REQUIRE_THROWS_AS(prepare_rotation({1, 0}, 1, clifft::test::opaque_nan()),
                       std::invalid_argument);

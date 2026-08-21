@@ -123,6 +123,9 @@ PreparedRotation prepare_rotation(ActivePauli pauli, uint32_t active_width, doub
     if (!is_finite_robust(half_turns)) {
         throw std::invalid_argument("prepared rotation angle must be finite");
     }
+    if (pauli.is_identity()) {
+        throw std::invalid_argument("cannot prepare an identity rotation");
+    }
     const double angle = std::numbers::pi * half_turns / 2.0;
     return PreparedRotation{prepare_pauli(pauli, active_width), std::cos(angle), std::sin(angle)};
 }
@@ -177,11 +180,8 @@ double expectation_value(const State& state, const PreparedPauli& pauli) noexcep
 
 void apply_rotation(State& state, const PreparedRotation& rotation, bool sign) noexcept {
     assert_descriptor_width(state, rotation.pauli);
+    assert(!rotation.pauli.is_identity() && "identity rotations must be removed during planning");
     const double sine = sign ? -rotation.sine : rotation.sine;
-    if (rotation.pauli.is_identity()) {
-        state.multiply_global_scalar({rotation.cosine, -sine});
-        return;
-    }
 
     double* real = state.real_data();
     double* imag = state.imag_data();

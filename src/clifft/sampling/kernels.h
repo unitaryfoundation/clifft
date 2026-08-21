@@ -60,8 +60,8 @@ struct MeasurementProbabilities {
 [[nodiscard]] PreparedMeasurement prepare_measurement(ActivePauli pauli, uint32_t active_width,
                                                       uint32_t pivot);
 
-// Computes <P> on normalized active-coordinate coefficients. The common
-// global scalar cancels and the state is not mutated.
+// Computes <P> on normalized active-coordinate coefficients without mutating
+// the state.
 [[nodiscard]] double expectation_value(const State& state, const PreparedPauli& pauli) noexcept;
 
 // Runtime signs have already been evaluated from the plan expression. A true
@@ -69,8 +69,7 @@ struct MeasurementProbabilities {
 void apply_rotation(State& state, const PreparedRotation& rotation, bool sign) noexcept;
 void apply_promotion(State& state, const PreparedPromotion& promotion, bool sign) noexcept;
 
-// Probability evaluation uses the normalized coefficient arrays and does not
-// mutate the state; the common global scalar therefore does not affect it.
+// Probability evaluation does not mutate the normalized coefficient arrays.
 // Collapse consumes the selected probability so the caller can sample or force
 // a branch once and reuse exactly that value for normalization and
 // log-probability accounting.

@@ -355,8 +355,8 @@ FusedRotationRun prepare_fused_rotation_run(std::span<const PlannedAction> actio
     const PlannedAction& first = actions.front();
     const auto* first_rotation = std::get_if<RotateActivePauli>(&first.action);
 
-    // Dynamic signs require a per-shot choice, while identity rotations update
-    // the global scalar. Neither can be folded into a fixed coefficient matrix.
+    // Dynamic signs require a per-shot choice and cannot be folded into a fixed
+    // coefficient matrix. Identity rotations are invalid planner input.
     if (first_rotation == nullptr || !first_rotation->sign.terms().empty() ||
         first_rotation->pauli.is_identity()) {
         return result;

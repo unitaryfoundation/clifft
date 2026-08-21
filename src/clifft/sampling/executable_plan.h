@@ -5,7 +5,6 @@
 #include "clifft/sampling/plan.h"
 
 #include <cassert>
-#include <complex>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -323,7 +322,6 @@ class ExecutablePlan {
     ExecutorBackend backend_ = ExecutorBackend::Scalar;
     uint32_t num_readout_noise_sites_ = 0;
     uint32_t initial_noise_end_ = 0;
-    std::complex<double> global_weight_ = {1.0, 0.0};
     std::optional<stim::Tableau<kStimWidth>> final_tableau_;
 
     // Affine register initialization and reverse symbol dependencies.

@@ -359,6 +359,12 @@ TEST_CASE("Sampling plan rejects invalid dimensions and action contracts") {
         REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
     }
 
+    SECTION("active rotation Pauli is identity") {
+        SamplingPlan plan = valid_rotation_plan();
+        std::get<RotateActivePauli>(plan.actions[0].action).pauli = ActivePauli{};
+        REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
+    }
+
     SECTION("dormant promotion does not increase width") {
         SamplingPlan plan = valid_plan();
         plan.actions[0].active_after = 0;
@@ -432,12 +438,6 @@ TEST_CASE("Sampling plan rejects invalid numeric metadata") {
         SamplingPlan plan;
         plan.num_visible_records = std::numeric_limits<uint32_t>::max();
         plan.num_hidden_records = 1;
-        REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
-    }
-
-    SECTION("global weight is not finite") {
-        SamplingPlan plan;
-        plan.global_weight = {std::numeric_limits<double>::infinity(), 0.0};
         REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
     }
 
@@ -593,8 +593,6 @@ TEST_CASE("Sampling plan predicts only state touching dense passes") {
     SamplingPlan plan = valid_rotation_plan();
     REQUIRE_NOTHROW(plan.validate());
     REQUIRE(clifft::sampling::predicted_dense_passes(plan.actions[0].action) == 1);
-    REQUIRE(clifft::sampling::predicted_dense_passes(
-                RotateActivePauli{ActivePauli{}, 0.5, AffineBool{}}) == 0);
     REQUIRE(clifft::sampling::predicted_dense_passes(PromoteDormantRotation{0.25, AffineBool{}}) ==
             1);
     REQUIRE(clifft::sampling::predicted_dense_passes(MeasureActivePauli{}) == 2);
