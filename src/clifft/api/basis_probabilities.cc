@@ -237,6 +237,9 @@ std::complex<double> BoundStabilizerAmplitudeQuery::amplitude(MaskView basis,
     // the base string toward the requested virtual basis by applying the unique
     // generator for each still-set pivot bit, accumulating the Pauli phases on
     // the way. Any residual bit means the basis state is outside the support.
+    // The result is the expansion coefficient <basis|U_C^dagger|x>, with the
+    // base-string coefficient chosen real positive; callers forming the Born
+    // amplitude <x|U_C|...> must conjugate it.
     mask_copy_to(residual, basis);
     mask_xor_with(residual, basis_mask_view(base));
     mask_copy_to(current, basis_mask_view(base));
@@ -477,7 +480,9 @@ std::vector<double> basis_probabilities_from_factored_state(
                 // Dormant |0> axes do not contribute a Z-frame sign.
                 const bool sign_bit = (std::popcount(active_index & active_z_mask) & 1U) != 0;
                 double sign = sign_bit ? -1.0 : 1.0;
-                amp += coefficient_at(active_index) * sign * coeff;
+                // The walk yields the expansion coefficient <y|U_C^dagger|x>;
+                // the Born amplitude sums v_i against its conjugate <x|U_C|y>.
+                amp += coefficient_at(active_index) * sign * std::conj(coeff);
             }
         } else {
             // Fast path: every dormant column is a pivot, so dormant
@@ -545,7 +550,9 @@ std::vector<double> basis_probabilities_from_factored_state(
                                       : ((current.words[0] ^ state_px.words[0]) & active_mask);
                 const bool sign_bit = (std::popcount(active_index & active_z_mask) & 1U) != 0;
                 const double sign = sign_bit ? -1.0 : 1.0;
-                total += coefficient_at(active_index) * sign * amp;
+                // amp tracks the walked coefficient <y|U_C^dagger|x>; the Born
+                // amplitude sums v_i against its conjugate <x|U_C|y>.
+                total += coefficient_at(active_index) * sign * std::conj(amp);
             }
             amp = total;
         }
