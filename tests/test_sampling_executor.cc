@@ -491,6 +491,34 @@ TEST_CASE("Sampling basis probabilities reject nonunitary plans") {
     REQUIRE_THAT(probabilities[1], Catch::Matchers::WithinAbs(0.5, 1e-12));
 }
 
+TEST_CASE("Sampling basis probabilities conjugate a complex Clifford frame") {
+    // The frame H*S*H mixes the two active coordinates with weights (1 +- i)/2
+    // while the T rotation leaves them relatively imaginary. The query expands
+    // the state through the inverse frame, so dropping the conjugate of that
+    // expansion inverts the interference and swaps the outcome weights.
+    const double p_low = (2.0 - std::numbers::sqrt2) / 4.0;
+    const double p_high = (2.0 + std::numbers::sqrt2) / 4.0;
+
+    SECTION("every dormant column is a pivot") {
+        const ExecutablePlan executable(plan_from("H 0\nS 0\nT 0\nH 0\n"));
+        const std::vector<double> probabilities =
+            clifft::sampling::basis_probabilities(executable, std::array<uint64_t, 2>{0, 1}, 2, 1);
+        REQUIRE_THAT(probabilities[0], Catch::Matchers::WithinAbs(p_low, 1e-12));
+        REQUIRE_THAT(probabilities[1], Catch::Matchers::WithinAbs(p_high, 1e-12));
+    }
+
+    SECTION("a free dormant column disables the gray-code walk") {
+        // The trailing CX correlates the dormant qubit with the active
+        // coordinate, so the dormant column has no X pivot and the query takes
+        // the explicit per-index walk instead of the gray-code path.
+        const ExecutablePlan executable(plan_from("H 0\nS 0\nT 0\nH 0\nCX 0 1\n"));
+        const std::vector<double> probabilities =
+            clifft::sampling::basis_probabilities(executable, std::array<uint64_t, 2>{0, 3}, 2, 1);
+        REQUIRE_THAT(probabilities[0], Catch::Matchers::WithinAbs(p_low, 1e-12));
+        REQUIRE_THAT(probabilities[1], Catch::Matchers::WithinAbs(p_high, 1e-12));
+    }
+}
+
 TEST_CASE("Sampling statevectors reject nonunitary and oversized plans") {
     const ExecutablePlan measured(plan_from("H 0\nM 0\n"));
     REQUIRE_THROWS_AS(clifft::sampling::get_statevector(measured), std::invalid_argument);

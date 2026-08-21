@@ -232,6 +232,53 @@ def test_probabilities_match_dense_statevector_for_small_circuit(
     )
 
 
+@pytest.mark.parametrize(
+    "circuit,bitstrings",
+    [
+        ("H 0\nS 0\nT 0\nH 0", ["0", "1"]),
+        ("H 0\nS 0\nT 0\nH 0\nCX 0 1", ["00", "11"]),
+    ],
+)
+def test_probabilities_conjugate_complex_clifford_frames(
+    circuit: str, bitstrings: list[str], basis_probabilities_api: Any
+) -> None:
+    # The frame H*S*H combines both active coordinates into each outcome with
+    # relatively imaginary weights. The query expands the state through the
+    # inverse frame, and forgetting to conjugate that expansion inverts the
+    # interference, swapping the two outcome weights.
+    prog = basis_probabilities_api.compile(circuit)
+    probs = basis_probabilities_api.basis_probabilities(prog, bitstrings)
+
+    np.testing.assert_allclose(
+        probs, [(2.0 - math.sqrt(2.0)) / 4.0, (2.0 + math.sqrt(2.0)) / 4.0], atol=1e-12
+    )
+    np.testing.assert_allclose(
+        np.abs(clifft.get_statevector(prog)) ** 2,
+        basis_probabilities_api.basis_probabilities(
+            prog, [format(i, f"0{prog.num_qubits}b")[::-1] for i in range(1 << prog.num_qubits)]
+        ),
+        atol=1e-12,
+    )
+
+
+# The pinned seeds include generator outputs whose outcome amplitudes combine
+# several active coordinates with complex relative weights; broad sweeps with
+# only a few seeds can miss that interference pattern entirely.
+@pytest.mark.parametrize("num_qubits,seed", [(2, 12), (4, 95), (3, 7), (4, 21)])
+def test_probabilities_match_statevector_for_random_circuits(
+    num_qubits: int, seed: int, basis_probabilities_api: Any
+) -> None:
+    circuit = random_dense_clifford_t_circuit(num_qubits, depth=18, seed=seed)
+    prog = basis_probabilities_api.compile(circuit)
+    bitstrings = [format(i, f"0{prog.num_qubits}b")[::-1] for i in range(1 << prog.num_qubits)]
+
+    np.testing.assert_allclose(
+        basis_probabilities_api.basis_probabilities(prog, bitstrings),
+        np.abs(clifft.get_statevector(prog)) ** 2,
+        atol=1e-12,
+    )
+
+
 @pytest.mark.parametrize("num_qubits,seed", [(2, 101), (3, 202), (4, 303)])
 def test_probabilities_match_qiskit_for_random_small_circuits(
     num_qubits: int, seed: int, basis_probabilities_api: Any
