@@ -178,7 +178,7 @@ TEST_CASE("Frontend: multiple T gates on different qubits", "[frontend]") {
     REQUIRE(hir.stab_mask(hir.ops[1]) == 0);
 }
 
-TEST_CASE("Frontend: SPP emits Pauli rotations with named phases", "[frontend]") {
+TEST_CASE("Frontend: SPP emits signed Pauli rotations", "[frontend]") {
     auto hir = trace(parse("SPP X0*Y1*Z2\nSPP_DAG !X0"));
 
     REQUIRE(hir.num_ops() == 2);

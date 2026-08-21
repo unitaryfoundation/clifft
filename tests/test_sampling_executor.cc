@@ -696,6 +696,27 @@ TEST_CASE("Sampling executor receives no identity rotation actions") {
     CHECK(executor.state().amplitude_scale() == 1.0);
 }
 
+TEST_CASE("Sampling identity rotation elision preserves active rotation fusion") {
+    const SamplingPlan plan = plan_from(R"(
+        R_X(0.1) 0
+        R_Z(0.2) 1
+        R_Z(0.2) 0
+        R_Z(0.3) 2
+        R_Y(0.3) 0
+        R_X(0.4) 0
+    )");
+
+    REQUIRE(plan.actions.size() == 4);
+    REQUIRE(std::holds_alternative<PromoteDormantRotation>(plan.actions[0].action));
+    for (size_t i = 1; i < plan.actions.size(); ++i) {
+        REQUIRE(std::holds_alternative<RotateActivePauli>(plan.actions[i].action));
+    }
+
+    const ExecutablePlan executable(plan);
+    REQUIRE(executable.num_actions() == 2);
+    CHECK(executable.inspect_action(1) == "FUSED_ROTATION descriptor=0");
+}
+
 TEST_CASE("Sampling executor prepares instrument boundaries before dispatch") {
     const clifft::InstrumentTraceOptions options = clifft::test::source_dependent_jump_options();
     const clifft::HirModule hir =
@@ -979,6 +1000,15 @@ TEST_CASE("Sampling continuation rejects incompatible handoffs") {
         REQUIRE_THROWS_AS(executor.resume(continuation), std::invalid_argument);
     }
 
+    SECTION("continuation changes amplitude scale") {
+        SamplingPlan continuation_plan = root_plan;
+        continuation_plan.amplitude_scale = 0.5;
+        const ExecutablePlan continuation(continuation_plan);
+        Executor executor(root, 1);
+        executor.run_shot();
+        REQUIRE_THROWS_AS(executor.resume(continuation), std::invalid_argument);
+    }
+
     SECTION("continuation contains an unbound presampled symbol") {
         SamplingPlan continuation_plan = root_plan;
         continuation_plan.symbols.push_back(
@@ -1160,7 +1190,6 @@ TEST_CASE("Sampling continuation preserves fused rotation prefixes") {
         PlannedAction{kActiveWidth, kActiveWidth, InstrumentBoundary{InstrumentSiteId{0}, 0, 0}});
 
     SamplingPlan continuation_plan = root_plan;
-    continuation_plan.amplitude_scale = 0.75;
     for (const RotateActivePauli& rotation : continuation_rotations) {
         continuation_plan.actions.push_back(PlannedAction{kActiveWidth, kActiveWidth, rotation});
     }

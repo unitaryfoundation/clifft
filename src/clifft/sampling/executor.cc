@@ -105,6 +105,9 @@ void Executor::resume(const ExecutablePlan& continuation,
         throw std::invalid_argument(
             "sampling continuation uses a different executor backend than the root plan");
     }
+    if (continuation.amplitude_scale_ != state_.amplitude_scale()) {
+        throw std::invalid_argument("sampling continuation changes amplitude scale");
+    }
     const uint32_t site = index(pending_trap_->site);
     if (site >= continuation.instrument_resume_offsets_.size() ||
         site >= plan_->instrument_resume_offsets_.size()) {
