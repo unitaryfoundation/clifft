@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787207675493,
+  "lastUpdate": 1787294000270,
   "repoUrl": "https://github.com/unitaryfoundation/clifft",
   "entries": {
     "C++ Catch2 benchmarks (AVX2)": [
@@ -6078,6 +6078,70 @@ window.BENCHMARK_DATA = {
             "name": "exp-val 20q 200 probes x100k",
             "value": 101.268,
             "range": "± 1.2725",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Brad Chase",
+            "username": "bachase",
+            "email": "14430+bachase@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "0048442297187868f25782ff115e1a6189063821",
+          "message": "perf(frontend): canonicalize Clifford rotations during tracing (#372)\n\nAbsorb single-qubit rotations within 1e-12 half-turns of Clifford\nangles directly into the frontend tableau. Share the canonicalization\npolicy with the HIR peephole pass and document the approximation\nboundary.\n\nAssisted-by: Codex (GPT-5) <noreply@openai.com>",
+          "timestamp": "2026-08-20T17:59:51Z",
+          "url": "https://github.com/unitaryfoundation/clifft/commit/0048442297187868f25782ff115e1a6189063821"
+        },
+        "date": 1787293999286,
+        "tool": "catch2",
+        "benches": [
+          {
+            "name": "QV-10 x100 shots",
+            "value": 5.04859,
+            "range": "± 333.954",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "cultivation-d5 x1000 shots",
+            "value": 18.535,
+            "range": "± 845.592",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d7-r7 p=1e-3 x10000 shots",
+            "value": 39.6078,
+            "range": "± 835.635",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d5-r5 p=0.05 x10000 shots",
+            "value": 53.8599,
+            "range": "± 976.885",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d11-r11 p=1e-3 x1000 shots",
+            "value": 13.935,
+            "range": "± 498.28",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "exp-val 20q 200 probes x100k",
+            "value": 72.8984,
+            "range": "± 3.16163",
             "unit": "ms",
             "extra": "100 samples\n1 iterations"
           }
