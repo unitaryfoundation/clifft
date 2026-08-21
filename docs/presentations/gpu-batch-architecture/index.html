@@ -1,0 +1,1050 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Clifft accelerator execution architecture</title>
+  <link rel="icon" href="../../assets/logos/favicon.png">
+  <style>
+    :root {
+      --ink: #0b1220;
+      --muted: #596273;
+      --rule: #c7ced9;
+      --panel: #eef2f6;
+      --panel-strong: #dfe6ee;
+      --blue: #3c64b4;
+      --blue-dark: #254982;
+      --blue-soft: #e8eef9;
+      --cyan: #6dcbf4;
+      --green: #27765a;
+      --amber: #a66316;
+      --red: #a13b3b;
+      --canvas: #ffffff;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: #e9edf2;
+      color: var(--ink);
+      font-family: "Helvetica Neue", Arial, sans-serif;
+    }
+
+    button { font: inherit; }
+
+    .deck {
+      position: relative;
+      width: 100%;
+      height: 100%;
+    }
+
+    .slide {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: 1280px;
+      height: 720px;
+      padding: 42px 52px 38px;
+      overflow: hidden;
+      background: var(--canvas);
+      opacity: 0;
+      pointer-events: none;
+      transform: translate(-50%, -50%) scale(var(--scale, 1));
+      transform-origin: center;
+      transition: opacity 160ms ease;
+    }
+
+    .slide.active {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .slide::after {
+      content: attr(data-number);
+      position: absolute;
+      right: 36px;
+      bottom: 20px;
+      color: #6d7480;
+      font-size: 15px;
+    }
+
+    .cover::after { display: none; }
+
+    .eyebrow {
+      margin: 0 0 12px;
+      color: var(--blue);
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    h1, h2, h3, p { margin-top: 0; }
+
+    h1 {
+      margin-bottom: 20px;
+      max-width: 710px;
+      font-size: 72px;
+      line-height: 0.98;
+      letter-spacing: -0.045em;
+    }
+
+    h2 {
+      margin-bottom: 28px;
+      font-size: 48px;
+      line-height: 1.04;
+      letter-spacing: -0.035em;
+      white-space: nowrap;
+    }
+
+    h3 {
+      margin-bottom: 10px;
+      font-size: 25px;
+      line-height: 1.12;
+    }
+
+    p, li {
+      font-size: 22px;
+      line-height: 1.34;
+    }
+
+    .lede {
+      max-width: 650px;
+      color: var(--muted);
+      font-size: 27px;
+      line-height: 1.28;
+    }
+
+    .small {
+      color: var(--muted);
+      font-size: 17px;
+      line-height: 1.35;
+    }
+
+    .mono, code {
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+    }
+
+    .brand {
+      position: absolute;
+      left: 52px;
+      bottom: 35px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      color: var(--muted);
+      font-size: 16px;
+    }
+
+    .brand img {
+      width: 42px;
+      height: 42px;
+      object-fit: contain;
+    }
+
+    .cover-grid {
+      display: grid;
+      grid-template-columns: 0.98fr 1.02fr;
+      gap: 48px;
+      height: 100%;
+      align-items: center;
+    }
+
+    .hero-visual {
+      position: relative;
+      height: 568px;
+      background: var(--blue-soft);
+      border: 1px solid #bac6d8;
+      overflow: hidden;
+    }
+
+    .hero-visual::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(60,100,180,0.09) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(60,100,180,0.09) 1px, transparent 1px);
+      background-size: 36px 36px;
+    }
+
+    .hero-plan {
+      position: absolute;
+      left: 50%;
+      top: 98px;
+      width: 290px;
+      padding: 24px;
+      transform: translateX(-50%);
+      background: #fff;
+      border: 2px solid var(--blue);
+      box-shadow: 0 12px 24px rgba(35,55,90,0.12);
+      text-align: center;
+    }
+
+    .hero-plan strong { display: block; font-size: 25px; }
+    .hero-plan span { color: var(--muted); font-size: 16px; }
+
+    .hero-branches {
+      position: absolute;
+      left: 52px;
+      right: 52px;
+      bottom: 76px;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 20px;
+    }
+
+    .hero-branches::before {
+      content: "";
+      position: absolute;
+      left: 16%;
+      right: 16%;
+      top: -55px;
+      height: 55px;
+      border-top: 2px solid var(--blue);
+      border-left: 2px solid var(--blue);
+      border-right: 2px solid var(--blue);
+    }
+
+    .hero-node {
+      position: relative;
+      padding: 20px 10px;
+      background: #fff;
+      border: 1px solid #aeb9c9;
+      text-align: center;
+      font-size: 21px;
+      font-weight: 700;
+    }
+
+    .hero-node::before {
+      content: "";
+      position: absolute;
+      left: 50%;
+      top: -55px;
+      height: 55px;
+      border-left: 2px solid var(--blue);
+    }
+
+    .columns {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 34px;
+    }
+
+    .panel {
+      padding: 24px 26px;
+      background: var(--panel);
+      border-top: 5px solid #aeb7c4;
+    }
+
+    .panel.blue { border-top-color: var(--blue); background: var(--blue-soft); }
+    .panel.green { border-top-color: var(--green); }
+    .panel.amber { border-top-color: var(--amber); }
+
+    .panel ul, .plain-list {
+      margin: 12px 0 0;
+      padding-left: 24px;
+    }
+
+    .panel li, .plain-list li { margin-bottom: 9px; }
+
+    .flow {
+      display: flex;
+      align-items: stretch;
+      gap: 14px;
+      margin: 18px 0;
+    }
+
+    .flow.vertical {
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .flow-node {
+      position: relative;
+      flex: 1;
+      min-width: 0;
+      padding: 18px 14px;
+      border: 1px solid #aeb8c6;
+      background: #fff;
+      text-align: center;
+      font-size: 20px;
+      font-weight: 700;
+    }
+
+    .flow-node.soft { background: var(--panel); }
+    .flow-node.primary { color: #fff; background: var(--blue); border-color: var(--blue); }
+    .flow-node.dashed { border-style: dashed; color: var(--muted); }
+
+    .flow:not(.vertical) .flow-node + .flow-node::before {
+      content: "";
+      position: absolute;
+      left: -15px;
+      top: 50%;
+      width: 15px;
+      border-top: 2px solid #7c8797;
+    }
+
+    .flow:not(.vertical) .flow-node + .flow-node::after {
+      content: "";
+      position: absolute;
+      left: -5px;
+      top: calc(50% - 4px);
+      border-left: 7px solid #7c8797;
+      border-top: 4px solid transparent;
+      border-bottom: 4px solid transparent;
+    }
+
+    .strike-label {
+      display: inline-block;
+      margin-bottom: 6px;
+      color: #747d8a;
+      font-size: 17px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .callout {
+      margin-top: 22px;
+      padding: 16px 20px;
+      border-left: 6px solid var(--blue);
+      background: #f6f8fb;
+      font-size: 23px;
+      line-height: 1.28;
+    }
+
+    .architecture {
+      position: relative;
+      height: 480px;
+    }
+
+    .arch-row {
+      display: grid;
+      grid-template-columns: 210px 1fr;
+      gap: 24px;
+      align-items: stretch;
+      margin-bottom: 18px;
+    }
+
+    .arch-label {
+      padding-top: 14px;
+      color: var(--muted);
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .arch-band {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 84px;
+      padding: 14px 20px;
+      border: 1px solid #aeb8c6;
+      background: #fff;
+      text-align: center;
+      font-size: 22px;
+      font-weight: 700;
+    }
+
+    .arch-band.semantic { color: #fff; background: var(--blue); border-color: var(--blue); }
+    .arch-band.shared { background: var(--blue-soft); }
+
+    .branch-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 20px;
+    }
+
+    .branch {
+      position: relative;
+      min-height: 128px;
+      padding: 18px 20px;
+      background: var(--panel);
+      border-top: 5px solid #7f8998;
+    }
+
+    .branch.cpu { border-color: #576474; }
+    .branch.cuda { border-color: #4b8a32; }
+    .branch.rocm { border-color: #c65432; }
+    .branch h3 { margin-bottom: 7px; }
+    .branch p { margin: 0; color: var(--muted); font-size: 18px; }
+
+    .guardrails {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 18px;
+      margin-top: 20px;
+    }
+
+    .guardrail {
+      padding: 14px 16px;
+      border-left: 4px solid var(--blue);
+      background: #f6f8fb;
+      font-size: 18px;
+      line-height: 1.28;
+    }
+
+    .strategy-map {
+      display: grid;
+      grid-template-columns: 1fr 115px 1fr;
+      gap: 22px;
+      align-items: stretch;
+      margin-top: 6px;
+    }
+
+    .strategy-side {
+      padding: 22px 24px;
+      border-top: 5px solid #677382;
+      background: var(--panel);
+    }
+
+    .strategy-side.gpu { border-color: var(--blue); background: var(--blue-soft); }
+
+    .strategy-side ul { margin: 16px 0 0; padding-left: 22px; }
+    .strategy-side li { margin-bottom: 10px; font-size: 20px; }
+
+    .selector {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 10px;
+      color: #fff;
+      background: var(--blue-dark);
+      text-align: center;
+      font-size: 17px;
+      font-weight: 700;
+      line-height: 1.25;
+      writing-mode: vertical-rl;
+      transform: rotate(180deg);
+    }
+
+    .strategy-footer {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 22px;
+      margin-top: 18px;
+    }
+
+    .strategy-footer div {
+      padding: 13px 16px;
+      border: 1px solid var(--rule);
+      font-size: 18px;
+      line-height: 1.25;
+    }
+
+    .scope-table {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 28px;
+      margin-top: 8px;
+    }
+
+    .scope-column {
+      padding: 20px 24px;
+      border-top: 5px solid var(--green);
+      background: #f0f6f3;
+    }
+
+    .scope-column.defer {
+      border-top-color: #8a93a0;
+      background: var(--panel);
+    }
+
+    .scope-column ul { margin: 14px 0 0; padding-left: 23px; }
+    .scope-column li { margin-bottom: 8px; font-size: 20px; }
+
+    .hardware-line {
+      display: grid;
+      grid-template-columns: 145px 1fr 1fr;
+      gap: 14px;
+      align-items: center;
+      margin-top: 18px;
+      padding-top: 15px;
+      border-top: 1px solid var(--rule);
+    }
+
+    .hardware-line > div {
+      font-size: 18px;
+      line-height: 1.25;
+    }
+
+    .test-stack {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 10px;
+      margin-top: 4px;
+    }
+
+    .test-layer {
+      display: grid;
+      grid-template-columns: 185px 250px 1fr;
+      gap: 18px;
+      align-items: center;
+      min-height: 84px;
+      padding: 12px 18px;
+      border-left: 7px solid #647181;
+      background: var(--panel);
+    }
+
+    .test-layer.device { border-color: var(--blue); background: var(--blue-soft); }
+    .test-layer.release { border-color: var(--green); background: #edf5f1; }
+    .test-layer strong { font-size: 21px; }
+    .test-layer .cadence { color: var(--muted); font-size: 18px; font-weight: 700; }
+    .test-layer p { margin: 0; font-size: 18px; }
+
+    .api-layout {
+      display: grid;
+      grid-template-columns: 1.12fr 0.88fr;
+      gap: 34px;
+      margin-top: 4px;
+    }
+
+    .code-block {
+      padding: 24px 26px;
+      color: #eef4ff;
+      background: #101a2b;
+      border-top: 5px solid var(--blue);
+      font-size: 18px;
+      line-height: 1.5;
+      white-space: pre-wrap;
+    }
+
+    .api-points {
+      margin: 0;
+      padding-left: 25px;
+    }
+
+    .api-points li { margin-bottom: 14px; font-size: 20px; }
+
+    .package-strip {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      margin-top: 18px;
+    }
+
+    .package {
+      padding: 12px 14px;
+      border: 1px solid var(--rule);
+      background: #f7f9fb;
+      text-align: center;
+      font-size: 17px;
+    }
+
+    .timeline {
+      position: relative;
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 14px;
+      margin-top: 42px;
+    }
+
+    .timeline::before {
+      content: "";
+      position: absolute;
+      left: 7%;
+      right: 7%;
+      top: 26px;
+      border-top: 3px solid #a9b3c1;
+    }
+
+    .phase {
+      position: relative;
+      padding-top: 70px;
+    }
+
+    .phase::before {
+      content: attr(data-phase);
+      position: absolute;
+      left: 50%;
+      top: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 54px;
+      height: 54px;
+      transform: translateX(-50%);
+      color: #fff;
+      background: var(--blue);
+      border: 6px solid #fff;
+      box-shadow: 0 0 0 2px var(--blue);
+      border-radius: 50%;
+      font-size: 20px;
+      font-weight: 800;
+    }
+
+    .phase h3 { min-height: 54px; text-align: center; font-size: 22px; }
+    .phase p { margin: 0; color: var(--muted); text-align: center; font-size: 17px; }
+
+    .spike-note {
+      margin-top: 34px;
+      padding: 15px 20px;
+      border-left: 6px solid var(--amber);
+      background: #fbf4e9;
+      font-size: 19px;
+    }
+
+    .asks {
+      display: grid;
+      grid-template-columns: 1.15fr 0.85fr;
+      gap: 38px;
+      margin-top: 8px;
+    }
+
+    .ask-list {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      counter-reset: asks;
+    }
+
+    .ask-list li {
+      position: relative;
+      margin-bottom: 18px;
+      padding: 15px 14px 15px 70px;
+      background: var(--panel);
+      font-size: 20px;
+      line-height: 1.28;
+      counter-increment: asks;
+    }
+
+    .ask-list li::before {
+      content: "0" counter(asks);
+      position: absolute;
+      left: 18px;
+      top: 15px;
+      color: var(--blue);
+      font-size: 21px;
+      font-weight: 800;
+    }
+
+    .decision {
+      min-height: 360px;
+      padding: 30px;
+      color: #fff;
+      background: var(--blue-dark);
+    }
+
+    .decision .eyebrow { color: var(--cyan); }
+    .decision h3 { margin-top: 66px; font-size: 34px; line-height: 1.16; }
+    .decision p { color: #dfe8f6; font-size: 20px; }
+
+    .notes {
+      display: none;
+      position: fixed;
+      z-index: 5;
+      left: 18px;
+      right: 18px;
+      bottom: 18px;
+      max-height: 32vh;
+      overflow: auto;
+      padding: 16px 20px;
+      color: #e8edf5;
+      background: rgba(11,18,32,0.96);
+      border: 1px solid #465266;
+      font-size: 16px;
+      line-height: 1.45;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+    }
+
+    .deck.show-notes .slide.active .notes { display: block; }
+
+    .controls {
+      position: fixed;
+      z-index: 10;
+      right: 18px;
+      bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px;
+      background: rgba(11,18,32,0.88);
+      border-radius: 8px;
+    }
+
+    .controls button {
+      min-width: 34px;
+      height: 30px;
+      color: #fff;
+      background: transparent;
+      border: 1px solid #66748a;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+
+    .controls span { min-width: 54px; color: #fff; text-align: center; font-size: 14px; }
+
+    .progress {
+      position: fixed;
+      z-index: 9;
+      left: 0;
+      bottom: 0;
+      height: 4px;
+      width: var(--progress, 10%);
+      background: var(--blue);
+      transition: width 160ms ease;
+    }
+
+    @media print {
+      html, body { overflow: visible; background: #fff; }
+      .deck { height: auto; }
+      .slide {
+        position: relative;
+        left: auto;
+        top: auto;
+        opacity: 1;
+        pointer-events: auto;
+        transform: none;
+        break-after: page;
+      }
+      .controls, .progress, .notes { display: none !important; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .slide, .progress { transition: none; }
+    }
+  </style>
+</head>
+<body>
+  <main class="deck" id="deck" aria-label="Clifft accelerator execution presentation">
+    <section class="slide cover active" data-number="1" aria-label="Title slide">
+      <div class="cover-grid">
+        <div>
+          <p class="eyebrow">Architecture discussion</p>
+          <h1>Clifft accelerator execution</h1>
+          <p class="lede">A maintainable path to batch CPU, CUDA, and AMD ROCm after the 0.8 symbolic-sampler rewrite.</p>
+          <div class="brand">
+            <img src="../../assets/logos/clifft-mark-light.png" alt="Clifft mark">
+            <span>Unitary Foundation + accelerator partners &middot; August 2026</span>
+          </div>
+        </div>
+        <div class="hero-visual" aria-label="One sampling plan branching to CPU, CUDA, and ROCm execution">
+          <div class="hero-plan">
+            <strong>SamplingPlan</strong>
+            <span>one semantic contract</span>
+          </div>
+          <div class="hero-branches">
+            <div class="hero-node">CPU</div>
+            <div class="hero-node">CUDA</div>
+            <div class="hero-node">ROCm</div>
+          </div>
+        </div>
+      </div>
+      <aside class="notes">Purpose: align on the architecture shape, the first deliverable, and the partner inputs needed to start. The proposal is intentionally narrower than a general accelerator framework. Source: https://github.com/unitaryfoundation/clifft/discussions/382</aside>
+    </section>
+
+    <section class="slide" data-number="2" aria-label="Architecture reset in version 0.8">
+      <p class="eyebrow">The 0.8 reset</p>
+      <h2>Clifft removed the SVM, not just its opcodes</h2>
+      <div class="columns">
+        <div class="panel">
+          <span class="strike-label">Before 0.8</span>
+          <div class="flow vertical">
+            <div class="flow-node soft">Circuit + localized-Pauli lowering</div>
+            <div class="flow-node">Public SVM bytecode</div>
+            <div class="flow-node soft">Scalar / AVX interpreters</div>
+          </div>
+          <p class="small">The VM encoded localization steps and kept several interpreters on one instruction contract.</p>
+        </div>
+        <div class="panel blue">
+          <span class="strike-label">0.8 and later</span>
+          <div class="flow vertical">
+            <div class="flow-node soft">Circuit &rarr; optimized HIR</div>
+            <div class="flow-node primary">SamplingPlan</div>
+            <div class="flow-node">CPU ExecutablePlan &rarr; Executor</div>
+          </div>
+          <p class="small">Planning resolves coordinates, Pauli shapes, branches, and dependencies before a shot runs.</p>
+        </div>
+      </div>
+      <div class="callout">The current action tape is private prepared data. It is not stable bytecode and does not preserve the old SVM vocabulary.</div>
+      <aside class="notes">The old SVM was a sound design for localized Pauli execution, but the symbolic sampler no longer needs localization instructions. Direct multi-coordinate kernels and symbolic branch expressions made the old VM a second representation with no required capability. Sources: docs/updates/symbolic-sampling.md and docs/theory/architecture.md.</aside>
+    </section>
+
+    <section class="slide" data-number="3" aria-label="The semantic backend seam">
+      <p class="eyebrow">The reusable seam</p>
+      <h2>The shared contract should stay semantic</h2>
+      <div class="architecture">
+        <div class="arch-row">
+          <div class="arch-label">Compile once</div>
+          <div class="arch-band">Circuit &rarr; HIR &rarr; optimized HIR</div>
+        </div>
+        <div class="arch-row">
+          <div class="arch-label">Share meaning</div>
+          <div class="arch-band semantic">SamplingPlan: actions, dependencies, active-width changes, and outputs</div>
+        </div>
+        <div class="arch-row">
+          <div class="arch-label">Prepare per target</div>
+          <div class="branch-grid">
+            <div class="branch cpu"><h3>CPU prepared form</h3><p>descriptors, fusion, ISA choice</p></div>
+            <div class="branch cuda"><h3>CUDA prepared form</h3><p>layout, uploads, launch plan</p></div>
+            <div class="branch rocm"><h3>ROCm prepared form</h3><p>layout, uploads, launch plan</p></div>
+          </div>
+        </div>
+        <div class="guardrails">
+          <div class="guardrail">No allocation in ordinary dispatch or kernels</div>
+          <div class="guardrail">No exceptions in the hot execution path</div>
+          <div class="guardrail">No runtime tableau or topology planning</div>
+        </div>
+      </div>
+      <aside class="notes">Today Program directly wraps the CPU ExecutablePlan. The proposal is for Program to retain the immutable SamplingPlan and prepare a target-specific form lazily and safely. Avoid freezing a common GPU command stream until a basic CUDA and ROCm implementation shows what is actually common. Sources: docs/theory/architecture.md, src/clifft/sampling/plan.h, and Discussion 382.</aside>
+    </section>
+
+    <section class="slide" data-number="4" aria-label="One architecture with native execution paths">
+      <p class="eyebrow">The proposal</p>
+      <h2>One plan branches into three native execution paths</h2>
+      <div class="architecture">
+        <div class="arch-row">
+          <div class="arch-label">Python</div>
+          <div class="arch-band">sample(..., backend="cpu" | "cuda" | "rocm")</div>
+        </div>
+        <div class="arch-row">
+          <div class="arch-label">Program</div>
+          <div class="arch-band semantic">Retains one immutable SamplingPlan</div>
+        </div>
+        <div class="arch-row">
+          <div class="arch-label">Backend boundary</div>
+          <div class="arch-band shared">support check &middot; prepare &middot; run &middot; execution report</div>
+        </div>
+        <div class="arch-row">
+          <div class="arch-label">Native work</div>
+          <div class="branch-grid">
+            <div class="branch cpu"><h3>CPU</h3><p>serial, threads, OpenMP kernels, packed batch</p></div>
+            <div class="branch cuda"><h3>CUDA</h3><p>NVIDIA-native device code and tuning</p></div>
+            <div class="branch rocm"><h3>ROCm</h3><p>AMD HIP-native device code and tuning</p></div>
+          </div>
+        </div>
+      </div>
+      <aside class="notes">Share semantics, capability reporting, backend selection, validation, and correctness tests. Let data layout, device code, launch strategy, and tuned kernels diverge where each platform needs it. The backend interface should be small enough to test and isolate partner contributions. Source: Discussion 382.</aside>
+    </section>
+
+    <section class="slide" data-number="5" aria-label="Batch CPU and GPU strategy relationship">
+      <p class="eyebrow">Execution strategy</p>
+      <h2>Batch CPU and GPU should evolve together</h2>
+      <div class="strategy-map">
+        <div class="strategy-side">
+          <h3>CPU strategies</h3>
+          <ul>
+            <li>serial shots</li>
+            <li>shot-parallel workers</li>
+            <li>OpenMP within wide kernels</li>
+            <li>packed cross-shot batches</li>
+          </ul>
+        </div>
+        <div class="selector">selector observes the workload</div>
+        <div class="strategy-side gpu">
+          <h3>GPU strategies to measure</h3>
+          <ul>
+            <li>one thread per shot near k = 0</li>
+            <li>one group per shot at small k</li>
+            <li>coefficient-parallel work at larger k</li>
+          </ul>
+        </div>
+      </div>
+      <div class="strategy-footer">
+        <div><strong>Public names stay simple:</strong> <span class="mono">cpu</span>, <span class="mono">cuda</span>, <span class="mono">rocm</span>. Strategies remain internal, with an expert override.</div>
+        <div><strong>One CPU resource budget:</strong> coordinate shot workers and OpenMP threads so N workers do not each start M kernel threads.</div>
+      </div>
+      <aside class="notes">This avoids proliferating public types such as CPUSampler and CPUBatchSampler. The same prepared-execution boundary supports both packed CPU batches and GPU contexts. The selector can use shot count, active-width history, action mix, postselection, outputs, precision, memory, and preparation cost. Sources: Discussion 382 and PR 379.</aside>
+    </section>
+
+    <section class="slide" data-number="6" aria-label="Initial scope and non-goals">
+      <p class="eyebrow">First usable slice</p>
+      <h2>The first release is intentionally narrow</h2>
+      <div class="scope-table">
+        <div class="scope-column">
+          <h3>Must work</h3>
+          <ul>
+            <li>Linux x86-64, one synchronous GPU</li>
+            <li>FP64 and explicit backend selection</li>
+            <li><span class="mono">sample</span> and survivor sampling</li>
+            <li>postselection and record output</li>
+            <li><span class="mono">EXP_VAL</span>, if the spike confirms feasibility</li>
+            <li>unchanged CPU default and install</li>
+          </ul>
+        </div>
+        <div class="scope-column defer">
+          <h3>Defer</h3>
+          <ul>
+            <li>leakage and loss</li>
+            <li><span class="mono">sample_k</span> and importance sampling</li>
+            <li>exact state and probability queries</li>
+            <li>multi-GPU and asynchronous APIs</li>
+            <li>FP32 and automatic backend choice</li>
+            <li>a stable public GPU bytecode</li>
+          </ul>
+        </div>
+      </div>
+      <div class="hardware-line">
+        <div><strong>Representative hardware</strong></div>
+        <div><strong>NVIDIA:</strong> H200-class performance target; L40S-class optional correctness/CI target</div>
+        <div><strong>AMD:</strong> MI300-series target; confirm MI300A vs MI300X</div>
+      </div>
+      <aside class="notes">Initial workloads are magic-state cultivation and distillation. The hardware examples are targets for discussion, not a final support matrix. H200 offers a strong FP64 performance target; L40S can be a lower-cost functional test target but should not stand in for FP64 performance. AMD should confirm MI300A versus MI300X. Source: Discussion 382 and partner input.</aside>
+    </section>
+
+    <section class="slide" data-number="7" aria-label="Correctness and CI strategy">
+      <p class="eyebrow">Maintainability</p>
+      <h2>Correctness does not require a GPU on every PR</h2>
+      <div class="test-stack">
+        <div class="test-layer">
+          <strong>CPU oracle</strong>
+          <span class="cadence">Every PR</span>
+          <p>Action lowering, descriptor validation, forced trajectories, deterministic <span class="mono">EXP_VAL</span>, negative tests, and device-code compilation.</p>
+        </div>
+        <div class="test-layer device">
+          <strong>Trusted device smoke</strong>
+          <span class="cadence">Relevant PRs</span>
+          <p>Small CUDA and ROCm runs on controlled branches; no arbitrary fork code on scarce hardware.</p>
+        </div>
+        <div class="test-layer device">
+          <strong>Broad device suite</strong>
+          <span class="cadence">Main + scheduled</span>
+          <p>Statistical CPU comparisons, realistic circuits, chunking invariance, memory limits, and launch variants.</p>
+        </div>
+        <div class="test-layer release">
+          <strong>Release matrix</strong>
+          <span class="cadence">Before publishing</span>
+          <p>Supported runtime family, driver floor, baseline device class, wheel install, and end-to-end workload checks.</p>
+        </div>
+      </div>
+      <p class="small" style="margin-top: 14px;">Cross-backend bit-for-bit seeds are not required. Each GPU backend should be reproducible across batching and launch choices.</p>
+      <aside class="notes">The CPU implementation remains the trusted semantic oracle. Most bugs can be caught without hardware by validating lowering and executing forced paths. Device CI then answers the questions a CPU cannot: compilation against the real toolchain, launch correctness, memory behavior, and numerical/statistical agreement. Source: Discussion 382.</aside>
+    </section>
+
+    <section class="slide" data-number="8" aria-label="Python API and packaging">
+      <p class="eyebrow">User experience and delivery</p>
+      <h2>Explicit choices keep the Python API predictable</h2>
+      <div class="api-layout">
+        <div>
+          <div class="code-block">program = clifft.compile(circuit)
+
+# Existing calls stay on CPU.
+result = clifft.sample(program, shots=100_000)
+
+# Accelerator use is explicit.
+result = clifft.sample(
+    program,
+    shots=100_000,
+    backend="rocm",
+    device=0,
+    precision="f64",
+)
+
+program.execution_report()</div>
+          <div class="package-strip">
+            <div class="package"><strong>clifft</strong><br>CPU-only</div>
+            <div class="package"><strong>clifft-cuda13</strong><br>illustrative</div>
+            <div class="package"><strong>clifft-rocm7</strong><br>illustrative</div>
+          </div>
+        </div>
+        <ul class="api-points">
+          <li>No silent fallback after a user explicitly requests a GPU.</li>
+          <li>Capability errors explain the missing operation or unsupported target.</li>
+          <li>An execution report exposes the selected backend, strategy, device, precision, and memory plan.</li>
+          <li>One Linux x86-64 wheel family per supported CUDA or ROCm runtime limits the build matrix.</li>
+          <li>The CPU package keeps its current release cadence and easy install.</li>
+        </ul>
+      </div>
+      <aside class="notes">Package names are illustrative. Companion packages add wheel work, but the matrix stays bounded by supporting one runtime family per vendor and Linux x86-64 only. A private versioned C boundary or capsule can connect the companion package without making the prepared representation public. Source: Discussion 382.</aside>
+    </section>
+
+    <section class="slide" data-number="9" aria-label="Implementation phases">
+      <p class="eyebrow">Staged delivery</p>
+      <h2>De-risk first; standardize after two vendors</h2>
+      <div class="timeline">
+        <div class="phase" data-phase="0"><h3>Owner-led spike</h3><p>Real circuits, synthetic widths, shot sweep, basic CUDA + ROCm paths.</p></div>
+        <div class="phase" data-phase="1"><h3>Prepared boundary + CPU batch</h3><p>Program retains the plan; diagnostics and one CPU resource budget.</p></div>
+        <div class="phase" data-phase="2"><h3>Two-vendor correctness</h3><p>FP64 sampling, survivors, feasible EXP_VAL, and device CI.</p></div>
+        <div class="phase" data-phase="3"><h3>Tune with evidence</h3><p>Optimize one vendor at a time; keep the other correctness-complete.</p></div>
+        <div class="phase" data-phase="4"><h3>Experimental packages</h3><p>Publish companion wheels, then evaluate auto selection and FP32.</p></div>
+      </div>
+      <div class="spike-note"><strong>The spike is deliberately basic and isolated.</strong> It should answer layout, launch, precision, postselection, and shot-count questions before we freeze a shared GPU representation.</div>
+      <aside class="notes">Phase 0 can be owner-led to preserve a high quality bar while collaborators explore. It needs only a minimal boundary and CPU-oracle validation. Phase 1 turns what we learned into a maintainable product boundary and develops packed CPU batching alongside it. Source: Discussion 382.</aside>
+    </section>
+
+    <section class="slide" data-number="10" aria-label="Partner inputs and proposed decision">
+      <p class="eyebrow">Discussion and next step</p>
+      <h2>Start now; keep the support matrix open</h2>
+      <div class="asks">
+        <ol class="ask-list">
+          <li><strong>Architecture:</strong> agree on one semantic plan, native target preparation, and explicit Python backend selection.</li>
+          <li><strong>AMD:</strong> confirm MI300A or MI300X, ROCm/runtime and driver targets, device-code target, CI access, and an engineering owner.</li>
+          <li><strong>Unitary Foundation:</strong> confirm first workloads, maintenance ownership, trusted hardware policy, and release expectations.</li>
+          <li><strong>NVIDIA follow-up:</strong> validate the H200/L40S-class split and answer the same runtime, CI, and ownership questions.</li>
+        </ol>
+        <div class="decision">
+          <p class="eyebrow">Proposed decision</p>
+          <h3>Start phase 0 with explicit exit criteria.</h3>
+          <p>Use its evidence to finalize the backend boundary, first device matrix, and sequence of implementation PRs.</p>
+        </div>
+      </div>
+      <aside class="notes">The open partner inputs do not block the architecture work, packed CPU boundary, or exploratory spike. They do block the final support matrix, packaging promise, CI topology, and performance claims. Close by asking whether the group agrees to start phase 0 and who owns each vendor input. Source: Discussion 382.</aside>
+    </section>
+  </main>
+
+  <div class="controls" aria-label="Presentation controls">
+    <button type="button" id="prev" aria-label="Previous slide">&larr;</button>
+    <span id="counter">1 / 10</span>
+    <button type="button" id="next" aria-label="Next slide">&rarr;</button>
+    <button type="button" id="notes-toggle" aria-label="Toggle speaker notes">N</button>
+    <button type="button" id="fullscreen" aria-label="Toggle fullscreen">F</button>
+  </div>
+  <div class="progress" id="progress" aria-hidden="true"></div>
+
+  <script>
+    (() => {
+      const deck = document.getElementById("deck");
+      const slides = Array.from(document.querySelectorAll(".slide"));
+      const counter = document.getElementById("counter");
+      const progress = document.getElementById("progress");
+      let current = Math.max(0, Math.min(slides.length - 1, Number(location.hash.slice(1)) - 1 || 0));
+
+      function fit() {
+        const scale = Math.min(window.innerWidth / 1280, window.innerHeight / 720);
+        document.documentElement.style.setProperty("--scale", String(scale));
+      }
+
+      function show(index) {
+        current = (index + slides.length) % slides.length;
+        slides.forEach((slide, i) => slide.classList.toggle("active", i === current));
+        counter.textContent = `${current + 1} / ${slides.length}`;
+        progress.style.setProperty("--progress", `${((current + 1) / slides.length) * 100}%`);
+        history.replaceState(null, "", `#${current + 1}`);
+        document.title = `${current + 1}/${slides.length} - Clifft accelerator execution`;
+      }
+
+      function next() { show(current + 1); }
+      function prev() { show(current - 1); }
+
+      document.getElementById("next").addEventListener("click", next);
+      document.getElementById("prev").addEventListener("click", prev);
+      document.getElementById("notes-toggle").addEventListener("click", () => deck.classList.toggle("show-notes"));
+      document.getElementById("fullscreen").addEventListener("click", () => {
+        if (document.fullscreenElement) document.exitFullscreen();
+        else document.documentElement.requestFullscreen();
+      });
+
+      document.addEventListener("keydown", (event) => {
+        if (["ArrowRight", "ArrowDown", "PageDown", " "].includes(event.key)) { event.preventDefault(); next(); }
+        if (["ArrowLeft", "ArrowUp", "PageUp", "Backspace"].includes(event.key)) { event.preventDefault(); prev(); }
+        if (event.key.toLowerCase() === "n") deck.classList.toggle("show-notes");
+        if (event.key.toLowerCase() === "f") document.getElementById("fullscreen").click();
+        if (event.key === "Home") show(0);
+        if (event.key === "End") show(slides.length - 1);
+      });
+
+      window.addEventListener("resize", fit);
+      window.addEventListener("hashchange", () => show(Number(location.hash.slice(1)) - 1 || 0));
+      fit();
+      show(current);
+    })();
+  </script>
+</body>
+</html>
