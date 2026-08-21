@@ -130,14 +130,17 @@ void apply_s_to_tableau(stim::Tableau<kStimWidth>& tab, MaskView x_v, MaskView z
 
 void apply_pauli_to_tableau(stim::Tableau<kStimWidth>& tab, MaskView x_v, MaskView z_v) {
     assert(x_v.num_words() == z_v.num_words());
-    assert((tab.num_qubits + 63) / 64 <= x_v.num_words());
-    for (uint32_t q = 0; q < tab.num_qubits; ++q) {
-        if (z_v.bit_get(q)) {
-            tab.xs[q].sign ^= true;
+    const size_t tableau_words = (tab.num_qubits + 63) / 64;
+    assert(tableau_words <= x_v.num_words());
+    const size_t words = std::min({tableau_words, static_cast<size_t>(x_v.num_words()),
+                                   static_cast<size_t>(z_v.num_words())});
+    for (size_t w = 0; w < words; ++w) {
+        uint64_t valid_bits = UINT64_MAX;
+        if (w + 1 == tableau_words && tab.num_qubits % 64 != 0) {
+            valid_bits = (uint64_t{1} << (tab.num_qubits % 64)) - 1;
         }
-        if (x_v.bit_get(q)) {
-            tab.zs[q].sign ^= true;
-        }
+        tab.zs.signs.u64[w] ^= x_v.words[w] & valid_bits;
+        tab.xs.signs.u64[w] ^= z_v.words[w] & valid_bits;
     }
 }
 

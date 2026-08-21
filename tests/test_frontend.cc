@@ -178,21 +178,27 @@ TEST_CASE("Frontend: multiple T gates on different qubits", "[frontend]") {
     REQUIRE(hir.stab_mask(hir.ops[1]) == 0);
 }
 
-TEST_CASE("Frontend: SPP emits signed Pauli rotations", "[frontend]") {
-    auto hir = trace(parse("SPP X0*Y1*Z2\nSPP_DAG !X0"));
+TEST_CASE("Frontend: SPP gates are absorbed as signed Clifford products", "[frontend]") {
+    struct RotationCase {
+        const char* source;
+        const char* reference;
+    };
+    const RotationCase cases[] = {
+        {"SPP X0*Y1*Z2", "H 0\nH_YZ 1\nCX 1 0\nCX 2 0\nS 0\nCX 2 0\nCX 1 0\nH_YZ 1\nH 0"},
+        {"SPP_DAG !X0", "SQRT_X 0"},
+    };
 
-    REQUIRE(hir.num_ops() == 2);
-    CHECK(hir.ops[0].op_type() == OpType::PHASE_ROTATION);
-    CHECK(hir.ops[0].alpha() == Catch::Approx(0.5));
-    CHECK(hir.destab_mask(hir.ops[0]) == (X(0) | X(1)));
-    CHECK(hir.stab_mask(hir.ops[0]) == (Z(1) | Z(2)));
-    CHECK(!hir.sign(hir.ops[0]));
+    for (const auto& test_case : cases) {
+        CAPTURE(test_case.source);
+        const HirModule hir = trace(parse(test_case.source));
+        const HirModule reference = trace(parse(test_case.reference));
 
-    CHECK(hir.ops[1].op_type() == OpType::PHASE_ROTATION);
-    CHECK(hir.ops[1].alpha() == Catch::Approx(-0.5));
-    CHECK(hir.destab_mask(hir.ops[1]) == X(0));
-    CHECK(hir.stab_mask(hir.ops[1]) == 0);
-    CHECK(hir.sign(hir.ops[1]));
+        CHECK(hir.ops.empty());
+        CHECK(hir.pauli_masks.size() == 0);
+        REQUIRE(hir.final_tableau.has_value());
+        REQUIRE(reference.final_tableau.has_value());
+        CHECK(*hir.final_tableau == *reference.final_tableau);
+    }
 }
 
 TEST_CASE("Frontend: TPP emits one T gate per product", "[frontend]") {
@@ -1718,7 +1724,7 @@ TEST_CASE("Frontend: R_PAULI emits PHASE_ROTATION on arbitrary Pauli", "[fronten
     CHECK(hir.stab_mask(hir.ops[0]).bit_get(2));
 }
 
-TEST_CASE("Frontend: Pauli-valued product rotations match named gates", "[frontend][rotation]") {
+TEST_CASE("Frontend: Clifford-valued product rotations match named gates", "[frontend][rotation]") {
     struct RotationCase {
         const char* source;
         const char* reference;
@@ -1728,6 +1734,11 @@ TEST_CASE("Frontend: Pauli-valued product rotations match named gates", "[fronte
         {"R_XX(-1.0) 0 1", "X 0 1"},
         {"R_YY(3.0) 0 1", "Y 0 1"},
         {"R_PAULI(-3.0) X0*Y1*Z2", "X 0\nY 1\nZ 2"},
+        {"R_PAULI(1.0) X0*Z64*Y129", "X 0\nZ 64\nY 129"},
+        {"R_XX(0.5) 0 1", "SQRT_XX 0 1"},
+        {"R_YY(-0.5) 0 1", "SQRT_YY_DAG 0 1"},
+        {"R_ZZ(2.5) 0 1", "SQRT_ZZ 0 1"},
+        {"R_PAULI(0.5) X0*Y1*Z2", "H 0\nH_YZ 1\nCX 1 0\nCX 2 0\nS 0\nCX 2 0\nCX 1 0\nH_YZ 1\nH 0"},
     };
 
     for (const auto& test_case : cases) {
@@ -1768,6 +1779,32 @@ TEST_CASE("Frontend: product Pauli canonicalization uses the shared tolerance",
     REQUIRE(outside_hir.ops.size() == 1);
     CHECK(outside_hir.ops[0].op_type() == OpType::PHASE_ROTATION);
     CHECK(outside_hir.ops[0].alpha() == outside);
+
+    constexpr double sqrt_inside = 0.5 - 0.5 * kRotationCanonicalizationTolerance;
+    Circuit sqrt_inside_circuit;
+    sqrt_inside_circuit.num_qubits = 2;
+    sqrt_inside_circuit.nodes.push_back(
+        {GateType::R_XX, {Target::qubit(0), Target::qubit(1)}, {sqrt_inside}, 1});
+    const HirModule sqrt_inside_hir = trace(sqrt_inside_circuit);
+    const HirModule sqrt_reference = trace(parse("SQRT_XX 0 1"));
+
+    CHECK(sqrt_inside_hir.ops.empty());
+    CHECK(sqrt_inside_hir.pauli_masks.size() == 0);
+    REQUIRE(sqrt_inside_hir.final_tableau.has_value());
+    REQUIRE(sqrt_reference.final_tableau.has_value());
+    CHECK(*sqrt_inside_hir.final_tableau == *sqrt_reference.final_tableau);
+
+    constexpr double sqrt_outside = 0.5 - 2.0 * kRotationCanonicalizationTolerance;
+    Circuit sqrt_outside_circuit;
+    sqrt_outside_circuit.num_qubits = 2;
+    sqrt_outside_circuit.nodes.push_back(
+        {GateType::R_XX, {Target::qubit(0), Target::qubit(1)}, {sqrt_outside}, 1});
+    const HirModule sqrt_outside_hir = trace(sqrt_outside_circuit);
+
+    REQUIRE(sqrt_outside_hir.ops.size() == 1);
+    CHECK(sqrt_outside_hir.ops[0].op_type() == OpType::PHASE_ROTATION);
+    CHECK(sqrt_outside_hir.ops[0].alpha() == sqrt_outside);
+    CHECK(sqrt_outside_hir.pauli_masks.size() == 1);
 }
 
 TEST_CASE("Frontend: R_Z omits its source-representation global phase", "[frontend][rotation]") {

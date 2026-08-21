@@ -274,9 +274,12 @@ class TestArbitraryRotations(_StatevectorBackendMixin):
             "R_XX(-1.0) 0 1",
             "R_PAULI(3.0) X0*Y1*Z2",
             "R_Z(0.3) 0\nR_Z(0.7) 0",
+            "R_ZZ(0.5) 0 1",
+            "R_YY(-0.5) 0 1",
+            "R_PAULI(2.5) X0*Y1*Z2",
         ],
     )
-    def test_pauli_valued_rotations(self, rotation: str) -> None:
+    def test_clifford_valued_pauli_rotations(self, rotation: str) -> None:
         self._check_amplitudes(f"H 0 1 2\n{rotation}\nH 0\nCX 1 2")
 
     def test_rotations_after_cliffords(self) -> None:

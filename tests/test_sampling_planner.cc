@@ -574,6 +574,9 @@ TEST_CASE("Sampling planner does not activate absorbed Pauli rotations") {
     for (const char* source : {
              "R_ZZ(1.0) 0 1",
              "R_PAULI(-1.0) X0*Y1",
+             "R_ZZ(0.5) 0 1",
+             "R_PAULI(-0.5) X0*Y1",
+             "SPP X0*Y1",
              "R_Z(0.3) 0\nR_Z(0.7) 0",
          }) {
         CAPTURE(source);

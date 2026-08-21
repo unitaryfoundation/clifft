@@ -10,6 +10,7 @@
 #include <random>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 namespace clifft {
 
@@ -292,21 +293,78 @@ bool try_absorb_clifford_axis_rotation(stim::TableauSimulator<kStimWidth>& sim, 
     return true;
 }
 
-// A Pauli product is a tensor product of commuting single-qubit Paulis. Its
-// sign changes only the omitted global phase of a pi rotation.
-void apply_pauli_product_clifford(stim::TableauSimulator<kStimWidth>& sim,
-                                  const stim::PauliString<kStimWidth>& pauli) {
-    for (uint32_t q = 0; q < sim.inv_state.num_qubits; ++q) {
-        const bool x = pauli.xs[q];
-        const bool z = pauli.zs[q];
-        if (x && z) {
-            apply_single_qubit_clifford(sim, GateType::Y, q);
-        } else if (x) {
-            apply_single_qubit_clifford(sim, GateType::X, q);
-        } else if (z) {
-            apply_single_qubit_clifford(sim, GateType::Z, q);
-        }
+void apply_clifford_pair_rotation(stim::TableauSimulator<kStimWidth>& sim, uint32_t q1, uint32_t q2,
+                                  CliffordRotation rotation, GateType sqrt_gate,
+                                  GateType pauli_gate, GateType sqrt_dag_gate) {
+    switch (rotation) {
+        case CliffordRotation::IDENTITY:
+            break;
+        case CliffordRotation::SQRT:
+            apply_two_qubit_clifford(sim, sqrt_gate, q1, q2);
+            break;
+        case CliffordRotation::PAULI:
+            apply_single_qubit_clifford(sim, pauli_gate, q1);
+            apply_single_qubit_clifford(sim, pauli_gate, q2);
+            break;
+        case CliffordRotation::SQRT_DAG:
+            apply_two_qubit_clifford(sim, sqrt_dag_gate, q1, q2);
+            break;
     }
+}
+
+void apply_sqrt_pauli_product_clifford(stim::TableauSimulator<kStimWidth>& sim,
+                                       const stim::PauliString<kStimWidth>& pauli, bool dagger) {
+    const auto pauli_ref = pauli.ref();
+    const size_t weight = pauli_ref.weight();
+    if (weight == 0) {
+        return;
+    }
+
+    std::vector<stim::GateTarget> targets;
+    targets.reserve(2 * weight - 1);
+    bool first = true;
+    pauli_ref.for_each_active_pauli([&](size_t q) {
+        if (!first) {
+            targets.push_back(stim::GateTarget::combiner());
+        }
+        targets.push_back(stim::GateTarget::pauli_xz(static_cast<uint32_t>(q), pauli.xs[q],
+                                                     pauli.zs[q], first && pauli.sign));
+        first = false;
+    });
+
+    const auto gate = dagger ? stim::GateType::SPP_DAG : stim::GateType::SPP;
+    const stim::CircuitInstruction instruction(gate, {}, targets, {});
+    if (dagger) {
+        sim.do_SPP_DAG(instruction);
+    } else {
+        sim.do_SPP(instruction);
+    }
+}
+
+// Absorb a Clifford-valued rotation around an arbitrary Pauli product. Stim's
+// SPP decomposition accounts for a signed axis; a full Pauli ignores that sign
+// because it changes only the omitted global phase.
+bool try_absorb_clifford_pauli_rotation(stim::TableauSimulator<kStimWidth>& sim,
+                                        const stim::PauliString<kStimWidth>& pauli, double alpha) {
+    const auto rotation = classify_clifford_rotation(alpha);
+    if (!rotation.has_value()) {
+        return false;
+    }
+
+    switch (*rotation) {
+        case CliffordRotation::IDENTITY:
+            break;
+        case CliffordRotation::SQRT:
+            apply_sqrt_pauli_product_clifford(sim, pauli, false);
+            break;
+        case CliffordRotation::PAULI:
+            sim.paulis(pauli);
+            break;
+        case CliffordRotation::SQRT_DAG:
+            apply_sqrt_pauli_product_clifford(sim, pauli, true);
+            break;
+    }
+    return true;
 }
 
 // Trace R_Z(alpha) on a single qubit by extracting its rewound Z axis. The
@@ -329,12 +387,7 @@ void trace_rz(stim::TableauSimulator<kStimWidth>& sim, HirModule& hir, uint32_t 
 // Trace an arbitrary Pauli rotation exp(-i*alpha*pi/2 * P).
 void trace_pauli_rotation(stim::TableauSimulator<kStimWidth>& sim, HirModule& hir,
                           const stim::PauliString<kStimWidth>& obs, double alpha) {
-    const auto rotation = classify_clifford_rotation(alpha);
-    if (rotation == CliffordRotation::IDENTITY) {
-        return;
-    }
-    if (rotation == CliffordRotation::PAULI) {
-        apply_pauli_product_clifford(sim, obs);
+    if (try_absorb_clifford_pauli_rotation(sim, obs, alpha)) {
         return;
     }
 
@@ -436,21 +489,17 @@ size_t count_pauli_masks(const Circuit& circuit) {
             case GateType::R_XX:
             case GateType::R_YY:
             case GateType::R_ZZ: {
-                const auto rotation = classify_clifford_rotation(node.args[0]);
-                if (rotation != CliffordRotation::IDENTITY && rotation != CliffordRotation::PAULI) {
+                if (!classify_clifford_rotation(node.args[0]).has_value()) {
                     count += n_targets / 2;
                 }
                 break;
             }
             case GateType::R_PAULI: {
-                const auto rotation = classify_clifford_rotation(node.args[0]);
-                if (rotation != CliffordRotation::IDENTITY && rotation != CliffordRotation::PAULI) {
+                if (!classify_clifford_rotation(node.args[0]).has_value()) {
                     count += 1;
                 }
                 break;
             }
-            case GateType::SPP:
-            case GateType::SPP_DAG:
             case GateType::TPP:
             case GateType::TPP_DAG:
             case GateType::EXP_VAL:
@@ -748,6 +797,19 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
             case GateType::R_YY:
             case GateType::R_ZZ: {
                 double alpha = node.args[0];
+                const auto clifford_rotation = classify_clifford_rotation(alpha);
+                GateType sqrt_gate = GateType::SQRT_ZZ;
+                GateType pauli_gate = GateType::Z;
+                GateType sqrt_dag_gate = GateType::SQRT_ZZ_DAG;
+                if (node.gate == GateType::R_XX) {
+                    sqrt_gate = GateType::SQRT_XX;
+                    pauli_gate = GateType::X;
+                    sqrt_dag_gate = GateType::SQRT_XX_DAG;
+                } else if (node.gate == GateType::R_YY) {
+                    sqrt_gate = GateType::SQRT_YY;
+                    pauli_gate = GateType::Y;
+                    sqrt_dag_gate = GateType::SQRT_YY_DAG;
+                }
                 for (size_t i = 0; i + 1 < node.targets.size(); i += 2) {
                     uint32_t q1 = node.targets[i].value();
                     uint32_t q2 = node.targets[i + 1].value();
@@ -755,6 +817,13 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                         throw std::runtime_error("Duplicate qubit in pair rotation: q" +
                                                  std::to_string(q1));
                     }
+
+                    if (clifford_rotation.has_value()) {
+                        apply_clifford_pair_rotation(sim, q1, q2, *clifford_rotation, sqrt_gate,
+                                                     pauli_gate, sqrt_dag_gate);
+                        continue;
+                    }
+
                     stim::PauliString<kStimWidth> obs(circuit.num_qubits);
                     if (node.gate == GateType::R_XX) {
                         obs.xs[q1] = true;

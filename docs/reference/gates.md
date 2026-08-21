@@ -135,9 +135,10 @@ The target list uses Stim's Pauli product syntax (e.g. `X0*Y1*Z2`). Maximum
 target count is 64 qubits per instruction.
 
 For two- and multi-qubit Pauli rotations, finite angles within the shared
-`1e-12` half-turn tolerance of an odd integer are projectively Pauli gates and
-are absorbed into the Clifford frame during tracing. The peephole pass applies
-the same rule when fusion produces an odd-integer rotation.
+`1e-12` half-turn tolerance of a Clifford angle are absorbed into the Clifford
+frame during tracing. This includes square-root Pauli rotations at half-integer
+angles and projective Pauli gates at odd-integer angles. The peephole pass
+applies the same rule to HIR rotations produced directly or by fusion.
 
 ## Two-Qubit Clifford Gates
 

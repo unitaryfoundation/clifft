@@ -568,10 +568,11 @@ class TestSAbsorptionDifferential:
             "R_Z(0.25) 0\nR_Z(0.25) 0\nH 1\nR_Z(0.75) 1\nR_Z(0.75) 1"
         )
 
-    @pytest.mark.parametrize("angle", [0.5, 1.5])
-    def test_standalone_multi_qubit_phase_rotation_demotion(self, angle: float) -> None:
-        """Standalone multi-qubit S/S_dag rotations reach peephole absorption."""
-        _assert_absorption_preserves_state(f"R_XX({angle}) 0 1")
+    @pytest.mark.parametrize("angles", [(0.2, 0.3), (0.7, 0.8)])
+    def test_fused_multi_qubit_phase_rotation_demotion(self, angles: tuple[float, float]) -> None:
+        """Fused multi-qubit S/S_dag rotations reach peephole absorption."""
+        first, second = angles
+        _assert_absorption_preserves_state(f"R_XX({first}) 0 1\nR_XX({second}) 0 1")
 
 
 class TestPauliRotationAbsorption:

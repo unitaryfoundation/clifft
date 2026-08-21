@@ -690,17 +690,19 @@ TEST_CASE("Peephole: Pauli absorption supports wide multi-word axes", "[optimize
     REQUIRE(hir.final_tableau == reference.final_tableau);
 }
 
-TEST_CASE("Peephole: SPP uses rotation fusion and absorption", "[optimizer]") {
-    auto hir_spp = hir_from("SPP X0*Y1");
-    REQUIRE(hir_spp.ops.size() == 1);
-    REQUIRE(hir_spp.ops[0].op_type() == OpType::PHASE_ROTATION);
+TEST_CASE("Peephole: square-root product rotations use fusion and absorption", "[optimizer]") {
+    HirModule hir_spp(2, 1);
+    hir_spp.final_tableau.emplace(2);
+    clifft::test::append_phase_rotation(hir_spp, 0, X(0) | X(1), false, 0.5);
 
     PeepholeFusionPass pass_spp;
     pass_spp.run(hir_spp);
     REQUIRE(hir_spp.ops.empty());
 
-    auto hir_cancel = hir_from("SPP X0*Y1\nSPP_DAG X0*Y1");
-    REQUIRE(hir_cancel.ops.size() == 2);
+    HirModule hir_cancel(2, 2);
+    hir_cancel.final_tableau.emplace(2);
+    clifft::test::append_phase_rotation(hir_cancel, 0, X(0) | X(1), false, 0.5);
+    clifft::test::append_phase_rotation(hir_cancel, 0, X(0) | X(1), false, -0.5);
 
     PeepholeFusionPass pass_cancel;
     pass_cancel.run(hir_cancel);
