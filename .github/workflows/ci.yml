@@ -351,7 +351,7 @@ jobs:
       - name: SDE smoke -- Skylake-X (auto-detect)
         run: PYTHON=$(pwd)/.smoke-venv/bin/python .github/scripts/wheel_smoke.sh sde skx auto pass avx512
       - name: SDE smoke -- Skylake-X + FORCE_ISA=avx512
-        run: PYTHON=$(pwd)/.smoke-venv/bin/python .github/scripts/wheel_smoke.sh sde skx avx512 pass avx512
+        run: PYTHON=$(pwd)/.smoke-venv/bin/python .github/scripts/wheel_smoke.sh sde skx avx512 pass avx512 intra-shot
 
   # Round-trips the packaging pipeline on every pull request: the sdist
   # must be complete and buildable, it must produce a cp312-abi3 wheel,

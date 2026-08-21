@@ -99,7 +99,7 @@ void summarize(std::vector<double> samples_ms, int shots) {
     const double sum = std::accumulate(samples_ms.begin(), samples_ms.end(), 0.0);
     const double mean = sum / static_cast<double>(samples_ms.size());
     const double median = samples_ms[samples_ms.size() / 2];
-    const double p95 = samples_ms[(samples_ms.size() * 95) / 100];
+    const double p95 = samples_ms[(samples_ms.size() * 95 - 1) / 100];
 
     std::cout << "Sampling distribution:\n";
     std::cout << "  min:    " << samples_ms.front() << " ms\n";
