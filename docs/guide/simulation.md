@@ -254,17 +254,19 @@ explicit count if the reported hardware concurrency exceeds the available CPU
 quota.
 
 For the fixed-plan symbolic sampler, Clifft automatically chooses one of two
-layouts. It uses cross-shot workers when there are enough shots to occupy the
-budget. For a smaller batch whose peak active width is at least 18, an
-OpenMP-enabled build instead uses the budget within one shot at a time. This
-either-or policy avoids nested thread pools and their affinity and
-oversubscription hazards. Builds without OpenMP always use cross-shot workers.
-`noncomp.sample()` continues to interpret `threads` as cross-shot workers.
-The crossover is a bandwidth-sensitive heuristic measured against pure
-cross-shot scheduling. Use an explicit layout when the crossover on your
-hardware differs.
+ways to use that budget:
 
-The symbolic sampling functions also accept the advanced override
+- With enough shots, it runs several shots at once.
+- With fewer shots and a peak active width of at least 18, an OpenMP-enabled
+  build shares the work within each shot instead.
+
+Clifft does not combine these strategies automatically. Builds without OpenMP
+can only spread work across shots, and `noncomp.sample()` also uses only that
+strategy. The width cutoff is a measured default; advanced users can override
+the layout and cutoff for their hardware.
+
+Most users should use `threads`. The symbolic sampling functions also accept
+the advanced override
 `thread_layout=(shot_workers, intra_shot_workers)`. The override replaces the
 automatic choice, ignores `threads`, and may request a hybrid layout. Both
 counts must be positive, and an intra-shot count above one requires an
@@ -288,13 +290,14 @@ result = clifft.sample(
 )
 ```
 
-Hybrid layouts use ordinary shot workers around OpenMP kernel teams and
-therefore require OpenMP processor binding to be disabled. Clifft rejects a
-requested hybrid layout when `OMP_PROC_BIND` is active, even if the plan is
-below the active-width threshold and would otherwise suppress its intra-shot
-workers. This avoids silently oversubscribing a restricted CPU set and keeps
-validation independent of the program. Pure cross-shot and pure intra-shot
-layouts honor active OpenMP binding.
+In this example, Clifft runs two shots at once and gives each shot up to four
+OpenMP workers once its active width reaches 17. It therefore uses at most eight
+execution threads.
+
+Hybrid layouts combine shot workers with OpenMP teams, so they require OpenMP
+processor binding to be disabled. Clifft rejects a hybrid layout when
+`OMP_PROC_BIND` is active. Pure cross-shot and pure intra-shot layouts can use
+OpenMP binding.
 
 Workers dynamically claim contiguous shot ranges from a shared scheduler.
 With a fixed seed, changing `threads` produces exactly the same result.

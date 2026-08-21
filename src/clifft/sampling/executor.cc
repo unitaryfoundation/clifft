@@ -334,12 +334,12 @@ void Executor::assign_forced_quantum_faults() noexcept {
     }
 }
 
-template <ExecutorBackend Backend, bool Parallel>
+template <ExecutorBackend Backend, Executor::IntraShotMode IntraShot>
 void Executor::execute_action(const ExecutablePlan::ExecuteRotation& action,
                               std::span<const uint8_t>, ReplayResult&) noexcept {
     const bool sign = evaluate(action.sign);
     if (action.kernel == DirectRotationKernel::Scalar) {
-        if constexpr (Parallel) {
+        if constexpr (IntraShot == IntraShotMode::OpenMP) {
             apply_rotation_parallel(state_, action.rotation, sign, intra_shot_workers_,
                                     intra_shot_min_active_width_);
         } else {
@@ -348,14 +348,14 @@ void Executor::execute_action(const ExecutablePlan::ExecuteRotation& action,
         return;
     }
     if constexpr (Backend == ExecutorBackend::Avx2) {
-        if constexpr (Parallel) {
+        if constexpr (IntraShot == IntraShotMode::OpenMP) {
             apply_direct_rotation_avx2_parallel(state_, action.rotation, action.kernel, sign,
                                                 intra_shot_workers_, intra_shot_min_active_width_);
         } else {
             apply_direct_rotation_avx2(state_, action.rotation, action.kernel, sign);
         }
     } else if constexpr (Backend == ExecutorBackend::Avx512) {
-        if constexpr (Parallel) {
+        if constexpr (IntraShot == IntraShotMode::OpenMP) {
             apply_direct_rotation_avx512_parallel(state_, action.rotation, action.kernel, sign,
                                                   intra_shot_workers_,
                                                   intra_shot_min_active_width_);
@@ -368,12 +368,12 @@ void Executor::execute_action(const ExecutablePlan::ExecuteRotation& action,
     }
 }
 
-template <bool Parallel>
+template <Executor::IntraShotMode IntraShot>
 void Executor::execute_action(const ExecutablePlan::ExecuteFusedRotation& action,
                               std::span<const uint8_t>, ReplayResult&) noexcept {
     assert(action.rotation_index < plan_->fused_rotations_.size() &&
            "fused rotation action must reference prepared execution");
-    if constexpr (Parallel) {
+    if constexpr (IntraShot == IntraShotMode::OpenMP) {
         plan_->fused_rotations_[action.rotation_index].apply_parallel(state_, intra_shot_workers_,
                                                                       intra_shot_min_active_width_);
     } else {
@@ -381,7 +381,7 @@ void Executor::execute_action(const ExecutablePlan::ExecuteFusedRotation& action
     }
 }
 
-template <bool Parallel>
+template <Executor::IntraShotMode IntraShot>
 void Executor::execute_action(const ExecutablePlan::ExecuteDynamicFusedRotation& action,
                               std::span<const uint8_t>, ReplayResult&) noexcept {
     assert(action.rotation_index < plan_->dynamic_fused_rotations_.size() &&
@@ -393,7 +393,7 @@ void Executor::execute_action(const ExecutablePlan::ExecuteDynamicFusedRotation&
     }
     assert(variant < rotation.variants.size() &&
            "dynamic fused sign value must select a prepared variant");
-    if constexpr (Parallel) {
+    if constexpr (IntraShot == IntraShotMode::OpenMP) {
         rotation.variants[variant].apply_parallel(state_, intra_shot_workers_,
                                                   intra_shot_min_active_width_);
     } else {
@@ -401,10 +401,10 @@ void Executor::execute_action(const ExecutablePlan::ExecuteDynamicFusedRotation&
     }
 }
 
-template <bool Parallel>
+template <Executor::IntraShotMode IntraShot>
 void Executor::execute_action(const ExecutablePlan::ExecutePromotion& action,
                               std::span<const uint8_t>, ReplayResult&) noexcept {
-    if constexpr (Parallel) {
+    if constexpr (IntraShot == IntraShotMode::OpenMP) {
         apply_promotion_parallel(state_, action.promotion, evaluate(action.sign),
                                  intra_shot_workers_, intra_shot_min_active_width_);
     } else {
@@ -741,7 +741,7 @@ void Executor::execute_action(const ExecutablePlan::ExecuteBoundary& action,
     }
 }
 
-template <ExecutorBackend Backend, Executor::ShotMode Mode, bool Parallel>
+template <ExecutorBackend Backend, Executor::ShotMode Mode, Executor::IntraShotMode IntraShot>
 ReplayResult Executor::execute_actions(std::span<const uint8_t> forced_records,
                                        uint32_t begin) noexcept {
     ReplayResult result;
@@ -757,12 +757,12 @@ ReplayResult Executor::execute_actions(std::span<const uint8_t> forced_records,
                               std::is_same_v<T, ExecutablePlan::ExecuteClassicalRecord>) {
                     execute_action<Mode>(typed, forced_records, result);
                 } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteRotation>) {
-                    execute_action<Backend, Parallel>(typed, forced_records, result);
+                    execute_action<Backend, IntraShot>(typed, forced_records, result);
                 } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteFusedRotation> ||
                                      std::is_same_v<T,
                                                     ExecutablePlan::ExecuteDynamicFusedRotation> ||
                                      std::is_same_v<T, ExecutablePlan::ExecutePromotion>) {
-                    execute_action<Parallel>(typed, forced_records, result);
+                    execute_action<IntraShot>(typed, forced_records, result);
                 } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteActiveMeasurement> ||
                                      std::is_same_v<T, ExecutablePlan::ExecuteInstrument>) {
                     execute_action<Backend, Mode>(typed, forced_records, result);
@@ -792,16 +792,19 @@ ReplayResult Executor::execute_actions_for_backend(std::span<const uint8_t> forc
     if (intra_shot_workers_ > 1) {
         switch (backend_) {
             case ExecutorBackend::Scalar:
-                return execute_actions<ExecutorBackend::Scalar, Mode, true>(forced_records, begin);
+                return execute_actions<ExecutorBackend::Scalar, Mode, IntraShotMode::OpenMP>(
+                    forced_records, begin);
             case ExecutorBackend::Avx2:
 #if defined(CLIFFT_ENABLE_RUNTIME_DISPATCH)
-                return execute_actions<ExecutorBackend::Avx2, Mode, true>(forced_records, begin);
+                return execute_actions<ExecutorBackend::Avx2, Mode, IntraShotMode::OpenMP>(
+                    forced_records, begin);
 #else
                 break;
 #endif
             case ExecutorBackend::Avx512:
 #if defined(CLIFFT_ENABLE_RUNTIME_DISPATCH)
-                return execute_actions<ExecutorBackend::Avx512, Mode, true>(forced_records, begin);
+                return execute_actions<ExecutorBackend::Avx512, Mode, IntraShotMode::OpenMP>(
+                    forced_records, begin);
 #else
                 break;
 #endif
@@ -811,16 +814,19 @@ ReplayResult Executor::execute_actions_for_backend(std::span<const uint8_t> forc
     }
     switch (backend_) {
         case ExecutorBackend::Scalar:
-            return execute_actions<ExecutorBackend::Scalar, Mode, false>(forced_records, begin);
+            return execute_actions<ExecutorBackend::Scalar, Mode, IntraShotMode::Serial>(
+                forced_records, begin);
         case ExecutorBackend::Avx2:
 #if defined(CLIFFT_ENABLE_RUNTIME_DISPATCH)
-            return execute_actions<ExecutorBackend::Avx2, Mode, false>(forced_records, begin);
+            return execute_actions<ExecutorBackend::Avx2, Mode, IntraShotMode::Serial>(
+                forced_records, begin);
 #else
             break;
 #endif
         case ExecutorBackend::Avx512:
 #if defined(CLIFFT_ENABLE_RUNTIME_DISPATCH)
-            return execute_actions<ExecutorBackend::Avx512, Mode, false>(forced_records, begin);
+            return execute_actions<ExecutorBackend::Avx512, Mode, IntraShotMode::Serial>(
+                forced_records, begin);
 #else
             break;
 #endif

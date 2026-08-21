@@ -119,6 +119,11 @@ class Executor {
         ReplayRecords,
     };
 
+    enum class IntraShotMode : uint8_t {
+        Serial,
+        OpenMP,
+    };
+
     void reset_shot() noexcept;
     void assign_presampled_values(std::span<const uint8_t> presampled_values) noexcept;
     void sample_presampled_noise(uint32_t begin, uint32_t end) noexcept;
@@ -132,19 +137,19 @@ class Executor {
     template <ShotMode Mode>
     [[nodiscard]] ReplayResult execute_actions_for_backend(std::span<const uint8_t> forced_records,
                                                            uint32_t begin = 0) noexcept;
-    template <ExecutorBackend Backend, ShotMode Mode, bool Parallel>
+    template <ExecutorBackend Backend, ShotMode Mode, IntraShotMode IntraShot>
     [[nodiscard]] ReplayResult execute_actions(std::span<const uint8_t> forced_records,
                                                uint32_t begin = 0) noexcept;
-    template <ExecutorBackend Backend, bool Parallel>
+    template <ExecutorBackend Backend, IntraShotMode IntraShot>
     void execute_action(const ExecutablePlan::ExecuteRotation& action,
                         std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
-    template <bool Parallel>
+    template <IntraShotMode IntraShot>
     void execute_action(const ExecutablePlan::ExecuteFusedRotation& action,
                         std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
-    template <bool Parallel>
+    template <IntraShotMode IntraShot>
     void execute_action(const ExecutablePlan::ExecuteDynamicFusedRotation& action,
                         std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
-    template <bool Parallel>
+    template <IntraShotMode IntraShot>
     void execute_action(const ExecutablePlan::ExecutePromotion& action,
                         std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
     template <ExecutorBackend Backend, ShotMode Mode>
