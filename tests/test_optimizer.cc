@@ -649,28 +649,34 @@ TEST_CASE("Peephole: negative-sign T plus T preserves the state ray", "[optimize
     // X conjugates Z -> -Z, so both T gates see -Z axis (sign=true).
     // T(-Z) = exp(i*pi/4) * T_dag(+Z), so T(-Z)+T(-Z) = exp(i*pi/2) * S_dag(+Z) = i * S_dag.
     HirModule hir(1, /*pauli_capacity=*/16);
+    hir.final_tableau.emplace(1);
 
     clifft::test::append_tgate(hir, 0, Z(0), /*sign=*/true);
     clifft::test::append_tgate(hir, 0, Z(0), /*sign=*/true);
+    const HirModule reference = hir_from("S_DAG 0");
     PeepholeFusionPass pass;
     pass.run(hir);
 
     // Both T gates absorbed (S absorbed into tableau)
     REQUIRE(hir.ops.empty());
     REQUIRE(pass.fusions() == 1);
+    REQUIRE(hir.final_tableau == reference.final_tableau);
 }
 
 TEST_CASE("Peephole: negative-sign T_dag plus T_dag preserves the state ray", "[optimizer]") {
     // T_dag(-Z) = exp(-i*pi/4) * T(+Z), two of them: exp(-i*pi/2) * S(+Z) = -i * S.
     HirModule hir(1, /*pauli_capacity=*/16);
+    hir.final_tableau.emplace(1);
 
     clifft::test::append_tgate(hir, 0, Z(0), /*sign=*/true, /*dagger=*/true);
     clifft::test::append_tgate(hir, 0, Z(0), /*sign=*/true, /*dagger=*/true);
+    const HirModule reference = hir_from("S 0");
     PeepholeFusionPass pass;
     pass.run(hir);
 
     REQUIRE(hir.ops.empty());
     REQUIRE(pass.fusions() == 1);
+    REQUIRE(hir.final_tableau == reference.final_tableau);
 }
 
 TEST_CASE("Peephole: mixed-sign T cancellation preserves the state ray", "[optimizer]") {
@@ -678,14 +684,17 @@ TEST_CASE("Peephole: mixed-sign T cancellation preserves the state ray", "[optim
     // T(-Z) = exp(i*pi/4) * T_dag(+Z), so the physical result is
     // T(+Z) * exp(i*pi/4) * T_dag(+Z) = exp(i*pi/4) * I.
     HirModule hir(1, /*pauli_capacity=*/16);
+    hir.final_tableau.emplace(1);
 
     clifft::test::append_tgate(hir, 0, Z(0), /*sign=*/false);
     clifft::test::append_tgate(hir, 0, Z(0), /*sign=*/true);
+    const HirModule reference = hir_from("I 0");
     PeepholeFusionPass pass;
     pass.run(hir);
 
     REQUIRE(hir.ops.empty());
     REQUIRE(pass.cancellations() == 1);
+    REQUIRE(hir.final_tableau == reference.final_tableau);
 }
 
 TEST_CASE("Peephole: S absorption creates negative T that subsequently fuses", "[optimizer]") {

@@ -1,6 +1,5 @@
 #pragma once
 
-#include "clifft/util/numeric.h"
 #include "clifft/util/page_allocation.h"
 
 #include <cstddef>
