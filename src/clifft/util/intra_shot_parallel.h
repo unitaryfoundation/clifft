@@ -1,5 +1,7 @@
 #pragma once
 
+#include "clifft/util/config.h"
+
 #include <cstdint>
 #include <limits>
 
@@ -10,16 +12,14 @@
 namespace clifft {
 
 #if defined(__GNUC__) || defined(__clang__)
-#define CLIFFT_INTRA_SHOT_INLINE [[gnu::always_inline, gnu::flatten]] inline
+#define CLIFFT_INTRA_SHOT_INLINE [[gnu::always_inline, gnu::flatten]] static inline
 #elif defined(_MSC_VER)
-#define CLIFFT_INTRA_SHOT_INLINE __forceinline
+#define CLIFFT_INTRA_SHOT_INLINE static __forceinline
 #else
-#define CLIFFT_INTRA_SHOT_INLINE inline
+#define CLIFFT_INTRA_SHOT_INLINE static inline
 #endif
 
-inline constexpr uint32_t kDefaultIntraShotMinActiveWidth = 18;
-
-[[nodiscard]] inline constexpr bool intra_shot_parallelism_available() noexcept {
+[[nodiscard]] static constexpr bool intra_shot_parallelism_available() noexcept {
 #if defined(CLIFFT_USE_OPENMP)
     return true;
 #else
@@ -27,12 +27,12 @@ inline constexpr uint32_t kDefaultIntraShotMinActiveWidth = 18;
 #endif
 }
 
-[[nodiscard]] inline constexpr bool should_parallelize_intra_shot(
+[[nodiscard]] static constexpr bool should_parallelize_intra_shot(
     uint32_t active_width, uint32_t workers, uint32_t min_active_width) noexcept {
     return intra_shot_parallelism_available() && workers > 1 && active_width >= min_active_width;
 }
 
-[[nodiscard]] inline bool openmp_process_binding_active() noexcept {
+[[nodiscard]] static inline bool openmp_process_binding_active() noexcept {
 #if defined(CLIFFT_USE_OPENMP) && defined(_OPENMP) && _OPENMP >= 201307
     return omp_get_proc_bind() != omp_proc_bind_false;
 #else

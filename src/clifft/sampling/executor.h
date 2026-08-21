@@ -2,7 +2,7 @@
 
 #include "clifft/sampling/executable_plan.h"
 #include "clifft/sampling/state.h"
-#include "clifft/util/intra_shot_parallel.h"
+#include "clifft/util/config.h"
 #include "clifft/util/xoshiro.h"
 
 #include <cstddef>

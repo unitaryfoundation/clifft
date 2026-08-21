@@ -1,6 +1,6 @@
 #pragma once
 
-#include "clifft/util/intra_shot_parallel.h"
+#include "clifft/util/config.h"
 #include "clifft/util/page_allocation.h"
 
 #include <cstddef>

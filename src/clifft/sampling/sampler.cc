@@ -86,13 +86,13 @@ ThreadLayout resolve_thread_layout(const ExecutablePlan& plan, uint32_t shots,
             throw std::invalid_argument("thread_layout intra-shot worker count is too large");
         }
         override->shot_workers = std::min(override->shot_workers, shots);
-        if (!should_parallelize_intra_shot(plan.peak_active_width(), override->intra_shot_workers,
-                                           override->intra_shot_min_active_width)) {
-            override->intra_shot_workers = 1;
-        }
         if (override->shot_workers > 1 && override->intra_shot_workers > 1 &&
             openmp_process_binding_active()) {
             throw std::invalid_argument("hybrid thread_layout requires OMP_PROC_BIND=false");
+        }
+        if (!should_parallelize_intra_shot(plan.peak_active_width(), override->intra_shot_workers,
+                                           override->intra_shot_min_active_width)) {
+            override->intra_shot_workers = 1;
         }
         return *override;
     }

@@ -51,4 +51,11 @@ uv run python -c "import clifft; print(clifft.version())"
 - **uv** (recommended) — `curl -LsSf https://astral.sh/uv/install.sh | sh`
 - **OpenMP runtime** (optional) — detected automatically; Apple Clang users can
   install Homebrew `libomp` for intra-shot parallel sampling
+
+OpenMP-enabled Clifft builds load the platform's OpenMP runtime. When combining
+Clifft with packages that bundle another OpenMP runtime, especially on macOS,
+avoid loading multiple runtime implementations into one process. On POSIX
+systems, prefer the `spawn` or `forkserver` multiprocessing start method when
+OpenMP may have initialized before child processes are created.
+
 See [Building from Source](../development/building.md) for the full development setup.

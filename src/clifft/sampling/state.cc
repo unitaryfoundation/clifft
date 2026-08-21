@@ -1,6 +1,7 @@
 #include "clifft/sampling/state.h"
 
 #include "clifft/util/intra_shot_parallel.h"
+#include "clifft/util/numeric.h"
 
 #include <algorithm>
 #include <cassert>

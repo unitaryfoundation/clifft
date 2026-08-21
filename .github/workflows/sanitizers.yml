@@ -56,8 +56,13 @@ jobs:
             -E "Bench"
 
   asan-ubsan:
+    name: ASan and UBSan OpenMP ${{ matrix.openmp }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        openmp: [ON, OFF]
     env:
       CMAKE_BUILD_TYPE: Debug
       CMAKE_GENERATOR: Ninja
@@ -70,6 +75,10 @@ jobs:
       - name: Install system dependencies
         uses: ./.github/actions/setup-native-tools
 
+      - name: Install OpenMP runtime
+        if: matrix.openmp == 'ON'
+        run: sudo apt-get update && sudo apt-get install -y libomp-dev
+
       # -fno-sanitize-recover=all turns UBSan diagnostics into failures
       # instead of warnings that pass the suite.
       - name: Configure C++ build with ASan and UBSan
@@ -78,7 +87,7 @@ jobs:
             -DCMAKE_BUILD_TYPE=Debug \
             -DCMAKE_C_COMPILER=clang \
             -DCMAKE_CXX_COMPILER=clang++ \
-            -DCLIFFT_OPENMP=OFF \
+            -DCLIFFT_OPENMP=${{ matrix.openmp }} \
             -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -g -O1" \
             -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined" \
             -DCMAKE_SHARED_LINKER_FLAGS="-fsanitize=address,undefined"

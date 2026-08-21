@@ -1,7 +1,7 @@
 #pragma once
 
 #include "clifft/sampling/executable_plan.h"
-#include "clifft/util/intra_shot_parallel.h"
+#include "clifft/util/config.h"
 
 #include <cstddef>
 #include <cstdint>

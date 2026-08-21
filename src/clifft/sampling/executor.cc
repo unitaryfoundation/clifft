@@ -65,7 +65,7 @@ uint32_t resolve_intra_shot_workers(const ExecutablePlan& plan, uint32_t request
 
 Executor::Executor(const ExecutablePlan& plan, uint64_t seed, uint32_t intra_shot_workers,
                    uint32_t intra_shot_min_active_width)
-      : root_plan_(&plan),
+    : root_plan_(&plan),
       plan_(&plan),
       state_(plan.peak_active_width_, plan.initial_active_width_,
              resolve_intra_shot_workers(plan, intra_shot_workers, intra_shot_min_active_width),

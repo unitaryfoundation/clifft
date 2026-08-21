@@ -62,9 +62,11 @@ inline uint32_t shot_chunk_size(uint32_t shots, uint32_t workers) noexcept {
 // run_range(worker_handle, range) may execute concurrently for different
 // handles. If it throws, remaining work is cancelled, all threads are joined,
 // and the first exception is rethrown on the calling thread.
+// Internal linkage keeps the target-local OpenMP configuration from changing a
+// shared template definition in consumers that do not inherit the core define.
 template <typename MakeWorker, typename RunRange>
-auto run_shot_ranges(uint32_t shots, uint32_t requested_threads, MakeWorker&& make_worker,
-                     RunRange&& run_range) {
+static auto run_shot_ranges(uint32_t shots, uint32_t requested_threads, MakeWorker&& make_worker,
+                            RunRange&& run_range) {
     using WorkerHandle = std::remove_cvref_t<std::invoke_result_t<MakeWorker, uint32_t>>;
     const uint32_t worker_count = resolve_shot_worker_count(shots, requested_threads);
     std::vector<WorkerHandle> workers;

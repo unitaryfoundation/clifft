@@ -260,6 +260,9 @@ OpenMP-enabled build instead uses the budget within one shot at a time. This
 either-or policy avoids nested thread pools and their affinity and
 oversubscription hazards. Builds without OpenMP always use cross-shot workers.
 `noncomp.sample()` continues to interpret `threads` as cross-shot workers.
+The crossover is a bandwidth-sensitive heuristic measured against pure
+cross-shot scheduling. Use an explicit layout when the crossover on your
+hardware differs.
 
 The symbolic sampling functions also accept the advanced override
 `thread_layout=(shot_workers, intra_shot_workers)`. The override replaces the
@@ -287,8 +290,10 @@ result = clifft.sample(
 
 Hybrid layouts use ordinary shot workers around OpenMP kernel teams and
 therefore require OpenMP processor binding to be disabled. Clifft rejects a
-hybrid layout when `OMP_PROC_BIND` is active instead of silently
-oversubscribing a restricted CPU set. Pure cross-shot and pure intra-shot
+requested hybrid layout when `OMP_PROC_BIND` is active, even if the plan is
+below the active-width threshold and would otherwise suppress its intra-shot
+workers. This avoids silently oversubscribing a restricted CPU set and keeps
+validation independent of the program. Pure cross-shot and pure intra-shot
 layouts honor active OpenMP binding.
 
 Workers dynamically claim contiguous shot ranges from a shared scheduler.

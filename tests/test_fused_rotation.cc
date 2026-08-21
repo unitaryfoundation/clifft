@@ -3,6 +3,7 @@
 #include "clifft/sampling/kernels.h"
 #include "clifft/util/runtime_isa.h"
 
+#include <algorithm>
 #include <array>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
@@ -197,6 +198,13 @@ TEST_CASE("Dynamic fused rotation matches scalar across affine sign values") {
             const std::array values = {first_value, second_value};
             Executor executor(executable);
             executor.run_shot(values);
+
+#if defined(CLIFFT_TESTS_HAVE_OPENMP)
+            Executor parallel_executor(executable, 0, 4, 0);
+            parallel_executor.run_shot(values);
+            REQUIRE(std::ranges::equal(parallel_executor.state().real(), executor.state().real()));
+            REQUIRE(std::ranges::equal(parallel_executor.state().imag(), executor.state().imag()));
+#endif
 
             State expected(6, 6);
             for (const RotateActivePauli& rotation : rotations) {

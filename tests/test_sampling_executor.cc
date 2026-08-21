@@ -4,6 +4,7 @@
 #include "clifft/sampling/planner.h"
 #include "clifft/sampling/sampler.h"
 #include "clifft/sampling/state_queries.h"
+#include "clifft/util/intra_shot_parallel.h"
 #include "clifft/util/noise_sampling.h"
 #include "clifft/util/shot_seed.h"
 #include "clifft/util/xoshiro.h"
@@ -24,6 +25,7 @@
 #include <optional>
 #include <span>
 #include <stdexcept>
+#include <string>
 #include <string_view>
 #include <variant>
 #include <vector>
@@ -1358,15 +1360,23 @@ TEST_CASE("Sampling thread layouts validate explicit worker counts") {
                         "thread_layout worker counts must be positive");
 
 #if defined(CLIFFT_TESTS_HAVE_OPENMP)
-    const clifft::sampling::ThreadLayout hybrid{
-        .shot_workers = 2, .intra_shot_workers = 2, .intra_shot_min_active_width = 0};
+    const std::array hybrid_layouts{
+        clifft::sampling::ThreadLayout{
+            .shot_workers = 2, .intra_shot_workers = 2, .intra_shot_min_active_width = 0},
+        clifft::sampling::ThreadLayout{
+            .shot_workers = 2, .intra_shot_workers = 2, .intra_shot_min_active_width = 18},
+    };
     if (clifft::openmp_process_binding_active()) {
-        REQUIRE_THROWS_WITH(clifft::sampling::sample(executable, 7, uint64_t{12}, 1, hybrid),
-                            "hybrid thread_layout requires OMP_PROC_BIND=false");
+        for (const clifft::sampling::ThreadLayout hybrid : hybrid_layouts) {
+            REQUIRE_THROWS_WITH(clifft::sampling::sample(executable, 7, uint64_t{12}, 1, hybrid),
+                                "hybrid thread_layout requires OMP_PROC_BIND=false");
+        }
     } else {
-        const clifft::sampling::SamplingResult result =
-            clifft::sampling::sample(executable, 7, uint64_t{12}, 1, hybrid);
-        REQUIRE(result.measurements.size() == 7);
+        for (const clifft::sampling::ThreadLayout hybrid : hybrid_layouts) {
+            const clifft::sampling::SamplingResult result =
+                clifft::sampling::sample(executable, 7, uint64_t{12}, 1, hybrid);
+            REQUIRE(result.measurements.size() == 7);
+        }
     }
 #else
     REQUIRE_THROWS_WITH(
@@ -1379,8 +1389,34 @@ TEST_CASE("Sampling thread layouts validate explicit worker counts") {
 }
 
 #if defined(CLIFFT_TESTS_HAVE_OPENMP)
-TEST_CASE("Intra-shot rotation kernels preserve serial coefficients") {
+TEST_CASE("Automatic intra-shot sampling preserves seeded results") {
     constexpr uint32_t width = 18;
+    std::string circuit;
+    for (uint32_t qubit = 0; qubit < width; ++qubit) {
+        circuit.append("H ").append(std::to_string(qubit)).append("\n");
+        circuit.append("T ").append(std::to_string(qubit)).append("\n");
+    }
+    circuit.append("M");
+    for (uint32_t qubit = 0; qubit < width; ++qubit) {
+        circuit.append(" ").append(std::to_string(qubit));
+    }
+    circuit.append("\n");
+
+    const ExecutablePlan executable(plan_from(circuit));
+    REQUIRE(executable.peak_active_width() == width);
+    const clifft::sampling::SamplingResult serial =
+        clifft::sampling::sample(executable, 2, uint64_t{9184}, 1);
+    const clifft::sampling::SamplingResult automatic =
+        clifft::sampling::sample(executable, 2, uint64_t{9184}, 4);
+
+    REQUIRE(automatic.measurements == serial.measurements);
+    REQUIRE(automatic.detectors == serial.detectors);
+    REQUIRE(automatic.observables == serial.observables);
+    REQUIRE(automatic.exp_vals == serial.exp_vals);
+}
+
+TEST_CASE("Intra-shot rotation and promotion kernels preserve serial coefficients") {
+    constexpr uint32_t width = 19;
     SamplingPlan plan;
     plan.num_qubits = width;
     plan.peak_active_width = width;
