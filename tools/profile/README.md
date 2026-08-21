@@ -27,7 +27,9 @@ The equivalent build command is `just profile-build`.
 ## Compilation
 
 `profile_compile` reports parse, trace and optimization, plan, prepare, and
-total time separately. File I/O is outside the timed loop.
+total time separately. It also prints the executor-independent plan feature
+histogram and peak active width used by experimental backends to check workload
+coverage. File I/O is outside the timed loop.
 
 ```bash
 CLIFFT_COMPILE_ITERATIONS=200 \
