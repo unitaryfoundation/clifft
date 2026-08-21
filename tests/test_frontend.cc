@@ -1754,6 +1754,33 @@ TEST_CASE("Frontend: Clifford-valued product rotations match named gates", "[fro
     }
 }
 
+TEST_CASE("Frontend: pair square-root rotations match Pauli-product tracing",
+          "[frontend][rotation]") {
+    struct RotationCase {
+        const char* pair_rotation;
+        const char* pauli_product;
+    };
+    const RotationCase cases[] = {
+        {"R_XX(0.5) 0 1", "SPP X0*X1"}, {"R_XX(-0.5) 0 1", "SPP_DAG X0*X1"},
+        {"R_YY(0.5) 0 1", "SPP Y0*Y1"}, {"R_YY(-0.5) 0 1", "SPP_DAG Y0*Y1"},
+        {"R_ZZ(0.5) 0 1", "SPP Z0*Z1"}, {"R_ZZ(-0.5) 0 1", "SPP_DAG Z0*Z1"},
+    };
+
+    for (const auto& test_case : cases) {
+        CAPTURE(test_case.pair_rotation, test_case.pauli_product);
+        const HirModule pair_hir = trace(parse(test_case.pair_rotation));
+        const HirModule product_hir = trace(parse(test_case.pauli_product));
+
+        CHECK(pair_hir.ops.empty());
+        CHECK(pair_hir.pauli_masks.size() == 0);
+        CHECK(product_hir.ops.empty());
+        CHECK(product_hir.pauli_masks.size() == 0);
+        REQUIRE(pair_hir.final_tableau.has_value());
+        REQUIRE(product_hir.final_tableau.has_value());
+        CHECK(*pair_hir.final_tableau == *product_hir.final_tableau);
+    }
+}
+
 TEST_CASE("Frontend: product Pauli canonicalization uses the shared tolerance",
           "[frontend][rotation]") {
     constexpr double inside = 1.0 + 0.5 * kRotationCanonicalizationTolerance;
@@ -1765,6 +1792,7 @@ TEST_CASE("Frontend: product Pauli canonicalization uses the shared tolerance",
     const HirModule reference = trace(parse("Z 0 1"));
 
     CHECK(inside_hir.ops.empty());
+    CHECK(inside_hir.pauli_masks.size() == 0);
     REQUIRE(inside_hir.final_tableau.has_value());
     REQUIRE(reference.final_tableau.has_value());
     CHECK(*inside_hir.final_tableau == *reference.final_tableau);
@@ -1779,6 +1807,7 @@ TEST_CASE("Frontend: product Pauli canonicalization uses the shared tolerance",
     REQUIRE(outside_hir.ops.size() == 1);
     CHECK(outside_hir.ops[0].op_type() == OpType::PHASE_ROTATION);
     CHECK(outside_hir.ops[0].alpha() == outside);
+    CHECK(outside_hir.pauli_masks.size() == 1);
 
     constexpr double sqrt_inside = 0.5 - 0.5 * kRotationCanonicalizationTolerance;
     Circuit sqrt_inside_circuit;

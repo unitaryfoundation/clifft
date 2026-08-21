@@ -43,9 +43,9 @@ whitespace-separated products in one instruction. Prefixing a Pauli term with
 appear only once in each product, which is stricter than Stim for some
 syntactically valid Hermitian products.
 
-The default optimizer absorbs `SPP` and `SPP_DAG` into the Clifford frame, so
-they have no runtime cost. `SPP Z0` and `S 0` represent the same projective
-Clifford operation.
+The frontend absorbs `SPP` and `SPP_DAG` into the Clifford frame during
+tracing, so they have no runtime cost. `SPP Z0` and `S 0` represent the same
+projective Clifford operation.
 
 ## Non-Clifford Extensions
 
