@@ -134,6 +134,11 @@ Duplicate target qubits (e.g. `R_XX(0.5) 3 3`) are rejected at parse time.
 The target list uses Stim's Pauli product syntax (e.g. `X0*Y1*Z2`). Maximum
 target count is 64 qubits per instruction.
 
+For two- and multi-qubit Pauli rotations, finite angles within the shared
+`1e-12` half-turn tolerance of an odd integer are projectively Pauli gates and
+are absorbed into the Clifford frame during tracing. The peephole pass applies
+the same rule when fusion produces an odd-integer rotation.
+
 ## Two-Qubit Clifford Gates
 
 | Gate | Notes |

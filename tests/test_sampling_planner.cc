@@ -570,6 +570,25 @@ TEST_CASE("Sampling planner reports the dense active width limit") {
         "sampling planner active width would reach 60, but the dense-state limit is 60");
 }
 
+TEST_CASE("Sampling planner does not activate absorbed Pauli rotations") {
+    for (const char* source : {
+             "R_ZZ(1.0) 0 1",
+             "R_PAULI(-1.0) X0*Y1",
+             "R_Z(0.3) 0\nR_Z(0.7) 0",
+         }) {
+        CAPTURE(source);
+        HirModule hir = clifft::trace(clifft::parse(source));
+        auto passes = clifft::default_hir_pass_manager();
+        passes.run(hir);
+        const SamplingPlan plan = plan_sampling(hir);
+
+        CHECK(hir.ops.empty());
+        CHECK(plan.initial_active_width == 0);
+        CHECK(plan.peak_active_width == 0);
+        CHECK(plan.actions.empty());
+    }
+}
+
 TEST_CASE("Sampling planner output is deterministic") {
     HirModule hir(2, 4);
     hir.num_measurements = 2;

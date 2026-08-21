@@ -1718,6 +1718,58 @@ TEST_CASE("Frontend: R_PAULI emits PHASE_ROTATION on arbitrary Pauli", "[fronten
     CHECK(hir.stab_mask(hir.ops[0]).bit_get(2));
 }
 
+TEST_CASE("Frontend: Pauli-valued product rotations match named gates", "[frontend][rotation]") {
+    struct RotationCase {
+        const char* source;
+        const char* reference;
+    };
+    const RotationCase cases[] = {
+        {"R_ZZ(1.0) 0 1", "Z 0 1"},
+        {"R_XX(-1.0) 0 1", "X 0 1"},
+        {"R_YY(3.0) 0 1", "Y 0 1"},
+        {"R_PAULI(-3.0) X0*Y1*Z2", "X 0\nY 1\nZ 2"},
+    };
+
+    for (const auto& test_case : cases) {
+        CAPTURE(test_case.source);
+        const HirModule hir = trace(parse(test_case.source));
+        const HirModule reference = trace(parse(test_case.reference));
+
+        CHECK(hir.ops.empty());
+        CHECK(hir.pauli_masks.size() == 0);
+        REQUIRE(hir.final_tableau.has_value());
+        REQUIRE(reference.final_tableau.has_value());
+        CHECK(*hir.final_tableau == *reference.final_tableau);
+    }
+}
+
+TEST_CASE("Frontend: product Pauli canonicalization uses the shared tolerance",
+          "[frontend][rotation]") {
+    constexpr double inside = 1.0 + 0.5 * kRotationCanonicalizationTolerance;
+    Circuit inside_circuit;
+    inside_circuit.num_qubits = 2;
+    inside_circuit.nodes.push_back(
+        {GateType::R_ZZ, {Target::qubit(0), Target::qubit(1)}, {inside}, 1});
+    const HirModule inside_hir = trace(inside_circuit);
+    const HirModule reference = trace(parse("Z 0 1"));
+
+    CHECK(inside_hir.ops.empty());
+    REQUIRE(inside_hir.final_tableau.has_value());
+    REQUIRE(reference.final_tableau.has_value());
+    CHECK(*inside_hir.final_tableau == *reference.final_tableau);
+
+    constexpr double outside = 1.0 + 2.0 * kRotationCanonicalizationTolerance;
+    Circuit outside_circuit;
+    outside_circuit.num_qubits = 2;
+    outside_circuit.nodes.push_back(
+        {GateType::R_ZZ, {Target::qubit(0), Target::qubit(1)}, {outside}, 1});
+    const HirModule outside_hir = trace(outside_circuit);
+
+    REQUIRE(outside_hir.ops.size() == 1);
+    CHECK(outside_hir.ops[0].op_type() == OpType::PHASE_ROTATION);
+    CHECK(outside_hir.ops[0].alpha() == outside);
+}
+
 TEST_CASE("Frontend: R_Z omits its source-representation global phase", "[frontend][rotation]") {
     auto circuit = parse("R_Z(0.25) 0");
     auto hir = trace(circuit);

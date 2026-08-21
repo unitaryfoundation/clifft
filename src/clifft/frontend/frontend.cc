@@ -292,6 +292,23 @@ bool try_absorb_clifford_axis_rotation(stim::TableauSimulator<kStimWidth>& sim, 
     return true;
 }
 
+// A Pauli product is a tensor product of commuting single-qubit Paulis. Its
+// sign changes only the omitted global phase of a pi rotation.
+void apply_pauli_product_clifford(stim::TableauSimulator<kStimWidth>& sim,
+                                  const stim::PauliString<kStimWidth>& pauli) {
+    for (uint32_t q = 0; q < sim.inv_state.num_qubits; ++q) {
+        const bool x = pauli.xs[q];
+        const bool z = pauli.zs[q];
+        if (x && z) {
+            apply_single_qubit_clifford(sim, GateType::Y, q);
+        } else if (x) {
+            apply_single_qubit_clifford(sim, GateType::X, q);
+        } else if (z) {
+            apply_single_qubit_clifford(sim, GateType::Z, q);
+        }
+    }
+}
+
 // Trace R_Z(alpha) on a single qubit by extracting its rewound Z axis. The
 // source gate and emitted exponential may differ by a global phase, which is
 // intentionally omitted by the projective state contract.
@@ -312,6 +329,15 @@ void trace_rz(stim::TableauSimulator<kStimWidth>& sim, HirModule& hir, uint32_t 
 // Trace an arbitrary Pauli rotation exp(-i*alpha*pi/2 * P).
 void trace_pauli_rotation(stim::TableauSimulator<kStimWidth>& sim, HirModule& hir,
                           const stim::PauliString<kStimWidth>& obs, double alpha) {
+    const auto rotation = classify_clifford_rotation(alpha);
+    if (rotation == CliffordRotation::IDENTITY) {
+        return;
+    }
+    if (rotation == CliffordRotation::PAULI) {
+        apply_pauli_product_clifford(sim, obs);
+        return;
+    }
+
     stim::PauliString<kStimWidth> rewound = sim.inv_state(obs);
     uint32_t n = sim.inv_state.num_qubits;
     hir.append_phase_rotation(alpha, [&](MutablePauliMaskView slot) {
@@ -409,10 +435,20 @@ size_t count_pauli_masks(const Circuit& circuit) {
             }
             case GateType::R_XX:
             case GateType::R_YY:
-            case GateType::R_ZZ:
-                count += n_targets / 2;
+            case GateType::R_ZZ: {
+                const auto rotation = classify_clifford_rotation(node.args[0]);
+                if (rotation != CliffordRotation::IDENTITY && rotation != CliffordRotation::PAULI) {
+                    count += n_targets / 2;
+                }
                 break;
-            case GateType::R_PAULI:
+            }
+            case GateType::R_PAULI: {
+                const auto rotation = classify_clifford_rotation(node.args[0]);
+                if (rotation != CliffordRotation::IDENTITY && rotation != CliffordRotation::PAULI) {
+                    count += 1;
+                }
+                break;
+            }
             case GateType::SPP:
             case GateType::SPP_DAG:
             case GateType::TPP:

@@ -15,6 +15,9 @@ namespace internal {
 void apply_s_to_tableau(stim::Tableau<kStimWidth>& tab, MaskView x_v, MaskView z_v, bool sign_v,
                         bool is_dagger);
 
+/// Compose U_C' = U_C * P into `tab` for the virtual Pauli (x_v, z_v).
+void apply_pauli_to_tableau(stim::Tableau<kStimWidth>& tab, MaskView x_v, MaskView z_v);
+
 }  // namespace internal
 
 /// Peephole fusion pass: scans the HIR to algebraically cancel or fuse

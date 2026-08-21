@@ -565,6 +565,131 @@ TEST_CASE("Peephole: rotation canonicalization uses the shared tolerance", "[opt
     CHECK(outside_pass.cancellations() == 0);
 }
 
+TEST_CASE("Peephole: Pauli-valued rotation updates downstream signs and frame", "[optimizer]") {
+    HirModule hir(1, 2);
+    hir.final_tableau.emplace(1);
+    clifft::test::append_phase_rotation(hir, 0, Z(0), false, 1.0);
+    clifft::test::append_measure(hir, X(0), 0, false, MeasRecordIdx{0});
+    const HirModule reference = hir_from("Z 0");
+
+    PeepholeFusionPass pass;
+    pass.run(hir);
+
+    REQUIRE(hir.ops.size() == 1);
+    REQUIRE(hir.ops[0].op_type() == OpType::MEASURE);
+    CHECK(hir.sign(hir.ops[0]));
+    CHECK(pass.fusions() == 1);
+    REQUIRE(hir.final_tableau == reference.final_tableau);
+}
+
+TEST_CASE("Peephole: fused rotations absorb a Pauli residue", "[optimizer]") {
+    HirModule hir(1, 2);
+    hir.final_tableau.emplace(1);
+    clifft::test::append_phase_rotation(hir, 0, Z(0), false, 0.3);
+    clifft::test::append_phase_rotation(hir, 0, Z(0), false, 0.7);
+    const HirModule reference = hir_from("Z 0");
+
+    PeepholeFusionPass pass;
+    pass.run(hir);
+
+    CHECK(hir.ops.empty());
+    CHECK(pass.fusions() == 1);
+    REQUIRE(hir.final_tableau == reference.final_tableau);
+}
+
+TEST_CASE("Peephole: Pauli absorption composes with an existing Clifford frame", "[optimizer]") {
+    HirModule hir = hir_from("H 0\nR_Z(0.3) 0\nR_Z(0.7) 0");
+    const HirModule reference = hir_from("H 0\nZ 0");
+
+    PeepholeFusionPass pass;
+    pass.run(hir);
+
+    CHECK(hir.ops.empty());
+    CHECK(pass.fusions() == 1);
+    REQUIRE(hir.final_tableau == reference.final_tableau);
+}
+
+TEST_CASE("Peephole: Pauli residue handles signs periods and tolerance", "[optimizer]") {
+    struct RotationCase {
+        double alpha;
+        bool sign;
+    };
+    const RotationCase cases[] = {
+        {1.0, false},
+        {-1.0, false},
+        {3.0, false},
+        {1.0, true},
+        {1.0 + 0.5 * kRotationCanonicalizationTolerance, false},
+    };
+    const HirModule reference = hir_from("Z 0");
+
+    for (const auto& test_case : cases) {
+        CAPTURE(test_case.alpha, test_case.sign);
+        HirModule hir(1, 1);
+        hir.final_tableau.emplace(1);
+        clifft::test::append_phase_rotation(hir, 0, Z(0), test_case.sign, test_case.alpha);
+
+        PeepholeFusionPass pass;
+        pass.run(hir);
+
+        CHECK(hir.ops.empty());
+        CHECK(pass.fusions() == 1);
+        REQUIRE(hir.final_tableau == reference.final_tableau);
+    }
+
+    constexpr double outside = 1.0 + 2.0 * kRotationCanonicalizationTolerance;
+    HirModule outside_hir(1, 1);
+    outside_hir.final_tableau.emplace(1);
+    clifft::test::append_phase_rotation(outside_hir, 0, Z(0), false, outside);
+    PeepholeFusionPass outside_pass;
+    outside_pass.run(outside_hir);
+
+    REQUIRE(outside_hir.ops.size() == 1);
+    CHECK(outside_hir.ops[0].op_type() == OpType::PHASE_ROTATION);
+    CHECK(outside_hir.ops[0].alpha() == outside);
+    CHECK(outside_pass.fusions() == 0);
+}
+
+TEST_CASE("Peephole: Pauli absorption updates instrument masks", "[optimizer]") {
+    HirModule hir(1, 3);
+    clifft::test::append_phase_rotation(hir, 0, Z(0), false, 1.0);
+
+    InstrumentSite site;
+    site.destination_flip_mask =
+        hir.claim_side_mask([](MutablePauliMaskView slot) { slot.x().bit_set(0, true); });
+    hir.instrument_sites.push_back(site);
+    hir.append_instrument(InstrumentSiteIdx{0},
+                          [](MutablePauliMaskView slot) { slot.x().bit_set(0, true); });
+
+    PeepholeFusionPass pass;
+    pass.run(hir);
+
+    REQUIRE(hir.ops.size() == 1);
+    REQUIRE(hir.ops[0].op_type() == OpType::INSTRUMENT);
+    CHECK(hir.sign(hir.ops[0]));
+    const PauliMaskView flip = hir.pauli_masks.at(hir.instrument_sites[0].destination_flip_mask);
+    CHECK(flip.sign());
+}
+
+TEST_CASE("Peephole: Pauli absorption supports wide multi-word axes", "[optimizer]") {
+    HirModule hir(130, 1);
+    hir.final_tableau.emplace(130);
+    hir.append_phase_rotation(1.0, [](MutablePauliMaskView slot) {
+        slot.x().bit_set(0, true);
+        slot.z().bit_set(64, true);
+        slot.x().bit_set(129, true);
+        slot.z().bit_set(129, true);
+    });
+    const HirModule reference = hir_from("X 0\nZ 64\nY 129");
+
+    PeepholeFusionPass pass;
+    pass.run(hir);
+
+    CHECK(hir.ops.empty());
+    CHECK(pass.fusions() == 1);
+    REQUIRE(hir.final_tableau == reference.final_tableau);
+}
+
 TEST_CASE("Peephole: SPP uses rotation fusion and absorption", "[optimizer]") {
     auto hir_spp = hir_from("SPP X0*Y1");
     REQUIRE(hir_spp.ops.size() == 1);
