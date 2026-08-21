@@ -1,5 +1,6 @@
 #include "clifft/sampling/state.h"
 
+#include "clifft/util/intra_shot_parallel.h"
 #include "clifft/util/numeric.h"
 
 #include <algorithm>
@@ -23,7 +24,8 @@ uint64_t round_array_stride(uint64_t entries) {
 
 }  // namespace
 
-State::State(uint32_t max_active_width, uint32_t initial_active_width)
+State::State(uint32_t max_active_width, uint32_t initial_active_width,
+             uint32_t initialization_workers, uint32_t intra_shot_min_active_width)
     : initial_active_width_(initial_active_width),
       active_width_(initial_active_width),
       max_active_width_(max_active_width) {
@@ -48,7 +50,19 @@ State::State(uint32_t max_active_width, uint32_t initial_active_width)
     imag_ = real_ + coefficient_stride_;
     scratch_real_ = imag_ + coefficient_stride_;
     scratch_imag_ = scratch_real_ + scratch_stride_;
-    reset();
+    if (should_parallelize_intra_shot(max_active_width_, initialization_workers,
+                                      intra_shot_min_active_width)) {
+        // Matching each worker's future coefficient range here lets the OS
+        // place physical pages by first touch without changing allocation.
+        intra_shot_parallel_ranges(coefficient_stride_, initialization_workers,
+                                   [&](uint64_t begin, uint64_t end) noexcept {
+                                       std::fill(real_ + begin, real_ + end, 0.0);
+                                       std::fill(imag_ + begin, imag_ + end, 0.0);
+                                   });
+        real_[0] = 1.0;
+    } else {
+        reset();
+    }
 }
 
 State::~State() {
@@ -74,6 +88,20 @@ void State::reset() noexcept {
     // each newly active range, and measurement scratch is overwritten on use.
     std::fill_n(real_, static_cast<size_t>(size()), 0.0);
     std::fill_n(imag_, static_cast<size_t>(size()), 0.0);
+    real_[0] = 1.0;
+}
+
+void State::reset_parallel(uint32_t workers, uint32_t min_active_width) noexcept {
+    if (!should_parallelize_intra_shot(initial_active_width_, workers, min_active_width)) {
+        reset();
+        return;
+    }
+    assert(!allocation_.empty() && "cannot reset a moved-from sampling state");
+    active_width_ = initial_active_width_;
+    intra_shot_parallel_ranges(size(), workers, [&](uint64_t begin, uint64_t end) noexcept {
+        std::fill(real_ + begin, real_ + end, 0.0);
+        std::fill(imag_ + begin, imag_ + end, 0.0);
+    });
     real_[0] = 1.0;
 }
 

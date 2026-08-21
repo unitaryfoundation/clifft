@@ -3,6 +3,7 @@
 #include "clifft/sampling/indexing.h"
 #include "clifft/sampling/kernels.h"
 #include "clifft/sampling/simd_width.h"
+#include "clifft/util/intra_shot_parallel.h"
 
 #include <algorithm>
 #include <array>
@@ -345,6 +346,73 @@ void apply_fused_rotation_orbits(State& state, const PreparedFusedRotation& rota
     }
 }
 
+template <size_t Dimension>
+void apply_fused_rotation_orbits_parallel(State& state, const PreparedFusedRotation& rotation,
+                                          uint32_t workers) noexcept {
+    static_assert(Dimension == 1 || Dimension == 2 || Dimension == 4);
+    const uint64_t orbit_count = state.size() / Dimension;
+    const size_t matrix_size = Dimension * Dimension;
+    assert(rotation.matrices.size() ==
+               (size_t{1} << rotation.selector_masks.size()) * matrix_size &&
+           "fused rotation matrix table must cover every selector value");
+
+    double* const real = state.real_data();
+    double* const imag = state.imag_data();
+    intra_shot_parallel_ranges(orbit_count, workers, [&](uint64_t begin, uint64_t end) noexcept {
+        for (uint64_t packed = begin; packed < end; ++packed) {
+            // Reinserting zero pivot bits enumerates exactly one representative
+            // from every orbit.
+            uint64_t representative = packed;
+            if constexpr (Dimension >= 2) {
+                representative = insert_zero_bit(representative, rotation.orbit_pivots[0]);
+            }
+            if constexpr (Dimension == 4) {
+                representative = insert_zero_bit(representative, rotation.orbit_pivots[1]);
+            }
+
+            const size_t selector = selector_index(representative, rotation.selector_masks);
+            const std::complex<double>* const matrix =
+                rotation.matrices.data() + selector * matrix_size;
+
+            // XOR combinations of the orbit basis enumerate every coefficient in
+            // this representative's subspace.
+            std::array<uint64_t, Dimension> indices{};
+            std::array<double, Dimension> input_real{};
+            std::array<double, Dimension> input_imag{};
+            for (size_t column = 0; column < Dimension; ++column) {
+                uint64_t index = representative;
+                if constexpr (Dimension >= 2) {
+                    if ((column & 1U) != 0) {
+                        index ^= rotation.orbit_masks[0];
+                    }
+                }
+                if constexpr (Dimension == 4) {
+                    if ((column & 2U) != 0) {
+                        index ^= rotation.orbit_masks[1];
+                    }
+                }
+                indices[column] = index;
+                input_real[column] = real[index];
+                input_imag[column] = imag[index];
+            }
+
+            for (size_t row = 0; row < Dimension; ++row) {
+                double output_real = 0.0;
+                double output_imag = 0.0;
+                for (size_t column = 0; column < Dimension; ++column) {
+                    const std::complex<double> weight = matrix[row * Dimension + column];
+                    output_real +=
+                        weight.real() * input_real[column] - weight.imag() * input_imag[column];
+                    output_imag +=
+                        weight.real() * input_imag[column] + weight.imag() * input_real[column];
+                }
+                real[indices[row]] = output_real;
+                imag[indices[row]] = output_imag;
+            }
+        }
+    });
+}
+
 }  // namespace
 
 FusedRotationRun prepare_fused_rotation_run(std::span<const PlannedAction> actions) {
@@ -497,6 +565,30 @@ void apply_fused_rotation(State& state, const PreparedFusedRotation& rotation) n
             return;
         case 2:
             apply_fused_rotation_orbits<4>(state, rotation);
+            return;
+        default:
+            assert(false && "fused rotation orbit rank must be at most two");
+            return;
+    }
+}
+
+void apply_fused_rotation_parallel(State& state, const PreparedFusedRotation& rotation,
+                                   uint32_t workers, uint32_t min_active_width) noexcept {
+    if (!should_parallelize_intra_shot(state.active_width(), workers, min_active_width)) {
+        apply_fused_rotation(state, rotation);
+        return;
+    }
+    assert(state.active_width() == rotation.active_width &&
+           "fused rotation width must match the active state");
+    switch (rotation.orbit_rank) {
+        case 0:
+            apply_fused_rotation_orbits_parallel<1>(state, rotation, workers);
+            return;
+        case 1:
+            apply_fused_rotation_orbits_parallel<2>(state, rotation, workers);
+            return;
+        case 2:
+            apply_fused_rotation_orbits_parallel<4>(state, rotation, workers);
             return;
         default:
             assert(false && "fused rotation orbit rank must be at most two");

@@ -42,12 +42,15 @@ enum class ActiveMeasurementKernel : uint8_t {
     const PreparedMeasurement& measurement, ExecutorBackend backend) noexcept;
 
 using FusedRotationKernel = void (*)(State&, const PreparedFusedRotation&, const void*) noexcept;
+using FusedRotationParallelKernel = void (*)(State&, const PreparedFusedRotation&, const void*,
+                                             uint32_t, uint32_t) noexcept;
 
 // Type-erases optional backend-specific preparation without exposing vector
 // types to the portable executable plan.
 struct FusedRotationSidecar {
     std::shared_ptr<const void> storage;
     FusedRotationKernel kernel = nullptr;
+    FusedRotationParallelKernel parallel_kernel = nullptr;
 };
 
 enum class NewXInstrumentKernel : uint8_t {
@@ -64,6 +67,12 @@ void apply_direct_rotation_avx2(State& state, const PreparedRotation& rotation,
                                 DirectRotationKernel kernel, bool sign) noexcept;
 void apply_direct_rotation_avx512(State& state, const PreparedRotation& rotation,
                                   DirectRotationKernel kernel, bool sign) noexcept;
+void apply_direct_rotation_avx2_parallel(State& state, const PreparedRotation& rotation,
+                                         DirectRotationKernel kernel, bool sign, uint32_t workers,
+                                         uint32_t min_active_width) noexcept;
+void apply_direct_rotation_avx512_parallel(State& state, const PreparedRotation& rotation,
+                                           DirectRotationKernel kernel, bool sign, uint32_t workers,
+                                           uint32_t min_active_width) noexcept;
 
 [[nodiscard]] MeasurementProbabilities active_measurement_probabilities_avx2(
     const State& state, const PreparedMeasurement& measurement,

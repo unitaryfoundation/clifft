@@ -56,6 +56,23 @@ Override the default when needed:
 CLIFFT_CPU_BASELINE=generic uv pip install -e .
 ```
 
+### OpenMP support
+
+Optimized intra-shot sampling uses OpenMP when it is available. The CMake
+setting `CLIFFT_OPENMP` defaults to `AUTO`: source builds enable OpenMP when the
+toolchain provides it and otherwise retain the serial and cross-shot paths.
+Use `-DCLIFFT_OPENMP=OFF` to test or require a build without the runtime, or
+`-DCLIFFT_OPENMP=ON` to make configuration fail when OpenMP is unavailable.
+
+Linux GCC installations normally include OpenMP. Apple Clang needs a separate
+runtime; install it with `brew install libomp`. Clifft checks that Homebrew
+prefix automatically, or it can be supplied explicitly:
+
+```bash
+SKBUILD_CMAKE_ARGS="-DCLIFFT_OPENMP=ON -DOpenMP_ROOT=$(brew --prefix libomp)" \
+  uv pip install -e .
+```
+
 ### Runtime kernel dispatch
 
 On supported x86 GNU/Clang builds, the scalar, AVX2, and AVX-512 executor

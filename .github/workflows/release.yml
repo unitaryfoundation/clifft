@@ -91,11 +91,22 @@ jobs:
             ${{ inputs.test_version && format('SETUPTOOLS_SCM_PRETEND_VERSION={0}', inputs.test_version) || '' }}
           # Install build dependencies inside the cibuildwheel container
           CIBW_BEFORE_BUILD: pip install setuptools-scm
+          # Apple Clang needs Homebrew's runtime for intra-shot OpenMP kernels.
+          CIBW_BEFORE_ALL_MACOS: brew install libomp
           # Smoke-test: import the built package and audit exported symbols
           CIBW_TEST_COMMAND: >-
             python -c "import clifft; print(clifft.__version__); print(clifft.CPU_BASELINE); print(type(clifft.compile('M 0')).__name__)"
             &&
             python {project}/tools/ci/audit_python_exports.py
+          # Test the repaired wheel's bundled runtime, not the source build.
+          CIBW_TEST_COMMAND_MACOS: >-
+            python {project}/.github/scripts/artifact_smoke.py --exercise-intra-shot
+            &&
+            python {project}/tools/ci/audit_python_exports.py
+
+      - name: Audit bundled macOS OpenMP runtime
+        if: matrix.os == 'macos-14'
+        run: python3 tools/ci/audit_macos_wheel.py wheelhouse/*.whl
 
       # QEMU and SDE smoke against the just-built Linux x86_64 wheel.
       # Catches AVX-512 leakage into the AVX-2 dispatch path (would SIGILL
@@ -151,7 +162,7 @@ jobs:
         run: PYTHON=$(pwd)/.smoke-venv/bin/python .github/scripts/wheel_smoke.sh sde skx auto pass avx512
       - name: SDE smoke -- Skylake-X + FORCE_ISA=avx512
         if: matrix.os == 'ubuntu-24.04' && matrix.arch == 'x86_64'
-        run: PYTHON=$(pwd)/.smoke-venv/bin/python .github/scripts/wheel_smoke.sh sde skx avx512 pass avx512
+        run: PYTHON=$(pwd)/.smoke-venv/bin/python .github/scripts/wheel_smoke.sh sde skx avx512 pass avx512 intra-shot
 
       # The cp312-abi3 wheel is the only build per platform, so its
       # packaging contract is forward compatibility: it must install and

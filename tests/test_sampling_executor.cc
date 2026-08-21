@@ -4,6 +4,7 @@
 #include "clifft/sampling/planner.h"
 #include "clifft/sampling/sampler.h"
 #include "clifft/sampling/state_queries.h"
+#include "clifft/util/intra_shot_parallel.h"
 #include "clifft/util/noise_sampling.h"
 #include "clifft/util/shot_seed.h"
 #include "clifft/util/xoshiro.h"
@@ -24,6 +25,7 @@
 #include <optional>
 #include <span>
 #include <stdexcept>
+#include <string>
 #include <string_view>
 #include <variant>
 #include <vector>
@@ -1349,6 +1351,127 @@ TEST_CASE("Threaded fixed-row sampling preserves seeded shot order") {
         REQUIRE(threaded.exp_vals == serial.exp_vals);
     }
 }
+
+TEST_CASE("Sampling thread layouts validate explicit worker counts") {
+    const ExecutablePlan executable(plan_from("H 0\nM 0\n"));
+    REQUIRE_THROWS_WITH(clifft::sampling::sample(executable, 1, uint64_t{11}, 1,
+                                                 clifft::sampling::ThreadLayout{
+                                                     .shot_workers = 0, .intra_shot_workers = 1}),
+                        "thread_layout worker counts must be positive");
+
+#if defined(CLIFFT_TESTS_HAVE_OPENMP)
+    const std::array hybrid_layouts{
+        clifft::sampling::ThreadLayout{
+            .shot_workers = 2, .intra_shot_workers = 2, .intra_shot_min_active_width = 0},
+        clifft::sampling::ThreadLayout{
+            .shot_workers = 2, .intra_shot_workers = 2, .intra_shot_min_active_width = 18},
+    };
+    if (clifft::openmp_process_binding_active()) {
+        for (const clifft::sampling::ThreadLayout hybrid : hybrid_layouts) {
+            REQUIRE_THROWS_WITH(clifft::sampling::sample(executable, 7, uint64_t{12}, 1, hybrid),
+                                "hybrid thread_layout requires OMP_PROC_BIND=false");
+        }
+    } else {
+        for (const clifft::sampling::ThreadLayout hybrid : hybrid_layouts) {
+            const clifft::sampling::SamplingResult result =
+                clifft::sampling::sample(executable, 7, uint64_t{12}, 1, hybrid);
+            REQUIRE(result.measurements.size() == 7);
+        }
+    }
+#else
+    REQUIRE_THROWS_WITH(
+        clifft::sampling::sample(
+            executable, 1, uint64_t{12}, 1,
+            clifft::sampling::ThreadLayout{
+                .shot_workers = 1, .intra_shot_workers = 2, .intra_shot_min_active_width = 0}),
+        "thread_layout intra-shot workers require an OpenMP-enabled build");
+#endif
+}
+
+#if defined(CLIFFT_TESTS_HAVE_OPENMP)
+TEST_CASE("Automatic intra-shot sampling preserves seeded results") {
+    constexpr uint32_t width = 18;
+    std::string circuit;
+    for (uint32_t qubit = 0; qubit < width; ++qubit) {
+        circuit.append("H ").append(std::to_string(qubit)).append("\n");
+        circuit.append("T ").append(std::to_string(qubit)).append("\n");
+    }
+    circuit.append("M");
+    for (uint32_t qubit = 0; qubit < width; ++qubit) {
+        circuit.append(" ").append(std::to_string(qubit));
+    }
+    circuit.append("\n");
+
+    const ExecutablePlan executable(plan_from(circuit));
+    REQUIRE(executable.peak_active_width() == width);
+    const clifft::sampling::SamplingResult serial =
+        clifft::sampling::sample(executable, 2, uint64_t{9184}, 1);
+    const clifft::sampling::SamplingResult automatic =
+        clifft::sampling::sample(executable, 2, uint64_t{9184}, 4);
+
+    REQUIRE(automatic.measurements == serial.measurements);
+    REQUIRE(automatic.detectors == serial.detectors);
+    REQUIRE(automatic.observables == serial.observables);
+    REQUIRE(automatic.exp_vals == serial.exp_vals);
+}
+
+TEST_CASE("Intra-shot rotation and promotion kernels preserve serial coefficients") {
+    constexpr uint32_t width = 19;
+    SamplingPlan plan;
+    plan.num_qubits = width;
+    plan.peak_active_width = width;
+    for (uint32_t active = 0; active < width; ++active) {
+        plan.actions.push_back(
+            PlannedAction{active, active + 1, PromoteDormantRotation{0.25, AffineBool(false)}});
+    }
+    constexpr std::array<ActivePauli, 8> paulis{{
+        {0x15555, 0x2aaaa},
+        {0x2a9c3, 0x13179},
+        {0, 0x3ffff},
+        {0x3ff00, 0x00ff3},
+        {0x2c71d, 0x19ac6},
+        {0x00003, 0x2c5a1},
+        {0x20000, 0x15555},
+        {0x31b6d, 0x0e493},
+    }};
+    for (const ActivePauli pauli : paulis) {
+        plan.actions.push_back(
+            PlannedAction{width, width, RotateActivePauli{pauli, 0.125, AffineBool(false)}});
+    }
+
+    const ExecutablePlan executable(plan);
+    Executor serial(executable, 17, 1);
+    Executor parallel(executable, 17, 4);
+    serial.run_shot();
+    parallel.run_shot();
+
+    REQUIRE(parallel.state().active_width() == serial.state().active_width());
+    REQUIRE(std::ranges::equal(parallel.state().real(), serial.state().real()));
+    REQUIRE(std::ranges::equal(parallel.state().imag(), serial.state().imag()));
+}
+
+TEST_CASE("Intra-shot active-width threshold is configurable") {
+    constexpr uint32_t width = 17;
+    SamplingPlan plan;
+    plan.num_qubits = width;
+    plan.peak_active_width = width;
+    for (uint32_t active = 0; active < width; ++active) {
+        plan.actions.push_back(
+            PlannedAction{active, active + 1, PromoteDormantRotation{0.25, AffineBool(false)}});
+    }
+    plan.actions.push_back(PlannedAction{
+        width, width, RotateActivePauli{ActivePauli{0x15555, 0x1aaaa}, 0.125, AffineBool(false)}});
+
+    const ExecutablePlan executable(plan);
+    Executor serial(executable, 19, 1, width);
+    Executor parallel(executable, 19, 4, width);
+    serial.run_shot();
+    parallel.run_shot();
+
+    REQUIRE(std::ranges::equal(parallel.state().real(), serial.state().real()));
+    REQUIRE(std::ranges::equal(parallel.state().imag(), serial.state().imag()));
+}
+#endif
 
 TEST_CASE("Threaded survivor sampling preserves seeded survivors and records") {
     const std::array<uint8_t, 1> postselection{1};

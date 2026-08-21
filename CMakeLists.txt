@@ -80,6 +80,45 @@ endif()
 
 message(STATUS "CLIFFT_CPU_BASELINE = ${CLIFFT_CPU_BASELINE}")
 
+set(CLIFFT_OPENMP "AUTO" CACHE STRING
+    "OpenMP intra-shot kernels: OFF, AUTO, or ON")
+set_property(CACHE CLIFFT_OPENMP PROPERTY STRINGS OFF AUTO ON)
+if(NOT CLIFFT_OPENMP STREQUAL "OFF" AND
+   NOT CLIFFT_OPENMP STREQUAL "AUTO" AND
+   NOT CLIFFT_OPENMP STREQUAL "ON")
+    message(FATAL_ERROR "CLIFFT_OPENMP must be one of: OFF, AUTO, ON")
+endif()
+
+set(CLIFFT_OPENMP_ENABLED OFF)
+if(NOT CLIFFT_OPENMP STREQUAL "OFF")
+    if(EMSCRIPTEN)
+        if(CLIFFT_OPENMP STREQUAL "ON")
+            message(FATAL_ERROR "CLIFFT_OPENMP=ON is not supported under Emscripten")
+        endif()
+    else()
+        # Apple Clang does not search Homebrew's libomp prefix by default.
+        if(APPLE AND NOT DEFINED OpenMP_ROOT)
+            execute_process(
+                COMMAND brew --prefix libomp
+                OUTPUT_VARIABLE _CLIFFT_BREW_LIBOMP_PREFIX
+                OUTPUT_STRIP_TRAILING_WHITESPACE
+                ERROR_QUIET
+                RESULT_VARIABLE _CLIFFT_BREW_LIBOMP_RESULT
+            )
+            if(_CLIFFT_BREW_LIBOMP_RESULT EQUAL 0 AND _CLIFFT_BREW_LIBOMP_PREFIX)
+                set(OpenMP_ROOT "${_CLIFFT_BREW_LIBOMP_PREFIX}")
+            endif()
+        endif()
+        find_package(OpenMP QUIET)
+        if(OpenMP_CXX_FOUND)
+            set(CLIFFT_OPENMP_ENABLED ON)
+        elseif(CLIFFT_OPENMP STREQUAL "ON")
+            message(FATAL_ERROR "CLIFFT_OPENMP=ON requested, but OpenMP C++ support was not found")
+        endif()
+    endif()
+endif()
+message(STATUS "CLIFFT_OPENMP = ${CLIFFT_OPENMP} (enabled: ${CLIFFT_OPENMP_ENABLED})")
+
 # If the selected build baseline explicitly guarantees AVX2/FMA, enable those
 # instructions globally so the generic code can also use the same floor.
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
@@ -196,6 +235,12 @@ else()
         add_executable(profile_probability tools/profile/profile_probability.cpp)
         target_link_libraries(profile_probability PRIVATE clifft_core)
         target_include_directories(profile_probability PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/src
+            ${CMAKE_CURRENT_BINARY_DIR}/generated
+        )
+        add_executable(profile_sample tools/profile/profile_sample.cpp)
+        target_link_libraries(profile_sample PRIVATE clifft_core)
+        target_include_directories(profile_sample PRIVATE
             ${CMAKE_CURRENT_SOURCE_DIR}/src
             ${CMAKE_CURRENT_BINARY_DIR}/generated
         )

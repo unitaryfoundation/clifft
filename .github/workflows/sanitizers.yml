@@ -20,7 +20,10 @@ jobs:
       CMAKE_BUILD_TYPE: Debug
       CMAKE_GENERATOR: Ninja
       # TSan flags: compile and link with -fsanitize=thread.
-      TSAN_OPTIONS: "second_deadlock_stack=1"
+      # The runner's libomp is not instrumented. ignore_noninstrumented_modules
+      # avoids runtime-internal false positives while Clifft code remains fully
+      # instrumented; named suppressions keep this scoped when symbols resolve.
+      TSAN_OPTIONS: "suppressions=${{ github.workspace }}/tools/tsan/suppressions.txt second_deadlock_stack=1 ignore_noninstrumented_modules=1"
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -28,12 +31,16 @@ jobs:
       - name: Install system dependencies
         uses: ./.github/actions/setup-native-tools
 
+      - name: Install OpenMP runtime
+        run: sudo apt-get update && sudo apt-get install -y libomp-dev
+
       - name: Configure C++ build with TSan
         run: |
           cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Debug \
             -DCMAKE_C_COMPILER=clang \
             -DCMAKE_CXX_COMPILER=clang++ \
+            -DCLIFFT_OPENMP=ON \
             -DCMAKE_CXX_FLAGS="-fsanitize=thread -g -O1" \
             -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=thread" \
             -DCMAKE_SHARED_LINKER_FLAGS="-fsanitize=thread"
@@ -49,8 +56,13 @@ jobs:
             -E "Bench"
 
   asan-ubsan:
+    name: ASan and UBSan OpenMP ${{ matrix.openmp }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        openmp: [ON, OFF]
     env:
       CMAKE_BUILD_TYPE: Debug
       CMAKE_GENERATOR: Ninja
@@ -63,6 +75,10 @@ jobs:
       - name: Install system dependencies
         uses: ./.github/actions/setup-native-tools
 
+      - name: Install OpenMP runtime
+        if: matrix.openmp == 'ON'
+        run: sudo apt-get update && sudo apt-get install -y libomp-dev
+
       # -fno-sanitize-recover=all turns UBSan diagnostics into failures
       # instead of warnings that pass the suite.
       - name: Configure C++ build with ASan and UBSan
@@ -71,6 +87,7 @@ jobs:
             -DCMAKE_BUILD_TYPE=Debug \
             -DCMAKE_C_COMPILER=clang \
             -DCMAKE_CXX_COMPILER=clang++ \
+            -DCLIFFT_OPENMP=${{ matrix.openmp }} \
             -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -g -O1" \
             -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined" \
             -DCMAKE_SHARED_LINKER_FLAGS="-fsanitize=address,undefined"

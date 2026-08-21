@@ -2,6 +2,7 @@
 
 #include "clifft/sampling/executable_plan.h"
 #include "clifft/sampling/state.h"
+#include "clifft/util/config.h"
 #include "clifft/util/xoshiro.h"
 
 #include <cstddef>
@@ -41,7 +42,9 @@ struct ForcedTraceOut {
 // overwrites it.
 class Executor {
   public:
-    explicit Executor(const ExecutablePlan& plan, uint64_t seed = 0);
+    explicit Executor(const ExecutablePlan& plan, uint64_t seed = 0,
+                      uint32_t intra_shot_workers = 1,
+                      uint32_t intra_shot_min_active_width = kDefaultIntraShotMinActiveWidth);
 
     // Replace the deterministic seed with OS entropy before executing shots.
     void reseed_from_entropy() { rng_.seed_from_entropy(); }
@@ -116,6 +119,11 @@ class Executor {
         ReplayRecords,
     };
 
+    enum class IntraShotMode : uint8_t {
+        Serial,
+        OpenMP,
+    };
+
     void reset_shot() noexcept;
     void assign_presampled_values(std::span<const uint8_t> presampled_values) noexcept;
     void sample_presampled_noise(uint32_t begin, uint32_t end) noexcept;
@@ -129,16 +137,19 @@ class Executor {
     template <ShotMode Mode>
     [[nodiscard]] ReplayResult execute_actions_for_backend(std::span<const uint8_t> forced_records,
                                                            uint32_t begin = 0) noexcept;
-    template <ExecutorBackend Backend, ShotMode Mode>
+    template <ExecutorBackend Backend, ShotMode Mode, IntraShotMode IntraShot>
     [[nodiscard]] ReplayResult execute_actions(std::span<const uint8_t> forced_records,
                                                uint32_t begin = 0) noexcept;
-    template <ExecutorBackend Backend>
+    template <ExecutorBackend Backend, IntraShotMode IntraShot>
     void execute_action(const ExecutablePlan::ExecuteRotation& action,
                         std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
+    template <IntraShotMode IntraShot>
     void execute_action(const ExecutablePlan::ExecuteFusedRotation& action,
                         std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
+    template <IntraShotMode IntraShot>
     void execute_action(const ExecutablePlan::ExecuteDynamicFusedRotation& action,
                         std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
+    template <IntraShotMode IntraShot>
     void execute_action(const ExecutablePlan::ExecutePromotion& action,
                         std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
     template <ExecutorBackend Backend, ShotMode Mode>
@@ -221,6 +232,8 @@ class Executor {
 
     // Selected with the root plan and reused by every shot and continuation.
     ExecutorBackend backend_;
+    uint32_t intra_shot_workers_ = 1;
+    uint32_t intra_shot_min_active_width_ = kDefaultIntraShotMinActiveWidth;
 
     // Per-shot control state.
     bool discarded_ = false;

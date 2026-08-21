@@ -27,6 +27,10 @@ PreparedFusedRotationExecution::PreparedFusedRotationExecution(PreparedFusedRota
 #else
     (void)backend;
 #endif
+    assert((sidecar_.storage == nullptr) == (sidecar_.kernel == nullptr) &&
+           "fused sidecar storage and serial kernel must be set together");
+    assert((sidecar_.kernel == nullptr) == (sidecar_.parallel_kernel == nullptr) &&
+           "fused sidecar serial and parallel kernels must be set together");
 }
 
 ExecutablePlan::ExecutablePlan(const SamplingPlan& plan)

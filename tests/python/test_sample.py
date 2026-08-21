@@ -158,6 +158,60 @@ class TestSample:
         with pytest.raises((TypeError, ValueError), match="threads|incompatible"):
             sampling_api.sample(prog, 1, threads=threads)
 
+    def test_sample_thread_layout_preserves_seeded_rows(self, sampling_api: Any) -> None:
+        """An explicit layout is a thin override of automatic worker selection."""
+        prog = sampling_api.compile(
+            "H 0 1\nT 0\nM 0 1\nDETECTOR rec[-2] rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]"
+        )
+        serial = sampling_api.sample(prog, 257, seed=12346, threads=1)
+        threaded = sampling_api.sample(prog, 257, seed=12346, threads="auto", thread_layout=(2, 1))
+        np.testing.assert_array_equal(threaded.measurements, serial.measurements)
+        np.testing.assert_array_equal(threaded.detectors, serial.detectors)
+        np.testing.assert_array_equal(threaded.observables, serial.observables)
+
+    def test_sample_runtime_intra_shot_threshold_preserves_seeded_rows(
+        self, sampling_api: Any
+    ) -> None:
+        """Expert layouts can lower the kernel crossover without rebuilding."""
+        prog = sampling_api.compile("H 0 1\nT 0\nM 0 1")
+        serial = sampling_api.sample(prog, 31, seed=12347, threads=1)
+        threaded = sampling_api.sample(
+            prog,
+            31,
+            seed=12347,
+            thread_layout=(1, 2),
+            intra_shot_min_active_width=0,
+        )
+        np.testing.assert_array_equal(threaded.measurements, serial.measurements)
+
+    @pytest.mark.parametrize(
+        ("thread_layout", "min_active_width"),
+        [(None, 0), ((1, 1), -1), ((1, 1), 2**40), ((1, 1), 1.5)],
+    )
+    def test_sample_rejects_invalid_runtime_intra_shot_threshold(
+        self, sampling_api: Any, thread_layout: Any, min_active_width: Any
+    ) -> None:
+        """The expert threshold is bounded and requires an explicit layout."""
+        prog = sampling_api.compile("M 0")
+        with pytest.raises(
+            (TypeError, ValueError), match="intra_shot_min_active_width|incompatible"
+        ):
+            sampling_api.sample(
+                prog,
+                1,
+                thread_layout=thread_layout,
+                intra_shot_min_active_width=min_active_width,
+            )
+
+    @pytest.mark.parametrize("thread_layout", [(0, 1), (1, 0), (1,), "auto", (1, 1.5)])
+    def test_sample_rejects_invalid_thread_layout(
+        self, sampling_api: Any, thread_layout: Any
+    ) -> None:
+        """Explicit layouts require two positive integral worker counts."""
+        prog = sampling_api.compile("M 0")
+        with pytest.raises((TypeError, ValueError), match="thread_layout|incompatible"):
+            sampling_api.sample(prog, 1, thread_layout=thread_layout)
+
     def test_sample_different_seeds(self, sampling_api: Any) -> None:
         """Different seeds produce different results."""
         prog = sampling_api.compile("H 0\nM 0")

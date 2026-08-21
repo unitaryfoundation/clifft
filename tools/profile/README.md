@@ -1,12 +1,14 @@
-# Compilation and Probability Profiling Tools
+# Native Profiling Tools
 
-Two native C++ harnesses isolate production compile and strong-simulation
-costs for `perf` or another sampling profiler:
+Three native C++ harnesses isolate production compile, sampling, and
+strong-simulation costs for `perf` or another sampling profiler:
 
 - `profile_compile` repeatedly runs parse, trace and HIR optimization,
   coordinate planning, and executable-plan preparation.
 - `profile_probability` compiles a unitary circuit and repeatedly queries
   `clifft::basis_probabilities()` over a batch of bitstrings.
+- `profile_sample` compiles a circuit once and repeatedly samples it through
+  the public C++ path.
 
 ## Build
 
@@ -17,7 +19,7 @@ the optimized code paths used for profiling.
 cmake -B build-profile \
   -DCMAKE_BUILD_TYPE=RelWithDebInfo \
   -DCLIFFT_BUILD_PROFILER=ON
-cmake --build build-profile --target profile_compile profile_probability -j$(nproc)
+cmake --build build-profile --target profile_compile profile_probability profile_sample -j$(nproc)
 ```
 
 The equivalent build command is `just profile-build`.
@@ -46,6 +48,33 @@ CLIFFT_COMPILE_ITERATIONS=200 \
 | `CLIFFT_CLIFFORD_DEPTH` | 5000 | Clifford gates in the generated circuit |
 | `CLIFFT_T_GATES` | 0 | T gates appended to the generated circuit |
 | `CLIFFT_POSTSELECT_ALL` | unset | Mark every detector for postselection |
+
+## Sampling
+
+`profile_sample` keeps parsing and compilation outside the measured interval.
+Executor construction, state initialization, hot execution, and result
+collection remain inside it, matching the end-to-end cost of repeated calls to
+the public sampling API.
+
+```bash
+CLIFFT_CIRCUIT_FILE=tools/bench/fixtures/qv20_seed42.stim \
+  CLIFFT_PROFILE_SHOTS=1 \
+  CLIFFT_PROFILE_THREADS=1 \
+  ./build-profile/profile_sample
+```
+
+| Variable | Default | Description |
+|---|---:|---|
+| `CLIFFT_CIRCUIT_FILE` | required | Input `.stim` file |
+| `CLIFFT_PROFILE_SHOTS` | 1 | Shots per measured sample call |
+| `CLIFFT_PROFILE_THREADS` | 1 | Total worker budget; `0` selects auto |
+| `CLIFFT_PROFILE_SHOT_WORKERS` | unset | Explicit cross-shot workers; set with intra-shot workers |
+| `CLIFFT_PROFILE_INTRA_SHOT_WORKERS` | unset | Explicit per-shot workers; set with shot workers |
+| `CLIFFT_PROFILE_INTRA_SHOT_MIN_ACTIVE_WIDTH` | 18 | Expert kernel threshold; requires an explicit layout |
+| `CLIFFT_PROFILE_WARMUPS` | 2 | Untimed sample calls |
+| `CLIFFT_PROFILE_REPETITIONS` | 20 | Timed sample calls |
+| `CLIFFT_PROFILE_GENERATED_WIDTH` | unset | Generate a rotation-heavy circuit of this width instead of loading a file |
+| `CLIFFT_PROFILE_GENERATED_DEPTH` | 20 | Layers in the generated circuit |
 
 ## Probability queries
 

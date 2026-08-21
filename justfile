@@ -128,7 +128,7 @@ profile_build_dir := "build-profile"
 # Build the profiling harnesses (RelWithDebInfo for perf-friendly symbols)
 profile-build:
   cmake -B {{profile_build_dir}} -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCLIFFT_BUILD_PROFILER=ON
-  cmake --build {{profile_build_dir}} --target profile_compile profile_probability -j$(nproc)
+  cmake --build {{profile_build_dir}} --target profile_compile profile_probability profile_sample -j$(nproc)
 
 # -------------------------
 # Benchmarking

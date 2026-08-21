@@ -18,7 +18,7 @@
 #          the runner's host CPU.
 #
 # Usage:
-#   wheel_smoke.sh <emulator:qemu|sde> <cpu_model> <force_isa|auto> <expected:pass|fail> [expected_isa]
+#   wheel_smoke.sh <emulator:qemu|sde> <cpu_model> <force_isa|auto> <expected:pass|fail> [expected_isa] [intra-shot]
 #
 # Examples:
 #   wheel_smoke.sh qemu Haswell auto   pass  avx2    # auto-detect picks avx2
@@ -28,6 +28,7 @@
 #   wheel_smoke.sh qemu Nehalem avx2   fail          # host lacks avx2 -> clean trap
 #   wheel_smoke.sh sde  skx     auto   pass  avx512  # SDE Skylake-X auto-detect
 #   wheel_smoke.sh sde  skx     avx512 pass  avx512  # SDE force avx512 explicitly
+#   wheel_smoke.sh sde  skx     avx512 pass  avx512 intra-shot  # exercise OpenMP kernels
 #
 # Requires:
 #   - qemu mode: the QEMU_X86_64 env var pointing at the qemu-x86_64
@@ -46,8 +47,8 @@
 
 set -uo pipefail
 
-if [ "$#" -ne 4 ] && [ "$#" -ne 5 ]; then
-    echo "usage: $0 <emulator:qemu|sde> <cpu_model> <force_isa|auto> <expected:pass|fail> [expected_isa]" >&2
+if [ "$#" -lt 4 ] || [ "$#" -gt 6 ]; then
+    echo "usage: $0 <emulator:qemu|sde> <cpu_model> <force_isa|auto> <expected:pass|fail> [expected_isa] [intra-shot]" >&2
     exit 2
 fi
 
@@ -56,6 +57,7 @@ cpu_model="$2"
 force_isa="$3"
 expected="$4"
 expected_isa="${5:-}"
+exercise_intra_shot="${6:-}"
 
 case "$emulator" in
     qemu|sde) ;;
@@ -73,7 +75,19 @@ case "$expected" in
         ;;
 esac
 
+case "$exercise_intra_shot" in
+    ""|intra-shot) ;;
+    *)
+        echo "error: optional smoke mode must be 'intra-shot', got '$exercise_intra_shot'" >&2
+        exit 2
+        ;;
+esac
+
 PYTHON="${PYTHON:-python3}"
+smoke_args=(.github/scripts/artifact_smoke.py)
+if [ "$exercise_intra_shot" = "intra-shot" ]; then
+    smoke_args+=(--exercise-intra-shot)
+fi
 
 if [ "$emulator" = "qemu" ] && ! command -v "${QEMU_X86_64:-qemu-x86_64}" >/dev/null 2>&1; then
     echo "error: ${QEMU_X86_64:-qemu-x86_64} not found" >&2
@@ -93,7 +107,7 @@ if [ "$emulator" = "qemu" ]; then
     if [ "$force_isa" != "auto" ]; then
         qemu_env+=(-E "CLIFFT_FORCE_ISA=$force_isa")
     fi
-    output=$("${QEMU_X86_64:-qemu-x86_64}" -cpu "$cpu_model" "${qemu_env[@]}" "$PYTHON" .github/scripts/artifact_smoke.py 2>&1)
+    output=$("${QEMU_X86_64:-qemu-x86_64}" -cpu "$cpu_model" "${qemu_env[@]}" "$PYTHON" "${smoke_args[@]}" 2>&1)
     exit_code=$?
 else
     # SDE children inherit the environment, so export CLIFFT_FORCE_ISA
@@ -101,7 +115,7 @@ else
     if [ "$force_isa" != "auto" ]; then
         export CLIFFT_FORCE_ISA="$force_isa"
     fi
-    output=$("${SDE64:-sde64}" -"$cpu_model" -- "$PYTHON" .github/scripts/artifact_smoke.py 2>&1)
+    output=$("${SDE64:-sde64}" -"$cpu_model" -- "$PYTHON" "${smoke_args[@]}" 2>&1)
     exit_code=$?
 fi
 echo "$output"
