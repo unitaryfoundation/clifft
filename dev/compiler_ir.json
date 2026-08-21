@@ -61,7 +61,7 @@
     "PHASE_ROTATION": {
       "category": "Non-Clifford",
       "summary": "Continuous Z-rotation by angle alpha (half-turns) on a Pauli product.",
-      "detail": "Applies exp(-i*alpha*pi/2 * P) where P is the rewound Pauli product and alpha is in half-turn units. For rotations emitted as this HIR type, the front-end factors the source representation's global phase into global_weight. R_X, R_Y, and R_Z rotations within the documented 1e-12 half-turn canonicalization tolerance of a Clifford angle, including U3 components, are instead absorbed directly into the Clifford frame and emit no PHASE_ROTATION. The peephole pass uses the same tolerance when canonicalizing HIR rotations.",
+      "detail": "Applies exp(-i*alpha*pi/2 * P) where P is the rewound Pauli product and alpha is in half-turn units. Global phase differences from the source gate representation are intentionally omitted. R_X, R_Y, and R_Z rotations within the documented 1e-12 half-turn canonicalization tolerance of a Clifford angle, including U3 components, are instead absorbed directly into the Clifford frame and emit no PHASE_ROTATION. The peephole pass uses the same tolerance when canonicalizing HIR rotations.",
       "display": [
         "PHASE_ROTATION"
       ]
@@ -89,12 +89,6 @@
       "summary": "Rotation about a Pauli product on the active coordinates.",
       "detail": "Applies exp(-i*pi*half_turns/2 * P) where P is the Pauli product shown over active stabilizer coordinates. This traverses the dense 2^k coefficient state. When the per-shot sign expression evaluates true the rotation direction is reversed; this is how earlier stochastic events such as noise and measurement branches steer later physics without re-planning.",
       "operands": "Pauli product, half_turns, sign"
-    },
-    "ROTATE_PHASE": {
-      "category": "Rotation",
-      "summary": "Sign-conditioned global phase from a rotation whose Pauli reduced to the identity.",
-      "detail": "A rotation whose Pauli product reduced to the identity during planning. It multiplies the global scalar by a phase determined by the per-shot sign expression and does not traverse the coefficient state. This selects a statevector representative but does not affect sampling, later interference, basis probabilities, record probabilities, or expectation values; the public statevector is defined only up to global phase.",
-      "operands": "half_turns, sign"
     },
     "PROMOTE_DORMANT": {
       "category": "Rotation",
