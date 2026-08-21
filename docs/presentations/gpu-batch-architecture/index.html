@@ -884,9 +884,9 @@
       <div class="hardware-line">
         <div><strong>Representative hardware</strong></div>
         <div><strong>NVIDIA:</strong> H200-class performance target; L40S-class optional correctness/CI target</div>
-        <div><strong>AMD:</strong> MI300-series target; confirm MI300A vs MI300X</div>
+        <div><strong>AMD:</strong> start on MI300X / gfx942; add gfx950 with hardware access</div>
       </div>
-      <aside class="notes">Initial workloads are magic-state cultivation and distillation. The hardware examples are targets for discussion, not a final support matrix. H200 offers a strong FP64 performance target; L40S can be a lower-cost functional test target but should not stand in for FP64 performance. AMD should confirm MI300A versus MI300X. Source: Discussion 382 and partner input.</aside>
+      <aside class="notes">Initial workloads are magic-state cultivation and distillation. H200 offers a strong FP64 performance target; L40S can be a lower-cost functional target but should not stand in for FP64 performance. AMD's mapping establishes two device-code targets: MI300X/MI325X use CDNA 3 / gfx942, while MI350X/MI355X use CDNA 4 / gfx950. Available MI300X credits make gfx942 the real phase-0 hardware path. We should compile for gfx950 but not claim correctness or release support until MI350X/MI355X hardware is available. Sources: Discussion 382; AMD partner input; https://rocm.docs.amd.com/en/latest/reference/gpu-specs.html</aside>
     </section>
 
     <section class="slide" data-number="7" aria-label="Correctness and CI strategy">
@@ -906,16 +906,16 @@
         <div class="test-layer device">
           <strong>Broad device suite</strong>
           <span class="cadence">Main + scheduled</span>
-          <p>Statistical CPU comparisons, realistic circuits, chunking invariance, memory limits, and launch variants.</p>
+          <p>Statistical CPU comparisons and realistic circuits on gfx942 first; add gfx950 when hardware is available.</p>
         </div>
         <div class="test-layer release">
           <strong>Release matrix</strong>
           <span class="cadence">Before publishing</span>
-          <p>Supported runtime family, driver floor, baseline device class, wheel install, and end-to-end workload checks.</p>
+          <p>Runtime family, driver floor, each advertised device-code target, wheel install, and end-to-end workload checks.</p>
         </div>
       </div>
       <p class="small" style="margin-top: 14px;">Cross-backend bit-for-bit seeds are not required. Each GPU backend should be reproducible across batching and launch choices.</p>
-      <aside class="notes">The CPU implementation remains the trusted semantic oracle. Most bugs can be caught without hardware by validating lowering and executing forced paths. Device CI then answers the questions a CPU cannot: compilation against the real toolchain, launch correctness, memory behavior, and numerical/statistical agreement. Source: Discussion 382.</aside>
+      <aside class="notes">The CPU implementation remains the trusted semantic oracle. Most bugs can be caught without hardware by validating lowering and executing forced paths. Device CI then answers the questions a CPU cannot: compilation against the real toolchain, launch correctness, memory behavior, and numerical/statistical agreement. Start real AMD smoke and scheduled testing on MI300X / gfx942. Keep gfx950 compile-only until hardware exists; if gfx950 is later advertised, scheduled and release coverage must include a real gfx950 device. Sources: Discussion 382; https://rocm.docs.amd.com/en/latest/reference/gpu-specs.html</aside>
     </section>
 
     <section class="slide" data-number="8" aria-label="Python API and packaging">
@@ -948,20 +948,20 @@ program.execution_report()</div>
           <li>No silent fallback after a user explicitly requests a GPU.</li>
           <li>Capability errors explain the missing operation or unsupported target.</li>
           <li>An execution report exposes the selected backend, strategy, device, precision, and memory plan.</li>
-          <li>One Linux x86-64 wheel family per supported CUDA or ROCm runtime limits the build matrix.</li>
+          <li>One ROCm wheel can later bundle gfx942 and gfx950 after both targets are device-validated.</li>
           <li>The CPU package keeps its current release cadence and easy install.</li>
         </ul>
       </div>
-      <aside class="notes">Package names are illustrative. Companion packages add wheel work, but the matrix stays bounded by supporting one runtime family per vendor and Linux x86-64 only. A private versioned C boundary or capsule can connect the companion package without making the prepared representation public. Source: Discussion 382.</aside>
+      <aside class="notes">Package names are illustrative. Companion packages add wheel work, but the matrix stays bounded by supporting one runtime family per vendor and Linux x86-64 only. HIP-Clang can generate a fat binary with a code object for each device target, so gfx942 and gfx950 do not require separate Python distributions. The first experimental package may advertise gfx942 only if that is the only target validated on real hardware; gfx950 can be added to the same package later. A private versioned C boundary or capsule can connect the companion package without making the prepared representation public. Sources: Discussion 382; https://rocm.docs.amd.com/projects/HIP/en/latest/understand/compilers.html</aside>
     </section>
 
     <section class="slide" data-number="9" aria-label="Implementation phases">
       <p class="eyebrow">Staged delivery</p>
       <h2>De-risk first; standardize after two vendors</h2>
       <div class="timeline">
-        <div class="phase" data-phase="0"><h3>Owner-led spike</h3><p>Real circuits, synthetic widths, shot sweep, basic CUDA + ROCm paths.</p></div>
+        <div class="phase" data-phase="0"><h3>Owner-led spike</h3><p>Real circuits on CUDA + MI300X / gfx942; compile gfx950.</p></div>
         <div class="phase" data-phase="1"><h3>Prepared boundary + CPU batch</h3><p>Program retains the plan; diagnostics and one CPU resource budget.</p></div>
-        <div class="phase" data-phase="2"><h3>Two-vendor correctness</h3><p>FP64 sampling, survivors, feasible EXP_VAL, and device CI.</p></div>
+        <div class="phase" data-phase="2"><h3>Two-vendor correctness</h3><p>FP64 correctness on gfx942; add gfx950 after device access.</p></div>
         <div class="phase" data-phase="3"><h3>Tune with evidence</h3><p>Optimize one vendor at a time; keep the other correctness-complete.</p></div>
         <div class="phase" data-phase="4"><h3>Experimental packages</h3><p>Publish companion wheels, then evaluate auto selection and FP32.</p></div>
       </div>
@@ -975,7 +975,7 @@ program.execution_report()</div>
       <div class="asks">
         <ol class="ask-list">
           <li><strong>Architecture:</strong> agree on one semantic plan, native target preparation, and explicit Python backend selection.</li>
-          <li><strong>AMD:</strong> confirm MI300A or MI300X, ROCm/runtime and driver targets, device-code target, CI access, and an engineering owner.</li>
+          <li><strong>AMD:</strong> activate MI300X credits, confirm ROCm and driver floors and an owner, then identify a path to gfx950 hardware.</li>
           <li><strong>Unitary Foundation:</strong> confirm first workloads, maintenance ownership, trusted hardware policy, and release expectations.</li>
           <li><strong>NVIDIA follow-up:</strong> validate the H200/L40S-class split and answer the same runtime, CI, and ownership questions.</li>
         </ol>
@@ -985,7 +985,7 @@ program.execution_report()</div>
           <p>Use its evidence to finalize the backend boundary, first device matrix, and sequence of implementation PRs.</p>
         </div>
       </div>
-      <aside class="notes">The open partner inputs do not block the architecture work, packed CPU boundary, or exploratory spike. They do block the final support matrix, packaging promise, CI topology, and performance claims. Close by asking whether the group agrees to start phase 0 and who owns each vendor input. Source: Discussion 382.</aside>
+      <aside class="notes">AMD's device-code mappings are no longer open: gfx942 covers MI300X/MI325X and gfx950 covers MI350X/MI355X. MI300X credits provide the starting hardware path for gfx942. ROCm and driver floors, CI integration, maintenance ownership, and access to a gfx950 device remain open. These do not block the architecture or gfx942 spike, but gfx950 cannot enter the support or release matrix without real-device validation. Close by asking whether the group agrees to start phase 0 and who owns each remaining vendor input. Sources: Discussion 382; AMD partner input.</aside>
     </section>
   </main>
 
