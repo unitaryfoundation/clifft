@@ -457,10 +457,6 @@ struct HirModule {
     // InstrumentSite.
     bool neglect_instrument_damping = false;
 
-    /// Nonnegative scale applied to every amplitude represented by this module.
-    /// Global phase is intentionally not represented.
-    double amplitude_scale = 1.0;
-
     /// Parallel to ops: source_map[i] lists the source line(s) that
     /// produced ops[i]. Empty inner vector means an optimizer pass
     /// invalidated the map for that op.

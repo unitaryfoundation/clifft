@@ -441,18 +441,6 @@ TEST_CASE("Sampling plan rejects invalid numeric metadata") {
         REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
     }
 
-    SECTION("amplitude scale is not finite") {
-        SamplingPlan plan;
-        plan.amplitude_scale = std::numeric_limits<double>::infinity();
-        REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
-    }
-
-    SECTION("amplitude scale is negative") {
-        SamplingPlan plan;
-        plan.amplitude_scale = -0.5;
-        REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
-    }
-
     SECTION("active rotation angle is not finite") {
         SamplingPlan plan = valid_rotation_plan();
         std::get<RotateActivePauli>(plan.actions[0].action).half_turns =

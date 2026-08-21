@@ -52,7 +52,7 @@ struct MeasurementBranchClassification {
 Executor::Executor(const ExecutablePlan& plan, uint64_t seed)
     : root_plan_(&plan),
       plan_(&plan),
-      state_(plan.peak_active_width_, plan.initial_active_width_, plan.amplitude_scale_),
+      state_(plan.peak_active_width_, plan.initial_active_width_),
       symbols_(plan.num_symbols_, 0),
       expression_registers_(plan.expression_register_constants_),
       records_(static_cast<size_t>(plan.num_visible_records_) + plan.num_hidden_records_, 0),
@@ -104,9 +104,6 @@ void Executor::resume(const ExecutablePlan& continuation,
     if (continuation.backend_ != backend_) {
         throw std::invalid_argument(
             "sampling continuation uses a different executor backend than the root plan");
-    }
-    if (continuation.amplitude_scale_ != state_.amplitude_scale()) {
-        throw std::invalid_argument("sampling continuation changes amplitude scale");
     }
     const uint32_t site = index(pending_trap_->site);
     if (site >= continuation.instrument_resume_offsets_.size() ||

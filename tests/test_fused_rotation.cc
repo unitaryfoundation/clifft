@@ -52,7 +52,7 @@ void require_matches_scalar(const SamplingPlan& plan, uint8_t presampled_value,
     Executor executor(executable);
     executor.run_shot(std::array<uint8_t, 1>{presampled_value});
 
-    State expected(plan.peak_active_width, plan.initial_active_width, plan.amplitude_scale);
+    State expected(plan.peak_active_width, plan.initial_active_width);
     for (const PlannedAction& planned : plan.actions) {
         const auto& rotation = std::get<RotateActivePauli>(planned.action);
         bool sign = rotation.sign.constant();
@@ -66,7 +66,6 @@ void require_matches_scalar(const SamplingPlan& plan, uint8_t presampled_value,
     }
 
     REQUIRE(executor.state().size() == expected.size());
-    REQUIRE(executor.state().amplitude_scale() == expected.amplitude_scale());
     for (uint64_t basis = 0; basis < expected.size(); ++basis) {
         CAPTURE(presampled_value, basis);
         REQUIRE_THAT(executor.state().real_data()[basis],

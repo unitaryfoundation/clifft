@@ -82,7 +82,9 @@ thread count, and operating system alongside the generated CSV.
 
 The key insight is Clifft's factored-state representation:
 
-$$|\psi\rangle = a \, U_C \, P \, (|\phi\rangle_A \otimes |0\rangle_D), \qquad a \ge 0$$
+$$|\psi\rangle \sim U_C \, P \, (|\phi\rangle_A \otimes |0\rangle_D)$$
+
+Here $\sim$ denotes equality up to global phase.
 
 The compiler absorbs Clifford evolution into an offline frame and chooses the
 stabilizer coordinates needed by later operations. Only the active state over

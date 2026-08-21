@@ -510,26 +510,6 @@ TEST_CASE("Peephole: S absorption propagates through downstream T", "[optimizer]
     REQUIRE(hir.stab_mask(hir.ops[0]) == Z(0));
 }
 
-TEST_CASE("Peephole: T plus T fusion leaves amplitude scale unchanged", "[optimizer]") {
-    auto hir = hir_from("T 0\nT 0");
-    const double initial_scale = hir.amplitude_scale;
-
-    PeepholeFusionPass pass;
-    pass.run(hir);
-
-    REQUIRE(hir.amplitude_scale == initial_scale);
-}
-
-TEST_CASE("Peephole: T_dag plus T_dag fusion leaves amplitude scale unchanged", "[optimizer]") {
-    auto hir = hir_from("T_DAG 0\nT_DAG 0");
-    const double initial_scale = hir.amplitude_scale;
-
-    PeepholeFusionPass pass;
-    pass.run(hir);
-
-    REQUIRE(hir.amplitude_scale == initial_scale);
-}
-
 TEST_CASE("Peephole: PHASE_ROTATION demotes to absorbed S and T gates", "[optimizer]") {
     // 0.5 half-turns = S gate -> absorbed (no ops remain)
     HirModule hir_s(1, 1);
@@ -662,47 +642,38 @@ TEST_CASE("Peephole: S absorption conjugates noise and conditional Pauli", "[opt
 }
 
 // =============================================================================
-// Negative-sign T fusion must preserve the state ray while leaving the real
-// amplitude scale unchanged.
+// Negative-sign T fusion must preserve the state ray.
 // =============================================================================
 
-TEST_CASE("Peephole: negative-sign T plus T preserves amplitude scale", "[optimizer]") {
+TEST_CASE("Peephole: negative-sign T plus T preserves the state ray", "[optimizer]") {
     // X conjugates Z -> -Z, so both T gates see -Z axis (sign=true).
     // T(-Z) = exp(i*pi/4) * T_dag(+Z), so T(-Z)+T(-Z) = exp(i*pi/2) * S_dag(+Z) = i * S_dag.
     HirModule hir(1, /*pauli_capacity=*/16);
 
     clifft::test::append_tgate(hir, 0, Z(0), /*sign=*/true);
     clifft::test::append_tgate(hir, 0, Z(0), /*sign=*/true);
-    const double initial_scale = hir.amplitude_scale;
-
     PeepholeFusionPass pass;
     pass.run(hir);
 
     // Both T gates absorbed (S absorbed into tableau)
     REQUIRE(hir.ops.empty());
     REQUIRE(pass.fusions() == 1);
-
-    CHECK(hir.amplitude_scale == initial_scale);
 }
 
-TEST_CASE("Peephole: negative-sign T_dag plus T_dag preserves amplitude scale", "[optimizer]") {
+TEST_CASE("Peephole: negative-sign T_dag plus T_dag preserves the state ray", "[optimizer]") {
     // T_dag(-Z) = exp(-i*pi/4) * T(+Z), two of them: exp(-i*pi/2) * S(+Z) = -i * S.
     HirModule hir(1, /*pauli_capacity=*/16);
 
     clifft::test::append_tgate(hir, 0, Z(0), /*sign=*/true, /*dagger=*/true);
     clifft::test::append_tgate(hir, 0, Z(0), /*sign=*/true, /*dagger=*/true);
-    const double initial_scale = hir.amplitude_scale;
-
     PeepholeFusionPass pass;
     pass.run(hir);
 
     REQUIRE(hir.ops.empty());
     REQUIRE(pass.fusions() == 1);
-
-    CHECK(hir.amplitude_scale == initial_scale);
 }
 
-TEST_CASE("Peephole: mixed-sign T cancellation preserves amplitude scale", "[optimizer]") {
+TEST_CASE("Peephole: mixed-sign T cancellation preserves the state ray", "[optimizer]") {
     // T(+Z) + T(-Z): effective_angles sum to 0 (cancellation), but
     // T(-Z) = exp(i*pi/4) * T_dag(+Z), so the physical result is
     // T(+Z) * exp(i*pi/4) * T_dag(+Z) = exp(i*pi/4) * I.
@@ -710,15 +681,11 @@ TEST_CASE("Peephole: mixed-sign T cancellation preserves amplitude scale", "[opt
 
     clifft::test::append_tgate(hir, 0, Z(0), /*sign=*/false);
     clifft::test::append_tgate(hir, 0, Z(0), /*sign=*/true);
-    const double initial_scale = hir.amplitude_scale;
-
     PeepholeFusionPass pass;
     pass.run(hir);
 
     REQUIRE(hir.ops.empty());
     REQUIRE(pass.cancellations() == 1);
-
-    CHECK(hir.amplitude_scale == initial_scale);
 }
 
 TEST_CASE("Peephole: S absorption creates negative T that subsequently fuses", "[optimizer]") {
@@ -954,8 +921,8 @@ using clifft::test::dense_matmul;
 using clifft::test::dense_tableau_matrix;
 using clifft::test::DenseMatrix;
 
-// Dense value of an HIR module: amplitude_scale * canonical(final_tableau)
-// applied after the op stream. Global phase is intentionally unspecified.
+// Dense value of an HIR module: canonical(final_tableau) applied after the op
+// stream. Global phase is intentionally unspecified.
 DenseMatrix dense_hir_value(const HirModule& hir) {
     const size_t n = hir.num_qubits;
     const uint64_t dim = uint64_t{1} << n;
@@ -973,9 +940,6 @@ DenseMatrix dense_hir_value(const HirModule& hir) {
             value = dense_matmul(
                 value, dense_axis_rotation(x, z, false, sign ? -op.alpha() : op.alpha(), n), dim);
         }
-    }
-    for (auto& v : value) {
-        v *= hir.amplitude_scale;
     }
     return value;
 }

@@ -9,16 +9,14 @@
 
 namespace clifft::sampling {
 
-// Holds one shot's state-vector coefficients for direct-Pauli execution. The
-// real amplitude scale may be non-unit while the coefficient arrays remain
-// normalized. The same allocation contains temporary arrays used while
+// Holds one shot's normalized state-vector coefficients for direct-Pauli
+// execution. The same allocation contains temporary arrays used while
 // collapsing a non-diagonal measurement.
 class State {
   public:
     // Immediately allocates all coefficient and temporary storage required by
     // max_active_width, even when initial_active_width is smaller.
-    explicit State(uint32_t max_active_width, uint32_t initial_active_width = 0,
-                   double amplitude_scale = 1.0);
+    explicit State(uint32_t max_active_width, uint32_t initial_active_width = 0);
     ~State();
 
     State(const State&) = delete;
@@ -60,8 +58,6 @@ class State {
     [[nodiscard]] double* scratch_imag_data() { return scratch_imag_; }
     [[nodiscard]] const double* scratch_imag_data() const { return scratch_imag_; }
 
-    [[nodiscard]] double amplitude_scale() const { return amplitude_scale_; }
-
     // Kernel-only width transition. The caller must stay within the maximum
     // chosen at construction.
     void set_active_width(uint32_t width) noexcept;
@@ -81,7 +77,6 @@ class State {
     uint32_t initial_active_width_ = 0;
     uint32_t active_width_ = 0;
     uint32_t max_active_width_ = 0;
-    double amplitude_scale_ = 1.0;
 };
 
 }  // namespace clifft::sampling

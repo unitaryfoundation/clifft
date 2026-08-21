@@ -73,12 +73,10 @@ SamplingPlanOptions source_map_options() {
 
 TEST_CASE("Sampling planner preserves empty module metadata") {
     HirModule hir(3, 0);
-    hir.amplitude_scale = 0.25;
 
     const SamplingPlan plan = plan_sampling(hir);
 
     REQUIRE(plan.num_qubits == 3);
-    REQUIRE(plan.amplitude_scale == 0.25);
     REQUIRE(plan.initial_active_width == 0);
     REQUIRE(plan.peak_active_width == 0);
     REQUIRE(plan.actions.empty());
@@ -406,16 +404,14 @@ TEST_CASE("Sampling planner keeps geometric Pauli signs") {
     REQUIRE(rotation.sign == AffineBool(true));
 }
 
-TEST_CASE("Sampling planner omits identity rotations and preserves amplitude scale") {
+TEST_CASE("Sampling planner omits identity rotations") {
     HirModule hir(1, 2);
-    hir.amplitude_scale = 0.25;
     clifft::test::append_phase_rotation(hir, 0, Z(0), false, 0.5);
     clifft::test::append_tgate(hir, 0, Z(0), false);
 
     const SamplingPlan plan = plan_sampling(hir);
 
     CHECK(plan.actions.empty());
-    CHECK(plan.amplitude_scale == 0.25);
 }
 
 TEST_CASE("Sampling planner omits signed identity rotations") {
@@ -426,7 +422,6 @@ TEST_CASE("Sampling planner omits signed identity rotations") {
         const SamplingPlan plan = plan_sampling(hir);
 
         CHECK(plan.actions.empty());
-        CHECK(plan.amplitude_scale == 1.0);
     }
 
     SECTION("symbolic sign") {
@@ -436,7 +431,6 @@ TEST_CASE("Sampling planner omits signed identity rotations") {
 
         REQUIRE(plan.symbols.size() == 1);
         CHECK(plan.actions.empty());
-        CHECK(plan.amplitude_scale == 1.0);
     }
 }
 
@@ -606,5 +600,5 @@ TEST_CASE("Sampling planner target QEC plan characterization") {
     INFO(inspection);
     // After verifying that a reported inspection change is intentional, update
     // this digest to the new value shown by the failed assertion.
-    REQUIRE(fnv1a64(inspection) == 0x5af800fe8fc51fe0ULL);
+    REQUIRE(fnv1a64(inspection) == 0x52ca4372383772c4ULL);
 }

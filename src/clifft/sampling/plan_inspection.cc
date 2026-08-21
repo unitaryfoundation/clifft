@@ -198,7 +198,6 @@ std::string SamplingPlan::inspect() const {
         << " postselection=" << has_postselection
         << " final_state_queries=" << final_tableau.has_value()
         << " dust_epsilon=" << format_double_roundtrip(kMeasurementDustEpsilon) << '\n';
-    out << "amplitude_scale=" << format_double_roundtrip(amplitude_scale) << '\n';
     out << "symbols=" << symbols.size() << '\n';
     for (uint32_t i = 0; i < symbols.size(); ++i) {
         out << "  s" << i << " kind=" << symbol_kind_name(symbols[i].kind);

@@ -692,8 +692,6 @@ TEST_CASE("Sampling executor receives no identity rotation actions") {
     Executor executor(executable);
 
     executor.run_shot();
-
-    CHECK(executor.state().amplitude_scale() == 1.0);
 }
 
 TEST_CASE("Sampling identity rotation elision preserves active rotation fusion") {
@@ -1000,15 +998,6 @@ TEST_CASE("Sampling continuation rejects incompatible handoffs") {
         REQUIRE_THROWS_AS(executor.resume(continuation), std::invalid_argument);
     }
 
-    SECTION("continuation changes amplitude scale") {
-        SamplingPlan continuation_plan = root_plan;
-        continuation_plan.amplitude_scale = 0.5;
-        const ExecutablePlan continuation(continuation_plan);
-        Executor executor(root, 1);
-        executor.run_shot();
-        REQUIRE_THROWS_AS(executor.resume(continuation), std::invalid_argument);
-    }
-
     SECTION("continuation contains an unbound presampled symbol") {
         SamplingPlan continuation_plan = root_plan;
         continuation_plan.symbols.push_back(
@@ -1175,7 +1164,6 @@ TEST_CASE("Sampling continuation preserves fused rotation prefixes") {
     root_plan.num_qubits = kActiveWidth + 1;
     root_plan.initial_active_width = kActiveWidth;
     root_plan.peak_active_width = kActiveWidth;
-    root_plan.amplitude_scale = 0.25;
     root_plan.num_instrument_sites = 1;
     root_plan.instrument_distributions = {
         InstrumentDistribution{InstrumentSiteId{0}, {1.0, 1.0}, {}}};
@@ -1199,7 +1187,7 @@ TEST_CASE("Sampling continuation preserves fused rotation prefixes") {
     REQUIRE(root.num_actions() == 3);
     REQUIRE(continuation.num_actions() == 4);
 
-    State expected(kActiveWidth, kActiveWidth, root_plan.amplitude_scale);
+    State expected(kActiveWidth, kActiveWidth);
     for (const RotateActivePauli& rotation : prefix_rotations) {
         apply_rotation(expected,
                        prepare_rotation(rotation.pauli, kActiveWidth, rotation.half_turns),
@@ -1210,7 +1198,6 @@ TEST_CASE("Sampling continuation preserves fused rotation prefixes") {
     executor.run_shot();
     REQUIRE(executor.pending_trap().has_value());
     REQUIRE(executor.pending_trap()->destination_pending);
-    REQUIRE(executor.state().amplitude_scale() == root_plan.amplitude_scale);
     for (uint64_t basis = 0; basis < expected.size(); ++basis) {
         CAPTURE(basis);
         REQUIRE_THAT(executor.state().real_data()[basis],
@@ -1226,7 +1213,6 @@ TEST_CASE("Sampling continuation preserves fused rotation prefixes") {
     }
     executor.resume(continuation);
     REQUIRE_FALSE(executor.pending_trap().has_value());
-    REQUIRE(executor.state().amplitude_scale() == root_plan.amplitude_scale);
     for (uint64_t basis = 0; basis < expected.size(); ++basis) {
         CAPTURE(basis);
         REQUIRE_THAT(executor.state().real_data()[basis],

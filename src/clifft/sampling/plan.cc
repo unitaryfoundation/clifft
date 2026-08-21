@@ -379,9 +379,6 @@ void SamplingPlan::validate() const {
     if (total_records > std::numeric_limits<uint32_t>::max()) {
         invalid_plan("record count exceeds uint32 range");
     }
-    if (!is_finite_robust(amplitude_scale) || amplitude_scale < 0.0) {
-        invalid_plan("amplitude scale must be finite and nonnegative");
-    }
     if (final_tableau.has_value() && final_tableau->num_qubits != num_qubits) {
         invalid_plan("final tableau width does not match the qubit count");
     }

@@ -193,8 +193,6 @@ TEST_CASE("Frontend: SPP emits signed Pauli rotations", "[frontend]") {
     CHECK(hir.destab_mask(hir.ops[1]) == X(0));
     CHECK(hir.stab_mask(hir.ops[1]) == 0);
     CHECK(hir.sign(hir.ops[1]));
-
-    CHECK(hir.amplitude_scale == 1.0);
 }
 
 TEST_CASE("Frontend: TPP emits one T gate per product", "[frontend]") {
@@ -1725,7 +1723,6 @@ TEST_CASE("Frontend: R_Z omits its source-representation global phase", "[fronte
     auto hir = trace(circuit);
 
     CHECK(hir.num_ops() == 1);
-    CHECK(hir.amplitude_scale == 1.0);
 }
 
 TEST_CASE("Trace rejects a programmatic inverted READOUT_NOISE target") {

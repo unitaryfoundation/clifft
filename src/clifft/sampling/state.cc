@@ -21,11 +21,10 @@ uint64_t round_array_stride(uint64_t entries) {
 
 }  // namespace
 
-State::State(uint32_t max_active_width, uint32_t initial_active_width, double amplitude_scale)
+State::State(uint32_t max_active_width, uint32_t initial_active_width)
     : initial_active_width_(initial_active_width),
       active_width_(initial_active_width),
-      max_active_width_(max_active_width),
-      amplitude_scale_(amplitude_scale) {
+      max_active_width_(max_active_width) {
     if (max_active_width >= kDenseActiveWidthLimit) {
         throw std::invalid_argument("sampling state maximum active width must be below " +
                                     std::to_string(kDenseActiveWidthLimit));
@@ -33,11 +32,6 @@ State::State(uint32_t max_active_width, uint32_t initial_active_width, double am
     if (initial_active_width > max_active_width) {
         throw std::invalid_argument("sampling state initial active width exceeds its maximum");
     }
-    if (!is_finite_robust(amplitude_scale) || amplitude_scale < 0.0) {
-        throw std::invalid_argument(
-            "sampling state amplitude scale must be finite and nonnegative");
-    }
-
     capacity_ = uint64_t{1} << max_active_width;
     coefficient_stride_ = round_array_stride(capacity_);
     const uint64_t scratch_capacity = std::max(uint64_t{1}, capacity_ >> 1);
@@ -144,7 +138,6 @@ void State::move_from(State&& other) noexcept {
     initial_active_width_ = std::exchange(other.initial_active_width_, 0);
     active_width_ = std::exchange(other.active_width_, 0);
     max_active_width_ = std::exchange(other.max_active_width_, 0);
-    amplitude_scale_ = std::exchange(other.amplitude_scale_, 1.0);
 }
 
 }  // namespace clifft::sampling

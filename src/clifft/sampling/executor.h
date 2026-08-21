@@ -34,11 +34,11 @@ struct ForcedTraceOut {
     uint8_t source = 0;
 };
 
-// Holds the dense active-coordinate coefficients and amplitude scale, Boolean
-// symbols carrying stochastic frame dependencies, visible and hidden records,
-// measurement RNG, and numerical-dust telemetry for repeated shots. The plan
-// must outlive the executor. Construction allocates all storage; run_shot only
-// resets and overwrites it.
+// Holds the dense active-coordinate coefficients, Boolean symbols carrying
+// stochastic frame dependencies, visible and hidden records, measurement RNG,
+// and numerical-dust telemetry for repeated shots. The plan must outlive the
+// executor. Construction allocates all storage; run_shot only resets and
+// overwrites it.
 class Executor {
   public:
     explicit Executor(const ExecutablePlan& plan, uint64_t seed = 0);

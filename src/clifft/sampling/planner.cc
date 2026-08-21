@@ -411,7 +411,6 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
     plan.num_detectors = hir.num_detectors;
     plan.num_observables = hir.num_observables;
     plan.num_exp_vals = hir.num_exp_vals;
-    plan.amplitude_scale = hir.amplitude_scale;
     if (options.retain_source_map) {
         if (hir.source_map.size() != hir.ops.size()) {
             throw std::invalid_argument(
