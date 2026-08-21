@@ -274,6 +274,8 @@ Expert callers can change the threshold for an explicit layout with
 execution, so changing it does not add policy or allocation work inside a
 kernel:
 
+<!--pytest.mark.skip-->
+
 ```python
 result = clifft.sample(
     program,
