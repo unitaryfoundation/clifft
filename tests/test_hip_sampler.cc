@@ -64,6 +64,13 @@ TEST_CASE("HIP sampler zero shots does not require a device") {
     REQUIRE(survivors.total_shots == 0);
     REQUIRE(survivors.passed_shots == 0);
     REQUIRE(survivors.observable_ones.empty());
+
+    const SamplingOptions invalid_low{.block_size = 0};
+    const SamplingOptions invalid_high{.block_size = 1025};
+    REQUIRE_THROWS_AS(clifft::sampling::hip::sample(executable, 0, invalid_low),
+                      std::invalid_argument);
+    REQUIRE_THROWS_AS(clifft::sampling::hip::sample_survivors(executable, 0, false, invalid_high),
+                      std::invalid_argument);
 }
 
 TEST_CASE("HIP replay validates unsupported inputs before device access") {
@@ -74,10 +81,64 @@ TEST_CASE("HIP replay validates unsupported inputs before device access") {
     const Executable noisy(plan_from("X_ERROR(0.1) 0\nM 0\n"));
     REQUIRE_THROWS_AS(clifft::sampling::hip::replay_shot(noisy, std::array<uint8_t, 1>{0}),
                       std::invalid_argument);
+}
 
-    const Executable readout(plan_from("M 0\nREADOUT_NOISE(0.1) rec[-1]\n"));
-    REQUIRE_THROWS_AS(clifft::sampling::hip::replay_shot(readout, std::array<uint8_t, 1>{0}),
-                      std::invalid_argument);
+TEST_CASE("HIP replay matches CPU readout noise unreachability") {
+    const SamplingPlan plan = plan_from("M 0\nREADOUT_NOISE(0.1) rec[-1]\n");
+    const Executable hip_executable(plan);
+    const ExecutablePlan cpu_executable(plan);
+    require_hip_device();
+
+    for (const CoefficientPrecision precision :
+         {CoefficientPrecision::FP64, CoefficientPrecision::FP32}) {
+        const std::array<uint8_t, 1> forced{0};
+        clifft::sampling::Executor cpu(cpu_executable);
+        const clifft::sampling::ReplayResult expected = cpu.replay_shot(forced);
+        const clifft::sampling::hip::ReplayResult actual =
+            clifft::sampling::hip::replay_shot(hip_executable, forced, precision);
+        CAPTURE(precision);
+        REQUIRE_FALSE(expected.reachable);
+        REQUIRE(actual.reachable == expected.reachable);
+        REQUIRE_FALSE(actual.survived);
+        REQUIRE(actual.outputs.measurements.empty());
+        REQUIRE(actual.outputs.detectors.empty());
+        REQUIRE(actual.outputs.observables.empty());
+        REQUIRE(actual.outputs.exp_vals.empty());
+    }
+}
+
+TEST_CASE("HIP replay omits incomplete outputs from discarded paths") {
+    const clifft::HirModule hir = clifft::trace(clifft::parse(R"(
+        H 0
+        M 0
+        DETECTOR rec[-1]
+        OBSERVABLE_INCLUDE(0) rec[-1]
+    )"));
+    const std::array<uint8_t, 1> postselection{1};
+    clifft::sampling::SamplingPlanOptions plan_options;
+    plan_options.postselection_mask = postselection;
+    const SamplingPlan plan = clifft::sampling::plan_sampling(hir, plan_options);
+    const Executable hip_executable(plan);
+    const ExecutablePlan cpu_executable(plan);
+    require_hip_device();
+
+    for (const CoefficientPrecision precision :
+         {CoefficientPrecision::FP64, CoefficientPrecision::FP32}) {
+        const std::array<uint8_t, 1> forced{1};
+        clifft::sampling::Executor cpu(cpu_executable);
+        const clifft::sampling::ReplayResult expected = cpu.replay_shot(forced);
+        const clifft::sampling::hip::ReplayResult actual =
+            clifft::sampling::hip::replay_shot(hip_executable, forced, precision);
+        CAPTURE(precision);
+        REQUIRE(expected.reachable);
+        REQUIRE(cpu.discarded());
+        REQUIRE(actual.reachable == expected.reachable);
+        REQUIRE_FALSE(actual.survived);
+        REQUIRE(actual.outputs.measurements.empty());
+        REQUIRE(actual.outputs.detectors.empty());
+        REQUIRE(actual.outputs.observables.empty());
+        REQUIRE(actual.outputs.exp_vals.empty());
+    }
 }
 
 TEST_CASE("HIP sampler is repeatable within each coefficient precision") {

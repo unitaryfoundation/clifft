@@ -47,7 +47,9 @@ struct Action {
     uint32_t reserved_index = 0;
     uint64_t x = 0;
     uint64_t z = 0;
-    uint64_t auxiliary_mask = 0;
+    // RotateActivePauli stores its pair stride here; diagonal
+    // MeasureActivePauli stores its pivot-cleared Z mask instead.
+    uint64_t pair_stride_or_z_without_pivot = 0;
     double value0 = 0.0;
     double value1 = 0.0;
 };

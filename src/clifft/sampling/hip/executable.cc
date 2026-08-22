@@ -26,7 +26,6 @@ void flatten_pauli(detail::Action& action, const PreparedPauli& pauli) {
     action.phase_imag = static_cast<int8_t>(pauli.even_phase.imag());
     action.x = pauli.x;
     action.z = pauli.z;
-    action.auxiliary_mask = pauli.pairing_bit;
 }
 
 }  // namespace
@@ -114,6 +113,7 @@ detail::Action Executable::lower_action(const PlannedAction& planned) {
                 action.tag = detail::ActionTag::RotateActivePauli;
                 action.expression = append_expression(typed.sign);
                 flatten_pauli(action, rotation.pauli);
+                action.pair_stride_or_z_without_pivot = rotation.pauli.pairing_bit;
                 action.value0 = rotation.cosine;
                 action.value1 = rotation.sine;
             } else if constexpr (std::is_same_v<T, PromoteDormantRotation>) {
@@ -131,7 +131,7 @@ detail::Action Executable::lower_action(const PlannedAction& planned) {
                 action.index0 = index(typed.branch);
                 action.index1 = index(typed.record);
                 action.index2 = measurement.pivot;
-                action.auxiliary_mask = measurement.z_without_pivot;
+                action.pair_stride_or_z_without_pivot = measurement.z_without_pivot;
             } else if constexpr (std::is_same_v<T, MeasureDormantRandom>) {
                 action.tag = detail::ActionTag::MeasureDormantRandom;
                 action.expression = append_expression(typed.outcome);

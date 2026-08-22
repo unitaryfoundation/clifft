@@ -1,4 +1,5 @@
 #include "clifft/sampling/hip/device_program.h"
+#include "clifft/util/numeric.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -9,7 +10,6 @@ namespace clifft::sampling::hip::detail {
 namespace {
 
 constexpr double kInvSqrt2 = 0.707106781186547524400844362104849039;
-constexpr double kMeasurementDustEpsilon = 1e-18;
 constexpr double kLogHalf = -0.693147180559945309417232121458176568;
 
 template <typename Value>
@@ -142,7 +142,7 @@ __device__ void apply_rotation(const Action& action, bool sign, Coefficient* rea
     const Coefficient base_phase =
         static_cast<Coefficient>(real_phase ? action.phase_real : action.phase_imag);
     const Coefficient even_left_sine = sine * base_phase;
-    const uint64_t pair_stride = action.auxiliary_mask;
+    const uint64_t pair_stride = action.pair_stride_or_z_without_pivot;
     const uint64_t pair_period = pair_stride << 1;
     for (uint64_t block = 0; block < size; block += pair_period) {
         for (uint64_t offset = 0; offset < pair_stride; ++offset) {
@@ -233,7 +233,7 @@ __device__ bool measure_active(const ProgramView& program, const Action& action,
     }
 
     const double total = probability_zero + probability_one;
-    const double epsilon = kMeasurementDustEpsilon * total;
+    const double epsilon = clifft::kMeasurementDustEpsilon * total;
     bool branch;
     if constexpr (Replay) {
         const bool correction = evaluate(program, symbols, action.expression);
@@ -262,7 +262,8 @@ __device__ bool measure_active(const ProgramView& program, const Action& action,
     if (action.x == 0) {
         for (uint64_t packed = 0; packed < output_size; ++packed) {
             const uint64_t without_pivot = insert_zero_bit(packed, action.index2);
-            const bool other_parity = parity(without_pivot & action.auxiliary_mask);
+            const bool other_parity =
+                parity(without_pivot & action.pair_stride_or_z_without_pivot);
             const bool pivot_value = branch != other_parity;
             const uint64_t source =
                 without_pivot | (static_cast<uint64_t>(pivot_value) << action.index2);
@@ -445,12 +446,18 @@ __global__ void interpret_shots(ProgramView program, SeedRoot seed_root, uint32_
                     static_cast<uint8_t>(evaluate(program, symbols, action.expression));
                 break;
             case ActionTag::ApplyReadoutNoise: {
-                const bool source = evaluate(program, symbols, action.expression);
-                const double probability = source ? action.value1 : action.value0;
-                const bool flip =
-                    probability >= 1.0 || (probability > 0.0 && rng.next_double() < probability);
-                symbols[action.index0] = static_cast<uint8_t>(flip);
-                records[action.index1] ^= static_cast<uint8_t>(flip);
+                if constexpr (Replay) {
+                    // A post-readout record does not identify the sampled flip,
+                    // so record-only replay cannot reconstruct this path.
+                    reachable = false;
+                } else {
+                    const bool source = evaluate(program, symbols, action.expression);
+                    const double probability = source ? action.value1 : action.value0;
+                    const bool flip = probability >= 1.0 ||
+                                      (probability > 0.0 && rng.next_double() < probability);
+                    symbols[action.index0] = static_cast<uint8_t>(flip);
+                    records[action.index1] ^= static_cast<uint8_t>(flip);
+                }
                 break;
             }
             case ActionTag::WriteDetector: {
@@ -643,9 +650,6 @@ struct Rows {
 template <typename Coefficient, bool Replay>
 Rows run_device(const Executable& executable, uint32_t shots, const SamplingOptions& options,
                 std::span<const uint8_t> forced_record_input = {}) {
-    if (options.block_size == 0 || options.block_size > 1024) {
-        throw std::invalid_argument("HIP block size must be between 1 and 1024");
-    }
     UploadedProgram program(executable);
     const uint64_t capacity = uint64_t{1} << executable.peak_active_width();
     const uint64_t scratch_capacity = capacity > 1 ? capacity >> 1 : 1;
@@ -717,6 +721,12 @@ Rows execute_replay(const Executable& executable, std::span<const uint8_t> force
     return run_device<double, true>(executable, 1, options, forced_records);
 }
 
+void validate_options(const SamplingOptions& options) {
+    if (options.block_size == 0 || options.block_size > 1024) {
+        throw std::invalid_argument("HIP block size must be between 1 and 1024");
+    }
+}
+
 template <typename T>
 void compact_rows(std::vector<T>& values, std::span<const uint8_t> survived, size_t stride,
                   uint32_t passed_shots) {
@@ -760,6 +770,7 @@ std::string backend_info() {
 
 SamplingResult sample(const Executable& executable, uint32_t shots,
                       const SamplingOptions& options) {
+    validate_options(options);
     if (executable.has_postselection()) {
         throw std::invalid_argument(
             "HIP fixed-row sampling does not support postselection; use sample_survivors");
@@ -785,6 +796,7 @@ SamplingResult sample(const Executable& executable, uint32_t shots,
 
 SamplingSurvivorResult sample_survivors(const Executable& executable, uint32_t shots,
                                         bool keep_records, const SamplingOptions& options) {
+    validate_options(options);
     SamplingSurvivorResult result;
     result.total_shots = shots;
     if (shots == 0) {
@@ -844,19 +856,12 @@ ReplayResult replay_shot(const Executable& executable, std::span<const uint8_t> 
     if (!executable.noise_sites().empty()) {
         throw std::invalid_argument("HIP replay does not support presampled noise");
     }
-    if (std::any_of(executable.actions().begin(), executable.actions().end(),
-                    [](const detail::Action& action) {
-                        return action.tag == detail::ActionTag::ApplyReadoutNoise;
-                    })) {
-        throw std::invalid_argument("HIP replay does not support readout noise");
-    }
-
     Rows rows = execute_replay(executable, forced_records, coefficient_precision);
     ReplayResult result;
     result.reachable = rows.reachable[0] != 0;
     result.survived = rows.survived[0] != 0;
     result.log_probability = rows.log_probabilities[0];
-    if (!result.reachable) {
+    if (!result.reachable || !result.survived) {
         return result;
     }
     result.outputs.measurements.assign(rows.records.begin(),
