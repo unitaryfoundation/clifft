@@ -110,8 +110,18 @@ jobs:
             -DCMAKE_HIP_COMPILER=/opt/rocm/llvm/bin/clang++ \
             -DCMAKE_HIP_COMPILER_ROCM_ROOT=/opt/rocm
 
-      - name: Compile HIP backend
-        run: cmake --build build-hip --target clifft_hip_backend --parallel 2
+      - name: Compile HIP backend and conformance tests
+        run: cmake --build build-hip --target clifft_hip_tests --parallel 2
+
+      - name: Audit gfx942 device kernels
+        run: |
+          python3 tools/ci/audit_hip_fatbin.py \
+            --object build-hip/src/clifft/CMakeFiles/clifft_hip_backend.dir/sampling/hip/sampler.hip.o \
+            --architecture gfx942 \
+            --objcopy /opt/rocm/llvm/bin/llvm-objcopy \
+            --bundler /opt/rocm/llvm/bin/clang-offload-bundler \
+            --readelf /opt/rocm/llvm/bin/llvm-readelf \
+            --expected-kernels 4
 
   build-and-test:
     timeout-minutes: 45

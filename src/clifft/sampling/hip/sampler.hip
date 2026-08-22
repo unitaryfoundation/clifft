@@ -483,6 +483,22 @@ __global__ void interpret_shots(ProgramView program, SeedRoot seed_root, uint32_
     survived[shot] = static_cast<uint8_t>(reachable && !discarded);
 }
 
+// The host launcher is intentionally hidden from the HIP device pass below.
+// Keep explicit device-visible instantiations here so the offload bundle owns
+// kernels instead of only host registration stubs.
+template __global__ void interpret_shots<float, false>(
+    ProgramView, SeedRoot, uint32_t, float*, uint8_t*, uint8_t*, const uint8_t*, uint8_t*,
+    uint8_t*, double*, double*, uint8_t*, uint8_t*);
+template __global__ void interpret_shots<double, false>(
+    ProgramView, SeedRoot, uint32_t, double*, uint8_t*, uint8_t*, const uint8_t*, uint8_t*,
+    uint8_t*, double*, double*, uint8_t*, uint8_t*);
+template __global__ void interpret_shots<float, true>(
+    ProgramView, SeedRoot, uint32_t, float*, uint8_t*, uint8_t*, const uint8_t*, uint8_t*,
+    uint8_t*, double*, double*, uint8_t*, uint8_t*);
+template __global__ void interpret_shots<double, true>(
+    ProgramView, SeedRoot, uint32_t, double*, uint8_t*, uint8_t*, const uint8_t*, uint8_t*,
+    uint8_t*, double*, double*, uint8_t*, uint8_t*);
+
 }  // namespace
 
 }  // namespace clifft::sampling::hip::detail
