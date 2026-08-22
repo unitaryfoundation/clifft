@@ -38,6 +38,11 @@ add_executable(clifft_tests
     test_noncomp_validation.cc
 )
 
+if(CLIFFT_ENABLE_HIP)
+    target_sources(clifft_tests PRIVATE test_hip_executable.cc)
+    target_link_libraries(clifft_tests PRIVATE clifft_hip_backend)
+endif()
+
 target_link_libraries(clifft_tests PRIVATE
     clifft_core
     Catch2::Catch2WithMain

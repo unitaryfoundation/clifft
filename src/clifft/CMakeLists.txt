@@ -83,6 +83,23 @@ endif()
 
 target_compile_features(clifft_core PUBLIC cxx_std_20)
 
+if(CLIFFT_ENABLE_HIP)
+    add_library(clifft_hip_backend STATIC
+        sampling/hip/executable.cc
+    )
+    set_target_properties(clifft_hip_backend PROPERTIES
+        POSITION_INDEPENDENT_CODE ON
+        HIP_STANDARD 20
+        HIP_STANDARD_REQUIRED ON
+    )
+    target_include_directories(clifft_hip_backend PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/..
+        ${CMAKE_BINARY_DIR}/generated
+    )
+    target_link_libraries(clifft_hip_backend PUBLIC clifft_core)
+    target_compile_features(clifft_hip_backend PUBLIC cxx_std_20)
+endif()
+
 # Code coverage instrumentation (only for Clifft code, not dependencies)
 if(CLIFFT_COVERAGE)
     target_compile_options(clifft_core PRIVATE --coverage -fprofile-arcs -ftest-coverage)

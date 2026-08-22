@@ -9,6 +9,19 @@ endif()
 
 project(clifft LANGUAGES CXX)
 
+option(CLIFFT_ENABLE_HIP "Build the experimental AMD HIP sampling backend" OFF)
+if(CLIFFT_ENABLE_HIP)
+    if(CMAKE_VERSION VERSION_LESS 3.21)
+        message(FATAL_ERROR "CLIFFT_ENABLE_HIP requires CMake 3.21 or newer")
+    endif()
+    if(NOT DEFINED CMAKE_HIP_ARCHITECTURES)
+        set(CMAKE_HIP_ARCHITECTURES gfx942 CACHE STRING
+            "AMD GPU architectures for the experimental HIP backend")
+    endif()
+    enable_language(HIP)
+    message(STATUS "CLIFFT_ENABLE_HIP = ON (${CMAKE_HIP_ARCHITECTURES})")
+endif()
+
 # Version: derived from git tags (or VERSION file in sdists)
 include(cmake/ClifftVersion.cmake)
 
