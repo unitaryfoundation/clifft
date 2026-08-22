@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787294006423,
+  "lastUpdate": 1787380368432,
   "repoUrl": "https://github.com/unitaryfoundation/clifft",
   "entries": {
     "Python pytest-benchmark suite": [
@@ -10383,6 +10383,126 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.0037070498535738206",
             "extra": "mean: 3.001267628200003 sec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Brad Chase",
+            "username": "bachase",
+            "email": "14430+bachase@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e3c76df2374a46941510511b379daa377683c800",
+          "message": "perf(compilation): absorb Clifford-valued Pauli rotations (#383)\n\nCanonicalize identity, square-root, and Pauli residues into the Clifford frame during tracing and peephole fusion, avoiding unnecessary HIR actions and active-width growth. Use native Stim tableau operations for efficient pair rotations.\n\nAssisted-by: Codex (GPT-5) <noreply@openai.com>",
+          "timestamp": "2026-08-21T20:01:09Z",
+          "url": "https://github.com/unitaryfoundation/clifft/commit/e3c76df2374a46941510511b379daa377683c800"
+        },
+        "date": 1787380367726,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "tools/bench/test_bench_deep_clifford.py::test_compile_stim_deep",
+            "value": 1390.80425425425,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00008079255325523855",
+            "extra": "mean: 719.0084420155879 usec\nrounds: 1052"
+          },
+          {
+            "name": "tools/bench/test_bench_deep_clifford.py::test_compile_clifft_deep",
+            "value": 622.588146019282,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00018082143581774564",
+            "extra": "mean: 1.6061982650871565 msec\nrounds: 464"
+          },
+          {
+            "name": "tools/bench/test_bench_deep_clifford.py::test_sample_stim_deep",
+            "value": 53.122534037493104,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0009021154423395532",
+            "extra": "mean: 18.82440320512976 msec\nrounds: 39"
+          },
+          {
+            "name": "tools/bench/test_bench_deep_clifford.py::test_sample_clifft_deep",
+            "value": 10.0334063541549,
+            "unit": "iter/sec",
+            "range": "stddev: 0.002580298399772776",
+            "extra": "mean: 99.66704872726434 msec\nrounds: 11"
+          },
+          {
+            "name": "tools/bench/test_bench_noncomp.py::test_bench_noncomp_plain[d17-r5]",
+            "value": 701.0124517706413,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00013233038027405219",
+            "extra": "mean: 1.4265081846608656 msec\nrounds: 704"
+          },
+          {
+            "name": "tools/bench/test_bench_noncomp.py::test_bench_noncomp_lossless[d17-r5]",
+            "value": 446.07489419022926,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00014207021833744207",
+            "extra": "mean: 2.2417760179382538 msec\nrounds: 446"
+          },
+          {
+            "name": "tools/bench/test_bench_noncomp.py::test_bench_noncomp_leak[d17-r5]",
+            "value": 18.70029780716417,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00047625523440565794",
+            "extra": "mean: 53.475084210525004 msec\nrounds: 19"
+          },
+          {
+            "name": "tools/bench/test_bench_qec.py::test_compile_stim",
+            "value": 18166.996724623477,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000005416327270772335",
+            "extra": "mean: 55.04487148635877 usec\nrounds: 6474"
+          },
+          {
+            "name": "tools/bench/test_bench_qec.py::test_compile_clifft",
+            "value": 1034.27851833433,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00010921436589184022",
+            "extra": "mean: 966.857555555215 usec\nrounds: 864"
+          },
+          {
+            "name": "tools/bench/test_bench_qec.py::test_sample_stim",
+            "value": 103.90053564587454,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00007918585768863853",
+            "extra": "mean: 9.62458945744334 msec\nrounds: 94"
+          },
+          {
+            "name": "tools/bench/test_bench_qec.py::test_sample_clifft",
+            "value": 13.681305949058517,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0001031695349831019",
+            "extra": "mean: 73.09243750000454 msec\nrounds: 14"
+          },
+          {
+            "name": "tools/bench/test_bench_qv.py::test_compile_qv20",
+            "value": 52.20053869016772,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00009711252262123574",
+            "extra": "mean: 19.156890428572456 msec\nrounds: 49"
+          },
+          {
+            "name": "tools/bench/test_bench_qv.py::test_sample_qv20_1shot",
+            "value": 3.8452400987914013,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0013592520136965916",
+            "extra": "mean: 260.0617839999927 msec\nrounds: 5"
+          },
+          {
+            "name": "tools/bench/test_bench_qv.py::test_sample_qv20_10shots",
+            "value": 0.3860295940856333,
+            "unit": "iter/sec",
+            "range": "stddev: 0.003623405722811507",
+            "extra": "mean: 2.590474966999989 sec\nrounds: 5"
           }
         ]
       }
