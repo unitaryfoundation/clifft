@@ -1,9 +1,8 @@
 #include "clifft/sampling/hip/executable.h"
 
-#include <bit>
-#include <cmath>
+#include "clifft/sampling/kernels.h"
+
 #include <limits>
-#include <numbers>
 #include <stdexcept>
 #include <string>
 #include <type_traits>
@@ -22,17 +21,12 @@ void require_uint32_size(size_t size, const char* storage) {
     }
 }
 
-uint8_t pauli_phase(ActivePauli pauli) {
-    return static_cast<uint8_t>(std::popcount(pauli.x & pauli.z) & 3U);
-}
-
-uint64_t pairing_bit(ActivePauli pauli) {
-    return std::bit_floor(pauli.x);
-}
-
-std::pair<double, double> rotation_weights(double half_turns) {
-    const double angle = std::numbers::pi * half_turns / 2.0;
-    return {std::cos(angle), std::sin(angle)};
+void flatten_pauli(detail::Action& action, const PreparedPauli& pauli) {
+    action.phase_real = static_cast<int8_t>(pauli.even_phase.real());
+    action.phase_imag = static_cast<int8_t>(pauli.even_phase.imag());
+    action.x = pauli.x;
+    action.z = pauli.z;
+    action.auxiliary_mask = pauli.pairing_bit;
 }
 
 }  // namespace
@@ -115,31 +109,29 @@ detail::Action Executable::lower_action(const PlannedAction& planned) {
             detail::Action action;
             action.active_before = planned.active_before;
             if constexpr (std::is_same_v<T, RotateActivePauli>) {
-                const auto [cosine, sine] = rotation_weights(typed.half_turns);
+                const PreparedRotation rotation =
+                    prepare_rotation(typed.pauli, planned.active_before, typed.half_turns);
                 action.tag = detail::ActionTag::RotateActivePauli;
                 action.expression = append_expression(typed.sign);
-                action.pauli_phase = pauli_phase(typed.pauli);
-                action.x = typed.pauli.x;
-                action.z = typed.pauli.z;
-                action.auxiliary_mask = pairing_bit(typed.pauli);
-                action.value0 = cosine;
-                action.value1 = sine;
+                flatten_pauli(action, rotation.pauli);
+                action.value0 = rotation.cosine;
+                action.value1 = rotation.sine;
             } else if constexpr (std::is_same_v<T, PromoteDormantRotation>) {
-                const auto [cosine, sine] = rotation_weights(typed.half_turns);
+                const PreparedPromotion promotion = prepare_promotion(typed.half_turns);
                 action.tag = detail::ActionTag::PromoteDormantRotation;
                 action.expression = append_expression(typed.sign);
-                action.value0 = cosine;
-                action.value1 = sine;
+                action.value0 = promotion.cosine;
+                action.value1 = promotion.sine;
             } else if constexpr (std::is_same_v<T, MeasureActivePauli>) {
+                const PreparedMeasurement measurement =
+                    prepare_measurement(typed.pauli, planned.active_before, typed.active_pivot);
                 action.tag = detail::ActionTag::MeasureActivePauli;
                 action.expression = append_expression(typed.outcome);
-                action.pauli_phase = pauli_phase(typed.pauli);
+                flatten_pauli(action, measurement.pauli);
                 action.index0 = index(typed.branch);
                 action.index1 = index(typed.record);
-                action.index2 = typed.active_pivot;
-                action.x = typed.pauli.x;
-                action.z = typed.pauli.z;
-                action.auxiliary_mask = typed.pauli.z & ~(uint64_t{1} << typed.active_pivot);
+                action.index2 = measurement.pivot;
+                action.auxiliary_mask = measurement.z_without_pivot;
             } else if constexpr (std::is_same_v<T, MeasureDormantRandom>) {
                 action.tag = detail::ActionTag::MeasureDormantRandom;
                 action.expression = append_expression(typed.outcome);
@@ -176,10 +168,8 @@ detail::Action Executable::lower_action(const PlannedAction& planned) {
                 if (!typed.active_projection.has_value()) {
                     action.flags = detail::kAbsentActiveProjection;
                 } else {
-                    action.pauli_phase = pauli_phase(*typed.active_projection);
-                    action.x = typed.active_projection->x;
-                    action.z = typed.active_projection->z;
-                    action.auxiliary_mask = pairing_bit(*typed.active_projection);
+                    flatten_pauli(action,
+                                  prepare_pauli(*typed.active_projection, planned.active_before));
                 }
             } else if constexpr (std::is_same_v<T, ApplyInstrument> ||
                                  std::is_same_v<T, InstrumentBoundary>) {

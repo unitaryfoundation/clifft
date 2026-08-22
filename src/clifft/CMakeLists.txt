@@ -83,11 +83,19 @@ endif()
 
 target_compile_features(clifft_core PUBLIC cxx_std_20)
 
+add_library(clifft_hip_plan STATIC
+    sampling/hip/executable.cc
+)
+set_target_properties(clifft_hip_plan PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_include_directories(clifft_hip_plan PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+    ${CMAKE_BINARY_DIR}/generated
+)
+target_link_libraries(clifft_hip_plan PUBLIC clifft_core)
+target_compile_features(clifft_hip_plan PUBLIC cxx_std_20)
+
 if(CLIFFT_ENABLE_HIP)
-    add_library(clifft_hip_backend STATIC
-        sampling/hip/executable.cc
-        sampling/hip/sampler.hip
-    )
+    add_library(clifft_hip_backend STATIC sampling/hip/sampler.hip)
     set_target_properties(clifft_hip_backend PROPERTIES
         POSITION_INDEPENDENT_CODE ON
         HIP_STANDARD 20
@@ -97,7 +105,7 @@ if(CLIFFT_ENABLE_HIP)
         ${CMAKE_CURRENT_SOURCE_DIR}/..
         ${CMAKE_BINARY_DIR}/generated
     )
-    target_link_libraries(clifft_hip_backend PUBLIC clifft_core)
+    target_link_libraries(clifft_hip_backend PUBLIC clifft_hip_plan)
     target_compile_features(clifft_hip_backend PUBLIC cxx_std_20)
     target_compile_options(clifft_hip_backend PRIVATE
         $<$<COMPILE_LANGUAGE:HIP>:-fno-fast-math;-ffp-contract=off>

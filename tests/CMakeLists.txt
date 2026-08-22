@@ -36,13 +36,13 @@ add_executable(clifft_tests
     test_noncomp_continuation.cc
     test_trajectory_driver.cc
     test_noncomp_validation.cc
+    test_hip_executable.cc
 )
 
+target_link_libraries(clifft_tests PRIVATE clifft_hip_plan)
+
 if(CLIFFT_ENABLE_HIP)
-    target_sources(clifft_tests PRIVATE
-        test_hip_executable.cc
-        test_hip_sampler.cc
-    )
+    target_sources(clifft_tests PRIVATE test_hip_sampler.cc)
     target_link_libraries(clifft_tests PRIVATE clifft_hip_backend)
 endif()
 

@@ -37,8 +37,8 @@ struct Expression {
 struct Action {
     ActionTag tag = ActionTag::RecordClassical;
     uint8_t flags = 0;
-    uint8_t pauli_phase = 0;
-    uint8_t reserved = 0;
+    int8_t phase_real = 1;
+    int8_t phase_imag = 0;
     uint32_t active_before = 0;
     uint32_t expression = 0;
     uint32_t index0 = 0;
