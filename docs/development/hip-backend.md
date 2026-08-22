@@ -56,8 +56,10 @@ This tier supports both coefficient formats in one backend:
 
 - FP64 coefficients are the default.
 - FP32 coefficients are experimental.
-- Probability reductions, normalization factors, aggregate statistics, and
-  `EXP_VAL` results use FP64 in both modes.
+- Coefficient storage and amplitude evolution use the selected precision.
+- Probability reductions, normalization-factor calculation, aggregate
+  statistics, replay log-probabilities, and `EXP_VAL` results use FP64 in both
+  modes.
 
 The interpreter handles rotations, promotions, active and dormant
 measurements, affine records and symbols, categorical Pauli noise, asymmetric
@@ -72,11 +74,13 @@ execution are also outside this tier.
 ## Conformance and Next Tiers
 
 Hardware conformance is backend-specific. Tests require repeatability within
-each HIP coefficient mode, explicit `EXP_VAL` tolerances against the CPU
-`ExecutablePlan`, and CPU-oracle statistical agreement for stochastic noise,
-readout noise, postselection, and observables. CPU and HIP execution order need
-not match, so same-seed output is not required to be identical across
-backends.
+each HIP coefficient mode, exact forced-record replay of every small-circuit
+measurement branch, explicit `EXP_VAL` tolerances against the CPU
+`ExecutablePlan`, exact readout endpoints and survivor-row invariants, full
+joint-distribution checks for categorical noise, and CPU-oracle statistical
+comparisons for stochastic postselection and observables. CPU and HIP
+execution order need not match, so same-seed output is not required to be
+identical across backends.
 
 The cultivation distance-5 fixture reaches peak active width `k = 10` and is
 kept as an explicit boundary test. The next execution tier should assign a

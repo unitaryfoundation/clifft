@@ -10,10 +10,12 @@ namespace {
 
 constexpr double kInvSqrt2 = 0.707106781186547524400844362104849039;
 constexpr double kMeasurementDustEpsilon = 1e-18;
+constexpr double kLogHalf = -0.693147180559945309417232121458176568;
 
-struct Complex64 {
-    double real = 0.0;
-    double imag = 0.0;
+template <typename Value>
+struct ComplexValue {
+    Value real = 0;
+    Value imag = 0;
 };
 
 struct Xoshiro256PlusPlus {
@@ -60,38 +62,45 @@ __device__ __forceinline__ bool parity(uint64_t value) {
     return (__popcll(value) & 1U) != 0;
 }
 
-__device__ __forceinline__ Complex64 phase_at(const Action& action, uint64_t basis) {
-    const double sign = parity(basis & action.z) ? -1.0 : 1.0;
-    switch (action.pauli_phase) {
-        case 0:
-            return {sign, 0.0};
-        case 1:
-            return {0.0, sign};
-        case 2:
-            return {-sign, 0.0};
-        default:
-            return {0.0, -sign};
-    }
+template <typename Value>
+__device__ __forceinline__ ComplexValue<Value> phase_at(const Action& action, uint64_t basis) {
+    const Value sign = parity(basis & action.z) ? Value{-1} : Value{1};
+    return {sign * static_cast<Value>(action.phase_real),
+            sign * static_cast<Value>(action.phase_imag)};
 }
 
 template <typename Coefficient>
-__device__ Complex64 load(const Coefficient* real, const Coefficient* imag, uint64_t index) {
-    return {static_cast<double>(real[index]), static_cast<double>(imag[index])};
+__device__ ComplexValue<Coefficient> load(const Coefficient* real, const Coefficient* imag,
+                                          uint64_t index) {
+    return {real[index], imag[index]};
 }
 
 template <typename Coefficient>
-__device__ void store(Coefficient* real, Coefficient* imag, uint64_t index, Complex64 value) {
-    real[index] = static_cast<Coefficient>(value.real);
-    imag[index] = static_cast<Coefficient>(value.imag);
+__device__ void store(Coefficient* real, Coefficient* imag, uint64_t index,
+                      ComplexValue<Coefficient> value) {
+    real[index] = value.real;
+    imag[index] = value.imag;
 }
 
-__device__ __forceinline__ double norm(Complex64 value) {
-    return value.real * value.real + value.imag * value.imag;
+template <typename Coefficient>
+__device__ __forceinline__ double norm(ComplexValue<Coefficient> value) {
+    const double real = static_cast<double>(value.real);
+    const double imag = static_cast<double>(value.imag);
+    return real * real + imag * imag;
 }
 
-__device__ __forceinline__ Complex64 multiply(Complex64 left, Complex64 right) {
+template <typename Value>
+__device__ __forceinline__ ComplexValue<Value> multiply(ComplexValue<Value> left,
+                                                        ComplexValue<Value> right) {
     return {left.real * right.real - left.imag * right.imag,
             left.real * right.imag + left.imag * right.real};
+}
+
+template <typename Coefficient>
+__device__ __forceinline__ ComplexValue<Coefficient> normalize(ComplexValue<Coefficient> value,
+                                                               double inverse_norm) {
+    return {static_cast<Coefficient>(inverse_norm * static_cast<double>(value.real)),
+            static_cast<Coefficient>(inverse_norm * static_cast<double>(value.imag))};
 }
 
 __device__ __forceinline__ uint64_t insert_zero_bit(uint64_t value, uint32_t bit) {
@@ -113,54 +122,49 @@ template <typename Coefficient>
 __device__ void apply_rotation(const Action& action, bool sign, Coefficient* real,
                                Coefficient* imag) {
     const uint64_t size = uint64_t{1} << action.active_before;
-    const double sine = sign ? -action.value1 : action.value1;
+    const Coefficient cosine = static_cast<Coefficient>(action.value0);
+    const Coefficient sine =
+        sign ? -static_cast<Coefficient>(action.value1) : static_cast<Coefficient>(action.value1);
     if (action.x == 0) {
         for (uint64_t basis = 0; basis < size; ++basis) {
-            const double eigenvalue = parity(basis & action.z) ? -1.0 : 1.0;
-            const double signed_sine = sine * eigenvalue;
-            const double input_real = static_cast<double>(real[basis]);
-            const double input_imag = static_cast<double>(imag[basis]);
-            real[basis] =
-                static_cast<Coefficient>(action.value0 * input_real + signed_sine * input_imag);
-            imag[basis] =
-                static_cast<Coefficient>(action.value0 * input_imag - signed_sine * input_real);
+            const Coefficient eigenvalue =
+                parity(basis & action.z) ? Coefficient{-1} : Coefficient{1};
+            const Coefficient signed_sine = sine * eigenvalue;
+            const Coefficient input_real = real[basis];
+            const Coefficient input_imag = imag[basis];
+            real[basis] = cosine * input_real + signed_sine * input_imag;
+            imag[basis] = cosine * input_imag - signed_sine * input_real;
         }
         return;
     }
 
-    const bool real_phase = (action.pauli_phase & 1U) == 0;
-    const double base_phase = action.pauli_phase == 0 || action.pauli_phase == 1 ? 1.0 : -1.0;
-    const double even_left_sine = sine * base_phase;
+    const bool real_phase = action.phase_real != 0;
+    const Coefficient base_phase =
+        static_cast<Coefficient>(real_phase ? action.phase_real : action.phase_imag);
+    const Coefficient even_left_sine = sine * base_phase;
     const uint64_t pair_stride = action.auxiliary_mask;
     const uint64_t pair_period = pair_stride << 1;
     for (uint64_t block = 0; block < size; block += pair_period) {
         for (uint64_t offset = 0; offset < pair_stride; ++offset) {
             const uint64_t left = block + offset;
             const uint64_t right = left ^ action.x;
-            const double left_real = static_cast<double>(real[left]);
-            const double left_imag = static_cast<double>(imag[left]);
-            const double right_real = static_cast<double>(real[right]);
-            const double right_imag = static_cast<double>(imag[right]);
-            const double left_sine = parity(left & action.z) ? -even_left_sine : even_left_sine;
-            const double right_sine = real_phase ? left_sine : -left_sine;
+            const Coefficient left_real = real[left];
+            const Coefficient left_imag = imag[left];
+            const Coefficient right_real = real[right];
+            const Coefficient right_imag = imag[right];
+            const Coefficient left_sine =
+                parity(left & action.z) ? -even_left_sine : even_left_sine;
+            const Coefficient right_sine = real_phase ? left_sine : -left_sine;
             if (real_phase) {
-                real[left] =
-                    static_cast<Coefficient>(action.value0 * left_real + right_sine * right_imag);
-                imag[left] =
-                    static_cast<Coefficient>(action.value0 * left_imag - right_sine * right_real);
-                real[right] =
-                    static_cast<Coefficient>(action.value0 * right_real + left_sine * left_imag);
-                imag[right] =
-                    static_cast<Coefficient>(action.value0 * right_imag - left_sine * left_real);
+                real[left] = cosine * left_real + right_sine * right_imag;
+                imag[left] = cosine * left_imag - right_sine * right_real;
+                real[right] = cosine * right_real + left_sine * left_imag;
+                imag[right] = cosine * right_imag - left_sine * left_real;
             } else {
-                real[left] =
-                    static_cast<Coefficient>(action.value0 * left_real + right_sine * right_real);
-                imag[left] =
-                    static_cast<Coefficient>(action.value0 * left_imag + right_sine * right_imag);
-                real[right] =
-                    static_cast<Coefficient>(action.value0 * right_real + left_sine * left_real);
-                imag[right] =
-                    static_cast<Coefficient>(action.value0 * right_imag + left_sine * left_imag);
+                real[left] = cosine * left_real + right_sine * right_real;
+                imag[left] = cosine * left_imag + right_sine * right_imag;
+                real[right] = cosine * right_real + left_sine * left_real;
+                imag[right] = cosine * right_imag + left_sine * left_imag;
             }
         }
     }
@@ -170,36 +174,42 @@ template <typename Coefficient>
 __device__ void apply_promotion(const Action& action, bool sign, Coefficient* real,
                                 Coefficient* imag) {
     const uint64_t old_size = uint64_t{1} << action.active_before;
-    const double sine = sign ? -action.value1 : action.value1;
+    const Coefficient cosine = static_cast<Coefficient>(action.value0);
+    const Coefficient sine =
+        sign ? -static_cast<Coefficient>(action.value1) : static_cast<Coefficient>(action.value1);
     for (uint64_t basis = 0; basis < old_size; ++basis) {
-        const double input_real = static_cast<double>(real[basis]);
-        const double input_imag = static_cast<double>(imag[basis]);
-        real[basis] = static_cast<Coefficient>(action.value0 * input_real);
-        imag[basis] = static_cast<Coefficient>(action.value0 * input_imag);
-        real[old_size + basis] = static_cast<Coefficient>(sine * input_imag);
-        imag[old_size + basis] = static_cast<Coefficient>(-sine * input_real);
+        const Coefficient input_real = real[basis];
+        const Coefficient input_imag = imag[basis];
+        real[basis] = cosine * input_real;
+        imag[basis] = cosine * input_imag;
+        real[old_size + basis] = sine * input_imag;
+        imag[old_size + basis] = -sine * input_real;
     }
 }
 
 template <typename Coefficient>
-__device__ Complex64 compact_nondiagonal(const Action& action, const Coefficient* real,
-                                         const Coefficient* imag, uint64_t packed, bool branch) {
+__device__ ComplexValue<Coefficient> compact_nondiagonal(const Action& action,
+                                                         const Coefficient* real,
+                                                         const Coefficient* imag, uint64_t packed,
+                                                         bool branch) {
     const uint64_t source0 = insert_zero_bit(packed, action.index2);
     const uint64_t source1 = source0 ^ action.x;
-    const Complex64 left = load(real, imag, source0);
-    const Complex64 right = load(real, imag, source1);
-    Complex64 conjugate_phase = phase_at(action, source0);
+    const ComplexValue<Coefficient> left = load(real, imag, source0);
+    const ComplexValue<Coefficient> right = load(real, imag, source1);
+    ComplexValue<Coefficient> conjugate_phase = phase_at<Coefficient>(action, source0);
     conjugate_phase.imag = -conjugate_phase.imag;
-    Complex64 transformed = multiply(conjugate_phase, right);
-    const double eigenvalue = branch ? -1.0 : 1.0;
+    ComplexValue<Coefficient> transformed = multiply(conjugate_phase, right);
+    const Coefficient eigenvalue = branch ? Coefficient{-1} : Coefficient{1};
     transformed.real *= eigenvalue;
     transformed.imag *= eigenvalue;
-    return {kInvSqrt2 * (left.real + transformed.real), kInvSqrt2 * (left.imag + transformed.imag)};
+    const Coefficient scale = static_cast<Coefficient>(kInvSqrt2);
+    return {scale * (left.real + transformed.real), scale * (left.imag + transformed.imag)};
 }
 
-template <typename Coefficient>
-__device__ void measure_active(const ProgramView& program, const Action& action,
-                               Xoshiro256PlusPlus& rng, uint8_t* symbols, uint8_t* records,
+template <typename Coefficient, bool Replay>
+__device__ bool measure_active(const ProgramView& program, const Action& action,
+                               Xoshiro256PlusPlus& rng, const uint8_t* forced_records,
+                               double* log_probability, uint8_t* symbols, uint8_t* records,
                                Coefficient* real, Coefficient* imag, Coefficient* scratch_real,
                                Coefficient* scratch_imag) {
     const uint64_t size = uint64_t{1} << action.active_before;
@@ -225,12 +235,24 @@ __device__ void measure_active(const ProgramView& program, const Action& action,
     const double total = probability_zero + probability_one;
     const double epsilon = kMeasurementDustEpsilon * total;
     bool branch;
-    if (probability_one <= epsilon) {
-        branch = false;
-    } else if (probability_zero <= epsilon) {
-        branch = true;
+    if constexpr (Replay) {
+        const bool correction = evaluate(program, symbols, action.expression);
+        branch = (forced_records[action.index1] != 0) != correction;
+        if ((probability_one <= epsilon && branch) || (probability_zero <= epsilon && !branch)) {
+            return false;
+        }
+        if (probability_zero > epsilon && probability_one > epsilon) {
+            const double selected_probability = branch ? probability_one : probability_zero;
+            *log_probability += log(selected_probability / total);
+        }
     } else {
-        branch = rng.next_double() * total >= probability_zero;
+        if (probability_one <= epsilon) {
+            branch = false;
+        } else if (probability_zero <= epsilon) {
+            branch = true;
+        } else {
+            branch = rng.next_double() * total >= probability_zero;
+        }
     }
     const double selected_probability = branch ? probability_one : probability_zero;
     const double inverse_norm = 1.0 / sqrt(selected_probability);
@@ -244,20 +266,21 @@ __device__ void measure_active(const ProgramView& program, const Action& action,
             const bool pivot_value = branch != other_parity;
             const uint64_t source =
                 without_pivot | (static_cast<uint64_t>(pivot_value) << action.index2);
-            const Complex64 value = load(real, imag, source);
-            store(real, imag, packed, {inverse_norm * value.real, inverse_norm * value.imag});
+            const ComplexValue<Coefficient> value = load(real, imag, source);
+            store(real, imag, packed, normalize(value, inverse_norm));
         }
     } else {
         for (uint64_t packed = 0; packed < output_size; ++packed) {
-            const Complex64 value = compact_nondiagonal(action, real, imag, packed, branch);
-            store(scratch_real, scratch_imag, packed,
-                  {inverse_norm * value.real, inverse_norm * value.imag});
+            const ComplexValue<Coefficient> value =
+                compact_nondiagonal(action, real, imag, packed, branch);
+            store(scratch_real, scratch_imag, packed, normalize(value, inverse_norm));
         }
         for (uint64_t packed = 0; packed < output_size; ++packed) {
             real[packed] = scratch_real[packed];
             imag[packed] = scratch_imag[packed];
         }
     }
+    return true;
 }
 
 template <typename Coefficient>
@@ -279,8 +302,13 @@ __device__ double expectation_value(const Action& action, const Coefficient* rea
         return result;
     }
     for (uint64_t basis = 0; basis < size; ++basis) {
-        const Complex64 paired = load(real, imag, basis ^ action.x);
-        const Complex64 phased = multiply(phase_at(action, basis), load(real, imag, basis));
+        const ComplexValue<Coefficient> paired_coefficient = load(real, imag, basis ^ action.x);
+        const ComplexValue<Coefficient> basis_coefficient = load(real, imag, basis);
+        const ComplexValue<double> paired{static_cast<double>(paired_coefficient.real),
+                                          static_cast<double>(paired_coefficient.imag)};
+        const ComplexValue<double> basis_value{static_cast<double>(basis_coefficient.real),
+                                               static_cast<double>(basis_coefficient.imag)};
+        const ComplexValue<double> phased = multiply(phase_at<double>(action, basis), basis_value);
         result += paired.real * phased.real + paired.imag * phased.imag;
     }
     return result;
@@ -307,12 +335,13 @@ __device__ __forceinline__ void sample_noise(const ProgramView& program, Xoshiro
     }
 }
 
-template <typename Coefficient>
+template <typename Coefficient, bool Replay>
 __global__ void interpret_shots(ProgramView program, SeedRoot seed_root, uint32_t shots,
                                 Coefficient* coefficient_storage, uint8_t* symbol_storage,
-                                uint8_t* record_storage, uint8_t* detector_storage,
-                                uint8_t* observable_storage, double* exp_val_storage,
-                                uint8_t* survived) {
+                                uint8_t* record_storage, const uint8_t* forced_record_storage,
+                                uint8_t* detector_storage, uint8_t* observable_storage,
+                                double* exp_val_storage, double* log_probability_storage,
+                                uint8_t* reachable_storage, uint8_t* survived) {
     const uint32_t shot = blockIdx.x * blockDim.x + threadIdx.x;
     if (shot >= shots) {
         return;
@@ -342,6 +371,13 @@ __global__ void interpret_shots(ProgramView program, SeedRoot seed_root, uint32_
     double* exp_vals = program.num_exp_vals == 0
                            ? nullptr
                            : exp_val_storage + static_cast<uint64_t>(shot) * program.num_exp_vals;
+    const uint8_t* forced_records = nullptr;
+    if constexpr (Replay) {
+        if (program.num_records != 0) {
+            forced_records =
+                forced_record_storage + static_cast<uint64_t>(shot) * program.num_records;
+        }
+    }
 
     for (uint64_t basis = 0; basis < (uint64_t{1} << program.initial_active_width); ++basis) {
         real[basis] = 0;
@@ -365,7 +401,11 @@ __global__ void interpret_shots(ProgramView program, SeedRoot seed_root, uint32_
     }
 
     Xoshiro256PlusPlus rng = shot_rng(seed_root, shot);
-    sample_noise(program, rng, symbols);
+    if constexpr (!Replay) {
+        sample_noise(program, rng, symbols);
+    }
+    double log_probability = 0.0;
+    bool reachable = true;
     bool discarded = false;
     for (uint32_t action_index = 0; action_index < program.action_count; ++action_index) {
         const Action action = program.actions[action_index];
@@ -377,11 +417,17 @@ __global__ void interpret_shots(ProgramView program, SeedRoot seed_root, uint32_
                 apply_promotion(action, evaluate(program, symbols, action.expression), real, imag);
                 break;
             case ActionTag::MeasureActivePauli:
-                measure_active(program, action, rng, symbols, records, real, imag, scratch_real,
-                               scratch_imag);
+                reachable = measure_active<Coefficient, Replay>(
+                    program, action, rng, forced_records, &log_probability, symbols, records, real,
+                    imag, scratch_real, scratch_imag);
                 break;
             case ActionTag::MeasureDormantRandom: {
-                const bool branch = rng.next_double() >= 0.5;
+                const bool correction = evaluate(program, symbols, action.expression);
+                const bool branch = Replay ? (forced_records[action.index1] != 0) != correction
+                                           : rng.next_double() >= 0.5;
+                if constexpr (Replay) {
+                    log_probability += kLogHalf;
+                }
                 symbols[action.index0] = static_cast<uint8_t>(branch);
                 records[action.index1] =
                     static_cast<uint8_t>(evaluate(program, symbols, action.expression));
@@ -390,6 +436,9 @@ __global__ void interpret_shots(ProgramView program, SeedRoot seed_root, uint32_
             case ActionTag::RecordClassical:
                 records[action.index0] =
                     static_cast<uint8_t>(evaluate(program, symbols, action.expression));
+                if constexpr (Replay) {
+                    reachable = records[action.index0] == forced_records[action.index0];
+                }
                 break;
             case ActionTag::DefineSymbol:
                 symbols[action.index0] =
@@ -423,11 +472,15 @@ __global__ void interpret_shots(ProgramView program, SeedRoot seed_root, uint32_
                 break;
             }
         }
-        if (discarded) {
+        if (!reachable || discarded) {
             break;
         }
     }
-    survived[shot] = static_cast<uint8_t>(!discarded);
+    if constexpr (Replay) {
+        log_probability_storage[shot] = log_probability;
+        reachable_storage[shot] = static_cast<uint8_t>(reachable);
+    }
+    survived[shot] = static_cast<uint8_t>(reachable && !discarded);
 }
 
 }  // namespace
@@ -566,11 +619,14 @@ struct Rows {
     std::vector<uint8_t> detectors;
     std::vector<uint8_t> observables;
     std::vector<double> exp_vals;
+    std::vector<double> log_probabilities;
+    std::vector<uint8_t> reachable;
     std::vector<uint8_t> survived;
 };
 
-template <typename Coefficient>
-Rows run_device(const Executable& executable, uint32_t shots, const SamplingOptions& options) {
+template <typename Coefficient, bool Replay>
+Rows run_device(const Executable& executable, uint32_t shots, const SamplingOptions& options,
+                std::span<const uint8_t> forced_record_input = {}) {
     if (options.block_size == 0 || options.block_size > 1024) {
         throw std::invalid_argument("HIP block size must be between 1 and 1024");
     }
@@ -583,22 +639,26 @@ Rows run_device(const Executable& executable, uint32_t shots, const SamplingOpti
         checked_elements(shots, coefficient_stride, "coefficient"));
     DeviceBuffer<uint8_t> symbols(checked_elements(shots, executable.num_symbols(), "symbol"));
     DeviceBuffer<uint8_t> records(checked_elements(shots, executable.num_records(), "record"));
+    DeviceBuffer<uint8_t> forced_records(forced_record_input);
     DeviceBuffer<uint8_t> detectors(
         checked_elements(shots, executable.num_detectors(), "detector"));
     DeviceBuffer<uint8_t> observables(
         checked_elements(shots, executable.num_observables(), "observable"));
     DeviceBuffer<double> exp_vals(
         checked_elements(shots, executable.num_exp_vals(), "expectation"));
+    DeviceBuffer<double> log_probabilities(Replay ? shots : 0);
+    DeviceBuffer<uint8_t> reachable(Replay ? shots : 0);
     DeviceBuffer<uint8_t> survived(shots);
 
-    const SeedRoot root = make_seed_root(shots, options.seed);
+    const SeedRoot root = Replay ? SeedRoot{} : make_seed_root(shots, options.seed);
     const detail::SeedRoot device_root{{root.w[0], root.w[1], root.w[2], root.w[3]}};
     const uint32_t blocks = static_cast<uint32_t>(
         (static_cast<uint64_t>(shots) + options.block_size - 1) / options.block_size);
-    hipLaunchKernelGGL(HIP_KERNEL_NAME(detail::interpret_shots<Coefficient>), dim3(blocks),
+    hipLaunchKernelGGL(HIP_KERNEL_NAME(detail::interpret_shots<Coefficient, Replay>), dim3(blocks),
                        dim3(options.block_size), 0, 0, program.view, device_root, shots,
-                       coefficients.data(), symbols.data(), records.data(), detectors.data(),
-                       observables.data(), exp_vals.data(), survived.data());
+                       coefficients.data(), symbols.data(), records.data(), forced_records.data(),
+                       detectors.data(), observables.data(), exp_vals.data(),
+                       log_probabilities.data(), reachable.data(), survived.data());
     check_hip(hipGetLastError(), "kernel launch");
     check_hip(hipDeviceSynchronize(), "kernel execution");
 
@@ -608,20 +668,37 @@ Rows run_device(const Executable& executable, uint32_t shots, const SamplingOpti
     rows.observables.resize(
         checked_elements(shots, executable.num_observables(), "observable result"));
     rows.exp_vals.resize(checked_elements(shots, executable.num_exp_vals(), "expectation result"));
+    if constexpr (Replay) {
+        rows.log_probabilities.resize(shots);
+        rows.reachable.resize(shots);
+    }
     rows.survived.resize(shots);
     records.download(rows.records);
     detectors.download(rows.detectors);
     observables.download(rows.observables);
     exp_vals.download(rows.exp_vals);
+    if constexpr (Replay) {
+        log_probabilities.download(rows.log_probabilities);
+        reachable.download(rows.reachable);
+    }
     survived.download(rows.survived);
     return rows;
 }
 
 Rows execute(const Executable& executable, uint32_t shots, const SamplingOptions& options) {
     if (options.coefficient_precision == CoefficientPrecision::FP32) {
-        return run_device<float>(executable, shots, options);
+        return run_device<float, false>(executable, shots, options);
     }
-    return run_device<double>(executable, shots, options);
+    return run_device<double, false>(executable, shots, options);
+}
+
+Rows execute_replay(const Executable& executable, std::span<const uint8_t> forced_records,
+                    CoefficientPrecision coefficient_precision) {
+    const SamplingOptions options{.coefficient_precision = coefficient_precision, .block_size = 1};
+    if (coefficient_precision == CoefficientPrecision::FP32) {
+        return run_device<float, true>(executable, 1, options, forced_records);
+    }
+    return run_device<double, true>(executable, 1, options, forced_records);
 }
 
 template <typename T>
@@ -735,6 +812,42 @@ SamplingSurvivorResult sample_survivors(const Executable& executable, uint32_t s
     result.detectors = std::move(rows.detectors);
     result.observables = std::move(rows.observables);
     result.exp_vals = std::move(rows.exp_vals);
+    return result;
+}
+
+ReplayResult replay_shot(const Executable& executable, std::span<const uint8_t> forced_records,
+                         CoefficientPrecision coefficient_precision) {
+    if (forced_records.size() != executable.num_records()) {
+        throw std::invalid_argument(
+            "HIP replay requires one forced value for every visible and hidden record");
+    }
+    if (!std::all_of(forced_records.begin(), forced_records.end(),
+                     [](uint8_t value) { return value <= 1; })) {
+        throw std::invalid_argument("HIP replay record bytes must be Boolean");
+    }
+    if (!executable.noise_sites().empty()) {
+        throw std::invalid_argument("HIP replay does not support presampled noise");
+    }
+    if (std::any_of(executable.actions().begin(), executable.actions().end(),
+                    [](const detail::Action& action) {
+                        return action.tag == detail::ActionTag::ApplyReadoutNoise;
+                    })) {
+        throw std::invalid_argument("HIP replay does not support readout noise");
+    }
+
+    Rows rows = execute_replay(executable, forced_records, coefficient_precision);
+    ReplayResult result;
+    result.reachable = rows.reachable[0] != 0;
+    result.survived = rows.survived[0] != 0;
+    result.log_probability = rows.log_probabilities[0];
+    if (!result.reachable) {
+        return result;
+    }
+    result.outputs.measurements.assign(rows.records.begin(),
+                                       rows.records.begin() + executable.num_visible_records());
+    result.outputs.detectors = std::move(rows.detectors);
+    result.outputs.observables = std::move(rows.observables);
+    result.outputs.exp_vals = std::move(rows.exp_vals);
     return result;
 }
 
