@@ -2,7 +2,6 @@
 # This library contains the compiler pipeline and sampling runtime.
 
 add_library(clifft_core STATIC
-    accelerator/plan_support.cc
     circuit/parser.cc
     frontend/frontend.cc
     optimizer/hir_pass_manager.cc

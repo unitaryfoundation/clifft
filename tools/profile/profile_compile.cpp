@@ -5,7 +5,6 @@
 //
 // See tools/profile/README.md for build instructions.
 
-#include "clifft/accelerator/plan_support.h"
 #include "clifft/circuit/parser.h"
 #include "clifft/frontend/frontend.h"
 #include "clifft/optimizer/hir_pass_manager.h"
@@ -157,7 +156,6 @@ int main() {
     size_t executable_actions = 0;
     size_t planned_symbols = 0;
     size_t estimated_symbolic_frame_bytes = 0;
-    clifft::accelerator::PlanRequirements plan_requirements;
 
     auto outer_start = std::chrono::high_resolution_clock::now();
 
@@ -202,7 +200,6 @@ int main() {
             planned_actions = plan.actions.size();
             planned_symbols = plan.symbols.size();
             peak_active_width = plan.peak_active_width;
-            plan_requirements = clifft::accelerator::analyze_plan_requirements(plan);
             estimated_symbolic_frame_bytes =
                 clifft::sampling::internal::SymbolicPauliFrame::estimated_workspace_bytes(
                     total_qubits, static_cast<uint32_t>(planned_symbols));
@@ -232,18 +229,6 @@ int main() {
                       << " actions, " << planned_symbols << " symbols, "
                       << estimated_symbolic_frame_bytes
                       << " estimated symbolic-frame workspace bytes\n\n";
-            std::cout << "Plan requirements:\n";
-            std::cout << "  peak_active_width: " << plan_requirements.peak_active_width << '\n';
-            for (size_t feature_index = 0; feature_index < clifft::accelerator::kNumPlanFeatures;
-                 ++feature_index) {
-                const auto feature = static_cast<clifft::accelerator::PlanFeature>(feature_index);
-                const size_t occurrences = plan_requirements.count(feature);
-                if (occurrences != 0) {
-                    std::cout << "  " << clifft::accelerator::plan_feature_name(feature) << ": "
-                              << occurrences << '\n';
-                }
-            }
-            std::cout << '\n';
         }
     }
 
