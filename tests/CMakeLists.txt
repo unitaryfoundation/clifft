@@ -39,7 +39,10 @@ add_executable(clifft_tests
 )
 
 if(CLIFFT_ENABLE_HIP)
-    target_sources(clifft_tests PRIVATE test_hip_executable.cc)
+    target_sources(clifft_tests PRIVATE
+        test_hip_executable.cc
+        test_hip_sampler.cc
+    )
     target_link_libraries(clifft_tests PRIVATE clifft_hip_backend)
 endif()
 
@@ -74,8 +77,9 @@ if(CLIFFT_COVERAGE)
     target_link_options(clifft_tests PRIVATE --coverage)
 endif()
 
-# Auto-discover Catch2 tests for CTest integration
-catch_discover_tests(clifft_tests)
+# Auto-discover Catch2 tests for CTest integration. Catch2 returns 4 when a
+# selected test case is skipped, which CTest must distinguish from failure.
+catch_discover_tests(clifft_tests PROPERTIES SKIP_RETURN_CODE 4)
 
 if(CLIFFT_OPENMP_ENABLED)
     # These cases need an explicit environment because processor binding and a

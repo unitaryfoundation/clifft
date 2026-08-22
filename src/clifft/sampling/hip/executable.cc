@@ -18,8 +18,7 @@ inline constexpr bool kAlwaysFalse = false;
 
 void require_uint32_size(size_t size, const char* storage) {
     if (size > std::numeric_limits<uint32_t>::max()) {
-        throw std::length_error(std::string("HIP executable ") + storage +
-                                " exceeds uint32 range");
+        throw std::length_error(std::string("HIP executable ") + storage + " exceeds uint32 range");
     }
 }
 
@@ -52,9 +51,10 @@ Executable::Executable(const SamplingPlan& plan)
     require_uint32_size(plan.symbols.size(), "symbol storage");
     require_uint32_size(plan.actions.size(), "action storage");
     if (plan.peak_active_width > kThreadPerShotMaxActiveWidth) {
-        throw std::invalid_argument("HIP thread-per-shot execution supports peak active width at "
-                                    "most " +
-                                    std::to_string(kThreadPerShotMaxActiveWidth));
+        throw std::invalid_argument(
+            "HIP thread-per-shot execution supports peak active width at "
+            "most " +
+            std::to_string(kThreadPerShotMaxActiveWidth));
     }
     if (plan.num_instrument_sites != 0 || !plan.instrument_distributions.empty()) {
         throw std::invalid_argument("HIP execution does not support transition instruments");
@@ -68,13 +68,12 @@ Executable::Executable(const SamplingPlan& plan)
         double cumulative_probability = 0.0;
         for (const PresampledNoiseOutcome& outcome : site.outcomes) {
             cumulative_probability += outcome.probability;
-            noise_outcomes_.push_back(
-                {index(outcome.symbol), 0, cumulative_probability});
+            noise_outcomes_.push_back({index(outcome.symbol), 0, cumulative_probability});
             bound_presampled[index(outcome.symbol)] = true;
         }
         require_uint32_size(noise_outcomes_.size() - begin, "noise site outcome storage");
-        noise_sites_.push_back({begin, static_cast<uint32_t>(noise_outcomes_.size()) - begin,
-                                cumulative_probability});
+        noise_sites_.push_back(
+            {begin, static_cast<uint32_t>(noise_outcomes_.size()) - begin, cumulative_probability});
     }
     for (size_t symbol = 0; symbol < plan.symbols.size(); ++symbol) {
         if (plan.symbols[symbol].kind == SymbolKind::Presampled && !bound_presampled[symbol]) {
@@ -102,8 +101,10 @@ uint32_t Executable::append_expression(const AffineBool& expression) {
     for (SymbolId term : expression.terms()) {
         expression_terms_.push_back(index(term));
     }
-    expressions_.push_back({term_begin, static_cast<uint32_t>(expression.terms().size()),
-                            static_cast<uint8_t>(expression.constant()), {}});
+    expressions_.push_back({term_begin,
+                            static_cast<uint32_t>(expression.terms().size()),
+                            static_cast<uint8_t>(expression.constant()),
+                            {}});
     return expression_index;
 }
 
@@ -182,7 +183,8 @@ detail::Action Executable::lower_action(const PlannedAction& planned) {
                 }
             } else if constexpr (std::is_same_v<T, ApplyInstrument> ||
                                  std::is_same_v<T, InstrumentBoundary>) {
-                throw std::invalid_argument("HIP execution does not support transition instruments");
+                throw std::invalid_argument(
+                    "HIP execution does not support transition instruments");
             } else {
                 static_assert(kAlwaysFalse<T>, "Unhandled SamplingAction alternative");
             }

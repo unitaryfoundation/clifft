@@ -57,8 +57,7 @@ TEST_CASE("HIP executable packs affine terms and categorical noise") {
     plan.presampled_noise_sites = {PresampledNoiseSite{
         NoiseSiteId{0},
         0.25,
-        {PresampledNoiseOutcome{SymbolId{0}, 0.125},
-         PresampledNoiseOutcome{SymbolId{1}, 0.125}}}};
+        {PresampledNoiseOutcome{SymbolId{0}, 0.125}, PresampledNoiseOutcome{SymbolId{1}, 0.125}}}};
 
     const Executable executable(plan);
 
@@ -82,4 +81,14 @@ TEST_CASE("HIP executable rejects work outside the first device tier") {
         SymbolInfo{SymbolKind::Presampled, std::nullopt, std::nullopt},
     };
     REQUIRE_THROWS_WITH(Executable(unbound), ContainsSubstring("presampled symbol"));
+}
+
+TEST_CASE("HIP executable identifies cultivation cooperative width") {
+    using Catch::Matchers::ContainsSubstring;
+
+    const SamplingPlan plan = clifft::sampling::plan_sampling(
+        clifft::trace(clifft::parse_file(CLIFFT_FIXTURES_DIR "/cultivation_d5.stim")));
+
+    REQUIRE(plan.peak_active_width == 10);
+    REQUIRE_THROWS_WITH(Executable(plan), ContainsSubstring("peak active width"));
 }

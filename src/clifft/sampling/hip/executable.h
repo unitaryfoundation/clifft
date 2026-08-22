@@ -30,15 +30,9 @@ class Executable {
     [[nodiscard]] bool has_postselection() const { return has_postselection_; }
 
     [[nodiscard]] std::span<const detail::Action> actions() const { return actions_; }
-    [[nodiscard]] std::span<const detail::Expression> expressions() const {
-        return expressions_;
-    }
-    [[nodiscard]] std::span<const uint32_t> expression_terms() const {
-        return expression_terms_;
-    }
-    [[nodiscard]] std::span<const detail::NoiseSite> noise_sites() const {
-        return noise_sites_;
-    }
+    [[nodiscard]] std::span<const detail::Expression> expressions() const { return expressions_; }
+    [[nodiscard]] std::span<const uint32_t> expression_terms() const { return expression_terms_; }
+    [[nodiscard]] std::span<const detail::NoiseSite> noise_sites() const { return noise_sites_; }
     [[nodiscard]] std::span<const detail::NoiseOutcome> noise_outcomes() const {
         return noise_outcomes_;
     }

@@ -86,6 +86,7 @@ target_compile_features(clifft_core PUBLIC cxx_std_20)
 if(CLIFFT_ENABLE_HIP)
     add_library(clifft_hip_backend STATIC
         sampling/hip/executable.cc
+        sampling/hip/sampler.hip
     )
     set_target_properties(clifft_hip_backend PROPERTIES
         POSITION_INDEPENDENT_CODE ON
@@ -98,6 +99,9 @@ if(CLIFFT_ENABLE_HIP)
     )
     target_link_libraries(clifft_hip_backend PUBLIC clifft_core)
     target_compile_features(clifft_hip_backend PUBLIC cxx_std_20)
+    target_compile_options(clifft_hip_backend PRIVATE
+        $<$<COMPILE_LANGUAGE:HIP>:-fno-fast-math;-ffp-contract=off>
+    )
 endif()
 
 # Code coverage instrumentation (only for Clifft code, not dependencies)

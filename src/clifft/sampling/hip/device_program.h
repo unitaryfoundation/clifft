@@ -64,9 +64,33 @@ struct NoiseSite {
     double execution_probability = 0.0;
 };
 
+struct ProgramView {
+    const Action* actions = nullptr;
+    const Expression* expressions = nullptr;
+    const uint32_t* expression_terms = nullptr;
+    const NoiseSite* noise_sites = nullptr;
+    const NoiseOutcome* noise_outcomes = nullptr;
+    uint32_t action_count = 0;
+    uint32_t initial_active_width = 0;
+    uint32_t peak_active_width = 0;
+    uint32_t num_symbols = 0;
+    uint32_t num_records = 0;
+    uint32_t num_visible_records = 0;
+    uint32_t num_detectors = 0;
+    uint32_t num_observables = 0;
+    uint32_t num_exp_vals = 0;
+    uint32_t noise_site_count = 0;
+};
+
+struct SeedRoot {
+    uint64_t words[4]{};
+};
+
 static_assert(std::is_trivially_copyable_v<Expression>);
 static_assert(std::is_trivially_copyable_v<Action>);
 static_assert(std::is_trivially_copyable_v<NoiseOutcome>);
 static_assert(std::is_trivially_copyable_v<NoiseSite>);
+static_assert(std::is_trivially_copyable_v<ProgramView>);
+static_assert(std::is_trivially_copyable_v<SeedRoot>);
 
 }  // namespace clifft::sampling::hip::detail
