@@ -1,3 +1,5 @@
+<!--pytest-codeblocks:skipfile-->
+
 # Experimental HIP Sampling Backend
 
 Clifft has an optional AMD HIP sampling backend for Linux x86-64 and
