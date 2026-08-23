@@ -32,6 +32,8 @@ class Tableau {
     void prepend_local(const Tableau& gate, std::span<const uint32_t> targets);
     void append_named_gate(GateType gate, std::span<const uint32_t> targets);
     void prepend_named_gate(GateType gate, std::span<const uint32_t> targets);
+    void prepend_pauli(PauliStringView axis);
+    void prepend_pauli_rotation(PauliStringView axis, bool dagger);
 
     [[nodiscard]] bool operator==(const Tableau& other) const;
 
