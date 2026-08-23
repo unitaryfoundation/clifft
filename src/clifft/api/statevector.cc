@@ -16,6 +16,9 @@
 namespace clifft {
 namespace {
 
+static_assert(sampling::kMaxExpandedStatevectorQubits <= 64,
+              "Dense Pauli application reads one mask word");
+
 void validate_statevector_size(uint32_t num_qubits) {
     if (num_qubits > sampling::kMaxExpandedStatevectorQubits) {
         throw std::runtime_error("Statevector expansion limited to 10 qubits");
@@ -66,7 +69,10 @@ std::vector<std::complex<double>> zero_state_image(const Tableau& tableau) {
                 state[basis] += transformed[basis];
                 norm += std::norm(state[basis]);
             }
-            if (norm == 0.0) {
+            // A stabilizer projection has exact squared norm 0, 2, or 4 before
+            // normalization. Leave a wide gap so cancellation residue cannot
+            // turn a dead seed into a numerically amplified state.
+            if (norm < 1.0) {
                 survives = false;
                 break;
             }
