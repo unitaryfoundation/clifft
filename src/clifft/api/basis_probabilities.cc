@@ -20,7 +20,7 @@ namespace clifft {
 namespace {
 
 using BasisMask = std::vector<uint64_t>;
-using StabilizerRow = stim::PauliString<kStimWidth>;
+using StabilizerRow = PauliString;
 
 [[nodiscard]] MaskView basis_mask_view(const BasisMask& mask) {
     return MaskView{std::span<const uint64_t>(mask)};
@@ -93,8 +93,8 @@ void mask_xor_with(MutableMaskView dst, MaskView src) {
 }
 
 [[nodiscard]] uint64_t valid_word_mask(uint32_t n, size_t words, size_t word) {
-    // Stim simd_bits may contain padding above num_qubits. Word-level scans must
-    // mask those bits or they can create spurious Y phases and Z parities.
+    // Keep word-level scans explicit about the logical width so high padding
+    // bits can never create spurious Y phases or Z parities.
     const uint32_t used_bits = n % 64;
     if (word + 1 != words || used_bits == 0) {
         return ~uint64_t{0};
@@ -106,7 +106,7 @@ void mask_xor_with(MutableMaskView dst, MaskView src) {
     BasisMask mask = zero_basis_mask(n);
     const size_t words = mask.size();
     for (size_t w = 0; w < words; ++w) {
-        mask[w] = p.xs.u64[w] & valid_word_mask(n, words, w);
+        mask[w] = p.x().words[w] & valid_word_mask(n, words, w);
     }
     return mask;
 }
@@ -128,7 +128,7 @@ void mask_xor_with(MutableMaskView dst, MaskView src) {
     uint32_t count = 0;
     const size_t words = basis_word_count(n);
     for (size_t w = 0; w < words; ++w) {
-        count += std::popcount(p.xs.u64[w] & p.zs.u64[w] & valid_word_mask(n, words, w));
+        count += std::popcount(p.x().words[w] & p.z().words[w] & valid_word_mask(n, words, w));
     }
     return count;
 }
@@ -142,7 +142,7 @@ void mask_xor_with(MutableMaskView dst, MaskView src) {
     const size_t words = basis_word_count(n);
     for (size_t w = 0; w < words; ++w) {
         const uint64_t valid = valid_word_mask(n, words, w);
-        z_basis_parity ^= (std::popcount(p.zs.u64[w] & basis.words[w] & valid) & 1U) != 0;
+        z_basis_parity ^= (std::popcount(p.z().words[w] & basis.words[w] & valid) & 1U) != 0;
     }
     if (z_basis_parity) {
         phase_idx += 2;
@@ -152,14 +152,14 @@ void mask_xor_with(MutableMaskView dst, MaskView src) {
 
 void multiply_row_by(StabilizerRow& dst, BasisMask& dst_sign_mask, const StabilizerRow& src,
                      const BasisMask& src_sign_mask) {
-    dst.ref() *= src;
+    dst.right_multiply(src.view());
     mask_xor_with(dst_sign_mask, src_sign_mask);
 }
 
 [[nodiscard]] bool row_has_any_z(const StabilizerRow& p, uint32_t n) {
     const size_t words = basis_word_count(n);
     for (size_t w = 0; w < words; ++w) {
-        if ((p.zs.u64[w] & valid_word_mask(n, words, w)) != 0) {
+        if ((p.z().words[w] & valid_word_mask(n, words, w)) != 0) {
             return true;
         }
     }
@@ -206,10 +206,10 @@ struct StabilizerAmplitudeStructure {
         query.x_signs.reserve(x_rows.size());
 
         for (size_t i = 0; i < x_rows.size(); ++i) {
-            query.x_signs.push_back(dynamic_sign(static_cast<bool>(x_rows[i].sign),
-                                                 basis_mask_view(x_sign_masks[i]), physical_basis)
-                                        ? 1U
-                                        : 0U);
+            query.x_signs.push_back(
+                dynamic_sign(x_rows[i].sign(), basis_mask_view(x_sign_masks[i]), physical_basis)
+                    ? 1U
+                    : 0U);
         }
 
         for (const auto& term : base_terms) {
@@ -262,7 +262,7 @@ std::complex<double> BoundStabilizerAmplitudeQuery::amplitude(MaskView basis,
 }
 
 [[nodiscard]] StabilizerAmplitudeStructure make_stabilizer_amplitude_structure(
-    uint32_t n, const stim::Tableau<kStimWidth>& inv_tableau, uint32_t active_k) {
+    uint32_t n, const Tableau& inv_tableau, uint32_t active_k) {
     std::vector<StabilizerRow> rows;
     std::vector<BasisMask> sign_masks;
     rows.reserve(n);
@@ -272,7 +272,7 @@ std::complex<double> BoundStabilizerAmplitudeQuery::amplitude(MaskView basis,
     // queried physical bitstring x: the q-th stabilizer has sign x_q. Store that
     // dependence as a sign mask so the row-reduction structure can be reused.
     for (uint32_t q = 0; q < n; ++q) {
-        rows.emplace_back(inv_tableau.zs[q]);
+        rows.emplace_back(inv_tableau.z_output(q));
         sign_masks.push_back(zero_basis_mask(n));
         mutable_basis_mask_view(sign_masks.back()).bit_set(q, true);
     }
@@ -301,7 +301,7 @@ std::complex<double> BoundStabilizerAmplitudeQuery::amplitude(MaskView basis,
         auto rank_row = rows.begin() + static_cast<std::ptrdiff_t>(rank_x);
         auto rank_sign = sign_masks.begin() + static_cast<std::ptrdiff_t>(rank_x);
         for (auto it = rank_row; it != rows.end(); ++it) {
-            if (it->xs[col]) {
+            if (it->x().bit_get(col)) {
                 pivot = it;
                 pivot_sign = sign_masks.begin() + (it - rows.begin());
                 break;
@@ -314,7 +314,7 @@ std::complex<double> BoundStabilizerAmplitudeQuery::amplitude(MaskView basis,
         std::iter_swap(rank_row, pivot);
         std::iter_swap(rank_sign, pivot_sign);
         for (size_t r = 0; r < rows.size(); ++r) {
-            if (r != rank_x && rows[r].xs[col]) {
+            if (r != rank_x && rows[r].x().bit_get(col)) {
                 multiply_row_by(rows[r], sign_masks[r], rows[rank_x], sign_masks[rank_x]);
             }
         }
@@ -337,7 +337,7 @@ std::complex<double> BoundStabilizerAmplitudeQuery::amplitude(MaskView basis,
         auto rank_row = z_rows.begin() + static_cast<std::ptrdiff_t>(rank_z);
         auto rank_sign = z_sign_masks.begin() + static_cast<std::ptrdiff_t>(rank_z);
         for (auto it = rank_row; it != z_rows.end(); ++it) {
-            if (it->zs[col]) {
+            if (it->z().bit_get(col)) {
                 pivot = it;
                 pivot_sign = z_sign_masks.begin() + (it - z_rows.begin());
                 break;
@@ -350,13 +350,12 @@ std::complex<double> BoundStabilizerAmplitudeQuery::amplitude(MaskView basis,
         std::iter_swap(rank_row, pivot);
         std::iter_swap(rank_sign, pivot_sign);
         for (size_t r = 0; r < z_rows.size(); ++r) {
-            if (r != rank_z && z_rows[r].zs[col]) {
+            if (r != rank_z && z_rows[r].z().bit_get(col)) {
                 multiply_row_by(z_rows[r], z_sign_masks[r], z_rows[rank_z], z_sign_masks[rank_z]);
             }
         }
-        base_terms.push_back(DynamicSignTerm{.bit = col,
-                                             .static_sign = static_cast<bool>(z_rows[rank_z].sign),
-                                             .sign_mask = z_sign_masks[rank_z]});
+        base_terms.push_back(DynamicSignTerm{
+            .bit = col, .static_sign = z_rows[rank_z].sign(), .sign_mask = z_sign_masks[rank_z]});
         ++rank_z;
     }
 
@@ -366,9 +365,8 @@ std::complex<double> BoundStabilizerAmplitudeQuery::amplitude(MaskView basis,
     // inconsistent tableau metadata or a reduction bug.
     for (size_t r = rank_z; r < z_rows.size(); ++r) {
         if (!row_has_any_z(z_rows[r], n)) {
-            identity_constraints.push_back(
-                IdentityConstraint{.static_sign = static_cast<bool>(z_rows[r].sign),
-                                   .sign_mask = std::move(z_sign_masks[r])});
+            identity_constraints.push_back(IdentityConstraint{
+                .static_sign = z_rows[r].sign(), .sign_mask = std::move(z_sign_masks[r])});
         }
     }
 
@@ -410,14 +408,13 @@ std::complex<double> BoundStabilizerAmplitudeQuery::amplitude(MaskView basis,
 
 template <typename CoefficientAt>
 std::vector<double> basis_probabilities_from_factored_state(
-    uint32_t n, uint32_t active_width, uint64_t active_size,
-    const stim::Tableau<kStimWidth>& final_tableau, MaskView state_px, uint64_t active_z_mask,
-    CoefficientAt coefficient_at, std::span<const uint64_t> basis_masks, size_t num_basis_masks,
-    size_t words_per_basis_mask) {
+    uint32_t n, uint32_t active_width, uint64_t active_size, const Tableau& final_tableau,
+    MaskView state_px, uint64_t active_z_mask, CoefficientAt coefficient_at,
+    std::span<const uint64_t> basis_masks, size_t num_basis_masks, size_t words_per_basis_mask) {
     // The factored state is U_C * P * (|phi>_A x |0>_D). The inverse tableau
     // lets the batch query evaluator reuse stabilizers of U_C^dagger |x> for
     // every requested physical bitstring x.
-    stim::Tableau<kStimWidth> inv_tableau = final_tableau.inverse(false);
+    Tableau inv_tableau = final_tableau.inverse();
 
     const size_t expected_words = basis_word_count(n);
     if (words_per_basis_mask != expected_words) {
@@ -568,7 +565,7 @@ namespace sampling {
 std::vector<double> basis_probabilities(const ExecutablePlan& plan,
                                         std::span<const uint64_t> basis_masks,
                                         size_t num_basis_masks, size_t words_per_basis_mask) {
-    const stim::Tableau<kStimWidth>* final_tableau = plan.final_state_tableau();
+    const Tableau* final_tableau = plan.final_state_tableau();
     if (final_tableau == nullptr) {
         throw std::invalid_argument(
             "basis_probabilities() requires pure-state evolution: measurements, feedback, "

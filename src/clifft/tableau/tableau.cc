@@ -190,6 +190,31 @@ PauliStringView Tableau::z_output(uint32_t qubit) const {
     return row(row_index(true, qubit, num_qubits_));
 }
 
+void Tableau::set_x_output(uint32_t qubit, PauliStringView value) {
+    assert(qubit < num_qubits_);
+    set_row(row_index(false, qubit, num_qubits_), value);
+}
+
+void Tableau::set_z_output(uint32_t qubit, PauliStringView value) {
+    assert(qubit < num_qubits_);
+    set_row(row_index(true, qubit, num_qubits_), value);
+}
+
+bool Tableau::satisfies_invariants() const {
+    for (uint32_t q = 0; q < num_qubits_; ++q) {
+        if (!x_output(q).is_hermitian() || !z_output(q).is_hermitian()) {
+            return false;
+        }
+        for (uint32_t other = 0; other < num_qubits_; ++other) {
+            if (!x_output(q).commutes(x_output(other)) || !z_output(q).commutes(z_output(other)) ||
+                (x_output(q).commutes(z_output(other)) == (q == other))) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 PauliString Tableau::y_output(uint32_t qubit) const {
     PauliString input(num_qubits_);
     input.set_pauli(qubit, true, true);

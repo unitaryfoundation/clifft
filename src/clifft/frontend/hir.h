@@ -11,12 +11,10 @@
 // HeisenbergOp by an opaque PauliMaskHandle. Variable-sized payloads (noise
 // channels, detector/observable target lists) live in side-tables on HirModule.
 
+#include "clifft/tableau/tableau.h"
 #include "clifft/util/config.h"
 #include "clifft/util/mask_view.h"
 #include "clifft/util/pauli_arena.h"
-#include "clifft/util/stim_mask.h"
-
-#include "stim.h"
 
 #include <algorithm>
 #include <cassert>
@@ -462,7 +460,7 @@ struct HirModule {
     /// invalidated the map for that op.
     std::vector<std::vector<uint32_t>> source_map;
 
-    std::optional<stim::Tableau<kStimWidth>> final_tableau;
+    std::optional<Tableau> final_tableau;
 
     // Hidden measurement slot trace() assigned to the requested node's
     // reset (set when InstrumentTraceOptions::forced_traceout_node names a

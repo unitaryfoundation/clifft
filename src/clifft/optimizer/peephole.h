@@ -2,7 +2,6 @@
 
 #include "clifft/optimizer/hir_pass.h"
 #include "clifft/util/mask_view.h"
-#include "clifft/util/stim_mask.h"
 
 #include <cstddef>
 
@@ -12,11 +11,10 @@ namespace internal {
 
 /// Compose U_C' = U_C * S_P into `tab` for the S/S_dag rotation on the
 /// virtual Pauli (x_v, z_v, sign_v), updating only the symplectic action.
-void apply_s_to_tableau(stim::Tableau<kStimWidth>& tab, MaskView x_v, MaskView z_v, bool sign_v,
-                        bool is_dagger);
+void apply_s_to_tableau(Tableau& tab, MaskView x_v, MaskView z_v, bool sign_v, bool is_dagger);
 
 /// Compose U_C' = U_C * P into `tab` for the virtual Pauli (x_v, z_v).
-void apply_pauli_to_tableau(stim::Tableau<kStimWidth>& tab, MaskView x_v, MaskView z_v);
+void apply_pauli_to_tableau(Tableau& tab, MaskView x_v, MaskView z_v);
 
 }  // namespace internal
 

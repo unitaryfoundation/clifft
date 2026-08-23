@@ -27,11 +27,21 @@ class Tableau {
     [[nodiscard]] PauliString apply(PauliStringView input) const;
     [[nodiscard]] Tableau then(const Tableau& next) const;
     [[nodiscard]] Tableau inverse() const;
+    [[nodiscard]] bool satisfies_invariants() const;
+
+    void set_x_output(uint32_t qubit, PauliStringView value);
+    void set_z_output(uint32_t qubit, PauliStringView value);
 
     void append_local(const Tableau& gate, std::span<const uint32_t> targets);
     void prepend_local(const Tableau& gate, std::span<const uint32_t> targets);
     void append_named_gate(GateType gate, std::span<const uint32_t> targets);
     void prepend_named_gate(GateType gate, std::span<const uint32_t> targets);
+    void append_named_gate(GateType gate, std::initializer_list<uint32_t> targets) {
+        append_named_gate(gate, std::span<const uint32_t>{targets.begin(), targets.size()});
+    }
+    void prepend_named_gate(GateType gate, std::initializer_list<uint32_t> targets) {
+        prepend_named_gate(gate, std::span<const uint32_t>{targets.begin(), targets.size()});
+    }
     void prepend_pauli(PauliStringView axis);
     void prepend_pauli_rotation(PauliStringView axis, bool dagger);
 

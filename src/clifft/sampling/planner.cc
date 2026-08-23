@@ -3,9 +3,6 @@
 #include "clifft/sampling/planner_frame.h"
 #include "clifft/util/hir_introspection.h"
 #include "clifft/util/numeric.h"
-#include "clifft/util/stim_mask.h"
-
-#include "stim.h"
 
 #include <algorithm>
 #include <cmath>
@@ -29,31 +26,33 @@ using internal::SymbolicPauliFrame;
 
 Pauli pauli_from_hir(const HirModule& hir, const HeisenbergOp& op) {
     Pauli result(hir.num_qubits);
-    mask_view_to_stim(hir.destab_mask(op), hir.num_qubits, result.xs);
-    mask_view_to_stim(hir.stab_mask(op), hir.num_qubits, result.zs);
+    result.mut_x().xor_with(hir.destab_mask(op));
+    result.mut_z().xor_with(hir.stab_mask(op));
+    result.set_sign(false);
     return result;
 }
 
 Pauli noise_pauli_from_hir(const HirModule& hir, PauliMaskHandle handle) {
     Pauli result(hir.num_qubits);
     const PauliMaskView mask = hir.noise_channel_masks.at(handle);
-    mask_view_to_stim(mask.x(), hir.num_qubits, result.xs);
-    mask_view_to_stim(mask.z(), hir.num_qubits, result.zs);
+    result.mut_x().xor_with(mask.x());
+    result.mut_z().xor_with(mask.z());
+    result.set_sign(false);
     return result;
 }
 
 Pauli pauli_from_mask(const HirModule& hir, PauliMaskHandle handle) {
     Pauli result(hir.num_qubits);
     const PauliMaskView mask = hir.pauli_masks.at(handle);
-    mask_view_to_stim(mask.x(), hir.num_qubits, result.xs);
-    mask_view_to_stim(mask.z(), hir.num_qubits, result.zs);
-    result.sign = false;
+    result.mut_x().xor_with(mask.x());
+    result.mut_z().xor_with(mask.z());
+    result.set_sign(false);
     return result;
 }
 
 Pauli single_x(uint32_t num_qubits, uint32_t q) {
     Pauli result(num_qubits);
-    result.xs[q] = true;
+    result.set_pauli(q, true, false);
     return result;
 }
 
@@ -67,14 +66,14 @@ ResolvedPauli resolve_pauli(const Pauli& initial_body, const AffineBool& initial
     AffineBool sign = initial_sign;
     sign ^= symbolic_frame.sign_for(initial_body);
     Pauli body = coordinates.to_current(initial_body);
-    sign ^= static_cast<bool>(body.sign);
-    body.sign = false;
+    sign ^= body.sign();
+    body.set_sign(false);
     return ResolvedPauli{std::move(body), std::move(sign)};
 }
 
 std::optional<uint32_t> first_x_at_or_above(const Pauli& pauli, uint32_t begin) {
-    for (uint32_t q = begin; q < pauli.num_qubits; ++q) {
-        if (pauli.xs[q]) {
+    for (uint32_t q = begin; q < pauli.num_qubits(); ++q) {
+        if (pauli.x().bit_get(q)) {
             return q;
         }
     }
@@ -83,7 +82,7 @@ std::optional<uint32_t> first_x_at_or_above(const Pauli& pauli, uint32_t begin) 
 
 std::optional<uint32_t> last_x_below(const Pauli& pauli, uint32_t end) {
     for (uint32_t q = end; q > 0; --q) {
-        if (pauli.xs[q - 1]) {
+        if (pauli.x().bit_get(q - 1)) {
             return q - 1;
         }
     }
@@ -92,7 +91,7 @@ std::optional<uint32_t> last_x_below(const Pauli& pauli, uint32_t end) {
 
 std::optional<uint32_t> first_z_below(const Pauli& pauli, uint32_t end) {
     for (uint32_t q = 0; q < end; ++q) {
-        if (pauli.zs[q]) {
+        if (pauli.z().bit_get(q)) {
             return q;
         }
     }
@@ -102,8 +101,8 @@ std::optional<uint32_t> first_z_below(const Pauli& pauli, uint32_t end) {
 ActivePauli active_projection(const Pauli& pauli, uint32_t active_width) {
     ActivePauli result;
     for (uint32_t q = 0; q < active_width; ++q) {
-        result.x |= static_cast<uint64_t>(pauli.xs[q]) << q;
-        result.z |= static_cast<uint64_t>(pauli.zs[q]) << q;
+        result.x |= static_cast<uint64_t>(pauli.x().bit_get(q)) << q;
+        result.z |= static_cast<uint64_t>(pauli.z().bit_get(q)) << q;
     }
     return result;
 }
@@ -280,7 +279,7 @@ AffineBool process_measurement(const Pauli& body, const AffineBool& sign, Record
         const uint32_t action_index = static_cast<uint32_t>(plan.actions.size());
         define_symbol(plan, branch, SymbolKind::Branch, action_index);
         Pauli correction = coordinates.to_initial(single_x(plan.num_qubits, *dormant_pivot));
-        correction.sign = false;
+        correction.set_sign(false);
         symbolic_frame.apply(correction, AffineBool::symbol(branch));
         const AffineBool outcome = resolved.sign ^ AffineBool::symbol(branch);
         append_action(plan,
@@ -306,17 +305,17 @@ AffineBool process_measurement(const Pauli& body, const AffineBool& sign, Record
         throw std::logic_error("sampling planner could not select an active measurement pivot");
     }
 
-    Pauli active_body(resolved.body.num_qubits);
+    Pauli active_body(resolved.body.num_qubits());
     for (uint32_t q = 0; q < active_width; ++q) {
-        active_body.xs[q] = resolved.body.xs[q];
-        active_body.zs[q] = resolved.body.zs[q];
+        active_body.set_pauli(q, resolved.body.x().bit_get(q), resolved.body.z().bit_get(q));
     }
+    active_body.set_sign(false);
     coordinates.measure_active(active_body, active_width, *pivot);
 
     const uint32_t action_index = static_cast<uint32_t>(plan.actions.size());
     define_symbol(plan, branch, SymbolKind::Branch, action_index);
     Pauli correction = coordinates.to_initial(single_x(plan.num_qubits, active_width - 1));
-    correction.sign = false;
+    correction.set_sign(false);
     symbolic_frame.apply(correction, AffineBool::symbol(branch));
     const AffineBool outcome = resolved.sign ^ AffineBool::symbol(branch);
     append_action(plan,
