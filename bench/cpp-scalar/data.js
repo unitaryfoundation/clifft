@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787380362711,
+  "lastUpdate": 1787466763328,
   "repoUrl": "https://github.com/unitaryfoundation/clifft",
   "entries": {
     "C++ Catch2 benchmarks (scalar)": [
@@ -6206,6 +6206,70 @@ window.BENCHMARK_DATA = {
             "name": "exp-val 20q 200 probes x100k",
             "value": 97.3693,
             "range": "± 2.03192",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Brad Chase",
+            "username": "bachase",
+            "email": "14430+bachase@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e3c76df2374a46941510511b379daa377683c800",
+          "message": "perf(compilation): absorb Clifford-valued Pauli rotations (#383)\n\nCanonicalize identity, square-root, and Pauli residues into the Clifford frame during tracing and peephole fusion, avoiding unnecessary HIR actions and active-width growth. Use native Stim tableau operations for efficient pair rotations.\n\nAssisted-by: Codex (GPT-5) <noreply@openai.com>",
+          "timestamp": "2026-08-21T20:01:09Z",
+          "url": "https://github.com/unitaryfoundation/clifft/commit/e3c76df2374a46941510511b379daa377683c800"
+        },
+        "date": 1787466759854,
+        "tool": "catch2",
+        "benches": [
+          {
+            "name": "QV-10 x100 shots",
+            "value": 21.6438,
+            "range": "± 51.5735",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "cultivation-d5 x1000 shots",
+            "value": 61.2983,
+            "range": "± 1.17251",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d7-r7 p=1e-3 x10000 shots",
+            "value": 54.8025,
+            "range": "± 351.329",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d5-r5 p=0.05 x10000 shots",
+            "value": 68.2024,
+            "range": "± 850.859",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d11-r11 p=1e-3 x1000 shots",
+            "value": 20.801,
+            "range": "± 468.918",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "exp-val 20q 200 probes x100k",
+            "value": 96.7204,
+            "range": "± 135.535",
             "unit": "ms",
             "extra": "100 samples\n1 iterations"
           }
