@@ -19,7 +19,6 @@ string(REPLACE "-mavx512f" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
 string(REPLACE "-ffast-math" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
 
 # Fetch dependencies (same versions as native build)
-include(${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/FetchStim.cmake)
 include(${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/FetchFastFloat.cmake)
 include(${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/FetchNlohmannJson.cmake)
 
@@ -61,11 +60,7 @@ target_include_directories(clifft_core PUBLIC
     ${CMAKE_CURRENT_BINARY_DIR}/generated
 )
 
-target_link_libraries(clifft_core PUBLIC libstim)
 target_link_libraries(clifft_core PRIVATE fast_float)
-
-# Stim also throws exceptions; ensure it's compiled with exception support.
-target_compile_options(libstim PRIVATE -fexceptions)
 
 # Generate version header (minimal, just needs to exist)
 file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/generated/clifft/util)

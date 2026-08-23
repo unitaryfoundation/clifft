@@ -3,11 +3,11 @@
 // Front-End: Trace Generation
 //
 // The Front-End consumes a parsed Circuit and produces a HirModule.
-// It drives Stim's TableauSimulator to absorb Clifford gates, and emits
+// It drives a native inverse tableau to absorb Clifford gates, and emits
 // HeisenbergOps for non-Clifford gates (T, T_DAG) and measurements.
 //
 // Key algorithm:
-// 1. Initialize TableauSimulator with identity tableau
+// 1. Initialize the inverse tableau to identity
 // 2. For each gate in the circuit:
 //    - Clifford gates: apply to simulator (absorbed into tableau)
 //    - T/TPP gates: emit T_GATE ops with rewound Pauli masks

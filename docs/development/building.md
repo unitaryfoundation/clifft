@@ -120,9 +120,17 @@ ctest --test-dir build -R Bench
 
 For optimized source builds, `Release` and `RelWithDebInfo` default to native CPU tuning on the build machine. On x86 GNU/Clang builds, that keeps the AVX2 and AVX-512 symbolic sampling specializations available for runtime dispatch.
 
-!!! info "First build takes 10-15 minutes"
-    Stim (a dependency) has many source files. Subsequent builds are incremental.
-    If you hit memory pressure, reduce parallelism: `cmake --build build -j1`
+The standalone build enables `CLIFFT_BUILD_TESTS` by default. Its independent
+Clifford oracle compiles test-only Stim, so this path remains intentionally
+heavier than a production build. To build only the native C++ library:
+
+```bash
+cmake -B build -DCMAKE_BUILD_TYPE=Release -DCLIFFT_BUILD_TESTS=OFF
+cmake --build build -j
+```
+
+Python package and WebAssembly builds never fetch or link Stim. If a full test
+build causes memory pressure, reduce parallelism with `cmake --build build -j1`.
 
 ## Circuit size
 

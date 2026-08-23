@@ -114,8 +114,8 @@ $$
 $$
 
 so static and dynamic parts are tracked separately through the
-elimination. Static parts XOR under row multiplication (handled by Stim's
-`PauliString::operator*=`); dynamic sign-masks XOR linearly. After
+elimination. Static parts XOR under native Pauli row multiplication; dynamic
+sign-masks XOR linearly. After
 elimination, `StabilizerAmplitudeStructure` captures the circuit-dependent
 work once.
 

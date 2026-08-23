@@ -20,14 +20,12 @@ phase convention, bit order, and padding requirements are specified in
 [Tableau Conventions](tableau-conventions.md). These rules are part of the
 compiler contract regardless of which library implements them.
 
-During the migration from production Stim types to native Clifft types, tests
-compare both implementations directly on generator rows, random Paulis, every
-supported Clifford gate, arbitrary Pauli products, and 64-bit storage
-boundaries. Stim remains a test-only external oracle after the migration. The
+Tests compare the native implementation directly with Stim on generator rows,
+random Paulis, every supported Clifford gate, arbitrary Pauli products, and
+64-bit storage boundaries. Stim remains a test-only external oracle. The
 dedicated suite
 ([`tests/test_stim_contract.cc`](https://github.com/unitaryfoundation/clifft/blob/main/tests/test_stim_contract.cc))
-also protects the established Heisenberg rewinding and composition semantics
-until the native implementation takes ownership of that contract.
+protects the assumptions made by those differential test adapters.
 
 ## Structured and Random Circuit Oracles
 

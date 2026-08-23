@@ -69,10 +69,6 @@ target_include_directories(clifft_core PUBLIC
     ${CMAKE_BINARY_DIR}/generated
 )
 
-target_link_libraries(clifft_core PUBLIC
-    libstim
-)
-
 target_link_libraries(clifft_core PRIVATE fast_float)
 
 find_package(Threads REQUIRED)

@@ -207,8 +207,7 @@ else()
     set(CLIFFT_X86_RUNTIME_DISPATCH OFF)
 endif()
 
-# Fetch external dependencies
-include(cmake/FetchStim.cmake)
+# Fetch production dependencies
 include(cmake/FetchFastFloat.cmake)
 
 # Build the core library
@@ -218,10 +217,13 @@ add_subdirectory(src/clifft)
 if(SKBUILD)
     add_subdirectory(src/python)
 else()
-    # Standalone C++ build: include Catch2 and tests
-    include(cmake/FetchCatch2.cmake)
-    enable_testing()
-    add_subdirectory(tests)
+    option(CLIFFT_BUILD_TESTS "Build the C++ test suite and its Stim oracle" ON)
+    if(CLIFFT_BUILD_TESTS)
+        include(cmake/FetchStimTestOracle.cmake)
+        include(cmake/FetchCatch2.cmake)
+        enable_testing()
+        add_subdirectory(tests)
+    endif()
 
     # Profiling tool (opt-in, not part of default or coverage builds)
     option(CLIFFT_BUILD_PROFILER "Build profiling harnesses" OFF)
