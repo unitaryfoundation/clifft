@@ -12,13 +12,22 @@ independent references within shot-noise bounds.
 
 Because Clifft is an exact simulator for near-Clifford fault-tolerant circuits, the tests emphasize both sides of the system: exact basis and frame transformations, and correct stochastic behavior under noise, measurements, detectors, and observables.
 
-## Core Primitives and the Stim Contract
+## Core Primitives and the Tableau Contract
 
-Clifft relies on Stim for stabilizer tableau operations used in Clifford-frame tracking and Pauli rewinding. We do not duplicate Stim's test suite or independently re-test its underlying GF(2) tableau algebra.
+Clifft's compiler uses stabilizer tableau operations for Clifford-frame
+tracking and Pauli rewinding. The exact representation, composition direction,
+phase convention, bit order, and padding requirements are specified in
+[Tableau Conventions](tableau-conventions.md). These rules are part of the
+compiler contract regardless of which library implements them.
 
-Instead, Clifft maintains contract tests for the specific Stim semantics that the compiler depends on. The dedicated suite ([`tests/test_stim_contract.cc`](https://github.com/unitaryfoundation/clifft/blob/main/tests/test_stim_contract.cc)) checks the expected Heisenberg rewinding behavior, Pauli-string conventions, and tableau conjugation rules used by the front end.
-
-These tests act as a compatibility tripwire. If an upstream Stim change alters an API behavior or convention that Clifft relies on, the contract suite should fail close to the source of the mismatch rather than producing a harder-to-debug compiler or runtime error later in the pipeline.
+During the migration from production Stim types to native Clifft types, tests
+compare both implementations directly on generator rows, random Paulis, every
+supported Clifford gate, arbitrary Pauli products, and 64-bit storage
+boundaries. Stim remains a test-only external oracle after the migration. The
+dedicated suite
+([`tests/test_stim_contract.cc`](https://github.com/unitaryfoundation/clifft/blob/main/tests/test_stim_contract.cc))
+also protects the established Heisenberg rewinding and composition semantics
+until the native implementation takes ownership of that contract.
 
 ## Structured and Random Circuit Oracles
 
@@ -59,6 +68,14 @@ than isolated implementation details.
   This checks that Clifft's non-Clifford phase handling and coordinate
   reconstruction agree with an independent dense-state simulator up to global
   phase.
+
+* **Clifford statevector equivalence with Stim:** Every named Clifford accepted
+  by the frontend, plus representative arbitrary Pauli-product Cliffords, is
+  applied to a tomographically complete set of stabilizer inputs and compared
+  with Stim up to global phase
+  ([`test_stim_statevector_oracle.py`](https://github.com/unitaryfoundation/clifft/blob/main/tests/python/test_stim_statevector_oracle.py)).
+  This is an end-to-end gate and phase oracle that remains independent when
+  production code no longer links Stim.
 
 * **Statistical equivalence with Stim:** For purely Clifford noisy circuits, Clifft should reproduce the detector and observable statistics produced by Stim. We run surface-code-style extraction circuits for many shots in both simulators and require each detector and logical observable marginal to agree within a binomial shot-noise bound ([`test_statistical_equivalence.py`](https://github.com/unitaryfoundation/clifft/blob/main/tests/python/test_statistical_equivalence.py)). This validates Clifft's ahead-of-time handling of stochastic noise, measurements, detectors, and classical record logic in the Clifford regime.
 
