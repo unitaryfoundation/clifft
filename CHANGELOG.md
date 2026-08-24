@@ -7,12 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [0.9.0] - 2026-08-24
 
-Clifft 0.9.0 adds deterministic parallel sampling across ordinary,
+Clifft 0.9.0 adds parallel sampling across ordinary,
 post-selected, forced-fault, and noncomputational workloads. A single
 `threads` budget can spread work across independent shots, or, for
-undersubscribed wide fixed-plan workloads, use an OpenMP team within each
-shot. Expert callers can select an explicit hybrid layout. Seeded results and
-survivor ordering are independent of worker scheduling and worker count.
+some large `k`/active-width workloads, use OpenMP within each
+shot. Expert callers can select an explicit hybrid layout.
 
 The release also defines exact statevectors projectively, up to global phase.
 That simpler contract lets the compiler absorb Clifford-valued rotations
@@ -59,7 +58,7 @@ for the threading model, resource tradeoffs, and advanced controls.
 
 ### Performance
 
-- Vectorized profitable high-pivot and diagonal active-measurement probability
+- Vectorized high-pivot and diagonal active-measurement probability
   and collapse paths for AVX2 and AVX-512 while retaining scalar fallbacks, by
   @bachase in [#374](https://github.com/unitaryfoundation/clifft/pull/374).
 

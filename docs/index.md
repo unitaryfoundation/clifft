@@ -107,7 +107,7 @@ For QEC workflows, Clifft also supports detector-based post-selection, survivor 
 
 ## What's New in 0.9.0
 
-Clifft 0.9.0 adds deterministic parallel sampling for ordinary,
+Clifft 0.9.0 adds parallel sampling for ordinary,
 post-selected, forced-fault, and noncomputational workloads. Pass a total
 worker budget with `threads`, and fixed-plan sampling automatically chooses
 between running shots concurrently and using OpenMP within a wide shot.
@@ -122,5 +122,17 @@ active-measurement kernels, and fixes complex-interference cases in
 
 Read [Parallel Sampling](guide/simulation.md#parallel-sampling) for the
 threading model, memory tradeoffs, and expert controls.
+
+## What's New in 0.8.0
+
+Clifft 0.8.0 replaces the original localized-Pauli SVM with a
+symbolic-coordinate compiler and sampler. The main `compile()` and sampling
+workflows remain, while the public VM bytecode and backend-selection APIs have
+been removed. Compiled programs now expose `peak_active_width` and an
+`inspect()` view of the sampling plan.
+
+Read [Symbolic Sampling in Clifft](updates/symbolic-sampling.md) for the design
+motivation, API migration notes, matched performance results, and deferred
+follow-up work.
 
 [Full Changelog](https://github.com/unitaryfoundation/clifft/blob/main/CHANGELOG.md){ .md-button }
