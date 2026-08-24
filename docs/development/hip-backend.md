@@ -53,6 +53,12 @@ coefficient, scratch, symbol, record, and output storage before kernel launch.
 It is intentionally restricted to peak active width `k <= 4`, where serial
 coefficient work per shot is small.
 
+`sampling::hip::Sampler` uploads an executable once and owns a reusable,
+precision-specific workspace. Large requests are divided into bounded batches;
+the kernel receives the global shot offset so changing the batch size does not
+change a seeded shot's random stream. The free C++ sampling functions remain
+convenience wrappers that construct a temporary sampler.
+
 This tier supports both coefficient formats in one backend:
 
 - FP64 coefficients are the default.
@@ -81,9 +87,10 @@ new `SamplingAction` without handling it in the HIP lowering also fails during
 this build.
 
 When HIP is enabled, the ROCm CI job additionally compiles the device code for
-`gfx942` and links the HIP conformance test executable. Tests for zero-shot
-requests and input validation run without a device. Tests that launch kernels
-report as skipped when no AMD GPU is visible.
+`gfx942`, links the HIP conformance test executable, and builds the optional
+Python extension. Tests for zero-shot requests and input validation run without
+a device. Tests that launch kernels report as skipped when no AMD GPU is
+visible.
 
 This compile-only coverage does not establish that kernels launch or produce
 correct results on a GPU.
@@ -121,10 +128,12 @@ the same seed, including when a request is divided into different batch sizes.
 ## Next Work
 
 - Run the complete conformance suite on MI300X hardware.
-- Retain uploaded programs and reusable work buffers across sampling calls.
-- Process large requests in bounded shot batches and aggregate results on the
-  device when full rows are not requested.
+- Aggregate survivor statistics on the device when full rows are not
+  requested.
 - Add a cooperative thread-block path using on-chip shared memory through
   approximately `k = 10`, including the cultivation distance-5 fixture.
 - Evaluate a global-memory path for larger active widths after the cooperative
   path is validated.
+
+See [HIP Kernel Development](hip-kernel-development.md) for the experimental
+Python workflow, source map, and extension checklist.
