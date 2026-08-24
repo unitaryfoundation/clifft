@@ -1,0 +1,4 @@
+[plan] rand_cliffT_n20_d40_t15 actions=99 peak_width=20 records=20
+[gpu] rand_cliffT_n20_d40_t15 tier thread_per_shot unavailable: CUDA allocation failed: out of memory
+[gpu] rand_cliffT_n20_d40_t15 tier block_shared unavailable: CUDA BlockShared tier does not fit this device's shared memory
+[validate] rand_cliffT_n20_d40_t15 tier block_global: 64 rows replayed OK

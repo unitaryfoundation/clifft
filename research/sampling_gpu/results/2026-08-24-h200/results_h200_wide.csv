@@ -1,0 +1,8 @@
+circuit,backend,variant,shots,seconds,shots_per_s
+rand_cliffT_n20_d40_t15,cpu,threads=1,10000,220.295531,45.4
+rand_cliffT_n20_d40_t15,cpu,threads=0,10000,47.087341,212.4
+surface_d5_r6,cpu,threads=1,10000,0.006542,1528580.8
+surface_d5_r6,cpu,threads=0,10000,0.002333,4285448.6
+surface_d5_r6,cuda,thread_per_shot*,10000,0.001883,5311788.7
+surface_d5_r6,cuda,block_shared,10000,0.002161,4626639.4
+surface_d5_r6,cuda,block_global,10000,0.002116,4726914.3

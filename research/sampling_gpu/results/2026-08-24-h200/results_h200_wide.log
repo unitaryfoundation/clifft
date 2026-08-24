@@ -1,0 +1,8 @@
+[plan] rand_cliffT_n20_d40_t15 actions=99 peak_width=20 records=20
+[gpu] rand_cliffT_n20_d40_t15 tier thread_per_shot unavailable: CUDA allocation failed: out of memory
+[gpu] rand_cliffT_n20_d40_t15 tier block_shared unavailable: CUDA BlockShared tier does not fit this device's shared memory
+[gpu] rand_cliffT_n20_d40_t15 tier block_global unavailable: CUDA kernel launch failed: out of memory
+[plan] surface_d5_r6 actions=169 peak_width=0 records=169
+[validate] surface_d5_r6 tier thread_per_shot: 64 rows replayed OK
+[validate] surface_d5_r6 tier block_shared: 64 rows replayed OK
+[validate] surface_d5_r6 tier block_global: 64 rows replayed OK

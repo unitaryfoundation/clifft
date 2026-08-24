@@ -1,0 +1,25 @@
+[plan] conveyor_r16_w24 actions=768 peak_width=11 records=384
+[validate] conveyor_r16_w24 tier thread_per_shot: 64 rows replayed OK
+[validate] conveyor_r16_w24 tier block_shared: 64 rows replayed OK
+[validate] conveyor_r16_w24 tier block_global: 64 rows replayed OK
+[plan] hidden_ccz_t4 actions=50 peak_width=12 records=12
+[validate] hidden_ccz_t4 tier thread_per_shot: 64 rows replayed OK
+[validate] hidden_ccz_t4 tier block_shared: 64 rows replayed OK
+[validate] hidden_ccz_t4 tier block_global: 64 rows replayed OK
+[plan] hidden_shift_np8_tl2 actions=48 peak_width=16 records=16
+[gpu] hidden_shift_np8_tl2 tier thread_per_shot unavailable: CUDA allocation failed: out of memory
+[gpu] hidden_shift_np8_tl2 tier block_shared unavailable: CUDA BlockShared tier does not fit this device's shared memory
+[gpu] hidden_shift_np8_tl2 tier block_global unavailable: CUDA kernel launch failed: out of memory
+[plan] iqp_n028_t1_cz30 actions=56 peak_width=14 records=28
+[validate] iqp_n028_t1_cz30 tier thread_per_shot: 64 rows replayed OK
+[gpu] iqp_n028_t1_cz30 tier block_shared unavailable: CUDA BlockShared tier does not fit this device's shared memory
+[validate] iqp_n028_t1_cz30 tier block_global: 64 rows replayed OK
+[plan] qaoa_ring_n16_p3 actions=112 peak_width=15 records=16
+[validate] qaoa_ring_n16_p3 tier thread_per_shot: 64 rows replayed OK
+[gpu] qaoa_ring_n16_p3 tier block_shared unavailable: CUDA BlockShared tier does not fit this device's shared memory
+[validate] qaoa_ring_n16_p3 tier block_global: 64 rows replayed OK
+[plan] rand_cliffT_n20_d40_t05 actions=42 peak_width=15 records=20
+[validate] rand_cliffT_n20_d40_t05 tier thread_per_shot: 64 rows replayed OK
+[gpu] rand_cliffT_n20_d40_t05 tier block_shared unavailable: CUDA BlockShared tier does not fit this device's shared memory
+[validate] rand_cliffT_n20_d40_t05 tier block_global: 64 rows replayed OK
+[plan] rand_cliffT_n20_d40_t15 actions=99 peak_width=20 records=20
