@@ -1047,7 +1047,8 @@ SamplingResult sample(const ExecutablePlan& executable, uint32_t shots,
     if (shots == 0) {
         return {};
     }
-    Sampler sampler(executable, options.coefficient_precision, options.max_batch_shots);
+    Sampler sampler(executable, options.coefficient_precision,
+                    std::min(shots, options.max_batch_shots));
     return sampler.sample(shots, options.seed, options.block_size);
 }
 
@@ -1058,7 +1059,8 @@ SamplingSurvivorResult sample_survivors(const ExecutablePlan& executable, uint32
     if (shots == 0) {
         return {.total_shots = 0};
     }
-    Sampler sampler(executable, options.coefficient_precision, options.max_batch_shots);
+    Sampler sampler(executable, options.coefficient_precision,
+                    std::min(shots, options.max_batch_shots));
     return sampler.sample_survivors(shots, keep_records, options.seed, options.block_size);
 }
 
