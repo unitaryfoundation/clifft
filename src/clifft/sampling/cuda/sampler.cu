@@ -923,6 +923,10 @@ void launch_tier(ExecutionTier tier, uint32_t grid, uint32_t block, size_t dynam
                  double* exp_vals, double* log_probabilities, uint8_t* reachable,
                  uint8_t* survived) {
     const detail::SeedRoot device_root{{root.w[0], root.w[1], root.w[2], root.w[3]}};
+    // A failed earlier tier (for example an oversized thread-per-shot
+    // allocation) leaves CUDA's sticky last-error set; consume it so this
+    // launch reports its own status.
+    (void)cudaGetLastError();
     switch (tier) {
         case ExecutionTier::ThreadPerShot: {
             const uint32_t blocks = (shots + block - 1) / block;
