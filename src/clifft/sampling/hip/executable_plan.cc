@@ -3,6 +3,7 @@
 #include "clifft/sampling/kernels.h"
 
 #include <limits>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <type_traits>
@@ -26,6 +27,32 @@ void flatten_pauli(detail::Action& action, const PreparedPauli& pauli) {
     action.phase_imag = static_cast<int8_t>(pauli.even_phase.imag());
     action.x = pauli.x;
     action.z = pauli.z;
+}
+
+const char* action_tag_name(detail::ActionTag tag) {
+    switch (tag) {
+        case detail::ActionTag::RotateActivePauli:
+            return "RotateActivePauli";
+        case detail::ActionTag::PromoteDormantRotation:
+            return "PromoteDormantRotation";
+        case detail::ActionTag::MeasureActivePauli:
+            return "MeasureActivePauli";
+        case detail::ActionTag::MeasureDormantRandom:
+            return "MeasureDormantRandom";
+        case detail::ActionTag::RecordClassical:
+            return "RecordClassical";
+        case detail::ActionTag::DefineSymbol:
+            return "DefineSymbol";
+        case detail::ActionTag::ApplyReadoutNoise:
+            return "ApplyReadoutNoise";
+        case detail::ActionTag::WriteDetector:
+            return "WriteDetector";
+        case detail::ActionTag::WriteObservable:
+            return "WriteObservable";
+        case detail::ActionTag::WriteExpectationValue:
+            return "WriteExpectationValue";
+    }
+    return "Unknown";
 }
 
 }  // namespace
@@ -80,6 +107,33 @@ ExecutablePlan::ExecutablePlan(const SamplingPlan& plan)
     for (const PlannedAction& action : plan.actions) {
         actions_.push_back(lower_action(action));
     }
+}
+
+size_t ExecutablePlan::packed_bytes() const {
+    return actions_.size() * sizeof(detail::Action) +
+           expressions_.size() * sizeof(detail::Expression) +
+           expression_terms_.size() * sizeof(uint32_t) +
+           noise_sites_.size() * sizeof(detail::NoiseSite) +
+           noise_outcomes_.size() * sizeof(detail::NoiseOutcome);
+}
+
+std::string ExecutablePlan::inspect() const {
+    std::ostringstream output;
+    output << "HIP executable: actions=" << actions_.size()
+           << " peak_active_width=" << peak_active_width_ << " packed_bytes=" << packed_bytes()
+           << '\n';
+    output << "storage: symbols=" << num_symbols_ << " records=" << num_records()
+           << " detectors=" << num_detectors_ << " observables=" << num_observables_
+           << " exp_vals=" << num_exp_vals_ << '\n';
+    for (size_t index = 0; index < actions_.size(); ++index) {
+        const detail::Action& action = actions_[index];
+        output << index << ": " << action_tag_name(action.tag)
+               << " active_before=" << action.active_before << " expression=" << action.expression
+               << " x=" << action.x << " z=" << action.z << " index0=" << action.index0
+               << " index1=" << action.index1 << " index2=" << action.index2
+               << " flags=" << static_cast<uint32_t>(action.flags) << '\n';
+    }
+    return output.str();
 }
 
 uint32_t ExecutablePlan::append_expression(const AffineBool& expression) {

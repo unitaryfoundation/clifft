@@ -345,6 +345,7 @@ __all__ = [
     "compile",
     "compute_reference_syndrome",
     "default_hir_pass_manager",
+    "experimental",
     "get_statevector",
     "lower",
     "noncomp",
@@ -361,3 +362,5 @@ __all__ = [
 ]
 
 __version__ = version()
+
+from clifft import experimental

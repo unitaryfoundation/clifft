@@ -1,6 +1,5 @@
 """Integration and boundary tests for the public sampling API."""
 
-import importlib.util
 import os
 import platform
 import subprocess
@@ -18,8 +17,9 @@ _RUNTIME_DISPATCH_BUILD = platform.machine().lower() in {"amd64", "x86_64"} and 
 )
 
 
-def test_transition_only_experimental_module_is_absent() -> None:
-    assert importlib.util.find_spec("clifft.experimental") is None
+def test_experimental_namespace_reports_optional_hip_build() -> None:
+    assert clifft.experimental.hip.is_built() in {True, False}
+    assert clifft.experimental.hip.backend_info()
 
 
 @pytest.mark.skipif(

@@ -101,6 +101,15 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Setup uv and Python
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          python-version: "3.12"
+
+      - name: Install Python binding build dependencies
+        run: uv sync --frozen --only-group dev --no-install-project
+
       - name: Configure gfx942 HIP build
         run: |
           cmake -S . -B build-hip -G Ninja \
@@ -115,6 +124,20 @@ jobs:
 
       - name: Run GPU-free HIP conformance tests
         run: ctest --test-dir build-hip --output-on-failure -R HIP
+
+      - name: Configure gfx942 HIP Python extension
+        run: |
+          cmake -S . -B build-python-hip -G Ninja \
+            -DSKBUILD=ON \
+            -DPython_EXECUTABLE=${{ github.workspace }}/.venv/bin/python \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCLIFFT_ENABLE_HIP=ON \
+            -DCMAKE_HIP_ARCHITECTURES=gfx942 \
+            -DCMAKE_HIP_COMPILER=/opt/rocm/llvm/bin/clang++ \
+            -DCMAKE_HIP_COMPILER_ROCM_ROOT=/opt/rocm
+
+      - name: Compile optional HIP Python extension
+        run: cmake --build build-python-hip --target _clifft_hip --parallel 2
 
   build-and-test:
     timeout-minutes: 45

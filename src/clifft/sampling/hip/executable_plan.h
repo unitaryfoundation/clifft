@@ -3,8 +3,10 @@
 #include "clifft/sampling/hip/device_program.h"
 #include "clifft/sampling/plan.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <span>
+#include <string>
 #include <vector>
 
 namespace clifft::sampling::hip {
@@ -29,6 +31,9 @@ class ExecutablePlan {
     [[nodiscard]] uint32_t num_observables() const { return num_observables_; }
     [[nodiscard]] uint32_t num_exp_vals() const { return num_exp_vals_; }
     [[nodiscard]] bool has_postselection() const { return has_postselection_; }
+    [[nodiscard]] uint32_t num_actions() const { return static_cast<uint32_t>(actions_.size()); }
+    [[nodiscard]] size_t packed_bytes() const;
+    [[nodiscard]] std::string inspect() const;
 
     [[nodiscard]] std::span<const detail::Action> actions() const { return actions_; }
     [[nodiscard]] std::span<const detail::Expression> expressions() const { return expressions_; }
