@@ -899,16 +899,20 @@ uint32_t resolve_concurrency(const Executable& executable, const SamplingOptions
     if (options.max_concurrent_shots != 0) {
         return std::min(shots, options.max_concurrent_shots);
     }
+    // Enough blocks to oversubscribe every SM regardless of occupancy; more
+    // buys no parallelism and, for the global tier, multiplies slab memory.
+    const uint64_t target =
+        std::max<uint64_t>(static_cast<uint64_t>(limits.multiprocessors) * 32, 1);
     if (tier == ExecutionTier::BlockShared) {
-        // Enough blocks to oversubscribe every SM regardless of occupancy.
-        const uint64_t target = static_cast<uint64_t>(limits.multiprocessors) * 32;
-        return static_cast<uint32_t>(
-            std::min<uint64_t>(shots, std::max<uint64_t>(target, 1)));
+        return static_cast<uint32_t>(std::min<uint64_t>(shots, target));
     }
+    // Leave real headroom: huge slab allocations that fit free memory can
+    // still starve the runtime's launch-time allocations.
     const size_t slab = coefficient_bytes(executable, options.coefficient_precision);
-    const size_t budget = limits.free_memory - std::min(limits.free_memory / 10, size_t{1} << 30);
+    const size_t reserve = std::max<size_t>(limits.free_memory / 10, size_t{2} << 30);
+    const size_t budget = limits.free_memory > reserve ? limits.free_memory - reserve : 0;
     const uint64_t fit = slab == 0 ? shots : std::max<size_t>(budget / slab, 1);
-    return static_cast<uint32_t>(std::min<uint64_t>(shots, fit));
+    return static_cast<uint32_t>(std::min<uint64_t>(shots, std::min<uint64_t>(fit, target)));
 }
 
 template <typename Coefficient, bool Replay>
