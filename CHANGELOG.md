@@ -5,6 +5,99 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.9.0] - 2026-08-24
+
+Clifft 0.9.0 adds deterministic parallel sampling across ordinary,
+post-selected, forced-fault, and noncomputational workloads. A single
+`threads` budget can spread work across independent shots, or, for
+undersubscribed wide fixed-plan workloads, use an OpenMP team within each
+shot. Expert callers can select an explicit hybrid layout. Seeded results and
+survivor ordering are independent of worker scheduling and worker count.
+
+The release also defines exact statevectors projectively, up to global phase.
+That simpler contract lets the compiler absorb Clifford-valued rotations
+earlier and remove global-phase bookkeeping, while new SIMD measurement
+kernels accelerate important active-state paths. See
+[Parallel Sampling](https://unitaryfoundation.github.io/clifft/stable/guide/simulation/#parallel-sampling)
+for the threading model, resource tradeoffs, and advanced controls.
+
+### Added
+
+- Added parallel sampling to `sample()`, `sample_survivors()`, `sample_k()`,
+  `sample_k_survivors()`, and `noncomp.sample()`. `threads` accepts a positive
+  worker budget or `"auto"`; fixed-plan sampling automatically chooses
+  cross-shot or intra-shot execution, while `thread_layout` and
+  `intra_shot_min_active_width` provide expert control. This stack preserves
+  seeded results across worker layouts and keeps noncomputational result
+  sidecars in deterministic row order, by @bachase in
+  [#352](https://github.com/unitaryfoundation/clifft/pull/352),
+  [#354](https://github.com/unitaryfoundation/clifft/pull/354),
+  [#355](https://github.com/unitaryfoundation/clifft/pull/355), and
+  [#379](https://github.com/unitaryfoundation/clifft/pull/379).
+
+### Changed
+
+- **Breaking:** `threads` now represents a total sampling worker budget and
+  may select intra-shot OpenMP execution for wide, undersubscribed fixed-plan
+  workloads. Use `thread_layout=(shot_workers, 1)` to preserve cross-shot-only
+  scheduling. Seeded ordinary and fixed-fault sampling now derives each shot
+  from the call seed and global shot index, so rows differ from v0.8 for the
+  same seed even though v0.9 results are reproducible across worker layouts,
+  by @bachase in [#352](https://github.com/unitaryfoundation/clifft/pull/352)
+  and [#379](https://github.com/unitaryfoundation/clifft/pull/379).
+- **Breaking:** `get_statevector()` now returns a normalized representative of
+  the final state ray and no longer guarantees the source matrix's global
+  phase. Compare statevectors up to global phase, or compare probabilities or
+  fidelity. Building on this contract, the compiler now removes global-phase
+  bookkeeping and absorbs Clifford-valued axis and Pauli-product rotations
+  during tracing and peephole fusion, avoiding unnecessary actions and
+  active-width growth, by @bachase in
+  [#369](https://github.com/unitaryfoundation/clifft/pull/369),
+  [#372](https://github.com/unitaryfoundation/clifft/pull/372),
+  [#378](https://github.com/unitaryfoundation/clifft/pull/378), and
+  [#383](https://github.com/unitaryfoundation/clifft/pull/383).
+
+### Performance
+
+- Vectorized profitable high-pivot and diagonal active-measurement probability
+  and collapse paths for AVX2 and AVX-512 while retaining scalar fallbacks, by
+  @bachase in [#374](https://github.com/unitaryfoundation/clifft/pull/374).
+
+### Fixed
+
+- Fixed `basis_probabilities()` for outcomes where multiple active coordinates
+  interfere with complex relative weights. Both the Gray-code and fallback
+  paths now conjugate the inverse-frame expansion correctly, with analytic and
+  randomized independent-reference regressions, by @bachase in
+  [#381](https://github.com/unitaryfoundation/clifft/pull/381).
+
+### CI
+
+- Consolidated the post-0.8 CI work into a stricter release-confidence stack:
+  deterministic AVX-512 execution under Intel SDE, Linux arm64 coverage, the
+  full Python suite against optimized builds, nightly ASan and UBSan, abi3
+  verification on the newest stable CPython, bounded tool setup and jobs, an
+  aggregate merge gate, packaging round trips on every pull request, and a
+  shorter dedicated benchmark-history workflow, by @bachase in
+  [#353](https://github.com/unitaryfoundation/clifft/pull/353),
+  [#356](https://github.com/unitaryfoundation/clifft/pull/356),
+  [#357](https://github.com/unitaryfoundation/clifft/pull/357),
+  [#358](https://github.com/unitaryfoundation/clifft/pull/358),
+  [#359](https://github.com/unitaryfoundation/clifft/pull/359),
+  [#363](https://github.com/unitaryfoundation/clifft/pull/363),
+  [#364](https://github.com/unitaryfoundation/clifft/pull/364),
+  [#365](https://github.com/unitaryfoundation/clifft/pull/365),
+  [#368](https://github.com/unitaryfoundation/clifft/pull/368),
+  [#370](https://github.com/unitaryfoundation/clifft/pull/370), and
+  [#373](https://github.com/unitaryfoundation/clifft/pull/373).
+
+### Documentation
+
+- Corrected the arXiv badge identifier and made documentation links stable
+  across versioned deployments, by @bachase in
+  [#351](https://github.com/unitaryfoundation/clifft/pull/351) and
+  [#362](https://github.com/unitaryfoundation/clifft/pull/362).
+
 ## [0.8.0] - 2026-08-18
 
 Clifft 0.8.0 replaces the original localized-Pauli Schrodinger virtual

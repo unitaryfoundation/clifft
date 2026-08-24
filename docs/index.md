@@ -105,16 +105,22 @@ For QEC workflows, Clifft also supports detector-based post-selection, survivor 
 
 [Use Qiskit or Cirq](getting-started/integrations.md){ .md-button }
 
-## What's New in 0.8.0
+## What's New in 0.9.0
 
-Clifft 0.8.0 replaces the original localized-Pauli SVM with a
-symbolic-coordinate compiler and sampler. The main `compile()` and sampling
-workflows remain, while the public VM bytecode and backend-selection APIs have
-been removed. Compiled programs now expose `peak_active_width` and an
-`inspect()` view of the sampling plan.
+Clifft 0.9.0 adds deterministic parallel sampling for ordinary,
+post-selected, forced-fault, and noncomputational workloads. Pass a total
+worker budget with `threads`, and fixed-plan sampling automatically chooses
+between running shots concurrently and using OpenMP within a wide shot.
+Advanced callers can select an explicit hybrid layout. Fixed seeds produce the
+same results across worker layouts, although seeded rows differ from v0.8
+because each shot now has its own random stream.
 
-Read [Symbolic Sampling in Clifft](updates/symbolic-sampling.md) for the design
-motivation, API migration notes, matched performance results, and deferred
-follow-up work.
+The release also defines `get_statevector()` up to global phase, absorbs
+Clifford-valued rotations earlier during compilation, vectorizes additional
+active-measurement kernels, and fixes complex-interference cases in
+`basis_probabilities()`.
+
+Read [Parallel Sampling](guide/simulation.md#parallel-sampling) for the
+threading model, memory tradeoffs, and expert controls.
 
 [Full Changelog](https://github.com/unitaryfoundation/clifft/blob/main/CHANGELOG.md){ .md-button }
