@@ -28,7 +28,8 @@ cmake -S . -B build-hip -G Ninja \
     -DCMAKE_BUILD_TYPE=Debug \
     -DCLIFFT_ENABLE_HIP=ON \
     -DCMAKE_HIP_ARCHITECTURES=gfx942
-cmake --build build-hip --target clifft_tests -j
+cmake --build build-hip --target clifft_tests clifft_hip_tests -j
+ctest --test-dir build-hip --output-on-failure -E Bench
 ```
 
 The exe.dev Linux image exposes ROCm through Clang rather than `hipcc`. Its
@@ -43,9 +44,7 @@ cmake -S . -B build-hip -G Ninja \
     -DCMAKE_HIP_ARCHITECTURES=gfx942
 ```
 
-This produces a `gfx942` HIP fat binary without requiring a GPU on the build
-host. Tests that need a visible HIP device report as skipped; lowering,
-validation, and zero-shot tests still run offline.
+This produces a `gfx942` HIP binary without requiring a GPU on the build host.
 
 ## Current Execution Tier
 
@@ -73,20 +72,58 @@ The initial backend rejects transition instruments. Leakage and loss,
 importance sampling, `sample_k`, asynchronous execution, and multi-GPU
 execution are also outside this tier.
 
-## Conformance and Next Tiers
+## Tests That Run Without a GPU
 
-Hardware conformance is backend-specific. Tests require repeatability within
-each HIP coefficient mode, exact forced-record replay of every small-circuit
-measurement branch, explicit `EXP_VAL` tolerances against the CPU
-`ExecutablePlan`, exact readout endpoints and survivor-row invariants, full
-joint-distribution checks for categorical noise, and CPU-oracle statistical
-comparisons for stochastic postselection and observables. CPU and HIP
-execution order need not match, so same-seed output is not required to be
-identical across backends.
+Ordinary CPU builds compile the host-side HIP lowering and its tests. These
+tests check the packed actions, expressions, noise tables, prepared Pauli data,
+supported-width checks, and explicit rejection of unsupported plans. Adding a
+new `SamplingAction` without handling it in the HIP lowering also fails during
+this build.
 
-The cultivation distance-5 fixture reaches peak active width `k = 10` and is
-kept as an explicit boundary test. The next execution tier should assign a
-cooperative thread block to each shot and keep coefficients in LDS through
-approximately `k = 10`. A persistent global-memory tier through approximately
-`k = 18` can follow after that cooperative path is validated on MI300X
-hardware.
+When HIP is enabled, the ROCm CI job additionally compiles the device code for
+`gfx942` and links the HIP conformance test executable. Tests for zero-shot
+requests and input validation run without a device. Tests that launch kernels
+report as skipped when no AMD GPU is visible.
+
+This compile-only coverage does not establish that kernels launch or produce
+correct results on a GPU.
+
+## Tests That Run on an AMD GPU
+
+The hardware tests exercise both FP64 and FP32 coefficient modes. They cover:
+
+- repeatability within one HIP mode for a fixed seed;
+- forced measurement outcomes compared with the CPU executor;
+- expectation values compared with the CPU executor using explicit
+  tolerances;
+- asymmetric readout noise and multi-outcome Pauli noise;
+- postselection, survivor counting, and retained output rows; and
+- statistical comparisons with the CPU for stochastic results.
+
+These tests are intended to run manually on MI300X hardware during the
+experimental phase. A supported backend will require regular hardware testing
+and a declared ROCm and driver compatibility matrix.
+
+## How Correctness Is Determined
+
+Deterministic outputs and forced measurement branches are compared directly
+with the CPU `ExecutablePlan`. Forced replay checks every branch of selected
+small circuits, including branch probability, later measurements, detectors,
+observables, and expectation values. This catches state-evolution errors that
+could be missed by a statistical test.
+
+Stochastic circuits are compared by their observed distributions with
+sample-count-aware tolerances. CPU and HIP use different execution and random
+number ordering, so they are not required to produce identical rows from the
+same seed. A fixed HIP mode must remain repeatable for the same seed.
+
+## Next Work
+
+- Run the complete conformance suite on MI300X hardware.
+- Retain uploaded programs and reusable work buffers across sampling calls.
+- Process large requests in bounded shot batches and aggregate results on the
+  device when full rows are not requested.
+- Add a cooperative thread-block path using on-chip shared memory through
+  approximately `k = 10`, including the cultivation distance-5 fixture.
+- Evaluate a global-memory path for larger active widths after the cooperative
+  path is validated.

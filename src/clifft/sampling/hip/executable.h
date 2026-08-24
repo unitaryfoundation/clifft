@@ -10,7 +10,8 @@
 namespace clifft::sampling::hip {
 
 // The first device tier assigns a complete shot to one thread. Wider plans
-// will be accepted when the cooperative LDS tier owns their state layout.
+// will be accepted when cooperative thread blocks keep their state in on-chip
+// shared memory.
 inline constexpr uint32_t kThreadPerShotMaxActiveWidth = 4;
 
 class Executable {

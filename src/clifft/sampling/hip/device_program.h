@@ -9,6 +9,9 @@
 
 namespace clifft::sampling::hip::detail {
 
+// Executable::lower_action exhaustively visits SamplingAction. Its dependent
+// static assertion makes ordinary CPU builds fail if a new alternative lacks
+// explicit HIP lowering.
 enum class ActionTag : uint8_t {
     RotateActivePauli,
     PromoteDormantRotation,
