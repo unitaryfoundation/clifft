@@ -129,7 +129,7 @@ jobs:
         run: |
           cmake -S . -B build-python-hip -G Ninja \
             -DSKBUILD=ON \
-            -DPython_EXECUTABLE=${{ github.workspace }}/.venv/bin/python \
+            -DPython_EXECUTABLE="$GITHUB_WORKSPACE/.venv/bin/python" \
             -DCMAKE_BUILD_TYPE=Release \
             -DCLIFFT_ENABLE_HIP=ON \
             -DCMAKE_HIP_ARCHITECTURES=gfx942 \
