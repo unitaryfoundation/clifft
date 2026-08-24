@@ -9,6 +9,16 @@ endif()
 
 project(clifft LANGUAGES CXX)
 
+option(CLIFFT_ENABLE_CUDA "Build the experimental NVIDIA CUDA sampling backend" OFF)
+if(CLIFFT_ENABLE_CUDA)
+    if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
+        set(CMAKE_CUDA_ARCHITECTURES 90 CACHE STRING
+            "NVIDIA GPU architectures for the experimental CUDA backend")
+    endif()
+    enable_language(CUDA)
+    message(STATUS "CLIFFT_ENABLE_CUDA = ON (${CMAKE_CUDA_ARCHITECTURES})")
+endif()
+
 # Version: derived from git tags (or VERSION file in sdists)
 include(cmake/ClifftVersion.cmake)
 
@@ -222,6 +232,12 @@ else()
     include(cmake/FetchCatch2.cmake)
     enable_testing()
     add_subdirectory(tests)
+
+    # GPU sampling benchmark (opt-in research harness)
+    option(CLIFFT_BUILD_GPU_BENCH "Build the GPU sampling research benchmark" OFF)
+    if(CLIFFT_BUILD_GPU_BENCH)
+        add_subdirectory(research/sampling_gpu)
+    endif()
 
     # Profiling tool (opt-in, not part of default or coverage builds)
     option(CLIFFT_BUILD_PROFILER "Build profiling harnesses" OFF)
