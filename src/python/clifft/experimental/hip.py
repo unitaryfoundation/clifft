@@ -177,7 +177,10 @@ class ReplayResult:
 
 
 class Sampler:
-    """A synchronous sampler with one uploaded program and retained workspace."""
+    """A synchronous sampler with one uploaded program and retained workspace.
+
+    Calls on one instance must not overlap. Use a separate sampler per caller.
+    """
 
     __slots__ = ("_native", "program")
 

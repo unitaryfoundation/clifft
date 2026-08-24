@@ -39,6 +39,7 @@ struct ReplayResult {
 
 // Owns one uploaded executable and a precision-specific reusable workspace.
 // The object is synchronous and bound to the device current at construction.
+// Calls on one instance must not overlap; use a separate Sampler per caller.
 class Sampler {
   public:
     explicit Sampler(const ExecutablePlan& executable,

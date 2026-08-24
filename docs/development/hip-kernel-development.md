@@ -17,7 +17,8 @@ CMAKE_ARGS="-DCLIFFT_ENABLE_HIP=ON -DCMAKE_HIP_ARCHITECTURES=gfx942" \
     uv pip install -e .
 ```
 
-The exe.dev compiler selection can be added to the same command:
+On hosts where the HIP compiler is installed under `/usr`, add its location to
+the same command:
 
 ```bash
 CMAKE_ARGS="-DCLIFFT_ENABLE_HIP=ON \
@@ -62,7 +63,8 @@ branch = sampler.replay_shot([0])
 `Program` is an immutable host lowering and can be inspected without a GPU.
 `Sampler` selects FP32 or FP64 coefficient evolution, uploads the program, and
 allocates its bounded workspace on the device current at construction. It is
-synchronous and should be reused for repeated calls. Its
+synchronous and should be reused for repeated calls, but calls on one sampler
+must not overlap. Its
 `allocated_device_bytes` and `max_batch_shots` properties make memory
 experiments visible without exposing raw buffers.
 

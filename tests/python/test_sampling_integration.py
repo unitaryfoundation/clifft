@@ -18,8 +18,13 @@ _RUNTIME_DISPATCH_BUILD = platform.machine().lower() in {"amd64", "x86_64"} and 
 
 
 def test_experimental_namespace_reports_optional_hip_build() -> None:
-    assert clifft.experimental.hip.is_built() in {True, False}
-    assert clifft.experimental.hip.backend_info()
+    built = clifft.experimental.hip.is_built()
+    info = clifft.experimental.hip.backend_info()
+
+    if built:
+        assert info.startswith("HIP ")
+    else:
+        assert info == "HIP backend not built; rebuild Clifft with CLIFFT_ENABLE_HIP=ON"
 
 
 @pytest.mark.skipif(

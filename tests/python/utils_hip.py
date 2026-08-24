@@ -71,12 +71,10 @@ def assert_forced_record_probabilities(
 ) -> None:
     """Enumerate every small record branch and compare reachability and probability."""
     records = np.asarray(list(itertools.product((0, 1), repeat=num_records)), dtype=np.uint8)
-    cpu_probabilities = clifft.record_probabilities(cpu_program, records)
-    for record, probability in zip(records, cpu_probabilities, strict=True):
+    cpu_log_probabilities = clifft.record_probabilities(cpu_program, records, return_log=True)
+    for record, log_probability in zip(records, cpu_log_probabilities, strict=True):
         replay = hip_sampler.replay_shot(record.tolist())
-        assert replay.reachable == (probability > 0.0)
+        assert replay.reachable == np.isfinite(log_probability)
         if replay.reachable:
-            assert replay.log_probability == pytest.approx(
-                np.log(probability), abs=absolute_tolerance
-            )
+            assert replay.log_probability == pytest.approx(log_probability, abs=absolute_tolerance)
             np.testing.assert_array_equal(replay.outputs.measurements, record[np.newaxis, :])

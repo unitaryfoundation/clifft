@@ -124,20 +124,19 @@ jobs:
 
       - name: Run GPU-free HIP conformance tests
         run: ctest --test-dir build-hip --output-on-failure -R HIP
-
-      - name: Configure gfx942 HIP Python extension
-        run: |
-          cmake -S . -B build-python-hip -G Ninja \
-            -DSKBUILD=ON \
-            -DPython_EXECUTABLE="$GITHUB_WORKSPACE/.venv/bin/python" \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCLIFFT_ENABLE_HIP=ON \
-            -DCMAKE_HIP_ARCHITECTURES=gfx942 \
-            -DCMAKE_HIP_COMPILER=/opt/rocm/llvm/bin/clang++ \
+      - name: Build editable HIP Python package
+        env:
+          CMAKE_ARGS: >-
+            -DCMAKE_BUILD_TYPE=Release
+            -DCLIFFT_ENABLE_HIP=ON
+            -DCMAKE_HIP_ARCHITECTURES=gfx942
+            -DCMAKE_HIP_COMPILER=/opt/rocm/llvm/bin/clang++
             -DCMAKE_HIP_COMPILER_ROCM_ROOT=/opt/rocm
+          CMAKE_BUILD_PARALLEL_LEVEL: "2"
+        run: uv pip install --editable .
 
-      - name: Compile optional HIP Python extension
-        run: cmake --build build-python-hip --target _clifft_hip --parallel 2
+      - name: Run GPU-free HIP Python boundary tests
+        run: uv run --no-sync pytest tests/python/test_experimental_hip.py -v
 
   build-and-test:
     timeout-minutes: 45

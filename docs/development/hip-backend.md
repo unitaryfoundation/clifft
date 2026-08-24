@@ -87,12 +87,13 @@ new `SamplingAction` without handling it in the HIP lowering also fails during
 this build.
 
 When HIP is enabled, the ROCm CI job additionally compiles the device code for
-`gfx942`, links the HIP conformance test executable, and builds the optional
-Python extension. Tests for zero-shot requests and input validation run without
-a device. Tests that launch kernels report as skipped when no AMD GPU is
+`gfx942`, runs the GPU-free HIP conformance cases, and installs the optional
+Python extension through the editable developer workflow. The Python boundary
+test passes shared HIR from `_clifft_core` into `_clifft_hip` and inspects the
+lowered program. Tests that launch kernels report as skipped when no AMD GPU is
 visible.
 
-This compile-only coverage does not establish that kernels launch or produce
+This GPU-free coverage does not establish that kernels launch or produce
 correct results on a GPU.
 
 ## Tests That Run on an AMD GPU
