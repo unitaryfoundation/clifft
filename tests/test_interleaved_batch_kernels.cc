@@ -5,11 +5,13 @@
 
 #include "test_helpers.h"
 
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <cmath>
 #include <complex>
 #include <cstdint>
 #include <stdexcept>
+#include <utility>
 #include <vector>
 
 using clifft::sampling::ActivePauli;
@@ -20,7 +22,12 @@ using clifft::sampling::apply_interleaved_promotion;
 using clifft::sampling::apply_interleaved_rotation;
 using clifft::sampling::apply_promotion;
 using clifft::sampling::apply_rotation;
+using clifft::sampling::collapse_interleaved_measurement;
+using clifft::sampling::collapse_measurement;
+using clifft::sampling::interleaved_expectation_values;
+using clifft::sampling::interleaved_measurement_probabilities;
 using clifft::sampling::InterleavedBatchState;
+using clifft::sampling::measurement_probabilities;
 using clifft::sampling::prepare_interleaved_rotation_sines;
 using clifft::sampling::prepare_promotion;
 using clifft::sampling::prepare_rotation;
@@ -36,10 +43,8 @@ std::vector<std::complex<double>> lane_state(uint32_t active_width, uint32_t lan
     std::vector<std::complex<double>> result(size);
     double norm = 0.0;
     for (uint64_t basis = 0; basis < size; ++basis) {
-        const double real =
-            1.0 + static_cast<double>((3 * basis + 5 * lane + 1) % 17);
-        const double imag =
-            static_cast<double>((7 * basis + 2 * lane + 3) % 19) - 9.0;
+        const double real = 1.0 + static_cast<double>((3 * basis + 5 * lane + 1) % 17);
+        const double imag = static_cast<double>((7 * basis + 2 * lane + 3) % 19) - 9.0;
         result[basis] = {real, imag};
         norm += std::norm(result[basis]);
     }
@@ -128,8 +133,7 @@ TEST_CASE("Interleaved batch rotations match independent scalar lanes") {
     for (uint32_t active_width = 1; active_width <= 5; ++active_width) {
         CAPTURE(active_width);
         const uint64_t mask = (uint64_t{1} << active_width) - 1;
-        const std::vector<ActivePauli> paulis = {
-            {0, 1}, {1, 0}, {1, 1}, {mask, mask >> 1}};
+        const std::vector<ActivePauli> paulis = {{0, 1}, {1, 0}, {1, 1}, {mask, mask >> 1}};
         std::vector<std::vector<std::complex<double>>> inputs;
         inputs.reserve(kLanes);
         for (uint32_t lane = 0; lane < kLanes; ++lane) {
@@ -140,8 +144,7 @@ TEST_CASE("Interleaved batch rotations match independent scalar lanes") {
             CAPTURE(pauli.x, pauli.z);
             InterleavedBatchState batch(active_width, active_width, kLanes);
             load_batch(batch, inputs);
-            const auto rotation =
-                prepare_rotation(pauli, active_width, kHalfTurns);
+            const auto rotation = prepare_rotation(pauli, active_width, kHalfTurns);
             prepare_interleaved_rotation_sines(signed_sines, rotation.sine, signs);
             apply_interleaved_rotation(batch, rotation, signed_sines);
 
@@ -202,8 +205,8 @@ TEST_CASE("Interleaved fused rotations match independent scalar lanes") {
                 const double scale = 1.0 / static_cast<double>(1 + row + column + variant);
                 rotation.matrices[variant * 16 + row * 4 + column] = {
                     (row == column ? 0.7 : 0.03) + 0.01 * static_cast<double>(variant),
-                    scale * 0.02 * static_cast<double>(static_cast<int>(row) -
-                                                       static_cast<int>(column))};
+                    scale * 0.02 *
+                        static_cast<double>(static_cast<int>(row) - static_cast<int>(column))};
             }
         }
     }
@@ -249,14 +252,115 @@ TEST_CASE("Interleaved dynamic fused rotations match independent scalar lanes") 
     for (uint32_t lane = 0; lane < kLanes; ++lane) {
         lane_variants[lane] = static_cast<uint8_t>((lane * 3) % variants.size());
     }
+    std::vector<const clifft::sampling::PreparedFusedRotation*> variant_pointers;
+    variant_pointers.reserve(variants.size());
+    for (const auto& variant : variants) {
+        variant_pointers.push_back(&variant);
+    }
 
     InterleavedBatchState batch(4, 4, kLanes);
     load_batch(batch, inputs);
-    apply_interleaved_dynamic_fused_rotation(batch, variants, lane_variants);
+    apply_interleaved_dynamic_fused_rotation(batch, variant_pointers, lane_variants);
     for (uint32_t lane = 0; lane < kLanes; ++lane) {
         State expected(4, 4);
         load_state(expected, inputs[lane]);
         apply_fused_rotation(expected, variants[lane_variants[lane]]);
+        require_lane_matches(batch, lane, expected);
+    }
+}
+
+TEST_CASE("Interleaved measurements match independent scalar lanes") {
+    constexpr uint32_t kLanes = 17;
+    for (uint32_t active_width = 1; active_width <= 5; ++active_width) {
+        const uint64_t mask = (uint64_t{1} << active_width) - 1;
+        const std::vector<std::pair<ActivePauli, uint32_t>> measurements = {
+            {{0, 1}, 0}, {{1, 0}, 0}, {{mask, mask >> 1}, active_width - 1}};
+        std::vector<std::vector<std::complex<double>>> inputs;
+        inputs.reserve(kLanes);
+        for (uint32_t lane = 0; lane < kLanes; ++lane) {
+            inputs.push_back(lane_state(active_width, lane));
+        }
+
+        for (const auto& [pauli, pivot] : measurements) {
+            CAPTURE(active_width, pauli.x, pauli.z, pivot);
+            const auto measurement =
+                clifft::sampling::prepare_measurement(pauli, active_width, pivot);
+            InterleavedBatchState batch(active_width, active_width, kLanes);
+            load_batch(batch, inputs);
+            std::vector<double> probability_zero(kLanes);
+            std::vector<double> probability_one(kLanes);
+            interleaved_measurement_probabilities(batch, measurement, probability_zero,
+                                                  probability_one);
+            std::vector<uint8_t> branches(kLanes);
+            std::vector<double> selected_probabilities(kLanes);
+            for (uint32_t lane = 0; lane < kLanes; ++lane) {
+                State expected(active_width, active_width);
+                load_state(expected, inputs[lane]);
+                const auto probabilities = measurement_probabilities(expected, measurement);
+                REQUIRE(probability_zero[lane] ==
+                        Catch::Approx(probabilities.zero).margin(kTolerance));
+                REQUIRE(probability_one[lane] ==
+                        Catch::Approx(probabilities.one).margin(kTolerance));
+                branches[lane] = static_cast<uint8_t>((lane & 1U) != 0);
+                selected_probabilities[lane] =
+                    branches[lane] != 0 ? probabilities.one : probabilities.zero;
+            }
+
+            collapse_interleaved_measurement(batch, measurement, branches, selected_probabilities);
+            REQUIRE(batch.active_width() == active_width - 1);
+            for (uint32_t lane = 0; lane < kLanes; ++lane) {
+                State expected(active_width, active_width);
+                load_state(expected, inputs[lane]);
+                collapse_measurement(expected, measurement, branches[lane] != 0,
+                                     selected_probabilities[lane]);
+                require_lane_matches(batch, lane, expected);
+            }
+        }
+    }
+}
+
+TEST_CASE("Interleaved expectations match independent scalar lanes") {
+    constexpr uint32_t kLanes = 17;
+    constexpr uint32_t kWidth = 5;
+    std::vector<std::vector<std::complex<double>>> inputs;
+    inputs.reserve(kLanes);
+    for (uint32_t lane = 0; lane < kLanes; ++lane) {
+        inputs.push_back(lane_state(kWidth, lane));
+    }
+    InterleavedBatchState batch(kWidth, kWidth, kLanes);
+    load_batch(batch, inputs);
+    std::vector<double> output(kLanes);
+
+    for (ActivePauli pauli : std::vector<ActivePauli>{{0, 0}, {0, 3}, {1, 0}, {3, 5}, {31, 7}}) {
+        CAPTURE(pauli.x, pauli.z);
+        const auto prepared = clifft::sampling::prepare_pauli(pauli, kWidth);
+        interleaved_expectation_values(batch, prepared, output);
+        for (uint32_t lane = 0; lane < kLanes; ++lane) {
+            State expected(kWidth, kWidth);
+            load_state(expected, inputs[lane]);
+            REQUIRE(output[lane] ==
+                    Catch::Approx(clifft::sampling::expectation_value(expected, prepared))
+                        .margin(kTolerance));
+        }
+    }
+}
+
+TEST_CASE("Interleaved state compaction preserves selected lanes") {
+    constexpr uint32_t kLanes = 17;
+    std::vector<std::vector<std::complex<double>>> inputs;
+    inputs.reserve(kLanes);
+    for (uint32_t lane = 0; lane < kLanes; ++lane) {
+        inputs.push_back(lane_state(4, lane));
+    }
+    InterleavedBatchState batch(4, 4, kLanes);
+    load_batch(batch, inputs);
+    const std::vector<uint32_t> sources = {0, 3, 4, 9, 16};
+    batch.compact_lanes(sources);
+
+    REQUIRE(batch.active_lanes() == sources.size());
+    for (uint32_t lane = 0; lane < sources.size(); ++lane) {
+        State expected(4, 4);
+        load_state(expected, inputs[sources[lane]]);
         require_lane_matches(batch, lane, expected);
     }
 }

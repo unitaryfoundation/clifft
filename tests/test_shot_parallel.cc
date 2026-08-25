@@ -16,6 +16,9 @@ TEST_CASE("Shot scheduler resolves bounded worker counts") {
     REQUIRE(clifft::resolve_shot_worker_count(1, 0) == 1);
     REQUIRE(clifft::resolve_shot_worker_count(3, 1) == 1);
     REQUIRE(clifft::resolve_shot_worker_count(3, 99) == 3);
+    REQUIRE(clifft::shot_chunk_size(1000, 4) == 32);
+    REQUIRE(clifft::shot_chunk_size(1000, 4, 64) == 64);
+    REQUIRE(clifft::shot_chunk_size(10000, 2, 64) == 640);
 }
 
 TEST_CASE("Shot scheduler constructs workers before dispatch and visits each shot") {

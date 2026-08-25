@@ -114,8 +114,10 @@ SamplingPlan valid_syndrome_plan() {
     plan.actions = {
         PlannedAction{0, 0, RecordClassical{AffineBool{}, RecordSlot{0}}},
         PlannedAction{0, 0, ApplyReadoutNoise{readout, AffineBool{}, RecordSlot{0}, 0.1, 0.2}},
-        PlannedAction{0, 0, WriteDetector{AffineBool::symbol(readout), DetectorSlot{0}, true}},
-        PlannedAction{0, 0, WriteObservable{AffineBool::symbol(readout), ObservableSlot{0}}},
+        PlannedAction{
+            0, 0, WriteDetector{AffineBool::symbol(readout), DetectorSlot{0}, true, std::nullopt}},
+        PlannedAction{
+            0, 0, WriteObservable{AffineBool::symbol(readout), ObservableSlot{0}, std::nullopt}},
     };
     return plan;
 }

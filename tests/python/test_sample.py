@@ -139,6 +139,47 @@ class TestSample:
         result2 = sampling_api.sample(prog, 100, seed=12345)
         assert np.array_equal(result1.measurements, result2.measurements)
 
+    @pytest.mark.parametrize("batch_size", ["auto", 1, 2, 65])
+    def test_sample_batch_configuration_replays_seeded_rows(
+        self, sampling_api: Any, batch_size: Any
+    ) -> None:
+        """A seed replays exactly when the batching configuration is unchanged."""
+        prog = sampling_api.compile("X_ERROR(0.125) 0\nH 1\nM 0 1\nDETECTOR rec[-2] rec[-1]")
+        first = sampling_api.sample(prog, 257, seed=12345, batch_size=batch_size)
+        replay = sampling_api.sample(prog, 257, seed=12345, batch_size=batch_size)
+        np.testing.assert_array_equal(first.measurements, replay.measurements)
+        np.testing.assert_array_equal(first.detectors, replay.detectors)
+
+    def test_scalar_and_packed_modes_are_statistically_equivalent(self, sampling_api: Any) -> None:
+        """Changing execution mode may change rows but not the sampled distribution."""
+        prog = sampling_api.compile("X_ERROR(0.125) 0\nH 1\nM 0 1")
+        shots = 50_000
+        scalar = sampling_api.sample(prog, shots, seed=12346, batch_size=1)
+        packed = sampling_api.sample(prog, shots, seed=12346, batch_size=257)
+        expected = (0.125, 0.5)
+        for column, probability in enumerate(expected):
+            tolerance = binomial_tolerance(probability, shots)
+            assert abs(float(np.mean(scalar.measurements[:, column])) - probability) < tolerance
+            assert abs(float(np.mean(packed.measurements[:, column])) - probability) < tolerance
+
+    @pytest.mark.parametrize("batch_size", [0, -1, "all", 1.5])
+    def test_sample_rejects_invalid_batch_size(self, sampling_api: Any, batch_size: Any) -> None:
+        """Only positive integer capacities and the auto sentinel are accepted."""
+        prog = sampling_api.compile("M 0")
+        with pytest.raises((TypeError, ValueError), match="batch_size|incompatible"):
+            sampling_api.sample(prog, 1, batch_size=batch_size)
+
+    def test_packed_batch_rejects_intra_shot_workers(self, sampling_api: Any) -> None:
+        prog = sampling_api.compile("H 0\nT 0\nM 0")
+        with pytest.raises(ValueError, match="batch_size|intra-shot"):
+            sampling_api.sample(
+                prog,
+                64,
+                thread_layout=(1, 2),
+                intra_shot_min_active_width=0,
+                batch_size=64,
+            )
+
     @pytest.mark.parametrize("threads", [2, "auto"])
     def test_sample_threads_preserve_seeded_rows(self, sampling_api: Any, threads: Any) -> None:
         """Worker count and dynamic scheduling do not change seeded rows."""
@@ -903,6 +944,18 @@ class TestSampleSurvivors:
         assert np.all(result.detectors[:, 0] == 0)
         # All surviving observables should be 0
         assert np.all(result.observables == 0)
+
+    def test_packed_survivors_replay_seeded_rows(self, sampling_api: Any) -> None:
+        prog = sampling_api.compile(
+            "H 0\nM 0\nDETECTOR rec[-1]\nH 1\nM 1\nOBSERVABLE_INCLUDE(0) rec[-1]",
+            postselection_mask=[1],
+        )
+        first = sampling_api.sample_survivors(prog, 257, seed=43, keep_records=True, batch_size=65)
+        replay = sampling_api.sample_survivors(prog, 257, seed=43, keep_records=True, batch_size=65)
+        assert first.passed_shots == replay.passed_shots
+        assert first.logical_errors == replay.logical_errors
+        np.testing.assert_array_equal(first.measurements, replay.measurements)
+        np.testing.assert_array_equal(first.observables, replay.observables)
 
     @pytest.mark.parametrize("threads", [3, "auto"])
     def test_threads_preserve_survivor_rows(self, sampling_api: Any, threads: Any) -> None:

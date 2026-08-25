@@ -7,6 +7,8 @@ include(Catch)
 add_executable(clifft_tests
     test_benchmarks.cc
     test_bitmask.cc
+    test_batch_bits.cc
+    test_batch_executor.cc
     test_mask_view.cc
     test_numeric.cc
     test_page_allocation.cc

@@ -47,8 +47,7 @@ size_t checked_array_bytes(uint64_t entries, uint32_t pitch, uint32_t arrays) {
 }  // namespace
 
 InterleavedBatchState::InterleavedBatchState(uint32_t max_active_width,
-                                             uint32_t initial_active_width,
-                                             uint32_t lane_capacity)
+                                             uint32_t initial_active_width, uint32_t lane_capacity)
     : coefficient_capacity_(checked_coefficient_capacity(max_active_width)),
       scratch_capacity_(std::max(uint64_t{1}, coefficient_capacity_ >> 1)),
       lane_capacity_(lane_capacity),
@@ -57,19 +56,16 @@ InterleavedBatchState::InterleavedBatchState(uint32_t max_active_width,
       active_width_(initial_active_width),
       max_active_width_(max_active_width) {
     if (initial_active_width > max_active_width) {
-        throw std::invalid_argument(
-            "interleaved batch initial active width exceeds its maximum");
+        throw std::invalid_argument("interleaved batch initial active width exceeds its maximum");
     }
-    const size_t coefficient_bytes =
-        checked_array_bytes(coefficient_capacity_, lane_pitch_, 2);
+    const size_t coefficient_bytes = checked_array_bytes(coefficient_capacity_, lane_pitch_, 2);
     const size_t scratch_bytes = checked_array_bytes(scratch_capacity_, lane_pitch_, 2);
     if (coefficient_bytes > std::numeric_limits<size_t>::max() - scratch_bytes) {
         throw std::length_error("interleaved batch allocation exceeds size_t");
     }
     allocation_ = PageAlignedAllocation(coefficient_bytes + scratch_bytes);
     auto* storage = static_cast<double*>(allocation_.data());
-    const size_t coefficient_entries =
-        static_cast<size_t>(coefficient_capacity_) * lane_pitch_;
+    const size_t coefficient_entries = static_cast<size_t>(coefficient_capacity_) * lane_pitch_;
     const size_t scratch_entries = static_cast<size_t>(scratch_capacity_) * lane_pitch_;
     real_ = storage;
     imag_ = real_ + coefficient_entries;
@@ -86,6 +82,27 @@ void InterleavedBatchState::reset(uint32_t active_lanes) noexcept {
     std::fill_n(real_, entries, 0.0);
     std::fill_n(imag_, entries, 0.0);
     std::fill_n(real_, active_lanes_, 1.0);
+}
+
+void InterleavedBatchState::compact_lanes(std::span<const uint32_t> source_lanes) noexcept {
+    assert(source_lanes.size() <= active_lanes_ &&
+           "interleaved compaction cannot grow the live lane span");
+    for (size_t destination = 0; destination < source_lanes.size(); ++destination) {
+        assert(source_lanes[destination] >= destination &&
+               source_lanes[destination] < active_lanes_ &&
+               (destination == 0 || source_lanes[destination - 1] < source_lanes[destination]) &&
+               "interleaved compaction sources must be sorted live lanes");
+    }
+    for (uint64_t basis = 0; basis < size(); ++basis) {
+        double* real = real_basis(basis);
+        double* imag = imag_basis(basis);
+        for (size_t destination = 0; destination < source_lanes.size(); ++destination) {
+            const uint32_t source = source_lanes[destination];
+            real[destination] = real[source];
+            imag[destination] = imag[source];
+        }
+    }
+    active_lanes_ = static_cast<uint32_t>(source_lanes.size());
 }
 
 double* InterleavedBatchState::real_basis(uint64_t basis) noexcept {

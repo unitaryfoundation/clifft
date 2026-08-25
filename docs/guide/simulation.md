@@ -240,8 +240,45 @@ assert (r1.measurements == r2.measurements).all()  # Identical
 ```
 
 If `seed` is omitted or set to `None`, Clifft uses hardware entropy from the operating system.
-Each shot derives an independent random stream from the call seed and its shot
-index. Seeded results therefore do not depend on how shots are scheduled.
+Seeded results replay exactly when the program and execution configuration are
+unchanged. Cross-shot worker scheduling does not affect the result because
+packed work is divided at deterministic batch boundaries.
+
+Scalar and packed execution use separate random streams. Changing `batch_size`,
+or moving between scalar and packed execution after a planner or policy change,
+can therefore change individual seeded rows. The resulting samples remain
+statistically equivalent.
+
+## Packed Batch Sampling
+
+The four fixed-plan sampling functions accept `batch_size`. Its default value,
+`"auto"`, packs classical bits and small active states across several shots when
+the plan and request are expected to benefit:
+
+```python
+result = clifft.sample(program, 100_000, seed=42, batch_size="auto")
+scalar = clifft.sample(program, 100_000, seed=42, batch_size=1)
+packed = clifft.sample(program, 100_000, seed=42, batch_size=1024)
+```
+
+An explicit positive integer requests a packed lane-capacity limit and is mainly
+useful for profiling. The implementation caps explicit capacities at 2048 lanes;
+the final partial batch can be smaller. Automatic selection currently requires at
+least 64 shots and a peak active width of at most 5. An explicit capacity can opt
+into other fixed plans when packed execution is supported.
+
+Packed execution supports ordinary sampling, post-selected survivor sampling,
+counts-only survivor aggregation, expectation values, and fixed-k importance
+sampling. Current limitations are:
+
+- transition instruments, traps, and continuations stay on the noncomputational
+  trajectory path;
+- packed execution cannot be combined with intra-shot OpenMP workers;
+- WebAssembly uses scalar execution;
+- `record_probabilities()` is an exact replay API and does not use batching.
+
+These restrictions do not remove the corresponding scalar or trajectory
+functionality. `batch_size=1` selects the existing scalar fixed-plan executor.
 
 ## Parallel Sampling
 

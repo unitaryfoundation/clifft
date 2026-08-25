@@ -15,6 +15,7 @@
 #include <catch2/matchers/catch_matchers_string.hpp>
 #include <cmath>
 #include <numeric>
+#include <optional>
 #include <vector>
 
 using Catch::Matchers::WithinAbs;
@@ -570,6 +571,49 @@ TEST_CASE("Threaded conditioned sampling preserves seeded rows and survivors") {
     REQUIRE(survivor_threaded.detectors == survivor_serial.detectors);
     REQUIRE(survivor_threaded.observables == survivor_serial.observables);
     REQUIRE(survivor_threaded.exp_vals == survivor_serial.exp_vals);
+}
+
+TEST_CASE("Explicit batch capacities replay conditioned rows and survivors") {
+    auto fixed = compile_circuit(R"(
+        X_ERROR(0.1) 0 1 2
+        M 0 1 2
+        OBSERVABLE_INCLUDE(0) rec[-1]
+        EXP_VAL Z2
+    )");
+    const std::array<uint8_t, 1> postselection{1};
+    auto survivors = compile_circuit(R"(
+        X_ERROR(0.1) 0 1 2
+        M 0 1 2
+        EXP_VAL Z0
+        DETECTOR rec[-3]
+        OBSERVABLE_INCLUDE(0) rec[-1]
+    )",
+                                     postselection);
+    for (uint32_t capacity : std::array<uint32_t, 4>{2, 63, 64, 65}) {
+        const clifft::sampling::SamplingResult fixed_packed =
+            clifft::sampling::sample_k(fixed, 257, 1, 481, 1, std::nullopt, capacity);
+        const clifft::sampling::SamplingResult fixed_replay =
+            clifft::sampling::sample_k(fixed, 257, 1, 481, 1, std::nullopt, capacity);
+        const clifft::sampling::SamplingSurvivorResult survivor_packed =
+            clifft::sampling::sample_k_survivors(survivors, 257, 1, 482, true, 1, std::nullopt,
+                                                 capacity);
+        const clifft::sampling::SamplingSurvivorResult survivor_replay =
+            clifft::sampling::sample_k_survivors(survivors, 257, 1, 482, true, 1, std::nullopt,
+                                                 capacity);
+        CAPTURE(capacity);
+        REQUIRE(fixed_packed.measurements == fixed_replay.measurements);
+        REQUIRE(fixed_packed.detectors == fixed_replay.detectors);
+        REQUIRE(fixed_packed.observables == fixed_replay.observables);
+        REQUIRE(fixed_packed.exp_vals == fixed_replay.exp_vals);
+        REQUIRE(survivor_packed.total_shots == survivor_replay.total_shots);
+        REQUIRE(survivor_packed.passed_shots == survivor_replay.passed_shots);
+        REQUIRE(survivor_packed.logical_errors == survivor_replay.logical_errors);
+        REQUIRE(survivor_packed.observable_ones == survivor_replay.observable_ones);
+        REQUIRE(survivor_packed.measurements == survivor_replay.measurements);
+        REQUIRE(survivor_packed.detectors == survivor_replay.detectors);
+        REQUIRE(survivor_packed.observables == survivor_replay.observables);
+        REQUIRE(survivor_packed.exp_vals == survivor_replay.exp_vals);
+    }
 }
 
 TEST_CASE("Symbolic conditioned sampling rejects asymmetric readout noise") {

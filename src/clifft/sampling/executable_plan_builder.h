@@ -38,6 +38,7 @@ class ExecutablePlanBuilder {
 
     // Transpose action-order affine terms into symbol-to-register CSR storage.
     void build_expression_dependencies();
+    void prepare_batch_expression_initialization();
 
     // Check construction-only invariants in Debug builds.
     void validate_executable_plan() const;
@@ -47,6 +48,8 @@ class ExecutablePlanBuilder {
         const AffineBool& expression);
     [[nodiscard]] ExecutablePlan::PreparedExpression prepare_measurement_correction(
         const AffineBool& outcome, uint32_t branch);
+    [[nodiscard]] uint32_t prepare_batch_record_parity(
+        const std::optional<BatchRecordParity>& parity);
     void ensure_expression_term_capacity(size_t additional_terms) const;
 
     ExecutablePlan& output_;

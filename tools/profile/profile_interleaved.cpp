@@ -33,9 +33,8 @@ int get_env_int(const char* name, int default_value) {
     return value == nullptr ? default_value : std::stoi(value);
 }
 
-void apply_production_rotation(clifft::sampling::State& state,
-                               const PreparedRotation& rotation, bool sign,
-                               ExecutorBackend backend) noexcept {
+void apply_production_rotation(clifft::sampling::State& state, const PreparedRotation& rotation,
+                               bool sign, ExecutorBackend backend) noexcept {
     const DirectRotationKernel kernel =
         clifft::sampling::resolve_direct_rotation_kernel(rotation, backend);
     if (kernel == DirectRotationKernel::Scalar) {
@@ -56,8 +55,7 @@ uint64_t checksum_interleaved(const clifft::sampling::InterleavedBatchState& sta
     uint64_t result = 0;
     for (uint32_t lane = 0; lane < state.active_lanes(); ++lane) {
         result ^= std::rotl(std::bit_cast<uint64_t>(state.real_basis(0)[lane]), lane & 63U);
-        result ^= std::rotl(std::bit_cast<uint64_t>(state.imag_basis(0)[lane]),
-                            (lane + 17U) & 63U);
+        result ^= std::rotl(std::bit_cast<uint64_t>(state.imag_basis(0)[lane]), (lane + 17U) & 63U);
     }
     return result;
 }
@@ -77,8 +75,7 @@ int main() {
     const int repetitions = get_env_int("CLIFFT_INTERLEAVED_REPETITIONS", 9);
     const int fused_mode = get_env_int("CLIFFT_INTERLEAVED_FUSED", 0);
     const bool fused = fused_mode != 0;
-    if (width < 1 || width >= 32 || lanes < 1 || actions < 1 || warmups < 0 ||
-        repetitions < 1) {
+    if (width < 1 || width >= 32 || lanes < 1 || actions < 1 || warmups < 0 || repetitions < 1) {
         std::cerr << "Error: invalid interleaved profiler configuration\n";
         return 1;
     }
@@ -92,30 +89,29 @@ int main() {
     rotations.reserve(static_cast<size_t>(actions));
     planned_rotations.reserve(static_cast<size_t>(actions));
     for (int action = 0; action < actions; ++action) {
-        uint64_t x = fused ? uint64_t{1} << (action & 1)
-                           : (static_cast<uint64_t>(action) * 13U + 5U) & mask;
+        uint64_t x =
+            fused ? uint64_t{1} << (action & 1) : (static_cast<uint64_t>(action) * 13U + 5U) & mask;
         uint64_t z = fused ? ((action & 2) != 0 ? uint64_t{5} & mask : uint64_t{1})
                            : (static_cast<uint64_t>(action) * 7U + 3U) & mask;
         if (x == 0 && z == 0) {
             x = 1;
         }
-        const double half_turns =
-            0.071 + 0.001 * static_cast<double>(action % 23);
-        rotations.push_back(
-            clifft::sampling::prepare_rotation({x, z}, width, half_turns));
+        const double half_turns = 0.071 + 0.001 * static_cast<double>(action % 23);
+        rotations.push_back(clifft::sampling::prepare_rotation({x, z}, width, half_turns));
         planned_rotations.push_back(clifft::sampling::PlannedAction{
             static_cast<uint32_t>(width), static_cast<uint32_t>(width),
-            clifft::sampling::RotateActivePauli{{x, z}, half_turns,
-                                                clifft::sampling::AffineBool{}}});
+            clifft::sampling::RotateActivePauli{
+                {x, z}, half_turns, clifft::sampling::AffineBool{}}});
     }
     const clifft::sampling::FusedRotationRun fused_run =
         clifft::sampling::prepare_fused_rotation_run(planned_rotations);
-    if (fused && (!fused_run.rotation.has_value() ||
-                  fused_run.action_count != planned_rotations.size())) {
+    if (fused &&
+        (!fused_run.rotation.has_value() || fused_run.action_count != planned_rotations.size())) {
         std::cerr << "Error: profiler rotation run did not fuse completely\n";
         return 1;
     }
     std::vector<clifft::sampling::PreparedFusedRotation> dynamic_variants;
+    std::vector<const clifft::sampling::PreparedFusedRotation*> dynamic_variant_pointers;
     std::vector<uint8_t> lane_variants(static_cast<size_t>(lanes));
     if (fused_mode == 2) {
         dynamic_variants.assign(4, *fused_run.rotation);
@@ -128,6 +124,9 @@ int main() {
             lane_variants[static_cast<size_t>(lane)] =
                 static_cast<uint8_t>((lane * 3 + lane / 7) % dynamic_variants.size());
         }
+        for (const auto& variant : dynamic_variants) {
+            dynamic_variant_pointers.push_back(&variant);
+        }
     }
 
     std::vector<uint8_t> signs(static_cast<size_t>(actions) * lanes);
@@ -138,11 +137,9 @@ int main() {
         }
     }
     std::vector<double> signed_sines(static_cast<size_t>(lanes));
-    clifft::sampling::State scalar(static_cast<uint32_t>(width),
-                                   static_cast<uint32_t>(width));
+    clifft::sampling::State scalar(static_cast<uint32_t>(width), static_cast<uint32_t>(width));
     clifft::sampling::InterleavedBatchState interleaved(
-        static_cast<uint32_t>(width), static_cast<uint32_t>(width),
-        static_cast<uint32_t>(lanes));
+        static_cast<uint32_t>(width), static_cast<uint32_t>(width), static_cast<uint32_t>(lanes));
 
     uint64_t checksum = 0;
     std::vector<double> scalar_samples;
@@ -178,15 +175,13 @@ int main() {
         interleaved.reset(static_cast<uint32_t>(lanes));
         if (fused_mode == 2) {
             clifft::sampling::apply_interleaved_dynamic_fused_rotation(
-                interleaved, dynamic_variants, lane_variants);
+                interleaved, dynamic_variant_pointers, lane_variants);
         } else if (fused) {
-            clifft::sampling::apply_interleaved_fused_rotation(interleaved,
-                                                               *fused_run.rotation);
+            clifft::sampling::apply_interleaved_fused_rotation(interleaved, *fused_run.rotation);
         } else {
             for (int action = 0; action < actions; ++action) {
                 const std::span<const uint8_t> action_signs(
-                    signs.data() + static_cast<size_t>(action) * lanes,
-                    static_cast<size_t>(lanes));
+                    signs.data() + static_cast<size_t>(action) * lanes, static_cast<size_t>(lanes));
                 clifft::sampling::prepare_interleaved_rotation_sines(
                     signed_sines, rotations[static_cast<size_t>(action)].sine, action_signs);
                 clifft::sampling::apply_interleaved_rotation(

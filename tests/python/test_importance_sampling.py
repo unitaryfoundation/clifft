@@ -148,8 +148,8 @@ class TestSampleK(_ImportanceBackendMixin):
             OBSERVABLE_INCLUDE(0) rec[-1]
             """
         )
-        r1 = self.sampling_api.sample_k(prog, shots=100, k=1, seed=99)
-        r2 = self.sampling_api.sample_k(prog, shots=100, k=1, seed=99)
+        r1 = self.sampling_api.sample_k(prog, shots=100, k=1, seed=99, batch_size=65)
+        r2 = self.sampling_api.sample_k(prog, shots=100, k=1, seed=99, batch_size=65)
         np.testing.assert_array_equal(r1.measurements, r2.measurements)
         np.testing.assert_array_equal(r1.detectors, r2.detectors)
         np.testing.assert_array_equal(r1.observables, r2.observables)
@@ -230,6 +230,22 @@ class TestSampleKSurvivors(_ImportanceBackendMixin):
         np.testing.assert_array_equal(threaded.measurements, serial.measurements)
         np.testing.assert_array_equal(threaded.detectors, serial.detectors)
         np.testing.assert_array_equal(threaded.observables, serial.observables)
+
+    def test_packed_survivors_replay_seeded_rows(self) -> None:
+        prog = self.sampling_api.compile(
+            "X_ERROR(0.1) 0 1 2\nM 0 1 2\nDETECTOR rec[-3]\n" "OBSERVABLE_INCLUDE(0) rec[-1]",
+            postselection_mask=[1],
+        )
+        first = self.sampling_api.sample_k_survivors(
+            prog, shots=257, k=1, seed=101, keep_records=True, batch_size=65
+        )
+        replay = self.sampling_api.sample_k_survivors(
+            prog, shots=257, k=1, seed=101, keep_records=True, batch_size=65
+        )
+        assert first.passed_shots == replay.passed_shots
+        assert first.logical_errors == replay.logical_errors
+        np.testing.assert_array_equal(first.measurements, replay.measurements)
+        np.testing.assert_array_equal(first.observables, replay.observables)
 
 
 class TestImportanceSamplingEndToEnd(_ImportanceBackendMixin):

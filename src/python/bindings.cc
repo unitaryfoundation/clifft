@@ -41,6 +41,7 @@ namespace nb = nanobind;
 namespace {
 
 using ThreadOption = std::variant<int64_t, std::string>;
+using BatchOption = std::variant<int64_t, std::string>;
 
 uint32_t parse_thread_option(const ThreadOption& option) {
     if (const auto* name = std::get_if<std::string>(&option)) {
@@ -52,6 +53,20 @@ uint32_t parse_thread_option(const ThreadOption& option) {
     const int64_t count = std::get<int64_t>(option);
     if (count <= 0 || static_cast<uint64_t>(count) > std::numeric_limits<uint32_t>::max()) {
         throw std::invalid_argument("threads must be a positive integer or 'auto'");
+    }
+    return static_cast<uint32_t>(count);
+}
+
+std::optional<uint32_t> parse_batch_option(const BatchOption& option) {
+    if (const auto* name = std::get_if<std::string>(&option)) {
+        if (*name == "auto") {
+            return std::nullopt;
+        }
+        throw std::invalid_argument("batch_size must be a positive integer or 'auto'");
+    }
+    const int64_t count = std::get<int64_t>(option);
+    if (count <= 0 || static_cast<uint64_t>(count) > std::numeric_limits<uint32_t>::max()) {
+        throw std::invalid_argument("batch_size must be a positive integer or 'auto'");
     }
     return static_cast<uint32_t>(count);
 }
@@ -883,7 +898,7 @@ NB_MODULE(_clifft_core, m) {
         [](const clifft::sampling::ExecutablePlan& program, uint32_t shots,
            std::optional<uint64_t> seed, const ThreadOption& thread_option,
            const std::optional<std::tuple<int64_t, int64_t>>& thread_layout_option,
-           std::optional<int64_t> intra_shot_min_active_width) {
+           std::optional<int64_t> intra_shot_min_active_width, const BatchOption& batch_option) {
             if (program.has_postselection()) {
                 throw nb::value_error(
                     "sample() cannot be used with post-selected programs because it "
@@ -893,10 +908,12 @@ NB_MODULE(_clifft_core, m) {
             const uint32_t threads = parse_thread_option(thread_option);
             const auto thread_layout =
                 parse_thread_layout(thread_layout_option, intra_shot_min_active_width);
+            const std::optional<uint32_t> batch_size = parse_batch_option(batch_option);
             clifft::sampling::SamplingResult result;
             {
                 nb::gil_scoped_release release;
-                result = clifft::sampling::sample(program, shots, seed, threads, thread_layout);
+                result = clifft::sampling::sample(program, shots, seed, threads, thread_layout,
+                                                  batch_size);
             }
 
             auto meas_arr = vec_to_numpy(std::move(result.measurements),
@@ -914,6 +931,7 @@ NB_MODULE(_clifft_core, m) {
         nb::arg("program"), nb::arg("shots"), nb::arg("seed") = nb::none(),
         nb::arg("threads") = int64_t{1}, nb::arg("thread_layout") = nb::none(),
         nb::arg("intra_shot_min_active_width") = nb::none(),
+        nb::arg("batch_size") = BatchOption{std::string{"auto"}},
         "Run a compiled program and return a SampleResult.\n\n"
         "Raises ValueError for post-selected programs because fixed-row output\n"
         "cannot represent discarded shots. Use sample_survivors() instead.\n\n"
@@ -923,7 +941,11 @@ NB_MODULE(_clifft_core, m) {
         "or intra-shot workers. thread_layout=(shot_workers, intra_shot_workers)\n"
         "overrides that choice and ignores threads; intra-shot counts above 1\n"
         "require OpenMP support. intra_shot_min_active_width overrides the\n"
-        "default threshold of 18 for an explicit layout.\n\n"
+        "default threshold of 18 for an explicit layout. batch_size='auto'\n"
+        "selects packed execution when profitable; 1 forces scalar execution,\n"
+        "and a positive integer requests a packed lane-capacity limit. Seeded\n"
+        "results replay within one batching configuration, but individual rows\n"
+        "may differ between scalar and packed modes or different capacities.\n\n"
         "Returns a SampleResult with .measurements, .detectors, .observables attributes.\n"
         "Supports tuple unpacking: m, d, o = clifft.sample(prog, shots)");
 
@@ -932,7 +954,7 @@ NB_MODULE(_clifft_core, m) {
         [](const clifft::sampling::ExecutablePlan& program, uint32_t shots, uint32_t k,
            std::optional<uint64_t> seed, const ThreadOption& thread_option,
            const std::optional<std::tuple<int64_t, int64_t>>& thread_layout_option,
-           std::optional<int64_t> intra_shot_min_active_width) {
+           std::optional<int64_t> intra_shot_min_active_width, const BatchOption& batch_option) {
             if (program.has_postselection()) {
                 throw nb::value_error(
                     "sample_k() cannot be used with post-selected programs because it "
@@ -942,11 +964,12 @@ NB_MODULE(_clifft_core, m) {
             const uint32_t threads = parse_thread_option(thread_option);
             const auto thread_layout =
                 parse_thread_layout(thread_layout_option, intra_shot_min_active_width);
+            const std::optional<uint32_t> batch_size = parse_batch_option(batch_option);
             clifft::sampling::SamplingResult result;
             {
                 nb::gil_scoped_release release;
-                result =
-                    clifft::sampling::sample_k(program, shots, k, seed, threads, thread_layout);
+                result = clifft::sampling::sample_k(program, shots, k, seed, threads, thread_layout,
+                                                    batch_size);
             }
 
             auto meas_arr = vec_to_numpy(std::move(result.measurements),
@@ -964,6 +987,7 @@ NB_MODULE(_clifft_core, m) {
         nb::arg("program"), nb::arg("shots"), nb::arg("k"), nb::arg("seed") = nb::none(),
         nb::arg("threads") = int64_t{1}, nb::arg("thread_layout") = nb::none(),
         nb::arg("intra_shot_min_active_width") = nb::none(),
+        nb::arg("batch_size") = BatchOption{std::string{"auto"}},
         "Sample with exactly k forced faults per shot (importance sampling).\n\n"
         "Sites are drawn from the exact conditional Poisson-Binomial\n"
         "distribution. Results are conditioned on K=k and must be combined\n"
@@ -980,7 +1004,9 @@ NB_MODULE(_clifft_core, m) {
         "or 'auto' to use the implementation-reported hardware concurrency;\n"
         "it defaults to 1. thread_layout=(shot_workers, intra_shot_workers)\n"
         "overrides automatic scheduling. intra_shot_min_active_width overrides\n"
-        "the default threshold of 18 for an explicit layout.\n\n"
+        "the default threshold of 18 for an explicit layout. batch_size='auto'\n"
+        "selects packed execution when profitable; 1 forces scalar execution,\n"
+        "and a positive integer requests a packed lane-capacity limit.\n\n"
         "Returns a SampleResult with .measurements, .detectors, .observables attributes.\n"
         "Supports tuple unpacking: m, d, o = clifft.sample_k(prog, shots, k)");
 
@@ -1018,21 +1044,23 @@ NB_MODULE(_clifft_core, m) {
             const clifft::sampling::ExecutablePlan& program, uint32_t shots, uint32_t k,
             std::optional<uint64_t> seed, bool keep_records, const ThreadOption& thread_option,
             const std::optional<std::tuple<int64_t, int64_t>>& thread_layout_option,
-            std::optional<int64_t> intra_shot_min_active_width) {
+            std::optional<int64_t> intra_shot_min_active_width, const BatchOption& batch_option) {
             const uint32_t threads = parse_thread_option(thread_option);
             const auto thread_layout =
                 parse_thread_layout(thread_layout_option, intra_shot_min_active_width);
+            const std::optional<uint32_t> batch_size = parse_batch_option(batch_option);
             clifft::sampling::SamplingSurvivorResult result;
             {
                 nb::gil_scoped_release release;
                 result = clifft::sampling::sample_k_survivors(program, shots, k, seed, keep_records,
-                                                              threads, thread_layout);
+                                                              threads, thread_layout, batch_size);
             }
             return make_survivor_result(std::move(result), program, keep_records);
         },
         nb::arg("program"), nb::arg("shots"), nb::arg("k"), nb::arg("seed") = nb::none(),
         nb::arg("keep_records") = false, nb::arg("threads") = int64_t{1},
         nb::arg("thread_layout") = nb::none(), nb::arg("intra_shot_min_active_width") = nb::none(),
+        nb::arg("batch_size") = BatchOption{std::string{"auto"}},
         "Sample survivors with exactly k forced faults per shot.\n\n"
         "Results are conditioned on K=k. To estimate the overall logical\n"
         "error rate across strata, weight numerator and denominator\n"
@@ -1044,7 +1072,9 @@ NB_MODULE(_clifft_core, m) {
         "implementation-reported hardware concurrency; it defaults to 1.\n"
         "thread_layout=(shot_workers, intra_shot_workers) overrides automatic\n"
         "scheduling. intra_shot_min_active_width overrides the default threshold\n"
-        "of 18 for an explicit layout.\n\n"
+        "of 18 for an explicit layout. batch_size='auto' selects packed execution\n"
+        "when profitable; 1 forces scalar execution, and a positive integer\n"
+        "requests a packed lane-capacity limit.\n\n"
         "Returns a SampleResult. Survivor metadata is always populated via\n"
         ".total_shots, .passed_shots, .discards, .logical_errors, and\n"
         ".observable_ones. Per-shot record arrays\n"
@@ -1057,28 +1087,32 @@ NB_MODULE(_clifft_core, m) {
             const clifft::sampling::ExecutablePlan& program, uint32_t shots,
             std::optional<uint64_t> seed, bool keep_records, const ThreadOption& thread_option,
             const std::optional<std::tuple<int64_t, int64_t>>& thread_layout_option,
-            std::optional<int64_t> intra_shot_min_active_width) {
+            std::optional<int64_t> intra_shot_min_active_width, const BatchOption& batch_option) {
             const uint32_t threads = parse_thread_option(thread_option);
             const auto thread_layout =
                 parse_thread_layout(thread_layout_option, intra_shot_min_active_width);
+            const std::optional<uint32_t> batch_size = parse_batch_option(batch_option);
             clifft::sampling::SamplingSurvivorResult result;
             {
                 nb::gil_scoped_release release;
                 result = clifft::sampling::sample_survivors(program, shots, seed, keep_records,
-                                                            threads, thread_layout);
+                                                            threads, thread_layout, batch_size);
             }
             return make_survivor_result(std::move(result), program, keep_records);
         },
         nb::arg("program"), nb::arg("shots"), nb::arg("seed") = nb::none(),
         nb::arg("keep_records") = false, nb::arg("threads") = int64_t{1},
         nb::arg("thread_layout") = nb::none(), nb::arg("intra_shot_min_active_width") = nb::none(),
+        nb::arg("batch_size") = BatchOption{std::string{"auto"}},
         "Sample shots and return results only for surviving (non-discarded) shots.\n\n"
         "If seed is None (default), uses hardware entropy. threads is a positive\n"
         "total worker budget or 'auto' to use the implementation-reported hardware\n"
         "concurrency; it defaults to 1. thread_layout=(shot_workers,\n"
         "intra_shot_workers) overrides automatic scheduling.\n"
         "intra_shot_min_active_width overrides the default threshold of 18 for\n"
-        "an explicit layout.\n\n"
+        "an explicit layout. batch_size='auto' selects packed execution when\n"
+        "profitable; 1 forces scalar execution, and a positive integer requests\n"
+        "a packed lane-capacity limit.\n\n"
         "Returns a SampleResult. Survivor metadata is always populated via\n"
         ".total_shots, .passed_shots, .discards, .logical_errors, and\n"
         ".observable_ones. Per-shot record arrays\n"

@@ -196,6 +196,22 @@ void validate_written_record(const SamplingPlan& plan, RecordSlot record, uint32
     }
 }
 
+void validate_batch_record_parity(const SamplingPlan& plan, const BatchRecordParity& parity,
+                                  uint32_t action_index,
+                                  const std::unordered_set<uint32_t>& written_records) {
+    uint32_t previous = 0;
+    bool first = true;
+    for (RecordSlot record : parity.records) {
+        if (!first && index(record) <= previous) {
+            invalid_plan("action " + std::to_string(action_index) +
+                         " has noncanonical batch record parity");
+        }
+        validate_written_record(plan, record, action_index, written_records);
+        previous = index(record);
+        first = false;
+    }
+}
+
 }  // namespace
 
 std::span<const uint32_t> PlanSourceMap::lines_for(size_t action) const {
@@ -639,6 +655,10 @@ void SamplingPlan::validate() const {
                         invalid_plan("detector write has invalid width or slot");
                     }
                     validate_expression(*this, typed.outcome, action_index, definition, false);
+                    if (typed.batch_parity.has_value()) {
+                        validate_batch_record_parity(*this, *typed.batch_parity, action_index,
+                                                     written_records);
+                    }
                     observed_postselection |= typed.postselected;
                 } else if constexpr (std::is_same_v<T, WriteObservable>) {
                     if (planned.active_after != planned.active_before ||
@@ -647,6 +667,10 @@ void SamplingPlan::validate() const {
                         invalid_plan("observable write has invalid width or slot");
                     }
                     validate_expression(*this, typed.outcome, action_index, definition, false);
+                    if (typed.batch_parity.has_value()) {
+                        validate_batch_record_parity(*this, *typed.batch_parity, action_index,
+                                                     written_records);
+                    }
                 } else if constexpr (std::is_same_v<T, WriteExpectationValue>) {
                     if (planned.active_after != planned.active_before ||
                         index(typed.exp_val) >= num_exp_vals ||

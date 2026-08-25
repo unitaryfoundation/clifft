@@ -7,6 +7,7 @@
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <optional>
 #include <span>
 #include <string>
@@ -16,6 +17,7 @@
 namespace clifft::sampling {
 
 class Executor;
+class BatchExecutor;
 class ExecutablePlanBuilder;
 
 // Owns one portable fused descriptor and the optional sidecar prepared by the
@@ -41,6 +43,8 @@ class PreparedFusedRotationExecution {
             apply_fused_rotation_parallel(state, rotation_, workers, min_active_width);
         }
     }
+
+    [[nodiscard]] const PreparedFusedRotation& rotation() const noexcept { return rotation_; }
 
   private:
     PreparedFusedRotation rotation_;
@@ -100,6 +104,7 @@ class ExecutablePlan {
 
   private:
     friend class Executor;
+    friend class BatchExecutor;
     friend class ExecutablePlanBuilder;
 
     // To keep actions compact, register_id refers to expression details in the
@@ -131,6 +136,22 @@ class ExecutablePlan {
 
         std::vector<uint32_t> offsets_;
         std::vector<uint32_t> targets_;
+    };
+
+    struct PresampledExpressionInitialization {
+        uint32_t destination = 0;
+        uint32_t parent = std::numeric_limits<uint32_t>::max();
+        bool invert_parent = false;
+    };
+
+    struct PresampledExpressionDelta {
+        uint32_t symbol = 0;
+        uint32_t destination = 0;
+    };
+
+    struct PresampledExpressionCopy {
+        uint32_t source = 0;
+        uint32_t destination = 0;
     };
 
     // CPU action descriptors. They contain only fixed operands and indices;
@@ -205,17 +226,26 @@ class ExecutablePlan {
         uint32_t site = 0;
         double prob_zero_to_one = 0.0;
         double prob_one_to_zero = 0.0;
+        double batch_symmetric_inverse_hazard = 0.0;
+    };
+
+    struct PreparedRecordParity {
+        uint32_t begin = 0;
+        uint32_t count = 0;
+        bool constant = false;
     };
 
     struct ExecuteDetector {
         PreparedExpression outcome;
         uint32_t detector = 0;
         bool postselected = false;
+        uint32_t record_parity = std::numeric_limits<uint32_t>::max();
     };
 
     struct ExecuteObservable {
         PreparedExpression outcome;
         uint32_t observable = 0;
+        uint32_t record_parity = std::numeric_limits<uint32_t>::max();
     };
 
     // Exact expectation-value probe of the current state.
@@ -308,6 +338,11 @@ class ExecutablePlan {
         double conditioned_probability = 0.0;
     };
 
+    struct PreparedBatchNoiseOutcome {
+        uint32_t assignment_begin = 0;
+        uint32_t assignment_count = 0;
+    };
+
     using Action =
         std::variant<ExecuteRotation, ExecuteFusedRotation, ExecuteDynamicFusedRotation,
                      ExecutePromotion, ExecuteActiveMeasurement, ExecuteDormantMeasurement,
@@ -348,6 +383,14 @@ class ExecutablePlan {
     std::vector<PreparedNoiseOutcome> noise_outcomes_;
     std::vector<PreparedNoiseSite> noise_sites_;
     std::vector<double> noise_hazards_;
+    std::optional<double> uniform_noise_inverse_hazard_;
+    // Batch-only categorical factorization. It is either empty or parallel to
+    // noise_outcomes_; each assignment names a carrier symbol whose packed bit
+    // is set when that outcome is selected.
+    std::vector<PreparedBatchNoiseOutcome> batch_noise_outcomes_;
+    std::vector<uint32_t> batch_noise_assignments_;
+    std::vector<PreparedRecordParity> batch_record_parities_;
+    std::vector<uint32_t> batch_record_parity_terms_;
 
     // Input distributions consulted when instruments fire.
     std::vector<InstrumentDistribution> instrument_distributions_;
@@ -361,6 +404,13 @@ class ExecutablePlan {
     // Optional debug sidecar parallel to actions_. It stays empty for ordinary
     // compilation and therefore adds no per-action production storage.
     std::vector<PlanActionRange> action_plan_ranges_;
+    // Optional batch-only tape for shared presampled expression prefixes.
+    // Dynamic symbols still use the ordinary reverse dependency index.
+    std::vector<uint32_t> presampled_initialization_level_offsets_;
+    std::vector<PresampledExpressionInitialization> presampled_initializations_;
+    std::vector<uint32_t> presampled_delta_level_offsets_;
+    std::vector<PresampledExpressionDelta> presampled_deltas_;
+    std::vector<PresampledExpressionCopy> presampled_copies_;
 };
 
 }  // namespace clifft::sampling

@@ -197,6 +197,13 @@ struct ApplyReadoutNoise {
     double prob_one_to_zero = 0.0;
 };
 
+// Batch execution can evaluate detector and observable parities from packed
+// record columns instead of expanding every record's full affine history.
+struct BatchRecordParity {
+    bool constant = false;
+    std::vector<RecordSlot> records;
+};
+
 // Writes a detector parity after the planner has XORed its expected reference
 // parity into the expression. A nonzero postselected detector rejects the shot
 // immediately; later actions and outputs are irrelevant for it.
@@ -204,6 +211,7 @@ struct WriteDetector {
     AffineBool outcome;
     DetectorSlot detector{};
     bool postselected = false;
+    std::optional<BatchRecordParity> batch_parity;
 };
 
 // Writes one fully accumulated logical observable after the planner has XORed
@@ -211,6 +219,7 @@ struct WriteDetector {
 struct WriteObservable {
     AffineBool outcome;
     ObservableSlot observable{};
+    std::optional<BatchRecordParity> batch_parity;
 };
 
 // Writes a non-destructive Pauli expectation probe. The planner retains only

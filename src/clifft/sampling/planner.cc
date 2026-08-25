@@ -134,6 +134,24 @@ bool option_bit(std::span<const uint8_t> values, uint32_t index) {
     return index < values.size() && values[index] != 0;
 }
 
+BatchRecordParity make_batch_record_parity(std::span<const uint32_t> records, bool constant) {
+    std::vector<uint32_t> sorted(records.begin(), records.end());
+    std::ranges::sort(sorted);
+    BatchRecordParity result;
+    result.constant = constant;
+    for (size_t begin = 0; begin < sorted.size();) {
+        size_t end = begin + 1;
+        while (end < sorted.size() && sorted[end] == sorted[begin]) {
+            ++end;
+        }
+        if ((end - begin) % 2 != 0) {
+            result.records.push_back(RecordSlot{sorted[begin]});
+        }
+        begin = end;
+    }
+    return result;
+}
+
 struct PlanningRequirements {
     uint32_t symbol_count = 0;
     bool supports_final_state_queries = true;
@@ -427,6 +445,7 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
     std::vector<std::optional<AffineBool>> record_values(static_cast<size_t>(hir.num_measurements) +
                                                          hir.num_hidden_measurements);
     std::vector<AffineBool> observable_values(hir.num_observables);
+    std::vector<std::vector<uint32_t>> observable_records(hir.num_observables);
     std::vector<std::vector<uint32_t>> observable_source_lines;
     if (plan.source_map.has_value()) {
         observable_source_lines.resize(hir.num_observables);
@@ -577,13 +596,17 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
                     throw std::invalid_argument("sampling planner detector is out of range");
                 }
                 AffineBool outcome = record_parity(hir.detector_targets[targets_index], i);
-                outcome ^= option_bit(options.expected_detectors, detector_index);
+                const bool expected = option_bit(options.expected_detectors, detector_index);
+                outcome ^= expected;
                 const bool postselected = option_bit(options.postselection_mask, detector_index);
-                append_action(plan,
-                              PlannedAction{active_width, active_width,
-                                            WriteDetector{outcome, DetectorSlot{detector_index},
-                                                          postselected}},
-                              source_lines);
+                append_action(
+                    plan,
+                    PlannedAction{
+                        active_width, active_width,
+                        WriteDetector{outcome, DetectorSlot{detector_index}, postselected,
+                                      make_batch_record_parity(hir.detector_targets[targets_index],
+                                                               expected)}},
+                    source_lines);
                 plan.has_postselection |= postselected;
                 ++detector_index;
                 break;
@@ -597,6 +620,10 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
                 }
                 observable_values[observable_index] ^=
                     record_parity(hir.observable_targets[targets_index], i);
+                observable_records[observable_index].insert(
+                    observable_records[observable_index].end(),
+                    hir.observable_targets[targets_index].begin(),
+                    hir.observable_targets[targets_index].end());
                 if (plan.source_map.has_value()) {
                     observable_source_lines[observable_index].insert(
                         observable_source_lines[observable_index].end(), source_lines.begin(),
@@ -657,8 +684,11 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
                 : std::span<const uint32_t>{};
         append_action(plan,
                       PlannedAction{active_width, active_width,
-                                    WriteObservable{observable_values[observable],
-                                                    ObservableSlot{observable}}},
+                                    WriteObservable{
+                                        observable_values[observable], ObservableSlot{observable},
+                                        make_batch_record_parity(
+                                            observable_records[observable],
+                                            option_bit(options.expected_observables, observable))}},
                       source_lines);
     }
 
