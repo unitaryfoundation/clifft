@@ -113,6 +113,9 @@ jobs:
       - name: Compile HIP backend and conformance tests
         run: cmake --build build-hip --target clifft_hip_tests --parallel 2
 
+      - name: Run GPU-free HIP conformance tests
+        run: ctest --test-dir build-hip --output-on-failure -R HIP
+
   build-and-test:
     timeout-minutes: 45
     runs-on: ubuntu-24.04
@@ -556,6 +559,7 @@ jobs:
       - wasm
       - lint
       - playground-lint
+      - hip-offline-build
       - build-and-test
       - release-cpp-smoke
       - package-smoke
