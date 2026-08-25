@@ -67,6 +67,10 @@ print(result.measurements[:5])  # First 5 shots.
 
 <div class="grid cards" markdown>
 
+- **Measured QEC Throughput**
+
+    On one pinned CPU core, Clifft 0.9 sustained 1.20M attempted shots/s on distance-3 cultivation and 576k on an 85-qubit distillation circuit. See [Performance](guide/performance.md) for the reproducible campaign and its scope.
+
 - **Stim-Compatible Format and API**
 
     Parse Stim-format circuits, including noise channels, detectors, observables, and repeat blocks, with extensions for non-Clifford gates. Compile once, then sample many shots through a familiar Python interface.

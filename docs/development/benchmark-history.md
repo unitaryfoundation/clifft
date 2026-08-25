@@ -1,41 +1,76 @@
 <!--pytest-codeblocks:skipfile-->
 # Benchmark History
 
-Clifft records benchmark results from its existing C++ Catch2 and Python pytest-benchmark suites on a daily schedule, so maintainers can spot performance drift between releases. The setup is intentionally small: it only records and stores history. It does not gate pull requests, post comments, or alert on regressions.
+Clifft uses two complementary benchmark layers: long reproducible campaigns
+for user-facing performance claims and short scheduled benchmarks for developer
+regression tracking.
 
-## Where to view the charts
+## Campaigns and scheduled benchmarks
+
+| | Reproducible campaigns | Scheduled regression benchmarks |
+|---|---|---|
+| Main question | How do releases and tools compare on application circuits? | Did a focused operation drift over time? |
+| Workloads | Versioned QEC corpus and Quantum Volume matrices | Targeted C++ and Python cases |
+| Runtime | The current QEC campaign uses five samples totaling about 150 seconds per workload, run, and placement | Short enough to run as a daily CI job |
+| Hardware | Named, pinned AWS hardware epochs; fresh boot IDs are recorded | Shared GitHub-hosted runners |
+| Cadence | Infrequent: releases, tool updates, and new hardware epochs | Daily and manual |
+| Output | Raw JSON, derived CSV tables, and reviewed figures | Trend dashboards on `gh-pages` |
+| Best use | Canonical absolute rates and cross-tool or cross-release conclusions | Detecting trends and choosing what to investigate |
+
+The long campaigns live in
+[`clifft-bench`](https://github.com/unitaryfoundation/clifft-bench). They record
+the circuit digest, software lock, host, boot, timed samples, and comparison
+policy. The current results are summarized in the
+[Performance guide](../guide/performance.md).
+
+The scheduled charts are developer telemetry, not a second source of absolute
+performance claims. Shared-runner noise, shorter cases, different units, and a
+different measurement contract mean their values should not be compared
+directly with `clifft-bench` rates.
+
+## Scheduled benchmark dashboards
 
 Each scheduled run appends to a Chart.js viewer hosted on `gh-pages`:
 
-- C++ Catch2 benchmarks: <https://unitaryfoundation.github.io/clifft/bench/cpp/>
-- Python pytest-benchmark suite: <https://unitaryfoundation.github.io/clifft/bench/python/>
+- [C++ Catch2 benchmarks (scalar)](https://unitaryfoundation.github.io/clifft/bench/cpp-scalar/)
+- [C++ Catch2 benchmarks (AVX2)](https://unitaryfoundation.github.io/clifft/bench/cpp-avx2/)
+- [C++ Catch2 benchmarks (AVX-512)](https://unitaryfoundation.github.io/clifft/bench/cpp-avx512/)
+- [Python pytest-benchmark suite](https://unitaryfoundation.github.io/clifft/bench/python/)
 
-The two charts live on the same `gh-pages` branch as the docs site but under their own `/bench/` subpath, so they are not part of the versioned documentation tree.
+ISA-specific dashboards are updated only when the runner exposes the required
+CPU feature. Each viewer's `data.js` contains its complete history.
 
-## What gets recorded
+## What runs and when
 
-Each chart's `data.js` contains the full history as a JS array, easy to skim if you need raw numbers:
+The [`bench.yml`](https://github.com/unitaryfoundation/clifft/blob/main/.github/workflows/bench.yml)
+workflow records:
 
-- C++ Catch2 results come from the sampling benchmarks in [`tests/test_benchmarks.cc`](https://github.com/unitaryfoundation/clifft/blob/main/tests/test_benchmarks.cc) (tagged `[bench]`).
-- Python pytest-benchmark results come from the suites under [`tools/bench/`](https://github.com/unitaryfoundation/clifft/tree/main/tools/bench).
+- C++ sampling cases from
+  [`tests/test_benchmarks.cc`](https://github.com/unitaryfoundation/clifft/blob/main/tests/test_benchmarks.cc),
+  tagged `[bench]` and run in scalar, AVX2, and AVX-512 modes where supported.
+- Python compile and sampling cases under
+  [`tools/bench/`](https://github.com/unitaryfoundation/clifft/tree/main/tools/bench).
 
-## When it runs
+It runs daily at 06:17 UTC and by manual dispatch from **Actions > Benchmark
+history > Run workflow**. It does not run on pull requests or pushes to `main`,
+and it records data without gating, comments, or alerts.
 
-The [`bench.yml`](https://github.com/unitaryfoundation/clifft/blob/main/.github/workflows/bench.yml) workflow runs:
+## Reading the scheduled results
 
-- Daily at 06:17 UTC.
-- On manual dispatch from the **Actions** tab → **Benchmark history** → **Run workflow**.
+- **Runner noise:** GitHub-hosted `ubuntu-24.04` runners share hardware. Trends
+  across many days are more meaningful than isolated spikes.
+- **Different units:** Catch2 plots elapsed time in a reporter-selected unit;
+  lower is better. The Python chart plots iterations per second; higher is
+  better. The charts are not directly comparable.
+- **Investigation workflow:** If a trend looks suspicious, reproduce the
+  relevant suite locally against `main` and the suspect commit with `just
+  bench` for Python or `ctest -R Bench` for C++.
 
-It does not run on pull requests or pushes to `main`.
+## Adding scheduled benchmarks
 
-## Reading the results
-
-A few caveats worth keeping in mind when interpreting the chart:
-
-- **Runner noise.** The workflow uses GitHub-hosted `ubuntu-24.04` runners, which share hardware with other tenants. Expect roughly 5–10% variance run-to-run, more on the smaller fixtures. Trends across many days are meaningful; isolated spikes generally are not.
-- **Two charts, two units.** The C++ chart plots elapsed time per benchmark in whatever unit Catch2's console reporter chose (ns/us/ms/s, picked per case to keep the printed mean readable). The Python chart plots throughput in iterations per second, the default `pytest-benchmark` metric the action records. Lower is better on the C++ chart; higher is better on the Python chart. The two are not directly comparable.
-- **No alerts.** The workflow records data and stops. If you suspect a regression, run the relevant suite locally against `main` and the suspect commit (`just bench` for Python, `ctest -R Bench` for C++).
-
-## Adding new benchmarks
-
-New cases added to [`tests/test_benchmarks.cc`](https://github.com/unitaryfoundation/clifft/blob/main/tests/test_benchmarks.cc) (with the `[bench]` Catch2 tag) or under [`tools/bench/`](https://github.com/unitaryfoundation/clifft/tree/main/tools/bench) are picked up automatically by the next scheduled run; no workflow change is required.
+New `[bench]` cases in
+[`tests/test_benchmarks.cc`](https://github.com/unitaryfoundation/clifft/blob/main/tests/test_benchmarks.cc)
+or new cases under
+[`tools/bench/`](https://github.com/unitaryfoundation/clifft/tree/main/tools/bench)
+are picked up by the next scheduled run without a workflow change. Add
+application-scale or cross-tool workloads to `clifft-bench` instead.

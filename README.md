@@ -51,6 +51,10 @@ benchmarks.
 
 ## Why Clifft?
 
+- **Fast on real near-Clifford QEC circuits**: on one pinned CPU core, Clifft
+  0.9 sustained 1.20M attempted shots/s on distance-3 cultivation and 576k on
+  an 85-qubit distillation circuit. See the
+  [reproducible benchmarks](https://github.com/unitaryfoundation/clifft-bench#current-single-core-qec-results).
 - **Stim-compatible format and API**: parse Stim-format circuits with noise,
   detectors, observables, and repeat blocks, plus non-Clifford extensions.
 - **Exact near-Clifford simulation**: simulate localized non-Clifford effects
