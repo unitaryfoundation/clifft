@@ -207,6 +207,35 @@ inline DenseMatrix dense_matmul(const DenseMatrix& a, const DenseMatrix& b, uint
     return r;
 }
 
+inline DenseMatrix dense_adjoint(const DenseMatrix& matrix, uint64_t dim) {
+    DenseMatrix result(dim * dim);
+    for (uint64_t row = 0; row < dim; ++row) {
+        for (uint64_t col = 0; col < dim; ++col) {
+            result[col * dim + row] = std::conj(matrix[row * dim + col]);
+        }
+    }
+    return result;
+}
+
+inline DenseMatrix dense_pauli_matrix(PauliStringView pauli) {
+    const uint32_t n = pauli.num_qubits();
+    const uint64_t dim = uint64_t{1} << n;
+    uint64_t x = 0;
+    uint64_t z = 0;
+    for (uint32_t q = 0; q < n; ++q) {
+        x |= static_cast<uint64_t>(pauli.x().bit_get(q)) << q;
+        z |= static_cast<uint64_t>(pauli.z().bit_get(q)) << q;
+    }
+    constexpr std::complex<double> kIPow[4] = {{1, 0}, {0, 1}, {-1, 0}, {0, -1}};
+    DenseMatrix result(dim * dim, {0.0, 0.0});
+    for (uint64_t col = 0; col < dim; ++col) {
+        const uint32_t phase =
+            pauli.phase() + 2U * (static_cast<uint32_t>(std::popcount(col & z)) & 1U);
+        result[(col ^ x) * dim + col] = kIPow[phase & 3U];
+    }
+    return result;
+}
+
 inline std::vector<std::complex<double>> dense_matvec(const DenseMatrix& matrix,
                                                       std::span<const std::complex<double>> input) {
     const uint64_t dim = input.size();

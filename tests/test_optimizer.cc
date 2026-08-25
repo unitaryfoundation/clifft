@@ -1052,10 +1052,136 @@ TEST_CASE("Peephole: commuting NOISE does not bypass EXP_VAL barrier", "[optimiz
 
 namespace {
 
+using clifft::test::dense_adjoint;
 using clifft::test::dense_axis_rotation;
 using clifft::test::dense_matmul;
+using clifft::test::dense_pauli_matrix;
 using clifft::test::dense_tableau_matrix;
 using clifft::test::DenseMatrix;
+
+using PauliChannel = std::vector<double>;
+
+PauliString basis_pauli(size_t n, size_t basis_index) {
+    PauliString result(static_cast<uint32_t>(n));
+    for (uint32_t q = 0; q < n; ++q) {
+        const uint32_t code = static_cast<uint32_t>((basis_index >> (2 * q)) & 3U);
+        result.set_pauli(q, (code & 1U) != 0, (code & 2U) != 0);
+    }
+    result.set_sign(false);
+    return result;
+}
+
+size_t basis_index(PauliStringView pauli) {
+    size_t result = 0;
+    for (uint32_t q = 0; q < pauli.num_qubits(); ++q) {
+        const size_t code = static_cast<size_t>(pauli.x().bit_get(q)) |
+                            (static_cast<size_t>(pauli.z().bit_get(q)) << 1U);
+        result |= code << (2 * q);
+    }
+    return result;
+}
+
+PauliString op_axis(const HirModule& hir, const HeisenbergOp& op) {
+    PauliString result(hir.num_qubits);
+    const MaskView x = hir.destab_mask(op);
+    const MaskView z = hir.stab_mask(op);
+    for (uint32_t q = 0; q < hir.num_qubits; ++q) {
+        result.set_pauli(q, x.bit_get(q), z.bit_get(q));
+    }
+    result.set_sign(hir.sign(op));
+    return result;
+}
+
+PauliChannel pauli_channel_hir_value(const HirModule& hir) {
+    const size_t basis_count = size_t{1} << (2 * hir.num_qubits);
+    PauliChannel channel(basis_count * basis_count, 0.0);
+    for (size_t input_index = 0; input_index < basis_count; ++input_index) {
+        std::vector<double> coefficients(basis_count, 0.0);
+        coefficients[input_index] = 1.0;
+
+        for (const HeisenbergOp& op : hir.ops) {
+            REQUIRE((op.op_type() == OpType::T_GATE || op.op_type() == OpType::PHASE_ROTATION));
+            PauliString axis = op_axis(hir, op);
+            double alpha;
+            if (op.op_type() == OpType::T_GATE) {
+                alpha = op.is_dagger() ? 1.75 : 0.25;
+            } else {
+                alpha = hir.sign(op) ? -op.alpha() : op.alpha();
+                axis.set_sign(false);
+            }
+            const double cosine = std::cos(alpha * std::numbers::pi);
+            const double sine = std::sin(alpha * std::numbers::pi);
+            std::vector<double> rotated(basis_count, 0.0);
+            for (size_t term = 0; term < basis_count; ++term) {
+                if (coefficients[term] == 0.0) {
+                    continue;
+                }
+                const PauliString pauli = basis_pauli(hir.num_qubits, term);
+                if (axis.view().commutes(pauli.view())) {
+                    rotated[term] += coefficients[term];
+                    continue;
+                }
+                rotated[term] += coefficients[term] * cosine;
+                PauliString product = axis;
+                product.right_multiply(pauli.view());
+                uint32_t y_phase = 0;
+                for (uint32_t q = 0; q < product.num_qubits(); ++q) {
+                    y_phase += product.x().bit_get(q) && product.z().bit_get(q);
+                }
+                y_phase &= 3U;
+                const uint32_t phase_delta = (product.phase() - y_phase) & 3U;
+                REQUIRE((phase_delta == 1U || phase_delta == 3U));
+                const double product_sign = phase_delta == 1U ? 1.0 : -1.0;
+                rotated[basis_index(product.view())] += coefficients[term] * sine * product_sign;
+            }
+            coefficients = std::move(rotated);
+        }
+
+        for (size_t term = 0; term < basis_count; ++term) {
+            if (coefficients[term] == 0.0) {
+                continue;
+            }
+            const PauliString pauli = basis_pauli(hir.num_qubits, term);
+            const PauliString mapped = hir.final_tableau->apply(pauli.view());
+            channel[input_index * basis_count + basis_index(mapped.view())] +=
+                coefficients[term] * (mapped.sign() ? -1.0 : 1.0);
+        }
+    }
+    return channel;
+}
+
+PauliChannel pauli_channel_from_dense_unitary(const DenseMatrix& unitary, size_t n) {
+    const uint64_t dim = uint64_t{1} << n;
+    const size_t basis_count = size_t{1} << (2 * n);
+    const DenseMatrix unitary_adjoint = dense_adjoint(unitary, dim);
+    PauliChannel channel(basis_count * basis_count, 0.0);
+    for (size_t input_index = 0; input_index < basis_count; ++input_index) {
+        const DenseMatrix input = dense_pauli_matrix(basis_pauli(n, input_index).view());
+        const DenseMatrix output =
+            dense_matmul(dense_matmul(unitary, input, dim), unitary_adjoint, dim);
+        for (size_t output_index = 0; output_index < basis_count; ++output_index) {
+            const DenseMatrix basis = dense_pauli_matrix(basis_pauli(n, output_index).view());
+            std::complex<double> coefficient{0.0, 0.0};
+            for (uint64_t row = 0; row < dim; ++row) {
+                for (uint64_t col = 0; col < dim; ++col) {
+                    coefficient += basis[row * dim + col] * output[col * dim + row];
+                }
+            }
+            REQUIRE_THAT(coefficient.imag(), Catch::Matchers::WithinAbs(0.0, 1e-9));
+            channel[input_index * basis_count + output_index] = coefficient.real() / dim;
+        }
+    }
+    return channel;
+}
+
+void require_channel_equivalence(const PauliChannel& actual, const PauliChannel& expected,
+                                 double tolerance) {
+    REQUIRE(actual.size() == expected.size());
+    for (size_t i = 0; i < actual.size(); ++i) {
+        CAPTURE(i);
+        REQUIRE_THAT(actual[i], Catch::Matchers::WithinAbs(expected[i], tolerance));
+    }
+}
 
 // Dense value of an HIR module: canonical(final_tableau) applied after the op
 // stream. Global phase is intentionally unspecified.
@@ -1147,9 +1273,16 @@ TEST_CASE("Peephole: pass preserves projective HIR value on random circuits", "[
 
         auto hir = hir_from(src.c_str());
         const DenseMatrix before = dense_hir_value(hir);
+        const PauliChannel before_channel = pauli_channel_hir_value(hir);
+        require_channel_equivalence(before_channel, pauli_channel_from_dense_unitary(before, n),
+                                    1e-6);
         PeepholeFusionPass pass;
         pass.run(hir);
         const DenseMatrix after = dense_hir_value(hir);
+        const PauliChannel after_channel = pauli_channel_hir_value(hir);
+        require_channel_equivalence(after_channel, pauli_channel_from_dense_unitary(after, n),
+                                    1e-6);
+        require_channel_equivalence(after_channel, before_channel, 1e-9);
         total_fusions += pass.fusions();
 
         require_projective_matrix_equivalence(after, before, 1e-5);
