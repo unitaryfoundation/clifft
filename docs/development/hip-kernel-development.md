@@ -63,21 +63,22 @@ branch = sampler.replay_shot([0])
 `Program` is an immutable host lowering and can be inspected without a GPU.
 `Sampler` selects FP32 or FP64 coefficient evolution, uploads the program, and
 allocates its bounded workspace on the device current at construction. It is
-synchronous and should be reused for repeated calls, but calls on one sampler
-must not overlap. Its
-`allocated_device_bytes` and `max_batch_shots` properties make memory
-experiments visible without exposing raw buffers.
+synchronous and should be reused for repeated calls. Overlapping calls on one
+sampler are rejected; use a separate sampler per caller. Its
+`allocated_device_bytes` and `max_batch_shots` properties make memory experiments
+visible without exposing raw buffers.
 
 ## Source Map
 
 | Change | Primary location | Contract |
 | --- | --- | --- |
-| Support a `SamplingAction` | `src/clifft/sampling/hip/executable.cc` | Exhaustive lowering from the shared plan |
+| Support a `SamplingAction` | `src/clifft/sampling/hip/executable_plan.cc` | Exhaustive lowering from the shared plan |
+| Change shared Pauli preparation | `src/clifft/sampling/pauli_preparation.h` | Execution-ready geometry consumed by CPU and HIP lowering |
 | Change a packed action | `src/clifft/sampling/hip/device_program.h` | Private host/device descriptor |
 | Change coefficient evolution | Device half of `src/clifft/sampling/hip/sampler.hip` | FP32 and FP64 interpreter templates |
-| Change per-shot memory layout | `Sampler::Impl` and `coefficient_elements_per_shot` in `sampler.hip` | Retained device and host workspace |
+| Change per-shot memory layout | `coefficient_elements_per_shot` in `device_program.h` and `Sampler::Impl` in `sampler.hip` | Shared host/device sizing and retained workspace |
 | Change launch or batching | Host half of `sampler.hip` | Global shot indices and synchronous batches |
-| Change the Python experiment | `src/python/clifft/experimental/hip.py` | Thin wrapper over `_clifft_hip` |
+| Change the Python experiment | `src/python/clifft/experimental/hip.py` | Typed optional facade over `_clifft_hip` |
 | Add conformance cases | `tests/test_hip_sampler.cc` and `tests/python/utils_hip.py` | CPU oracle, replay, and distributions |
 
 The `__HIP_DEVICE_COMPILE__` boundary in `sampler.hip` separates device
@@ -88,13 +89,13 @@ device pass.
 ## Add or Change an Action
 
 1. Add explicit lowering for the existing `SamplingAction` alternative in
-   `Executable::lower_action`. The dependent static assertion makes an
+   `ExecutablePlan::lower_action`. The dependent static assertion makes an
    unhandled alternative fail in ordinary CPU builds.
 2. Put only execution-ready fields in `detail::Action`. Pauli geometry,
    coordinate changes, and symbolic dependencies belong in planning or
    lowering, not in the kernel.
 3. Implement the tag in the interpreter switch for both coefficient types.
-4. Add host-only packing assertions to `test_hip_executable.cc`.
+4. Add host-only packing assertions to `test_hip_executable_plan.cc`.
 5. Add forced-replay or deterministic hardware coverage before relying on a
    statistical comparison.
 
@@ -103,11 +104,12 @@ private serialization for the HIP interpreter, not another semantic IR.
 
 ## Change the Workspace or Add an Execution Tier
 
-`Sampler` owns one uploaded program and one precision-specific workspace.
+`Sampler` owns one uploaded program, scalar result-layout metadata, and one
+precision-specific workspace. It does not retain a duplicate host executable.
 Allocation is complete before a batch enters the kernel. A request larger than
-`max_batch_shots` reuses that workspace, and each launch receives both its
-local row count and global shot offset. Aggregate-only survivor requests skip
-unused record, detector, and expectation-value downloads; device-side survivor
+`max_batch_shots` reuses that workspace, and each launch receives both its local
+row count and global shot offset. Aggregate-only survivor requests skip unused
+record, detector, and expectation-value downloads; device-side survivor
 aggregation remains a separate execution-path extension.
 
 A cooperative path should add a separate kernel and typed launcher, then

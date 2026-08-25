@@ -19,6 +19,10 @@ pairings, active-width transitions, expressions, and noise distributions. The
 device therefore executes the plan without performing topology planning or
 allocating storage in its dispatch loop.
 
+CPU and HIP lowering share only execution-ready Pauli preparation and result
+containers. Their executable layouts, mutable state, dispatch order, and
+workspace ownership remain backend-specific.
+
 ## Building for gfx942
 
 HIP support is off by default. Enable it explicitly and select the target GPU:
@@ -53,13 +57,15 @@ coefficient, scratch, symbol, record, and output storage before kernel launch.
 It is intentionally restricted to peak active width `k <= 4`, where serial
 coefficient work per shot is small.
 
-`sampling::hip::Sampler` uploads an executable once and owns a reusable,
-precision-specific workspace. Large requests are divided into bounded batches;
+`sampling::hip::Sampler` uploads an executable once and owns scalar result
+metadata plus a reusable, precision-specific workspace; it does not retain a
+duplicate host executable. Large requests are divided into bounded batches;
 the kernel receives the global shot offset so changing the batch size does not
 change a seeded shot's random stream. The free C++ sampling functions remain
-convenience wrappers that construct a temporary sampler. Aggregate-only
-survivor sampling downloads survival flags and observables, but omits record,
-detector, and expectation-value transfers that its caller does not consume.
+convenience wrappers that construct a temporary sampler. Aggregate-only survivor
+sampling downloads survival flags and observables, but omits record, detector,
+and expectation-value transfers that its caller does not consume. Overlapping
+calls on one retained sampler are rejected by the backend.
 
 This tier supports both coefficient formats in one backend:
 
