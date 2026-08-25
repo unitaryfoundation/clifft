@@ -1,6 +1,6 @@
 #include "clifft/sampling/hip/executable_plan.h"
 
-#include "clifft/sampling/kernels.h"
+#include "clifft/sampling/pauli_preparation.h"
 
 #include <limits>
 #include <sstream>
