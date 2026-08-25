@@ -64,6 +64,7 @@ struct MeasurementBranchClassification {
 
 }  // namespace
 
+#if !defined(__EMSCRIPTEN__)
 uint32_t resolve_batch_capacity(const ExecutablePlan& plan, uint32_t shots,
                                 uint32_t intra_shot_workers,
                                 std::optional<uint32_t> requested_batch_size) {
@@ -80,12 +81,6 @@ uint32_t resolve_batch_capacity(const ExecutablePlan& plan, uint32_t shots,
         }
         return 1;
     }
-#if defined(__EMSCRIPTEN__)
-    if (requested_batch_size.has_value() && *requested_batch_size > 1) {
-        throw std::invalid_argument("packed batch_size is unavailable in WebAssembly builds");
-    }
-    return 1;
-#else
     if (requested_batch_size.has_value()) {
         return std::max(uint32_t{1},
                         std::min({*requested_batch_size, shots, kMaxExplicitBatchShots}));
@@ -102,8 +97,8 @@ uint32_t resolve_batch_capacity(const ExecutablePlan& plan, uint32_t shots,
     const size_t footprint_capacity = std::max<size_t>(1, kDefaultBatchStateBudget / state_bytes);
     return static_cast<uint32_t>(
         std::min<size_t>({shots, kDefaultMaxAutoBatchShots, footprint_capacity}));
-#endif
 }
+#endif
 
 BatchExecutor::BatchExecutor(const ExecutablePlan& plan, uint32_t lane_capacity,
                              BatchOutputMode output_mode)

@@ -486,6 +486,7 @@ SamplingResult sample(const ExecutablePlan& plan, uint32_t shots, std::optional<
     const ThreadLayout resolved = resolve_thread_layout(plan, shots, threads, thread_layout);
     const uint32_t batch_capacity =
         resolve_batch_capacity(plan, shots, resolved.intra_shot_workers, batch_size);
+#if !defined(__EMSCRIPTEN__)
     if (batch_capacity > 1) {
         return sample_fixed_batches(
             plan, shots, seed, resolved, batch_capacity,
@@ -493,6 +494,9 @@ SamplingResult sample(const ExecutablePlan& plan, uint32_t shots, std::optional<
             [](BatchSamplingWorker& worker, const SeedRoot& root, uint32_t first_shot,
                uint32_t batch) noexcept { worker.executor.run_batch(root, first_shot, batch); });
     }
+#else
+    (void)batch_capacity;
+#endif
     return sample_fixed_rows(
         plan, shots, seed, resolved,
         [&](uint32_t) {
@@ -525,6 +529,7 @@ SamplingSurvivorResult sample_survivors(const ExecutablePlan& plan, uint32_t sho
     const ThreadLayout resolved = resolve_thread_layout(plan, shots, threads, thread_layout);
     const uint32_t batch_capacity =
         resolve_batch_capacity(plan, shots, resolved.intra_shot_workers, batch_size);
+#if !defined(__EMSCRIPTEN__)
     if (batch_capacity > 1) {
         return sample_surviving_batches(
             plan, shots, seed, keep_records, resolved, batch_capacity,
@@ -534,6 +539,9 @@ SamplingSurvivorResult sample_survivors(const ExecutablePlan& plan, uint32_t sho
             [](BatchSurvivorWorker& worker, const SeedRoot& root, uint32_t first_shot,
                uint32_t batch) noexcept { worker.executor.run_batch(root, first_shot, batch); });
     }
+#else
+    (void)batch_capacity;
+#endif
     return sample_surviving_rows(
         plan, shots, seed, keep_records, resolved,
         [&](uint32_t) {
@@ -573,6 +581,7 @@ SamplingResult sample_k(const ExecutablePlan& plan, uint32_t shots, uint32_t k,
             [](SamplingWorker& worker) noexcept { worker.executor.run_shot(); });
     }
     const std::vector<double> probabilities = plan.noise_site_probabilities();
+#if !defined(__EMSCRIPTEN__)
     if (batch_capacity > 1) {
         return sample_fixed_batches(
             plan, shots, seed, resolved, batch_capacity,
@@ -585,6 +594,9 @@ SamplingResult sample_k(const ExecutablePlan& plan, uint32_t shots, uint32_t k,
                 worker.executor.run_batch(root, first_shot, batch, worker.fault_sampler);
             });
     }
+#else
+    (void)batch_capacity;
+#endif
     return sample_fixed_rows(
         plan, shots, seed, resolved,
         [&](uint32_t) {
@@ -624,6 +636,7 @@ SamplingSurvivorResult sample_k_survivors(const ExecutablePlan& plan, uint32_t s
             [](SurvivorWorker& worker) noexcept { worker.executor.run_shot(); });
     }
     const std::vector<double> probabilities = plan.noise_site_probabilities();
+#if !defined(__EMSCRIPTEN__)
     if (batch_capacity > 1) {
         return sample_surviving_batches(
             plan, shots, seed, keep_records, resolved, batch_capacity,
@@ -636,6 +649,9 @@ SamplingSurvivorResult sample_k_survivors(const ExecutablePlan& plan, uint32_t s
                 worker.executor.run_batch(root, first_shot, batch, worker.fault_sampler);
             });
     }
+#else
+    (void)batch_capacity;
+#endif
     return sample_surviving_rows(
         plan, shots, seed, keep_records, resolved,
         [&](uint32_t) {

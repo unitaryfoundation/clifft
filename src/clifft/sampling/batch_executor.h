@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <optional>
 #include <span>
+#include <stdexcept>
 #include <vector>
 
 namespace clifft {
@@ -32,9 +33,29 @@ enum class BatchOutputMode : uint8_t {
 // Resolve the retained lane capacity for the request. requested_batch_size is
 // empty for conservative automatic selection, one for the scalar path, or an
 // explicit packed capacity. Validation and allocation happen before dispatch.
+#if defined(__EMSCRIPTEN__)
+[[nodiscard]] inline uint32_t resolve_batch_capacity(const ExecutablePlan& plan, uint32_t shots,
+                                                     uint32_t intra_shot_workers,
+                                                     std::optional<uint32_t> requested_batch_size) {
+    if (requested_batch_size.has_value() && *requested_batch_size == 0) {
+        throw std::invalid_argument("batch_size must be a positive integer or 'auto'");
+    }
+    if (shots == 0 || plan.has_instruments()) {
+        return 1;
+    }
+    if (intra_shot_workers > 1 && requested_batch_size.value_or(1) > 1) {
+        throw std::invalid_argument("packed batch_size is incompatible with intra-shot workers");
+    }
+    if (requested_batch_size.value_or(1) > 1) {
+        throw std::invalid_argument("packed batch_size is unavailable in WebAssembly builds");
+    }
+    return 1;
+}
+#else
 [[nodiscard]] uint32_t resolve_batch_capacity(const ExecutablePlan& plan, uint32_t shots,
                                               uint32_t intra_shot_workers,
                                               std::optional<uint32_t> requested_batch_size);
+#endif
 
 // Single-threaded packed executor for fixed plans. Coefficients are
 // basis-major and shot-interleaved so prepared actions vectorize across lanes.
