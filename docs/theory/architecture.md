@@ -43,10 +43,10 @@ implementation moved from that design to the pipeline described here.
 
 ### Clifford Trace and HIR Optimization
 
-The front end uses Stim's tableau implementation to absorb Clifford gates and
-express the remaining rotations, measurements, noise, feedback, and outputs
-in the Heisenberg frame. HIR passes then simplify this representation using
-Pauli algebra and dataflow. Neither stage fixes a sampling data layout.
+The front end uses Clifft's native tableau implementation to absorb Clifford
+gates and express the remaining rotations, measurements, noise, feedback, and
+outputs in the Heisenberg frame. HIR passes then simplify this representation
+using Pauli algebra and dataflow. Neither stage fixes a sampling data layout.
 
 ### Semantic Planning
 

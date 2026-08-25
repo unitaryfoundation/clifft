@@ -512,9 +512,9 @@ struct HirModule {
     // and the op is appended -- atomically at the call site. Example:
     //
     //     hir.append_tgate(/*dagger=*/false, [&](MutablePauliMaskView slot) {
-    //         stim_to_mask_view(rewound.xs, n, slot.x());
-    //         stim_to_mask_view(rewound.zs, n, slot.z());
-    //         slot.set_sign(rewound.sign);
+    //         slot.x().xor_with(rewound.x());
+    //         slot.z().xor_with(rewound.z());
+    //         slot.set_sign(rewound.sign());
     //     });
     //
     // The fill callable's MutablePauliMaskView argument starts zeroed; the

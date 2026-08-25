@@ -6,9 +6,9 @@
 #include "clifft/util/bitmask.h"
 #include "clifft/util/config.h"
 #include "clifft/util/mask_view.h"
-#include "clifft/util/stim_mask.h"
 
 #include "stim.h"
+#include "stim_mask.h"
 
 #include <array>
 #include <bit>

@@ -1,8 +1,7 @@
-// Stim API Contract Tests
+// Stim Test Oracle Contract
 //
-// These tests verify our assumptions about Stim's TableauSimulator and Tableau APIs.
-// If Stim changes its semantics in a future version, these tests will catch it early
-// rather than causing mysterious failures in the Front-End.
+// These tests verify assumptions used by the independent differential test
+// adapters. If Stim changes its semantics, failures remain localized here.
 //
 // Key assumptions documented here:
 // 1. TableauSimulator.inv_state tracks the INVERSE tableau (U_dag)
@@ -12,9 +11,8 @@
 // 5. Tableau.then() composes tableaux correctly
 // 6. Tableau.inverse() computes the inverse correctly
 
-#include "clifft/util/stim_mask.h"
-
 #include "stim.h"
+#include "stim_mask.h"
 
 #include <array>
 #include <catch2/catch_test_macros.hpp>
@@ -120,8 +118,8 @@ TEST_CASE("Stim contract: TableauSimulator Heisenberg rewinding", "[stim][contra
     }
 }
 
-TEST_CASE("Stim contract: mask extraction for HIR", "[stim][contract]") {
-    // The Front-End needs to extract uint64_t masks from PauliString
+TEST_CASE("Stim contract: mask extraction for test adapters", "[stim][contract]") {
+    // Differential tests need to extract uint64_t masks from PauliString.
 
     std::mt19937_64 rng(42);
     stim::TableauSimulator<64> sim(std::move(rng), 4);

@@ -33,8 +33,8 @@ nanobind_add_module(
 # Link against our core library
 target_link_libraries(_clifft_core PRIVATE clifft_core)
 
-# The Python module should not expose symbols from static vendored
-# dependencies such as Stim as part of Clifft's dynamic ABI.
+# The Python module should not expose symbols from static implementation
+# dependencies as part of Clifft's dynamic ABI.
 if(UNIX AND NOT APPLE)
     target_link_options(_clifft_core PRIVATE
         "LINKER:--version-script=${CMAKE_CURRENT_SOURCE_DIR}/clifft_core.lds")

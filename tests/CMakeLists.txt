@@ -45,6 +45,7 @@ target_link_libraries(clifft_tests PRIVATE clifft_hip_plan)
 target_link_libraries(clifft_tests PRIVATE
     clifft_core
     Catch2::Catch2WithMain
+    libstim
 )
 
 # Provide absolute path to test fixture files so benchmarks work from any cwd.

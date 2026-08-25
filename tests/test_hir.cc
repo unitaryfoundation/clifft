@@ -156,7 +156,7 @@ TEST_CASE("pauli_masks helper", "[hir][helper]") {
 }
 
 // =============================================================================
-// stim::Tableau API used by the Front-End
+// Stim oracle API assumptions used by differential test helpers
 // =============================================================================
 
 TEST_CASE("stim::Tableau identity and Hadamard", "[hir]") {

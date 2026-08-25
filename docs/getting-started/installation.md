@@ -39,9 +39,8 @@ uv pip install -e .
 uv run python -c "import clifft; print(clifft.version())"
 ```
 
-!!! info "First build takes 10-15 minutes"
-    The initial build compiles Stim (a dependency) from source, which has many files.
-    Subsequent incremental builds are fast.
+Source installation builds Clifft's native core directly; Stim is not fetched
+or linked into the Python package.
 
 ### Prerequisites (source build)
 
