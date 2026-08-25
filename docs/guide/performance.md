@@ -83,42 +83,57 @@ does not remove the exponential memory limit.
 
 ## Cross-tool and release comparisons
 
-The same single-core QEC campaign compares Clifft 0.9 with SymFT single-shot
-and batched modes. SymFT's fastest applicable mode is faster on seven of the
-eight workloads; Clifft is 1.33x faster on distance-5 cultivation. The winning
-SymFT batch size varies by circuit, so the
+[SymFT](https://arxiv.org/abs/2607.28600) is another CPU simulator targeting
+near-Clifford circuits. The same single-core QEC campaign compares Clifft 0.9
+with the SymFT single-shot backend and batch sizes 32 and 2048 on one pinned
+core. Measuring both modes separates native single-shot performance from the
+additional throughput available by processing independent shots together.
+SymFT's fastest applicable mode is faster on seven of the eight workloads;
+Clifft is 1.33x faster on distance-5 cultivation. The winning SymFT batch size
+varies by circuit, so the
 [per-workload table](https://github.com/unitaryfoundation/clifft-bench#current-single-core-qec-results)
 is more useful than one aggregate ranking.
 
-![QEC workload throughput ratio between Clifft and the fastest measured SymFT mode](https://raw.githubusercontent.com/unitaryfoundation/clifft-bench/8d6a70d47c7f7fa596d87170375c1583dbfca499/figures/current-tools-v1-20260824-r1.png)
+![QEC workload throughput ratio between Clifft and the fastest measured SymFT mode](https://raw.githubusercontent.com/unitaryfoundation/clifft-bench/main/figures/current-tools-v1-20260824-r1.png)
 
-The release-history campaign runs Clifft 0.1 through 0.9 on the same corpus and
-hardware epoch. Clifft 0.9 is faster than 0.1 on all eight workloads, with a
-median per-workload speedup of 1.93x and a range of 1.18x to 16.89x. See the
-[release-history results](https://github.com/unitaryfoundation/clifft-bench#clifft-release-history).
+Version 0.8 replaced the localized-Pauli virtual machine with a
+symbolic-coordinate compiler that moves frame and dependency work into
+planning and applies active-Pauli operations directly. Version 0.9 then
+removed global-phase bookkeeping, absorbed more Clifford-valued rotations
+during compilation, and vectorized important active-measurement kernels. The
+release-history campaign runs Clifft 0.1 through 0.9 on the same corpus and
+reference host configuration. Clifft 0.9 is faster than 0.1 on all eight
+workloads, with a median per-workload speedup of 1.93x and a range of 1.18x to
+16.89x. See the [release-history results](https://github.com/unitaryfoundation/clifft-bench#clifft-release-history).
 
-![Clifft throughput across releases](https://raw.githubusercontent.com/unitaryfoundation/clifft-bench/8d6a70d47c7f7fa596d87170375c1583dbfca499/figures/clifft-history-v1-20260825-r1.png)
+![Clifft throughput across releases](https://raw.githubusercontent.com/unitaryfoundation/clifft-bench/main/figures/clifft-history-v1-20260825-r1.png)
 
 ### Multicore Quantum Volume
 
-#### Current-tool latency
+Clifft targets near-Clifford circuits, but dense non-Clifford Quantum Volume
+circuits drive the active width to all qubits and require carrying the full
+$2^n$ state vector. This campaign probes that dense limit against Qiskit Aer,
+Qulacs, and qsim, and measures how one wide Clifft shot scales across cores.
 
-![Quantum Volume latency by simulator](https://raw.githubusercontent.com/unitaryfoundation/clifft-bench/8d6a70d47c7f7fa596d87170375c1583dbfca499/figures/qv-multicore-v1-2026082-current-tools.png)
+#### Current-tool execution time
 
-On 16 physical cores, Clifft 0.9 has the lowest median single-shot latency of
-the four measured tools at QV20 and QV22. Tool ordering changes with circuit
-width, so the full curve is more informative than one aggregate ranking.
+![Quantum Volume execution time by simulator](https://raw.githubusercontent.com/unitaryfoundation/clifft-bench/main/figures/qv-multicore-v1-2026082-current-tools.png)
+
+On 16 physical cores, Clifft 0.9 has the shortest median single-shot execution
+time of the four measured tools at QV20 and QV22. Tool ordering changes with
+circuit width, so the full curve is more informative than one aggregate
+ranking.
 
 #### Clifft strong scaling
 
-![Clifft Quantum Volume strong scaling](https://raw.githubusercontent.com/unitaryfoundation/clifft-bench/8d6a70d47c7f7fa596d87170375c1583dbfca499/figures/qv-multicore-v1-2026082-clifft-scaling.png)
+![Clifft Quantum Volume strong scaling](https://raw.githubusercontent.com/unitaryfoundation/clifft-bench/main/figures/qv-multicore-v1-2026082-clifft-scaling.png)
 
 Clifft's paired median QV24 speedup is 10.17x from 1 to 16 cores. Points show
 paired medians across three deterministic seeds; whiskers show the seed range.
 
 This is a separate exploratory campaign on an AWS `c8i.8xlarge` with three
-deterministic circuit seeds per point. Its latency numbers must not be mixed
-with the single-core QEC throughput table. See the
+deterministic circuit seeds per point. Its execution-time numbers must not be
+mixed with the single-core QEC throughput table. See the
 [QV methodology and data](https://github.com/unitaryfoundation/clifft-bench/blob/main/docs/qv-multicore.md).
 
 ## Measurement scope
