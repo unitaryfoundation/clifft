@@ -20,12 +20,11 @@ phase convention, bit order, and padding requirements are specified in
 [Tableau Conventions](tableau-conventions.md). These rules are part of the
 compiler contract regardless of which library implements them.
 
-Tests compare the native implementation directly with Stim on generator rows,
-random Paulis, every supported Clifford gate, arbitrary Pauli products, and
-64-bit storage boundaries. Stim remains a test-only external oracle. The
-dedicated suite
-([`tests/test_stim_contract.cc`](https://github.com/unitaryfoundation/clifft/blob/main/tests/test_stim_contract.cc))
-protects the assumptions made by those differential test adapters.
+C++ tests compare the packed native implementation with deliberately scalar
+Clifford and Pauli-channel references, algebraic round trips, and property
+checks across 64-bit storage boundaries. End-to-end Python tests retain Stim as
+an independent oracle for every supported Clifford gate and noisy circuit
+behavior.
 
 ## Structured and Random Circuit Oracles
 
@@ -72,8 +71,8 @@ than isolated implementation details.
   applied to a tomographically complete set of stabilizer inputs and compared
   with Stim up to global phase
   ([`test_stim_statevector_oracle.py`](https://github.com/unitaryfoundation/clifft/blob/main/tests/python/test_stim_statevector_oracle.py)).
-  This is an end-to-end gate and phase oracle that remains independent when
-  production code no longer links Stim.
+  This end-to-end gate and phase oracle remains independent of the C++ test
+  references.
 
 * **Statistical equivalence with Stim:** For purely Clifford noisy circuits, Clifft should reproduce the detector and observable statistics produced by Stim. We run surface-code-style extraction circuits for many shots in both simulators and require each detector and logical observable marginal to agree within a binomial shot-noise bound ([`test_statistical_equivalence.py`](https://github.com/unitaryfoundation/clifft/blob/main/tests/python/test_statistical_equivalence.py)). This validates Clifft's ahead-of-time handling of stochastic noise, measurements, detectors, and classical record logic in the Clifford regime.
 
