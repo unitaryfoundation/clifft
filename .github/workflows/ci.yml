@@ -123,7 +123,7 @@ jobs:
         run: cmake --build build-hip --target clifft_hip_tests --parallel 2
 
       - name: Run GPU-free HIP conformance tests
-        run: ctest --test-dir build-hip --output-on-failure -R HIP
+        run: ctest --test-dir build-hip --output-on-failure --no-tests=error -R HIP
       - name: Build editable HIP Python package
         env:
           CMAKE_ARGS: >-

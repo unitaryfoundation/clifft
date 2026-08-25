@@ -352,9 +352,9 @@ __global__ void interpret_shots(ProgramView program, SeedRoot seed_root, uint64_
         return;
     }
 
-    const uint64_t capacity = uint64_t{1} << program.peak_active_width;
-    const uint64_t scratch_capacity = capacity > 1 ? capacity >> 1 : 1;
-    const uint64_t coefficient_stride = 2 * capacity + 2 * scratch_capacity;
+    const uint64_t capacity = coefficient_state_capacity(program.peak_active_width);
+    const uint64_t scratch_capacity = coefficient_scratch_capacity(program.peak_active_width);
+    const uint64_t coefficient_stride = coefficient_elements_per_shot(program.peak_active_width);
     Coefficient* real = coefficient_storage + static_cast<uint64_t>(shot) * coefficient_stride;
     Coefficient* imag = real + capacity;
     Coefficient* scratch_real = imag + capacity;
@@ -599,6 +599,13 @@ class DeviceBuffer {
     [[nodiscard]] size_t bytes() const { return count_ * sizeof(T); }
 
     void download(std::span<T> destination) const {
+        if (destination.size() != count_) {
+            throw std::invalid_argument("HIP download destination must match the device buffer");
+        }
+        download_prefix(destination);
+    }
+
+    void download_prefix(std::span<T> destination) const {
         if (destination.size() > count_) {
             throw std::invalid_argument("HIP download destination exceeds the device buffer");
         }
@@ -703,7 +710,7 @@ class Sampler::Impl {
           program(executable),
           precision(selected_precision),
           max_batch(selected_max_batch_shots),
-          coefficient_stride(coefficient_elements_per_shot(executable)),
+          coefficient_stride(detail::coefficient_elements_per_shot(executable.peak_active_width())),
           fp32_coefficients(selected_precision == CoefficientPrecision::FP32
                                 ? checked_elements(max_batch, coefficient_stride, "coefficient")
                                 : 0),
@@ -782,12 +789,6 @@ class Sampler::Impl {
     uint8_t host_reachable = 0;
 
   private:
-    static uint64_t coefficient_elements_per_shot(const ExecutablePlan& executable) {
-        const uint64_t state_capacity = uint64_t{1} << executable.peak_active_width();
-        const uint64_t scratch_capacity = state_capacity > 1 ? state_capacity >> 1 : 1;
-        return 2 * state_capacity + 2 * scratch_capacity;
-    }
-
     template <typename Coefficient, bool Replay>
     void launch(detail::SeedRoot root, uint64_t shot_offset, uint32_t shots, uint32_t block_size,
                 Coefficient* coefficient_storage) {
@@ -805,20 +806,20 @@ class Sampler::Impl {
 
     void download_rows(uint32_t shots, DownloadMode mode) {
         if (mode != DownloadMode::SurvivorCounts) {
-            records.download(
+            records.download_prefix(
                 std::span(host_records)
                     .first(checked_elements(shots, executable.num_records(), "record result")));
-            detectors.download(
+            detectors.download_prefix(
                 std::span(host_detectors)
                     .first(checked_elements(shots, executable.num_detectors(), "detector result")));
-            exp_vals.download(
+            exp_vals.download_prefix(
                 std::span(host_exp_vals)
                     .first(checked_elements(shots, executable.num_exp_vals(), "expectation result")));
         }
-        observables.download(
+        observables.download_prefix(
             std::span(host_observables)
                 .first(checked_elements(shots, executable.num_observables(), "observable result")));
-        survived.download(std::span(host_survived).first(shots));
+        survived.download_prefix(std::span(host_survived).first(shots));
         if (mode == DownloadMode::Replay) {
             log_probabilities.download(std::span(&host_log_probability, 1));
             reachable.download(std::span(&host_reachable, 1));

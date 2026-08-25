@@ -34,6 +34,15 @@ TEST_CASE("HIP sampling has an independent random stream domain") {
     STATIC_REQUIRE(clifft::kHipSamplingExecutorDomain != clifft::kSamplingExecutorDomain);
 }
 
+TEST_CASE("HIP device layout sizes coefficient workspace consistently") {
+    STATIC_REQUIRE(clifft::sampling::hip::detail::coefficient_state_capacity(0) == 1);
+    STATIC_REQUIRE(clifft::sampling::hip::detail::coefficient_scratch_capacity(0) == 1);
+    STATIC_REQUIRE(clifft::sampling::hip::detail::coefficient_elements_per_shot(0) == 4);
+    STATIC_REQUIRE(clifft::sampling::hip::detail::coefficient_state_capacity(4) == 16);
+    STATIC_REQUIRE(clifft::sampling::hip::detail::coefficient_scratch_capacity(4) == 8);
+    STATIC_REQUIRE(clifft::sampling::hip::detail::coefficient_elements_per_shot(4) == 48);
+}
+
 TEST_CASE("HIP executable lowers existing sampling action names") {
     const SamplingPlan plan = plan_from(R"(
         H 0
