@@ -64,6 +64,8 @@ enum class NewXInstrumentKernel : uint8_t {
 
 // Entry points implemented in architecture-specific translation units. Only
 // a matching backend-specialized executor calls them.
+void apply_direct_rotation_neon(State& state, const PreparedRotation& rotation,
+                                DirectRotationKernel kernel, bool sign) noexcept;
 void apply_direct_rotation_avx2(State& state, const PreparedRotation& rotation,
                                 DirectRotationKernel kernel, bool sign) noexcept;
 void apply_direct_rotation_avx512(State& state, const PreparedRotation& rotation,
@@ -74,6 +76,9 @@ void apply_direct_rotation_avx2_parallel(State& state, const PreparedRotation& r
 void apply_direct_rotation_avx512_parallel(State& state, const PreparedRotation& rotation,
                                            DirectRotationKernel kernel, bool sign, uint32_t workers,
                                            uint32_t min_active_width) noexcept;
+void apply_direct_rotation_neon_parallel(State& state, const PreparedRotation& rotation,
+                                         DirectRotationKernel kernel, bool sign, uint32_t workers,
+                                         uint32_t min_active_width) noexcept;
 
 [[nodiscard]] MeasurementProbabilities active_measurement_probabilities_avx2(
     const State& state, const PreparedMeasurement& measurement,
@@ -87,6 +92,12 @@ void collapse_active_measurement_avx2(State& state, const PreparedMeasurement& m
 void collapse_active_measurement_avx512(State& state, const PreparedMeasurement& measurement,
                                         ActiveMeasurementKernel kernel, bool branch,
                                         double branch_probability) noexcept;
+[[nodiscard]] MeasurementProbabilities active_measurement_probabilities_neon(
+    const State& state, const PreparedMeasurement& measurement,
+    ActiveMeasurementKernel kernel) noexcept;
+void collapse_active_measurement_neon(State& state, const PreparedMeasurement& measurement,
+                                      ActiveMeasurementKernel kernel, bool branch,
+                                      double branch_probability) noexcept;
 
 [[nodiscard]] FusedRotationSidecar prepare_fused_rotation_avx2_sidecar(
     const PreparedFusedRotation& rotation);

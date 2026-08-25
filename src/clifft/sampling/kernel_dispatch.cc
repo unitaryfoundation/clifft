@@ -10,6 +10,9 @@ namespace {
 
 constexpr uint32_t kMinProfitableAvx2MeasurementWidth = kAvx2LaneIndexBits;
 constexpr uint32_t kMinProfitableAvx512MeasurementWidth = 4;
+constexpr uint32_t kMinProfitableNeonRotationWidth = 3;
+constexpr uint32_t kMinProfitableNeonHighPivotRotationWidth = 4;
+constexpr uint32_t kMinProfitableNeonMeasurementWidth = 6;
 
 ActiveMeasurementKernel select_active_measurement(const PreparedMeasurement& measurement,
                                                   uint64_t vector_lanes, uint32_t lane_index_bits,
@@ -39,14 +42,15 @@ DirectRotationKernel select_direct_rotation(const PreparedRotation& rotation, ui
                                             uint32_t min_active_width,
                                             uint64_t excluded_pairing_bit) noexcept {
     assert(!rotation.pauli.is_identity() && "identity rotations must be removed during planning");
+    if (rotation.pauli.active_width < min_active_width) {
+        return DirectRotationKernel::Scalar;
+    }
     if (rotation.pauli.is_diagonal()) {
-        return rotation.pauli.active_width >= min_active_width ? DirectRotationKernel::Diagonal
-                                                               : DirectRotationKernel::Scalar;
+        return DirectRotationKernel::Diagonal;
     }
     const uint64_t pairing_bit = rotation.pauli.pairing_bit;
     if (pairing_bit < vector_lanes) {
-        return rotation.pauli.active_width >= min_active_width ? DirectRotationKernel::LanePaired
-                                                               : DirectRotationKernel::Scalar;
+        return DirectRotationKernel::LanePaired;
     }
     if (pairing_bit == excluded_pairing_bit) {
         return DirectRotationKernel::Scalar;
@@ -84,8 +88,16 @@ DirectRotationKernel resolve_direct_rotation_kernel(const PreparedRotation& rota
                                                     ExecutorBackend backend) noexcept {
     switch (backend) {
         case ExecutorBackend::Scalar:
-        case ExecutorBackend::Neon:
             return DirectRotationKernel::Scalar;
+        case ExecutorBackend::Neon: {
+            const DirectRotationKernel selected = select_direct_rotation(
+                rotation, kNeonDoubleLanes, kMinProfitableNeonRotationWidth, kNoExcludedPairingBit);
+            if (selected == DirectRotationKernel::HighPivot &&
+                rotation.pauli.active_width < kMinProfitableNeonHighPivotRotationWidth) {
+                return DirectRotationKernel::Scalar;
+            }
+            return selected;
+        }
         case ExecutorBackend::Avx2:
             // Stride-16 pairing was neutral or faster than scalar across the
             // measured AVX2 widths, so every high pivot uses the vector kernel.
@@ -104,8 +116,16 @@ ActiveMeasurementKernel resolve_active_measurement_kernel(const PreparedMeasurem
                                                           ExecutorBackend backend) noexcept {
     switch (backend) {
         case ExecutorBackend::Scalar:
-        case ExecutorBackend::Neon:
             return ActiveMeasurementKernel::Scalar;
+        case ExecutorBackend::Neon: {
+            const ActiveMeasurementKernel selected =
+                select_active_measurement(measurement, kNeonDoubleLanes, kNeonLaneIndexBits,
+                                          kMinProfitableNeonMeasurementWidth);
+            // Only diagonal probability plus compaction has a measured NEON
+            // crossover; paired shapes retain the scalar implementation.
+            return selected == ActiveMeasurementKernel::Diagonal ? selected
+                                                                 : ActiveMeasurementKernel::Scalar;
+        }
         case ExecutorBackend::Avx2:
             // The probability-plus-collapse pair wins from one AVX2 block onward.
             return select_active_measurement(measurement, kAvx2DoubleLanes, kAvx2LaneIndexBits,

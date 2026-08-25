@@ -13,6 +13,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -20,8 +21,11 @@ namespace {
 
 using clifft::sampling::ActivePauli;
 using clifft::sampling::AffineBool;
+using clifft::sampling::apply_direct_rotation_neon;
+using clifft::sampling::apply_direct_rotation_neon_parallel;
 using clifft::sampling::apply_fused_rotation;
 using clifft::sampling::apply_rotation;
+using clifft::sampling::DirectRotationKernel;
 using clifft::sampling::ExecutablePlan;
 using clifft::sampling::Executor;
 using clifft::sampling::index;
@@ -215,6 +219,48 @@ TEST_CASE("Apple NEON fused rotation rejects a lane pivot") {
     const auto run = prepare_fused_rotation_run(plan.actions);
     REQUIRE(run.rotation.has_value());
     REQUIRE(prepare_fused_rotation_neon_sidecar(*run.rotation).storage == nullptr);
+}
+
+TEST_CASE("Apple NEON direct rotation serial and parallel match scalar") {
+    constexpr uint32_t kActiveWidth = 10;
+    const std::array cases = {
+        std::pair{ActivePauli{0, 0b1010101011}, DirectRotationKernel::Diagonal},
+        std::pair{ActivePauli{0b0000000001, 0b1010101010}, DirectRotationKernel::LanePaired},
+        std::pair{ActivePauli{0b1000100101, 0b0111011011}, DirectRotationKernel::HighPivot},
+    };
+    for (const auto& [pauli, kernel] : cases) {
+        for (bool sign : {false, true}) {
+            CAPTURE(pauli.x, pauli.z, sign);
+            State expected(kActiveWidth, kActiveWidth);
+            State serial(kActiveWidth, kActiveWidth);
+            State parallel(kActiveWidth, kActiveWidth);
+            for (uint64_t basis = 0; basis < expected.size(); ++basis) {
+                const double real = static_cast<double>((basis * 13) % 29 + 1) / 100.0;
+                const double imag = -static_cast<double>((basis * 7) % 23 + 1) / 90.0;
+                expected.real_data()[basis] = real;
+                expected.imag_data()[basis] = imag;
+                serial.real_data()[basis] = real;
+                serial.imag_data()[basis] = imag;
+                parallel.real_data()[basis] = real;
+                parallel.imag_data()[basis] = imag;
+            }
+            const auto rotation = prepare_rotation(pauli, kActiveWidth, 0.271);
+            apply_rotation(expected, rotation, sign);
+            apply_direct_rotation_neon(serial, rotation, kernel, sign);
+            apply_direct_rotation_neon_parallel(parallel, rotation, kernel, sign, 4, 0);
+            for (uint64_t basis = 0; basis < expected.size(); ++basis) {
+                CAPTURE(basis);
+                REQUIRE_THAT(serial.real_data()[basis],
+                             Catch::Matchers::WithinAbs(expected.real_data()[basis], 2e-12));
+                REQUIRE_THAT(serial.imag_data()[basis],
+                             Catch::Matchers::WithinAbs(expected.imag_data()[basis], 2e-12));
+                REQUIRE_THAT(parallel.real_data()[basis],
+                             Catch::Matchers::WithinAbs(expected.real_data()[basis], 2e-12));
+                REQUIRE_THAT(parallel.imag_data()[basis],
+                             Catch::Matchers::WithinAbs(expected.imag_data()[basis], 2e-12));
+            }
+        }
+    }
 }
 #endif
 

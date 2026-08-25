@@ -347,7 +347,14 @@ void Executor::execute_action(const ExecutablePlan::ExecuteRotation& action,
         }
         return;
     }
-    if constexpr (Backend == ExecutorBackend::Avx2) {
+    if constexpr (Backend == ExecutorBackend::Neon) {
+        if constexpr (IntraShot == IntraShotMode::OpenMP) {
+            apply_direct_rotation_neon_parallel(state_, action.rotation, action.kernel, sign,
+                                                intra_shot_workers_, intra_shot_min_active_width_);
+        } else {
+            apply_direct_rotation_neon(state_, action.rotation, action.kernel, sign);
+        }
+    } else if constexpr (Backend == ExecutorBackend::Avx2) {
         if constexpr (IntraShot == IntraShotMode::OpenMP) {
             apply_direct_rotation_avx2_parallel(state_, action.rotation, action.kernel, sign,
                                                 intra_shot_workers_, intra_shot_min_active_width_);
@@ -420,7 +427,9 @@ void Executor::execute_action(const ExecutablePlan::ExecuteActiveMeasurement& ac
         if (action.kernel == ActiveMeasurementKernel::Scalar) {
             return measurement_probabilities(state_, action.measurement);
         }
-        if constexpr (Backend == ExecutorBackend::Avx2) {
+        if constexpr (Backend == ExecutorBackend::Neon) {
+            return active_measurement_probabilities_neon(state_, action.measurement, action.kernel);
+        } else if constexpr (Backend == ExecutorBackend::Avx2) {
             return active_measurement_probabilities_avx2(state_, action.measurement, action.kernel);
         } else if constexpr (Backend == ExecutorBackend::Avx512) {
             return active_measurement_probabilities_avx512(state_, action.measurement,
@@ -455,6 +464,9 @@ void Executor::execute_action(const ExecutablePlan::ExecuteActiveMeasurement& ac
     const double branch_probability = probabilities.for_branch(branch);
     if (action.kernel == ActiveMeasurementKernel::Scalar) {
         collapse_measurement(state_, action.measurement, branch, branch_probability);
+    } else if constexpr (Backend == ExecutorBackend::Neon) {
+        collapse_active_measurement_neon(state_, action.measurement, action.kernel, branch,
+                                         branch_probability);
     } else if constexpr (Backend == ExecutorBackend::Avx2) {
         collapse_active_measurement_avx2(state_, action.measurement, action.kernel, branch,
                                          branch_probability);
