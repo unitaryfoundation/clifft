@@ -89,6 +89,7 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::compile() {
     initialize_program();
     prepare_noise_and_boundaries();
     lower_action_stream();
+    prepare_batch_rotation_runs();
     build_expression_dependencies();
     validate_executable_plan();
 }
@@ -434,6 +435,35 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::record_action_origin(uin
     output_.action_plan_ranges_.push_back({plan_begin, plan_end});
 }
 
+CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::prepare_batch_rotation_runs() {
+    output_.batch_rotation_run_lengths_.assign(output_.actions_.size(), 0);
+    bool prepared_run = false;
+    size_t action_index = 0;
+    while (action_index < output_.actions_.size()) {
+        if (!std::holds_alternative<ExecutablePlan::ExecuteRotation>(
+                output_.actions_[action_index])) {
+            ++action_index;
+            continue;
+        }
+        size_t run_end = action_index + 1;
+        while (run_end < output_.actions_.size() &&
+               std::holds_alternative<ExecutablePlan::ExecuteRotation>(output_.actions_[run_end])) {
+            ++run_end;
+        }
+        while (run_end - action_index >= ExecutablePlan::kMinBatchRotationRunLength) {
+            const size_t run_length = std::min<size_t>(run_end - action_index,
+                                                       ExecutablePlan::kMaxBatchRotationRunLength);
+            output_.batch_rotation_run_lengths_[action_index] = static_cast<uint8_t>(run_length);
+            prepared_run = true;
+            action_index += run_length;
+        }
+        action_index = run_end;
+    }
+    if (!prepared_run) {
+        output_.batch_rotation_run_lengths_.clear();
+    }
+}
+
 CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::build_expression_dependencies() {
     output_.expression_dependencies_ = ExecutablePlan::ExpressionDependencies::build(
         output_.num_symbols_, expression_terms_, expression_term_begins_);
@@ -445,6 +475,30 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::validate_executable_plan
            "expression register storage is inconsistent");
     output_.expression_dependencies_.validate(output_.num_symbols_,
                                               output_.expression_register_constants_.size());
+    assert((output_.batch_rotation_run_lengths_.empty() ||
+            output_.batch_rotation_run_lengths_.size() == output_.actions_.size()) &&
+           "batch rotation metadata must be empty or parallel to the action stream");
+    if (!output_.batch_rotation_run_lengths_.empty()) {
+        for (size_t action_index = 0; action_index < output_.actions_.size(); ++action_index) {
+            const uint32_t run_length = output_.batch_rotation_run_lengths_[action_index];
+            if (run_length == 0) {
+                continue;
+            }
+            assert(run_length >= ExecutablePlan::kMinBatchRotationRunLength &&
+                   run_length <= ExecutablePlan::kMaxBatchRotationRunLength &&
+                   run_length <= output_.actions_.size() - action_index &&
+                   "batch rotation run length must be valid");
+            for (size_t offset = 0; offset < run_length; ++offset) {
+                assert(std::holds_alternative<ExecutablePlan::ExecuteRotation>(
+                           output_.actions_[action_index + offset]) &&
+                       "batch rotation run must contain only direct rotations");
+                assert((offset == 0 ||
+                        output_.batch_rotation_run_lengths_[action_index + offset] == 0) &&
+                       "batch rotation runs must not overlap");
+            }
+            action_index += run_length - 1;
+        }
+    }
     if (source_.source_map.has_value()) {
         assert(output_.action_plan_ranges_.size() == output_.actions_.size() &&
                "executable provenance must remain parallel to the action stream");

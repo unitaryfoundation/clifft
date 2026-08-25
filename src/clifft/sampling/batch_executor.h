@@ -78,6 +78,13 @@ class BatchExecutor {
     template <ExecutorBackend Backend>
     void execute_actions() noexcept;
     template <ExecutorBackend Backend>
+    void execute_actions_with_rotation_runs() noexcept;
+    template <ExecutorBackend Backend>
+    void execute_rotation_run(size_t first_action, uint32_t run_length) noexcept;
+    template <ExecutorBackend Backend>
+    static void apply_rotation_action(State& state, const ExecutablePlan::ExecuteRotation& action,
+                                      bool sign) noexcept;
+    template <ExecutorBackend Backend>
     void execute_action(const ExecutablePlan::ExecuteRotation& action,
                         size_t action_index) noexcept;
     void execute_action(const ExecutablePlan::ExecuteFusedRotation& action,
@@ -145,6 +152,7 @@ class BatchExecutor {
     std::vector<uint64_t> live_words_;
     std::vector<uint64_t> scratch_words_;
     std::vector<uint64_t> compaction_scratch_;
+    std::vector<uint64_t> rotation_run_sign_words_;
 
     uint32_t attempted_shots_ = 0;
     uint32_t active_lanes_ = 0;

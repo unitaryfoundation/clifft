@@ -1376,6 +1376,47 @@ TEST_CASE("Explicit batch capacities preserve seeded fixed rows") {
     }
 }
 
+TEST_CASE("Explicit batch capacities preserve long dynamic rotation runs") {
+    constexpr uint32_t width = 6;
+    SamplingPlan plan;
+    plan.num_qubits = width;
+    plan.initial_active_width = width;
+    plan.peak_active_width = width;
+    plan.num_noise_sites = 3;
+    plan.num_exp_vals = width;
+    for (uint32_t symbol = 0; symbol < 3; ++symbol) {
+        plan.symbols.push_back(
+            SymbolInfo{SymbolKind::Presampled, std::nullopt, NoiseSiteId{symbol}});
+        plan.presampled_noise_sites.push_back(PresampledNoiseSite{
+            NoiseSiteId{symbol}, 0.5, {PresampledNoiseOutcome{SymbolId{symbol}, 0.5}}});
+    }
+    for (uint32_t rotation = 0; rotation < 40; ++rotation) {
+        const uint64_t x = uint64_t{1} << (rotation % width);
+        const uint64_t z = uint64_t{1} << ((rotation * 5 + 1) % width);
+        plan.actions.push_back(
+            PlannedAction{width, width,
+                          RotateActivePauli{{x, z},
+                                            0.125 + 0.01 * static_cast<double>(rotation % 5),
+                                            AffineBool::symbol(SymbolId{rotation % 3})}});
+    }
+    for (uint32_t axis = 0; axis < width; ++axis) {
+        plan.actions.push_back(
+            PlannedAction{width, width,
+                          WriteExpectationValue{ActivePauli{0, uint64_t{1} << axis}, AffineBool{},
+                                                ExpValSlot{axis}}});
+    }
+    const ExecutablePlan executable(plan);
+    const clifft::sampling::SamplingResult scalar =
+        clifft::sampling::sample(executable, 257, uint64_t{8675309}, 1, std::nullopt, uint32_t{1});
+
+    for (uint32_t capacity : std::array<uint32_t, 5>{2, 63, 64, 65, 128}) {
+        const clifft::sampling::SamplingResult packed =
+            clifft::sampling::sample(executable, 257, uint64_t{8675309}, 1, std::nullopt, capacity);
+        CAPTURE(capacity);
+        REQUIRE(packed.exp_vals == scalar.exp_vals);
+    }
+}
+
 TEST_CASE("Sampling thread layouts validate explicit worker counts") {
     const ExecutablePlan executable(plan_from("H 0\nM 0\n"));
     REQUIRE_THROWS_WITH(clifft::sampling::sample(executable, 1, uint64_t{11}, 1,

@@ -104,6 +104,9 @@ class ExecutablePlan {
     friend class BatchExecutor;
     friend class ExecutablePlanBuilder;
 
+    static constexpr uint32_t kMinBatchRotationRunLength = 8;
+    static constexpr uint32_t kMaxBatchRotationRunLength = 32;
+
     // To keep actions compact, register_id refers to expression details in the
     // storage near the end of this class.
     struct PreparedExpression {
@@ -360,6 +363,10 @@ class ExecutablePlan {
     std::vector<PreparedFusedRotationExecution> fused_rotations_;
     std::vector<PreparedDynamicFusedRotationExecution> dynamic_fused_rotations_;
     std::vector<Action> actions_;
+    // Nonzero entries mark compiler-prepared direct-rotation runs beginning at
+    // the corresponding action. Batch execution consumes the whole run without
+    // rediscovering action relationships in the hot loop.
+    std::vector<uint8_t> batch_rotation_run_lengths_;
     // Optional debug sidecar parallel to actions_. It stays empty for ordinary
     // compilation and therefore adds no per-action production storage.
     std::vector<PlanActionRange> action_plan_ranges_;

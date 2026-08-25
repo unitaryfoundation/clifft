@@ -16,6 +16,14 @@
 
 namespace clifft::sampling {
 
+#if defined(_MSC_VER)
+#define CLIFFT_BATCH_NOINLINE __declspec(noinline)
+#elif defined(__GNUC__) || defined(__clang__)
+#define CLIFFT_BATCH_NOINLINE __attribute__((noinline))
+#else
+#define CLIFFT_BATCH_NOINLINE
+#endif
+
 namespace {
 
 enum class MeasurementBranchKind : uint8_t {
@@ -137,7 +145,13 @@ BatchExecutor::BatchExecutor(const ExecutablePlan& plan, uint32_t lane_capacity,
                 0.0),
       live_words_(word_capacity_, 0),
       scratch_words_(word_capacity_, 0),
-      compaction_scratch_(word_capacity_, 0) {
+      compaction_scratch_(word_capacity_, 0),
+      rotation_run_sign_words_(
+          plan.batch_rotation_run_lengths_.empty()
+              ? 0
+              : checked_product(word_capacity_, ExecutablePlan::kMaxBatchRotationRunLength,
+                                "rotation sign scratch"),
+          0) {
     if (lane_capacity_ == 0) {
         throw std::invalid_argument("packed sampling lane capacity must be positive");
     }
@@ -157,12 +171,20 @@ void BatchExecutor::run_batch(const SeedRoot& root, uint32_t first_shot, uint32_
     [[maybe_unused]] bool executed = false;
     switch (plan_->backend_) {
         case ExecutorBackend::Scalar:
-            execute_actions<ExecutorBackend::Scalar>();
+            if (plan_->batch_rotation_run_lengths_.empty()) {
+                execute_actions<ExecutorBackend::Scalar>();
+            } else {
+                execute_actions_with_rotation_runs<ExecutorBackend::Scalar>();
+            }
             executed = true;
             break;
         case ExecutorBackend::Avx2:
 #if defined(CLIFFT_ENABLE_RUNTIME_DISPATCH)
-            execute_actions<ExecutorBackend::Avx2>();
+            if (plan_->batch_rotation_run_lengths_.empty()) {
+                execute_actions<ExecutorBackend::Avx2>();
+            } else {
+                execute_actions_with_rotation_runs<ExecutorBackend::Avx2>();
+            }
             executed = true;
             break;
 #else
@@ -170,7 +192,11 @@ void BatchExecutor::run_batch(const SeedRoot& root, uint32_t first_shot, uint32_
 #endif
         case ExecutorBackend::Avx512:
 #if defined(CLIFFT_ENABLE_RUNTIME_DISPATCH)
-            execute_actions<ExecutorBackend::Avx512>();
+            if (plan_->batch_rotation_run_lengths_.empty()) {
+                execute_actions<ExecutorBackend::Avx512>();
+            } else {
+                execute_actions_with_rotation_runs<ExecutorBackend::Avx512>();
+            }
             executed = true;
             break;
 #else
@@ -191,12 +217,20 @@ void BatchExecutor::run_batch(const SeedRoot& root, uint32_t first_shot, uint32_
     [[maybe_unused]] bool executed = false;
     switch (plan_->backend_) {
         case ExecutorBackend::Scalar:
-            execute_actions<ExecutorBackend::Scalar>();
+            if (plan_->batch_rotation_run_lengths_.empty()) {
+                execute_actions<ExecutorBackend::Scalar>();
+            } else {
+                execute_actions_with_rotation_runs<ExecutorBackend::Scalar>();
+            }
             executed = true;
             break;
         case ExecutorBackend::Avx2:
 #if defined(CLIFFT_ENABLE_RUNTIME_DISPATCH)
-            execute_actions<ExecutorBackend::Avx2>();
+            if (plan_->batch_rotation_run_lengths_.empty()) {
+                execute_actions<ExecutorBackend::Avx2>();
+            } else {
+                execute_actions_with_rotation_runs<ExecutorBackend::Avx2>();
+            }
             executed = true;
             break;
 #else
@@ -204,7 +238,11 @@ void BatchExecutor::run_batch(const SeedRoot& root, uint32_t first_shot, uint32_
 #endif
         case ExecutorBackend::Avx512:
 #if defined(CLIFFT_ENABLE_RUNTIME_DISPATCH)
-            execute_actions<ExecutorBackend::Avx512>();
+            if (plan_->batch_rotation_run_lengths_.empty()) {
+                execute_actions<ExecutorBackend::Avx512>();
+            } else {
+                execute_actions_with_rotation_runs<ExecutorBackend::Avx512>();
+            }
             executed = true;
             break;
 #else
@@ -351,21 +389,93 @@ void BatchExecutor::execute_actions() noexcept {
 }
 
 template <ExecutorBackend Backend>
-void BatchExecutor::execute_action(const ExecutablePlan::ExecuteRotation& action, size_t) noexcept {
-    const std::span<const uint64_t> signs = evaluate(action.sign);
+void BatchExecutor::execute_actions_with_rotation_runs() noexcept {
+    for (size_t action_index = 0; action_index < plan_->actions_.size(); ++action_index) {
+        const uint32_t rotation_run = plan_->batch_rotation_run_lengths_[action_index];
+        if (rotation_run != 0) {
+            execute_rotation_run<Backend>(action_index, rotation_run);
+            action_index += rotation_run - 1;
+            continue;
+        }
+        const ExecutablePlan::Action& action = plan_->actions_[action_index];
+        std::visit(
+            [&](const auto& typed) noexcept {
+                using T = std::decay_t<decltype(typed)>;
+                if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteRotation> ||
+                              std::is_same_v<T, ExecutablePlan::ExecuteActiveMeasurement>) {
+                    execute_action<Backend>(typed, action_index);
+                } else {
+                    execute_action(typed, action_index);
+                }
+            },
+            action);
+        if (live_count_ == 0) {
+            return;
+        }
+    }
+}
+
+template <ExecutorBackend Backend>
+CLIFFT_BATCH_NOINLINE void BatchExecutor::execute_rotation_run(size_t first_action,
+                                                               uint32_t run_length) noexcept {
+    assert(run_length >= ExecutablePlan::kMinBatchRotationRunLength &&
+           run_length <= ExecutablePlan::kMaxBatchRotationRunLength &&
+           run_length <= plan_->actions_.size() - first_action &&
+           "prepared batch rotation run must fit the action stream");
+    std::array<const ExecutablePlan::ExecuteRotation*, ExecutablePlan::kMaxBatchRotationRunLength>
+        rotations{};
+    std::array<const uint64_t*, ExecutablePlan::kMaxBatchRotationRunLength> signs{};
+    for (uint32_t offset = 0; offset < run_length; ++offset) {
+        rotations[offset] =
+            std::get_if<ExecutablePlan::ExecuteRotation>(&plan_->actions_[first_action + offset]);
+        assert(rotations[offset] != nullptr && "prepared batch run must contain rotations");
+        signs[offset] = evaluate(rotations[offset]->sign).data();
+    }
+    const size_t active_words = packed_word_count(active_lanes_);
+    for (size_t word = 0; word < active_words; ++word) {
+        uint64_t* run_signs =
+            rotation_run_sign_words_.data() + word * ExecutablePlan::kMaxBatchRotationRunLength;
+        for (uint32_t offset = 0; offset < run_length; ++offset) {
+            run_signs[offset] = signs[offset][word];
+        }
+    }
     for (uint32_t lane = 0; lane < active_lanes_; ++lane) {
         if (!is_live(lane)) {
             continue;
         }
-        const bool sign = lane_bit(signs, lane);
-        if (action.kernel == DirectRotationKernel::Scalar) {
-            apply_rotation(state(lane), action.rotation, sign);
-        } else if constexpr (Backend == ExecutorBackend::Avx2) {
-            apply_direct_rotation_avx2(state(lane), action.rotation, action.kernel, sign);
-        } else if constexpr (Backend == ExecutorBackend::Avx512) {
-            apply_direct_rotation_avx512(state(lane), action.rotation, action.kernel, sign);
-        } else {
-            assert(false && "scalar batch executor requires scalar rotation actions");
+        State& lane_state = state(lane);
+        const uint64_t* run_signs =
+            rotation_run_sign_words_.data() +
+            static_cast<size_t>(lane >> 6) * ExecutablePlan::kMaxBatchRotationRunLength;
+        const uint64_t lane_mask = uint64_t{1} << (lane & 63);
+        for (uint32_t offset = 0; offset < run_length; ++offset) {
+            apply_rotation_action<Backend>(lane_state, *rotations[offset],
+                                           (run_signs[offset] & lane_mask) != 0);
+        }
+    }
+}
+
+template <ExecutorBackend Backend>
+void BatchExecutor::apply_rotation_action(State& target,
+                                          const ExecutablePlan::ExecuteRotation& action,
+                                          bool sign) noexcept {
+    if (action.kernel == DirectRotationKernel::Scalar) {
+        apply_rotation(target, action.rotation, sign);
+    } else if constexpr (Backend == ExecutorBackend::Avx2) {
+        apply_direct_rotation_avx2(target, action.rotation, action.kernel, sign);
+    } else if constexpr (Backend == ExecutorBackend::Avx512) {
+        apply_direct_rotation_avx512(target, action.rotation, action.kernel, sign);
+    } else {
+        assert(false && "scalar batch executor requires scalar rotation actions");
+    }
+}
+
+template <ExecutorBackend Backend>
+void BatchExecutor::execute_action(const ExecutablePlan::ExecuteRotation& action, size_t) noexcept {
+    const std::span<const uint64_t> signs = evaluate(action.sign);
+    for (uint32_t lane = 0; lane < active_lanes_; ++lane) {
+        if (is_live(lane)) {
+            apply_rotation_action<Backend>(state(lane), action, lane_bit(signs, lane));
         }
     }
 }
@@ -729,5 +839,7 @@ double BatchExecutor::exp_val(uint32_t lane, uint32_t exp_val_index) const noexc
            "expectation output must be live and in range");
     return exp_vals_[static_cast<size_t>(exp_val_index) * lane_capacity_ + lane];
 }
+
+#undef CLIFFT_BATCH_NOINLINE
 
 }  // namespace clifft::sampling
