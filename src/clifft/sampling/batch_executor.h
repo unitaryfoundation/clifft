@@ -72,6 +72,7 @@ class BatchExecutor {
     void assign_forced_faults(KFaultSampler& fault_sampler) noexcept;
     void activate_noise_site(uint32_t lane, uint32_t site) noexcept;
     void initialize_expression_registers() noexcept;
+    void initialize_presampled_expressions() noexcept;
     void propagate_symbol(uint32_t symbol) noexcept;
     void assign_symbol(uint32_t symbol, std::span<const uint64_t> values) noexcept;
 

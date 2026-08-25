@@ -1376,6 +1376,47 @@ TEST_CASE("Explicit batch capacities preserve seeded fixed rows") {
     }
 }
 
+TEST_CASE("Packed presampled expression program preserves shared affine rows") {
+    constexpr uint32_t num_symbols = 64;
+    constexpr uint32_t num_unique_expressions = 32;
+    constexpr uint32_t num_records = 40;
+    SamplingPlan plan;
+    plan.num_noise_sites = num_symbols;
+    plan.num_visible_records = num_records;
+    for (uint32_t symbol = 0; symbol < num_symbols; ++symbol) {
+        plan.symbols.push_back(
+            SymbolInfo{SymbolKind::Presampled, std::nullopt, NoiseSiteId{symbol}});
+        plan.presampled_noise_sites.push_back(PresampledNoiseSite{
+            NoiseSiteId{symbol}, 0.125, {PresampledNoiseOutcome{SymbolId{symbol}, 0.125}}});
+    }
+    for (uint32_t record = 0; record < num_records; ++record) {
+        const uint32_t expression = record % num_unique_expressions;
+        std::vector<SymbolId> terms;
+        terms.reserve(48);
+        for (uint32_t symbol = 0; symbol < 48; ++symbol) {
+            if (symbol != expression) {
+                terms.push_back(SymbolId{symbol});
+            }
+        }
+        terms.push_back(SymbolId{48 + expression % 16});
+        plan.actions.push_back(PlannedAction{
+            0, 0,
+            RecordClassical{AffineBool::from_canonical_terms(expression % 2 != 0, std::move(terms)),
+                            RecordSlot{record}}});
+    }
+
+    const ExecutablePlan executable(plan);
+    const clifft::sampling::SamplingResult scalar =
+        clifft::sampling::sample(executable, 257, uint64_t{91832}, 1, std::nullopt, uint32_t{1});
+
+    for (uint32_t capacity : std::array<uint32_t, 5>{2, 63, 64, 65, 128}) {
+        const clifft::sampling::SamplingResult packed =
+            clifft::sampling::sample(executable, 257, uint64_t{91832}, 1, std::nullopt, capacity);
+        CAPTURE(capacity);
+        REQUIRE(packed.measurements == scalar.measurements);
+    }
+}
+
 TEST_CASE("Explicit batch capacities preserve long dynamic rotation runs") {
     constexpr uint32_t width = 6;
     SamplingPlan plan;

@@ -33,6 +33,7 @@ class PackedBitColumns {
                 std::span<const uint64_t> live_mask) noexcept;
     void assign_xor(size_t column, std::span<const uint64_t> left, std::span<const uint64_t> right,
                     std::span<const uint64_t> live_mask) noexcept;
+    void copy(size_t destination, size_t source) noexcept;
     void xor_into(size_t column, std::span<const uint64_t> source) noexcept;
 
     // Stable-compacts every column using keep_mask. scratch is one fixed-size

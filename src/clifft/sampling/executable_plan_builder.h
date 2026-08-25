@@ -39,6 +39,7 @@ class ExecutablePlanBuilder {
 
     // Transpose action-order affine terms into symbol-to-register CSR storage.
     void build_expression_dependencies();
+    void prepare_batch_expression_initialization();
 
     // Check construction-only invariants in Debug builds.
     void validate_executable_plan() const;

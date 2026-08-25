@@ -5,11 +5,13 @@
 #include <algorithm>
 #include <bit>
 #include <cassert>
+#include <iterator>
 #include <limits>
 #include <optional>
 #include <span>
 #include <stdexcept>
 #include <type_traits>
+#include <unordered_map>
 #include <utility>
 
 namespace clifft::sampling {
@@ -33,6 +35,37 @@ inline constexpr bool kAlwaysFalse = false;
 bool activates_new_x(const ApplyInstrument& instrument, uint32_t active_after) {
     return instrument.mode == InstrumentMode::Activate && active_after > 0 &&
            instrument.source.z == 0 && instrument.source.x == (uint64_t{1} << (active_after - 1));
+}
+
+struct PresampledExpressionBlock {
+    bool constant = false;
+    std::vector<uint32_t> terms;
+    std::vector<uint32_t> registers;
+    uint32_t parent = std::numeric_limits<uint32_t>::max();
+    bool invert_parent = false;
+    uint32_t depth = 0;
+    std::vector<uint32_t> delta_terms;
+};
+
+inline constexpr uint64_t kMinBatchExpressionTerms = 1024;
+inline constexpr uint64_t kBatchExpressionCostNumerator = 3;
+inline constexpr uint64_t kBatchExpressionCostDenominator = 4;
+
+std::vector<uint32_t> symmetric_difference(std::span<const uint32_t> left,
+                                           std::span<const uint32_t> right) {
+    std::vector<uint32_t> result;
+    result.reserve(left.size() + right.size());
+    std::ranges::set_symmetric_difference(left, right, std::back_inserter(result));
+    return result;
+}
+
+uint64_t expression_hash(bool constant, std::span<const uint32_t> terms) noexcept {
+    uint64_t hash = constant ? 0x9e3779b97f4a7c15ULL : 0xcbf29ce484222325ULL;
+    for (uint32_t term : terms) {
+        hash ^= term;
+        hash *= 0x100000001b3ULL;
+    }
+    return hash;
 }
 
 }  // namespace
@@ -91,6 +124,7 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::compile() {
     lower_action_stream();
     prepare_batch_rotation_runs();
     build_expression_dependencies();
+    prepare_batch_expression_initialization();
     validate_executable_plan();
 }
 
@@ -469,12 +503,186 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::build_expression_depende
         output_.num_symbols_, expression_terms_, expression_term_begins_);
 }
 
+void ExecutablePlanBuilder::prepare_batch_expression_initialization() {
+    if (output_.has_instruments_) {
+        return;
+    }
+    std::unordered_multimap<uint64_t, uint32_t> interned;
+    std::vector<PresampledExpressionBlock> blocks;
+    blocks.reserve(expression_term_begins_.size());
+    interned.reserve(expression_term_begins_.size());
+    uint64_t original_presampled_terms = 0;
+    for (size_t expression = 0; expression < expression_term_begins_.size(); ++expression) {
+        const uint32_t begin = expression_term_begins_[expression];
+        const uint32_t end = expression + 1 < expression_term_begins_.size()
+                                 ? expression_term_begins_[expression + 1]
+                                 : static_cast<uint32_t>(expression_terms_.size());
+        std::vector<uint32_t> terms;
+        for (uint32_t term = begin; term < end; ++term) {
+            const uint32_t symbol = expression_terms_[term];
+            if (source_.symbols[symbol].kind == SymbolKind::Presampled) {
+                terms.push_back(symbol);
+                ++original_presampled_terms;
+            }
+        }
+        const bool constant = output_.expression_register_constants_[expression] != 0;
+        const uint64_t hash = expression_hash(constant, terms);
+        uint32_t block_index = std::numeric_limits<uint32_t>::max();
+        const auto [first, last] = interned.equal_range(hash);
+        for (auto position = first; position != last; ++position) {
+            const PresampledExpressionBlock& candidate = blocks[position->second];
+            if (candidate.constant == constant && candidate.terms == terms) {
+                block_index = position->second;
+                break;
+            }
+        }
+        if (block_index == std::numeric_limits<uint32_t>::max()) {
+            block_index = static_cast<uint32_t>(blocks.size());
+            PresampledExpressionBlock block;
+            block.constant = constant;
+            block.terms = std::move(terms);
+            blocks.push_back(std::move(block));
+            interned.emplace(hash, block_index);
+        }
+        blocks[block_index].registers.push_back(static_cast<uint32_t>(expression));
+    }
+    if (original_presampled_terms == 0) {
+        return;
+    }
+
+    std::vector<std::vector<uint32_t>> blocks_by_symbol(output_.num_symbols_);
+    std::vector<uint32_t> intersection_counts(blocks.size(), 0);
+    std::vector<uint32_t> candidate_parents;
+    uint32_t max_depth = 0;
+    for (size_t block_index = 0; block_index < blocks.size(); ++block_index) {
+        PresampledExpressionBlock& block = blocks[block_index];
+        block.delta_terms = block.terms;
+        uint64_t best_cost = block.delta_terms.size();
+        // A parent can beat direct initialization only when it shares a term.
+        // Accumulating intersections through the symbol index scores every
+        // viable earlier block exactly without scanning every term pair.
+        candidate_parents.clear();
+        for (uint32_t symbol : block.terms) {
+            for (uint32_t parent_index : blocks_by_symbol[symbol]) {
+                if (intersection_counts[parent_index]++ == 0) {
+                    candidate_parents.push_back(parent_index);
+                }
+            }
+        }
+        std::ranges::sort(candidate_parents);
+        for (uint32_t parent_index : candidate_parents) {
+            const bool invert_parent = block.constant != blocks[parent_index].constant;
+            const uint64_t cost = static_cast<uint64_t>(block.terms.size()) +
+                                  blocks[parent_index].terms.size() -
+                                  2 * static_cast<uint64_t>(intersection_counts[parent_index]) +
+                                  static_cast<uint64_t>(invert_parent);
+            if (cost < best_cost) {
+                best_cost = cost;
+                block.parent = parent_index;
+                block.invert_parent = invert_parent;
+            }
+        }
+        for (uint32_t parent_index : candidate_parents) {
+            intersection_counts[parent_index] = 0;
+        }
+        if (block.parent != std::numeric_limits<uint32_t>::max()) {
+            block.delta_terms = symmetric_difference(block.terms, blocks[block.parent].terms);
+            block.depth = blocks[block.parent].depth + 1;
+        }
+        max_depth = std::max(max_depth, block.depth);
+        for (uint32_t symbol : block.terms) {
+            blocks_by_symbol[symbol].push_back(static_cast<uint32_t>(block_index));
+        }
+    }
+
+    uint64_t prepared_operations = 0;
+    for (const PresampledExpressionBlock& block : blocks) {
+        prepared_operations += block.delta_terms.size();
+        prepared_operations += static_cast<uint64_t>(block.invert_parent);
+        prepared_operations +=
+            static_cast<uint64_t>(block.parent != std::numeric_limits<uint32_t>::max());
+        prepared_operations += block.registers.size() - 1;
+    }
+    // The staged program trades each retained edge for extra parent and copy
+    // passes. Require a substantial execution-work reduction so small or
+    // weakly related expression sets stay on the simpler dependency path.
+    if (original_presampled_terms < kMinBatchExpressionTerms ||
+        prepared_operations * kBatchExpressionCostDenominator >
+            original_presampled_terms * kBatchExpressionCostNumerator) {
+        return;
+    }
+
+    std::vector<std::vector<ExecutablePlan::PresampledExpressionInitialization>>
+        initializations_by_level(static_cast<size_t>(max_depth) + 1);
+    std::vector<std::vector<ExecutablePlan::PresampledExpressionDelta>> deltas_by_level(
+        static_cast<size_t>(max_depth) + 1);
+    for (const PresampledExpressionBlock& block : blocks) {
+        assert(!block.registers.empty() && "interned expression block must have a destination");
+        const uint32_t destination = block.registers.front();
+        const uint32_t parent = block.parent == std::numeric_limits<uint32_t>::max()
+                                    ? std::numeric_limits<uint32_t>::max()
+                                    : blocks[block.parent].registers.front();
+        initializations_by_level[block.depth].push_back({destination, parent, block.invert_parent});
+        for (uint32_t symbol : block.delta_terms) {
+            deltas_by_level[block.depth].push_back({symbol, destination});
+        }
+        for (size_t register_index = 1; register_index < block.registers.size(); ++register_index) {
+            output_.presampled_copies_.push_back({destination, block.registers[register_index]});
+        }
+    }
+
+    output_.presampled_initialization_level_offsets_.push_back(0);
+    output_.presampled_delta_level_offsets_.push_back(0);
+    for (size_t level = 0; level < initializations_by_level.size(); ++level) {
+        auto& deltas = deltas_by_level[level];
+        std::ranges::sort(deltas, {}, &ExecutablePlan::PresampledExpressionDelta::symbol);
+        output_.presampled_initializations_.insert(output_.presampled_initializations_.end(),
+                                                   initializations_by_level[level].begin(),
+                                                   initializations_by_level[level].end());
+        output_.presampled_deltas_.insert(output_.presampled_deltas_.end(), deltas.begin(),
+                                          deltas.end());
+        output_.presampled_initialization_level_offsets_.push_back(
+            static_cast<uint32_t>(output_.presampled_initializations_.size()));
+        output_.presampled_delta_level_offsets_.push_back(
+            static_cast<uint32_t>(output_.presampled_deltas_.size()));
+    }
+}
+
 CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::validate_executable_plan() const {
 #ifndef NDEBUG
     assert(expression_term_begins_.size() == output_.expression_register_constants_.size() &&
            "expression register storage is inconsistent");
     output_.expression_dependencies_.validate(output_.num_symbols_,
                                               output_.expression_register_constants_.size());
+    if (!output_.presampled_initialization_level_offsets_.empty()) {
+        assert(output_.presampled_initialization_level_offsets_.size() ==
+                   output_.presampled_delta_level_offsets_.size() &&
+               output_.presampled_initialization_level_offsets_.front() == 0 &&
+               output_.presampled_delta_level_offsets_.front() == 0 &&
+               output_.presampled_initialization_level_offsets_.back() ==
+                   output_.presampled_initializations_.size() &&
+               output_.presampled_delta_level_offsets_.back() ==
+                   output_.presampled_deltas_.size() &&
+               "presampled expression levels must cover their operation tapes");
+        for (const ExecutablePlan::PresampledExpressionInitialization& initialization :
+             output_.presampled_initializations_) {
+            assert(initialization.destination < output_.expression_register_constants_.size() &&
+                   (initialization.parent == std::numeric_limits<uint32_t>::max() ||
+                    initialization.parent < output_.expression_register_constants_.size()) &&
+                   "presampled expression initialization must name valid registers");
+        }
+        for (const ExecutablePlan::PresampledExpressionDelta& delta : output_.presampled_deltas_) {
+            assert(delta.symbol < source_.symbols.size() &&
+                   source_.symbols[delta.symbol].kind == SymbolKind::Presampled &&
+                   delta.destination < output_.expression_register_constants_.size() &&
+                   "presampled expression delta must name valid storage");
+        }
+        for (const ExecutablePlan::PresampledExpressionCopy& copy : output_.presampled_copies_) {
+            assert(copy.source < output_.expression_register_constants_.size() &&
+                   copy.destination < output_.expression_register_constants_.size() &&
+                   "presampled expression copy must name valid registers");
+        }
+    }
     assert((output_.batch_rotation_run_lengths_.empty() ||
             output_.batch_rotation_run_lengths_.size() == output_.actions_.size()) &&
            "batch rotation metadata must be empty or parallel to the action stream");

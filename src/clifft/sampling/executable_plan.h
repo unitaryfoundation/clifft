@@ -7,6 +7,7 @@
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <optional>
 #include <span>
 #include <string>
@@ -136,6 +137,22 @@ class ExecutablePlan {
 
         std::vector<uint32_t> offsets_;
         std::vector<uint32_t> targets_;
+    };
+
+    struct PresampledExpressionInitialization {
+        uint32_t destination = 0;
+        uint32_t parent = std::numeric_limits<uint32_t>::max();
+        bool invert_parent = false;
+    };
+
+    struct PresampledExpressionDelta {
+        uint32_t symbol = 0;
+        uint32_t destination = 0;
+    };
+
+    struct PresampledExpressionCopy {
+        uint32_t source = 0;
+        uint32_t destination = 0;
     };
 
     // CPU action descriptors. They contain only fixed operands and indices;
@@ -370,6 +387,14 @@ class ExecutablePlan {
     // Optional debug sidecar parallel to actions_. It stays empty for ordinary
     // compilation and therefore adds no per-action production storage.
     std::vector<PlanActionRange> action_plan_ranges_;
+    // Optional batch initialization sidecars stay after the ordinary hot plan
+    // fields so plans that reject the cost model preserve their existing
+    // action and noise metadata locality.
+    std::vector<uint32_t> presampled_initialization_level_offsets_;
+    std::vector<PresampledExpressionInitialization> presampled_initializations_;
+    std::vector<uint32_t> presampled_delta_level_offsets_;
+    std::vector<PresampledExpressionDelta> presampled_deltas_;
+    std::vector<PresampledExpressionCopy> presampled_copies_;
 };
 
 }  // namespace clifft::sampling

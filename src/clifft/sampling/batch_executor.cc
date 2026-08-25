@@ -24,6 +24,14 @@ namespace clifft::sampling {
 #define CLIFFT_BATCH_NOINLINE
 #endif
 
+// Keep the packed executor's hot loop cluster on a stable instruction-cache
+// boundary when unrelated preparation code changes the final link layout.
+#if (defined(__GNUC__) || defined(__clang__)) && defined(__x86_64__) && !defined(__EMSCRIPTEN__)
+#define CLIFFT_BATCH_HOT_ALIGNMENT __attribute__((aligned(4096)))
+#else
+#define CLIFFT_BATCH_HOT_ALIGNMENT
+#endif
+
 namespace {
 
 enum class MeasurementBranchKind : uint8_t {
@@ -280,12 +288,47 @@ void BatchExecutor::reset_batch(const SeedRoot& root, uint32_t first_shot,
     initialize_expression_registers();
 }
 
-void BatchExecutor::initialize_expression_registers() noexcept {
+CLIFFT_BATCH_HOT_ALIGNMENT void BatchExecutor::initialize_expression_registers() noexcept {
     for (size_t expression = 0; expression < plan_->expression_register_constants_.size();
          ++expression) {
         if (plan_->expression_register_constants_[expression] != 0) {
             expression_registers_.assign(expression, live_words_, live_words_);
         }
+    }
+}
+
+void BatchExecutor::initialize_presampled_expressions() noexcept {
+    assert(!plan_->presampled_initialization_level_offsets_.empty() &&
+           plan_->presampled_initialization_level_offsets_.size() ==
+               plan_->presampled_delta_level_offsets_.size() &&
+           "presampled expression program must contain matching levels");
+    const size_t levels = plan_->presampled_initialization_level_offsets_.size() - 1;
+    for (size_t level = 0; level < levels; ++level) {
+        const uint32_t initialization_begin =
+            plan_->presampled_initialization_level_offsets_[level];
+        const uint32_t initialization_end =
+            plan_->presampled_initialization_level_offsets_[level + 1];
+        for (uint32_t index = initialization_begin; index < initialization_end; ++index) {
+            const ExecutablePlan::PresampledExpressionInitialization& initialization =
+                plan_->presampled_initializations_[index];
+            if (initialization.parent == std::numeric_limits<uint32_t>::max()) {
+                continue;
+            }
+            expression_registers_.copy(initialization.destination, initialization.parent);
+            if (initialization.invert_parent) {
+                expression_registers_.xor_into(initialization.destination, live_words_);
+            }
+        }
+        const uint32_t delta_begin = plan_->presampled_delta_level_offsets_[level];
+        const uint32_t delta_end = plan_->presampled_delta_level_offsets_[level + 1];
+        for (uint32_t index = delta_begin; index < delta_end; ++index) {
+            const ExecutablePlan::PresampledExpressionDelta& delta =
+                plan_->presampled_deltas_[index];
+            expression_registers_.xor_into(delta.destination, symbols_.column(delta.symbol));
+        }
+    }
+    for (const ExecutablePlan::PresampledExpressionCopy& copy : plan_->presampled_copies_) {
+        expression_registers_.copy(copy.destination, copy.source);
     }
 }
 
@@ -308,8 +351,12 @@ void BatchExecutor::sample_presampled_noise() noexcept {
             first_candidate = site + 1;
         }
     }
-    for (uint32_t symbol : plan_->presampled_symbols_) {
-        propagate_symbol(symbol);
+    if (plan_->presampled_initialization_level_offsets_.empty()) {
+        for (uint32_t symbol : plan_->presampled_symbols_) {
+            propagate_symbol(symbol);
+        }
+    } else {
+        initialize_presampled_expressions();
     }
 }
 
@@ -329,8 +376,12 @@ void BatchExecutor::assign_forced_faults(KFaultSampler& fault_sampler) noexcept 
             }
         }
     }
-    for (uint32_t symbol : plan_->presampled_symbols_) {
-        propagate_symbol(symbol);
+    if (plan_->presampled_initialization_level_offsets_.empty()) {
+        for (uint32_t symbol : plan_->presampled_symbols_) {
+            propagate_symbol(symbol);
+        }
+    } else {
+        initialize_presampled_expressions();
     }
 }
 

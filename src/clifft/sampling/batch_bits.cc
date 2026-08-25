@@ -4,6 +4,7 @@
 #include <bit>
 #include <limits>
 #include <stdexcept>
+#include <utility>
 
 namespace clifft::sampling {
 
@@ -112,6 +113,11 @@ void PackedBitColumns::assign_xor(size_t column_index, std::span<const uint64_t>
     for (size_t word = 0; word < word_capacity_; ++word) {
         destination[word] = (left[word] ^ right[word]) & live_mask[word];
     }
+}
+
+void PackedBitColumns::copy(size_t destination_index, size_t source_index) noexcept {
+    const std::span<const uint64_t> source = std::as_const(*this).column(source_index);
+    std::ranges::copy(source, column(destination_index).begin());
 }
 
 void PackedBitColumns::xor_into(size_t column_index, std::span<const uint64_t> source) noexcept {
