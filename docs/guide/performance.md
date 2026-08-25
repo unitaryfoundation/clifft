@@ -90,20 +90,20 @@ SymFT batch size varies by circuit, so the
 [per-workload table](https://github.com/unitaryfoundation/clifft-bench#current-single-core-qec-results)
 is more useful than one aggregate ranking.
 
-![QEC workload throughput ratio between Clifft and the fastest measured SymFT mode](https://raw.githubusercontent.com/unitaryfoundation/clifft-bench/main/figures/current-tools-v1-20260824-r1.png)
+![QEC workload throughput ratio between Clifft and the fastest measured SymFT mode](https://raw.githubusercontent.com/unitaryfoundation/clifft-bench/8d6a70d47c7f7fa596d87170375c1583dbfca499/figures/current-tools-v1-20260824-r1.png)
 
 The release-history campaign runs Clifft 0.1 through 0.9 on the same corpus and
 hardware epoch. Clifft 0.9 is faster than 0.1 on all eight workloads, with a
 median per-workload speedup of 1.93x and a range of 1.18x to 16.89x. See the
 [release-history results](https://github.com/unitaryfoundation/clifft-bench#clifft-release-history).
 
-![Clifft throughput across releases](https://raw.githubusercontent.com/unitaryfoundation/clifft-bench/main/figures/clifft-history-v1-20260825-r1.png)
+![Clifft throughput across releases](https://raw.githubusercontent.com/unitaryfoundation/clifft-bench/8d6a70d47c7f7fa596d87170375c1583dbfca499/figures/clifft-history-v1-20260825-r1.png)
 
 ### Multicore Quantum Volume
 
 #### Current-tool latency
 
-![Quantum Volume latency by simulator](https://raw.githubusercontent.com/unitaryfoundation/clifft-bench/main/figures/qv-multicore-v1-2026082-current-tools.png)
+![Quantum Volume latency by simulator](https://raw.githubusercontent.com/unitaryfoundation/clifft-bench/8d6a70d47c7f7fa596d87170375c1583dbfca499/figures/qv-multicore-v1-2026082-current-tools.png)
 
 On 16 physical cores, Clifft 0.9 has the lowest median single-shot latency of
 the four measured tools at QV20 and QV22. Tool ordering changes with circuit
@@ -111,7 +111,7 @@ width, so the full curve is more informative than one aggregate ranking.
 
 #### Clifft strong scaling
 
-![Clifft Quantum Volume strong scaling](https://raw.githubusercontent.com/unitaryfoundation/clifft-bench/main/figures/qv-multicore-v1-2026082-clifft-scaling.png)
+![Clifft Quantum Volume strong scaling](https://raw.githubusercontent.com/unitaryfoundation/clifft-bench/8d6a70d47c7f7fa596d87170375c1583dbfca499/figures/qv-multicore-v1-2026082-clifft-scaling.png)
 
 Clifft's paired median QV24 speedup is 10.17x from 1 to 16 cores. Points show
 paired medians across three deterministic seeds; whiskers show the seed range.
