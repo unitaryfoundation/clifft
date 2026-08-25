@@ -3,6 +3,7 @@
 #include "clifft/sampling/hip/sampler.h"
 #include "clifft/sampling/planner.h"
 
+#include <atomic>
 #include <cstdint>
 #include <memory>
 #include <nanobind/nanobind.h>
@@ -11,6 +12,7 @@
 #include <nanobind/stl/string.h>
 #include <nanobind/stl/vector.h>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
@@ -18,6 +20,23 @@
 namespace nb = nanobind;
 
 namespace {
+
+class BusyGuard {
+  public:
+    explicit BusyGuard(std::atomic_flag& busy) : busy_(busy) {
+        if (busy_.test_and_set(std::memory_order_acquire)) {
+            throw std::runtime_error("calls on one HIP Sampler instance must not overlap");
+        }
+    }
+
+    ~BusyGuard() { busy_.clear(std::memory_order_release); }
+
+    BusyGuard(const BusyGuard&) = delete;
+    BusyGuard& operator=(const BusyGuard&) = delete;
+
+  private:
+    std::atomic_flag& busy_;
+};
 
 template <typename T>
 nb::ndarray<nb::numpy, T, nb::c_contig> vec_to_numpy(std::vector<T> values,
@@ -66,6 +85,9 @@ struct BoundSampler {
 
     clifft::sampling::hip::ExecutablePlan program;
     clifft::sampling::hip::Sampler sampler;
+    // The GIL is released during device execution, so protect the retained
+    // workspace independently of Python thread scheduling.
+    std::atomic_flag busy = ATOMIC_FLAG_INIT;
 };
 
 }  // namespace
@@ -124,6 +146,7 @@ NB_MODULE(_clifft_hip, module) {
             "sample",
             [](BoundSampler& bound, uint32_t shots, std::optional<uint64_t> seed,
                uint32_t block_size) {
+                BusyGuard guard(bound.busy);
                 clifft::sampling::SamplingResult result;
                 {
                     nb::gil_scoped_release release;
@@ -137,6 +160,7 @@ NB_MODULE(_clifft_hip, module) {
             "sample_survivors",
             [](BoundSampler& bound, uint32_t shots, bool keep_records, std::optional<uint64_t> seed,
                uint32_t block_size) {
+                BusyGuard guard(bound.busy);
                 clifft::sampling::SamplingSurvivorResult result;
                 {
                     nb::gil_scoped_release release;
@@ -149,6 +173,7 @@ NB_MODULE(_clifft_hip, module) {
         .def(
             "replay_shot",
             [](BoundSampler& bound, std::vector<uint8_t> forced_records) {
+                BusyGuard guard(bound.busy);
                 clifft::sampling::hip::ReplayResult result;
                 {
                     nb::gil_scoped_release release;
