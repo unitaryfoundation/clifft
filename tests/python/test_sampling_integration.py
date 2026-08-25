@@ -27,6 +27,23 @@ def test_experimental_namespace_reports_optional_hip_build() -> None:
         assert info == "HIP backend not built; rebuild Clifft with CLIFFT_ENABLE_HIP=ON"
 
 
+def test_import_clifft_does_not_eagerly_load_experimental_hip() -> None:
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import sys; import clifft; "
+            "print('clifft.experimental' in sys.modules); "
+            "print('clifft._clifft_hip' in sys.modules)",
+        ],
+        capture_output=True,
+        check=True,
+        text=True,
+    )
+
+    assert completed.stdout.splitlines() == ["False", "False"]
+
+
 @pytest.mark.skipif(
     not _RUNTIME_DISPATCH_BUILD,
     reason="CLIFFT_FORCE_ISA is ignored when runtime dispatch is not compiled",

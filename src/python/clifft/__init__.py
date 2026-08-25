@@ -10,11 +10,16 @@ dimension is `2^k`.
 # ruff: noqa: E402
 from __future__ import annotations
 
+import importlib
 from collections.abc import Sequence
-from typing import Protocol, TypeAlias, cast
+from types import ModuleType
+from typing import TYPE_CHECKING, Protocol, TypeAlias, cast
 
 import numpy as np
 import numpy.typing as npt
+
+if TYPE_CHECKING:
+    import clifft.experimental as experimental
 
 from clifft._build_config import CPU_BASELINE
 from clifft._cpu_check import ensure_supported_cpu
@@ -363,4 +368,10 @@ __all__ = [
 
 __version__ = version()
 
-from clifft import experimental
+
+def __getattr__(name: str) -> ModuleType:
+    if name == "experimental":
+        module = importlib.import_module("clifft.experimental")
+        globals()[name] = module
+        return module
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

@@ -189,15 +189,15 @@ class Sampler:
         program: Program,
         *,
         precision: Precision = "fp64",
-        max_batch_shots: int = 65_536,
+        max_batch_shots: int | None = None,
     ) -> None:
         native = _require_native()
         self.program = program
-        self._native = native.Sampler(
-            program._native,
-            _precision_value(precision),
-            max_batch_shots,
-        )
+        native_precision = _precision_value(precision)
+        if max_batch_shots is None:
+            self._native = native.Sampler(program._native, native_precision)
+        else:
+            self._native = native.Sampler(program._native, native_precision, max_batch_shots)
 
     @property
     def precision(self) -> Precision:
@@ -219,9 +219,11 @@ class Sampler:
         shots: int,
         *,
         seed: int | None = None,
-        block_size: int = 256,
+        block_size: int | None = None,
     ) -> SampleResult:
         """Sample fixed rows while reusing the retained device workspace."""
+        if block_size is None:
+            return cast(SampleResult, self._native.sample(shots, seed))
         return cast(SampleResult, self._native.sample(shots, seed, block_size))
 
     def sample_survivors(
@@ -230,9 +232,14 @@ class Sampler:
         *,
         keep_records: bool = False,
         seed: int | None = None,
-        block_size: int = 256,
+        block_size: int | None = None,
     ) -> SampleResult:
         """Sample and retain only shots that pass postselection."""
+        if block_size is None:
+            return cast(
+                SampleResult,
+                self._native.sample_survivors(shots, keep_records, seed),
+            )
         return cast(
             SampleResult,
             self._native.sample_survivors(shots, keep_records, seed, block_size),
