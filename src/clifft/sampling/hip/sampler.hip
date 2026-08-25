@@ -1,5 +1,6 @@
 #include "clifft/sampling/hip/device_program.h"
 #include "clifft/util/numeric.h"
+#include "clifft/util/shot_seed_domains.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -50,9 +51,9 @@ __device__ __forceinline__ uint64_t mix64(uint64_t value) {
 
 __device__ __forceinline__ Xoshiro256PlusPlus shot_rng(SeedRoot root, uint64_t shot) {
     Xoshiro256PlusPlus rng;
-    constexpr uint64_t kSamplingExecutorDomain = 0x01;
     for (uint64_t word = 0; word < 4; ++word) {
-        const uint64_t stream = ((kSamplingExecutorDomain << 2) | word) * 0xBF58476D1CE4E5B9ULL;
+        const uint64_t stream =
+            ((clifft::kHipSamplingExecutorDomain << 2) | word) * 0xBF58476D1CE4E5B9ULL;
         rng.state[word] = mix64(root.words[word] ^ (shot * 0x9E3779B97F4A7C15ULL) ^ stream);
     }
     return rng;
@@ -343,7 +344,8 @@ __global__ void interpret_shots(ProgramView program, SeedRoot seed_root, uint32_
                                 uint8_t* detector_storage, uint8_t* observable_storage,
                                 double* exp_val_storage, double* log_probability_storage,
                                 uint8_t* reachable_storage, uint8_t* survived) {
-    const uint32_t shot = blockIdx.x * blockDim.x + threadIdx.x;
+    const uint64_t shot =
+        static_cast<uint64_t>(blockIdx.x) * static_cast<uint64_t>(blockDim.x) + threadIdx.x;
     if (shot >= shots) {
         return;
     }

@@ -113,9 +113,10 @@ observables, and expectation values. This catches state-evolution errors that
 could be missed by a statistical test.
 
 Stochastic circuits are compared by their observed distributions with
-sample-count-aware tolerances. CPU and HIP use different execution and random
-number ordering, so they are not required to produce identical rows from the
-same seed. A fixed HIP mode must remain repeatable for the same seed.
+sample-count-aware tolerances. CPU and HIP use separate random-stream domains,
+so the same user seed does not correlate their oracle samples. They are not
+required to produce identical rows. A fixed HIP mode must remain repeatable for
+the same seed, including when a request is divided into different batch sizes.
 
 ## Next Work
 

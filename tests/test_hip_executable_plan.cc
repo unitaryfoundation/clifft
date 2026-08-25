@@ -3,6 +3,7 @@
 #include "clifft/sampling/hip/executable_plan.h"
 #include "clifft/sampling/kernels.h"
 #include "clifft/sampling/planner.h"
+#include "clifft/util/shot_seed_domains.h"
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
@@ -27,6 +28,10 @@ SamplingPlan plan_from(std::string_view circuit_text) {
 }
 
 }  // namespace
+
+TEST_CASE("HIP sampling has an independent random stream domain") {
+    STATIC_REQUIRE(clifft::kHipSamplingExecutorDomain != clifft::kSamplingExecutorDomain);
+}
 
 TEST_CASE("HIP executable lowers existing sampling action names") {
     const SamplingPlan plan = plan_from(R"(
