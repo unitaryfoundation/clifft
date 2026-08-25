@@ -15,8 +15,8 @@ namespace clifft::sampling {
 // Sampling pipeline:
 //   optimized HirModule -> SamplingPlan -> ExecutablePlan -> Executor -> results
 // Planning produces semantic actions, lowering prepares fixed CPU descriptors,
-// Executor owns mutable state for one shot, and the functions below drive
-// repeated shots and collect their outputs.
+// Executor owns mutable state for one shot, BatchExecutor owns a packed lane
+// group, and the functions below select a prepared path and collect outputs.
 
 // Explicitly partitions sampling workers across independent shots and the
 // coefficient kernels within each shot. When supplied, this layout overrides
@@ -36,10 +36,12 @@ struct ThreadLayout {
 // threads is a total worker budget. threads=0 selects the implementation-
 // reported hardware concurrency; the public Python API spells this as
 // threads="auto". Automatic scheduling uses either cross-shot or intra-shot
-// workers, not a hybrid layout.
+// workers, not a hybrid layout. batch_size is empty for adaptive selection,
+// one for scalar execution, or an explicit packed lane-capacity limit.
 [[nodiscard]] std::vector<uint8_t> sample_records(
     const ExecutablePlan& plan, uint32_t shots, std::optional<uint64_t> seed = std::nullopt,
-    uint32_t threads = 1, std::optional<ThreadLayout> thread_layout = std::nullopt);
+    uint32_t threads = 1, std::optional<ThreadLayout> thread_layout = std::nullopt,
+    std::optional<uint32_t> batch_size = std::nullopt);
 
 // Replays each row-major visible record and returns its joint log probability.
 // Unreachable records map to the lowest finite double because release builds
@@ -53,21 +55,25 @@ struct ThreadLayout {
 [[nodiscard]] SamplingResult sample(const ExecutablePlan& plan, uint32_t shots,
                                     std::optional<uint64_t> seed = std::nullopt,
                                     uint32_t threads = 1,
-                                    std::optional<ThreadLayout> thread_layout = std::nullopt);
+                                    std::optional<ThreadLayout> thread_layout = std::nullopt,
+                                    std::optional<uint32_t> batch_size = std::nullopt);
 
 [[nodiscard]] SamplingSurvivorResult sample_survivors(
     const ExecutablePlan& plan, uint32_t shots, std::optional<uint64_t> seed = std::nullopt,
     bool keep_records = false, uint32_t threads = 1,
-    std::optional<ThreadLayout> thread_layout = std::nullopt);
+    std::optional<ThreadLayout> thread_layout = std::nullopt,
+    std::optional<uint32_t> batch_size = std::nullopt);
 
 [[nodiscard]] SamplingResult sample_k(const ExecutablePlan& plan, uint32_t shots, uint32_t k,
                                       std::optional<uint64_t> seed = std::nullopt,
                                       uint32_t threads = 1,
-                                      std::optional<ThreadLayout> thread_layout = std::nullopt);
+                                      std::optional<ThreadLayout> thread_layout = std::nullopt,
+                                      std::optional<uint32_t> batch_size = std::nullopt);
 
 [[nodiscard]] SamplingSurvivorResult sample_k_survivors(
     const ExecutablePlan& plan, uint32_t shots, uint32_t k,
     std::optional<uint64_t> seed = std::nullopt, bool keep_records = false, uint32_t threads = 1,
-    std::optional<ThreadLayout> thread_layout = std::nullopt);
+    std::optional<ThreadLayout> thread_layout = std::nullopt,
+    std::optional<uint32_t> batch_size = std::nullopt);
 
 }  // namespace clifft::sampling

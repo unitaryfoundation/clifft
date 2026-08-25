@@ -9,11 +9,17 @@
 
 namespace clifft::sampling {
 
+class BatchExecutor;
+
 // Holds one shot's normalized state-vector coefficients for direct-Pauli
 // execution. The same allocation contains temporary arrays used while
 // collapsing a non-diagonal measurement.
 class State {
   public:
+    // Exact allocation size used by capacity planning. This includes both
+    // coefficient arrays, measurement scratch, and per-array alignment.
+    [[nodiscard]] static size_t allocation_bytes_for(uint32_t max_active_width);
+
     // Immediately allocates all coefficient and temporary storage required by
     // max_active_width, even when initial_active_width is smaller.
     explicit State(uint32_t max_active_width, uint32_t initial_active_width = 0,
@@ -42,6 +48,7 @@ class State {
     [[nodiscard]] uint32_t max_active_width() const { return max_active_width_; }
     [[nodiscard]] uint64_t size() const { return uint64_t{1} << active_width_; }
     [[nodiscard]] uint64_t capacity() const { return capacity_; }
+    [[nodiscard]] size_t allocation_bytes() const { return storage_bytes_; }
 
     [[nodiscard]] std::span<double> real() { return {real_, static_cast<size_t>(size())}; }
     [[nodiscard]] std::span<const double> real() const {
@@ -66,6 +73,16 @@ class State {
     void set_active_width(uint32_t width) noexcept;
 
   private:
+    friend class BatchExecutor;
+
+    // One batch allocation avoids charging the page-size minimum to every
+    // narrow lane. The owning BatchExecutor outlives all borrowed facades.
+    [[nodiscard]] static State from_borrowed_storage(uint32_t max_active_width,
+                                                     uint32_t initial_active_width, void* storage,
+                                                     size_t storage_bytes);
+    State(uint32_t max_active_width, uint32_t initial_active_width, void* storage,
+          size_t storage_bytes);
+    void bind_storage(void* storage, size_t storage_bytes);
     void release() noexcept;
     void move_from(State&& other) noexcept;
 
@@ -77,6 +94,7 @@ class State {
     uint64_t capacity_ = 0;
     uint64_t coefficient_stride_ = 0;
     uint64_t scratch_stride_ = 0;
+    size_t storage_bytes_ = 0;
     uint32_t initial_active_width_ = 0;
     uint32_t active_width_ = 0;
     uint32_t max_active_width_ = 0;

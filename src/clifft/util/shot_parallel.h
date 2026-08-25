@@ -50,12 +50,14 @@ inline uint32_t resolve_shot_worker_count(uint32_t shots, uint32_t requested_thr
     return std::min(resolve_thread_budget(requested_threads), shots);
 }
 
-inline uint32_t shot_chunk_size(uint32_t shots, uint32_t workers) noexcept {
+inline uint32_t shot_chunk_size(uint32_t shots, uint32_t workers,
+                                uint32_t minimum_chunk_size = 1) noexcept {
     assert(workers != 0 && "shot chunking requires at least one worker");
     constexpr uint64_t kTargetChunksPerWorker = 8;
     const uint64_t target_chunks = static_cast<uint64_t>(workers) * kTargetChunksPerWorker;
-    return static_cast<uint32_t>(
-        std::max<uint64_t>(1, (static_cast<uint64_t>(shots) + target_chunks - 1) / target_chunks));
+    return static_cast<uint32_t>(std::max<uint64_t>(
+        minimum_chunk_size,
+        std::max<uint64_t>(1, (static_cast<uint64_t>(shots) + target_chunks - 1) / target_chunks)));
 }
 
 // make_worker(index) runs for every worker before any range is dispatched.
@@ -66,7 +68,7 @@ inline uint32_t shot_chunk_size(uint32_t shots, uint32_t workers) noexcept {
 // shared template definition in consumers that do not inherit the core define.
 template <typename MakeWorker, typename RunRange>
 static auto run_shot_ranges(uint32_t shots, uint32_t requested_threads, MakeWorker&& make_worker,
-                            RunRange&& run_range) {
+                            RunRange&& run_range, uint32_t minimum_chunk_size = 1) {
     using WorkerHandle = std::remove_cvref_t<std::invoke_result_t<MakeWorker, uint32_t>>;
     const uint32_t worker_count = resolve_shot_worker_count(shots, requested_threads);
     std::vector<WorkerHandle> workers;
@@ -85,7 +87,7 @@ static auto run_shot_ranges(uint32_t shots, uint32_t requested_threads, MakeWork
 #if defined(__EMSCRIPTEN__)
     std::invoke(run_range, workers[0], ShotRange{0, shots});
 #else
-    const uint32_t chunk_size = shot_chunk_size(shots, worker_count);
+    const uint32_t chunk_size = shot_chunk_size(shots, worker_count, minimum_chunk_size);
     std::atomic<uint64_t> next_shot{0};
     std::atomic<bool> cancelled{false};
     std::exception_ptr first_error;

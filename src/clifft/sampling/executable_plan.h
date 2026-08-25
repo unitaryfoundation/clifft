@@ -16,6 +16,7 @@
 namespace clifft::sampling {
 
 class Executor;
+class BatchExecutor;
 class ExecutablePlanBuilder;
 
 // Owns one portable fused descriptor and the optional sidecar prepared by the
@@ -100,6 +101,7 @@ class ExecutablePlan {
 
   private:
     friend class Executor;
+    friend class BatchExecutor;
     friend class ExecutablePlanBuilder;
 
     // To keep actions compact, register_id refers to expression details in the

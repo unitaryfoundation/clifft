@@ -19,6 +19,8 @@ add_library(clifft_core STATIC
     sampling/planner.cc
     sampling/planner_frame.cc
     sampling/pauli_preparation.cc
+    sampling/batch_bits.cc
+    sampling/batch_executor.cc
     sampling/kernel_dispatch.cc
     sampling/executable_plan.cc
     sampling/executable_plan_inspection.cc

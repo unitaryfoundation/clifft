@@ -22,17 +22,39 @@ uint64_t round_array_stride(uint64_t entries) {
                     (entries + kDoublesPerAlignment - 1) & ~(kDoublesPerAlignment - 1));
 }
 
+size_t state_allocation_bytes(uint32_t max_active_width) {
+    if (max_active_width >= kDenseActiveWidthLimit) {
+        throw std::invalid_argument("sampling state maximum active width must be below " +
+                                    std::to_string(kDenseActiveWidthLimit));
+    }
+    const uint64_t capacity = uint64_t{1} << max_active_width;
+    const uint64_t coefficient_stride = round_array_stride(capacity);
+    const uint64_t scratch_capacity = std::max(uint64_t{1}, capacity >> 1);
+    const uint64_t scratch_stride = round_array_stride(scratch_capacity);
+    const uint64_t allocated_doubles = 2 * coefficient_stride + 2 * scratch_stride;
+    if (allocated_doubles > std::numeric_limits<size_t>::max() / sizeof(double)) {
+        throw std::length_error("sampling state allocation exceeds addressable memory");
+    }
+    return static_cast<size_t>(allocated_doubles) * sizeof(double);
+}
+
 }  // namespace
+
+size_t State::allocation_bytes_for(uint32_t max_active_width) {
+    return state_allocation_bytes(max_active_width);
+}
+
+State State::from_borrowed_storage(uint32_t max_active_width, uint32_t initial_active_width,
+                                   void* storage, size_t storage_bytes) {
+    return State(max_active_width, initial_active_width, storage, storage_bytes);
+}
 
 State::State(uint32_t max_active_width, uint32_t initial_active_width,
              uint32_t initialization_workers, uint32_t intra_shot_min_active_width)
     : initial_active_width_(initial_active_width),
       active_width_(initial_active_width),
       max_active_width_(max_active_width) {
-    if (max_active_width >= kDenseActiveWidthLimit) {
-        throw std::invalid_argument("sampling state maximum active width must be below " +
-                                    std::to_string(kDenseActiveWidthLimit));
-    }
+    const size_t allocation_bytes = state_allocation_bytes(max_active_width);
     if (initial_active_width > max_active_width) {
         throw std::invalid_argument("sampling state initial active width exceeds its maximum");
     }
@@ -40,16 +62,8 @@ State::State(uint32_t max_active_width, uint32_t initial_active_width,
     coefficient_stride_ = round_array_stride(capacity_);
     const uint64_t scratch_capacity = std::max(uint64_t{1}, capacity_ >> 1);
     scratch_stride_ = round_array_stride(scratch_capacity);
-    const uint64_t allocated_doubles = 2 * coefficient_stride_ + 2 * scratch_stride_;
-    if (allocated_doubles > std::numeric_limits<size_t>::max() / sizeof(double)) {
-        throw std::length_error("sampling state allocation exceeds addressable memory");
-    }
-    const size_t allocation_bytes = static_cast<size_t>(allocated_doubles) * sizeof(double);
     allocation_ = PageAlignedAllocation(allocation_bytes);
-    real_ = static_cast<double*>(allocation_.data());
-    imag_ = real_ + coefficient_stride_;
-    scratch_real_ = imag_ + coefficient_stride_;
-    scratch_imag_ = scratch_real_ + scratch_stride_;
+    bind_storage(allocation_.data(), allocation_.size());
     if (should_parallelize_intra_shot(max_active_width_, initialization_workers,
                                       intra_shot_min_active_width)) {
         // Matching each worker's future coefficient range here lets the OS
@@ -63,6 +77,34 @@ State::State(uint32_t max_active_width, uint32_t initial_active_width,
     } else {
         reset();
     }
+}
+
+State::State(uint32_t max_active_width, uint32_t initial_active_width, void* storage,
+             size_t storage_bytes)
+    : initial_active_width_(initial_active_width),
+      active_width_(initial_active_width),
+      max_active_width_(max_active_width) {
+    const size_t required_bytes = state_allocation_bytes(max_active_width);
+    if (initial_active_width > max_active_width) {
+        throw std::invalid_argument("sampling state initial active width exceeds its maximum");
+    }
+    if (storage == nullptr || storage_bytes < required_bytes) {
+        throw std::invalid_argument("borrowed sampling state storage is too small");
+    }
+    capacity_ = uint64_t{1} << max_active_width;
+    coefficient_stride_ = round_array_stride(capacity_);
+    const uint64_t scratch_capacity = std::max(uint64_t{1}, capacity_ >> 1);
+    scratch_stride_ = round_array_stride(scratch_capacity);
+    bind_storage(storage, storage_bytes);
+    reset();
+}
+
+void State::bind_storage(void* storage, size_t storage_bytes) {
+    real_ = static_cast<double*>(storage);
+    imag_ = real_ + coefficient_stride_;
+    scratch_real_ = imag_ + coefficient_stride_;
+    scratch_imag_ = scratch_real_ + scratch_stride_;
+    storage_bytes_ = storage_bytes;
 }
 
 State::~State() {
@@ -82,7 +124,7 @@ State& State::operator=(State&& other) noexcept {
 }
 
 void State::reset() noexcept {
-    assert(!allocation_.empty() && "cannot reset a moved-from sampling state");
+    assert(real_ != nullptr && "cannot reset a moved-from sampling state");
     active_width_ = initial_active_width_;
     // Only the live prefix is observable. Promotions overwrite both halves of
     // each newly active range, and measurement scratch is overwritten on use.
@@ -96,7 +138,7 @@ void State::reset_parallel(uint32_t workers, uint32_t min_active_width) noexcept
         reset();
         return;
     }
-    assert(!allocation_.empty() && "cannot reset a moved-from sampling state");
+    assert(real_ != nullptr && "cannot reset a moved-from sampling state");
     active_width_ = initial_active_width_;
     intra_shot_parallel_ranges(size(), workers, [&](uint64_t begin, uint64_t end) noexcept {
         std::fill(real_ + begin, real_ + end, 0.0);
@@ -140,6 +182,7 @@ void State::ensure_capacity(uint32_t max_active_width) {
     capacity_ = new_capacity;
     coefficient_stride_ = new_coefficient_stride;
     scratch_stride_ = new_scratch_stride;
+    storage_bytes_ = allocation_.size();
     max_active_width_ = max_active_width;
 }
 
@@ -154,6 +197,7 @@ void State::release() noexcept {
     imag_ = nullptr;
     scratch_real_ = nullptr;
     scratch_imag_ = nullptr;
+    storage_bytes_ = 0;
 }
 
 void State::move_from(State&& other) noexcept {
@@ -165,6 +209,7 @@ void State::move_from(State&& other) noexcept {
     capacity_ = std::exchange(other.capacity_, 0);
     coefficient_stride_ = std::exchange(other.coefficient_stride_, 0);
     scratch_stride_ = std::exchange(other.scratch_stride_, 0);
+    storage_bytes_ = std::exchange(other.storage_bytes_, 0);
     initial_active_width_ = std::exchange(other.initial_active_width_, 0);
     active_width_ = std::exchange(other.active_width_, 0);
     max_active_width_ = std::exchange(other.max_active_width_, 0);

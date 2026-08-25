@@ -1352,6 +1352,30 @@ TEST_CASE("Threaded fixed-row sampling preserves seeded shot order") {
     }
 }
 
+TEST_CASE("Explicit batch capacities preserve seeded fixed rows") {
+    const ExecutablePlan executable(clifft::sampling::plan_sampling(clifft::trace(clifft::parse(R"(
+        X_ERROR(0.125) 0
+        H 0 1
+        T 0
+        M(0.25) 0 1
+        DETECTOR rec[-2] rec[-1]
+        OBSERVABLE_INCLUDE(0) rec[-1]
+        EXP_VAL Z0
+    )"))));
+    const clifft::sampling::SamplingResult scalar =
+        clifft::sampling::sample(executable, 257, uint64_t{91831}, 1, std::nullopt, uint32_t{1});
+
+    for (uint32_t capacity : std::array<uint32_t, 4>{2, 63, 64, 65}) {
+        const clifft::sampling::SamplingResult packed =
+            clifft::sampling::sample(executable, 257, uint64_t{91831}, 1, std::nullopt, capacity);
+        CAPTURE(capacity);
+        REQUIRE(packed.measurements == scalar.measurements);
+        REQUIRE(packed.detectors == scalar.detectors);
+        REQUIRE(packed.observables == scalar.observables);
+        REQUIRE(packed.exp_vals == scalar.exp_vals);
+    }
+}
+
 TEST_CASE("Sampling thread layouts validate explicit worker counts") {
     const ExecutablePlan executable(plan_from("H 0\nM 0\n"));
     REQUIRE_THROWS_WITH(clifft::sampling::sample(executable, 1, uint64_t{11}, 1,
@@ -1485,7 +1509,9 @@ TEST_CASE("Threaded survivor sampling preserves seeded survivors and records") {
             OBSERVABLE_INCLUDE(0) rec[-1]
             EXP_VAL Z1
         )")),
-                                        {.postselection_mask = postselection}));
+                                        {.postselection_mask = postselection,
+                                         .expected_detectors = {},
+                                         .expected_observables = {}}));
     const clifft::sampling::SamplingSurvivorResult serial =
         clifft::sampling::sample_survivors(executable, 257, uint64_t{9184}, true, 1);
 
@@ -1501,6 +1527,41 @@ TEST_CASE("Threaded survivor sampling preserves seeded survivors and records") {
         REQUIRE(threaded.detectors == serial.detectors);
         REQUIRE(threaded.observables == serial.observables);
         REQUIRE(threaded.exp_vals == serial.exp_vals);
+    }
+}
+
+TEST_CASE("Explicit batch capacities preserve seeded survivor rows") {
+    const std::array<uint8_t, 1> postselection{1};
+    const ExecutablePlan executable(
+        clifft::sampling::plan_sampling(clifft::trace(clifft::parse(R"(
+            H 0
+            M 0
+            EXP_VAL Z0
+            DETECTOR rec[-1]
+            H 1
+            T 1
+            EXP_VAL X1
+            M 1
+            OBSERVABLE_INCLUDE(0) rec[-1]
+        )")),
+                                        {.postselection_mask = postselection,
+                                         .expected_detectors = {},
+                                         .expected_observables = {}}));
+    const clifft::sampling::SamplingSurvivorResult scalar = clifft::sampling::sample_survivors(
+        executable, 257, uint64_t{91841}, true, 1, std::nullopt, uint32_t{1});
+
+    for (uint32_t capacity : std::array<uint32_t, 4>{2, 63, 64, 65}) {
+        const clifft::sampling::SamplingSurvivorResult packed = clifft::sampling::sample_survivors(
+            executable, 257, uint64_t{91841}, true, 1, std::nullopt, capacity);
+        CAPTURE(capacity);
+        REQUIRE(packed.total_shots == scalar.total_shots);
+        REQUIRE(packed.passed_shots == scalar.passed_shots);
+        REQUIRE(packed.logical_errors == scalar.logical_errors);
+        REQUIRE(packed.observable_ones == scalar.observable_ones);
+        REQUIRE(packed.measurements == scalar.measurements);
+        REQUIRE(packed.detectors == scalar.detectors);
+        REQUIRE(packed.observables == scalar.observables);
+        REQUIRE(packed.exp_vals == scalar.exp_vals);
     }
 }
 
