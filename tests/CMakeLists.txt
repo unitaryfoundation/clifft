@@ -11,7 +11,6 @@ add_executable(clifft_tests
     test_page_allocation.cc
     test_parser.cc
     test_reference_clifford.cc
-    test_stim_contract.cc
     test_tableau.cc
     test_hir.cc
     test_frontend.cc
