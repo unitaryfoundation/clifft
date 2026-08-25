@@ -256,6 +256,9 @@ The four fixed-plan sampling functions accept `batch_size`. Its default value,
 the plan and request are expected to benefit:
 
 ```python
+import clifft
+
+program = clifft.compile("M 0")
 result = clifft.sample(program, 100_000, seed=42, batch_size="auto")
 scalar = clifft.sample(program, 100_000, seed=42, batch_size=1)
 packed = clifft.sample(program, 100_000, seed=42, batch_size=1024)
