@@ -22,6 +22,7 @@
 
 #include <catch2/benchmark/catch_benchmark.hpp>
 #include <catch2/catch_test_macros.hpp>
+#include <fstream>
 #include <sstream>
 #include <string>
 
@@ -34,6 +35,12 @@ using namespace clifft;
 
 static std::string fixture(const char* name) {
     return std::string(CLIFFT_FIXTURES_DIR) + "/" + name;
+}
+
+static std::string fixture_text(const char* name) {
+    std::ifstream input(fixture(name));
+    REQUIRE(input.good());
+    return {std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
 }
 
 // Compile a parsed Circuit through the full optimizer pipeline.
@@ -58,7 +65,26 @@ static std::string surface_code_text(uint32_t distance, uint64_t rounds, double 
     params.before_measure_flip_probability = p;
     params.after_clifford_depolarization = p;
     params.after_reset_flip_probability = p;
-    return stim::generate_surface_code_circuit(params).circuit.str();
+    return stim::generate_surface_code_circuit(params).circuit.str() + "\n";
+}
+
+TEST_CASE("Surface-code benchmark fixtures match Stim", "[reference]") {
+    struct FixtureCase {
+        const char* name;
+        uint32_t distance;
+        uint64_t rounds;
+        double probability;
+    };
+    const FixtureCase cases[] = {
+        {"surface_d7_r7_p001.stim", 7, 7, 1e-3},
+        {"surface_d5_r5_p05.stim", 5, 5, 0.05},
+        {"surface_d11_r11_p001.stim", 11, 11, 1e-3},
+    };
+    for (const auto& test_case : cases) {
+        CAPTURE(test_case.name);
+        REQUIRE(fixture_text(test_case.name) ==
+                surface_code_text(test_case.distance, test_case.rounds, test_case.probability));
+    }
 }
 
 // EXP_VAL-heavy synthetic circuit: prepares a Clifford state on n qubits,
