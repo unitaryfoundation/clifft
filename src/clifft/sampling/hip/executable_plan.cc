@@ -113,7 +113,7 @@ detail::Action ExecutablePlan::lower_action(const PlannedAction& planned) {
                 action.tag = detail::ActionTag::RotateActivePauli;
                 action.expression = append_expression(typed.sign);
                 flatten_pauli(action, rotation.pauli);
-                action.pair_stride_or_z_without_pivot = rotation.pauli.pairing_bit;
+                action.pair_stride = rotation.pauli.pairing_bit;
                 action.value0 = rotation.cosine;
                 action.value1 = rotation.sine;
             } else if constexpr (std::is_same_v<T, PromoteDormantRotation>) {
@@ -131,7 +131,6 @@ detail::Action ExecutablePlan::lower_action(const PlannedAction& planned) {
                 action.index0 = index(typed.branch);
                 action.index1 = index(typed.record);
                 action.index2 = measurement.pivot;
-                action.pair_stride_or_z_without_pivot = measurement.z_without_pivot;
             } else if constexpr (std::is_same_v<T, MeasureDormantRandom>) {
                 action.tag = detail::ActionTag::MeasureDormantRandom;
                 action.expression = append_expression(typed.outcome);

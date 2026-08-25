@@ -47,12 +47,9 @@ struct Action {
     uint32_t index0 = 0;
     uint32_t index1 = 0;
     uint32_t index2 = 0;
-    uint32_t reserved_index = 0;
     uint64_t x = 0;
     uint64_t z = 0;
-    // RotateActivePauli stores its pair stride here; diagonal
-    // MeasureActivePauli stores its pivot-cleared Z mask instead.
-    uint64_t pair_stride_or_z_without_pivot = 0;
+    uint64_t pair_stride = 0;
     double value0 = 0.0;
     double value1 = 0.0;
 };
@@ -80,7 +77,6 @@ struct ProgramView {
     uint32_t peak_active_width = 0;
     uint32_t num_symbols = 0;
     uint32_t num_records = 0;
-    uint32_t num_visible_records = 0;
     uint32_t num_detectors = 0;
     uint32_t num_observables = 0;
     uint32_t num_exp_vals = 0;

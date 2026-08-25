@@ -143,7 +143,7 @@ __device__ void apply_rotation(const Action& action, bool sign, Coefficient* rea
     const Coefficient base_phase =
         static_cast<Coefficient>(real_phase ? action.phase_real : action.phase_imag);
     const Coefficient even_left_sine = sine * base_phase;
-    const uint64_t pair_stride = action.pair_stride_or_z_without_pivot;
+    const uint64_t pair_stride = action.pair_stride;
     const uint64_t pair_period = pair_stride << 1;
     for (uint64_t block = 0; block < size; block += pair_period) {
         for (uint64_t offset = 0; offset < pair_stride; ++offset) {
@@ -263,8 +263,9 @@ __device__ bool measure_active(const ProgramView& program, const Action& action,
     if (action.x == 0) {
         for (uint64_t packed = 0; packed < output_size; ++packed) {
             const uint64_t without_pivot = insert_zero_bit(packed, action.index2);
-            const bool other_parity =
-                parity(without_pivot & action.pair_stride_or_z_without_pivot);
+            // without_pivot already clears the measured pivot, so the full Z
+            // mask has the same parity as its pivot-cleared form.
+            const bool other_parity = parity(without_pivot & action.z);
             const bool pivot_value = branch != other_parity;
             const uint64_t source =
                 without_pivot | (static_cast<uint64_t>(pivot_value) << action.index2);
@@ -624,7 +625,6 @@ struct UploadedProgram {
         view.peak_active_width = executable.peak_active_width();
         view.num_symbols = executable.num_symbols();
         view.num_records = executable.num_records();
-        view.num_visible_records = executable.num_visible_records();
         view.num_detectors = executable.num_detectors();
         view.num_observables = executable.num_observables();
         view.num_exp_vals = executable.num_exp_vals();

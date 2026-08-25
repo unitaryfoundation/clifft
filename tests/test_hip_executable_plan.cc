@@ -95,7 +95,7 @@ TEST_CASE("HIP executable flattens shared Pauli preparation") {
                 rotation->pauli, planned.active_before, rotation->half_turns);
             REQUIRE(packed.x == prepared.pauli.x);
             REQUIRE(packed.z == prepared.pauli.z);
-            REQUIRE(packed.pair_stride_or_z_without_pivot == prepared.pauli.pairing_bit);
+            REQUIRE(packed.pair_stride == prepared.pauli.pairing_bit);
             REQUIRE(packed.phase_real == prepared.pauli.even_phase.real());
             REQUIRE(packed.phase_imag == prepared.pauli.even_phase.imag());
             REQUIRE(packed.value0 == prepared.cosine);
@@ -113,7 +113,7 @@ TEST_CASE("HIP executable flattens shared Pauli preparation") {
                 measurement->pauli, planned.active_before, measurement->active_pivot);
             REQUIRE(packed.x == prepared.pauli.x);
             REQUIRE(packed.z == prepared.pauli.z);
-            REQUIRE(packed.pair_stride_or_z_without_pivot == prepared.z_without_pivot);
+            REQUIRE(packed.pair_stride == 0);
             REQUIRE(packed.phase_real == prepared.pauli.even_phase.real());
             REQUIRE(packed.phase_imag == prepared.pauli.even_phase.imag());
             REQUIRE(packed.index2 == prepared.pivot);

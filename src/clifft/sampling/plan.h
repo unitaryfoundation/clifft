@@ -333,6 +333,10 @@ struct SamplingPlan {
     // can preallocate storage.
     uint32_t initial_active_width = 0;
     uint32_t peak_active_width = 0;
+
+    // RecordSlot values below num_visible_records are returned to callers;
+    // hidden records occupy the remaining contiguous slots. Validation checks
+    // that every slot in both regions is written exactly once.
     uint32_t num_visible_records = 0;
     uint32_t num_hidden_records = 0;
     uint32_t num_noise_sites = 0;
