@@ -18,10 +18,11 @@ class KFaultSampler;
 
 namespace clifft::sampling {
 
-inline constexpr uint32_t kDefaultMaxAutoBatchShots = 512;
+inline constexpr uint32_t kDefaultMaxAutoBatchShots = 2048;
 inline constexpr uint32_t kMaxExplicitBatchShots = 2048;
 inline constexpr size_t kDefaultBatchStateBudget = 768 * 1024;
 inline constexpr uint32_t kDefaultMinAutoBatchShots = 64;
+inline constexpr uint32_t kDefaultMinExpandedAutoBatchShots = 512;
 
 enum class BatchOutputMode : uint8_t {
     Rows,
@@ -34,6 +35,10 @@ enum class BatchOutputMode : uint8_t {
 [[nodiscard]] uint32_t resolve_batch_capacity(const ExecutablePlan& plan, uint32_t shots,
                                               uint32_t shot_workers, uint32_t intra_shot_workers,
                                               std::optional<uint32_t> requested_batch_size);
+[[nodiscard]] uint32_t resolve_batch_capacity(const ExecutablePlan& plan, uint32_t shots,
+                                              uint32_t shot_workers, uint32_t intra_shot_workers,
+                                              std::optional<uint32_t> requested_batch_size,
+                                              BatchOutputMode output_mode);
 
 // Single-threaded packed executor for fixed plans. It traverses one immutable
 // action stream for every lane while retaining the existing contiguous State

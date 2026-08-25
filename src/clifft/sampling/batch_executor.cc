@@ -84,6 +84,14 @@ struct MeasurementBranchClassification {
 uint32_t resolve_batch_capacity(const ExecutablePlan& plan, uint32_t shots, uint32_t shot_workers,
                                 uint32_t intra_shot_workers,
                                 std::optional<uint32_t> requested_batch_size) {
+    return resolve_batch_capacity(plan, shots, shot_workers, intra_shot_workers,
+                                  requested_batch_size, BatchOutputMode::Rows);
+}
+
+uint32_t resolve_batch_capacity(const ExecutablePlan& plan, uint32_t shots, uint32_t shot_workers,
+                                uint32_t intra_shot_workers,
+                                std::optional<uint32_t> requested_batch_size,
+                                BatchOutputMode output_mode) {
     if (requested_batch_size.has_value() && *requested_batch_size == 0) {
         throw std::invalid_argument("batch_size must be a positive integer or 'auto'");
     }
@@ -112,18 +120,27 @@ uint32_t resolve_batch_capacity(const ExecutablePlan& plan, uint32_t shots, uint
     if (worker_shots < kDefaultMinAutoBatchShots) {
         return 1;
     }
-    // Dense action-major lane traversal and per-lane fault presampling do not
-    // yet beat the shot-major executor reliably. Keep those plans scalar until
-    // a benchmark-supported crossover is available; explicit capacities remain
-    // useful for profiling and correctness coverage of the complete executor.
-    if (plan.peak_active_width() != 0 || plan.num_presampled_symbols() != 0 ||
-        plan.has_readout_noise()) {
-        return 1;
-    }
     const size_t state_bytes = State::allocation_bytes_for(plan.peak_active_width());
     const size_t footprint_capacity = std::max<size_t>(1, kDefaultBatchStateBudget / state_bytes);
-    return static_cast<uint32_t>(
+    const uint32_t capacity = static_cast<uint32_t>(
         std::min<size_t>({worker_shots, kDefaultMaxAutoBatchShots, footprint_capacity}));
+    const bool baseline_profitable =
+        plan.peak_active_width() == 0 && plan.num_presampled_symbols() == 0;
+    const bool prepared_symbolic_sharing = plan.has_prepared_batch_expression_program();
+    const bool narrow_aggregate_postselection =
+        output_mode == BatchOutputMode::AggregateSurvivors && plan.has_postselection() &&
+        plan.peak_active_width() <= 5;
+    // Prepared sharing amortizes only across a large bit plane, while narrow
+    // postselected aggregation avoids materializing rejected rows. Dense or
+    // readout-heavy plans retain the scalar path until they have their own
+    // benchmark-supported crossover.
+    if (plan.has_readout_noise() ||
+        (!baseline_profitable &&
+         (capacity < kDefaultMinExpandedAutoBatchShots ||
+          (!prepared_symbolic_sharing && !narrow_aggregate_postselection)))) {
+        return 1;
+    }
+    return capacity;
 #endif
 }
 

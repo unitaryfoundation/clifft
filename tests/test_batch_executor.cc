@@ -19,6 +19,7 @@ using clifft::KFaultSampler;
 using clifft::make_seed_root;
 using clifft::SeedRoot;
 using clifft::sampling::BatchExecutor;
+using clifft::sampling::BatchOutputMode;
 using clifft::sampling::ExecutablePlan;
 using clifft::sampling::Executor;
 using clifft::sampling::resolve_batch_capacity;
@@ -139,7 +140,7 @@ TEST_CASE("Packed executor preserves fixed-fault rows") {
 TEST_CASE("Packed capacity policy bounds worker state footprint") {
     const ExecutablePlan narrow(
         clifft::sampling::plan_sampling(clifft::trace(clifft::parse("H 0 1\nM 0 1\n"))));
-    REQUIRE(resolve_batch_capacity(narrow, 4096, 1, 1, std::nullopt) == 512);
+    REQUIRE(resolve_batch_capacity(narrow, 4096, 1, 1, std::nullopt) == 2048);
     REQUIRE(resolve_batch_capacity(narrow, 1024, 4, 1, std::nullopt) == 256);
     REQUIRE(resolve_batch_capacity(narrow, 63, 1, 1, std::nullopt) == 1);
     REQUIRE(resolve_batch_capacity(narrow, 63, 1, 1, uint32_t{65}) == 63);
@@ -164,4 +165,17 @@ TEST_CASE("Packed capacity policy bounds worker state footprint") {
     const ExecutablePlan noisy = compile_batch_test_plan();
     REQUIRE(resolve_batch_capacity(noisy, 4096, 1, 1, std::nullopt) == 1);
     REQUIRE(resolve_batch_capacity(noisy, 4096, 1, 1, uint32_t{65}) == 65);
+
+    const std::array<uint8_t, 1> postselection{1};
+    clifft::sampling::SamplingPlanOptions options;
+    options.postselection_mask = postselection;
+    const ExecutablePlan postselected(clifft::sampling::plan_sampling(
+        clifft::trace(clifft::parse("H 0 1 2 3 4\nT 0 1 2 3 4\nM 0 1 2 3 4\n"
+                                    "DETECTOR rec[-1]\n")),
+        options));
+    REQUIRE(postselected.peak_active_width() == 5);
+    REQUIRE_FALSE(postselected.has_prepared_batch_expression_program());
+    REQUIRE(resolve_batch_capacity(postselected, 4096, 1, 1, std::nullopt) == 1);
+    REQUIRE(resolve_batch_capacity(postselected, 4096, 1, 1, std::nullopt,
+                                   BatchOutputMode::AggregateSurvivors) == 1024);
 }

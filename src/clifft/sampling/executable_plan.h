@@ -92,6 +92,9 @@ class ExecutablePlan {
     [[nodiscard]] uint32_t num_unbound_presampled_symbols() const {
         return static_cast<uint32_t>(unbound_presampled_symbols_.size());
     }
+    [[nodiscard]] bool has_prepared_batch_expression_program() const {
+        return !presampled_initialization_level_offsets_.empty();
+    }
     [[nodiscard]] std::vector<double> noise_site_probabilities() const;
     // Deterministic target-specific inspection for diagnostics and tooling.
     [[nodiscard]] std::string inspect() const;

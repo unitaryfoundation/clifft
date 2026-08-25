@@ -1,5 +1,6 @@
 #include "clifft/circuit/parser.h"
 #include "clifft/frontend/frontend.h"
+#include "clifft/sampling/batch_executor.h"
 #include "clifft/sampling/executor.h"
 #include "clifft/sampling/planner.h"
 #include "clifft/sampling/sampler.h"
@@ -56,6 +57,7 @@ using clifft::sampling::record_log_probabilities;
 using clifft::sampling::RecordClassical;
 using clifft::sampling::RecordSlot;
 using clifft::sampling::ReplayResult;
+using clifft::sampling::resolve_batch_capacity;
 using clifft::sampling::RotateActivePauli;
 using clifft::sampling::sample_records;
 using clifft::sampling::SamplingPlan;
@@ -1406,6 +1408,9 @@ TEST_CASE("Packed presampled expression program preserves shared affine rows") {
     }
 
     const ExecutablePlan executable(plan);
+    REQUIRE(executable.has_prepared_batch_expression_program());
+    REQUIRE(resolve_batch_capacity(executable, 4096, 1, 1, std::nullopt) == 2048);
+    REQUIRE(resolve_batch_capacity(executable, 511, 1, 1, std::nullopt) == 1);
     const clifft::sampling::SamplingResult scalar =
         clifft::sampling::sample(executable, 257, uint64_t{91832}, 1, std::nullopt, uint32_t{1});
 

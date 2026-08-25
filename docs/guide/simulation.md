@@ -269,12 +269,13 @@ Within each cross-shot worker, the symbolic sampler normally processes shots
 in an adaptive packed batch. Classical symbols, expression results, records,
 detectors, and observables are bit-packed across the batch, while each live
 shot retains its own dense active state and random stream. The automatic
-capacity is bounded by the worker's shot count, a maximum of 512 lanes, and a
-768 KiB dense-state footprint budget. Automatic mode currently selects packing
-only for noiseless peak-active-width-zero plans with at least 64 shots per
-worker. Benchmarks show that per-lane noise sampling and action-major traversal
-of dense states still favor the scalar executor, so noisy and active-state
-plans conservatively fall back to it.
+capacity is bounded by the worker's shot count, a maximum of 2048 lanes, and a
+768 KiB dense-state footprint budget. Automatic mode packs noiseless
+peak-active-width-zero plans with at least 64 shots per worker. It also packs
+plans whose compiler found enough shared presampled expression work to amortize
+at least 512 lanes, and counts-only postselected plans through peak active width
+5. Other noisy, readout-heavy, or wider active-state plans conservatively use
+the scalar executor until they have a benchmark-supported crossover.
 
 The four fixed-plan sampling functions accept `batch_size="auto"` by default.
 Use `batch_size=1` to force the scalar executor when comparing profiles, or a

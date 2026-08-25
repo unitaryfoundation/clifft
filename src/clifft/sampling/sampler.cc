@@ -476,8 +476,9 @@ SamplingResult sample(const ExecutablePlan& plan, uint32_t shots, std::optional<
     }
 
     const ThreadLayout resolved = resolve_thread_layout(plan, shots, threads, thread_layout);
-    const uint32_t batch_capacity = resolve_batch_capacity(plan, shots, resolved.shot_workers,
-                                                           resolved.intra_shot_workers, batch_size);
+    const uint32_t batch_capacity =
+        resolve_batch_capacity(plan, shots, resolved.shot_workers, resolved.intra_shot_workers,
+                               batch_size, BatchOutputMode::Rows);
     if (batch_capacity > 1) {
         return sample_fixed_batches(
             plan, shots, seed, resolved, batch_capacity,
@@ -515,8 +516,9 @@ SamplingSurvivorResult sample_survivors(const ExecutablePlan& plan, uint32_t sho
     }
 
     const ThreadLayout resolved = resolve_thread_layout(plan, shots, threads, thread_layout);
-    const uint32_t batch_capacity = resolve_batch_capacity(plan, shots, resolved.shot_workers,
-                                                           resolved.intra_shot_workers, batch_size);
+    const uint32_t batch_capacity = resolve_batch_capacity(
+        plan, shots, resolved.shot_workers, resolved.intra_shot_workers, batch_size,
+        keep_records ? BatchOutputMode::Rows : BatchOutputMode::AggregateSurvivors);
     if (batch_capacity > 1) {
         return sample_surviving_batches(
             plan, shots, seed, keep_records, resolved, batch_capacity,
@@ -553,8 +555,9 @@ SamplingResult sample_k(const ExecutablePlan& plan, uint32_t shots, uint32_t k,
             "sample_k_survivors");
     }
     const ThreadLayout resolved = resolve_thread_layout(plan, shots, threads, thread_layout);
-    const uint32_t batch_capacity = resolve_batch_capacity(plan, shots, resolved.shot_workers,
-                                                           resolved.intra_shot_workers, batch_size);
+    const uint32_t batch_capacity =
+        resolve_batch_capacity(plan, shots, resolved.shot_workers, resolved.intra_shot_workers,
+                               batch_size, BatchOutputMode::Rows);
     if (shots == 0) {
         return sample_fixed_rows(
             plan, shots, seed, resolved,
@@ -604,8 +607,9 @@ SamplingSurvivorResult sample_k_survivors(const ExecutablePlan& plan, uint32_t s
             "forced-fault survivor sampling requires a distribution for every presampled symbol");
     }
     const ThreadLayout resolved = resolve_thread_layout(plan, shots, threads, thread_layout);
-    const uint32_t batch_capacity = resolve_batch_capacity(plan, shots, resolved.shot_workers,
-                                                           resolved.intra_shot_workers, batch_size);
+    const uint32_t batch_capacity = resolve_batch_capacity(
+        plan, shots, resolved.shot_workers, resolved.intra_shot_workers, batch_size,
+        keep_records ? BatchOutputMode::Rows : BatchOutputMode::AggregateSurvivors);
     if (shots == 0) {
         return sample_surviving_rows(
             plan, shots, seed, keep_records, resolved,
