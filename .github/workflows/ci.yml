@@ -126,16 +126,6 @@ jobs:
           enable-cache: true
           python-version: "3.12"
 
-      - name: Build production C++ without test dependencies
-        run: |
-          cmake -S . -B build-production -G Ninja \
-            -DCMAKE_BUILD_TYPE=${{ env.CMAKE_BUILD_TYPE }} \
-            -DCLIFFT_CPU_BASELINE=${{ env.CLIFFT_CPU_BASELINE }} \
-            -DCLIFFT_BUILD_TESTS=OFF
-          cmake --build build-production --config ${{ env.CMAKE_BUILD_TYPE }} --parallel
-          test ! -e build-production/_deps/stim-src
-          test ! -e build-production/_deps/stim-build
-
       - name: Configure C++ build
         run: |
           cmake -S . -B build -G Ninja \

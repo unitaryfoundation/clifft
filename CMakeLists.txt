@@ -187,7 +187,7 @@ endif()
 
 # Code coverage option (for use with gcov/lcov)
 # Note: Coverage flags are applied per-target in src/clifft/CMakeLists.txt to avoid
-# instrumenting external dependencies (Stim, Catch2) which would slow builds.
+# instrumenting Catch2, which would slow builds.
 option(CLIFFT_COVERAGE "Enable code coverage instrumentation" OFF)
 if(CLIFFT_COVERAGE)
     if(NOT CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
@@ -217,9 +217,8 @@ add_subdirectory(src/clifft)
 if(SKBUILD)
     add_subdirectory(src/python)
 else()
-    option(CLIFFT_BUILD_TESTS "Build the C++ test suite and its Stim oracle" ON)
+    option(CLIFFT_BUILD_TESTS "Build the C++ test suite" ON)
     if(CLIFFT_BUILD_TESTS)
-        include(cmake/FetchStimTestOracle.cmake)
         include(cmake/FetchCatch2.cmake)
         enable_testing()
         add_subdirectory(tests)

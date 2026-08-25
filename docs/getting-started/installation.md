@@ -39,9 +39,6 @@ uv pip install -e .
 uv run python -c "import clifft; print(clifft.version())"
 ```
 
-Source installation builds Clifft's native core directly; Stim is not fetched
-or linked into the Python package.
-
 ### Prerequisites (source build)
 
 - **CMake** 3.20+
