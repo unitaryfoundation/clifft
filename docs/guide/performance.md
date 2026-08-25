@@ -90,19 +90,31 @@ SymFT batch size varies by circuit, so the
 [per-workload table](https://github.com/unitaryfoundation/clifft-bench#current-single-core-qec-results)
 is more useful than one aggregate ranking.
 
+![QEC workload throughput ratio between Clifft and the fastest measured SymFT mode](https://raw.githubusercontent.com/unitaryfoundation/clifft-bench/main/figures/current-tools-v1-20260824-r1.png)
+
 The release-history campaign runs Clifft 0.1 through 0.9 on the same corpus and
 hardware epoch. Clifft 0.9 is faster than 0.1 on all eight workloads, with a
 median per-workload speedup of 1.93x and a range of 1.18x to 16.89x. See the
 [release-history results](https://github.com/unitaryfoundation/clifft-bench#clifft-release-history).
 
+![Clifft throughput across releases](https://raw.githubusercontent.com/unitaryfoundation/clifft-bench/main/figures/clifft-history-v1-20260825-r1.png)
+
 ### Multicore Quantum Volume
 
-![Quantum Volume current-tool latency and Clifft strong scaling](https://raw.githubusercontent.com/unitaryfoundation/clifft-bench/main/figures/qv-multicore-v1-2026082.png)
+#### Current-tool latency
+
+![Quantum Volume latency by simulator](https://raw.githubusercontent.com/unitaryfoundation/clifft-bench/main/figures/qv-multicore-v1-2026082-current-tools.png)
 
 On 16 physical cores, Clifft 0.9 has the lowest median single-shot latency of
-the four measured tools at QV20 and QV22. Its paired median QV24 speedup is
-10.17x from 1 to 16 cores. Tool ordering changes with circuit width, as the
-left panel shows.
+the four measured tools at QV20 and QV22. Tool ordering changes with circuit
+width, so the full curve is more informative than one aggregate ranking.
+
+#### Clifft strong scaling
+
+![Clifft Quantum Volume strong scaling](https://raw.githubusercontent.com/unitaryfoundation/clifft-bench/main/figures/qv-multicore-v1-2026082-clifft-scaling.png)
+
+Clifft's paired median QV24 speedup is 10.17x from 1 to 16 cores. Points show
+paired medians across three deterministic seeds; whiskers show the seed range.
 
 This is a separate exploratory campaign on an AWS `c8i.8xlarge` with three
 deterministic circuit seeds per point. Its latency numbers must not be mixed
