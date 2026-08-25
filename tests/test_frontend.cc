@@ -8,6 +8,7 @@
 #include "clifft/frontend/frontend.h"
 #include "clifft/util/numeric.h"
 
+#include "reference_clifford.h"
 #include "test_helpers.h"
 
 #include <algorithm>
@@ -21,6 +22,8 @@
 #include <string>
 
 using namespace clifft;
+using clifft::test::ReferencePauli;
+using clifft::test::ReferenceTableau;
 using clifft::test::X;
 using clifft::test::Z;
 
@@ -44,35 +47,21 @@ static std::string make_pauli_channel3_args(size_t nonzero_idx, double prob) {
     return args;
 }
 
-static NoiseChannelMasks rewind_single_pauli_reference(
-    const stim::TableauSimulator<kStimWidth>& sim, uint32_t qubit, int pauli_type, double prob) {
-    stim::PauliString<kStimWidth> pauli(sim.inv_state.num_qubits);
-    if (pauli_type == 1 || pauli_type == 2)
-        pauli.xs[qubit] = true;
-    if (pauli_type == 2 || pauli_type == 3)
-        pauli.zs[qubit] = true;
-
-    auto rewound = sim.inv_state(pauli);
-    return {rewound.xs.u64[0], rewound.zs.u64[0], prob};
+static NoiseChannelMasks rewind_pauli_reference(const ReferenceTableau& rewinder,
+                                                ReferencePauli pauli, double prob) {
+    pauli.set_sign(false);
+    const ReferencePauli rewound = rewinder.apply(pauli);
+    uint64_t x = 0;
+    uint64_t z = 0;
+    for (uint32_t q = 0; q < rewound.num_qubits(); ++q) {
+        x |= static_cast<uint64_t>(rewound.x(q)) << q;
+        z |= static_cast<uint64_t>(rewound.z(q)) << q;
+    }
+    return {x, z, prob};
 }
 
-static NoiseChannelMasks rewind_two_qubit_pauli_reference(
-    const stim::TableauSimulator<kStimWidth>& sim, uint32_t q1, uint32_t q2, int pauli1, int pauli2,
-    double prob) {
-    stim::PauliString<kStimWidth> pauli(sim.inv_state.num_qubits);
-
-    if (pauli1 == 1 || pauli1 == 2)
-        pauli.xs[q1] = true;
-    if (pauli1 == 2 || pauli1 == 3)
-        pauli.zs[q1] = true;
-
-    if (pauli2 == 1 || pauli2 == 2)
-        pauli.xs[q2] = true;
-    if (pauli2 == 2 || pauli2 == 3)
-        pauli.zs[q2] = true;
-
-    auto rewound = sim.inv_state(pauli);
-    return {rewound.xs.u64[0], rewound.zs.u64[0], prob};
+static void set_reference_pauli(ReferencePauli& pauli, uint32_t qubit, int pauli_type) {
+    pauli.set_pauli(qubit, pauli_type == 1 || pauli_type == 2, pauli_type == 2 || pauli_type == 3);
 }
 
 TEST_CASE("Frontend: identity circuit produces empty HIR", "[frontend]") {
@@ -1023,11 +1012,12 @@ TEST_CASE("Frontend: Y_ERROR rewinds through entangling Cliffords", "[frontend][
     REQUIRE(hir.noise_sites.size() == 1);
     REQUIRE(hir.noise_sites[0].channels.size() == 1);
 
-    std::mt19937_64 rng(0);
-    stim::TableauSimulator<kStimWidth> sim(std::move(rng), 2);
-    sim.inv_state.prepend_H_XZ(0);
-    sim.inv_state.prepend_ZCX(0, 1);
-    auto expected = rewind_single_pauli_reference(sim, 1, 2, 0.02);
+    ReferenceTableau rewinder(2);
+    rewinder.append_cx(0, 1);
+    rewinder.append_h(0);
+    ReferencePauli pauli(2);
+    set_reference_pauli(pauli, 1, 2);
+    const auto expected = rewind_pauli_reference(rewinder, pauli, 0.02);
 
     const auto& actual = hir.noise_sites[0].channels[0];
     CHECK(hir.noise_channel_masks.at(actual.mask).x() == expected.destab_mask);
@@ -1044,10 +1034,9 @@ TEST_CASE("Frontend: DEPOLARIZE2 rewinds through entangling Cliffords", "[fronte
     REQUIRE(hir.noise_sites.size() == 1);
     REQUIRE(hir.noise_sites[0].channels.size() == 15);
 
-    std::mt19937_64 rng(0);
-    stim::TableauSimulator<kStimWidth> sim(std::move(rng), 2);
-    sim.inv_state.prepend_H_XZ(0);
-    sim.inv_state.prepend_ZCX(0, 1);
+    ReferenceTableau rewinder(2);
+    rewinder.append_cx(0, 1);
+    rewinder.append_h(0);
 
     double channel_prob = 0.15 / 15.0;
     std::vector<NoiseChannelMasks> expected;
@@ -1055,7 +1044,10 @@ TEST_CASE("Frontend: DEPOLARIZE2 rewinds through entangling Cliffords", "[fronte
         for (int p2 = 0; p2 <= 3; ++p2) {
             if (p1 == 0 && p2 == 0)
                 continue;
-            expected.push_back(rewind_two_qubit_pauli_reference(sim, 0, 1, p1, p2, channel_prob));
+            ReferencePauli pauli(2);
+            set_reference_pauli(pauli, 0, p1);
+            set_reference_pauli(pauli, 1, p2);
+            expected.push_back(rewind_pauli_reference(rewinder, pauli, channel_prob));
         }
     }
 

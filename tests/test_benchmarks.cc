@@ -18,11 +18,8 @@
 #include "clifft/sampling/planner.h"
 #include "clifft/sampling/sampler.h"
 
-#include "stim.h"
-
 #include <catch2/benchmark/catch_benchmark.hpp>
 #include <catch2/catch_test_macros.hpp>
-#include <fstream>
 #include <sstream>
 #include <string>
 
@@ -35,12 +32,6 @@ using namespace clifft;
 
 static std::string fixture(const char* name) {
     return std::string(CLIFFT_FIXTURES_DIR) + "/" + name;
-}
-
-static std::string fixture_text(const char* name) {
-    std::ifstream input(fixture(name));
-    REQUIRE(input.good());
-    return {std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
 }
 
 // Compile a parsed Circuit through the full optimizer pipeline.
@@ -56,35 +47,6 @@ static sampling::ExecutablePlan compile_circuit(const std::string& path) {
 
 static sampling::ExecutablePlan compile_text(const std::string& text) {
     return compile_parsed(parse(text));
-}
-
-// Generate a rotated-Z-memory surface code circuit with uniform noise via Stim.
-static std::string surface_code_text(uint32_t distance, uint64_t rounds, double p) {
-    stim::CircuitGenParameters params(rounds, distance, "rotated_memory_z");
-    params.before_round_data_depolarization = p;
-    params.before_measure_flip_probability = p;
-    params.after_clifford_depolarization = p;
-    params.after_reset_flip_probability = p;
-    return stim::generate_surface_code_circuit(params).circuit.str() + "\n";
-}
-
-TEST_CASE("Surface-code benchmark fixtures match Stim", "[reference]") {
-    struct FixtureCase {
-        const char* name;
-        uint32_t distance;
-        uint64_t rounds;
-        double probability;
-    };
-    const FixtureCase cases[] = {
-        {"surface_d7_r7_p001.stim", 7, 7, 1e-3},
-        {"surface_d5_r5_p05.stim", 5, 5, 0.05},
-        {"surface_d11_r11_p001.stim", 11, 11, 1e-3},
-    };
-    for (const auto& test_case : cases) {
-        CAPTURE(test_case.name);
-        REQUIRE(fixture_text(test_case.name) ==
-                surface_code_text(test_case.distance, test_case.rounds, test_case.probability));
-    }
 }
 
 // EXP_VAL-heavy synthetic circuit: prepares a Clifford state on n qubits,
@@ -145,7 +107,7 @@ TEST_CASE("Bench: cultivation d5 sampling 1000 shots", "[bench]") {
 // stay silent. Throughput is dominated by symbolic actions and the gap-sampler.
 // ---------------------------------------------------------------------------
 TEST_CASE("Bench: surface d7 r7 p1e-3 sampling 10000 shots", "[bench]") {
-    auto mod = compile_text(surface_code_text(7, 7, 1e-3));
+    auto mod = compile_circuit(fixture("surface_d7_r7_p001.stim"));
     REQUIRE(mod.peak_active_width() == 0);
     REQUIRE(mod.num_qubits() <= 128);
 
@@ -160,7 +122,7 @@ TEST_CASE("Bench: surface d7 r7 p1e-3 sampling 10000 shots", "[bench]") {
 // path. Throughput is dominated by the per-fire mask composition.
 // ---------------------------------------------------------------------------
 TEST_CASE("Bench: surface d5 r5 high-noise APPLY_PAULI heavy", "[bench]") {
-    auto mod = compile_text(surface_code_text(5, 5, 0.05));
+    auto mod = compile_circuit(fixture("surface_d5_r5_p05.stim"));
 
     BENCHMARK("surface-d5-r5 p=0.05 x10000 shots") {
         return sampling::sample(mod, 10000, 0);
@@ -173,7 +135,7 @@ TEST_CASE("Bench: surface d5 r5 high-noise APPLY_PAULI heavy", "[bench]") {
 // baseline for the runtime-width path.
 // ---------------------------------------------------------------------------
 TEST_CASE("Bench: surface d11 r11 p1e-3 sampling 1000 shots", "[bench]") {
-    auto mod = compile_text(surface_code_text(11, 11, 1e-3));
+    auto mod = compile_circuit(fixture("surface_d11_r11_p001.stim"));
     REQUIRE(mod.peak_active_width() == 0);
     REQUIRE(mod.num_qubits() > 128);
 

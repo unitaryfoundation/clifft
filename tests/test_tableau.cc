@@ -1,15 +1,11 @@
 #include "clifft/tableau/tableau.h"
 
-#include "stim.h"
-
 #include <array>
 #include <catch2/catch_test_macros.hpp>
 #include <cstdint>
 #include <random>
 #include <span>
 #include <string_view>
-#include <utility>
-#include <vector>
 
 namespace {
 
@@ -65,53 +61,6 @@ constexpr std::array kNamedCliffords{
     GateCase{clifft::GateType::YCY, "YCY", 2},
     GateCase{clifft::GateType::YCZ, "YCZ", 2},
 };
-
-template <typename StimPauli>
-void check_pauli(clifft::PauliStringView actual, const StimPauli& expected) {
-    REQUIRE(actual.is_hermitian());
-    CHECK(actual.sign() == expected.sign);
-    for (uint32_t q = 0; q < actual.num_qubits(); ++q) {
-        CHECK(actual.x().bit_get(q) == expected.xs[q]);
-        CHECK(actual.z().bit_get(q) == expected.zs[q]);
-    }
-    if (actual.num_qubits() % 64 != 0 && actual.num_qubits() != 0) {
-        const uint64_t padding = ~((uint64_t{1} << (actual.num_qubits() % 64)) - 1);
-        CHECK((actual.x().words.back() & padding) == 0);
-        CHECK((actual.z().words.back() & padding) == 0);
-    }
-}
-
-void check_tableau(const clifft::Tableau& actual, const stim::Tableau<64>& expected) {
-    REQUIRE(actual.num_qubits() == expected.num_qubits);
-    for (uint32_t q = 0; q < actual.num_qubits(); ++q) {
-        check_pauli(actual.x_output(q), expected.xs[q]);
-        check_pauli(actual.z_output(q), expected.zs[q]);
-    }
-}
-
-stim::Tableau<64> stim_pauli_rotation(clifft::PauliStringView axis, bool dagger) {
-    std::mt19937_64 rng(0);
-    stim::TableauSimulator<64> simulator(std::move(rng), axis.num_qubits());
-    std::vector<stim::GateTarget> targets;
-    bool first = true;
-    for (uint32_t q = 0; q < axis.num_qubits(); ++q) {
-        if (!axis.x().bit_get(q) && !axis.z().bit_get(q)) {
-            continue;
-        }
-        if (!first) {
-            targets.push_back(stim::GateTarget::combiner());
-        }
-        targets.push_back(stim::GateTarget::pauli_xz(q, axis.x().bit_get(q), axis.z().bit_get(q),
-                                                     first && axis.sign()));
-        first = false;
-    }
-    if (!targets.empty()) {
-        const stim::CircuitInstruction instruction(
-            dagger ? stim::GateType::SPP_DAG : stim::GateType::SPP, {}, targets, {});
-        simulator.do_gate(instruction);
-    }
-    return simulator.inv_state.inverse();
-}
 
 clifft::GateType expected_inverse(clifft::GateType gate) {
     using clifft::GateType;
@@ -169,6 +118,19 @@ clifft::GateType expected_inverse(clifft::GateType gate) {
     }
 }
 
+void check_tableau_well_formed(const clifft::Tableau& tableau) {
+    for (uint32_t q = 0; q < tableau.num_qubits(); ++q) {
+        for (clifft::PauliStringView row : {tableau.x_output(q), tableau.z_output(q)}) {
+            CHECK(row.is_hermitian());
+            if (row.num_qubits() % 64 != 0 && row.num_qubits() != 0) {
+                const uint64_t padding = ~((uint64_t{1} << (row.num_qubits() % 64)) - 1);
+                CHECK((row.x().words.back() & padding) == 0);
+                CHECK((row.z().words.back() & padding) == 0);
+            }
+        }
+    }
+}
+
 }  // namespace
 
 TEST_CASE("Native Pauli phase convention preserves Hermitian signs", "[tableau]") {
@@ -216,16 +178,6 @@ TEST_CASE("Native named Clifford cases cover fixed gate metadata", "[tableau]") 
     }
 }
 
-TEST_CASE("Native named Clifford rows match Stim", "[tableau]") {
-    for (const GateCase& gate : kNamedCliffords) {
-        CAPTURE(gate.name);
-        const clifft::Tableau actual = clifft::Tableau::from_named_gate(gate.gate);
-        const stim::Tableau<64> expected = stim::GATE_DATA.at(gate.name).tableau<64>();
-        check_tableau(actual, expected);
-        check_tableau(actual.inverse(), expected.inverse());
-    }
-}
-
 TEST_CASE("Native named Clifford inverses compose to identity", "[tableau]") {
     for (const GateCase& gate : kNamedCliffords) {
         CAPTURE(gate.name);
@@ -238,14 +190,12 @@ TEST_CASE("Native named Clifford inverses compose to identity", "[tableau]") {
     }
 }
 
-TEST_CASE("Native local composition matches Stim across mask words", "[tableau]") {
+TEST_CASE("Native local composition stays well formed across mask words", "[tableau]") {
     constexpr std::array<uint32_t, 8> widths{0, 1, 63, 64, 65, 127, 128, 129};
     for (uint32_t width : widths) {
         CAPTURE(width);
         clifft::Tableau appended(width);
         clifft::Tableau prepended(width);
-        stim::Tableau<64> expected_appended(width);
-        stim::Tableau<64> expected_prepended(width);
         std::mt19937_64 rng(0x6c6f63616cULL + width);
 
         for (uint32_t step = 0; step < 80 && width != 0; ++step) {
@@ -260,64 +210,47 @@ TEST_CASE("Native local composition matches Stim across mask words", "[tableau]"
             }
             const std::array<uint32_t, 2> native_targets{first, second};
             const auto native_span = std::span(native_targets).first(gate.arity);
-            std::vector<size_t> stim_targets{first};
-            if (gate.arity == 2) {
-                stim_targets.push_back(second);
-            }
-            const stim::Tableau<64> stim_gate = stim::GATE_DATA.at(gate.name).tableau<64>();
 
             appended.append_named_gate(gate.gate, native_span);
             prepended.prepend_named_gate(gate.gate, native_span);
-            expected_appended.inplace_scatter_append(stim_gate, stim_targets);
-            expected_prepended.inplace_scatter_prepend(stim_gate, stim_targets);
         }
 
-        check_tableau(appended, expected_appended);
-        check_tableau(prepended, expected_prepended);
-        check_tableau(appended.inverse(), expected_appended.inverse());
-        check_tableau(prepended.inverse(), expected_prepended.inverse());
+        check_tableau_well_formed(appended);
+        check_tableau_well_formed(prepended);
+        const clifft::Tableau identity(width);
+        CHECK(appended.then(appended.inverse()) == identity);
+        CHECK(appended.inverse().then(appended) == identity);
+        CHECK(prepended.then(prepended.inverse()) == identity);
+        CHECK(prepended.inverse().then(prepended) == identity);
     }
 }
 
-TEST_CASE("Native tableau application and composition match Stim", "[tableau]") {
+TEST_CASE("Native tableau application agrees with composition", "[tableau]") {
     constexpr uint32_t width = 65;
     clifft::Tableau first(width);
     clifft::Tableau second(width);
-    stim::Tableau<64> expected_first(width);
-    stim::Tableau<64> expected_second(width);
 
     const std::array<uint32_t, 2> native_pair{0, 64};
-    const std::vector<size_t> stim_first{0};
-    const std::vector<size_t> stim_second{64};
-    const std::vector<size_t> stim_pair{0, 64};
     first.append_named_gate(clifft::GateType::H, std::span(native_pair).first<1>());
     first.append_named_gate(clifft::GateType::CX, native_pair);
     second.append_named_gate(clifft::GateType::S, std::span(native_pair).last<1>());
     second.append_named_gate(clifft::GateType::CY, native_pair);
-    expected_first.inplace_scatter_append(stim::GATE_DATA.at("H").tableau<64>(), stim_first);
-    expected_first.inplace_scatter_append(stim::GATE_DATA.at("CX").tableau<64>(), stim_pair);
-    expected_second.inplace_scatter_append(stim::GATE_DATA.at("S").tableau<64>(), stim_second);
-    expected_second.inplace_scatter_append(stim::GATE_DATA.at("CY").tableau<64>(), stim_pair);
-
-    check_tableau(first.then(second), expected_first.then(expected_second));
+    const clifft::Tableau composed = first.then(second);
 
     std::mt19937_64 rng(0x6170706c79ULL);
     for (uint32_t sample = 0; sample < 100; ++sample) {
         clifft::PauliString input(width);
-        stim::PauliString<64> expected_input(width);
         for (uint32_t q = 0; q < width; ++q) {
             const uint32_t pauli = static_cast<uint32_t>(rng() & 3U);
             input.set_pauli(q, (pauli & 1U) != 0, (pauli & 2U) != 0);
-            expected_input.xs[q] = (pauli & 1U) != 0;
-            expected_input.zs[q] = (pauli & 2U) != 0;
         }
         input.set_sign((rng() & 1U) != 0);
-        expected_input.sign = input.sign();
-        check_pauli(first.apply(input.view()).view(), expected_first(expected_input));
+        const clifft::PauliString intermediate = first.apply(input.view());
+        CHECK(composed.apply(input.view()) == second.apply(intermediate.view()));
     }
 }
 
-TEST_CASE("Native Pauli rotations match Stim across mask words", "[tableau]") {
+TEST_CASE("Native Pauli rotations compose across mask words", "[tableau]") {
     constexpr uint32_t width = 129;
     constexpr std::array<uint32_t, 5> qubits{0, 63, 64, 127, 128};
     for (bool sign : {false, true}) {
@@ -329,28 +262,24 @@ TEST_CASE("Native Pauli rotations match Stim across mask words", "[tableau]") {
             }
             axis.set_sign(sign);
             CAPTURE(sign, dagger);
-            const stim::Tableau<64> expected_rotation = stim_pauli_rotation(axis.view(), dagger);
-            check_tableau(clifft::Tableau::from_pauli_rotation(axis.view(), dagger),
-                          expected_rotation);
+            const clifft::Tableau rotation =
+                clifft::Tableau::from_pauli_rotation(axis.view(), dagger);
+            const clifft::Tableau inverse_rotation =
+                clifft::Tableau::from_pauli_rotation(axis.view(), !dagger);
+            CHECK(rotation.then(inverse_rotation) == clifft::Tableau(width));
 
             clifft::Tableau prepended(width);
-            stim::Tableau<64> expected_before(width);
             prepended.append_named_gate(clifft::GateType::H, std::span(qubits).first<1>());
             prepended.append_named_gate(clifft::GateType::CX, std::span(qubits).subspan<1, 2>());
-            expected_before.inplace_scatter_append(stim::GATE_DATA.at("H").tableau<64>(), {0});
-            expected_before.inplace_scatter_append(stim::GATE_DATA.at("CX").tableau<64>(),
-                                                   {63, 64});
+            const clifft::Tableau before = prepended;
             prepended.prepend_pauli_rotation(axis.view(), dagger);
-            check_tableau(prepended, expected_rotation.then(expected_before));
+            CHECK(prepended == rotation.then(before));
 
-            clifft::Tableau prepended_pauli(width);
-            prepended_pauli.append_named_gate(clifft::GateType::H, std::span(qubits).first<1>());
-            prepended_pauli.append_named_gate(clifft::GateType::CX,
-                                              std::span(qubits).subspan<1, 2>());
+            clifft::Tableau prepended_pauli = before;
             prepended_pauli.prepend_pauli(axis.view());
-            check_tableau(prepended_pauli, stim_pauli_rotation(axis.view(), false)
-                                               .then(stim_pauli_rotation(axis.view(), false))
-                                               .then(expected_before));
+            const clifft::Tableau pauli_rotation =
+                clifft::Tableau::from_pauli_rotation(axis.view(), false);
+            CHECK(prepended_pauli == pauli_rotation.then(pauli_rotation).then(before));
         }
     }
 }

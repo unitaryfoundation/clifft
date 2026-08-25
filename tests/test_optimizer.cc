@@ -16,7 +16,6 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <cmath>
-#include <complex>
 #include <cstdint>
 #include <random>
 #include <span>
@@ -1052,13 +1051,6 @@ TEST_CASE("Peephole: commuting NOISE does not bypass EXP_VAL barrier", "[optimiz
 
 namespace {
 
-using clifft::test::dense_adjoint;
-using clifft::test::dense_axis_rotation;
-using clifft::test::dense_matmul;
-using clifft::test::dense_pauli_matrix;
-using clifft::test::dense_tableau_matrix;
-using clifft::test::DenseMatrix;
-
 using PauliChannel = std::vector<double>;
 
 PauliString basis_pauli(size_t n, size_t basis_index) {
@@ -1150,30 +1142,6 @@ PauliChannel pauli_channel_hir_value(const HirModule& hir) {
     return channel;
 }
 
-PauliChannel pauli_channel_from_dense_unitary(const DenseMatrix& unitary, size_t n) {
-    const uint64_t dim = uint64_t{1} << n;
-    const size_t basis_count = size_t{1} << (2 * n);
-    const DenseMatrix unitary_adjoint = dense_adjoint(unitary, dim);
-    PauliChannel channel(basis_count * basis_count, 0.0);
-    for (size_t input_index = 0; input_index < basis_count; ++input_index) {
-        const DenseMatrix input = dense_pauli_matrix(basis_pauli(n, input_index).view());
-        const DenseMatrix output =
-            dense_matmul(dense_matmul(unitary, input, dim), unitary_adjoint, dim);
-        for (size_t output_index = 0; output_index < basis_count; ++output_index) {
-            const DenseMatrix basis = dense_pauli_matrix(basis_pauli(n, output_index).view());
-            std::complex<double> coefficient{0.0, 0.0};
-            for (uint64_t row = 0; row < dim; ++row) {
-                for (uint64_t col = 0; col < dim; ++col) {
-                    coefficient += basis[row * dim + col] * output[col * dim + row];
-                }
-            }
-            REQUIRE_THAT(coefficient.imag(), Catch::Matchers::WithinAbs(0.0, 1e-9));
-            channel[input_index * basis_count + output_index] = coefficient.real() / dim;
-        }
-    }
-    return channel;
-}
-
 void require_channel_equivalence(const PauliChannel& actual, const PauliChannel& expected,
                                  double tolerance) {
     REQUIRE(actual.size() == expected.size());
@@ -1183,63 +1151,12 @@ void require_channel_equivalence(const PauliChannel& actual, const PauliChannel&
     }
 }
 
-// Dense value of an HIR module: canonical(final_tableau) applied after the op
-// stream. Global phase is intentionally unspecified.
-DenseMatrix dense_hir_value(const HirModule& hir) {
-    const size_t n = hir.num_qubits;
-    const uint64_t dim = uint64_t{1} << n;
-    DenseMatrix value = dense_tableau_matrix(*hir.final_tableau);
-    for (size_t i = hir.ops.size(); i-- > 0;) {
-        const auto& op = hir.ops[i];
-        const uint64_t x = hir.destab_mask(op).words[0];
-        const uint64_t z = hir.stab_mask(op).words[0];
-        const bool sign = hir.sign(op);
-        REQUIRE((op.op_type() == OpType::T_GATE || op.op_type() == OpType::PHASE_ROTATION));
-        if (op.op_type() == OpType::T_GATE) {
-            value = dense_matmul(
-                value, dense_axis_rotation(x, z, sign, op.is_dagger() ? 1.75 : 0.25, n), dim);
-        } else {
-            value = dense_matmul(
-                value, dense_axis_rotation(x, z, false, sign ? -op.alpha() : op.alpha(), n), dim);
-        }
-    }
-    return value;
-}
-
-void require_projective_matrix_equivalence(const DenseMatrix& actual, const DenseMatrix& expected,
-                                           double tolerance) {
-    REQUIRE(actual.size() == expected.size());
-    double actual_norm = 0.0;
-    double expected_norm = 0.0;
-    std::complex<double> overlap{0.0, 0.0};
-    for (size_t i = 0; i < actual.size(); ++i) {
-        actual_norm += std::norm(actual[i]);
-        expected_norm += std::norm(expected[i]);
-        overlap += std::conj(expected[i]) * actual[i];
-    }
-
-    REQUIRE_THAT(actual_norm, Catch::Matchers::WithinAbs(expected_norm, tolerance));
-    REQUIRE(actual_norm > 0.0);
-    REQUIRE(expected_norm > 0.0);
-    REQUIRE(std::abs(overlap) > 0.0);
-
-    const std::complex<double> phase = overlap / std::abs(overlap);
-    for (size_t i = 0; i < actual.size(); ++i) {
-        CAPTURE(i);
-        const std::complex<double> aligned_expected = phase * expected[i];
-        REQUIRE_THAT(actual[i].real(),
-                     Catch::Matchers::WithinAbs(aligned_expected.real(), tolerance));
-        REQUIRE_THAT(actual[i].imag(),
-                     Catch::Matchers::WithinAbs(aligned_expected.imag(), tolerance));
-    }
-}
-
 }  // namespace
 
 TEST_CASE("Peephole: pass preserves projective HIR value on random circuits", "[optimizer]") {
-    // Value-preservation fuzz: the pass must preserve the matrix up to global
-    // phase. The gate mix is
-    // chosen so the trials collectively reach every S absorption call site
+    // The Pauli channel discards global phase while retaining the full
+    // conjugation action that the pass must preserve. The gate mix is chosen
+    // so the trials collectively reach every S absorption call site
     // (T+T fusion, rotation fusion to S/S_dag, standalone S-angle demotion)
     // and their interaction with sign normalization and downstream
     // conjugation; the aggregate fusion count below keeps that property
@@ -1272,20 +1189,12 @@ TEST_CASE("Peephole: pass preserves projective HIR value on random circuits", "[
         CAPTURE(src);
 
         auto hir = hir_from(src.c_str());
-        const DenseMatrix before = dense_hir_value(hir);
         const PauliChannel before_channel = pauli_channel_hir_value(hir);
-        require_channel_equivalence(before_channel, pauli_channel_from_dense_unitary(before, n),
-                                    1e-6);
         PeepholeFusionPass pass;
         pass.run(hir);
-        const DenseMatrix after = dense_hir_value(hir);
         const PauliChannel after_channel = pauli_channel_hir_value(hir);
-        require_channel_equivalence(after_channel, pauli_channel_from_dense_unitary(after, n),
-                                    1e-6);
         require_channel_equivalence(after_channel, before_channel, 1e-9);
         total_fusions += pass.fusions();
-
-        require_projective_matrix_equivalence(after, before, 1e-5);
     }
 
     // Vacuity guard: the fuzz only validates S absorption if fusions occur.

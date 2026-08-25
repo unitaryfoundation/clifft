@@ -156,35 +156,6 @@ TEST_CASE("pauli_masks helper", "[hir][helper]") {
 }
 
 // =============================================================================
-// Stim oracle API assumptions used by differential test helpers
-// =============================================================================
-
-TEST_CASE("stim::Tableau identity and Hadamard", "[hir]") {
-    stim::Tableau<kStimWidth> tab(4);
-
-    REQUIRE(tab.num_qubits == 4);
-
-    auto x0 = tab.xs[0];
-    REQUIRE(x0.xs[0] == true);
-    REQUIRE(x0.zs[0] == false);
-    REQUIRE(x0.sign == false);
-
-    auto z0 = tab.zs[0];
-    REQUIRE(z0.xs[0] == false);
-    REQUIRE(z0.zs[0] == true);
-    REQUIRE(z0.sign == false);
-
-    tab.prepend_H_XZ(0);
-    auto x0_after = tab.xs[0];
-    auto z0_after = tab.zs[0];
-
-    REQUIRE(x0_after.xs[0] == false);
-    REQUIRE(x0_after.zs[0] == true);
-    REQUIRE(z0_after.xs[0] == true);
-    REQUIRE(z0_after.zs[0] == false);
-}
-
-// =============================================================================
 // HirModule integration
 // =============================================================================
 
@@ -214,25 +185,4 @@ TEST_CASE("HirModule with noise sites", "[hir]") {
     hir.append_noise(NoiseSiteIdx{0});
     REQUIRE(hir.noise_sites.size() == 1);
     REQUIRE(hir.ops[0].noise_site_idx() == NoiseSiteIdx{0});
-}
-
-TEST_CASE("Tableau composition using then and inverse", "[hir]") {
-    stim::Tableau<kStimWidth> before(2);
-    before.prepend_H_XZ(0);
-
-    stim::Tableau<kStimWidth> after(2);
-    after.prepend_H_XZ(0);
-    after.prepend_ZCX(0, 1);
-
-    auto inv_before = before.inverse();
-    auto composed = after.then(inv_before);
-
-    REQUIRE(composed.xs[0].xs[0] == true);
-    REQUIRE(composed.xs[0].xs[1] == true);
-    REQUIRE(composed.xs[1].xs[1] == true);
-    REQUIRE(composed.xs[1].xs[0] == false);
-    REQUIRE(composed.zs[0].zs[0] == true);
-    REQUIRE(composed.zs[0].zs[1] == false);
-    REQUIRE(composed.zs[1].zs[0] == true);
-    REQUIRE(composed.zs[1].zs[1] == true);
 }
