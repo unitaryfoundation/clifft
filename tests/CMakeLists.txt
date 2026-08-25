@@ -24,6 +24,7 @@ add_executable(clifft_tests
     test_sampling_executor.cc
     test_fused_rotation.cc
     test_sampling_kernels.cc
+    test_interleaved_batch_kernels.cc
     test_optimizer.cc
     test_source_map.cc
     test_importance_sampling.cc

@@ -258,5 +258,11 @@ else()
             ${CMAKE_CURRENT_SOURCE_DIR}/src
             ${CMAKE_CURRENT_BINARY_DIR}/generated
         )
+        add_executable(profile_interleaved tools/profile/profile_interleaved.cpp)
+        target_link_libraries(profile_interleaved PRIVATE clifft_core)
+        target_include_directories(profile_interleaved PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/src
+            ${CMAKE_CURRENT_BINARY_DIR}/generated
+        )
     endif()
 endif()
