@@ -7,6 +7,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
+#include <string>
 #include <string_view>
 #include <variant>
 
@@ -33,6 +34,15 @@ TEST_CASE("HIP sampling has an independent random stream domain") {
     STATIC_REQUIRE(clifft::kHipSamplingExecutorDomain != clifft::kSamplingExecutorDomain);
 }
 
+TEST_CASE("HIP device layout sizes coefficient workspace consistently") {
+    STATIC_REQUIRE(clifft::sampling::hip::detail::coefficient_state_capacity(0) == 1);
+    STATIC_REQUIRE(clifft::sampling::hip::detail::coefficient_scratch_capacity(0) == 1);
+    STATIC_REQUIRE(clifft::sampling::hip::detail::coefficient_elements_per_shot(0) == 4);
+    STATIC_REQUIRE(clifft::sampling::hip::detail::coefficient_state_capacity(4) == 16);
+    STATIC_REQUIRE(clifft::sampling::hip::detail::coefficient_scratch_capacity(4) == 8);
+    STATIC_REQUIRE(clifft::sampling::hip::detail::coefficient_elements_per_shot(4) == 48);
+}
+
 TEST_CASE("HIP executable lowers existing sampling action names") {
     const SamplingPlan plan = plan_from(R"(
         H 0
@@ -52,6 +62,20 @@ TEST_CASE("HIP executable lowers existing sampling action names") {
     REQUIRE(executable.actions()[3].tag == ActionTag::WriteExpectationValue);
     REQUIRE(executable.actions()[4].tag == ActionTag::WriteObservable);
     REQUIRE(executable.num_exp_vals() == 1);
+}
+
+TEST_CASE("HIP executable inspection identifies packed modification points") {
+    using Catch::Matchers::ContainsSubstring;
+
+    const ExecutablePlan executable(plan_from("H 0\nT 0\nM 0\nDETECTOR rec[-1]\n"));
+    const std::string diagnostic = executable.inspect();
+
+    REQUIRE(executable.num_actions() == executable.actions().size());
+    REQUIRE(executable.packed_bytes() >= executable.actions().size_bytes());
+    REQUIRE_THAT(diagnostic, ContainsSubstring("HIP executable: actions="));
+    REQUIRE_THAT(diagnostic, ContainsSubstring("PromoteDormantRotation"));
+    REQUIRE_THAT(diagnostic, ContainsSubstring("MeasureActivePauli"));
+    REQUIRE_THAT(diagnostic, ContainsSubstring("WriteDetector"));
 }
 
 TEST_CASE("HIP executable packs affine terms and categorical noise") {

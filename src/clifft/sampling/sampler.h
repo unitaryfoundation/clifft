@@ -1,6 +1,7 @@
 #pragma once
 
 #include "clifft/sampling/executable_plan.h"
+#include "clifft/sampling/results.h"
 #include "clifft/util/config.h"
 
 #include <cstddef>
@@ -16,25 +17,6 @@ namespace clifft::sampling {
 // Planning produces semantic actions, lowering prepares fixed CPU descriptors,
 // Executor owns mutable state for one shot, and the functions below drive
 // repeated shots and collect their outputs.
-
-// Collected row-major outputs from ordinary or fixed-fault-count sampling.
-struct SamplingResult {
-    std::vector<uint8_t> measurements;
-    std::vector<uint8_t> detectors;
-    std::vector<uint8_t> observables;
-    std::vector<double> exp_vals;
-};
-
-struct SamplingSurvivorResult {
-    uint32_t total_shots = 0;
-    uint32_t passed_shots = 0;
-    uint32_t logical_errors = 0;
-    std::vector<uint64_t> observable_ones;
-    std::vector<uint8_t> measurements;
-    std::vector<uint8_t> detectors;
-    std::vector<uint8_t> observables;
-    std::vector<double> exp_vals;
-};
 
 // Explicitly partitions sampling workers across independent shots and the
 // coefficient kernels within each shot. When supplied, this layout overrides

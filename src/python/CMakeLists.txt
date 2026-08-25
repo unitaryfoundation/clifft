@@ -54,6 +54,24 @@ install(TARGETS _clifft_core
     LIBRARY DESTINATION clifft
     RUNTIME DESTINATION clifft)
 
+if(CLIFFT_ENABLE_HIP)
+    # Keep ROCm out of the ordinary extension and wheels. The pure-Python
+    # experimental facade discovers this module only in an explicit HIP build.
+    nanobind_add_module(
+        _clifft_hip
+        STABLE_ABI
+        hip_bindings.cc
+    )
+    target_link_libraries(_clifft_hip PRIVATE clifft_hip_backend)
+    if(UNIX AND NOT APPLE)
+        target_link_options(_clifft_hip PRIVATE
+            "LINKER:--version-script=${CMAKE_CURRENT_SOURCE_DIR}/clifft_hip.lds")
+    endif()
+    install(TARGETS _clifft_hip
+        LIBRARY DESTINATION clifft
+        RUNTIME DESTINATION clifft)
+endif()
+
 # Generate type stubs for the C++ extension at install time so that type
 # checkers (mypy, pyright) can see the full API.  INSTALL_TIME runs stubgen
 # after the .so is in its final location, which is required for import.

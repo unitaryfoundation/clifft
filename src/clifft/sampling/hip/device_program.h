@@ -28,6 +28,20 @@ enum class ActionTag : uint8_t {
 inline constexpr uint8_t kPostselected = 1U << 0;
 inline constexpr uint8_t kAbsentActiveProjection = 1U << 1;
 
+inline constexpr uint64_t coefficient_state_capacity(uint32_t peak_active_width) {
+    return uint64_t{1} << peak_active_width;
+}
+
+inline constexpr uint64_t coefficient_scratch_capacity(uint32_t peak_active_width) {
+    const uint64_t capacity = coefficient_state_capacity(peak_active_width);
+    return capacity > 1 ? capacity >> 1 : 1;
+}
+
+inline constexpr uint64_t coefficient_elements_per_shot(uint32_t peak_active_width) {
+    return 2 * coefficient_state_capacity(peak_active_width) +
+           2 * coefficient_scratch_capacity(peak_active_width);
+}
+
 struct Expression {
     uint32_t term_begin = 0;
     uint32_t term_count = 0;

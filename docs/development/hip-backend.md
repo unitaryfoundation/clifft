@@ -19,6 +19,10 @@ pairings, active-width transitions, expressions, and noise distributions. The
 device therefore executes the plan without performing topology planning or
 allocating storage in its dispatch loop.
 
+CPU and HIP lowering share only execution-ready Pauli preparation and result
+containers. Their executable layouts, mutable state, dispatch order, and
+workspace ownership remain backend-specific.
+
 ## Building for gfx942
 
 HIP support is off by default. Enable it explicitly and select the target GPU:
@@ -53,6 +57,16 @@ coefficient, scratch, symbol, record, and output storage before kernel launch.
 It is intentionally restricted to peak active width `k <= 4`, where serial
 coefficient work per shot is small.
 
+`sampling::hip::Sampler` uploads an executable once and owns scalar result
+metadata plus a reusable, precision-specific workspace; it does not retain a
+duplicate host executable. Large requests are divided into bounded batches;
+the kernel receives the global shot offset so changing the batch size does not
+change a seeded shot's random stream. The free C++ sampling functions remain
+convenience wrappers that construct a temporary sampler. Aggregate-only survivor
+sampling downloads survival flags and observables, but omits record, detector,
+and expectation-value transfers that its caller does not consume. Overlapping
+calls on one retained sampler are rejected by the backend.
+
 This tier supports both coefficient formats in one backend:
 
 - FP64 coefficients are the default.
@@ -81,11 +95,13 @@ new `SamplingAction` without handling it in the HIP lowering also fails during
 this build.
 
 When HIP is enabled, the ROCm CI job additionally compiles the device code for
-`gfx942` and links the HIP conformance test executable. Tests for zero-shot
-requests and input validation run without a device. Tests that launch kernels
-report as skipped when no AMD GPU is visible.
+`gfx942`, runs the GPU-free HIP conformance cases, and installs the optional
+Python extension through the editable developer workflow. The Python boundary
+test passes shared HIR from `_clifft_core` into `_clifft_hip` and inspects the
+lowered program. Tests that launch kernels report as skipped when no AMD GPU is
+visible.
 
-This compile-only coverage does not establish that kernels launch or produce
+This GPU-free coverage does not establish that kernels launch or produce
 correct results on a GPU.
 
 ## Tests That Run on an AMD GPU
@@ -121,10 +137,12 @@ the same seed, including when a request is divided into different batch sizes.
 ## Next Work
 
 - Run the complete conformance suite on MI300X hardware.
-- Retain uploaded programs and reusable work buffers across sampling calls.
-- Process large requests in bounded shot batches and aggregate results on the
-  device when full rows are not requested.
+- Aggregate survivor statistics on the device when full rows are not
+  requested.
 - Add a cooperative thread-block path using on-chip shared memory through
   approximately `k = 10`, including the cultivation distance-5 fixture.
 - Evaluate a global-memory path for larger active widths after the cooperative
   path is validated.
+
+See [HIP Kernel Development](hip-kernel-development.md) for the experimental
+Python workflow, source map, and extension checklist.

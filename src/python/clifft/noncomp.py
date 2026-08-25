@@ -35,7 +35,7 @@ from typing import Callable, Iterator, Literal
 import numpy as np
 import numpy.typing as npt
 
-from clifft import _clifft_core
+import clifft._clifft_core as _clifft_core
 from clifft._clifft_core import Circuit
 
 __all__ = [

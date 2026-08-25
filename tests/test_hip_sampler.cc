@@ -21,6 +21,7 @@ using clifft::sampling::SamplingPlan;
 using clifft::sampling::SamplingResult;
 using clifft::sampling::SamplingSurvivorResult;
 using clifft::sampling::hip::CoefficientPrecision;
+using clifft::sampling::hip::Sampler;
 using clifft::sampling::hip::SamplingOptions;
 using CpuExecutablePlan = clifft::sampling::ExecutablePlan;
 using HipExecutablePlan = clifft::sampling::hip::ExecutablePlan;
@@ -67,9 +68,12 @@ TEST_CASE("HIP sampler zero shots does not require a device") {
 
     const SamplingOptions invalid_low{.block_size = 0};
     const SamplingOptions invalid_high{.block_size = 1025};
+    const SamplingOptions invalid_batch{.max_batch_shots = 0};
     REQUIRE_THROWS_AS(clifft::sampling::hip::sample(executable, 0, invalid_low),
                       std::invalid_argument);
     REQUIRE_THROWS_AS(clifft::sampling::hip::sample_survivors(executable, 0, false, invalid_high),
+                      std::invalid_argument);
+    REQUIRE_THROWS_AS(clifft::sampling::hip::sample(executable, 0, invalid_batch),
                       std::invalid_argument);
 }
 
@@ -157,6 +161,80 @@ TEST_CASE("HIP sampler is repeatable within each coefficient precision") {
         const SamplingResult first = clifft::sampling::hip::sample(executable, 4096, options);
         const SamplingResult second = clifft::sampling::hip::sample(executable, 4096, options);
         require_same_rows(first, second);
+    }
+}
+
+TEST_CASE("HIP retained sampler preserves seeded rows across bounded batches") {
+    require_hip_device();
+    const HipExecutablePlan executable(plan_from(R"(
+        H 0
+        T 0
+        H 0
+        M 0
+        DETECTOR rec[-1]
+        OBSERVABLE_INCLUDE(0) rec[-1]
+    )"));
+
+    constexpr uint32_t kShots = 257;
+    for (const CoefficientPrecision precision :
+         {CoefficientPrecision::FP64, CoefficientPrecision::FP32}) {
+        Sampler sampler(executable, precision, 7);
+        REQUIRE(sampler.coefficient_precision() == precision);
+        REQUIRE(sampler.max_batch_shots() == 7);
+        REQUIRE(sampler.allocated_device_bytes() > 0);
+        const size_t allocated_bytes = sampler.allocated_device_bytes();
+
+        const SamplingResult batched = sampler.sample(kShots, uint64_t{1234}, 64);
+        const SamplingResult repeated = sampler.sample(kShots, uint64_t{1234}, 64);
+        const SamplingResult single_batch =
+            clifft::sampling::hip::sample(executable, kShots,
+                                          {.seed = uint64_t{1234},
+                                           .coefficient_precision = precision,
+                                           .block_size = 64,
+                                           .max_batch_shots = kShots});
+
+        require_same_rows(batched, repeated);
+        require_same_rows(batched, single_batch);
+        REQUIRE(sampler.allocated_device_bytes() == allocated_bytes);
+    }
+}
+
+TEST_CASE("HIP retained sampler preserves survivor order across bounded batches") {
+    const clifft::HirModule hir = clifft::trace(clifft::parse(R"(
+        H 0
+        M 0
+        DETECTOR rec[-1]
+        H 1
+        M 1
+        OBSERVABLE_INCLUDE(0) rec[-1]
+    )"));
+    const std::array<uint8_t, 1> postselection{1};
+    clifft::sampling::SamplingPlanOptions plan_options;
+    plan_options.postselection_mask = postselection;
+    const HipExecutablePlan executable(clifft::sampling::plan_sampling(hir, plan_options));
+    require_hip_device();
+
+    constexpr uint32_t kShots = 263;
+    for (const CoefficientPrecision precision :
+         {CoefficientPrecision::FP64, CoefficientPrecision::FP32}) {
+        Sampler sampler(executable, precision, 5);
+        const SamplingSurvivorResult batched =
+            sampler.sample_survivors(kShots, true, uint64_t{91}, 32);
+        const SamplingSurvivorResult single_batch =
+            clifft::sampling::hip::sample_survivors(executable, kShots, true,
+                                                    {.seed = uint64_t{91},
+                                                     .coefficient_precision = precision,
+                                                     .block_size = 32,
+                                                     .max_batch_shots = kShots});
+
+        REQUIRE(batched.total_shots == single_batch.total_shots);
+        REQUIRE(batched.passed_shots == single_batch.passed_shots);
+        REQUIRE(batched.logical_errors == single_batch.logical_errors);
+        REQUIRE(batched.observable_ones == single_batch.observable_ones);
+        REQUIRE(batched.measurements == single_batch.measurements);
+        REQUIRE(batched.detectors == single_batch.detectors);
+        REQUIRE(batched.observables == single_batch.observables);
+        REQUIRE(batched.exp_vals == single_batch.exp_vals);
     }
 }
 
