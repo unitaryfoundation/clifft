@@ -151,6 +151,38 @@ class TestSample:
         np.testing.assert_array_equal(threaded.detectors, serial.detectors)
         np.testing.assert_array_equal(threaded.observables, serial.observables)
 
+    @pytest.mark.parametrize("batch_size", [2, 63, 64, 65, "auto"])
+    def test_sample_batch_size_preserves_seeded_rows(
+        self, sampling_api: Any, batch_size: Any
+    ) -> None:
+        prog = sampling_api.compile(
+            "X_ERROR(0.125) 0\nH 0 1\nT 0\nM 0 1\n"
+            "DETECTOR rec[-2] rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]\nEXP_VAL Z0"
+        )
+        scalar = sampling_api.sample(prog, 257, seed=8123, batch_size=1)
+        packed = sampling_api.sample(prog, 257, seed=8123, batch_size=batch_size)
+        np.testing.assert_array_equal(packed.measurements, scalar.measurements)
+        np.testing.assert_array_equal(packed.detectors, scalar.detectors)
+        np.testing.assert_array_equal(packed.observables, scalar.observables)
+        np.testing.assert_array_equal(packed.exp_vals, scalar.exp_vals)
+
+    @pytest.mark.parametrize("batch_size", [0, -1, "all", 1.5, 2**40])
+    def test_sample_rejects_invalid_batch_size(self, sampling_api: Any, batch_size: Any) -> None:
+        prog = sampling_api.compile("M 0")
+        with pytest.raises((TypeError, ValueError), match="batch_size|incompatible"):
+            sampling_api.sample(prog, 1, batch_size=batch_size)
+
+    def test_sample_rejects_packed_intra_shot_layout(self, sampling_api: Any) -> None:
+        prog = sampling_api.compile("H 0\nT 0\nM 0")
+        with pytest.raises((ValueError, RuntimeError), match="batch_size|intra-shot|OpenMP"):
+            sampling_api.sample(
+                prog,
+                2,
+                thread_layout=(1, 2),
+                intra_shot_min_active_width=0,
+                batch_size=2,
+            )
+
     @pytest.mark.parametrize("threads", [0, -1, "all", 1.5])
     def test_sample_rejects_invalid_threads(self, sampling_api: Any, threads: Any) -> None:
         """Only positive integers and the auto sentinel are accepted."""
@@ -921,6 +953,27 @@ class TestSampleSurvivors:
         np.testing.assert_array_equal(threaded.measurements, serial.measurements)
         np.testing.assert_array_equal(threaded.detectors, serial.detectors)
         np.testing.assert_array_equal(threaded.observables, serial.observables)
+
+    @pytest.mark.parametrize("batch_size", [2, 63, 64, 65, "auto"])
+    def test_batch_size_preserves_survivor_rows(self, sampling_api: Any, batch_size: Any) -> None:
+        prog = sampling_api.compile(
+            "H 0\nM 0\nEXP_VAL Z0\nDETECTOR rec[-1]\nH 1\nT 1\n"
+            "EXP_VAL X1\nM 1\nOBSERVABLE_INCLUDE(0) rec[-1]",
+            postselection_mask=[1],
+        )
+        scalar = sampling_api.sample_survivors(
+            prog, 257, seed=54322, keep_records=True, batch_size=1
+        )
+        packed = sampling_api.sample_survivors(
+            prog, 257, seed=54322, keep_records=True, batch_size=batch_size
+        )
+        assert packed.passed_shots == scalar.passed_shots
+        assert packed.logical_errors == scalar.logical_errors
+        np.testing.assert_array_equal(packed.observable_ones, scalar.observable_ones)
+        np.testing.assert_array_equal(packed.measurements, scalar.measurements)
+        np.testing.assert_array_equal(packed.detectors, scalar.detectors)
+        np.testing.assert_array_equal(packed.observables, scalar.observables)
+        np.testing.assert_array_equal(packed.exp_vals, scalar.exp_vals)
 
     def test_no_postselection_all_pass(self, sampling_api: Any) -> None:
         """Without postselection, all shots pass."""

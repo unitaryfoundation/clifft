@@ -71,6 +71,7 @@ CLIFFT_CIRCUIT_FILE=tools/bench/fixtures/qv20_seed42.stim \
 | `CLIFFT_PROFILE_SHOT_WORKERS` | unset | Explicit cross-shot workers; set with intra-shot workers |
 | `CLIFFT_PROFILE_INTRA_SHOT_WORKERS` | unset | Explicit per-shot workers; set with shot workers |
 | `CLIFFT_PROFILE_INTRA_SHOT_MIN_ACTIVE_WIDTH` | 18 | Expert kernel threshold; requires an explicit layout |
+| `CLIFFT_PROFILE_BATCH_SIZE` | auto | Cross-shot batch capacity; `1` forces scalar execution |
 | `CLIFFT_PROFILE_WARMUPS` | 2 | Untimed sample calls |
 | `CLIFFT_PROFILE_REPETITIONS` | 20 | Timed sample calls |
 | `CLIFFT_PROFILE_GENERATED_WIDTH` | unset | Generate a rotation-heavy circuit of this width instead of loading a file |

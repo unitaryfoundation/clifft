@@ -265,6 +265,27 @@ can only spread work across shots, and `noncomp.sample()` also uses only that
 strategy. The width cutoff is a measured default; advanced users can override
 the layout and cutoff for their hardware.
 
+Within each cross-shot worker, the symbolic sampler normally processes shots
+in an adaptive packed batch. Classical symbols, expression results, records,
+detectors, and observables are bit-packed across the batch, while each live
+shot retains its own dense active state and random stream. The automatic
+capacity is bounded by the worker's shot count, a maximum of 512 lanes, and a
+768 KiB dense-state footprint budget. Automatic mode currently selects packing
+only for noiseless peak-active-width-zero plans with at least 64 shots per
+worker. Benchmarks show that per-lane noise sampling and action-major traversal
+of dense states still favor the scalar executor, so noisy and active-state
+plans conservatively fall back to it.
+
+The four fixed-plan sampling functions accept `batch_size="auto"` by default.
+Use `batch_size=1` to force the scalar executor when comparing profiles, or a
+positive integer to cap and force packed capacity. A final partial batch is
+handled automatically; explicit capacities are limited to 2048 lanes. Packed
+batching is currently CPU-only and cannot be combined with an intra-shot worker
+count above one. Transition instruments,
+traps, continuations, record replay, and externally supplied presampled-symbol
+execution remain on their existing scalar paths; `noncomp.sample()` is
+unchanged.
+
 Most users should use `threads`. The symbolic sampling functions also accept
 the advanced override
 `thread_layout=(shot_workers, intra_shot_workers)`. The override replaces the
@@ -305,11 +326,13 @@ With a fixed seed, changing `threads` produces exactly the same result.
 APIs return accepted shots in the same order as the corresponding one-thread
 run.
 
-Each cross-shot worker owns a separate executor. Its dense coefficient and
-measurement scratch storage uses roughly $24 \times 2^k$ bytes at peak active width $k$,
-plus symbolic state, records, and other executor metadata. Set an explicit
-layout when memory is more constrained than CPU availability. Intra-shot
-workers cooperate on one executor and do not replicate this storage.
+Each cross-shot worker owns a separate scalar or packed executor. Each retained
+lane's dense coefficient and measurement scratch storage uses roughly
+$24 \times 2^k$ bytes at peak active width $k$, plus packed symbolic state,
+records, and other executor metadata. Automatic batching limits the aggregate
+dense-state allocation per worker as described above. Set an explicit layout
+or batch size when memory is more constrained than CPU availability. Intra-shot
+workers cooperate on one scalar executor and do not replicate this storage.
 Noncomputational workers also own their trajectory continuations and compile
 new continuations independently as their shots encounter jumps.
 
@@ -328,8 +351,8 @@ result = clifft.sample_k_survivors(prog, shots=50_000, k=3, seed=42)
 
 Key API:
 
-- **`clifft.sample_k(program, shots, k, seed=None, threads=1, thread_layout=None, intra_shot_min_active_width=None)`** -- Like `sample()`, but forces exactly `k` faults. Only valid for programs without post-selection; post-selected programs must use `sample_k_survivors()`. Returns a `SampleResult` with `.measurements`, `.detectors`, and `.observables`.
-- **`clifft.sample_k_survivors(program, shots, k, seed=None, keep_records=False, threads=1, thread_layout=None, intra_shot_min_active_width=None)`** -- Like `sample_survivors()`, but forces exactly `k` faults. Returns a `SampleResult` whose arrays contain only surviving shots plus survivor metadata.
+- **`clifft.sample_k(program, shots, k, seed=None, threads=1, thread_layout=None, intra_shot_min_active_width=None, batch_size="auto")`** -- Like `sample()`, but forces exactly `k` faults. Only valid for programs without post-selection; post-selected programs must use `sample_k_survivors()`. Returns a `SampleResult` with `.measurements`, `.detectors`, and `.observables`.
+- **`clifft.sample_k_survivors(program, shots, k, seed=None, keep_records=False, threads=1, thread_layout=None, intra_shot_min_active_width=None, batch_size="auto")`** -- Like `sample_survivors()`, but forces exactly `k` faults. Returns a `SampleResult` whose arrays contain only surviving shots plus survivor metadata.
 - **`program.noise_site_probabilities`** -- 1D NumPy array of per-site fault probabilities, with quantum noise sites followed by readout noise entries. Use this for computing the Poisson-binomial PMF.
 
 See the [Importance Sampling Tutorial](importance-sampling.md) for a complete walkthrough.

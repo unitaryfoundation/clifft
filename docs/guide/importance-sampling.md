@@ -331,7 +331,7 @@ postselection. Key observations:
 
 ## API Reference
 
-### `clifft.sample_k(program, shots, k, seed=None, threads=1, thread_layout=None, intra_shot_min_active_width=None)`
+### `clifft.sample_k(program, shots, k, seed=None, threads=1, thread_layout=None, intra_shot_min_active_width=None, batch_size="auto")`
 
 Sample with exactly `k` forced faults per shot. Returns
 a `SampleResult`, just like `clifft.sample()`. Results must be weighted by $P(K=k)$ for correct
@@ -348,9 +348,12 @@ exceeds the number of non-zero-probability sites).
 `thread_layout=(shot_workers, intra_shot_workers)` override follows the ordinary
 sampling policy described in [Parallel Sampling](simulation.md#parallel-sampling).
 The expert `intra_shot_min_active_width` override defaults to 18 and requires an
-explicit layout.
+explicit layout. `batch_size` follows the packed cross-shot policy described in
+[Parallel Sampling](simulation.md#parallel-sampling): `"auto"` selects an
+adaptive capacity, `1` forces scalar execution, and a positive integer caps and
+forces the packed capacity.
 
-### `clifft.sample_k_survivors(program, shots, k, seed=None, keep_records=False, threads=1, thread_layout=None, intra_shot_min_active_width=None)`
+### `clifft.sample_k_survivors(program, shots, k, seed=None, keep_records=False, threads=1, thread_layout=None, intra_shot_min_active_width=None, batch_size="auto")`
 
 Sample survivors with exactly `k` forced faults per shot. Returns a
 `SampleResult` whose `.measurements`, `.detectors`, and `.observables`

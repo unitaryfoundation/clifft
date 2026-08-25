@@ -124,12 +124,14 @@ int main() {
     const char* shot_workers_value = std::getenv("CLIFFT_PROFILE_SHOT_WORKERS");
     const char* intra_workers_value = std::getenv("CLIFFT_PROFILE_INTRA_SHOT_WORKERS");
     const char* min_active_width_value = std::getenv("CLIFFT_PROFILE_INTRA_SHOT_MIN_ACTIVE_WIDTH");
+    const char* batch_size_value = std::getenv("CLIFFT_PROFILE_BATCH_SIZE");
     const bool has_layout = shot_workers_value != nullptr || intra_workers_value != nullptr;
     const int shot_workers = get_env_int("CLIFFT_PROFILE_SHOT_WORKERS", 0);
     const int intra_shot_workers = get_env_int("CLIFFT_PROFILE_INTRA_SHOT_WORKERS", 0);
     const int intra_shot_min_active_width =
         get_env_int("CLIFFT_PROFILE_INTRA_SHOT_MIN_ACTIVE_WIDTH",
                     static_cast<int>(clifft::kDefaultIntraShotMinActiveWidth));
+    const int batch_size = get_env_int("CLIFFT_PROFILE_BATCH_SIZE", 1);
     if (shots < 1 || threads < 0 || warmups < 0 || repetitions < 1) {
         std::cerr << "Error: shots and repetitions must be positive; threads and warmups must be "
                      "non-negative\n";
@@ -155,6 +157,10 @@ int main() {
         std::cerr << "Error: the intra-shot minimum active width must be non-negative\n";
         return 1;
     }
+    if (batch_size_value != nullptr && batch_size < 1) {
+        std::cerr << "Error: batch size must be positive\n";
+        return 1;
+    }
 
     std::cout << "Clifft Sampling Profiler\n";
     std::cout << "========================\n";
@@ -171,6 +177,9 @@ int main() {
                   << " intra-shot\n";
         std::cout << "Min width:   " << intra_shot_min_active_width << "\n";
     }
+    std::cout << "Batch size:  "
+              << (batch_size_value == nullptr ? std::string("auto") : std::to_string(batch_size))
+              << "\n";
     std::cout << "Warmups:     " << warmups << "\n";
     std::cout << "Repetitions: " << repetitions << "\n\n";
 
@@ -197,21 +206,25 @@ int main() {
                                                                  static_cast<uint32_t>(
                                                                      intra_shot_min_active_width)}}
             : std::nullopt;
+    const std::optional<uint32_t> requested_batch_size =
+        batch_size_value == nullptr ? std::nullopt
+                                    : std::optional<uint32_t>{static_cast<uint32_t>(batch_size)};
 
     uint64_t checksum = 0;
     for (int iteration = 0; iteration < warmups; ++iteration) {
-        checksum = mix(checksum, checksum_result(clifft::sampling::sample(
-                                     program, static_cast<uint32_t>(shots), kSeed + iteration,
-                                     static_cast<uint32_t>(threads), thread_layout)));
+        checksum = mix(checksum,
+                       checksum_result(clifft::sampling::sample(
+                           program, static_cast<uint32_t>(shots), kSeed + iteration,
+                           static_cast<uint32_t>(threads), thread_layout, requested_batch_size)));
     }
 
     std::vector<double> samples_ms;
     samples_ms.reserve(static_cast<size_t>(repetitions));
     for (int iteration = 0; iteration < repetitions; ++iteration) {
         const auto start = std::chrono::steady_clock::now();
-        auto result = clifft::sampling::sample(program, static_cast<uint32_t>(shots),
-                                               kSeed + warmups + iteration,
-                                               static_cast<uint32_t>(threads), thread_layout);
+        auto result = clifft::sampling::sample(
+            program, static_cast<uint32_t>(shots), kSeed + warmups + iteration,
+            static_cast<uint32_t>(threads), thread_layout, requested_batch_size);
         const auto end = std::chrono::steady_clock::now();
         samples_ms.push_back(std::chrono::duration<double, std::milli>(end - start).count());
         checksum = mix(checksum, checksum_result(result));

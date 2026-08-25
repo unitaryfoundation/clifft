@@ -160,6 +160,13 @@ class TestSampleK(_ImportanceBackendMixin):
         threaded = self.sampling_api.sample_k(prog, shots=257, k=1, seed=99, threads="auto")
         np.testing.assert_array_equal(threaded.measurements, serial.measurements)
 
+    @pytest.mark.parametrize("batch_size", [2, 63, 64, 65, "auto"])
+    def test_batch_size_preserves_seeded_rows(self, batch_size: Any) -> None:
+        prog = self.compile("X_ERROR(0.1) 0 1 2\nM 0 1 2")
+        scalar = self.sampling_api.sample_k(prog, shots=257, k=1, seed=991, batch_size=1)
+        packed = self.sampling_api.sample_k(prog, shots=257, k=1, seed=991, batch_size=batch_size)
+        np.testing.assert_array_equal(packed.measurements, scalar.measurements)
+
     def test_readout_noise_forcing(self) -> None:
         """k=1 with only readout noise should flip every shot."""
         prog = self.compile(
@@ -230,6 +237,32 @@ class TestSampleKSurvivors(_ImportanceBackendMixin):
         np.testing.assert_array_equal(threaded.measurements, serial.measurements)
         np.testing.assert_array_equal(threaded.detectors, serial.detectors)
         np.testing.assert_array_equal(threaded.observables, serial.observables)
+
+    @pytest.mark.parametrize("batch_size", [2, 63, 64, 65, "auto"])
+    def test_batch_size_preserves_seeded_survivors(self, batch_size: Any) -> None:
+        prog = self.sampling_api.compile(
+            "X_ERROR(0.1) 0 1 2\nM 0 1 2\nEXP_VAL Z0\n"
+            "DETECTOR rec[-3]\nOBSERVABLE_INCLUDE(0) rec[-1]",
+            postselection_mask=[1],
+        )
+        scalar = self.sampling_api.sample_k_survivors(
+            prog, shots=257, k=1, seed=1001, keep_records=True, batch_size=1
+        )
+        packed = self.sampling_api.sample_k_survivors(
+            prog,
+            shots=257,
+            k=1,
+            seed=1001,
+            keep_records=True,
+            batch_size=batch_size,
+        )
+        assert packed.passed_shots == scalar.passed_shots
+        assert packed.logical_errors == scalar.logical_errors
+        np.testing.assert_array_equal(packed.observable_ones, scalar.observable_ones)
+        np.testing.assert_array_equal(packed.measurements, scalar.measurements)
+        np.testing.assert_array_equal(packed.detectors, scalar.detectors)
+        np.testing.assert_array_equal(packed.observables, scalar.observables)
+        np.testing.assert_array_equal(packed.exp_vals, scalar.exp_vals)
 
 
 class TestImportanceSamplingEndToEnd(_ImportanceBackendMixin):
