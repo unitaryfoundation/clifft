@@ -525,6 +525,7 @@ template __global__ void interpret_shots<double, true>(ProgramView, SeedRoot, ui
 #include "clifft/util/shot_seed.h"
 
 #include <algorithm>
+#include <atomic>
 #include <limits>
 #include <sstream>
 #include <stdexcept>
@@ -535,6 +536,23 @@ template __global__ void interpret_shots<double, true>(ProgramView, SeedRoot, ui
 namespace clifft::sampling::hip {
 
 namespace {
+
+class BusyGuard {
+  public:
+    explicit BusyGuard(std::atomic_flag& busy) : busy_(busy) {
+        if (busy_.test_and_set(std::memory_order_acquire)) {
+            throw std::runtime_error("calls on one HIP Sampler instance must not overlap");
+        }
+    }
+
+    ~BusyGuard() { busy_.clear(std::memory_order_release); }
+
+    BusyGuard(const BusyGuard&) = delete;
+    BusyGuard& operator=(const BusyGuard&) = delete;
+
+  private:
+    std::atomic_flag& busy_;
+};
 
 void check_hip(hipError_t error, const char* operation) {
     if (error != hipSuccess) {
@@ -637,7 +655,9 @@ struct UploadedProgram {
           expressions(executable.expressions()),
           expression_terms(executable.expression_terms()),
           noise_sites(executable.noise_sites()),
-          noise_outcomes(executable.noise_outcomes()) {
+          noise_outcomes(executable.noise_outcomes()),
+          num_visible_records(executable.num_visible_records()),
+          has_postselection(executable.has_postselection()) {
         view.actions = actions.data();
         view.expressions = expressions.data();
         view.expression_terms = expression_terms.data();
@@ -660,6 +680,8 @@ struct UploadedProgram {
     DeviceBuffer<detail::NoiseSite> noise_sites;
     DeviceBuffer<detail::NoiseOutcome> noise_outcomes;
     detail::ProgramView view;
+    uint32_t num_visible_records;
+    bool has_postselection;
 
     [[nodiscard]] size_t bytes() const {
         return actions.bytes() + expressions.bytes() + expression_terms.bytes() +
@@ -679,9 +701,9 @@ void validate_max_batch_shots(uint32_t max_batch_shots) {
     }
 }
 
-void validate_replay_input(const ExecutablePlan& executable,
+void validate_replay_input(uint32_t num_records, uint32_t noise_site_count,
                            std::span<const uint8_t> forced_records) {
-    if (forced_records.size() != executable.num_records()) {
+    if (forced_records.size() != num_records) {
         throw std::invalid_argument(
             "HIP replay requires one forced value for every visible and hidden record");
     }
@@ -689,9 +711,15 @@ void validate_replay_input(const ExecutablePlan& executable,
                      [](uint8_t value) { return value <= 1; })) {
         throw std::invalid_argument("HIP replay record bytes must be Boolean");
     }
-    if (!executable.noise_sites().empty()) {
+    if (noise_site_count != 0) {
         throw std::invalid_argument("HIP replay does not support presampled noise");
     }
+}
+
+void validate_replay_input(const ExecutablePlan& executable,
+                           std::span<const uint8_t> forced_records) {
+    validate_replay_input(executable.num_records(),
+                          static_cast<uint32_t>(executable.noise_sites().size()), forced_records);
 }
 
 }  // namespace
@@ -706,31 +734,30 @@ class Sampler::Impl {
 
     Impl(const ExecutablePlan& source, CoefficientPrecision selected_precision,
          uint32_t selected_max_batch_shots)
-        : executable(source),
-          program(executable),
+        : program(source),
           precision(selected_precision),
           max_batch(selected_max_batch_shots),
-          coefficient_stride(detail::coefficient_elements_per_shot(executable.peak_active_width())),
+          coefficient_stride(detail::coefficient_elements_per_shot(source.peak_active_width())),
           fp32_coefficients(selected_precision == CoefficientPrecision::FP32
                                 ? checked_elements(max_batch, coefficient_stride, "coefficient")
                                 : 0),
           fp64_coefficients(selected_precision == CoefficientPrecision::FP64
                                 ? checked_elements(max_batch, coefficient_stride, "coefficient")
                                 : 0),
-          symbols(checked_elements(max_batch, executable.num_symbols(), "symbol")),
-          records(checked_elements(max_batch, executable.num_records(), "record")),
-          forced_records(executable.num_records()),
-          detectors(checked_elements(max_batch, executable.num_detectors(), "detector")),
-          observables(checked_elements(max_batch, executable.num_observables(), "observable")),
-          exp_vals(checked_elements(max_batch, executable.num_exp_vals(), "expectation")),
+          symbols(checked_elements(max_batch, source.num_symbols(), "symbol")),
+          records(checked_elements(max_batch, source.num_records(), "record")),
+          forced_records(source.num_records()),
+          detectors(checked_elements(max_batch, source.num_detectors(), "detector")),
+          observables(checked_elements(max_batch, source.num_observables(), "observable")),
+          exp_vals(checked_elements(max_batch, source.num_exp_vals(), "expectation")),
           log_probabilities(1),
           reachable(1),
           survived(max_batch),
-          host_records(checked_elements(max_batch, executable.num_records(), "host record")),
-          host_detectors(checked_elements(max_batch, executable.num_detectors(), "host detector")),
+          host_records(checked_elements(max_batch, source.num_records(), "host record")),
+          host_detectors(checked_elements(max_batch, source.num_detectors(), "host detector")),
           host_observables(
-              checked_elements(max_batch, executable.num_observables(), "host observable")),
-          host_exp_vals(checked_elements(max_batch, executable.num_exp_vals(), "host expectation")),
+              checked_elements(max_batch, source.num_observables(), "host observable")),
+          host_exp_vals(checked_elements(max_batch, source.num_exp_vals(), "host expectation")),
           host_survived(max_batch) {}
 
     void run_batch(detail::SeedRoot root, uint64_t shot_offset, uint32_t shots,
@@ -764,7 +791,12 @@ class Sampler::Impl {
                reachable.bytes() + survived.bytes();
     }
 
-    ExecutablePlan executable;
+    [[nodiscard]] uint32_t num_visible_records() const { return program.num_visible_records; }
+    [[nodiscard]] uint32_t num_records() const { return program.view.num_records; }
+    [[nodiscard]] uint32_t num_detectors() const { return program.view.num_detectors; }
+    [[nodiscard]] uint32_t num_observables() const { return program.view.num_observables; }
+    [[nodiscard]] uint32_t num_exp_vals() const { return program.view.num_exp_vals; }
+
     UploadedProgram program;
     CoefficientPrecision precision;
     uint32_t max_batch;
@@ -787,6 +819,7 @@ class Sampler::Impl {
     std::vector<uint8_t> host_survived;
     double host_log_probability = 0.0;
     uint8_t host_reachable = 0;
+    std::atomic_flag busy = ATOMIC_FLAG_INIT;
 
   private:
     template <typename Coefficient, bool Replay>
@@ -808,17 +841,17 @@ class Sampler::Impl {
         if (mode != DownloadMode::SurvivorCounts) {
             records.download_prefix(
                 std::span(host_records)
-                    .first(checked_elements(shots, executable.num_records(), "record result")));
+                    .first(checked_elements(shots, program.view.num_records, "record result")));
             detectors.download_prefix(
                 std::span(host_detectors)
-                    .first(checked_elements(shots, executable.num_detectors(), "detector result")));
+                    .first(checked_elements(shots, program.view.num_detectors, "detector result")));
             exp_vals.download_prefix(
                 std::span(host_exp_vals)
-                    .first(checked_elements(shots, executable.num_exp_vals(), "expectation result")));
+                    .first(checked_elements(shots, program.view.num_exp_vals, "expectation result")));
         }
         observables.download_prefix(
             std::span(host_observables)
-                .first(checked_elements(shots, executable.num_observables(), "observable result")));
+                .first(checked_elements(shots, program.view.num_observables, "observable result")));
         survived.download_prefix(std::span(host_survived).first(shots));
         if (mode == DownloadMode::Replay) {
             log_probabilities.download(std::span(&host_log_probability, 1));
@@ -860,8 +893,9 @@ Sampler::Sampler(Sampler&&) noexcept = default;
 Sampler& Sampler::operator=(Sampler&&) noexcept = default;
 
 SamplingResult Sampler::sample(uint32_t shots, std::optional<uint64_t> seed, uint32_t block_size) {
+    BusyGuard guard(impl_->busy);
     validate_block_size(block_size);
-    if (impl_->executable.has_postselection()) {
+    if (impl_->program.has_postselection) {
         throw std::invalid_argument(
             "HIP fixed-row sampling does not support postselection; use sample_survivors");
     }
@@ -870,13 +904,13 @@ SamplingResult Sampler::sample(uint32_t shots, std::optional<uint64_t> seed, uin
         return result;
     }
     result.measurements.resize(
-        checked_elements(shots, impl_->executable.num_visible_records(), "measurement result"));
+        checked_elements(shots, impl_->num_visible_records(), "measurement result"));
     result.detectors.resize(
-        checked_elements(shots, impl_->executable.num_detectors(), "detector result"));
+        checked_elements(shots, impl_->num_detectors(), "detector result"));
     result.observables.resize(
-        checked_elements(shots, impl_->executable.num_observables(), "observable result"));
+        checked_elements(shots, impl_->num_observables(), "observable result"));
     result.exp_vals.resize(
-        checked_elements(shots, impl_->executable.num_exp_vals(), "expectation result"));
+        checked_elements(shots, impl_->num_exp_vals(), "expectation result"));
 
     const SeedRoot root = make_seed_root(shots, seed);
     const detail::SeedRoot device_root{{root.w[0], root.w[1], root.w[2], root.w[3]}};
@@ -885,35 +919,35 @@ SamplingResult Sampler::sample(uint32_t shots, std::optional<uint64_t> seed, uin
         impl_->run_batch(device_root, offset, batch, block_size,
                          Impl::DownloadMode::FullRows);
         for (uint32_t local_shot = 0; local_shot < batch; ++local_shot) {
-            if (impl_->executable.num_visible_records() != 0) {
+            if (impl_->num_visible_records() != 0) {
                 std::copy_n(
                     impl_->host_records.begin() +
-                        static_cast<size_t>(local_shot) * impl_->executable.num_records(),
-                    impl_->executable.num_visible_records(),
+                        static_cast<size_t>(local_shot) * impl_->num_records(),
+                    impl_->num_visible_records(),
                     result.measurements.begin() + static_cast<size_t>(offset + local_shot) *
-                                                      impl_->executable.num_visible_records());
+                                                      impl_->num_visible_records());
             }
         }
-        if (impl_->executable.num_detectors() != 0) {
+        if (impl_->num_detectors() != 0) {
             std::copy_n(
                 impl_->host_detectors.begin(),
-                checked_elements(batch, impl_->executable.num_detectors(), "detector batch"),
+                checked_elements(batch, impl_->num_detectors(), "detector batch"),
                 result.detectors.begin() +
-                    static_cast<size_t>(offset) * impl_->executable.num_detectors());
+                    static_cast<size_t>(offset) * impl_->num_detectors());
         }
-        if (impl_->executable.num_observables() != 0) {
+        if (impl_->num_observables() != 0) {
             std::copy_n(
                 impl_->host_observables.begin(),
-                checked_elements(batch, impl_->executable.num_observables(), "observable batch"),
+                checked_elements(batch, impl_->num_observables(), "observable batch"),
                 result.observables.begin() +
-                    static_cast<size_t>(offset) * impl_->executable.num_observables());
+                    static_cast<size_t>(offset) * impl_->num_observables());
         }
-        if (impl_->executable.num_exp_vals() != 0) {
+        if (impl_->num_exp_vals() != 0) {
             std::copy_n(
                 impl_->host_exp_vals.begin(),
-                checked_elements(batch, impl_->executable.num_exp_vals(), "expectation batch"),
+                checked_elements(batch, impl_->num_exp_vals(), "expectation batch"),
                 result.exp_vals.begin() +
-                    static_cast<size_t>(offset) * impl_->executable.num_exp_vals());
+                    static_cast<size_t>(offset) * impl_->num_exp_vals());
         }
         offset += batch;
     }
@@ -923,21 +957,22 @@ SamplingResult Sampler::sample(uint32_t shots, std::optional<uint64_t> seed, uin
 SamplingSurvivorResult Sampler::sample_survivors(uint32_t shots, bool keep_records,
                                                  std::optional<uint64_t> seed,
                                                  uint32_t block_size) {
+    BusyGuard guard(impl_->busy);
     validate_block_size(block_size);
     SamplingSurvivorResult result;
     result.total_shots = shots;
     if (shots == 0) {
         return result;
     }
-    result.observable_ones.resize(impl_->executable.num_observables(), 0);
+    result.observable_ones.resize(impl_->num_observables(), 0);
     if (keep_records) {
-        result.measurements.resize(checked_elements(shots, impl_->executable.num_visible_records(),
+        result.measurements.resize(checked_elements(shots, impl_->num_visible_records(),
                                                     "survivor measurement result"));
         result.detectors.resize(
-            checked_elements(shots, impl_->executable.num_detectors(), "survivor detector result"));
-        result.observables.resize(checked_elements(shots, impl_->executable.num_observables(),
+            checked_elements(shots, impl_->num_detectors(), "survivor detector result"));
+        result.observables.resize(checked_elements(shots, impl_->num_observables(),
                                                    "survivor observable result"));
-        result.exp_vals.resize(checked_elements(shots, impl_->executable.num_exp_vals(),
+        result.exp_vals.resize(checked_elements(shots, impl_->num_exp_vals(),
                                                 "survivor expectation result"));
     }
 
@@ -954,10 +989,9 @@ SamplingSurvivorResult Sampler::sample_survivors(uint32_t shots, bool keep_recor
             }
             const uint32_t destination = result.passed_shots++;
             bool logical_error = false;
-            for (uint32_t observable = 0; observable < impl_->executable.num_observables();
-                 ++observable) {
+            for (uint32_t observable = 0; observable < impl_->num_observables(); ++observable) {
                 const bool value = impl_->host_observables[static_cast<size_t>(local_shot) *
-                                                               impl_->executable.num_observables() +
+                                                               impl_->num_observables() +
                                                            observable] != 0;
                 result.observable_ones[observable] += static_cast<uint64_t>(value);
                 logical_error |= value;
@@ -966,54 +1000,56 @@ SamplingSurvivorResult Sampler::sample_survivors(uint32_t shots, bool keep_recor
             if (!keep_records) {
                 continue;
             }
-            if (impl_->executable.num_visible_records() != 0) {
+            if (impl_->num_visible_records() != 0) {
                 std::copy_n(
                     impl_->host_records.begin() +
-                        static_cast<size_t>(local_shot) * impl_->executable.num_records(),
-                    impl_->executable.num_visible_records(),
+                        static_cast<size_t>(local_shot) * impl_->num_records(),
+                    impl_->num_visible_records(),
                     result.measurements.begin() +
-                        static_cast<size_t>(destination) * impl_->executable.num_visible_records());
+                        static_cast<size_t>(destination) * impl_->num_visible_records());
             }
-            if (impl_->executable.num_detectors() != 0) {
+            if (impl_->num_detectors() != 0) {
                 std::copy_n(impl_->host_detectors.begin() +
-                                static_cast<size_t>(local_shot) * impl_->executable.num_detectors(),
-                            impl_->executable.num_detectors(),
+                                static_cast<size_t>(local_shot) * impl_->num_detectors(),
+                            impl_->num_detectors(),
                             result.detectors.begin() + static_cast<size_t>(destination) *
-                                                           impl_->executable.num_detectors());
+                                                           impl_->num_detectors());
             }
-            if (impl_->executable.num_observables() != 0) {
+            if (impl_->num_observables() != 0) {
                 std::copy_n(
                     impl_->host_observables.begin() +
-                        static_cast<size_t>(local_shot) * impl_->executable.num_observables(),
-                    impl_->executable.num_observables(),
+                        static_cast<size_t>(local_shot) * impl_->num_observables(),
+                    impl_->num_observables(),
                     result.observables.begin() +
-                        static_cast<size_t>(destination) * impl_->executable.num_observables());
+                        static_cast<size_t>(destination) * impl_->num_observables());
             }
-            if (impl_->executable.num_exp_vals() != 0) {
+            if (impl_->num_exp_vals() != 0) {
                 std::copy_n(impl_->host_exp_vals.begin() +
-                                static_cast<size_t>(local_shot) * impl_->executable.num_exp_vals(),
-                            impl_->executable.num_exp_vals(),
+                                static_cast<size_t>(local_shot) * impl_->num_exp_vals(),
+                            impl_->num_exp_vals(),
                             result.exp_vals.begin() + static_cast<size_t>(destination) *
-                                                          impl_->executable.num_exp_vals());
+                                                          impl_->num_exp_vals());
             }
         }
         offset += batch;
     }
     if (keep_records) {
         result.measurements.resize(static_cast<size_t>(result.passed_shots) *
-                                   impl_->executable.num_visible_records());
+                                   impl_->num_visible_records());
         result.detectors.resize(static_cast<size_t>(result.passed_shots) *
-                                impl_->executable.num_detectors());
+                                impl_->num_detectors());
         result.observables.resize(static_cast<size_t>(result.passed_shots) *
-                                  impl_->executable.num_observables());
+                                  impl_->num_observables());
         result.exp_vals.resize(static_cast<size_t>(result.passed_shots) *
-                               impl_->executable.num_exp_vals());
+                               impl_->num_exp_vals());
     }
     return result;
 }
 
 ReplayResult Sampler::replay_shot(std::span<const uint8_t> forced_records) {
-    validate_replay_input(impl_->executable, forced_records);
+    BusyGuard guard(impl_->busy);
+    validate_replay_input(impl_->num_records(), impl_->program.view.noise_site_count,
+                          forced_records);
     impl_->run_replay(forced_records);
     ReplayResult result;
     result.reachable = impl_->host_reachable != 0;
@@ -1024,15 +1060,15 @@ ReplayResult Sampler::replay_shot(std::span<const uint8_t> forced_records) {
     }
     result.outputs.measurements.assign(
         impl_->host_records.begin(),
-        impl_->host_records.begin() + impl_->executable.num_visible_records());
+        impl_->host_records.begin() + impl_->num_visible_records());
     result.outputs.detectors.assign(
         impl_->host_detectors.begin(),
-        impl_->host_detectors.begin() + impl_->executable.num_detectors());
+        impl_->host_detectors.begin() + impl_->num_detectors());
     result.outputs.observables.assign(
         impl_->host_observables.begin(),
-        impl_->host_observables.begin() + impl_->executable.num_observables());
+        impl_->host_observables.begin() + impl_->num_observables());
     result.outputs.exp_vals.assign(impl_->host_exp_vals.begin(),
-                                   impl_->host_exp_vals.begin() + impl_->executable.num_exp_vals());
+                                   impl_->host_exp_vals.begin() + impl_->num_exp_vals());
     return result;
 }
 
@@ -1046,6 +1082,26 @@ uint32_t Sampler::max_batch_shots() const {
 
 size_t Sampler::allocated_device_bytes() const {
     return impl_->allocated_device_bytes();
+}
+
+uint32_t Sampler::num_visible_records() const {
+    return impl_->num_visible_records();
+}
+
+uint32_t Sampler::num_records() const {
+    return impl_->num_records();
+}
+
+uint32_t Sampler::num_detectors() const {
+    return impl_->num_detectors();
+}
+
+uint32_t Sampler::num_observables() const {
+    return impl_->num_observables();
+}
+
+uint32_t Sampler::num_exp_vals() const {
+    return impl_->num_exp_vals();
 }
 
 SamplingResult sample(const ExecutablePlan& executable, uint32_t shots,
