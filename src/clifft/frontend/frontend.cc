@@ -2,9 +2,6 @@
 
 #include "clifft/tableau/tableau.h"
 #include "clifft/util/numeric.h"
-#include "clifft/util/stim_mask.h"
-
-#include "stim.h"
 
 #include <array>
 #include <cmath>
@@ -399,21 +396,6 @@ PauliString build_pauli_string(const std::vector<Target>& targets, uint32_t num_
     }
     observable.set_sign(false);
     return observable;
-}
-
-stim::Tableau<kStimWidth> to_stim_tableau(const Tableau& source) {
-    stim::Tableau<kStimWidth> result(source.num_qubits());
-    for (uint32_t q = 0; q < source.num_qubits(); ++q) {
-        const PauliStringView x = source.x_output(q);
-        const PauliStringView z = source.z_output(q);
-        mask_view_to_stim(x.x(), source.num_qubits(), result.xs[q].xs);
-        mask_view_to_stim(x.z(), source.num_qubits(), result.xs[q].zs);
-        mask_view_to_stim(z.x(), source.num_qubits(), result.zs[q].xs);
-        mask_view_to_stim(z.z(), source.num_qubits(), result.zs[q].zs);
-        result.xs[q].sign = x.sign();
-        result.zs[q].sign = z.sign();
-    }
-    return result;
 }
 
 /// Conservative upper bound on the number of noise channel masks the
@@ -1290,7 +1272,7 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
     }
 
     hir.num_hidden_measurements = hidden_meas_idx - circuit.num_measurements;
-    hir.final_tableau = to_stim_tableau(inverse.inverse());
+    hir.final_tableau = inverse.inverse();
 
     return hir;
 }

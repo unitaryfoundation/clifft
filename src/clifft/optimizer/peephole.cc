@@ -74,74 +74,20 @@ inline void conjugate_pauli_by_S(MaskView x_p, MaskView z_p, bool sign_p, Mutabl
 
 namespace internal {
 
-void apply_s_to_tableau(stim::Tableau<kStimWidth>& tab, MaskView x_v, MaskView z_v, bool sign_v,
-                        bool is_dagger) {
-    // Map P_virt forward through U_C to get P_phys in O(n^2), then
-    // conjugate all physical rows by P_phys in O(n^2).
-    const size_t words = std::min<size_t>((tab.num_qubits + 63) / 64, x_v.num_words());
-
-    stim::PauliString<kStimWidth> p_virt(tab.num_qubits);
-    for (size_t w = 0; w < words; ++w) {
-        p_virt.xs.u64[w] = x_v.words[w];
-        p_virt.zs.u64[w] = z_v.words[w];
-    }
-    p_virt.sign = sign_v;
-
-    stim::PauliString<kStimWidth> p_phys = tab(p_virt);
-
-    std::vector<uint64_t> px_phys(words, 0);
-    std::vector<uint64_t> pz_phys(words, 0);
-    for (size_t w = 0; w < words; ++w) {
-        px_phys[w] = p_phys.xs.u64[w];
-        pz_phys[w] = p_phys.zs.u64[w];
-    }
-    bool psign_phys = p_phys.sign;
-    MaskView px_view{std::span<const uint64_t>(px_phys)};
-    MaskView pz_view{std::span<const uint64_t>(pz_phys)};
-
-    std::vector<uint64_t> q_x(words, 0);
-    std::vector<uint64_t> q_z(words, 0);
-    MutableMaskView qx_view{std::span<uint64_t>(q_x)};
-    MutableMaskView qz_view{std::span<uint64_t>(q_z)};
-
-    // Tableau generators: S_P X_q S_P^dag, so pass !is_dagger
-    for (size_t q = 0; q < tab.num_qubits; ++q) {
-        auto apply_to_ps = [&](stim::PauliStringRef<kStimWidth> row) {
-            for (size_t w = 0; w < words; ++w) {
-                q_x[w] = row.xs.u64[w];
-                q_z[w] = row.zs.u64[w];
-            }
-            bool q_sign = row.sign;
-
-            conjugate_pauli_by_S(px_view, pz_view, psign_phys, qx_view, qz_view, q_sign,
-                                 !is_dagger);
-
-            for (size_t w = 0; w < words; ++w) {
-                row.xs.u64[w] = q_x[w];
-                row.zs.u64[w] = q_z[w];
-            }
-            row.sign = q_sign;
-        };
-
-        apply_to_ps(tab.xs[q]);
-        apply_to_ps(tab.zs[q]);
-    }
+void apply_s_to_tableau(Tableau& tab, MaskView x_v, MaskView z_v, bool sign_v, bool is_dagger) {
+    PauliString axis(tab.num_qubits());
+    axis.mut_x().xor_with(x_v);
+    axis.mut_z().xor_with(z_v);
+    axis.set_sign(sign_v);
+    tab.prepend_pauli_rotation(axis.view(), is_dagger);
 }
 
-void apply_pauli_to_tableau(stim::Tableau<kStimWidth>& tab, MaskView x_v, MaskView z_v) {
-    assert(x_v.num_words() == z_v.num_words());
-    const size_t tableau_words = (tab.num_qubits + 63) / 64;
-    assert(tableau_words <= x_v.num_words());
-    const size_t words = std::min({tableau_words, static_cast<size_t>(x_v.num_words()),
-                                   static_cast<size_t>(z_v.num_words())});
-    for (size_t w = 0; w < words; ++w) {
-        uint64_t valid_bits = UINT64_MAX;
-        if (w + 1 == tableau_words && tab.num_qubits % 64 != 0) {
-            valid_bits = (uint64_t{1} << (tab.num_qubits % 64)) - 1;
-        }
-        tab.zs.signs.u64[w] ^= x_v.words[w] & valid_bits;
-        tab.xs.signs.u64[w] ^= z_v.words[w] & valid_bits;
-    }
+void apply_pauli_to_tableau(Tableau& tab, MaskView x_v, MaskView z_v) {
+    PauliString axis(tab.num_qubits());
+    axis.mut_x().xor_with(x_v);
+    axis.mut_z().xor_with(z_v);
+    axis.set_sign(false);
+    tab.prepend_pauli(axis.view());
 }
 
 }  // namespace internal

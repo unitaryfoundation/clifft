@@ -48,6 +48,12 @@ bool PauliStringView::commutes(PauliStringView other) const {
 PauliString::PauliString(uint32_t num_qubits)
     : num_qubits_(num_qubits), x_((num_qubits + 63) / 64, 0), z_(x_.size(), 0) {}
 
+PauliString::PauliString(PauliStringView source) : PauliString(source.num_qubits()) {
+    mut_x().xor_with(source.x());
+    mut_z().xor_with(source.z());
+    set_phase(source.phase());
+}
+
 PauliString PauliString::from_text(std::string_view text) {
     if (text.empty() || (text.front() != '+' && text.front() != '-')) {
         throw std::invalid_argument("Pauli text must start with a sign");

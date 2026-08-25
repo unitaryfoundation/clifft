@@ -180,6 +180,21 @@ inline DenseMatrix dense_tableau_matrix(const stim::Tableau<kStimWidth>& tab) {
     return m;
 }
 
+inline DenseMatrix dense_tableau_matrix(const Tableau& tab) {
+    stim::Tableau<kStimWidth> oracle(tab.num_qubits());
+    for (uint32_t q = 0; q < tab.num_qubits(); ++q) {
+        const PauliStringView x = tab.x_output(q);
+        const PauliStringView z = tab.z_output(q);
+        mask_view_to_stim(x.x(), tab.num_qubits(), oracle.xs[q].xs);
+        mask_view_to_stim(x.z(), tab.num_qubits(), oracle.xs[q].zs);
+        mask_view_to_stim(z.x(), tab.num_qubits(), oracle.zs[q].xs);
+        mask_view_to_stim(z.z(), tab.num_qubits(), oracle.zs[q].zs);
+        oracle.xs[q].sign = x.sign();
+        oracle.zs[q].sign = z.sign();
+    }
+    return dense_tableau_matrix(oracle);
+}
+
 inline DenseMatrix dense_matmul(const DenseMatrix& a, const DenseMatrix& b, uint64_t dim) {
     DenseMatrix r(dim * dim, {0.0, 0.0});
     for (uint64_t i = 0; i < dim; ++i) {

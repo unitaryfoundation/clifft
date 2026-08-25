@@ -75,7 +75,7 @@ class ExecutablePlan {
     [[nodiscard]] bool supports_final_state_queries() const { return final_tableau_.has_value(); }
     // Exact final-state queries need the coordinate-to-physical map, but
     // ordinary execution must not depend on or mutate it.
-    [[nodiscard]] const stim::Tableau<kStimWidth>* final_state_tableau() const noexcept {
+    [[nodiscard]] const Tableau* final_state_tableau() const noexcept {
         return final_tableau_ ? &*final_tableau_ : nullptr;
     }
     [[nodiscard]] uint32_t num_instrument_sites() const {
@@ -331,7 +331,7 @@ class ExecutablePlan {
     ExecutorBackend backend_ = ExecutorBackend::Scalar;
     uint32_t num_readout_noise_sites_ = 0;
     uint32_t initial_noise_end_ = 0;
-    std::optional<stim::Tableau<kStimWidth>> final_tableau_;
+    std::optional<Tableau> final_tableau_;
 
     // Affine register initialization and reverse symbol dependencies.
 

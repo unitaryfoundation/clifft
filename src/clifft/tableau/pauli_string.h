@@ -33,6 +33,7 @@ class PauliStringView {
 class PauliString {
   public:
     explicit PauliString(uint32_t num_qubits = 0);
+    explicit PauliString(PauliStringView source);
 
     [[nodiscard]] static PauliString from_text(std::string_view text);
 

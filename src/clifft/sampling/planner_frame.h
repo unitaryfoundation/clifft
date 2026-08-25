@@ -2,8 +2,6 @@
 
 #include "clifft/sampling/plan.h"
 
-#include "stim.h"
-
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -12,8 +10,8 @@
 
 namespace clifft::sampling::internal {
 
-using PlannerPauli = stim::PauliString<kStimWidth>;
-using PlannerTableau = stim::Tableau<kStimWidth>;
+using PlannerPauli = PauliString;
+using PlannerTableau = Tableau;
 
 // Tracks the cumulative relationship between physical HIR coordinates and the
 // packed stabilizer coordinates selected while planning.
@@ -47,8 +45,6 @@ class CoordinateFrame {
     PlannerTableau current_to_initial_;
     std::optional<PlannerTableau> initial_to_current_;
     uint64_t direct_reverse_lookups_ = 0;
-    std::vector<size_t> indices_;
-
     void invalidate_reverse_cache();
 };
 
