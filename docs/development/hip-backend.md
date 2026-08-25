@@ -57,7 +57,9 @@ coefficient work per shot is small.
 precision-specific workspace. Large requests are divided into bounded batches;
 the kernel receives the global shot offset so changing the batch size does not
 change a seeded shot's random stream. The free C++ sampling functions remain
-convenience wrappers that construct a temporary sampler.
+convenience wrappers that construct a temporary sampler. Aggregate-only
+survivor sampling downloads survival flags and observables, but omits record,
+detector, and expectation-value transfers that its caller does not consume.
 
 This tier supports both coefficient formats in one backend:
 

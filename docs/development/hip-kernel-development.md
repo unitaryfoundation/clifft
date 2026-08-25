@@ -106,7 +106,9 @@ private serialization for the HIP interpreter, not another semantic IR.
 `Sampler` owns one uploaded program and one precision-specific workspace.
 Allocation is complete before a batch enters the kernel. A request larger than
 `max_batch_shots` reuses that workspace, and each launch receives both its
-local row count and global shot offset.
+local row count and global shot offset. Aggregate-only survivor requests skip
+unused record, detector, and expectation-value downloads; device-side survivor
+aggregation remains a separate execution-path extension.
 
 A cooperative path should add a separate kernel and typed launcher, then
 dispatch by peak active width. It should not add topology work to the device:

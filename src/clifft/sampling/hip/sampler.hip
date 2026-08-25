@@ -691,6 +691,12 @@ void validate_replay_input(const ExecutablePlan& executable,
 
 class Sampler::Impl {
   public:
+    enum class DownloadMode : uint8_t {
+        FullRows,
+        SurvivorCounts,
+        Replay,
+    };
+
     Impl(const ExecutablePlan& source, CoefficientPrecision selected_precision,
          uint32_t selected_max_batch_shots)
         : executable(source),
@@ -721,7 +727,7 @@ class Sampler::Impl {
           host_survived(max_batch) {}
 
     void run_batch(detail::SeedRoot root, uint64_t shot_offset, uint32_t shots,
-                   uint32_t block_size) {
+                   uint32_t block_size, DownloadMode download_mode) {
         if (shots > max_batch) {
             throw std::invalid_argument("HIP batch exceeds retained workspace capacity");
         }
@@ -730,7 +736,7 @@ class Sampler::Impl {
         } else {
             launch<double, false>(root, shot_offset, shots, block_size, fp64_coefficients.data());
         }
-        download_rows(shots, false);
+        download_rows(shots, download_mode);
     }
 
     void run_replay(std::span<const uint8_t> input) {
@@ -741,7 +747,7 @@ class Sampler::Impl {
         } else {
             launch<double, true>(empty_root, 0, 1, 1, fp64_coefficients.data());
         }
-        download_rows(1, true);
+        download_rows(1, DownloadMode::Replay);
     }
 
     [[nodiscard]] size_t allocated_device_bytes() const {
@@ -797,21 +803,23 @@ class Sampler::Impl {
         check_hip(hipDeviceSynchronize(), "kernel execution");
     }
 
-    void download_rows(uint32_t shots, bool replay) {
-        records.download(
-            std::span(host_records)
-                .first(checked_elements(shots, executable.num_records(), "record result")));
-        detectors.download(
-            std::span(host_detectors)
-                .first(checked_elements(shots, executable.num_detectors(), "detector result")));
+    void download_rows(uint32_t shots, DownloadMode mode) {
+        if (mode != DownloadMode::SurvivorCounts) {
+            records.download(
+                std::span(host_records)
+                    .first(checked_elements(shots, executable.num_records(), "record result")));
+            detectors.download(
+                std::span(host_detectors)
+                    .first(checked_elements(shots, executable.num_detectors(), "detector result")));
+            exp_vals.download(
+                std::span(host_exp_vals)
+                    .first(checked_elements(shots, executable.num_exp_vals(), "expectation result")));
+        }
         observables.download(
             std::span(host_observables)
                 .first(checked_elements(shots, executable.num_observables(), "observable result")));
-        exp_vals.download(
-            std::span(host_exp_vals)
-                .first(checked_elements(shots, executable.num_exp_vals(), "expectation result")));
         survived.download(std::span(host_survived).first(shots));
-        if (replay) {
+        if (mode == DownloadMode::Replay) {
             log_probabilities.download(std::span(&host_log_probability, 1));
             reachable.download(std::span(&host_reachable, 1));
         }
@@ -873,7 +881,8 @@ SamplingResult Sampler::sample(uint32_t shots, std::optional<uint64_t> seed, uin
     const detail::SeedRoot device_root{{root.w[0], root.w[1], root.w[2], root.w[3]}};
     for (uint32_t offset = 0; offset < shots;) {
         const uint32_t batch = std::min(impl_->max_batch, shots - offset);
-        impl_->run_batch(device_root, offset, batch, block_size);
+        impl_->run_batch(device_root, offset, batch, block_size,
+                         Impl::DownloadMode::FullRows);
         for (uint32_t local_shot = 0; local_shot < batch; ++local_shot) {
             if (impl_->executable.num_visible_records() != 0) {
                 std::copy_n(
@@ -935,7 +944,9 @@ SamplingSurvivorResult Sampler::sample_survivors(uint32_t shots, bool keep_recor
     const detail::SeedRoot device_root{{root.w[0], root.w[1], root.w[2], root.w[3]}};
     for (uint32_t offset = 0; offset < shots;) {
         const uint32_t batch = std::min(impl_->max_batch, shots - offset);
-        impl_->run_batch(device_root, offset, batch, block_size);
+        impl_->run_batch(device_root, offset, batch, block_size,
+                         keep_records ? Impl::DownloadMode::FullRows
+                                      : Impl::DownloadMode::SurvivorCounts);
         for (uint32_t local_shot = 0; local_shot < batch; ++local_shot) {
             if (impl_->host_survived[local_shot] == 0) {
                 continue;
