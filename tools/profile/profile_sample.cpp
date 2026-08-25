@@ -94,6 +94,15 @@ uint64_t checksum_result(const clifft::sampling::SamplingResult& result) {
     return checksum;
 }
 
+uint64_t checksum_result(const clifft::sampling::SamplingSurvivorResult& result) {
+    uint64_t checksum = mix(result.total_shots, result.passed_shots);
+    checksum = mix(checksum, result.logical_errors);
+    for (uint64_t value : result.observable_ones) {
+        checksum = mix(checksum, value);
+    }
+    return checksum;
+}
+
 void summarize(std::vector<double> samples_ms, int shots) {
     std::sort(samples_ms.begin(), samples_ms.end());
     const double sum = std::accumulate(samples_ms.begin(), samples_ms.end(), 0.0);
@@ -121,6 +130,8 @@ int main() {
     const int generated_width = get_env_int("CLIFFT_PROFILE_GENERATED_WIDTH", 0);
     const int generated_depth =
         get_env_int("CLIFFT_PROFILE_GENERATED_DEPTH", kDefaultGeneratedDepth);
+    const bool aggregate_survivors = get_env_int("CLIFFT_PROFILE_AGGREGATE_SURVIVORS", 0) != 0;
+    const bool postselect_all = get_env_int("CLIFFT_PROFILE_POSTSELECT_ALL", 0) != 0;
     const char* shot_workers_value = std::getenv("CLIFFT_PROFILE_SHOT_WORKERS");
     const char* intra_workers_value = std::getenv("CLIFFT_PROFILE_INTRA_SHOT_WORKERS");
     const char* min_active_width_value = std::getenv("CLIFFT_PROFILE_INTRA_SHOT_MIN_ACTIVE_WIDTH");
@@ -161,6 +172,10 @@ int main() {
         std::cerr << "Error: batch size must be positive\n";
         return 1;
     }
+    if (postselect_all && !aggregate_survivors) {
+        std::cerr << "Error: postselection requires aggregate survivor profiling\n";
+        return 1;
+    }
 
     std::cout << "Clifft Sampling Profiler\n";
     std::cout << "========================\n";
@@ -190,7 +205,13 @@ int main() {
     clifft::HirModule hir = clifft::trace(circuit);
     auto pass_manager = clifft::default_hir_pass_manager();
     pass_manager.run(hir);
-    clifft::sampling::SamplingPlan plan = clifft::sampling::plan_sampling(hir);
+    std::vector<uint8_t> postselection_mask;
+    if (postselect_all) {
+        postselection_mask.assign(hir.num_detectors, 1);
+    }
+    clifft::sampling::SamplingPlanOptions plan_options;
+    plan_options.postselection_mask = postselection_mask;
+    clifft::sampling::SamplingPlan plan = clifft::sampling::plan_sampling(hir, plan_options);
 
     std::cout << "Plan: " << hir.num_qubits << " qubits, peak active width "
               << plan.peak_active_width << ", " << plan.actions.size() << " actions\n\n";
@@ -209,25 +230,30 @@ int main() {
     const std::optional<uint32_t> requested_batch_size =
         batch_size_value == nullptr ? std::nullopt
                                     : std::optional<uint32_t>{static_cast<uint32_t>(batch_size)};
+    const auto run_sample = [&](uint64_t seed) {
+        if (aggregate_survivors) {
+            return checksum_result(clifft::sampling::sample_survivors(
+                program, static_cast<uint32_t>(shots), seed, false, static_cast<uint32_t>(threads),
+                thread_layout, requested_batch_size));
+        }
+        return checksum_result(clifft::sampling::sample(program, static_cast<uint32_t>(shots), seed,
+                                                        static_cast<uint32_t>(threads),
+                                                        thread_layout, requested_batch_size));
+    };
 
     uint64_t checksum = 0;
     for (int iteration = 0; iteration < warmups; ++iteration) {
-        checksum = mix(checksum,
-                       checksum_result(clifft::sampling::sample(
-                           program, static_cast<uint32_t>(shots), kSeed + iteration,
-                           static_cast<uint32_t>(threads), thread_layout, requested_batch_size)));
+        checksum = mix(checksum, run_sample(kSeed + iteration));
     }
 
     std::vector<double> samples_ms;
     samples_ms.reserve(static_cast<size_t>(repetitions));
     for (int iteration = 0; iteration < repetitions; ++iteration) {
         const auto start = std::chrono::steady_clock::now();
-        auto result = clifft::sampling::sample(
-            program, static_cast<uint32_t>(shots), kSeed + warmups + iteration,
-            static_cast<uint32_t>(threads), thread_layout, requested_batch_size);
+        const uint64_t result_checksum = run_sample(kSeed + warmups + iteration);
         const auto end = std::chrono::steady_clock::now();
         samples_ms.push_back(std::chrono::duration<double, std::milli>(end - start).count());
-        checksum = mix(checksum, checksum_result(result));
+        checksum = mix(checksum, result_checksum);
     }
 
     summarize(samples_ms, shots);
