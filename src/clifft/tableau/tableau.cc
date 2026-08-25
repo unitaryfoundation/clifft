@@ -334,6 +334,40 @@ void Tableau::prepend_named_gate(GateType gate, std::span<const uint32_t> target
     prepend_local(from_named_gate(gate), targets);
 }
 
+void Tableau::prepend_pauli(PauliStringView axis) {
+    if (axis.num_qubits() != num_qubits_ || !axis.is_hermitian()) {
+        throw std::invalid_argument("Pauli axis does not match the tableau");
+    }
+    for (uint32_t q = 0; q < num_qubits_; ++q) {
+        if (axis.z().bit_get(q)) {
+            phases_[row_index(false, q, num_qubits_)] ^= 2U;
+        }
+        if (axis.x().bit_get(q)) {
+            phases_[row_index(true, q, num_qubits_)] ^= 2U;
+        }
+    }
+}
+
+void Tableau::prepend_pauli_rotation(PauliStringView axis, bool dagger) {
+    if (axis.num_qubits() != num_qubits_ || !axis.is_hermitian()) {
+        throw std::invalid_argument("Pauli rotation axis does not match the tableau");
+    }
+    const PauliString mapped_axis = apply(axis);
+    Tableau identity(num_qubits_);
+    for (uint32_t q = 0; q < num_qubits_; ++q) {
+        for (bool z_generator : {false, true}) {
+            const uint32_t index = row_index(z_generator, q, num_qubits_);
+            if (axis.commutes(identity.row(index))) {
+                continue;
+            }
+            PauliString mapped = mapped_axis;
+            mapped.right_multiply(row(index));
+            mapped.add_phase(dagger ? 1 : 3);
+            set_row(index, mapped.view());
+        }
+    }
+}
+
 bool Tableau::operator==(const Tableau& other) const {
     return num_qubits_ == other.num_qubits_ && x_rows_ == other.x_rows_ &&
            z_rows_ == other.z_rows_ && phases_ == other.phases_;

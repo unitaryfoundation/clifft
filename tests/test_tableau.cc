@@ -261,8 +261,28 @@ TEST_CASE("Native Pauli rotations match Stim across mask words", "[tableau]") {
             }
             axis.set_sign(sign);
             CAPTURE(sign, dagger);
+            const stim::Tableau<64> expected_rotation = stim_pauli_rotation(axis.view(), dagger);
             check_tableau(clifft::Tableau::from_pauli_rotation(axis.view(), dagger),
-                          stim_pauli_rotation(axis.view(), dagger));
+                          expected_rotation);
+
+            clifft::Tableau prepended(width);
+            stim::Tableau<64> expected_before(width);
+            prepended.append_named_gate(clifft::GateType::H, std::span(qubits).first<1>());
+            prepended.append_named_gate(clifft::GateType::CX, std::span(qubits).subspan<1, 2>());
+            expected_before.inplace_scatter_append(stim::GATE_DATA.at("H").tableau<64>(), {0});
+            expected_before.inplace_scatter_append(stim::GATE_DATA.at("CX").tableau<64>(),
+                                                   {63, 64});
+            prepended.prepend_pauli_rotation(axis.view(), dagger);
+            check_tableau(prepended, expected_rotation.then(expected_before));
+
+            clifft::Tableau prepended_pauli(width);
+            prepended_pauli.append_named_gate(clifft::GateType::H, std::span(qubits).first<1>());
+            prepended_pauli.append_named_gate(clifft::GateType::CX,
+                                              std::span(qubits).subspan<1, 2>());
+            prepended_pauli.prepend_pauli(axis.view());
+            check_tableau(prepended_pauli, stim_pauli_rotation(axis.view(), false)
+                                               .then(stim_pauli_rotation(axis.view(), false))
+                                               .then(expected_before));
         }
     }
 }

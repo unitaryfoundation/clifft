@@ -1,13 +1,15 @@
 #include "clifft/frontend/frontend.h"
 
+#include "clifft/tableau/tableau.h"
 #include "clifft/util/numeric.h"
+#include "clifft/util/stim_mask.h"
 
 #include "stim.h"
 
+#include <array>
 #include <cmath>
 #include <initializer_list>
 #include <optional>
-#include <random>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -16,155 +18,123 @@ namespace clifft {
 
 namespace {
 
-// Apply a single-qubit Clifford to the rewinding inverse tableau.
-// We prepend directly to inv_state for O(n) performance (safe_do_circuit
-// has Circuit-allocation + string-lookup overhead). Heisenberg rewinding
-// only needs the inverse tableau, so this is safe.
-void apply_single_qubit_clifford(stim::TableauSimulator<kStimWidth>& sim, GateType gate,
-                                 uint32_t qubit) {
-    size_t q = static_cast<size_t>(qubit);
-    // Fast path for high-frequency gates. We prepend, so we need the INVERSE
-    // of each gate. Self-inverse gates (H, X, Y, Z) are unchanged; S↔S_DAG.
+GateType inverse_clifford_gate(GateType gate) {
     switch (gate) {
-        case GateType::H:
-            sim.inv_state.prepend_H_XZ(q);
-            return;
         case GateType::S:
-            sim.inv_state.prepend_SQRT_Z_DAG(q);
-            return;
+            return GateType::S_DAG;
         case GateType::S_DAG:
-            sim.inv_state.prepend_SQRT_Z(q);
-            return;
-        case GateType::X:
-            sim.inv_state.prepend_X(q);
-            return;
-        case GateType::Y:
-            sim.inv_state.prepend_Y(q);
-            return;
-        case GateType::Z:
-            sim.inv_state.prepend_Z(q);
-            return;
+            return GateType::S;
         case GateType::SQRT_X:
-            sim.inv_state.prepend_SQRT_X_DAG(q);
-            return;
+            return GateType::SQRT_X_DAG;
         case GateType::SQRT_X_DAG:
-            sim.inv_state.prepend_SQRT_X(q);
-            return;
+            return GateType::SQRT_X;
         case GateType::SQRT_Y:
-            sim.inv_state.prepend_SQRT_Y_DAG(q);
-            return;
+            return GateType::SQRT_Y_DAG;
         case GateType::SQRT_Y_DAG:
-            sim.inv_state.prepend_SQRT_Y(q);
-            return;
-        default:
-            break;
-    }
-    // Generic path for the long tail of Cliffords.
-    const auto& inv_gate = stim::GATE_DATA.at(gate_name(gate)).inverse();
-    auto inv_tab = inv_gate.tableau<kStimWidth>();
-    sim.inv_state.inplace_scatter_prepend(inv_tab, {q});
-}
-
-// Apply a two-qubit Clifford to the rewinding inverse tableau.
-// Same prepend-to-inv_state optimization as the single-qubit path.
-void apply_two_qubit_clifford(stim::TableauSimulator<kStimWidth>& sim, GateType gate, uint32_t q1,
-                              uint32_t q2) {
-    size_t a = static_cast<size_t>(q1);
-    size_t b = static_cast<size_t>(q2);
-    // Fast path for high-frequency gates.
-    switch (gate) {
-        case GateType::CX:
-            sim.inv_state.prepend_ZCX(a, b);
-            return;
-        case GateType::CY:
-            sim.inv_state.prepend_ZCY(a, b);
-            return;
-        case GateType::CZ:
-            sim.inv_state.prepend_ZCZ(a, b);
-            return;
-        case GateType::SWAP:
-            sim.inv_state.prepend_SWAP(a, b);
-            return;
+            return GateType::SQRT_Y;
+        case GateType::C_XYZ:
+            return GateType::C_ZYX;
+        case GateType::C_ZYX:
+            return GateType::C_XYZ;
+        case GateType::C_NXYZ:
+            return GateType::C_ZYNX;
+        case GateType::C_NZYX:
+            return GateType::C_XYNZ;
+        case GateType::C_XNYZ:
+            return GateType::C_ZNYX;
+        case GateType::C_XYNZ:
+            return GateType::C_NZYX;
+        case GateType::C_ZNYX:
+            return GateType::C_XNYZ;
+        case GateType::C_ZYNX:
+            return GateType::C_NXYZ;
+        case GateType::ISWAP:
+            return GateType::ISWAP_DAG;
+        case GateType::ISWAP_DAG:
+            return GateType::ISWAP;
         case GateType::SQRT_XX:
-            sim.inv_state.prepend_SQRT_XX_DAG(a, b);
-            return;
+            return GateType::SQRT_XX_DAG;
         case GateType::SQRT_XX_DAG:
-            sim.inv_state.prepend_SQRT_XX(a, b);
-            return;
+            return GateType::SQRT_XX;
         case GateType::SQRT_YY:
-            sim.inv_state.prepend_SQRT_YY_DAG(a, b);
-            return;
+            return GateType::SQRT_YY_DAG;
         case GateType::SQRT_YY_DAG:
-            sim.inv_state.prepend_SQRT_YY(a, b);
-            return;
+            return GateType::SQRT_YY;
         case GateType::SQRT_ZZ:
-            sim.inv_state.prepend_SQRT_ZZ_DAG(a, b);
-            return;
+            return GateType::SQRT_ZZ_DAG;
         case GateType::SQRT_ZZ_DAG:
-            sim.inv_state.prepend_SQRT_ZZ(a, b);
-            return;
+            return GateType::SQRT_ZZ;
+        case GateType::CXSWAP:
+            return GateType::SWAPCX;
+        case GateType::SWAPCX:
+            return GateType::CXSWAP;
         default:
-            break;
+            return gate;
     }
-    // Generic path.
-    const auto& inv_gate = stim::GATE_DATA.at(gate_name(gate)).inverse();
-    auto inv_tab = inv_gate.tableau<kStimWidth>();
-    sim.inv_state.inplace_scatter_prepend(inv_tab, {a, b});
 }
 
-/// Write the rewound Z observable for `qubit` into pre-zeroed MutableMaskViews.
-void extract_rewound_z_into(const stim::TableauSimulator<kStimWidth>& sim, uint32_t qubit,
-                            MutableMaskView destab, MutableMaskView stab, bool& sign) {
-    const auto& pauli = sim.inv_state.zs[qubit];
-    uint32_t n = sim.inv_state.num_qubits;
-    stim_to_mask_view(pauli.xs, n, destab);
-    stim_to_mask_view(pauli.zs, n, stab);
-    sign = pauli.sign;
+void apply_single_qubit_clifford(Tableau& inverse, GateType gate, uint32_t qubit) {
+    const std::array targets{qubit};
+    inverse.prepend_named_gate(inverse_clifford_gate(gate), targets);
 }
 
-/// Write the rewound X observable for `qubit` into pre-zeroed MutableMaskViews.
-void extract_rewound_x_into(const stim::TableauSimulator<kStimWidth>& sim, uint32_t qubit,
-                            MutableMaskView destab, MutableMaskView stab, bool& sign) {
-    const auto& pauli = sim.inv_state.xs[qubit];
-    uint32_t n = sim.inv_state.num_qubits;
-    stim_to_mask_view(pauli.xs, n, destab);
-    stim_to_mask_view(pauli.zs, n, stab);
-    sign = pauli.sign;
+void apply_two_qubit_clifford(Tableau& inverse, GateType gate, uint32_t q1, uint32_t q2) {
+    const std::array targets{q1, q2};
+    inverse.prepend_named_gate(inverse_clifford_gate(gate), targets);
 }
 
-/// Write the rewound Y observable for `qubit` into pre-zeroed MutableMaskViews.
-void extract_rewound_y_into(const stim::TableauSimulator<kStimWidth>& sim, uint32_t qubit,
-                            MutableMaskView destab, MutableMaskView stab, bool& sign) {
-    auto pauli = sim.inv_state.y_output(qubit);
-    uint32_t n = sim.inv_state.num_qubits;
-    stim_to_mask_view(pauli.xs, n, destab);
-    stim_to_mask_view(pauli.zs, n, stab);
-    sign = pauli.sign;
+void copy_mask_into(MaskView source, MutableMaskView destination) {
+    assert(source.num_words() <= destination.num_words());
+    for (uint32_t w = 0; w < source.num_words(); ++w) {
+        destination.words[w] = source.words[w];
+    }
+    for (uint32_t w = source.num_words(); w < destination.num_words(); ++w) {
+        destination.words[w] = 0;
+    }
 }
 
-/// Copy a rewound stim::PauliString into pre-zeroed MutableMaskViews.
-void copy_rewound_into(const stim::PauliString<kStimWidth>& rewound, uint32_t n,
-                       MutableMaskView destab, MutableMaskView stab) {
-    stim_to_mask_view(rewound.xs, n, destab);
-    stim_to_mask_view(rewound.zs, n, stab);
+void copy_rewound_into(PauliStringView rewound, MutableMaskView destab, MutableMaskView stab) {
+    copy_mask_into(rewound.x(), destab);
+    copy_mask_into(rewound.z(), stab);
+}
+
+void extract_rewound_into(PauliStringView pauli, MutableMaskView destab, MutableMaskView stab,
+                          bool& sign) {
+    copy_rewound_into(pauli, destab, stab);
+    sign = pauli.sign();
+}
+
+void extract_rewound_z_into(const Tableau& inverse, uint32_t qubit, MutableMaskView destab,
+                            MutableMaskView stab, bool& sign) {
+    extract_rewound_into(inverse.z_output(qubit), destab, stab, sign);
+}
+
+void extract_rewound_x_into(const Tableau& inverse, uint32_t qubit, MutableMaskView destab,
+                            MutableMaskView stab, bool& sign) {
+    extract_rewound_into(inverse.x_output(qubit), destab, stab, sign);
+}
+
+void extract_rewound_y_into(const Tableau& inverse, uint32_t qubit, MutableMaskView destab,
+                            MutableMaskView stab, bool& sign) {
+    const PauliString pauli = inverse.y_output(qubit);
+    extract_rewound_into(pauli.view(), destab, stab, sign);
 }
 
 /// XOR a single-qubit Pauli generator's tableau row into the destination
 /// views. pauli_type: 1=X, 2=Y, 3=Z. Sign is irrelevant for noise channels.
-void accumulate_pauli_row(const stim::Tableau<kStimWidth>& tab, uint32_t qubit, int pauli_type,
-                          uint32_t n, MutableMaskView destab, MutableMaskView stab) {
-    const uint32_t words = (n + 63) / 64;
-    auto xor_row = [&](const stim::PauliString<kStimWidth>& row) {
-        for (uint32_t w = 0; w < words; ++w) {
-            destab.words[w] ^= row.xs.u64[w];
-            stab.words[w] ^= row.zs.u64[w];
+void accumulate_pauli_row(const Tableau& tableau, uint32_t qubit, int pauli_type,
+                          MutableMaskView destab, MutableMaskView stab) {
+    auto xor_row = [&](PauliStringView row) {
+        for (uint32_t w = 0; w < row.x().num_words(); ++w) {
+            destab.words[w] ^= row.x().words[w];
+            stab.words[w] ^= row.z().words[w];
         }
     };
     if (pauli_type == 1 || pauli_type == 2) {
-        xor_row(tab.xs[qubit]);
+        xor_row(tableau.x_output(qubit));
     }
     if (pauli_type == 2 || pauli_type == 3) {
-        xor_row(tab.zs[qubit]);
+        xor_row(tableau.z_output(qubit));
     }
 }
 
@@ -174,35 +144,33 @@ struct PauliTerm {
 };
 
 /// Rewind a Pauli product through the tableau into a fresh noise-channel slot.
-NoiseChannel rewind_pauli_terms(HirModule& hir, const stim::TableauSimulator<kStimWidth>& sim,
+NoiseChannel rewind_pauli_terms(HirModule& hir, const Tableau& inverse,
                                 std::initializer_list<PauliTerm> terms, double prob) {
     auto h = hir.claim_empty_noise_channel_mask();
     auto slot = hir.noise_channel_masks.mut_at(h);
     slot.x().zero_out();
     slot.z().zero_out();
-    uint32_t n = sim.inv_state.num_qubits;
     for (const auto& term : terms) {
         if (term.pauli_type != 0) {
-            accumulate_pauli_row(sim.inv_state, term.qubit, term.pauli_type, n, slot.x(), slot.z());
+            accumulate_pauli_row(inverse, term.qubit, term.pauli_type, slot.x(), slot.z());
         }
     }
     return NoiseChannel{h, prob};
 }
 
 /// Rewind a Pauli product stored as Pauli-tagged targets into a fresh noise slot.
-NoiseChannel rewind_pauli_targets(HirModule& hir, const stim::TableauSimulator<kStimWidth>& sim,
+NoiseChannel rewind_pauli_targets(HirModule& hir, const Tableau& inverse,
                                   const std::vector<Target>& targets, double prob) {
     auto h = hir.claim_empty_noise_channel_mask();
     auto slot = hir.noise_channel_masks.mut_at(h);
     slot.x().zero_out();
     slot.z().zero_out();
-    uint32_t n = sim.inv_state.num_qubits;
     for (const auto& target : targets) {
         if (!target.has_pauli()) {
             throw std::runtime_error("Expected Pauli target");
         }
         auto pauli_type = static_cast<int>(target.pauli() >> Target::kPauliShift);
-        accumulate_pauli_row(sim.inv_state, target.value(), pauli_type, n, slot.x(), slot.z());
+        accumulate_pauli_row(inverse, target.value(), pauli_type, slot.x(), slot.z());
     }
     return NoiseChannel{h, prob};
 }
@@ -228,24 +196,23 @@ double represented_depolarizing_probability(double probability, double outcome_c
     return probability / outcome_count == 0.0 ? 0.0 : probability;
 }
 
-NoiseSite make_single_qubit_noise_site(HirModule& hir,
-                                       const stim::TableauSimulator<kStimWidth>& sim, GateType gate,
+NoiseSite make_single_qubit_noise_site(HirModule& hir, const Tableau& inverse, GateType gate,
                                        uint32_t qubit, double prob) {
     NoiseSite site;
     switch (gate) {
         case GateType::X_ERROR:
-            site.channels.push_back(rewind_pauli_terms(hir, sim, {{qubit, 1}}, prob));
+            site.channels.push_back(rewind_pauli_terms(hir, inverse, {{qubit, 1}}, prob));
             break;
         case GateType::Y_ERROR:
-            site.channels.push_back(rewind_pauli_terms(hir, sim, {{qubit, 2}}, prob));
+            site.channels.push_back(rewind_pauli_terms(hir, inverse, {{qubit, 2}}, prob));
             break;
         case GateType::Z_ERROR:
-            site.channels.push_back(rewind_pauli_terms(hir, sim, {{qubit, 3}}, prob));
+            site.channels.push_back(rewind_pauli_terms(hir, inverse, {{qubit, 3}}, prob));
             break;
         case GateType::DEPOLARIZE1:
-            site.channels.push_back(rewind_pauli_terms(hir, sim, {{qubit, 1}}, prob / 3.0));
-            site.channels.push_back(rewind_pauli_terms(hir, sim, {{qubit, 2}}, prob / 3.0));
-            site.channels.push_back(rewind_pauli_terms(hir, sim, {{qubit, 3}}, prob / 3.0));
+            site.channels.push_back(rewind_pauli_terms(hir, inverse, {{qubit, 1}}, prob / 3.0));
+            site.channels.push_back(rewind_pauli_terms(hir, inverse, {{qubit, 2}}, prob / 3.0));
+            site.channels.push_back(rewind_pauli_terms(hir, inverse, {{qubit, 3}}, prob / 3.0));
             break;
         default:
             throw std::runtime_error("Not a single-qubit noise gate");
@@ -253,8 +220,8 @@ NoiseSite make_single_qubit_noise_site(HirModule& hir,
     return site;
 }
 
-NoiseSite make_depolarize2_noise_site(HirModule& hir, const stim::TableauSimulator<kStimWidth>& sim,
-                                      uint32_t q1, uint32_t q2, double prob) {
+NoiseSite make_depolarize2_noise_site(HirModule& hir, const Tableau& inverse, uint32_t q1,
+                                      uint32_t q2, double prob) {
     NoiseSite site;
     double channel_prob = prob / 15.0;
     for (int p1 = 0; p1 <= 3; ++p1) {
@@ -262,14 +229,14 @@ NoiseSite make_depolarize2_noise_site(HirModule& hir, const stim::TableauSimulat
             if (p1 == 0 && p2 == 0)
                 continue;
             site.channels.push_back(
-                rewind_pauli_terms(hir, sim, {{q1, p1}, {q2, p2}}, channel_prob));
+                rewind_pauli_terms(hir, inverse, {{q1, p1}, {q2, p2}}, channel_prob));
         }
     }
     return site;
 }
 
-NoiseSite make_depolarize3_noise_site(HirModule& hir, const stim::TableauSimulator<kStimWidth>& sim,
-                                      uint32_t q1, uint32_t q2, uint32_t q3, double prob) {
+NoiseSite make_depolarize3_noise_site(HirModule& hir, const Tableau& inverse, uint32_t q1,
+                                      uint32_t q2, uint32_t q3, double prob) {
     NoiseSite site;
     double channel_prob = prob / 63.0;
     for (int p1 = 0; p1 <= 3; ++p1) {
@@ -278,7 +245,7 @@ NoiseSite make_depolarize3_noise_site(HirModule& hir, const stim::TableauSimulat
                 if (p1 == 0 && p2 == 0 && p3 == 0)
                     continue;
                 site.channels.push_back(
-                    rewind_pauli_terms(hir, sim, {{q1, p1}, {q2, p2}, {q3, p3}}, channel_prob));
+                    rewind_pauli_terms(hir, inverse, {{q1, p1}, {q2, p2}, {q3, p3}}, channel_prob));
             }
         }
     }
@@ -287,8 +254,8 @@ NoiseSite make_depolarize3_noise_site(HirModule& hir, const stim::TableauSimulat
 
 // Absorb a native Clifford representative. Its omitted scalar phase is
 // permitted by the projective statevector contract.
-bool try_absorb_clifford_axis_rotation(stim::TableauSimulator<kStimWidth>& sim, uint32_t qubit,
-                                       double alpha, GateType sqrt_gate, GateType pauli_gate,
+bool try_absorb_clifford_axis_rotation(Tableau& inverse, uint32_t qubit, double alpha,
+                                       GateType sqrt_gate, GateType pauli_gate,
                                        GateType sqrt_dag_gate) {
     const auto rotation = classify_clifford_rotation(alpha);
     if (!rotation.has_value()) {
@@ -299,33 +266,33 @@ bool try_absorb_clifford_axis_rotation(stim::TableauSimulator<kStimWidth>& sim, 
         case CliffordRotation::IDENTITY:
             break;
         case CliffordRotation::SQRT:
-            apply_single_qubit_clifford(sim, sqrt_gate, qubit);
+            apply_single_qubit_clifford(inverse, sqrt_gate, qubit);
             break;
         case CliffordRotation::PAULI:
-            apply_single_qubit_clifford(sim, pauli_gate, qubit);
+            apply_single_qubit_clifford(inverse, pauli_gate, qubit);
             break;
         case CliffordRotation::SQRT_DAG:
-            apply_single_qubit_clifford(sim, sqrt_dag_gate, qubit);
+            apply_single_qubit_clifford(inverse, sqrt_dag_gate, qubit);
             break;
     }
     return true;
 }
 
-void apply_clifford_pair_rotation(stim::TableauSimulator<kStimWidth>& sim, uint32_t q1, uint32_t q2,
+void apply_clifford_pair_rotation(Tableau& inverse, uint32_t q1, uint32_t q2,
                                   CliffordRotation rotation, GateType sqrt_gate,
                                   GateType pauli_gate, GateType sqrt_dag_gate) {
     switch (rotation) {
         case CliffordRotation::IDENTITY:
             break;
         case CliffordRotation::SQRT:
-            apply_two_qubit_clifford(sim, sqrt_gate, q1, q2);
+            apply_two_qubit_clifford(inverse, sqrt_gate, q1, q2);
             break;
         case CliffordRotation::PAULI:
-            apply_single_qubit_clifford(sim, pauli_gate, q1);
-            apply_single_qubit_clifford(sim, pauli_gate, q2);
+            apply_single_qubit_clifford(inverse, pauli_gate, q1);
+            apply_single_qubit_clifford(inverse, pauli_gate, q2);
             break;
         case CliffordRotation::SQRT_DAG:
-            apply_two_qubit_clifford(sim, sqrt_dag_gate, q1, q2);
+            apply_two_qubit_clifford(inverse, sqrt_dag_gate, q1, q2);
             break;
     }
 }
@@ -352,36 +319,16 @@ PairRotationInfo pair_rotation_info(GateType gate) {
     }
 }
 
-void apply_sqrt_pauli_product_clifford(stim::TableauSimulator<kStimWidth>& sim,
-                                       const stim::PauliString<kStimWidth>& pauli, bool dagger) {
-    const auto pauli_ref = pauli.ref();
-    const size_t weight = pauli_ref.weight();
-    if (weight == 0) {
+void apply_sqrt_pauli_product_clifford(Tableau& inverse, PauliStringView pauli, bool dagger) {
+    if (pauli.x().is_zero() && pauli.z().is_zero()) {
         return;
     }
-
-    std::vector<stim::GateTarget> targets;
-    targets.reserve(2 * weight - 1);
-    bool first = true;
-    pauli_ref.for_each_active_pauli([&](size_t q) {
-        if (!first) {
-            targets.push_back(stim::GateTarget::combiner());
-        }
-        targets.push_back(stim::GateTarget::pauli_xz(static_cast<uint32_t>(q), pauli.xs[q],
-                                                     pauli.zs[q], first && pauli.sign));
-        first = false;
-    });
-
-    const auto gate = dagger ? stim::GateType::SPP_DAG : stim::GateType::SPP;
-    const stim::CircuitInstruction instruction(gate, {}, targets, {});
-    sim.do_gate(instruction);
+    inverse.prepend_pauli_rotation(pauli, !dagger);
 }
 
-// Absorb a Clifford-valued rotation around an arbitrary Pauli product. Stim's
-// SPP decomposition accounts for a signed axis; a full Pauli ignores that sign
-// because it changes only the omitted global phase.
-bool try_absorb_clifford_pauli_rotation(stim::TableauSimulator<kStimWidth>& sim,
-                                        const stim::PauliString<kStimWidth>& pauli, double alpha) {
+// A signed axis swaps the two square-root directions. A full Pauli ignores
+// that sign because it changes only the omitted global phase.
+bool try_absorb_clifford_pauli_rotation(Tableau& inverse, PauliStringView pauli, double alpha) {
     const auto rotation = classify_clifford_rotation(alpha);
     if (!rotation.has_value()) {
         return false;
@@ -391,13 +338,13 @@ bool try_absorb_clifford_pauli_rotation(stim::TableauSimulator<kStimWidth>& sim,
         case CliffordRotation::IDENTITY:
             break;
         case CliffordRotation::SQRT:
-            apply_sqrt_pauli_product_clifford(sim, pauli, false);
+            apply_sqrt_pauli_product_clifford(inverse, pauli, false);
             break;
         case CliffordRotation::PAULI:
-            sim.paulis(pauli);
+            inverse.prepend_pauli(pauli);
             break;
         case CliffordRotation::SQRT_DAG:
-            apply_sqrt_pauli_product_clifford(sim, pauli, true);
+            apply_sqrt_pauli_product_clifford(inverse, pauli, true);
             break;
     }
     return true;
@@ -406,54 +353,67 @@ bool try_absorb_clifford_pauli_rotation(stim::TableauSimulator<kStimWidth>& sim,
 // Trace R_Z(alpha) on a single qubit by extracting its rewound Z axis. The
 // source gate and emitted exponential may differ by a global phase, which is
 // intentionally omitted by the projective state contract.
-void trace_rz(stim::TableauSimulator<kStimWidth>& sim, HirModule& hir, uint32_t qubit,
-              double alpha) {
-    if (try_absorb_clifford_axis_rotation(sim, qubit, alpha, GateType::S, GateType::Z,
+void trace_rz(Tableau& inverse, HirModule& hir, uint32_t qubit, double alpha) {
+    if (try_absorb_clifford_axis_rotation(inverse, qubit, alpha, GateType::S, GateType::Z,
                                           GateType::S_DAG)) {
         return;
     }
 
     bool sign = false;
     hir.append_phase_rotation(alpha, [&](MutablePauliMaskView slot) {
-        extract_rewound_z_into(sim, qubit, slot.x(), slot.z(), sign);
+        extract_rewound_z_into(inverse, qubit, slot.x(), slot.z(), sign);
         slot.set_sign(sign);
     });
 }
 
 // Trace an arbitrary Pauli rotation exp(-i*alpha*pi/2 * P).
-void trace_pauli_rotation(stim::TableauSimulator<kStimWidth>& sim, HirModule& hir,
-                          const stim::PauliString<kStimWidth>& obs, double alpha) {
-    if (try_absorb_clifford_pauli_rotation(sim, obs, alpha)) {
+void trace_pauli_rotation(Tableau& inverse, HirModule& hir, PauliStringView observable,
+                          double alpha) {
+    if (try_absorb_clifford_pauli_rotation(inverse, observable, alpha)) {
         return;
     }
 
-    stim::PauliString<kStimWidth> rewound = sim.inv_state(obs);
-    uint32_t n = sim.inv_state.num_qubits;
+    const PauliString rewound = inverse.apply(observable);
     hir.append_phase_rotation(alpha, [&](MutablePauliMaskView slot) {
-        copy_rewound_into(rewound, n, slot.x(), slot.z());
-        slot.set_sign(rewound.sign);
+        copy_rewound_into(rewound.view(), slot.x(), slot.z());
+        slot.set_sign(rewound.sign());
     });
 }
 
-/// Build a stim::PauliString from an MPP/EXP_VAL/R_PAULI target list.
+/// Build a PauliString from an MPP/EXP_VAL/R_PAULI target list.
 /// Sets `inversion_parity_out` if any target carries an inversion bang.
-stim::PauliString<kStimWidth> build_pauli_string(const std::vector<Target>& targets,
-                                                 uint32_t num_qubits, bool& inversion_parity_out) {
-    stim::PauliString<kStimWidth> obs(num_qubits);
+PauliString build_pauli_string(const std::vector<Target>& targets, uint32_t num_qubits,
+                               bool& inversion_parity_out) {
+    PauliString observable(num_qubits);
     inversion_parity_out = false;
     for (const auto& target : targets) {
         uint32_t q = target.value();
         inversion_parity_out ^= target.is_inverted();
         if (target.pauli() == Target::kPauliX) {
-            obs.xs[q] = true;
+            observable.set_pauli(q, true, false);
         } else if (target.pauli() == Target::kPauliY) {
-            obs.xs[q] = true;
-            obs.zs[q] = true;
+            observable.set_pauli(q, true, true);
         } else {
-            obs.zs[q] = true;
+            observable.set_pauli(q, false, true);
         }
     }
-    return obs;
+    observable.set_sign(false);
+    return observable;
+}
+
+stim::Tableau<kStimWidth> to_stim_tableau(const Tableau& source) {
+    stim::Tableau<kStimWidth> result(source.num_qubits());
+    for (uint32_t q = 0; q < source.num_qubits(); ++q) {
+        const PauliStringView x = source.x_output(q);
+        const PauliStringView z = source.z_output(q);
+        mask_view_to_stim(x.x(), source.num_qubits(), result.xs[q].xs);
+        mask_view_to_stim(x.z(), source.num_qubits(), result.xs[q].zs);
+        mask_view_to_stim(z.x(), source.num_qubits(), result.zs[q].xs);
+        mask_view_to_stim(z.z(), source.num_qubits(), result.zs[q].zs);
+        result.xs[q].sign = x.sign();
+        result.zs[q].sign = z.sign();
+    }
+    return result;
 }
 
 /// Conservative upper bound on the number of noise channel masks the
@@ -619,7 +579,7 @@ void validate_instrument_probabilities(const InstrumentProbabilities& probabilit
 }  // namespace
 
 HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instruments) {
-    // Avoid an accidental multi-gigabyte Stim tableau allocation. This
+    // Avoid an accidental multi-gigabyte tableau allocation. This
     // conservative safety ceiling is far above practical circuit sizes.
     if (circuit.num_qubits > 65536) {
         throw std::runtime_error("Circuit exceeds the 65536-qubit frontend safety limit: " +
@@ -642,8 +602,7 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
     hir.neglect_instrument_damping =
         instruments != nullptr && instruments->neglect_instrument_damping;
 
-    std::mt19937_64 rng(0);
-    stim::TableauSimulator<kStimWidth> sim(std::move(rng), circuit.num_qubits);
+    Tableau inverse(circuit.num_qubits);
 
     MeasRecordIdx meas_idx{0};
     uint32_t hidden_meas_idx = circuit.num_measurements;
@@ -679,7 +638,7 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
             case GateType::C_ZNYX:
             case GateType::C_ZYNX: {
                 for (const auto& target : node.targets) {
-                    apply_single_qubit_clifford(sim, node.gate, target.value());
+                    apply_single_qubit_clifford(inverse, node.gate, target.value());
                 }
                 break;
             }
@@ -715,9 +674,11 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                         hir.append_conditional(controlling_meas, [&](MutablePauliMaskView slot) {
                             bool sign;
                             if (node.gate == GateType::CX) {
-                                extract_rewound_x_into(sim, target_qubit, slot.x(), slot.z(), sign);
+                                extract_rewound_x_into(inverse, target_qubit, slot.x(), slot.z(),
+                                                       sign);
                             } else if (node.gate == GateType::CZ) {
-                                extract_rewound_z_into(sim, target_qubit, slot.x(), slot.z(), sign);
+                                extract_rewound_z_into(inverse, target_qubit, slot.x(), slot.z(),
+                                                       sign);
                             } else {
                                 throw std::runtime_error("CY classical feedback not supported");
                             }
@@ -726,7 +687,7 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                     }
                 } else {
                     for (size_t i = 0; i + 1 < node.targets.size(); i += 2) {
-                        apply_two_qubit_clifford(sim, node.gate, node.targets[i].value(),
+                        apply_two_qubit_clifford(inverse, node.gate, node.targets[i].value(),
                                                  node.targets[i + 1].value());
                     }
                 }
@@ -739,7 +700,7 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                 for (const auto& target : node.targets) {
                     hir.append_tgate(dagger, [&](MutablePauliMaskView slot) {
                         bool sign;
-                        extract_rewound_z_into(sim, target.value(), slot.x(), slot.z(), sign);
+                        extract_rewound_z_into(inverse, target.value(), slot.x(), slot.z(), sign);
                         slot.set_sign(sign);
                     });
                 }
@@ -750,9 +711,9 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
             case GateType::SPP_DAG: {
                 bool inversion_parity;
                 auto obs = build_pauli_string(node.targets, circuit.num_qubits, inversion_parity);
-                obs.sign = inversion_parity;
+                obs.set_sign(inversion_parity);
                 const bool dagger = node.gate == GateType::SPP_DAG;
-                trace_pauli_rotation(sim, hir, obs, dagger ? -0.5 : 0.5);
+                trace_pauli_rotation(inverse, hir, obs.view(), dagger ? -0.5 : 0.5);
                 break;
             }
 
@@ -760,12 +721,11 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
             case GateType::TPP_DAG: {
                 bool inversion_parity;
                 auto obs = build_pauli_string(node.targets, circuit.num_qubits, inversion_parity);
-                stim::PauliString<kStimWidth> rewound = sim.inv_state(obs);
-                uint32_t n = sim.inv_state.num_qubits;
+                const PauliString rewound = inverse.apply(obs.view());
                 bool dagger = node.gate == GateType::TPP_DAG;
                 hir.append_tgate(dagger, [&](MutablePauliMaskView slot) {
-                    copy_rewound_into(rewound, n, slot.x(), slot.z());
-                    slot.set_sign(rewound.sign ^ inversion_parity);
+                    copy_rewound_into(rewound.view(), slot.x(), slot.z());
+                    slot.set_sign(rewound.sign() ^ inversion_parity);
                 });
                 break;
             }
@@ -773,7 +733,7 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
             case GateType::R_Z: {
                 double alpha = node.args[0];
                 for (const auto& target : node.targets) {
-                    trace_rz(sim, hir, target.value(), alpha);
+                    trace_rz(inverse, hir, target.value(), alpha);
                 }
                 break;
             }
@@ -781,15 +741,14 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
             case GateType::R_X: {
                 double alpha = node.args[0];
                 for (const auto& target : node.targets) {
-                    if (try_absorb_clifford_axis_rotation(sim, target.value(), alpha,
+                    if (try_absorb_clifford_axis_rotation(inverse, target.value(), alpha,
                                                           GateType::SQRT_X, GateType::X,
                                                           GateType::SQRT_X_DAG)) {
                         continue;
                     }
-                    size_t q = static_cast<size_t>(target.value());
-                    sim.inv_state.prepend_H_XZ(q);
-                    trace_rz(sim, hir, target.value(), alpha);
-                    sim.inv_state.prepend_H_XZ(q);
+                    apply_single_qubit_clifford(inverse, GateType::H, target.value());
+                    trace_rz(inverse, hir, target.value(), alpha);
+                    apply_single_qubit_clifford(inverse, GateType::H, target.value());
                 }
                 break;
             }
@@ -797,15 +756,14 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
             case GateType::R_Y: {
                 double alpha = node.args[0];
                 for (const auto& target : node.targets) {
-                    if (try_absorb_clifford_axis_rotation(sim, target.value(), alpha,
+                    if (try_absorb_clifford_axis_rotation(inverse, target.value(), alpha,
                                                           GateType::SQRT_Y, GateType::Y,
                                                           GateType::SQRT_Y_DAG)) {
                         continue;
                     }
-                    size_t q = static_cast<size_t>(target.value());
-                    sim.inv_state.prepend_H_YZ(q);
-                    trace_rz(sim, hir, target.value(), alpha);
-                    sim.inv_state.prepend_H_YZ(q);
+                    apply_single_qubit_clifford(inverse, GateType::H_YZ, target.value());
+                    trace_rz(inverse, hir, target.value(), alpha);
+                    apply_single_qubit_clifford(inverse, GateType::H_YZ, target.value());
                 }
                 break;
             }
@@ -817,18 +775,16 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                 double lambda = node.args[2];
                 for (const auto& target : node.targets) {
                     uint32_t qubit = target.value();
-                    size_t q = static_cast<size_t>(qubit);
+                    trace_rz(inverse, hir, qubit, lambda);
 
-                    trace_rz(sim, hir, qubit, lambda);
-
-                    if (!try_absorb_clifford_axis_rotation(sim, qubit, theta, GateType::SQRT_Y,
+                    if (!try_absorb_clifford_axis_rotation(inverse, qubit, theta, GateType::SQRT_Y,
                                                            GateType::Y, GateType::SQRT_Y_DAG)) {
-                        sim.inv_state.prepend_H_YZ(q);
-                        trace_rz(sim, hir, qubit, theta);
-                        sim.inv_state.prepend_H_YZ(q);
+                        apply_single_qubit_clifford(inverse, GateType::H_YZ, qubit);
+                        trace_rz(inverse, hir, qubit, theta);
+                        apply_single_qubit_clifford(inverse, GateType::H_YZ, qubit);
                     }
 
-                    trace_rz(sim, hir, qubit, phi);
+                    trace_rz(inverse, hir, qubit, phi);
                 }
                 break;
             }
@@ -848,18 +804,17 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                     }
 
                     if (clifford_rotation.has_value()) {
-                        apply_clifford_pair_rotation(sim, q1, q2, *clifford_rotation,
+                        apply_clifford_pair_rotation(inverse, q1, q2, *clifford_rotation,
                                                      info.sqrt_gate, info.pauli_gate,
                                                      info.sqrt_dag_gate);
                         continue;
                     }
 
-                    stim::PauliString<kStimWidth> obs(circuit.num_qubits);
-                    obs.xs[q1] = info.x;
-                    obs.zs[q1] = info.z;
-                    obs.xs[q2] = info.x;
-                    obs.zs[q2] = info.z;
-                    trace_pauli_rotation(sim, hir, obs, alpha);
+                    PauliString observable(circuit.num_qubits);
+                    observable.set_pauli(q1, info.x, info.z);
+                    observable.set_pauli(q2, info.x, info.z);
+                    observable.set_sign(false);
+                    trace_pauli_rotation(inverse, hir, observable.view(), alpha);
                 }
                 break;
             }
@@ -868,7 +823,7 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                 double alpha = node.args[0];
                 bool _;
                 auto obs = build_pauli_string(node.targets, circuit.num_qubits, _);
-                trace_pauli_rotation(sim, hir, obs, alpha);
+                trace_pauli_rotation(inverse, hir, obs.view(), alpha);
                 break;
             }
 
@@ -876,7 +831,7 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                 for (const auto& target : node.targets) {
                     hir.append_measure(meas_idx, [&](MutablePauliMaskView slot) {
                         bool sign;
-                        extract_rewound_z_into(sim, target.value(), slot.x(), slot.z(), sign);
+                        extract_rewound_z_into(inverse, target.value(), slot.x(), slot.z(), sign);
                         slot.set_sign(sign ^ target.is_inverted());
                     });
                     ++meas_idx;
@@ -888,7 +843,7 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                 for (const auto& target : node.targets) {
                     hir.append_measure(meas_idx, [&](MutablePauliMaskView slot) {
                         bool sign;
-                        extract_rewound_x_into(sim, target.value(), slot.x(), slot.z(), sign);
+                        extract_rewound_x_into(inverse, target.value(), slot.x(), slot.z(), sign);
                         slot.set_sign(sign ^ target.is_inverted());
                     });
                     ++meas_idx;
@@ -900,7 +855,7 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                 for (const auto& target : node.targets) {
                     hir.append_measure(meas_idx, [&](MutablePauliMaskView slot) {
                         bool sign;
-                        extract_rewound_y_into(sim, target.value(), slot.x(), slot.z(), sign);
+                        extract_rewound_y_into(inverse, target.value(), slot.x(), slot.z(), sign);
                         slot.set_sign(sign ^ target.is_inverted());
                     });
                     ++meas_idx;
@@ -911,11 +866,10 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
             case GateType::MPP: {
                 bool inversion_parity;
                 auto obs = build_pauli_string(node.targets, circuit.num_qubits, inversion_parity);
-                stim::PauliString<kStimWidth> rewound = sim.inv_state(obs);
-                uint32_t n = sim.inv_state.num_qubits;
+                const PauliString rewound = inverse.apply(obs.view());
                 hir.append_measure(meas_idx, [&](MutablePauliMaskView slot) {
-                    copy_rewound_into(rewound, n, slot.x(), slot.z());
-                    slot.set_sign(rewound.sign ^ inversion_parity);
+                    copy_rewound_into(rewound.view(), slot.x(), slot.z());
+                    slot.set_sign(rewound.sign() ^ inversion_parity);
                 });
                 ++meas_idx;
                 break;
@@ -952,13 +906,13 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                                         bool& s) {
                     switch (basis) {
                         case Basis::Z:
-                            extract_rewound_z_into(sim, q, dm, sm, s);
+                            extract_rewound_z_into(inverse, q, dm, sm, s);
                             break;
                         case Basis::X:
-                            extract_rewound_x_into(sim, q, dm, sm, s);
+                            extract_rewound_x_into(inverse, q, dm, sm, s);
                             break;
                         case Basis::Y:
-                            extract_rewound_y_into(sim, q, dm, sm, s);
+                            extract_rewound_y_into(inverse, q, dm, sm, s);
                             break;
                     }
                 };
@@ -966,9 +920,9 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                 auto extract_corr = [&](uint32_t q, MutableMaskView dm, MutableMaskView sm,
                                         bool& s) {
                     if (basis == Basis::Z)
-                        extract_rewound_x_into(sim, q, dm, sm, s);
+                        extract_rewound_x_into(inverse, q, dm, sm, s);
                     else
-                        extract_rewound_z_into(sim, q, dm, sm, s);
+                        extract_rewound_z_into(inverse, q, dm, sm, s);
                 };
 
                 for (const auto& target : node.targets) {
@@ -1072,7 +1026,7 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                     site.destination_flip_mask =
                         hir.claim_side_mask([&](MutablePauliMaskView slot) {
                             bool sign;
-                            extract_rewound_x_into(sim, qubit, slot.x(), slot.z(), sign);
+                            extract_rewound_x_into(inverse, qubit, slot.x(), slot.z(), sign);
                             slot.set_sign(sign);
                         });
 
@@ -1081,7 +1035,7 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                     hir.instrument_sites.push_back(site);
                     hir.append_instrument(site_idx, [&](MutablePauliMaskView slot) {
                         bool sign;
-                        extract_rewound_z_into(sim, qubit, slot.x(), slot.z(), sign);
+                        extract_rewound_z_into(inverse, qubit, slot.x(), slot.z(), sign);
                         slot.set_sign(sign);
                     });
                 }
@@ -1110,7 +1064,7 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                 double prob = node.args.empty() ? 0.0 : node.args[0];
                 for (const auto& target : node.targets) {
                     NoiseSite site =
-                        make_single_qubit_noise_site(hir, sim, node.gate, target.value(), prob);
+                        make_single_qubit_noise_site(hir, inverse, node.gate, target.value(), prob);
                     const double total_probability =
                         node.gate == GateType::DEPOLARIZE1
                             ? represented_depolarizing_probability(prob, 3.0)
@@ -1132,7 +1086,7 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                         double prob = node.args[static_cast<size_t>(p)];
                         if (prob > 0.0) {
                             site.channels.push_back(
-                                rewind_pauli_terms(hir, sim, {{qubit, p + 1}}, prob));
+                                rewind_pauli_terms(hir, inverse, {{qubit, p + 1}}, prob));
                         }
                     }
                     const double total_probability = sum_noise_probabilities(site);
@@ -1157,7 +1111,7 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                             double prob = node.args[arg_idx];
                             if (prob > 0.0) {
                                 site.channels.push_back(
-                                    rewind_pauli_terms(hir, sim, {{q1, p1}, {q2, p2}}, prob));
+                                    rewind_pauli_terms(hir, inverse, {{q1, p1}, {q2, p2}}, prob));
                             }
                             ++arg_idx;
                         }
@@ -1186,7 +1140,7 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                                 double prob = node.args[arg_idx];
                                 if (prob > 0.0) {
                                     site.channels.push_back(rewind_pauli_terms(
-                                        hir, sim, {{q1, p1}, {q2, p2}, {q3, p3}}, prob));
+                                        hir, inverse, {{q1, p1}, {q2, p2}, {q3, p3}}, prob));
                                 }
                                 ++arg_idx;
                             }
@@ -1212,7 +1166,7 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                     double abs_prob = link.args[0] * remaining;
                     if (abs_prob > 0.0 && !link.targets.empty()) {
                         site.channels.push_back(
-                            rewind_pauli_targets(hir, sim, link.targets, abs_prob));
+                            rewind_pauli_targets(hir, inverse, link.targets, abs_prob));
                     }
                     remaining *= 1.0 - link.args[0];
 
@@ -1238,7 +1192,7 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                 for (size_t i = 0; i + 1 < node.targets.size(); i += 2) {
                     uint32_t q1 = node.targets[i].value();
                     uint32_t q2 = node.targets[i + 1].value();
-                    NoiseSite site = make_depolarize2_noise_site(hir, sim, q1, q2, prob);
+                    NoiseSite site = make_depolarize2_noise_site(hir, inverse, q1, q2, prob);
                     append_noise_site(hir, std::move(site),
                                       represented_depolarizing_probability(prob, 15.0));
                 }
@@ -1251,7 +1205,7 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                     uint32_t q1 = node.targets[i].value();
                     uint32_t q2 = node.targets[i + 1].value();
                     uint32_t q3 = node.targets[i + 2].value();
-                    NoiseSite site = make_depolarize3_noise_site(hir, sim, q1, q2, q3, prob);
+                    NoiseSite site = make_depolarize3_noise_site(hir, inverse, q1, q2, q3, prob);
                     append_noise_site(hir, std::move(site),
                                       represented_depolarizing_probability(prob, 63.0));
                 }
@@ -1314,11 +1268,10 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
             case GateType::EXP_VAL: {
                 bool inversion_parity;
                 auto obs = build_pauli_string(node.targets, circuit.num_qubits, inversion_parity);
-                stim::PauliString<kStimWidth> rewound = sim.inv_state(obs);
-                uint32_t n = sim.inv_state.num_qubits;
+                const PauliString rewound = inverse.apply(obs.view());
                 hir.append_exp_val(exp_val_idx, [&](MutablePauliMaskView slot) {
-                    copy_rewound_into(rewound, n, slot.x(), slot.z());
-                    slot.set_sign(rewound.sign ^ inversion_parity);
+                    copy_rewound_into(rewound.view(), slot.x(), slot.z());
+                    slot.set_sign(rewound.sign() ^ inversion_parity);
                 });
                 exp_val_idx = ExpValIdx{static_cast<uint32_t>(exp_val_idx) + 1};
                 break;
@@ -1337,7 +1290,7 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
     }
 
     hir.num_hidden_measurements = hidden_meas_idx - circuit.num_measurements;
-    hir.final_tableau = sim.inv_state.inverse();
+    hir.final_tableau = to_stim_tableau(inverse.inverse());
 
     return hir;
 }
