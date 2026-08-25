@@ -50,12 +50,6 @@ Pauli pauli_from_mask(const HirModule& hir, PauliMaskHandle handle) {
     return result;
 }
 
-Pauli single_x(uint32_t num_qubits, uint32_t q) {
-    Pauli result(num_qubits);
-    result.set_pauli(q, true, false);
-    return result;
-}
-
 struct ResolvedPauli {
     Pauli body;
     AffineBool sign;
@@ -278,7 +272,7 @@ AffineBool process_measurement(const Pauli& body, const AffineBool& sign, Record
 
         const uint32_t action_index = static_cast<uint32_t>(plan.actions.size());
         define_symbol(plan, branch, SymbolKind::Branch, action_index);
-        Pauli correction = coordinates.to_initial(single_x(plan.num_qubits, *dormant_pivot));
+        Pauli correction(coordinates.current_to_initial().x_output(*dormant_pivot));
         correction.set_sign(false);
         symbolic_frame.apply(correction, AffineBool::symbol(branch));
         const AffineBool outcome = resolved.sign ^ AffineBool::symbol(branch);
@@ -314,7 +308,7 @@ AffineBool process_measurement(const Pauli& body, const AffineBool& sign, Record
 
     const uint32_t action_index = static_cast<uint32_t>(plan.actions.size());
     define_symbol(plan, branch, SymbolKind::Branch, action_index);
-    Pauli correction = coordinates.to_initial(single_x(plan.num_qubits, active_width - 1));
+    Pauli correction(coordinates.current_to_initial().x_output(active_width - 1));
     correction.set_sign(false);
     symbolic_frame.apply(correction, AffineBool::symbol(branch));
     const AffineBool outcome = resolved.sign ^ AffineBool::symbol(branch);

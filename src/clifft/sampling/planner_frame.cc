@@ -39,12 +39,28 @@ bool anticommutes(const PlannerPauli& left, const PlannerPauli& right) {
 }
 
 bool has_x_below(const PlannerPauli& pauli, uint32_t end) {
-    for (uint32_t q = 0; q < end; ++q) {
-        if (pauli.x().bit_get(q)) {
+    const uint32_t complete_words = end / 64;
+    for (uint32_t w = 0; w < complete_words; ++w) {
+        if (pauli.x().words[w] != 0) {
             return true;
         }
     }
-    return false;
+    const uint32_t tail = end % 64;
+    return tail != 0 && (pauli.x().words[complete_words] & ((uint64_t{1} << tail) - 1)) != 0;
+}
+
+template <typename Callback>
+void for_each_set_bit(MaskView mask, uint32_t end, Callback&& callback) {
+    for (uint32_t w = 0; w < mask.num_words() && 64 * w < end; ++w) {
+        uint64_t pending = mask.words[w];
+        if (64 * (w + 1) > end && end % 64 != 0) {
+            pending &= (uint64_t{1} << (end % 64)) - 1;
+        }
+        while (pending != 0) {
+            callback(64 * w + std::countr_zero(pending));
+            pending &= pending - 1;
+        }
+    }
 }
 
 size_t validated_words_per_row(uint32_t num_qubits, uint32_t num_symbols) {
@@ -125,21 +141,17 @@ void CoordinateFrame::promote_dormant(const PlannerPauli& promoted, uint32_t act
     // generator that anticommutes with the promoted Pauli acquires the old
     // pivot stabilizer, preserving the same symplectic basis as the generic
     // frame composition without materializing its identity rows.
-    for (uint32_t q = 0; q < n; ++q) {
+    for_each_set_bit(promoted.z(), n, [&](uint32_t q) {
         if (q == dormant_pivot) {
-            continue;
+            return;
         }
-        if (promoted.z().bit_get(q)) {
-            PlannerPauli row(current_to_initial_.x_output(q));
-            row.right_multiply(pivot_stabilizer.view());
-            current_to_initial_.set_x_output(q, row.view());
+        current_to_initial_.right_multiply_x_output(q, pivot_stabilizer.view());
+    });
+    for_each_set_bit(promoted.x(), n, [&](uint32_t q) {
+        if (q != dormant_pivot) {
+            current_to_initial_.right_multiply_z_output(q, pivot_stabilizer.view());
         }
-        if (promoted.x().bit_get(q)) {
-            PlannerPauli row(current_to_initial_.z_output(q));
-            row.right_multiply(pivot_stabilizer.view());
-            current_to_initial_.set_z_output(q, row.view());
-        }
-    }
+    });
 
     for (uint32_t q = dormant_pivot; q > active_width; --q) {
         current_to_initial_.set_x_output(q, current_to_initial_.x_output(q - 1));
@@ -154,25 +166,23 @@ void CoordinateFrame::measure_dormant(const PlannerPauli& measured, uint32_t dor
     assert(measured.num_qubits() == n && dormant_pivot < n);
 
     PlannerPauli mapped_measured = to_initial(measured);
-    PlannerPauli pivot_stabilizer(current_to_initial_.z_output(dormant_pivot));
+    // Avoid an allocation per measurement: updates skip the pivot Z row, which is copied into X
+    // before the final write overwrites that source row.
+    const PauliStringView pivot_stabilizer = current_to_initial_.z_output(dormant_pivot);
     invalidate_reverse_cache();
 
-    for (uint32_t q = 0; q < n; ++q) {
+    for_each_set_bit(measured.z(), n, [&](uint32_t q) {
         if (q == dormant_pivot) {
-            continue;
+            return;
         }
-        if (measured.z().bit_get(q)) {
-            PlannerPauli row(current_to_initial_.x_output(q));
-            row.right_multiply(pivot_stabilizer.view());
-            current_to_initial_.set_x_output(q, row.view());
+        current_to_initial_.right_multiply_x_output(q, pivot_stabilizer);
+    });
+    for_each_set_bit(measured.x(), n, [&](uint32_t q) {
+        if (q != dormant_pivot) {
+            current_to_initial_.right_multiply_z_output(q, pivot_stabilizer);
         }
-        if (measured.x().bit_get(q)) {
-            PlannerPauli row(current_to_initial_.z_output(q));
-            row.right_multiply(pivot_stabilizer.view());
-            current_to_initial_.set_z_output(q, row.view());
-        }
-    }
-    current_to_initial_.set_x_output(dormant_pivot, pivot_stabilizer.view());
+    });
+    current_to_initial_.set_x_output(dormant_pivot, pivot_stabilizer);
     current_to_initial_.set_z_output(dormant_pivot, mapped_measured.view());
 }
 
@@ -187,29 +197,18 @@ void CoordinateFrame::measure_active(const PlannerPauli& measured, uint32_t acti
                                           : current_to_initial_.z_output(pivot));
     invalidate_reverse_cache();
 
-    for (uint32_t q = 0; q < active_width; ++q) {
-        if (q == pivot) {
-            continue;
-        }
-        if (diagonal) {
-            if (measured.z().bit_get(q)) {
-                PlannerPauli row(current_to_initial_.x_output(q));
-                row.right_multiply(pivot_conjugate.view());
-                current_to_initial_.set_x_output(q, row.view());
+    if (!diagonal) {
+        for_each_set_bit(measured.x(), active_width, [&](uint32_t q) {
+            if (q != pivot) {
+                current_to_initial_.right_multiply_z_output(q, pivot_conjugate.view());
             }
-        } else {
-            if (measured.x().bit_get(q)) {
-                PlannerPauli row(current_to_initial_.z_output(q));
-                row.right_multiply(pivot_conjugate.view());
-                current_to_initial_.set_z_output(q, row.view());
-            }
-            if (measured.z().bit_get(q)) {
-                PlannerPauli row(current_to_initial_.x_output(q));
-                row.right_multiply(pivot_conjugate.view());
-                current_to_initial_.set_x_output(q, row.view());
-            }
-        }
+        });
     }
+    for_each_set_bit(measured.z(), active_width, [&](uint32_t q) {
+        if (q != pivot) {
+            current_to_initial_.right_multiply_x_output(q, pivot_conjugate.view());
+        }
+    });
 
     for (uint32_t q = pivot; q + 1 < active_width; ++q) {
         current_to_initial_.set_x_output(q, current_to_initial_.x_output(q + 1));

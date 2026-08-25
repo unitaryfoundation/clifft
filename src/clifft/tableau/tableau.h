@@ -31,6 +31,8 @@ class Tableau {
 
     void set_x_output(uint32_t qubit, PauliStringView value);
     void set_z_output(uint32_t qubit, PauliStringView value);
+    void right_multiply_x_output(uint32_t qubit, PauliStringView value);
+    void right_multiply_z_output(uint32_t qubit, PauliStringView value);
 
     void append_local(const Tableau& gate, std::span<const uint32_t> targets);
     void prepend_local(const Tableau& gate, std::span<const uint32_t> targets);
@@ -49,14 +51,21 @@ class Tableau {
 
   private:
     [[nodiscard]] static Tableau from_rows(std::initializer_list<std::string_view> rows);
+    [[nodiscard]] static const Tableau& named_gate_tableau(GateType gate);
     [[nodiscard]] PauliStringView row(uint32_t index) const;
     void set_row(uint32_t index, PauliStringView value);
+    void right_multiply_row_by_pauli(uint32_t destination, PauliStringView value,
+                                     uint8_t phase_delta = 0);
+    void right_multiply_row(uint32_t destination, uint32_t source, uint8_t phase_delta = 0);
 
     uint32_t num_qubits_;
     uint32_t num_words_;
     std::vector<uint64_t> x_rows_;
     std::vector<uint64_t> z_rows_;
     std::vector<uint8_t> phases_;
+    std::vector<uint64_t> prepend_scratch_x_;
+    std::vector<uint64_t> prepend_scratch_z_;
+    std::vector<uint8_t> prepend_scratch_phases_;
 };
 
 }  // namespace clifft
