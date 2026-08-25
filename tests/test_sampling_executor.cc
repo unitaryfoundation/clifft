@@ -1565,6 +1565,42 @@ TEST_CASE("Explicit batch capacities preserve seeded survivor rows") {
     }
 }
 
+TEST_CASE("Explicit batch capacities preserve aggregate survivor counts") {
+    const std::array<uint8_t, 1> postselection{1};
+    const ExecutablePlan executable(
+        clifft::sampling::plan_sampling(clifft::trace(clifft::parse(R"(
+            H 0
+            M 0
+            DETECTOR rec[-1]
+            H 1
+            M 1
+            OBSERVABLE_INCLUDE(0) rec[-1]
+            H 2
+            M 2
+            OBSERVABLE_INCLUDE(1) rec[-1]
+            EXP_VAL Z2
+        )")),
+                                        {.postselection_mask = postselection,
+                                         .expected_detectors = {},
+                                         .expected_observables = {}}));
+    const clifft::sampling::SamplingSurvivorResult scalar = clifft::sampling::sample_survivors(
+        executable, 257, uint64_t{91842}, false, 1, std::nullopt, uint32_t{1});
+
+    for (uint32_t capacity : std::array<uint32_t, 4>{2, 63, 64, 65}) {
+        const clifft::sampling::SamplingSurvivorResult packed = clifft::sampling::sample_survivors(
+            executable, 257, uint64_t{91842}, false, 1, std::nullopt, capacity);
+        CAPTURE(capacity);
+        REQUIRE(packed.total_shots == scalar.total_shots);
+        REQUIRE(packed.passed_shots == scalar.passed_shots);
+        REQUIRE(packed.logical_errors == scalar.logical_errors);
+        REQUIRE(packed.observable_ones == scalar.observable_ones);
+        REQUIRE(packed.measurements.empty());
+        REQUIRE(packed.detectors.empty());
+        REQUIRE(packed.observables.empty());
+        REQUIRE(packed.exp_vals.empty());
+    }
+}
+
 TEST_CASE("Sampling survivor execution normalizes and rejects detectors") {
     const clifft::HirModule hir = clifft::trace(clifft::parse(R"(
         H 0

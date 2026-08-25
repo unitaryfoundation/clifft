@@ -89,8 +89,10 @@ struct ConditionedBatchSamplingWorker {
 };
 
 struct BatchSurvivorWorker {
-    BatchSurvivorWorker(const ExecutablePlan& plan, uint32_t capacity)
-        : executor(plan, capacity), counts(plan.num_observables()) {}
+    BatchSurvivorWorker(const ExecutablePlan& plan, uint32_t capacity, bool keep_records)
+        : executor(plan, capacity,
+                   keep_records ? BatchOutputMode::Rows : BatchOutputMode::AggregateSurvivors),
+          counts(plan.num_observables()) {}
 
     BatchExecutor executor;
     SurvivorCounts counts;
@@ -99,8 +101,9 @@ struct BatchSurvivorWorker {
 struct ConditionedBatchSurvivorWorker {
     ConditionedBatchSurvivorWorker(const ExecutablePlan& plan,
                                    std::span<const double> probabilities, uint32_t k,
-                                   uint32_t capacity)
-        : executor(plan, capacity),
+                                   uint32_t capacity, bool keep_records)
+        : executor(plan, capacity,
+                   keep_records ? BatchOutputMode::Rows : BatchOutputMode::AggregateSurvivors),
           fault_sampler(probabilities, k),
           counts(plan.num_observables()) {}
 
@@ -391,6 +394,13 @@ SamplingSurvivorResult sample_surviving_batches(const ExecutablePlan& plan, uint
             for (uint32_t offset = range.begin; offset < range.end;) {
                 const uint32_t batch = std::min(batch_capacity, range.end - offset);
                 run_batch(worker, root, offset, batch);
+                if (!keep_records) {
+                    counts.passed_shots += executor.surviving_shots();
+                    counts.logical_errors +=
+                        executor.accumulate_survivor_counts(counts.observable_ones);
+                    offset += batch;
+                    continue;
+                }
                 for (uint32_t lane = 0; lane < executor.surviving_shots(); ++lane) {
                     ++counts.passed_shots;
                     bool logical_error = false;
@@ -401,9 +411,6 @@ SamplingSurvivorResult sample_surviving_batches(const ExecutablePlan& plan, uint
                         logical_error |= value;
                     }
                     counts.logical_errors += static_cast<uint32_t>(logical_error);
-                    if (!keep_records) {
-                        continue;
-                    }
                     const uint32_t shot = executor.shot_index(lane);
                     survived[shot] = 1;
                     for (uint32_t record = 0; record < plan.num_visible_records(); ++record) {
@@ -513,7 +520,9 @@ SamplingSurvivorResult sample_survivors(const ExecutablePlan& plan, uint32_t sho
     if (batch_capacity > 1) {
         return sample_surviving_batches(
             plan, shots, seed, keep_records, resolved, batch_capacity,
-            [&](uint32_t) { return std::make_unique<BatchSurvivorWorker>(plan, batch_capacity); },
+            [&](uint32_t) {
+                return std::make_unique<BatchSurvivorWorker>(plan, batch_capacity, keep_records);
+            },
             [](BatchSurvivorWorker& worker, const SeedRoot& root, uint32_t first_shot,
                uint32_t batch) noexcept { worker.executor.run_batch(root, first_shot, batch); });
     }
@@ -611,8 +620,8 @@ SamplingSurvivorResult sample_k_survivors(const ExecutablePlan& plan, uint32_t s
         return sample_surviving_batches(
             plan, shots, seed, keep_records, resolved, batch_capacity,
             [&](uint32_t) {
-                return std::make_unique<ConditionedBatchSurvivorWorker>(plan, probabilities, k,
-                                                                        batch_capacity);
+                return std::make_unique<ConditionedBatchSurvivorWorker>(
+                    plan, probabilities, k, batch_capacity, keep_records);
             },
             [](ConditionedBatchSurvivorWorker& worker, const SeedRoot& root, uint32_t first_shot,
                uint32_t batch) noexcept {

@@ -595,12 +595,18 @@ TEST_CASE("Explicit batch capacities preserve conditioned rows and survivors") {
     const clifft::sampling::SamplingSurvivorResult survivor_scalar =
         clifft::sampling::sample_k_survivors(survivors, 257, 1, 482, true, 1, std::nullopt,
                                              uint32_t{1});
+    const clifft::sampling::SamplingSurvivorResult aggregate_scalar =
+        clifft::sampling::sample_k_survivors(survivors, 257, 1, 482, false, 1, std::nullopt,
+                                             uint32_t{1});
 
     for (uint32_t capacity : std::array<uint32_t, 4>{2, 63, 64, 65}) {
         const clifft::sampling::SamplingResult fixed_packed =
             clifft::sampling::sample_k(fixed, 257, 1, 481, 1, std::nullopt, capacity);
         const clifft::sampling::SamplingSurvivorResult survivor_packed =
             clifft::sampling::sample_k_survivors(survivors, 257, 1, 482, true, 1, std::nullopt,
+                                                 capacity);
+        const clifft::sampling::SamplingSurvivorResult aggregate_packed =
+            clifft::sampling::sample_k_survivors(survivors, 257, 1, 482, false, 1, std::nullopt,
                                                  capacity);
         CAPTURE(capacity);
         REQUIRE(fixed_packed.measurements == fixed_scalar.measurements);
@@ -615,6 +621,14 @@ TEST_CASE("Explicit batch capacities preserve conditioned rows and survivors") {
         REQUIRE(survivor_packed.detectors == survivor_scalar.detectors);
         REQUIRE(survivor_packed.observables == survivor_scalar.observables);
         REQUIRE(survivor_packed.exp_vals == survivor_scalar.exp_vals);
+        REQUIRE(aggregate_packed.total_shots == aggregate_scalar.total_shots);
+        REQUIRE(aggregate_packed.passed_shots == aggregate_scalar.passed_shots);
+        REQUIRE(aggregate_packed.logical_errors == aggregate_scalar.logical_errors);
+        REQUIRE(aggregate_packed.observable_ones == aggregate_scalar.observable_ones);
+        REQUIRE(aggregate_packed.measurements.empty());
+        REQUIRE(aggregate_packed.detectors.empty());
+        REQUIRE(aggregate_packed.observables.empty());
+        REQUIRE(aggregate_packed.exp_vals.empty());
     }
 }
 

@@ -111,8 +111,10 @@ uint32_t resolve_batch_capacity(const ExecutablePlan& plan, uint32_t shots, uint
 #endif
 }
 
-BatchExecutor::BatchExecutor(const ExecutablePlan& plan, uint32_t lane_capacity)
+BatchExecutor::BatchExecutor(const ExecutablePlan& plan, uint32_t lane_capacity,
+                             BatchOutputMode output_mode)
     : plan_(validate_batch_plan(plan)),
+      output_mode_(output_mode),
       lane_capacity_(lane_capacity),
       word_capacity_(packed_word_count(lane_capacity)),
       state_bytes_per_lane_(State::allocation_bytes_for(plan.peak_active_width_)),
@@ -122,12 +124,17 @@ BatchExecutor::BatchExecutor(const ExecutablePlan& plan, uint32_t lane_capacity)
       shot_indices_(lane_capacity),
       symbols_(plan.num_symbols_, lane_capacity),
       expression_registers_(plan.expression_register_constants_.size(), lane_capacity),
-      records_(static_cast<size_t>(plan.num_visible_records_) + plan.num_hidden_records_,
+      records_(output_mode == BatchOutputMode::Rows
+                   ? static_cast<size_t>(plan.num_visible_records_) + plan.num_hidden_records_
+                   : 0,
                lane_capacity),
-      detectors_(plan.num_detectors_, lane_capacity),
+      detectors_(output_mode == BatchOutputMode::Rows ? plan.num_detectors_ : 0, lane_capacity),
       observables_(plan.num_observables_, lane_capacity),
       forced_readout_(plan.num_readout_noise_sites_, lane_capacity),
-      exp_vals_(checked_product(plan.num_exp_vals_, lane_capacity, "expectation"), 0.0),
+      exp_vals_(output_mode == BatchOutputMode::Rows
+                    ? checked_product(plan.num_exp_vals_, lane_capacity, "expectation")
+                    : 0,
+                0.0),
       live_words_(word_capacity_, 0),
       scratch_words_(word_capacity_, 0),
       compaction_scratch_(word_capacity_, 0) {
@@ -171,7 +178,9 @@ void BatchExecutor::run_batch(const SeedRoot& root, uint32_t first_shot, uint32_
 #endif
     }
     assert(executed && "unhandled packed sampling executor backend");
-    finalize_live_lanes();
+    if (output_mode_ == BatchOutputMode::Rows) {
+        finalize_live_lanes();
+    }
 }
 
 void BatchExecutor::run_batch(const SeedRoot& root, uint32_t first_shot, uint32_t shots,
@@ -203,7 +212,9 @@ void BatchExecutor::run_batch(const SeedRoot& root, uint32_t first_shot, uint32_
 #endif
     }
     assert(executed && "unhandled packed sampling executor backend");
-    finalize_live_lanes();
+    if (output_mode_ == BatchOutputMode::Rows) {
+        finalize_live_lanes();
+    }
 }
 
 void BatchExecutor::reset_batch(const SeedRoot& root, uint32_t first_shot,
@@ -439,7 +450,9 @@ void BatchExecutor::execute_action(const ExecutablePlan::ExecuteActiveMeasuremen
         }
     }
     assign_symbol(action.branch, scratch_words_);
-    records_.assign_xor(action.record, scratch_words_, corrections, live_words_);
+    if (output_mode_ == BatchOutputMode::Rows) {
+        records_.assign_xor(action.record, scratch_words_, corrections, live_words_);
+    }
 }
 
 void BatchExecutor::execute_action(const ExecutablePlan::ExecuteDormantMeasurement& action,
@@ -452,12 +465,16 @@ void BatchExecutor::execute_action(const ExecutablePlan::ExecuteDormantMeasureme
         }
     }
     assign_symbol(action.branch, scratch_words_);
-    records_.assign_xor(action.record, scratch_words_, corrections, live_words_);
+    if (output_mode_ == BatchOutputMode::Rows) {
+        records_.assign_xor(action.record, scratch_words_, corrections, live_words_);
+    }
 }
 
 void BatchExecutor::execute_action(const ExecutablePlan::ExecuteClassicalRecord& action,
                                    size_t) noexcept {
-    records_.assign(action.record, evaluate(action.outcome), live_words_);
+    if (output_mode_ == BatchOutputMode::Rows) {
+        records_.assign(action.record, evaluate(action.outcome), live_words_);
+    }
 }
 
 void BatchExecutor::execute_action(const ExecutablePlan::ExecuteSymbolDefinition& action,
@@ -486,13 +503,17 @@ void BatchExecutor::execute_action(const ExecutablePlan::ExecuteReadoutNoise& ac
         }
     }
     assign_symbol(action.flip, scratch_words_);
-    records_.assign_xor(action.record, sources, scratch_words_, live_words_);
+    if (output_mode_ == BatchOutputMode::Rows) {
+        records_.assign_xor(action.record, sources, scratch_words_, live_words_);
+    }
 }
 
 void BatchExecutor::execute_action(const ExecutablePlan::ExecuteDetector& action,
                                    size_t action_index) noexcept {
     const std::span<const uint64_t> outcomes = evaluate(action.outcome);
-    detectors_.assign(action.detector, outcomes, live_words_);
+    if (output_mode_ == BatchOutputMode::Rows) {
+        detectors_.assign(action.detector, outcomes, live_words_);
+    }
     if (!action.postselected) {
         return;
     }
@@ -515,6 +536,9 @@ void BatchExecutor::execute_action(const ExecutablePlan::ExecuteObservable& acti
 
 void BatchExecutor::execute_action(const ExecutablePlan::ExecuteExpectation& action,
                                    size_t) noexcept {
+    if (output_mode_ == BatchOutputMode::AggregateSurvivors) {
+        return;
+    }
     assert(action.exp_val < plan_->num_exp_vals_ &&
            "expectation action must reference preallocated storage");
     double* output = exp_vals_.data() + static_cast<size_t>(action.exp_val) * lane_capacity_;
@@ -637,7 +661,7 @@ void BatchExecutor::compact_live_lanes() noexcept {
             state_slots_[destination] = state_slots_[source];
             rngs_[destination] = rngs_[source];
             shot_indices_[destination] = shot_indices_[source];
-            for (uint32_t exp_val = 0; exp_val < plan_->num_exp_vals_; ++exp_val) {
+            for (uint32_t exp_val = 0; exp_val < exp_vals_.size() / lane_capacity_; ++exp_val) {
                 exp_vals_[static_cast<size_t>(exp_val) * lane_capacity_ + destination] =
                     exp_vals_[static_cast<size_t>(exp_val) * lane_capacity_ + source];
             }
@@ -648,6 +672,26 @@ void BatchExecutor::compact_live_lanes() noexcept {
     active_lanes_ = live_count_;
     fill_low_lane_mask(live_words_, active_lanes_);
     ++compactions_;
+}
+
+uint32_t BatchExecutor::accumulate_survivor_counts(
+    std::span<uint64_t> observable_ones) const noexcept {
+    assert(output_mode_ == BatchOutputMode::AggregateSurvivors &&
+           observable_ones.size() == plan_->num_observables_ &&
+           "aggregate survivor outputs must match the prepared observable count");
+    uint32_t logical_errors = 0;
+    const size_t words = packed_word_count(active_lanes_);
+    for (size_t word = 0; word < words; ++word) {
+        const uint64_t live = live_words_[word];
+        uint64_t any_observable = 0;
+        for (uint32_t observable = 0; observable < plan_->num_observables_; ++observable) {
+            const uint64_t ones = observables_.column(observable)[word] & live;
+            observable_ones[observable] += static_cast<uint64_t>(std::popcount(ones));
+            any_observable |= ones;
+        }
+        logical_errors += static_cast<uint32_t>(std::popcount(any_observable));
+    }
+    return logical_errors;
 }
 
 void BatchExecutor::finalize_live_lanes() noexcept {

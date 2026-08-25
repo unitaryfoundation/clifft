@@ -23,6 +23,11 @@ inline constexpr uint32_t kMaxExplicitBatchShots = 2048;
 inline constexpr size_t kDefaultBatchStateBudget = 768 * 1024;
 inline constexpr uint32_t kDefaultMinAutoBatchShots = 64;
 
+enum class BatchOutputMode : uint8_t {
+    Rows,
+    AggregateSurvivors,
+};
+
 // Resolve one worker's retained lane capacity. requested_batch_size is empty
 // for conservative automatic selection, one for the scalar path, or an
 // explicit packed capacity. Validation and allocation happen before dispatch.
@@ -36,7 +41,8 @@ inline constexpr uint32_t kDefaultMinAutoBatchShots = 64;
 // on Executor and are rejected before construction.
 class BatchExecutor {
   public:
-    BatchExecutor(const ExecutablePlan& plan, uint32_t lane_capacity);
+    BatchExecutor(const ExecutablePlan& plan, uint32_t lane_capacity,
+                  BatchOutputMode output_mode = BatchOutputMode::Rows);
 
     BatchExecutor(const BatchExecutor&) = delete;
     BatchExecutor& operator=(const BatchExecutor&) = delete;
@@ -50,6 +56,8 @@ class BatchExecutor {
     [[nodiscard]] uint32_t lane_capacity() const noexcept { return lane_capacity_; }
     [[nodiscard]] uint32_t attempted_shots() const noexcept { return attempted_shots_; }
     [[nodiscard]] uint32_t surviving_shots() const noexcept { return live_count_; }
+    [[nodiscard]] uint32_t accumulate_survivor_counts(
+        std::span<uint64_t> observable_ones) const noexcept;
     [[nodiscard]] uint32_t shot_index(uint32_t lane) const noexcept;
     [[nodiscard]] bool measurement(uint32_t lane, uint32_t record) const noexcept;
     [[nodiscard]] bool detector(uint32_t lane, uint32_t detector) const noexcept;
@@ -113,6 +121,7 @@ class BatchExecutor {
     void finalize_live_lanes() noexcept;
 
     const ExecutablePlan* plan_;
+    BatchOutputMode output_mode_ = BatchOutputMode::Rows;
     uint32_t lane_capacity_ = 0;
     size_t word_capacity_ = 0;
     size_t state_bytes_per_lane_ = 0;
