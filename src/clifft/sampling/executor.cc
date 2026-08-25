@@ -794,6 +794,13 @@ ReplayResult Executor::execute_actions_for_backend(std::span<const uint8_t> forc
             case ExecutorBackend::Scalar:
                 return execute_actions<ExecutorBackend::Scalar, Mode, IntraShotMode::OpenMP>(
                     forced_records, begin);
+            case ExecutorBackend::Neon:
+#if defined(CLIFFT_ENABLE_APPLE_NEON)
+                return execute_actions<ExecutorBackend::Neon, Mode, IntraShotMode::OpenMP>(
+                    forced_records, begin);
+#else
+                break;
+#endif
             case ExecutorBackend::Avx2:
 #if defined(CLIFFT_ENABLE_RUNTIME_DISPATCH)
                 return execute_actions<ExecutorBackend::Avx2, Mode, IntraShotMode::OpenMP>(
@@ -816,6 +823,13 @@ ReplayResult Executor::execute_actions_for_backend(std::span<const uint8_t> forc
         case ExecutorBackend::Scalar:
             return execute_actions<ExecutorBackend::Scalar, Mode, IntraShotMode::Serial>(
                 forced_records, begin);
+        case ExecutorBackend::Neon:
+#if defined(CLIFFT_ENABLE_APPLE_NEON)
+            return execute_actions<ExecutorBackend::Neon, Mode, IntraShotMode::Serial>(
+                forced_records, begin);
+#else
+            break;
+#endif
         case ExecutorBackend::Avx2:
 #if defined(CLIFFT_ENABLE_RUNTIME_DISPATCH)
             return execute_actions<ExecutorBackend::Avx2, Mode, IntraShotMode::Serial>(

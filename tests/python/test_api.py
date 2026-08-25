@@ -28,7 +28,7 @@ def test_module_version_attribute() -> None:
 
 def test_runtime_isa_reports_a_kernel_backend() -> None:
     """Test that runtime_isa() reports one of the known kernel backends."""
-    assert clifft.runtime_isa() in {"scalar", "avx2", "avx512"}
+    assert clifft.runtime_isa() in {"scalar", "neon", "avx2", "avx512"}
 
 
 def test_runtime_isa_reflects_forced_scalar_backend() -> None:

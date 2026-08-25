@@ -13,20 +13,25 @@ namespace clifft::sampling {
 PreparedFusedRotationExecution::PreparedFusedRotationExecution(PreparedFusedRotation rotation,
                                                                ExecutorBackend backend)
     : rotation_(std::move(rotation)) {
-#if defined(CLIFFT_ENABLE_RUNTIME_DISPATCH)
     switch (backend) {
         case ExecutorBackend::Scalar:
             break;
+        case ExecutorBackend::Neon:
+#if defined(CLIFFT_ENABLE_APPLE_NEON)
+            sidecar_ = prepare_fused_rotation_neon_sidecar(rotation_);
+#endif
+            break;
         case ExecutorBackend::Avx2:
+#if defined(CLIFFT_ENABLE_RUNTIME_DISPATCH)
             sidecar_ = prepare_fused_rotation_avx2_sidecar(rotation_);
+#endif
             break;
         case ExecutorBackend::Avx512:
+#if defined(CLIFFT_ENABLE_RUNTIME_DISPATCH)
             sidecar_ = prepare_fused_rotation_avx512_sidecar(rotation_);
+#endif
             break;
     }
-#else
-    (void)backend;
-#endif
     assert((sidecar_.storage == nullptr) == (sidecar_.kernel == nullptr) &&
            "fused sidecar storage and serial kernel must be set together");
     assert((sidecar_.kernel == nullptr) == (sidecar_.parallel_kernel == nullptr) &&

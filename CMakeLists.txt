@@ -220,6 +220,14 @@ else()
     set(CLIFFT_X86_RUNTIME_DISPATCH OFF)
 endif()
 
+# Apple Silicon guarantees AArch64 Advanced SIMD, so one NEON translation unit
+# can serve every supported Apple arm64 generation without a CPU feature probe.
+if(APPLE AND CMAKE_SYSTEM_PROCESSOR MATCHES "(arm64|aarch64|ARM64)")
+    set(CLIFFT_APPLE_NEON_DISPATCH ON)
+else()
+    set(CLIFFT_APPLE_NEON_DISPATCH OFF)
+endif()
+
 # Fetch production dependencies
 include(cmake/FetchFastFloat.cmake)
 

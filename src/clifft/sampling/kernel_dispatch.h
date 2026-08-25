@@ -15,6 +15,7 @@ namespace clifft::sampling {
 // tags do not encode or rediscover the process ISA.
 enum class ExecutorBackend : uint8_t {
     Scalar,
+    Neon,
     Avx2,
     Avx512,
 };
@@ -61,8 +62,8 @@ enum class NewXInstrumentKernel : uint8_t {
 [[nodiscard]] NewXInstrumentKernel resolve_new_x_instrument_kernel(
     uint32_t active_width, ExecutorBackend backend) noexcept;
 
-// Entry points implemented in translation units compiled with explicit x86
-// ISA flags. Only a matching backend-specialized executor calls them.
+// Entry points implemented in architecture-specific translation units. Only
+// a matching backend-specialized executor calls them.
 void apply_direct_rotation_avx2(State& state, const PreparedRotation& rotation,
                                 DirectRotationKernel kernel, bool sign) noexcept;
 void apply_direct_rotation_avx512(State& state, const PreparedRotation& rotation,
@@ -90,6 +91,8 @@ void collapse_active_measurement_avx512(State& state, const PreparedMeasurement&
 [[nodiscard]] FusedRotationSidecar prepare_fused_rotation_avx2_sidecar(
     const PreparedFusedRotation& rotation);
 [[nodiscard]] FusedRotationSidecar prepare_fused_rotation_avx512_sidecar(
+    const PreparedFusedRotation& rotation);
+[[nodiscard]] FusedRotationSidecar prepare_fused_rotation_neon_sidecar(
     const PreparedFusedRotation& rotation);
 
 void apply_new_x_instrument_no_fire_avx2(State& state, double factor_zero, double factor_one,

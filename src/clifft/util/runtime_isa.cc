@@ -10,7 +10,7 @@ namespace clifft::internal {
 
 namespace {
 
-#if defined(CLIFFT_ENABLE_RUNTIME_DISPATCH)
+#if defined(CLIFFT_ENABLE_RUNTIME_DISPATCH) || defined(CLIFFT_ENABLE_APPLE_NEON)
 
 bool host_supports_avx2_kernel() {
 #if (defined(__GNUC__) || defined(__clang__)) && \
@@ -35,6 +35,14 @@ bool host_supports_avx512_kernel() {
 #endif
 }
 
+bool host_supports_neon_kernel() {
+#if defined(CLIFFT_ENABLE_APPLE_NEON)
+    return true;
+#else
+    return false;
+#endif
+}
+
 std::string normalize_force_isa(const char* environment_value) {
     std::string name(environment_value);
     const auto not_space = [](unsigned char c) { return !std::isspace(c); };
@@ -48,6 +56,9 @@ std::string normalize_force_isa(const char* environment_value) {
 RuntimeIsa resolve_runtime_isa() {
     if (const char* environment_value = std::getenv("CLIFFT_FORCE_ISA")) {
         const std::string name = normalize_force_isa(environment_value);
+        if (name == "neon") {
+            return host_supports_neon_kernel() ? RuntimeIsa::Neon : RuntimeIsa::TrapNeon;
+        }
         if (name == "avx512") {
             return host_supports_avx512_kernel() ? RuntimeIsa::Avx512 : RuntimeIsa::TrapAvx512;
         }
@@ -69,6 +80,9 @@ RuntimeIsa resolve_runtime_isa() {
     }
     if (host_supports_avx2_kernel()) {
         return RuntimeIsa::Avx2;
+    }
+    if (host_supports_neon_kernel()) {
+        return RuntimeIsa::Neon;
     }
     return RuntimeIsa::Scalar;
 }
@@ -92,10 +106,14 @@ const char* runtime_isa_name(RuntimeIsa isa) noexcept {
     switch (isa) {
         case RuntimeIsa::Scalar:
             return "scalar";
+        case RuntimeIsa::Neon:
+            return "neon";
         case RuntimeIsa::Avx2:
             return "avx2";
         case RuntimeIsa::Avx512:
             return "avx512";
+        case RuntimeIsa::TrapNeon:
+            return "trap:neon";
         case RuntimeIsa::TrapAvx2:
             return "trap:avx2";
         case RuntimeIsa::TrapAvx512:
@@ -109,9 +127,15 @@ const char* runtime_isa_name(RuntimeIsa isa) noexcept {
 void validate_runtime_isa(RuntimeIsa isa) {
     switch (isa) {
         case RuntimeIsa::Scalar:
+        case RuntimeIsa::Neon:
         case RuntimeIsa::Avx2:
         case RuntimeIsa::Avx512:
             return;
+        case RuntimeIsa::TrapNeon:
+            throw std::runtime_error(
+                "CLIFFT_FORCE_ISA=neon requested but this build has no Apple arm64 NEON "
+                "backend. Unset CLIFFT_FORCE_ISA to use the auto-detected fallback, or set it "
+                "to 'scalar' explicitly.");
         case RuntimeIsa::TrapAvx2:
             throw std::runtime_error(
                 "CLIFFT_FORCE_ISA=avx2 requested but host CPU lacks one or more required "
@@ -125,8 +149,8 @@ void validate_runtime_isa(RuntimeIsa isa) {
         case RuntimeIsa::TrapUnknown:
             throw std::runtime_error(
                 "CLIFFT_FORCE_ISA is set to an unrecognized value. Accepted values are "
-                "'avx512', 'avx2', 'scalar' (case-insensitive). Unset CLIFFT_FORCE_ISA to "
-                "use the auto-detected fallback.");
+                "'neon', 'avx512', 'avx2', 'scalar' (case-insensitive). Unset "
+                "CLIFFT_FORCE_ISA to use the auto-detected fallback.");
     }
 }
 

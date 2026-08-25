@@ -12,8 +12,10 @@ using clifft::internal::validate_runtime_isa;
 
 TEST_CASE("Runtime ISA names are stable") {
     REQUIRE(std::string_view(runtime_isa_name(RuntimeIsa::Scalar)) == "scalar");
+    REQUIRE(std::string_view(runtime_isa_name(RuntimeIsa::Neon)) == "neon");
     REQUIRE(std::string_view(runtime_isa_name(RuntimeIsa::Avx2)) == "avx2");
     REQUIRE(std::string_view(runtime_isa_name(RuntimeIsa::Avx512)) == "avx512");
+    REQUIRE(std::string_view(runtime_isa_name(RuntimeIsa::TrapNeon)) == "trap:neon");
     REQUIRE(std::string_view(runtime_isa_name(RuntimeIsa::TrapAvx2)) == "trap:avx2");
     REQUIRE(std::string_view(runtime_isa_name(RuntimeIsa::TrapAvx512)) == "trap:avx512");
     REQUIRE(std::string_view(runtime_isa_name(RuntimeIsa::TrapUnknown)) == "trap:unknown");
@@ -21,11 +23,14 @@ TEST_CASE("Runtime ISA names are stable") {
 
 TEST_CASE("Runtime ISA validates executable selections") {
     REQUIRE_NOTHROW(validate_runtime_isa(RuntimeIsa::Scalar));
+    REQUIRE_NOTHROW(validate_runtime_isa(RuntimeIsa::Neon));
     REQUIRE_NOTHROW(validate_runtime_isa(RuntimeIsa::Avx2));
     REQUIRE_NOTHROW(validate_runtime_isa(RuntimeIsa::Avx512));
 }
 
 TEST_CASE("Runtime ISA reports forced selection errors") {
+    REQUIRE_THROWS_WITH(validate_runtime_isa(RuntimeIsa::TrapNeon),
+                        ContainsSubstring("CLIFFT_FORCE_ISA=neon requested"));
     REQUIRE_THROWS_WITH(validate_runtime_isa(RuntimeIsa::TrapAvx2),
                         ContainsSubstring("CLIFFT_FORCE_ISA=avx2 requested"));
     REQUIRE_THROWS_WITH(validate_runtime_isa(RuntimeIsa::TrapAvx512),

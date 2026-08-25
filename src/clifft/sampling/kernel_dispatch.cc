@@ -65,10 +65,13 @@ ExecutorBackend resolve_executor_backend(internal::RuntimeIsa runtime_isa) {
     switch (runtime_isa) {
         case internal::RuntimeIsa::Scalar:
             return ExecutorBackend::Scalar;
+        case internal::RuntimeIsa::Neon:
+            return ExecutorBackend::Neon;
         case internal::RuntimeIsa::Avx2:
             return ExecutorBackend::Avx2;
         case internal::RuntimeIsa::Avx512:
             return ExecutorBackend::Avx512;
+        case internal::RuntimeIsa::TrapNeon:
         case internal::RuntimeIsa::TrapAvx2:
         case internal::RuntimeIsa::TrapAvx512:
         case internal::RuntimeIsa::TrapUnknown:
@@ -81,6 +84,7 @@ DirectRotationKernel resolve_direct_rotation_kernel(const PreparedRotation& rota
                                                     ExecutorBackend backend) noexcept {
     switch (backend) {
         case ExecutorBackend::Scalar:
+        case ExecutorBackend::Neon:
             return DirectRotationKernel::Scalar;
         case ExecutorBackend::Avx2:
             // Stride-16 pairing was neutral or faster than scalar across the
@@ -100,6 +104,7 @@ ActiveMeasurementKernel resolve_active_measurement_kernel(const PreparedMeasurem
                                                           ExecutorBackend backend) noexcept {
     switch (backend) {
         case ExecutorBackend::Scalar:
+        case ExecutorBackend::Neon:
             return ActiveMeasurementKernel::Scalar;
         case ExecutorBackend::Avx2:
             // The probability-plus-collapse pair wins from one AVX2 block onward.
@@ -117,7 +122,8 @@ NewXInstrumentKernel resolve_new_x_instrument_kernel(uint32_t active_width,
                                                      ExecutorBackend backend) noexcept {
     // The AVX-512 backend can use the AVX2 implementation because its required
     // AVX2, BMI2, and FMA features are a subset of that backend's requirements.
-    if (backend != ExecutorBackend::Scalar && active_width >= kMinProfitableAvx2InstrumentWidth) {
+    if ((backend == ExecutorBackend::Avx2 || backend == ExecutorBackend::Avx512) &&
+        active_width >= kMinProfitableAvx2InstrumentWidth) {
         return NewXInstrumentKernel::Vectorized;
     }
     return NewXInstrumentKernel::Scalar;

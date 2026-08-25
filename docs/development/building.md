@@ -81,12 +81,17 @@ units use explicit ISA flags, while the rest of the library retains the
 configured CPU baseline. Executable preparation detects the host once and
 uses one backend consistently for the resulting program.
 
+Apple arm64 builds additionally select a NEON backend. Apple Silicon guarantees
+the 128-bit Advanced SIMD baseline, so this backend needs no generation-specific
+feature probe. It currently specializes eligible rank-two fused rotations and
+uses the portable scalar kernels for other operation shapes.
+
 The AVX2 backend requires AVX2, BMI2, and FMA. The AVX-512 backend additionally
 requires AVX-512F and AVX-512DQ. If those features are unavailable, or runtime
 dispatch is not compiled for the platform, Clifft uses its portable scalar
 implementation.
 
-`CLIFFT_FORCE_ISA=scalar`, `avx2`, or `avx512` can force an available backend
+`CLIFFT_FORCE_ISA=scalar`, `neon`, `avx2`, or `avx512` can force an available backend
 in a runtime-dispatch build. This is a diagnostic and testing control, not a
 portable deployment setting; requesting features that the host lacks is an
 error. `clifft.runtime_isa()` reports which backend the process resolved,

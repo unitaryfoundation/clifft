@@ -64,6 +64,10 @@ if(CLIFFT_X86_RUNTIME_DISPATCH)
     target_compile_definitions(clifft_tests PRIVATE CLIFFT_TESTS_HAVE_X86_KERNELS)
 endif()
 
+if(CLIFFT_APPLE_NEON_DISPATCH)
+    target_compile_definitions(clifft_tests PRIVATE CLIFFT_TESTS_HAVE_APPLE_NEON)
+endif()
+
 if(CLIFFT_OPENMP_ENABLED)
     target_link_libraries(clifft_tests PRIVATE OpenMP::OpenMP_CXX)
     target_compile_definitions(clifft_tests PRIVATE

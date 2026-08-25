@@ -12,9 +12,10 @@ import stim
 
 import clifft
 
-_RUNTIME_DISPATCH_BUILD = platform.machine().lower() in {"amd64", "x86_64"} and not (
-    platform.python_compiler().startswith("MSC")
-)
+_MACHINE = platform.machine().lower()
+_RUNTIME_DISPATCH_BUILD = (
+    _MACHINE in {"amd64", "x86_64"} and not platform.python_compiler().startswith("MSC")
+) or (sys.platform == "darwin" and _MACHINE in {"aarch64", "arm64"})
 
 
 def test_experimental_namespace_reports_optional_hip_build() -> None:
