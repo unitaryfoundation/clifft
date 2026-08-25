@@ -1,7 +1,7 @@
 #pragma once
 
 #include "clifft/sampling/hip/executable_plan.h"
-#include "clifft/sampling/sampler.h"
+#include "clifft/sampling/results.h"
 
 #include <cstddef>
 #include <cstdint>
