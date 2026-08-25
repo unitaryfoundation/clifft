@@ -4,6 +4,7 @@
 // A shot's stream depends only on the root, its global shot index, and a
 // domain label, so scheduling and worker count cannot change seeded results.
 
+#include "clifft/util/shot_seed_domains.h"
 #include "clifft/util/xoshiro.h"
 
 #include <array>
@@ -11,14 +12,6 @@
 #include <optional>
 
 namespace clifft {
-
-// Ordinary and fixed-fault sampling use one executor stream per shot.
-inline constexpr uint64_t kSamplingExecutorDomain = 0x01;
-
-// Driver-side trajectory draws (initial levels, trap destinations, classical
-// consults, and herald flags) must not shift in-executor Born randomness.
-inline constexpr uint64_t kTrajectoryDriverDomain = 0x11;
-inline constexpr uint64_t kTrajectoryExecutorDomain = 0x12;
 
 struct SeedRoot {
     uint64_t w[4];

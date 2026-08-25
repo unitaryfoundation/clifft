@@ -36,7 +36,10 @@ add_executable(clifft_tests
     test_noncomp_continuation.cc
     test_trajectory_driver.cc
     test_noncomp_validation.cc
+    test_hip_executable_plan.cc
 )
+
+target_link_libraries(clifft_tests PRIVATE clifft_hip_plan)
 
 target_link_libraries(clifft_tests PRIVATE
     clifft_core
@@ -69,8 +72,19 @@ if(CLIFFT_COVERAGE)
     target_link_options(clifft_tests PRIVATE --coverage)
 endif()
 
-# Auto-discover Catch2 tests for CTest integration
 catch_discover_tests(clifft_tests)
+
+if(CLIFFT_ENABLE_HIP)
+    # Keep hardware-dependent skips scoped to the HIP executable so exit code
+    # 4 cannot hide a failure in the ordinary CPU suite.
+    add_executable(clifft_hip_tests test_hip_sampler.cc)
+    target_link_libraries(clifft_hip_tests PRIVATE
+        clifft_core
+        clifft_hip_backend
+        Catch2::Catch2WithMain
+    )
+    catch_discover_tests(clifft_hip_tests PROPERTIES SKIP_RETURN_CODE 4)
+endif()
 
 if(CLIFFT_OPENMP_ENABLED)
     # These cases need an explicit environment because processor binding and a

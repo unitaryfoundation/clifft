@@ -83,6 +83,35 @@ endif()
 
 target_compile_features(clifft_core PUBLIC cxx_std_20)
 
+add_library(clifft_hip_plan STATIC
+    sampling/hip/executable_plan.cc
+)
+set_target_properties(clifft_hip_plan PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_include_directories(clifft_hip_plan PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+    ${CMAKE_BINARY_DIR}/generated
+)
+target_link_libraries(clifft_hip_plan PUBLIC clifft_core)
+target_compile_features(clifft_hip_plan PUBLIC cxx_std_20)
+
+if(CLIFFT_ENABLE_HIP)
+    add_library(clifft_hip_backend STATIC sampling/hip/sampler.hip)
+    set_target_properties(clifft_hip_backend PROPERTIES
+        POSITION_INDEPENDENT_CODE ON
+        HIP_STANDARD 20
+        HIP_STANDARD_REQUIRED ON
+    )
+    target_include_directories(clifft_hip_backend PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/..
+        ${CMAKE_BINARY_DIR}/generated
+    )
+    target_link_libraries(clifft_hip_backend PUBLIC clifft_hip_plan)
+    target_compile_features(clifft_hip_backend PUBLIC cxx_std_20)
+    target_compile_options(clifft_hip_backend PRIVATE
+        $<$<COMPILE_LANGUAGE:HIP>:-fno-fast-math;-ffp-contract=off>
+    )
+endif()
+
 # Code coverage instrumentation (only for Clifft code, not dependencies)
 if(CLIFFT_COVERAGE)
     target_compile_options(clifft_core PRIVATE --coverage -fprofile-arcs -ftest-coverage)

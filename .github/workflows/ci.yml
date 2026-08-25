@@ -90,6 +90,32 @@ jobs:
       - name: ESLint
         run: cd playground && npm run lint
 
+  hip-offline-build:
+    timeout-minutes: 30
+    runs-on: ubuntu-24.04
+    container: rocm/dev-ubuntu-24.04:7.2.4
+    steps:
+      - name: Install build tools
+        run: apt-get update && apt-get install -y cmake git ninja-build
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure gfx942 HIP build
+        run: |
+          cmake -S . -B build-hip -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCLIFFT_ENABLE_HIP=ON \
+            -DCMAKE_HIP_ARCHITECTURES=gfx942 \
+            -DCMAKE_HIP_COMPILER=/opt/rocm/llvm/bin/clang++ \
+            -DCMAKE_HIP_COMPILER_ROCM_ROOT=/opt/rocm
+
+      - name: Compile HIP backend and conformance tests
+        run: cmake --build build-hip --target clifft_hip_tests --parallel 2
+
+      - name: Run GPU-free HIP conformance tests
+        run: ctest --test-dir build-hip --output-on-failure -R HIP
+
   build-and-test:
     timeout-minutes: 45
     runs-on: ubuntu-24.04
@@ -533,6 +559,7 @@ jobs:
       - wasm
       - lint
       - playground-lint
+      - hip-offline-build
       - build-and-test
       - release-cpp-smoke
       - package-smoke

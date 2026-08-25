@@ -1,5 +1,6 @@
 # C++ / CMake build artifacts
 /build/
+/build-hip/
 /build-wasm/
 build-coverage/
 build-profile/
