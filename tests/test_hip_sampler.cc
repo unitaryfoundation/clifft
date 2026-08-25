@@ -2,7 +2,7 @@
 #include "clifft/frontend/frontend.h"
 #include "clifft/sampling/executable_plan.h"
 #include "clifft/sampling/executor.h"
-#include "clifft/sampling/hip/executable.h"
+#include "clifft/sampling/hip/executable_plan.h"
 #include "clifft/sampling/hip/sampler.h"
 #include "clifft/sampling/planner.h"
 #include "clifft/sampling/sampler.h"
@@ -17,13 +17,13 @@
 #include <string_view>
 #include <vector>
 
-using clifft::sampling::ExecutablePlan;
 using clifft::sampling::SamplingPlan;
 using clifft::sampling::SamplingResult;
 using clifft::sampling::SamplingSurvivorResult;
 using clifft::sampling::hip::CoefficientPrecision;
-using clifft::sampling::hip::Executable;
 using clifft::sampling::hip::SamplingOptions;
+using CpuExecutablePlan = clifft::sampling::ExecutablePlan;
+using HipExecutablePlan = clifft::sampling::hip::ExecutablePlan;
 
 namespace {
 
@@ -51,7 +51,7 @@ double standard_error(double probability, double samples) {
 }  // namespace
 
 TEST_CASE("HIP sampler zero shots does not require a device") {
-    const Executable executable(SamplingPlan{});
+    const HipExecutablePlan executable(SamplingPlan{});
 
     REQUIRE(SamplingOptions{}.coefficient_precision == CoefficientPrecision::FP64);
     const SamplingResult rows = clifft::sampling::hip::sample(executable, 0);
@@ -74,19 +74,19 @@ TEST_CASE("HIP sampler zero shots does not require a device") {
 }
 
 TEST_CASE("HIP replay validates unsupported inputs before device access") {
-    const Executable empty(SamplingPlan{});
+    const HipExecutablePlan empty(SamplingPlan{});
     REQUIRE_THROWS_AS(clifft::sampling::hip::replay_shot(empty, std::array<uint8_t, 1>{0}),
                       std::invalid_argument);
 
-    const Executable noisy(plan_from("X_ERROR(0.1) 0\nM 0\n"));
+    const HipExecutablePlan noisy(plan_from("X_ERROR(0.1) 0\nM 0\n"));
     REQUIRE_THROWS_AS(clifft::sampling::hip::replay_shot(noisy, std::array<uint8_t, 1>{0}),
                       std::invalid_argument);
 }
 
 TEST_CASE("HIP replay matches CPU readout noise unreachability") {
     const SamplingPlan plan = plan_from("M 0\nREADOUT_NOISE(0.1) rec[-1]\n");
-    const Executable hip_executable(plan);
-    const ExecutablePlan cpu_executable(plan);
+    const HipExecutablePlan hip_executable(plan);
+    const CpuExecutablePlan cpu_executable(plan);
     require_hip_device();
 
     for (const CoefficientPrecision precision :
@@ -118,8 +118,8 @@ TEST_CASE("HIP replay omits incomplete outputs from discarded paths") {
     clifft::sampling::SamplingPlanOptions plan_options;
     plan_options.postselection_mask = postselection;
     const SamplingPlan plan = clifft::sampling::plan_sampling(hir, plan_options);
-    const Executable hip_executable(plan);
-    const ExecutablePlan cpu_executable(plan);
+    const HipExecutablePlan hip_executable(plan);
+    const CpuExecutablePlan cpu_executable(plan);
     require_hip_device();
 
     for (const CoefficientPrecision precision :
@@ -143,7 +143,7 @@ TEST_CASE("HIP replay omits incomplete outputs from discarded paths") {
 
 TEST_CASE("HIP sampler is repeatable within each coefficient precision") {
     require_hip_device();
-    const Executable executable(plan_from(R"(
+    const HipExecutablePlan executable(plan_from(R"(
         H 0
         T 0
         H 0
@@ -176,8 +176,8 @@ TEST_CASE("HIP sampler computes expectation values with FP64 accumulation") {
         EXP_VAL X0*Y1
         EXP_VAL Z0*Z1
     )");
-    const Executable executable(plan);
-    const ExecutablePlan cpu_executable(plan);
+    const HipExecutablePlan executable(plan);
+    const CpuExecutablePlan cpu_executable(plan);
     require_hip_device();
     const SamplingResult expected = clifft::sampling::sample(cpu_executable, 4, uint64_t{17});
 
@@ -209,8 +209,8 @@ TEST_CASE("HIP replay matches every CPU measurement branch") {
         DETECTOR rec[-1] rec[-2]
         OBSERVABLE_INCLUDE(0) rec[-1]
     )");
-    const Executable hip_executable(plan);
-    const ExecutablePlan cpu_executable(plan);
+    const HipExecutablePlan hip_executable(plan);
+    const CpuExecutablePlan cpu_executable(plan);
     REQUIRE(hip_executable.num_visible_records() == 2);
     require_hip_device();
 
@@ -247,7 +247,7 @@ TEST_CASE("HIP replay matches every CPU measurement branch") {
 }
 
 TEST_CASE("HIP sampler applies both asymmetric readout endpoints exactly") {
-    const Executable executable(plan_from(R"(
+    const HipExecutablePlan executable(plan_from(R"(
         M 0
         READOUT_NOISE(1, 0) rec[-1]
         X 1
@@ -278,8 +278,8 @@ TEST_CASE("HIP sampler matches the full categorical Pauli channel distribution")
         H 0
         M 0 1
     )");
-    const Executable hip_executable(plan);
-    const ExecutablePlan cpu_executable(plan);
+    const HipExecutablePlan hip_executable(plan);
+    const CpuExecutablePlan cpu_executable(plan);
     REQUIRE(cpu_executable.num_presampled_symbols() == 3);
 
     std::array<double, 4> expected{};
@@ -331,7 +331,7 @@ TEST_CASE("HIP survivor compaction retains complete rows") {
     clifft::sampling::SamplingPlanOptions plan_options;
     plan_options.postselection_mask = postselection;
     const SamplingPlan plan = clifft::sampling::plan_sampling(hir, plan_options);
-    const Executable executable(plan);
+    const HipExecutablePlan executable(plan);
     require_hip_device();
 
     constexpr uint32_t kShots = 8192;
@@ -374,8 +374,8 @@ TEST_CASE("HIP sampler matches CPU survivor statistics with noise") {
     clifft::sampling::SamplingPlanOptions plan_options;
     plan_options.postselection_mask = postselection;
     const SamplingPlan plan = clifft::sampling::plan_sampling(hir, plan_options);
-    const Executable hip_executable(plan);
-    const ExecutablePlan cpu_executable(plan);
+    const HipExecutablePlan hip_executable(plan);
+    const CpuExecutablePlan cpu_executable(plan);
     constexpr uint32_t kShots = 40000;
 
     const SamplingSurvivorResult gpu = clifft::sampling::hip::sample_survivors(

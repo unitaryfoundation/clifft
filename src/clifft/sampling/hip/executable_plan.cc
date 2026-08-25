@@ -1,4 +1,4 @@
-#include "clifft/sampling/hip/executable.h"
+#include "clifft/sampling/hip/executable_plan.h"
 
 #include "clifft/sampling/kernels.h"
 
@@ -30,7 +30,7 @@ void flatten_pauli(detail::Action& action, const PreparedPauli& pauli) {
 
 }  // namespace
 
-Executable::Executable(const SamplingPlan& plan)
+ExecutablePlan::ExecutablePlan(const SamplingPlan& plan)
     : initial_active_width_(plan.initial_active_width),
       peak_active_width_(plan.peak_active_width),
       num_symbols_(static_cast<uint32_t>(plan.symbols.size())),
@@ -82,7 +82,7 @@ Executable::Executable(const SamplingPlan& plan)
     }
 }
 
-uint32_t Executable::append_expression(const AffineBool& expression) {
+uint32_t ExecutablePlan::append_expression(const AffineBool& expression) {
     require_uint32_size(expressions_.size(), "expression storage");
     require_uint32_size(expression_terms_.size(), "expression term storage");
     if (expression.terms().size() >
@@ -101,7 +101,7 @@ uint32_t Executable::append_expression(const AffineBool& expression) {
     return expression_index;
 }
 
-detail::Action Executable::lower_action(const PlannedAction& planned) {
+detail::Action ExecutablePlan::lower_action(const PlannedAction& planned) {
     return std::visit(
         [&](const auto& typed) -> detail::Action {
             using T = std::decay_t<decltype(typed)>;

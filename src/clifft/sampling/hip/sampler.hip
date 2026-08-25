@@ -512,7 +512,7 @@ template __global__ void interpret_shots<double, true>(
 
 #if !defined(__HIP_DEVICE_COMPILE__)
 
-#include "clifft/sampling/hip/executable.h"
+#include "clifft/sampling/hip/executable_plan.h"
 #include "clifft/sampling/hip/sampler.h"
 #include "clifft/util/shot_seed.h"
 
@@ -606,7 +606,7 @@ class DeviceBuffer {
 };
 
 struct UploadedProgram {
-    explicit UploadedProgram(const Executable& executable)
+    explicit UploadedProgram(const ExecutablePlan& executable)
         : actions(executable.actions()),
           expressions(executable.expressions()),
           expression_terms(executable.expression_terms()),
@@ -648,7 +648,7 @@ struct Rows {
 };
 
 template <typename Coefficient, bool Replay>
-Rows run_device(const Executable& executable, uint32_t shots, const SamplingOptions& options,
+Rows run_device(const ExecutablePlan& executable, uint32_t shots, const SamplingOptions& options,
                 std::span<const uint8_t> forced_record_input = {}) {
     UploadedProgram program(executable);
     const uint64_t capacity = uint64_t{1} << executable.peak_active_width();
@@ -705,14 +705,14 @@ Rows run_device(const Executable& executable, uint32_t shots, const SamplingOpti
     return rows;
 }
 
-Rows execute(const Executable& executable, uint32_t shots, const SamplingOptions& options) {
+Rows execute(const ExecutablePlan& executable, uint32_t shots, const SamplingOptions& options) {
     if (options.coefficient_precision == CoefficientPrecision::FP32) {
         return run_device<float, false>(executable, shots, options);
     }
     return run_device<double, false>(executable, shots, options);
 }
 
-Rows execute_replay(const Executable& executable, std::span<const uint8_t> forced_records,
+Rows execute_replay(const ExecutablePlan& executable, std::span<const uint8_t> forced_records,
                     CoefficientPrecision coefficient_precision) {
     const SamplingOptions options{.coefficient_precision = coefficient_precision, .block_size = 1};
     if (coefficient_precision == CoefficientPrecision::FP32) {
@@ -768,7 +768,7 @@ std::string backend_info() {
     return output.str();
 }
 
-SamplingResult sample(const Executable& executable, uint32_t shots,
+SamplingResult sample(const ExecutablePlan& executable, uint32_t shots,
                       const SamplingOptions& options) {
     validate_options(options);
     if (executable.has_postselection()) {
@@ -794,7 +794,7 @@ SamplingResult sample(const Executable& executable, uint32_t shots,
     return result;
 }
 
-SamplingSurvivorResult sample_survivors(const Executable& executable, uint32_t shots,
+SamplingSurvivorResult sample_survivors(const ExecutablePlan& executable, uint32_t shots,
                                         bool keep_records, const SamplingOptions& options) {
     validate_options(options);
     SamplingSurvivorResult result;
@@ -843,7 +843,7 @@ SamplingSurvivorResult sample_survivors(const Executable& executable, uint32_t s
     return result;
 }
 
-ReplayResult replay_shot(const Executable& executable, std::span<const uint8_t> forced_records,
+ReplayResult replay_shot(const ExecutablePlan& executable, std::span<const uint8_t> forced_records,
                          CoefficientPrecision coefficient_precision) {
     if (forced_records.size() != executable.num_records()) {
         throw std::invalid_argument(

@@ -36,7 +36,7 @@ add_executable(clifft_tests
     test_noncomp_continuation.cc
     test_trajectory_driver.cc
     test_noncomp_validation.cc
-    test_hip_executable.cc
+    test_hip_executable_plan.cc
 )
 
 target_link_libraries(clifft_tests PRIVATE clifft_hip_plan)

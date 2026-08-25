@@ -1,6 +1,6 @@
 #include "clifft/circuit/parser.h"
 #include "clifft/frontend/frontend.h"
-#include "clifft/sampling/hip/executable.h"
+#include "clifft/sampling/hip/executable_plan.h"
 #include "clifft/sampling/kernels.h"
 #include "clifft/sampling/planner.h"
 
@@ -17,7 +17,7 @@ using clifft::sampling::SamplingPlan;
 using clifft::sampling::SymbolId;
 using clifft::sampling::SymbolInfo;
 using clifft::sampling::SymbolKind;
-using clifft::sampling::hip::Executable;
+using clifft::sampling::hip::ExecutablePlan;
 using clifft::sampling::hip::detail::ActionTag;
 
 namespace {
@@ -38,7 +38,7 @@ TEST_CASE("HIP executable lowers existing sampling action names") {
         EXP_VAL Z0
     )");
 
-    const Executable executable(plan);
+    const ExecutablePlan executable(plan);
 
     REQUIRE(executable.actions().size() == plan.actions.size());
     REQUIRE(executable.actions()[0].tag == ActionTag::PromoteDormantRotation);
@@ -61,7 +61,7 @@ TEST_CASE("HIP executable packs affine terms and categorical noise") {
         0.25,
         {PresampledNoiseOutcome{SymbolId{0}, 0.125}, PresampledNoiseOutcome{SymbolId{1}, 0.125}}}};
 
-    const Executable executable(plan);
+    const ExecutablePlan executable(plan);
 
     REQUIRE(executable.noise_sites().size() == 1);
     REQUIRE(executable.noise_outcomes().size() == 2);
@@ -76,7 +76,7 @@ TEST_CASE("HIP executable flattens shared Pauli preparation") {
         R_PAULI(0.31) X0*Y1
         MPP X0*Z1
     )");
-    const Executable executable(plan);
+    const ExecutablePlan executable(plan);
 
     bool saw_promotion = false;
     bool saw_rotation = false;
@@ -127,13 +127,13 @@ TEST_CASE("HIP executable rejects work outside the first device tier") {
     wide.num_qubits = 5;
     wide.initial_active_width = 5;
     wide.peak_active_width = 5;
-    REQUIRE_THROWS_WITH(Executable(wide), ContainsSubstring("peak active width"));
+    REQUIRE_THROWS_WITH(ExecutablePlan(wide), ContainsSubstring("peak active width"));
 
     SamplingPlan unbound;
     unbound.symbols = {
         SymbolInfo{SymbolKind::Presampled, std::nullopt, std::nullopt},
     };
-    REQUIRE_THROWS_WITH(Executable(unbound), ContainsSubstring("presampled symbol"));
+    REQUIRE_THROWS_WITH(ExecutablePlan(unbound), ContainsSubstring("presampled symbol"));
 }
 
 TEST_CASE("HIP executable identifies cultivation cooperative width") {
@@ -143,5 +143,5 @@ TEST_CASE("HIP executable identifies cultivation cooperative width") {
         clifft::trace(clifft::parse_file(CLIFFT_FIXTURES_DIR "/cultivation_d5.stim")));
 
     REQUIRE(plan.peak_active_width == 10);
-    REQUIRE_THROWS_WITH(Executable(plan), ContainsSubstring("peak active width"));
+    REQUIRE_THROWS_WITH(ExecutablePlan(plan), ContainsSubstring("peak active width"));
 }

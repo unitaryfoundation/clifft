@@ -14,9 +14,9 @@ namespace clifft::sampling::hip {
 // shared memory.
 inline constexpr uint32_t kThreadPerShotMaxActiveWidth = 4;
 
-class Executable {
+class ExecutablePlan {
   public:
-    explicit Executable(const SamplingPlan& plan);
+    explicit ExecutablePlan(const SamplingPlan& plan);
 
     [[nodiscard]] uint32_t initial_active_width() const { return initial_active_width_; }
     [[nodiscard]] uint32_t peak_active_width() const { return peak_active_width_; }

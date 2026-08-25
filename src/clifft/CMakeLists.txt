@@ -84,7 +84,7 @@ endif()
 target_compile_features(clifft_core PUBLIC cxx_std_20)
 
 add_library(clifft_hip_plan STATIC
-    sampling/hip/executable.cc
+    sampling/hip/executable_plan.cc
 )
 set_target_properties(clifft_hip_plan PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_include_directories(clifft_hip_plan PUBLIC

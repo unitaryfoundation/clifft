@@ -1,6 +1,6 @@
 #pragma once
 
-#include "clifft/sampling/hip/executable.h"
+#include "clifft/sampling/hip/executable_plan.h"
 #include "clifft/sampling/sampler.h"
 
 #include <cstdint>
@@ -31,13 +31,13 @@ struct ReplayResult {
 [[nodiscard]] bool is_available() noexcept;
 [[nodiscard]] std::string backend_info();
 
-[[nodiscard]] SamplingResult sample(const Executable& executable, uint32_t shots,
+[[nodiscard]] SamplingResult sample(const ExecutablePlan& executable, uint32_t shots,
                                     const SamplingOptions& options = {});
-[[nodiscard]] SamplingSurvivorResult sample_survivors(const Executable& executable, uint32_t shots,
-                                                      bool keep_records = false,
+[[nodiscard]] SamplingSurvivorResult sample_survivors(const ExecutablePlan& executable,
+                                                      uint32_t shots, bool keep_records = false,
                                                       const SamplingOptions& options = {});
 [[nodiscard]] ReplayResult replay_shot(
-    const Executable& executable, std::span<const uint8_t> forced_records,
+    const ExecutablePlan& executable, std::span<const uint8_t> forced_records,
     CoefficientPrecision coefficient_precision = CoefficientPrecision::FP64);
 
 }  // namespace clifft::sampling::hip
