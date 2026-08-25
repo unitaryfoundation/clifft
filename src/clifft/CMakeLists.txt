@@ -3,6 +3,8 @@
 
 add_library(clifft_core STATIC
     circuit/parser.cc
+    tableau/pauli_string.cc
+    tableau/tableau.cc
     frontend/frontend.cc
     optimizer/hir_pass_manager.cc
     optimizer/drop_non_unitary_pass.cc
