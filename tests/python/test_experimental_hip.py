@@ -49,14 +49,17 @@ def test_hip_python_forced_replay_probes_each_branch(
     tolerance: float,
 ) -> None:
     require_hip_device()
-    circuit = "H 0\nT 0\nM 0\nEXP_VAL Z0\nOBSERVABLE_INCLUDE(0) rec[-1]"
+    circuit = "H 0\nR 0\nH 0\nT 0\nM 0\nEXP_VAL Z0\nOBSERVABLE_INCLUDE(0) rec[-1]"
     cpu_program = clifft.compile(circuit)
-    sampler = hip.Sampler(hip.compile(circuit), precision=precision, max_batch_shots=1)
+    hip_program = hip.compile(circuit)
+    sampler = hip.Sampler(hip_program, precision=precision, max_batch_shots=1)
+
+    assert hip_program.num_measurements == 1
+    assert hip_program.num_records == 2
 
     assert_forced_record_probabilities(
         cpu_program,
         sampler,
-        1,
         absolute_tolerance=tolerance,
     )
 

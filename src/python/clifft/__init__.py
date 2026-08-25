@@ -61,6 +61,9 @@ from clifft._clifft_core import (
     version,
 )
 from clifft._clifft_core import (
+    _prepare_hir_for_lowering as _prepare_hir_for_lowering,
+)
+from clifft._clifft_core import (
     compile as _compile_core,
 )
 from clifft._sample_result import SampleResult

@@ -739,6 +739,24 @@ NB_MODULE(_clifft_core, m) {
         "    expected_observables: Optional noiseless reference parities for observables.\n");
 
     m.def(
+        "_prepare_hir_for_lowering",
+        [](const std::string& stim_text, std::vector<uint8_t> expected_detectors,
+           std::vector<uint8_t> expected_observables, bool normalize_syndromes,
+           clifft::HirPassManager* hir_passes) {
+            clifft::HirModule hir;
+            {
+                nb::gil_scoped_release release;
+                hir = prepare_hir_for_lowering(stim_text, normalize_syndromes, hir_passes,
+                                               expected_detectors, expected_observables);
+            }
+            return nb::make_tuple(std::move(hir), std::move(expected_detectors),
+                                  std::move(expected_observables));
+        },
+        nb::arg("stim_text"), nb::arg("expected_detectors") = std::vector<uint8_t>{},
+        nb::arg("expected_observables") = std::vector<uint8_t>{},
+        nb::arg("normalize_syndromes") = false, nb::arg("hir_passes") = nb::none());
+
+    m.def(
         "compile",
         [](const std::string& stim_text, std::vector<uint8_t> postselection_mask,
            std::vector<uint8_t> expected_detectors, std::vector<uint8_t> expected_observables,

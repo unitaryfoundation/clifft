@@ -106,6 +106,7 @@ NB_MODULE(_clifft_hip, module) {
         .def_prop_ro("peak_active_width", &ExecutablePlan::peak_active_width)
         .def_prop_ro("num_actions", &ExecutablePlan::num_actions)
         .def_prop_ro("num_measurements", &ExecutablePlan::num_visible_records)
+        .def_prop_ro("num_records", &ExecutablePlan::num_records)
         .def_prop_ro("num_detectors", &ExecutablePlan::num_detectors)
         .def_prop_ro("num_observables", &ExecutablePlan::num_observables)
         .def_prop_ro("num_exp_vals", &ExecutablePlan::num_exp_vals)

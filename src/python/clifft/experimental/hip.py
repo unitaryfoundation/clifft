@@ -9,13 +9,13 @@ from types import ModuleType
 from typing import Any, Literal, cast
 
 from clifft import (
+    _DEFAULT_PASSES,
     HirModule,
     HirPassManager,
     SampleResult,
-    compute_reference_syndrome,
+    _DefaultPasses,
+    _prepare_hir_for_lowering,
     default_hir_pass_manager,
-    parse,
-    trace,
 )
 
 Precision = Literal["fp64", "fp32"]
@@ -86,6 +86,11 @@ class Program:
         return cast(int, self._native.num_measurements)
 
     @property
+    def num_records(self) -> int:
+        """Return the visible plus hidden record width required by replay."""
+        return cast(int, self._native.num_records)
+
+    @property
     def num_detectors(self) -> int:
         return cast(int, self._native.num_detectors)
 
@@ -115,13 +120,6 @@ class Program:
         )
 
 
-class _DefaultPasses:
-    pass
-
-
-_DEFAULT_PASSES = _DefaultPasses()
-
-
 def lower(
     hir: HirModule,
     postselection_mask: list[int] | None = None,
@@ -149,20 +147,18 @@ def compile(
     hir_passes: HirPassManager | None | _DefaultPasses = _DEFAULT_PASSES,
 ) -> Program:
     """Compile Stim text through the shared HIR and SamplingPlan pipeline."""
-    detectors = expected_detectors if expected_detectors is not None else []
-    observables = expected_observables if expected_observables is not None else []
-    if normalize_syndromes and (detectors or observables):
-        raise ValueError("expected parities cannot be supplied when normalize_syndromes=True")
-
-    hir = trace(parse(stim_text))
     if isinstance(hir_passes, _DefaultPasses):
         hir_passes = default_hir_pass_manager()
-    if hir_passes is not None:
-        hir_passes.run(hir)
-    if normalize_syndromes:
-        reference = compute_reference_syndrome(hir)
-        detectors = cast(list[int], reference["detectors"])
-        observables = cast(list[int], reference["observables"])
+    prepared = _prepare_hir_for_lowering(
+        stim_text,
+        expected_detectors if expected_detectors is not None else [],
+        expected_observables if expected_observables is not None else [],
+        normalize_syndromes,
+        hir_passes,
+    )
+    hir = cast(HirModule, prepared[0])
+    detectors = cast(list[int], prepared[1])
+    observables = cast(list[int], prepared[2])
     return lower(hir, postselection_mask, detectors, observables)
 
 

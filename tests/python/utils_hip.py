@@ -65,11 +65,12 @@ def assert_distribution_matches(
 def assert_forced_record_probabilities(
     cpu_program: clifft.Program,
     hip_sampler: hip.Sampler,
-    num_records: int,
     *,
     absolute_tolerance: float,
 ) -> None:
     """Enumerate every small record branch and compare reachability and probability."""
+    num_records = hip_sampler.program.num_records
+    assert num_records == cpu_program.num_measurements + cpu_program.num_hidden_measurements
     records = np.asarray(list(itertools.product((0, 1), repeat=num_records)), dtype=np.uint8)
     cpu_log_probabilities = clifft.record_probabilities(cpu_program, records, return_log=True)
     for record, log_probability in zip(records, cpu_log_probabilities, strict=True):
