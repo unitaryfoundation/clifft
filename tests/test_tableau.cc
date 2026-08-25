@@ -113,6 +113,62 @@ stim::Tableau<64> stim_pauli_rotation(clifft::PauliStringView axis, bool dagger)
     return simulator.inv_state.inverse();
 }
 
+clifft::GateType expected_inverse(clifft::GateType gate) {
+    using clifft::GateType;
+    switch (gate) {
+        case GateType::S:
+            return GateType::S_DAG;
+        case GateType::S_DAG:
+            return GateType::S;
+        case GateType::SQRT_X:
+            return GateType::SQRT_X_DAG;
+        case GateType::SQRT_X_DAG:
+            return GateType::SQRT_X;
+        case GateType::SQRT_Y:
+            return GateType::SQRT_Y_DAG;
+        case GateType::SQRT_Y_DAG:
+            return GateType::SQRT_Y;
+        case GateType::C_XYZ:
+            return GateType::C_ZYX;
+        case GateType::C_ZYX:
+            return GateType::C_XYZ;
+        case GateType::C_NXYZ:
+            return GateType::C_ZYNX;
+        case GateType::C_NZYX:
+            return GateType::C_XYNZ;
+        case GateType::C_XNYZ:
+            return GateType::C_ZNYX;
+        case GateType::C_XYNZ:
+            return GateType::C_NZYX;
+        case GateType::C_ZNYX:
+            return GateType::C_XNYZ;
+        case GateType::C_ZYNX:
+            return GateType::C_NXYZ;
+        case GateType::ISWAP:
+            return GateType::ISWAP_DAG;
+        case GateType::ISWAP_DAG:
+            return GateType::ISWAP;
+        case GateType::SQRT_XX:
+            return GateType::SQRT_XX_DAG;
+        case GateType::SQRT_XX_DAG:
+            return GateType::SQRT_XX;
+        case GateType::SQRT_YY:
+            return GateType::SQRT_YY_DAG;
+        case GateType::SQRT_YY_DAG:
+            return GateType::SQRT_YY;
+        case GateType::SQRT_ZZ:
+            return GateType::SQRT_ZZ_DAG;
+        case GateType::SQRT_ZZ_DAG:
+            return GateType::SQRT_ZZ;
+        case GateType::CXSWAP:
+            return GateType::SWAPCX;
+        case GateType::SWAPCX:
+            return GateType::CXSWAP;
+        default:
+            return gate;
+    }
+}
+
 }  // namespace
 
 TEST_CASE("Native Pauli phase convention preserves Hermitian signs", "[tableau]") {
@@ -167,6 +223,18 @@ TEST_CASE("Native named Clifford rows match Stim", "[tableau]") {
         const stim::Tableau<64> expected = stim::GATE_DATA.at(gate.name).tableau<64>();
         check_tableau(actual, expected);
         check_tableau(actual.inverse(), expected.inverse());
+    }
+}
+
+TEST_CASE("Native named Clifford inverses compose to identity", "[tableau]") {
+    for (const GateCase& gate : kNamedCliffords) {
+        CAPTURE(gate.name);
+        const clifft::Tableau forward = clifft::Tableau::from_named_gate(gate.gate);
+        const clifft::Tableau inverse =
+            clifft::Tableau::from_named_gate(expected_inverse(gate.gate));
+        const clifft::Tableau identity(gate.arity);
+        CHECK(forward.then(inverse) == identity);
+        CHECK(inverse.then(forward) == identity);
     }
 }
 

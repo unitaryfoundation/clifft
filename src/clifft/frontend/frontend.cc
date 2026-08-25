@@ -65,8 +65,30 @@ GateType inverse_clifford_gate(GateType gate) {
             return GateType::SWAPCX;
         case GateType::SWAPCX:
             return GateType::CXSWAP;
-        default:
+        case GateType::H:
+        case GateType::X:
+        case GateType::Y:
+        case GateType::Z:
+        case GateType::H_XY:
+        case GateType::H_YZ:
+        case GateType::H_NXY:
+        case GateType::H_NXZ:
+        case GateType::H_NYZ:
+        case GateType::CX:
+        case GateType::CY:
+        case GateType::CZ:
+        case GateType::SWAP:
+        case GateType::CZSWAP:
+        case GateType::XCX:
+        case GateType::XCY:
+        case GateType::XCZ:
+        case GateType::YCX:
+        case GateType::YCY:
+        case GateType::YCZ:
             return gate;
+        default:
+            throw std::invalid_argument("Gate does not have an explicit Clifford inverse: " +
+                                        std::string(gate_name(gate)));
     }
 }
 
