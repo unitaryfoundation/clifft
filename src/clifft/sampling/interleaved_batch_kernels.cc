@@ -70,7 +70,7 @@ void apply_interleaved_fused_orbits(InterleavedBatchState& state,
             imag[column] = state.imag_basis(index);
         }
 
-#if defined(CLIFFT_USE_OPENMP)
+#if defined(CLIFFT_USE_OPENMP) && !defined(_MSC_VER)
 #pragma omp simd
 #endif
         for (size_t lane = 0; lane < lanes; ++lane) {
@@ -155,7 +155,7 @@ void apply_interleaved_dynamic_fused_orbits(InterleavedBatchState& state,
             imag[column] = state.imag_basis(index);
         }
 
-#if defined(CLIFFT_USE_OPENMP)
+#if defined(CLIFFT_USE_OPENMP) && !defined(_MSC_VER)
 #pragma omp simd
 #endif
         for (size_t lane = 0; lane < lanes; ++lane) {
@@ -190,7 +190,7 @@ void apply_interleaved_dynamic_fused_orbits(InterleavedBatchState& state,
 void prepare_interleaved_rotation_sines(std::span<double> output, double sine,
                                         std::span<const uint8_t> signs) noexcept {
     assert(output.size() >= signs.size() && "signed-sine output must cover every lane");
-#if defined(CLIFFT_USE_OPENMP)
+#if defined(CLIFFT_USE_OPENMP) && !defined(_MSC_VER)
 #pragma omp simd
 #endif
     for (size_t lane = 0; lane < signs.size(); ++lane) {
@@ -213,7 +213,7 @@ void apply_interleaved_rotation(InterleavedBatchState& state, const PreparedRota
             double* imag = state.imag_basis(basis);
             const double eigenvalue =
                 (std::popcount(basis & rotation.pauli.z) & 1U) != 0 ? -1.0 : 1.0;
-#if defined(CLIFFT_USE_OPENMP)
+#if defined(CLIFFT_USE_OPENMP) && !defined(_MSC_VER)
 #pragma omp simd
 #endif
             for (size_t lane = 0; lane < lanes; ++lane) {
@@ -243,7 +243,7 @@ void apply_interleaved_rotation(InterleavedBatchState& state, const PreparedRota
             const bool odd_phase = (std::popcount(left & rotation.pauli.z) & 1U) != 0;
             const double left_phase = odd_phase ? -base_phase : base_phase;
             const double right_phase = real_phase ? left_phase : -left_phase;
-#if defined(CLIFFT_USE_OPENMP)
+#if defined(CLIFFT_USE_OPENMP) && !defined(_MSC_VER)
 #pragma omp simd
 #endif
             for (size_t lane = 0; lane < lanes; ++lane) {
@@ -282,7 +282,7 @@ void apply_interleaved_promotion(InterleavedBatchState& state, const PreparedPro
         double* imag = state.imag_basis(basis);
         double* promoted_real = state.real_basis(old_size + basis);
         double* promoted_imag = state.imag_basis(old_size + basis);
-#if defined(CLIFFT_USE_OPENMP)
+#if defined(CLIFFT_USE_OPENMP) && !defined(_MSC_VER)
 #pragma omp simd
 #endif
         for (size_t lane = 0; lane < lanes; ++lane) {
@@ -359,7 +359,7 @@ void interleaved_measurement_probabilities(const InterleavedBatchState& state,
             const double* zero_imag = state.imag_basis(source_zero);
             const double* one_real = state.real_basis(source_one);
             const double* one_imag = state.imag_basis(source_one);
-#if defined(CLIFFT_USE_OPENMP)
+#if defined(CLIFFT_USE_OPENMP) && !defined(_MSC_VER)
 #pragma omp simd
 #endif
             for (size_t lane = 0; lane < lanes; ++lane) {
@@ -382,7 +382,7 @@ void interleaved_measurement_probabilities(const InterleavedBatchState& state,
         const double* left_imag = state.imag_basis(source_zero);
         const double* right_real = state.real_basis(source_one);
         const double* right_imag = state.imag_basis(source_one);
-#if defined(CLIFFT_USE_OPENMP)
+#if defined(CLIFFT_USE_OPENMP) && !defined(_MSC_VER)
 #pragma omp simd
 #endif
         for (size_t lane = 0; lane < lanes; ++lane) {
@@ -417,7 +417,7 @@ void collapse_interleaved_measurement(InterleavedBatchState& state,
             const double* one_imag = state.imag_basis(diagonal_source(measurement, packed, true));
             double* output_real = state.real_basis(packed);
             double* output_imag = state.imag_basis(packed);
-#if defined(CLIFFT_USE_OPENMP)
+#if defined(CLIFFT_USE_OPENMP) && !defined(_MSC_VER)
 #pragma omp simd
 #endif
             for (size_t lane = 0; lane < lanes; ++lane) {
@@ -441,7 +441,7 @@ void collapse_interleaved_measurement(InterleavedBatchState& state,
             const double* right_imag = state.imag_basis(source_one);
             double* output_real = state.scratch_real_basis(packed);
             double* output_imag = state.scratch_imag_basis(packed);
-#if defined(CLIFFT_USE_OPENMP)
+#if defined(CLIFFT_USE_OPENMP) && !defined(_MSC_VER)
 #pragma omp simd
 #endif
             for (size_t lane = 0; lane < lanes; ++lane) {
@@ -480,7 +480,7 @@ void interleaved_expectation_values(const InterleavedBatchState& state, const Pr
         const double* left_imag = state.imag_basis(basis);
         const double* right_real = state.real_basis(basis ^ pauli.x);
         const double* right_imag = state.imag_basis(basis ^ pauli.x);
-#if defined(CLIFFT_USE_OPENMP)
+#if defined(CLIFFT_USE_OPENMP) && !defined(_MSC_VER)
 #pragma omp simd
 #endif
         for (size_t lane = 0; lane < lanes; ++lane) {

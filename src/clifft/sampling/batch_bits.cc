@@ -124,7 +124,7 @@ void PackedBitColumns::xor_into(size_t column_index, std::span<const uint64_t> s
     assert(source.size() >= word_capacity_ &&
            "packed XOR input must cover the fixed word capacity");
     std::span<uint64_t> destination = column(column_index);
-#if defined(CLIFFT_USE_OPENMP)
+#if defined(CLIFFT_USE_OPENMP) && !defined(_MSC_VER)
 #pragma omp simd
 #endif
     for (size_t word = 0; word < word_capacity_; ++word) {
