@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 
+using clifft::sampling::ActiveExpectation;
 using clifft::sampling::ActivePauli;
 using clifft::sampling::AffineBool;
 using clifft::sampling::ApplyInstrument;
@@ -52,17 +53,14 @@ SamplingPlan valid_plan() {
     plan.peak_active_width = 1;
     plan.num_visible_records = 1;
     plan.num_hidden_records = 1;
-    plan.num_noise_sites = 1;
-    plan.num_instrument_sites = 1;
     plan.symbols = {
         SymbolInfo{SymbolKind::Presampled, std::nullopt, NoiseSiteId{0}},
         SymbolInfo{SymbolKind::Branch, 1, std::nullopt},
         SymbolInfo{SymbolKind::Derived, 2, std::nullopt},
         SymbolInfo{SymbolKind::Instrument, 4, std::nullopt},
     };
-    plan.presampled_noise_sites = {
-        PresampledNoiseSite{NoiseSiteId{0}, 0.1, {PresampledNoiseOutcome{noise, 0.1}}}};
-    plan.instrument_distributions = {InstrumentDistribution{InstrumentSiteId{0}, {0.0, 0.0}, {}}};
+    plan.presampled_noise_sites = {PresampledNoiseSite{0.1, {PresampledNoiseOutcome{noise, 0.1}}}};
+    plan.instrument_distributions = {InstrumentDistribution{{0.0, 0.0}, {}}};
     plan.actions = {
         PlannedAction{0, 1, PromoteDormantRotation{0.25, AffineBool::symbol(noise)}},
         PlannedAction{1, 0,
@@ -111,7 +109,6 @@ SamplingPlan valid_syndrome_plan() {
     plan.num_visible_records = 1;
     plan.num_detectors = 1;
     plan.num_observables = 1;
-    plan.has_postselection = true;
     plan.symbols = {SymbolInfo{SymbolKind::Readout, 1, std::nullopt}};
     plan.actions = {
         PlannedAction{0, 0, RecordClassical{AffineBool{}, RecordSlot{0}}},
@@ -280,13 +277,12 @@ TEST_CASE("Sampling plan rejects record slots outside stable storage") {
     REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
 }
 
-TEST_CASE("Sampling plan rejects noncanonical syndrome record parity") {
-    SamplingPlan plan = valid_syndrome_plan();
-    auto& observable = std::get<WriteObservable>(plan.actions[3].action);
-    std::get<RecordParity>(observable.outcome).records.push_back(RecordSlot{0});
+TEST_CASE("Sampling record parity construction canonicalizes XOR terms") {
+    const RecordParity parity{
+        true, {RecordSlot{2}, RecordSlot{0}, RecordSlot{2}, RecordSlot{1}, RecordSlot{0}}};
 
-    REQUIRE_THROWS_WITH(plan.validate(),
-                        "invalid SamplingPlan: action 3 has noncanonical record parity");
+    REQUIRE(parity.constant());
+    REQUIRE(parity.records() == std::vector<RecordSlot>{RecordSlot{1}});
 }
 
 TEST_CASE("Sampling plan validates affine syndrome values") {
@@ -525,12 +521,6 @@ TEST_CASE("Sampling plan validates noise distributions and syndrome actions") {
         plan.actions.pop_back();
         REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
     }
-
-    SECTION("postselection metadata matches detector actions") {
-        SamplingPlan plan = valid_syndrome_plan();
-        plan.has_postselection = false;
-        REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
-    }
 }
 
 TEST_CASE("Sampling plan rejects active widths unsupported by dense storage") {
@@ -584,8 +574,9 @@ TEST_CASE("Sampling plan validates expectation output slots and zero probes") {
     plan.num_exp_vals = 2;
     plan.actions = {
         PlannedAction{1, 1,
-                      WriteExpectationValue{ActivePauli{1, 1}, AffineBool(true), ExpValSlot{0}}},
-        PlannedAction{1, 1, WriteExpectationValue{std::nullopt, AffineBool{}, ExpValSlot{1}}},
+                      WriteExpectationValue{ActiveExpectation{ActivePauli{1, 1}, AffineBool(true)},
+                                            ExpValSlot{0}}},
+        PlannedAction{1, 1, WriteExpectationValue{std::nullopt, ExpValSlot{1}}},
     };
 
     REQUIRE_NOTHROW(plan.validate());
@@ -597,8 +588,9 @@ TEST_CASE("Sampling plan validates expectation output slots and zero probes") {
         std::get<WriteExpectationValue>(plan.actions[1].action).exp_val = ExpValSlot{0};
         REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
     }
-    SECTION("zero probe carries irrelevant sign") {
-        std::get<WriteExpectationValue>(plan.actions[1].action).sign = AffineBool(true);
+    SECTION("active probe sign references an unavailable symbol") {
+        std::get<WriteExpectationValue>(plan.actions[0].action).active->sign =
+            AffineBool::symbol(SymbolId{0});
         REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
     }
 }
@@ -634,11 +626,11 @@ TEST_CASE("Sampling plan predicts only state touching dense passes") {
     REQUIRE(clifft::sampling::predicted_dense_passes(ApplyReadoutNoise{}) == 0);
     REQUIRE(clifft::sampling::predicted_dense_passes(WriteDetector{}) == 0);
     REQUIRE(clifft::sampling::predicted_dense_passes(WriteObservable{}) == 0);
+    REQUIRE(clifft::sampling::predicted_dense_passes(WriteExpectationValue{
+                ActiveExpectation{ActivePauli{1, 0}, AffineBool{}}, ExpValSlot{0}}) == 1);
+    REQUIRE(clifft::sampling::predicted_dense_passes(WriteExpectationValue{
+                ActiveExpectation{ActivePauli{}, AffineBool{}}, ExpValSlot{0}}) == 0);
     REQUIRE(clifft::sampling::predicted_dense_passes(
-                WriteExpectationValue{ActivePauli{1, 0}, AffineBool{}, ExpValSlot{0}}) == 1);
-    REQUIRE(clifft::sampling::predicted_dense_passes(
-                WriteExpectationValue{ActivePauli{}, AffineBool{}, ExpValSlot{0}}) == 0);
-    REQUIRE(clifft::sampling::predicted_dense_passes(
-                WriteExpectationValue{std::nullopt, AffineBool{}, ExpValSlot{0}}) == 0);
+                WriteExpectationValue{std::nullopt, ExpValSlot{0}}) == 0);
     REQUIRE(clifft::sampling::predicted_dense_passes(InstrumentBoundary{}) == 0);
 }

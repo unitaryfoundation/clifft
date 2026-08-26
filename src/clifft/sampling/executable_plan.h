@@ -235,23 +235,27 @@ class ExecutablePlan {
         bool constant = false;
     };
 
-    using PreparedSyndromeValue = std::variant<PreparedExpression, PreparedRecordParity>;
+    using PreparedObservableValue = std::variant<PreparedExpression, PreparedRecordParity>;
 
     struct ExecuteDetector {
-        PreparedSyndromeValue outcome;
+        PreparedRecordParity outcome;
         uint32_t detector = 0;
         bool postselected = false;
     };
 
     struct ExecuteObservable {
-        PreparedSyndromeValue outcome;
+        PreparedObservableValue outcome;
         uint32_t observable = 0;
     };
 
     // Exact expectation-value probe of the current state.
-    struct ExecuteExpectation {
-        std::optional<PreparedPauli> active_projection;
+    struct PreparedExpectation {
+        PreparedPauli projection;
         PreparedExpression sign;
+    };
+
+    struct ExecuteExpectation {
+        std::optional<PreparedExpectation> active;
         uint32_t exp_val = 0;
     };
 

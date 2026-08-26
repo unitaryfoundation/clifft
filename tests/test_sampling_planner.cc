@@ -449,15 +449,14 @@ TEST_CASE("Sampling planner classifies active and dormant expectation probes") {
     REQUIRE(plan.actions.size() == 4);
     REQUIRE(plan.final_tableau.has_value());
     const auto& active = action_as<WriteExpectationValue>(plan, 1);
-    REQUIRE(active.active_projection.has_value());
-    REQUIRE_FALSE(active.active_projection->is_identity());
+    REQUIRE(active.active.has_value());
+    REQUIRE_FALSE(active.active->projection.is_identity());
     REQUIRE(active.exp_val == clifft::sampling::ExpValSlot{0});
     const auto& dormant_x = action_as<WriteExpectationValue>(plan, 2);
-    REQUIRE_FALSE(dormant_x.active_projection.has_value());
-    REQUIRE(dormant_x.sign == AffineBool{});
+    REQUIRE_FALSE(dormant_x.active.has_value());
     const auto& dormant_z = action_as<WriteExpectationValue>(plan, 3);
-    REQUIRE(dormant_z.active_projection.has_value());
-    REQUIRE(dormant_z.active_projection->is_identity());
+    REQUIRE(dormant_z.active.has_value());
+    REQUIRE(dormant_z.active->projection.is_identity());
 }
 
 TEST_CASE("Sampling planner propagates stochastic signs into expectation probes") {
@@ -465,17 +464,17 @@ TEST_CASE("Sampling planner propagates stochastic signs into expectation probes"
         plan_sampling(clifft::trace(clifft::parse("X_ERROR(1) 0\nEXP_VAL Z0")));
     REQUIRE_FALSE(noise.final_tableau.has_value());
     const auto& noise_probe = action_as<WriteExpectationValue>(noise, 0);
-    REQUIRE(noise_probe.active_projection.has_value());
-    REQUIRE(noise_probe.active_projection->is_identity());
-    REQUIRE(noise_probe.sign == AffineBool::symbol(SymbolId{0}));
+    REQUIRE(noise_probe.active.has_value());
+    REQUIRE(noise_probe.active->projection.is_identity());
+    REQUIRE(noise_probe.active->sign == AffineBool::symbol(SymbolId{0}));
 
     const SamplingPlan feedback =
         plan_sampling(clifft::trace(clifft::parse("H 0\nM 0\nCX rec[-1] 1\nEXP_VAL Z1")));
     const auto& measurement = action_as<MeasureDormantRandom>(feedback, 0);
     const auto& feedback_probe = action_as<WriteExpectationValue>(feedback, 1);
-    REQUIRE(feedback_probe.active_projection.has_value());
-    REQUIRE(feedback_probe.active_projection->is_identity());
-    REQUIRE(feedback_probe.sign == AffineBool::symbol(measurement.branch));
+    REQUIRE(feedback_probe.active.has_value());
+    REQUIRE(feedback_probe.active->projection.is_identity());
+    REQUIRE(feedback_probe.active->sign == AffineBool::symbol(measurement.branch));
 }
 
 TEST_CASE("Sampling planner eliminates Pauli noise and feedback into record expressions") {
@@ -548,7 +547,6 @@ TEST_CASE("Sampling planner carries corrected records into syndrome outputs") {
 
     REQUIRE(plan.num_detectors == 1);
     REQUIRE(plan.num_observables == 1);
-    REQUIRE(plan.has_postselection);
     REQUIRE(plan.actions.size() == 4);
     const auto& readout = action_as<ApplyReadoutNoise>(plan, 1);
     REQUIRE(plan.symbols[static_cast<uint32_t>(readout.flip)].kind == SymbolKind::Readout);
@@ -557,15 +555,14 @@ TEST_CASE("Sampling planner carries corrected records into syndrome outputs") {
     REQUIRE(readout.prob_one_to_zero == 0.2);
     const auto& detector = action_as<WriteDetector>(plan, 2);
     REQUIRE(detector.postselected);
-    REQUIRE(std::holds_alternative<RecordParity>(detector.outcome));
-    const auto& detector_parity = std::get<RecordParity>(detector.outcome);
-    REQUIRE(detector_parity.constant);
-    REQUIRE(detector_parity.records == std::vector<RecordSlot>{RecordSlot{0}});
+    const auto& detector_parity = detector.outcome;
+    REQUIRE(detector_parity.constant());
+    REQUIRE(detector_parity.records() == std::vector<RecordSlot>{RecordSlot{0}});
     const auto& observable = action_as<WriteObservable>(plan, 3);
     REQUIRE(std::holds_alternative<RecordParity>(observable.outcome));
     const auto& observable_parity = std::get<RecordParity>(observable.outcome);
-    REQUIRE(observable_parity.constant);
-    REQUIRE(observable_parity.records == std::vector<RecordSlot>{RecordSlot{0}});
+    REQUIRE(observable_parity.constant());
+    REQUIRE(observable_parity.records() == std::vector<RecordSlot>{RecordSlot{0}});
 }
 
 TEST_CASE("Sampling planner falls back for historical observable records") {
@@ -586,7 +583,7 @@ TEST_CASE("Sampling planner falls back for historical observable records") {
     const auto& straddled = action_as<WriteObservable>(plan, 4);
     REQUIRE(std::get<AffineBool>(before.outcome) == AffineBool(true));
     REQUIRE(std::holds_alternative<RecordParity>(after.outcome));
-    REQUIRE(std::get<RecordParity>(after.outcome).records ==
+    REQUIRE(std::get<RecordParity>(after.outcome).records() ==
             std::vector<RecordSlot>{RecordSlot{0}});
     REQUIRE(std::get<AffineBool>(straddled.outcome) == AffineBool::symbol(readout.flip));
 }

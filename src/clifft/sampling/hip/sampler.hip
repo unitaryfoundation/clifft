@@ -297,9 +297,6 @@ __device__ bool measure_active(const ProgramView& program, const Action& action,
 template <typename Coefficient>
 __device__ double expectation_value(const Action& action, const Coefficient* real,
                                     const Coefficient* imag) {
-    if ((action.flags & kAbsentActiveProjection) != 0) {
-        return 0.0;
-    }
     if (action.x == 0 && action.z == 0) {
         return 1.0;
     }
@@ -485,6 +482,10 @@ __global__ void interpret_shots(ProgramView program, SeedRoot seed_root, uint64_
                     evaluate_syndrome(program, symbols, records, action));
                 break;
             case ActionTag::WriteExpectationValue: {
+                if ((action.flags & kAbsentActiveProjection) != 0) {
+                    exp_vals[action.index0] = 0.0;
+                    break;
+                }
                 const double value = expectation_value(action, real, imag);
                 exp_vals[action.index0] =
                     evaluate(program, symbols, action.expression) ? -value : value;

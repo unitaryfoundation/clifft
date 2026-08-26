@@ -15,6 +15,7 @@
 #include <variant>
 #include <vector>
 
+using clifft::sampling::ActiveExpectation;
 using clifft::sampling::ActivePauli;
 using clifft::sampling::AffineBool;
 using clifft::sampling::ApplyInstrument;
@@ -146,8 +147,8 @@ TEST_CASE("Compact inspection caps affine expressions at four symbol terms") {
 TEST_CASE("Detector inspection appends postselect only when the detector is postselected") {
     SamplingPlan plan;
     plan.actions = {
-        PlannedAction{0, 0, WriteDetector{AffineBool{}, DetectorSlot{0}, true}},
-        PlannedAction{0, 0, WriteDetector{AffineBool{}, DetectorSlot{1}, false}},
+        PlannedAction{0, 0, WriteDetector{RecordParity{}, DetectorSlot{0}, true}},
+        PlannedAction{0, 0, WriteDetector{RecordParity{}, DetectorSlot{1}, false}},
     };
 
     CHECK(plan.inspect_action(0) ==
@@ -218,9 +219,10 @@ TEST_CASE("Compact inspection mnemonics cover every SamplingAction and its docs 
         PlannedAction{0, 0, RecordClassical{empty, RecordSlot{0}}},
         PlannedAction{0, 0, DefineSymbol{s0, empty}},
         PlannedAction{0, 0, ApplyReadoutNoise{s0, empty, RecordSlot{0}, 0.0, 0.0}},
-        PlannedAction{0, 0, WriteDetector{empty, DetectorSlot{0}, false}},
+        PlannedAction{0, 0, WriteDetector{RecordParity{}, DetectorSlot{0}, false}},
         PlannedAction{0, 0, WriteObservable{empty, ObservableSlot{0}}},
-        PlannedAction{0, 0, WriteExpectationValue{ActivePauli{}, empty, ExpValSlot{0}}},
+        PlannedAction{
+            0, 0, WriteExpectationValue{ActiveExpectation{ActivePauli{}, empty}, ExpValSlot{0}}},
         PlannedAction{0, 0,
                       ApplyInstrument{InstrumentSiteId{0}, InstrumentMode::Classical, ActivePauli{},
                                       empty, s0}},

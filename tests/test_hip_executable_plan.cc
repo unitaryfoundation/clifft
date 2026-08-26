@@ -98,13 +98,11 @@ TEST_CASE("HIP executable preserves selected syndrome representations") {
 
 TEST_CASE("HIP executable packs affine terms and categorical noise") {
     SamplingPlan plan;
-    plan.num_noise_sites = 1;
     plan.symbols = {
         SymbolInfo{SymbolKind::Presampled, std::nullopt, NoiseSiteId{0}},
         SymbolInfo{SymbolKind::Presampled, std::nullopt, NoiseSiteId{0}},
     };
     plan.presampled_noise_sites = {PresampledNoiseSite{
-        NoiseSiteId{0},
         0.25,
         {PresampledNoiseOutcome{SymbolId{0}, 0.125}, PresampledNoiseOutcome{SymbolId{1}, 0.125}}}};
 

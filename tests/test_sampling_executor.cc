@@ -30,6 +30,7 @@
 #include <variant>
 #include <vector>
 
+using clifft::sampling::ActiveExpectation;
 using clifft::sampling::ActivePauli;
 using clifft::sampling::AffineBool;
 using clifft::sampling::apply_rotation;
@@ -92,9 +93,8 @@ SamplingPlan active_then_dormant_plan(double promotion_half_turns) {
 SamplingPlan dormant_trap_plan() {
     SamplingPlan plan;
     plan.num_qubits = 1;
-    plan.num_instrument_sites = 1;
     plan.symbols = {SymbolInfo{SymbolKind::Unused, std::nullopt, std::nullopt}};
-    plan.instrument_distributions = {InstrumentDistribution{InstrumentSiteId{0}, {1.0, 1.0}, {}}};
+    plan.instrument_distributions = {InstrumentDistribution{{1.0, 1.0}, {}}};
     plan.actions = {
         PlannedAction{
             0, 0,
@@ -111,7 +111,6 @@ SamplingPlan plan_from(std::string_view circuit_text) {
 
 SamplingPlan categorical_noise_plan() {
     SamplingPlan plan;
-    plan.num_noise_sites = 4;
     plan.symbols = {
         SymbolInfo{SymbolKind::Presampled, std::nullopt, NoiseSiteId{0}},
         SymbolInfo{SymbolKind::Presampled, std::nullopt, NoiseSiteId{1}},
@@ -119,13 +118,12 @@ SamplingPlan categorical_noise_plan() {
         SymbolInfo{SymbolKind::Presampled, std::nullopt, NoiseSiteId{3}},
     };
     plan.presampled_noise_sites = {
-        PresampledNoiseSite{NoiseSiteId{0}, 0.05, {PresampledNoiseOutcome{SymbolId{0}, 0.05}}},
+        PresampledNoiseSite{0.05, {PresampledNoiseOutcome{SymbolId{0}, 0.05}}},
         PresampledNoiseSite{
-            NoiseSiteId{1},
             0.3,
             {PresampledNoiseOutcome{SymbolId{1}, 0.1}, PresampledNoiseOutcome{SymbolId{2}, 0.2}}},
-        PresampledNoiseSite{NoiseSiteId{2}, 0.0, {}},
-        PresampledNoiseSite{NoiseSiteId{3}, 0.4, {PresampledNoiseOutcome{SymbolId{3}, 0.4}}},
+        PresampledNoiseSite{0.0, {}},
+        PresampledNoiseSite{0.4, {PresampledNoiseOutcome{SymbolId{3}, 0.4}}},
     };
     return plan;
 }
@@ -234,8 +232,7 @@ TEST_CASE("Sampling executor does not draw for empty noise sites") {
     SamplingPlan plan;
     plan.num_qubits = 1;
     plan.num_visible_records = 1;
-    plan.num_noise_sites = 1;
-    plan.presampled_noise_sites = {PresampledNoiseSite{NoiseSiteId{0}, 0.0, {}}};
+    plan.presampled_noise_sites = {PresampledNoiseSite{0.0, {}}};
     plan.symbols = {SymbolInfo{SymbolKind::Branch, 0, std::nullopt}};
     plan.actions = {PlannedAction{
         0, 0,
@@ -775,9 +772,8 @@ TEST_CASE("Sampling executable preserves generic instrument activation") {
     plan.num_qubits = 2;
     plan.initial_active_width = 1;
     plan.peak_active_width = 2;
-    plan.num_instrument_sites = 1;
     plan.symbols = {SymbolInfo{SymbolKind::Instrument, 0, std::nullopt}};
-    plan.instrument_distributions = {InstrumentDistribution{InstrumentSiteId{0}, {}, {}}};
+    plan.instrument_distributions = {InstrumentDistribution{{}, {}}};
     plan.actions = {
         PlannedAction{1, 2,
                       ApplyInstrument{InstrumentSiteId{0}, InstrumentMode::Activate,
@@ -803,9 +799,8 @@ TEST_CASE("Sampling executable preserves generic instrument activation") {
 TEST_CASE("Sampling executable validates its source plan before lowering") {
     SamplingPlan plan;
     plan.num_qubits = 1;
-    plan.num_instrument_sites = 1;
     plan.symbols = {SymbolInfo{SymbolKind::Instrument, 0, std::nullopt}};
-    plan.instrument_distributions = {InstrumentDistribution{InstrumentSiteId{0}, {}, {}}};
+    plan.instrument_distributions = {InstrumentDistribution{{}, {}}};
     plan.actions = {
         PlannedAction{
             0, 0,
@@ -1101,10 +1096,8 @@ TEST_CASE("Sampling continuation reconstructs expressions from true prefix symbo
 TEST_CASE("Sampling continuation consumes a forced hidden source record") {
     SamplingPlan root_plan;
     root_plan.num_qubits = 1;
-    root_plan.num_instrument_sites = 1;
     root_plan.symbols = {SymbolInfo{SymbolKind::Unused, std::nullopt, std::nullopt}};
-    root_plan.instrument_distributions = {
-        InstrumentDistribution{InstrumentSiteId{0}, {1.0, 1.0}, {}}};
+    root_plan.instrument_distributions = {InstrumentDistribution{{1.0, 1.0}, {}}};
     root_plan.actions = {
         PlannedAction{
             0, 0,
@@ -1141,22 +1134,24 @@ TEST_CASE("Sampling continuation overwrites an expectation with exact zero") {
     SamplingPlan root_plan;
     root_plan.num_qubits = 1;
     root_plan.num_exp_vals = 2;
-    root_plan.num_instrument_sites = 1;
     root_plan.symbols = {SymbolInfo{SymbolKind::Unused, std::nullopt, std::nullopt}};
-    root_plan.instrument_distributions = {
-        InstrumentDistribution{InstrumentSiteId{0}, {1.0, 1.0}, {}}};
+    root_plan.instrument_distributions = {InstrumentDistribution{{1.0, 1.0}, {}}};
     root_plan.actions = {
-        PlannedAction{0, 0, WriteExpectationValue{ActivePauli{}, AffineBool{}, ExpValSlot{0}}},
+        PlannedAction{
+            0, 0,
+            WriteExpectationValue{ActiveExpectation{ActivePauli{}, AffineBool{}}, ExpValSlot{0}}},
         PlannedAction{
             0, 0,
             ApplyInstrument{
                 InstrumentSiteId{0}, InstrumentMode::DormantTrap, {}, AffineBool{}, std::nullopt}},
         PlannedAction{0, 0, InstrumentBoundary{InstrumentSiteId{0}, 0, 1}},
-        PlannedAction{0, 0, WriteExpectationValue{ActivePauli{}, AffineBool{}, ExpValSlot{1}}},
+        PlannedAction{
+            0, 0,
+            WriteExpectationValue{ActiveExpectation{ActivePauli{}, AffineBool{}}, ExpValSlot{1}}},
     };
     SamplingPlan continuation_plan = root_plan;
     continuation_plan.actions.back() =
-        PlannedAction{0, 0, WriteExpectationValue{std::nullopt, AffineBool{}, ExpValSlot{1}}};
+        PlannedAction{0, 0, WriteExpectationValue{std::nullopt, ExpValSlot{1}}};
     const ExecutablePlan root(root_plan);
     const ExecutablePlan continuation(continuation_plan);
     Executor executor(root, 13);
@@ -1194,9 +1189,7 @@ TEST_CASE("Sampling continuation preserves fused rotation prefixes") {
     root_plan.num_qubits = kActiveWidth + 1;
     root_plan.initial_active_width = kActiveWidth;
     root_plan.peak_active_width = kActiveWidth;
-    root_plan.num_instrument_sites = 1;
-    root_plan.instrument_distributions = {
-        InstrumentDistribution{InstrumentSiteId{0}, {1.0, 1.0}, {}}};
+    root_plan.instrument_distributions = {InstrumentDistribution{{1.0, 1.0}, {}}};
     for (const RotateActivePauli& rotation : prefix_rotations) {
         root_plan.actions.push_back(PlannedAction{kActiveWidth, kActiveWidth, rotation});
     }
@@ -1382,7 +1375,6 @@ TEST_CASE("Packed presampled expression program matches a categorical statistica
     constexpr uint32_t num_records = 40;
     constexpr uint32_t shots = 50'000;
     SamplingPlan plan;
-    plan.num_noise_sites = num_sites;
     plan.num_visible_records = num_records;
     for (uint32_t symbol = 0; symbol < num_symbols; ++symbol) {
         plan.symbols.push_back(
@@ -1396,7 +1388,6 @@ TEST_CASE("Packed presampled expression program matches a categorical statistica
         outcome_probabilities[first_symbol] = first_probability;
         outcome_probabilities[first_symbol + 1] = second_probability;
         plan.presampled_noise_sites.push_back(PresampledNoiseSite{
-            NoiseSiteId{site},
             first_probability + second_probability,
             {PresampledNoiseOutcome{SymbolId{first_symbol}, first_probability},
              PresampledNoiseOutcome{SymbolId{first_symbol + 1}, second_probability}}});

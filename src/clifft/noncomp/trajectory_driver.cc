@@ -446,9 +446,9 @@ SamplingCompiledContinuation compile_sampling_continuation(
                                                  .retain_source_map = true});
         enforce_sampling_active_width_cap(diagnostic, max_active_width_cap);
     }
-    if (plan.num_instrument_sites != rewrite.site_targets.size()) {
+    if (plan.instrument_distributions.size() != rewrite.site_targets.size()) {
         throw std::logic_error("sample_noncomputational: sampling plan has " +
-                               std::to_string(plan.num_instrument_sites) +
+                               std::to_string(plan.instrument_distributions.size()) +
                                " instrument site(s) but the rewrite has " +
                                std::to_string(rewrite.site_targets.size()));
     }

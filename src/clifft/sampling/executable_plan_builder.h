@@ -47,8 +47,10 @@ class ExecutablePlanBuilder {
         const AffineBool& expression);
     [[nodiscard]] ExecutablePlan::PreparedExpression prepare_measurement_correction(
         const AffineBool& outcome, uint32_t branch);
-    [[nodiscard]] ExecutablePlan::PreparedSyndromeValue prepare_syndrome_value(
-        const SyndromeValue& value);
+    [[nodiscard]] ExecutablePlan::PreparedRecordParity prepare_record_parity(
+        const RecordParity& parity);
+    [[nodiscard]] ExecutablePlan::PreparedObservableValue prepare_observable_value(
+        const ObservableValue& value);
     void ensure_expression_term_capacity(size_t additional_terms) const;
 
     ExecutablePlan& output_;

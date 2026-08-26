@@ -542,28 +542,28 @@ void Executor::execute_action(const ExecutablePlan::ExecuteReadoutNoise& action,
 
 void Executor::execute_action(const ExecutablePlan::ExecuteDetector& action,
                               std::span<const uint8_t>, ReplayResult&) noexcept {
-    const bool outcome = evaluate_syndrome(action.outcome);
+    const bool outcome = evaluate_record_parity(action.outcome);
     detectors_[action.detector] = static_cast<uint8_t>(outcome);
     discarded_ |= action.postselected && outcome;
 }
 
 void Executor::execute_action(const ExecutablePlan::ExecuteObservable& action,
                               std::span<const uint8_t>, ReplayResult&) noexcept {
-    observables_[action.observable] = static_cast<uint8_t>(evaluate_syndrome(action.outcome));
+    observables_[action.observable] = static_cast<uint8_t>(evaluate_observable(action.outcome));
 }
 
 void Executor::execute_action(const ExecutablePlan::ExecuteExpectation& action,
                               std::span<const uint8_t>, ReplayResult&) noexcept {
     assert(action.exp_val < exp_vals_.size() && "expectation slot must be preallocated");
-    if (!action.active_projection.has_value()) {
+    if (!action.active.has_value()) {
         // Outputs are overwritten instead of cleared at each shot. This store
         // also prevents stale values when a continuation changes the planner's
         // classification of the same probe from active to exact zero.
         exp_vals_[action.exp_val] = 0.0;
         return;
     }
-    const double value = expectation_value(state_, *action.active_projection);
-    exp_vals_[action.exp_val] = evaluate(action.sign) ? -value : value;
+    const double value = expectation_value(state_, action.active->projection);
+    exp_vals_[action.exp_val] = evaluate(action.active->sign) ? -value : value;
 }
 
 void Executor::trap_instrument(uint32_t site, uint8_t source, bool destination_pending) noexcept {
@@ -842,13 +842,15 @@ bool Executor::evaluate(ExecutablePlan::PreparedExpression expression) const noe
     return expression_registers_[expression.register_id] != 0;
 }
 
-bool Executor::evaluate_syndrome(
-    const ExecutablePlan::PreparedSyndromeValue& value) const noexcept {
+bool Executor::evaluate_observable(
+    const ExecutablePlan::PreparedObservableValue& value) const noexcept {
     if (const auto* expression = std::get_if<ExecutablePlan::PreparedExpression>(&value)) {
         return evaluate(*expression);
     }
-    const ExecutablePlan::PreparedRecordParity parity =
-        std::get<ExecutablePlan::PreparedRecordParity>(value);
+    return evaluate_record_parity(std::get<ExecutablePlan::PreparedRecordParity>(value));
+}
+
+bool Executor::evaluate_record_parity(ExecutablePlan::PreparedRecordParity parity) const noexcept {
     const size_t end = static_cast<size_t>(parity.begin) + parity.count;
     assert(end <= plan_->record_parity_terms_.size() &&
            "prepared record parity must stay in its term tape");

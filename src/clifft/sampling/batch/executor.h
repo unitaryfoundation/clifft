@@ -93,8 +93,8 @@ class BatchExecutor {
 
     [[nodiscard]] std::span<const uint64_t> evaluate(
         ExecutablePlan::PreparedExpression expression) const noexcept;
-    [[nodiscard]] std::span<const uint64_t> evaluate_syndrome(
-        const ExecutablePlan::PreparedSyndromeValue& value) noexcept;
+    [[nodiscard]] std::span<const uint64_t> evaluate_observable(
+        const ExecutablePlan::PreparedObservableValue& value) noexcept;
     [[nodiscard]] std::span<const uint64_t> evaluate_record_parity(
         ExecutablePlan::PreparedRecordParity parity) noexcept;
     [[nodiscard]] bool lane_bit(std::span<const uint64_t> bits, uint32_t lane) const noexcept;

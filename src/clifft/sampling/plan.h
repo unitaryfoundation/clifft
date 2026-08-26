@@ -197,23 +197,35 @@ struct ApplyReadoutNoise {
     double prob_one_to_zero = 0.0;
 };
 
-// A parity over circuit record slots at the point where a syndrome value is
-// written. Record slots are canonicalized in strictly increasing order.
-struct RecordParity {
-    bool constant = false;
-    std::vector<RecordSlot> records;
+// A parity over circuit record slots at the point where a circuit output is
+// written. Construction sorts the slots and removes even multiplicities so
+// every value has one deterministic representation.
+class RecordParity {
+  public:
+    RecordParity() = default;
+    RecordParity(bool constant, std::vector<RecordSlot> records);
+
+    [[nodiscard]] bool constant() const { return constant_; }
+    [[nodiscard]] const std::vector<RecordSlot>& records() const { return records_; }
+    [[nodiscard]] bool is_canonical() const;
+
+    friend bool operator==(const RecordParity&, const RecordParity&) = default;
+
+  private:
+    bool constant_ = false;
+    std::vector<RecordSlot> records_;
 };
 
-// Syndrome writes retain the representation whose dependencies are still
+// Observable writes retain the representation whose dependencies are still
 // available at execution time. Record parity avoids expanding current record
 // snapshots; affine form preserves historical values after a record changes.
-using SyndromeValue = std::variant<AffineBool, RecordParity>;
+using ObservableValue = std::variant<AffineBool, RecordParity>;
 
 // Writes a detector parity after the planner has XORed its expected reference
 // parity into the selected value. A nonzero postselected detector rejects the
 // shot immediately; later actions and outputs are irrelevant for it.
 struct WriteDetector {
-    SyndromeValue outcome;
+    RecordParity outcome;
     DetectorSlot detector{};
     bool postselected = false;
 };
@@ -221,16 +233,23 @@ struct WriteDetector {
 // Writes one fully accumulated logical observable after the planner has XORed
 // its expected reference parity into the selected value.
 struct WriteObservable {
-    SyndromeValue outcome;
+    ObservableValue outcome;
     ObservableSlot observable{};
 };
 
 // Writes a non-destructive Pauli expectation probe. The planner retains only
 // the coefficient-kernel input, not the full transformed observable: an absent
 // active projection means dormant X or Y support proved the result is zero.
-struct WriteExpectationValue {
-    std::optional<ActivePauli> active_projection;
+struct ActiveExpectation {
+    ActivePauli projection;
     AffineBool sign;
+};
+
+struct WriteExpectationValue {
+    // Absence is an exact zero proved by dormant X or Y support. Keeping the
+    // sign inside the active form prevents zero probes from carrying an
+    // irrelevant expression.
+    std::optional<ActiveExpectation> active;
     ExpValSlot exp_val{};
 };
 
@@ -304,7 +323,6 @@ struct PresampledNoiseOutcome {
 };
 
 struct PresampledNoiseSite {
-    NoiseSiteId site{};
     // Exact semantic probability copied from the HIR noise site. Execution
     // still uses the ordered outcome probabilities for channel selection.
     double total_probability = 0.0;
@@ -315,7 +333,6 @@ struct PresampledNoiseSite {
 // indices use 0 for g and 1 for e. Computational entries are unconditional;
 // their row sum is at most p_fire[source].
 struct InstrumentDistribution {
-    InstrumentSiteId site{};
     std::array<double, 2> p_fire{};
     std::array<std::array<double, 2>, 2> p_computational_dest{};
 };
@@ -351,12 +368,9 @@ struct SamplingPlan {
     // that every slot in both regions is written exactly once.
     uint32_t num_visible_records = 0;
     uint32_t num_hidden_records = 0;
-    uint32_t num_noise_sites = 0;
-    uint32_t num_instrument_sites = 0;
     uint32_t num_detectors = 0;
     uint32_t num_observables = 0;
     uint32_t num_exp_vals = 0;
-    bool has_postselection = false;
 
     // Present only for pure-state plans eligible for exact final-state
     // queries. It maps the final stabilizer coordinates used by the action

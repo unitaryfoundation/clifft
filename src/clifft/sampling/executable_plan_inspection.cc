@@ -120,7 +120,7 @@ std::string ExecutablePlan::inspect_action(size_t action) const {
             out << '0';
         }
     };
-    const auto write_syndrome_value = [&](const PreparedSyndromeValue& value) {
+    const auto write_observable_value = [&](const PreparedObservableValue& value) {
         if (const auto* expression = std::get_if<PreparedExpression>(&value)) {
             out << 'e' << expression->register_id;
         } else {
@@ -175,20 +175,20 @@ std::string ExecutablePlan::inspect_action(size_t action) const {
             },
             [&](const ExecuteDetector& typed) {
                 out << "WRITE_DETECTOR detector=d" << typed.detector << " outcome=";
-                write_syndrome_value(typed.outcome);
+                write_record_parity(typed.outcome);
                 if (typed.postselected) {
                     out << " postselect";
                 }
             },
             [&](const ExecuteObservable& typed) {
                 out << "WRITE_OBSERVABLE observable=o" << typed.observable << " outcome=";
-                write_syndrome_value(typed.outcome);
+                write_observable_value(typed.outcome);
             },
             [&](const ExecuteExpectation& typed) {
                 out << "WRITE_EXPECTATION exp_val=v" << typed.exp_val << ' ';
-                if (typed.active_projection.has_value()) {
-                    write_prepared_pauli(out, *typed.active_projection);
-                    out << " sign=e" << typed.sign.register_id;
+                if (typed.active.has_value()) {
+                    write_prepared_pauli(out, typed.active->projection);
+                    out << " sign=e" << typed.active->sign.register_id;
                 } else {
                     out << "zero";
                 }

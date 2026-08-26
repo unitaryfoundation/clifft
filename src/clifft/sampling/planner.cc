@@ -135,26 +135,28 @@ bool option_bit(std::span<const uint8_t> values, uint32_t index) {
 }
 
 RecordParity make_record_parity(std::span<const uint32_t> records, bool constant) {
-    std::vector<uint32_t> sorted(records.begin(), records.end());
-    std::ranges::sort(sorted);
-    RecordParity result;
-    result.constant = constant;
-    for (size_t begin = 0; begin < sorted.size();) {
-        size_t end = begin + 1;
-        while (end < sorted.size() && sorted[end] == sorted[begin]) {
-            ++end;
-        }
-        if ((end - begin) % 2 != 0) {
-            result.records.push_back(RecordSlot{sorted[begin]});
-        }
-        begin = end;
+    std::vector<RecordSlot> slots;
+    slots.reserve(records.size());
+    for (uint32_t record : records) {
+        slots.push_back(RecordSlot{record});
     }
-    return result;
+    return RecordParity{constant, std::move(slots)};
 }
 
 struct ObservableRecordReference {
     uint32_t record = 0;
     uint32_t generation = 0;
+};
+
+struct PlanningRecord {
+    std::optional<AffineBool> value;
+    uint32_t generation = 0;
+};
+
+struct PendingObservable {
+    AffineBool historical_value;
+    std::vector<ObservableRecordReference> record_snapshots;
+    std::vector<uint32_t> source_lines;
 };
 
 struct PlanningRequirements {
@@ -230,7 +232,6 @@ PlanningRequirements inspect_planning_requirements(const HirModule& hir) {
 void initialize_site_metadata(const HirModule& hir, SamplingPlan& plan) {
     plan.presampled_noise_sites.resize(hir.noise_sites.size());
     for (uint32_t site = 0; site < hir.noise_sites.size(); ++site) {
-        plan.presampled_noise_sites[site].site = NoiseSiteId{site};
         plan.presampled_noise_sites[site].total_probability =
             hir.noise_sites[site].total_probability;
     }
@@ -238,7 +239,6 @@ void initialize_site_metadata(const HirModule& hir, SamplingPlan& plan) {
     for (uint32_t site = 0; site < hir.instrument_sites.size(); ++site) {
         const InstrumentProbabilities& probabilities = hir.instrument_sites[site].probabilities;
         InstrumentDistribution distribution;
-        distribution.site = InstrumentSiteId{site};
         for (uint8_t source = 0; source < 2; ++source) {
             distribution.p_fire[source] = probabilities.p_fire[source];
             for (uint8_t destination = 0; destination < 2; ++destination) {
@@ -422,8 +422,6 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
     plan.num_qubits = hir.num_qubits;
     plan.num_visible_records = hir.num_measurements;
     plan.num_hidden_records = hir.num_hidden_measurements;
-    plan.num_noise_sites = static_cast<uint32_t>(hir.noise_sites.size());
-    plan.num_instrument_sites = static_cast<uint32_t>(hir.instrument_sites.size());
     plan.num_detectors = hir.num_detectors;
     plan.num_observables = hir.num_observables;
     plan.num_exp_vals = hir.num_exp_vals;
@@ -447,34 +445,28 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
     }
     CoordinateFrame coordinates(hir.num_qubits);
     SymbolicPauliFrame symbolic_frame(hir.num_qubits, requirements.symbol_count);
-    std::vector<std::optional<AffineBool>> record_values(static_cast<size_t>(hir.num_measurements) +
-                                                         hir.num_hidden_measurements);
-    std::vector<uint32_t> record_generations(record_values.size(), 0);
-    std::vector<AffineBool> observable_values(hir.num_observables);
-    std::vector<std::vector<ObservableRecordReference>> observable_records(hir.num_observables);
-    std::vector<std::vector<uint32_t>> observable_source_lines;
-    if (plan.source_map.has_value()) {
-        observable_source_lines.resize(hir.num_observables);
-    }
+    std::vector<PlanningRecord> records(static_cast<size_t>(hir.num_measurements) +
+                                        hir.num_hidden_measurements);
+    std::vector<PendingObservable> observables(hir.num_observables);
 
     auto require_record = [&](RecordSlot record, size_t operation_index) -> const AffineBool& {
         const uint32_t record_index = index(record);
-        if (record_index >= record_values.size() || !record_values[record_index].has_value()) {
+        if (record_index >= records.size() || !records[record_index].value.has_value()) {
             throw std::invalid_argument("sampling planner operation " +
                                         std::to_string(operation_index) + " reads record " +
                                         std::to_string(record_index) + " before assignment");
         }
-        return *record_values[record_index];
+        return *records[record_index].value;
     };
 
     auto assign_record = [&](RecordSlot record, AffineBool value, size_t operation_index) {
         const uint32_t record_index = index(record);
-        if (record_index >= record_values.size()) {
+        if (record_index >= records.size()) {
             throw std::invalid_argument("sampling planner operation " +
                                         std::to_string(operation_index) + " writes record " +
                                         std::to_string(record_index) + " out of range");
         }
-        record_values[record_index] = std::move(value);
+        records[record_index].value = std::move(value);
     };
 
     auto record_parity = [&](const std::vector<uint32_t>& records,
@@ -575,8 +567,9 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
                                   ApplyReadoutNoise{flip, source, record, entry.prob_zero_to_one,
                                                     entry.prob_one_to_zero}},
                     source_lines);
-                record_values[index(record)] = source ^ AffineBool::symbol(flip);
-                ++record_generations[index(record)];
+                PlanningRecord& updated = records[index(record)];
+                updated.value = source ^ AffineBool::symbol(flip);
+                ++updated.generation;
                 break;
             }
             case OpType::INSTRUMENT: {
@@ -611,7 +604,6 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
                                                     hir.detector_targets[targets_index], expected),
                                                 DetectorSlot{detector_index}, postselected}},
                     source_lines);
-                plan.has_postselection |= postselected;
                 ++detector_index;
                 break;
             }
@@ -622,16 +614,14 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
                     observable_index >= hir.num_observables) {
                     throw std::invalid_argument("sampling planner observable is out of range");
                 }
-                observable_values[observable_index] ^=
-                    record_parity(hir.observable_targets[targets_index], i);
+                PendingObservable& pending = observables[observable_index];
+                pending.historical_value ^= record_parity(hir.observable_targets[targets_index], i);
                 for (uint32_t record : hir.observable_targets[targets_index]) {
-                    observable_records[observable_index].push_back(
-                        {record, record_generations.at(record)});
+                    pending.record_snapshots.push_back({record, records.at(record).generation});
                 }
                 if (plan.source_map.has_value()) {
-                    observable_source_lines[observable_index].insert(
-                        observable_source_lines[observable_index].end(), source_lines.begin(),
-                        source_lines.end());
+                    pending.source_lines.insert(pending.source_lines.end(), source_lines.begin(),
+                                                source_lines.end());
                 }
                 break;
             }
@@ -650,9 +640,9 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
                     PlannedAction{active_width, active_width,
                                   WriteExpectationValue{
                                       is_zero ? std::nullopt
-                                              : std::optional<ActivePauli>{active_projection(
-                                                    resolved.body, active_width)},
-                                      is_zero ? AffineBool{} : std::move(resolved.sign),
+                                              : std::optional<ActiveExpectation>{ActiveExpectation{
+                                                    active_projection(resolved.body, active_width),
+                                                    std::move(resolved.sign)}},
                                       ExpValSlot{exp_val_index}}},
                     source_lines);
                 break;
@@ -680,28 +670,28 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
         throw std::invalid_argument(
             "sampling planner instrument-site table is inconsistent with HIR");
     }
-    for (uint32_t observable = 0; observable < observable_values.size(); ++observable) {
-        observable_values[observable] ^= option_bit(options.expected_observables, observable);
+    for (uint32_t observable = 0; observable < observables.size(); ++observable) {
+        PendingObservable& pending = observables[observable];
+        pending.historical_value ^= option_bit(options.expected_observables, observable);
         const bool records_are_current =
-            std::ranges::all_of(observable_records[observable], [&](const auto& reference) {
-                return reference.generation == record_generations[reference.record];
+            std::ranges::all_of(pending.record_snapshots, [&](const auto& reference) {
+                return reference.generation == records[reference.record].generation;
             });
-        SyndromeValue outcome;
+        ObservableValue outcome;
         if (records_are_current) {
-            std::vector<uint32_t> records;
-            records.reserve(observable_records[observable].size());
-            for (const ObservableRecordReference& reference : observable_records[observable]) {
-                records.push_back(reference.record);
+            std::vector<uint32_t> snapshot_records;
+            snapshot_records.reserve(pending.record_snapshots.size());
+            for (const ObservableRecordReference& reference : pending.record_snapshots) {
+                snapshot_records.push_back(reference.record);
             }
-            outcome =
-                make_record_parity(records, option_bit(options.expected_observables, observable));
+            outcome = make_record_parity(snapshot_records,
+                                         option_bit(options.expected_observables, observable));
         } else {
-            outcome = std::move(observable_values[observable]);
+            outcome = std::move(pending.historical_value);
         }
         const std::span<const uint32_t> source_lines =
-            plan.source_map.has_value()
-                ? std::span<const uint32_t>(observable_source_lines[observable])
-                : std::span<const uint32_t>{};
+            plan.source_map.has_value() ? std::span<const uint32_t>(pending.source_lines)
+                                        : std::span<const uint32_t>{};
         append_action(
             plan,
             PlannedAction{active_width, active_width,

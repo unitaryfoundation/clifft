@@ -497,7 +497,7 @@ void BatchExecutor::execute_action(const ExecutablePlan::ExecuteReadoutNoise& ac
 
 void BatchExecutor::execute_action(const ExecutablePlan::ExecuteDetector& action,
                                    size_t action_index) noexcept {
-    const std::span<const uint64_t> outcomes = evaluate_syndrome(action.outcome);
+    const std::span<const uint64_t> outcomes = evaluate_record_parity(action.outcome);
     if (output_mode_ == BatchOutputMode::Rows) {
         detectors_.assign(action.detector, outcomes, live_words_);
     }
@@ -518,7 +518,7 @@ void BatchExecutor::execute_action(const ExecutablePlan::ExecuteDetector& action
 
 void BatchExecutor::execute_action(const ExecutablePlan::ExecuteObservable& action,
                                    size_t) noexcept {
-    const std::span<const uint64_t> outcomes = evaluate_syndrome(action.outcome);
+    const std::span<const uint64_t> outcomes = evaluate_observable(action.outcome);
     observables_.assign(action.observable, outcomes, live_words_);
 }
 
@@ -530,8 +530,7 @@ void BatchExecutor::execute_action(const ExecutablePlan::ExecuteExpectation& act
     assert(action.exp_val < plan_->num_exp_vals_ &&
            "expectation action must reference preallocated storage");
     double* output = exp_vals_.data() + static_cast<size_t>(action.exp_val) * lane_capacity_;
-    const std::span<const uint64_t> signs = evaluate(action.sign);
-    if (!action.active_projection.has_value()) {
+    if (!action.active.has_value()) {
         for (uint32_t lane = 0; lane < active_lanes(); ++lane) {
             if (is_live(lane)) {
                 output[lane] = 0.0;
@@ -539,7 +538,8 @@ void BatchExecutor::execute_action(const ExecutablePlan::ExecuteExpectation& act
         }
         return;
     }
-    interleaved_expectation_values(state_, *action.active_projection, lane_values_);
+    const std::span<const uint64_t> signs = evaluate(action.active->sign);
+    interleaved_expectation_values(state_, action.active->projection, lane_values_);
     for (uint32_t lane = 0; lane < active_lanes(); ++lane) {
         if (is_live(lane)) {
             output[lane] = lane_bit(signs, lane) ? -lane_values_[lane] : lane_values_[lane];
@@ -562,8 +562,8 @@ std::span<const uint64_t> BatchExecutor::evaluate(
     return expression_registers_.column(expression.register_id);
 }
 
-std::span<const uint64_t> BatchExecutor::evaluate_syndrome(
-    const ExecutablePlan::PreparedSyndromeValue& value) noexcept {
+std::span<const uint64_t> BatchExecutor::evaluate_observable(
+    const ExecutablePlan::PreparedObservableValue& value) noexcept {
     if (const auto* expression = std::get_if<ExecutablePlan::PreparedExpression>(&value)) {
         return evaluate(*expression);
     }
