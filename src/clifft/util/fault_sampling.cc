@@ -13,6 +13,8 @@ namespace clifft {
 
 namespace {
 
+inline constexpr double kMaxConditioningRow = 0x1p500;
+
 double log_add_exp(double first, double second) noexcept {
     if (first == -std::numeric_limits<double>::infinity()) {
         return second;
@@ -71,11 +73,14 @@ KFaultDistribution::KFaultDistribution(std::span<const double> probabilities, ui
         return;
     }
 
-    std::vector<double> log_odds_ratios;
-    log_odds_ratios.reserve(uncertain_sites_.size());
+    std::vector<double> odds_ratios;
+    odds_ratios.reserve(uncertain_sites_.size());
+    long double odds_sum = 0.0L;
     for (uint32_t site : uncertain_sites_) {
         const double probability = probabilities[site];
-        log_odds_ratios.push_back(std::log(probability) - std::log1p(-probability));
+        const double odds = probability / (1.0 - probability);
+        odds_ratios.push_back(odds);
+        odds_sum += static_cast<long double>(odds);
     }
 
     const size_t rows = uncertain_sites_.size() + 1;
@@ -83,13 +88,85 @@ KFaultDistribution::KFaultDistribution(std::span<const double> probabilities, ui
     if (rows > std::numeric_limits<size_t>::max() / stride) {
         throw std::length_error("fault-conditioning table exceeds size_t range");
     }
+
+    // Most fixed-k tables remain well conditioned after removing their common
+    // mean odds. Keep this multiply-add path fast, but reject it if any
+    // structurally possible coefficient or branch is lost to floating point.
+    bool stable = true;
+    const long double normalization = static_cast<long double>(uncertain_sites_.size()) / odds_sum;
+    for (double& odds : odds_ratios) {
+        odds = static_cast<double>(static_cast<long double>(odds) * normalization);
+        stable &= odds > 0.0 && std::isfinite(odds);
+    }
+    selection_probabilities_.assign(rows * stride, 0.0);
+    std::vector<double> row_scale_ratios(uncertain_sites_.size(), 1.0);
+    selection_probabilities_[uncertain_sites_.size() * stride] = 1.0;
+    for (size_t row = uncertain_sites_.size(); stable && row-- > 0;) {
+        const uint32_t remaining = static_cast<uint32_t>(uncertain_sites_.size() - row);
+        const uint32_t min_selected = remaining_k_ > row ? remaining_k_ - row : 0;
+        const uint32_t max_selected = std::min(remaining, remaining_k_);
+        double row_max = 0.0;
+        for (uint32_t selected = min_selected; selected <= max_selected; ++selected) {
+            double value = selection_probabilities_[(row + 1) * stride + selected];
+            if (selected != 0) {
+                value +=
+                    odds_ratios[row] * selection_probabilities_[(row + 1) * stride + selected - 1];
+            }
+            selection_probabilities_[row * stride + selected] = value;
+            stable &= value > 0.0 && std::isfinite(value);
+            row_max = std::max(row_max, value);
+        }
+        if (stable && row_max > kMaxConditioningRow) {
+            const double inverse_row_max = 1.0 / row_max;
+            row_scale_ratios[row] = inverse_row_max;
+            for (uint32_t selected = min_selected; selected <= max_selected; ++selected) {
+                double& value = selection_probabilities_[row * stride + selected];
+                value *= inverse_row_max;
+                stable &= value > 0.0;
+            }
+        }
+    }
+    for (size_t row = 0; stable && row < uncertain_sites_.size(); ++row) {
+        const uint32_t remaining = static_cast<uint32_t>(uncertain_sites_.size() - row);
+        const uint32_t min_selected = remaining_k_ > row ? remaining_k_ - row : 0;
+        const uint32_t max_selected = std::min(remaining, remaining_k_);
+        for (uint32_t selected = std::max(uint32_t{1}, min_selected); selected <= max_selected;
+             ++selected) {
+            if (selected == remaining) {
+                selection_probabilities_[row * stride + selected] = 1.0;
+                continue;
+            }
+            const double probability =
+                odds_ratios[row] * selection_probabilities_[(row + 1) * stride + selected - 1] *
+                row_scale_ratios[row] / selection_probabilities_[row * stride + selected];
+            if (!(probability > 0.0 && probability < 1.0 && std::isfinite(probability))) {
+                stable = false;
+                break;
+            }
+            selection_probabilities_[row * stride + selected] = probability;
+        }
+    }
+    if (stable) {
+        return;
+    }
+
+    // Extreme odds or strata can span more than the double exponent range.
+    // Log partitions preserve those cases; only setup pays the fallback cost,
+    // while workers still consume the same direct-probability table.
+    std::vector<double> log_odds_ratios;
+    log_odds_ratios.reserve(uncertain_sites_.size());
+    for (uint32_t site : uncertain_sites_) {
+        const double probability = probabilities[site];
+        log_odds_ratios.push_back(std::log(probability) - std::log1p(-probability));
+    }
     const double log_zero = -std::numeric_limits<double>::infinity();
     selection_probabilities_.assign(rows * stride, log_zero);
     selection_probabilities_[uncertain_sites_.size() * stride] = 0.0;
     for (size_t row = uncertain_sites_.size(); row-- > 0;) {
         const uint32_t remaining = static_cast<uint32_t>(uncertain_sites_.size() - row);
+        const uint32_t min_selected = remaining_k_ > row ? remaining_k_ - row : 0;
         const uint32_t max_selected = std::min(remaining, remaining_k_);
-        for (uint32_t selected = 0; selected <= max_selected; ++selected) {
+        for (uint32_t selected = min_selected; selected <= max_selected; ++selected) {
             const double without_site = selection_probabilities_[(row + 1) * stride + selected];
             double with_site = log_zero;
             if (selected != 0) {
@@ -105,9 +182,10 @@ KFaultDistribution::KFaultDistribution(std::span<const double> probabilities, ui
     // so the suffix row needed by each ratio is still in the log domain.
     for (size_t row = 0; row < uncertain_sites_.size(); ++row) {
         const uint32_t remaining = static_cast<uint32_t>(uncertain_sites_.size() - row);
+        const uint32_t min_selected = remaining_k_ > row ? remaining_k_ - row : 0;
         const uint32_t max_selected = std::min(remaining, remaining_k_);
-        selection_probabilities_[row * stride] = 0.0;
-        for (uint32_t selected = 1; selected <= max_selected; ++selected) {
+        for (uint32_t selected = std::max(uint32_t{1}, min_selected); selected <= max_selected;
+             ++selected) {
             const double log_probability =
                 log_odds_ratios[row] + selection_probabilities_[(row + 1) * stride + selected - 1] -
                 selection_probabilities_[row * stride + selected];
