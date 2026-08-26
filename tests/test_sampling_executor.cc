@@ -1366,7 +1366,7 @@ TEST_CASE("Explicit batch capacities replay seeded fixed rows") {
         const clifft::sampling::SamplingResult packed =
             clifft::sampling::sample(executable, 257, uint64_t{91831}, 1, std::nullopt, capacity);
         const clifft::sampling::SamplingResult replay =
-            clifft::sampling::sample(executable, 257, uint64_t{91831}, 1, std::nullopt, capacity);
+            clifft::sampling::sample(executable, 257, uint64_t{91831}, 4, std::nullopt, capacity);
         CAPTURE(capacity);
         REQUIRE(packed.measurements == replay.measurements);
         REQUIRE(packed.detectors == replay.detectors);
@@ -1731,7 +1731,7 @@ TEST_CASE("Explicit batch capacities replay seeded survivor rows") {
         const clifft::sampling::SamplingSurvivorResult packed = clifft::sampling::sample_survivors(
             executable, 257, uint64_t{91841}, true, 1, std::nullopt, capacity);
         const clifft::sampling::SamplingSurvivorResult replay = clifft::sampling::sample_survivors(
-            executable, 257, uint64_t{91841}, true, 1, std::nullopt, capacity);
+            executable, 257, uint64_t{91841}, true, 4, std::nullopt, capacity);
         CAPTURE(capacity);
         REQUIRE(packed.total_shots == replay.total_shots);
         REQUIRE(packed.passed_shots == replay.passed_shots);

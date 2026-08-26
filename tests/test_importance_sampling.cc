@@ -593,12 +593,12 @@ TEST_CASE("Explicit batch capacities replay conditioned rows and survivors") {
         const clifft::sampling::SamplingResult fixed_packed =
             clifft::sampling::sample_k(fixed, 257, 1, 481, 1, std::nullopt, capacity);
         const clifft::sampling::SamplingResult fixed_replay =
-            clifft::sampling::sample_k(fixed, 257, 1, 481, 1, std::nullopt, capacity);
+            clifft::sampling::sample_k(fixed, 257, 1, 481, 4, std::nullopt, capacity);
         const clifft::sampling::SamplingSurvivorResult survivor_packed =
             clifft::sampling::sample_k_survivors(survivors, 257, 1, 482, true, 1, std::nullopt,
                                                  capacity);
         const clifft::sampling::SamplingSurvivorResult survivor_replay =
-            clifft::sampling::sample_k_survivors(survivors, 257, 1, 482, true, 1, std::nullopt,
+            clifft::sampling::sample_k_survivors(survivors, 257, 1, 482, true, 4, std::nullopt,
                                                  capacity);
         CAPTURE(capacity);
         REQUIRE(fixed_packed.measurements == fixed_replay.measurements);
