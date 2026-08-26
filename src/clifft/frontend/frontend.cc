@@ -761,7 +761,9 @@ HirModule trace_impl(const Circuit& circuit, const InstrumentTraceOptions* instr
                 const bool dagger = node.gate == GateType::SPP_DAG;
                 const bool absorbed = try_absorb_clifford_pauli_rotation(
                     inverse, trace_state, obs.view(), dagger ? -0.5 : 0.5, false);
-                assert(absorbed);
+                if (!absorbed) {
+                    throw std::logic_error("front end failed to absorb an SPP Clifford rotation");
+                }
                 break;
             }
 

@@ -6,7 +6,6 @@
 #include "clifft/sampling/state_queries.h"
 
 #include <algorithm>
-#include <cassert>
 #include <cstddef>
 #include <stdexcept>
 #include <utility>
@@ -38,6 +37,10 @@ void reverse_operation_targets(AstNode& node) {
             std::ranges::reverse(node.targets);
             return;
         case GateArity::PAIR: {
+            if ((node.targets.size() & 1U) != 0) {
+                throw std::invalid_argument(
+                    "amplitude adjoint requires an even number of paired-operation targets");
+            }
             std::vector<Target> reversed;
             reversed.reserve(node.targets.size());
             for (size_t end = node.targets.size(); end >= 2; end -= 2) {
@@ -106,7 +109,11 @@ Circuit adjoint_with_basis_input(const Circuit& source, std::span<const uint64_t
     result.nodes.reserve(source.nodes.size() + source.num_qubits);
     for (uint32_t q = 0; q < source.num_qubits; ++q) {
         if (((input_basis[q / 64U] >> (q % 64U)) & 1U) != 0) {
-            result.nodes.push_back(AstNode{.gate = GateType::X, .targets = {Target::qubit(q)}});
+            result.nodes.push_back(AstNode{.gate = GateType::X,
+                                           .targets = {Target::qubit(q)},
+                                           .args = {},
+                                           .source_line = 0,
+                                           .tag = {}});
         }
     }
     for (auto it = source.nodes.rbegin(); it != source.nodes.rend(); ++it) {
@@ -166,15 +173,13 @@ BasisAmplitudeQuery::Prepared BasisAmplitudeQuery::prepare(const Circuit& circui
 BasisAmplitudeQuery::BasisAmplitudeQuery(const Circuit& circuit,
                                          std::span<const uint64_t> output_basis,
                                          std::complex<double> input_phase)
-    : BasisAmplitudeQuery(circuit, prepare(circuit, output_basis, input_phase)) {}
+    : BasisAmplitudeQuery(prepare(circuit, output_basis, input_phase)) {}
 
-BasisAmplitudeQuery::BasisAmplitudeQuery(const Circuit& circuit, Prepared prepared)
+BasisAmplitudeQuery::BasisAmplitudeQuery(Prepared prepared)
     : plan_(std::move(prepared.plan)),
       output_basis_(std::move(prepared.execution_basis)),
       phase_(prepared.phase),
-      conjugate_result_(prepared.conjugate_result) {
-    assert(circuit.num_qubits == plan_.num_qubits());
-}
+      conjugate_result_(prepared.conjugate_result) {}
 
 std::complex<double> BasisAmplitudeQuery::evaluate() const {
     auto amplitudes =

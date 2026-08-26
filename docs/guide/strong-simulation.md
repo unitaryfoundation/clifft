@@ -56,7 +56,9 @@ Named Clifford gates use their documented Stim matrices, including global
 phase. `T` and `T_DAG` are `diag(1, exp(+/- i*pi/4))`. A rotation
 `R_P(alpha)` is `exp(-i*pi*alpha*P/2)`. OpenQASM `U`/`u1`/`u2`/`u3` use the
 Qiskit/OpenQASM matrix convention rather than Clifft's phase-insensitive state
-representative.
+representative. Native-format `U3` uses Clifft's determinant-one
+`R_Z(phi) R_Y(theta) R_Z(lambda)` convention; select `input_format="qasm2"`
+when the source QASM scalar is part of the desired amplitude.
 
 ## When to use which
 

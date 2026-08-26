@@ -29,7 +29,7 @@ class BasisAmplitudeQuery {
         bool conjugate_result = false;
     };
 
-    BasisAmplitudeQuery(const Circuit& circuit, Prepared prepared);
+    explicit BasisAmplitudeQuery(Prepared prepared);
     [[nodiscard]] static Prepared prepare(const Circuit& circuit,
                                           std::span<const uint64_t> output_basis,
                                           std::complex<double> input_phase);
