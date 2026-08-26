@@ -4,7 +4,6 @@
 #include "clifft/util/config.h"
 #include "clifft/util/numeric.h"
 
-#include <algorithm>
 #include <cctype>
 #include <cmath>
 #include <cstdint>
@@ -51,6 +50,9 @@ class Lexer {
         const size_t start = offset_;
         const uint32_t token_line = line_;
         const char first = text_[offset_];
+        if (static_cast<unsigned char>(first) > 127) {
+            throw ParseError("Non-ASCII/Unicode character outside a comment", token_line);
+        }
 
         if (is_identifier_start(first)) {
             ++offset_;
@@ -71,6 +73,9 @@ class Lexer {
             ++offset_;
             const size_t content_start = offset_;
             while (offset_ < text_.size() && text_[offset_] != '"') {
+                if (static_cast<unsigned char>(text_[offset_]) > 127) {
+                    throw ParseError("Non-ASCII/Unicode character outside a comment", token_line);
+                }
                 if (text_[offset_] == '\n' || text_[offset_] == '\r') {
                     throw ParseError("Unterminated string literal", token_line);
                 }
@@ -231,15 +236,7 @@ struct QubitArgument {
 
 class Parser {
   public:
-    Parser(std::string_view text, size_t max_ops) : lexer_(text), max_ops_(max_ops) {
-        const auto non_ascii = std::find_if(
-            text.begin(), text.end(), [](char c) { return static_cast<unsigned char>(c) > 127; });
-        if (non_ascii != text.end()) {
-            throw ParseError("Non-ASCII/Unicode character detected. Only plain ASCII is supported.",
-                             0);
-        }
-        advance();
-    }
+    Parser(std::string_view text, size_t max_ops) : lexer_(text), max_ops_(max_ops) { advance(); }
 
     Qasm2Import parse() {
         expect_identifier("OPENQASM");
@@ -425,20 +422,20 @@ class Parser {
     }
 
     double parse_multiplicative() {
-        double value = parse_power();
+        double value = parse_unary();
         while (is_symbol('*') || is_symbol('/')) {
             const bool divide = is_symbol('/');
             advance();
-            const double rhs = parse_power();
+            const double rhs = parse_unary();
             value = divide ? value / rhs : value * rhs;
         }
         return value;
     }
 
     double parse_power() {
-        double value = parse_unary();
+        double value = parse_primary();
         if (consume_symbol('^')) {
-            value = std::pow(value, parse_power());
+            value = std::pow(value, parse_unary());
         }
         return value;
     }
@@ -450,7 +447,7 @@ class Parser {
         if (consume_symbol('-')) {
             return -parse_unary();
         }
-        return parse_primary();
+        return parse_power();
     }
 
     double parse_primary() {
@@ -537,8 +534,8 @@ class Parser {
         return result;
     }
 
-    static double qasm_u_phase_turns(std::string_view gate_name,
-                                     const std::vector<double>& radians) {
+    static double qasm_u_phase_half_turns(std::string_view gate_name,
+                                          const std::vector<double>& radians) {
         double phi = 0.0;
         double lambda = 0.0;
         if (gate_name == "u1") {
@@ -589,9 +586,9 @@ class Parser {
         }
 
         if (spec->phase_rule == PhaseRule::QasmU) {
-            result_.global_phase_turns = std::remainder(
-                result_.global_phase_turns +
-                    static_cast<double>(broadcast_width) * qasm_u_phase_turns(gate_name, radians),
+            result_.global_phase_half_turns = std::remainder(
+                result_.global_phase_half_turns + static_cast<double>(broadcast_width) *
+                                                      qasm_u_phase_half_turns(gate_name, radians),
                 2.0);
         }
         if (spec->identity) {

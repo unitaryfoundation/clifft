@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 from conftest import assert_statevectors_equiv
-from qiskit import qasm2
+from qiskit import QuantumCircuit, qasm2
 from qiskit.quantum_info import Statevector
 
 import clifft
@@ -37,7 +37,7 @@ def test_parse_qasm2_exposes_lowered_circuit_and_phase() -> None:
     assert isinstance(imported.circuit, clifft.Circuit)
     assert imported.num_qubits == 1
     assert len(imported) == 1
-    assert imported.global_phase_turns == pytest.approx(0.25)
+    assert imported.global_phase_half_turns == pytest.approx(0.25)
     assert imported.circuit.nodes[0].gate == clifft.GateType.U3
 
 
@@ -79,6 +79,44 @@ def test_qasm2_euler_and_register_broadcast_match_qiskit() -> None:
     actual = clifft.get_statevector(program)
     expected = np.asarray(Statevector.from_instruction(qasm2.loads(source)).data)
     assert_statevectors_equiv(actual, expected)
+
+
+@pytest.mark.parametrize("expression", ["-2^2", "2^-1", "2^3^2"])
+def test_qasm2_power_precedence_matches_qiskit(expression: str) -> None:
+    """Unary signs and right-associative powers follow Qiskit's grammar."""
+    source = 'OPENQASM 2.0; include "qelib1.inc"; qreg q[1]; ' f"rz({expression}) q[0];"
+    imported = clifft.parse_qasm2(source)
+    actual = imported.circuit.nodes[0].args[0] * np.pi
+    expected = float(qasm2.loads(source).data[0].operation.params[0])
+    assert actual == pytest.approx(expected)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "OPENQASM 2.0; qreg q[1]; U(0.31, -0.47, 0.59) q[0];",
+        ('OPENQASM 2.0; include "qelib1.inc"; qreg q[1]; ' "u1(0.37) q[0];"),
+        ('OPENQASM 2.0; include "qelib1.inc"; qreg q[1]; ' "u2(-0.23, 0.41) q[0];"),
+        ('OPENQASM 2.0; include "qelib1.inc"; qreg q[1]; ' "u3(0.31, -0.47, 0.59) q[0];"),
+        ('OPENQASM 2.0; include "qelib1.inc"; qreg q[3]; ' "u3(0.31, -0.47, 0.59) q;"),
+    ],
+)
+def test_qasm2_phase_sidecar_reconstructs_exact_qiskit_statevector(source: str) -> None:
+    """The sidecar restores source amplitudes without phase alignment."""
+    imported = clifft.parse_qasm2(source)
+    internal = QuantumCircuit(imported.num_qubits)
+    for node in imported.circuit.nodes:
+        assert node.gate == clifft.GateType.U3
+        theta, phi, lam = (angle * np.pi for angle in node.args)
+        qubit = node.targets[0].value
+        internal.rz(lam, qubit)
+        internal.ry(theta, qubit)
+        internal.rz(phi, qubit)
+
+    internal_state = np.asarray(Statevector.from_instruction(internal).data)
+    actual = np.exp(1j * np.pi * imported.global_phase_half_turns) * internal_state
+    expected = np.asarray(Statevector.from_instruction(qasm2.loads(source)).data)
+    np.testing.assert_allclose(actual, expected, rtol=1e-12, atol=1e-12)
 
 
 def test_parse_qasm2_file() -> None:

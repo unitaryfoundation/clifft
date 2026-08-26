@@ -37,7 +37,8 @@ static_assert(std::numeric_limits<double>::is_iec559,
 // std::isfinite() and NaN-aware comparisons. Inspect the exponent bits
 // instead: a non-finite double has all exponent bits set. Keep the integer
 // predicate out of line so the compiler cannot propagate finite-math
-// assumptions from the floating-point value into the bit test.
+// assumptions from the floating-point value into the bit test; Apple Clang 17
+// on arm64 was observed to fold the otherwise-inline check.
 namespace detail {
 
 #if defined(_MSC_VER)

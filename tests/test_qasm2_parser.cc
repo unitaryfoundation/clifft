@@ -3,6 +3,7 @@
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
+#include <numbers>
 #include <string>
 #include <vector>
 
@@ -29,7 +30,7 @@ TEST_CASE("OpenQASM 2 imports the ABSTRACTS gate vocabulary") {
     CHECK(imported.circuit.nodes[3].gate == GateType::R_X);
     REQUIRE(imported.circuit.nodes[3].args.size() == 1);
     CHECK(imported.circuit.nodes[3].args[0] == Catch::Approx(0.5));
-    CHECK(imported.global_phase_turns == 0.0);
+    CHECK(imported.global_phase_half_turns == 0.0);
 }
 
 TEST_CASE("OpenQASM 2 preserves declared widths and broadcasts registers") {
@@ -61,16 +62,22 @@ TEST_CASE("OpenQASM 2 evaluates constant angle expressions") {
     const Qasm2Import imported = parse_qasm2(R"(
         OPENQASM 2.0;
         include "qelib1.inc";
-        qreg q[3];
+        qreg q[6];
         rx(sqrt(4)*pi/4) q[0];
         ry(2^3*pi/8) q[1];
         rz(cos(0)*pi) q[2];
+        rz(-2^2) q[3];
+        rz(2^-1) q[4];
+        rz(2^3^2) q[5];
     )");
 
-    REQUIRE(imported.circuit.nodes.size() == 3);
+    REQUIRE(imported.circuit.nodes.size() == 6);
     CHECK(imported.circuit.nodes[0].args[0] == Catch::Approx(0.5));
     CHECK(imported.circuit.nodes[1].args[0] == Catch::Approx(1.0));
     CHECK(imported.circuit.nodes[2].args[0] == Catch::Approx(1.0));
+    CHECK(imported.circuit.nodes[3].args[0] == Catch::Approx(-4.0 / std::numbers::pi));
+    CHECK(imported.circuit.nodes[4].args[0] == Catch::Approx(0.5 / std::numbers::pi));
+    CHECK(imported.circuit.nodes[5].args[0] == Catch::Approx(512.0 / std::numbers::pi));
 }
 
 TEST_CASE("OpenQASM 2 lowers Euler gates with their source phase") {
@@ -86,7 +93,7 @@ TEST_CASE("OpenQASM 2 lowers Euler gates with their source phase") {
     CHECK(u1.circuit.nodes[0].args[0] == 0.0);
     CHECK(u1.circuit.nodes[0].args[1] == 0.0);
     CHECK(u1.circuit.nodes[0].args[2] == Catch::Approx(0.5));
-    CHECK(u1.global_phase_turns == Catch::Approx(0.25));
+    CHECK(u1.global_phase_half_turns == Catch::Approx(0.25));
 
     const Qasm2Import u2 = parse_qasm2(R"(
         OPENQASM 2.0;
@@ -99,7 +106,7 @@ TEST_CASE("OpenQASM 2 lowers Euler gates with their source phase") {
     CHECK(u2.circuit.nodes[0].args[0] == Catch::Approx(0.5));
     CHECK(u2.circuit.nodes[0].args[1] == Catch::Approx(1.0 / 3.0));
     CHECK(u2.circuit.nodes[0].args[2] == Catch::Approx(1.0 / 7.0));
-    CHECK(u2.global_phase_turns == Catch::Approx(5.0 / 21.0));
+    CHECK(u2.global_phase_half_turns == Catch::Approx(5.0 / 21.0));
 
     const Qasm2Import builtin = parse_qasm2(R"(
         OPENQASM 2.0;
@@ -111,7 +118,7 @@ TEST_CASE("OpenQASM 2 lowers Euler gates with their source phase") {
     CHECK(builtin.circuit.nodes[0].args[0] == Catch::Approx(1.0 / 3.0));
     CHECK(builtin.circuit.nodes[0].args[1] == Catch::Approx(1.0 / 5.0));
     CHECK(builtin.circuit.nodes[0].args[2] == Catch::Approx(-1.0 / 7.0));
-    CHECK(builtin.global_phase_turns == Catch::Approx(1.0 / 35.0));
+    CHECK(builtin.global_phase_half_turns == Catch::Approx(1.0 / 35.0));
 }
 
 TEST_CASE("OpenQASM 2 phase corrections include register broadcast") {
@@ -122,20 +129,33 @@ TEST_CASE("OpenQASM 2 phase corrections include register broadcast") {
         u1(pi/2) q;
     )");
     CHECK(imported.circuit.nodes.size() == 3);
-    CHECK(imported.global_phase_turns == Catch::Approx(0.75));
+    CHECK(imported.global_phase_half_turns == Catch::Approx(0.75));
 }
 
 TEST_CASE("OpenQASM 2 accepts comments barriers and builtins") {
-    const Qasm2Import imported = parse_qasm2(R"(
-        /* header */ OPENQASM 2.0;
-        qreg q[2]; // builtins do not require qelib1
-        U(0, 0, 0) q[0];
-        CX q[0], q[1];
-        barrier q[0], q[1];
-    )");
+    const std::string source =
+        "/* author \xC3\xA9 */ OPENQASM 2.0;\n"
+        "qreg q[2]; // \xCE\xB8 rotation\n"
+        "U(0, 0, 0) q[0];\n"
+        "CX q[0], q[1];\n"
+        "barrier q[0], q[1];\n";
+    const Qasm2Import imported = parse_qasm2(source);
     REQUIRE(imported.circuit.nodes.size() == 2);
-    CHECK(imported.circuit.nodes[0].source_line == 4);
-    CHECK(imported.circuit.nodes[1].source_line == 5);
+    CHECK(imported.circuit.nodes[0].source_line == 3);
+    CHECK(imported.circuit.nodes[1].source_line == 4);
+}
+
+TEST_CASE("OpenQASM 2 reports non-ASCII syntax at its source line") {
+    const std::string source =
+        "OPENQASM 2.0;\n"
+        "qreg q[1];\n"
+        "\xCE\xB8 q[0];\n";
+    try {
+        (void)parse_qasm2(source);
+        FAIL("Expected ParseError");
+    } catch (const ParseError& error) {
+        CHECK(error.line() == 3);
+    }
 }
 
 TEST_CASE("OpenQASM 2 identity preserves metadata without an operation") {

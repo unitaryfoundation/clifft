@@ -408,7 +408,7 @@ NB_MODULE(_clifft_core, m) {
         m, "Qasm2Import",
         "A natively parsed unitary OpenQASM 2 circuit and its source phase correction")
         .def_ro("circuit", &clifft::Qasm2Import::circuit)
-        .def_ro("global_phase_turns", &clifft::Qasm2Import::global_phase_turns,
+        .def_ro("global_phase_half_turns", &clifft::Qasm2Import::global_phase_half_turns,
                 "Source phase correction t representing exp(i * pi * t).")
         .def_prop_ro(
             "num_qubits",
@@ -418,7 +418,8 @@ NB_MODULE(_clifft_core, m) {
         .def("__repr__", [](const clifft::Qasm2Import& imported) {
             return "Qasm2Import(" + std::to_string(imported.circuit.nodes.size()) + " ops, " +
                    std::to_string(imported.circuit.num_qubits) +
-                   " qubits, phase_turns=" + std::to_string(imported.global_phase_turns) + ")";
+                   " qubits, phase_half_turns=" + std::to_string(imported.global_phase_half_turns) +
+                   ")";
         });
 
     m.def(

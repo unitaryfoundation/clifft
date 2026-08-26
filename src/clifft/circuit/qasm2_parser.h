@@ -12,10 +12,10 @@ namespace clifft {
 
 // The imported AST stays phase-free so ordinary sampling compilation does not
 // acquire scalar bookkeeping. Phase-sensitive consumers can apply
-// exp(i * pi * global_phase_turns) at their separate compilation boundary.
+// exp(i * pi * global_phase_half_turns) at their separate compilation boundary.
 struct Qasm2Import {
     Circuit circuit;
-    double global_phase_turns = 0.0;
+    double global_phase_half_turns = 0.0;
 };
 
 // Parse and lower the supported unitary OpenQASM 2.0 subset.
