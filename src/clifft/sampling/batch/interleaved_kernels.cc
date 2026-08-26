@@ -1,4 +1,4 @@
-#include "clifft/sampling/interleaved_batch_kernels.h"
+#include "clifft/sampling/batch/interleaved_kernels.h"
 
 #include "clifft/sampling/indexing.h"
 

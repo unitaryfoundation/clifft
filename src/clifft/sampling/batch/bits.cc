@@ -1,4 +1,4 @@
-#include "clifft/sampling/batch_bits.h"
+#include "clifft/sampling/batch/bits.h"
 
 #include <algorithm>
 #include <bit>

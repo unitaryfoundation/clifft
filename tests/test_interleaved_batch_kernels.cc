@@ -1,4 +1,4 @@
-#include "clifft/sampling/interleaved_batch_kernels.h"
+#include "clifft/sampling/batch/interleaved_kernels.h"
 #include "clifft/sampling/kernels.h"
 #include "clifft/util/numeric.h"
 #include "clifft/util/page_allocation.h"

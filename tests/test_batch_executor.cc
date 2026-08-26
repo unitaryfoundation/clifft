@@ -1,7 +1,7 @@
 #include "clifft/circuit/parser.h"
 #include "clifft/frontend/frontend.h"
 #include "clifft/optimizer/pass_factory.h"
-#include "clifft/sampling/batch_executor.h"
+#include "clifft/sampling/batch/executor.h"
 #include "clifft/sampling/planner.h"
 #include "clifft/util/fault_sampling.h"
 #include "clifft/util/shot_seed.h"
@@ -17,10 +17,11 @@
 using clifft::KFaultSampler;
 using clifft::make_seed_root;
 using clifft::SeedRoot;
+using clifft::sampling::BatchExecutionPolicy;
 using clifft::sampling::BatchExecutor;
 using clifft::sampling::BatchOutputMode;
 using clifft::sampling::ExecutablePlan;
-using clifft::sampling::resolve_batch_capacity;
+using clifft::sampling::resolve_batch_execution_policy;
 
 namespace {
 
@@ -139,17 +140,21 @@ TEST_CASE("Packed executor replays fixed-fault rows") {
 TEST_CASE("Packed capacity policy bounds worker state footprint") {
     const ExecutablePlan narrow(
         clifft::sampling::plan_sampling(clifft::trace(clifft::parse("H 0 1\nM 0 1\n"))));
-    REQUIRE(resolve_batch_capacity(narrow, 4096, 1, 1, BatchOutputMode::Rows, std::nullopt) ==
-            2048);
-    REQUIRE(resolve_batch_capacity(narrow, 1024, 1, 1, BatchOutputMode::Rows, std::nullopt) ==
-            1024);
-    REQUIRE(resolve_batch_capacity(narrow, 63, 1, 1, BatchOutputMode::Rows, std::nullopt) == 1);
-    REQUIRE(resolve_batch_capacity(narrow, 63, 1, 1, BatchOutputMode::Rows, uint32_t{65}) == 63);
-    REQUIRE(resolve_batch_capacity(narrow, 4096, 1, 1, BatchOutputMode::Rows, uint32_t{4096}) ==
-            2048);
-    REQUIRE(resolve_batch_capacity(narrow, 4096, 1, 1, BatchOutputMode::Rows, uint32_t{1}) == 1);
+    REQUIRE(resolve_batch_execution_policy(narrow, 4096, 1, 1, BatchOutputMode::Rows, std::nullopt)
+                .lane_capacity == 2048);
+    REQUIRE(resolve_batch_execution_policy(narrow, 1024, 1, 1, BatchOutputMode::Rows, std::nullopt)
+                .lane_capacity == 1024);
+    REQUIRE(resolve_batch_execution_policy(narrow, 63, 1, 1, BatchOutputMode::Rows, std::nullopt)
+                .lane_capacity == 1);
+    REQUIRE(resolve_batch_execution_policy(narrow, 63, 1, 1, BatchOutputMode::Rows, uint32_t{65})
+                .lane_capacity == 63);
+    REQUIRE(
+        resolve_batch_execution_policy(narrow, 4096, 1, 1, BatchOutputMode::Rows, uint32_t{4096})
+            .lane_capacity == 2048);
+    REQUIRE(resolve_batch_execution_policy(narrow, 4096, 1, 1, BatchOutputMode::Rows, uint32_t{1})
+                .lane_capacity == 1);
     REQUIRE_THROWS_WITH(
-        resolve_batch_capacity(narrow, 4096, 1, 2, BatchOutputMode::Rows, uint32_t{2}),
+        resolve_batch_execution_policy(narrow, 4096, 1, 2, BatchOutputMode::Rows, uint32_t{2}),
         "packed batch_size is incompatible with intra-shot workers");
 
     std::string circuit;
@@ -163,29 +168,34 @@ TEST_CASE("Packed capacity policy bounds worker state footprint") {
     const ExecutablePlan wide(
         clifft::sampling::plan_sampling(clifft::trace(clifft::parse(circuit))));
     REQUIRE(wide.peak_active_width() == 18);
-    REQUIRE(resolve_batch_capacity(wide, 4096, 1, 1, BatchOutputMode::Rows, std::nullopt) == 1);
-    REQUIRE(resolve_batch_capacity(wide, 4096, 1, 1, BatchOutputMode::Rows, uint32_t{2}) == 2);
+    REQUIRE(resolve_batch_execution_policy(wide, 4096, 1, 1, BatchOutputMode::Rows, std::nullopt)
+                .lane_capacity == 1);
+    REQUIRE(resolve_batch_execution_policy(wide, 4096, 1, 1, BatchOutputMode::Rows, uint32_t{2})
+                .lane_capacity == 2);
     REQUIRE_THROWS_WITH(
-        resolve_batch_capacity(wide, 4096, 1, 1, BatchOutputMode::Rows, uint32_t{2048}),
+        resolve_batch_execution_policy(wide, 4096, 1, 1, BatchOutputMode::Rows, uint32_t{2048}),
         "explicit batch_size exceeds the 64 MiB packed-state limit; request a smaller batch_size");
 
     const ExecutablePlan aligned(clifft::sampling::plan_sampling(
         clifft::trace(clifft::parse(circuit + "H 18\nT 18\nH 18\nM 18\n"))));
     REQUIRE(aligned.peak_active_width() == 19);
     REQUIRE_THROWS_WITH(
-        resolve_batch_capacity(aligned, 4096, 1, 1, BatchOutputMode::Rows, uint32_t{2}),
+        resolve_batch_execution_policy(aligned, 4096, 1, 1, BatchOutputMode::Rows, uint32_t{2}),
         "explicit batch_size exceeds the 64 MiB packed-state limit; request a smaller batch_size");
 
     const ExecutablePlan interleaved(clifft::sampling::plan_sampling(
         clifft::trace(clifft::parse("H 0 1 2 3 4\nT 0 1 2 3 4\nH 0 1 2 3 4\nM 0 1 2 3 4\n"))));
     REQUIRE(interleaved.peak_active_width() == 5);
-    REQUIRE(resolve_batch_capacity(interleaved, 4096, 1, 1, BatchOutputMode::Rows, std::nullopt) ==
-            1024);
+    REQUIRE(
+        resolve_batch_execution_policy(interleaved, 4096, 1, 1, BatchOutputMode::Rows, std::nullopt)
+            .lane_capacity == 1024);
 
     const ExecutablePlan noisy = compile_batch_test_plan();
     REQUIRE(noisy.num_batch_noise_carriers() == 0);
-    REQUIRE(resolve_batch_capacity(noisy, 4096, 1, 1, BatchOutputMode::Rows, std::nullopt) == 2048);
-    REQUIRE(resolve_batch_capacity(noisy, 4096, 1, 1, BatchOutputMode::Rows, uint32_t{65}) == 65);
+    REQUIRE(resolve_batch_execution_policy(noisy, 4096, 1, 1, BatchOutputMode::Rows, std::nullopt)
+                .lane_capacity == 2048);
+    REQUIRE(resolve_batch_execution_policy(noisy, 4096, 1, 1, BatchOutputMode::Rows, uint32_t{65})
+                .lane_capacity == 65);
 }
 
 TEST_CASE("Packed capacity policy accounts for lane-scaled sidecars") {
@@ -197,9 +207,19 @@ TEST_CASE("Packed capacity policy accounts for lane-scaled sidecars") {
     REQUIRE(d7.num_batch_noise_carriers() < d7.num_symbols());
     REQUIRE(d11.num_batch_noise_carriers() > 0);
     REQUIRE(d11.num_batch_noise_carriers() < d11.num_symbols());
-    REQUIRE(resolve_batch_capacity(d7, shots, 1, 1, BatchOutputMode::Rows, std::nullopt) == 2048);
-    REQUIRE(resolve_batch_capacity(d7, shots, 16, 1, BatchOutputMode::Rows, std::nullopt) == 1024);
-    REQUIRE(resolve_batch_capacity(d11, shots, 1, 1, BatchOutputMode::Rows, std::nullopt) == 512);
-    REQUIRE(resolve_batch_capacity(d11, shots, 1, 1, BatchOutputMode::AggregateSurvivors,
-                                   std::nullopt) == 512);
+    const BatchExecutionPolicy d7_serial =
+        resolve_batch_execution_policy(d7, shots, 1, 1, BatchOutputMode::Rows, std::nullopt);
+    const BatchExecutionPolicy d7_threaded =
+        resolve_batch_execution_policy(d7, shots, 16, 1, BatchOutputMode::Rows, std::nullopt);
+    REQUIRE(d7_serial.lane_capacity == 2048);
+    REQUIRE(d7_serial.worker_count == 1);
+    REQUIRE(d7_threaded.lane_capacity == d7_serial.lane_capacity);
+    REQUIRE(d7_threaded.worker_count > 1);
+    REQUIRE(d7_threaded.worker_count < 16);
+
+    REQUIRE(resolve_batch_execution_policy(d11, shots, 1, 1, BatchOutputMode::Rows, std::nullopt)
+                .lane_capacity == 512);
+    REQUIRE(resolve_batch_execution_policy(d11, shots, 1, 1, BatchOutputMode::AggregateSurvivors,
+                                           std::nullopt)
+                .lane_capacity == 512);
 }

@@ -242,7 +242,10 @@ assert (r1.measurements == r2.measurements).all()  # Identical
 If `seed` is omitted or set to `None`, Clifft uses hardware entropy from the operating system.
 Seeded results replay exactly when the program and execution configuration are
 unchanged. Cross-shot worker scheduling does not affect the result because
-packed work is divided at deterministic batch boundaries.
+packed work is divided at deterministic batch boundaries. Automatic packed
+capacity is independent of the resolved cross-shot worker count, so
+`threads="auto"` can use different concurrency on another machine without
+changing those boundaries or the resulting seeded rows.
 
 Scalar and packed execution use separate random streams. Changing `batch_size`,
 or moving between scalar and packed execution after a planner or policy change,
@@ -281,6 +284,11 @@ selection currently requires at least 64 shots and a peak active width of at mos
 and scratch arrays, symbols, compact presampled carrier columns, expression
 registers, retained records and outputs, and per-lane scratch. The default policy
 keeps this storage near 8 MiB per packed worker and 64 MiB across packed workers.
+Automatic capacity depends on the plan, shot count, and output mode, not the
+resolved thread count. After selecting that capacity, Clifft caps the number of
+concurrent packed workers when necessary to satisfy the aggregate budget. Thus
+`threads="auto"` may use fewer workers than the reported hardware concurrency
+for a sidecar-heavy plan while retaining deterministic batch boundaries.
 An explicit capacity can opt into other fixed plans when packed execution is
 supported and its dense state fits the explicit limit; it bypasses the
 conservative complete-worker budgets, so plans with many symbolic or record

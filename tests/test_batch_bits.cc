@@ -1,4 +1,4 @@
-#include "clifft/sampling/batch_bits.h"
+#include "clifft/sampling/batch/bits.h"
 
 #include <array>
 #include <catch2/catch_test_macros.hpp>

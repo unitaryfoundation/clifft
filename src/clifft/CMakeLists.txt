@@ -20,16 +20,16 @@ add_library(clifft_core STATIC
     sampling/planner.cc
     sampling/planner_frame.cc
     sampling/pauli_preparation.cc
-    sampling/batch_bits.cc
-    sampling/batch_executor.cc
+    sampling/batch/bits.cc
+    sampling/batch/executor.cc
     sampling/kernel_dispatch.cc
     sampling/executable_plan.cc
     sampling/executable_plan_inspection.cc
     sampling/executable_plan_builder.cc
     sampling/executor.cc
     sampling/fused_rotation.cc
-    sampling/interleaved_batch_kernels.cc
-    sampling/interleaved_batch_state.cc
+    sampling/batch/interleaved_kernels.cc
+    sampling/batch/interleaved_state.cc
     sampling/kernels.cc
     sampling/sampler.cc
     sampling/state.cc

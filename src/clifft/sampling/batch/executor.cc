@@ -1,4 +1,4 @@
-#include "clifft/sampling/batch_executor.h"
+#include "clifft/sampling/batch/executor.h"
 
 #include "clifft/util/fault_sampling.h"
 #include "clifft/util/noise_sampling.h"
@@ -125,21 +125,22 @@ struct MeasurementBranchClassification {
 }  // namespace
 
 #if !defined(__EMSCRIPTEN__)
-uint32_t resolve_batch_capacity(const ExecutablePlan& plan, uint32_t shots, uint32_t shot_workers,
-                                uint32_t intra_shot_workers, BatchOutputMode output_mode,
-                                std::optional<uint32_t> requested_batch_size) {
+BatchExecutionPolicy resolve_batch_execution_policy(
+    const ExecutablePlan& plan, uint32_t shots, uint32_t shot_workers,
+    uint32_t intra_shot_workers, BatchOutputMode output_mode,
+    std::optional<uint32_t> requested_batch_size) {
     if (requested_batch_size.has_value() && *requested_batch_size == 0) {
         throw std::invalid_argument("batch_size must be a positive integer or 'auto'");
     }
     if (shots == 0 || plan.has_instruments()) {
-        return 1;
+        return {};
     }
     if (intra_shot_workers > 1) {
         if (requested_batch_size.has_value() && *requested_batch_size > 1) {
             throw std::invalid_argument(
                 "packed batch_size is incompatible with intra-shot workers");
         }
-        return 1;
+        return {};
     }
     if (requested_batch_size.has_value()) {
         const uint32_t capacity =
@@ -151,13 +152,14 @@ uint32_t resolve_batch_capacity(const ExecutablePlan& plan, uint32_t shots, uint
                 "explicit batch_size exceeds the 64 MiB packed-state limit; request a smaller "
                 "batch_size");
         }
-        return capacity;
+        return {.lane_capacity = capacity,
+                .worker_count = batch_worker_count(shots, shot_workers, capacity)};
     }
     if (shots < kDefaultMinAutoBatchShots) {
-        return 1;
+        return {};
     }
     if (plan.peak_active_width() > 5) {
-        return 1;
+        return {};
     }
     const uint64_t state_bytes_per_lane = interleaved_state_bytes_per_lane(plan);
     const uint32_t state_capacity = static_cast<uint32_t>(
@@ -165,15 +167,18 @@ uint32_t resolve_batch_capacity(const ExecutablePlan& plan, uint32_t shots, uint
     uint32_t capacity = std::min({shots, kDefaultMaxAutoBatchShots, state_capacity});
     while (capacity >= kDefaultMinAutoBatchShots) {
         const uint64_t worker_bytes = estimated_batch_worker_bytes(plan, capacity, output_mode);
-        const uint64_t total_bytes =
-            saturating_multiply(worker_bytes, batch_worker_count(shots, shot_workers, capacity));
-        if (worker_bytes <= kDefaultBatchWorkerBudget &&
-            total_bytes <= kDefaultBatchTotalWorkerBudget) {
-            return capacity;
+        if (worker_bytes <= kDefaultBatchWorkerBudget) {
+            const uint32_t requested_workers =
+                batch_worker_count(shots, shot_workers, capacity);
+            const uint64_t memory_workers = std::max<uint64_t>(
+                1, kDefaultBatchTotalWorkerBudget / std::max<uint64_t>(1, worker_bytes));
+            return {.lane_capacity = capacity,
+                    .worker_count = static_cast<uint32_t>(
+                        std::min<uint64_t>(requested_workers, memory_workers))};
         }
         capacity = std::bit_floor(capacity - 1);
     }
-    return 1;
+    return {};
 }
 #endif
 

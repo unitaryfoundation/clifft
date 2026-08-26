@@ -1,7 +1,7 @@
 #pragma once
 
 #include "clifft/sampling/fused_rotation.h"
-#include "clifft/sampling/interleaved_batch_state.h"
+#include "clifft/sampling/batch/interleaved_state.h"
 #include "clifft/sampling/pauli_preparation.h"
 
 #include <cstdint>

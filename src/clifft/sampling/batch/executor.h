@@ -1,9 +1,9 @@
 #pragma once
 
-#include "clifft/sampling/batch_bits.h"
+#include "clifft/sampling/batch/bits.h"
+#include "clifft/sampling/batch/interleaved_kernels.h"
+#include "clifft/sampling/batch/interleaved_state.h"
 #include "clifft/sampling/executable_plan.h"
-#include "clifft/sampling/interleaved_batch_kernels.h"
-#include "clifft/sampling/interleaved_batch_state.h"
 #include "clifft/util/shot_seed.h"
 #include "clifft/util/xoshiro.h"
 
@@ -20,12 +20,25 @@ class KFaultSampler;
 
 namespace clifft::sampling {
 
+// Largest lane capacity considered by automatic packed selection.
 inline constexpr uint32_t kDefaultMaxAutoBatchShots = 2048;
+
+// Hard lane-capacity ceiling for explicit packed requests.
 inline constexpr uint32_t kMaxExplicitBatchShots = 2048;
+
+// Target coefficient-state bytes retained by one automatic packed worker.
 inline constexpr size_t kDefaultBatchStateBudget = 768 * 1024;
+
+// Maximum complete retained footprint of one automatic packed worker.
 inline constexpr size_t kDefaultBatchWorkerBudget = 8 * 1024 * 1024;
+
+// Maximum complete retained footprint across all automatic packed workers.
 inline constexpr size_t kDefaultBatchTotalWorkerBudget = 64 * 1024 * 1024;
+
+// Maximum dense coefficient state retained by one explicit packed worker.
 inline constexpr size_t kMaxExplicitBatchStateBudget = 64 * 1024 * 1024;
+
+// Minimum request and capacity for automatic packed execution.
 inline constexpr uint32_t kDefaultMinAutoBatchShots = 64;
 
 enum class BatchOutputMode : uint8_t {
@@ -33,22 +46,25 @@ enum class BatchOutputMode : uint8_t {
     AggregateSurvivors,
 };
 
-// Resolve the retained lane capacity for the request. requested_batch_size is
-// empty for conservative automatic selection, one for the scalar path, or an
-// explicit packed capacity. Validation and allocation happen before dispatch.
+struct BatchExecutionPolicy {
+    uint32_t lane_capacity = 1;
+    uint32_t worker_count = 1;
+};
+
+// Resolve deterministic lane boundaries first, then cap automatic workers by
+// the aggregate retained-memory budget. Validation happens before dispatch.
 #if defined(__EMSCRIPTEN__)
-[[nodiscard]] inline uint32_t resolve_batch_capacity(const ExecutablePlan& plan, uint32_t shots,
-                                                     uint32_t shot_workers,
-                                                     uint32_t intra_shot_workers,
-                                                     BatchOutputMode output_mode,
-                                                     std::optional<uint32_t> requested_batch_size) {
+[[nodiscard]] inline BatchExecutionPolicy resolve_batch_execution_policy(
+    const ExecutablePlan& plan, uint32_t shots, uint32_t shot_workers,
+    uint32_t intra_shot_workers, BatchOutputMode output_mode,
+    std::optional<uint32_t> requested_batch_size) {
     (void)shot_workers;
     (void)output_mode;
     if (requested_batch_size.has_value() && *requested_batch_size == 0) {
         throw std::invalid_argument("batch_size must be a positive integer or 'auto'");
     }
     if (shots == 0 || plan.has_instruments()) {
-        return 1;
+        return {};
     }
     if (intra_shot_workers > 1 && requested_batch_size.value_or(1) > 1) {
         throw std::invalid_argument("packed batch_size is incompatible with intra-shot workers");
@@ -56,13 +72,13 @@ enum class BatchOutputMode : uint8_t {
     if (requested_batch_size.value_or(1) > 1) {
         throw std::invalid_argument("packed batch_size is unavailable in WebAssembly builds");
     }
-    return 1;
+    return {};
 }
 #else
-[[nodiscard]] uint32_t resolve_batch_capacity(const ExecutablePlan& plan, uint32_t shots,
-                                              uint32_t shot_workers, uint32_t intra_shot_workers,
-                                              BatchOutputMode output_mode,
-                                              std::optional<uint32_t> requested_batch_size);
+[[nodiscard]] BatchExecutionPolicy resolve_batch_execution_policy(
+    const ExecutablePlan& plan, uint32_t shots, uint32_t shot_workers,
+    uint32_t intra_shot_workers, BatchOutputMode output_mode,
+    std::optional<uint32_t> requested_batch_size);
 #endif
 
 // Single-threaded packed executor for fixed plans. Coefficients are

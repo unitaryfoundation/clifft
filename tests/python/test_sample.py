@@ -1,6 +1,7 @@
 """Python integration tests for clifft.compile and clifft.sample."""
 
 import warnings
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -194,6 +195,21 @@ class TestSample:
         )
         serial = sampling_api.sample(prog, 257, seed=12345, threads=1)
         threaded = sampling_api.sample(prog, 257, seed=12345, threads=threads)
+        np.testing.assert_array_equal(threaded.measurements, serial.measurements)
+        np.testing.assert_array_equal(threaded.detectors, serial.detectors)
+        np.testing.assert_array_equal(threaded.observables, serial.observables)
+
+    def test_auto_batch_boundaries_ignore_worker_budget(self, sampling_api: Any) -> None:
+        """Memory-limited worker counts do not change automatic batch RNG boundaries."""
+        circuit = (
+            Path(__file__).parent.parent / "fixtures" / "surface_d7_r7_p001.stim"
+        ).read_text()
+        prog = sampling_api.compile(circuit)
+        shots = 32_768
+
+        serial = sampling_api.sample(prog, shots, seed=42, threads=1)
+        threaded = sampling_api.sample(prog, shots, seed=42, threads=16)
+
         np.testing.assert_array_equal(threaded.measurements, serial.measurements)
         np.testing.assert_array_equal(threaded.detectors, serial.detectors)
         np.testing.assert_array_equal(threaded.observables, serial.observables)
