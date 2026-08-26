@@ -1,9 +1,7 @@
-# Native OpenQASM 2 Input
+# OpenQASM 2 Input
 
-Clifft can natively parse and compile a unitary subset of OpenQASM 2.0. This
-path has no Qiskit runtime dependency and is intended for unitary simulation
-and exact-query workflows such as the
-[ABSTRACTS benchmark](https://github.com/mjsutcliffe99/ABSTRACTS).
+Clifft can natively parse and compile a unitary subset of OpenQASM 2.0 without a
+Qiskit runtime dependency.
 
 Select the format explicitly when compiling:
 
@@ -28,7 +26,7 @@ Clifft does not guess the format from the input text. The default
 
 ## Supported Syntax
 
-The initial importer supports:
+The importer supports:
 
 - the required `OPENQASM 2.0;` version statement;
 - the built-in `U` and `CX` gates;
@@ -44,19 +42,10 @@ The initial importer supports:
 Declared register width is preserved even when some qubits are unused.
 Register-valued gate operands are expanded using OpenQASM broadcasting rules.
 
-The initial contract rejects classical registers, measurements, resets,
-classical conditions, custom gate declarations, opaque declarations, and
-nonstandard include files. These statements fail during parsing rather than
-being dropped or assigned approximate semantics.
-
-Custom gate declarations are the intended next unitary-format extension. A
-future bounded macro expander can use the same parser and phase rules for gate
-bodies, including an embedded source definition of the remaining unitary
-`qelib1.inc` vocabulary, without widening this initial contract implicitly.
-
-OpenQASM 3 is not part of this contract. Its standard library, gate modifiers,
-global-phase operation, declarations, and dynamic-circuit features need a
-separately specified importer extension.
+The importer rejects classical registers, measurements, resets, classical
+conditions, custom gate declarations, opaque declarations, and nonstandard
+include files. These statements fail during parsing rather than being dropped
+or assigned approximate semantics. Support may expand in the future.
 
 ## Parsing and Source Phase
 
@@ -71,19 +60,14 @@ print(imported.circuit)
 print(imported.global_phase_half_turns)
 ```
 
-`global_phase_half_turns` is a value `t` representing the correction
-`exp(1j * pi * t)`. OpenQASM 2's Euler gates and Clifft's internal `U3`
-representation can differ by this phase. Keeping it beside the ordinary AST
-lets future phase-sensitive compilation consume the exact source convention
-without adding scalar bookkeeping to sampling HIR, plans, or executor state.
+Clifft is generally insensitive to global phase, but the importer retains the
+source correction for potential future phase-sensitive use cases.
+`global_phase_half_turns` is a value `t` representing
+`exp(1j * pi * t)`. Current sampling, probability, and state-vector APIs do not
+propagate it beyond the import boundary.
 
-For the ambiguity between the OpenQASM 2 specification's displayed `U` matrix,
-its prose, and `qelib1.inc`, Clifft follows Qiskit's de-facto convention:
+For gate phase conventions, Clifft follows Qiskit's de-facto convention:
 `U`/`u1`/`u2`/`u3` use Qiskit's cosine-top-left Euler matrix, while `rz` is the
 symmetric `RZGate` and therefore contributes no source-phase correction.
-
-The current sampling, probability, and state-vector APIs are phase-insensitive,
-so ordinary `compile(..., input_format="qasm2")` does not propagate this value
-beyond the import boundary.
 
 `parse_qasm2_file()` provides the corresponding file entry point.

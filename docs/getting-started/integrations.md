@@ -2,15 +2,13 @@
 
 # Front-End Integrations
 
-Clifft natively accepts Stim-compatible circuit text with Clifft extensions for
-non-Clifford operations and a documented unitary OpenQASM 2 subset. If your
-circuits already live as objects in another quantum software framework,
-companion packages can translate or route supported circuits to Clifft without
-hand-writing either text format.
+Clifft's primary input is Stim-compatible circuit text with Clifft extensions
+for non-Clifford operations. Other supported front ends accept OpenQASM 2 text
+or integrate circuit objects from another quantum software framework.
 
-These packages are maintained separately from the core `clifft` package and are
-released on their own schedule. Use their READMEs as the source of truth for the
-full supported operation set and current limitations.
+OpenQASM 2 support is built into the core `clifft` package. Framework companion
+packages are maintained separately and released on their own schedule; use
+their READMEs as the source of truth for current limitations.
 
 ## Integration Options
 
@@ -21,10 +19,10 @@ full supported operation set and current limitations.
 | Qiskit `QuantumCircuit` | [`clifft-qiskit`](https://github.com/unitaryfoundation/clifft-qiskit) | A Qiskit `BackendV2` provider that runs supported circuits on Clifft and returns Qiskit-style results. |
 | Cirq `cirq.Circuit` | [`clifft-cirq`](https://github.com/unitaryfoundation/clifft-cirq) | A converter to Clifft circuit text plus a Cirq-style sampler facade backed by Clifft. |
 
-Use the native `clifft` API when you are working with supported circuit text,
-detector annotations, observables, post-selection, or importance sampling. Use
-an adapter when circuit construction, decomposition, or the surrounding
-workflow already lives in Qiskit or Cirq.
+Use the native `clifft` API for supported circuit text, detector annotations,
+observables, post-selection, or importance sampling. Use an adapter when
+circuit construction, decomposition, or the surrounding workflow already lives
+in Qiskit or Cirq.
 
 ## Qiskit
 
