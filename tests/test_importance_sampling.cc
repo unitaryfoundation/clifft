@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
@@ -32,6 +33,35 @@ clifft::sampling::ExecutablePlan compile_circuit(const std::string& stim_text,
         clifft::sampling::plan_sampling(hir, {.postselection_mask = postselection,
                                               .expected_detectors = reference.detectors,
                                               .expected_observables = reference.observables}));
+}
+
+double grouped_conditional_mean(uint32_t group_size, uint32_t k, double first_probability,
+                                double second_probability) {
+    const auto log_choose = [](uint32_t n, uint32_t selected) {
+        return std::lgamma(static_cast<double>(n) + 1.0) -
+               std::lgamma(static_cast<double>(selected) + 1.0) -
+               std::lgamma(static_cast<double>(n - selected) + 1.0);
+    };
+    const double first_log_odds = std::log(first_probability) - std::log1p(-first_probability);
+    const double second_log_odds = std::log(second_probability) - std::log1p(-second_probability);
+    const uint32_t min_first = k > group_size ? k - group_size : 0;
+    const uint32_t max_first = std::min(group_size, k);
+    std::vector<double> log_weights;
+    log_weights.reserve(max_first - min_first + 1);
+    for (uint32_t first = min_first; first <= max_first; ++first) {
+        const uint32_t second = k - first;
+        log_weights.push_back(log_choose(group_size, first) + log_choose(group_size, second) +
+                              first * first_log_odds + second * second_log_odds);
+    }
+    const double max_log_weight = *std::ranges::max_element(log_weights);
+    double total_weight = 0.0;
+    double weighted_first = 0.0;
+    for (uint32_t first = min_first; first <= max_first; ++first) {
+        const double weight = std::exp(log_weights[first - min_first] - max_log_weight);
+        total_weight += weight;
+        weighted_first += first * weight;
+    }
+    return weighted_first / total_weight;
 }
 
 }  // namespace
@@ -95,6 +125,70 @@ TEST_CASE("Conditioned fault workers share immutable preparation") {
             second.sample([&]() noexcept { return second_rng.next_double(); });
         REQUIRE(std::ranges::equal(first_selected, second_selected));
     }
+}
+
+TEST_CASE("Conditioned fault sampling matches an exhaustive subset oracle") {
+    constexpr std::array<double, 5> probabilities{0.07, 0.19, 0.43, 0.68, 0.91};
+    constexpr uint32_t k = 2;
+    std::array<double, probabilities.size()> expected{};
+    double total_weight = 0.0;
+    for (uint32_t subset = 0; subset < (1U << probabilities.size()); ++subset) {
+        if (std::popcount(subset) != k) {
+            continue;
+        }
+        double weight = 1.0;
+        for (uint32_t site = 0; site < probabilities.size(); ++site) {
+            const bool selected = (subset & (1U << site)) != 0;
+            weight *= selected ? probabilities[site] : 1.0 - probabilities[site];
+        }
+        total_weight += weight;
+        for (uint32_t site = 0; site < probabilities.size(); ++site) {
+            if ((subset & (1U << site)) != 0) {
+                expected[site] += weight;
+            }
+        }
+    }
+    for (double& marginal : expected) {
+        marginal /= total_weight;
+    }
+
+    constexpr uint32_t shots = 100000;
+    std::array<uint32_t, probabilities.size()> selected_counts{};
+    clifft::KFaultSampler sampler(probabilities, k);
+    clifft::Xoshiro256PlusPlus rng(2468);
+    for (uint32_t shot = 0; shot < shots; ++shot) {
+        for (uint32_t site : sampler.sample([&]() noexcept { return rng.next_double(); })) {
+            ++selected_counts[site];
+        }
+    }
+    for (uint32_t site = 0; site < probabilities.size(); ++site) {
+        CAPTURE(site, expected[site], selected_counts[site]);
+        CHECK_THAT(static_cast<double>(selected_counts[site]) / shots,
+                   WithinAbs(expected[site], 0.01));
+    }
+}
+
+TEST_CASE("Conditioned fault sampling handles a heterogeneous high stratum") {
+    constexpr uint32_t group_size = 300;
+    constexpr uint32_t k = 450;
+    constexpr double first_probability = 0.5;
+    constexpr double second_probability = 0.0015;
+    std::vector<double> probabilities(2 * group_size, second_probability);
+    std::ranges::fill(probabilities.begin(), probabilities.begin() + group_size, first_probability);
+    const double expected_first =
+        grouped_conditional_mean(group_size, k, first_probability, second_probability);
+
+    constexpr uint32_t shots = 512;
+    uint64_t total_first = 0;
+    clifft::KFaultSampler sampler(probabilities, k);
+    clifft::Xoshiro256PlusPlus rng(1357);
+    for (uint32_t shot = 0; shot < shots; ++shot) {
+        const std::span<const uint32_t> selected =
+            sampler.sample([&]() noexcept { return rng.next_double(); });
+        total_first += static_cast<uint64_t>(
+            std::ranges::count_if(selected, [](uint32_t site) { return site < group_size; }));
+    }
+    CHECK_THAT(static_cast<double>(total_first) / shots, WithinAbs(expected_first, 0.2));
 }
 
 TEST_CASE("Conditioned fault sampling remains stable for a large central stratum") {

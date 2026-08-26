@@ -35,9 +35,7 @@ class KFaultDistribution {
     bool uniform_mode_ = true;
     std::vector<uint32_t> certain_sites_;
     std::vector<uint32_t> uncertain_sites_;
-    std::vector<double> odds_ratios_;
-    std::vector<double> dp_;
-    std::vector<double> row_scale_ratios_;
+    std::vector<double> selection_probabilities_;
 };
 
 // Repeatedly samples a prepared fixed-k distribution. Construction allocates
@@ -88,13 +86,9 @@ class KFaultSampler {
                 double probability = 1.0;
                 const uint32_t remaining = count - i;
                 if (needed != remaining) {
-                    const double denominator =
-                        distribution.dp_[static_cast<size_t>(i) * stride + needed];
-                    const double numerator =
-                        distribution.odds_ratios_[i] *
-                        distribution.dp_[static_cast<size_t>(i + 1) * stride + needed - 1] *
-                        distribution.row_scale_ratios_[i];
-                    probability = denominator > 0.0 ? numerator / denominator : 0.0;
+                    probability =
+                        distribution
+                            .selection_probabilities_[static_cast<size_t>(i) * stride + needed];
                 }
                 const double draw = random_double();
                 assert(draw >= 0.0 && draw < 1.0 && "fault selection draw must be in [0, 1)");
