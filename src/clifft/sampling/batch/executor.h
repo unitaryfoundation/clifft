@@ -3,13 +3,13 @@
 #include "clifft/sampling/batch/bits.h"
 #include "clifft/sampling/batch/interleaved_kernels.h"
 #include "clifft/sampling/batch/interleaved_state.h"
+#include "clifft/sampling/batch/policy.h"
 #include "clifft/sampling/executable_plan.h"
 #include "clifft/util/shot_seed.h"
 #include "clifft/util/xoshiro.h"
 
 #include <cstddef>
 #include <cstdint>
-#include <optional>
 #include <span>
 #include <vector>
 
@@ -18,62 +18,6 @@ class KFaultSampler;
 }
 
 namespace clifft::sampling {
-
-// Largest lane capacity considered by automatic packed selection.
-inline constexpr uint32_t kDefaultMaxAutoBatchShots = 2048;
-
-// Hard lane-capacity ceiling for explicit packed requests.
-inline constexpr uint32_t kMaxExplicitBatchShots = 2048;
-
-// Target coefficient-state bytes retained by one automatic packed worker.
-inline constexpr size_t kDefaultBatchStateBudget = 768 * 1024;
-
-// Maximum complete retained footprint of one automatic packed worker.
-inline constexpr size_t kDefaultBatchWorkerBudget = 8 * 1024 * 1024;
-
-// Maximum complete retained footprint across all automatic packed workers.
-inline constexpr size_t kDefaultBatchTotalWorkerBudget = 64 * 1024 * 1024;
-
-// Maximum dense coefficient state retained by one explicit packed worker.
-inline constexpr size_t kMaxExplicitBatchStateBudget = 64 * 1024 * 1024;
-
-// Minimum request and capacity for automatic packed execution.
-inline constexpr uint32_t kDefaultMinAutoBatchShots = 64;
-
-enum class BatchOutputMode : uint8_t {
-    Rows,
-    AggregateSurvivors,
-};
-
-enum class BatchSamplingMode : uint8_t {
-    Ordinary,
-    FixedFaults,
-};
-
-#if defined(__EMSCRIPTEN__)
-// WebAssembly retains the scalar executor to minimize its binary footprint.
-inline constexpr bool kPackedBatchExecutionAvailable = false;
-#else
-// Native builds include packed execution and its interleaved kernels.
-inline constexpr bool kPackedBatchExecutionAvailable = true;
-#endif
-
-struct BatchExecutionPolicy {
-    // Stable number of shot lanes assigned to each packed batch.
-    uint32_t lane_capacity = 1;
-
-    // Maximum simultaneous workers allowed by work and memory budgets.
-    uint32_t worker_count = 1;
-};
-
-// Resolve deterministic lane boundaries first, then cap automatic workers by
-// the aggregate retained-memory budget. Callers include wrapper-owned scratch
-// that is not part of BatchExecutor in additional_worker_bytes.
-[[nodiscard]] BatchExecutionPolicy resolve_batch_execution_policy(
-    const ExecutablePlan& plan, uint32_t shots, uint32_t shot_workers, uint32_t intra_shot_workers,
-    BatchOutputMode output_mode, std::optional<uint32_t> requested_batch_size,
-    BatchSamplingMode sampling_mode = BatchSamplingMode::Ordinary,
-    uint64_t additional_worker_bytes = 0);
 
 // Single-threaded packed executor for fixed plans. Coefficients are
 // basis-major and shot-interleaved so prepared actions vectorize across lanes.
@@ -111,7 +55,6 @@ class BatchExecutor {
     void initialize_presampled_expressions() noexcept;
     void finalize_presampled_symbols() noexcept;
     void propagate_symbol(uint32_t symbol, std::span<const uint64_t> values) noexcept;
-    void assign_symbol(uint32_t symbol, std::span<const uint64_t> values) noexcept;
     void fill_random_half_bits() noexcept;
 
     void execute_actions() noexcept;

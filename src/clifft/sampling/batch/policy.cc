@@ -1,4 +1,8 @@
-#include "clifft/sampling/batch/executor.h"
+#include "clifft/sampling/batch/policy.h"
+
+#include "clifft/sampling/batch/bits.h"
+#include "clifft/sampling/batch/interleaved_state.h"
+#include "clifft/sampling/executable_plan.h"
 
 #include <algorithm>
 #include <bit>

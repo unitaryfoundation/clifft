@@ -33,7 +33,6 @@ class InterleavedBatchState {
     void compact_lanes(std::span<const uint32_t> source_lanes) noexcept;
 
     [[nodiscard]] uint32_t active_width() const noexcept { return active_width_; }
-    [[nodiscard]] uint32_t initial_active_width() const noexcept { return initial_active_width_; }
     [[nodiscard]] uint32_t max_active_width() const noexcept { return max_active_width_; }
     [[nodiscard]] uint32_t active_lanes() const noexcept { return active_lanes_; }
     [[nodiscard]] uint32_t lane_capacity() const noexcept { return lane_capacity_; }

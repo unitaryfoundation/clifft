@@ -1,6 +1,7 @@
 #include "clifft/sampling/sampler.h"
 
 #include "clifft/sampling/batch/executor.h"
+#include "clifft/sampling/batch/policy.h"
 #include "clifft/sampling/executor.h"
 #include "clifft/util/fault_sampling.h"
 #include "clifft/util/intra_shot_parallel.h"
@@ -539,10 +540,10 @@ SamplingResult sample_k(const ExecutablePlan& plan, uint32_t shots, uint32_t k,
             "sample_k_survivors");
     }
     const ThreadLayout resolved = resolve_thread_layout(plan, shots, threads, thread_layout);
-    BatchExecutionPolicy batch_policy = resolve_batch_execution_policy(
-        plan, shots, resolved.shot_workers, resolved.intra_shot_workers, BatchOutputMode::Rows,
-        batch_size, BatchSamplingMode::FixedFaults);
     if (shots == 0) {
+        (void)resolve_batch_execution_policy(plan, shots, resolved.shot_workers,
+                                             resolved.intra_shot_workers, BatchOutputMode::Rows,
+                                             batch_size, BatchSamplingMode::FixedFaults);
         return sample_fixed_rows(
             plan, shots, seed, resolved,
             [&](uint32_t) {
@@ -553,11 +554,9 @@ SamplingResult sample_k(const ExecutablePlan& plan, uint32_t shots, uint32_t k,
     }
     const auto fault_distribution =
         std::make_shared<const KFaultDistribution>(plan.noise_site_probabilities(), k);
-    if (!batch_size.has_value() && batch_policy.lane_capacity > 1) {
-        batch_policy = resolve_batch_execution_policy(
-            plan, shots, resolved.shot_workers, resolved.intra_shot_workers, BatchOutputMode::Rows,
-            batch_size, BatchSamplingMode::FixedFaults, fault_distribution->worker_scratch_bytes());
-    }
+    const BatchExecutionPolicy batch_policy = resolve_batch_execution_policy(
+        plan, shots, resolved.shot_workers, resolved.intra_shot_workers, BatchOutputMode::Rows,
+        batch_size, BatchSamplingMode::FixedFaults, fault_distribution->worker_scratch_bytes());
     if constexpr (kPackedBatchExecutionAvailable) {
         if (batch_policy.lane_capacity > 1) {
             return sample_fixed_batches(
@@ -601,10 +600,10 @@ SamplingSurvivorResult sample_k_survivors(const ExecutablePlan& plan, uint32_t s
     const ThreadLayout resolved = resolve_thread_layout(plan, shots, threads, thread_layout);
     const BatchOutputMode output_mode =
         keep_records ? BatchOutputMode::Rows : BatchOutputMode::AggregateSurvivors;
-    BatchExecutionPolicy batch_policy = resolve_batch_execution_policy(
-        plan, shots, resolved.shot_workers, resolved.intra_shot_workers, output_mode, batch_size,
-        BatchSamplingMode::FixedFaults);
     if (shots == 0) {
+        (void)resolve_batch_execution_policy(plan, shots, resolved.shot_workers,
+                                             resolved.intra_shot_workers, output_mode, batch_size,
+                                             BatchSamplingMode::FixedFaults);
         return sample_surviving_rows(
             plan, shots, seed, keep_records, resolved,
             [&](uint32_t) {
@@ -615,12 +614,10 @@ SamplingSurvivorResult sample_k_survivors(const ExecutablePlan& plan, uint32_t s
     }
     const auto fault_distribution =
         std::make_shared<const KFaultDistribution>(plan.noise_site_probabilities(), k);
-    if (!batch_size.has_value() && batch_policy.lane_capacity > 1) {
-        batch_policy = resolve_batch_execution_policy(
-            plan, shots, resolved.shot_workers, resolved.intra_shot_workers, output_mode,
-            batch_size, BatchSamplingMode::FixedFaults,
-            fault_distribution->worker_scratch_bytes() + survivor_worker_bytes(plan));
-    }
+    const BatchExecutionPolicy batch_policy = resolve_batch_execution_policy(
+        plan, shots, resolved.shot_workers, resolved.intra_shot_workers, output_mode, batch_size,
+        BatchSamplingMode::FixedFaults,
+        fault_distribution->worker_scratch_bytes() + survivor_worker_bytes(plan));
     if constexpr (kPackedBatchExecutionAvailable) {
         if (batch_policy.lane_capacity > 1) {
             return sample_surviving_batches(

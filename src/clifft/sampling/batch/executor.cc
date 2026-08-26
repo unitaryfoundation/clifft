@@ -316,10 +316,6 @@ void BatchExecutor::propagate_symbol(uint32_t symbol, std::span<const uint64_t> 
     }
 }
 
-void BatchExecutor::assign_symbol(uint32_t symbol, std::span<const uint64_t> values) noexcept {
-    propagate_symbol(symbol, values);
-}
-
 void BatchExecutor::execute_actions() noexcept {
     for (size_t action_index = 0; action_index < plan_->actions_.size(); ++action_index) {
         const ExecutablePlan::Action& action = plan_->actions_[action_index];
@@ -424,7 +420,7 @@ void BatchExecutor::execute_action(const ExecutablePlan::ExecuteActiveMeasuremen
     collapse_interleaved_measurement(state_, action.measurement,
                                      std::span<const uint8_t>(lane_bytes_).first(active_lanes()),
                                      std::span<const double>(lane_values_).first(active_lanes()));
-    assign_symbol(action.branch, scratch_words_);
+    propagate_symbol(action.branch, scratch_words_);
     if (records_.num_columns() != 0) {
         records_.assign_xor(action.record, scratch_words_, corrections, live_words_);
     }
@@ -434,7 +430,7 @@ void BatchExecutor::execute_action(const ExecutablePlan::ExecuteDormantMeasureme
                                    size_t) noexcept {
     const std::span<const uint64_t> corrections = evaluate(action.correction);
     fill_random_half_bits();
-    assign_symbol(action.branch, scratch_words_);
+    propagate_symbol(action.branch, scratch_words_);
     if (records_.num_columns() != 0) {
         records_.assign_xor(action.record, scratch_words_, corrections, live_words_);
     }
@@ -449,7 +445,7 @@ void BatchExecutor::execute_action(const ExecutablePlan::ExecuteClassicalRecord&
 
 void BatchExecutor::execute_action(const ExecutablePlan::ExecuteSymbolDefinition& action,
                                    size_t) noexcept {
-    assign_symbol(action.symbol, evaluate(action.value));
+    propagate_symbol(action.symbol, evaluate(action.value));
 }
 
 void BatchExecutor::execute_action(const ExecutablePlan::ExecuteReadoutNoise& action,
@@ -500,7 +496,7 @@ void BatchExecutor::execute_action(const ExecutablePlan::ExecuteReadoutNoise& ac
             }
         }
     }
-    assign_symbol(action.flip, scratch_words_);
+    propagate_symbol(action.flip, scratch_words_);
     if (records_.num_columns() != 0) {
         records_.assign_xor(action.record, sources, scratch_words_, live_words_);
     }

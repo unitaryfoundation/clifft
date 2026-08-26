@@ -2,6 +2,7 @@
 #include "clifft/frontend/frontend.h"
 #include "clifft/optimizer/pass_factory.h"
 #include "clifft/sampling/batch/executor.h"
+#include "clifft/sampling/batch/policy.h"
 #include "clifft/sampling/planner.h"
 #include "clifft/util/fault_sampling.h"
 #include "clifft/util/shot_seed.h"
