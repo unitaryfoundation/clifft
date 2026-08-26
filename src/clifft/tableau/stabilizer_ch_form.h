@@ -2,6 +2,9 @@
 
 // Phase-aware stabilizer states in CH form.
 
+#include "clifft/circuit/gate_data.h"
+#include "clifft/tableau/pauli_string.h"
+
 #include <complex>
 #include <cstddef>
 #include <cstdint>
@@ -29,6 +32,8 @@ class StabilizerChForm {
     void apply_cx(uint32_t control, uint32_t target);
     void apply_cz(uint32_t q1, uint32_t q2);
     void apply_swap(uint32_t q1, uint32_t q2);
+    void apply_named_gate(GateType gate, std::span<const uint32_t> targets);
+    void apply_pauli_rotation(PauliStringView axis, bool dagger);
     void apply_global_phase(std::complex<double> phase);
 
     // Returns <basis|psi>. The mask uses the same little-endian qubit-bit
@@ -58,17 +63,17 @@ class StabilizerChForm {
     void set_bit(Bits& bits, uint32_t index, bool value) const;
     void xor_bit(Bits& bits, uint32_t index) const;
     [[nodiscard]] bool bits_equal(const Bits& lhs, const Bits& rhs) const;
-    [[nodiscard]] bool parity_and(std::span<const uint64_t> a,
-                                  std::span<const uint64_t> b) const;
+    [[nodiscard]] bool parity_and(std::span<const uint64_t> a, std::span<const uint64_t> b) const;
     [[nodiscard]] bool parity_and(const Bits& a, const Bits& b) const;
-    [[nodiscard]] bool parity_and3(std::span<const uint64_t> a, const Bits& b,
-                                   const Bits& c) const;
+    [[nodiscard]] bool parity_and3(std::span<const uint64_t> a, const Bits& b, const Bits& c) const;
     [[nodiscard]] uint32_t popcount(const Bits& bits) const;
 
     void s_right(uint32_t qubit);
     void cz_right(uint32_t q1, uint32_t q2);
     void cnot_right(uint32_t control, uint32_t target);
     void update_sum(Bits t, Bits u, uint8_t delta, bool alpha);
+    void apply_controlled_pauli(uint32_t control, uint32_t target, bool control_x, bool control_z,
+                                bool target_x, bool target_z);
 
     struct HDecomposition {
         std::complex<double> omega;
@@ -76,8 +81,7 @@ class StabilizerChForm {
         bool apply_h = false;
         bool basis = false;
     };
-    [[nodiscard]] static HDecomposition decompose_h_sum(bool has_h, bool y, bool z,
-                                                         uint8_t delta);
+    [[nodiscard]] static HDecomposition decompose_h_sum(bool has_h, bool y, bool z, uint8_t delta);
 
     uint32_t num_qubits_ = 0;
     size_t words_ = 0;

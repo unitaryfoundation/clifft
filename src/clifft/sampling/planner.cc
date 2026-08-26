@@ -1,13 +1,15 @@
-#include "clifft/sampling/planner.h"
-
+#include "clifft/sampling/phase_aware_planner.h"
 #include "clifft/sampling/planner_frame.h"
 #include "clifft/util/hir_introspection.h"
 #include "clifft/util/numeric.h"
 
 #include <algorithm>
+#include <cassert>
 #include <cmath>
+#include <complex>
 #include <cstdint>
 #include <limits>
+#include <numbers>
 #include <optional>
 #include <span>
 #include <stdexcept>
@@ -23,6 +25,39 @@ using Pauli = internal::PlannerPauli;
 using Tableau = internal::PlannerTableau;
 using internal::CoordinateFrame;
 using internal::SymbolicPauliFrame;
+
+void compose_dormant_promotion(PhaseAwareCliffordFrame& frame, const Pauli& promoted,
+                               uint32_t active_width, uint32_t dormant_pivot) {
+    std::vector<PhaseAwareCliffordFrame::NamedOperation> operations;
+    operations.reserve(static_cast<size_t>(dormant_pivot - active_width) + promoted.num_qubits() +
+                       2U);
+
+    // Move the selected dormant coordinate next to the active prefix. The
+    // controlled gates then install the promoted Pauli as its X generator.
+    // Every operation fixes the control-zero subspace exactly, matching the
+    // promotion kernel's coefficient convention without a hidden scalar.
+    for (uint32_t q = active_width; q < dormant_pivot; ++q) {
+        operations.push_back({GateType::SWAP, {q, q + 1}});
+    }
+    for (uint32_t q = 0; q < promoted.num_qubits(); ++q) {
+        if (q == dormant_pivot) {
+            continue;
+        }
+        const bool x = promoted.x().bit_get(q);
+        const bool z = promoted.z().bit_get(q);
+        if (x || z) {
+            operations.push_back(
+                {x ? (z ? GateType::CY : GateType::CX) : GateType::CZ, {dormant_pivot, q}});
+        }
+    }
+    if (promoted.z().bit_get(dormant_pivot)) {
+        operations.push_back({GateType::S, {dormant_pivot}});
+    }
+    if (promoted.sign()) {
+        operations.push_back({GateType::Z, {dormant_pivot}});
+    }
+    frame.compose_input(operations);
+}
 
 Pauli pauli_from_hir(const HirModule& hir, const HeisenbergOp& op) {
     Pauli result(hir.num_qubits);
@@ -273,12 +308,23 @@ void initialize_site_metadata(const HirModule& hir, SamplingPlan& plan) {
 
 bool process_rotation(const Pauli& body, double half_turns, const AffineBool& sign,
                       SamplingPlan& plan, uint32_t& active_width, CoordinateFrame& coordinates,
-                      SymbolicPauliFrame& symbolic_frame, std::span<const uint32_t> source_lines) {
+                      SymbolicPauliFrame& symbolic_frame, std::span<const uint32_t> source_lines,
+                      std::complex<double>* discarded_scalar,
+                      PhaseAwareCliffordFrame* exact_frame) {
     ResolvedPauli resolved = resolve_pauli(body, sign, coordinates, symbolic_frame);
     const std::optional<uint32_t> dormant_pivot = first_x_at_or_above(resolved.body, active_width);
     if (!dormant_pivot.has_value()) {
         const ActivePauli active = active_projection(resolved.body, active_width);
         if (active.is_identity()) {
+            if (discarded_scalar != nullptr) {
+                if (!resolved.sign.terms().empty()) {
+                    throw std::logic_error(
+                        "phase-aware planner encountered a symbol-dependent scalar rotation");
+                }
+                const double eigenvalue = resolved.sign.constant() ? -1.0 : 1.0;
+                *discarded_scalar *=
+                    std::polar(1.0, -std::numbers::pi * half_turns * eigenvalue / 2.0);
+            }
             return false;
         }
         append_action(
@@ -295,6 +341,9 @@ bool process_rotation(const Pauli& body, double half_turns, const AffineBool& si
             ", but the dense-state limit is " + std::to_string(kDenseActiveWidthLimit));
     }
 
+    if (exact_frame != nullptr) {
+        compose_dormant_promotion(*exact_frame, resolved.body, active_width, *dormant_pivot);
+    }
     coordinates.promote_dormant(resolved.body, active_width, *dormant_pivot);
     append_action(plan,
                   PlannedAction{active_width, active_width + 1,
@@ -435,7 +484,9 @@ void process_instrument(const HirModule& hir, const HeisenbergOp& op, uint32_t n
 
 }  // namespace
 
-SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
+SamplingPlan plan_sampling_impl(const HirModule& hir, SamplingPlanOptions options,
+                                std::complex<double>* discarded_scalar,
+                                PhaseAwareCliffordFrame* exact_frame) {
     SamplingPlan plan;
     plan.num_qubits = hir.num_qubits;
     plan.num_visible_records = hir.num_measurements;
@@ -511,16 +562,16 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
             case OpType::T_GATE: {
                 const double half_turns = op.is_dagger() ? -0.25 : 0.25;
                 const Pauli body = pauli_from_hir(hir, op);
-                final_coordinates_changed |=
-                    process_rotation(body, half_turns, AffineBool(hir.sign(op)), plan, active_width,
-                                     coordinates, symbolic_frame, source_lines);
+                final_coordinates_changed |= process_rotation(
+                    body, half_turns, AffineBool(hir.sign(op)), plan, active_width, coordinates,
+                    symbolic_frame, source_lines, discarded_scalar, exact_frame);
                 break;
             }
             case OpType::PHASE_ROTATION: {
                 const Pauli body = pauli_from_hir(hir, op);
-                final_coordinates_changed |=
-                    process_rotation(body, op.alpha(), AffineBool(hir.sign(op)), plan, active_width,
-                                     coordinates, symbolic_frame, source_lines);
+                final_coordinates_changed |= process_rotation(
+                    body, op.alpha(), AffineBool(hir.sign(op)), plan, active_width, coordinates,
+                    symbolic_frame, source_lines, discarded_scalar, exact_frame);
                 break;
             }
             case OpType::MEASURE: {
@@ -728,6 +779,19 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
     // externally assembled plans before execution. Repeating that full scan
     // here makes the normal compile path validate the same plan twice.
     return plan;
+}
+
+SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
+    return plan_sampling_impl(hir, options, nullptr, nullptr);
+}
+
+PhaseAwareSamplingPlan plan_sampling_phase_aware(const HirModule& hir,
+                                                 PhaseAwareCliffordFrame final_clifford_frame) {
+    std::complex<double> scalar{1.0, 0.0};
+    SamplingPlan plan = plan_sampling_impl(hir, {}, &scalar, &final_clifford_frame);
+    return PhaseAwareSamplingPlan{.plan = std::move(plan),
+                                  .final_clifford_frame = std::move(final_clifford_frame),
+                                  .scalar = scalar};
 }
 
 }  // namespace clifft::sampling

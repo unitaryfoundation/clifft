@@ -10,6 +10,8 @@ namespace clifft {
 namespace {
 
 constexpr double kInvSqrt2 = 0.707106781186547524400844362104849039;
+constexpr std::complex<double> kSqrtI{kInvSqrt2, kInvSqrt2};
+constexpr std::complex<double> kSqrtMinusI{kInvSqrt2, -kInvSqrt2};
 
 [[nodiscard]] std::complex<double> i_pow(uint8_t exponent) {
     switch (exponent & 3U) {
@@ -32,23 +34,21 @@ StabilizerChForm::BinaryMatrix::BinaryMatrix(uint32_t size, bool identity)
       words_(static_cast<size_t>(size) * words_per_row_, 0) {
     if (identity) {
         for (uint32_t q = 0; q < size_; ++q) {
-            words_[static_cast<size_t>(q) * words_per_row_ + q / 64U] |=
-                uint64_t{1} << (q % 64U);
+            words_[static_cast<size_t>(q) * words_per_row_ + q / 64U] |= uint64_t{1} << (q % 64U);
         }
     }
 }
 
 bool StabilizerChForm::BinaryMatrix::get(uint32_t row, uint32_t col) const {
     assert(row < size_ && col < size_);
-    return ((words_[static_cast<size_t>(row) * words_per_row_ + col / 64U] >> (col % 64U)) &
-            1U) != 0;
+    return ((words_[static_cast<size_t>(row) * words_per_row_ + col / 64U] >> (col % 64U)) & 1U) !=
+           0;
 }
 
 void StabilizerChForm::BinaryMatrix::xor_bit(uint32_t row, uint32_t col, bool value) {
     assert(row < size_ && col < size_);
     if (value) {
-        words_[static_cast<size_t>(row) * words_per_row_ + col / 64U] ^=
-            uint64_t{1} << (col % 64U);
+        words_[static_cast<size_t>(row) * words_per_row_ + col / 64U] ^= uint64_t{1} << (col % 64U);
     }
 }
 
@@ -107,8 +107,7 @@ bool StabilizerChForm::bits_equal(const Bits& lhs, const Bits& rhs) const {
     return lhs == rhs;
 }
 
-bool StabilizerChForm::parity_and(std::span<const uint64_t> a,
-                                  std::span<const uint64_t> b) const {
+bool StabilizerChForm::parity_and(std::span<const uint64_t> a, std::span<const uint64_t> b) const {
     assert(a.size() == words_ && b.size() == words_);
     bool parity = false;
     for (size_t w = 0; w < words_; ++w) {
@@ -173,8 +172,7 @@ StabilizerChForm::HDecomposition StabilizerChForm::decompose_h_sum(bool has_h, b
     HDecomposition result;
     if (!has_h) {
         result.omega = i_pow(static_cast<uint8_t>(delta * static_cast<uint8_t>(y)));
-        const uint8_t adjusted =
-            static_cast<uint8_t>((y ? (4U - delta) : delta) & 3U);
+        const uint8_t adjusted = static_cast<uint8_t>((y ? (4U - delta) : delta) & 3U);
         result.basis = (adjusted >> 1U) != 0;
         result.apply_s = (adjusted & 1U) != 0;
         result.apply_h = true;
@@ -183,8 +181,8 @@ StabilizerChForm::HDecomposition StabilizerChForm::decompose_h_sum(bool has_h, b
 
     if ((delta & 1U) == 0) {
         result.basis = (delta >> 1U) != 0;
-        result.omega = (result.basis && y) ? std::complex<double>{-1.0, 0.0}
-                                           : std::complex<double>{1.0, 0.0};
+        result.omega =
+            (result.basis && y) ? std::complex<double>{-1.0, 0.0} : std::complex<double>{1.0, 0.0};
         return result;
     }
 
@@ -198,8 +196,8 @@ StabilizerChForm::HDecomposition StabilizerChForm::decompose_h_sum(bool has_h, b
 void StabilizerChForm::update_sum(Bits t, Bits u, uint8_t delta, bool alpha) {
     if (bits_equal(t, u)) {
         basis_ = std::move(t);
-        omega_ *= kInvSqrt2 * (alpha ? -1.0 : 1.0) *
-                  (std::complex<double>{1.0, 0.0} + i_pow(delta));
+        omega_ *=
+            kInvSqrt2 * (alpha ? -1.0 : 1.0) * (std::complex<double>{1.0, 0.0} + i_pow(delta));
         return;
     }
 
@@ -280,10 +278,8 @@ void StabilizerChForm::apply_h(uint32_t qubit) {
         beta ^= (std::popcount(f[w] & h_[w] & m[w]) & 1U) != 0;
         beta ^= (std::popcount(f[w] & h_[w] & basis_[w]) & 1U) != 0;
     }
-    const uint8_t delta =
-        static_cast<uint8_t>((gamma_[qubit] + 2U * (static_cast<uint8_t>(alpha) +
-                                                    static_cast<uint8_t>(beta))) &
-                             3U);
+    const uint8_t delta = static_cast<uint8_t>(
+        (gamma_[qubit] + 2U * (static_cast<uint8_t>(alpha) + static_cast<uint8_t>(beta))) & 3U);
     update_sum(std::move(t), std::move(u), delta, alpha);
 }
 
@@ -329,8 +325,8 @@ void StabilizerChForm::apply_cx(uint32_t control, uint32_t target) {
         throw std::invalid_argument("CH-form CX requires two distinct in-range qubits");
     }
     const bool parity = parity_and(m_.row(control), f_.row(target));
-    gamma_[control] = static_cast<uint8_t>(
-        (gamma_[control] + gamma_[target] + (parity ? 2U : 0U)) & 3U);
+    gamma_[control] =
+        static_cast<uint8_t>((gamma_[control] + gamma_[target] + (parity ? 2U : 0U)) & 3U);
     g_.xor_rows(target, control);
     f_.xor_rows(control, target);
     m_.xor_rows(control, target);
@@ -359,6 +355,343 @@ void StabilizerChForm::apply_swap(uint32_t q1, uint32_t q2) {
     apply_cx(q1, q2);
     apply_cx(q2, q1);
     apply_cx(q1, q2);
+}
+
+void StabilizerChForm::apply_controlled_pauli(uint32_t control, uint32_t target, bool control_x,
+                                              bool control_z, bool target_x, bool target_z) {
+    assert(control_x || control_z);
+    assert(target_x || target_z);
+
+    // Map the control Pauli to Z and the target Pauli to X, apply CX, then
+    // undo the local basis changes. These representatives are all exact
+    // involutions or exact inverse pairs, so the conjugation adds no scalar.
+    if (control_x && !control_z) {
+        apply_h(control);
+    } else if (control_x && control_z) {
+        apply_s_dag(control);
+        apply_h(control);
+    }
+    if (!target_x && target_z) {
+        apply_h(target);
+    } else if (target_x && target_z) {
+        apply_s_dag(target);
+    }
+
+    apply_cx(control, target);
+
+    if (!target_x && target_z) {
+        apply_h(target);
+    } else if (target_x && target_z) {
+        apply_s(target);
+    }
+    if (control_x && !control_z) {
+        apply_h(control);
+    } else if (control_x && control_z) {
+        apply_h(control);
+        apply_s(control);
+    }
+}
+
+void StabilizerChForm::apply_pauli_rotation(PauliStringView axis, bool dagger) {
+    if (axis.num_qubits() != num_qubits_ || !axis.is_hermitian()) {
+        throw std::invalid_argument(
+            "CH-form Pauli rotation requires a Hermitian axis matching the state width");
+    }
+
+    uint32_t pivot = num_qubits_;
+    for (uint32_t q = 0; q < num_qubits_; ++q) {
+        const bool x = axis.x().bit_get(q);
+        const bool z = axis.z().bit_get(q);
+        if (!x && !z) {
+            continue;
+        }
+        if (pivot == num_qubits_) {
+            pivot = q;
+        }
+        if (x && !z) {
+            apply_h(q);
+        } else if (x && z) {
+            apply_s_dag(q);
+            apply_h(q);
+        }
+    }
+
+    if (pivot != num_qubits_) {
+        for (uint32_t q = 0; q < num_qubits_; ++q) {
+            if (q != pivot && (axis.x().bit_get(q) || axis.z().bit_get(q))) {
+                apply_cx(q, pivot);
+            }
+        }
+    }
+
+    const bool negative_axis = axis.sign();
+    const bool effective_dagger = dagger ^ negative_axis;
+    if (pivot != num_qubits_) {
+        if (effective_dagger) {
+            apply_s_dag(pivot);
+        } else {
+            apply_s(pivot);
+        }
+        for (uint32_t q = num_qubits_; q-- > 0;) {
+            if (q != pivot && (axis.x().bit_get(q) || axis.z().bit_get(q))) {
+                apply_cx(q, pivot);
+            }
+        }
+    }
+    if (negative_axis) {
+        omega_ *= dagger ? std::complex<double>{0.0, -1.0} : std::complex<double>{0.0, 1.0};
+    }
+
+    for (uint32_t q = num_qubits_; q-- > 0;) {
+        const bool x = axis.x().bit_get(q);
+        const bool z = axis.z().bit_get(q);
+        if (x && !z) {
+            apply_h(q);
+        } else if (x && z) {
+            apply_h(q);
+            apply_s(q);
+        }
+    }
+}
+
+void StabilizerChForm::apply_named_gate(GateType gate, std::span<const uint32_t> targets) {
+    const auto require_targets = [&](size_t expected) {
+        if (targets.size() != expected) {
+            throw std::invalid_argument("CH-form named gate target count mismatch for " +
+                                        std::string(gate_name(gate)));
+        }
+    };
+    const auto apply_pair_rotation = [&](bool x, bool z, bool dagger) {
+        PauliString axis(num_qubits_);
+        axis.set_pauli(targets[0], x, z);
+        axis.set_pauli(targets[1], x, z);
+        axis.set_sign(false);
+        apply_pauli_rotation(axis.view(), dagger);
+    };
+
+    switch (gate) {
+        case GateType::I:
+            require_targets(1);
+            return;
+        case GateType::II:
+            require_targets(2);
+            return;
+        case GateType::H:
+            require_targets(1);
+            apply_h(targets[0]);
+            return;
+        case GateType::S:
+            require_targets(1);
+            apply_s(targets[0]);
+            return;
+        case GateType::S_DAG:
+            require_targets(1);
+            apply_s_dag(targets[0]);
+            return;
+        case GateType::X:
+            require_targets(1);
+            apply_x(targets[0]);
+            return;
+        case GateType::Y:
+            require_targets(1);
+            apply_y(targets[0]);
+            return;
+        case GateType::Z:
+            require_targets(1);
+            apply_z(targets[0]);
+            return;
+        case GateType::SQRT_X:
+            require_targets(1);
+            apply_h(targets[0]);
+            apply_s(targets[0]);
+            apply_h(targets[0]);
+            return;
+        case GateType::SQRT_X_DAG:
+            require_targets(1);
+            apply_h(targets[0]);
+            apply_s_dag(targets[0]);
+            apply_h(targets[0]);
+            return;
+        case GateType::SQRT_Y:
+            require_targets(1);
+            apply_z(targets[0]);
+            apply_h(targets[0]);
+            omega_ *= kSqrtI;
+            return;
+        case GateType::SQRT_Y_DAG:
+            require_targets(1);
+            apply_h(targets[0]);
+            apply_z(targets[0]);
+            omega_ *= kSqrtMinusI;
+            return;
+        case GateType::H_XY:
+            require_targets(1);
+            apply_h(targets[0]);
+            apply_z(targets[0]);
+            apply_h(targets[0]);
+            apply_s(targets[0]);
+            omega_ *= kSqrtMinusI;
+            return;
+        case GateType::H_YZ:
+            require_targets(1);
+            apply_s_dag(targets[0]);
+            apply_h(targets[0]);
+            apply_s(targets[0]);
+            return;
+        case GateType::H_NXY:
+            require_targets(1);
+            apply_h(targets[0]);
+            apply_z(targets[0]);
+            apply_h(targets[0]);
+            apply_s_dag(targets[0]);
+            omega_ *= kSqrtI;
+            return;
+        case GateType::H_NXZ:
+            require_targets(1);
+            apply_s(targets[0]);
+            apply_h(targets[0]);
+            apply_s_dag(targets[0]);
+            apply_h(targets[0]);
+            apply_s(targets[0]);
+            omega_ *= -kSqrtI;
+            return;
+        case GateType::H_NYZ:
+            require_targets(1);
+            apply_s(targets[0]);
+            apply_h(targets[0]);
+            apply_s_dag(targets[0]);
+            omega_ = -omega_;
+            return;
+        case GateType::C_XYZ:
+            require_targets(1);
+            apply_s_dag(targets[0]);
+            apply_h(targets[0]);
+            omega_ *= kSqrtMinusI;
+            return;
+        case GateType::C_ZYX:
+            require_targets(1);
+            apply_h(targets[0]);
+            apply_s(targets[0]);
+            omega_ *= kSqrtI;
+            return;
+        case GateType::C_NXYZ:
+            require_targets(1);
+            apply_h(targets[0]);
+            apply_s(targets[0]);
+            apply_h(targets[0]);
+            apply_s_dag(targets[0]);
+            return;
+        case GateType::C_NZYX:
+            require_targets(1);
+            apply_z(targets[0]);
+            apply_h(targets[0]);
+            apply_s_dag(targets[0]);
+            omega_ *= kSqrtI;
+            return;
+        case GateType::C_XNYZ:
+            require_targets(1);
+            apply_s(targets[0]);
+            apply_h(targets[0]);
+            omega_ *= kSqrtI;
+            return;
+        case GateType::C_XYNZ:
+            require_targets(1);
+            apply_h(targets[0]);
+            apply_s_dag(targets[0]);
+            apply_h(targets[0]);
+            apply_s(targets[0]);
+            return;
+        case GateType::C_ZNYX:
+            require_targets(1);
+            apply_h(targets[0]);
+            apply_s_dag(targets[0]);
+            omega_ *= kSqrtMinusI;
+            return;
+        case GateType::C_ZYNX:
+            require_targets(1);
+            apply_s(targets[0]);
+            apply_h(targets[0]);
+            apply_s_dag(targets[0]);
+            apply_h(targets[0]);
+            return;
+        case GateType::CX:
+            require_targets(2);
+            apply_cx(targets[0], targets[1]);
+            return;
+        case GateType::CY:
+            require_targets(2);
+            apply_controlled_pauli(targets[0], targets[1], false, true, true, true);
+            return;
+        case GateType::CZ:
+            require_targets(2);
+            apply_cz(targets[0], targets[1]);
+            return;
+        case GateType::SWAP:
+            require_targets(2);
+            apply_swap(targets[0], targets[1]);
+            return;
+        case GateType::ISWAP:
+        case GateType::ISWAP_DAG:
+            require_targets(2);
+            if (gate == GateType::ISWAP) {
+                apply_s(targets[0]);
+                apply_s(targets[1]);
+            } else {
+                apply_s_dag(targets[0]);
+                apply_s_dag(targets[1]);
+            }
+            apply_cz(targets[0], targets[1]);
+            apply_swap(targets[0], targets[1]);
+            return;
+        case GateType::SQRT_XX:
+        case GateType::SQRT_XX_DAG:
+            require_targets(2);
+            apply_pair_rotation(true, false, gate == GateType::SQRT_XX_DAG);
+            return;
+        case GateType::SQRT_YY:
+        case GateType::SQRT_YY_DAG:
+            require_targets(2);
+            apply_pair_rotation(true, true, gate == GateType::SQRT_YY_DAG);
+            return;
+        case GateType::SQRT_ZZ:
+        case GateType::SQRT_ZZ_DAG:
+            require_targets(2);
+            apply_pair_rotation(false, true, gate == GateType::SQRT_ZZ_DAG);
+            return;
+        case GateType::CXSWAP:
+            require_targets(2);
+            apply_cx(targets[0], targets[1]);
+            apply_swap(targets[0], targets[1]);
+            return;
+        case GateType::CZSWAP:
+            require_targets(2);
+            apply_cz(targets[0], targets[1]);
+            apply_swap(targets[0], targets[1]);
+            return;
+        case GateType::SWAPCX:
+            require_targets(2);
+            apply_cx(targets[0], targets[1]);
+            apply_cx(targets[1], targets[0]);
+            return;
+        case GateType::XCX:
+        case GateType::XCY:
+        case GateType::XCZ:
+        case GateType::YCX:
+        case GateType::YCY:
+        case GateType::YCZ: {
+            require_targets(2);
+            const bool control_y =
+                gate == GateType::YCX || gate == GateType::YCY || gate == GateType::YCZ;
+            const bool target_y = gate == GateType::XCY || gate == GateType::YCY;
+            const bool target_z = gate == GateType::XCZ || gate == GateType::YCZ;
+            apply_controlled_pauli(targets[0], targets[1], true, control_y, !target_z,
+                                   target_y || target_z);
+            return;
+        }
+        default:
+            throw std::invalid_argument("Gate does not have a fixed Clifford unitary: " +
+                                        std::string(gate_name(gate)));
+    }
 }
 
 void StabilizerChForm::apply_global_phase(std::complex<double> phase) {

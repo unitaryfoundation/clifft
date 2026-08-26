@@ -1,7 +1,6 @@
 #include "clifft/tableau/stabilizer_ch_form.h"
 
 #include <catch2/catch_test_macros.hpp>
-
 #include <cmath>
 #include <complex>
 #include <cstdint>
@@ -61,8 +60,7 @@ void apply_dense_swap(DenseState& state, uint32_t q1, uint32_t q2) {
         const bool b1 = ((basis >> q1) & 1U) != 0;
         const bool b2 = ((basis >> q2) & 1U) != 0;
         if (!b1 && b2) {
-            std::swap(state[basis],
-                      state[basis ^ (uint64_t{1} << q1) ^ (uint64_t{1} << q2)]);
+            std::swap(state[basis], state[basis ^ (uint64_t{1} << q1) ^ (uint64_t{1} << q2)]);
         }
     }
 }
@@ -143,33 +141,28 @@ TEST_CASE("CH form matches dense random Clifford circuits componentwise") {
         switch (gate) {
             case 0:
                 state.apply_h(q1);
-                apply_dense_single(dense, q1, {kInvSqrt2, 0.0}, {kInvSqrt2, 0.0},
-                                   {kInvSqrt2, 0.0}, {-kInvSqrt2, 0.0});
+                apply_dense_single(dense, q1, {kInvSqrt2, 0.0}, {kInvSqrt2, 0.0}, {kInvSqrt2, 0.0},
+                                   {-kInvSqrt2, 0.0});
                 break;
             case 1:
                 state.apply_s(q1);
-                apply_dense_single(dense, q1, {1.0, 0.0}, {0.0, 0.0}, {0.0, 0.0},
-                                   {0.0, 1.0});
+                apply_dense_single(dense, q1, {1.0, 0.0}, {0.0, 0.0}, {0.0, 0.0}, {0.0, 1.0});
                 break;
             case 2:
                 state.apply_s_dag(q1);
-                apply_dense_single(dense, q1, {1.0, 0.0}, {0.0, 0.0}, {0.0, 0.0},
-                                   {0.0, -1.0});
+                apply_dense_single(dense, q1, {1.0, 0.0}, {0.0, 0.0}, {0.0, 0.0}, {0.0, -1.0});
                 break;
             case 3:
                 state.apply_x(q1);
-                apply_dense_single(dense, q1, {0.0, 0.0}, {1.0, 0.0}, {1.0, 0.0},
-                                   {0.0, 0.0});
+                apply_dense_single(dense, q1, {0.0, 0.0}, {1.0, 0.0}, {1.0, 0.0}, {0.0, 0.0});
                 break;
             case 4:
                 state.apply_y(q1);
-                apply_dense_single(dense, q1, {0.0, 0.0}, {0.0, -1.0}, {0.0, 1.0},
-                                   {0.0, 0.0});
+                apply_dense_single(dense, q1, {0.0, 0.0}, {0.0, -1.0}, {0.0, 1.0}, {0.0, 0.0});
                 break;
             case 5:
                 state.apply_z(q1);
-                apply_dense_single(dense, q1, {1.0, 0.0}, {0.0, 0.0}, {0.0, 0.0},
-                                   {-1.0, 0.0});
+                apply_dense_single(dense, q1, {1.0, 0.0}, {0.0, 0.0}, {0.0, 0.0}, {-1.0, 0.0});
                 break;
             case 6:
                 state.apply_cx(q1, q2);

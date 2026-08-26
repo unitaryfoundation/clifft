@@ -30,6 +30,7 @@ ensure_supported_cpu(CPU_BASELINE)
 from clifft import noncomp
 from clifft._clifft_core import (
     AstNode,
+    BasisAmplitudeQuery,
     Circuit,
     DropNonUnitaryPass,
     GateType,
@@ -46,6 +47,7 @@ from clifft._clifft_core import (
     StatevectorSqueezePass,
     Target,
     _basis_probabilities_from_bitmasks,
+    _compile_basis_amplitude,
     _record_probabilities_from_records,
     compute_reference_syndrome,
     default_hir_pass_manager,
@@ -83,8 +85,13 @@ class _MeasurementProgram(Protocol):
     def num_measurements(self) -> int: ...
 
 
+class _BasisWidth(Protocol):
+    @property
+    def num_qubits(self) -> int: ...
+
+
 def _basis_masks_from_bitstrings(
-    program: Program,
+    program: _BasisWidth,
     bitstrings: BasisBitstrings,
     bit_order: str,
 ) -> npt.NDArray[np.uint64]:
@@ -188,6 +195,45 @@ def basis_probabilities(
         with np.errstate(divide="ignore"):
             return np.log(probs)
     return probs
+
+
+def compile_basis_amplitude(
+    circuit_text: str,
+    output_bits: BasisBitstrings,
+    *,
+    bit_order: str = "big",
+    input_format: Literal["stim", "qasm2"] = "stim",
+) -> BasisAmplitudeQuery:
+    """Compile one exact computational-basis amplitude query.
+
+    The query represents ``<output_bits|U|0...0>`` under the canonical matrix
+    conventions of the selected input format. Only pure-unitary circuits are
+    accepted. Inspect ``query.peak_active_width`` before calling
+    :func:`evaluate_amplitude` when feasibility matters.
+
+    ``bit_order="big"`` maps the first bit to qubit 0, matching
+    :func:`basis_probabilities`. ``output_bits`` must describe exactly one
+    complete basis state.
+    """
+    if input_format == "stim":
+        circuit = parse(circuit_text)
+        input_phase = 1.0 + 0.0j
+    elif input_format == "qasm2":
+        imported = parse_qasm2(circuit_text)
+        circuit = imported.circuit
+        input_phase = complex(np.exp(1j * np.pi * imported.global_phase_half_turns))
+    else:
+        raise ValueError("input_format must be 'stim' or 'qasm2'")
+
+    masks = _basis_masks_from_bitstrings(circuit, output_bits, bit_order)
+    if masks.shape[0] != 1:
+        raise ValueError("output_bits must describe exactly one computational basis state")
+    return _compile_basis_amplitude(circuit, masks[0], input_phase)
+
+
+def evaluate_amplitude(query: BasisAmplitudeQuery) -> complex:
+    """Evaluate a compiled basis-amplitude query."""
+    return complex(query.evaluate())
 
 
 def _records_from_outcomes(
@@ -347,6 +393,7 @@ def compile(
 
 __all__ = [
     "AstNode",
+    "BasisAmplitudeQuery",
     "BasisBitstrings",
     "MeasurementRecords",
     "Circuit",
@@ -366,9 +413,11 @@ __all__ = [
     "StatevectorSqueezePass",
     "Target",
     "basis_probabilities",
+    "compile_basis_amplitude",
     "compile",
     "compute_reference_syndrome",
     "default_hir_pass_manager",
+    "evaluate_amplitude",
     "experimental",
     "get_statevector",
     "lower",

@@ -2,6 +2,7 @@
 // inverse Clifford tableau and the per-bitstring amplitude lookup are the
 // implementation of the algorithm derived in docs/theory/basis_probabilities.md.
 
+#include "clifft/frontend/phase_aware_frontend.h"
 #include "clifft/sampling/executor.h"
 #include "clifft/sampling/state_queries.h"
 #include "clifft/util/mask_view.h"
@@ -327,7 +328,7 @@ std::complex<double> BoundStabilizerAmplitudeQuery::amplitude(MaskView basis,
     std::vector<BasisMask> z_sign_masks(sign_masks.begin() + static_cast<std::ptrdiff_t>(rank_x),
                                         sign_masks.end());
     size_t rank_z = 0;
-    std::vector<DynamicSignTerm> base_terms;
+    std::vector<uint32_t> z_pivot_cols;
     // Pure Z constraints fix one base bit at a time. After binding x, each
     // pivot equation says whether the corresponding bit of the affine base
     // string is 0 or 1.
@@ -354,9 +355,18 @@ std::complex<double> BoundStabilizerAmplitudeQuery::amplitude(MaskView basis,
                 multiply_row_by(z_rows[r], z_sign_masks[r], z_rows[rank_z], z_sign_masks[rank_z]);
             }
         }
-        base_terms.push_back(DynamicSignTerm{
-            .bit = col, .static_sign = z_rows[rank_z].sign(), .sign_mask = z_sign_masks[rank_z]});
+        z_pivot_cols.push_back(col);
         ++rank_z;
+    }
+
+    // Later pivots update earlier rows during Gauss-Jordan elimination. Build
+    // the affine base only after the complete RREF is available so each term
+    // includes those later substitutions.
+    std::vector<DynamicSignTerm> base_terms;
+    base_terms.reserve(rank_z);
+    for (size_t r = 0; r < rank_z; ++r) {
+        base_terms.push_back(DynamicSignTerm{
+            .bit = z_pivot_cols[r], .static_sign = z_rows[r].sign(), .sign_mask = z_sign_masks[r]});
     }
 
     std::vector<IdentityConstraint> identity_constraints;
@@ -406,11 +416,12 @@ std::complex<double> BoundStabilizerAmplitudeQuery::amplitude(MaskView basis,
     return structure;
 }
 
-template <typename CoefficientAt>
-std::vector<double> basis_probabilities_from_factored_state(
+template <typename Output, typename CoefficientAt, typename Finish>
+std::vector<Output> selected_basis_values_from_factored_state(
     uint32_t n, uint32_t active_width, uint64_t active_size, const Tableau& final_tableau,
     MaskView state_px, uint64_t active_z_mask, CoefficientAt coefficient_at,
-    std::span<const uint64_t> basis_masks, size_t num_basis_masks, size_t words_per_basis_mask) {
+    std::span<const uint64_t> basis_masks, size_t num_basis_masks, size_t words_per_basis_mask,
+    Finish finish) {
     // The factored state is U_C * P * (|phi>_A x |0>_D). The inverse tableau
     // lets the batch query evaluator reuse stabilizers of U_C^dagger |x> for
     // every requested physical bitstring x.
@@ -438,7 +449,7 @@ std::vector<double> basis_probabilities_from_factored_state(
     const uint64_t active_mask =
         active_width == 0 ? uint64_t{0} : (uint64_t{1} << active_width) - uint64_t{1};
 
-    std::vector<double> out;
+    std::vector<Output> out;
     out.reserve(num_basis_masks);
     for (size_t basis_idx = 0; basis_idx < num_basis_masks; ++basis_idx) {
         const auto basis_mask =
@@ -553,7 +564,7 @@ std::vector<double> basis_probabilities_from_factored_state(
             }
             amp = total;
         }
-        out.push_back(std::norm(amp));
+        out.push_back(finish(amp));
     }
     return out;
 }
@@ -579,15 +590,75 @@ std::vector<double> basis_probabilities(const ExecutablePlan& plan,
     executor.run_shot();
     const State& state = executor.state();
     BasisMask zero_frame = zero_basis_mask(plan.num_qubits());
-    return basis_probabilities_from_factored_state(
+    return selected_basis_values_from_factored_state<double>(
         plan.num_qubits(), state.active_width(), state.size(), *final_tableau,
         basis_mask_view(zero_frame), 0,
         [&](uint64_t active_index) {
             return std::complex<double>{state.real_data()[active_index],
                                         state.imag_data()[active_index]};
         },
-        basis_masks, num_basis_masks, words_per_basis_mask);
+        basis_masks, num_basis_masks, words_per_basis_mask,
+        [](std::complex<double> amplitude) { return std::norm(amplitude); });
 }
+
+namespace internal {
+
+std::complex<double> clifford_row_phase(const Tableau& final_tableau,
+                                        const PhaseAwareCliffordFrame& exact_frame,
+                                        std::span<const uint64_t> physical_basis) {
+    const uint32_t n = final_tableau.num_qubits();
+    if (exact_frame.num_qubits() != n) {
+        throw std::invalid_argument("exact Clifford frame width does not match its tableau");
+    }
+
+    const auto structure = make_stabilizer_amplitude_structure(n, final_tableau.inverse(), 0);
+    const auto query = structure.bind(MaskView{physical_basis});
+    StabilizerChForm exact_row = exact_frame.inverse_on_basis(physical_basis);
+    const BasisMask& virtual_basis = query.base;
+    BasisMask residual_storage = zero_basis_mask(n);
+    BasisMask current_storage = zero_basis_mask(n);
+    const std::complex<double> canonical =
+        query.amplitude(basis_mask_view(virtual_basis), mutable_basis_mask_view(residual_storage),
+                        mutable_basis_mask_view(current_storage));
+    const std::complex<double> exact = exact_row.amplitude(virtual_basis);
+    if (canonical == std::complex<double>{0.0, 0.0} || exact == std::complex<double>{0.0, 0.0}) {
+        if (canonical == std::complex<double>{0.0, 0.0}) {
+            throw std::runtime_error("canonical Clifford-frame phase anchor is zero");
+        }
+        throw std::runtime_error("exact Clifford-frame phase anchor is zero at canonical basis " +
+                                 std::to_string(virtual_basis.empty() ? 0 : virtual_basis.front()));
+    }
+    // The selected-basis walk conjugates <y|U_C^dagger|x> when forming
+    // <x|U_C|y>, so its row correction is conjugated as well.
+    return std::conj(exact / canonical);
+}
+
+std::vector<std::complex<double>> basis_amplitudes(const ExecutablePlan& plan,
+                                                   std::complex<double> phase,
+                                                   std::span<const uint64_t> basis_masks,
+                                                   size_t num_basis_masks,
+                                                   size_t words_per_basis_mask) {
+    const Tableau* final_tableau = plan.final_state_tableau();
+    if (final_tableau == nullptr) {
+        throw std::invalid_argument("basis amplitudes require a pure-unitary executable plan");
+    }
+
+    Executor executor(plan);
+    executor.run_shot();
+    const State& state = executor.state();
+    BasisMask zero_frame = zero_basis_mask(plan.num_qubits());
+    return selected_basis_values_from_factored_state<std::complex<double>>(
+        plan.num_qubits(), state.active_width(), state.size(), *final_tableau,
+        basis_mask_view(zero_frame), 0,
+        [&](uint64_t active_index) {
+            return std::complex<double>{state.real_data()[active_index],
+                                        state.imag_data()[active_index]};
+        },
+        basis_masks, num_basis_masks, words_per_basis_mask,
+        [&](std::complex<double> amplitude) { return phase * amplitude; });
+}
+
+}  // namespace internal
 
 }  // namespace sampling
 

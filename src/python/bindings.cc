@@ -1,3 +1,4 @@
+#include "clifft/api/basis_amplitudes.h"
 #include "clifft/api/reference_syndrome.h"
 #include "clifft/circuit/circuit.h"
 #include "clifft/circuit/parser.h"
@@ -24,6 +25,7 @@
 #include <limits>
 #include <nanobind/nanobind.h>
 #include <nanobind/ndarray.h>
+#include <nanobind/stl/complex.h>
 #include <nanobind/stl/map.h>
 #include <nanobind/stl/optional.h>
 #include <nanobind/stl/string.h>
@@ -796,6 +798,37 @@ NB_MODULE(_clifft_core, m) {
                    " actions, peak_active_width=" + std::to_string(p.peak_active_width()) + ", " +
                    std::to_string(p.num_visible_records()) + " measurements)";
         });
+
+    nb::class_<clifft::sampling::BasisAmplitudeQuery>(
+        m, "BasisAmplitudeQuery", "A compiled exact single-basis amplitude query")
+        .def_prop_ro("num_qubits", &clifft::sampling::BasisAmplitudeQuery::num_qubits)
+        .def_prop_ro("peak_active_width", &clifft::sampling::BasisAmplitudeQuery::peak_active_width,
+                     "Largest active width reached by this target-specific query.")
+        .def(
+            "evaluate",
+            [](const clifft::sampling::BasisAmplitudeQuery& query) {
+                nb::gil_scoped_release release;
+                return query.evaluate();
+            },
+            "Evaluate and return the exact complex amplitude.")
+        .def("__repr__", [](const clifft::sampling::BasisAmplitudeQuery& query) {
+            return "BasisAmplitudeQuery(" + std::to_string(query.num_qubits()) +
+                   " qubits, peak_active_width=" + std::to_string(query.peak_active_width()) + ")";
+        });
+
+    m.def(
+        "_compile_basis_amplitude",
+        [](const clifft::Circuit& circuit,
+           nb::ndarray<nb::numpy, const uint64_t, nb::shape<-1>, nb::c_contig> output_basis,
+           std::complex<double> input_phase) {
+            nb::gil_scoped_release release;
+            return clifft::sampling::BasisAmplitudeQuery(
+                circuit, std::span<const uint64_t>(output_basis.data(), output_basis.size()),
+                input_phase);
+        },
+        nb::arg("circuit"), nb::arg("output_basis"),
+        nb::arg("input_phase") = std::complex<double>{1.0, 0.0},
+        "Compile one exact computational-basis amplitude query.");
 
     m.def(
         "lower",

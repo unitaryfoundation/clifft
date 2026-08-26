@@ -1,6 +1,10 @@
-# Strong Simulation: Exact Probabilities
+# Strong Simulation: Exact Amplitudes and Probabilities
 
-Clifft provides two exact-probability APIs covering complementary regimes:
+Clifft provides an exact complex-amplitude query and two exact-probability APIs:
+
+- **`clifft.compile_basis_amplitude(circuit, output_bits)`** followed by
+  **`clifft.evaluate_amplitude(query)`** — the phase-sensitive scalar
+  $\langle x|U|0\ldots0\rangle$ for one complete output bitstring.
 
 - **`clifft.basis_probabilities(unitary_program, bitstrings)`** — exact
   computational-basis probabilities for a unitary program.
@@ -9,17 +13,57 @@ Clifft provides two exact-probability APIs covering complementary regimes:
   contains measurements (with or without classical feedback). Noise is
   not supported.
 
-You can convert the former problem into the latter by adding explicit
-terminal measurements to a unitary program, and the two distributions match
+You can convert a basis-probability problem into a record-probability problem
+by adding explicit terminal measurements to a unitary program, and the two distributions match
 on the bitstrings the records encode. The runtime cost can differ
 substantially — see
 [Performance on overlapping circuits](#performance-on-overlapping-circuits).
+
+## Exact selected amplitudes
+
+An amplitude query is compiled for one output effect. Compilation reports its
+active-width requirement before the exponential evaluation begins:
+
+```python
+import clifft
+
+circuit = """
+    H 0
+    CX 0 1
+    T 0
+"""
+
+query = clifft.compile_basis_amplitude(circuit, ["11"])
+print(query.peak_active_width)
+
+amplitude = clifft.evaluate_amplitude(query)
+print(amplitude)
+```
+
+The compiler plans both the forward contraction and its mathematically
+equivalent adjoint contraction,
+$\langle x|U|0\rangle = \operatorname{conj}(\langle 0|U^\dagger|x\rangle)$,
+then keeps the orientation with lower `peak_active_width`. This uses the known
+output bitstring during planning without adding measurements or changing the
+ordinary sampling program.
+
+Only a pure-unitary source circuit and one complete computational-basis target
+are accepted. `bit_order="big"` maps the first bit to qubit 0, matching
+`basis_probabilities()`. Pass `input_format="qasm2"` to consume the native
+OpenQASM 2 source-phase sidecar as part of the returned scalar.
+
+Named Clifford gates use their documented Stim matrices, including global
+phase. `T` and `T_DAG` are `diag(1, exp(+/- i*pi/4))`. A rotation
+`R_P(alpha)` is `exp(-i*pi*alpha*P/2)`. OpenQASM `U`/`u1`/`u2`/`u3` use the
+Qiskit/OpenQASM matrix convention rather than Clifft's phase-insensitive state
+representative.
 
 ## When to use which
 
 | Your circuit… | Use |
 |---|---|
-| has no measurements | `basis_probabilities()` |
+| needs one phase-sensitive basis amplitude | `compile_basis_amplitude()` |
+| needs basis probabilities and has no measurements | `basis_probabilities()` |
 | has any measurement (terminal or intermediate) | `record_probabilities()` |
 | has classical feedback (`CX rec[-1] q`, etc.) | `record_probabilities()` |
 | has noise, detectors, observables, or post-selection | neither — use `sample()` |
@@ -283,7 +327,7 @@ log output.
 ## Performance on overlapping circuits
 
 When the circuit is a unitary prefix followed by terminal `M`-all, either
-API mathematically applies. They use very different execution strategies,
+probability API mathematically applies. They use very different execution strategies,
 though, and the difference can be 100×+ in either direction:
 
 - `basis_probabilities()` evolves the program once, then walks
@@ -335,9 +379,9 @@ default.
 
 ## Limitations
 
-Both APIs reject programs that include noise, readout noise, detectors,
+The probability APIs reject programs that include noise, readout noise, detectors,
 observables, or post-selection. These constructs make the trajectory
-multi-valued or signal-conditioned in a way neither API models. Use
+multi-valued or signal-conditioned in a way neither probability API models. Use
 [`sample()`](simulation.md#sampling) or
 [`sample_survivors()`](simulation.md) for those workflows.
 
@@ -354,6 +398,12 @@ original circuit.
 hidden measurement slots (from `R` / reset gates lowered to
 measure-then-feedback) are also rejected. Recompile without resets, or use
 `sample()` to marginalize over the hidden outcomes.
+
+Amplitude-query compilation rejects measurements, resets, feedback, noise,
+detectors, observables, expectation probes, and postselection. It intentionally
+does not accept a precompiled `Program` or user-selected HIR passes: exact phase
+tracking and target-aware orientation selection are part of its built-in
+compiler contract.
 
 ## How it works
 
