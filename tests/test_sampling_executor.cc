@@ -1375,19 +1375,33 @@ TEST_CASE("Explicit batch capacities replay seeded fixed rows") {
     }
 }
 
-TEST_CASE("Packed presampled expression program replays shared affine rows") {
+TEST_CASE("Packed presampled expression program matches a categorical statistical oracle") {
+    constexpr uint32_t num_sites = 32;
     constexpr uint32_t num_symbols = 64;
     constexpr uint32_t num_unique_expressions = 32;
     constexpr uint32_t num_records = 40;
+    constexpr uint32_t shots = 50'000;
     SamplingPlan plan;
-    plan.num_noise_sites = num_symbols;
+    plan.num_noise_sites = num_sites;
     plan.num_visible_records = num_records;
     for (uint32_t symbol = 0; symbol < num_symbols; ++symbol) {
         plan.symbols.push_back(
-            SymbolInfo{SymbolKind::Presampled, std::nullopt, NoiseSiteId{symbol}});
-        plan.presampled_noise_sites.push_back(PresampledNoiseSite{
-            NoiseSiteId{symbol}, 0.125, {PresampledNoiseOutcome{SymbolId{symbol}, 0.125}}});
+            SymbolInfo{SymbolKind::Presampled, std::nullopt, NoiseSiteId{symbol / 2}});
     }
+    std::array<double, num_symbols> outcome_probabilities{};
+    for (uint32_t site = 0; site < num_sites; ++site) {
+        const uint32_t first_symbol = 2 * site;
+        const double first_probability = 0.005 + 0.0005 * site;
+        const double second_probability = 0.01 + 0.0007 * site;
+        outcome_probabilities[first_symbol] = first_probability;
+        outcome_probabilities[first_symbol + 1] = second_probability;
+        plan.presampled_noise_sites.push_back(PresampledNoiseSite{
+            NoiseSiteId{site},
+            first_probability + second_probability,
+            {PresampledNoiseOutcome{SymbolId{first_symbol}, first_probability},
+             PresampledNoiseOutcome{SymbolId{first_symbol + 1}, second_probability}}});
+    }
+    std::vector<double> expected_record_probabilities(num_records, 0.0);
     for (uint32_t record = 0; record < num_records; ++record) {
         const uint32_t expression = record % num_unique_expressions;
         std::vector<SymbolId> terms;
@@ -1398,6 +1412,25 @@ TEST_CASE("Packed presampled expression program replays shared affine rows") {
             }
         }
         terms.push_back(SymbolId{48 + expression % 16});
+        std::array<uint8_t, num_symbols> included{};
+        for (SymbolId term : terms) {
+            included[index(term)] = 1;
+        }
+        double even_minus_odd = 1.0;
+        for (uint32_t site = 0; site < num_sites; ++site) {
+            const uint32_t first_symbol = 2 * site;
+            double odd_probability = 0.0;
+            if (included[first_symbol] != 0) {
+                odd_probability += outcome_probabilities[first_symbol];
+            }
+            if (included[first_symbol + 1] != 0) {
+                odd_probability += outcome_probabilities[first_symbol + 1];
+            }
+            even_minus_odd *= 1.0 - 2.0 * odd_probability;
+        }
+        const double odd_probability = 0.5 * (1.0 - even_minus_odd);
+        expected_record_probabilities[record] =
+            expression % 2 == 0 ? odd_probability : 1.0 - odd_probability;
         plan.actions.push_back(PlannedAction{
             0, 0,
             RecordClassical{AffineBool::from_canonical_terms(expression % 2 != 0, std::move(terms)),
@@ -1405,14 +1438,40 @@ TEST_CASE("Packed presampled expression program replays shared affine rows") {
     }
 
     const ExecutablePlan executable(plan);
+    REQUIRE(executable.num_batch_noise_carriers() > 0);
+    const auto record_frequencies = [](const clifft::sampling::SamplingResult& result) {
+        std::array<double, num_records> frequencies{};
+        for (uint32_t shot = 0; shot < shots; ++shot) {
+            for (uint32_t record = 0; record < num_records; ++record) {
+                frequencies[record] +=
+                    result.measurements[static_cast<size_t>(shot) * num_records + record];
+            }
+        }
+        for (double& frequency : frequencies) {
+            frequency /= shots;
+        }
+        return frequencies;
+    };
+    const clifft::sampling::SamplingResult scalar =
+        clifft::sampling::sample(executable, shots, uint64_t{91832}, 1, std::nullopt, uint32_t{1});
+    const std::array<double, num_records> scalar_frequencies = record_frequencies(scalar);
+    for (uint32_t record = 0; record < num_records; ++record) {
+        CAPTURE(record);
+        REQUIRE_THAT(scalar_frequencies[record],
+                     Catch::Matchers::WithinAbs(expected_record_probabilities[record], 0.015));
+    }
 
     for (uint32_t capacity : std::array<uint32_t, 5>{2, 63, 64, 65, 128}) {
         const clifft::sampling::SamplingResult packed =
-            clifft::sampling::sample(executable, 257, uint64_t{91832}, 1, std::nullopt, capacity);
-        const clifft::sampling::SamplingResult replay =
-            clifft::sampling::sample(executable, 257, uint64_t{91832}, 1, std::nullopt, capacity);
-        CAPTURE(capacity);
-        REQUIRE(packed.measurements == replay.measurements);
+            clifft::sampling::sample(executable, shots, uint64_t{91832}, 1, std::nullopt, capacity);
+        const std::array<double, num_records> packed_frequencies = record_frequencies(packed);
+        for (uint32_t record = 0; record < num_records; ++record) {
+            CAPTURE(capacity, record);
+            REQUIRE_THAT(packed_frequencies[record],
+                         Catch::Matchers::WithinAbs(expected_record_probabilities[record], 0.015));
+            REQUIRE_THAT(packed_frequencies[record],
+                         Catch::Matchers::WithinAbs(scalar_frequencies[record], 0.02));
+        }
     }
 }
 
@@ -1488,7 +1547,7 @@ TEST_CASE("Scalar and packed sampling are statistically equivalent") {
     REQUIRE_THAT(packed_frequencies[0], Catch::Matchers::WithinAbs(scalar_frequencies[0], 0.01));
     REQUIRE_THAT(packed_frequencies[1], Catch::Matchers::WithinAbs(scalar_frequencies[1], 0.01));
 
-    const auto output_frequency = [shots](const std::vector<uint8_t>& values) {
+    const auto output_frequency = [](const std::vector<uint8_t>& values) {
         return static_cast<double>(std::ranges::count(values, uint8_t{1})) / shots;
     };
     const double scalar_detector = output_frequency(scalar.detectors);
