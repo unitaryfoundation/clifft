@@ -3,6 +3,7 @@
 
 add_library(clifft_core STATIC
     circuit/parser.cc
+    circuit/qasm2_parser.cc
     tableau/pauli_string.cc
     tableau/tableau.cc
     frontend/frontend.cc

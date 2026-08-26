@@ -1,6 +1,7 @@
 #include "clifft/api/reference_syndrome.h"
 #include "clifft/circuit/circuit.h"
 #include "clifft/circuit/parser.h"
+#include "clifft/circuit/qasm2_parser.h"
 #include "clifft/frontend/frontend.h"
 #include "clifft/noncomp/level.h"
 #include "clifft/noncomp/model.h"
@@ -98,11 +99,12 @@ nb::ndarray<nb::numpy, T, nb::c_contig> vec_to_numpy(std::vector<T> vec,
     return nb::ndarray<nb::numpy, T, nb::c_contig>(data, shape, owner);
 }
 
-clifft::HirModule prepare_hir_for_lowering(const std::string& stim_text, bool normalize_syndromes,
-                                           clifft::HirPassManager* hir_passes,
-                                           std::vector<uint8_t>& expected_detectors,
-                                           std::vector<uint8_t>& expected_observables) {
-    clifft::HirModule hir = clifft::trace(clifft::parse(stim_text));
+clifft::HirModule prepare_circuit_for_lowering(const clifft::Circuit& circuit,
+                                               bool normalize_syndromes,
+                                               clifft::HirPassManager* hir_passes,
+                                               std::vector<uint8_t>& expected_detectors,
+                                               std::vector<uint8_t>& expected_observables) {
+    clifft::HirModule hir = clifft::trace(circuit);
     if (hir_passes != nullptr) {
         hir_passes->run(hir);
     }
@@ -117,6 +119,23 @@ clifft::HirModule prepare_hir_for_lowering(const std::string& stim_text, bool no
     expected_detectors = std::move(reference.detectors);
     expected_observables = std::move(reference.observables);
     return hir;
+}
+
+clifft::HirModule prepare_hir_for_lowering(const std::string& stim_text, bool normalize_syndromes,
+                                           clifft::HirPassManager* hir_passes,
+                                           std::vector<uint8_t>& expected_detectors,
+                                           std::vector<uint8_t>& expected_observables) {
+    return prepare_circuit_for_lowering(clifft::parse(stim_text), normalize_syndromes, hir_passes,
+                                        expected_detectors, expected_observables);
+}
+
+clifft::HirModule prepare_qasm2_for_lowering(const std::string& qasm_text, bool normalize_syndromes,
+                                             clifft::HirPassManager* hir_passes,
+                                             std::vector<uint8_t>& expected_detectors,
+                                             std::vector<uint8_t>& expected_observables) {
+    clifft::Qasm2Import imported = clifft::parse_qasm2(qasm_text);
+    return prepare_circuit_for_lowering(imported.circuit, normalize_syndromes, hir_passes,
+                                        expected_detectors, expected_observables);
 }
 
 }  // namespace
@@ -385,6 +404,24 @@ NB_MODULE(_clifft_core, m) {
                    " measurements)";
         });
 
+    nb::class_<clifft::Qasm2Import>(
+        m, "Qasm2Import",
+        "A natively parsed unitary OpenQASM 2 circuit and its source phase correction")
+        .def_ro("circuit", &clifft::Qasm2Import::circuit)
+        .def_ro("global_phase_half_turns", &clifft::Qasm2Import::global_phase_half_turns,
+                "Source phase correction t representing exp(i * pi * t).")
+        .def_prop_ro(
+            "num_qubits",
+            [](const clifft::Qasm2Import& imported) { return imported.circuit.num_qubits; })
+        .def("__len__",
+             [](const clifft::Qasm2Import& imported) { return imported.circuit.nodes.size(); })
+        .def("__repr__", [](const clifft::Qasm2Import& imported) {
+            return "Qasm2Import(" + std::to_string(imported.circuit.nodes.size()) + " ops, " +
+                   std::to_string(imported.circuit.num_qubits) +
+                   " qubits, phase_half_turns=" + std::to_string(imported.global_phase_half_turns) +
+                   ")";
+        });
+
     m.def(
         "parse",
         [](std::string_view text) {
@@ -415,6 +452,36 @@ NB_MODULE(_clifft_core, m) {
         },
         nb::arg("path"), nb::arg("max_ops"),
         "Parse a quantum circuit from a file with an explicit AST node limit.");
+    m.def(
+        "parse_qasm2",
+        [](std::string_view text) {
+            nb::gil_scoped_release release;
+            return clifft::parse_qasm2(text);
+        },
+        nb::arg("text"), "Parse and lower a unitary OpenQASM 2 circuit.");
+    m.def(
+        "parse_qasm2",
+        [](std::string_view text, size_t max_ops) {
+            nb::gil_scoped_release release;
+            return clifft::parse_qasm2(text, max_ops);
+        },
+        nb::arg("text"), nb::arg("max_ops"),
+        "Parse and lower a unitary OpenQASM 2 circuit with an explicit AST node limit.");
+    m.def(
+        "parse_qasm2_file",
+        [](const std::string& path) {
+            nb::gil_scoped_release release;
+            return clifft::parse_qasm2_file(path);
+        },
+        nb::arg("path"), "Parse and lower a unitary OpenQASM 2 circuit file.");
+    m.def(
+        "parse_qasm2_file",
+        [](const std::string& path, size_t max_ops) {
+            nb::gil_scoped_release release;
+            return clifft::parse_qasm2_file(path, max_ops);
+        },
+        nb::arg("path"), nb::arg("max_ops"),
+        "Parse and lower a unitary OpenQASM 2 file with an explicit AST node limit.");
 
     nb::enum_<clifft::OpType>(m, "OpType", "Heisenberg IR operation types")
         .value("T_GATE", clifft::OpType::T_GATE)
@@ -791,6 +858,25 @@ NB_MODULE(_clifft_core, m) {
         "    normalize_syndromes: If True, auto-compute reference parities from a\n"
         "        noiseless reference shot (mutually exclusive with explicit parities).\n"
         "    hir_passes: Optional HirPassManager to run on the HIR before lowering.\n");
+
+    m.def(
+        "_compile_qasm2",
+        [](const std::string& qasm_text, std::vector<uint8_t> postselection_mask,
+           std::vector<uint8_t> expected_detectors, std::vector<uint8_t> expected_observables,
+           bool normalize_syndromes, clifft::HirPassManager* hir_passes) {
+            nb::gil_scoped_release release;
+            clifft::HirModule hir =
+                prepare_qasm2_for_lowering(qasm_text, normalize_syndromes, hir_passes,
+                                           expected_detectors, expected_observables);
+
+            return clifft::sampling::ExecutablePlan(clifft::sampling::plan_sampling(
+                hir, {postselection_mask, expected_detectors, expected_observables}));
+        },
+        nb::arg("qasm_text"), nb::arg("postselection_mask") = std::vector<uint8_t>{},
+        nb::arg("expected_detectors") = std::vector<uint8_t>{},
+        nb::arg("expected_observables") = std::vector<uint8_t>{},
+        nb::arg("normalize_syndromes") = false, nb::arg("hir_passes") = nb::none(),
+        "Compile a unitary OpenQASM 2 circuit string to an executable program.");
 
     m.def(
         "sample",

@@ -8,8 +8,10 @@ add_executable(clifft_tests
     test_benchmarks.cc
     test_bitmask.cc
     test_mask_view.cc
+    test_numeric.cc
     test_page_allocation.cc
     test_parser.cc
+    test_qasm2_parser.cc
     test_reference_clifford.cc
     test_tableau.cc
     test_hir.cc

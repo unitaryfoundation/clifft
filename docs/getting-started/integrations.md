@@ -2,27 +2,27 @@
 
 # Front-End Integrations
 
-Clifft's native input is Stim-compatible circuit text with Clifft extensions for
-non-Clifford operations. If your circuits are already written in another quantum
-software framework, companion packages can translate or route supported circuits
-to Clifft without hand-writing that text.
+Clifft's primary input is Stim-compatible circuit text with Clifft extensions
+for non-Clifford operations. Other supported front ends accept OpenQASM 2 text
+or integrate circuit objects from another quantum software framework.
 
-These packages are maintained separately from the core `clifft` package and are
-released on their own schedule. Use their READMEs as the source of truth for the
-full supported operation set and current limitations.
+OpenQASM 2 support is built into the core `clifft` package. Framework companion
+packages are maintained separately and released on their own schedule; use
+their READMEs as the source of truth for current limitations.
 
 ## Integration Options
 
 | Starting point | Package | What it provides |
 |---|---|---|
 | Stim-compatible text | [`clifft`](https://pypi.org/project/clifft/) | Direct parsing, compilation, sampling, state-vector access, detectors, observables, and QEC-oriented workflows. |
+| Unitary-only OpenQASM 2 text | [`clifft`](https://pypi.org/project/clifft/) | Native parsing and compilation of the [supported subset](openqasm2.md), including the ABSTRACTS gate vocabulary. |
 | Qiskit `QuantumCircuit` | [`clifft-qiskit`](https://github.com/unitaryfoundation/clifft-qiskit) | A Qiskit `BackendV2` provider that runs supported circuits on Clifft and returns Qiskit-style results. |
 | Cirq `cirq.Circuit` | [`clifft-cirq`](https://github.com/unitaryfoundation/clifft-cirq) | A converter to Clifft circuit text plus a Cirq-style sampler facade backed by Clifft. |
 
-Use the native `clifft` API when you are already working with Stim-style circuit
-text, detector annotations, observables, post-selection, or importance sampling.
-Use an adapter when the circuit construction, decomposition, or surrounding
-workflow already lives in Qiskit or Cirq.
+Use the native `clifft` API for supported circuit text, detector annotations,
+observables, post-selection, or importance sampling. Use an adapter when
+circuit construction, decomposition, or the surrounding workflow already lives
+in Qiskit or Cirq.
 
 ## Qiskit
 

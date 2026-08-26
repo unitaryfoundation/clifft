@@ -96,7 +96,9 @@ nav:
   - Getting Started:
     - Installation: getting-started/installation.md
     - Quick Start: getting-started/quickstart.md
-    - Front-End Integrations: getting-started/integrations.md
+    - Front-End Integrations:
+      - Overview: getting-started/integrations.md
+      - OpenQASM 2: getting-started/openqasm2.md
   - User Guide:
     - Compiling Circuits: guide/compilation.md
     - Simulation: guide/simulation.md

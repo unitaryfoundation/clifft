@@ -12,6 +12,10 @@ directly; there is no sampler-selection module or backend switch.
 
 ::: clifft.parse_file
 
+::: clifft.parse_qasm2
+
+::: clifft.parse_qasm2_file
+
 ::: clifft.trace
 
 ::: clifft.lower
@@ -66,6 +70,8 @@ Sampling under a five-level leakage/loss model. See the
 ## Circuit and IR Inspection
 
 ::: clifft.Circuit
+
+::: clifft.Qasm2Import
 
 ::: clifft.AstNode
 
