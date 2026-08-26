@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787639596594,
+  "lastUpdate": 1787725990509,
   "repoUrl": "https://github.com/unitaryfoundation/clifft",
   "entries": {
     "C++ Catch2 benchmarks (scalar)": [
@@ -6398,6 +6398,70 @@ window.BENCHMARK_DATA = {
             "name": "exp-val 20q 200 probes x100k",
             "value": 98.7441,
             "range": "± 602.422",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Brad Chase",
+            "username": "bachase",
+            "email": "14430+bachase@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "50f2cfa1781cb68ce16351d674426e9418eb5151",
+          "message": "build: remove the C++ Stim test dependency (#401)\n\nStop fetching and linking Stim in standalone C++ test builds. Remove the\nnow-obsolete production-only CI guard and document the scalar C++\nreferences alongside the retained Python Stim oracles.\n\nCloses #385.\n\nAssisted-by: Codex (GPT-5) <noreply@openai.com>",
+          "timestamp": "2026-08-25T15:18:23Z",
+          "url": "https://github.com/unitaryfoundation/clifft/commit/50f2cfa1781cb68ce16351d674426e9418eb5151"
+        },
+        "date": 1787725985988,
+        "tool": "catch2",
+        "benches": [
+          {
+            "name": "QV-10 x100 shots",
+            "value": 17.4989,
+            "range": "± 127.291",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "cultivation-d5 x1000 shots",
+            "value": 47.45,
+            "range": "± 1.77536",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d7-r7 p=1e-3 x10000 shots",
+            "value": 43.3832,
+            "range": "± 767.551",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d5-r5 p=0.05 x10000 shots",
+            "value": 52.8706,
+            "range": "± 721.096",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d11-r11 p=1e-3 x1000 shots",
+            "value": 15.5772,
+            "range": "± 271.251",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "exp-val 20q 200 probes x100k",
+            "value": 75.975,
+            "range": "± 476.727",
             "unit": "ms",
             "extra": "100 samples\n1 iterations"
           }
