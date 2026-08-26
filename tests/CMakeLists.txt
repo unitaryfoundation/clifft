@@ -15,6 +15,7 @@ add_executable(clifft_tests
     test_parser.cc
     test_qasm2_parser.cc
     test_reference_clifford.cc
+    test_stabilizer_ch_form.cc
     test_tableau.cc
     test_hir.cc
     test_frontend.cc

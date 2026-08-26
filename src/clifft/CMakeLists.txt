@@ -5,6 +5,7 @@ add_library(clifft_core STATIC
     circuit/parser.cc
     circuit/qasm2_parser.cc
     tableau/pauli_string.cc
+    tableau/stabilizer_ch_form.cc
     tableau/tableau.cc
     frontend/frontend.cc
     optimizer/hir_pass_manager.cc
