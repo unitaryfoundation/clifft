@@ -89,6 +89,15 @@ class ExecutablePlan {
     [[nodiscard]] uint32_t num_presampled_symbols() const {
         return static_cast<uint32_t>(presampled_symbols_.size());
     }
+    [[nodiscard]] size_t num_expression_registers() const noexcept {
+        return expression_register_constants_.size();
+    }
+    [[nodiscard]] bool has_batch_record_parities() const noexcept {
+        return !batch_record_parities_.empty();
+    }
+    [[nodiscard]] uint32_t num_readout_noise_sites() const noexcept {
+        return num_readout_noise_sites_;
+    }
     [[nodiscard]] size_t num_actions() const { return actions_.size(); }
     [[nodiscard]] size_t num_new_x_instrument_activations() const;
     [[nodiscard]] uint32_t num_unbound_presampled_symbols() const {

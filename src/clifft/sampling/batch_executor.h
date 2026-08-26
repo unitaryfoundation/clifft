@@ -23,6 +23,8 @@ namespace clifft::sampling {
 inline constexpr uint32_t kDefaultMaxAutoBatchShots = 2048;
 inline constexpr uint32_t kMaxExplicitBatchShots = 2048;
 inline constexpr size_t kDefaultBatchStateBudget = 768 * 1024;
+inline constexpr size_t kDefaultBatchWorkerBudget = 8 * 1024 * 1024;
+inline constexpr size_t kDefaultBatchTotalWorkerBudget = 64 * 1024 * 1024;
 inline constexpr size_t kMaxExplicitBatchStateBudget = 64 * 1024 * 1024;
 inline constexpr uint32_t kDefaultMinAutoBatchShots = 64;
 
@@ -36,8 +38,12 @@ enum class BatchOutputMode : uint8_t {
 // explicit packed capacity. Validation and allocation happen before dispatch.
 #if defined(__EMSCRIPTEN__)
 [[nodiscard]] inline uint32_t resolve_batch_capacity(const ExecutablePlan& plan, uint32_t shots,
+                                                     uint32_t shot_workers,
                                                      uint32_t intra_shot_workers,
+                                                     BatchOutputMode output_mode,
                                                      std::optional<uint32_t> requested_batch_size) {
+    (void)shot_workers;
+    (void)output_mode;
     if (requested_batch_size.has_value() && *requested_batch_size == 0) {
         throw std::invalid_argument("batch_size must be a positive integer or 'auto'");
     }
@@ -54,7 +60,8 @@ enum class BatchOutputMode : uint8_t {
 }
 #else
 [[nodiscard]] uint32_t resolve_batch_capacity(const ExecutablePlan& plan, uint32_t shots,
-                                              uint32_t intra_shot_workers,
+                                              uint32_t shot_workers, uint32_t intra_shot_workers,
+                                              BatchOutputMode output_mode,
                                               std::optional<uint32_t> requested_batch_size);
 #endif
 

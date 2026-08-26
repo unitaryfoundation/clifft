@@ -485,7 +485,8 @@ SamplingResult sample(const ExecutablePlan& plan, uint32_t shots, std::optional<
 
     const ThreadLayout resolved = resolve_thread_layout(plan, shots, threads, thread_layout);
     const uint32_t batch_capacity =
-        resolve_batch_capacity(plan, shots, resolved.intra_shot_workers, batch_size);
+        resolve_batch_capacity(plan, shots, resolved.shot_workers, resolved.intra_shot_workers,
+                               BatchOutputMode::Rows, batch_size);
 #if !defined(__EMSCRIPTEN__)
     if (batch_capacity > 1) {
         return sample_fixed_batches(
@@ -527,8 +528,10 @@ SamplingSurvivorResult sample_survivors(const ExecutablePlan& plan, uint32_t sho
     }
 
     const ThreadLayout resolved = resolve_thread_layout(plan, shots, threads, thread_layout);
-    const uint32_t batch_capacity =
-        resolve_batch_capacity(plan, shots, resolved.intra_shot_workers, batch_size);
+    const BatchOutputMode output_mode =
+        keep_records ? BatchOutputMode::Rows : BatchOutputMode::AggregateSurvivors;
+    const uint32_t batch_capacity = resolve_batch_capacity(
+        plan, shots, resolved.shot_workers, resolved.intra_shot_workers, output_mode, batch_size);
 #if !defined(__EMSCRIPTEN__)
     if (batch_capacity > 1) {
         return sample_surviving_batches(
@@ -570,7 +573,8 @@ SamplingResult sample_k(const ExecutablePlan& plan, uint32_t shots, uint32_t k,
     }
     const ThreadLayout resolved = resolve_thread_layout(plan, shots, threads, thread_layout);
     const uint32_t batch_capacity =
-        resolve_batch_capacity(plan, shots, resolved.intra_shot_workers, batch_size);
+        resolve_batch_capacity(plan, shots, resolved.shot_workers, resolved.intra_shot_workers,
+                               BatchOutputMode::Rows, batch_size);
     if (shots == 0) {
         return sample_fixed_rows(
             plan, shots, seed, resolved,
@@ -624,8 +628,10 @@ SamplingSurvivorResult sample_k_survivors(const ExecutablePlan& plan, uint32_t s
             "forced-fault survivor sampling requires a distribution for every presampled symbol");
     }
     const ThreadLayout resolved = resolve_thread_layout(plan, shots, threads, thread_layout);
-    const uint32_t batch_capacity =
-        resolve_batch_capacity(plan, shots, resolved.intra_shot_workers, batch_size);
+    const BatchOutputMode output_mode =
+        keep_records ? BatchOutputMode::Rows : BatchOutputMode::AggregateSurvivors;
+    const uint32_t batch_capacity = resolve_batch_capacity(
+        plan, shots, resolved.shot_workers, resolved.intra_shot_workers, output_mode, batch_size);
     if (shots == 0) {
         return sample_surviving_rows(
             plan, shots, seed, keep_records, resolved,

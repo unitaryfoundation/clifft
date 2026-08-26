@@ -277,8 +277,13 @@ the final partial batch can be smaller. Before allocating a worker, Clifft also
 rejects an explicit capacity whose dense packed state would exceed 64 MiB. Reduce
 `batch_size` or select `batch_size=1` when that diagnostic is raised. Automatic
 selection currently requires at least 64 shots and a peak active width of at most
-5. An explicit capacity can opt into other fixed plans when packed execution is
-supported and its state footprint fits the explicit limit.
+5. It budgets the complete lane-scaled executor footprint, including coefficient
+and scratch arrays, symbols, expression registers, retained records and outputs,
+and per-lane scratch. The default policy keeps this storage near 8 MiB per packed
+worker and 64 MiB across packed workers. An explicit capacity can opt into other
+fixed plans when packed execution is supported and its dense state fits the
+explicit limit; it bypasses the conservative complete-worker budgets, so plans
+with many symbolic or record columns can retain substantially more memory.
 
 Packed execution supports ordinary sampling, post-selected survivor sampling,
 counts-only survivor aggregation, expectation values, and fixed-k importance
@@ -357,9 +362,13 @@ run.
 
 Each cross-shot worker owns a separate executor. Its dense coefficient and
 measurement scratch storage uses roughly $24 \times 2^k$ bytes at peak active width $k$,
-plus symbolic state, records, and other executor metadata. Set an explicit
-layout when memory is more constrained than CPU availability. Intra-shot
-workers cooperate on one executor and do not replicate this storage.
+plus lane-scaled packed symbolic state, expression registers, records, outputs,
+and other executor metadata. Each packed bit column uses
+$8 \times \lceil b / 64 \rceil$ bytes at lane capacity $b$, and every cross-shot
+worker owns its own copy. Automatic batch selection accounts for both the
+per-worker footprint and the number of packed workers. Set an explicit layout
+when memory is more constrained than CPU availability. Intra-shot workers
+cooperate on one executor and do not replicate this storage.
 Noncomputational workers also own their trajectory continuations and compile
 new continuations independently as their shots encounter jumps.
 

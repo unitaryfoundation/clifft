@@ -75,11 +75,57 @@ struct MeasurementBranchClassification {
     return sizeof(double) * entries;
 }
 
+[[nodiscard]] uint64_t saturating_add(uint64_t left, uint64_t right) noexcept {
+    constexpr uint64_t kMax = std::numeric_limits<uint64_t>::max();
+    return right > kMax - left ? kMax : left + right;
+}
+
+[[nodiscard]] uint64_t saturating_multiply(uint64_t left, uint64_t right) noexcept {
+    constexpr uint64_t kMax = std::numeric_limits<uint64_t>::max();
+    return left != 0 && right > kMax / left ? kMax : left * right;
+}
+
+[[nodiscard]] uint64_t estimated_batch_worker_bytes(const ExecutablePlan& plan,
+                                                    uint32_t lane_capacity,
+                                                    BatchOutputMode output_mode) noexcept {
+    const uint64_t words = packed_word_count(lane_capacity);
+    const uint64_t records =
+        output_mode == BatchOutputMode::Rows || plan.has_batch_record_parities()
+            ? static_cast<uint64_t>(plan.num_visible_records()) + plan.num_hidden_records()
+            : 0;
+    const uint64_t packed_columns =
+        static_cast<uint64_t>(plan.num_symbols()) + plan.num_expression_registers() + records +
+        (output_mode == BatchOutputMode::Rows ? plan.num_detectors() : 0) + plan.num_observables() +
+        plan.num_readout_noise_sites();
+    const uint64_t packed_bytes =
+        saturating_multiply(saturating_multiply(packed_columns, words), sizeof(uint64_t));
+
+    const uint64_t lane_pitch = (static_cast<uint64_t>(lane_capacity) + 7) & ~uint64_t{7};
+    uint64_t bytes = saturating_multiply(interleaved_state_bytes_per_lane(plan), lane_pitch);
+    bytes = saturating_add(bytes, packed_bytes);
+    bytes = saturating_add(bytes, saturating_multiply(words, 3 * sizeof(uint64_t)));
+
+    constexpr uint64_t kLaneBytes = 2 * sizeof(uint32_t) + sizeof(uint8_t) + 4 * sizeof(double);
+    bytes = saturating_add(bytes, saturating_multiply(lane_capacity, kLaneBytes));
+    if (output_mode == BatchOutputMode::Rows) {
+        bytes = saturating_add(
+            bytes, saturating_multiply(saturating_multiply(plan.num_exp_vals(), lane_capacity),
+                                       sizeof(double)));
+    }
+    return bytes;
+}
+
+[[nodiscard]] uint32_t batch_worker_count(uint32_t shots, uint32_t shot_workers,
+                                          uint32_t lane_capacity) noexcept {
+    const uint64_t batches = (static_cast<uint64_t>(shots) + lane_capacity - 1) / lane_capacity;
+    return static_cast<uint32_t>(std::max<uint64_t>(1, std::min<uint64_t>(shot_workers, batches)));
+}
+
 }  // namespace
 
 #if !defined(__EMSCRIPTEN__)
-uint32_t resolve_batch_capacity(const ExecutablePlan& plan, uint32_t shots,
-                                uint32_t intra_shot_workers,
+uint32_t resolve_batch_capacity(const ExecutablePlan& plan, uint32_t shots, uint32_t shot_workers,
+                                uint32_t intra_shot_workers, BatchOutputMode output_mode,
                                 std::optional<uint32_t> requested_batch_size) {
     if (requested_batch_size.has_value() && *requested_batch_size == 0) {
         throw std::invalid_argument("batch_size must be a positive integer or 'auto'");
@@ -113,10 +159,20 @@ uint32_t resolve_batch_capacity(const ExecutablePlan& plan, uint32_t shots,
         return 1;
     }
     const uint64_t state_bytes_per_lane = interleaved_state_bytes_per_lane(plan);
-    const size_t footprint_capacity =
-        std::max<uint64_t>(1, kDefaultBatchStateBudget / state_bytes_per_lane);
-    return static_cast<uint32_t>(
-        std::min<size_t>({shots, kDefaultMaxAutoBatchShots, footprint_capacity}));
+    const uint32_t state_capacity = static_cast<uint32_t>(
+        std::max<uint64_t>(1, kDefaultBatchStateBudget / state_bytes_per_lane));
+    uint32_t capacity = std::min({shots, kDefaultMaxAutoBatchShots, state_capacity});
+    while (capacity >= kDefaultMinAutoBatchShots) {
+        const uint64_t worker_bytes = estimated_batch_worker_bytes(plan, capacity, output_mode);
+        const uint64_t total_bytes =
+            saturating_multiply(worker_bytes, batch_worker_count(shots, shot_workers, capacity));
+        if (worker_bytes <= kDefaultBatchWorkerBudget &&
+            total_bytes <= kDefaultBatchTotalWorkerBudget) {
+            return capacity;
+        }
+        capacity = std::bit_floor(capacity - 1);
+    }
+    return 1;
 }
 #endif
 
