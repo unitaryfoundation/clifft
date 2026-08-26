@@ -3,6 +3,7 @@
 
 #include <bit>
 #include <cassert>
+#include <limits>
 #include <ostream>
 #include <sstream>
 #include <stdexcept>
@@ -99,6 +100,33 @@ std::string ExecutablePlan::inspect() const {
 std::string ExecutablePlan::inspect_action(size_t action) const {
     const Action& selected = actions_.at(action);
     std::ostringstream out;
+    const auto write_record_parity = [&](uint32_t parity_index) {
+        if (parity_index == std::numeric_limits<uint32_t>::max()) {
+            return;
+        }
+        assert(parity_index < batch_record_parities_.size() &&
+               "inspected record parity must be prepared");
+        const PreparedRecordParity& parity = batch_record_parities_[parity_index];
+        const size_t end = static_cast<size_t>(parity.begin) + parity.count;
+        assert(end <= batch_record_parity_terms_.size() &&
+               "inspected record parity must stay in its term tape");
+        out << " batch_parity=";
+        bool wrote = false;
+        if (parity.constant) {
+            out << '1';
+            wrote = true;
+        }
+        for (size_t term = parity.begin; term < end; ++term) {
+            if (wrote) {
+                out << '^';
+            }
+            out << 'r' << batch_record_parity_terms_[term];
+            wrote = true;
+        }
+        if (!wrote) {
+            out << '0';
+        }
+    };
     std::visit(
         Overloaded{
             [&](const ExecuteRotation& typed) {
@@ -151,10 +179,12 @@ std::string ExecutablePlan::inspect_action(size_t action) const {
                 if (typed.postselected) {
                     out << " postselect";
                 }
+                write_record_parity(typed.record_parity);
             },
             [&](const ExecuteObservable& typed) {
                 out << "WRITE_OBSERVABLE observable=o" << typed.observable << " outcome=e"
                     << typed.outcome.register_id;
+                write_record_parity(typed.record_parity);
             },
             [&](const ExecuteExpectation& typed) {
                 out << "WRITE_EXPECTATION exp_val=v" << typed.exp_val << ' ';

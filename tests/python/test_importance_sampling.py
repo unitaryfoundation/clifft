@@ -154,6 +154,12 @@ class TestSampleK(_ImportanceBackendMixin):
         np.testing.assert_array_equal(r1.detectors, r2.detectors)
         np.testing.assert_array_equal(r1.observables, r2.observables)
 
+        auto1 = self.sampling_api.sample_k(prog, shots=100, k=1, seed=99)
+        auto2 = self.sampling_api.sample_k(prog, shots=100, k=1, seed=99)
+        np.testing.assert_array_equal(auto1.measurements, auto2.measurements)
+        np.testing.assert_array_equal(auto1.detectors, auto2.detectors)
+        np.testing.assert_array_equal(auto1.observables, auto2.observables)
+
     def test_threads_preserve_seeded_rows(self) -> None:
         prog = self.compile("X_ERROR(0.1) 0 1 2\nM 0 1 2")
         serial = self.sampling_api.sample_k(prog, shots=257, k=1, seed=99, threads=1)

@@ -19,6 +19,7 @@ using clifft::sampling::ActivePauli;
 using clifft::sampling::AffineBool;
 using clifft::sampling::ApplyInstrument;
 using clifft::sampling::ApplyReadoutNoise;
+using clifft::sampling::BatchRecordParity;
 using clifft::sampling::DefineSymbol;
 using clifft::sampling::DetectorSlot;
 using clifft::sampling::ExecutablePlan;
@@ -152,6 +153,31 @@ TEST_CASE("Detector inspection appends postselect only when the detector is post
     CHECK(plan.inspect_action(0) ==
           "w0 dense_passes=0 WRITE_DETECTOR outcome=0 detector=d0 postselect");
     CHECK(plan.inspect_action(1) == "w0 dense_passes=0 WRITE_DETECTOR outcome=0 detector=d1");
+}
+
+TEST_CASE("Syndrome inspection renders packed record parity sidecars") {
+    SamplingPlan plan;
+    plan.num_visible_records = 1;
+    plan.num_detectors = 1;
+    plan.num_observables = 1;
+    plan.actions = {
+        PlannedAction{0, 0, RecordClassical{AffineBool(true), RecordSlot{0}}},
+        PlannedAction{0, 0,
+                      WriteDetector{AffineBool(true), DetectorSlot{0}, false,
+                                    BatchRecordParity{false, {RecordSlot{0}}}}},
+        PlannedAction{0, 0,
+                      WriteObservable{AffineBool(true), ObservableSlot{0},
+                                      BatchRecordParity{false, {RecordSlot{0}}}}},
+    };
+
+    CHECK(plan.inspect_action(1) ==
+          "w0 dense_passes=0 WRITE_DETECTOR outcome=1 detector=d0 batch_parity=r0");
+    CHECK(plan.inspect_action(2) ==
+          "w0 dense_passes=0 WRITE_OBSERVABLE outcome=1 observable=o0 batch_parity=r0");
+    const ExecutablePlan executable(plan);
+    CHECK(executable.inspect_action(1) == "WRITE_DETECTOR detector=d0 outcome=e1 batch_parity=r0");
+    CHECK(executable.inspect_action(2) ==
+          "WRITE_OBSERVABLE observable=o0 outcome=e2 batch_parity=r0");
 }
 
 TEST_CASE("Executable rotation prints a pairing index only for X-type prepared Paulis") {

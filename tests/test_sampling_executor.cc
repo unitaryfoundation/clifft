@@ -1416,10 +1416,54 @@ TEST_CASE("Packed presampled expression program replays shared affine rows") {
     }
 }
 
+TEST_CASE("Packed syndrome outputs preserve record snapshots") {
+    const std::array<uint8_t, 2> expected_detectors{1, 1};
+    const std::array<uint8_t, 3> expected_observables{1, 1, 1};
+    clifft::sampling::SamplingPlanOptions options;
+    options.expected_detectors = expected_detectors;
+    options.expected_observables = expected_observables;
+    const ExecutablePlan executable(clifft::sampling::plan_sampling(clifft::trace(clifft::parse(R"(
+            X 0
+            M 0
+            DETECTOR rec[-1]
+            OBSERVABLE_INCLUDE(0) rec[-1]
+            OBSERVABLE_INCLUDE(2) rec[-1]
+            READOUT_NOISE(1) rec[-1]
+            DETECTOR rec[-1]
+            OBSERVABLE_INCLUDE(1) rec[-1]
+            OBSERVABLE_INCLUDE(2) rec[-1]
+        )")),
+                                                                    options));
+    const clifft::sampling::SamplingResult scalar =
+        clifft::sampling::sample(executable, 257, uint64_t{918321}, 1, std::nullopt, uint32_t{1});
+
+    for (uint32_t capacity : std::array<uint32_t, 5>{2, 63, 64, 65, 128}) {
+        const clifft::sampling::SamplingResult packed =
+            clifft::sampling::sample(executable, 257, uint64_t{918321}, 1, std::nullopt, capacity);
+        CAPTURE(capacity);
+        REQUIRE(packed.measurements == scalar.measurements);
+        REQUIRE(packed.detectors == scalar.detectors);
+        REQUIRE(packed.observables == scalar.observables);
+        for (uint32_t shot = 0; shot < 257; ++shot) {
+            REQUIRE(packed.measurements[shot] == 0);
+            REQUIRE(packed.detectors[2 * shot] == 0);
+            REQUIRE(packed.detectors[2 * shot + 1] == 1);
+            REQUIRE(packed.observables[3 * shot] == 0);
+            REQUIRE(packed.observables[3 * shot + 1] == 1);
+            REQUIRE(packed.observables[3 * shot + 2] == 0);
+        }
+    }
+}
+
 TEST_CASE("Scalar and packed sampling are statistically equivalent") {
     constexpr uint32_t shots = 100000;
-    const ExecutablePlan executable(clifft::sampling::plan_sampling(
-        clifft::trace(clifft::parse("X_ERROR(0.125) 0\nH 1\nM 0 1\n"))));
+    const ExecutablePlan executable(clifft::sampling::plan_sampling(clifft::trace(clifft::parse(R"(
+            X_ERROR(0.125) 0
+            H 1
+            M 0 1
+            DETECTOR rec[-2]
+            OBSERVABLE_INCLUDE(0) rec[-1]
+        )"))));
     const clifft::sampling::SamplingResult scalar =
         clifft::sampling::sample(executable, shots, uint64_t{91833}, 1, std::nullopt, uint32_t{1});
     const clifft::sampling::SamplingResult packed = clifft::sampling::sample(
@@ -1443,6 +1487,20 @@ TEST_CASE("Scalar and packed sampling are statistically equivalent") {
     REQUIRE_THAT(packed_frequencies[1], Catch::Matchers::WithinAbs(0.5, 0.01));
     REQUIRE_THAT(packed_frequencies[0], Catch::Matchers::WithinAbs(scalar_frequencies[0], 0.01));
     REQUIRE_THAT(packed_frequencies[1], Catch::Matchers::WithinAbs(scalar_frequencies[1], 0.01));
+
+    const auto output_frequency = [shots](const std::vector<uint8_t>& values) {
+        return static_cast<double>(std::ranges::count(values, uint8_t{1})) / shots;
+    };
+    const double scalar_detector = output_frequency(scalar.detectors);
+    const double packed_detector = output_frequency(packed.detectors);
+    const double scalar_observable = output_frequency(scalar.observables);
+    const double packed_observable = output_frequency(packed.observables);
+    REQUIRE_THAT(scalar_detector, Catch::Matchers::WithinAbs(0.125, 0.01));
+    REQUIRE_THAT(packed_detector, Catch::Matchers::WithinAbs(0.125, 0.01));
+    REQUIRE_THAT(packed_detector, Catch::Matchers::WithinAbs(scalar_detector, 0.01));
+    REQUIRE_THAT(scalar_observable, Catch::Matchers::WithinAbs(0.5, 0.01));
+    REQUIRE_THAT(packed_observable, Catch::Matchers::WithinAbs(0.5, 0.01));
+    REQUIRE_THAT(packed_observable, Catch::Matchers::WithinAbs(scalar_observable, 0.01));
 }
 
 TEST_CASE("Packed uniform sparse noise matches its Bernoulli rate") {

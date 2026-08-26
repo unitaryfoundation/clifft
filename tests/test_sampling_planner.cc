@@ -32,6 +32,7 @@ using clifft::sampling::MeasureDormantRandom;
 using clifft::sampling::plan_sampling;
 using clifft::sampling::PromoteDormantRotation;
 using clifft::sampling::RecordClassical;
+using clifft::sampling::RecordSlot;
 using clifft::sampling::RotateActivePauli;
 using clifft::sampling::SamplingPlan;
 using clifft::sampling::SamplingPlanOptions;
@@ -553,10 +554,42 @@ TEST_CASE("Sampling planner carries corrected records into syndrome outputs") {
     REQUIRE(readout.source == AffineBool(false));
     REQUIRE(readout.prob_zero_to_one == 0.1);
     REQUIRE(readout.prob_one_to_zero == 0.2);
-    REQUIRE(action_as<WriteDetector>(plan, 2).outcome == (AffineBool::symbol(readout.flip) ^ true));
-    REQUIRE(action_as<WriteDetector>(plan, 2).postselected);
-    REQUIRE(action_as<WriteObservable>(plan, 3).outcome ==
-            (AffineBool::symbol(readout.flip) ^ true));
+    const auto& detector = action_as<WriteDetector>(plan, 2);
+    REQUIRE(detector.outcome == (AffineBool::symbol(readout.flip) ^ true));
+    REQUIRE(detector.postselected);
+    REQUIRE(detector.batch_parity.has_value());
+    REQUIRE(detector.batch_parity->constant);
+    REQUIRE(detector.batch_parity->records == std::vector<RecordSlot>{RecordSlot{0}});
+    const auto& observable = action_as<WriteObservable>(plan, 3);
+    REQUIRE(observable.outcome == (AffineBool::symbol(readout.flip) ^ true));
+    REQUIRE(observable.batch_parity.has_value());
+    REQUIRE(observable.batch_parity->constant);
+    REQUIRE(observable.batch_parity->records == std::vector<RecordSlot>{RecordSlot{0}});
+}
+
+TEST_CASE("Sampling planner falls back for historical observable records") {
+    const SamplingPlan plan = plan_sampling(clifft::trace(clifft::parse(R"(
+        X 0
+        M 0
+        OBSERVABLE_INCLUDE(0) rec[-1]
+        OBSERVABLE_INCLUDE(2) rec[-1]
+        READOUT_NOISE(1) rec[-1]
+        OBSERVABLE_INCLUDE(1) rec[-1]
+        OBSERVABLE_INCLUDE(2) rec[-1]
+    )")));
+
+    REQUIRE(plan.actions.size() == 5);
+    const auto& readout = action_as<ApplyReadoutNoise>(plan, 1);
+    const auto& before = action_as<WriteObservable>(plan, 2);
+    const auto& after = action_as<WriteObservable>(plan, 3);
+    const auto& straddled = action_as<WriteObservable>(plan, 4);
+    REQUIRE(before.outcome == AffineBool(true));
+    REQUIRE_FALSE(before.batch_parity.has_value());
+    REQUIRE(after.outcome == (AffineBool::symbol(readout.flip) ^ true));
+    REQUIRE(after.batch_parity.has_value());
+    REQUIRE(after.batch_parity->records == std::vector<RecordSlot>{RecordSlot{0}});
+    REQUIRE(straddled.outcome == AffineBool::symbol(readout.flip));
+    REQUIRE_FALSE(straddled.batch_parity.has_value());
 }
 
 TEST_CASE("Sampling planner reports the dense active width limit") {
@@ -622,5 +655,5 @@ TEST_CASE("Sampling planner target QEC plan characterization") {
     INFO(inspection);
     // After verifying that a reported inspection change is intentional, update
     // this digest to the new value shown by the failed assertion.
-    REQUIRE(fnv1a64(inspection) == 0x52ca4372383772c4ULL);
+    REQUIRE(fnv1a64(inspection) == 0x2b35d16f42cb24a3ULL);
 }
