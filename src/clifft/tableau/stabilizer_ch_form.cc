@@ -166,7 +166,8 @@ void StabilizerChForm::cnot_right(uint32_t control, uint32_t target) {
     }
 }
 
-StabilizerChForm::HDecomposition StabilizerChForm::decompose_h_sum(bool has_h, bool y, bool z,
+StabilizerChForm::HDecomposition StabilizerChForm::decompose_h_sum(bool has_h, bool y,
+                                                                   [[maybe_unused]] bool z,
                                                                    uint8_t delta) {
     assert(y != z);
     HDecomposition result;

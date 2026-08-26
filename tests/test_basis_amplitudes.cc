@@ -69,10 +69,34 @@ TEST_CASE("Basis amplitude query retains exponential rotation scalars") {
                   {std::cos(std::numbers::pi * alpha / 2.0), 0.0});
     check_complex(amplitude("R_PAULI(0.3) X0*Y1", 3),
                   {std::sin(std::numbers::pi * alpha / 2.0), 0.0});
+
+    constexpr double theta = 0.31;
+    constexpr double phi = -0.47;
+    constexpr double lambda = 0.59;
+    check_complex(amplitude("U3(0.31,-0.47,0.59) 0", 0),
+                  std::polar(std::cos(std::numbers::pi * theta / 2.0),
+                             -std::numbers::pi * (lambda + phi) / 2.0));
+    check_complex(amplitude("U3(0.31,-0.47,0.59) 0", 1),
+                  std::polar(std::sin(std::numbers::pi * theta / 2.0),
+                             std::numbers::pi * (phi - lambda) / 2.0));
 }
 
 TEST_CASE("Basis amplitude query rejects nonunitary circuits") {
     const clifft::Circuit circuit = clifft::parse("M 0");
+    const std::vector<uint64_t> output{0};
+    REQUIRE_THROWS_AS(clifft::sampling::BasisAmplitudeQuery(circuit, output),
+                      std::invalid_argument);
+}
+
+TEST_CASE("Basis amplitude query rejects incomplete paired operations") {
+    clifft::Circuit circuit;
+    circuit.num_qubits = 3;
+    circuit.nodes.push_back(clifft::AstNode{
+        .gate = clifft::GateType::CX,
+        .targets = {clifft::Target::qubit(0), clifft::Target::qubit(1), clifft::Target::qubit(2)},
+        .args = {},
+        .source_line = 0,
+        .tag = {}});
     const std::vector<uint64_t> output{0};
     REQUIRE_THROWS_AS(clifft::sampling::BasisAmplitudeQuery(circuit, output),
                       std::invalid_argument);

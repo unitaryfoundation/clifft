@@ -261,6 +261,18 @@ def test_probabilities_conjugate_complex_clifford_frames(
     )
 
 
+def test_probabilities_apply_later_z_pivot_sign_updates(basis_probabilities_api: Any) -> None:
+    circuit = "R_X(-2.3) 2\nTPP X0*X1*Y2"
+    prog = basis_probabilities_api.compile(circuit)
+    bitstrings = _all_bitstrings(prog.num_qubits)
+
+    np.testing.assert_allclose(
+        basis_probabilities_api.basis_probabilities(prog, bitstrings),
+        _statevector_probs(prog),
+        atol=1e-12,
+    )
+
+
 # The pinned seeds include generator outputs whose outcome amplitudes combine
 # several active coordinates with complex relative weights; broad sweeps with
 # only a few seeds can miss that interference pattern entirely.
