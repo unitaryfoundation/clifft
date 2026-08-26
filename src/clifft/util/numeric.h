@@ -33,31 +33,34 @@ enum class CliffordRotation : uint8_t { IDENTITY = 0, SQRT = 1, PAULI = 2, SQRT_
 static_assert(std::numeric_limits<double>::is_iec559,
               "Clifft probability validation requires IEEE 754 doubles");
 
-// -ffast-math implies -ffinite-math-only, which can fold away
-// std::isfinite() and NaN-aware comparisons. Inspect the exponent bits
-// instead: a non-finite double has all exponent bits set. Keep the integer
-// predicate out of line so the compiler cannot propagate finite-math
-// assumptions from the floating-point value into the bit test; Apple Clang 17
-// on arm64 was observed to fold the otherwise-inline check.
+// Make a binary64 representation opaque to floating-point value propagation.
+// Apple Clang 17 on arm64 was observed to fold exponent checks derived directly
+// from a double when -ffast-math asserted that the source must be finite.
 namespace detail {
 
-#if defined(_MSC_VER)
-__declspec(noinline)
+inline uint64_t opaque_binary64_bits(double value) {
+    uint64_t bits;
+    std::memcpy(&bits, &value, sizeof(bits));
+#if (defined(__GNUC__) || defined(__clang__)) && !defined(__EMSCRIPTEN__)
+    // An empty register barrier emits no instructions while making the value
+    // opaque to the optimizer.
+    __asm__ __volatile__("" : "+r"(bits));
 #else
-__attribute__((noinline))
+    volatile uint64_t opaque_bits = bits;
+    bits = opaque_bits;
 #endif
-inline bool
-binary64_bits_are_finite(uint64_t bits) {
-    constexpr uint64_t kExpMask = 0x7FF0000000000000ULL;
-    return (bits & kExpMask) != kExpMask;
+    return bits;
 }
 
 }  // namespace detail
 
+// -ffast-math implies -ffinite-math-only, which can fold away
+// std::isfinite() and NaN-aware comparisons. Inspect the exponent bits instead:
+// a non-finite double has all exponent bits set.
 inline bool is_finite_robust(double value) {
-    uint64_t bits;
-    std::memcpy(&bits, &value, sizeof(bits));
-    return detail::binary64_bits_are_finite(bits);
+    const uint64_t bits = detail::opaque_binary64_bits(value);
+    constexpr uint64_t kExpMask = 0x7FF0000000000000ULL;
+    return (bits & kExpMask) != kExpMask;
 }
 
 // Return the Clifford representative when alpha is within the shared absolute
@@ -82,10 +85,17 @@ inline std::optional<CliffordRotation> classify_clifford_rotation(double alpha) 
     return static_cast<CliffordRotation>(residue);
 }
 
-// The finite check must precede the comparisons: under -ffast-math the
-// compiler may otherwise assume a NaN input is impossible.
+// Compare binary64 magnitudes so -ffast-math cannot assume that NaN and
+// infinity inputs are impossible. IEEE 754 ordering matches unsigned integer
+// ordering for nonnegative finite values; preserve the usual acceptance of
+// negative zero as a probability.
 inline bool is_probability(double value) {
-    return is_finite_robust(value) && value >= 0.0 && value <= 1.0;
+    const uint64_t bits = detail::opaque_binary64_bits(value);
+    constexpr uint64_t kSignMask = 0x8000000000000000ULL;
+    constexpr uint64_t kMagnitudeMask = ~kSignMask;
+    constexpr uint64_t kOneBits = 0x3FF0000000000000ULL;
+    const uint64_t magnitude = bits & kMagnitudeMask;
+    return magnitude == 0 || ((bits & kSignMask) == 0 && magnitude <= kOneBits);
 }
 
 }  // namespace clifft
