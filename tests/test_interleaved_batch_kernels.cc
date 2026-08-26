@@ -31,6 +31,7 @@ using clifft::sampling::measurement_probabilities;
 using clifft::sampling::prepare_interleaved_rotation_sines;
 using clifft::sampling::prepare_promotion;
 using clifft::sampling::prepare_rotation;
+using clifft::sampling::PreparedFusedRotation;
 using clifft::sampling::State;
 using clifft::test::check_complex;
 
@@ -83,6 +84,35 @@ void require_lane_matches(const InterleavedBatchState& batch, uint32_t lane,
         check_complex({batch.real_basis(basis)[lane], batch.imag_basis(basis)[lane]},
                       {expected.real_data()[basis], expected.imag_data()[basis]}, kTolerance);
     }
+}
+
+PreparedFusedRotation fused_rotation(uint32_t orbit_rank) {
+    PreparedFusedRotation rotation;
+    rotation.active_width = 4;
+    rotation.orbit_rank = orbit_rank;
+    if (orbit_rank >= 1) {
+        rotation.orbit_masks[0] = 1;
+        rotation.orbit_pivots[0] = 0;
+    }
+    if (orbit_rank >= 2) {
+        rotation.orbit_masks[1] = 2;
+        rotation.orbit_pivots[1] = 1;
+    }
+    rotation.selector_masks = {4};
+    const size_t dimension = size_t{1} << orbit_rank;
+    rotation.matrices.resize(2 * dimension * dimension);
+    for (size_t variant = 0; variant < 2; ++variant) {
+        for (size_t row = 0; row < dimension; ++row) {
+            for (size_t column = 0; column < dimension; ++column) {
+                const double scale = 1.0 / static_cast<double>(1 + row + column + variant);
+                rotation.matrices[variant * dimension * dimension + row * dimension + column] = {
+                    (row == column ? 0.7 : 0.03) + 0.01 * static_cast<double>(variant),
+                    scale * 0.02 *
+                        static_cast<double>(static_cast<int>(row) - static_cast<int>(column))};
+            }
+        }
+    }
+    return rotation;
 }
 
 }  // namespace
@@ -192,33 +222,18 @@ TEST_CASE("Interleaved fused rotations match independent scalar lanes") {
         inputs.push_back(lane_state(4, lane));
     }
 
-    clifft::sampling::PreparedFusedRotation rotation;
-    rotation.active_width = 4;
-    rotation.orbit_rank = 2;
-    rotation.orbit_masks = {1, 2};
-    rotation.orbit_pivots = {0, 1};
-    rotation.selector_masks = {4};
-    rotation.matrices.resize(32);
-    for (size_t variant = 0; variant < 2; ++variant) {
-        for (size_t row = 0; row < 4; ++row) {
-            for (size_t column = 0; column < 4; ++column) {
-                const double scale = 1.0 / static_cast<double>(1 + row + column + variant);
-                rotation.matrices[variant * 16 + row * 4 + column] = {
-                    (row == column ? 0.7 : 0.03) + 0.01 * static_cast<double>(variant),
-                    scale * 0.02 *
-                        static_cast<double>(static_cast<int>(row) - static_cast<int>(column))};
-            }
+    for (uint32_t orbit_rank = 0; orbit_rank <= 2; ++orbit_rank) {
+        CAPTURE(orbit_rank);
+        const PreparedFusedRotation rotation = fused_rotation(orbit_rank);
+        InterleavedBatchState batch(4, 4, kLanes);
+        load_batch(batch, inputs);
+        apply_interleaved_fused_rotation(batch, rotation);
+        for (uint32_t lane = 0; lane < kLanes; ++lane) {
+            State expected(4, 4);
+            load_state(expected, inputs[lane]);
+            apply_fused_rotation(expected, rotation);
+            require_lane_matches(batch, lane, expected);
         }
-    }
-
-    InterleavedBatchState batch(4, 4, kLanes);
-    load_batch(batch, inputs);
-    apply_interleaved_fused_rotation(batch, rotation);
-    for (uint32_t lane = 0; lane < kLanes; ++lane) {
-        State expected(4, 4);
-        load_state(expected, inputs[lane]);
-        apply_fused_rotation(expected, rotation);
-        require_lane_matches(batch, lane, expected);
     }
 }
 
@@ -230,42 +245,34 @@ TEST_CASE("Interleaved dynamic fused rotations match independent scalar lanes") 
         inputs.push_back(lane_state(4, lane));
     }
 
-    clifft::sampling::PreparedFusedRotation first;
-    first.active_width = 4;
-    first.orbit_rank = 1;
-    first.orbit_masks = {2, 0};
-    first.orbit_pivots = {1, 0};
-    first.selector_masks = {4};
-    first.matrices.resize(8);
-    for (size_t index = 0; index < first.matrices.size(); ++index) {
-        first.matrices[index] = {0.1 + 0.02 * static_cast<double>(index),
-                                 -0.03 * static_cast<double>(index % 3)};
-    }
-    std::vector<clifft::sampling::PreparedFusedRotation> variants(4, first);
-    for (size_t variant = 1; variant < variants.size(); ++variant) {
-        for (std::complex<double>& value : variants[variant].matrices) {
-            value += std::complex<double>{0.01 * static_cast<double>(variant),
-                                          0.02 * static_cast<double>(variant)};
-        }
-    }
     std::vector<uint8_t> lane_variants(kLanes);
     for (uint32_t lane = 0; lane < kLanes; ++lane) {
-        lane_variants[lane] = static_cast<uint8_t>((lane * 3) % variants.size());
+        lane_variants[lane] = static_cast<uint8_t>((lane * 3) % 4);
     }
-    std::vector<const clifft::sampling::PreparedFusedRotation*> variant_pointers;
-    variant_pointers.reserve(variants.size());
-    for (const auto& variant : variants) {
-        variant_pointers.push_back(&variant);
-    }
+    for (uint32_t orbit_rank = 0; orbit_rank <= 2; ++orbit_rank) {
+        CAPTURE(orbit_rank);
+        std::vector<PreparedFusedRotation> variants(4, fused_rotation(orbit_rank));
+        for (size_t variant = 1; variant < variants.size(); ++variant) {
+            for (std::complex<double>& value : variants[variant].matrices) {
+                value += std::complex<double>{0.01 * static_cast<double>(variant),
+                                              0.02 * static_cast<double>(variant)};
+            }
+        }
+        std::vector<const PreparedFusedRotation*> variant_pointers;
+        variant_pointers.reserve(variants.size());
+        for (const PreparedFusedRotation& variant : variants) {
+            variant_pointers.push_back(&variant);
+        }
 
-    InterleavedBatchState batch(4, 4, kLanes);
-    load_batch(batch, inputs);
-    apply_interleaved_dynamic_fused_rotation(batch, variant_pointers, lane_variants);
-    for (uint32_t lane = 0; lane < kLanes; ++lane) {
-        State expected(4, 4);
-        load_state(expected, inputs[lane]);
-        apply_fused_rotation(expected, variants[lane_variants[lane]]);
-        require_lane_matches(batch, lane, expected);
+        InterleavedBatchState batch(4, 4, kLanes);
+        load_batch(batch, inputs);
+        apply_interleaved_dynamic_fused_rotation(batch, variant_pointers, lane_variants);
+        for (uint32_t lane = 0; lane < kLanes; ++lane) {
+            State expected(4, 4);
+            load_state(expected, inputs[lane]);
+            apply_fused_rotation(expected, variants[lane_variants[lane]]);
+            require_lane_matches(batch, lane, expected);
+        }
     }
 }
 

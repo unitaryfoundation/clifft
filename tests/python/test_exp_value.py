@@ -14,6 +14,7 @@ from typing import Any
 import numpy as np
 import pytest
 from conftest import random_clifford_t_circuit
+from utils_qiskit import qiskit_statevector, stim_to_qiskit_noiseless
 
 import clifft
 
@@ -161,6 +162,38 @@ class TestExactOracle:
             expected,
             atol=1e-8,
             err_msg=f"Pauli={pauli}, circuit seed={seed}, nq={num_qubits}, depth={depth}",
+        )
+
+    def test_packed_fused_rotations_match_qiskit(self, sampling_api: Any) -> None:
+        """Optimized fused execution matches an independent statevector oracle."""
+        circuit = """
+            R_X(0.1) 0
+            R_Z(0.2) 1
+            R_Z(0.2) 0
+            R_Z(0.3) 2
+            R_Y(0.3) 0
+            R_X(0.4) 0
+        """
+        paulis = ["X0", "Z0", "Z1", "Z2"]
+        program = sampling_api.compile(
+            circuit + "\n" + "\n".join(f"EXP_VAL {pauli}" for pauli in paulis)
+        )
+        assert any(
+            program.inspect_action(action).startswith("FUSED_ROTATION")
+            for action in range(program.num_actions)
+        )
+
+        qiskit_sv = qiskit_statevector(stim_to_qiskit_noiseless(circuit))
+        expected = np.array(
+            [pauli_expectation(qiskit_sv, pauli, program.num_qubits) for pauli in paulis]
+        )
+        result = sampling_api.sample(program, 65, seed=0, batch_size=65)
+
+        np.testing.assert_allclose(
+            result.exp_vals,
+            np.broadcast_to(expected, result.exp_vals.shape),
+            atol=1e-10,
+            rtol=0.0,
         )
 
 

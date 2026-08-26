@@ -967,6 +967,34 @@ class TestSampleSurvivors:
         # All surviving observables should be 0
         assert np.all(result.observables == 0)
 
+    def test_packed_aggregate_matches_retained_rows(self, sampling_api: Any) -> None:
+        """Counts-only packed output exactly aggregates the retained rows."""
+        circuit = """
+            H 0 1 2
+            M 0 1 2
+            DETECTOR rec[-3]
+            OBSERVABLE_INCLUDE(0) rec[-2]
+            OBSERVABLE_INCLUDE(1) rec[-2] rec[-1]
+        """
+        program = sampling_api.compile(circuit, postselection_mask=[1])
+        rows = sampling_api.sample_survivors(
+            program, 513, seed=91842, keep_records=True, batch_size=65
+        )
+        aggregate = sampling_api.sample_survivors(
+            program, 513, seed=91842, keep_records=False, batch_size=65
+        )
+
+        assert aggregate.total_shots == rows.total_shots
+        assert aggregate.passed_shots == rows.passed_shots
+        assert aggregate.discards == rows.discards
+        expected_ones = np.sum(rows.observables, axis=0, dtype=np.uint64)
+        expected_logical_errors = int(np.count_nonzero(np.any(rows.observables, axis=1)))
+        np.testing.assert_array_equal(aggregate.observable_ones, expected_ones)
+        assert aggregate.logical_errors == expected_logical_errors
+        assert aggregate.measurements.shape == (0, program.num_measurements)
+        assert aggregate.detectors.shape == (0, program.num_detectors)
+        assert aggregate.observables.shape == (0, program.num_observables)
+
     def test_packed_survivors_replay_seeded_rows(self, sampling_api: Any) -> None:
         prog = sampling_api.compile(
             "H 0\nM 0\nDETECTOR rec[-1]\nH 1\nM 1\nOBSERVABLE_INCLUDE(0) rec[-1]",

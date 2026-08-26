@@ -1615,6 +1615,29 @@ TEST_CASE("Packed symmetric readout matches its Bernoulli rates") {
     REQUIRE(ones[2] == 0);
 }
 
+TEST_CASE("Packed asymmetric readout matches both conditional rates") {
+    constexpr uint32_t shots = 100000;
+    const ExecutablePlan executable(clifft::sampling::plan_sampling(clifft::trace(clifft::parse(R"(
+        M 0
+        READOUT_NOISE(0.3, 0.05) rec[-1]
+        X 1
+        M 1
+        READOUT_NOISE(0.3, 0.05) rec[-1]
+    )"))));
+    const clifft::sampling::SamplingResult result = clifft::sampling::sample(
+        executable, shots, uint64_t{91837}, 1, std::nullopt, uint32_t{2048});
+
+    std::array<uint32_t, 2> ones{};
+    for (uint32_t shot = 0; shot < shots; ++shot) {
+        ones[0] += result.measurements[static_cast<size_t>(shot) * 2];
+        ones[1] += result.measurements[static_cast<size_t>(shot) * 2 + 1];
+    }
+    REQUIRE(ones[0] > 29000);
+    REQUIRE(ones[0] < 31000);
+    REQUIRE(ones[1] > 94000);
+    REQUIRE(ones[1] < 96000);
+}
+
 TEST_CASE("Sampling thread layouts validate explicit worker counts") {
     const ExecutablePlan executable(plan_from("H 0\nM 0\n"));
     REQUIRE_THROWS_WITH(clifft::sampling::sample(executable, 1, uint64_t{11}, 1,
@@ -1801,6 +1824,57 @@ TEST_CASE("Explicit batch capacities replay seeded survivor rows") {
         REQUIRE(packed.observables == replay.observables);
         REQUIRE(packed.exp_vals == replay.exp_vals);
     }
+}
+
+TEST_CASE("Packed survivors retain long-tail rows after heavy rejection") {
+    constexpr uint32_t shots = 4096;
+    constexpr uint32_t tail_probes = 96;
+    std::string circuit = R"(
+        X_ERROR(0.9) 0
+        M 0
+        EXP_VAL Z0
+        DETECTOR rec[-1]
+        H 1
+    )";
+    for (uint32_t probe = 0; probe < tail_probes; ++probe) {
+        circuit.append("T 1\nEXP_VAL X1\nH 1\n");
+    }
+    const clifft::HirModule hir = clifft::trace(clifft::parse(circuit));
+    const std::array<uint8_t, 1> postselection{1};
+    const ExecutablePlan executable(
+        clifft::sampling::plan_sampling(hir, {.postselection_mask = postselection,
+                                              .expected_detectors = {},
+                                              .expected_observables = {}}));
+    REQUIRE(executable.num_actions() > 190);
+    REQUIRE(executable.num_exp_vals() == tail_probes + 1);
+
+    const clifft::sampling::SamplingSurvivorResult result = clifft::sampling::sample_survivors(
+        executable, shots, uint64_t{91842}, true, 1, std::nullopt, uint32_t{2048});
+    const clifft::sampling::SamplingSurvivorResult replay = clifft::sampling::sample_survivors(
+        executable, shots, uint64_t{91842}, true, 4, std::nullopt, uint32_t{2048});
+
+    REQUIRE(result.passed_shots > 300);
+    REQUIRE(result.passed_shots < 520);
+    REQUIRE(result.measurements.size() == result.passed_shots);
+    REQUIRE(result.detectors.size() == result.passed_shots);
+    REQUIRE(result.exp_vals.size() ==
+            static_cast<size_t>(result.passed_shots) * executable.num_exp_vals());
+    REQUIRE(std::ranges::all_of(result.measurements, [](uint8_t value) { return value == 0; }));
+    REQUIRE(std::ranges::all_of(result.detectors, [](uint8_t value) { return value == 0; }));
+    for (uint32_t shot = 0; shot < result.passed_shots; ++shot) {
+        const size_t offset = static_cast<size_t>(shot) * executable.num_exp_vals();
+        REQUIRE_THAT(result.exp_vals[offset], Catch::Matchers::WithinAbs(1.0, 1e-12));
+    }
+    REQUIRE(std::ranges::all_of(result.exp_vals, [](double value) {
+        return std::isfinite(value) && value >= -1.000000000001 && value <= 1.000000000001;
+    }));
+    REQUIRE(replay.passed_shots == result.passed_shots);
+    REQUIRE(replay.logical_errors == result.logical_errors);
+    REQUIRE(replay.observable_ones == result.observable_ones);
+    REQUIRE(replay.measurements == result.measurements);
+    REQUIRE(replay.detectors == result.detectors);
+    REQUIRE(replay.observables == result.observables);
+    REQUIRE(replay.exp_vals == result.exp_vals);
 }
 
 TEST_CASE("Sampling survivor execution normalizes and rejects detectors") {
