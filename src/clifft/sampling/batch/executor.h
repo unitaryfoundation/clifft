@@ -47,6 +47,10 @@ class BatchExecutor {
     [[nodiscard]] double exp_val(uint32_t lane, uint32_t exp_val) const noexcept;
 
   private:
+    BatchExecutor(const ExecutablePlan& plan, BatchOutputMode output_mode,
+                  BatchSamplingMode sampling_mode,
+                  const batch_detail::BatchWorkerStorageLayout& storage);
+
     void reset_batch(const SeedRoot& root, uint32_t first_shot, uint32_t shots) noexcept;
     void sample_presampled_noise() noexcept;
     void assign_forced_faults(KFaultSampler& fault_sampler) noexcept;

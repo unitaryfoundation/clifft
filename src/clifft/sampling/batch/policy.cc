@@ -13,7 +13,6 @@ namespace clifft::sampling {
 
 namespace {
 
-#if !defined(__EMSCRIPTEN__)
 [[nodiscard]] uint64_t saturating_add(uint64_t left, uint64_t right) noexcept {
     constexpr uint64_t kMax = std::numeric_limits<uint64_t>::max();
     return right > kMax - left ? kMax : left + right;
@@ -24,43 +23,7 @@ namespace {
     return left != 0 && right > kMax / left ? kMax : left * right;
 }
 
-[[nodiscard]] uint64_t estimated_batch_worker_bytes(const ExecutablePlan& plan,
-                                                    uint32_t lane_capacity,
-                                                    BatchOutputMode output_mode,
-                                                    BatchSamplingMode sampling_mode,
-                                                    uint64_t additional_worker_bytes) {
-    const uint64_t words = packed_word_count(lane_capacity);
-    const uint64_t records =
-        output_mode == BatchOutputMode::Rows || plan.has_batch_record_parities()
-            ? static_cast<uint64_t>(plan.num_visible_records()) + plan.num_hidden_records()
-            : 0;
-    const uint64_t symbols =
-        plan.num_batch_noise_carriers() == 0 && plan.num_presampled_symbols() != 0
-            ? plan.num_symbols()
-            : 0;
-    const uint64_t forced_readout =
-        sampling_mode == BatchSamplingMode::FixedFaults ? plan.num_readout_noise_sites() : 0;
-    const uint64_t packed_columns =
-        symbols + plan.num_batch_noise_carriers() + plan.num_expression_registers() + records +
-        (output_mode == BatchOutputMode::Rows ? plan.num_detectors() : 0) + plan.num_observables() +
-        forced_readout;
-    const uint64_t packed_bytes =
-        saturating_multiply(saturating_multiply(packed_columns, words), sizeof(uint64_t));
-
-    uint64_t bytes = interleaved_batch_state_bytes(plan.peak_active_width(), lane_capacity);
-    bytes = saturating_add(bytes, packed_bytes);
-    bytes = saturating_add(bytes, saturating_multiply(words, 2 * sizeof(uint64_t)));
-
-    constexpr uint64_t kLaneBytes = 2 * sizeof(uint32_t) + sizeof(uint8_t) + 4 * sizeof(double);
-    bytes = saturating_add(bytes, saturating_multiply(lane_capacity, kLaneBytes));
-    if (output_mode == BatchOutputMode::Rows) {
-        bytes = saturating_add(
-            bytes, saturating_multiply(saturating_multiply(plan.num_exp_vals(), lane_capacity),
-                                       sizeof(double)));
-    }
-    return saturating_add(bytes, additional_worker_bytes);
-}
-
+#if !defined(__EMSCRIPTEN__)
 [[nodiscard]] uint32_t batch_worker_count(uint32_t shots, uint32_t shot_workers,
                                           uint32_t lane_capacity) noexcept {
     const uint64_t batches = (static_cast<uint64_t>(shots) + lane_capacity - 1) / lane_capacity;
@@ -69,6 +32,79 @@ namespace {
 #endif
 
 }  // namespace
+
+namespace batch_detail {
+
+BatchWorkerStorageLayout batch_worker_storage_layout(const ExecutablePlan& plan,
+                                                     uint32_t lane_capacity,
+                                                     BatchOutputMode output_mode,
+                                                     BatchSamplingMode sampling_mode) {
+    BatchWorkerStorageLayout layout;
+    layout.peak_active_width = plan.peak_active_width();
+    layout.initial_active_width = plan.initial_active_width();
+    layout.lane_capacity = lane_capacity;
+    layout.word_capacity = packed_word_count(lane_capacity);
+    layout.shot_index_entries = lane_capacity;
+    layout.symbol_columns =
+        plan.num_batch_noise_carriers() == 0 && plan.num_presampled_symbols() != 0
+            ? plan.num_symbols()
+            : 0;
+    layout.noise_carrier_columns = plan.num_batch_noise_carriers();
+    layout.expression_register_columns = plan.num_expression_registers();
+    layout.record_columns =
+        output_mode == BatchOutputMode::Rows || plan.has_batch_record_parities()
+            ? static_cast<size_t>(plan.num_visible_records()) + plan.num_hidden_records()
+            : 0;
+    layout.detector_columns = output_mode == BatchOutputMode::Rows ? plan.num_detectors() : 0;
+    layout.observable_columns = plan.num_observables();
+    layout.forced_readout_columns =
+        sampling_mode == BatchSamplingMode::FixedFaults ? plan.num_readout_noise_sites() : 0;
+    layout.exp_value_entries = output_mode == BatchOutputMode::Rows
+                                   ? static_cast<uint64_t>(plan.num_exp_vals()) * lane_capacity
+                                   : 0;
+    layout.live_word_entries = layout.word_capacity;
+    layout.scratch_word_entries = layout.word_capacity;
+    layout.compaction_source_entries = lane_capacity;
+    layout.lane_byte_entries = lane_capacity;
+    layout.signed_sine_entries = lane_capacity;
+    layout.probability_zero_entries = lane_capacity;
+    layout.probability_one_entries = lane_capacity;
+    layout.lane_value_entries = lane_capacity;
+    return layout;
+}
+
+uint64_t batch_worker_storage_bytes(const ExecutablePlan& plan, uint32_t lane_capacity,
+                                    BatchOutputMode output_mode, BatchSamplingMode sampling_mode) {
+    const BatchWorkerStorageLayout layout =
+        batch_worker_storage_layout(plan, lane_capacity, output_mode, sampling_mode);
+    uint64_t bytes = interleaved_batch_state_bytes(layout.peak_active_width, layout.lane_capacity);
+    const auto add_entries = [&](uint64_t entries, size_t entry_bytes) {
+        bytes = saturating_add(bytes, saturating_multiply(entries, entry_bytes));
+    };
+    const auto add_columns = [&](size_t columns) {
+        add_entries(saturating_multiply(columns, layout.word_capacity), sizeof(uint64_t));
+    };
+    add_entries(layout.shot_index_entries, sizeof(uint32_t));
+    add_columns(layout.symbol_columns);
+    add_columns(layout.noise_carrier_columns);
+    add_columns(layout.expression_register_columns);
+    add_columns(layout.record_columns);
+    add_columns(layout.detector_columns);
+    add_columns(layout.observable_columns);
+    add_columns(layout.forced_readout_columns);
+    add_entries(layout.exp_value_entries, sizeof(double));
+    add_entries(layout.live_word_entries, sizeof(uint64_t));
+    add_entries(layout.scratch_word_entries, sizeof(uint64_t));
+    add_entries(layout.compaction_source_entries, sizeof(uint32_t));
+    add_entries(layout.lane_byte_entries, sizeof(uint8_t));
+    add_entries(layout.signed_sine_entries, sizeof(double));
+    add_entries(layout.probability_zero_entries, sizeof(double));
+    add_entries(layout.probability_one_entries, sizeof(double));
+    add_entries(layout.lane_value_entries, sizeof(double));
+    return bytes;
+}
+
+}  // namespace batch_detail
 
 BatchExecutionPolicy resolve_batch_execution_policy(
     const ExecutablePlan& plan, uint32_t shots, uint32_t shot_workers, uint32_t intra_shot_workers,
@@ -125,8 +161,9 @@ BatchExecutionPolicy resolve_batch_execution_policy(
             capacity = std::bit_floor(capacity - 1);
             continue;
         }
-        const uint64_t worker_bytes = estimated_batch_worker_bytes(
-            plan, capacity, output_mode, sampling_mode, additional_worker_bytes);
+        const uint64_t worker_bytes = saturating_add(
+            batch_detail::batch_worker_storage_bytes(plan, capacity, output_mode, sampling_mode),
+            additional_worker_bytes);
         if (worker_bytes <= kDefaultBatchWorkerBudget) {
             const uint32_t requested_workers = batch_worker_count(shots, shot_workers, capacity);
             const uint64_t memory_workers = std::max<uint64_t>(

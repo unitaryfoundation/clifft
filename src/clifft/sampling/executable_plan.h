@@ -68,6 +68,7 @@ class ExecutablePlan {
 
     [[nodiscard]] uint32_t num_qubits() const { return num_qubits_; }
     [[nodiscard]] uint32_t peak_active_width() const { return peak_active_width_; }
+    [[nodiscard]] uint32_t initial_active_width() const { return initial_active_width_; }
     [[nodiscard]] uint32_t num_visible_records() const { return num_visible_records_; }
     [[nodiscard]] uint32_t num_hidden_records() const { return num_hidden_records_; }
     [[nodiscard]] uint32_t num_detectors() const { return num_detectors_; }

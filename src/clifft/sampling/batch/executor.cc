@@ -47,52 +47,48 @@ enum class MeasurementBranchKind : uint8_t {
     return &plan;
 }
 
-[[nodiscard]] size_t checked_product(size_t left, size_t right, const char* description) {
-    if (left != 0 && right > std::numeric_limits<size_t>::max() / left) {
+[[nodiscard]] size_t checked_size(uint64_t entries, const char* description) {
+    if (entries > std::numeric_limits<size_t>::max()) {
         throw std::length_error(std::string("packed batch ") + description +
                                 " allocation exceeds size_t range");
     }
-    return left * right;
+    return static_cast<size_t>(entries);
 }
 
 }  // namespace
 
 BatchExecutor::BatchExecutor(const ExecutablePlan& plan, uint32_t lane_capacity,
                              BatchOutputMode output_mode, BatchSamplingMode sampling_mode)
+    : BatchExecutor(plan, output_mode, sampling_mode,
+                    batch_detail::batch_worker_storage_layout(plan, lane_capacity, output_mode,
+                                                              sampling_mode)) {}
+
+BatchExecutor::BatchExecutor(const ExecutablePlan& plan, BatchOutputMode output_mode,
+                             BatchSamplingMode sampling_mode,
+                             const batch_detail::BatchWorkerStorageLayout& storage)
     : plan_(validate_batch_plan(plan)),
       output_mode_(output_mode),
       sampling_mode_(sampling_mode),
-      lane_capacity_(lane_capacity),
-      word_capacity_(packed_word_count(lane_capacity)),
-      state_(plan.peak_active_width_, plan.initial_active_width_, lane_capacity),
-      shot_indices_(lane_capacity),
-      symbols_(plan.num_batch_noise_carriers_ == 0 && !plan.presampled_symbols_.empty()
-                   ? plan.num_symbols_
-                   : 0,
-               lane_capacity),
-      batch_noise_carriers_(plan.num_batch_noise_carriers_, lane_capacity),
-      expression_registers_(plan.expression_register_constants_.size(), lane_capacity),
-      records_(output_mode == BatchOutputMode::Rows || !plan.batch_record_parities_.empty()
-                   ? static_cast<size_t>(plan.num_visible_records_) + plan.num_hidden_records_
-                   : 0,
-               lane_capacity),
-      detectors_(output_mode == BatchOutputMode::Rows ? plan.num_detectors_ : 0, lane_capacity),
-      observables_(plan.num_observables_, lane_capacity),
-      forced_readout_(
-          sampling_mode == BatchSamplingMode::FixedFaults ? plan.num_readout_noise_sites_ : 0,
-          lane_capacity),
-      exp_vals_(output_mode == BatchOutputMode::Rows
-                    ? checked_product(plan.num_exp_vals_, lane_capacity, "expectation")
-                    : 0,
-                0.0),
-      live_words_(word_capacity_, 0),
-      scratch_words_(word_capacity_, 0),
-      compaction_sources_(lane_capacity),
-      lane_bytes_(lane_capacity, 0),
-      signed_sines_(lane_capacity, 0.0),
-      probability_zero_(lane_capacity, 0.0),
-      probability_one_(lane_capacity, 0.0),
-      lane_values_(lane_capacity, 0.0) {}
+      lane_capacity_(storage.lane_capacity),
+      word_capacity_(storage.word_capacity),
+      state_(storage.peak_active_width, storage.initial_active_width, storage.lane_capacity),
+      shot_indices_(storage.shot_index_entries),
+      symbols_(storage.symbol_columns, storage.lane_capacity),
+      batch_noise_carriers_(storage.noise_carrier_columns, storage.lane_capacity),
+      expression_registers_(storage.expression_register_columns, storage.lane_capacity),
+      records_(storage.record_columns, storage.lane_capacity),
+      detectors_(storage.detector_columns, storage.lane_capacity),
+      observables_(storage.observable_columns, storage.lane_capacity),
+      forced_readout_(storage.forced_readout_columns, storage.lane_capacity),
+      exp_vals_(checked_size(storage.exp_value_entries, "expectation"), 0.0),
+      live_words_(storage.live_word_entries, 0),
+      scratch_words_(storage.scratch_word_entries, 0),
+      compaction_sources_(storage.compaction_source_entries),
+      lane_bytes_(storage.lane_byte_entries, 0),
+      signed_sines_(storage.signed_sine_entries, 0.0),
+      probability_zero_(storage.probability_zero_entries, 0.0),
+      probability_one_(storage.probability_one_entries, 0.0),
+      lane_values_(storage.lane_value_entries, 0.0) {}
 
 void BatchExecutor::run_batch(const SeedRoot& root, uint32_t first_shot, uint32_t shots) noexcept {
     assert(sampling_mode_ == BatchSamplingMode::Ordinary &&

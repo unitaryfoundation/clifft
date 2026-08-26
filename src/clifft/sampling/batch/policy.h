@@ -57,6 +57,45 @@ struct BatchExecutionPolicy {
     uint32_t worker_count = 1;
 };
 
+namespace batch_detail {
+
+// Retained column and lane storage selected for one packed executor.
+struct BatchWorkerStorageLayout {
+    uint32_t peak_active_width = 0;
+    uint32_t initial_active_width = 0;
+    uint32_t lane_capacity = 0;
+    size_t word_capacity = 0;
+    size_t shot_index_entries = 0;
+    size_t symbol_columns = 0;
+    size_t noise_carrier_columns = 0;
+    size_t expression_register_columns = 0;
+    size_t record_columns = 0;
+    size_t detector_columns = 0;
+    size_t observable_columns = 0;
+    size_t forced_readout_columns = 0;
+    uint64_t exp_value_entries = 0;
+    size_t live_word_entries = 0;
+    size_t scratch_word_entries = 0;
+    size_t compaction_source_entries = 0;
+    size_t lane_byte_entries = 0;
+    size_t signed_sine_entries = 0;
+    size_t probability_zero_entries = 0;
+    size_t probability_one_entries = 0;
+    size_t lane_value_entries = 0;
+};
+
+[[nodiscard]] BatchWorkerStorageLayout batch_worker_storage_layout(const ExecutablePlan& plan,
+                                                                   uint32_t lane_capacity,
+                                                                   BatchOutputMode output_mode,
+                                                                   BatchSamplingMode sampling_mode);
+
+[[nodiscard]] uint64_t batch_worker_storage_bytes(const ExecutablePlan& plan,
+                                                  uint32_t lane_capacity,
+                                                  BatchOutputMode output_mode,
+                                                  BatchSamplingMode sampling_mode);
+
+}  // namespace batch_detail
+
 // Resolve deterministic lane boundaries first, then cap automatic workers by
 // the aggregate retained-memory budget. Callers include wrapper-owned scratch
 // that is not part of BatchExecutor in additional_worker_bytes.
