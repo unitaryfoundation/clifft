@@ -180,6 +180,8 @@ class Executor {
                         std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
 
     [[nodiscard]] bool evaluate(ExecutablePlan::PreparedExpression expression) const noexcept;
+    [[nodiscard]] bool evaluate_syndrome(
+        const ExecutablePlan::PreparedSyndromeValue& value) const noexcept;
     [[nodiscard]] bool sample_active_branch(MeasurementProbabilities probabilities) noexcept;
     [[nodiscard]] std::optional<double> force_active_branch(MeasurementProbabilities probabilities,
                                                             bool branch) noexcept;

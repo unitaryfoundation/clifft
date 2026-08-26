@@ -542,14 +542,14 @@ void Executor::execute_action(const ExecutablePlan::ExecuteReadoutNoise& action,
 
 void Executor::execute_action(const ExecutablePlan::ExecuteDetector& action,
                               std::span<const uint8_t>, ReplayResult&) noexcept {
-    const bool outcome = evaluate(action.outcome);
+    const bool outcome = evaluate_syndrome(action.outcome);
     detectors_[action.detector] = static_cast<uint8_t>(outcome);
     discarded_ |= action.postselected && outcome;
 }
 
 void Executor::execute_action(const ExecutablePlan::ExecuteObservable& action,
                               std::span<const uint8_t>, ReplayResult&) noexcept {
-    observables_[action.observable] = static_cast<uint8_t>(evaluate(action.outcome));
+    observables_[action.observable] = static_cast<uint8_t>(evaluate_syndrome(action.outcome));
 }
 
 void Executor::execute_action(const ExecutablePlan::ExecuteExpectation& action,
@@ -840,6 +840,23 @@ bool Executor::evaluate(ExecutablePlan::PreparedExpression expression) const noe
            expression.register_id < expression_registers_.size() &&
            "prepared affine expression must refer to the active register file");
     return expression_registers_[expression.register_id] != 0;
+}
+
+bool Executor::evaluate_syndrome(
+    const ExecutablePlan::PreparedSyndromeValue& value) const noexcept {
+    if (const auto* expression = std::get_if<ExecutablePlan::PreparedExpression>(&value)) {
+        return evaluate(*expression);
+    }
+    const ExecutablePlan::PreparedRecordParity parity =
+        std::get<ExecutablePlan::PreparedRecordParity>(value);
+    const size_t end = static_cast<size_t>(parity.begin) + parity.count;
+    assert(end <= plan_->record_parity_terms_.size() &&
+           "prepared record parity must stay in its term tape");
+    bool outcome = parity.constant;
+    for (size_t term = parity.begin; term < end; ++term) {
+        outcome ^= records_[plan_->record_parity_terms_[term]] != 0;
+    }
+    return outcome;
 }
 
 bool Executor::sample_active_branch(MeasurementProbabilities probabilities) noexcept {

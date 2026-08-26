@@ -82,17 +82,13 @@ std::string_view instrument_mode_name(InstrumentMode mode) {
     return "unknown";
 }
 
-void write_batch_record_parity(std::ostream& out, const std::optional<BatchRecordParity>& parity) {
-    if (!parity.has_value()) {
-        return;
-    }
-    out << " batch_parity=";
+void write_record_parity(std::ostream& out, const RecordParity& parity) {
     bool wrote = false;
-    if (parity->constant) {
+    if (parity.constant) {
         out << '1';
         wrote = true;
     }
-    for (RecordSlot record : parity->records) {
+    for (RecordSlot record : parity.records) {
         if (wrote) {
             out << '^';
         }
@@ -101,6 +97,15 @@ void write_batch_record_parity(std::ostream& out, const std::optional<BatchRecor
     }
     if (!wrote) {
         out << '0';
+    }
+}
+
+void write_syndrome_value(std::ostream& out, const SyndromeValue& value,
+                          std::optional<size_t> max_expression_terms) {
+    if (const auto* expression = std::get_if<AffineBool>(&value)) {
+        out << format_expression(*expression, max_expression_terms);
+    } else {
+        write_record_parity(out, std::get<RecordParity>(value));
     }
 }
 
@@ -144,18 +149,16 @@ void write_action_body(std::ostream& out, const SamplingAction& action,
                     << " p01=" << format_double_roundtrip(typed.prob_zero_to_one)
                     << " p10=" << format_double_roundtrip(typed.prob_one_to_zero);
             } else if constexpr (std::is_same_v<T, WriteDetector>) {
-                out << "WRITE_DETECTOR outcome="
-                    << format_expression(typed.outcome, max_expression_terms) << " detector=d"
-                    << index(typed.detector);
+                out << "WRITE_DETECTOR outcome=";
+                write_syndrome_value(out, typed.outcome, max_expression_terms);
+                out << " detector=d" << index(typed.detector);
                 if (typed.postselected) {
                     out << " postselect";
                 }
-                write_batch_record_parity(out, typed.batch_parity);
             } else if constexpr (std::is_same_v<T, WriteObservable>) {
-                out << "WRITE_OBSERVABLE outcome="
-                    << format_expression(typed.outcome, max_expression_terms) << " observable=o"
-                    << index(typed.observable);
-                write_batch_record_parity(out, typed.batch_parity);
+                out << "WRITE_OBSERVABLE outcome=";
+                write_syndrome_value(out, typed.outcome, max_expression_terms);
+                out << " observable=o" << index(typed.observable);
             } else if constexpr (std::is_same_v<T, WriteExpectationValue>) {
                 out << "WRITE_EXPECTATION ";
                 if (typed.active_projection.has_value()) {

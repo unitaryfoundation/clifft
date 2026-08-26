@@ -52,7 +52,7 @@ BatchWorkerStorageLayout batch_worker_storage_layout(const ExecutablePlan& plan,
     layout.noise_carrier_columns = plan.num_batch_noise_carriers();
     layout.expression_register_columns = plan.num_expression_registers();
     layout.record_columns =
-        output_mode == BatchOutputMode::Rows || plan.has_batch_record_parities()
+        output_mode == BatchOutputMode::Rows || plan.syndrome_reads_records()
             ? static_cast<size_t>(plan.num_visible_records()) + plan.num_hidden_records()
             : 0;
     layout.detector_columns = output_mode == BatchOutputMode::Rows ? plan.num_detectors() : 0;

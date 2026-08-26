@@ -94,8 +94,8 @@ class ExecutablePlan {
     [[nodiscard]] size_t num_expression_registers() const noexcept {
         return expression_register_constants_.size();
     }
-    [[nodiscard]] bool has_batch_record_parities() const noexcept {
-        return !batch_record_parities_.empty();
+    [[nodiscard]] bool syndrome_reads_records() const noexcept {
+        return !record_parity_terms_.empty();
     }
     [[nodiscard]] uint32_t num_readout_noise_sites() const noexcept {
         return num_readout_noise_sites_;
@@ -235,17 +235,17 @@ class ExecutablePlan {
         bool constant = false;
     };
 
+    using PreparedSyndromeValue = std::variant<PreparedExpression, PreparedRecordParity>;
+
     struct ExecuteDetector {
-        PreparedExpression outcome;
+        PreparedSyndromeValue outcome;
         uint32_t detector = 0;
         bool postselected = false;
-        uint32_t record_parity = std::numeric_limits<uint32_t>::max();
     };
 
     struct ExecuteObservable {
-        PreparedExpression outcome;
+        PreparedSyndromeValue outcome;
         uint32_t observable = 0;
-        uint32_t record_parity = std::numeric_limits<uint32_t>::max();
     };
 
     // Exact expectation-value probe of the current state.
@@ -379,8 +379,7 @@ class ExecutablePlan {
     std::optional<BatchPresampledProgram> batch_presampled_program_;
 
     // Packed-only output parities.
-    std::vector<PreparedRecordParity> batch_record_parities_;
-    std::vector<uint32_t> batch_record_parity_terms_;
+    std::vector<uint32_t> record_parity_terms_;
 
     // Instrument inputs and continuation offsets share the same site index.
     std::vector<InstrumentDistribution> instrument_distributions_;

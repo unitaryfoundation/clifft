@@ -134,10 +134,10 @@ bool option_bit(std::span<const uint8_t> values, uint32_t index) {
     return index < values.size() && values[index] != 0;
 }
 
-BatchRecordParity make_batch_record_parity(std::span<const uint32_t> records, bool constant) {
+RecordParity make_record_parity(std::span<const uint32_t> records, bool constant) {
     std::vector<uint32_t> sorted(records.begin(), records.end());
     std::ranges::sort(sorted);
-    BatchRecordParity result;
+    RecordParity result;
     result.constant = constant;
     for (size_t begin = 0; begin < sorted.size();) {
         size_t end = begin + 1;
@@ -602,17 +602,14 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
                     detector_index >= hir.num_detectors) {
                     throw std::invalid_argument("sampling planner detector is out of range");
                 }
-                AffineBool outcome = record_parity(hir.detector_targets[targets_index], i);
                 const bool expected = option_bit(options.expected_detectors, detector_index);
-                outcome ^= expected;
                 const bool postselected = option_bit(options.postselection_mask, detector_index);
                 append_action(
                     plan,
-                    PlannedAction{
-                        active_width, active_width,
-                        WriteDetector{outcome, DetectorSlot{detector_index}, postselected,
-                                      make_batch_record_parity(hir.detector_targets[targets_index],
-                                                               expected)}},
+                    PlannedAction{active_width, active_width,
+                                  WriteDetector{make_record_parity(
+                                                    hir.detector_targets[targets_index], expected),
+                                                DetectorSlot{detector_index}, postselected}},
                     source_lines);
                 plan.has_postselection |= postselected;
                 ++detector_index;
@@ -685,19 +682,21 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
     }
     for (uint32_t observable = 0; observable < observable_values.size(); ++observable) {
         observable_values[observable] ^= option_bit(options.expected_observables, observable);
-        std::optional<BatchRecordParity> batch_parity;
         const bool records_are_current =
             std::ranges::all_of(observable_records[observable], [&](const auto& reference) {
                 return reference.generation == record_generations[reference.record];
             });
+        SyndromeValue outcome;
         if (records_are_current) {
             std::vector<uint32_t> records;
             records.reserve(observable_records[observable].size());
             for (const ObservableRecordReference& reference : observable_records[observable]) {
                 records.push_back(reference.record);
             }
-            batch_parity = make_batch_record_parity(
-                records, option_bit(options.expected_observables, observable));
+            outcome =
+                make_record_parity(records, option_bit(options.expected_observables, observable));
+        } else {
+            outcome = std::move(observable_values[observable]);
         }
         const std::span<const uint32_t> source_lines =
             plan.source_map.has_value()
@@ -706,8 +705,7 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
         append_action(
             plan,
             PlannedAction{active_width, active_width,
-                          WriteObservable{observable_values[observable], ObservableSlot{observable},
-                                          std::move(batch_parity)}},
+                          WriteObservable{std::move(outcome), ObservableSlot{observable}}},
             source_lines);
     }
 

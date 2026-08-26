@@ -12,7 +12,6 @@ using clifft::sampling::ActivePauli;
 using clifft::sampling::AffineBool;
 using clifft::sampling::ApplyInstrument;
 using clifft::sampling::ApplyReadoutNoise;
-using clifft::sampling::BatchRecordParity;
 using clifft::sampling::DefineSymbol;
 using clifft::sampling::DetectorSlot;
 using clifft::sampling::ExpValSlot;
@@ -29,6 +28,7 @@ using clifft::sampling::PresampledNoiseOutcome;
 using clifft::sampling::PresampledNoiseSite;
 using clifft::sampling::PromoteDormantRotation;
 using clifft::sampling::RecordClassical;
+using clifft::sampling::RecordParity;
 using clifft::sampling::RecordSlot;
 using clifft::sampling::RotateActivePauli;
 using clifft::sampling::SamplingPlan;
@@ -117,11 +117,9 @@ SamplingPlan valid_syndrome_plan() {
         PlannedAction{0, 0, RecordClassical{AffineBool{}, RecordSlot{0}}},
         PlannedAction{0, 0, ApplyReadoutNoise{readout, AffineBool{}, RecordSlot{0}, 0.1, 0.2}},
         PlannedAction{0, 0,
-                      WriteDetector{AffineBool::symbol(readout), DetectorSlot{0}, true,
-                                    BatchRecordParity{false, {RecordSlot{0}}}}},
+                      WriteDetector{RecordParity{false, {RecordSlot{0}}}, DetectorSlot{0}, true}},
         PlannedAction{0, 0,
-                      WriteObservable{AffineBool::symbol(readout), ObservableSlot{0},
-                                      BatchRecordParity{false, {RecordSlot{0}}}}},
+                      WriteObservable{RecordParity{false, {RecordSlot{0}}}, ObservableSlot{0}}},
     };
     return plan;
 }
@@ -282,14 +280,22 @@ TEST_CASE("Sampling plan rejects record slots outside stable storage") {
     REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
 }
 
-TEST_CASE("Sampling plan rejects inconsistent record parity sidecars") {
+TEST_CASE("Sampling plan rejects noncanonical syndrome record parity") {
     SamplingPlan plan = valid_syndrome_plan();
     auto& observable = std::get<WriteObservable>(plan.actions[3].action);
-    observable.batch_parity->constant = true;
+    std::get<RecordParity>(observable.outcome).records.push_back(RecordSlot{0});
 
     REQUIRE_THROWS_WITH(plan.validate(),
-                        "invalid SamplingPlan: action 3 batch record parity disagrees with its "
-                        "affine outcome");
+                        "invalid SamplingPlan: action 3 has noncanonical record parity");
+}
+
+TEST_CASE("Sampling plan validates affine syndrome values") {
+    SamplingPlan plan = valid_syndrome_plan();
+    auto& observable = std::get<WriteObservable>(plan.actions[3].action);
+    observable.outcome = AffineBool::symbol(SymbolId{1});
+
+    REQUIRE_THROWS_WITH(plan.validate(),
+                        "invalid SamplingPlan: action 3 references symbol s1 out of range");
 }
 
 TEST_CASE("Sampling plan rejects stale readout sources") {

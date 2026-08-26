@@ -155,6 +155,33 @@ uint32_t ExecutablePlan::append_expression(const AffineBool& expression) {
     return expression_index;
 }
 
+uint32_t ExecutablePlan::append_record_parity(const RecordParity& parity) {
+    require_uint32_size(expressions_.size(), "record parity storage");
+    require_uint32_size(expression_terms_.size(), "record parity term storage");
+    if (parity.records.size() > std::numeric_limits<uint32_t>::max() - expression_terms_.size()) {
+        throw std::length_error("HIP executable record parity term storage exceeds uint32 range");
+    }
+    const uint32_t parity_index = static_cast<uint32_t>(expressions_.size());
+    const uint32_t term_begin = static_cast<uint32_t>(expression_terms_.size());
+    for (RecordSlot record : parity.records) {
+        expression_terms_.push_back(index(record));
+    }
+    expressions_.push_back({term_begin,
+                            static_cast<uint32_t>(parity.records.size()),
+                            static_cast<uint8_t>(parity.constant),
+                            {}});
+    return parity_index;
+}
+
+void ExecutablePlan::lower_syndrome_value(detail::Action& action, const SyndromeValue& value) {
+    if (const auto* expression = std::get_if<AffineBool>(&value)) {
+        action.expression = append_expression(*expression);
+        return;
+    }
+    action.flags |= detail::kRecordParity;
+    action.expression = append_record_parity(std::get<RecordParity>(value));
+}
+
 detail::Action ExecutablePlan::lower_action(const PlannedAction& planned) {
     return std::visit(
         [&](const auto& typed) -> detail::Action {
@@ -208,11 +235,11 @@ detail::Action ExecutablePlan::lower_action(const PlannedAction& planned) {
             } else if constexpr (std::is_same_v<T, WriteDetector>) {
                 action.tag = detail::ActionTag::WriteDetector;
                 action.flags = typed.postselected ? detail::kPostselected : 0;
-                action.expression = append_expression(typed.outcome);
+                lower_syndrome_value(action, typed.outcome);
                 action.index0 = index(typed.detector);
             } else if constexpr (std::is_same_v<T, WriteObservable>) {
                 action.tag = detail::ActionTag::WriteObservable;
-                action.expression = append_expression(typed.outcome);
+                lower_syndrome_value(action, typed.outcome);
                 action.index0 = index(typed.observable);
             } else if constexpr (std::is_same_v<T, WriteExpectationValue>) {
                 action.tag = detail::ActionTag::WriteExpectationValue;

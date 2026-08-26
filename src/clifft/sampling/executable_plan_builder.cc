@@ -142,7 +142,9 @@ CLIFFT_BUILDER_FORCE_INLINE size_t ExecutablePlanBuilder::estimate_expression_te
                     num_terms += typed.source.terms().size();
                 } else if constexpr (std::is_same_v<T, WriteDetector> ||
                                      std::is_same_v<T, WriteObservable>) {
-                    num_terms += typed.outcome.terms().size();
+                    if (const auto* expression = std::get_if<AffineBool>(&typed.outcome)) {
+                        num_terms += expression->terms().size();
+                    }
                 } else if constexpr (std::is_same_v<T, WriteExpectationValue> ||
                                      std::is_same_v<T, ApplyInstrument>) {
                     num_terms += typed.sign.terms().size();
@@ -270,24 +272,22 @@ ExecutablePlanBuilder::prepare_measurement_correction(const AffineBool& outcome,
     return {register_id};
 }
 
-CLIFFT_BUILDER_FORCE_INLINE uint32_t
-ExecutablePlanBuilder::prepare_batch_record_parity(const std::optional<BatchRecordParity>& parity) {
-    if (!parity.has_value()) {
-        return std::numeric_limits<uint32_t>::max();
+CLIFFT_BUILDER_FORCE_INLINE ExecutablePlan::PreparedSyndromeValue
+ExecutablePlanBuilder::prepare_syndrome_value(const SyndromeValue& value) {
+    if (const auto* expression = std::get_if<AffineBool>(&value)) {
+        return prepare_expression(*expression);
     }
-    if (output_.batch_record_parities_.size() >= std::numeric_limits<uint32_t>::max() ||
-        parity->records.size() >
-            std::numeric_limits<uint32_t>::max() - output_.batch_record_parity_terms_.size()) {
-        throw std::length_error("sampling executable batch record parity exceeds uint32 range");
+    const RecordParity& parity = std::get<RecordParity>(value);
+    if (parity.records.size() >
+        std::numeric_limits<uint32_t>::max() - output_.record_parity_terms_.size()) {
+        throw std::length_error("sampling executable record parity exceeds uint32 range");
     }
-    const uint32_t parity_index = static_cast<uint32_t>(output_.batch_record_parities_.size());
-    const uint32_t begin = static_cast<uint32_t>(output_.batch_record_parity_terms_.size());
-    for (RecordSlot record : parity->records) {
-        output_.batch_record_parity_terms_.push_back(index(record));
+    const uint32_t begin = static_cast<uint32_t>(output_.record_parity_terms_.size());
+    for (RecordSlot record : parity.records) {
+        output_.record_parity_terms_.push_back(index(record));
     }
-    output_.batch_record_parities_.push_back(
-        {begin, static_cast<uint32_t>(parity->records.size()), parity->constant});
-    return parity_index;
+    return ExecutablePlan::PreparedRecordParity{begin, static_cast<uint32_t>(parity.records.size()),
+                                                parity.constant};
 }
 
 CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::lower_action(const PlannedAction& planned,
@@ -340,13 +340,12 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::lower_action(const Plann
                     output_.num_readout_noise_sites_++, typed.prob_zero_to_one,
                     typed.prob_one_to_zero, batch_symmetric_inverse_hazard});
             } else if constexpr (std::is_same_v<T, WriteDetector>) {
-                output_.actions_.emplace_back(ExecutablePlan::ExecuteDetector{
-                    prepare_expression(typed.outcome), index(typed.detector), typed.postselected,
-                    prepare_batch_record_parity(typed.batch_parity)});
+                output_.actions_.emplace_back(
+                    ExecutablePlan::ExecuteDetector{prepare_syndrome_value(typed.outcome),
+                                                    index(typed.detector), typed.postselected});
             } else if constexpr (std::is_same_v<T, WriteObservable>) {
                 output_.actions_.emplace_back(ExecutablePlan::ExecuteObservable{
-                    prepare_expression(typed.outcome), index(typed.observable),
-                    prepare_batch_record_parity(typed.batch_parity)});
+                    prepare_syndrome_value(typed.outcome), index(typed.observable)});
             } else if constexpr (std::is_same_v<T, WriteExpectationValue>) {
                 std::optional<PreparedPauli> active_projection;
                 if (typed.active_projection.has_value()) {
@@ -508,15 +507,6 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::validate_executable_plan
     }
     const size_t num_records =
         static_cast<size_t>(output_.num_visible_records_) + output_.num_hidden_records_;
-    for (const ExecutablePlan::PreparedRecordParity& parity : output_.batch_record_parities_) {
-        const size_t end = static_cast<size_t>(parity.begin) + parity.count;
-        assert(end <= output_.batch_record_parity_terms_.size() &&
-               "batch record parity must stay in its prepared tape");
-        for (size_t term = parity.begin; term < end; ++term) {
-            assert(output_.batch_record_parity_terms_[term] < num_records &&
-                   "batch record parity must name a valid record");
-        }
-    }
     if (source_.source_map.has_value()) {
         assert(output_.action_plan_ranges_.size() == output_.actions_.size() &&
                "executable provenance must remain parallel to the action stream");
@@ -538,10 +528,21 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::validate_executable_plan
         assert(expression.register_id < output_.expression_register_constants_.size() &&
                "action expression is out of range");
     };
-    auto validate_record_parity = [&](uint32_t parity) {
-        assert((parity == std::numeric_limits<uint32_t>::max() ||
-                parity < output_.batch_record_parities_.size()) &&
-               "action record parity is out of range");
+    auto validate_record_parity = [&](ExecutablePlan::PreparedRecordParity parity) {
+        const size_t end = static_cast<size_t>(parity.begin) + parity.count;
+        assert(end <= output_.record_parity_terms_.size() &&
+               "record parity must stay in its prepared tape");
+        for (size_t term = parity.begin; term < end; ++term) {
+            assert(output_.record_parity_terms_[term] < num_records &&
+                   "record parity must name a valid record");
+        }
+    };
+    auto validate_syndrome_value = [&](const ExecutablePlan::PreparedSyndromeValue& value) {
+        if (const auto* expression = std::get_if<ExecutablePlan::PreparedExpression>(&value)) {
+            validate_expression(*expression);
+        } else {
+            validate_record_parity(std::get<ExecutablePlan::PreparedRecordParity>(value));
+        }
     };
     for (const ExecutablePlan::Action& action : output_.actions_) {
         std::visit(
@@ -570,11 +571,9 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::validate_executable_plan
                 } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteReadoutNoise>) {
                     validate_expression(typed.source);
                 } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteDetector>) {
-                    validate_expression(typed.outcome);
-                    validate_record_parity(typed.record_parity);
+                    validate_syndrome_value(typed.outcome);
                 } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteObservable>) {
-                    validate_expression(typed.outcome);
-                    validate_record_parity(typed.record_parity);
+                    validate_syndrome_value(typed.outcome);
                 } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteExpectation>) {
                     validate_expression(typed.sign);
                 } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteInstrument>) {

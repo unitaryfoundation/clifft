@@ -497,10 +497,7 @@ void BatchExecutor::execute_action(const ExecutablePlan::ExecuteReadoutNoise& ac
 
 void BatchExecutor::execute_action(const ExecutablePlan::ExecuteDetector& action,
                                    size_t action_index) noexcept {
-    const std::span<const uint64_t> outcomes =
-        action.record_parity == std::numeric_limits<uint32_t>::max()
-            ? evaluate(action.outcome)
-            : evaluate_record_parity(action.record_parity);
+    const std::span<const uint64_t> outcomes = evaluate_syndrome(action.outcome);
     if (output_mode_ == BatchOutputMode::Rows) {
         detectors_.assign(action.detector, outcomes, live_words_);
     }
@@ -521,10 +518,7 @@ void BatchExecutor::execute_action(const ExecutablePlan::ExecuteDetector& action
 
 void BatchExecutor::execute_action(const ExecutablePlan::ExecuteObservable& action,
                                    size_t) noexcept {
-    const std::span<const uint64_t> outcomes =
-        action.record_parity == std::numeric_limits<uint32_t>::max()
-            ? evaluate(action.outcome)
-            : evaluate_record_parity(action.record_parity);
+    const std::span<const uint64_t> outcomes = evaluate_syndrome(action.outcome);
     observables_.assign(action.observable, outcomes, live_words_);
 }
 
@@ -568,13 +562,18 @@ std::span<const uint64_t> BatchExecutor::evaluate(
     return expression_registers_.column(expression.register_id);
 }
 
-std::span<const uint64_t> BatchExecutor::evaluate_record_parity(uint32_t parity_index) noexcept {
-    assert(parity_index < plan_->batch_record_parities_.size() &&
-           "prepared record parity must be in range");
-    const ExecutablePlan::PreparedRecordParity& parity =
-        plan_->batch_record_parities_[parity_index];
+std::span<const uint64_t> BatchExecutor::evaluate_syndrome(
+    const ExecutablePlan::PreparedSyndromeValue& value) noexcept {
+    if (const auto* expression = std::get_if<ExecutablePlan::PreparedExpression>(&value)) {
+        return evaluate(*expression);
+    }
+    return evaluate_record_parity(std::get<ExecutablePlan::PreparedRecordParity>(value));
+}
+
+std::span<const uint64_t> BatchExecutor::evaluate_record_parity(
+    ExecutablePlan::PreparedRecordParity parity) noexcept {
     const uint32_t end = parity.begin + parity.count;
-    assert(end <= plan_->batch_record_parity_terms_.size() &&
+    assert(end <= plan_->record_parity_terms_.size() &&
            "prepared record parity must stay in its term tape");
     const size_t words = packed_word_count(active_lanes());
     if (parity.constant) {
@@ -584,8 +583,7 @@ std::span<const uint64_t> BatchExecutor::evaluate_record_parity(uint32_t parity_
         std::ranges::fill(std::span<uint64_t>(scratch_words_).first(words), uint64_t{0});
     }
     for (uint32_t term = parity.begin; term < end; ++term) {
-        const std::span<const uint64_t> record =
-            records_.column(plan_->batch_record_parity_terms_[term]);
+        const std::span<const uint64_t> record = records_.column(plan_->record_parity_terms_[term]);
         for (size_t word = 0; word < words; ++word) {
             scratch_words_[word] ^= record[word];
         }

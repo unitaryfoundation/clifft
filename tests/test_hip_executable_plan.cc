@@ -59,8 +59,10 @@ TEST_CASE("HIP executable lowers existing sampling action names") {
     REQUIRE(executable.actions()[0].tag == ActionTag::PromoteDormantRotation);
     REQUIRE(executable.actions()[1].tag == ActionTag::MeasureActivePauli);
     REQUIRE(executable.actions()[2].tag == ActionTag::WriteDetector);
+    REQUIRE((executable.actions()[2].flags & clifft::sampling::hip::detail::kRecordParity) != 0);
     REQUIRE(executable.actions()[3].tag == ActionTag::WriteExpectationValue);
     REQUIRE(executable.actions()[4].tag == ActionTag::WriteObservable);
+    REQUIRE((executable.actions()[4].flags & clifft::sampling::hip::detail::kRecordParity) != 0);
     REQUIRE(executable.num_exp_vals() == 1);
 }
 
@@ -76,6 +78,22 @@ TEST_CASE("HIP executable inspection identifies packed modification points") {
     REQUIRE_THAT(diagnostic, ContainsSubstring("PromoteDormantRotation"));
     REQUIRE_THAT(diagnostic, ContainsSubstring("MeasureActivePauli"));
     REQUIRE_THAT(diagnostic, ContainsSubstring("WriteDetector"));
+}
+
+TEST_CASE("HIP executable preserves selected syndrome representations") {
+    const ExecutablePlan executable(plan_from(R"(
+        X 0
+        M 0
+        OBSERVABLE_INCLUDE(0) rec[-1]
+        READOUT_NOISE(1) rec[-1]
+        OBSERVABLE_INCLUDE(1) rec[-1]
+    )"));
+
+    REQUIRE(executable.actions().size() == 4);
+    REQUIRE(executable.actions()[2].tag == ActionTag::WriteObservable);
+    REQUIRE((executable.actions()[2].flags & clifft::sampling::hip::detail::kRecordParity) == 0);
+    REQUIRE(executable.actions()[3].tag == ActionTag::WriteObservable);
+    REQUIRE((executable.actions()[3].flags & clifft::sampling::hip::detail::kRecordParity) != 0);
 }
 
 TEST_CASE("HIP executable packs affine terms and categorical noise") {

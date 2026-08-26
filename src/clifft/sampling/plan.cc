@@ -196,31 +196,29 @@ void validate_written_record(const SamplingPlan& plan, RecordSlot record, uint32
     }
 }
 
-void validate_batch_record_parity(const SamplingPlan& plan, const BatchRecordParity& parity,
-                                  uint32_t action_index,
-                                  const std::unordered_set<uint32_t>& written_records,
-                                  std::span<const AffineBool* const> record_values,
-                                  const AffineBool& expected) {
+void validate_record_parity(const SamplingPlan& plan, const RecordParity& parity,
+                            uint32_t action_index,
+                            const std::unordered_set<uint32_t>& written_records) {
     uint32_t previous = 0;
     bool first = true;
-    AffineBool actual(parity.constant);
     for (RecordSlot record : parity.records) {
         if (!first && index(record) <= previous) {
             invalid_plan("action " + std::to_string(action_index) +
-                         " has noncanonical batch record parity");
+                         " has noncanonical record parity");
         }
         validate_written_record(plan, record, action_index, written_records);
-        if (record_values[index(record)] == nullptr) {
-            invalid_plan("action " + std::to_string(action_index) +
-                         " batch record parity has no symbolic record value");
-        }
-        actual ^= *record_values[index(record)];
         previous = index(record);
         first = false;
     }
-    if (actual != expected) {
-        invalid_plan("action " + std::to_string(action_index) +
-                     " batch record parity disagrees with its affine outcome");
+}
+
+void validate_syndrome_value(const SamplingPlan& plan, const SyndromeValue& value,
+                             uint32_t action_index,
+                             const std::unordered_set<uint32_t>& written_records) {
+    if (const auto* expression = std::get_if<AffineBool>(&value)) {
+        validate_expression(plan, *expression, action_index, std::nullopt, false);
+    } else {
+        validate_record_parity(plan, std::get<RecordParity>(value), action_index, written_records);
     }
 }
 
@@ -680,11 +678,7 @@ void SamplingPlan::validate() const {
                         !written_detectors.insert(index(typed.detector)).second) {
                         invalid_plan("detector write has invalid width or slot");
                     }
-                    validate_expression(*this, typed.outcome, action_index, definition, false);
-                    if (typed.batch_parity.has_value()) {
-                        validate_batch_record_parity(*this, *typed.batch_parity, action_index,
-                                                     written_records, record_values, typed.outcome);
-                    }
+                    validate_syndrome_value(*this, typed.outcome, action_index, written_records);
                     observed_postselection |= typed.postselected;
                 } else if constexpr (std::is_same_v<T, WriteObservable>) {
                     if (planned.active_after != planned.active_before ||
@@ -692,11 +686,7 @@ void SamplingPlan::validate() const {
                         !written_observables.insert(index(typed.observable)).second) {
                         invalid_plan("observable write has invalid width or slot");
                     }
-                    validate_expression(*this, typed.outcome, action_index, definition, false);
-                    if (typed.batch_parity.has_value()) {
-                        validate_batch_record_parity(*this, *typed.batch_parity, action_index,
-                                                     written_records, record_values, typed.outcome);
-                    }
+                    validate_syndrome_value(*this, typed.outcome, action_index, written_records);
                 } else if constexpr (std::is_same_v<T, WriteExpectationValue>) {
                     if (planned.active_after != planned.active_before ||
                         index(typed.exp_val) >= num_exp_vals ||

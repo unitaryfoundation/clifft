@@ -197,29 +197,32 @@ struct ApplyReadoutNoise {
     double prob_one_to_zero = 0.0;
 };
 
-// Batch execution can evaluate detector and observable parities from packed
-// record columns instead of expanding every record's full affine history.
-struct BatchRecordParity {
+// A parity over circuit record slots at the point where a syndrome value is
+// written. Record slots are canonicalized in strictly increasing order.
+struct RecordParity {
     bool constant = false;
     std::vector<RecordSlot> records;
 };
 
+// Syndrome writes retain the representation whose dependencies are still
+// available at execution time. Record parity avoids expanding current record
+// snapshots; affine form preserves historical values after a record changes.
+using SyndromeValue = std::variant<AffineBool, RecordParity>;
+
 // Writes a detector parity after the planner has XORed its expected reference
-// parity into the expression. A nonzero postselected detector rejects the shot
-// immediately; later actions and outputs are irrelevant for it.
+// parity into the selected value. A nonzero postselected detector rejects the
+// shot immediately; later actions and outputs are irrelevant for it.
 struct WriteDetector {
-    AffineBool outcome;
+    SyndromeValue outcome;
     DetectorSlot detector{};
     bool postselected = false;
-    std::optional<BatchRecordParity> batch_parity;
 };
 
 // Writes one fully accumulated logical observable after the planner has XORed
-// its expected reference parity into the expression.
+// its expected reference parity into the selected value.
 struct WriteObservable {
-    AffineBool outcome;
+    SyndromeValue outcome;
     ObservableSlot observable{};
-    std::optional<BatchRecordParity> batch_parity;
 };
 
 // Writes a non-destructive Pauli expectation probe. The planner retains only

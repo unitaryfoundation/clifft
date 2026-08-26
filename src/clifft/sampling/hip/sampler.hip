@@ -119,6 +119,14 @@ __device__ __forceinline__ bool evaluate(const ProgramView& program, const uint8
     return result;
 }
 
+__device__ __forceinline__ bool evaluate_syndrome(const ProgramView& program,
+                                                  const uint8_t* symbols,
+                                                  const uint8_t* records,
+                                                  const Action& action) {
+    const uint8_t* values = (action.flags & kRecordParity) != 0 ? records : symbols;
+    return evaluate(program, values, action.expression);
+}
+
 template <typename Coefficient>
 __device__ void apply_rotation(const Action& action, bool sign, Coefficient* real,
                                Coefficient* imag) {
@@ -465,7 +473,7 @@ __global__ void interpret_shots(ProgramView program, SeedRoot seed_root, uint64_
                 break;
             }
             case ActionTag::WriteDetector: {
-                const bool outcome = evaluate(program, symbols, action.expression);
+                const bool outcome = evaluate_syndrome(program, symbols, records, action);
                 detectors[action.index0] = static_cast<uint8_t>(outcome);
                 if ((action.flags & kPostselected) != 0 && outcome) {
                     discarded = true;
@@ -473,8 +481,8 @@ __global__ void interpret_shots(ProgramView program, SeedRoot seed_root, uint64_
                 break;
             }
             case ActionTag::WriteObservable:
-                observables[action.index0] =
-                    static_cast<uint8_t>(evaluate(program, symbols, action.expression));
+                observables[action.index0] = static_cast<uint8_t>(
+                    evaluate_syndrome(program, symbols, records, action));
                 break;
             case ActionTag::WriteExpectationValue: {
                 const double value = expectation_value(action, real, imag);
