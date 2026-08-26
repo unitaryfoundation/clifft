@@ -14,6 +14,7 @@
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 #include <cmath>
+#include <memory>
 #include <numeric>
 #include <optional>
 #include <vector>
@@ -71,6 +72,49 @@ TEST_CASE("Conditioned uniform fault draws do not retain prior-shot permutations
     const std::vector<uint32_t> second(second_span.begin(), second_span.end());
 
     REQUIRE(second == first);
+}
+
+TEST_CASE("Conditioned fault workers share immutable preparation") {
+    const auto distribution = std::make_shared<const clifft::KFaultDistribution>(
+        std::array<double, 4>{0.1, 0.2, 0.3, 0.4}, 2);
+    REQUIRE(distribution->worker_scratch_bytes() == 2 * sizeof(uint32_t));
+    const clifft::KFaultDistribution uniform_distribution(
+        std::array<double, 5>{0.2, 0.2, 0.2, 0.2, 0.2}, 2);
+    REQUIRE(uniform_distribution.worker_scratch_bytes() == 9 * sizeof(uint32_t));
+    REQUIRE_THROWS_AS(clifft::KFaultSampler(std::shared_ptr<const clifft::KFaultDistribution>{}),
+                      std::invalid_argument);
+    clifft::KFaultSampler first(distribution);
+    clifft::KFaultSampler second(distribution);
+    clifft::Xoshiro256PlusPlus first_rng(4321);
+    clifft::Xoshiro256PlusPlus second_rng(4321);
+
+    for (uint32_t shot = 0; shot < 128; ++shot) {
+        const std::span<const uint32_t> first_selected =
+            first.sample([&]() noexcept { return first_rng.next_double(); });
+        const std::span<const uint32_t> second_selected =
+            second.sample([&]() noexcept { return second_rng.next_double(); });
+        REQUIRE(std::ranges::equal(first_selected, second_selected));
+    }
+}
+
+TEST_CASE("Conditioned fault sampling remains stable for a large central stratum") {
+    constexpr uint32_t num_sites = 1100;
+    constexpr uint32_t k = num_sites / 2;
+    std::vector<double> probabilities(num_sites, 0.21);
+    std::ranges::fill(probabilities.begin(), probabilities.begin() + num_sites / 2, 0.2);
+    clifft::KFaultSampler sampler(probabilities, k);
+    clifft::Xoshiro256PlusPlus rng(9876);
+
+    for (uint32_t shot = 0; shot < 8; ++shot) {
+        const std::span<const uint32_t> selected =
+            sampler.sample([&]() noexcept { return rng.next_double(); });
+        const size_t first_half = static_cast<size_t>(
+            std::ranges::count_if(selected, [](uint32_t site) { return site < num_sites / 2; }));
+        CAPTURE(shot, first_half);
+        REQUIRE(selected.size() == k);
+        REQUIRE(first_half > 200);
+        REQUIRE(first_half < 350);
+    }
 }
 
 // =============================================================================

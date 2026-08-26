@@ -31,11 +31,11 @@ struct SamplingWorker {
 };
 
 struct ConditionedSamplingWorker {
-    ConditionedSamplingWorker(const ExecutablePlan& plan, std::span<const double> probabilities,
-                              uint32_t k, uint32_t intra_shot_workers,
-                              uint32_t intra_shot_min_active_width)
+    ConditionedSamplingWorker(const ExecutablePlan& plan,
+                              std::shared_ptr<const KFaultDistribution> fault_distribution,
+                              uint32_t intra_shot_workers, uint32_t intra_shot_min_active_width)
         : executor(plan, 0, intra_shot_workers, intra_shot_min_active_width),
-          fault_sampler(probabilities, k) {}
+          fault_sampler(std::move(fault_distribution)) {}
 
     Executor executor;
     KFaultSampler fault_sampler;
@@ -60,11 +60,11 @@ struct SurvivorWorker {
 };
 
 struct ConditionedSurvivorWorker {
-    ConditionedSurvivorWorker(const ExecutablePlan& plan, std::span<const double> probabilities,
-                              uint32_t k, uint32_t intra_shot_workers,
-                              uint32_t intra_shot_min_active_width)
+    ConditionedSurvivorWorker(const ExecutablePlan& plan,
+                              std::shared_ptr<const KFaultDistribution> fault_distribution,
+                              uint32_t intra_shot_workers, uint32_t intra_shot_min_active_width)
         : executor(plan, 0, intra_shot_workers, intra_shot_min_active_width),
-          fault_sampler(probabilities, k),
+          fault_sampler(std::move(fault_distribution)),
           counts(plan.num_observables()) {}
 
     Executor executor;
@@ -80,10 +80,10 @@ struct BatchSamplingWorker {
 
 struct ConditionedBatchSamplingWorker {
     ConditionedBatchSamplingWorker(const ExecutablePlan& plan,
-                                   std::span<const double> probabilities, uint32_t k,
+                                   std::shared_ptr<const KFaultDistribution> fault_distribution,
                                    uint32_t capacity)
         : executor(plan, capacity, BatchOutputMode::Rows, BatchSamplingMode::FixedFaults),
-          fault_sampler(probabilities, k) {}
+          fault_sampler(std::move(fault_distribution)) {}
 
     BatchExecutor executor;
     KFaultSampler fault_sampler;
@@ -101,18 +101,22 @@ struct BatchSurvivorWorker {
 
 struct ConditionedBatchSurvivorWorker {
     ConditionedBatchSurvivorWorker(const ExecutablePlan& plan,
-                                   std::span<const double> probabilities, uint32_t k,
+                                   std::shared_ptr<const KFaultDistribution> fault_distribution,
                                    uint32_t capacity, bool keep_records)
         : executor(plan, capacity,
                    keep_records ? BatchOutputMode::Rows : BatchOutputMode::AggregateSurvivors,
                    BatchSamplingMode::FixedFaults),
-          fault_sampler(probabilities, k),
+          fault_sampler(std::move(fault_distribution)),
           counts(plan.num_observables()) {}
 
     BatchExecutor executor;
     KFaultSampler fault_sampler;
     SurvivorCounts counts;
 };
+
+uint64_t survivor_worker_bytes(const ExecutablePlan& plan) noexcept {
+    return static_cast<uint64_t>(plan.num_observables()) * sizeof(uint64_t);
+}
 
 ThreadLayout resolve_thread_layout(const ExecutablePlan& plan, uint32_t shots,
                                    uint32_t requested_threads,
@@ -492,7 +496,8 @@ SamplingSurvivorResult sample_survivors(const ExecutablePlan& plan, uint32_t sho
     const BatchOutputMode output_mode =
         keep_records ? BatchOutputMode::Rows : BatchOutputMode::AggregateSurvivors;
     const BatchExecutionPolicy batch_policy = resolve_batch_execution_policy(
-        plan, shots, resolved.shot_workers, resolved.intra_shot_workers, output_mode, batch_size);
+        plan, shots, resolved.shot_workers, resolved.intra_shot_workers, output_mode, batch_size,
+        BatchSamplingMode::Ordinary, survivor_worker_bytes(plan));
     if constexpr (kPackedBatchExecutionAvailable) {
         if (batch_policy.lane_capacity > 1) {
             return sample_surviving_batches(
@@ -534,7 +539,7 @@ SamplingResult sample_k(const ExecutablePlan& plan, uint32_t shots, uint32_t k,
             "sample_k_survivors");
     }
     const ThreadLayout resolved = resolve_thread_layout(plan, shots, threads, thread_layout);
-    const BatchExecutionPolicy batch_policy = resolve_batch_execution_policy(
+    BatchExecutionPolicy batch_policy = resolve_batch_execution_policy(
         plan, shots, resolved.shot_workers, resolved.intra_shot_workers, BatchOutputMode::Rows,
         batch_size, BatchSamplingMode::FixedFaults);
     if (shots == 0) {
@@ -546,14 +551,20 @@ SamplingResult sample_k(const ExecutablePlan& plan, uint32_t shots, uint32_t k,
             },
             [](SamplingWorker& worker) noexcept { worker.executor.run_shot(); });
     }
-    const std::vector<double> probabilities = plan.noise_site_probabilities();
+    const auto fault_distribution =
+        std::make_shared<const KFaultDistribution>(plan.noise_site_probabilities(), k);
+    if (!batch_size.has_value() && batch_policy.lane_capacity > 1) {
+        batch_policy = resolve_batch_execution_policy(
+            plan, shots, resolved.shot_workers, resolved.intra_shot_workers, BatchOutputMode::Rows,
+            batch_size, BatchSamplingMode::FixedFaults, fault_distribution->worker_scratch_bytes());
+    }
     if constexpr (kPackedBatchExecutionAvailable) {
         if (batch_policy.lane_capacity > 1) {
             return sample_fixed_batches(
                 plan, shots, seed, batch_policy,
                 [&](uint32_t) {
                     return std::make_unique<ConditionedBatchSamplingWorker>(
-                        plan, probabilities, k, batch_policy.lane_capacity);
+                        plan, fault_distribution, batch_policy.lane_capacity);
                 },
                 [](ConditionedBatchSamplingWorker& worker, const SeedRoot& root,
                    uint32_t first_shot, uint32_t batch) noexcept {
@@ -565,7 +576,7 @@ SamplingResult sample_k(const ExecutablePlan& plan, uint32_t shots, uint32_t k,
         plan, shots, seed, resolved,
         [&](uint32_t) {
             return std::make_unique<ConditionedSamplingWorker>(
-                plan, probabilities, k, resolved.intra_shot_workers,
+                plan, fault_distribution, resolved.intra_shot_workers,
                 resolved.intra_shot_min_active_width);
         },
         [](ConditionedSamplingWorker& worker) noexcept {
@@ -590,7 +601,7 @@ SamplingSurvivorResult sample_k_survivors(const ExecutablePlan& plan, uint32_t s
     const ThreadLayout resolved = resolve_thread_layout(plan, shots, threads, thread_layout);
     const BatchOutputMode output_mode =
         keep_records ? BatchOutputMode::Rows : BatchOutputMode::AggregateSurvivors;
-    const BatchExecutionPolicy batch_policy = resolve_batch_execution_policy(
+    BatchExecutionPolicy batch_policy = resolve_batch_execution_policy(
         plan, shots, resolved.shot_workers, resolved.intra_shot_workers, output_mode, batch_size,
         BatchSamplingMode::FixedFaults);
     if (shots == 0) {
@@ -602,14 +613,21 @@ SamplingSurvivorResult sample_k_survivors(const ExecutablePlan& plan, uint32_t s
             },
             [](SurvivorWorker& worker) noexcept { worker.executor.run_shot(); });
     }
-    const std::vector<double> probabilities = plan.noise_site_probabilities();
+    const auto fault_distribution =
+        std::make_shared<const KFaultDistribution>(plan.noise_site_probabilities(), k);
+    if (!batch_size.has_value() && batch_policy.lane_capacity > 1) {
+        batch_policy = resolve_batch_execution_policy(
+            plan, shots, resolved.shot_workers, resolved.intra_shot_workers, output_mode,
+            batch_size, BatchSamplingMode::FixedFaults,
+            fault_distribution->worker_scratch_bytes() + survivor_worker_bytes(plan));
+    }
     if constexpr (kPackedBatchExecutionAvailable) {
         if (batch_policy.lane_capacity > 1) {
             return sample_surviving_batches(
                 plan, shots, seed, keep_records, batch_policy,
                 [&](uint32_t) {
                     return std::make_unique<ConditionedBatchSurvivorWorker>(
-                        plan, probabilities, k, batch_policy.lane_capacity, keep_records);
+                        plan, fault_distribution, batch_policy.lane_capacity, keep_records);
                 },
                 [](ConditionedBatchSurvivorWorker& worker, const SeedRoot& root,
                    uint32_t first_shot, uint32_t batch) noexcept {
@@ -621,7 +639,7 @@ SamplingSurvivorResult sample_k_survivors(const ExecutablePlan& plan, uint32_t s
         plan, shots, seed, keep_records, resolved,
         [&](uint32_t) {
             return std::make_unique<ConditionedSurvivorWorker>(
-                plan, probabilities, k, resolved.intra_shot_workers,
+                plan, fault_distribution, resolved.intra_shot_workers,
                 resolved.intra_shot_min_active_width);
         },
         [](ConditionedSurvivorWorker& worker) noexcept {

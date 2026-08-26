@@ -67,11 +67,13 @@ struct BatchExecutionPolicy {
 };
 
 // Resolve deterministic lane boundaries first, then cap automatic workers by
-// the aggregate retained-memory budget. Validation happens before dispatch.
+// the aggregate retained-memory budget. Callers include wrapper-owned scratch
+// that is not part of BatchExecutor in additional_worker_bytes.
 [[nodiscard]] BatchExecutionPolicy resolve_batch_execution_policy(
     const ExecutablePlan& plan, uint32_t shots, uint32_t shot_workers, uint32_t intra_shot_workers,
     BatchOutputMode output_mode, std::optional<uint32_t> requested_batch_size,
-    BatchSamplingMode sampling_mode = BatchSamplingMode::Ordinary);
+    BatchSamplingMode sampling_mode = BatchSamplingMode::Ordinary,
+    uint64_t additional_worker_bytes = 0);
 
 // Single-threaded packed executor for fixed plans. Coefficients are
 // basis-major and shot-interleaved so prepared actions vectorize across lanes.

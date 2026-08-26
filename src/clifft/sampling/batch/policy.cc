@@ -23,7 +23,8 @@ namespace {
 [[nodiscard]] uint64_t estimated_batch_worker_bytes(const ExecutablePlan& plan,
                                                     uint32_t lane_capacity,
                                                     BatchOutputMode output_mode,
-                                                    BatchSamplingMode sampling_mode) {
+                                                    BatchSamplingMode sampling_mode,
+                                                    uint64_t additional_worker_bytes) {
     const uint64_t words = packed_word_count(lane_capacity);
     const uint64_t records =
         output_mode == BatchOutputMode::Rows || plan.has_batch_record_parities()
@@ -53,7 +54,7 @@ namespace {
             bytes, saturating_multiply(saturating_multiply(plan.num_exp_vals(), lane_capacity),
                                        sizeof(double)));
     }
-    return bytes;
+    return saturating_add(bytes, additional_worker_bytes);
 }
 
 [[nodiscard]] uint32_t batch_worker_count(uint32_t shots, uint32_t shot_workers,
@@ -65,12 +66,10 @@ namespace {
 
 }  // namespace
 
-BatchExecutionPolicy resolve_batch_execution_policy(const ExecutablePlan& plan, uint32_t shots,
-                                                    uint32_t shot_workers,
-                                                    uint32_t intra_shot_workers,
-                                                    BatchOutputMode output_mode,
-                                                    std::optional<uint32_t> requested_batch_size,
-                                                    BatchSamplingMode sampling_mode) {
+BatchExecutionPolicy resolve_batch_execution_policy(
+    const ExecutablePlan& plan, uint32_t shots, uint32_t shot_workers, uint32_t intra_shot_workers,
+    BatchOutputMode output_mode, std::optional<uint32_t> requested_batch_size,
+    BatchSamplingMode sampling_mode, uint64_t additional_worker_bytes) {
     if (requested_batch_size.has_value() && *requested_batch_size == 0) {
         throw std::invalid_argument("batch_size must be a positive integer or 'auto'");
     }
@@ -81,6 +80,7 @@ BatchExecutionPolicy resolve_batch_execution_policy(const ExecutablePlan& plan, 
     (void)shot_workers;
     (void)output_mode;
     (void)sampling_mode;
+    (void)additional_worker_bytes;
     if (intra_shot_workers > 1 && requested_batch_size.value_or(1) > 1) {
         throw std::invalid_argument("packed batch_size is incompatible with intra-shot workers");
     }
@@ -121,8 +121,8 @@ BatchExecutionPolicy resolve_batch_execution_policy(const ExecutablePlan& plan, 
             capacity = std::bit_floor(capacity - 1);
             continue;
         }
-        const uint64_t worker_bytes =
-            estimated_batch_worker_bytes(plan, capacity, output_mode, sampling_mode);
+        const uint64_t worker_bytes = estimated_batch_worker_bytes(
+            plan, capacity, output_mode, sampling_mode, additional_worker_bytes);
         if (worker_bytes <= kDefaultBatchWorkerBudget) {
             const uint32_t requested_workers = batch_worker_count(shots, shot_workers, capacity);
             const uint64_t memory_workers = std::max<uint64_t>(

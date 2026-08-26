@@ -283,7 +283,10 @@ selection currently requires at least 64 shots and a peak active width of at mos
 5. It budgets the complete lane-scaled executor footprint, including coefficient
 and scratch arrays, symbols, compact presampled carrier columns, expression
 registers, retained records and outputs, and per-lane scratch. The default policy
-keeps this storage near 8 MiB per packed worker and 64 MiB across packed workers.
+also includes survivor counters and fixed-k selection scratch owned by the worker
+wrapper. Fixed-k sampling prepares its potentially large immutable conditioning
+table once per call and shares it across workers. The default policy keeps
+worker-owned storage near 8 MiB per packed worker and 64 MiB across packed workers.
 Automatic capacity depends on the plan, shot count, and output mode, not the
 resolved thread count. After selecting that capacity, Clifft caps the number of
 concurrent packed workers when necessary to satisfy the aggregate budget. Thus
@@ -375,9 +378,11 @@ plus lane-scaled packed symbolic state, expression registers, records, outputs,
 and other executor metadata. Each packed bit column uses
 $8 \times \lceil b / 64 \rceil$ bytes at lane capacity $b$, and every cross-shot
 worker owns its own copy. Automatic batch selection accounts for both the
-per-worker footprint and the number of packed workers. Set an explicit layout
-when memory is more constrained than CPU availability. Intra-shot workers
-cooperate on one executor and do not replicate this storage.
+per-worker footprint and the number of packed workers. Fixed-k workers share one
+immutable conditioning table while retaining independent selection scratch and
+RNG state. Set an explicit layout when memory is more constrained than CPU
+availability. Intra-shot workers cooperate on one executor and do not replicate
+this storage.
 Noncomputational workers also own their trajectory continuations and compile
 new continuations independently as their shots encounter jumps.
 

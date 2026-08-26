@@ -197,6 +197,10 @@ TEST_CASE("Packed capacity policy bounds worker state footprint") {
                 .lane_capacity == 2048);
     REQUIRE(resolve_batch_execution_policy(noisy, 4096, 1, 1, BatchOutputMode::Rows, uint32_t{65})
                 .lane_capacity == 65);
+    REQUIRE(resolve_batch_execution_policy(noisy, 4096, 1, 1, BatchOutputMode::Rows, std::nullopt,
+                                           BatchSamplingMode::Ordinary,
+                                           clifft::sampling::kDefaultBatchWorkerBudget)
+                .lane_capacity == 1);
 }
 
 TEST_CASE("Packed capacity policy accounts for lane-scaled sidecars") {
