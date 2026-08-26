@@ -3,7 +3,6 @@
 #include "clifft/circuit/qasm2_parser.h"
 
 #include <catch2/catch_test_macros.hpp>
-
 #include <cmath>
 #include <complex>
 #include <cstdint>
@@ -63,10 +62,8 @@ TEST_CASE("Basis amplitude query retains exponential rotation scalars") {
     check_complex(amplitude("X 0\nR_Z(0.5) 0", 1), quarter_turn);
 
     constexpr double alpha = 0.3;
-    check_complex(amplitude("R_X(0.3) 0", 0),
-                  {std::cos(std::numbers::pi * alpha / 2.0), 0.0});
-    check_complex(amplitude("R_X(0.3) 0", 1),
-                  {0.0, -std::sin(std::numbers::pi * alpha / 2.0)});
+    check_complex(amplitude("R_X(0.3) 0", 0), {std::cos(std::numbers::pi * alpha / 2.0), 0.0});
+    check_complex(amplitude("R_X(0.3) 0", 1), {0.0, -std::sin(std::numbers::pi * alpha / 2.0)});
 
     check_complex(amplitude("R_PAULI(0.3) X0*Y1", 0),
                   {std::cos(std::numbers::pi * alpha / 2.0), 0.0});

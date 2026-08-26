@@ -10,7 +10,6 @@ from qiskit_aer import AerSimulator
 
 import clifft
 
-
 SINGLE_QUBIT_CLIFFORDS = [
     "H",
     "S",
@@ -82,16 +81,13 @@ def exact_statevector(circuit_text: str, num_qubits: int) -> np.ndarray:
 
 @pytest.mark.parametrize(
     ("gate", "num_qubits"),
-    [(gate, 1) for gate in SINGLE_QUBIT_CLIFFORDS]
-    + [(gate, 2) for gate in TWO_QUBIT_CLIFFORDS],
+    [(gate, 1) for gate in SINGLE_QUBIT_CLIFFORDS] + [(gate, 2) for gate in TWO_QUBIT_CLIFFORDS],
 )
 def test_named_clifford_matrices_match_stim(gate: str, num_qubits: int) -> None:
     """Every column retains Stim's canonical Clifford global phase."""
     expected = np.asarray(stim.gate_data(gate).unitary_matrix, dtype=np.complex128)
     for input_basis in range(1 << num_qubits):
-        preparation = [
-            f"X {qubit}" for qubit in range(num_qubits) if (input_basis >> qubit) & 1
-        ]
+        preparation = [f"X {qubit}" for qubit in range(num_qubits) if (input_basis >> qubit) & 1]
         targets = " ".join(str(qubit) for qubit in range(num_qubits))
         actual = exact_statevector("\n".join([*preparation, f"{gate} {targets}"]), num_qubits)
         np.testing.assert_allclose(actual, expected[:, input_basis], rtol=0.0, atol=1e-7)
@@ -142,7 +138,9 @@ def test_qasm2_query_restores_source_global_phase() -> None:
     reference.cx(0, 1)
     reference.u(0.31, -0.47, 0.59, 0)
     reference.save_statevector()
-    expected = np.asarray(AerSimulator(method="statevector").run(reference).result().get_statevector())
+    expected = np.asarray(
+        AerSimulator(method="statevector").run(reference).result().get_statevector()
+    )
     actual = np.asarray(
         [
             clifft.evaluate_amplitude(

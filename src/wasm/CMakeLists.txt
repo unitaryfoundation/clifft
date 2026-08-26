@@ -24,9 +24,11 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/FetchNlohmannJson.cmake)
 
 # Build the core library (reuses the same source list)
 add_library(clifft_core STATIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/circuit/gate_data.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/circuit/parser.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/circuit/qasm2_parser.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/tableau/pauli_string.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/tableau/stabilizer_ch_form.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/tableau/tableau.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/frontend/frontend.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/hir_pass_manager.cc

@@ -21,8 +21,7 @@ namespace {
 void validate_output_basis(uint32_t num_qubits, std::span<const uint64_t> basis) {
     const size_t expected_words = basis_word_count(num_qubits);
     if (basis.size() != expected_words) {
-        throw std::invalid_argument(
-            "amplitude output basis must have ceil(num_qubits / 64) words");
+        throw std::invalid_argument("amplitude output basis must have ceil(num_qubits / 64) words");
     }
     const uint32_t used_bits = num_qubits % 64U;
     if (!basis.empty() && used_bits != 0) {
@@ -107,8 +106,7 @@ Circuit adjoint_with_basis_input(const Circuit& source, std::span<const uint64_t
     result.nodes.reserve(source.nodes.size() + source.num_qubits);
     for (uint32_t q = 0; q < source.num_qubits; ++q) {
         if (((input_basis[q / 64U] >> (q % 64U)) & 1U) != 0) {
-            result.nodes.push_back(AstNode{.gate = GateType::X,
-                                           .targets = {Target::qubit(q)}});
+            result.nodes.push_back(AstNode{.gate = GateType::X, .targets = {Target::qubit(q)}});
         }
     }
     for (auto it = source.nodes.rbegin(); it != source.nodes.rend(); ++it) {
@@ -119,15 +117,14 @@ Circuit adjoint_with_basis_input(const Circuit& source, std::span<const uint64_t
 
 }  // namespace
 
-BasisAmplitudeQuery::Prepared BasisAmplitudeQuery::prepare(
-    const Circuit& circuit, std::span<const uint64_t> output_basis,
-    std::complex<double> input_phase) {
+BasisAmplitudeQuery::Prepared BasisAmplitudeQuery::prepare(const Circuit& circuit,
+                                                           std::span<const uint64_t> output_basis,
+                                                           std::complex<double> input_phase) {
     validate_output_basis(circuit.num_qubits, output_basis);
 
-    const auto compile_orientation = [](const Circuit& oriented,
-                                        std::span<const uint64_t> execution_basis,
-                                        std::complex<double> phase,
-                                        bool conjugate_result) -> Prepared {
+    const auto compile_orientation =
+        [](const Circuit& oriented, std::span<const uint64_t> execution_basis,
+           std::complex<double> phase, bool conjugate_result) -> Prepared {
         PhaseAwareHir traced = trace_phase_aware(oriented);
         if (!traced.hir.final_tableau.has_value()) {
             throw std::runtime_error("phase-aware trace did not retain its final Clifford frame");
@@ -137,11 +134,10 @@ BasisAmplitudeQuery::Prepared BasisAmplitudeQuery::prepare(
         // peephole pass is deliberately excluded until each projective fusion
         // has a phase-ledger counterpart.
         StatevectorSqueezePass{}.run(traced.hir);
-        PhaseAwareSamplingPlan planned = plan_sampling_phase_aware(
-            traced.hir, std::move(traced.final_clifford_frame));
+        PhaseAwareSamplingPlan planned =
+            plan_sampling_phase_aware(traced.hir, std::move(traced.final_clifford_frame));
         if (!planned.plan.final_tableau.has_value()) {
-            throw std::runtime_error(
-                "phase-aware planner did not retain its final Clifford frame");
+            throw std::runtime_error("phase-aware planner did not retain its final Clifford frame");
         }
         const std::complex<double> frame_phase = internal::clifford_row_phase(
             *planned.plan.final_tableau, planned.final_clifford_frame, execution_basis);
@@ -160,8 +156,7 @@ BasisAmplitudeQuery::Prepared BasisAmplitudeQuery::prepare(
     // compiler choose the smaller exact contraction without changing kernels.
     const Circuit adjoint = adjoint_with_basis_input(circuit, output_basis);
     const std::vector<uint64_t> zero_basis(basis_word_count(circuit.num_qubits), 0);
-    Prepared backward =
-        compile_orientation(adjoint, zero_basis, std::conj(input_phase), true);
+    Prepared backward = compile_orientation(adjoint, zero_basis, std::conj(input_phase), true);
     if (backward.plan.peak_active_width < forward.plan.peak_active_width) {
         return backward;
     }
@@ -174,14 +169,16 @@ BasisAmplitudeQuery::BasisAmplitudeQuery(const Circuit& circuit,
     : BasisAmplitudeQuery(circuit, prepare(circuit, output_basis, input_phase)) {}
 
 BasisAmplitudeQuery::BasisAmplitudeQuery(const Circuit& circuit, Prepared prepared)
-    : plan_(std::move(prepared.plan)), output_basis_(std::move(prepared.execution_basis)),
-      phase_(prepared.phase), conjugate_result_(prepared.conjugate_result) {
+    : plan_(std::move(prepared.plan)),
+      output_basis_(std::move(prepared.execution_basis)),
+      phase_(prepared.phase),
+      conjugate_result_(prepared.conjugate_result) {
     assert(circuit.num_qubits == plan_.num_qubits());
 }
 
 std::complex<double> BasisAmplitudeQuery::evaluate() const {
-    auto amplitudes = internal::basis_amplitudes(plan_, phase_, output_basis_, 1,
-                                                 output_basis_.size());
+    auto amplitudes =
+        internal::basis_amplitudes(plan_, phase_, output_basis_, 1, output_basis_.size());
     return conjugate_result_ ? std::conj(amplitudes.front()) : amplitudes.front();
 }
 
