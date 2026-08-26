@@ -183,6 +183,7 @@ TEST_CASE("Packed capacity policy bounds worker state footprint") {
             1024);
 
     const ExecutablePlan noisy = compile_batch_test_plan();
+    REQUIRE(noisy.num_batch_noise_carriers() == 0);
     REQUIRE(resolve_batch_capacity(noisy, 4096, 1, 1, BatchOutputMode::Rows, std::nullopt) == 2048);
     REQUIRE(resolve_batch_capacity(noisy, 4096, 1, 1, BatchOutputMode::Rows, uint32_t{65}) == 65);
 }
@@ -192,6 +193,10 @@ TEST_CASE("Packed capacity policy accounts for lane-scaled sidecars") {
     const ExecutablePlan d7 = compile_batch_fixture("surface_d7_r7_p001.stim");
     const ExecutablePlan d11 = compile_batch_fixture("surface_d11_r11_p001.stim");
 
+    REQUIRE(d7.num_batch_noise_carriers() > 0);
+    REQUIRE(d7.num_batch_noise_carriers() < d7.num_symbols());
+    REQUIRE(d11.num_batch_noise_carriers() > 0);
+    REQUIRE(d11.num_batch_noise_carriers() < d11.num_symbols());
     REQUIRE(resolve_batch_capacity(d7, shots, 1, 1, BatchOutputMode::Rows, std::nullopt) == 2048);
     REQUIRE(resolve_batch_capacity(d7, shots, 16, 1, BatchOutputMode::Rows, std::nullopt) == 1024);
     REQUIRE(resolve_batch_capacity(d11, shots, 1, 1, BatchOutputMode::Rows, std::nullopt) == 512);

@@ -147,6 +147,7 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::compile() {
     lower_action_stream();
     build_expression_dependencies();
     prepare_batch_expression_initialization();
+    prepare_batch_symbol_storage();
     validate_executable_plan();
 }
 
@@ -783,7 +784,7 @@ void ExecutablePlanBuilder::prepare_batch_expression_initialization() {
     output_.presampled_delta_level_offsets_.push_back(0);
     for (size_t level = 0; level < initializations_by_level.size(); ++level) {
         auto& deltas = deltas_by_level[level];
-        std::ranges::sort(deltas, {}, &ExecutablePlan::PresampledExpressionDelta::symbol);
+        std::ranges::sort(deltas, {}, &ExecutablePlan::PresampledExpressionDelta::carrier);
         if (initializations_by_level[level].size() >
                 std::numeric_limits<uint32_t>::max() - output_.presampled_initializations_.size() ||
             deltas.size() >
@@ -800,6 +801,38 @@ void ExecutablePlanBuilder::prepare_batch_expression_initialization() {
             static_cast<uint32_t>(output_.presampled_initializations_.size()));
         output_.presampled_delta_level_offsets_.push_back(
             static_cast<uint32_t>(output_.presampled_deltas_.size()));
+    }
+}
+
+CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::prepare_batch_symbol_storage() {
+    if (output_.batch_noise_outcomes_.empty()) {
+        return;
+    }
+
+    constexpr uint32_t kUnassigned = std::numeric_limits<uint32_t>::max();
+    std::vector<uint32_t> carrier_slots(output_.num_symbols_, kUnassigned);
+    const auto mark_carrier = [&](uint32_t symbol) {
+        assert(symbol < source_.symbols.size() &&
+               source_.symbols[symbol].kind == SymbolKind::Presampled &&
+               "batch carrier must originate from a presampled symbol");
+        carrier_slots[symbol] = 0;
+    };
+    for (uint32_t assignment : output_.batch_noise_assignments_) {
+        mark_carrier(assignment);
+    }
+    for (const ExecutablePlan::PresampledExpressionDelta& delta : output_.presampled_deltas_) {
+        mark_carrier(delta.carrier);
+    }
+    for (uint32_t& slot : carrier_slots) {
+        if (slot != kUnassigned) {
+            slot = output_.num_batch_noise_carriers_++;
+        }
+    }
+    for (uint32_t& assignment : output_.batch_noise_assignments_) {
+        assignment = carrier_slots[assignment];
+    }
+    for (ExecutablePlan::PresampledExpressionDelta& delta : output_.presampled_deltas_) {
+        delta.carrier = carrier_slots[delta.carrier];
     }
 }
 
@@ -827,8 +860,7 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::validate_executable_plan
                    "presampled expression initialization must name valid registers");
         }
         for (const ExecutablePlan::PresampledExpressionDelta& delta : output_.presampled_deltas_) {
-            assert(delta.symbol < source_.symbols.size() &&
-                   source_.symbols[delta.symbol].kind == SymbolKind::Presampled &&
+            assert(delta.carrier < output_.num_batch_noise_carriers_ &&
                    delta.destination < output_.expression_register_constants_.size() &&
                    "presampled expression delta must name valid storage");
         }
@@ -848,10 +880,9 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::validate_executable_plan
             assert(end <= output_.batch_noise_assignments_.size() &&
                    "batch noise assignment must stay in its prepared tape");
             for (size_t assignment = outcome.assignment_begin; assignment < end; ++assignment) {
-                const uint32_t symbol = output_.batch_noise_assignments_[assignment];
-                assert(symbol < source_.symbols.size() &&
-                       source_.symbols[symbol].kind == SymbolKind::Presampled &&
-                       "batch noise assignment must name a presampled symbol");
+                const uint32_t carrier = output_.batch_noise_assignments_[assignment];
+                assert(carrier < output_.num_batch_noise_carriers_ &&
+                       "batch noise assignment must name a compact carrier");
             }
         }
     } else {

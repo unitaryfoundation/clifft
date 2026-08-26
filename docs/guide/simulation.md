@@ -278,12 +278,13 @@ rejects an explicit capacity whose dense packed state would exceed 64 MiB. Reduc
 `batch_size` or select `batch_size=1` when that diagnostic is raised. Automatic
 selection currently requires at least 64 shots and a peak active width of at most
 5. It budgets the complete lane-scaled executor footprint, including coefficient
-and scratch arrays, symbols, expression registers, retained records and outputs,
-and per-lane scratch. The default policy keeps this storage near 8 MiB per packed
-worker and 64 MiB across packed workers. An explicit capacity can opt into other
-fixed plans when packed execution is supported and its dense state fits the
-explicit limit; it bypasses the conservative complete-worker budgets, so plans
-with many symbolic or record columns can retain substantially more memory.
+and scratch arrays, symbols, compact presampled carrier columns, expression
+registers, retained records and outputs, and per-lane scratch. The default policy
+keeps this storage near 8 MiB per packed worker and 64 MiB across packed workers.
+An explicit capacity can opt into other fixed plans when packed execution is
+supported and its dense state fits the explicit limit; it bypasses the
+conservative complete-worker budgets, so plans with many symbolic or record
+columns can retain substantially more memory.
 
 Packed execution supports ordinary sampling, post-selected survivor sampling,
 counts-only survivor aggregation, expectation values, and fixed-k importance

@@ -94,7 +94,8 @@ struct MeasurementBranchClassification {
             ? static_cast<uint64_t>(plan.num_visible_records()) + plan.num_hidden_records()
             : 0;
     const uint64_t packed_columns =
-        static_cast<uint64_t>(plan.num_symbols()) + plan.num_expression_registers() + records +
+        static_cast<uint64_t>(plan.num_symbols()) + plan.num_batch_noise_carriers() +
+        plan.num_expression_registers() + records +
         (output_mode == BatchOutputMode::Rows ? plan.num_detectors() : 0) + plan.num_observables() +
         plan.num_readout_noise_sites();
     const uint64_t packed_bytes =
@@ -185,6 +186,7 @@ BatchExecutor::BatchExecutor(const ExecutablePlan& plan, uint32_t lane_capacity,
       state_(plan.peak_active_width_, plan.initial_active_width_, lane_capacity),
       shot_indices_(lane_capacity),
       symbols_(plan.num_symbols_, lane_capacity),
+      batch_noise_carriers_(plan.num_batch_noise_carriers_, lane_capacity),
       expression_registers_(plan.expression_register_constants_.size(), lane_capacity),
       records_(output_mode == BatchOutputMode::Rows || !plan.batch_record_parities_.empty()
                    ? static_cast<size_t>(plan.num_visible_records_) + plan.num_hidden_records_
@@ -235,7 +237,13 @@ void BatchExecutor::reset_batch(const SeedRoot& root, uint32_t first_shot,
     active_lanes_ = shots;
     live_count_ = shots;
     fill_low_lane_mask(live_words_, shots);
-    symbols_.clear();
+    if (plan_->batch_noise_outcomes_.empty()) {
+        symbols_.clear();
+    } else {
+        // Prepared noise uses compact carrier columns. Every dynamic symbol
+        // column is overwritten by its defining action before it can be read.
+        batch_noise_carriers_.clear();
+    }
     expression_registers_.clear();
     records_.clear();
     detectors_.clear();
@@ -294,7 +302,8 @@ void BatchExecutor::initialize_presampled_expressions() noexcept {
         for (uint32_t index = delta_begin; index < delta_end; ++index) {
             const ExecutablePlan::PresampledExpressionDelta& delta =
                 plan_->presampled_deltas_[index];
-            expression_registers_.xor_into(delta.destination, symbols_.column(delta.symbol));
+            expression_registers_.xor_into(delta.destination,
+                                           batch_noise_carriers_.column(delta.carrier));
         }
     }
     for (const ExecutablePlan::PresampledExpressionCopy& copy : plan_->presampled_copies_) {
@@ -426,9 +435,10 @@ void BatchExecutor::activate_noise_site(uint32_t lane, uint32_t site_index) noex
            "batch noise assignment must stay in its prepared tape");
     for (uint32_t assignment = batch_outcome.assignment_begin; assignment < assignment_end;
          ++assignment) {
-        const uint32_t symbol = plan_->batch_noise_assignments_[assignment];
-        assert(!symbols_.bit(symbol, lane) && "batch noise carrier must be assigned once per site");
-        symbols_.set_bit(symbol, lane);
+        const uint32_t carrier = plan_->batch_noise_assignments_[assignment];
+        assert(!batch_noise_carriers_.bit(carrier, lane) &&
+               "batch noise carrier must be assigned once per site");
+        batch_noise_carriers_.set_bit(carrier, lane);
     }
 }
 
@@ -753,9 +763,10 @@ bool BatchExecutor::should_compact(size_t action_index) const noexcept {
     const uint64_t old_words = packed_word_count(active_lanes_);
     const uint64_t new_words = packed_word_count(live_count_);
     const uint64_t dead_lanes = active_lanes_ - live_count_;
-    const uint64_t bit_columns = symbols_.num_columns() + expression_registers_.num_columns() +
-                                 records_.num_columns() + detectors_.num_columns() +
-                                 observables_.num_columns() + forced_readout_.num_columns();
+    const uint64_t bit_columns = symbols_.num_columns() + batch_noise_carriers_.num_columns() +
+                                 expression_registers_.num_columns() + records_.num_columns() +
+                                 detectors_.num_columns() + observables_.num_columns() +
+                                 forced_readout_.num_columns();
     const uint64_t carry_cost =
         dead_lanes * remaining_actions + (old_words - new_words) * remaining_actions * 8;
     const uint64_t compact_cost = bit_columns * old_words +
@@ -785,6 +796,7 @@ void BatchExecutor::compact_live_lanes() noexcept {
     assert(destination == live_count_ && "lane compaction must retain every live context");
     const std::span<const uint32_t> sources(compaction_sources_.data(), live_count_);
     symbols_.compact(live_words_, old_lanes, live_count_, compaction_scratch_);
+    batch_noise_carriers_.compact(live_words_, old_lanes, live_count_, compaction_scratch_);
     expression_registers_.compact(live_words_, old_lanes, live_count_, compaction_scratch_);
     records_.compact(live_words_, old_lanes, live_count_, compaction_scratch_);
     detectors_.compact(live_words_, old_lanes, live_count_, compaction_scratch_);

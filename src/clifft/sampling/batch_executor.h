@@ -155,6 +155,7 @@ class BatchExecutor {
     std::vector<uint32_t> shot_indices_;
 
     PackedBitColumns symbols_;
+    PackedBitColumns batch_noise_carriers_;
     PackedBitColumns expression_registers_;
     PackedBitColumns records_;
     PackedBitColumns detectors_;

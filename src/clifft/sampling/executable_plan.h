@@ -98,6 +98,9 @@ class ExecutablePlan {
     [[nodiscard]] uint32_t num_readout_noise_sites() const noexcept {
         return num_readout_noise_sites_;
     }
+    [[nodiscard]] uint32_t num_batch_noise_carriers() const noexcept {
+        return num_batch_noise_carriers_;
+    }
     [[nodiscard]] size_t num_actions() const { return actions_.size(); }
     [[nodiscard]] size_t num_new_x_instrument_activations() const;
     [[nodiscard]] uint32_t num_unbound_presampled_symbols() const {
@@ -154,7 +157,7 @@ class ExecutablePlan {
     };
 
     struct PresampledExpressionDelta {
-        uint32_t symbol = 0;
+        uint32_t carrier = 0;
         uint32_t destination = 0;
     };
 
@@ -369,6 +372,7 @@ class ExecutablePlan {
     uint32_t num_observables_ = 0;
     uint32_t num_exp_vals_ = 0;
     uint32_t num_symbols_ = 0;
+    uint32_t num_batch_noise_carriers_ = 0;
     bool has_postselection_ = false;
     bool has_readout_noise_ = false;
     bool has_instruments_ = false;
@@ -394,8 +398,8 @@ class ExecutablePlan {
     std::vector<double> noise_hazards_;
     std::optional<double> uniform_noise_inverse_hazard_;
     // Batch-only categorical factorization. It is either empty or parallel to
-    // noise_outcomes_; each assignment names a carrier symbol whose packed bit
-    // is set when that outcome is selected.
+    // noise_outcomes_; each assignment names a compact carrier column whose
+    // packed bit is set when that outcome is selected.
     std::vector<PreparedBatchNoiseOutcome> batch_noise_outcomes_;
     std::vector<uint32_t> batch_noise_assignments_;
     std::vector<PreparedRecordParity> batch_record_parities_;
