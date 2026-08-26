@@ -585,7 +585,9 @@ void ExecutablePlanBuilder::prepare_batch_expression_initialization() {
     }
 
     const size_t effect_words = num_expressions / 64 + (num_expressions % 64 != 0);
-    output_.batch_noise_outcomes_.reserve(output_.noise_outcomes_.size());
+    std::vector<ExecutablePlan::PreparedBatchNoiseOutcome> batch_noise_outcomes;
+    std::vector<uint32_t> batch_noise_assignments;
+    batch_noise_outcomes.reserve(output_.noise_outcomes_.size());
     for (const PresampledNoiseSite& site : source_.presampled_noise_sites) {
         std::vector<BatchNoiseEffectBasis> basis;
         std::vector<int32_t> basis_for_effect(num_expressions, -1);
@@ -633,20 +635,19 @@ void ExecutablePlanBuilder::prepare_batch_expression_initialization() {
             }
 
             if (coordinates.size() >
-                std::numeric_limits<uint32_t>::max() - output_.batch_noise_assignments_.size()) {
+                std::numeric_limits<uint32_t>::max() - batch_noise_assignments.size()) {
                 throw std::length_error(
                     "sampling executable batch noise assignments exceed uint32 range");
             }
-            const uint32_t assignment_begin =
-                static_cast<uint32_t>(output_.batch_noise_assignments_.size());
+            const uint32_t assignment_begin = static_cast<uint32_t>(batch_noise_assignments.size());
             for (uint32_t basis_index : coordinates) {
-                output_.batch_noise_assignments_.push_back(basis[basis_index].carrier_symbol);
+                batch_noise_assignments.push_back(basis[basis_index].carrier_symbol);
             }
-            output_.batch_noise_outcomes_.push_back(
+            batch_noise_outcomes.push_back(
                 {assignment_begin, static_cast<uint32_t>(coordinates.size())});
         }
     }
-    if (output_.batch_noise_outcomes_.size() != output_.noise_outcomes_.size()) {
+    if (batch_noise_outcomes.size() != output_.noise_outcomes_.size()) {
         throw std::logic_error("batch noise factorization must cover every prepared outcome");
     }
     for (std::vector<uint32_t>& terms : batch_presampled_terms) {
@@ -742,10 +743,10 @@ void ExecutablePlanBuilder::prepare_batch_expression_initialization() {
     // enough passes to amortize its extra plan storage and reset bookkeeping.
     if (prepared_operations * kBatchExpressionCostDenominator >
         original_presampled_terms * kBatchExpressionCostNumerator) {
-        output_.batch_noise_outcomes_.clear();
-        output_.batch_noise_assignments_.clear();
         return;
     }
+    output_.batch_noise_outcomes_ = std::move(batch_noise_outcomes);
+    output_.batch_noise_assignments_ = std::move(batch_noise_assignments);
 
     std::vector<std::vector<ExecutablePlan::PresampledExpressionInitialization>>
         initializations_by_level(static_cast<size_t>(max_depth) + 1);
