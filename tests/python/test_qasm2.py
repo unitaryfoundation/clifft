@@ -11,7 +11,6 @@ from qiskit.quantum_info import Statevector
 
 import clifft
 
-
 ABSTRACTS_STYLE_QASM = """
 OPENQASM 2.0;
 include "qelib1.inc";

@@ -3,7 +3,6 @@
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
-
 #include <string>
 #include <vector>
 
@@ -161,6 +160,7 @@ TEST_CASE("OpenQASM 2 rejects unsupported language features") {
         "OPENQASM 2.0; opaque custom a;",
     };
     for (const std::string& source : sources) {
+        CAPTURE(source);
         CHECK_THROWS_AS(parse_qasm2(source), ParseError);
     }
 }
@@ -177,6 +177,7 @@ TEST_CASE("OpenQASM 2 validates registers gates and expressions") {
         "OPENQASM 2.0; qreg q[1]; CX q[0],q[0];",
     };
     for (const std::string& source : sources) {
+        CAPTURE(source);
         CHECK_THROWS_AS(parse_qasm2(source), ParseError);
     }
 }

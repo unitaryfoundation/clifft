@@ -2,6 +2,7 @@
 
 #include "clifft/circuit/parser.h"
 #include "clifft/util/config.h"
+#include "clifft/util/numeric.h"
 
 #include <algorithm>
 #include <cctype>
@@ -100,8 +101,7 @@ class Lexer {
     }
 
     void scan_number() {
-        while (offset_ < text_.size() &&
-               std::isdigit(static_cast<unsigned char>(text_[offset_]))) {
+        while (offset_ < text_.size() && std::isdigit(static_cast<unsigned char>(text_[offset_]))) {
             ++offset_;
         }
         if (offset_ < text_.size() && text_[offset_] == '.') {
@@ -232,9 +232,8 @@ struct QubitArgument {
 class Parser {
   public:
     Parser(std::string_view text, size_t max_ops) : lexer_(text), max_ops_(max_ops) {
-        const auto non_ascii = std::find_if(text.begin(), text.end(), [](char c) {
-            return static_cast<unsigned char>(c) > 127;
-        });
+        const auto non_ascii = std::find_if(
+            text.begin(), text.end(), [](char c) { return static_cast<unsigned char>(c) > 127; });
         if (non_ascii != text.end()) {
             throw ParseError("Non-ASCII/Unicode character detected. Only plain ASCII is supported.",
                              0);
@@ -262,11 +261,13 @@ class Parser {
                 parse_barrier();
             } else if (is_identifier("creg") || is_identifier("measure") ||
                        is_identifier("reset") || is_identifier("if")) {
-                throw ParseError("Non-unitary and classical statements are not supported by the "
-                                 "OpenQASM 2 importer",
-                                 token_.line);
+                throw ParseError(
+                    "Non-unitary and classical statements are not supported by the "
+                    "OpenQASM 2 importer",
+                    token_.line);
             } else if (is_identifier("gate") || is_identifier("opaque")) {
-                throw ParseError("Custom gate and opaque declarations are not supported", token_.line);
+                throw ParseError("Custom gate and opaque declarations are not supported",
+                                 token_.line);
             } else if (token_.kind == TokenKind::Identifier) {
                 parse_gate();
             } else {
@@ -321,8 +322,8 @@ class Parser {
     }
 
     uint32_t parse_uint() {
-        if (token_.kind != TokenKind::Number || token_.text.find_first_of(".eE") !=
-                                                   std::string_view::npos) {
+        if (token_.kind != TokenKind::Number ||
+            token_.text.find_first_of(".eE") != std::string_view::npos) {
             throw ParseError("Expected a non-negative integer", token_.line);
         }
         uint64_t value = 0;
@@ -460,8 +461,8 @@ class Parser {
         }
         if (token_.kind == TokenKind::Number) {
             double value = 0;
-            const auto parsed = fast_float::from_chars(token_.text.data(),
-                                                       token_.text.data() + token_.text.size(), value);
+            const auto parsed = fast_float::from_chars(
+                token_.text.data(), token_.text.data() + token_.text.size(), value);
             if (parsed.ec != std::errc{} || parsed.ptr != token_.text.data() + token_.text.size()) {
                 throw ParseError("Invalid numeric literal", token_.line);
             }
@@ -512,7 +513,7 @@ class Parser {
         }
         expect_symbol(')');
         for (const double value : arguments) {
-            if (!std::isfinite(value)) {
+            if (!is_finite_robust(value)) {
                 throw ParseError("Gate arguments must evaluate to finite values", token_.line);
             }
         }
@@ -520,7 +521,7 @@ class Parser {
     }
 
     static std::vector<double> lower_arguments(std::string_view gate_name,
-                                                const std::vector<double>& radians) {
+                                               const std::vector<double>& radians) {
         const double to_half_turns = 1.0 / std::numbers::pi;
         if (gate_name == "u1") {
             return {0.0, 0.0, radians[0] * to_half_turns};
@@ -565,8 +566,8 @@ class Parser {
 
         const std::vector<double> radians = parse_gate_arguments();
         if (radians.size() != spec->num_args) {
-            throw ParseError("Gate '" + gate_name + "' expects " +
-                                 std::to_string(spec->num_args) + " angle arguments",
+            throw ParseError("Gate '" + gate_name + "' expects " + std::to_string(spec->num_args) +
+                                 " angle arguments",
                              line);
         }
         const std::vector<QubitArgument> qubits = parse_qubit_arguments();

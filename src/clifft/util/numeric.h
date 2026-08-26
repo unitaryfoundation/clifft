@@ -35,12 +35,28 @@ static_assert(std::numeric_limits<double>::is_iec559,
 
 // -ffast-math implies -ffinite-math-only, which can fold away
 // std::isfinite() and NaN-aware comparisons. Inspect the exponent bits
-// instead: a non-finite double has all exponent bits set.
+// instead: a non-finite double has all exponent bits set. Keep the integer
+// predicate out of line so the compiler cannot propagate finite-math
+// assumptions from the floating-point value into the bit test.
+namespace detail {
+
+#if defined(_MSC_VER)
+__declspec(noinline)
+#else
+__attribute__((noinline))
+#endif
+inline bool
+binary64_bits_are_finite(uint64_t bits) {
+    constexpr uint64_t kExpMask = 0x7FF0000000000000ULL;
+    return (bits & kExpMask) != kExpMask;
+}
+
+}  // namespace detail
+
 inline bool is_finite_robust(double value) {
     uint64_t bits;
     std::memcpy(&bits, &value, sizeof(bits));
-    constexpr uint64_t kExpMask = 0x7FF0000000000000ULL;
-    return (bits & kExpMask) != kExpMask;
+    return detail::binary64_bits_are_finite(bits);
 }
 
 // Return the Clifford representative when alpha is within the shared absolute
