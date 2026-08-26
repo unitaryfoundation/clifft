@@ -11,7 +11,6 @@
 #include <cstdint>
 #include <optional>
 #include <span>
-#include <stdexcept>
 #include <vector>
 
 namespace clifft {
@@ -46,40 +45,33 @@ enum class BatchOutputMode : uint8_t {
     AggregateSurvivors,
 };
 
+enum class BatchSamplingMode : uint8_t {
+    Ordinary,
+    FixedFaults,
+};
+
+#if defined(__EMSCRIPTEN__)
+// WebAssembly retains the scalar executor to minimize its binary footprint.
+inline constexpr bool kPackedBatchExecutionAvailable = false;
+#else
+// Native builds include packed execution and its interleaved kernels.
+inline constexpr bool kPackedBatchExecutionAvailable = true;
+#endif
+
 struct BatchExecutionPolicy {
+    // Stable number of shot lanes assigned to each packed batch.
     uint32_t lane_capacity = 1;
+
+    // Maximum simultaneous workers allowed by work and memory budgets.
     uint32_t worker_count = 1;
 };
 
 // Resolve deterministic lane boundaries first, then cap automatic workers by
 // the aggregate retained-memory budget. Validation happens before dispatch.
-#if defined(__EMSCRIPTEN__)
-[[nodiscard]] inline BatchExecutionPolicy resolve_batch_execution_policy(
-    const ExecutablePlan& plan, uint32_t shots, uint32_t shot_workers,
-    uint32_t intra_shot_workers, BatchOutputMode output_mode,
-    std::optional<uint32_t> requested_batch_size) {
-    (void)shot_workers;
-    (void)output_mode;
-    if (requested_batch_size.has_value() && *requested_batch_size == 0) {
-        throw std::invalid_argument("batch_size must be a positive integer or 'auto'");
-    }
-    if (shots == 0 || plan.has_instruments()) {
-        return {};
-    }
-    if (intra_shot_workers > 1 && requested_batch_size.value_or(1) > 1) {
-        throw std::invalid_argument("packed batch_size is incompatible with intra-shot workers");
-    }
-    if (requested_batch_size.value_or(1) > 1) {
-        throw std::invalid_argument("packed batch_size is unavailable in WebAssembly builds");
-    }
-    return {};
-}
-#else
 [[nodiscard]] BatchExecutionPolicy resolve_batch_execution_policy(
-    const ExecutablePlan& plan, uint32_t shots, uint32_t shot_workers,
-    uint32_t intra_shot_workers, BatchOutputMode output_mode,
-    std::optional<uint32_t> requested_batch_size);
-#endif
+    const ExecutablePlan& plan, uint32_t shots, uint32_t shot_workers, uint32_t intra_shot_workers,
+    BatchOutputMode output_mode, std::optional<uint32_t> requested_batch_size,
+    BatchSamplingMode sampling_mode = BatchSamplingMode::Ordinary);
 
 // Single-threaded packed executor for fixed plans. Coefficients are
 // basis-major and shot-interleaved so prepared actions vectorize across lanes.
@@ -87,7 +79,8 @@ struct BatchExecutionPolicy {
 class BatchExecutor {
   public:
     BatchExecutor(const ExecutablePlan& plan, uint32_t lane_capacity,
-                  BatchOutputMode output_mode = BatchOutputMode::Rows);
+                  BatchOutputMode output_mode = BatchOutputMode::Rows,
+                  BatchSamplingMode sampling_mode = BatchSamplingMode::Ordinary);
 
     BatchExecutor(const BatchExecutor&) = delete;
     BatchExecutor& operator=(const BatchExecutor&) = delete;
@@ -98,8 +91,6 @@ class BatchExecutor {
     void run_batch(const SeedRoot& root, uint32_t first_shot, uint32_t shots,
                    KFaultSampler& fault_sampler) noexcept;
 
-    [[nodiscard]] uint32_t lane_capacity() const noexcept { return lane_capacity_; }
-    [[nodiscard]] uint32_t attempted_shots() const noexcept { return attempted_shots_; }
     [[nodiscard]] uint32_t surviving_shots() const noexcept { return live_count_; }
     [[nodiscard]] uint32_t accumulate_survivor_counts(
         std::span<uint64_t> observable_ones) const noexcept;
@@ -108,8 +99,6 @@ class BatchExecutor {
     [[nodiscard]] bool detector(uint32_t lane, uint32_t detector) const noexcept;
     [[nodiscard]] bool observable(uint32_t lane, uint32_t observable) const noexcept;
     [[nodiscard]] double exp_val(uint32_t lane, uint32_t exp_val) const noexcept;
-    [[nodiscard]] uint64_t dust_clamps() const noexcept { return dust_clamps_; }
-    [[nodiscard]] uint64_t compactions() const noexcept { return compactions_; }
 
   private:
     void reset_batch(const SeedRoot& root, uint32_t first_shot, uint32_t shots) noexcept;
@@ -118,7 +107,8 @@ class BatchExecutor {
     void activate_noise_site(uint32_t lane, uint32_t site) noexcept;
     void initialize_expression_registers() noexcept;
     void initialize_presampled_expressions() noexcept;
-    void propagate_symbol(uint32_t symbol) noexcept;
+    void finalize_presampled_symbols() noexcept;
+    void propagate_symbol(uint32_t symbol, std::span<const uint64_t> values) noexcept;
     void assign_symbol(uint32_t symbol, std::span<const uint64_t> values) noexcept;
     void fill_random_half_bits() noexcept;
 
@@ -157,12 +147,14 @@ class BatchExecutor {
     [[nodiscard]] std::span<const uint64_t> evaluate_record_parity(uint32_t parity_index) noexcept;
     [[nodiscard]] bool lane_bit(std::span<const uint64_t> bits, uint32_t lane) const noexcept;
     [[nodiscard]] bool is_live(uint32_t lane) const noexcept;
+    [[nodiscard]] uint32_t active_lanes() const noexcept { return state_.active_lanes(); }
     [[nodiscard]] bool should_compact(size_t action_index) const noexcept;
     void compact_live_lanes() noexcept;
     void finalize_live_lanes() noexcept;
 
     const ExecutablePlan* plan_;
-    BatchOutputMode output_mode_ = BatchOutputMode::Rows;
+    const BatchOutputMode output_mode_;
+    const BatchSamplingMode sampling_mode_;
     uint32_t lane_capacity_ = 0;
     size_t word_capacity_ = 0;
 
@@ -181,7 +173,6 @@ class BatchExecutor {
 
     std::vector<uint64_t> live_words_;
     std::vector<uint64_t> scratch_words_;
-    std::vector<uint64_t> compaction_scratch_;
     std::vector<uint32_t> compaction_sources_;
     std::vector<uint8_t> lane_bytes_;
     std::vector<double> signed_sines_;
@@ -189,12 +180,7 @@ class BatchExecutor {
     std::vector<double> probability_one_;
     std::vector<double> lane_values_;
 
-    uint32_t attempted_shots_ = 0;
-    uint32_t active_lanes_ = 0;
     uint32_t live_count_ = 0;
-    bool fixed_fault_mode_ = false;
-    uint64_t dust_clamps_ = 0;
-    uint64_t compactions_ = 0;
 };
 
 }  // namespace clifft::sampling

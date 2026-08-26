@@ -20,6 +20,7 @@ using clifft::SeedRoot;
 using clifft::sampling::BatchExecutionPolicy;
 using clifft::sampling::BatchExecutor;
 using clifft::sampling::BatchOutputMode;
+using clifft::sampling::BatchSamplingMode;
 using clifft::sampling::ExecutablePlan;
 using clifft::sampling::resolve_batch_execution_policy;
 
@@ -124,11 +125,11 @@ TEST_CASE("Packed executor replays fixed-fault rows") {
     const SeedRoot root = make_seed_root(shots, uint64_t{9185});
     const std::vector<double> probabilities = plan.noise_site_probabilities();
     KFaultSampler batch_faults(probabilities, 1);
-    BatchExecutor batch(plan, shots);
+    BatchExecutor batch(plan, shots, BatchOutputMode::Rows, BatchSamplingMode::FixedFaults);
     batch.run_batch(root, 0, shots, batch_faults);
 
     KFaultSampler replay_faults(probabilities, 1);
-    BatchExecutor replay(plan, shots);
+    BatchExecutor replay(plan, shots, BatchOutputMode::Rows, BatchSamplingMode::FixedFaults);
     replay.run_batch(root, 0, shots, replay_faults);
     for (uint32_t shot = 0; shot < shots; ++shot) {
         REQUIRE(batch.shot_index(shot) == shot);
@@ -214,12 +215,14 @@ TEST_CASE("Packed capacity policy accounts for lane-scaled sidecars") {
     REQUIRE(d7_serial.lane_capacity == 2048);
     REQUIRE(d7_serial.worker_count == 1);
     REQUIRE(d7_threaded.lane_capacity == d7_serial.lane_capacity);
-    REQUIRE(d7_threaded.worker_count > 1);
-    REQUIRE(d7_threaded.worker_count < 16);
+    REQUIRE(d7_threaded.worker_count == 16);
 
     REQUIRE(resolve_batch_execution_policy(d11, shots, 1, 1, BatchOutputMode::Rows, std::nullopt)
-                .lane_capacity == 512);
+                .lane_capacity == 2048);
     REQUIRE(resolve_batch_execution_policy(d11, shots, 1, 1, BatchOutputMode::AggregateSurvivors,
                                            std::nullopt)
-                .lane_capacity == 512);
+                .lane_capacity == 2048);
+    REQUIRE(resolve_batch_execution_policy(d11, shots, 1, 1, BatchOutputMode::Rows, std::nullopt,
+                                           BatchSamplingMode::FixedFaults)
+                .lane_capacity == 2048);
 }

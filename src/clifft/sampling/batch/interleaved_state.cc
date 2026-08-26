@@ -22,16 +22,6 @@ uint64_t checked_coefficient_capacity(uint32_t max_active_width) {
     return uint64_t{1} << max_active_width;
 }
 
-uint32_t rounded_lane_pitch(uint32_t lanes) {
-    if (lanes == 0) {
-        throw std::invalid_argument("interleaved batch lane capacity must be positive");
-    }
-    if (lanes > std::numeric_limits<uint32_t>::max() - (kLaneAlignment - 1)) {
-        throw std::length_error("interleaved batch lane pitch exceeds uint32_t");
-    }
-    return (lanes + kLaneAlignment - 1) & ~(kLaneAlignment - 1);
-}
-
 size_t checked_array_bytes(uint64_t entries, uint32_t pitch, uint32_t arrays) {
     constexpr size_t kElementBytes = sizeof(double);
     const uint64_t total_entries = entries * static_cast<uint64_t>(pitch);
@@ -46,24 +36,42 @@ size_t checked_array_bytes(uint64_t entries, uint32_t pitch, uint32_t arrays) {
 
 }  // namespace
 
+uint32_t interleaved_batch_lane_pitch(uint32_t lanes) {
+    if (lanes == 0) {
+        throw std::invalid_argument("interleaved batch lane capacity must be positive");
+    }
+    if (lanes > std::numeric_limits<uint32_t>::max() - (kLaneAlignment - 1)) {
+        throw std::length_error("interleaved batch lane pitch exceeds uint32_t");
+    }
+    return (lanes + kLaneAlignment - 1) & ~(kLaneAlignment - 1);
+}
+
+size_t interleaved_batch_state_bytes(uint32_t max_active_width, uint32_t lane_capacity) {
+    const uint64_t coefficient_capacity = checked_coefficient_capacity(max_active_width);
+    const uint64_t scratch_capacity = std::max(uint64_t{1}, coefficient_capacity >> 1);
+    const uint32_t lane_pitch = interleaved_batch_lane_pitch(lane_capacity);
+    const size_t coefficient_bytes = checked_array_bytes(coefficient_capacity, lane_pitch, 2);
+    const size_t scratch_bytes = checked_array_bytes(scratch_capacity, lane_pitch, 2);
+    if (coefficient_bytes > std::numeric_limits<size_t>::max() - scratch_bytes) {
+        throw std::length_error("interleaved batch allocation exceeds size_t");
+    }
+    return coefficient_bytes + scratch_bytes;
+}
+
 InterleavedBatchState::InterleavedBatchState(uint32_t max_active_width,
                                              uint32_t initial_active_width, uint32_t lane_capacity)
     : coefficient_capacity_(checked_coefficient_capacity(max_active_width)),
       scratch_capacity_(std::max(uint64_t{1}, coefficient_capacity_ >> 1)),
       lane_capacity_(lane_capacity),
-      lane_pitch_(rounded_lane_pitch(lane_capacity)),
+      lane_pitch_(interleaved_batch_lane_pitch(lane_capacity)),
       initial_active_width_(initial_active_width),
       active_width_(initial_active_width),
       max_active_width_(max_active_width) {
     if (initial_active_width > max_active_width) {
         throw std::invalid_argument("interleaved batch initial active width exceeds its maximum");
     }
-    const size_t coefficient_bytes = checked_array_bytes(coefficient_capacity_, lane_pitch_, 2);
-    const size_t scratch_bytes = checked_array_bytes(scratch_capacity_, lane_pitch_, 2);
-    if (coefficient_bytes > std::numeric_limits<size_t>::max() - scratch_bytes) {
-        throw std::length_error("interleaved batch allocation exceeds size_t");
-    }
-    allocation_ = PageAlignedAllocation(coefficient_bytes + scratch_bytes);
+    allocation_ =
+        PageAlignedAllocation(interleaved_batch_state_bytes(max_active_width_, lane_capacity_));
     auto* storage = static_cast<double*>(allocation_.data());
     const size_t coefficient_entries = static_cast<size_t>(coefficient_capacity_) * lane_pitch_;
     const size_t scratch_entries = static_cast<size_t>(scratch_capacity_) * lane_pitch_;

@@ -1,5 +1,6 @@
 #include "clifft/sampling/executable_plan_builder.h"
 
+#include "clifft/util/mask_view.h"
 #include "clifft/util/noise_sampling.h"
 
 #include <algorithm>
@@ -73,22 +74,6 @@ uint64_t expression_hash(bool constant, std::span<const uint32_t> terms) noexcep
         hash *= 0x100000001b3ULL;
     }
     return hash;
-}
-
-uint32_t first_effect(std::span<const uint64_t> effects) noexcept {
-    for (size_t word = 0; word < effects.size(); ++word) {
-        if (effects[word] != 0) {
-            return static_cast<uint32_t>(word * 64 + std::countr_zero(effects[word]));
-        }
-    }
-    return std::numeric_limits<uint32_t>::max();
-}
-
-void xor_effects(std::span<uint64_t> destination, std::span<const uint64_t> source) noexcept {
-    assert(destination.size() == source.size() && "batch noise effects must have equal widths");
-    for (size_t word = 0; word < destination.size(); ++word) {
-        destination[word] ^= source[word];
-    }
 }
 
 }  // namespace
@@ -604,9 +589,10 @@ void ExecutablePlanBuilder::prepare_batch_expression_initialization() {
     for (const PresampledNoiseSite& site : source_.presampled_noise_sites) {
         std::vector<BatchNoiseEffectBasis> basis;
         std::vector<int32_t> basis_for_effect(num_expressions, -1);
+        std::vector<uint64_t> residual(effect_words, 0);
         basis.reserve(site.outcomes.size());
         for (const PresampledNoiseOutcome& outcome : site.outcomes) {
-            std::vector<uint64_t> residual(effect_words, 0);
+            std::ranges::fill(residual, uint64_t{0});
             for (uint32_t expression :
                  output_.expression_dependencies_.dependent_registers(index(outcome.symbol))) {
                 if (batch_expression_needed[expression] != 0) {
@@ -614,16 +600,15 @@ void ExecutablePlanBuilder::prepare_batch_expression_initialization() {
                 }
             }
 
+            MutableMaskView residual_view(residual);
             std::vector<uint32_t> coordinates;
-            while (true) {
-                const uint32_t pivot = first_effect(residual);
-                if (pivot == std::numeric_limits<uint32_t>::max()) {
-                    break;
-                }
+            while (!residual_view.is_zero()) {
+                const uint32_t pivot = residual_view.lowest_bit();
                 const int32_t basis_index = basis_for_effect[pivot];
                 if (basis_index >= 0) {
                     coordinates.push_back(static_cast<uint32_t>(basis_index));
-                    xor_effects(residual, basis[static_cast<size_t>(basis_index)].effects);
+                    residual_view.xor_with(
+                        MaskView(basis[static_cast<size_t>(basis_index)].effects));
                     continue;
                 }
 
@@ -631,6 +616,7 @@ void ExecutablePlanBuilder::prepare_batch_expression_initialization() {
                 basis_for_effect[pivot] = static_cast<int32_t>(new_basis_index);
                 coordinates.push_back(new_basis_index);
                 basis.push_back(BatchNoiseEffectBasis{std::move(residual), index(outcome.symbol)});
+                residual.resize(effect_words, 0);
                 const BatchNoiseEffectBasis& added = basis.back();
                 for (size_t word = 0; word < added.effects.size(); ++word) {
                     uint64_t pending = added.effects[word];
@@ -768,10 +754,10 @@ void ExecutablePlanBuilder::prepare_batch_expression_initialization() {
     for (const PresampledExpressionBlock& block : blocks) {
         assert(!block.registers.empty() && "interned expression block must have a destination");
         const uint32_t destination = block.registers.front();
-        const uint32_t parent = block.parent == std::numeric_limits<uint32_t>::max()
-                                    ? std::numeric_limits<uint32_t>::max()
-                                    : blocks[block.parent].registers.front();
-        initializations_by_level[block.depth].push_back({destination, parent, block.invert_parent});
+        if (block.parent != std::numeric_limits<uint32_t>::max()) {
+            initializations_by_level[block.depth].push_back(
+                {destination, blocks[block.parent].registers.front(), block.invert_parent});
+        }
         for (uint32_t symbol : block.delta_terms) {
             deltas_by_level[block.depth].push_back({symbol, destination});
         }
@@ -855,8 +841,7 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::validate_executable_plan
         for (const ExecutablePlan::PresampledExpressionInitialization& initialization :
              output_.presampled_initializations_) {
             assert(initialization.destination < output_.expression_register_constants_.size() &&
-                   (initialization.parent == std::numeric_limits<uint32_t>::max() ||
-                    initialization.parent < output_.expression_register_constants_.size()) &&
+                   initialization.parent < output_.expression_register_constants_.size() &&
                    "presampled expression initialization must name valid registers");
         }
         for (const ExecutablePlan::PresampledExpressionDelta& delta : output_.presampled_deltas_) {
@@ -872,6 +857,7 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::validate_executable_plan
     }
     if (!output_.batch_noise_outcomes_.empty()) {
         assert(output_.batch_noise_outcomes_.size() == output_.noise_outcomes_.size() &&
+               output_.num_batch_noise_carriers_ != 0 &&
                "batch noise outcomes must parallel scalar outcomes");
         for (const ExecutablePlan::PreparedBatchNoiseOutcome& outcome :
              output_.batch_noise_outcomes_) {
@@ -886,7 +872,7 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::validate_executable_plan
             }
         }
     } else {
-        assert(output_.batch_noise_assignments_.empty() &&
+        assert(output_.batch_noise_assignments_.empty() && output_.num_batch_noise_carriers_ == 0 &&
                "batch noise assignments require parallel outcomes");
     }
     const size_t num_records =

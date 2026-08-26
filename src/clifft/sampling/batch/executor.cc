@@ -23,12 +23,7 @@ enum class MeasurementBranchKind : uint8_t {
     DeterministicOne,
 };
 
-struct MeasurementBranchClassification {
-    MeasurementBranchKind kind = MeasurementBranchKind::Random;
-    bool clamped_dust = false;
-};
-
-[[nodiscard]] MeasurementBranchClassification classify_measurement_branch(
+[[nodiscard]] MeasurementBranchKind classify_measurement_branch(
     MeasurementProbabilities probabilities) noexcept {
     const double total = probabilities.total();
     assert(is_finite_robust(probabilities.zero) && probabilities.zero >= 0.0 &&
@@ -37,14 +32,12 @@ struct MeasurementBranchClassification {
            "measurement probabilities must be finite, nonnegative, and nonzero");
     const double epsilon = kMeasurementDustEpsilon * total;
     if (probabilities.one <= epsilon) {
-        return {.kind = MeasurementBranchKind::DeterministicZero,
-                .clamped_dust = probabilities.one > 0.0};
+        return MeasurementBranchKind::DeterministicZero;
     }
     if (probabilities.zero <= epsilon) {
-        return {.kind = MeasurementBranchKind::DeterministicOne,
-                .clamped_dust = probabilities.zero > 0.0};
+        return MeasurementBranchKind::DeterministicOne;
     }
-    return {.kind = MeasurementBranchKind::Random};
+    return MeasurementBranchKind::Random;
 }
 
 [[nodiscard]] const ExecutablePlan* validate_batch_plan(const ExecutablePlan& plan) {
@@ -62,135 +55,21 @@ struct MeasurementBranchClassification {
     return left * right;
 }
 
-[[nodiscard]] uint64_t interleaved_state_bytes_per_lane(const ExecutablePlan& plan) noexcept {
-    const uint64_t coefficient_capacity = uint64_t{1} << plan.peak_active_width();
-    constexpr uint64_t kMax = std::numeric_limits<uint64_t>::max();
-    if (plan.peak_active_width() != 0 && coefficient_capacity > kMax / 3) {
-        return kMax;
-    }
-    const uint64_t entries = plan.peak_active_width() == 0 ? 4 : 3 * coefficient_capacity;
-    if (entries > kMax / sizeof(double)) {
-        return kMax;
-    }
-    return sizeof(double) * entries;
-}
-
-[[nodiscard]] uint64_t saturating_add(uint64_t left, uint64_t right) noexcept {
-    constexpr uint64_t kMax = std::numeric_limits<uint64_t>::max();
-    return right > kMax - left ? kMax : left + right;
-}
-
-[[nodiscard]] uint64_t saturating_multiply(uint64_t left, uint64_t right) noexcept {
-    constexpr uint64_t kMax = std::numeric_limits<uint64_t>::max();
-    return left != 0 && right > kMax / left ? kMax : left * right;
-}
-
-[[nodiscard]] uint64_t estimated_batch_worker_bytes(const ExecutablePlan& plan,
-                                                    uint32_t lane_capacity,
-                                                    BatchOutputMode output_mode) noexcept {
-    const uint64_t words = packed_word_count(lane_capacity);
-    const uint64_t records =
-        output_mode == BatchOutputMode::Rows || plan.has_batch_record_parities()
-            ? static_cast<uint64_t>(plan.num_visible_records()) + plan.num_hidden_records()
-            : 0;
-    const uint64_t packed_columns =
-        static_cast<uint64_t>(plan.num_symbols()) + plan.num_batch_noise_carriers() +
-        plan.num_expression_registers() + records +
-        (output_mode == BatchOutputMode::Rows ? plan.num_detectors() : 0) + plan.num_observables() +
-        plan.num_readout_noise_sites();
-    const uint64_t packed_bytes =
-        saturating_multiply(saturating_multiply(packed_columns, words), sizeof(uint64_t));
-
-    const uint64_t lane_pitch = (static_cast<uint64_t>(lane_capacity) + 7) & ~uint64_t{7};
-    uint64_t bytes = saturating_multiply(interleaved_state_bytes_per_lane(plan), lane_pitch);
-    bytes = saturating_add(bytes, packed_bytes);
-    bytes = saturating_add(bytes, saturating_multiply(words, 3 * sizeof(uint64_t)));
-
-    constexpr uint64_t kLaneBytes = 2 * sizeof(uint32_t) + sizeof(uint8_t) + 4 * sizeof(double);
-    bytes = saturating_add(bytes, saturating_multiply(lane_capacity, kLaneBytes));
-    if (output_mode == BatchOutputMode::Rows) {
-        bytes = saturating_add(
-            bytes, saturating_multiply(saturating_multiply(plan.num_exp_vals(), lane_capacity),
-                                       sizeof(double)));
-    }
-    return bytes;
-}
-
-[[nodiscard]] uint32_t batch_worker_count(uint32_t shots, uint32_t shot_workers,
-                                          uint32_t lane_capacity) noexcept {
-    const uint64_t batches = (static_cast<uint64_t>(shots) + lane_capacity - 1) / lane_capacity;
-    return static_cast<uint32_t>(std::max<uint64_t>(1, std::min<uint64_t>(shot_workers, batches)));
-}
-
 }  // namespace
 
-#if !defined(__EMSCRIPTEN__)
-BatchExecutionPolicy resolve_batch_execution_policy(
-    const ExecutablePlan& plan, uint32_t shots, uint32_t shot_workers,
-    uint32_t intra_shot_workers, BatchOutputMode output_mode,
-    std::optional<uint32_t> requested_batch_size) {
-    if (requested_batch_size.has_value() && *requested_batch_size == 0) {
-        throw std::invalid_argument("batch_size must be a positive integer or 'auto'");
-    }
-    if (shots == 0 || plan.has_instruments()) {
-        return {};
-    }
-    if (intra_shot_workers > 1) {
-        if (requested_batch_size.has_value() && *requested_batch_size > 1) {
-            throw std::invalid_argument(
-                "packed batch_size is incompatible with intra-shot workers");
-        }
-        return {};
-    }
-    if (requested_batch_size.has_value()) {
-        const uint32_t capacity =
-            std::max(uint32_t{1}, std::min({*requested_batch_size, shots, kMaxExplicitBatchShots}));
-        const uint64_t state_bytes_per_lane = interleaved_state_bytes_per_lane(plan);
-        const uint64_t lane_pitch = (static_cast<uint64_t>(capacity) + 7) & ~uint64_t{7};
-        if (capacity > 1 && state_bytes_per_lane > kMaxExplicitBatchStateBudget / lane_pitch) {
-            throw std::invalid_argument(
-                "explicit batch_size exceeds the 64 MiB packed-state limit; request a smaller "
-                "batch_size");
-        }
-        return {.lane_capacity = capacity,
-                .worker_count = batch_worker_count(shots, shot_workers, capacity)};
-    }
-    if (shots < kDefaultMinAutoBatchShots) {
-        return {};
-    }
-    if (plan.peak_active_width() > 5) {
-        return {};
-    }
-    const uint64_t state_bytes_per_lane = interleaved_state_bytes_per_lane(plan);
-    const uint32_t state_capacity = static_cast<uint32_t>(
-        std::max<uint64_t>(1, kDefaultBatchStateBudget / state_bytes_per_lane));
-    uint32_t capacity = std::min({shots, kDefaultMaxAutoBatchShots, state_capacity});
-    while (capacity >= kDefaultMinAutoBatchShots) {
-        const uint64_t worker_bytes = estimated_batch_worker_bytes(plan, capacity, output_mode);
-        if (worker_bytes <= kDefaultBatchWorkerBudget) {
-            const uint32_t requested_workers =
-                batch_worker_count(shots, shot_workers, capacity);
-            const uint64_t memory_workers = std::max<uint64_t>(
-                1, kDefaultBatchTotalWorkerBudget / std::max<uint64_t>(1, worker_bytes));
-            return {.lane_capacity = capacity,
-                    .worker_count = static_cast<uint32_t>(
-                        std::min<uint64_t>(requested_workers, memory_workers))};
-        }
-        capacity = std::bit_floor(capacity - 1);
-    }
-    return {};
-}
-#endif
-
 BatchExecutor::BatchExecutor(const ExecutablePlan& plan, uint32_t lane_capacity,
-                             BatchOutputMode output_mode)
+                             BatchOutputMode output_mode, BatchSamplingMode sampling_mode)
     : plan_(validate_batch_plan(plan)),
       output_mode_(output_mode),
+      sampling_mode_(sampling_mode),
       lane_capacity_(lane_capacity),
       word_capacity_(packed_word_count(lane_capacity)),
       state_(plan.peak_active_width_, plan.initial_active_width_, lane_capacity),
       shot_indices_(lane_capacity),
-      symbols_(plan.num_symbols_, lane_capacity),
+      symbols_(plan.num_batch_noise_carriers_ == 0 && !plan.presampled_symbols_.empty()
+                   ? plan.num_symbols_
+                   : 0,
+               lane_capacity),
       batch_noise_carriers_(plan.num_batch_noise_carriers_, lane_capacity),
       expression_registers_(plan.expression_register_constants_.size(), lane_capacity),
       records_(output_mode == BatchOutputMode::Rows || !plan.batch_record_parities_.empty()
@@ -199,14 +78,15 @@ BatchExecutor::BatchExecutor(const ExecutablePlan& plan, uint32_t lane_capacity,
                lane_capacity),
       detectors_(output_mode == BatchOutputMode::Rows ? plan.num_detectors_ : 0, lane_capacity),
       observables_(plan.num_observables_, lane_capacity),
-      forced_readout_(plan.num_readout_noise_sites_, lane_capacity),
+      forced_readout_(
+          sampling_mode == BatchSamplingMode::FixedFaults ? plan.num_readout_noise_sites_ : 0,
+          lane_capacity),
       exp_vals_(output_mode == BatchOutputMode::Rows
                     ? checked_product(plan.num_exp_vals_, lane_capacity, "expectation")
                     : 0,
                 0.0),
       live_words_(word_capacity_, 0),
       scratch_words_(word_capacity_, 0),
-      compaction_scratch_(word_capacity_, 0),
       compaction_sources_(lane_capacity),
       lane_bytes_(lane_capacity, 0),
       signed_sines_(lane_capacity, 0.0),
@@ -215,7 +95,8 @@ BatchExecutor::BatchExecutor(const ExecutablePlan& plan, uint32_t lane_capacity,
       lane_values_(lane_capacity, 0.0) {}
 
 void BatchExecutor::run_batch(const SeedRoot& root, uint32_t first_shot, uint32_t shots) noexcept {
-    fixed_fault_mode_ = false;
+    assert(sampling_mode_ == BatchSamplingMode::Ordinary &&
+           "ordinary execution requires an ordinary packed worker");
     reset_batch(root, first_shot, shots);
     sample_presampled_noise();
     execute_actions();
@@ -226,7 +107,8 @@ void BatchExecutor::run_batch(const SeedRoot& root, uint32_t first_shot, uint32_
 
 void BatchExecutor::run_batch(const SeedRoot& root, uint32_t first_shot, uint32_t shots,
                               KFaultSampler& fault_sampler) noexcept {
-    fixed_fault_mode_ = true;
+    assert(sampling_mode_ == BatchSamplingMode::FixedFaults &&
+           "conditioned execution requires a fixed-fault packed worker");
     reset_batch(root, first_shot, shots);
     assign_forced_faults(fault_sampler);
     execute_actions();
@@ -238,22 +120,20 @@ void BatchExecutor::run_batch(const SeedRoot& root, uint32_t first_shot, uint32_
 void BatchExecutor::reset_batch(const SeedRoot& root, uint32_t first_shot,
                                 uint32_t shots) noexcept {
     assert(shots <= lane_capacity_ && "packed batch must fit retained capacity");
-    attempted_shots_ = shots;
-    active_lanes_ = shots;
     live_count_ = shots;
     fill_low_lane_mask(live_words_, shots);
-    if (plan_->batch_noise_outcomes_.empty()) {
+    if (symbols_.num_columns() != 0) {
         symbols_.clear();
     } else {
-        // Prepared noise uses compact carrier columns. Every dynamic symbol
-        // column is overwritten by its defining action before it can be read.
         batch_noise_carriers_.clear();
     }
     expression_registers_.clear();
     records_.clear();
     detectors_.clear();
     observables_.clear();
-    forced_readout_.clear();
+    if (sampling_mode_ == BatchSamplingMode::FixedFaults) {
+        forced_readout_.clear();
+    }
     std::ranges::fill(exp_vals_, 0.0);
     state_.reset(shots);
     const std::array<uint64_t, 4> rng_words =
@@ -294,9 +174,6 @@ void BatchExecutor::initialize_presampled_expressions() noexcept {
         for (uint32_t index = initialization_begin; index < initialization_end; ++index) {
             const ExecutablePlan::PresampledExpressionInitialization& initialization =
                 plan_->presampled_initializations_[index];
-            if (initialization.parent == std::numeric_limits<uint32_t>::max()) {
-                continue;
-            }
             expression_registers_.copy(initialization.destination, initialization.parent);
             if (initialization.invert_parent) {
                 expression_registers_.xor_into(initialization.destination, live_words_);
@@ -316,28 +193,32 @@ void BatchExecutor::initialize_presampled_expressions() noexcept {
     }
 }
 
+void BatchExecutor::finalize_presampled_symbols() noexcept {
+    if (plan_->presampled_initialization_level_offsets_.empty()) {
+        for (uint32_t symbol : plan_->presampled_symbols_) {
+            propagate_symbol(symbol, symbols_.column(symbol));
+        }
+        return;
+    }
+    initialize_presampled_expressions();
+}
+
 void BatchExecutor::sample_presampled_noise() noexcept {
     const uint32_t end = static_cast<uint32_t>(plan_->noise_sites_.size());
     if (plan_->uniform_noise_inverse_hazard_.has_value()) {
         const ExecutablePlan::PreparedNoiseSite& first_site = plan_->noise_sites_.front();
         const uint32_t first_outcome_end = first_site.outcome_begin + first_site.outcome_count;
         if (plan_->noise_outcomes_[first_outcome_end - 1].cumulative_probability >= 1.0) {
-            for (uint32_t lane = 0; lane < active_lanes_; ++lane) {
+            for (uint32_t lane = 0; lane < active_lanes(); ++lane) {
                 for (uint32_t site = 0; site < end; ++site) {
                     activate_noise_site(lane, site);
                 }
             }
-            if (plan_->presampled_initialization_level_offsets_.empty()) {
-                for (uint32_t symbol : plan_->presampled_symbols_) {
-                    propagate_symbol(symbol);
-                }
-            } else {
-                initialize_presampled_expressions();
-            }
+            finalize_presampled_symbols();
             return;
         }
         const double inverse_hazard = *plan_->uniform_noise_inverse_hazard_;
-        const uint64_t total_draws = static_cast<uint64_t>(active_lanes_) * end;
+        const uint64_t total_draws = static_cast<uint64_t>(active_lanes()) * end;
         uint64_t draw_index = 0;
         while (draw_index < total_draws) {
             const double gap = -std::log(1.0 - rng_.next_double()) * inverse_hazard;
@@ -350,16 +231,10 @@ void BatchExecutor::sample_presampled_noise() noexcept {
             activate_noise_site(lane, site);
             ++draw_index;
         }
-        if (plan_->presampled_initialization_level_offsets_.empty()) {
-            for (uint32_t symbol : plan_->presampled_symbols_) {
-                propagate_symbol(symbol);
-            }
-        } else {
-            initialize_presampled_expressions();
-        }
+        finalize_presampled_symbols();
         return;
     }
-    for (uint32_t lane = 0; lane < active_lanes_; ++lane) {
+    for (uint32_t lane = 0; lane < active_lanes(); ++lane) {
         uint32_t first_candidate = 0;
         while (first_candidate < end) {
             const double current_hazard =
@@ -376,13 +251,7 @@ void BatchExecutor::sample_presampled_noise() noexcept {
             first_candidate = site + 1;
         }
     }
-    if (plan_->presampled_initialization_level_offsets_.empty()) {
-        for (uint32_t symbol : plan_->presampled_symbols_) {
-            propagate_symbol(symbol);
-        }
-    } else {
-        initialize_presampled_expressions();
-    }
+    finalize_presampled_symbols();
 }
 
 void BatchExecutor::assign_forced_faults(KFaultSampler& fault_sampler) noexcept {
@@ -390,7 +259,7 @@ void BatchExecutor::assign_forced_faults(KFaultSampler& fault_sampler) noexcept 
                plan_->noise_sites_.size() + plan_->num_readout_noise_sites_ &&
            "conditioned batch sampler must cover every fault site");
     const uint32_t quantum_sites = static_cast<uint32_t>(plan_->noise_sites_.size());
-    for (uint32_t lane = 0; lane < active_lanes_; ++lane) {
+    for (uint32_t lane = 0; lane < active_lanes(); ++lane) {
         const std::span<const uint32_t> selected =
             fault_sampler.sample([&]() noexcept { return rng_.next_double(); });
         for (uint32_t site : selected) {
@@ -401,13 +270,7 @@ void BatchExecutor::assign_forced_faults(KFaultSampler& fault_sampler) noexcept 
             }
         }
     }
-    if (plan_->presampled_initialization_level_offsets_.empty()) {
-        for (uint32_t symbol : plan_->presampled_symbols_) {
-            propagate_symbol(symbol);
-        }
-    } else {
-        initialize_presampled_expressions();
-    }
+    finalize_presampled_symbols();
 }
 
 void BatchExecutor::activate_noise_site(uint32_t lane, uint32_t site_index) noexcept {
@@ -447,16 +310,14 @@ void BatchExecutor::activate_noise_site(uint32_t lane, uint32_t site_index) noex
     }
 }
 
-void BatchExecutor::propagate_symbol(uint32_t symbol) noexcept {
-    const std::span<const uint64_t> values = symbols_.column(symbol);
+void BatchExecutor::propagate_symbol(uint32_t symbol, std::span<const uint64_t> values) noexcept {
     for (uint32_t register_id : plan_->expression_dependencies_.dependent_registers(symbol)) {
         expression_registers_.xor_into(register_id, values);
     }
 }
 
 void BatchExecutor::assign_symbol(uint32_t symbol, std::span<const uint64_t> values) noexcept {
-    symbols_.assign(symbol, values, live_words_);
-    propagate_symbol(symbol);
+    propagate_symbol(symbol, values);
 }
 
 void BatchExecutor::execute_actions() noexcept {
@@ -472,11 +333,11 @@ void BatchExecutor::execute_actions() noexcept {
 
 void BatchExecutor::execute_action(const ExecutablePlan::ExecuteRotation& action, size_t) noexcept {
     const std::span<const uint64_t> signs = evaluate(action.sign);
-    for (uint32_t lane = 0; lane < active_lanes_; ++lane) {
+    for (uint32_t lane = 0; lane < active_lanes(); ++lane) {
         lane_bytes_[lane] = static_cast<uint8_t>(lane_bit(signs, lane));
     }
     prepare_interleaved_rotation_sines(signed_sines_, action.rotation.sine,
-                                       std::span<const uint8_t>(lane_bytes_).first(active_lanes_));
+                                       std::span<const uint8_t>(lane_bytes_).first(active_lanes()));
     apply_interleaved_rotation(state_, action.rotation, signed_sines_);
 }
 
@@ -505,7 +366,7 @@ void BatchExecutor::execute_action(const ExecutablePlan::ExecuteDynamicFusedRota
     for (size_t basis = 0; basis < rotation.sign_basis.size(); ++basis) {
         sign_bits[basis] = evaluate(rotation.sign_basis[basis]);
     }
-    for (uint32_t lane = 0; lane < active_lanes_; ++lane) {
+    for (uint32_t lane = 0; lane < active_lanes(); ++lane) {
         uint32_t variant = 0;
         for (size_t basis = 0; basis < rotation.sign_basis.size(); ++basis) {
             variant |= static_cast<uint32_t>(lane_bit(sign_bits[basis], lane)) << basis;
@@ -516,17 +377,17 @@ void BatchExecutor::execute_action(const ExecutablePlan::ExecuteDynamicFusedRota
     apply_interleaved_dynamic_fused_rotation(
         state_,
         std::span<const PreparedFusedRotation* const>(variants).first(rotation.variants.size()),
-        std::span<const uint8_t>(lane_bytes_).first(active_lanes_));
+        std::span<const uint8_t>(lane_bytes_).first(active_lanes()));
 }
 
 void BatchExecutor::execute_action(const ExecutablePlan::ExecutePromotion& action,
                                    size_t) noexcept {
     const std::span<const uint64_t> signs = evaluate(action.sign);
-    for (uint32_t lane = 0; lane < active_lanes_; ++lane) {
+    for (uint32_t lane = 0; lane < active_lanes(); ++lane) {
         lane_bytes_[lane] = static_cast<uint8_t>(lane_bit(signs, lane));
     }
     prepare_interleaved_rotation_sines(signed_sines_, action.promotion.sine,
-                                       std::span<const uint8_t>(lane_bytes_).first(active_lanes_));
+                                       std::span<const uint8_t>(lane_bytes_).first(active_lanes()));
     apply_interleaved_promotion(state_, action.promotion, signed_sines_);
 }
 
@@ -536,23 +397,20 @@ void BatchExecutor::execute_action(const ExecutablePlan::ExecuteActiveMeasuremen
     interleaved_measurement_probabilities(state_, action.measurement, probability_zero_,
                                           probability_one_);
     std::ranges::fill(scratch_words_, uint64_t{0});
-    for (uint32_t lane = 0; lane < active_lanes_; ++lane) {
+    for (uint32_t lane = 0; lane < active_lanes(); ++lane) {
         const MeasurementProbabilities probabilities{probability_zero_[lane],
                                                      probability_one_[lane]};
-        const MeasurementBranchClassification classification =
-            classify_measurement_branch(probabilities);
-        bool branch = classification.kind == MeasurementBranchKind::DeterministicOne;
+        const MeasurementBranchKind classification = classify_measurement_branch(probabilities);
+        bool branch = classification == MeasurementBranchKind::DeterministicOne;
         if (is_live(lane)) {
-            switch (classification.kind) {
+            switch (classification) {
                 case MeasurementBranchKind::Random:
                     branch = rng_.next_double() * probabilities.total() >= probabilities.zero;
                     break;
                 case MeasurementBranchKind::DeterministicZero:
-                    dust_clamps_ += static_cast<uint64_t>(classification.clamped_dust);
                     branch = false;
                     break;
                 case MeasurementBranchKind::DeterministicOne:
-                    dust_clamps_ += static_cast<uint64_t>(classification.clamped_dust);
                     branch = true;
                     break;
             }
@@ -564,8 +422,8 @@ void BatchExecutor::execute_action(const ExecutablePlan::ExecuteActiveMeasuremen
         lane_values_[lane] = probabilities.for_branch(branch);
     }
     collapse_interleaved_measurement(state_, action.measurement,
-                                     std::span<const uint8_t>(lane_bytes_).first(active_lanes_),
-                                     std::span<const double>(lane_values_).first(active_lanes_));
+                                     std::span<const uint8_t>(lane_bytes_).first(active_lanes()),
+                                     std::span<const double>(lane_values_).first(active_lanes()));
     assign_symbol(action.branch, scratch_words_);
     if (records_.num_columns() != 0) {
         records_.assign_xor(action.record, scratch_words_, corrections, live_words_);
@@ -599,7 +457,7 @@ void BatchExecutor::execute_action(const ExecutablePlan::ExecuteReadoutNoise& ac
     const std::span<const uint64_t> sources = evaluate(action.source);
     std::ranges::fill(scratch_words_, uint64_t{0});
     bool sampled_packed = false;
-    if (fixed_fault_mode_) {
+    if (sampling_mode_ == BatchSamplingMode::FixedFaults) {
         const std::span<const uint64_t> forced = forced_readout_.column(action.site);
         for (size_t word = 0; word < word_capacity_; ++word) {
             scratch_words_[word] = forced[word] & live_words_[word];
@@ -617,10 +475,10 @@ void BatchExecutor::execute_action(const ExecutablePlan::ExecuteReadoutNoise& ac
             sampled_packed = true;
         } else if (action.batch_symmetric_inverse_hazard > 0.0) {
             uint64_t lane = 0;
-            while (lane < active_lanes_) {
+            while (lane < active_lanes()) {
                 const double gap =
                     -std::log(1.0 - rng_.next_double()) * action.batch_symmetric_inverse_hazard;
-                if (gap >= static_cast<double>(active_lanes_ - lane)) {
+                if (gap >= static_cast<double>(active_lanes() - lane)) {
                     break;
                 }
                 lane += static_cast<uint64_t>(gap);
@@ -631,7 +489,7 @@ void BatchExecutor::execute_action(const ExecutablePlan::ExecuteReadoutNoise& ac
         }
     }
     if (!sampled_packed) {
-        for (uint32_t lane = 0; lane < active_lanes_; ++lane) {
+        for (uint32_t lane = 0; lane < active_lanes(); ++lane) {
             if (!is_live(lane)) {
                 continue;
             }
@@ -691,7 +549,7 @@ void BatchExecutor::execute_action(const ExecutablePlan::ExecuteExpectation& act
     double* output = exp_vals_.data() + static_cast<size_t>(action.exp_val) * lane_capacity_;
     const std::span<const uint64_t> signs = evaluate(action.sign);
     if (!action.active_projection.has_value()) {
-        for (uint32_t lane = 0; lane < active_lanes_; ++lane) {
+        for (uint32_t lane = 0; lane < active_lanes(); ++lane) {
             if (is_live(lane)) {
                 output[lane] = 0.0;
             }
@@ -699,7 +557,7 @@ void BatchExecutor::execute_action(const ExecutablePlan::ExecuteExpectation& act
         return;
     }
     interleaved_expectation_values(state_, *action.active_projection, lane_values_);
-    for (uint32_t lane = 0; lane < active_lanes_; ++lane) {
+    for (uint32_t lane = 0; lane < active_lanes(); ++lane) {
         if (is_live(lane)) {
             output[lane] = lane_bit(signs, lane) ? -lane_values_[lane] : lane_values_[lane];
         }
@@ -729,7 +587,7 @@ std::span<const uint64_t> BatchExecutor::evaluate_record_parity(uint32_t parity_
     const uint32_t end = parity.begin + parity.count;
     assert(end <= plan_->batch_record_parity_terms_.size() &&
            "prepared record parity must stay in its term tape");
-    const size_t words = packed_word_count(active_lanes_);
+    const size_t words = packed_word_count(active_lanes());
     if (parity.constant) {
         std::ranges::copy(std::span<const uint64_t>(live_words_).first(words),
                           scratch_words_.begin());
@@ -747,29 +605,28 @@ std::span<const uint64_t> BatchExecutor::evaluate_record_parity(uint32_t parity_
 }
 
 bool BatchExecutor::lane_bit(std::span<const uint64_t> bits, uint32_t lane) const noexcept {
-    assert(bits.size() >= word_capacity_ && lane < active_lanes_ &&
+    assert(bits.size() >= word_capacity_ && lane < active_lanes() &&
            "packed expression lookup must reference an active lane");
     return ((bits[lane >> 6] >> (lane & 63)) & uint64_t{1}) != 0;
 }
 
 bool BatchExecutor::is_live(uint32_t lane) const noexcept {
-    assert(lane < active_lanes_ && "live lookup must reference the current lane span");
+    assert(lane < active_lanes() && "live lookup must reference the current lane span");
     return ((live_words_[lane >> 6] >> (lane & 63)) & uint64_t{1}) != 0;
 }
 
 bool BatchExecutor::should_compact(size_t action_index) const noexcept {
-    if (live_count_ == 0 || live_count_ == active_lanes_) {
+    if (live_count_ == 0 || live_count_ == active_lanes()) {
         return false;
     }
     const uint64_t remaining_actions = plan_->actions_.size() - action_index - 1;
     if (remaining_actions == 0) {
         return false;
     }
-    const uint64_t old_words = packed_word_count(active_lanes_);
+    const uint64_t old_words = packed_word_count(active_lanes());
     const uint64_t new_words = packed_word_count(live_count_);
-    const uint64_t dead_lanes = active_lanes_ - live_count_;
-    const uint64_t bit_columns = symbols_.num_columns() + batch_noise_carriers_.num_columns() +
-                                 expression_registers_.num_columns() + records_.num_columns() +
+    const uint64_t dead_lanes = active_lanes() - live_count_;
+    const uint64_t bit_columns = expression_registers_.num_columns() + records_.num_columns() +
                                  detectors_.num_columns() + observables_.num_columns() +
                                  forced_readout_.num_columns();
     const uint64_t carry_cost =
@@ -781,17 +638,15 @@ bool BatchExecutor::should_compact(size_t action_index) const noexcept {
 }
 
 void BatchExecutor::compact_live_lanes() noexcept {
-    if (live_count_ == active_lanes_) {
+    if (live_count_ == active_lanes()) {
         return;
     }
     if (live_count_ == 0) {
         state_.compact_lanes({});
-        active_lanes_ = 0;
         std::ranges::fill(live_words_, uint64_t{0});
-        ++compactions_;
         return;
     }
-    const uint32_t old_lanes = active_lanes_;
+    const uint32_t old_lanes = active_lanes();
     uint32_t destination = 0;
     for (uint32_t source = 0; source < old_lanes; ++source) {
         if (is_live(source)) {
@@ -800,13 +655,11 @@ void BatchExecutor::compact_live_lanes() noexcept {
     }
     assert(destination == live_count_ && "lane compaction must retain every live context");
     const std::span<const uint32_t> sources(compaction_sources_.data(), live_count_);
-    symbols_.compact(live_words_, old_lanes, live_count_, compaction_scratch_);
-    batch_noise_carriers_.compact(live_words_, old_lanes, live_count_, compaction_scratch_);
-    expression_registers_.compact(live_words_, old_lanes, live_count_, compaction_scratch_);
-    records_.compact(live_words_, old_lanes, live_count_, compaction_scratch_);
-    detectors_.compact(live_words_, old_lanes, live_count_, compaction_scratch_);
-    observables_.compact(live_words_, old_lanes, live_count_, compaction_scratch_);
-    forced_readout_.compact(live_words_, old_lanes, live_count_, compaction_scratch_);
+    expression_registers_.compact(live_words_, old_lanes, live_count_, scratch_words_);
+    records_.compact(live_words_, old_lanes, live_count_, scratch_words_);
+    detectors_.compact(live_words_, old_lanes, live_count_, scratch_words_);
+    observables_.compact(live_words_, old_lanes, live_count_, scratch_words_);
+    forced_readout_.compact(live_words_, old_lanes, live_count_, scratch_words_);
     state_.compact_lanes(sources);
 
     for (destination = 0; destination < live_count_; ++destination) {
@@ -826,9 +679,7 @@ void BatchExecutor::compact_live_lanes() noexcept {
             }
         }
     }
-    active_lanes_ = live_count_;
-    fill_low_lane_mask(live_words_, active_lanes_);
-    ++compactions_;
+    fill_low_lane_mask(live_words_, active_lanes());
 }
 
 uint32_t BatchExecutor::accumulate_survivor_counts(
@@ -837,7 +688,7 @@ uint32_t BatchExecutor::accumulate_survivor_counts(
            observable_ones.size() == plan_->num_observables_ &&
            "aggregate survivor outputs must match the prepared observable count");
     uint32_t logical_errors = 0;
-    const size_t words = packed_word_count(active_lanes_);
+    const size_t words = packed_word_count(active_lanes());
     for (size_t word = 0; word < words; ++word) {
         const uint64_t live = live_words_[word];
         uint64_t any_observable = 0;
@@ -852,13 +703,13 @@ uint32_t BatchExecutor::accumulate_survivor_counts(
 }
 
 void BatchExecutor::finalize_live_lanes() noexcept {
-    if (live_count_ != active_lanes_) {
+    if (live_count_ != active_lanes()) {
         compact_live_lanes();
     }
 }
 
 uint32_t BatchExecutor::shot_index(uint32_t lane) const noexcept {
-    assert(lane < live_count_ && active_lanes_ == live_count_ &&
+    assert(lane < live_count_ && active_lanes() == live_count_ &&
            "batch outputs require finalized live lanes");
     return shot_indices_[lane];
 }

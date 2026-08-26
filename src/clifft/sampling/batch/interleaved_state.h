@@ -8,6 +8,13 @@
 
 namespace clifft::sampling {
 
+// Return the SIMD-aligned lane stride used by interleaved allocations.
+[[nodiscard]] uint32_t interleaved_batch_lane_pitch(uint32_t lane_capacity);
+
+// Return the complete coefficient and measurement-scratch allocation size.
+[[nodiscard]] size_t interleaved_batch_state_bytes(uint32_t max_active_width,
+                                                   uint32_t lane_capacity);
+
 // Dense active-coordinate storage whose innermost dimension is the shot lane.
 // Every shot in a batch follows the same prepared active-width transitions, so
 // one width describes the whole live prefix. Construction allocates the

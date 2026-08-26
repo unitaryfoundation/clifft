@@ -17,8 +17,6 @@ class PackedBitColumns {
     PackedBitColumns(size_t columns, uint32_t lane_capacity);
 
     [[nodiscard]] size_t num_columns() const noexcept { return columns_; }
-    [[nodiscard]] uint32_t lane_capacity() const noexcept { return lane_capacity_; }
-    [[nodiscard]] size_t word_capacity() const noexcept { return word_capacity_; }
 
     [[nodiscard]] std::span<uint64_t> column(size_t column) noexcept;
     [[nodiscard]] std::span<const uint64_t> column(size_t column) const noexcept;
@@ -51,6 +49,5 @@ class PackedBitColumns {
 [[nodiscard]] size_t packed_word_count(uint32_t lanes) noexcept;
 [[nodiscard]] uint64_t low_lane_mask(uint32_t bits) noexcept;
 void fill_low_lane_mask(std::span<uint64_t> output, uint32_t lanes) noexcept;
-[[nodiscard]] uint32_t count_lane_bits(std::span<const uint64_t> bits, uint32_t lanes) noexcept;
 
 }  // namespace clifft::sampling

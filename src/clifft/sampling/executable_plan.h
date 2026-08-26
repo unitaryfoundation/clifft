@@ -152,7 +152,7 @@ class ExecutablePlan {
 
     struct PresampledExpressionInitialization {
         uint32_t destination = 0;
-        uint32_t parent = std::numeric_limits<uint32_t>::max();
+        uint32_t parent = 0;
         bool invert_parent = false;
     };
 

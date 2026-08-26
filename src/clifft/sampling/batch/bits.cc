@@ -24,6 +24,18 @@ uint64_t compress_bits_portable(uint64_t bits, uint64_t keep) noexcept {
     return output;
 }
 
+#ifndef NDEBUG
+uint32_t count_lane_bits(std::span<const uint64_t> bits, uint32_t lanes) noexcept {
+    const size_t live_words = packed_word_count(lanes);
+    uint32_t count = 0;
+    for (size_t word = 0; word < live_words; ++word) {
+        const uint32_t remaining = lanes - static_cast<uint32_t>(word * 64);
+        count += static_cast<uint32_t>(std::popcount(bits[word] & low_lane_mask(remaining)));
+    }
+    return count;
+}
+#endif
+
 }  // namespace
 
 size_t packed_word_count(uint32_t lanes) noexcept {
@@ -47,16 +59,6 @@ void fill_low_lane_mask(std::span<uint64_t> output, uint32_t lanes) noexcept {
         output[word] = low_lane_mask(remaining);
     }
     std::fill(output.begin() + static_cast<std::ptrdiff_t>(live_words), output.end(), uint64_t{0});
-}
-
-uint32_t count_lane_bits(std::span<const uint64_t> bits, uint32_t lanes) noexcept {
-    const size_t live_words = packed_word_count(lanes);
-    uint32_t count = 0;
-    for (size_t word = 0; word < live_words; ++word) {
-        const uint32_t remaining = lanes - static_cast<uint32_t>(word * 64);
-        count += static_cast<uint32_t>(std::popcount(bits[word] & low_lane_mask(remaining)));
-    }
-    return count;
 }
 
 PackedBitColumns::PackedBitColumns(size_t columns, uint32_t lane_capacity)

@@ -41,34 +41,29 @@ namespace nb = nanobind;
 namespace {
 
 using ThreadOption = std::variant<int64_t, std::string>;
-using BatchOption = std::variant<int64_t, std::string>;
+using BatchOption = ThreadOption;
 
-uint32_t parse_thread_option(const ThreadOption& option) {
-    if (const auto* name = std::get_if<std::string>(&option)) {
-        if (*name == "auto") {
-            return 0;
-        }
-        throw std::invalid_argument("threads must be a positive integer or 'auto'");
-    }
-    const int64_t count = std::get<int64_t>(option);
-    if (count <= 0 || static_cast<uint64_t>(count) > std::numeric_limits<uint32_t>::max()) {
-        throw std::invalid_argument("threads must be a positive integer or 'auto'");
-    }
-    return static_cast<uint32_t>(count);
-}
-
-std::optional<uint32_t> parse_batch_option(const BatchOption& option) {
+std::optional<uint32_t> parse_positive_uint32_option(const ThreadOption& option,
+                                                     const char* field) {
     if (const auto* name = std::get_if<std::string>(&option)) {
         if (*name == "auto") {
             return std::nullopt;
         }
-        throw std::invalid_argument("batch_size must be a positive integer or 'auto'");
+        throw std::invalid_argument(std::string(field) + " must be a positive integer or 'auto'");
     }
     const int64_t count = std::get<int64_t>(option);
     if (count <= 0 || static_cast<uint64_t>(count) > std::numeric_limits<uint32_t>::max()) {
-        throw std::invalid_argument("batch_size must be a positive integer or 'auto'");
+        throw std::invalid_argument(std::string(field) + " must be a positive integer or 'auto'");
     }
     return static_cast<uint32_t>(count);
+}
+
+uint32_t parse_thread_option(const ThreadOption& option) {
+    return parse_positive_uint32_option(option, "threads").value_or(0);
+}
+
+std::optional<uint32_t> parse_batch_option(const BatchOption& option) {
+    return parse_positive_uint32_option(option, "batch_size");
 }
 
 std::optional<clifft::sampling::ThreadLayout> parse_thread_layout(
