@@ -144,7 +144,7 @@ TEST_CASE("Sampling planner records repeat dormant measurements consistently") {
 
     REQUIRE(plan.actions.size() == 2);
     REQUIRE(plan.symbols.size() == 2);
-    REQUIRE(plan.symbols[1].kind == SymbolKind::Unused);
+    REQUIRE(plan.symbols[1] == SymbolKind::Unused);
     const auto& first = action_as<MeasureDormantRandom>(plan, 0);
     REQUIRE(first.branch == SymbolId{0});
     REQUIRE(first.outcome == AffineBool::symbol(SymbolId{0}));
@@ -330,11 +330,11 @@ TEST_CASE("Sampling planner preserves mixed symbol order at instrument boundarie
                                                           &options));
 
     REQUIRE(plan.symbols.size() == 5);
-    REQUIRE(plan.symbols[0].kind == SymbolKind::Presampled);
-    REQUIRE(plan.symbols[1].kind == SymbolKind::Branch);
-    REQUIRE(plan.symbols[2].kind == SymbolKind::Readout);
-    REQUIRE(plan.symbols[3].kind == SymbolKind::Instrument);
-    REQUIRE(plan.symbols[4].kind == SymbolKind::Presampled);
+    REQUIRE(plan.symbols[0] == SymbolKind::Presampled);
+    REQUIRE(plan.symbols[1] == SymbolKind::Branch);
+    REQUIRE(plan.symbols[2] == SymbolKind::Readout);
+    REQUIRE(plan.symbols[3] == SymbolKind::Instrument);
+    REQUIRE(plan.symbols[4] == SymbolKind::Presampled);
 
     const auto boundary = std::ranges::find_if(plan.actions, [](const auto& action) {
         return std::holds_alternative<InstrumentBoundary>(action.action);
@@ -490,7 +490,7 @@ TEST_CASE("Sampling planner eliminates Pauli noise and feedback into record expr
     REQUIRE(plan.presampled_noise_sites.size() == 1);
     REQUIRE(plan.presampled_noise_sites[0].outcomes.size() == 1);
     const SymbolId noise = plan.presampled_noise_sites[0].outcomes[0].symbol;
-    REQUIRE(plan.symbols[static_cast<uint32_t>(noise)].kind == SymbolKind::Presampled);
+    REQUIRE(plan.symbols[static_cast<uint32_t>(noise)] == SymbolKind::Presampled);
     REQUIRE(plan.actions.size() == 2);
     REQUIRE(action_as<RecordClassical>(plan, 0).outcome == AffineBool::symbol(noise));
     REQUIRE(action_as<RecordClassical>(plan, 1).outcome == AffineBool::symbol(noise));
@@ -549,7 +549,7 @@ TEST_CASE("Sampling planner carries corrected records into syndrome outputs") {
     REQUIRE(plan.num_observables == 1);
     REQUIRE(plan.actions.size() == 4);
     const auto& readout = action_as<ApplyReadoutNoise>(plan, 1);
-    REQUIRE(plan.symbols[static_cast<uint32_t>(readout.flip)].kind == SymbolKind::Readout);
+    REQUIRE(plan.symbols[static_cast<uint32_t>(readout.flip)] == SymbolKind::Readout);
     REQUIRE(readout.source == AffineBool(false));
     REQUIRE(readout.prob_zero_to_one == 0.1);
     REQUIRE(readout.prob_one_to_zero == 0.2);
@@ -651,5 +651,5 @@ TEST_CASE("Sampling planner target QEC plan characterization") {
     INFO(inspection);
     // After verifying that a reported inspection change is intentional, update
     // this digest to the new value shown by the failed assertion.
-    REQUIRE(fnv1a64(inspection) == 0x0a5e07087447f19eULL);
+    REQUIRE(fnv1a64(inspection) == 0xad863e67839d8f4fULL);
 }

@@ -121,13 +121,12 @@ void append_action(SamplingPlan& plan, PlannedAction action,
     }
 }
 
-void define_symbol(SamplingPlan& plan, SymbolId symbol, SymbolKind kind, uint32_t action) {
-    SymbolInfo& info = plan.symbols.at(index(symbol));
-    if (info.kind != SymbolKind::Unused || info.defining_action.has_value() ||
-        info.noise_site.has_value()) {
+void define_symbol(SamplingPlan& plan, SymbolId symbol, SymbolKind kind) {
+    SymbolKind& stored_kind = plan.symbols.at(index(symbol));
+    if (stored_kind != SymbolKind::Unused) {
         throw std::logic_error("sampling planner attempted to redefine a reserved symbol");
     }
-    info = SymbolInfo{kind, action, std::nullopt};
+    stored_kind = kind;
 }
 
 bool option_bit(std::span<const uint8_t> values, uint32_t index) {
@@ -293,8 +292,7 @@ AffineBool process_measurement(const Pauli& body, const AffineBool& sign, Record
     if (dormant_pivot.has_value()) {
         coordinates.measure_dormant(resolved.body, *dormant_pivot);
 
-        const uint32_t action_index = static_cast<uint32_t>(plan.actions.size());
-        define_symbol(plan, branch, SymbolKind::Branch, action_index);
+        define_symbol(plan, branch, SymbolKind::Branch);
         Pauli correction(coordinates.current_to_initial().x_output(*dormant_pivot));
         correction.set_sign(false);
         symbolic_frame.apply(correction, AffineBool::symbol(branch));
@@ -329,8 +327,7 @@ AffineBool process_measurement(const Pauli& body, const AffineBool& sign, Record
     active_body.set_sign(false);
     coordinates.measure_active(active_body, active_width, *pivot);
 
-    const uint32_t action_index = static_cast<uint32_t>(plan.actions.size());
-    define_symbol(plan, branch, SymbolKind::Branch, action_index);
+    define_symbol(plan, branch, SymbolKind::Branch);
     Pauli correction(coordinates.current_to_initial().x_output(active_width - 1));
     correction.set_sign(false);
     symbolic_frame.apply(correction, AffineBool::symbol(branch));
@@ -390,13 +387,12 @@ void process_instrument(const HirModule& hir, const HeisenbergOp& op, uint32_t n
         mode = source.is_identity() ? InstrumentMode::Classical : InstrumentMode::Active;
     }
 
-    const uint32_t action_index = static_cast<uint32_t>(plan.actions.size());
     std::optional<SymbolId> destination_symbol;
     if (mode != InstrumentMode::DormantTrap) {
         // Only an in-line computational destination needs the reserved flip;
         // a trapped continuation resolves its destination instead.
         destination_symbol = destination_flip_symbol;
-        define_symbol(plan, destination_flip_symbol, SymbolKind::Instrument, action_index);
+        define_symbol(plan, destination_flip_symbol, SymbolKind::Instrument);
     }
     append_action(plan,
                   PlannedAction{active_width, active_after,
@@ -539,8 +535,7 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
                         continue;
                     }
                     const SymbolId symbol{static_cast<uint32_t>(plan.symbols.size())};
-                    plan.symbols.push_back(
-                        SymbolInfo{SymbolKind::Presampled, std::nullopt, NoiseSiteId{site_index}});
+                    plan.symbols.push_back(SymbolKind::Presampled);
                     plan_site.outcomes.push_back(PresampledNoiseOutcome{symbol, channel.prob});
                     const Pauli body = noise_pauli_from_hir(hir, channel.mask);
                     symbolic_frame.apply(body, AffineBool::symbol(symbol));
@@ -559,8 +554,7 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
                 if (entry.prob_zero_to_one == 0.0 && entry.prob_one_to_zero == 0.0) {
                     break;
                 }
-                const uint32_t action_index = static_cast<uint32_t>(plan.actions.size());
-                define_symbol(plan, flip, SymbolKind::Readout, action_index);
+                define_symbol(plan, flip, SymbolKind::Readout);
                 append_action(
                     plan,
                     PlannedAction{active_width, active_width,

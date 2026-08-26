@@ -92,8 +92,8 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::compile() {
     prepare_noise_and_boundaries();
     lower_action_stream();
     build_expression_dependencies();
-    output_.batch_presampled_program_ =
-        BatchPresampledProgram::build(output_, source_, expression_terms_, expression_term_begins_);
+    output_.batch_presampled_program_ = BatchPresampledProgram::build(
+        output_, source_, expression_terms_, expression_term_begins_, bound_presampled_symbols_);
     validate_executable_plan();
 }
 
@@ -168,7 +168,7 @@ CLIFFT_BUILDER_FORCE_INLINE size_t ExecutablePlanBuilder::estimate_expression_te
 
 CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::prepare_noise_and_boundaries() {
     output_.presampled_symbols_.reserve(source_.symbols.size());
-    std::vector<bool> bound_presampled(source_.symbols.size(), false);
+    bound_presampled_symbols_.assign(source_.symbols.size(), 0);
     output_.noise_sites_.reserve(source_.presampled_noise_sites.size());
     output_.noise_hazards_.reserve(source_.presampled_noise_sites.size());
 
@@ -181,7 +181,7 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::prepare_noise_and_bounda
         for (const PresampledNoiseOutcome& outcome : site.outcomes) {
             cumulative_probability += outcome.probability;
             output_.noise_outcomes_.push_back({index(outcome.symbol), cumulative_probability});
-            bound_presampled[index(outcome.symbol)] = true;
+            bound_presampled_symbols_[index(outcome.symbol)] = 1;
         }
         if (output_.noise_outcomes_.size() != begin) {
             // The validated source permits roundoff-sized disagreement between
@@ -210,11 +210,11 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::prepare_noise_and_bounda
         }
     }
     for (uint32_t symbol = 0; symbol < source_.symbols.size(); ++symbol) {
-        if (source_.symbols[symbol].kind != SymbolKind::Presampled) {
+        if (source_.symbols[symbol] != SymbolKind::Presampled) {
             continue;
         }
         output_.presampled_symbols_.push_back(symbol);
-        if (!bound_presampled[symbol]) {
+        if (bound_presampled_symbols_[symbol] == 0) {
             output_.unbound_presampled_symbols_.push_back(symbol);
         }
     }

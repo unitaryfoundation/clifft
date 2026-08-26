@@ -12,12 +12,10 @@
 #include <variant>
 
 using clifft::sampling::AffineBool;
-using clifft::sampling::NoiseSiteId;
 using clifft::sampling::PresampledNoiseOutcome;
 using clifft::sampling::PresampledNoiseSite;
 using clifft::sampling::SamplingPlan;
 using clifft::sampling::SymbolId;
-using clifft::sampling::SymbolInfo;
 using clifft::sampling::SymbolKind;
 using clifft::sampling::hip::ExecutablePlan;
 using clifft::sampling::hip::detail::ActionTag;
@@ -98,10 +96,7 @@ TEST_CASE("HIP executable preserves selected syndrome representations") {
 
 TEST_CASE("HIP executable packs affine terms and categorical noise") {
     SamplingPlan plan;
-    plan.symbols = {
-        SymbolInfo{SymbolKind::Presampled, std::nullopt, NoiseSiteId{0}},
-        SymbolInfo{SymbolKind::Presampled, std::nullopt, NoiseSiteId{0}},
-    };
+    plan.symbols = {SymbolKind::Presampled, SymbolKind::Presampled};
     plan.presampled_noise_sites = {PresampledNoiseSite{
         0.25,
         {PresampledNoiseOutcome{SymbolId{0}, 0.125}, PresampledNoiseOutcome{SymbolId{1}, 0.125}}}};
@@ -175,9 +170,7 @@ TEST_CASE("HIP executable rejects work outside the first device tier") {
     REQUIRE_THROWS_WITH(ExecutablePlan(wide), ContainsSubstring("peak active width"));
 
     SamplingPlan unbound;
-    unbound.symbols = {
-        SymbolInfo{SymbolKind::Presampled, std::nullopt, std::nullopt},
-    };
+    unbound.symbols = {SymbolKind::Presampled};
     REQUIRE_THROWS_WITH(ExecutablePlan(unbound), ContainsSubstring("presampled symbol"));
 }
 

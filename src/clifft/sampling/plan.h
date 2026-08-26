@@ -300,21 +300,6 @@ struct PlannedAction {
     SamplingAction action;
 };
 
-// Describes how one symbol is populated. SamplingPlan::validate checks each
-// kind's legal fields and its agreement with the referenced defining action.
-struct SymbolInfo {
-    SymbolKind kind = SymbolKind::Unused;
-
-    // Index of the action that assigns this symbol. Required for Derived,
-    // Branch, Readout, and Instrument; absent for Presampled and Unused.
-    std::optional<uint32_t> defining_action;
-
-    // For a Presampled noise symbol, this identifies its stable HIR noise site.
-    // Nullopt means the presampled event has no noise-site identity. All other
-    // symbol kinds must use nullopt.
-    std::optional<NoiseSiteId> noise_site;
-};
-
 // One nonidentity outcome of a mutually exclusive Pauli-noise site. The
 // identity outcome has the remaining probability and no symbol.
 struct PresampledNoiseOutcome {
@@ -377,7 +362,9 @@ struct SamplingPlan {
     // stream into physical qubits and is never read by ordinary dispatch.
     std::optional<Tableau> final_tableau;
 
-    std::vector<SymbolInfo> symbols;
+    // Defining actions and noise-site membership remain owned by the action
+    // stream and presampled distributions instead of being duplicated here.
+    std::vector<SymbolKind> symbols;
     std::vector<PresampledNoiseSite> presampled_noise_sites;
     std::vector<InstrumentDistribution> instrument_distributions;
     std::vector<PlannedAction> actions;

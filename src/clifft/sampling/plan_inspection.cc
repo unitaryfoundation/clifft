@@ -233,14 +233,7 @@ std::string SamplingPlan::inspect() const {
         << " dust_epsilon=" << format_double_roundtrip(kMeasurementDustEpsilon) << '\n';
     out << "symbols=" << symbols.size() << '\n';
     for (uint32_t i = 0; i < symbols.size(); ++i) {
-        out << "  s" << i << " kind=" << symbol_kind_name(symbols[i].kind);
-        if (symbols[i].defining_action.has_value()) {
-            out << " action=" << *symbols[i].defining_action;
-        }
-        if (symbols[i].noise_site.has_value()) {
-            out << " noise_site=" << index(*symbols[i].noise_site);
-        }
-        out << '\n';
+        out << "  s" << i << " kind=" << symbol_kind_name(symbols[i]) << '\n';
     }
     for (size_t site_index = 0; site_index < presampled_noise_sites.size(); ++site_index) {
         const PresampledNoiseSite& site = presampled_noise_sites[site_index];

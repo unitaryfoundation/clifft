@@ -47,7 +47,6 @@ using clifft::sampling::InstrumentMode;
 using clifft::sampling::InstrumentSiteId;
 using clifft::sampling::MeasureActivePauli;
 using clifft::sampling::MeasureDormantRandom;
-using clifft::sampling::NoiseSiteId;
 using clifft::sampling::PlannedAction;
 using clifft::sampling::prepare_rotation;
 using clifft::sampling::PresampledNoiseOutcome;
@@ -63,7 +62,6 @@ using clifft::sampling::SamplingPlan;
 using clifft::sampling::SamplingPlanOptions;
 using clifft::sampling::State;
 using clifft::sampling::SymbolId;
-using clifft::sampling::SymbolInfo;
 using clifft::sampling::SymbolKind;
 using clifft::sampling::WriteExpectationValue;
 
@@ -74,10 +72,7 @@ SamplingPlan active_then_dormant_plan(double promotion_half_turns) {
     plan.num_qubits = 2;
     plan.peak_active_width = 1;
     plan.num_visible_records = 2;
-    plan.symbols = {
-        SymbolInfo{SymbolKind::Branch, 1, std::nullopt},
-        SymbolInfo{SymbolKind::Branch, 2, std::nullopt},
-    };
+    plan.symbols = {SymbolKind::Branch, SymbolKind::Branch};
     plan.actions = {
         PlannedAction{0, 1, PromoteDormantRotation{promotion_half_turns, AffineBool(false)}},
         PlannedAction{1, 0,
@@ -93,7 +88,7 @@ SamplingPlan active_then_dormant_plan(double promotion_half_turns) {
 SamplingPlan dormant_trap_plan() {
     SamplingPlan plan;
     plan.num_qubits = 1;
-    plan.symbols = {SymbolInfo{SymbolKind::Unused, std::nullopt, std::nullopt}};
+    plan.symbols = {SymbolKind::Unused};
     plan.instrument_distributions = {InstrumentDistribution{{1.0, 1.0}, {}}};
     plan.actions = {
         PlannedAction{
@@ -111,12 +106,8 @@ SamplingPlan plan_from(std::string_view circuit_text) {
 
 SamplingPlan categorical_noise_plan() {
     SamplingPlan plan;
-    plan.symbols = {
-        SymbolInfo{SymbolKind::Presampled, std::nullopt, NoiseSiteId{0}},
-        SymbolInfo{SymbolKind::Presampled, std::nullopt, NoiseSiteId{1}},
-        SymbolInfo{SymbolKind::Presampled, std::nullopt, NoiseSiteId{1}},
-        SymbolInfo{SymbolKind::Presampled, std::nullopt, NoiseSiteId{3}},
-    };
+    plan.symbols = {SymbolKind::Presampled, SymbolKind::Presampled, SymbolKind::Presampled,
+                    SymbolKind::Presampled};
     plan.presampled_noise_sites = {
         PresampledNoiseSite{0.05, {PresampledNoiseOutcome{SymbolId{0}, 0.05}}},
         PresampledNoiseSite{
@@ -233,7 +224,7 @@ TEST_CASE("Sampling executor does not draw for empty noise sites") {
     plan.num_qubits = 1;
     plan.num_visible_records = 1;
     plan.presampled_noise_sites = {PresampledNoiseSite{0.0, {}}};
-    plan.symbols = {SymbolInfo{SymbolKind::Branch, 0, std::nullopt}};
+    plan.symbols = {SymbolKind::Branch};
     plan.actions = {PlannedAction{
         0, 0,
         MeasureDormantRandom{0, SymbolId{0}, AffineBool::symbol(SymbolId{0}), RecordSlot{0}}}};
@@ -254,10 +245,7 @@ TEST_CASE("Sampling executor evaluates presampled and derived affine symbols") {
     SamplingPlan plan;
     plan.num_visible_records = 1;
     plan.num_hidden_records = 1;
-    plan.symbols = {
-        SymbolInfo{SymbolKind::Presampled, std::nullopt, std::nullopt},
-        SymbolInfo{SymbolKind::Derived, 0, std::nullopt},
-    };
+    plan.symbols = {SymbolKind::Presampled, SymbolKind::Derived};
     plan.actions = {
         PlannedAction{
             0, 0, DefineSymbol{SymbolId{1}, AffineBool(true, std::vector<SymbolId>{SymbolId{0}})}},
@@ -291,7 +279,7 @@ TEST_CASE("Sampling executor applies sampled symbols to later state actions") {
     plan.num_qubits = 2;
     plan.peak_active_width = 1;
     plan.num_visible_records = 1;
-    plan.symbols = {SymbolInfo{SymbolKind::Branch, 0, std::nullopt}};
+    plan.symbols = {SymbolKind::Branch};
     plan.actions = {
         PlannedAction{
             0, 0,
@@ -331,9 +319,7 @@ TEST_CASE("Sampling executor fuses constant rotation orbits") {
         plan.num_qubits = active_width;
         plan.initial_active_width = active_width;
         plan.peak_active_width = active_width;
-        plan.symbols = {
-            SymbolInfo{SymbolKind::Presampled, std::nullopt, std::nullopt},
-        };
+        plan.symbols = {SymbolKind::Presampled};
         for (uint32_t axis = 0; axis < active_width; ++axis) {
             plan.actions.push_back(
                 PlannedAction{active_width, active_width,
@@ -429,7 +415,7 @@ TEST_CASE("Sampling replay inverts affine records and preserves branch dependenc
     plan.num_qubits = 2;
     plan.peak_active_width = 1;
     plan.num_visible_records = 1;
-    plan.symbols = {SymbolInfo{SymbolKind::Branch, 0, std::nullopt}};
+    plan.symbols = {SymbolKind::Branch};
     plan.actions = {
         PlannedAction{
             0, 0,
@@ -538,7 +524,7 @@ TEST_CASE("Sampling replay checks all records conditional on presampled symbols"
     SamplingPlan plan;
     plan.num_visible_records = 1;
     plan.num_hidden_records = 1;
-    plan.symbols = {SymbolInfo{SymbolKind::Presampled, std::nullopt, std::nullopt}};
+    plan.symbols = {SymbolKind::Presampled};
     plan.actions = {
         PlannedAction{0, 0, RecordClassical{AffineBool::symbol(SymbolId{0}), RecordSlot{0}}},
         PlannedAction{0, 0, RecordClassical{AffineBool(true), RecordSlot{1}}},
@@ -563,7 +549,7 @@ TEST_CASE("Sampling replay checks all records conditional on presampled symbols"
 TEST_CASE("Sampling expression registers reset true symbols between shots") {
     SamplingPlan plan;
     plan.num_visible_records = 1;
-    plan.symbols = {SymbolInfo{SymbolKind::Presampled, std::nullopt, std::nullopt}};
+    plan.symbols = {SymbolKind::Presampled};
     plan.actions = {
         PlannedAction{0, 0, RecordClassical{AffineBool::symbol(SymbolId{0}), RecordSlot{0}}},
     };
@@ -772,7 +758,7 @@ TEST_CASE("Sampling executable preserves generic instrument activation") {
     plan.num_qubits = 2;
     plan.initial_active_width = 1;
     plan.peak_active_width = 2;
-    plan.symbols = {SymbolInfo{SymbolKind::Instrument, 0, std::nullopt}};
+    plan.symbols = {SymbolKind::Instrument};
     plan.instrument_distributions = {InstrumentDistribution{{}, {}}};
     plan.actions = {
         PlannedAction{1, 2,
@@ -799,7 +785,7 @@ TEST_CASE("Sampling executable preserves generic instrument activation") {
 TEST_CASE("Sampling executable validates its source plan before lowering") {
     SamplingPlan plan;
     plan.num_qubits = 1;
-    plan.symbols = {SymbolInfo{SymbolKind::Instrument, 0, std::nullopt}};
+    plan.symbols = {SymbolKind::Instrument};
     plan.instrument_distributions = {InstrumentDistribution{{}, {}}};
     plan.actions = {
         PlannedAction{
@@ -1002,8 +988,7 @@ TEST_CASE("Sampling continuation rejects incompatible handoffs") {
 
     SECTION("boundary changes prefix symbol identities") {
         SamplingPlan continuation_plan = root_plan;
-        continuation_plan.symbols.push_back(
-            SymbolInfo{SymbolKind::Unused, std::nullopt, std::nullopt});
+        continuation_plan.symbols.push_back(SymbolKind::Unused);
         continuation_plan.actions[1] =
             PlannedAction{0, 0, InstrumentBoundary{InstrumentSiteId{0}, 0, 2}};
         const ExecutablePlan continuation(continuation_plan);
@@ -1025,8 +1010,7 @@ TEST_CASE("Sampling continuation rejects incompatible handoffs") {
 
     SECTION("continuation contains an unbound presampled symbol") {
         SamplingPlan continuation_plan = root_plan;
-        continuation_plan.symbols.push_back(
-            SymbolInfo{SymbolKind::Presampled, std::nullopt, std::nullopt});
+        continuation_plan.symbols.push_back(SymbolKind::Presampled);
         const ExecutablePlan continuation(continuation_plan);
         Executor executor(root, 1);
         executor.run_shot();
@@ -1096,7 +1080,7 @@ TEST_CASE("Sampling continuation reconstructs expressions from true prefix symbo
 TEST_CASE("Sampling continuation consumes a forced hidden source record") {
     SamplingPlan root_plan;
     root_plan.num_qubits = 1;
-    root_plan.symbols = {SymbolInfo{SymbolKind::Unused, std::nullopt, std::nullopt}};
+    root_plan.symbols = {SymbolKind::Unused};
     root_plan.instrument_distributions = {InstrumentDistribution{{1.0, 1.0}, {}}};
     root_plan.actions = {
         PlannedAction{
@@ -1107,7 +1091,7 @@ TEST_CASE("Sampling continuation consumes a forced hidden source record") {
     };
     SamplingPlan continuation_plan = root_plan;
     continuation_plan.num_hidden_records = 1;
-    continuation_plan.symbols.push_back(SymbolInfo{SymbolKind::Branch, 2, std::nullopt});
+    continuation_plan.symbols.push_back(SymbolKind::Branch);
     continuation_plan.actions.push_back(PlannedAction{
         0, 0,
         MeasureDormantRandom{0, SymbolId{1}, AffineBool::symbol(SymbolId{1}), RecordSlot{0}}});
@@ -1134,7 +1118,7 @@ TEST_CASE("Sampling continuation overwrites an expectation with exact zero") {
     SamplingPlan root_plan;
     root_plan.num_qubits = 1;
     root_plan.num_exp_vals = 2;
-    root_plan.symbols = {SymbolInfo{SymbolKind::Unused, std::nullopt, std::nullopt}};
+    root_plan.symbols = {SymbolKind::Unused};
     root_plan.instrument_distributions = {InstrumentDistribution{{1.0, 1.0}, {}}};
     root_plan.actions = {
         PlannedAction{
@@ -1377,8 +1361,7 @@ TEST_CASE("Packed presampled expression program matches a categorical statistica
     SamplingPlan plan;
     plan.num_visible_records = num_records;
     for (uint32_t symbol = 0; symbol < num_symbols; ++symbol) {
-        plan.symbols.push_back(
-            SymbolInfo{SymbolKind::Presampled, std::nullopt, NoiseSiteId{symbol / 2}});
+        plan.symbols.push_back(SymbolKind::Presampled);
     }
     std::array<double, num_symbols> outcome_probabilities{};
     for (uint32_t site = 0; site < num_sites; ++site) {
@@ -1894,7 +1877,7 @@ TEST_CASE("Sampling survivor execution normalizes and rejects detectors") {
 TEST_CASE("Sampling batch helpers reject unbound presampled symbols") {
     SamplingPlan plan;
     plan.num_visible_records = 1;
-    plan.symbols = {SymbolInfo{SymbolKind::Presampled, std::nullopt, std::nullopt}};
+    plan.symbols = {SymbolKind::Presampled};
     plan.actions = {
         PlannedAction{0, 0, RecordClassical{AffineBool::symbol(SymbolId{0}), RecordSlot{0}}}};
     const ExecutablePlan executable(plan);

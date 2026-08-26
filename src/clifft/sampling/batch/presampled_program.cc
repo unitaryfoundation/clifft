@@ -10,7 +10,6 @@
 #include <iterator>
 #include <limits>
 #include <stdexcept>
-#include <type_traits>
 #include <unordered_map>
 #include <utility>
 
@@ -58,12 +57,14 @@ uint64_t expression_hash(bool constant, std::span<const uint32_t> terms) noexcep
 
 std::optional<BatchPresampledProgram> BatchPresampledProgram::build(
     const ExecutablePlan& executable, const SamplingPlan& source,
-    std::span<const uint32_t> expression_terms, std::span<const uint32_t> expression_term_begins) {
+    std::span<const uint32_t> expression_terms, std::span<const uint32_t> expression_term_begins,
+    std::span<const uint8_t> bound_presampled_symbols) {
 #if defined(__EMSCRIPTEN__)
     (void)executable;
     (void)source;
     (void)expression_terms;
     (void)expression_term_begins;
+    (void)bound_presampled_symbols;
     return std::nullopt;
 #else
     if (executable.has_instruments_) {
@@ -71,39 +72,22 @@ std::optional<BatchPresampledProgram> BatchPresampledProgram::build(
     }
 
     const size_t num_expressions = expression_term_begins.size();
-    std::vector<uint8_t> expression_needed(num_expressions, 1);
-    for (const ExecutablePlan::Action& action : executable.actions_) {
-        std::visit(
-            [&](const auto& typed) {
-                using T = std::decay_t<decltype(typed)>;
-                if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteDetector> ||
-                              std::is_same_v<T, ExecutablePlan::ExecuteObservable>) {
-                    if (typed.record_parity != std::numeric_limits<uint32_t>::max()) {
-                        expression_needed[typed.outcome.register_id] = 0;
-                    }
-                }
-            },
-            action);
-    }
-
+    assert(bound_presampled_symbols.size() == source.symbols.size() &&
+           "presampled ownership must parallel plan symbols");
     std::vector<std::vector<uint32_t> > presampled_terms(num_expressions);
     uint64_t original_presampled_terms = 0;
     for (size_t expression = 0; expression < num_expressions; ++expression) {
-        if (expression_needed[expression] == 0) {
-            continue;
-        }
         const uint32_t begin = expression_term_begins[expression];
         const uint32_t end = expression + 1 < num_expressions
                                  ? expression_term_begins[expression + 1]
                                  : static_cast<uint32_t>(expression_terms.size());
         for (uint32_t term = begin; term < end; ++term) {
             const uint32_t symbol = expression_terms[term];
-            const SymbolInfo& info = source.symbols[symbol];
-            if (info.kind != SymbolKind::Presampled) {
+            if (source.symbols[symbol] != SymbolKind::Presampled) {
                 continue;
             }
             ++original_presampled_terms;
-            if (!info.noise_site.has_value()) {
+            if (bound_presampled_symbols[symbol] == 0) {
                 presampled_terms[expression].push_back(symbol);
             }
         }
@@ -124,9 +108,7 @@ std::optional<BatchPresampledProgram> BatchPresampledProgram::build(
             std::ranges::fill(residual, uint64_t{0});
             for (uint32_t expression :
                  executable.expression_dependencies_.dependent_registers(index(outcome.symbol))) {
-                if (expression_needed[expression] != 0) {
-                    residual[expression >> 6] |= uint64_t{1} << (expression & 63);
-                }
+                residual[expression >> 6] |= uint64_t{1} << (expression & 63);
             }
 
             MutableMaskView residual_view(residual);
@@ -189,9 +171,6 @@ std::optional<BatchPresampledProgram> BatchPresampledProgram::build(
     blocks.reserve(expression_term_begins.size());
     interned.reserve(expression_term_begins.size());
     for (size_t expression = 0; expression < expression_term_begins.size(); ++expression) {
-        if (expression_needed[expression] == 0) {
-            continue;
-        }
         std::vector<uint32_t> terms = std::move(presampled_terms[expression]);
 
         const bool constant = executable.expression_register_constants_[expression] != 0;
@@ -320,7 +299,7 @@ std::optional<BatchPresampledProgram> BatchPresampledProgram::build(
     std::vector<uint32_t> carrier_slots(executable.num_symbols_, kUnassigned);
     const auto mark_carrier = [&](uint32_t symbol) {
         assert(symbol < source.symbols.size() &&
-               source.symbols[symbol].kind == SymbolKind::Presampled &&
+               source.symbols[symbol] == SymbolKind::Presampled &&
                "batch carrier must originate from a presampled symbol");
         carrier_slots[symbol] = 0;
     };

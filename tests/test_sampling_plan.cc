@@ -22,7 +22,6 @@ using clifft::sampling::InstrumentMode;
 using clifft::sampling::InstrumentSiteId;
 using clifft::sampling::MeasureActivePauli;
 using clifft::sampling::MeasureDormantRandom;
-using clifft::sampling::NoiseSiteId;
 using clifft::sampling::ObservableSlot;
 using clifft::sampling::PlannedAction;
 using clifft::sampling::PresampledNoiseOutcome;
@@ -34,7 +33,6 @@ using clifft::sampling::RecordSlot;
 using clifft::sampling::RotateActivePauli;
 using clifft::sampling::SamplingPlan;
 using clifft::sampling::SymbolId;
-using clifft::sampling::SymbolInfo;
 using clifft::sampling::SymbolKind;
 using clifft::sampling::WriteDetector;
 using clifft::sampling::WriteExpectationValue;
@@ -53,12 +51,8 @@ SamplingPlan valid_plan() {
     plan.peak_active_width = 1;
     plan.num_visible_records = 1;
     plan.num_hidden_records = 1;
-    plan.symbols = {
-        SymbolInfo{SymbolKind::Presampled, std::nullopt, NoiseSiteId{0}},
-        SymbolInfo{SymbolKind::Branch, 1, std::nullopt},
-        SymbolInfo{SymbolKind::Derived, 2, std::nullopt},
-        SymbolInfo{SymbolKind::Instrument, 4, std::nullopt},
-    };
+    plan.symbols = {SymbolKind::Presampled, SymbolKind::Branch, SymbolKind::Derived,
+                    SymbolKind::Instrument};
     plan.presampled_noise_sites = {PresampledNoiseSite{0.1, {PresampledNoiseOutcome{noise, 0.1}}}};
     plan.instrument_distributions = {InstrumentDistribution{{0.0, 0.0}, {}}};
     plan.actions = {
@@ -94,7 +88,7 @@ SamplingPlan valid_dormant_measurement_plan() {
     SamplingPlan plan;
     plan.num_qubits = 1;
     plan.num_visible_records = 1;
-    plan.symbols = {SymbolInfo{SymbolKind::Branch, 0, std::nullopt}};
+    plan.symbols = {SymbolKind::Branch};
     plan.actions = {
         PlannedAction{0, 0,
                       MeasureDormantRandom{0, branch, AffineBool::symbol(branch), RecordSlot{0}}},
@@ -109,7 +103,7 @@ SamplingPlan valid_syndrome_plan() {
     plan.num_visible_records = 1;
     plan.num_detectors = 1;
     plan.num_observables = 1;
-    plan.symbols = {SymbolInfo{SymbolKind::Readout, 1, std::nullopt}};
+    plan.symbols = {SymbolKind::Readout};
     plan.actions = {
         PlannedAction{0, 0, RecordClassical{AffineBool{}, RecordSlot{0}}},
         PlannedAction{0, 0, ApplyReadoutNoise{readout, AffineBool{}, RecordSlot{0}, 0.1, 0.2}},
@@ -153,7 +147,7 @@ TEST_CASE("Sampling plan validates symbolic and active state invariants") {
 
     const std::string text = plan.inspect();
     REQUIRE(text.find("sampling_plan qubits=2 initial_width=0 peak_width=1") != std::string::npos);
-    REQUIRE(text.find("s0 kind=presampled noise_site=0") != std::string::npos);
+    REQUIRE(text.find("s0 kind=presampled") != std::string::npos);
     REQUIRE(text.find("1 w1->0 dense_passes=2 MEASURE_ACTIVE X0") != std::string::npos);
     REQUIRE(text.find("outcome=s0^s1 record=r0") != std::string::npos);
     REQUIRE(text.find("5 w0 dense_passes=0 INSTRUMENT_BOUNDARY site=0 ") != std::string::npos);
@@ -192,28 +186,22 @@ TEST_CASE("Sampling plan rejects symbolic use before assignment") {
     REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
 }
 
-TEST_CASE("Sampling plan rejects invalid symbol metadata and definitions") {
-    SECTION("definition metadata disagrees with the action") {
+TEST_CASE("Sampling plan rejects invalid symbol definitions") {
+    SECTION("an action cannot define a presampled symbol") {
         SamplingPlan plan = valid_plan();
-        plan.symbols[2].defining_action = 3;
+        plan.symbols[2] = SymbolKind::Presampled;
         REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
     }
 
-    SECTION("presampled symbol names a defining action") {
+    SECTION("an action cannot define an unused symbol") {
         SamplingPlan plan = valid_plan();
-        plan.symbols[0].defining_action = 0;
+        plan.symbols[2] = SymbolKind::Unused;
         REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
     }
 
-    SECTION("noise site is out of range") {
+    SECTION("a dynamic symbol requires a defining action") {
         SamplingPlan plan = valid_plan();
-        plan.symbols[0].noise_site = NoiseSiteId{1};
-        REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
-    }
-
-    SECTION("non-presampled symbol names a noise site") {
-        SamplingPlan plan = valid_plan();
-        plan.symbols[1].noise_site = NoiseSiteId{0};
+        plan.symbols.push_back(SymbolKind::Branch);
         REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
     }
 
@@ -231,13 +219,13 @@ TEST_CASE("Sampling plan rejects invalid symbol metadata and definitions") {
 
     SECTION("branch kind is defined by a derived-symbol action") {
         SamplingPlan plan = valid_plan();
-        plan.symbols[2].kind = SymbolKind::Branch;
+        plan.symbols[2] = SymbolKind::Branch;
         REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
     }
 
     SECTION("derived kind is defined by a measurement") {
         SamplingPlan plan = valid_plan();
-        plan.symbols[1].kind = SymbolKind::Derived;
+        plan.symbols[1] = SymbolKind::Derived;
         REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
     }
 
@@ -256,7 +244,7 @@ TEST_CASE("Sampling plan rejects invalid symbol metadata and definitions") {
 
     SECTION("symbol kind is unrecognized") {
         SamplingPlan plan = valid_plan();
-        plan.symbols[2].kind = static_cast<SymbolKind>(std::numeric_limits<uint8_t>::max());
+        plan.symbols[2] = static_cast<SymbolKind>(std::numeric_limits<uint8_t>::max());
         REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
     }
 }
@@ -326,7 +314,7 @@ TEST_CASE("Sampling plan rejects measurement pivots outside Pauli support") {
     plan.initial_active_width = 2;
     plan.peak_active_width = 2;
     plan.num_visible_records = 1;
-    plan.symbols = {SymbolInfo{SymbolKind::Branch, 0, std::nullopt}};
+    plan.symbols = {SymbolKind::Branch};
     plan.actions = {
         PlannedAction{2, 1,
                       MeasureActivePauli{ActivePauli{1, 0}, 1, branch, AffineBool::symbol(branch),
@@ -496,7 +484,7 @@ TEST_CASE("Sampling plan validates noise distributions and syndrome actions") {
     SECTION("noise outcome probabilities cannot exceed one in total") {
         SamplingPlan plan = valid_plan();
         const SymbolId second_noise{3};
-        plan.symbols.push_back(SymbolInfo{SymbolKind::Presampled, std::nullopt, NoiseSiteId{0}});
+        plan.symbols.push_back(SymbolKind::Presampled);
         plan.presampled_noise_sites[0].outcomes[0].probability = 0.6;
         plan.presampled_noise_sites[0].outcomes.push_back(
             PresampledNoiseOutcome{second_noise, 0.6});
@@ -506,7 +494,6 @@ TEST_CASE("Sampling plan validates noise distributions and syndrome actions") {
     SECTION("readout requires an assigned record") {
         SamplingPlan plan = valid_syndrome_plan();
         plan.actions.erase(plan.actions.begin());
-        plan.symbols[0].defining_action = 0;
         REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
     }
 

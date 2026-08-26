@@ -95,7 +95,7 @@ ExecutablePlan::ExecutablePlan(const SamplingPlan& plan)
             {begin, static_cast<uint32_t>(noise_outcomes_.size()) - begin, cumulative_probability});
     }
     for (size_t symbol = 0; symbol < plan.symbols.size(); ++symbol) {
-        if (plan.symbols[symbol].kind == SymbolKind::Presampled && !bound_presampled[symbol]) {
+        if (plan.symbols[symbol] == SymbolKind::Presampled && !bound_presampled[symbol]) {
             throw std::invalid_argument(
                 "HIP execution requires a distribution for every presampled symbol");
         }
