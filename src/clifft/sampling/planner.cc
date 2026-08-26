@@ -716,7 +716,9 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
         plan.final_tableau = coordinates_to_physical.then(*plan.final_tableau);
     }
 
-    plan.validate();
+    // CPU and HIP executable construction validate both compiler-produced and
+    // externally assembled plans before execution. Repeating that full scan
+    // here makes the normal compile path validate the same plan twice.
     return plan;
 }
 

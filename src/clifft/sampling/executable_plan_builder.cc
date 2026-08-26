@@ -594,7 +594,7 @@ void ExecutablePlanBuilder::prepare_batch_expression_initialization() {
             }
         }
     }
-    if (original_presampled_terms == 0) {
+    if (original_presampled_terms < kMinBatchExpressionTerms) {
         return;
     }
 
@@ -753,9 +753,8 @@ void ExecutablePlanBuilder::prepare_batch_expression_initialization() {
     // Parent and duplicate copies each require a full packed-column pass.
     // Retain the ordinary dependency path unless the compiled tape removes
     // enough passes to amortize its extra plan storage and reset bookkeeping.
-    if (original_presampled_terms < kMinBatchExpressionTerms ||
-        prepared_operations * kBatchExpressionCostDenominator >
-            original_presampled_terms * kBatchExpressionCostNumerator) {
+    if (prepared_operations * kBatchExpressionCostDenominator >
+        original_presampled_terms * kBatchExpressionCostNumerator) {
         output_.batch_noise_outcomes_.clear();
         output_.batch_noise_assignments_.clear();
         return;
