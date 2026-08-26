@@ -1,10 +1,10 @@
 """Clifft.
 
 A fast exact simulator for near-Clifford quantum circuits. Clifft accepts
-Stim-format circuits with non-Clifford extensions and compiles them into a
-symbolic-coordinate sampling plan whose cost scales with the active-state
-dimension rather than the full Hilbert space. If the active width is `k`, this
-dimension is `2^k`.
+Stim-format circuits with non-Clifford extensions and a native unitary
+OpenQASM 2 subset, then compiles them into a symbolic-coordinate sampling plan
+whose cost scales with the active-state dimension rather than the full Hilbert
+space. If the active width is `k`, this dimension is `2^k`.
 """
 
 # ruff: noqa: E402
@@ -13,7 +13,7 @@ from __future__ import annotations
 import importlib
 from collections.abc import Sequence
 from types import ModuleType
-from typing import TYPE_CHECKING, Protocol, TypeAlias, cast
+from typing import TYPE_CHECKING, Literal, Protocol, TypeAlias, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -41,6 +41,7 @@ from clifft._clifft_core import (
     ParseError,
     PeepholeFusionPass,
     Program,
+    Qasm2Import,
     RemoveNoisePass,
     StatevectorSqueezePass,
     Target,
@@ -52,6 +53,8 @@ from clifft._clifft_core import (
     lower,
     parse,
     parse_file,
+    parse_qasm2,
+    parse_qasm2_file,
     runtime_isa,
     sample,
     sample_k,
@@ -59,6 +62,9 @@ from clifft._clifft_core import (
     sample_survivors,
     trace,
     version,
+)
+from clifft._clifft_core import (
+    _compile_qasm2 as _compile_qasm2_core,
 )
 from clifft._clifft_core import (
     _prepare_hir_for_lowering as _prepare_hir_for_lowering,
@@ -295,6 +301,7 @@ def compile(
     expected_observables: list[int] | None = None,
     normalize_syndromes: bool = False,
     hir_passes: HirPassManager | None | _DefaultPasses = _DEFAULT_PASSES,
+    input_format: Literal["stim", "qasm2"] = "stim",
 ) -> Program:
     """Compile a quantum circuit string to an executable sampling program.
 
@@ -307,7 +314,7 @@ def compile(
     that 0 means 'matches noiseless reference' and 1 means 'error'.
 
     Args:
-        stim_text: Circuit in .stim text format.
+        stim_text: Circuit text in the format selected by ``input_format``.
         postselection_mask: Optional list of uint8 flags, one per detector.
             Detectors where mask[i] != 0 become post-selection checks
             that abort the shot early if their parity is non-zero.
@@ -317,10 +324,18 @@ def compile(
             noiseless reference shot (mutually exclusive with explicit parities).
         hir_passes: HirPassManager to run on the HIR before lowering.
             Defaults to ``default_hir_pass_manager()``. Pass ``None`` to skip.
+        input_format: ``"stim"`` for Clifft's Stim-compatible syntax or
+            ``"qasm2"`` for the supported unitary OpenQASM 2 subset.
     """
     if isinstance(hir_passes, _DefaultPasses):
         hir_passes = default_hir_pass_manager()
-    return _compile_core(
+    if input_format == "stim":
+        compile_core = _compile_core
+    elif input_format == "qasm2":
+        compile_core = _compile_qasm2_core
+    else:
+        raise ValueError("input_format must be 'stim' or 'qasm2'")
+    return compile_core(
         stim_text,
         postselection_mask if postselection_mask is not None else [],
         expected_detectors if expected_detectors is not None else [],
@@ -345,6 +360,7 @@ __all__ = [
     "ParseError",
     "PeepholeFusionPass",
     "Program",
+    "Qasm2Import",
     "RemoveNoisePass",
     "SampleResult",
     "StatevectorSqueezePass",
@@ -359,6 +375,8 @@ __all__ = [
     "noncomp",
     "parse",
     "parse_file",
+    "parse_qasm2",
+    "parse_qasm2_file",
     "record_probabilities",
     "runtime_isa",
     "sample",

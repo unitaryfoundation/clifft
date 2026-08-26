@@ -23,10 +23,10 @@
 
 Built and maintained by the [Unitary Foundation](https://unitary.foundation).
 
-Clifft accepts Stim-format circuits, extends them with non-Clifford gates, and
-compiles them into symbolic-coordinate sampling plans. It is designed for
-circuits whose dominant structure is Clifford, but whose behavior depends on
-localized non-Clifford operations.
+Clifft accepts Stim-format circuits with non-Clifford extensions and a native
+unitary OpenQASM 2 subset, then compiles them into symbolic-coordinate sampling
+plans. It is designed for circuits whose dominant structure is Clifford, but
+whose behavior depends on localized non-Clifford operations.
 
 The dense active state has `2^k` amplitudes, where `k` is its active width. The
 main simulation cost therefore scales with `2^k`, rather than directly with the
@@ -51,8 +51,9 @@ benchmarks.
 
 ## Why Clifft?
 
-- **Stim-compatible format and API**: parse Stim-format circuits with noise,
-  detectors, observables, and repeat blocks, plus non-Clifford extensions.
+- **Native circuit formats**: parse Stim-format circuits with noise, detectors,
+  observables, and repeat blocks, plus unitary OpenQASM 2 input and non-Clifford
+  extensions.
 - **Exact near-Clifford simulation**: simulate localized non-Clifford effects
   without approximating the quantum state.
 - **Optimizing compiler pipeline**: resolve Clifford coordinates and symbolic

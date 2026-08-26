@@ -96,6 +96,7 @@ nav:
   - Getting Started:
     - Installation: getting-started/installation.md
     - Quick Start: getting-started/quickstart.md
+    - Native OpenQASM 2 Input: getting-started/openqasm2.md
     - Front-End Integrations: getting-started/integrations.md
   - User Guide:
     - Compiling Circuits: guide/compilation.md
