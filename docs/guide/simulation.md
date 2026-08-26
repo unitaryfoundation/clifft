@@ -249,6 +249,13 @@ or moving between scalar and packed execution after a planner or policy change,
 can therefore change individual seeded rows. The resulting samples remain
 statistically equivalent.
 
+Native automatic mode can select packed execution while WebAssembly always
+uses scalar execution. Consequently, identical calls using `batch_size="auto"`
+are not guaranteed to produce the same individual rows across native and
+WebAssembly builds. Upgrading from a release that predates packed automatic
+sampling can likewise change seeded rows. Repeating the call with the same
+program, seed, and execution configuration remains exactly reproducible.
+
 ## Packed Batch Sampling
 
 The four fixed-plan sampling functions accept `batch_size`. Its default value,
@@ -266,9 +273,12 @@ packed = clifft.sample(program, 100_000, seed=42, batch_size=1024)
 
 An explicit positive integer requests a packed lane-capacity limit and is mainly
 useful for profiling. The implementation caps explicit capacities at 2048 lanes;
-the final partial batch can be smaller. Automatic selection currently requires at
-least 64 shots and a peak active width of at most 5. An explicit capacity can opt
-into other fixed plans when packed execution is supported.
+the final partial batch can be smaller. Before allocating a worker, Clifft also
+rejects an explicit capacity whose dense packed state would exceed 64 MiB. Reduce
+`batch_size` or select `batch_size=1` when that diagnostic is raised. Automatic
+selection currently requires at least 64 shots and a peak active width of at most
+5. An explicit capacity can opt into other fixed plans when packed execution is
+supported and its state footprint fits the explicit limit.
 
 Packed execution supports ordinary sampling, post-selected survivor sampling,
 counts-only survivor aggregation, expectation values, and fixed-k importance
@@ -368,8 +378,8 @@ result = clifft.sample_k_survivors(prog, shots=50_000, k=3, seed=42)
 
 Key API:
 
-- **`clifft.sample_k(program, shots, k, seed=None, threads=1, thread_layout=None, intra_shot_min_active_width=None)`** -- Like `sample()`, but forces exactly `k` faults. Only valid for programs without post-selection; post-selected programs must use `sample_k_survivors()`. Returns a `SampleResult` with `.measurements`, `.detectors`, and `.observables`.
-- **`clifft.sample_k_survivors(program, shots, k, seed=None, keep_records=False, threads=1, thread_layout=None, intra_shot_min_active_width=None)`** -- Like `sample_survivors()`, but forces exactly `k` faults. Returns a `SampleResult` whose arrays contain only surviving shots plus survivor metadata.
+- **`clifft.sample_k(program, shots, k, seed=None, threads=1, thread_layout=None, intra_shot_min_active_width=None, batch_size="auto")`** -- Like `sample()`, but forces exactly `k` faults. Only valid for programs without post-selection; post-selected programs must use `sample_k_survivors()`. Returns a `SampleResult` with `.measurements`, `.detectors`, and `.observables`.
+- **`clifft.sample_k_survivors(program, shots, k, seed=None, keep_records=False, threads=1, thread_layout=None, intra_shot_min_active_width=None, batch_size="auto")`** -- Like `sample_survivors()`, but forces exactly `k` faults. Returns a `SampleResult` whose arrays contain only surviving shots plus survivor metadata.
 - **`program.noise_site_probabilities`** -- 1D NumPy array of per-site fault probabilities, with quantum noise sites followed by readout noise entries. Use this for computing the Poisson-binomial PMF.
 
 See the [Importance Sampling Tutorial](importance-sampling.md) for a complete walkthrough.

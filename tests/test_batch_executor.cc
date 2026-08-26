@@ -135,7 +135,7 @@ TEST_CASE("Packed capacity policy bounds worker state footprint") {
                         "packed batch_size is incompatible with intra-shot workers");
 
     std::string circuit;
-    for (uint32_t qubit = 0; qubit < 12; ++qubit) {
+    for (uint32_t qubit = 0; qubit < 18; ++qubit) {
         circuit.append("H ")
             .append(std::to_string(qubit))
             .append("\nT ")
@@ -144,8 +144,19 @@ TEST_CASE("Packed capacity policy bounds worker state footprint") {
     }
     const ExecutablePlan wide(
         clifft::sampling::plan_sampling(clifft::trace(clifft::parse(circuit))));
-    REQUIRE(wide.peak_active_width() == 12);
+    REQUIRE(wide.peak_active_width() == 18);
     REQUIRE(resolve_batch_capacity(wide, 4096, 1, std::nullopt) == 1);
+    REQUIRE(resolve_batch_capacity(wide, 4096, 1, uint32_t{2}) == 2);
+    REQUIRE_THROWS_WITH(
+        resolve_batch_capacity(wide, 4096, 1, uint32_t{2048}),
+        "explicit batch_size exceeds the 64 MiB packed-state limit; request a smaller batch_size");
+
+    const ExecutablePlan aligned(clifft::sampling::plan_sampling(
+        clifft::trace(clifft::parse(circuit + "H 18\nT 18\nH 18\nM 18\n"))));
+    REQUIRE(aligned.peak_active_width() == 19);
+    REQUIRE_THROWS_WITH(
+        resolve_batch_capacity(aligned, 4096, 1, uint32_t{2}),
+        "explicit batch_size exceeds the 64 MiB packed-state limit; request a smaller batch_size");
 
     const ExecutablePlan interleaved(clifft::sampling::plan_sampling(
         clifft::trace(clifft::parse("H 0 1 2 3 4\nT 0 1 2 3 4\nH 0 1 2 3 4\nM 0 1 2 3 4\n"))));

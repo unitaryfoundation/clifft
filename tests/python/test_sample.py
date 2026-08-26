@@ -180,6 +180,12 @@ class TestSample:
                 batch_size=64,
             )
 
+    def test_explicit_batch_size_rejects_unsafe_state_footprint(self, sampling_api: Any) -> None:
+        circuit = "\n".join(f"H {qubit}\nT {qubit}" for qubit in range(20))
+        prog = sampling_api.compile(circuit)
+        with pytest.raises(ValueError, match="64 MiB packed-state limit"):
+            sampling_api.sample(prog, 4096, batch_size=2048)
+
     @pytest.mark.parametrize("threads", [2, "auto"])
     def test_sample_threads_preserve_seeded_rows(self, sampling_api: Any, threads: Any) -> None:
         """Worker count and dynamic scheduling do not change seeded rows."""

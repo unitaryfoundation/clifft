@@ -23,6 +23,7 @@ namespace clifft::sampling {
 inline constexpr uint32_t kDefaultMaxAutoBatchShots = 2048;
 inline constexpr uint32_t kMaxExplicitBatchShots = 2048;
 inline constexpr size_t kDefaultBatchStateBudget = 768 * 1024;
+inline constexpr size_t kMaxExplicitBatchStateBudget = 64 * 1024 * 1024;
 inline constexpr uint32_t kDefaultMinAutoBatchShots = 64;
 
 enum class BatchOutputMode : uint8_t {
@@ -96,7 +97,6 @@ class BatchExecutor {
     void initialize_presampled_expressions() noexcept;
     void propagate_symbol(uint32_t symbol) noexcept;
     void assign_symbol(uint32_t symbol, std::span<const uint64_t> values) noexcept;
-    [[nodiscard]] double next_random_double() noexcept;
     void fill_random_half_bits() noexcept;
 
     void execute_actions() noexcept;
@@ -134,7 +134,6 @@ class BatchExecutor {
     [[nodiscard]] std::span<const uint64_t> evaluate_record_parity(uint32_t parity_index) noexcept;
     [[nodiscard]] bool lane_bit(std::span<const uint64_t> bits, uint32_t lane) const noexcept;
     [[nodiscard]] bool is_live(uint32_t lane) const noexcept;
-    [[nodiscard]] bool sample_active_branch(MeasurementProbabilities probabilities) noexcept;
     [[nodiscard]] bool should_compact(size_t action_index) const noexcept;
     void compact_live_lanes() noexcept;
     void finalize_live_lanes() noexcept;

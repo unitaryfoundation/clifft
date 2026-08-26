@@ -62,6 +62,19 @@ struct MeasurementBranchClassification {
     return left * right;
 }
 
+[[nodiscard]] uint64_t interleaved_state_bytes_per_lane(const ExecutablePlan& plan) noexcept {
+    const uint64_t coefficient_capacity = uint64_t{1} << plan.peak_active_width();
+    constexpr uint64_t kMax = std::numeric_limits<uint64_t>::max();
+    if (plan.peak_active_width() != 0 && coefficient_capacity > kMax / 3) {
+        return kMax;
+    }
+    const uint64_t entries = plan.peak_active_width() == 0 ? 4 : 3 * coefficient_capacity;
+    if (entries > kMax / sizeof(double)) {
+        return kMax;
+    }
+    return sizeof(double) * entries;
+}
+
 }  // namespace
 
 #if !defined(__EMSCRIPTEN__)
@@ -82,8 +95,16 @@ uint32_t resolve_batch_capacity(const ExecutablePlan& plan, uint32_t shots,
         return 1;
     }
     if (requested_batch_size.has_value()) {
-        return std::max(uint32_t{1},
-                        std::min({*requested_batch_size, shots, kMaxExplicitBatchShots}));
+        const uint32_t capacity =
+            std::max(uint32_t{1}, std::min({*requested_batch_size, shots, kMaxExplicitBatchShots}));
+        const uint64_t state_bytes_per_lane = interleaved_state_bytes_per_lane(plan);
+        const uint64_t lane_pitch = (static_cast<uint64_t>(capacity) + 7) & ~uint64_t{7};
+        if (capacity > 1 && state_bytes_per_lane > kMaxExplicitBatchStateBudget / lane_pitch) {
+            throw std::invalid_argument(
+                "explicit batch_size exceeds the 64 MiB packed-state limit; request a smaller "
+                "batch_size");
+        }
+        return capacity;
     }
     if (shots < kDefaultMinAutoBatchShots) {
         return 1;
@@ -91,10 +112,9 @@ uint32_t resolve_batch_capacity(const ExecutablePlan& plan, uint32_t shots,
     if (plan.peak_active_width() > 5) {
         return 1;
     }
-    const size_t coefficient_capacity = size_t{1} << plan.peak_active_width();
-    const size_t state_bytes = sizeof(double) * (2 * coefficient_capacity +
-                                                 2 * std::max<size_t>(1, coefficient_capacity / 2));
-    const size_t footprint_capacity = std::max<size_t>(1, kDefaultBatchStateBudget / state_bytes);
+    const uint64_t state_bytes_per_lane = interleaved_state_bytes_per_lane(plan);
+    const size_t footprint_capacity =
+        std::max<uint64_t>(1, kDefaultBatchStateBudget / state_bytes_per_lane);
     return static_cast<uint32_t>(
         std::min<size_t>({shots, kDefaultMaxAutoBatchShots, footprint_capacity}));
 }
@@ -129,11 +149,7 @@ BatchExecutor::BatchExecutor(const ExecutablePlan& plan, uint32_t lane_capacity,
       signed_sines_(lane_capacity, 0.0),
       probability_zero_(lane_capacity, 0.0),
       probability_one_(lane_capacity, 0.0),
-      lane_values_(lane_capacity, 0.0) {
-    if (lane_capacity_ == 0) {
-        throw std::invalid_argument("packed sampling lane capacity must be positive");
-    }
-}
+      lane_values_(lane_capacity, 0.0) {}
 
 void BatchExecutor::run_batch(const SeedRoot& root, uint32_t first_shot, uint32_t shots) noexcept {
     fixed_fault_mode_ = false;
@@ -178,10 +194,6 @@ void BatchExecutor::reset_batch(const SeedRoot& root, uint32_t first_shot,
         shot_indices_[lane] = first_shot + lane;
     }
     initialize_expression_registers();
-}
-
-double BatchExecutor::next_random_double() noexcept {
-    return static_cast<double>(rng_() >> 11) * 0x1.0p-53;
 }
 
 void BatchExecutor::fill_random_half_bits() noexcept {
@@ -258,7 +270,7 @@ void BatchExecutor::sample_presampled_noise() noexcept {
         const uint64_t total_draws = static_cast<uint64_t>(active_lanes_) * end;
         uint64_t draw_index = 0;
         while (draw_index < total_draws) {
-            const double gap = -std::log(1.0 - next_random_double()) * inverse_hazard;
+            const double gap = -std::log(1.0 - rng_.next_double()) * inverse_hazard;
             if (gap >= static_cast<double>(total_draws - draw_index)) {
                 break;
             }
@@ -285,8 +297,8 @@ void BatchExecutor::sample_presampled_noise() noexcept {
             if (current_hazard >= plan_->noise_hazards_[end - 1]) {
                 break;
             }
-            const uint32_t site = sample_next_noise_site(plan_->noise_hazards_, first_candidate,
-                                                         next_random_double());
+            const uint32_t site =
+                sample_next_noise_site(plan_->noise_hazards_, first_candidate, rng_.next_double());
             if (site == kNoNoiseSite || site >= end) {
                 break;
             }
@@ -310,7 +322,7 @@ void BatchExecutor::assign_forced_faults(KFaultSampler& fault_sampler) noexcept 
     const uint32_t quantum_sites = static_cast<uint32_t>(plan_->noise_sites_.size());
     for (uint32_t lane = 0; lane < active_lanes_; ++lane) {
         const std::span<const uint32_t> selected =
-            fault_sampler.sample([&]() noexcept { return next_random_double(); });
+            fault_sampler.sample([&]() noexcept { return rng_.next_double(); });
         for (uint32_t site : selected) {
             if (site < quantum_sites) {
                 activate_noise_site(lane, site);
@@ -338,7 +350,7 @@ void BatchExecutor::activate_noise_site(uint32_t lane, uint32_t site_index) noex
     if (site.outcome_count > 1) {
         const double execution_probability =
             plan_->noise_outcomes_[outcome_end - 1].cumulative_probability;
-        const double draw = next_random_double() * execution_probability;
+        const double draw = rng_.next_double() * execution_probability;
         while (draw >= plan_->noise_outcomes_[outcome_index].cumulative_probability) {
             ++outcome_index;
             assert(outcome_index < outcome_end && "channel draw must select a prepared outcome");
@@ -416,11 +428,16 @@ void BatchExecutor::execute_action(const ExecutablePlan::ExecuteDynamicFusedRota
     for (size_t variant = 0; variant < rotation.variants.size(); ++variant) {
         variants[variant] = &rotation.variants[variant].rotation();
     }
+    std::array<std::span<const uint64_t>, 2> sign_bits{};
+    assert(rotation.sign_basis.size() <= sign_bits.size() &&
+           "dynamic fused rotation sign basis must fit prepared scratch");
+    for (size_t basis = 0; basis < rotation.sign_basis.size(); ++basis) {
+        sign_bits[basis] = evaluate(rotation.sign_basis[basis]);
+    }
     for (uint32_t lane = 0; lane < active_lanes_; ++lane) {
         uint32_t variant = 0;
         for (size_t basis = 0; basis < rotation.sign_basis.size(); ++basis) {
-            variant |= static_cast<uint32_t>(lane_bit(evaluate(rotation.sign_basis[basis]), lane))
-                       << basis;
+            variant |= static_cast<uint32_t>(lane_bit(sign_bits[basis], lane)) << basis;
         }
         assert(variant < rotation.variants.size() && "dynamic sign must select a prepared variant");
         lane_bytes_[lane] = static_cast<uint8_t>(variant);
@@ -453,9 +470,22 @@ void BatchExecutor::execute_action(const ExecutablePlan::ExecuteActiveMeasuremen
                                                      probability_one_[lane]};
         const MeasurementBranchClassification classification =
             classify_measurement_branch(probabilities);
-        const bool branch = is_live(lane)
-                                ? sample_active_branch(probabilities)
-                                : classification.kind == MeasurementBranchKind::DeterministicOne;
+        bool branch = classification.kind == MeasurementBranchKind::DeterministicOne;
+        if (is_live(lane)) {
+            switch (classification.kind) {
+                case MeasurementBranchKind::Random:
+                    branch = rng_.next_double() * probabilities.total() >= probabilities.zero;
+                    break;
+                case MeasurementBranchKind::DeterministicZero:
+                    dust_clamps_ += static_cast<uint64_t>(classification.clamped_dust);
+                    branch = false;
+                    break;
+                case MeasurementBranchKind::DeterministicOne:
+                    dust_clamps_ += static_cast<uint64_t>(classification.clamped_dust);
+                    branch = true;
+                    break;
+            }
+        }
         lane_bytes_[lane] = static_cast<uint8_t>(branch);
         if (branch) {
             scratch_words_[lane >> 6] |= uint64_t{1} << (lane & 63);
@@ -518,7 +548,7 @@ void BatchExecutor::execute_action(const ExecutablePlan::ExecuteReadoutNoise& ac
             uint64_t lane = 0;
             while (lane < active_lanes_) {
                 const double gap =
-                    -std::log(1.0 - next_random_double()) * action.batch_symmetric_inverse_hazard;
+                    -std::log(1.0 - rng_.next_double()) * action.batch_symmetric_inverse_hazard;
                 if (gap >= static_cast<double>(active_lanes_ - lane)) {
                     break;
                 }
@@ -536,7 +566,7 @@ void BatchExecutor::execute_action(const ExecutablePlan::ExecuteReadoutNoise& ac
             }
             const bool source = lane_bit(sources, lane);
             const double probability = source ? action.prob_one_to_zero : action.prob_zero_to_one;
-            if (probability >= 1.0 || (probability > 0.0 && next_random_double() < probability)) {
+            if (probability >= 1.0 || (probability > 0.0 && rng_.next_double() < probability)) {
                 scratch_words_[lane >> 6] |= uint64_t{1} << (lane & 63);
             }
         }
@@ -628,15 +658,17 @@ std::span<const uint64_t> BatchExecutor::evaluate_record_parity(uint32_t parity_
     const uint32_t end = parity.begin + parity.count;
     assert(end <= plan_->batch_record_parity_terms_.size() &&
            "prepared record parity must stay in its term tape");
+    const size_t words = packed_word_count(active_lanes_);
     if (parity.constant) {
-        std::ranges::copy(live_words_, scratch_words_.begin());
+        std::ranges::copy(std::span<const uint64_t>(live_words_).first(words),
+                          scratch_words_.begin());
     } else {
-        std::ranges::fill(scratch_words_, uint64_t{0});
+        std::ranges::fill(std::span<uint64_t>(scratch_words_).first(words), uint64_t{0});
     }
     for (uint32_t term = parity.begin; term < end; ++term) {
         const std::span<const uint64_t> record =
             records_.column(plan_->batch_record_parity_terms_[term]);
-        for (size_t word = 0; word < word_capacity_; ++word) {
+        for (size_t word = 0; word < words; ++word) {
             scratch_words_[word] ^= record[word];
         }
     }
@@ -652,23 +684,6 @@ bool BatchExecutor::lane_bit(std::span<const uint64_t> bits, uint32_t lane) cons
 bool BatchExecutor::is_live(uint32_t lane) const noexcept {
     assert(lane < active_lanes_ && "live lookup must reference the current lane span");
     return ((live_words_[lane >> 6] >> (lane & 63)) & uint64_t{1}) != 0;
-}
-
-bool BatchExecutor::sample_active_branch(MeasurementProbabilities probabilities) noexcept {
-    const MeasurementBranchClassification classification =
-        classify_measurement_branch(probabilities);
-    switch (classification.kind) {
-        case MeasurementBranchKind::Random:
-            return next_random_double() * probabilities.total() >= probabilities.zero;
-        case MeasurementBranchKind::DeterministicZero:
-            dust_clamps_ += static_cast<uint64_t>(classification.clamped_dust);
-            return false;
-        case MeasurementBranchKind::DeterministicOne:
-            dust_clamps_ += static_cast<uint64_t>(classification.clamped_dust);
-            return true;
-    }
-    assert(false && "unhandled measurement branch classification");
-    return false;
 }
 
 bool BatchExecutor::should_compact(size_t action_index) const noexcept {
@@ -725,9 +740,16 @@ void BatchExecutor::compact_live_lanes() noexcept {
         const uint32_t source = sources[destination];
         if (destination != source) {
             shot_indices_[destination] = shot_indices_[source];
-            for (uint32_t exp_val = 0; exp_val < exp_vals_.size() / lane_capacity_; ++exp_val) {
-                exp_vals_[static_cast<size_t>(exp_val) * lane_capacity_ + destination] =
-                    exp_vals_[static_cast<size_t>(exp_val) * lane_capacity_ + source];
+        }
+    }
+    if (output_mode_ == BatchOutputMode::Rows) {
+        for (uint32_t exp_val = 0; exp_val < plan_->num_exp_vals_; ++exp_val) {
+            double* values = exp_vals_.data() + static_cast<size_t>(exp_val) * lane_capacity_;
+            for (destination = 0; destination < live_count_; ++destination) {
+                const uint32_t source = sources[destination];
+                if (destination != source) {
+                    values[destination] = values[source];
+                }
             }
         }
     }

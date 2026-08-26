@@ -25,6 +25,7 @@
 #include <optional>
 #include <sstream>
 #include <string>
+#include <variant>
 #include <vector>
 
 namespace {
@@ -101,6 +102,13 @@ uint64_t checksum_result(const clifft::sampling::SamplingSurvivorResult& result)
         checksum = mix(checksum, value);
     }
     return checksum;
+}
+
+using ProfileResult =
+    std::variant<clifft::sampling::SamplingResult, clifft::sampling::SamplingSurvivorResult>;
+
+uint64_t checksum_result(const ProfileResult& result) {
+    return std::visit([](const auto& typed) { return checksum_result(typed); }, result);
 }
 
 void summarize(std::vector<double> samples_ms, int shots) {
@@ -231,30 +239,31 @@ int main() {
     const std::optional<uint32_t> requested_batch_size =
         batch_size_value == nullptr ? std::nullopt
                                     : std::optional<uint32_t>{static_cast<uint32_t>(batch_size)};
-    const auto run_sample = [&](uint64_t sample_seed) {
+    const auto run_sample = [&](uint64_t sample_seed) -> ProfileResult {
         if (aggregate_survivors) {
-            return checksum_result(clifft::sampling::sample_survivors(
+            return clifft::sampling::sample_survivors(
                 program, static_cast<uint32_t>(shots), sample_seed, false,
-                static_cast<uint32_t>(threads), thread_layout, requested_batch_size));
+                static_cast<uint32_t>(threads), thread_layout, requested_batch_size);
         }
-        return checksum_result(clifft::sampling::sample(program, static_cast<uint32_t>(shots),
-                                                        sample_seed, static_cast<uint32_t>(threads),
-                                                        thread_layout, requested_batch_size));
+        return clifft::sampling::sample(program, static_cast<uint32_t>(shots), sample_seed,
+                                        static_cast<uint32_t>(threads), thread_layout,
+                                        requested_batch_size);
     };
 
     uint64_t checksum = 0;
     for (int iteration = 0; iteration < warmups; ++iteration) {
-        checksum = mix(checksum, run_sample(kSeed + iteration));
+        const ProfileResult result = run_sample(kSeed + iteration);
+        checksum = mix(checksum, checksum_result(result));
     }
 
     std::vector<double> samples_ms;
     samples_ms.reserve(static_cast<size_t>(repetitions));
     for (int iteration = 0; iteration < repetitions; ++iteration) {
         const auto start = std::chrono::steady_clock::now();
-        const uint64_t result_checksum = run_sample(kSeed + warmups + iteration);
+        const ProfileResult result = run_sample(kSeed + warmups + iteration);
         const auto end = std::chrono::steady_clock::now();
         samples_ms.push_back(std::chrono::duration<double, std::milli>(end - start).count());
-        checksum = mix(checksum, result_checksum);
+        checksum = mix(checksum, checksum_result(result));
     }
 
     summarize(samples_ms, shots);

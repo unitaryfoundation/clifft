@@ -550,6 +550,9 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::build_expression_depende
 }
 
 void ExecutablePlanBuilder::prepare_batch_expression_initialization() {
+#if defined(__EMSCRIPTEN__)
+    return;
+#endif
     if (output_.has_instruments_) {
         return;
     }
