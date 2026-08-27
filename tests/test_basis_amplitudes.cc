@@ -21,6 +21,23 @@ std::complex<double> amplitude(const std::string& circuit_text, uint64_t basis) 
     return clifft::sampling::BasisAmplitudeQuery(circuit, mask).evaluate();
 }
 
+clifft::Circuit layered_circuit(clifft::GateType first, clifft::GateType second,
+                                uint32_t num_qubits) {
+    clifft::Circuit circuit;
+    circuit.num_qubits = num_qubits;
+    circuit.nodes.reserve(2 * static_cast<size_t>(num_qubits));
+    for (const clifft::GateType gate : {first, second}) {
+        for (uint32_t q = 0; q < num_qubits; ++q) {
+            circuit.nodes.push_back(clifft::AstNode{.gate = gate,
+                                                    .targets = {clifft::Target::qubit(q)},
+                                                    .args = {},
+                                                    .source_line = 0,
+                                                    .tag = {}});
+        }
+    }
+    return circuit;
+}
+
 void check_complex(std::complex<double> actual, std::complex<double> expected,
                    double tolerance = 1e-12) {
     INFO("actual " << actual << " expected " << expected);
@@ -140,4 +157,26 @@ TEST_CASE("Basis amplitude query uses its output effect to reduce active width")
 
     CHECK(query.peak_active_width() == 0);
     check_complex(query.evaluate(), std::polar(0.5, std::numbers::pi / 4.0));
+}
+
+TEST_CASE("Basis amplitude query falls back when the forward orientation is too wide") {
+    constexpr uint32_t num_qubits = 60;
+    const clifft::Circuit circuit =
+        layered_circuit(clifft::GateType::H, clifft::GateType::T, num_qubits);
+    const std::vector<uint64_t> output{0};
+    const clifft::sampling::BasisAmplitudeQuery query(circuit, output);
+
+    CHECK(query.peak_active_width() == 0);
+    check_complex(query.evaluate(), {std::ldexp(1.0, -30), 0.0});
+}
+
+TEST_CASE("Basis amplitude query keeps a viable forward orientation") {
+    constexpr uint32_t num_qubits = 60;
+    const clifft::Circuit circuit =
+        layered_circuit(clifft::GateType::T, clifft::GateType::H, num_qubits);
+    const std::vector<uint64_t> output{0};
+    const clifft::sampling::BasisAmplitudeQuery query(circuit, output);
+
+    CHECK(query.peak_active_width() == 0);
+    check_complex(query.evaluate(), {std::ldexp(1.0, -30), 0.0});
 }

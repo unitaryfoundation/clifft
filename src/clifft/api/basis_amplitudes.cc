@@ -7,6 +7,8 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <exception>
+#include <optional>
 #include <stdexcept>
 #include <utility>
 
@@ -87,7 +89,10 @@ AstNode adjoint_node(const AstNode& source) {
             const double theta = result.args.at(0);
             const double phi = result.args.at(1);
             const double lambda = result.args.at(2);
-            result.args = {-theta, -lambda, -phi};
+            result.args.resize(3);
+            result.args[0] = -theta;
+            result.args[1] = -lambda;
+            result.args[2] = -phi;
             break;
         }
         case GateType::TICK:
@@ -156,18 +161,40 @@ BasisAmplitudeQuery::Prepared BasisAmplitudeQuery::prepare(const Circuit& circui
         };
     };
 
-    Prepared forward = compile_orientation(circuit, output_basis, input_phase, false);
+    std::optional<Prepared> forward;
+    std::exception_ptr forward_overflow;
+    try {
+        forward.emplace(compile_orientation(circuit, output_basis, input_phase, false));
+    } catch (const std::overflow_error&) {
+        // One contraction may exceed the dense-state limit while its dual is
+        // cheap, so an overflowing orientation is not a failed query.
+        forward_overflow = std::current_exception();
+    }
 
     // The output effect becomes a computational-basis input under the adjoint:
     // <x|U|0> = conj(<0|U^dagger|x>). Planning both orientations lets the
     // compiler choose the smaller exact contraction without changing kernels.
     const Circuit adjoint = adjoint_with_basis_input(circuit, output_basis);
-    const std::vector<uint64_t> zero_basis(basis_word_count(circuit.num_qubits), 0);
-    Prepared backward = compile_orientation(adjoint, zero_basis, std::conj(input_phase), true);
-    if (backward.plan.peak_active_width < forward.plan.peak_active_width) {
-        return backward;
+
+    // Adjoint construction also validates reversible target structure, but no
+    // second contraction can improve on an empty active state.
+    if (forward.has_value() && forward->plan.peak_active_width == 0) {
+        return std::move(*forward);
     }
-    return forward;
+
+    const std::vector<uint64_t> zero_basis(basis_word_count(circuit.num_qubits), 0);
+    try {
+        Prepared backward = compile_orientation(adjoint, zero_basis, std::conj(input_phase), true);
+        if (!forward.has_value() ||
+            backward.plan.peak_active_width < forward->plan.peak_active_width) {
+            return backward;
+        }
+    } catch (const std::overflow_error&) {
+        if (!forward.has_value()) {
+            std::rethrow_exception(forward_overflow);
+        }
+    }
+    return std::move(*forward);
 }
 
 BasisAmplitudeQuery::BasisAmplitudeQuery(const Circuit& circuit,
