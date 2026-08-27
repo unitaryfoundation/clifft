@@ -239,31 +239,27 @@ r2 = clifft.sample(program, 100, seed=42)
 assert (r1.measurements == r2.measurements).all()  # Identical
 ```
 
-If `seed` is omitted or set to `None`, Clifft uses hardware entropy from the operating system.
-Seeded results replay exactly when the program and execution configuration are
-unchanged. Cross-shot worker scheduling does not affect the result because
-packed work is divided at deterministic batch boundaries. Automatic packed
-capacity is independent of the resolved cross-shot worker count, so
-`threads="auto"` can use different concurrency on another machine without
-changing those boundaries or the resulting seeded rows.
+Set an explicit seed when exact replay is useful for debugging or tests. If
+`seed` is omitted or set to `None`, Clifft uses operating-system entropy; this
+is normally preferable for independent production simulations.
 
-Scalar and packed execution use separate random streams. Changing `batch_size`,
-or moving between scalar and packed execution after a planner or policy change,
-can therefore change individual seeded rows. The resulting samples remain
-statistically equivalent.
-
-Native automatic mode can select packed execution while WebAssembly always
-uses scalar execution. Consequently, identical calls using `batch_size="auto"`
-are not guaranteed to produce the same individual rows across native and
-WebAssembly builds. Upgrading from a release that predates packed automatic
-sampling can likewise change seeded rows. Repeating the call with the same
-program, seed, and execution configuration remains exactly reproducible.
+Seeded replay is guaranteed within the same sampling mode and configuration.
+Changing the thread count alone does not change its rows, but scalar and packed
+execution use separate random streams, and different packed capacities may do
+so as well. Results from every supported sampling mode remain statistically
+equivalent.
 
 ## Packed Batch Sampling
 
-The four fixed-plan sampling functions accept `batch_size`. Its default value,
-`"auto"`, packs classical bits and small active states across several shots when
-the plan and request are expected to benefit:
+Batching and multithreading are independent forms of parallelism. A packed
+batch stores several shots together so one CPU SIMD instruction can operate on
+them and their state data stays cache-friendly. Multithreading runs work on
+several CPU threads, ideally on separate cores. Clifft can combine both by
+running multiple packed workers.
+
+The four fixed-plan sampling functions accept `batch_size`. Its default,
+`"auto"`, selects packed execution when the plan and request are expected to
+benefit:
 
 ```python
 import clifft
@@ -274,28 +270,21 @@ scalar = clifft.sample(program, 100_000, seed=42, batch_size=1)
 packed = clifft.sample(program, 100_000, seed=42, batch_size=1024)
 ```
 
-An explicit positive integer requests a packed lane-capacity limit and is mainly
-useful for profiling. The implementation caps explicit capacities at 2048 lanes;
-the final partial batch can be smaller. Before allocating a worker, Clifft also
-rejects an explicit capacity whose dense packed state would exceed 64 MiB. Reduce
-`batch_size` or select `batch_size=1` when that diagnostic is raised. Automatic
-selection currently requires at least 64 shots and a peak active width of at most
-5. It budgets the complete lane-scaled executor footprint, including coefficient
-and scratch arrays, symbols, compact presampled carrier columns, expression
-registers, retained records and outputs, and per-lane scratch. The default policy
-also includes survivor counters and fixed-k selection scratch owned by the worker
-wrapper. Fixed-k sampling prepares its potentially large immutable conditioning
-table once per call and shares it across workers. The default policy keeps
-worker-owned storage near 8 MiB per packed worker and 64 MiB across packed workers.
-Automatic capacity depends on the plan, shot count, and output mode, not the
-resolved thread count. After selecting that capacity, Clifft caps the number of
-concurrent packed workers when necessary to satisfy the aggregate budget. Thus
-`threads="auto"` may use fewer workers than the reported hardware concurrency
-for a sidecar-heavy plan while retaining deterministic batch boundaries.
-An explicit capacity can opt into other fixed plans when packed execution is
-supported and its dense state fits the explicit limit; it bypasses the
-conservative complete-worker budgets, so plans with many symbolic or record
-columns can retain substantially more memory.
+The state-vector footprint grows exponentially with maximum active width and
+linearly with batch size. Once a worker's complete working set outgrows useful
+CPU caches, a larger batch can therefore become slower. Automatic mode estimates
+the memory required by the selected sampling and output mode, targets at most
+8 MiB per worker and 64 MiB across workers, and reduces either the batch size or
+concurrent worker count when necessary. Capacity selection is independent of
+the requested thread count, preserving deterministic batch boundaries.
+
+Automatic selection currently requires at least 64 shots and a peak active
+width of at most 5, and it considers capacities up to 2048 lanes. Set
+`batch_size=1` to disable batching. An explicit positive integer requests a
+capacity up to 2048 and is mainly useful for profiling or overriding the
+conservative automatic policy. Explicit mode still rejects a dense packed
+state above 64 MiB per worker, but plans retaining many symbols, expressions,
+or records can use additional memory beyond that state-vector limit.
 
 Packed execution supports ordinary sampling, post-selected survivor sampling,
 counts-only survivor aggregation, expectation values, and fixed-k importance
