@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787725990509,
+  "lastUpdate": 1787822920549,
   "repoUrl": "https://github.com/unitaryfoundation/clifft",
   "entries": {
     "C++ Catch2 benchmarks (scalar)": [
@@ -6462,6 +6462,70 @@ window.BENCHMARK_DATA = {
             "name": "exp-val 20q 200 probes x100k",
             "value": 75.975,
             "range": "± 476.727",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Brad Chase",
+            "username": "bachase",
+            "email": "14430+bachase@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "625d9fafa16d19d91edf0281c5e37de7080fb0b3",
+          "message": "feat(api): add native unitary OpenQASM 2 input (#410)\n\nAdd a dependency-free parser for the documented unitary OpenQASM 2\nsubset. Expose explicit parsing APIs and compile-time format selection,\nwhile retaining source global phase in an import sidecar.\n\nValidate gate semantics against Qiskit and reject unsupported\nnon-unitary and dynamic-circuit constructs explicitly.\n\nAssisted-by: OpenAI Codex (GPT-5) <noreply@openai.com>",
+          "timestamp": "2026-08-26T17:55:04Z",
+          "url": "https://github.com/unitaryfoundation/clifft/commit/625d9fafa16d19d91edf0281c5e37de7080fb0b3"
+        },
+        "date": 1787822915749,
+        "tool": "catch2",
+        "benches": [
+          {
+            "name": "QV-10 x100 shots",
+            "value": 21.6325,
+            "range": "± 1.21655",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "cultivation-d5 x1000 shots",
+            "value": 56.923,
+            "range": "± 266.839",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d7-r7 p=1e-3 x10000 shots",
+            "value": 57.371,
+            "range": "± 1.05024",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d5-r5 p=0.05 x10000 shots",
+            "value": 65.4596,
+            "range": "± 1.55068",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d11-r11 p=1e-3 x1000 shots",
+            "value": 21.8848,
+            "range": "± 387.608",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "exp-val 20q 200 probes x100k",
+            "value": 98.0209,
+            "range": "± 1.44555",
             "unit": "ms",
             "extra": "100 samples\n1 iterations"
           }
