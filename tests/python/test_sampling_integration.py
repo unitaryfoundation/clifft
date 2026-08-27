@@ -1,5 +1,6 @@
 """Integration and boundary tests for the public sampling API."""
 
+import json
 import os
 import platform
 import subprocess
@@ -13,9 +14,10 @@ import stim
 import clifft
 
 _MACHINE = platform.machine().lower()
+_APPLE_SILICON = sys.platform == "darwin" and _MACHINE in {"aarch64", "arm64"}
 _RUNTIME_DISPATCH_BUILD = (
     _MACHINE in {"amd64", "x86_64"} and not platform.python_compiler().startswith("MSC")
-) or (sys.platform == "darwin" and _MACHINE in {"aarch64", "arm64"})
+) or _APPLE_SILICON
 
 
 def test_experimental_namespace_reports_optional_hip_build() -> None:
@@ -67,6 +69,49 @@ def test_unknown_forced_isa_is_rejected_by_compile() -> None:
     assert completed.returncode != 0
     assert "CLIFFT_FORCE_ISA" in completed.stderr
     assert "unrecognized value" in completed.stderr
+
+
+@pytest.mark.skipif(not _APPLE_SILICON, reason="requires the Apple arm64 NEON backend")
+def test_apple_neon_fused_execution_matches_forced_scalar() -> None:
+    assert clifft.runtime_isa() == "neon"
+
+    fixture = Path(__file__).parents[1] / "fixtures" / "qv10.stim"
+    lines = fixture.read_text().splitlines()
+    measurement_start = next(i for i, line in enumerate(lines) if line.startswith("M "))
+    unitary_source = "\n".join(lines[:measurement_start])
+
+    program = clifft.compile(unitary_source)
+    assert program.inspect().startswith("executable_plan backend=neon")
+    assert any(
+        program.inspect_action(action).startswith("FUSED_ROTATION")
+        for action in range(program.num_actions)
+    )
+    neon_state = np.asarray(clifft.get_statevector(program))
+
+    scalar_script = (
+        "import json, sys\n"
+        "import clifft\n"
+        "program = clifft.compile(sys.stdin.read())\n"
+        "state = clifft.get_statevector(program)\n"
+        "print(json.dumps({'isa': clifft.runtime_isa(), "
+        "'state': [[value.real, value.imag] for value in state]}))\n"
+    )
+    environment = os.environ.copy()
+    environment["CLIFFT_FORCE_ISA"] = "scalar"
+    completed = subprocess.run(
+        [sys.executable, "-c", scalar_script],
+        input=unitary_source,
+        capture_output=True,
+        check=True,
+        env=environment,
+        text=True,
+    )
+    scalar_payload = json.loads(completed.stdout)
+    assert scalar_payload["isa"] == "scalar"
+    scalar_pairs = np.asarray(scalar_payload["state"], dtype=np.float64)
+    scalar_state = scalar_pairs[:, 0] + 1j * scalar_pairs[:, 1]
+
+    np.testing.assert_allclose(neon_state, scalar_state, atol=2e-12, rtol=0.0)
 
 
 def test_compile_returns_public_program() -> None:
