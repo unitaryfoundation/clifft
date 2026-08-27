@@ -55,4 +55,8 @@ struct PhaseAwareHir {
 // ordinary projective front end. Non-unitary nodes are rejected before trace.
 [[nodiscard]] PhaseAwareHir trace_phase_aware(const Circuit& circuit);
 
+// Query-private variant for a unitary circuit followed only by computational-
+// basis measurements. The measurement effects retain the unitary source phase.
+[[nodiscard]] PhaseAwareHir trace_phase_aware_terminal_measurements(const Circuit& circuit);
+
 }  // namespace clifft

@@ -157,7 +157,7 @@ def test_qasm2_query_restores_source_global_phase() -> None:
 
 
 def test_output_effect_can_reduce_reported_peak_width() -> None:
-    """The target basis state can make adjoint rotations deterministic."""
+    """The target basis state can make terminal-effect rotations deterministic."""
     query = clifft.compile_basis_amplitude("H 1\nH 0\nT 1\nT 0", ["10"])
     assert query.peak_active_width == 0
     assert clifft.evaluate_amplitude(query) == pytest.approx(0.5 * np.exp(1j * np.pi / 4))

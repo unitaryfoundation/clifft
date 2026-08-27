@@ -22,11 +22,17 @@ class BasisAmplitudeQuery {
     [[nodiscard]] std::complex<double> evaluate() const;
 
   private:
+    struct ScalarRotation {
+        double half_turns = 0.0;
+        bool sign_constant = false;
+        std::vector<uint32_t> sign_symbols;
+    };
+
     struct Prepared {
         SamplingPlan plan;
-        std::vector<uint64_t> execution_basis;
+        std::vector<uint8_t> output_records;
         std::complex<double> phase;
-        bool conjugate_result = false;
+        std::vector<ScalarRotation> scalar_rotations;
     };
 
     explicit BasisAmplitudeQuery(Prepared prepared);
@@ -35,9 +41,9 @@ class BasisAmplitudeQuery {
                                           std::complex<double> input_phase);
 
     ExecutablePlan plan_;
-    std::vector<uint64_t> output_basis_;
+    std::vector<uint8_t> output_records_;
     std::complex<double> phase_;
-    bool conjugate_result_ = false;
+    std::vector<ScalarRotation> scalar_rotations_;
 };
 
 }  // namespace clifft::sampling

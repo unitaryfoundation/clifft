@@ -214,6 +214,19 @@ ReplayResult Executor::replay_shot(std::span<const uint8_t> forced_records,
     return execute_actions_for_backend<ShotMode::ReplayRecords>(forced_records);
 }
 
+ReplayResult Executor::replay_effect(std::span<const uint8_t> forced_records) noexcept {
+    plan_ = root_plan_;
+    assert(forced_records.size() ==
+               static_cast<size_t>(plan_->num_visible_records_) + plan_->num_hidden_records_ &&
+           "one forced value is required for every effect record");
+    assert(std::ranges::all_of(forced_records, [](uint8_t value) { return value <= 1; }) &&
+           "forced effect records must be Boolean");
+    assert(plan_->unbound_presampled_symbols_.empty() && plan_->num_presampled_symbols() == 0 &&
+           "terminal effects require a deterministic plan");
+    reset_shot();
+    return execute_actions_for_backend<ShotMode::ReplayEffects>(forced_records);
+}
+
 void Executor::reset_shot() noexcept {
     state_.reset_parallel(intra_shot_workers_, intra_shot_min_active_width_);
     // Validation guarantees that every mutable symbol and output is overwritten
@@ -441,9 +454,14 @@ void Executor::execute_action(const ExecutablePlan::ExecuteActiveMeasurement& ac
     }();
     const bool correction = evaluate(action.correction);
     bool branch = false;
-    if constexpr (Mode == ShotMode::ReplayRecords) {
+    if constexpr (Mode == ShotMode::ReplayRecords || Mode == ShotMode::ReplayEffects) {
         branch = (forced_records[action.record] != 0) ^ correction;
-        const std::optional<double> log_increment = force_active_branch(probabilities, branch);
+        const std::optional<double> log_increment = [&]() noexcept {
+            if constexpr (Mode == ShotMode::ReplayEffects) {
+                return force_active_effect_branch(probabilities, branch);
+            }
+            return force_active_branch(probabilities, branch);
+        }();
         if (!log_increment.has_value()) {
             result.reachable = false;
             return;
@@ -455,6 +473,7 @@ void Executor::execute_action(const ExecutablePlan::ExecuteActiveMeasurement& ac
             const std::optional<double> forced = force_active_branch(probabilities, branch);
             assert(forced.has_value() &&
                    "forced continuation measurement branch must be reachable");
+            (void)forced;
             forced_record_mask_[action.record] = 0;
         } else {
             branch = sample_active_branch(probabilities);
@@ -486,7 +505,7 @@ void Executor::execute_action(const ExecutablePlan::ExecuteDormantMeasurement& a
                               ReplayResult& result) noexcept {
     const bool correction = evaluate(action.correction);
     bool branch = false;
-    if constexpr (Mode == ShotMode::ReplayRecords) {
+    if constexpr (Mode == ShotMode::ReplayRecords || Mode == ShotMode::ReplayEffects) {
         branch = (forced_records[action.record] != 0) ^ correction;
         result.log_probability += kLogHalf;
     } else {
@@ -506,7 +525,7 @@ void Executor::execute_action(const ExecutablePlan::ExecuteClassicalRecord& acti
                               std::span<const uint8_t> forced_records,
                               ReplayResult& result) noexcept {
     records_[action.record] = static_cast<uint8_t>(evaluate(action.outcome));
-    if constexpr (Mode == ShotMode::ReplayRecords) {
+    if constexpr (Mode == ShotMode::ReplayRecords || Mode == ShotMode::ReplayEffects) {
         if (records_[action.record] != forced_records[action.record]) {
             result.reachable = false;
         }
@@ -525,7 +544,7 @@ void Executor::execute_action(const ExecutablePlan::ExecuteSymbolDefinition& act
 template <Executor::ShotMode Mode>
 void Executor::execute_action(const ExecutablePlan::ExecuteReadoutNoise& action,
                               std::span<const uint8_t>, ReplayResult& result) noexcept {
-    if constexpr (Mode == ShotMode::ReplayRecords) {
+    if constexpr (Mode == ShotMode::ReplayRecords || Mode == ShotMode::ReplayEffects) {
         result.reachable = false;
     } else {
         const bool source = evaluate(action.source);
@@ -728,7 +747,7 @@ void Executor::execute_instrument(
 template <ExecutorBackend Backend, Executor::ShotMode Mode>
 void Executor::execute_action(const ExecutablePlan::ExecuteInstrument& action,
                               std::span<const uint8_t>, ReplayResult& result) noexcept {
-    if constexpr (Mode == ShotMode::ReplayRecords) {
+    if constexpr (Mode == ShotMode::ReplayRecords || Mode == ShotMode::ReplayEffects) {
         result.reachable = false;
     } else {
         std::visit(
@@ -783,7 +802,7 @@ ReplayResult Executor::execute_actions(std::span<const uint8_t> forced_records,
                 }
             },
             action);
-        if constexpr (Mode == ShotMode::ReplayRecords) {
+        if constexpr (Mode == ShotMode::ReplayRecords || Mode == ShotMode::ReplayEffects) {
             if (!result.reachable) {
                 return result;
             }
@@ -919,6 +938,18 @@ std::optional<double> Executor::force_active_branch(MeasurementProbabilities pro
     }
     assert(false && "unhandled measurement branch classification");
     return std::nullopt;
+}
+
+std::optional<double> Executor::force_active_effect_branch(MeasurementProbabilities probabilities,
+                                                           bool branch) noexcept {
+    const double selected = probabilities.for_branch(branch);
+    const double total = probabilities.total();
+    assert(is_finite_robust(selected) && selected >= 0.0 && is_finite_robust(total) &&
+           total > 0.0 && "effect branch probabilities must be finite and nonnegative");
+    if (selected == 0.0) {
+        return std::nullopt;
+    }
+    return std::log(selected / total);
 }
 
 bool Executor::sample_dormant_branch() noexcept {

@@ -633,31 +633,6 @@ std::complex<double> clifford_row_phase(const Tableau& final_tableau,
     return std::conj(exact / canonical);
 }
 
-std::vector<std::complex<double>> basis_amplitudes(const ExecutablePlan& plan,
-                                                   std::complex<double> phase,
-                                                   std::span<const uint64_t> basis_masks,
-                                                   size_t num_basis_masks,
-                                                   size_t words_per_basis_mask) {
-    const Tableau* final_tableau = plan.final_state_tableau();
-    if (final_tableau == nullptr) {
-        throw std::invalid_argument("basis amplitudes require a pure-unitary executable plan");
-    }
-
-    Executor executor(plan);
-    executor.run_shot();
-    const State& state = executor.state();
-    BasisMask zero_frame = zero_basis_mask(plan.num_qubits());
-    return selected_basis_values_from_factored_state<std::complex<double>>(
-        plan.num_qubits(), state.active_width(), state.size(), *final_tableau,
-        basis_mask_view(zero_frame), 0,
-        [&](uint64_t active_index) {
-            return std::complex<double>{state.real_data()[active_index],
-                                        state.imag_data()[active_index]};
-        },
-        basis_masks, num_basis_masks, words_per_basis_mask,
-        [&](std::complex<double> amplitude) { return phase * amplitude; });
-}
-
 }  // namespace internal
 
 }  // namespace sampling

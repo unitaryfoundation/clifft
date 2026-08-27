@@ -17,6 +17,8 @@ class KFaultSampler;
 
 namespace clifft::sampling {
 
+class BasisAmplitudeQuery;
+
 // Describes whether a requested record can occur and, if so, its conditional
 // joint log probability. The probability is meaningful only when reachable.
 struct ReplayResult {
@@ -109,7 +111,13 @@ class Executor {
     [[nodiscard]] uint64_t dust_clamps() const { return dust_clamps_; }
 
   private:
-    // Selects the complete per-shot policy at compile time. Keeping the four
+    friend class BasisAmplitudeQuery;
+
+    // Terminal effects preserve small positive branch mass that ordinary
+    // sampling intentionally classifies as numerical dust.
+    [[nodiscard]] ReplayResult replay_effect(std::span<const uint8_t> forced_records) noexcept;
+
+    // Selects the complete per-shot policy at compile time. Keeping the
     // supported modes named prevents unsupported combinations of record,
     // noise, and fixed-fault behavior from reaching the action loop.
     enum class ShotMode : uint8_t {
@@ -117,6 +125,7 @@ class Executor {
         UsePresampledNoise,
         FixedFaultCount,
         ReplayRecords,
+        ReplayEffects,
     };
 
     enum class IntraShotMode : uint8_t {
@@ -187,6 +196,8 @@ class Executor {
     [[nodiscard]] bool sample_active_branch(MeasurementProbabilities probabilities) noexcept;
     [[nodiscard]] std::optional<double> force_active_branch(MeasurementProbabilities probabilities,
                                                             bool branch) noexcept;
+    [[nodiscard]] static std::optional<double> force_active_effect_branch(
+        MeasurementProbabilities probabilities, bool branch) noexcept;
     [[nodiscard]] bool sample_dormant_branch() noexcept;
     void trap_instrument(uint32_t site, uint8_t source, bool destination_pending) noexcept;
     void finish_instrument_fire(uint32_t site, uint32_t destination_flip, uint8_t source,
