@@ -606,6 +606,12 @@ bool BatchExecutor::should_compact(size_t action_index) const noexcept {
     if (live_count_ == 0 || live_count_ == active_lanes()) {
         return false;
     }
+    // Classical packed actions already carry rejected lanes as masked bits. With
+    // no coefficient state, reclaiming those lanes cannot reduce the fixed-width
+    // sidecar operations enough to justify moving every retained column.
+    if (plan_->peak_active_width() == 0) {
+        return false;
+    }
     const uint64_t remaining_actions = plan_->actions_.size() - action_index - 1;
     if (remaining_actions == 0) {
         return false;
