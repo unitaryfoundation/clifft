@@ -82,7 +82,8 @@ uint64_t batch_worker_storage_bytes(const ExecutablePlan& plan, uint32_t lane_ca
         bytes = saturating_add(bytes, saturating_multiply(entries, entry_bytes));
     };
     const auto add_columns = [&](size_t columns) {
-        add_entries(saturating_multiply(columns, layout.word_capacity), sizeof(uint64_t));
+        bytes =
+            saturating_add(bytes, packed_bit_columns_storage_bytes(columns, layout.lane_capacity));
     };
     add_entries(layout.shot_index_entries, sizeof(uint32_t));
     add_columns(layout.symbol_columns);

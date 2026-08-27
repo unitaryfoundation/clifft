@@ -6,6 +6,7 @@
 #include <vector>
 
 using clifft::sampling::fill_low_lane_mask;
+using clifft::sampling::packed_bit_columns_storage_bytes;
 using clifft::sampling::packed_word_count;
 using clifft::sampling::PackedBitColumns;
 
@@ -26,6 +27,16 @@ TEST_CASE("Packed batch columns preserve lane boundaries") {
             REQUIRE(columns.bit(2, lane) == ((lane % 3) == 1));
         }
     }
+}
+
+TEST_CASE("Packed batch column footprint includes page alignment") {
+    constexpr size_t columns = 3;
+    constexpr uint32_t lanes = 65;
+    const size_t raw_bytes = columns * packed_word_count(lanes) * sizeof(uint64_t);
+    const size_t storage_bytes = packed_bit_columns_storage_bytes(columns, lanes);
+    REQUIRE(storage_bytes >= raw_bytes);
+    REQUIRE(storage_bytes % clifft::PageAlignedAllocation::kBaseAlignment == 0);
+    REQUIRE(packed_bit_columns_storage_bytes(0, lanes) == 0);
 }
 
 TEST_CASE("Packed batch columns compact every sidecar stably") {

@@ -298,8 +298,7 @@ std::optional<BatchPresampledProgram> BatchPresampledProgram::build(
     constexpr uint32_t kUnassigned = std::numeric_limits<uint32_t>::max();
     std::vector<uint32_t> carrier_slots(executable.num_symbols_, kUnassigned);
     const auto mark_carrier = [&](uint32_t symbol) {
-        assert(symbol < source.symbols.size() &&
-               source.symbols[symbol] == SymbolKind::Presampled &&
+        assert(symbol < source.symbols.size() && source.symbols[symbol] == SymbolKind::Presampled &&
                "batch carrier must originate from a presampled symbol");
         carrier_slots[symbol] = 0;
     };
