@@ -79,19 +79,35 @@ TEST_CASE("HIP executable inspection identifies packed modification points") {
 }
 
 TEST_CASE("HIP executable preserves selected syndrome representations") {
-    const ExecutablePlan executable(plan_from(R"(
-        X 0
+    const SamplingPlan plan = plan_from(R"(
+        X_ERROR(1) 1
+        X_ERROR(1) 0
         M 0
         OBSERVABLE_INCLUDE(0) rec[-1]
         READOUT_NOISE(1) rec[-1]
         OBSERVABLE_INCLUDE(1) rec[-1]
-    )"));
+    )");
+    const ExecutablePlan executable(plan);
 
     REQUIRE(executable.actions().size() == 4);
-    REQUIRE(executable.actions()[2].tag == ActionTag::WriteObservable);
-    REQUIRE((executable.actions()[2].flags & clifft::sampling::hip::detail::kRecordParity) == 0);
-    REQUIRE(executable.actions()[3].tag == ActionTag::WriteObservable);
-    REQUIRE((executable.actions()[3].flags & clifft::sampling::hip::detail::kRecordParity) != 0);
+    const auto& historical = executable.actions()[2];
+    REQUIRE(historical.tag == ActionTag::WriteObservable);
+    REQUIRE((historical.flags & clifft::sampling::hip::detail::kRecordParity) == 0);
+    const auto& historical_expression = executable.expressions()[historical.expression];
+    REQUIRE(historical_expression.term_count == 1);
+    const auto& planned_record =
+        std::get<clifft::sampling::RecordClassical>(plan.actions[0].action);
+    REQUIRE(planned_record.outcome.terms().size() == 1);
+    const uint32_t historical_symbol = static_cast<uint32_t>(planned_record.outcome.terms()[0]);
+    REQUIRE(historical_symbol != 0);
+    REQUIRE(executable.expression_terms()[historical_expression.term_begin] == historical_symbol);
+
+    const auto& current = executable.actions()[3];
+    REQUIRE(current.tag == ActionTag::WriteObservable);
+    REQUIRE((current.flags & clifft::sampling::hip::detail::kRecordParity) != 0);
+    const auto& current_expression = executable.expressions()[current.expression];
+    REQUIRE(current_expression.term_count == 1);
+    REQUIRE(executable.expression_terms()[current_expression.term_begin] == 0);
 }
 
 TEST_CASE("HIP executable packs affine terms and categorical noise") {

@@ -85,6 +85,30 @@ TEST_CASE("Sampling planner preserves empty module metadata") {
     REQUIRE(plan.symbols.empty());
 }
 
+TEST_CASE("Sampling planner validates detector records before XOR cancellation") {
+    SECTION("unwritten record") {
+        HirModule hir;
+        hir.num_measurements = 1;
+        hir.num_detectors = 1;
+        hir.detector_targets = {{0, 0}};
+        hir.append_detector(clifft::DetectorIdx{0});
+
+        REQUIRE_THROWS_WITH(plan_sampling(hir),
+                            "sampling planner operation 0 reads record 0 before assignment");
+    }
+
+    SECTION("out of range record") {
+        HirModule hir;
+        hir.num_measurements = 1;
+        hir.num_detectors = 1;
+        hir.detector_targets = {{1, 1}};
+        hir.append_detector(clifft::DetectorIdx{0});
+
+        REQUIRE_THROWS_WITH(plan_sampling(hir),
+                            "sampling planner operation 0 reads record 1 before assignment");
+    }
+}
+
 TEST_CASE("Sampling planner promotes rotations and keeps later active support") {
     HirModule hir(1, 2);
     clifft::test::append_tgate(hir, X(0), 0, false);
@@ -586,6 +610,20 @@ TEST_CASE("Sampling planner falls back for historical observable records") {
     REQUIRE(std::get<RecordParity>(after.outcome).records() ==
             std::vector<RecordSlot>{RecordSlot{0}});
     REQUIRE(std::get<AffineBool>(straddled.outcome) == AffineBool::symbol(readout.flip));
+}
+
+TEST_CASE("Sampling planner cancels observable snapshots before freshness testing") {
+    const SamplingPlan plan = plan_sampling(clifft::trace(clifft::parse(R"(
+        M 0
+        OBSERVABLE_INCLUDE(0) rec[-1] rec[-1]
+        READOUT_NOISE(1) rec[-1]
+    )")));
+
+    const auto& observable = action_as<WriteObservable>(plan, plan.actions.size() - 1);
+    REQUIRE(std::holds_alternative<RecordParity>(observable.outcome));
+    const auto& parity = std::get<RecordParity>(observable.outcome);
+    REQUIRE_FALSE(parity.constant());
+    REQUIRE(parity.records().empty());
 }
 
 TEST_CASE("Sampling planner reports the dense active width limit") {

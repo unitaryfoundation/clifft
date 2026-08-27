@@ -147,6 +147,28 @@ struct ObservableRecordReference {
     uint32_t generation = 0;
 };
 
+void canonicalize_record_snapshots(std::vector<ObservableRecordReference>& references) {
+    std::ranges::sort(references, [](const auto& left, const auto& right) {
+        if (left.record != right.record) {
+            return left.record < right.record;
+        }
+        return left.generation < right.generation;
+    });
+    size_t output = 0;
+    for (size_t begin = 0; begin < references.size();) {
+        size_t end = begin + 1;
+        while (end < references.size() && references[end].record == references[begin].record &&
+               references[end].generation == references[begin].generation) {
+            ++end;
+        }
+        if ((end - begin) % 2 != 0) {
+            references[output++] = references[begin];
+        }
+        begin = end;
+    }
+    references.resize(output);
+}
+
 struct PlanningRecord {
     std::optional<AffineBool> value;
     uint32_t generation = 0;
@@ -589,13 +611,16 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
                     detector_index >= hir.num_detectors) {
                     throw std::invalid_argument("sampling planner detector is out of range");
                 }
+                const std::vector<uint32_t>& targets = hir.detector_targets[targets_index];
+                for (uint32_t record : targets) {
+                    (void)require_record(RecordSlot{record}, i);
+                }
                 const bool expected = option_bit(options.expected_detectors, detector_index);
                 const bool postselected = option_bit(options.postselection_mask, detector_index);
                 append_action(
                     plan,
                     PlannedAction{active_width, active_width,
-                                  WriteDetector{make_record_parity(
-                                                    hir.detector_targets[targets_index], expected),
+                                  WriteDetector{make_record_parity(targets, expected),
                                                 DetectorSlot{detector_index}, postselected}},
                     source_lines);
                 ++detector_index;
@@ -667,6 +692,7 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
     for (uint32_t observable = 0; observable < observables.size(); ++observable) {
         PendingObservable& pending = observables[observable];
         pending.historical_value ^= option_bit(options.expected_observables, observable);
+        canonicalize_record_snapshots(pending.record_snapshots);
         const bool records_are_current =
             std::ranges::all_of(pending.record_snapshots, [&](const auto& reference) {
                 return reference.generation == records[reference.record].generation;
