@@ -45,6 +45,8 @@ class ExecutablePlan {
 
   private:
     uint32_t append_expression(const AffineBool& expression);
+    uint32_t append_record_parity(const RecordParity& parity);
+    void lower_observable_value(detail::Action& action, const ObservableValue& value);
     detail::Action lower_action(const PlannedAction& planned);
 
     uint32_t initial_active_width_ = 0;

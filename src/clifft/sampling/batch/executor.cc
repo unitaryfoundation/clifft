@@ -497,10 +497,7 @@ void BatchExecutor::execute_action(const ExecutablePlan::ExecuteReadoutNoise& ac
 
 void BatchExecutor::execute_action(const ExecutablePlan::ExecuteDetector& action,
                                    size_t action_index) noexcept {
-    const std::span<const uint64_t> outcomes =
-        action.record_parity == std::numeric_limits<uint32_t>::max()
-            ? evaluate(action.outcome)
-            : evaluate_record_parity(action.record_parity);
+    const std::span<const uint64_t> outcomes = evaluate_record_parity(action.outcome);
     if (output_mode_ == BatchOutputMode::Rows) {
         detectors_.assign(action.detector, outcomes, live_words_);
     }
@@ -521,10 +518,7 @@ void BatchExecutor::execute_action(const ExecutablePlan::ExecuteDetector& action
 
 void BatchExecutor::execute_action(const ExecutablePlan::ExecuteObservable& action,
                                    size_t) noexcept {
-    const std::span<const uint64_t> outcomes =
-        action.record_parity == std::numeric_limits<uint32_t>::max()
-            ? evaluate(action.outcome)
-            : evaluate_record_parity(action.record_parity);
+    const std::span<const uint64_t> outcomes = evaluate_observable(action.outcome);
     observables_.assign(action.observable, outcomes, live_words_);
 }
 
@@ -536,8 +530,7 @@ void BatchExecutor::execute_action(const ExecutablePlan::ExecuteExpectation& act
     assert(action.exp_val < plan_->num_exp_vals_ &&
            "expectation action must reference preallocated storage");
     double* output = exp_vals_.data() + static_cast<size_t>(action.exp_val) * lane_capacity_;
-    const std::span<const uint64_t> signs = evaluate(action.sign);
-    if (!action.active_projection.has_value()) {
+    if (!action.active.has_value()) {
         for (uint32_t lane = 0; lane < active_lanes(); ++lane) {
             if (is_live(lane)) {
                 output[lane] = 0.0;
@@ -545,7 +538,8 @@ void BatchExecutor::execute_action(const ExecutablePlan::ExecuteExpectation& act
         }
         return;
     }
-    interleaved_expectation_values(state_, *action.active_projection, lane_values_);
+    const std::span<const uint64_t> signs = evaluate(action.active->sign);
+    interleaved_expectation_values(state_, action.active->projection, lane_values_);
     for (uint32_t lane = 0; lane < active_lanes(); ++lane) {
         if (is_live(lane)) {
             output[lane] = lane_bit(signs, lane) ? -lane_values_[lane] : lane_values_[lane];
@@ -568,13 +562,18 @@ std::span<const uint64_t> BatchExecutor::evaluate(
     return expression_registers_.column(expression.register_id);
 }
 
-std::span<const uint64_t> BatchExecutor::evaluate_record_parity(uint32_t parity_index) noexcept {
-    assert(parity_index < plan_->batch_record_parities_.size() &&
-           "prepared record parity must be in range");
-    const ExecutablePlan::PreparedRecordParity& parity =
-        plan_->batch_record_parities_[parity_index];
+std::span<const uint64_t> BatchExecutor::evaluate_observable(
+    const ExecutablePlan::PreparedObservableValue& value) noexcept {
+    if (const auto* expression = std::get_if<ExecutablePlan::PreparedExpression>(&value)) {
+        return evaluate(*expression);
+    }
+    return evaluate_record_parity(std::get<ExecutablePlan::PreparedRecordParity>(value));
+}
+
+std::span<const uint64_t> BatchExecutor::evaluate_record_parity(
+    ExecutablePlan::PreparedRecordParity parity) noexcept {
     const uint32_t end = parity.begin + parity.count;
-    assert(end <= plan_->batch_record_parity_terms_.size() &&
+    assert(end <= plan_->record_parity_terms_.size() &&
            "prepared record parity must stay in its term tape");
     const size_t words = packed_word_count(active_lanes());
     if (parity.constant) {
@@ -584,8 +583,7 @@ std::span<const uint64_t> BatchExecutor::evaluate_record_parity(uint32_t parity_
         std::ranges::fill(std::span<uint64_t>(scratch_words_).first(words), uint64_t{0});
     }
     for (uint32_t term = parity.begin; term < end; ++term) {
-        const std::span<const uint64_t> record =
-            records_.column(plan_->batch_record_parity_terms_[term]);
+        const std::span<const uint64_t> record = records_.column(plan_->record_parity_terms_[term]);
         for (size_t word = 0; word < words; ++word) {
             scratch_words_[word] ^= record[word];
         }

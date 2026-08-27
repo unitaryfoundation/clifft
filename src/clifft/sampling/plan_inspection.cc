@@ -82,17 +82,13 @@ std::string_view instrument_mode_name(InstrumentMode mode) {
     return "unknown";
 }
 
-void write_batch_record_parity(std::ostream& out, const std::optional<BatchRecordParity>& parity) {
-    if (!parity.has_value()) {
-        return;
-    }
-    out << " batch_parity=";
+void write_record_parity(std::ostream& out, const RecordParity& parity) {
     bool wrote = false;
-    if (parity->constant) {
+    if (parity.constant()) {
         out << '1';
         wrote = true;
     }
-    for (RecordSlot record : parity->records) {
+    for (RecordSlot record : parity.records()) {
         if (wrote) {
             out << '^';
         }
@@ -101,6 +97,15 @@ void write_batch_record_parity(std::ostream& out, const std::optional<BatchRecor
     }
     if (!wrote) {
         out << '0';
+    }
+}
+
+void write_observable_value(std::ostream& out, const ObservableValue& value,
+                            std::optional<size_t> max_expression_terms) {
+    if (const auto* expression = std::get_if<AffineBool>(&value)) {
+        out << format_expression(*expression, max_expression_terms);
+    } else {
+        write_record_parity(out, std::get<RecordParity>(value));
     }
 }
 
@@ -144,24 +149,22 @@ void write_action_body(std::ostream& out, const SamplingAction& action,
                     << " p01=" << format_double_roundtrip(typed.prob_zero_to_one)
                     << " p10=" << format_double_roundtrip(typed.prob_one_to_zero);
             } else if constexpr (std::is_same_v<T, WriteDetector>) {
-                out << "WRITE_DETECTOR outcome="
-                    << format_expression(typed.outcome, max_expression_terms) << " detector=d"
-                    << index(typed.detector);
+                out << "WRITE_DETECTOR outcome=";
+                write_record_parity(out, typed.outcome);
+                out << " detector=d" << index(typed.detector);
                 if (typed.postselected) {
                     out << " postselect";
                 }
-                write_batch_record_parity(out, typed.batch_parity);
             } else if constexpr (std::is_same_v<T, WriteObservable>) {
-                out << "WRITE_OBSERVABLE outcome="
-                    << format_expression(typed.outcome, max_expression_terms) << " observable=o"
-                    << index(typed.observable);
-                write_batch_record_parity(out, typed.batch_parity);
+                out << "WRITE_OBSERVABLE outcome=";
+                write_observable_value(out, typed.outcome, max_expression_terms);
+                out << " observable=o" << index(typed.observable);
             } else if constexpr (std::is_same_v<T, WriteExpectationValue>) {
                 out << "WRITE_EXPECTATION ";
-                if (typed.active_projection.has_value()) {
-                    out << format_pauli_product(typed.active_projection->x,
-                                                typed.active_projection->z)
-                        << " sign=" << format_expression(typed.sign, max_expression_terms);
+                if (typed.active.has_value()) {
+                    out << format_pauli_product(typed.active->projection.x,
+                                                typed.active->projection.z)
+                        << " sign=" << format_expression(typed.active->sign, max_expression_terms);
                 } else {
                     out << "zero";
                 }
@@ -213,28 +216,28 @@ void write_action_inspection_compact(std::ostream& out, const PlannedAction& pla
 std::string SamplingPlan::inspect() const {
     validate();
 
+    const bool has_postselection = std::ranges::any_of(actions, [](const PlannedAction& planned) {
+        const auto* detector = std::get_if<WriteDetector>(&planned.action);
+        return detector != nullptr && detector->postselected;
+    });
+
     std::ostringstream out;
     out << "sampling_plan qubits=" << num_qubits << " initial_width=" << initial_active_width
         << " peak_width=" << peak_active_width << " visible_records=" << num_visible_records
-        << " hidden_records=" << num_hidden_records << " noise_sites=" << num_noise_sites
-        << " instrument_sites=" << num_instrument_sites << " detectors=" << num_detectors
+        << " hidden_records=" << num_hidden_records
+        << " noise_sites=" << presampled_noise_sites.size()
+        << " instrument_sites=" << instrument_distributions.size() << " detectors=" << num_detectors
         << " observables=" << num_observables << " exp_vals=" << num_exp_vals
         << " postselection=" << has_postselection
         << " final_state_queries=" << final_tableau.has_value()
         << " dust_epsilon=" << format_double_roundtrip(kMeasurementDustEpsilon) << '\n';
     out << "symbols=" << symbols.size() << '\n';
     for (uint32_t i = 0; i < symbols.size(); ++i) {
-        out << "  s" << i << " kind=" << symbol_kind_name(symbols[i].kind);
-        if (symbols[i].defining_action.has_value()) {
-            out << " action=" << *symbols[i].defining_action;
-        }
-        if (symbols[i].noise_site.has_value()) {
-            out << " noise_site=" << index(*symbols[i].noise_site);
-        }
-        out << '\n';
+        out << "  s" << i << " kind=" << symbol_kind_name(symbols[i]) << '\n';
     }
-    for (const PresampledNoiseSite& site : presampled_noise_sites) {
-        out << "  noise_site " << index(site.site)
+    for (size_t site_index = 0; site_index < presampled_noise_sites.size(); ++site_index) {
+        const PresampledNoiseSite& site = presampled_noise_sites[site_index];
+        out << "  noise_site " << site_index
             << " probability=" << format_double_roundtrip(site.total_probability)
             << " outcomes=" << site.outcomes.size();
         for (const PresampledNoiseOutcome& outcome : site.outcomes) {

@@ -119,6 +119,14 @@ __device__ __forceinline__ bool evaluate(const ProgramView& program, const uint8
     return result;
 }
 
+__device__ __forceinline__ bool evaluate_output_value(const ProgramView& program,
+                                                      const uint8_t* symbols,
+                                                      const uint8_t* records,
+                                                      const Action& action) {
+    const uint8_t* values = (action.flags & kRecordParity) != 0 ? records : symbols;
+    return evaluate(program, values, action.expression);
+}
+
 template <typename Coefficient>
 __device__ void apply_rotation(const Action& action, bool sign, Coefficient* real,
                                Coefficient* imag) {
@@ -289,9 +297,6 @@ __device__ bool measure_active(const ProgramView& program, const Action& action,
 template <typename Coefficient>
 __device__ double expectation_value(const Action& action, const Coefficient* real,
                                     const Coefficient* imag) {
-    if ((action.flags & kAbsentActiveProjection) != 0) {
-        return 0.0;
-    }
     if (action.x == 0 && action.z == 0) {
         return 1.0;
     }
@@ -465,7 +470,7 @@ __global__ void interpret_shots(ProgramView program, SeedRoot seed_root, uint64_
                 break;
             }
             case ActionTag::WriteDetector: {
-                const bool outcome = evaluate(program, symbols, action.expression);
+                const bool outcome = evaluate_output_value(program, symbols, records, action);
                 detectors[action.index0] = static_cast<uint8_t>(outcome);
                 if ((action.flags & kPostselected) != 0 && outcome) {
                     discarded = true;
@@ -473,10 +478,14 @@ __global__ void interpret_shots(ProgramView program, SeedRoot seed_root, uint64_
                 break;
             }
             case ActionTag::WriteObservable:
-                observables[action.index0] =
-                    static_cast<uint8_t>(evaluate(program, symbols, action.expression));
+                observables[action.index0] = static_cast<uint8_t>(
+                    evaluate_output_value(program, symbols, records, action));
                 break;
             case ActionTag::WriteExpectationValue: {
+                if ((action.flags & kAbsentActiveProjection) != 0) {
+                    exp_vals[action.index0] = 0.0;
+                    break;
+                }
                 const double value = expectation_value(action, real, imag);
                 exp_vals[action.index0] =
                     evaluate(program, symbols, action.expression) ? -value : value;

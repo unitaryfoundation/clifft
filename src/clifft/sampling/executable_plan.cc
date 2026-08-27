@@ -42,7 +42,6 @@ ExecutablePlan::ExecutablePlan(const SamplingPlan& plan)
       num_detectors_(plan.num_detectors),
       num_observables_(plan.num_observables),
       num_exp_vals_(plan.num_exp_vals),
-      has_postselection_(plan.has_postselection),
       final_tableau_(plan.final_tableau),
       instrument_distributions_(plan.instrument_distributions) {
     // Keep construction-only lowering state out of the immutable executable.

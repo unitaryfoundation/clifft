@@ -12,14 +12,24 @@ class PageAlignedAllocation {
     static constexpr size_t kBaseAlignment = 4096;
     static constexpr size_t kHugePageSize = 2 * 1024 * 1024;
 
+    enum class Alignment {
+        BasePage,
+        HugePageEligible,
+    };
+
     PageAlignedAllocation() = default;
-    explicit PageAlignedAllocation(size_t requested_bytes);
+    explicit PageAlignedAllocation(size_t requested_bytes,
+                                   Alignment alignment = Alignment::HugePageEligible);
     ~PageAlignedAllocation();
 
     PageAlignedAllocation(const PageAlignedAllocation&) = delete;
     PageAlignedAllocation& operator=(const PageAlignedAllocation&) = delete;
     PageAlignedAllocation(PageAlignedAllocation&& other) noexcept;
     PageAlignedAllocation& operator=(PageAlignedAllocation&& other) noexcept;
+
+    // Exact retained size selected for a request, including platform alignment.
+    [[nodiscard]] static size_t allocation_size(size_t requested_bytes,
+                                                Alignment alignment = Alignment::HugePageEligible);
 
     void reset() noexcept;
 

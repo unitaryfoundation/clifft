@@ -347,6 +347,35 @@ TEST_CASE("HIP sampler applies both asymmetric readout endpoints exactly") {
     }
 }
 
+TEST_CASE("HIP sampler evaluates both observable value domains") {
+    const SamplingPlan plan = plan_from(R"(
+        X_ERROR(1) 1
+        X_ERROR(1) 0
+        M 0
+        OBSERVABLE_INCLUDE(0) rec[-1]
+        READOUT_NOISE(1) rec[-1]
+        OBSERVABLE_INCLUDE(1) rec[-1]
+    )");
+    const HipExecutablePlan hip_executable(plan);
+    const CpuExecutablePlan cpu_executable(plan);
+    constexpr uint32_t kShots = 16;
+    const SamplingResult expected = clifft::sampling::sample(cpu_executable, kShots, uint64_t{11});
+    REQUIRE(std::ranges::all_of(expected.measurements, [](uint8_t value) { return value == 0; }));
+    for (uint32_t shot = 0; shot < kShots; ++shot) {
+        REQUIRE(expected.observables[2 * shot] == 1);
+        REQUIRE(expected.observables[2 * shot + 1] == 0);
+    }
+    require_hip_device();
+
+    for (const CoefficientPrecision precision :
+         {CoefficientPrecision::FP64, CoefficientPrecision::FP32}) {
+        const SamplingResult actual = clifft::sampling::hip::sample(
+            hip_executable, kShots, {.seed = uint64_t{11}, .coefficient_precision = precision});
+        CAPTURE(precision);
+        require_same_rows(actual, expected);
+    }
+}
+
 TEST_CASE("HIP sampler matches the full categorical Pauli channel distribution") {
     const SamplingPlan plan = plan_from(R"(
         H 0

@@ -65,8 +65,7 @@ ExecutablePlan::ExecutablePlan(const SamplingPlan& plan)
       num_hidden_records_(plan.num_hidden_records),
       num_detectors_(plan.num_detectors),
       num_observables_(plan.num_observables),
-      num_exp_vals_(plan.num_exp_vals),
-      has_postselection_(plan.has_postselection) {
+      num_exp_vals_(plan.num_exp_vals) {
     plan.validate();
     require_uint32_size(plan.symbols.size(), "symbol storage");
     require_uint32_size(plan.actions.size(), "action storage");
@@ -76,7 +75,7 @@ ExecutablePlan::ExecutablePlan(const SamplingPlan& plan)
             "most " +
             std::to_string(kThreadPerShotMaxActiveWidth));
     }
-    if (plan.num_instrument_sites != 0 || !plan.instrument_distributions.empty()) {
+    if (!plan.instrument_distributions.empty()) {
         throw std::invalid_argument("HIP execution does not support transition instruments");
     }
 
@@ -96,7 +95,7 @@ ExecutablePlan::ExecutablePlan(const SamplingPlan& plan)
             {begin, static_cast<uint32_t>(noise_outcomes_.size()) - begin, cumulative_probability});
     }
     for (size_t symbol = 0; symbol < plan.symbols.size(); ++symbol) {
-        if (plan.symbols[symbol].kind == SymbolKind::Presampled && !bound_presampled[symbol]) {
+        if (plan.symbols[symbol] == SymbolKind::Presampled && !bound_presampled[symbol]) {
             throw std::invalid_argument(
                 "HIP execution requires a distribution for every presampled symbol");
         }
@@ -155,6 +154,33 @@ uint32_t ExecutablePlan::append_expression(const AffineBool& expression) {
     return expression_index;
 }
 
+uint32_t ExecutablePlan::append_record_parity(const RecordParity& parity) {
+    require_uint32_size(expressions_.size(), "record parity storage");
+    require_uint32_size(expression_terms_.size(), "record parity term storage");
+    if (parity.records().size() > std::numeric_limits<uint32_t>::max() - expression_terms_.size()) {
+        throw std::length_error("HIP executable record parity term storage exceeds uint32 range");
+    }
+    const uint32_t parity_index = static_cast<uint32_t>(expressions_.size());
+    const uint32_t term_begin = static_cast<uint32_t>(expression_terms_.size());
+    for (RecordSlot record : parity.records()) {
+        expression_terms_.push_back(index(record));
+    }
+    expressions_.push_back({term_begin,
+                            static_cast<uint32_t>(parity.records().size()),
+                            static_cast<uint8_t>(parity.constant()),
+                            {}});
+    return parity_index;
+}
+
+void ExecutablePlan::lower_observable_value(detail::Action& action, const ObservableValue& value) {
+    if (const auto* expression = std::get_if<AffineBool>(&value)) {
+        action.expression = append_expression(*expression);
+        return;
+    }
+    action.flags |= detail::kRecordParity;
+    action.expression = append_record_parity(std::get<RecordParity>(value));
+}
+
 detail::Action ExecutablePlan::lower_action(const PlannedAction& planned) {
     return std::visit(
         [&](const auto& typed) -> detail::Action {
@@ -207,22 +233,24 @@ detail::Action ExecutablePlan::lower_action(const PlannedAction& planned) {
                 action.value1 = typed.prob_one_to_zero;
             } else if constexpr (std::is_same_v<T, WriteDetector>) {
                 action.tag = detail::ActionTag::WriteDetector;
-                action.flags = typed.postselected ? detail::kPostselected : 0;
-                action.expression = append_expression(typed.outcome);
+                has_postselection_ |= typed.postselected;
+                action.flags =
+                    detail::kRecordParity | (typed.postselected ? detail::kPostselected : 0);
+                action.expression = append_record_parity(typed.outcome);
                 action.index0 = index(typed.detector);
             } else if constexpr (std::is_same_v<T, WriteObservable>) {
                 action.tag = detail::ActionTag::WriteObservable;
-                action.expression = append_expression(typed.outcome);
+                lower_observable_value(action, typed.outcome);
                 action.index0 = index(typed.observable);
             } else if constexpr (std::is_same_v<T, WriteExpectationValue>) {
                 action.tag = detail::ActionTag::WriteExpectationValue;
-                action.expression = append_expression(typed.sign);
                 action.index0 = index(typed.exp_val);
-                if (!typed.active_projection.has_value()) {
+                if (!typed.active.has_value()) {
                     action.flags = detail::kAbsentActiveProjection;
                 } else {
+                    action.expression = append_expression(typed.active->sign);
                     flatten_pauli(action,
-                                  prepare_pauli(*typed.active_projection, planned.active_before));
+                                  prepare_pauli(typed.active->projection, planned.active_before));
                 }
             } else if constexpr (std::is_same_v<T, ApplyInstrument> ||
                                  std::is_same_v<T, InstrumentBoundary>) {

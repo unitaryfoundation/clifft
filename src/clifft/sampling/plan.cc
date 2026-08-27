@@ -39,12 +39,13 @@ std::vector<SymbolId> xor_terms(const std::vector<SymbolId>& left,
     return result;
 }
 
-std::vector<SymbolId> canonicalize_terms(std::vector<SymbolId> terms) {
+template <typename Id>
+std::vector<Id> canonicalize_terms(std::vector<Id> terms) {
     // XOR retains exactly the terms with odd multiplicity. Sorting also gives
     // expressions one deterministic representation.
     std::sort(terms.begin(), terms.end(),
-              [](SymbolId left, SymbolId right) { return index(left) < index(right); });
-    std::vector<SymbolId> result;
+              [](Id left, Id right) { return index(left) < index(right); });
+    std::vector<Id> result;
     for (size_t begin = 0; begin < terms.size();) {
         size_t end = begin + 1;
         while (end < terms.size() && terms[end] == terms[begin]) {
@@ -134,8 +135,10 @@ std::optional<SymbolId> defined_symbol(const SamplingAction& action) {
         action);
 }
 
-void validate_expression(const SamplingPlan& plan, const AffineBool& expression,
-                         uint32_t action_index, std::optional<SymbolId> current_definition,
+void validate_expression(const SamplingPlan& plan,
+                         std::span<const std::optional<uint32_t>> definitions,
+                         const AffineBool& expression, uint32_t action_index,
+                         std::optional<SymbolId> current_definition,
                          bool allow_current_definition) {
     if (!expression.is_canonical()) {
         invalid_plan("action " + std::to_string(action_index) +
@@ -147,25 +150,26 @@ void validate_expression(const SamplingPlan& plan, const AffineBool& expression,
             invalid_plan("action " + std::to_string(action_index) + " references symbol s" +
                          std::to_string(symbol_index) + " out of range");
         }
-        const SymbolInfo& info = plan.symbols[symbol_index];
-        if (info.kind == SymbolKind::Presampled) {
+        if (plan.symbols[symbol_index] == SymbolKind::Presampled) {
             continue;
         }
-        if (!info.defining_action.has_value()) {
+        if (!definitions[symbol_index].has_value()) {
             invalid_plan("symbol s" + std::to_string(symbol_index) + " has no defining action");
         }
         const bool current_is_allowed = allow_current_definition && current_definition == term &&
-                                        *info.defining_action == action_index;
-        if (*info.defining_action >= action_index && !current_is_allowed) {
+                                        *definitions[symbol_index] == action_index;
+        if (*definitions[symbol_index] >= action_index && !current_is_allowed) {
             invalid_plan("action " + std::to_string(action_index) + " references symbol s" +
                          std::to_string(symbol_index) + " before assignment");
         }
     }
 }
 
-void validate_measurement_outcome(const SamplingPlan& plan, const AffineBool& outcome,
-                                  SymbolId branch, uint32_t action_index) {
-    validate_expression(plan, outcome, action_index, branch, true);
+void validate_measurement_outcome(const SamplingPlan& plan,
+                                  std::span<const std::optional<uint32_t>> definitions,
+                                  const AffineBool& outcome, SymbolId branch,
+                                  uint32_t action_index) {
+    validate_expression(plan, definitions, outcome, action_index, branch, true);
     if (std::ranges::find(outcome.terms(), branch) == outcome.terms().end()) {
         invalid_plan("action " + std::to_string(action_index) +
                      " measurement outcome omits branch s" + std::to_string(index(branch)));
@@ -196,31 +200,23 @@ void validate_written_record(const SamplingPlan& plan, RecordSlot record, uint32
     }
 }
 
-void validate_batch_record_parity(const SamplingPlan& plan, const BatchRecordParity& parity,
-                                  uint32_t action_index,
-                                  const std::unordered_set<uint32_t>& written_records,
-                                  std::span<const AffineBool* const> record_values,
-                                  const AffineBool& expected) {
-    uint32_t previous = 0;
-    bool first = true;
-    AffineBool actual(parity.constant);
-    for (RecordSlot record : parity.records) {
-        if (!first && index(record) <= previous) {
-            invalid_plan("action " + std::to_string(action_index) +
-                         " has noncanonical batch record parity");
-        }
+void validate_record_parity(const SamplingPlan& plan, const RecordParity& parity,
+                            uint32_t action_index,
+                            const std::unordered_set<uint32_t>& written_records) {
+    assert(parity.is_canonical() && "record parity construction must preserve canonical terms");
+    for (RecordSlot record : parity.records()) {
         validate_written_record(plan, record, action_index, written_records);
-        if (record_values[index(record)] == nullptr) {
-            invalid_plan("action " + std::to_string(action_index) +
-                         " batch record parity has no symbolic record value");
-        }
-        actual ^= *record_values[index(record)];
-        previous = index(record);
-        first = false;
     }
-    if (actual != expected) {
-        invalid_plan("action " + std::to_string(action_index) +
-                     " batch record parity disagrees with its affine outcome");
+}
+
+void validate_observable_value(const SamplingPlan& plan, const ObservableValue& value,
+                               std::span<const std::optional<uint32_t>> definitions,
+                               uint32_t action_index,
+                               const std::unordered_set<uint32_t>& written_records) {
+    if (const auto* expression = std::get_if<AffineBool>(&value)) {
+        validate_expression(plan, definitions, *expression, action_index, std::nullopt, false);
+    } else {
+        validate_record_parity(plan, std::get<RecordParity>(value), action_index, written_records);
     }
 }
 
@@ -279,6 +275,18 @@ AffineBool AffineBool::from_canonical_terms(bool constant, std::vector<SymbolId>
 bool AffineBool::is_canonical() const {
     for (size_t i = 1; i < terms_.size(); ++i) {
         if (index(terms_[i - 1]) >= index(terms_[i])) {
+            return false;
+        }
+    }
+    return true;
+}
+
+RecordParity::RecordParity(bool constant, std::vector<RecordSlot> records)
+    : constant_(constant), records_(canonicalize_terms(std::move(records))) {}
+
+bool RecordParity::is_canonical() const {
+    for (size_t i = 1; i < records_.size(); ++i) {
+        if (index(records_[i - 1]) >= index(records_[i])) {
             return false;
         }
     }
@@ -373,10 +381,7 @@ uint32_t predicted_dense_passes(const SamplingAction& action) {
                 }
                 return 0;
             } else if constexpr (std::is_same_v<T, WriteExpectationValue>) {
-                return typed.active_projection.has_value() &&
-                               !typed.active_projection->is_identity()
-                           ? 1
-                           : 0;
+                return typed.active.has_value() && !typed.active->projection.is_identity() ? 1 : 0;
             } else if constexpr (std::is_same_v<T, MeasureDormantRandom> ||
                                  std::is_same_v<T, RecordClassical> ||
                                  std::is_same_v<T, DefineSymbol> ||
@@ -413,19 +418,15 @@ void SamplingPlan::validate() const {
     if (source_map.has_value() && !source_map->is_valid_for(actions.size())) {
         invalid_plan("source map does not match the action stream");
     }
-
-    if (presampled_noise_sites.size() != num_noise_sites) {
-        invalid_plan("presampled noise-site table does not match declared count");
+    if (presampled_noise_sites.size() > std::numeric_limits<uint32_t>::max() ||
+        instrument_distributions.size() > std::numeric_limits<uint32_t>::max()) {
+        invalid_plan("noise or instrument site count exceeds uint32 range");
     }
-    if (instrument_distributions.size() != num_instrument_sites) {
-        invalid_plan("instrument distribution table does not match declared count");
-    }
+    const uint32_t num_noise_sites = static_cast<uint32_t>(presampled_noise_sites.size());
+    const uint32_t num_instrument_sites = static_cast<uint32_t>(instrument_distributions.size());
 
     for (uint32_t site_index = 0; site_index < instrument_distributions.size(); ++site_index) {
         const InstrumentDistribution& distribution = instrument_distributions[site_index];
-        if (index(distribution.site) != site_index) {
-            invalid_plan("instrument distributions are not in stable id order");
-        }
         for (uint8_t source = 0; source < 2; ++source) {
             if (!is_probability(distribution.p_fire[source])) {
                 invalid_plan("instrument site " + std::to_string(site_index) +
@@ -450,9 +451,6 @@ void SamplingPlan::validate() const {
     std::vector<bool> bound_noise_symbols(symbols.size(), false);
     for (uint32_t site_index = 0; site_index < presampled_noise_sites.size(); ++site_index) {
         const PresampledNoiseSite& site = presampled_noise_sites[site_index];
-        if (index(site.site) != site_index) {
-            invalid_plan("presampled noise sites are not in stable id order");
-        }
         if (!is_probability(site.total_probability)) {
             invalid_plan("noise site " + std::to_string(site_index) +
                          " has an invalid total probability");
@@ -460,9 +458,7 @@ void SamplingPlan::validate() const {
         double total_probability = 0.0;
         for (const PresampledNoiseOutcome& outcome : site.outcomes) {
             const uint32_t symbol_index = index(outcome.symbol);
-            if (symbol_index >= symbols.size() ||
-                symbols[symbol_index].kind != SymbolKind::Presampled ||
-                symbols[symbol_index].noise_site != site.site) {
+            if (symbol_index >= symbols.size() || symbols[symbol_index] != SymbolKind::Presampled) {
                 invalid_plan("noise site " + std::to_string(site_index) +
                              " references an incompatible symbol");
             }
@@ -506,57 +502,42 @@ void SamplingPlan::validate() const {
     }
 
     for (uint32_t symbol_index = 0; symbol_index < symbols.size(); ++symbol_index) {
-        const SymbolInfo& info = symbols[symbol_index];
-        if (!is_recognized_symbol_kind(info.kind)) {
+        const SymbolKind kind = symbols[symbol_index];
+        if (!is_recognized_symbol_kind(kind)) {
             invalid_plan("symbol s" + std::to_string(symbol_index) + " has an unrecognized kind");
         }
-        if (info.noise_site.has_value() &&
-            (info.kind != SymbolKind::Presampled || index(*info.noise_site) >= num_noise_sites)) {
-            invalid_plan("symbol s" + std::to_string(symbol_index) +
-                         " has an invalid noise-site identity");
-        }
-        if (info.kind == SymbolKind::Unused) {
-            if (info.defining_action.has_value() || info.noise_site.has_value() ||
-                actual_definitions[symbol_index].has_value()) {
+        if (kind == SymbolKind::Unused) {
+            if (actual_definitions[symbol_index].has_value()) {
                 invalid_plan("unused symbol s" + std::to_string(symbol_index) +
-                             " must not have a definition or noise identity");
+                             " must not have a definition");
             }
             continue;
         }
-        if (info.kind == SymbolKind::Presampled) {
-            if (info.defining_action.has_value() || actual_definitions[symbol_index].has_value()) {
+        if (kind == SymbolKind::Presampled) {
+            if (actual_definitions[symbol_index].has_value()) {
                 invalid_plan("presampled symbol s" + std::to_string(symbol_index) +
                              " must be presampled");
             }
-            if (info.noise_site.has_value() && !bound_noise_symbols[symbol_index]) {
-                invalid_plan("noise symbol s" + std::to_string(symbol_index) +
-                             " is absent from its site distribution");
-            }
             continue;
         }
-        if (!info.defining_action.has_value() ||
-            info.defining_action != actual_definitions[symbol_index]) {
-            invalid_plan("symbol s" + std::to_string(symbol_index) +
-                         " definition metadata does not match its action");
+        if (!actual_definitions[symbol_index].has_value()) {
+            invalid_plan("symbol s" + std::to_string(symbol_index) + " has no defining action");
         }
-        const SamplingAction& action = actions[*info.defining_action].action;
-        if (info.kind == SymbolKind::Branch &&
-            !std::holds_alternative<MeasureActivePauli>(action) &&
+        const SamplingAction& action = actions[*actual_definitions[symbol_index]].action;
+        if (kind == SymbolKind::Branch && !std::holds_alternative<MeasureActivePauli>(action) &&
             !std::holds_alternative<MeasureDormantRandom>(action)) {
             invalid_plan("branch symbol s" + std::to_string(symbol_index) +
                          " must be defined by a measurement");
         }
-        if (info.kind == SymbolKind::Derived && !std::holds_alternative<DefineSymbol>(action)) {
+        if (kind == SymbolKind::Derived && !std::holds_alternative<DefineSymbol>(action)) {
             invalid_plan("derived symbol s" + std::to_string(symbol_index) +
                          " must be defined by DefineSymbol");
         }
-        if (info.kind == SymbolKind::Readout &&
-            !std::holds_alternative<ApplyReadoutNoise>(action)) {
+        if (kind == SymbolKind::Readout && !std::holds_alternative<ApplyReadoutNoise>(action)) {
             invalid_plan("readout symbol s" + std::to_string(symbol_index) +
                          " must be defined by ApplyReadoutNoise");
         }
-        if (info.kind == SymbolKind::Instrument &&
-            !std::holds_alternative<ApplyInstrument>(action)) {
+        if (kind == SymbolKind::Instrument && !std::holds_alternative<ApplyInstrument>(action)) {
             invalid_plan("instrument symbol s" + std::to_string(symbol_index) +
                          " must be defined by ApplyInstrument");
         }
@@ -570,7 +551,6 @@ void SamplingPlan::validate() const {
     std::unordered_set<uint32_t> written_exp_vals;
     std::vector<const AffineBool*> record_values(total_records, nullptr);
     std::vector<std::optional<AffineBool>> readout_record_values(total_records);
-    bool observed_postselection = false;
     uint32_t observed_instruments = 0;
     uint32_t observed_instrument_boundaries = 0;
     uint32_t previous_noise_boundary = 0;
@@ -613,7 +593,8 @@ void SamplingPlan::validate() const {
                     if (!is_finite_robust(typed.half_turns)) {
                         invalid_plan("active rotation angle is not finite");
                     }
-                    validate_expression(*this, typed.sign, action_index, definition, false);
+                    validate_expression(*this, actual_definitions, typed.sign, action_index,
+                                        definition, false);
                 } else if constexpr (std::is_same_v<T, PromoteDormantRotation>) {
                     if (planned.active_after != planned.active_before + 1) {
                         invalid_plan("dormant promotion has an invalid width");
@@ -621,7 +602,8 @@ void SamplingPlan::validate() const {
                     if (!is_finite_robust(typed.half_turns)) {
                         invalid_plan("dormant promotion angle is not finite");
                     }
-                    validate_expression(*this, typed.sign, action_index, definition, false);
+                    validate_expression(*this, actual_definitions, typed.sign, action_index,
+                                        definition, false);
                 } else if constexpr (std::is_same_v<T, MeasureActivePauli>) {
                     if (planned.active_before == 0 ||
                         planned.active_after + 1 != planned.active_before ||
@@ -633,7 +615,8 @@ void SamplingPlan::validate() const {
                         invalid_plan("active measurement Pauli is identity");
                     }
                     validate_measurement_pivot(typed, action_index);
-                    validate_measurement_outcome(*this, typed.outcome, typed.branch, action_index);
+                    validate_measurement_outcome(*this, actual_definitions, typed.outcome,
+                                                 typed.branch, action_index);
                     validate_record(*this, typed.record, action_index, written_records);
                     record_values[index(typed.record)] = &typed.outcome;
                 } else if constexpr (std::is_same_v<T, MeasureDormantRandom>) {
@@ -642,28 +625,32 @@ void SamplingPlan::validate() const {
                         typed.dormant_pivot >= num_qubits) {
                         invalid_plan("dormant measurement has an invalid width or pivot");
                     }
-                    validate_measurement_outcome(*this, typed.outcome, typed.branch, action_index);
+                    validate_measurement_outcome(*this, actual_definitions, typed.outcome,
+                                                 typed.branch, action_index);
                     validate_record(*this, typed.record, action_index, written_records);
                     record_values[index(typed.record)] = &typed.outcome;
                 } else if constexpr (std::is_same_v<T, RecordClassical>) {
                     if (planned.active_after != planned.active_before) {
                         invalid_plan("classical record changes active width");
                     }
-                    validate_expression(*this, typed.outcome, action_index, definition, false);
+                    validate_expression(*this, actual_definitions, typed.outcome, action_index,
+                                        definition, false);
                     validate_record(*this, typed.record, action_index, written_records);
                     record_values[index(typed.record)] = &typed.outcome;
                 } else if constexpr (std::is_same_v<T, DefineSymbol>) {
                     if (planned.active_after != planned.active_before) {
                         invalid_plan("symbol definition changes active width");
                     }
-                    validate_expression(*this, typed.value, action_index, definition, false);
+                    validate_expression(*this, actual_definitions, typed.value, action_index,
+                                        definition, false);
                 } else if constexpr (std::is_same_v<T, ApplyReadoutNoise>) {
                     if (planned.active_after != planned.active_before ||
                         !is_probability(typed.prob_zero_to_one) ||
                         !is_probability(typed.prob_one_to_zero)) {
                         invalid_plan("readout noise has invalid width or probabilities");
                     }
-                    validate_expression(*this, typed.source, action_index, definition, false);
+                    validate_expression(*this, actual_definitions, typed.source, action_index,
+                                        definition, false);
                     validate_written_record(*this, typed.record, action_index, written_records);
                     const uint32_t record_index = index(typed.record);
                     if (record_values[record_index] == nullptr ||
@@ -680,36 +667,27 @@ void SamplingPlan::validate() const {
                         !written_detectors.insert(index(typed.detector)).second) {
                         invalid_plan("detector write has invalid width or slot");
                     }
-                    validate_expression(*this, typed.outcome, action_index, definition, false);
-                    if (typed.batch_parity.has_value()) {
-                        validate_batch_record_parity(*this, *typed.batch_parity, action_index,
-                                                     written_records, record_values, typed.outcome);
-                    }
-                    observed_postselection |= typed.postselected;
+                    validate_record_parity(*this, typed.outcome, action_index, written_records);
                 } else if constexpr (std::is_same_v<T, WriteObservable>) {
                     if (planned.active_after != planned.active_before ||
                         index(typed.observable) >= num_observables ||
                         !written_observables.insert(index(typed.observable)).second) {
                         invalid_plan("observable write has invalid width or slot");
                     }
-                    validate_expression(*this, typed.outcome, action_index, definition, false);
-                    if (typed.batch_parity.has_value()) {
-                        validate_batch_record_parity(*this, *typed.batch_parity, action_index,
-                                                     written_records, record_values, typed.outcome);
-                    }
+                    validate_observable_value(*this, typed.outcome, actual_definitions,
+                                              action_index, written_records);
                 } else if constexpr (std::is_same_v<T, WriteExpectationValue>) {
                     if (planned.active_after != planned.active_before ||
                         index(typed.exp_val) >= num_exp_vals ||
                         !written_exp_vals.insert(index(typed.exp_val)).second) {
                         invalid_plan("expectation write has invalid width or slot");
                     }
-                    if (typed.active_projection.has_value()) {
-                        validate_pauli(*typed.active_projection, planned.active_before,
+                    if (typed.active.has_value()) {
+                        validate_pauli(typed.active->projection, planned.active_before,
                                        action_index);
-                    } else if (typed.sign != AffineBool{}) {
-                        invalid_plan("zero expectation write has an irrelevant symbolic sign");
+                        validate_expression(*this, actual_definitions, typed.active->sign,
+                                            action_index, definition, false);
                     }
-                    validate_expression(*this, typed.sign, action_index, definition, false);
                 } else if constexpr (std::is_same_v<T, ApplyInstrument>) {
                     if (index(typed.site) != observed_instruments ||
                         index(typed.site) >= num_instrument_sites) {
@@ -749,7 +727,8 @@ void SamplingPlan::validate() const {
                         !typed.destination_flip.has_value()) {
                         invalid_plan("in-line instrument omits its destination-flip symbol");
                     }
-                    validate_expression(*this, typed.sign, action_index, definition, false);
+                    validate_expression(*this, actual_definitions, typed.sign, action_index,
+                                        definition, false);
                     ++observed_instruments;
                 } else if constexpr (std::is_same_v<T, InstrumentBoundary>) {
                     if (planned.active_after != planned.active_before ||
@@ -788,9 +767,6 @@ void SamplingPlan::validate() const {
         written_observables.size() != num_observables || written_exp_vals.size() != num_exp_vals) {
         invalid_plan(
             "declared detector, observable, or expectation count does not match the action stream");
-    }
-    if (observed_postselection != has_postselection) {
-        invalid_plan("declared postselection flag does not match detector actions");
     }
     if (observed_instruments != num_instrument_sites ||
         observed_instrument_boundaries != num_instrument_sites) {

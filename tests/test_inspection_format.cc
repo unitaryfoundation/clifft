@@ -15,11 +15,11 @@
 #include <variant>
 #include <vector>
 
+using clifft::sampling::ActiveExpectation;
 using clifft::sampling::ActivePauli;
 using clifft::sampling::AffineBool;
 using clifft::sampling::ApplyInstrument;
 using clifft::sampling::ApplyReadoutNoise;
-using clifft::sampling::BatchRecordParity;
 using clifft::sampling::DefineSymbol;
 using clifft::sampling::DetectorSlot;
 using clifft::sampling::ExecutablePlan;
@@ -36,6 +36,7 @@ using clifft::sampling::ObservableSlot;
 using clifft::sampling::PlannedAction;
 using clifft::sampling::PromoteDormantRotation;
 using clifft::sampling::RecordClassical;
+using clifft::sampling::RecordParity;
 using clifft::sampling::RecordSlot;
 using clifft::sampling::RotateActivePauli;
 using clifft::sampling::SamplingAction;
@@ -146,8 +147,8 @@ TEST_CASE("Compact inspection caps affine expressions at four symbol terms") {
 TEST_CASE("Detector inspection appends postselect only when the detector is postselected") {
     SamplingPlan plan;
     plan.actions = {
-        PlannedAction{0, 0, WriteDetector{AffineBool{}, DetectorSlot{0}, true, std::nullopt}},
-        PlannedAction{0, 0, WriteDetector{AffineBool{}, DetectorSlot{1}, false, std::nullopt}},
+        PlannedAction{0, 0, WriteDetector{RecordParity{}, DetectorSlot{0}, true}},
+        PlannedAction{0, 0, WriteDetector{RecordParity{}, DetectorSlot{1}, false}},
     };
 
     CHECK(plan.inspect_action(0) ==
@@ -155,7 +156,7 @@ TEST_CASE("Detector inspection appends postselect only when the detector is post
     CHECK(plan.inspect_action(1) == "w0 dense_passes=0 WRITE_DETECTOR outcome=0 detector=d1");
 }
 
-TEST_CASE("Syndrome inspection renders packed record parity sidecars") {
+TEST_CASE("Detector and observable inspection renders selected record parity values") {
     SamplingPlan plan;
     plan.num_visible_records = 1;
     plan.num_detectors = 1;
@@ -163,21 +164,17 @@ TEST_CASE("Syndrome inspection renders packed record parity sidecars") {
     plan.actions = {
         PlannedAction{0, 0, RecordClassical{AffineBool(true), RecordSlot{0}}},
         PlannedAction{0, 0,
-                      WriteDetector{AffineBool(true), DetectorSlot{0}, false,
-                                    BatchRecordParity{false, {RecordSlot{0}}}}},
+                      WriteDetector{RecordParity{false, {RecordSlot{0}}}, DetectorSlot{0}, false}},
         PlannedAction{0, 0,
-                      WriteObservable{AffineBool(true), ObservableSlot{0},
-                                      BatchRecordParity{false, {RecordSlot{0}}}}},
+                      WriteObservable{RecordParity{false, {RecordSlot{0}}}, ObservableSlot{0}}},
     };
 
-    CHECK(plan.inspect_action(1) ==
-          "w0 dense_passes=0 WRITE_DETECTOR outcome=1 detector=d0 batch_parity=r0");
-    CHECK(plan.inspect_action(2) ==
-          "w0 dense_passes=0 WRITE_OBSERVABLE outcome=1 observable=o0 batch_parity=r0");
+    CHECK(plan.inspect_action(1) == "w0 dense_passes=0 WRITE_DETECTOR outcome=r0 detector=d0");
+    CHECK(plan.inspect_action(2) == "w0 dense_passes=0 WRITE_OBSERVABLE outcome=r0 observable=o0");
     const ExecutablePlan executable(plan);
-    CHECK(executable.inspect_action(1) == "WRITE_DETECTOR detector=d0 outcome=e1 batch_parity=r0");
-    CHECK(executable.inspect_action(2) ==
-          "WRITE_OBSERVABLE observable=o0 outcome=e2 batch_parity=r0");
+    CHECK(executable.num_expression_registers() == 1);
+    CHECK(executable.inspect_action(1) == "WRITE_DETECTOR detector=d0 outcome=r0");
+    CHECK(executable.inspect_action(2) == "WRITE_OBSERVABLE observable=o0 outcome=r0");
 }
 
 TEST_CASE("Executable rotation prints a pairing index only for X-type prepared Paulis") {
@@ -222,9 +219,10 @@ TEST_CASE("Compact inspection mnemonics cover every SamplingAction and its docs 
         PlannedAction{0, 0, RecordClassical{empty, RecordSlot{0}}},
         PlannedAction{0, 0, DefineSymbol{s0, empty}},
         PlannedAction{0, 0, ApplyReadoutNoise{s0, empty, RecordSlot{0}, 0.0, 0.0}},
-        PlannedAction{0, 0, WriteDetector{empty, DetectorSlot{0}, false, std::nullopt}},
-        PlannedAction{0, 0, WriteObservable{empty, ObservableSlot{0}, std::nullopt}},
-        PlannedAction{0, 0, WriteExpectationValue{ActivePauli{}, empty, ExpValSlot{0}}},
+        PlannedAction{0, 0, WriteDetector{RecordParity{}, DetectorSlot{0}, false}},
+        PlannedAction{0, 0, WriteObservable{empty, ObservableSlot{0}}},
+        PlannedAction{
+            0, 0, WriteExpectationValue{ActiveExpectation{ActivePauli{}, empty}, ExpValSlot{0}}},
         PlannedAction{0, 0,
                       ApplyInstrument{InstrumentSiteId{0}, InstrumentMode::Classical, ActivePauli{},
                                       empty, s0}},

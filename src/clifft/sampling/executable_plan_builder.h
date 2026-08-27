@@ -47,8 +47,10 @@ class ExecutablePlanBuilder {
         const AffineBool& expression);
     [[nodiscard]] ExecutablePlan::PreparedExpression prepare_measurement_correction(
         const AffineBool& outcome, uint32_t branch);
-    [[nodiscard]] uint32_t prepare_batch_record_parity(
-        const std::optional<BatchRecordParity>& parity);
+    [[nodiscard]] ExecutablePlan::PreparedRecordParity prepare_record_parity(
+        const RecordParity& parity);
+    [[nodiscard]] ExecutablePlan::PreparedObservableValue prepare_observable_value(
+        const ObservableValue& value);
     void ensure_expression_term_capacity(size_t additional_terms) const;
 
     ExecutablePlan& output_;
@@ -58,6 +60,7 @@ class ExecutablePlanBuilder {
     std::vector<uint32_t> expression_terms_;
     std::vector<uint32_t> expression_term_begins_;
     std::vector<uint32_t> boundary_noise_starts_;
+    std::vector<uint8_t> bound_presampled_symbols_;
 };
 
 }  // namespace clifft::sampling

@@ -55,7 +55,7 @@ size_t interleaved_batch_state_bytes(uint32_t max_active_width, uint32_t lane_ca
     if (coefficient_bytes > std::numeric_limits<size_t>::max() - scratch_bytes) {
         throw std::length_error("interleaved batch allocation exceeds size_t");
     }
-    return coefficient_bytes + scratch_bytes;
+    return PageAlignedAllocation::allocation_size(coefficient_bytes + scratch_bytes);
 }
 
 InterleavedBatchState::InterleavedBatchState(uint32_t max_active_width,

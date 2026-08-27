@@ -10,6 +10,17 @@ namespace clifft::sampling {
 
 namespace {
 
+size_t packed_storage_bytes(size_t columns, size_t word_capacity) {
+    if (columns != 0 && word_capacity > std::numeric_limits<size_t>::max() / columns) {
+        throw std::length_error("packed batch bit-column allocation exceeds size_t range");
+    }
+    const size_t words = columns * word_capacity;
+    if (words > std::numeric_limits<size_t>::max() / sizeof(uint64_t)) {
+        throw std::length_error("packed batch bit-column allocation exceeds size_t range");
+    }
+    return words * sizeof(uint64_t);
+}
+
 uint64_t compress_bits_portable(uint64_t bits, uint64_t keep) noexcept {
     uint64_t output = 0;
     uint64_t destination = 1;
@@ -42,6 +53,12 @@ size_t packed_word_count(uint32_t lanes) noexcept {
     return (static_cast<size_t>(lanes) + 63) / 64;
 }
 
+size_t packed_bit_columns_storage_bytes(size_t columns, uint32_t lane_capacity) {
+    return PageAlignedAllocation::allocation_size(
+        packed_storage_bytes(columns, packed_word_count(lane_capacity)),
+        PageAlignedAllocation::Alignment::BasePage);
+}
+
 uint64_t low_lane_mask(uint32_t bits) noexcept {
     if (bits == 0) {
         return 0;
@@ -64,21 +81,25 @@ void fill_low_lane_mask(std::span<uint64_t> output, uint32_t lanes) noexcept {
 PackedBitColumns::PackedBitColumns(size_t columns, uint32_t lane_capacity)
     : columns_(columns),
       lane_capacity_(lane_capacity),
-      word_capacity_(packed_word_count(lane_capacity)) {
-    if (columns_ != 0 && word_capacity_ > std::numeric_limits<size_t>::max() / columns_) {
-        throw std::length_error("packed batch bit-column allocation exceeds size_t range");
+      word_capacity_(packed_word_count(lane_capacity)),
+      storage_(packed_bit_columns_storage_bytes(columns_, lane_capacity_),
+               PageAlignedAllocation::Alignment::BasePage),
+      words_(static_cast<uint64_t*>(storage_.data())) {
+    if (!storage_.zero_initialized()) {
+        std::ranges::fill(std::span<uint64_t>(words_, columns_ * word_capacity_), uint64_t{0});
     }
-    words_.resize(columns_ * word_capacity_, 0);
 }
 
 std::span<uint64_t> PackedBitColumns::column(size_t column_index) noexcept {
     assert(column_index < columns_ && "packed bit column index must be in range");
-    return std::span<uint64_t>(words_).subspan(column_index * word_capacity_, word_capacity_);
+    return std::span<uint64_t>(words_, columns_ * word_capacity_)
+        .subspan(column_index * word_capacity_, word_capacity_);
 }
 
 std::span<const uint64_t> PackedBitColumns::column(size_t column_index) const noexcept {
     assert(column_index < columns_ && "packed bit column index must be in range");
-    return std::span<const uint64_t>(words_).subspan(column_index * word_capacity_, word_capacity_);
+    return std::span<const uint64_t>(words_, columns_ * word_capacity_)
+        .subspan(column_index * word_capacity_, word_capacity_);
 }
 
 bool PackedBitColumns::bit(size_t column_index, uint32_t lane) const noexcept {
@@ -92,7 +113,7 @@ void PackedBitColumns::set_bit(size_t column_index, uint32_t lane) noexcept {
 }
 
 void PackedBitColumns::clear() noexcept {
-    std::ranges::fill(words_, uint64_t{0});
+    std::ranges::fill(std::span<uint64_t>(words_, columns_ * word_capacity_), uint64_t{0});
 }
 
 void PackedBitColumns::assign(size_t column_index, std::span<const uint64_t> source,

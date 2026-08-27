@@ -1,10 +1,11 @@
 #pragma once
 
+#include "clifft/util/page_allocation.h"
+
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
 #include <span>
-#include <vector>
 
 namespace clifft::sampling {
 
@@ -48,10 +49,12 @@ class PackedBitColumns {
     size_t columns_ = 0;
     uint32_t lane_capacity_ = 0;
     size_t word_capacity_ = 0;
-    std::vector<uint64_t> words_;
+    PageAlignedAllocation storage_;
+    uint64_t* words_ = nullptr;
 };
 
 [[nodiscard]] size_t packed_word_count(uint32_t lanes) noexcept;
+[[nodiscard]] size_t packed_bit_columns_storage_bytes(size_t columns, uint32_t lane_capacity);
 [[nodiscard]] uint64_t low_lane_mask(uint32_t bits) noexcept;
 void fill_low_lane_mask(std::span<uint64_t> output, uint32_t lanes) noexcept;
 

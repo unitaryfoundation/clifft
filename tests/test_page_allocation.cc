@@ -40,7 +40,25 @@ TEST_CASE("Page-aligned allocation owns rounded movable storage") {
 TEST_CASE("Page-aligned allocation validates edge sizes") {
     PageAlignedAllocation empty(0);
     REQUIRE(empty.empty());
+    REQUIRE(PageAlignedAllocation::allocation_size(0) == 0);
+    REQUIRE(PageAlignedAllocation::allocation_size(17) == PageAlignedAllocation::kBaseAlignment);
     REQUIRE_THROWS_AS(PageAlignedAllocation(std::numeric_limits<size_t>::max()), std::length_error);
+    REQUIRE_THROWS_AS(PageAlignedAllocation::allocation_size(std::numeric_limits<size_t>::max()),
+                      std::length_error);
+}
+
+TEST_CASE("Base-page allocation avoids huge-page size inflation") {
+    constexpr size_t requested = PageAlignedAllocation::kHugePageSize + 17;
+    constexpr size_t expected =
+        PageAlignedAllocation::kHugePageSize + PageAlignedAllocation::kBaseAlignment;
+    REQUIRE(PageAlignedAllocation::allocation_size(
+                requested, PageAlignedAllocation::Alignment::BasePage) == expected);
+
+    PageAlignedAllocation allocation(requested, PageAlignedAllocation::Alignment::BasePage);
+    REQUIRE(allocation.size() == expected);
+    REQUIRE(reinterpret_cast<uintptr_t>(allocation.data()) %
+                PageAlignedAllocation::kBaseAlignment ==
+            0);
 }
 
 #if defined(__linux__)

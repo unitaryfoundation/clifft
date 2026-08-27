@@ -197,37 +197,66 @@ struct ApplyReadoutNoise {
     double prob_one_to_zero = 0.0;
 };
 
-// Batch execution can evaluate detector and observable parities from packed
-// record columns instead of expanding every record's full affine history.
-struct BatchRecordParity {
-    bool constant = false;
-    std::vector<RecordSlot> records;
+// Circuit outputs are XOR parities of measurement-record snapshots. A detector
+// is written at its circuit position, where every referenced slot is current.
+// Observable includes instead accumulate until one final write; if a referenced
+// slot changes in between, the planner preserves its historical snapshot as an
+// AffineBool. Otherwise it retains the cheaper RecordParity. Executors consume
+// the chosen representation without repeating this freshness analysis.
+//
+// RecordParity is a parity over current circuit record slots. Construction
+// sorts the slots and removes even multiplicities so every value has one
+// deterministic representation.
+class RecordParity {
+  public:
+    RecordParity() = default;
+    RecordParity(bool constant, std::vector<RecordSlot> records);
+
+    [[nodiscard]] bool constant() const { return constant_; }
+    [[nodiscard]] const std::vector<RecordSlot>& records() const { return records_; }
+    [[nodiscard]] bool is_canonical() const;
+
+    friend bool operator==(const RecordParity&, const RecordParity&) = default;
+
+  private:
+    bool constant_ = false;
+    std::vector<RecordSlot> records_;
 };
 
+// Observable writes retain the representation whose dependencies are still
+// available at execution time. Record parity avoids expanding current record
+// snapshots; affine form preserves historical values after a record changes.
+using ObservableValue = std::variant<AffineBool, RecordParity>;
+
 // Writes a detector parity after the planner has XORed its expected reference
-// parity into the expression. A nonzero postselected detector rejects the shot
-// immediately; later actions and outputs are irrelevant for it.
+// parity into the selected value. A nonzero postselected detector rejects the
+// shot immediately; later actions and outputs are irrelevant for it.
 struct WriteDetector {
-    AffineBool outcome;
+    RecordParity outcome;
     DetectorSlot detector{};
     bool postselected = false;
-    std::optional<BatchRecordParity> batch_parity;
 };
 
 // Writes one fully accumulated logical observable after the planner has XORed
-// its expected reference parity into the expression.
+// its expected reference parity into the selected value.
 struct WriteObservable {
-    AffineBool outcome;
+    ObservableValue outcome;
     ObservableSlot observable{};
-    std::optional<BatchRecordParity> batch_parity;
 };
 
 // Writes a non-destructive Pauli expectation probe. The planner retains only
 // the coefficient-kernel input, not the full transformed observable: an absent
 // active projection means dormant X or Y support proved the result is zero.
-struct WriteExpectationValue {
-    std::optional<ActivePauli> active_projection;
+struct ActiveExpectation {
+    ActivePauli projection;
     AffineBool sign;
+};
+
+struct WriteExpectationValue {
+    // Absence is an exact zero proved by dormant X or Y support. Keeping the
+    // sign inside the active form prevents zero probes from carrying an
+    // irrelevant expression.
+    std::optional<ActiveExpectation> active;
     ExpValSlot exp_val{};
 };
 
@@ -278,21 +307,6 @@ struct PlannedAction {
     SamplingAction action;
 };
 
-// Describes how one symbol is populated. SamplingPlan::validate checks each
-// kind's legal fields and its agreement with the referenced defining action.
-struct SymbolInfo {
-    SymbolKind kind = SymbolKind::Unused;
-
-    // Index of the action that assigns this symbol. Required for Derived,
-    // Branch, Readout, and Instrument; absent for Presampled and Unused.
-    std::optional<uint32_t> defining_action;
-
-    // For a Presampled noise symbol, this identifies its stable HIR noise site.
-    // Nullopt means the presampled event has no noise-site identity. All other
-    // symbol kinds must use nullopt.
-    std::optional<NoiseSiteId> noise_site;
-};
-
 // One nonidentity outcome of a mutually exclusive Pauli-noise site. The
 // identity outcome has the remaining probability and no symbol.
 struct PresampledNoiseOutcome {
@@ -301,7 +315,6 @@ struct PresampledNoiseOutcome {
 };
 
 struct PresampledNoiseSite {
-    NoiseSiteId site{};
     // Exact semantic probability copied from the HIR noise site. Execution
     // still uses the ordered outcome probabilities for channel selection.
     double total_probability = 0.0;
@@ -312,7 +325,6 @@ struct PresampledNoiseSite {
 // indices use 0 for g and 1 for e. Computational entries are unconditional;
 // their row sum is at most p_fire[source].
 struct InstrumentDistribution {
-    InstrumentSiteId site{};
     std::array<double, 2> p_fire{};
     std::array<std::array<double, 2>, 2> p_computational_dest{};
 };
@@ -348,19 +360,18 @@ struct SamplingPlan {
     // that every slot in both regions is written exactly once.
     uint32_t num_visible_records = 0;
     uint32_t num_hidden_records = 0;
-    uint32_t num_noise_sites = 0;
-    uint32_t num_instrument_sites = 0;
     uint32_t num_detectors = 0;
     uint32_t num_observables = 0;
     uint32_t num_exp_vals = 0;
-    bool has_postselection = false;
 
     // Present only for pure-state plans eligible for exact final-state
     // queries. It maps the final stabilizer coordinates used by the action
     // stream into physical qubits and is never read by ordinary dispatch.
     std::optional<Tableau> final_tableau;
 
-    std::vector<SymbolInfo> symbols;
+    // Defining actions and noise-site membership remain owned by the action
+    // stream and presampled distributions instead of being duplicated here.
+    std::vector<SymbolKind> symbols;
     std::vector<PresampledNoiseSite> presampled_noise_sites;
     std::vector<InstrumentDistribution> instrument_distributions;
     std::vector<PlannedAction> actions;

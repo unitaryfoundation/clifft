@@ -31,7 +31,6 @@ using clifft::sampling::RotateActivePauli;
 using clifft::sampling::SamplingPlan;
 using clifft::sampling::State;
 using clifft::sampling::SymbolId;
-using clifft::sampling::SymbolInfo;
 using clifft::sampling::SymbolKind;
 
 SamplingPlan rotation_plan(uint32_t active_width, std::span<const RotateActivePauli> rotations) {
@@ -39,7 +38,7 @@ SamplingPlan rotation_plan(uint32_t active_width, std::span<const RotateActivePa
     plan.num_qubits = active_width;
     plan.initial_active_width = active_width;
     plan.peak_active_width = active_width;
-    plan.symbols = {SymbolInfo{SymbolKind::Presampled, std::nullopt, std::nullopt}};
+    plan.symbols = {SymbolKind::Presampled};
     for (const RotateActivePauli& rotation : rotations) {
         plan.actions.push_back(PlannedAction{active_width, active_width, rotation});
     }
@@ -172,10 +171,7 @@ TEST_CASE("Dynamic fused rotation matches scalar across affine sign values") {
     plan.num_qubits = 6;
     plan.initial_active_width = 6;
     plan.peak_active_width = 6;
-    plan.symbols = {
-        SymbolInfo{SymbolKind::Presampled, std::nullopt, std::nullopt},
-        SymbolInfo{SymbolKind::Presampled, std::nullopt, std::nullopt},
-    };
+    plan.symbols = {SymbolKind::Presampled, SymbolKind::Presampled};
     for (const RotateActivePauli& rotation : rotations) {
         plan.actions.push_back(PlannedAction{6, 6, rotation});
     }

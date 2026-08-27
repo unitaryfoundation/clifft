@@ -53,7 +53,8 @@ class BatchPresampledProgram {
     [[nodiscard]] static std::optional<BatchPresampledProgram> build(
         const ExecutablePlan& executable, const SamplingPlan& source,
         std::span<const uint32_t> expression_terms,
-        std::span<const uint32_t> expression_term_begins);
+        std::span<const uint32_t> expression_term_begins,
+        std::span<const uint8_t> bound_presampled_symbols);
     void validate(size_t num_noise_outcomes, size_t num_expression_registers) const noexcept;
 
     uint32_t num_carriers_ = 0;

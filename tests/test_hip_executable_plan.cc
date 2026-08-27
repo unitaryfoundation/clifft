@@ -12,12 +12,10 @@
 #include <variant>
 
 using clifft::sampling::AffineBool;
-using clifft::sampling::NoiseSiteId;
 using clifft::sampling::PresampledNoiseOutcome;
 using clifft::sampling::PresampledNoiseSite;
 using clifft::sampling::SamplingPlan;
 using clifft::sampling::SymbolId;
-using clifft::sampling::SymbolInfo;
 using clifft::sampling::SymbolKind;
 using clifft::sampling::hip::ExecutablePlan;
 using clifft::sampling::hip::detail::ActionTag;
@@ -59,8 +57,10 @@ TEST_CASE("HIP executable lowers existing sampling action names") {
     REQUIRE(executable.actions()[0].tag == ActionTag::PromoteDormantRotation);
     REQUIRE(executable.actions()[1].tag == ActionTag::MeasureActivePauli);
     REQUIRE(executable.actions()[2].tag == ActionTag::WriteDetector);
+    REQUIRE((executable.actions()[2].flags & clifft::sampling::hip::detail::kRecordParity) != 0);
     REQUIRE(executable.actions()[3].tag == ActionTag::WriteExpectationValue);
     REQUIRE(executable.actions()[4].tag == ActionTag::WriteObservable);
+    REQUIRE((executable.actions()[4].flags & clifft::sampling::hip::detail::kRecordParity) != 0);
     REQUIRE(executable.num_exp_vals() == 1);
 }
 
@@ -78,15 +78,42 @@ TEST_CASE("HIP executable inspection identifies packed modification points") {
     REQUIRE_THAT(diagnostic, ContainsSubstring("WriteDetector"));
 }
 
+TEST_CASE("HIP executable preserves selected output representations") {
+    const SamplingPlan plan = plan_from(R"(
+        X_ERROR(1) 1
+        X_ERROR(1) 0
+        M 0
+        OBSERVABLE_INCLUDE(0) rec[-1]
+        READOUT_NOISE(1) rec[-1]
+        OBSERVABLE_INCLUDE(1) rec[-1]
+    )");
+    const ExecutablePlan executable(plan);
+
+    REQUIRE(executable.actions().size() == 4);
+    const auto& historical = executable.actions()[2];
+    REQUIRE(historical.tag == ActionTag::WriteObservable);
+    REQUIRE((historical.flags & clifft::sampling::hip::detail::kRecordParity) == 0);
+    const auto& historical_expression = executable.expressions()[historical.expression];
+    REQUIRE(historical_expression.term_count == 1);
+    const auto& planned_record =
+        std::get<clifft::sampling::RecordClassical>(plan.actions[0].action);
+    REQUIRE(planned_record.outcome.terms().size() == 1);
+    const uint32_t historical_symbol = static_cast<uint32_t>(planned_record.outcome.terms()[0]);
+    REQUIRE(historical_symbol != 0);
+    REQUIRE(executable.expression_terms()[historical_expression.term_begin] == historical_symbol);
+
+    const auto& current = executable.actions()[3];
+    REQUIRE(current.tag == ActionTag::WriteObservable);
+    REQUIRE((current.flags & clifft::sampling::hip::detail::kRecordParity) != 0);
+    const auto& current_expression = executable.expressions()[current.expression];
+    REQUIRE(current_expression.term_count == 1);
+    REQUIRE(executable.expression_terms()[current_expression.term_begin] == 0);
+}
+
 TEST_CASE("HIP executable packs affine terms and categorical noise") {
     SamplingPlan plan;
-    plan.num_noise_sites = 1;
-    plan.symbols = {
-        SymbolInfo{SymbolKind::Presampled, std::nullopt, NoiseSiteId{0}},
-        SymbolInfo{SymbolKind::Presampled, std::nullopt, NoiseSiteId{0}},
-    };
+    plan.symbols = {SymbolKind::Presampled, SymbolKind::Presampled};
     plan.presampled_noise_sites = {PresampledNoiseSite{
-        NoiseSiteId{0},
         0.25,
         {PresampledNoiseOutcome{SymbolId{0}, 0.125}, PresampledNoiseOutcome{SymbolId{1}, 0.125}}}};
 
@@ -159,9 +186,7 @@ TEST_CASE("HIP executable rejects work outside the first device tier") {
     REQUIRE_THROWS_WITH(ExecutablePlan(wide), ContainsSubstring("peak active width"));
 
     SamplingPlan unbound;
-    unbound.symbols = {
-        SymbolInfo{SymbolKind::Presampled, std::nullopt, std::nullopt},
-    };
+    unbound.symbols = {SymbolKind::Presampled};
     REQUIRE_THROWS_WITH(ExecutablePlan(unbound), ContainsSubstring("presampled symbol"));
 }
 

@@ -43,42 +43,58 @@ void aligned_free_portable(void* ptr) {
 
 }  // namespace
 
-PageAlignedAllocation::PageAlignedAllocation(size_t requested_bytes) {
+size_t PageAlignedAllocation::allocation_size(size_t requested_bytes, Alignment alignment) {
     if (requested_bytes == 0) {
-        return;
+        return 0;
     }
     const size_t page_aligned = round_up(requested_bytes, kBaseAlignment);
+#if defined(__linux__)
+    const size_t allocation_alignment =
+        alignment == Alignment::HugePageEligible && page_aligned >= kHugePageSize ? kHugePageSize
+                                                                                  : kBaseAlignment;
+    return round_up(page_aligned, allocation_alignment);
+#else
+    (void)alignment;
+    return page_aligned;
+#endif
+}
+
+PageAlignedAllocation::PageAlignedAllocation(size_t requested_bytes, Alignment alignment) {
+    const size_t allocation_bytes = allocation_size(requested_bytes, alignment);
+    if (allocation_bytes == 0) {
+        return;
+    }
 
 #if defined(__linux__)
-    if (page_aligned >= kHugePageSize) {
-        const size_t huge_aligned = round_up(page_aligned, kHugePageSize);
-        void* mapped = mmap(nullptr, huge_aligned, PROT_READ | PROT_WRITE,
+    const bool huge_page_eligible =
+        alignment == Alignment::HugePageEligible && allocation_bytes >= kHugePageSize;
+    if (huge_page_eligible) {
+        void* mapped = mmap(nullptr, allocation_bytes, PROT_READ | PROT_WRITE,
                             MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB, -1, 0);
         if (mapped != MAP_FAILED) {
             data_ = mapped;
-            allocated_bytes_ = huge_aligned;
+            allocated_bytes_ = allocation_bytes;
             memory_mapped_ = true;
             return;
         }
     }
 
-    const size_t allocation_alignment =
-        page_aligned >= kHugePageSize ? kHugePageSize : kBaseAlignment;
-    const size_t allocation_bytes = round_up(page_aligned, allocation_alignment);
+    const size_t allocation_alignment = huge_page_eligible ? kHugePageSize : kBaseAlignment;
     data_ = aligned_alloc_portable(allocation_alignment, allocation_bytes);
     if (data_ == nullptr) {
         throw std::bad_alloc();
     }
     allocated_bytes_ = allocation_bytes;
-    if (page_aligned >= kHugePageSize) {
+    if (huge_page_eligible) {
         madvise(data_, allocation_bytes, MADV_HUGEPAGE);
     }
 #else
-    data_ = aligned_alloc_portable(kBaseAlignment, page_aligned);
+    (void)alignment;
+    data_ = aligned_alloc_portable(kBaseAlignment, allocation_bytes);
     if (data_ == nullptr) {
         throw std::bad_alloc();
     }
-    allocated_bytes_ = page_aligned;
+    allocated_bytes_ = allocation_bytes;
 #endif
 }
 

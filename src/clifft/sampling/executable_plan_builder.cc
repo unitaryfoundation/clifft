@@ -92,8 +92,8 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::compile() {
     prepare_noise_and_boundaries();
     lower_action_stream();
     build_expression_dependencies();
-    output_.batch_presampled_program_ =
-        BatchPresampledProgram::build(output_, source_, expression_terms_, expression_term_begins_);
+    output_.batch_presampled_program_ = BatchPresampledProgram::build(
+        output_, source_, expression_terms_, expression_term_begins_, bound_presampled_symbols_);
     validate_executable_plan();
 }
 
@@ -116,7 +116,7 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::initialize_program() {
     // avoiding repeated growth of the temporary term tape.
     expression_terms_.reserve(estimate_expression_terms());
     expression_term_begins_.reserve(source_.actions.size());
-    output_.instrument_resume_offsets_.assign(source_.num_instrument_sites,
+    output_.instrument_resume_offsets_.assign(source_.instrument_distributions.size(),
                                               std::numeric_limits<uint32_t>::max());
 }
 
@@ -140,11 +140,17 @@ CLIFFT_BUILDER_FORCE_INLINE size_t ExecutablePlanBuilder::estimate_expression_te
                     num_terms += typed.value.terms().size();
                 } else if constexpr (std::is_same_v<T, ApplyReadoutNoise>) {
                     num_terms += typed.source.terms().size();
-                } else if constexpr (std::is_same_v<T, WriteDetector> ||
-                                     std::is_same_v<T, WriteObservable>) {
-                    num_terms += typed.outcome.terms().size();
-                } else if constexpr (std::is_same_v<T, WriteExpectationValue> ||
-                                     std::is_same_v<T, ApplyInstrument>) {
+                } else if constexpr (std::is_same_v<T, WriteDetector>) {
+                    // Detector record parities do not use affine registers.
+                } else if constexpr (std::is_same_v<T, WriteObservable>) {
+                    if (const auto* expression = std::get_if<AffineBool>(&typed.outcome)) {
+                        num_terms += expression->terms().size();
+                    }
+                } else if constexpr (std::is_same_v<T, WriteExpectationValue>) {
+                    if (typed.active.has_value()) {
+                        num_terms += typed.active->sign.terms().size();
+                    }
+                } else if constexpr (std::is_same_v<T, ApplyInstrument>) {
                     num_terms += typed.sign.terms().size();
                 } else if constexpr (std::is_same_v<T, InstrumentBoundary>) {
                     // Boundaries have no affine payload.
@@ -162,7 +168,7 @@ CLIFFT_BUILDER_FORCE_INLINE size_t ExecutablePlanBuilder::estimate_expression_te
 
 CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::prepare_noise_and_boundaries() {
     output_.presampled_symbols_.reserve(source_.symbols.size());
-    std::vector<bool> bound_presampled(source_.symbols.size(), false);
+    bound_presampled_symbols_.assign(source_.symbols.size(), 0);
     output_.noise_sites_.reserve(source_.presampled_noise_sites.size());
     output_.noise_hazards_.reserve(source_.presampled_noise_sites.size());
 
@@ -175,7 +181,7 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::prepare_noise_and_bounda
         for (const PresampledNoiseOutcome& outcome : site.outcomes) {
             cumulative_probability += outcome.probability;
             output_.noise_outcomes_.push_back({index(outcome.symbol), cumulative_probability});
-            bound_presampled[index(outcome.symbol)] = true;
+            bound_presampled_symbols_[index(outcome.symbol)] = 1;
         }
         if (output_.noise_outcomes_.size() != begin) {
             // The validated source permits roundoff-sized disagreement between
@@ -204,23 +210,24 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::prepare_noise_and_bounda
         }
     }
     for (uint32_t symbol = 0; symbol < source_.symbols.size(); ++symbol) {
-        if (source_.symbols[symbol].kind != SymbolKind::Presampled) {
+        if (source_.symbols[symbol] != SymbolKind::Presampled) {
             continue;
         }
         output_.presampled_symbols_.push_back(symbol);
-        if (!bound_presampled[symbol]) {
+        if (bound_presampled_symbols_[symbol] == 0) {
             output_.unbound_presampled_symbols_.push_back(symbol);
         }
     }
 
-    boundary_noise_starts_.reserve(source_.num_instrument_sites);
+    boundary_noise_starts_.reserve(source_.instrument_distributions.size());
     for (const PlannedAction& planned : source_.actions) {
         if (const auto* boundary = std::get_if<InstrumentBoundary>(&planned.action)) {
             boundary_noise_starts_.push_back(boundary->next_noise_site);
         }
     }
-    output_.initial_noise_end_ =
-        boundary_noise_starts_.empty() ? source_.num_noise_sites : boundary_noise_starts_.front();
+    output_.initial_noise_end_ = boundary_noise_starts_.empty()
+                                     ? static_cast<uint32_t>(source_.presampled_noise_sites.size())
+                                     : boundary_noise_starts_.front();
 }
 
 CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::ensure_expression_term_capacity(
@@ -270,24 +277,25 @@ ExecutablePlanBuilder::prepare_measurement_correction(const AffineBool& outcome,
     return {register_id};
 }
 
-CLIFFT_BUILDER_FORCE_INLINE uint32_t
-ExecutablePlanBuilder::prepare_batch_record_parity(const std::optional<BatchRecordParity>& parity) {
-    if (!parity.has_value()) {
-        return std::numeric_limits<uint32_t>::max();
+CLIFFT_BUILDER_FORCE_INLINE ExecutablePlan::PreparedRecordParity
+ExecutablePlanBuilder::prepare_record_parity(const RecordParity& parity) {
+    if (parity.records().size() >
+        std::numeric_limits<uint32_t>::max() - output_.record_parity_terms_.size()) {
+        throw std::length_error("sampling executable record parity exceeds uint32 range");
     }
-    if (output_.batch_record_parities_.size() >= std::numeric_limits<uint32_t>::max() ||
-        parity->records.size() >
-            std::numeric_limits<uint32_t>::max() - output_.batch_record_parity_terms_.size()) {
-        throw std::length_error("sampling executable batch record parity exceeds uint32 range");
+    const uint32_t begin = static_cast<uint32_t>(output_.record_parity_terms_.size());
+    for (RecordSlot record : parity.records()) {
+        output_.record_parity_terms_.push_back(index(record));
     }
-    const uint32_t parity_index = static_cast<uint32_t>(output_.batch_record_parities_.size());
-    const uint32_t begin = static_cast<uint32_t>(output_.batch_record_parity_terms_.size());
-    for (RecordSlot record : parity->records) {
-        output_.batch_record_parity_terms_.push_back(index(record));
+    return {begin, static_cast<uint32_t>(parity.records().size()), parity.constant()};
+}
+
+CLIFFT_BUILDER_FORCE_INLINE ExecutablePlan::PreparedObservableValue
+ExecutablePlanBuilder::prepare_observable_value(const ObservableValue& value) {
+    if (const auto* expression = std::get_if<AffineBool>(&value)) {
+        return prepare_expression(*expression);
     }
-    output_.batch_record_parities_.push_back(
-        {begin, static_cast<uint32_t>(parity->records.size()), parity->constant});
-    return parity_index;
+    return prepare_record_parity(std::get<RecordParity>(value));
 }
 
 CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::lower_action(const PlannedAction& planned,
@@ -340,22 +348,22 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::lower_action(const Plann
                     output_.num_readout_noise_sites_++, typed.prob_zero_to_one,
                     typed.prob_one_to_zero, batch_symmetric_inverse_hazard});
             } else if constexpr (std::is_same_v<T, WriteDetector>) {
-                output_.actions_.emplace_back(ExecutablePlan::ExecuteDetector{
-                    prepare_expression(typed.outcome), index(typed.detector), typed.postselected,
-                    prepare_batch_record_parity(typed.batch_parity)});
+                output_.has_postselection_ |= typed.postselected;
+                output_.actions_.emplace_back(
+                    ExecutablePlan::ExecuteDetector{prepare_record_parity(typed.outcome),
+                                                    index(typed.detector), typed.postselected});
             } else if constexpr (std::is_same_v<T, WriteObservable>) {
                 output_.actions_.emplace_back(ExecutablePlan::ExecuteObservable{
-                    prepare_expression(typed.outcome), index(typed.observable),
-                    prepare_batch_record_parity(typed.batch_parity)});
+                    prepare_observable_value(typed.outcome), index(typed.observable)});
             } else if constexpr (std::is_same_v<T, WriteExpectationValue>) {
-                std::optional<PreparedPauli> active_projection;
-                if (typed.active_projection.has_value()) {
-                    active_projection =
-                        prepare_pauli(*typed.active_projection, planned.active_before);
+                std::optional<ExecutablePlan::PreparedExpectation> active;
+                if (typed.active.has_value()) {
+                    active = ExecutablePlan::PreparedExpectation{
+                        prepare_pauli(typed.active->projection, planned.active_before),
+                        prepare_expression(typed.active->sign)};
                 }
-                output_.actions_.emplace_back(ExecutablePlan::ExecuteExpectation{
-                    std::move(active_projection), prepare_expression(typed.sign),
-                    index(typed.exp_val)});
+                output_.actions_.emplace_back(
+                    ExecutablePlan::ExecuteExpectation{std::move(active), index(typed.exp_val)});
             } else if constexpr (std::is_same_v<T, ApplyInstrument>) {
                 output_.has_instruments_ = true;
                 const uint32_t site = index(typed.site);
@@ -410,9 +418,10 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::lower_action(const Plann
                 }
                 throw std::logic_error("validated instrument mode has no executable lowering");
             } else if constexpr (std::is_same_v<T, InstrumentBoundary>) {
-                const uint32_t noise_end = boundary_index + 1 < boundary_noise_starts_.size()
-                                               ? boundary_noise_starts_[boundary_index + 1]
-                                               : source_.num_noise_sites;
+                const uint32_t noise_end =
+                    boundary_index + 1 < boundary_noise_starts_.size()
+                        ? boundary_noise_starts_[boundary_index + 1]
+                        : static_cast<uint32_t>(source_.presampled_noise_sites.size());
                 output_.instrument_resume_offsets_[index(typed.site)] =
                     static_cast<uint32_t>(output_.actions_.size());
                 output_.actions_.emplace_back(ExecutablePlan::ExecuteBoundary{
@@ -508,15 +517,6 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::validate_executable_plan
     }
     const size_t num_records =
         static_cast<size_t>(output_.num_visible_records_) + output_.num_hidden_records_;
-    for (const ExecutablePlan::PreparedRecordParity& parity : output_.batch_record_parities_) {
-        const size_t end = static_cast<size_t>(parity.begin) + parity.count;
-        assert(end <= output_.batch_record_parity_terms_.size() &&
-               "batch record parity must stay in its prepared tape");
-        for (size_t term = parity.begin; term < end; ++term) {
-            assert(output_.batch_record_parity_terms_[term] < num_records &&
-                   "batch record parity must name a valid record");
-        }
-    }
     if (source_.source_map.has_value()) {
         assert(output_.action_plan_ranges_.size() == output_.actions_.size() &&
                "executable provenance must remain parallel to the action stream");
@@ -538,10 +538,21 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::validate_executable_plan
         assert(expression.register_id < output_.expression_register_constants_.size() &&
                "action expression is out of range");
     };
-    auto validate_record_parity = [&](uint32_t parity) {
-        assert((parity == std::numeric_limits<uint32_t>::max() ||
-                parity < output_.batch_record_parities_.size()) &&
-               "action record parity is out of range");
+    auto validate_record_parity = [&](ExecutablePlan::PreparedRecordParity parity) {
+        const size_t end = static_cast<size_t>(parity.begin) + parity.count;
+        assert(end <= output_.record_parity_terms_.size() &&
+               "record parity must stay in its prepared tape");
+        for (size_t term = parity.begin; term < end; ++term) {
+            assert(output_.record_parity_terms_[term] < num_records &&
+                   "record parity must name a valid record");
+        }
+    };
+    auto validate_observable_value = [&](const ExecutablePlan::PreparedObservableValue& value) {
+        if (const auto* expression = std::get_if<ExecutablePlan::PreparedExpression>(&value)) {
+            validate_expression(*expression);
+        } else {
+            validate_record_parity(std::get<ExecutablePlan::PreparedRecordParity>(value));
+        }
     };
     for (const ExecutablePlan::Action& action : output_.actions_) {
         std::visit(
@@ -570,13 +581,13 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::validate_executable_plan
                 } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteReadoutNoise>) {
                     validate_expression(typed.source);
                 } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteDetector>) {
-                    validate_expression(typed.outcome);
-                    validate_record_parity(typed.record_parity);
+                    validate_record_parity(typed.outcome);
                 } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteObservable>) {
-                    validate_expression(typed.outcome);
-                    validate_record_parity(typed.record_parity);
+                    validate_observable_value(typed.outcome);
                 } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteExpectation>) {
-                    validate_expression(typed.sign);
+                    if (typed.active.has_value()) {
+                        validate_expression(typed.active->sign);
+                    }
                 } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteInstrument>) {
                     std::visit(
                         [&](const auto& instrument) {

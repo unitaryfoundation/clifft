@@ -27,6 +27,7 @@ enum class ActionTag : uint8_t {
 
 inline constexpr uint8_t kPostselected = 1U << 0;
 inline constexpr uint8_t kAbsentActiveProjection = 1U << 1;
+inline constexpr uint8_t kRecordParity = 1U << 2;
 
 inline constexpr uint64_t coefficient_state_capacity(uint32_t peak_active_width) {
     return uint64_t{1} << peak_active_width;
@@ -43,6 +44,8 @@ inline constexpr uint64_t coefficient_elements_per_shot(uint32_t peak_active_wid
 }
 
 struct Expression {
+    // Detector and observable actions interpret terms as record slots when
+    // kRecordParity is set; every other action interprets them as symbol ids.
     uint32_t term_begin = 0;
     uint32_t term_count = 0;
     uint8_t constant = 0;

@@ -32,6 +32,7 @@ using clifft::sampling::MeasureDormantRandom;
 using clifft::sampling::plan_sampling;
 using clifft::sampling::PromoteDormantRotation;
 using clifft::sampling::RecordClassical;
+using clifft::sampling::RecordParity;
 using clifft::sampling::RecordSlot;
 using clifft::sampling::RotateActivePauli;
 using clifft::sampling::SamplingPlan;
@@ -82,6 +83,30 @@ TEST_CASE("Sampling planner preserves empty module metadata") {
     REQUIRE(plan.peak_active_width == 0);
     REQUIRE(plan.actions.empty());
     REQUIRE(plan.symbols.empty());
+}
+
+TEST_CASE("Sampling planner validates detector records before XOR cancellation") {
+    SECTION("unwritten record") {
+        HirModule hir;
+        hir.num_measurements = 1;
+        hir.num_detectors = 1;
+        hir.detector_targets = {{0, 0}};
+        hir.append_detector(clifft::DetectorIdx{0});
+
+        REQUIRE_THROWS_WITH(plan_sampling(hir),
+                            "sampling planner operation 0 reads record 0 before assignment");
+    }
+
+    SECTION("out of range record") {
+        HirModule hir;
+        hir.num_measurements = 1;
+        hir.num_detectors = 1;
+        hir.detector_targets = {{1, 1}};
+        hir.append_detector(clifft::DetectorIdx{0});
+
+        REQUIRE_THROWS_WITH(plan_sampling(hir),
+                            "sampling planner operation 0 reads record 1 before assignment");
+    }
 }
 
 TEST_CASE("Sampling planner promotes rotations and keeps later active support") {
@@ -143,7 +168,7 @@ TEST_CASE("Sampling planner records repeat dormant measurements consistently") {
 
     REQUIRE(plan.actions.size() == 2);
     REQUIRE(plan.symbols.size() == 2);
-    REQUIRE(plan.symbols[1].kind == SymbolKind::Unused);
+    REQUIRE(plan.symbols[1] == SymbolKind::Unused);
     const auto& first = action_as<MeasureDormantRandom>(plan, 0);
     REQUIRE(first.branch == SymbolId{0});
     REQUIRE(first.outcome == AffineBool::symbol(SymbolId{0}));
@@ -329,11 +354,11 @@ TEST_CASE("Sampling planner preserves mixed symbol order at instrument boundarie
                                                           &options));
 
     REQUIRE(plan.symbols.size() == 5);
-    REQUIRE(plan.symbols[0].kind == SymbolKind::Presampled);
-    REQUIRE(plan.symbols[1].kind == SymbolKind::Branch);
-    REQUIRE(plan.symbols[2].kind == SymbolKind::Readout);
-    REQUIRE(plan.symbols[3].kind == SymbolKind::Instrument);
-    REQUIRE(plan.symbols[4].kind == SymbolKind::Presampled);
+    REQUIRE(plan.symbols[0] == SymbolKind::Presampled);
+    REQUIRE(plan.symbols[1] == SymbolKind::Branch);
+    REQUIRE(plan.symbols[2] == SymbolKind::Readout);
+    REQUIRE(plan.symbols[3] == SymbolKind::Instrument);
+    REQUIRE(plan.symbols[4] == SymbolKind::Presampled);
 
     const auto boundary = std::ranges::find_if(plan.actions, [](const auto& action) {
         return std::holds_alternative<InstrumentBoundary>(action.action);
@@ -448,15 +473,14 @@ TEST_CASE("Sampling planner classifies active and dormant expectation probes") {
     REQUIRE(plan.actions.size() == 4);
     REQUIRE(plan.final_tableau.has_value());
     const auto& active = action_as<WriteExpectationValue>(plan, 1);
-    REQUIRE(active.active_projection.has_value());
-    REQUIRE_FALSE(active.active_projection->is_identity());
+    REQUIRE(active.active.has_value());
+    REQUIRE_FALSE(active.active->projection.is_identity());
     REQUIRE(active.exp_val == clifft::sampling::ExpValSlot{0});
     const auto& dormant_x = action_as<WriteExpectationValue>(plan, 2);
-    REQUIRE_FALSE(dormant_x.active_projection.has_value());
-    REQUIRE(dormant_x.sign == AffineBool{});
+    REQUIRE_FALSE(dormant_x.active.has_value());
     const auto& dormant_z = action_as<WriteExpectationValue>(plan, 3);
-    REQUIRE(dormant_z.active_projection.has_value());
-    REQUIRE(dormant_z.active_projection->is_identity());
+    REQUIRE(dormant_z.active.has_value());
+    REQUIRE(dormant_z.active->projection.is_identity());
 }
 
 TEST_CASE("Sampling planner propagates stochastic signs into expectation probes") {
@@ -464,17 +488,17 @@ TEST_CASE("Sampling planner propagates stochastic signs into expectation probes"
         plan_sampling(clifft::trace(clifft::parse("X_ERROR(1) 0\nEXP_VAL Z0")));
     REQUIRE_FALSE(noise.final_tableau.has_value());
     const auto& noise_probe = action_as<WriteExpectationValue>(noise, 0);
-    REQUIRE(noise_probe.active_projection.has_value());
-    REQUIRE(noise_probe.active_projection->is_identity());
-    REQUIRE(noise_probe.sign == AffineBool::symbol(SymbolId{0}));
+    REQUIRE(noise_probe.active.has_value());
+    REQUIRE(noise_probe.active->projection.is_identity());
+    REQUIRE(noise_probe.active->sign == AffineBool::symbol(SymbolId{0}));
 
     const SamplingPlan feedback =
         plan_sampling(clifft::trace(clifft::parse("H 0\nM 0\nCX rec[-1] 1\nEXP_VAL Z1")));
     const auto& measurement = action_as<MeasureDormantRandom>(feedback, 0);
     const auto& feedback_probe = action_as<WriteExpectationValue>(feedback, 1);
-    REQUIRE(feedback_probe.active_projection.has_value());
-    REQUIRE(feedback_probe.active_projection->is_identity());
-    REQUIRE(feedback_probe.sign == AffineBool::symbol(measurement.branch));
+    REQUIRE(feedback_probe.active.has_value());
+    REQUIRE(feedback_probe.active->projection.is_identity());
+    REQUIRE(feedback_probe.active->sign == AffineBool::symbol(measurement.branch));
 }
 
 TEST_CASE("Sampling planner eliminates Pauli noise and feedback into record expressions") {
@@ -490,7 +514,7 @@ TEST_CASE("Sampling planner eliminates Pauli noise and feedback into record expr
     REQUIRE(plan.presampled_noise_sites.size() == 1);
     REQUIRE(plan.presampled_noise_sites[0].outcomes.size() == 1);
     const SymbolId noise = plan.presampled_noise_sites[0].outcomes[0].symbol;
-    REQUIRE(plan.symbols[static_cast<uint32_t>(noise)].kind == SymbolKind::Presampled);
+    REQUIRE(plan.symbols[static_cast<uint32_t>(noise)] == SymbolKind::Presampled);
     REQUIRE(plan.actions.size() == 2);
     REQUIRE(action_as<RecordClassical>(plan, 0).outcome == AffineBool::symbol(noise));
     REQUIRE(action_as<RecordClassical>(plan, 1).outcome == AffineBool::symbol(noise));
@@ -531,7 +555,7 @@ TEST_CASE("Sampling planner carries symbolic frame across coordinate changes") {
                                          AffineBool::symbol(last_measurement.branch)));
 }
 
-TEST_CASE("Sampling planner carries corrected records into syndrome outputs") {
+TEST_CASE("Sampling planner carries corrected records into detector and observable outputs") {
     const HirModule hir = clifft::trace(clifft::parse(R"(
         M 0
         READOUT_NOISE(0.1, 0.2) rec[-1]
@@ -547,24 +571,22 @@ TEST_CASE("Sampling planner carries corrected records into syndrome outputs") {
 
     REQUIRE(plan.num_detectors == 1);
     REQUIRE(plan.num_observables == 1);
-    REQUIRE(plan.has_postselection);
     REQUIRE(plan.actions.size() == 4);
     const auto& readout = action_as<ApplyReadoutNoise>(plan, 1);
-    REQUIRE(plan.symbols[static_cast<uint32_t>(readout.flip)].kind == SymbolKind::Readout);
+    REQUIRE(plan.symbols[static_cast<uint32_t>(readout.flip)] == SymbolKind::Readout);
     REQUIRE(readout.source == AffineBool(false));
     REQUIRE(readout.prob_zero_to_one == 0.1);
     REQUIRE(readout.prob_one_to_zero == 0.2);
     const auto& detector = action_as<WriteDetector>(plan, 2);
-    REQUIRE(detector.outcome == (AffineBool::symbol(readout.flip) ^ true));
     REQUIRE(detector.postselected);
-    REQUIRE(detector.batch_parity.has_value());
-    REQUIRE(detector.batch_parity->constant);
-    REQUIRE(detector.batch_parity->records == std::vector<RecordSlot>{RecordSlot{0}});
+    const auto& detector_parity = detector.outcome;
+    REQUIRE(detector_parity.constant());
+    REQUIRE(detector_parity.records() == std::vector<RecordSlot>{RecordSlot{0}});
     const auto& observable = action_as<WriteObservable>(plan, 3);
-    REQUIRE(observable.outcome == (AffineBool::symbol(readout.flip) ^ true));
-    REQUIRE(observable.batch_parity.has_value());
-    REQUIRE(observable.batch_parity->constant);
-    REQUIRE(observable.batch_parity->records == std::vector<RecordSlot>{RecordSlot{0}});
+    REQUIRE(std::holds_alternative<RecordParity>(observable.outcome));
+    const auto& observable_parity = std::get<RecordParity>(observable.outcome);
+    REQUIRE(observable_parity.constant());
+    REQUIRE(observable_parity.records() == std::vector<RecordSlot>{RecordSlot{0}});
 }
 
 TEST_CASE("Sampling planner falls back for historical observable records") {
@@ -583,13 +605,25 @@ TEST_CASE("Sampling planner falls back for historical observable records") {
     const auto& before = action_as<WriteObservable>(plan, 2);
     const auto& after = action_as<WriteObservable>(plan, 3);
     const auto& straddled = action_as<WriteObservable>(plan, 4);
-    REQUIRE(before.outcome == AffineBool(true));
-    REQUIRE_FALSE(before.batch_parity.has_value());
-    REQUIRE(after.outcome == (AffineBool::symbol(readout.flip) ^ true));
-    REQUIRE(after.batch_parity.has_value());
-    REQUIRE(after.batch_parity->records == std::vector<RecordSlot>{RecordSlot{0}});
-    REQUIRE(straddled.outcome == AffineBool::symbol(readout.flip));
-    REQUIRE_FALSE(straddled.batch_parity.has_value());
+    REQUIRE(std::get<AffineBool>(before.outcome) == AffineBool(true));
+    REQUIRE(std::holds_alternative<RecordParity>(after.outcome));
+    REQUIRE(std::get<RecordParity>(after.outcome).records() ==
+            std::vector<RecordSlot>{RecordSlot{0}});
+    REQUIRE(std::get<AffineBool>(straddled.outcome) == AffineBool::symbol(readout.flip));
+}
+
+TEST_CASE("Sampling planner cancels observable snapshots before freshness testing") {
+    const SamplingPlan plan = plan_sampling(clifft::trace(clifft::parse(R"(
+        M 0
+        OBSERVABLE_INCLUDE(0) rec[-1] rec[-1]
+        READOUT_NOISE(1) rec[-1]
+    )")));
+
+    const auto& observable = action_as<WriteObservable>(plan, plan.actions.size() - 1);
+    REQUIRE(std::holds_alternative<RecordParity>(observable.outcome));
+    const auto& parity = std::get<RecordParity>(observable.outcome);
+    REQUIRE_FALSE(parity.constant());
+    REQUIRE(parity.records().empty());
 }
 
 TEST_CASE("Sampling planner reports the dense active width limit") {
@@ -655,5 +689,5 @@ TEST_CASE("Sampling planner target QEC plan characterization") {
     INFO(inspection);
     // After verifying that a reported inspection change is intentional, update
     // this digest to the new value shown by the failed assertion.
-    REQUIRE(fnv1a64(inspection) == 0x2b35d16f42cb24a3ULL);
+    REQUIRE(fnv1a64(inspection) == 0xad863e67839d8f4fULL);
 }
