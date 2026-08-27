@@ -66,7 +66,7 @@ if(CLIFFT_X86_RUNTIME_DISPATCH)
     set_source_files_properties(sampling/kernels_avx512.cc
         PROPERTIES COMPILE_OPTIONS "-mavx2;-mbmi2;-mfma;-mavx512f;-mavx512dq"
     )
-    target_compile_definitions(clifft_core PRIVATE CLIFFT_ENABLE_RUNTIME_DISPATCH)
+    target_compile_definitions(clifft_core PRIVATE CLIFFT_ENABLE_X86_RUNTIME_DISPATCH)
 endif()
 
 # Apple arm64 has a process-wide NEON baseline. Keep its implementation in a

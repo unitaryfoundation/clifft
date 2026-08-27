@@ -22,12 +22,12 @@ PreparedFusedRotationExecution::PreparedFusedRotationExecution(PreparedFusedRota
 #endif
             break;
         case ExecutorBackend::Avx2:
-#if defined(CLIFFT_ENABLE_RUNTIME_DISPATCH)
+#if defined(CLIFFT_ENABLE_X86_RUNTIME_DISPATCH)
             sidecar_ = prepare_fused_rotation_avx2_sidecar(rotation_);
 #endif
             break;
         case ExecutorBackend::Avx512:
-#if defined(CLIFFT_ENABLE_RUNTIME_DISPATCH)
+#if defined(CLIFFT_ENABLE_X86_RUNTIME_DISPATCH)
             sidecar_ = prepare_fused_rotation_avx512_sidecar(rotation_);
 #endif
             break;

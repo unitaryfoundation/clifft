@@ -10,7 +10,7 @@ namespace clifft::internal {
 
 namespace {
 
-#if defined(CLIFFT_ENABLE_RUNTIME_DISPATCH) || defined(CLIFFT_ENABLE_APPLE_NEON)
+#if defined(CLIFFT_ENABLE_X86_RUNTIME_DISPATCH) || defined(CLIFFT_ENABLE_APPLE_NEON)
 
 bool host_supports_avx2_kernel() {
 #if (defined(__GNUC__) || defined(__clang__)) && \

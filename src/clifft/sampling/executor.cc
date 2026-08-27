@@ -814,14 +814,14 @@ ReplayResult Executor::execute_actions_for_backend(std::span<const uint8_t> forc
                 break;
 #endif
             case ExecutorBackend::Avx2:
-#if defined(CLIFFT_ENABLE_RUNTIME_DISPATCH)
+#if defined(CLIFFT_ENABLE_X86_RUNTIME_DISPATCH)
                 return execute_actions<ExecutorBackend::Avx2, Mode, IntraShotMode::OpenMP>(
                     forced_records, begin);
 #else
                 break;
 #endif
             case ExecutorBackend::Avx512:
-#if defined(CLIFFT_ENABLE_RUNTIME_DISPATCH)
+#if defined(CLIFFT_ENABLE_X86_RUNTIME_DISPATCH)
                 return execute_actions<ExecutorBackend::Avx512, Mode, IntraShotMode::OpenMP>(
                     forced_records, begin);
 #else
@@ -843,14 +843,14 @@ ReplayResult Executor::execute_actions_for_backend(std::span<const uint8_t> forc
             break;
 #endif
         case ExecutorBackend::Avx2:
-#if defined(CLIFFT_ENABLE_RUNTIME_DISPATCH)
+#if defined(CLIFFT_ENABLE_X86_RUNTIME_DISPATCH)
             return execute_actions<ExecutorBackend::Avx2, Mode, IntraShotMode::Serial>(
                 forced_records, begin);
 #else
             break;
 #endif
         case ExecutorBackend::Avx512:
-#if defined(CLIFFT_ENABLE_RUNTIME_DISPATCH)
+#if defined(CLIFFT_ENABLE_X86_RUNTIME_DISPATCH)
             return execute_actions<ExecutorBackend::Avx512, Mode, IntraShotMode::Serial>(
                 forced_records, begin);
 #else
