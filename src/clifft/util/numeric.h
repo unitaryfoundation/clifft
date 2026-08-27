@@ -27,6 +27,19 @@ inline constexpr double kMeasurementDustEpsilon = 1e-18;
 // detail.
 inline constexpr double kRotationCanonicalizationTolerance = 1e-12;
 
+[[nodiscard]] inline constexpr uint64_t saturating_add_u64(uint64_t left, uint64_t right) noexcept {
+    return right > std::numeric_limits<uint64_t>::max() - left
+               ? std::numeric_limits<uint64_t>::max()
+               : left + right;
+}
+
+[[nodiscard]] inline constexpr uint64_t saturating_multiply_u64(uint64_t left,
+                                                                uint64_t right) noexcept {
+    return left != 0 && right > std::numeric_limits<uint64_t>::max() / left
+               ? std::numeric_limits<uint64_t>::max()
+               : left * right;
+}
+
 enum class CliffordRotation : uint8_t { IDENTITY = 0, SQRT = 1, PAULI = 2, SQRT_DAG = 3 };
 
 // The IEEE 754 bit trick below assumes that layout. Make it explicit.

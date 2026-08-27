@@ -84,10 +84,11 @@ CLIFFT_CIRCUIT_FILE=tools/bench/fixtures/qv20_seed42.stim \
 | `CLIFFT_PROFILE_GENERATED_WIDTH` | unset | Generate a rotation-heavy circuit of this width instead of loading a file |
 | `CLIFFT_PROFILE_GENERATED_DEPTH` | 20 | Layers in the generated circuit |
 
-The profiler prints a final `RESULT` line with the requested batch setting,
-effective lane capacity and worker count, timing, survival rate, and retained
-row count. For example, this compares scalar and automatic execution of the
-aggregate survivor path with every detector postselected:
+The profiler prints the planner's estimated coefficient visits per lane and a
+final `RESULT` line with that estimate, the requested batch setting, effective
+lane capacity and worker count, timing, survival rate, and retained row count.
+For example, this compares scalar and automatic execution of the aggregate
+survivor path with every detector postselected:
 
 ```bash
 for batch in 1 auto; do
@@ -112,6 +113,11 @@ The matrix covers ordinary and fixed-fault sampling, aggregate and retained
 survivor output, with and without postselection. Explicit capacities can be
 changed with `--batches`; scalar (`1`) and `auto` are always required. Use
 `--apis`, `--keep-records`, and `--postselection` to run a focused subset.
+
+`tools/profile/fixtures/active_width5_transient.stim` and
+`active_width5_sustained.stim` have the same peak active width but different
+coefficient-state lifetimes. They exercise the automatic work cutoff without
+assuming that peak width alone predicts whether batching is profitable.
 
 ## Probability queries
 

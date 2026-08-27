@@ -495,8 +495,7 @@ void BatchExecutor::execute_action(const ExecutablePlan::ExecuteReadoutNoise& ac
     }
 }
 
-void BatchExecutor::execute_action(const ExecutablePlan::ExecuteDetector& action,
-                                   size_t action_index) noexcept {
+void BatchExecutor::execute_action(const ExecutablePlan::ExecuteDetector& action, size_t) noexcept {
     const std::span<const uint64_t> outcomes = evaluate_record_parity(action.outcome);
     if (output_mode_ == BatchOutputMode::Rows) {
         detectors_.assign(action.detector, outcomes, live_words_);
@@ -511,7 +510,7 @@ void BatchExecutor::execute_action(const ExecutablePlan::ExecuteDetector& action
         live_words_[word] &= ~dead;
     }
     live_count_ -= rejected;
-    if (should_compact(action_index)) {
+    if (should_compact(action)) {
         compact_live_lanes();
     }
 }
@@ -602,7 +601,7 @@ bool BatchExecutor::is_live(uint32_t lane) const noexcept {
     return ((live_words_[lane >> 6] >> (lane & 63)) & uint64_t{1}) != 0;
 }
 
-bool BatchExecutor::should_compact(size_t action_index) const noexcept {
+bool BatchExecutor::should_compact(const ExecutablePlan::ExecuteDetector& detector) const noexcept {
     if (live_count_ == 0 || live_count_ == active_lanes()) {
         return false;
     }
@@ -612,22 +611,29 @@ bool BatchExecutor::should_compact(size_t action_index) const noexcept {
     if (plan_->peak_active_width() == 0) {
         return false;
     }
-    const uint64_t remaining_actions = plan_->actions_.size() - action_index - 1;
-    if (remaining_actions == 0) {
+    if (detector.remaining_batch_lane_work == 0) {
         return false;
     }
     const uint64_t old_words = packed_word_count(active_lanes());
-    const uint64_t new_words = packed_word_count(live_count_);
     const uint64_t dead_lanes = active_lanes() - live_count_;
     const uint64_t bit_columns = expression_registers_.num_columns() + records_.num_columns() +
                                  detectors_.num_columns() + observables_.num_columns() +
                                  forced_readout_.num_columns();
-    const uint64_t carry_cost =
-        dead_lanes * remaining_actions + (old_words - new_words) * remaining_actions * 8;
-    const uint64_t compact_cost = bit_columns * old_words +
-                                  static_cast<uint64_t>(plan_->num_exp_vals_) * live_count_ +
-                                  static_cast<uint64_t>(live_count_) * 3;
-    return carry_cost > compact_cost;
+    // Packed-column compaction performs several dependent bit operations per
+    // retained bit, so a coefficient-sized unit materially understates it.
+    constexpr uint64_t kPackedBitCompactionWeight = 4;
+    const uint64_t bit_compaction_units = saturating_add_u64(
+        live_count_, saturating_add_u64(old_words, saturating_multiply_u64(word_capacity_, 2)));
+    const uint64_t sidecar_cost = saturating_multiply_u64(
+        saturating_multiply_u64(bit_columns, bit_compaction_units), kPackedBitCompactionWeight);
+    const uint64_t state_cost =
+        saturating_multiply_u64(saturating_multiply_u64(state_.size(), live_count_), 2);
+    const uint64_t lane_cost = saturating_add_u64(
+        active_lanes(),
+        saturating_multiply_u64(live_count_, static_cast<uint64_t>(plan_->num_exp_vals_) + 3));
+    const uint64_t compact_cost =
+        saturating_add_u64(sidecar_cost, saturating_add_u64(state_cost, lane_cost));
+    return detector.remaining_batch_lane_work > compact_cost / dead_lanes;
 }
 
 void BatchExecutor::compact_live_lanes() noexcept {

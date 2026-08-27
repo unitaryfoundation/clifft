@@ -100,7 +100,8 @@ class BatchExecutor {
     [[nodiscard]] bool lane_bit(std::span<const uint64_t> bits, uint32_t lane) const noexcept;
     [[nodiscard]] bool is_live(uint32_t lane) const noexcept;
     [[nodiscard]] uint32_t active_lanes() const noexcept { return state_.active_lanes(); }
-    [[nodiscard]] bool should_compact(size_t action_index) const noexcept;
+    [[nodiscard]] bool should_compact(
+        const ExecutablePlan::ExecuteDetector& detector) const noexcept;
     void compact_live_lanes() noexcept;
     void finalize_live_lanes() noexcept;
 

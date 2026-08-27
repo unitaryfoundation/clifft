@@ -179,7 +179,8 @@ std::string ExecutablePlan::inspect_action(size_t action) const {
                 out << "WRITE_DETECTOR detector=d" << typed.detector << " outcome=";
                 write_record_parity(typed.outcome);
                 if (typed.postselected) {
-                    out << " postselect";
+                    out << " postselect remaining_batch_lane_work="
+                        << typed.remaining_batch_lane_work;
                 }
             },
             [&](const ExecuteObservable& typed) {

@@ -35,6 +35,7 @@ class ExecutablePlanBuilder {
     void lower_action_stream();
     void lower_action(const PlannedAction& planned, size_t& boundary_index);
     void record_action_origin(uint32_t plan_begin, uint32_t plan_end);
+    void prepare_batch_compaction_costs();
 
     // Transpose action-order affine terms into symbol-to-register CSR storage.
     void build_expression_dependencies();
@@ -61,6 +62,7 @@ class ExecutablePlanBuilder {
     std::vector<uint32_t> expression_term_begins_;
     std::vector<uint32_t> boundary_noise_starts_;
     std::vector<uint8_t> bound_presampled_symbols_;
+    std::vector<uint64_t> action_batch_lane_work_;
 };
 
 }  // namespace clifft::sampling

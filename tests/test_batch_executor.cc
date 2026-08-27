@@ -18,12 +18,20 @@
 using clifft::KFaultSampler;
 using clifft::make_seed_root;
 using clifft::SeedRoot;
+using clifft::sampling::ActiveExpectation;
+using clifft::sampling::ActivePauli;
+using clifft::sampling::AffineBool;
 using clifft::sampling::BatchExecutionPolicy;
 using clifft::sampling::BatchExecutor;
 using clifft::sampling::BatchOutputMode;
 using clifft::sampling::BatchSamplingMode;
 using clifft::sampling::ExecutablePlan;
+using clifft::sampling::ExpValSlot;
+using clifft::sampling::kDefaultMaxWidthFiveBatchLaneWork;
+using clifft::sampling::PlannedAction;
 using clifft::sampling::resolve_batch_execution_policy;
+using clifft::sampling::SamplingPlan;
+using clifft::sampling::WriteExpectationValue;
 
 namespace {
 
@@ -191,6 +199,26 @@ TEST_CASE("Packed capacity policy bounds worker state footprint") {
     REQUIRE(
         resolve_batch_execution_policy(interleaved, 4096, 1, 1, BatchOutputMode::Rows, std::nullopt)
             .lane_capacity == 1024);
+
+    SamplingPlan sustained_plan;
+    sustained_plan.num_qubits = 5;
+    sustained_plan.initial_active_width = 5;
+    sustained_plan.peak_active_width = 5;
+    sustained_plan.num_exp_vals = 200;
+    for (uint32_t probe = 0; probe < sustained_plan.num_exp_vals; ++probe) {
+        sustained_plan.actions.push_back(
+            PlannedAction{5, 5,
+                          WriteExpectationValue{ActiveExpectation{ActivePauli{1, 0}, AffineBool{}},
+                                                ExpValSlot{probe}}});
+    }
+    const ExecutablePlan sustained(sustained_plan);
+    REQUIRE(sustained.estimated_batch_lane_work() > kDefaultMaxWidthFiveBatchLaneWork);
+    REQUIRE(
+        resolve_batch_execution_policy(sustained, 4096, 1, 1, BatchOutputMode::Rows, std::nullopt)
+            .lane_capacity == 1);
+    REQUIRE(
+        resolve_batch_execution_policy(sustained, 4096, 1, 1, BatchOutputMode::Rows, uint32_t{64})
+            .lane_capacity == 64);
 
     const ExecutablePlan noisy = compile_batch_test_plan();
     REQUIRE(noisy.num_batch_noise_carriers() == 0);

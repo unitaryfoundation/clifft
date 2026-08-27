@@ -29,6 +29,10 @@ inline constexpr size_t kMaxExplicitBatchStateBudget = 64 * 1024 * 1024;
 // Minimum request and capacity for automatic packed execution.
 inline constexpr uint32_t kDefaultMinAutoBatchShots = 64;
 
+// Sustained width-five coefficient work eventually favors the scalar SIMD
+// kernels even when a shorter plan at the same peak width batches profitably.
+inline constexpr uint64_t kDefaultMaxWidthFiveBatchLaneWork = 16 * 1024;
+
 // Selects retained per-shot rows or survivor-only aggregate output.
 enum class BatchOutputMode : uint8_t {
     Rows,

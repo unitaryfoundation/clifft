@@ -389,8 +389,10 @@ int main() {
     clifft::sampling::SamplingPlan plan = clifft::sampling::plan_sampling(hir, plan_options);
 
     std::cout << "Plan: " << hir.num_qubits << " qubits, peak active width "
-              << plan.peak_active_width << ", " << plan.actions.size() << " actions\n\n";
+              << plan.peak_active_width << ", " << plan.actions.size() << " actions\n";
     clifft::sampling::ExecutablePlan program(plan);
+    std::cout << "Batch work:  " << program.estimated_batch_lane_work()
+              << " estimated coefficient visits/lane\n\n";
     const std::optional<clifft::sampling::ThreadLayout> thread_layout =
         has_layout
             ? std::optional<clifft::sampling::ThreadLayout>{{.shot_workers = static_cast<uint32_t>(
@@ -502,6 +504,7 @@ int main() {
               << " effective_workers=" << effective_workers
               << " shot_workers=" << resolved_layout.shot_workers
               << " intra_shot_workers=" << resolved_layout.intra_shot_workers
+              << " batch_lane_work=" << program.estimated_batch_lane_work()
               << " worker_bytes=" << batch_worker_bytes << " median_ms=" << summary.median
               << " mean_ms=" << summary.mean << " passed_shots=" << passed_shots
               << " survival=" << static_cast<double>(passed_shots) / static_cast<double>(shots)
