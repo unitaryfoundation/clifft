@@ -4,6 +4,7 @@
 #include "clifft/util/numeric.h"
 
 #include <algorithm>
+#include <array>
 #include <cassert>
 #include <cmath>
 #include <complex>
@@ -25,6 +26,11 @@ using Pauli = internal::PlannerPauli;
 using Tableau = internal::PlannerTableau;
 using internal::CoordinateFrame;
 using internal::SymbolicPauliFrame;
+
+struct PhaseAwareScalarRotation {
+    double half_turns = 0.0;
+    AffineBool sign;
+};
 
 std::vector<PhaseAwareCliffordFrame::NamedOperation> dormant_promotion_operations(
     const Pauli& promoted, uint32_t active_width, uint32_t dormant_pivot) {
@@ -143,6 +149,22 @@ struct ResolvedPauli {
     Pauli body;
     AffineBool sign;
 };
+
+bool evaluate_known(const AffineBool& expression, std::span<const uint8_t> symbols) {
+    bool value = expression.constant();
+    for (SymbolId symbol : expression.terms()) {
+        assert(index(symbol) < symbols.size());
+        value ^= symbols[index(symbol)] != 0;
+    }
+    return value;
+}
+
+void compose_selected_measurement_branch(PhaseAwareCliffordFrame& frame, uint32_t coordinate) {
+    // Measurement kernels compact either branch into a zero coordinate. Keep
+    // the selected |1> branch in the exact input frame before later changes.
+    const std::array operation{PhaseAwareCliffordFrame::NamedOperation{GateType::X, {coordinate}}};
+    frame.compose_input(operation);
+}
 
 ResolvedPauli resolve_pauli(const Pauli& initial_body, const AffineBool& initial_sign,
                             CoordinateFrame& coordinates, SymbolicPauliFrame& symbolic_frame) {
@@ -414,12 +436,26 @@ AffineBool process_measurement(const Pauli& body, const AffineBool& sign, Record
                                SymbolId branch, SamplingPlan& plan, uint32_t& active_width,
                                CoordinateFrame& coordinates, SymbolicPauliFrame& symbolic_frame,
                                std::span<const uint32_t> source_lines,
-                               PhaseAwareCliffordFrame* exact_frame, bool& coordinates_changed) {
+                               PhaseAwareCliffordFrame* exact_frame,
+                               std::span<const uint8_t> forced_effect_records,
+                               std::vector<uint8_t>* exact_symbol_values,
+                               bool& coordinates_changed) {
     ResolvedPauli resolved = resolve_pauli(body, sign, coordinates, symbolic_frame);
+    std::optional<bool> forced_branch;
+    if (exact_symbol_values != nullptr) {
+        assert(index(record) < forced_effect_records.size());
+        assert(index(branch) < exact_symbol_values->size());
+        forced_branch = (forced_effect_records[index(record)] != 0) ^
+                        evaluate_known(resolved.sign, *exact_symbol_values);
+        (*exact_symbol_values)[index(branch)] = static_cast<uint8_t>(*forced_branch);
+    }
     const std::optional<uint32_t> dormant_pivot = first_x_at_or_above(resolved.body, active_width);
     if (dormant_pivot.has_value()) {
         if (exact_frame != nullptr) {
             compose_dormant_measurement(*exact_frame, resolved.body, *dormant_pivot);
+            if (forced_branch.value_or(false)) {
+                compose_selected_measurement_branch(*exact_frame, *dormant_pivot);
+            }
         }
         coordinates.measure_dormant(resolved.body, *dormant_pivot);
         coordinates_changed = true;
@@ -459,6 +495,9 @@ AffineBool process_measurement(const Pauli& body, const AffineBool& sign, Record
     active_body.set_sign(false);
     if (exact_frame != nullptr) {
         compose_active_measurement(*exact_frame, active_body, active_width, *pivot);
+        if (forced_branch.value_or(false)) {
+            compose_selected_measurement_branch(*exact_frame, active_width - 1);
+        }
     }
     coordinates.measure_active(active_body, active_width, *pivot);
     coordinates_changed = true;
@@ -553,7 +592,8 @@ SamplingPlan plan_sampling_impl(const HirModule& hir, SamplingPlanOptions option
                                 std::complex<double>* discarded_scalar,
                                 PhaseAwareCliffordFrame* exact_frame,
                                 std::vector<PhaseAwareScalarRotation>* scalar_rotations,
-                                std::optional<clifft::Tableau>* exact_tableau) {
+                                std::span<const uint8_t> forced_effect_records,
+                                std::vector<uint8_t>* exact_symbol_values) {
     SamplingPlan plan;
     plan.num_qubits = hir.num_qubits;
     plan.num_visible_records = hir.num_measurements;
@@ -579,8 +619,14 @@ SamplingPlan plan_sampling_impl(const HirModule& hir, SamplingPlanOptions option
     if (requirements.supports_final_state_queries) {
         plan.final_tableau = hir.final_tableau;
     }
-    if (exact_tableau != nullptr) {
-        *exact_tableau = hir.final_tableau;
+    if (exact_symbol_values != nullptr) {
+        const size_t record_count =
+            static_cast<size_t>(hir.num_measurements) + hir.num_hidden_measurements;
+        if (forced_effect_records.size() != record_count) {
+            throw std::invalid_argument(
+                "phase-aware effect planning requires one value per measurement record");
+        }
+        exact_symbol_values->assign(requirements.symbol_count, 0);
     }
     CoordinateFrame coordinates(hir.num_qubits);
     SymbolicPauliFrame symbolic_frame(hir.num_qubits, requirements.symbol_count);
@@ -650,7 +696,8 @@ SamplingPlan plan_sampling_impl(const HirModule& hir, SamplingPlanOptions option
                 const Pauli body = pauli_from_hir(hir, op);
                 const AffineBool outcome = process_measurement(
                     body, AffineBool(hir.sign(op)), record, branch, plan, active_width, coordinates,
-                    symbolic_frame, source_lines, exact_frame, final_coordinates_changed);
+                    symbolic_frame, source_lines, exact_frame, forced_effect_records,
+                    exact_symbol_values, final_coordinates_changed);
                 assign_record(record, outcome, i);
                 break;
             }
@@ -844,11 +891,6 @@ SamplingPlan plan_sampling_impl(const HirModule& hir, SamplingPlanOptions option
         const Tableau& coordinates_to_physical = coordinates.current_to_initial();
         plan.final_tableau = coordinates_to_physical.then(*plan.final_tableau);
     }
-    if (exact_tableau != nullptr && exact_tableau->has_value() && final_coordinates_changed) {
-        const Tableau& coordinates_to_physical = coordinates.current_to_initial();
-        *exact_tableau = coordinates_to_physical.then(**exact_tableau);
-    }
-
     // CPU and HIP executable construction validate both compiler-produced and
     // externally assembled plans before execution. Repeating that full scan
     // here makes the normal compile path validate the same plan twice.
@@ -856,21 +898,27 @@ SamplingPlan plan_sampling_impl(const HirModule& hir, SamplingPlanOptions option
 }
 
 SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
-    return plan_sampling_impl(hir, options, nullptr, nullptr, nullptr, nullptr);
+    return plan_sampling_impl(hir, options, nullptr, nullptr, nullptr, {}, nullptr);
 }
 
 PhaseAwareSamplingPlan plan_sampling_phase_aware(const HirModule& hir,
-                                                 PhaseAwareCliffordFrame final_clifford_frame) {
+                                                 PhaseAwareCliffordFrame final_clifford_frame,
+                                                 std::span<const uint8_t> forced_effect_records) {
     std::complex<double> scalar{1.0, 0.0};
     std::vector<PhaseAwareScalarRotation> scalar_rotations;
-    std::optional<clifft::Tableau> final_tableau;
-    SamplingPlan plan = plan_sampling_impl(hir, {}, &scalar, &final_clifford_frame,
-                                           &scalar_rotations, &final_tableau);
+    std::vector<uint8_t> symbol_values;
+    SamplingPlan plan =
+        plan_sampling_impl(hir, {}, &scalar, &final_clifford_frame, &scalar_rotations,
+                           forced_effect_records, &symbol_values);
+    for (const PhaseAwareScalarRotation& rotation : scalar_rotations) {
+        const double eigenvalue = evaluate_known(rotation.sign, symbol_values) ? -1.0 : 1.0;
+        scalar *= std::polar(1.0, -std::numbers::pi * rotation.half_turns * eigenvalue / 2.0);
+    }
+    clifft::Tableau final_tableau = final_clifford_frame.tableau();
     return PhaseAwareSamplingPlan{.plan = std::move(plan),
                                   .final_clifford_frame = std::move(final_clifford_frame),
                                   .final_tableau = std::move(final_tableau),
-                                  .scalar = scalar,
-                                  .scalar_rotations = std::move(scalar_rotations)};
+                                  .scalar = scalar};
 }
 
 }  // namespace clifft::sampling

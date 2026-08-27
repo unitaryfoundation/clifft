@@ -585,6 +585,24 @@ void PhaseAwareCliffordFrame::compose_input(std::span<const NamedOperation> oper
                        std::make_move_iterator(input.end()));
 }
 
+Tableau PhaseAwareCliffordFrame::tableau() const {
+    Tableau result(num_qubits_);
+    for (const auto& operation : operations_) {
+        std::visit(
+            [&](const auto& typed) {
+                using Operation = std::decay_t<decltype(typed)>;
+                if constexpr (std::is_same_v<Operation, NamedOperation>) {
+                    result.append_named_gate(typed.gate, typed.targets);
+                } else {
+                    result =
+                        result.then(Tableau::from_pauli_rotation(typed.axis.view(), typed.dagger));
+                }
+            },
+            operation);
+    }
+    return result;
+}
+
 StabilizerChForm PhaseAwareCliffordFrame::inverse_on_basis(std::span<const uint64_t> basis) const {
     const size_t expected_words = (static_cast<size_t>(num_qubits_) + 63U) / 64U;
     if (basis.size() != expected_words) {
