@@ -1,0 +1,19 @@
+R 0 1 2 3 4
+REPEAT 5 {
+    U3(0.123,0.234,-0.345) 0 1 2 3 4
+    CX 0 1 2 3
+    CX 1 2 3 4
+}
+M 0 1 2 3 4
+REPEAT 40 {
+    R 0 1 2 3 4
+    H 0 1 2 3 4
+    X_ERROR(0.01) 0 1 2 3 4
+    M 0 1 2 3 4
+    DETECTOR rec[-1]
+    DETECTOR rec[-2]
+    DETECTOR rec[-3]
+    DETECTOR rec[-4]
+    DETECTOR rec[-5]
+}
+OBSERVABLE_INCLUDE(0) rec[-1]

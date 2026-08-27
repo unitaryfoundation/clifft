@@ -177,6 +177,26 @@ TEST_CASE("Detector and observable inspection renders selected record parity val
     CHECK(executable.inspect_action(2) == "WRITE_OBSERVABLE observable=o0 outcome=r0");
 }
 
+TEST_CASE("Executable detector inspection reports remaining packed lane work") {
+    SamplingPlan plan;
+    plan.num_qubits = 1;
+    plan.initial_active_width = 1;
+    plan.peak_active_width = 1;
+    plan.num_detectors = 2;
+    plan.actions = {
+        PlannedAction{1, 1, WriteDetector{RecordParity{}, DetectorSlot{0}, true}},
+        PlannedAction{1, 1, RotateActivePauli{ActivePauli{1, 0}, 0.25, AffineBool{}}},
+        PlannedAction{1, 1, WriteDetector{RecordParity{}, DetectorSlot{1}, true}},
+    };
+
+    const ExecutablePlan executable(plan);
+    CHECK(executable.estimated_batch_lane_work() == 8);
+    CHECK(executable.inspect_action(0) ==
+          "WRITE_DETECTOR detector=d0 outcome=0 postselect remaining_batch_lane_work=8");
+    CHECK(executable.inspect_action(2) ==
+          "WRITE_DETECTOR detector=d1 outcome=0 postselect remaining_batch_lane_work=0");
+}
+
 TEST_CASE("Executable rotation prints a pairing index only for X-type prepared Paulis") {
     SamplingPlan x_type_plan;
     x_type_plan.num_qubits = 1;

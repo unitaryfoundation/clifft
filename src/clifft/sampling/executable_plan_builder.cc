@@ -1,6 +1,7 @@
 #include "clifft/sampling/executable_plan_builder.h"
 
 #include "clifft/util/noise_sampling.h"
+#include "clifft/util/numeric.h"
 
 #include <algorithm>
 #include <cassert>
@@ -36,6 +37,37 @@ bool activates_new_x(const ApplyInstrument& instrument, uint32_t active_after) {
 }
 
 inline constexpr double kMaxSparseBatchReadoutProbability = 0.05;
+
+[[nodiscard]] uint64_t coefficient_size(uint32_t active_width) noexcept {
+    assert(active_width < kDenseActiveWidthLimit &&
+           "validated active width must fit coefficient work metadata");
+    return uint64_t{1} << active_width;
+}
+
+[[nodiscard]] uint64_t planned_batch_lane_work(const PlannedAction& planned) noexcept {
+    return std::visit(
+        [&](const auto& typed) -> uint64_t {
+            using T = std::decay_t<decltype(typed)>;
+            const uint64_t size = coefficient_size(planned.active_before);
+            if constexpr (std::is_same_v<T, RotateActivePauli>) {
+                return saturating_multiply_u64(size, 4);
+            } else if constexpr (std::is_same_v<T, PromoteDormantRotation>) {
+                return saturating_multiply_u64(size, 4);
+            } else if constexpr (std::is_same_v<T, MeasureActivePauli>) {
+                return saturating_multiply_u64(size, 6);
+            } else if constexpr (std::is_same_v<T, WriteExpectationValue>) {
+                return typed.active.has_value() ? saturating_multiply_u64(size, 4) : 0;
+            } else {
+                return 0;
+            }
+        },
+        planned.action);
+}
+
+[[nodiscard]] uint64_t fused_batch_lane_work(const PreparedFusedRotation& rotation) noexcept {
+    const uint64_t dimension = uint64_t{1} << rotation.orbit_rank;
+    return saturating_multiply_u64(coefficient_size(rotation.active_width), 2 * dimension);
+}
 
 }  // namespace
 
@@ -91,6 +123,7 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::compile() {
     initialize_program();
     prepare_noise_and_boundaries();
     lower_action_stream();
+    prepare_batch_compaction_costs();
     build_expression_dependencies();
     output_.batch_presampled_program_ = BatchPresampledProgram::build(
         output_, source_, expression_terms_, expression_term_begins_, bound_presampled_symbols_);
@@ -108,6 +141,7 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::initialize_program() {
     output_.num_symbols_ = static_cast<uint32_t>(source_.symbols.size());
 
     output_.actions_.reserve(source_.actions.size());
+    action_batch_lane_work_.reserve(source_.actions.size());
     if (source_.source_map.has_value()) {
         output_.action_plan_ranges_.reserve(source_.actions.size());
     }
@@ -351,7 +385,7 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::lower_action(const Plann
                 output_.has_postselection_ |= typed.postselected;
                 output_.actions_.emplace_back(
                     ExecutablePlan::ExecuteDetector{prepare_record_parity(typed.outcome),
-                                                    index(typed.detector), typed.postselected});
+                                                    index(typed.detector), typed.postselected, 0});
             } else if constexpr (std::is_same_v<T, WriteObservable>) {
                 output_.actions_.emplace_back(ExecutablePlan::ExecuteObservable{
                     prepare_observable_value(typed.outcome), index(typed.observable)});
@@ -433,6 +467,9 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::lower_action(const Plann
             }
         },
         planned.action);
+    assert(action_batch_lane_work_.size() + 1 == output_.actions_.size() &&
+           "each lowered action must receive one batch work estimate");
+    action_batch_lane_work_.push_back(planned_batch_lane_work(planned));
 }
 
 CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::lower_action_stream() {
@@ -461,6 +498,8 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::lower_action_stream() {
                 static_cast<uint32_t>(output_.dynamic_fused_rotations_.size());
             output_.dynamic_fused_rotations_.push_back(std::move(execution));
             output_.actions_.emplace_back(ExecutablePlan::ExecuteDynamicFusedRotation{fused_index});
+            action_batch_lane_work_.push_back(fused_batch_lane_work(
+                output_.dynamic_fused_rotations_.back().variants.front().rotation()));
             record_action_origin(static_cast<uint32_t>(planned_index),
                                  static_cast<uint32_t>(planned_index + dynamic_run.action_count));
             planned_index += dynamic_run.action_count;
@@ -473,6 +512,8 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::lower_action_stream() {
             const uint32_t fused_index = static_cast<uint32_t>(output_.fused_rotations_.size());
             output_.fused_rotations_.emplace_back(std::move(*run.rotation), backend_);
             output_.actions_.emplace_back(ExecutablePlan::ExecuteFusedRotation{fused_index});
+            action_batch_lane_work_.push_back(
+                fused_batch_lane_work(output_.fused_rotations_.back().rotation()));
             record_action_origin(static_cast<uint32_t>(planned_index),
                                  static_cast<uint32_t>(planned_index + run.action_count));
             planned_index += run.action_count;
@@ -486,6 +527,21 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::lower_action_stream() {
                                  static_cast<uint32_t>(planned_index + 1));
         }
     }
+}
+
+CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::prepare_batch_compaction_costs() {
+    assert(action_batch_lane_work_.size() == output_.actions_.size() &&
+           "batch work estimates must parallel executable actions");
+    uint64_t remaining_lane_work = 0;
+    for (size_t index = output_.actions_.size(); index-- > 0;) {
+        if (auto* detector =
+                std::get_if<ExecutablePlan::ExecuteDetector>(&output_.actions_[index])) {
+            detector->remaining_batch_lane_work = remaining_lane_work;
+        }
+        remaining_lane_work =
+            saturating_add_u64(remaining_lane_work, action_batch_lane_work_[index]);
+    }
+    output_.estimated_batch_lane_work_ = remaining_lane_work;
 }
 
 CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::record_action_origin(uint32_t plan_begin,
