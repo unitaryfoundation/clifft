@@ -29,10 +29,6 @@ namespace internal {
                                                       const PhaseAwareCliffordFrame& exact_frame,
                                                       std::span<const uint64_t> physical_basis);
 
-[[nodiscard]] std::vector<std::complex<double>> basis_amplitudes(
-    const ExecutablePlan& plan, std::complex<double> phase, std::span<const uint64_t> basis_masks,
-    size_t num_basis_masks, size_t words_per_basis_mask);
-
 }  // namespace internal
 
 // The returned vector is normalized and represents the final state ray. Its

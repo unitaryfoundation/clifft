@@ -2,13 +2,14 @@
 
 #include "clifft/frontend/phase_aware_frontend.h"
 #include "clifft/optimizer/statevector_squeeze_pass.h"
+#include "clifft/sampling/executor.h"
 #include "clifft/sampling/phase_aware_planner.h"
 #include "clifft/sampling/state_queries.h"
 
-#include <algorithm>
+#include <cassert>
+#include <cmath>
 #include <cstddef>
-#include <exception>
-#include <optional>
+#include <numbers>
 #include <stdexcept>
 #include <utility>
 
@@ -33,97 +34,30 @@ void validate_output_basis(uint32_t num_qubits, std::span<const uint64_t> basis)
     }
 }
 
-void reverse_operation_targets(AstNode& node) {
-    switch (gate_arity(node.gate)) {
-        case GateArity::SINGLE:
-            std::ranges::reverse(node.targets);
-            return;
-        case GateArity::PAIR: {
-            if ((node.targets.size() & 1U) != 0) {
-                throw std::invalid_argument(
-                    "amplitude adjoint requires an even number of paired-operation targets");
-            }
-            std::vector<Target> reversed;
-            reversed.reserve(node.targets.size());
-            for (size_t end = node.targets.size(); end >= 2; end -= 2) {
-                reversed.push_back(node.targets[end - 2]);
-                reversed.push_back(node.targets[end - 1]);
-            }
-            node.targets = std::move(reversed);
-            return;
+Circuit append_terminal_measurements(const Circuit& source) {
+    for (const AstNode& node : source.nodes) {
+        if (!is_unitary(node.gate) && node.gate != GateType::TICK) {
+            throw std::invalid_argument("basis amplitude query requires a pure-unitary circuit");
         }
-        case GateArity::MULTI:
-        case GateArity::ANNOTATION:
-            return;
-        case GateArity::TRIPLE:
-            throw std::invalid_argument(
-                "amplitude adjoint does not support triple-target circuit operations");
-    }
-}
-
-AstNode adjoint_node(const AstNode& source) {
-    AstNode result(source);
-    switch (source.gate) {
-        case GateType::T:
-            result.gate = GateType::T_DAG;
-            break;
-        case GateType::T_DAG:
-            result.gate = GateType::T;
-            break;
-        case GateType::TPP:
-            result.gate = GateType::TPP_DAG;
-            break;
-        case GateType::TPP_DAG:
-            result.gate = GateType::TPP;
-            break;
-        case GateType::R_X:
-        case GateType::R_Y:
-        case GateType::R_Z:
-        case GateType::R_XX:
-        case GateType::R_YY:
-        case GateType::R_ZZ:
-        case GateType::R_PAULI:
-            result.args.at(0) = -result.args.at(0);
-            break;
-        case GateType::U3: {
-            const double theta = result.args.at(0);
-            const double phi = result.args.at(1);
-            const double lambda = result.args.at(2);
-            result.args.resize(3);
-            result.args[0] = -theta;
-            result.args[1] = -lambda;
-            result.args[2] = -phi;
-            break;
+        const size_t arity = node.targets.size();
+        if ((gate_arity(node.gate) == GateArity::PAIR && arity % 2U != 0) ||
+            (gate_arity(node.gate) == GateArity::TRIPLE && arity % 3U != 0)) {
+            throw std::invalid_argument("basis amplitude query received malformed gate targets");
         }
-        case GateType::TICK:
-            break;
-        default:
-            if (!is_clifford(source.gate)) {
-                throw std::invalid_argument("amplitude adjoint does not support circuit gate " +
-                                            std::string(gate_name(source.gate)));
-            }
-            result.gate = inverse_clifford_gate(source.gate);
-            break;
     }
-    reverse_operation_targets(result);
-    return result;
-}
 
-Circuit adjoint_with_basis_input(const Circuit& source, std::span<const uint64_t> input_basis) {
-    Circuit result = source.metadata_only_copy();
-    result.nodes.reserve(source.nodes.size() + source.num_qubits);
+    Circuit result(source);
+    std::vector<Target> targets;
+    targets.reserve(source.num_qubits);
     for (uint32_t q = 0; q < source.num_qubits; ++q) {
-        if (((input_basis[q / 64U] >> (q % 64U)) & 1U) != 0) {
-            result.nodes.push_back(AstNode{.gate = GateType::X,
-                                           .targets = {Target::qubit(q)},
-                                           .args = {},
-                                           .source_line = 0,
-                                           .tag = {}});
-        }
+        targets.push_back(Target::qubit(q));
     }
-    for (auto it = source.nodes.rbegin(); it != source.nodes.rend(); ++it) {
-        result.nodes.push_back(adjoint_node(*it));
-    }
+    result.nodes.push_back(AstNode{.gate = GateType::M,
+                                   .targets = std::move(targets),
+                                   .args = {},
+                                   .source_line = 0,
+                                   .tag = {}});
+    result.num_measurements = source.num_qubits;
     return result;
 }
 
@@ -133,68 +67,42 @@ BasisAmplitudeQuery::Prepared BasisAmplitudeQuery::prepare(const Circuit& circui
                                                            std::span<const uint64_t> output_basis,
                                                            std::complex<double> input_phase) {
     validate_output_basis(circuit.num_qubits, output_basis);
-
-    const auto compile_orientation =
-        [](const Circuit& oriented, std::span<const uint64_t> execution_basis,
-           std::complex<double> phase, bool conjugate_result) -> Prepared {
-        PhaseAwareHir traced = trace_phase_aware(oriented);
-        if (!traced.hir.final_tableau.has_value()) {
-            throw std::runtime_error("phase-aware trace did not retain its final Clifford frame");
-        }
-
-        // This pass only reorders commuting coherent operations. The ordinary
-        // peephole pass is deliberately excluded until each projective fusion
-        // has a phase-ledger counterpart.
-        StatevectorSqueezePass{}.run(traced.hir);
-        PhaseAwareSamplingPlan planned =
-            plan_sampling_phase_aware(traced.hir, std::move(traced.final_clifford_frame));
-        if (!planned.plan.final_tableau.has_value()) {
-            throw std::runtime_error("phase-aware planner did not retain its final Clifford frame");
-        }
-        const std::complex<double> frame_phase = internal::clifford_row_phase(
-            *planned.plan.final_tableau, planned.final_clifford_frame, execution_basis);
-        return Prepared{
-            .plan = std::move(planned.plan),
-            .execution_basis = {execution_basis.begin(), execution_basis.end()},
-            .phase = phase * traced.source_scalar * frame_phase * planned.scalar,
-            .conjugate_result = conjugate_result,
-        };
-    };
-
-    std::optional<Prepared> forward;
-    std::exception_ptr forward_overflow;
-    try {
-        forward.emplace(compile_orientation(circuit, output_basis, input_phase, false));
-    } catch (const std::overflow_error&) {
-        // One contraction may exceed the dense-state limit while its dual is
-        // cheap, so an overflowing orientation is not a failed query.
-        forward_overflow = std::current_exception();
+    PhaseAwareHir traced =
+        trace_phase_aware_terminal_measurements(append_terminal_measurements(circuit));
+    if (!traced.hir.final_tableau.has_value()) {
+        throw std::runtime_error("phase-aware trace did not retain its final Clifford frame");
     }
-
-    // The output effect becomes a computational-basis input under the adjoint:
-    // <x|U|0> = conj(<0|U^dagger|x>). Planning both orientations lets the
-    // compiler choose the smaller exact contraction without changing kernels.
-    const Circuit adjoint = adjoint_with_basis_input(circuit, output_basis);
-
-    // Adjoint construction also validates reversible target structure, but no
-    // second contraction can improve on an empty active state.
-    if (forward.has_value() && forward->plan.peak_active_width == 0) {
-        return std::move(*forward);
+    // Output effects move left while non-Clifford expansions move right. The
+    // scalar sidecar below retains phases when a rotation becomes an effect-
+    // dependent scalar after this phase-safe reordering.
+    StatevectorSqueezePass{}.run(traced.hir);
+    PhaseAwareSamplingPlan planned =
+        plan_sampling_phase_aware(traced.hir, std::move(traced.final_clifford_frame));
+    if (!planned.final_tableau.has_value()) {
+        throw std::runtime_error("phase-aware planner did not retain its final Clifford frame");
     }
+    const std::complex<double> frame_phase = internal::clifford_row_phase(
+        *planned.final_tableau, planned.final_clifford_frame, output_basis);
 
-    const std::vector<uint64_t> zero_basis(basis_word_count(circuit.num_qubits), 0);
-    try {
-        Prepared backward = compile_orientation(adjoint, zero_basis, std::conj(input_phase), true);
-        if (!forward.has_value() ||
-            backward.plan.peak_active_width < forward->plan.peak_active_width) {
-            return backward;
-        }
-    } catch (const std::overflow_error&) {
-        if (!forward.has_value()) {
-            std::rethrow_exception(forward_overflow);
-        }
+    std::vector<uint8_t> output_records(circuit.num_qubits);
+    for (uint32_t q = 0; q < circuit.num_qubits; ++q) {
+        output_records[q] = static_cast<uint8_t>((output_basis[q / 64U] >> (q % 64U)) & 1U);
     }
-    return std::move(*forward);
+    std::vector<ScalarRotation> scalar_rotations;
+    scalar_rotations.reserve(planned.scalar_rotations.size());
+    for (PhaseAwareScalarRotation& rotation : planned.scalar_rotations) {
+        std::vector<uint32_t> symbols;
+        symbols.reserve(rotation.sign.terms().size());
+        for (SymbolId symbol : rotation.sign.terms()) {
+            symbols.push_back(index(symbol));
+        }
+        scalar_rotations.push_back(
+            ScalarRotation{rotation.half_turns, rotation.sign.constant(), std::move(symbols)});
+    }
+    return Prepared{.plan = std::move(planned.plan),
+                    .output_records = std::move(output_records),
+                    .phase = input_phase * traced.source_scalar * frame_phase * planned.scalar,
+                    .scalar_rotations = std::move(scalar_rotations)};
 }
 
 BasisAmplitudeQuery::BasisAmplitudeQuery(const Circuit& circuit,
@@ -204,14 +112,32 @@ BasisAmplitudeQuery::BasisAmplitudeQuery(const Circuit& circuit,
 
 BasisAmplitudeQuery::BasisAmplitudeQuery(Prepared prepared)
     : plan_(std::move(prepared.plan)),
-      output_basis_(std::move(prepared.execution_basis)),
+      output_records_(std::move(prepared.output_records)),
       phase_(prepared.phase),
-      conjugate_result_(prepared.conjugate_result) {}
+      scalar_rotations_(std::move(prepared.scalar_rotations)) {}
 
 std::complex<double> BasisAmplitudeQuery::evaluate() const {
-    auto amplitudes =
-        internal::basis_amplitudes(plan_, phase_, output_basis_, 1, output_basis_.size());
-    return conjugate_result_ ? std::conj(amplitudes.front()) : amplitudes.front();
+    Executor executor(plan_);
+    const ReplayResult replay = executor.replay_effect(output_records_);
+    if (!replay.reachable) {
+        return {0.0, 0.0};
+    }
+    const State& state = executor.state();
+    assert(state.active_width() == 0 && "terminal effects must eliminate every active coordinate");
+
+    std::complex<double> phase = phase_;
+    const std::span<const uint8_t> symbols = executor.symbols();
+    for (const ScalarRotation& rotation : scalar_rotations_) {
+        bool sign = rotation.sign_constant;
+        for (uint32_t symbol : rotation.sign_symbols) {
+            assert(symbol < symbols.size());
+            sign ^= symbols[symbol] != 0;
+        }
+        const double eigenvalue = sign ? -1.0 : 1.0;
+        phase *= std::polar(1.0, -std::numbers::pi * rotation.half_turns * eigenvalue / 2.0);
+    }
+    const std::complex<double> normalized{state.real_data()[0], state.imag_data()[0]};
+    return phase * std::exp(0.5 * replay.log_probability) * normalized;
 }
 
 }  // namespace clifft::sampling

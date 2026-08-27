@@ -1354,12 +1354,22 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
     return trace_impl(circuit, instruments, trace_state);
 }
 
-PhaseAwareHir trace_phase_aware(const Circuit& circuit) {
+namespace {
+
+PhaseAwareHir trace_phase_aware_impl(const Circuit& circuit, bool allow_terminal_measurements) {
+    bool measurements_started = false;
     for (const auto& node : circuit.nodes) {
-        if (!is_unitary(node.gate) && node.gate != GateType::TICK) {
-            throw std::invalid_argument(
-                "phase-aware trace requires a pure-unitary circuit; unsupported gate " +
-                std::string(gate_name(node.gate)) + " at line " + std::to_string(node.source_line));
+        if (allow_terminal_measurements && node.gate == GateType::M) {
+            measurements_started = true;
+            continue;
+        }
+        if (measurements_started || (!is_unitary(node.gate) && node.gate != GateType::TICK)) {
+            const std::string requirement = allow_terminal_measurements
+                                                ? "a unitary prefix and terminal M gates"
+                                                : "a pure-unitary circuit";
+            throw std::invalid_argument("phase-aware trace requires " + requirement +
+                                        "; unsupported gate " + std::string(gate_name(node.gate)) +
+                                        " at line " + std::to_string(node.source_line));
         }
     }
 
@@ -1368,6 +1378,16 @@ PhaseAwareHir trace_phase_aware(const Circuit& circuit) {
     return PhaseAwareHir{.hir = std::move(hir),
                          .final_clifford_frame = std::move(trace_state.frame),
                          .source_scalar = trace_state.scalar};
+}
+
+}  // namespace
+
+PhaseAwareHir trace_phase_aware(const Circuit& circuit) {
+    return trace_phase_aware_impl(circuit, false);
+}
+
+PhaseAwareHir trace_phase_aware_terminal_measurements(const Circuit& circuit) {
+    return trace_phase_aware_impl(circuit, true);
 }
 
 }  // namespace clifft

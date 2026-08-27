@@ -150,7 +150,7 @@ TEST_CASE("Basis amplitude query calibrates inverse Clifford rows") {
     }
 }
 
-TEST_CASE("Basis amplitude query uses its output effect to reduce active width") {
+TEST_CASE("Basis amplitude query contracts its terminal output effect") {
     const clifft::Circuit circuit = clifft::parse("H 1\nH 0\nT 1\nT 0");
     const std::vector<uint64_t> output{1};
     const clifft::sampling::BasisAmplitudeQuery query(circuit, output);
@@ -159,24 +159,19 @@ TEST_CASE("Basis amplitude query uses its output effect to reduce active width")
     check_complex(query.evaluate(), std::polar(0.5, std::numbers::pi / 4.0));
 }
 
-TEST_CASE("Basis amplitude query falls back when the forward orientation is too wide") {
+TEST_CASE("Basis amplitude query avoids whole-state width in either gate order") {
     constexpr uint32_t num_qubits = 60;
-    const clifft::Circuit circuit =
-        layered_circuit(clifft::GateType::H, clifft::GateType::T, num_qubits);
     const std::vector<uint64_t> output{0};
-    const clifft::sampling::BasisAmplitudeQuery query(circuit, output);
+    for (const clifft::GateType first : {clifft::GateType::H, clifft::GateType::T}) {
+        const clifft::GateType second =
+            first == clifft::GateType::H ? clifft::GateType::T : clifft::GateType::H;
+        const clifft::Circuit circuit = layered_circuit(first, second, num_qubits);
+        const clifft::sampling::BasisAmplitudeQuery query(circuit, output);
 
-    CHECK(query.peak_active_width() == 0);
-    check_complex(query.evaluate(), {std::ldexp(1.0, -30), 0.0});
-}
-
-TEST_CASE("Basis amplitude query keeps a viable forward orientation") {
-    constexpr uint32_t num_qubits = 60;
-    const clifft::Circuit circuit =
-        layered_circuit(clifft::GateType::T, clifft::GateType::H, num_qubits);
-    const std::vector<uint64_t> output{0};
-    const clifft::sampling::BasisAmplitudeQuery query(circuit, output);
-
-    CHECK(query.peak_active_width() == 0);
-    check_complex(query.evaluate(), {std::ldexp(1.0, -30), 0.0});
+        INFO("first gate " << clifft::gate_name(first));
+        CHECK(query.peak_active_width() == 0);
+        // This amplitude's squared magnitude is below the sampling dust
+        // threshold, but a selected-amplitude query must still retain it.
+        check_complex(query.evaluate(), {std::ldexp(1.0, -30), 0.0});
+    }
 }

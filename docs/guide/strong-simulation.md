@@ -14,9 +14,9 @@ Clifft provides an exact complex-amplitude query and two exact-probability APIs:
   not supported.
 
 You can convert a basis-probability problem into a record-probability problem
-by adding explicit terminal measurements to a unitary program, and the two distributions match
-on the bitstrings the records encode. The runtime cost can differ
-substantially — see
+by adding explicit terminal measurements to a unitary program, and the two
+distributions match on the bitstrings the records encode. The runtime cost can
+differ substantially — see
 [Performance on overlapping circuits](#performance-on-overlapping-circuits).
 
 ## Exact selected amplitudes
@@ -40,12 +40,13 @@ amplitude = clifft.evaluate_amplitude(query)
 print(amplitude)
 ```
 
-The compiler plans both the forward contraction and its mathematically
-equivalent adjoint contraction,
-$\langle x|U|0\rangle = \operatorname{conj}(\langle 0|U^\dagger|x\rangle)$,
-then keeps the orientation with lower `peak_active_width`. This uses the known
-output bitstring during planning without adding measurements or changing the
-ordinary sampling program.
+The compiler represents the selected bra as query-private terminal
+computational-basis effects. `StatevectorSqueezePass` can commute those effects
+left through the circuit and eliminate active coordinates early, giving the
+amplitude query the same target-aware width reduction as terminal-measurement
+`record_probabilities()`. A phase ledger retains the complex scalar that the
+probability-only path can discard. This does not change the source circuit or
+the ordinary sampling program.
 
 Only a pure-unitary source circuit and one complete computational-basis target
 are accepted. `bit_order="big"` maps the first bit to qubit 0, matching
