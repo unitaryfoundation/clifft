@@ -83,8 +83,10 @@ uses one backend consistently for the resulting program.
 
 Apple arm64 builds additionally select a NEON backend. Apple Silicon guarantees
 the 128-bit Advanced SIMD baseline, so this backend needs no generation-specific
-feature probe. It currently specializes eligible rank-two fused rotations and
-uses the portable scalar kernels for other operation shapes.
+feature probe. It specializes eligible rank-two fused rotations, direct Pauli
+rotations, and diagonal active-measurement probability and collapse. Shape- and
+width-specific thresholds retain the portable scalar kernels where measured
+NEON crossover behavior does not justify vector dispatch.
 
 The AVX2 backend requires AVX2, BMI2, and FMA. The AVX-512 backend additionally
 requires AVX-512F and AVX-512DQ. If those features are unavailable, or runtime
