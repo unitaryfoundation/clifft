@@ -94,7 +94,7 @@ class ExecutablePlan {
     [[nodiscard]] size_t num_expression_registers() const noexcept {
         return expression_register_constants_.size();
     }
-    [[nodiscard]] bool syndrome_reads_records() const noexcept {
+    [[nodiscard]] bool output_parities_read_records() const noexcept {
         return !record_parity_terms_.empty();
     }
     [[nodiscard]] uint32_t num_readout_noise_sites() const noexcept {

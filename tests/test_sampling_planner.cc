@@ -555,7 +555,7 @@ TEST_CASE("Sampling planner carries symbolic frame across coordinate changes") {
                                          AffineBool::symbol(last_measurement.branch)));
 }
 
-TEST_CASE("Sampling planner carries corrected records into syndrome outputs") {
+TEST_CASE("Sampling planner carries corrected records into detector and observable outputs") {
     const HirModule hir = clifft::trace(clifft::parse(R"(
         M 0
         READOUT_NOISE(0.1, 0.2) rec[-1]

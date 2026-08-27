@@ -1449,7 +1449,7 @@ TEST_CASE("Packed presampled expression program matches a categorical statistica
     }
 }
 
-TEST_CASE("Packed syndrome outputs preserve record snapshots") {
+TEST_CASE("Packed detector and observable outputs preserve record snapshots") {
     const std::array<uint8_t, 2> expected_detectors{1, 1};
     const std::array<uint8_t, 3> expected_observables{1, 1, 1};
     clifft::sampling::SamplingPlanOptions options;

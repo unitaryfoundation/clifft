@@ -44,8 +44,8 @@ inline constexpr uint64_t coefficient_elements_per_shot(uint32_t peak_active_wid
 }
 
 struct Expression {
-    // Syndrome actions interpret terms as record slots when kRecordParity is
-    // set; every other action interprets them as symbol ids.
+    // Detector and observable actions interpret terms as record slots when
+    // kRecordParity is set; every other action interprets them as symbol ids.
     uint32_t term_begin = 0;
     uint32_t term_count = 0;
     uint8_t constant = 0;

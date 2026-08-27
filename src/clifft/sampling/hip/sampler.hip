@@ -119,10 +119,10 @@ __device__ __forceinline__ bool evaluate(const ProgramView& program, const uint8
     return result;
 }
 
-__device__ __forceinline__ bool evaluate_syndrome(const ProgramView& program,
-                                                  const uint8_t* symbols,
-                                                  const uint8_t* records,
-                                                  const Action& action) {
+__device__ __forceinline__ bool evaluate_output_value(const ProgramView& program,
+                                                      const uint8_t* symbols,
+                                                      const uint8_t* records,
+                                                      const Action& action) {
     const uint8_t* values = (action.flags & kRecordParity) != 0 ? records : symbols;
     return evaluate(program, values, action.expression);
 }
@@ -470,7 +470,7 @@ __global__ void interpret_shots(ProgramView program, SeedRoot seed_root, uint64_
                 break;
             }
             case ActionTag::WriteDetector: {
-                const bool outcome = evaluate_syndrome(program, symbols, records, action);
+                const bool outcome = evaluate_output_value(program, symbols, records, action);
                 detectors[action.index0] = static_cast<uint8_t>(outcome);
                 if ((action.flags & kPostselected) != 0 && outcome) {
                     discarded = true;
@@ -479,7 +479,7 @@ __global__ void interpret_shots(ProgramView program, SeedRoot seed_root, uint64_
             }
             case ActionTag::WriteObservable:
                 observables[action.index0] = static_cast<uint8_t>(
-                    evaluate_syndrome(program, symbols, records, action));
+                    evaluate_output_value(program, symbols, records, action));
                 break;
             case ActionTag::WriteExpectationValue: {
                 if ((action.flags & kAbsentActiveProjection) != 0) {

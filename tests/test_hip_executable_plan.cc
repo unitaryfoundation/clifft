@@ -78,7 +78,7 @@ TEST_CASE("HIP executable inspection identifies packed modification points") {
     REQUIRE_THAT(diagnostic, ContainsSubstring("WriteDetector"));
 }
 
-TEST_CASE("HIP executable preserves selected syndrome representations") {
+TEST_CASE("HIP executable preserves selected output representations") {
     const SamplingPlan plan = plan_from(R"(
         X_ERROR(1) 1
         X_ERROR(1) 0

@@ -96,7 +96,7 @@ SamplingPlan valid_dormant_measurement_plan() {
     return plan;
 }
 
-SamplingPlan valid_syndrome_plan() {
+SamplingPlan valid_output_plan() {
     const SymbolId readout{0};
     SamplingPlan plan;
     plan.num_qubits = 1;
@@ -273,8 +273,8 @@ TEST_CASE("Sampling record parity construction canonicalizes XOR terms") {
     REQUIRE(parity.records() == std::vector<RecordSlot>{RecordSlot{1}});
 }
 
-TEST_CASE("Sampling plan validates affine syndrome values") {
-    SamplingPlan plan = valid_syndrome_plan();
+TEST_CASE("Sampling plan validates affine observable values") {
+    SamplingPlan plan = valid_output_plan();
     auto& observable = std::get<WriteObservable>(plan.actions[3].action);
     observable.outcome = AffineBool::symbol(SymbolId{1});
 
@@ -283,7 +283,7 @@ TEST_CASE("Sampling plan validates affine syndrome values") {
 }
 
 TEST_CASE("Sampling plan rejects stale readout sources") {
-    SamplingPlan plan = valid_syndrome_plan();
+    SamplingPlan plan = valid_output_plan();
     auto& readout = std::get<ApplyReadoutNoise>(plan.actions[1].action);
     readout.source = AffineBool(true);
 
@@ -472,8 +472,8 @@ TEST_CASE("Sampling plan rejects invalid numeric metadata") {
     }
 }
 
-TEST_CASE("Sampling plan validates noise distributions and syndrome actions") {
-    REQUIRE_NOTHROW(valid_syndrome_plan().validate());
+TEST_CASE("Sampling plan validates noise distributions and output actions") {
+    REQUIRE_NOTHROW(valid_output_plan().validate());
 
     SECTION("a noise symbol cannot name two outcomes") {
         SamplingPlan plan = valid_plan();
@@ -492,19 +492,19 @@ TEST_CASE("Sampling plan validates noise distributions and syndrome actions") {
     }
 
     SECTION("readout requires an assigned record") {
-        SamplingPlan plan = valid_syndrome_plan();
+        SamplingPlan plan = valid_output_plan();
         plan.actions.erase(plan.actions.begin());
         REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
     }
 
     SECTION("readout probabilities are bounded") {
-        SamplingPlan plan = valid_syndrome_plan();
+        SamplingPlan plan = valid_output_plan();
         std::get<ApplyReadoutNoise>(plan.actions[1].action).prob_zero_to_one = 1.1;
         REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
     }
 
     SECTION("every declared output is written exactly once") {
-        SamplingPlan plan = valid_syndrome_plan();
+        SamplingPlan plan = valid_output_plan();
         plan.actions.pop_back();
         REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
     }

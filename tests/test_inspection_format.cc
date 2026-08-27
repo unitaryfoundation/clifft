@@ -156,7 +156,7 @@ TEST_CASE("Detector inspection appends postselect only when the detector is post
     CHECK(plan.inspect_action(1) == "w0 dense_passes=0 WRITE_DETECTOR outcome=0 detector=d1");
 }
 
-TEST_CASE("Syndrome inspection renders the selected record parity value") {
+TEST_CASE("Detector and observable inspection renders selected record parity values") {
     SamplingPlan plan;
     plan.num_visible_records = 1;
     plan.num_detectors = 1;
