@@ -2,6 +2,7 @@
 
 #include "clifft/util/page_allocation.h"
 
+#include <cassert>
 #include <cstddef>
 #include <cstdint>
 #include <span>
@@ -15,10 +16,16 @@ namespace clifft::sampling {
 [[nodiscard]] size_t interleaved_batch_state_bytes(uint32_t max_active_width,
                                                    uint32_t lane_capacity);
 
-// Dense active-coordinate storage whose innermost dimension is the shot lane.
-// Every shot in a batch follows the same prepared active-width transitions, so
-// one width describes the whole live prefix. Construction allocates the
-// maximum coefficient and measurement-scratch footprint used by hot kernels.
+// Dense complex state-vector storage for a batch of shots. Basis b is the
+// computational-basis bit pattern over the current active coordinates, and s
+// is a shot lane:
+//
+//   real amplitude(b, s) = real_[b * lane_pitch_ + s]
+//   imag amplitude(b, s) = imag_[b * lane_pitch_ + s]
+//
+// Every lane follows the same prepared active-width transitions. Construction
+// allocates amplitudes and measurement scratch for the maximum active width so
+// hot kernels only reuse retained storage.
 class InterleavedBatchState {
   public:
     InterleavedBatchState(uint32_t max_active_width, uint32_t initial_active_width,
@@ -40,12 +47,30 @@ class InterleavedBatchState {
     [[nodiscard]] uint64_t size() const noexcept { return uint64_t{1} << active_width_; }
     [[nodiscard]] uint64_t capacity() const noexcept { return coefficient_capacity_; }
 
-    [[nodiscard]] double* real_basis(uint64_t basis) noexcept;
-    [[nodiscard]] const double* real_basis(uint64_t basis) const noexcept;
-    [[nodiscard]] double* imag_basis(uint64_t basis) noexcept;
-    [[nodiscard]] const double* imag_basis(uint64_t basis) const noexcept;
-    [[nodiscard]] double* scratch_real_basis(uint64_t basis) noexcept;
-    [[nodiscard]] double* scratch_imag_basis(uint64_t basis) noexcept;
+    [[nodiscard]] double* real_basis(uint64_t basis) noexcept {
+        assert(basis < coefficient_capacity_ && "basis index must fit coefficient storage");
+        return real_ + static_cast<size_t>(basis) * lane_pitch_;
+    }
+    [[nodiscard]] const double* real_basis(uint64_t basis) const noexcept {
+        assert(basis < coefficient_capacity_ && "basis index must fit coefficient storage");
+        return real_ + static_cast<size_t>(basis) * lane_pitch_;
+    }
+    [[nodiscard]] double* imag_basis(uint64_t basis) noexcept {
+        assert(basis < coefficient_capacity_ && "basis index must fit coefficient storage");
+        return imag_ + static_cast<size_t>(basis) * lane_pitch_;
+    }
+    [[nodiscard]] const double* imag_basis(uint64_t basis) const noexcept {
+        assert(basis < coefficient_capacity_ && "basis index must fit coefficient storage");
+        return imag_ + static_cast<size_t>(basis) * lane_pitch_;
+    }
+    [[nodiscard]] double* scratch_real_basis(uint64_t basis) noexcept {
+        assert(basis < scratch_capacity_ && "basis index must fit measurement scratch");
+        return scratch_real_ + static_cast<size_t>(basis) * lane_pitch_;
+    }
+    [[nodiscard]] double* scratch_imag_basis(uint64_t basis) noexcept {
+        assert(basis < scratch_capacity_ && "basis index must fit measurement scratch");
+        return scratch_imag_ + static_cast<size_t>(basis) * lane_pitch_;
+    }
 
     void set_active_width(uint32_t width) noexcept;
 

@@ -113,36 +113,6 @@ void InterleavedBatchState::compact_lanes(std::span<const uint32_t> source_lanes
     active_lanes_ = static_cast<uint32_t>(source_lanes.size());
 }
 
-double* InterleavedBatchState::real_basis(uint64_t basis) noexcept {
-    assert(basis < coefficient_capacity_ && "basis index must fit coefficient storage");
-    return real_ + static_cast<size_t>(basis) * lane_pitch_;
-}
-
-const double* InterleavedBatchState::real_basis(uint64_t basis) const noexcept {
-    assert(basis < coefficient_capacity_ && "basis index must fit coefficient storage");
-    return real_ + static_cast<size_t>(basis) * lane_pitch_;
-}
-
-double* InterleavedBatchState::imag_basis(uint64_t basis) noexcept {
-    assert(basis < coefficient_capacity_ && "basis index must fit coefficient storage");
-    return imag_ + static_cast<size_t>(basis) * lane_pitch_;
-}
-
-const double* InterleavedBatchState::imag_basis(uint64_t basis) const noexcept {
-    assert(basis < coefficient_capacity_ && "basis index must fit coefficient storage");
-    return imag_ + static_cast<size_t>(basis) * lane_pitch_;
-}
-
-double* InterleavedBatchState::scratch_real_basis(uint64_t basis) noexcept {
-    assert(basis < scratch_capacity_ && "basis index must fit measurement scratch");
-    return scratch_real_ + static_cast<size_t>(basis) * lane_pitch_;
-}
-
-double* InterleavedBatchState::scratch_imag_basis(uint64_t basis) noexcept {
-    assert(basis < scratch_capacity_ && "basis index must fit measurement scratch");
-    return scratch_imag_ + static_cast<size_t>(basis) * lane_pitch_;
-}
-
 void InterleavedBatchState::set_active_width(uint32_t width) noexcept {
     assert(width <= max_active_width_ && "active width must fit interleaved batch storage");
     active_width_ = width;

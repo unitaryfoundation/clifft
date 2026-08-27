@@ -59,6 +59,8 @@ std::optional<uint32_t> parse_positive_uint32_option(const ThreadOption& option,
 }
 
 uint32_t parse_thread_option(const ThreadOption& option) {
+    // The C++ scheduling API predates this parser and uses zero as its
+    // internal request for automatic hardware concurrency.
     return parse_positive_uint32_option(option, "threads").value_or(0);
 }
 

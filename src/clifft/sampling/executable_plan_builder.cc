@@ -1,19 +1,15 @@
 #include "clifft/sampling/executable_plan_builder.h"
 
-#include "clifft/util/mask_view.h"
 #include "clifft/util/noise_sampling.h"
 
 #include <algorithm>
-#include <bit>
 #include <cassert>
 #include <cmath>
-#include <iterator>
 #include <limits>
 #include <optional>
 #include <span>
 #include <stdexcept>
 #include <type_traits>
-#include <unordered_map>
 #include <utility>
 
 namespace clifft::sampling {
@@ -39,42 +35,7 @@ bool activates_new_x(const ApplyInstrument& instrument, uint32_t active_after) {
            instrument.source.z == 0 && instrument.source.x == (uint64_t{1} << (active_after - 1));
 }
 
-struct PresampledExpressionBlock {
-    bool constant = false;
-    std::vector<uint32_t> terms;
-    std::vector<uint32_t> registers;
-    uint32_t parent = std::numeric_limits<uint32_t>::max();
-    bool invert_parent = false;
-    uint32_t depth = 0;
-    std::vector<uint32_t> delta_terms;
-};
-
-struct BatchNoiseEffectBasis {
-    std::vector<uint64_t> effects;
-    uint32_t carrier_symbol = 0;
-};
-
-inline constexpr uint64_t kMinBatchExpressionTerms = 1024;
-inline constexpr uint64_t kBatchExpressionCostNumerator = 3;
-inline constexpr uint64_t kBatchExpressionCostDenominator = 4;
 inline constexpr double kMaxSparseBatchReadoutProbability = 0.05;
-
-std::vector<uint32_t> symmetric_difference(std::span<const uint32_t> left,
-                                           std::span<const uint32_t> right) {
-    std::vector<uint32_t> result;
-    result.reserve(left.size() + right.size());
-    std::ranges::set_symmetric_difference(left, right, std::back_inserter(result));
-    return result;
-}
-
-uint64_t expression_hash(bool constant, std::span<const uint32_t> terms) noexcept {
-    uint64_t hash = constant ? 0x9e3779b97f4a7c15ULL : 0xcbf29ce484222325ULL;
-    for (uint32_t term : terms) {
-        hash ^= term;
-        hash *= 0x100000001b3ULL;
-    }
-    return hash;
-}
 
 }  // namespace
 
@@ -131,8 +92,8 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::compile() {
     prepare_noise_and_boundaries();
     lower_action_stream();
     build_expression_dependencies();
-    prepare_batch_expression_initialization();
-    prepare_batch_symbol_storage();
+    output_.batch_presampled_program_ =
+        BatchPresampledProgram::build(output_, source_, expression_terms_, expression_term_begins_);
     validate_executable_plan();
 }
 
@@ -535,346 +496,15 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::build_expression_depende
         output_.num_symbols_, expression_terms_, expression_term_begins_);
 }
 
-void ExecutablePlanBuilder::prepare_batch_expression_initialization() {
-#if defined(__EMSCRIPTEN__)
-    return;
-#endif
-    if (output_.has_instruments_) {
-        return;
-    }
-
-    const size_t num_expressions = expression_term_begins_.size();
-    std::vector<uint8_t> batch_expression_needed(num_expressions, 1);
-    for (const ExecutablePlan::Action& action : output_.actions_) {
-        std::visit(
-            [&](const auto& typed) {
-                using T = std::decay_t<decltype(typed)>;
-                if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteDetector> ||
-                              std::is_same_v<T, ExecutablePlan::ExecuteObservable>) {
-                    if (typed.record_parity != std::numeric_limits<uint32_t>::max()) {
-                        batch_expression_needed[typed.outcome.register_id] = 0;
-                    }
-                }
-            },
-            action);
-    }
-    std::vector<std::vector<uint32_t>> batch_presampled_terms(num_expressions);
-    uint64_t original_presampled_terms = 0;
-    for (size_t expression = 0; expression < num_expressions; ++expression) {
-        if (batch_expression_needed[expression] == 0) {
-            continue;
-        }
-        const uint32_t begin = expression_term_begins_[expression];
-        const uint32_t end = expression + 1 < num_expressions
-                                 ? expression_term_begins_[expression + 1]
-                                 : static_cast<uint32_t>(expression_terms_.size());
-        for (uint32_t term = begin; term < end; ++term) {
-            const uint32_t symbol = expression_terms_[term];
-            const SymbolInfo& info = source_.symbols[symbol];
-            if (info.kind != SymbolKind::Presampled) {
-                continue;
-            }
-            ++original_presampled_terms;
-            if (!info.noise_site.has_value()) {
-                batch_presampled_terms[expression].push_back(symbol);
-            }
-        }
-    }
-    if (original_presampled_terms < kMinBatchExpressionTerms) {
-        return;
-    }
-
-    const size_t effect_words = num_expressions / 64 + (num_expressions % 64 != 0);
-    std::vector<ExecutablePlan::PreparedBatchNoiseOutcome> batch_noise_outcomes;
-    std::vector<uint32_t> batch_noise_assignments;
-    batch_noise_outcomes.reserve(output_.noise_outcomes_.size());
-    for (const PresampledNoiseSite& site : source_.presampled_noise_sites) {
-        std::vector<BatchNoiseEffectBasis> basis;
-        std::vector<int32_t> basis_for_effect(num_expressions, -1);
-        std::vector<uint64_t> residual(effect_words, 0);
-        basis.reserve(site.outcomes.size());
-        for (const PresampledNoiseOutcome& outcome : site.outcomes) {
-            std::ranges::fill(residual, uint64_t{0});
-            for (uint32_t expression :
-                 output_.expression_dependencies_.dependent_registers(index(outcome.symbol))) {
-                if (batch_expression_needed[expression] != 0) {
-                    residual[expression >> 6] |= uint64_t{1} << (expression & 63);
-                }
-            }
-
-            MutableMaskView residual_view(residual);
-            std::vector<uint32_t> coordinates;
-            while (!residual_view.is_zero()) {
-                const uint32_t pivot = residual_view.lowest_bit();
-                const int32_t basis_index = basis_for_effect[pivot];
-                if (basis_index >= 0) {
-                    coordinates.push_back(static_cast<uint32_t>(basis_index));
-                    residual_view.xor_with(
-                        MaskView(basis[static_cast<size_t>(basis_index)].effects));
-                    continue;
-                }
-
-                const uint32_t new_basis_index = static_cast<uint32_t>(basis.size());
-                basis_for_effect[pivot] = static_cast<int32_t>(new_basis_index);
-                coordinates.push_back(new_basis_index);
-                basis.push_back(BatchNoiseEffectBasis{std::move(residual), index(outcome.symbol)});
-                residual.resize(effect_words, 0);
-                const BatchNoiseEffectBasis& added = basis.back();
-                for (size_t word = 0; word < added.effects.size(); ++word) {
-                    uint64_t pending = added.effects[word];
-                    while (pending != 0) {
-                        const uint32_t bit = std::countr_zero(pending);
-                        const size_t expression = word * 64 + bit;
-                        assert(expression < num_expressions &&
-                               "batch noise effect must name a prepared expression");
-                        batch_presampled_terms[expression].push_back(added.carrier_symbol);
-                        pending &= pending - 1;
-                    }
-                }
-                break;
-            }
-
-            if (coordinates.size() >
-                std::numeric_limits<uint32_t>::max() - batch_noise_assignments.size()) {
-                throw std::length_error(
-                    "sampling executable batch noise assignments exceed uint32 range");
-            }
-            const uint32_t assignment_begin = static_cast<uint32_t>(batch_noise_assignments.size());
-            for (uint32_t basis_index : coordinates) {
-                batch_noise_assignments.push_back(basis[basis_index].carrier_symbol);
-            }
-            batch_noise_outcomes.push_back(
-                {assignment_begin, static_cast<uint32_t>(coordinates.size())});
-        }
-    }
-    if (batch_noise_outcomes.size() != output_.noise_outcomes_.size()) {
-        throw std::logic_error("batch noise factorization must cover every prepared outcome");
-    }
-    for (std::vector<uint32_t>& terms : batch_presampled_terms) {
-        std::ranges::sort(terms);
-        assert(std::ranges::adjacent_find(terms) == terms.end() &&
-               "batch noise factorization must produce canonical terms");
-    }
-
-    std::unordered_multimap<uint64_t, uint32_t> interned;
-    std::vector<PresampledExpressionBlock> blocks;
-    blocks.reserve(expression_term_begins_.size());
-    interned.reserve(expression_term_begins_.size());
-    for (size_t expression = 0; expression < expression_term_begins_.size(); ++expression) {
-        if (batch_expression_needed[expression] == 0) {
-            continue;
-        }
-        std::vector<uint32_t> terms = std::move(batch_presampled_terms[expression]);
-
-        const bool constant = output_.expression_register_constants_[expression] != 0;
-        const uint64_t hash = expression_hash(constant, terms);
-        uint32_t block_index = std::numeric_limits<uint32_t>::max();
-        const auto [first, last] = interned.equal_range(hash);
-        for (auto position = first; position != last; ++position) {
-            const PresampledExpressionBlock& candidate = blocks[position->second];
-            if (candidate.constant == constant && candidate.terms == terms) {
-                block_index = position->second;
-                break;
-            }
-        }
-        if (block_index == std::numeric_limits<uint32_t>::max()) {
-            block_index = static_cast<uint32_t>(blocks.size());
-            PresampledExpressionBlock block;
-            block.constant = constant;
-            block.terms = std::move(terms);
-            blocks.push_back(std::move(block));
-            interned.emplace(hash, block_index);
-        }
-        blocks[block_index].registers.push_back(static_cast<uint32_t>(expression));
-    }
-
-    std::vector<std::vector<uint32_t>> blocks_by_symbol(output_.num_symbols_);
-    std::vector<uint32_t> intersection_counts(blocks.size(), 0);
-    std::vector<uint32_t> candidate_parents;
-    uint32_t max_depth = 0;
-    for (size_t block_index = 0; block_index < blocks.size(); ++block_index) {
-        PresampledExpressionBlock& block = blocks[block_index];
-        block.delta_terms = block.terms;
-        uint64_t best_cost = block.delta_terms.size();
-        candidate_parents.clear();
-        for (uint32_t symbol : block.terms) {
-            for (uint32_t parent_index : blocks_by_symbol[symbol]) {
-                if (intersection_counts[parent_index]++ == 0) {
-                    candidate_parents.push_back(parent_index);
-                }
-            }
-        }
-        std::ranges::sort(candidate_parents);
-        for (uint32_t parent_index : candidate_parents) {
-            const bool invert_parent = block.constant != blocks[parent_index].constant;
-            const uint64_t cost = static_cast<uint64_t>(block.terms.size()) +
-                                  blocks[parent_index].terms.size() -
-                                  2 * static_cast<uint64_t>(intersection_counts[parent_index]) +
-                                  static_cast<uint64_t>(invert_parent);
-            if (cost < best_cost) {
-                best_cost = cost;
-                block.parent = parent_index;
-                block.invert_parent = invert_parent;
-            }
-        }
-        for (uint32_t parent_index : candidate_parents) {
-            intersection_counts[parent_index] = 0;
-        }
-        if (block.parent != std::numeric_limits<uint32_t>::max()) {
-            block.delta_terms = symmetric_difference(block.terms, blocks[block.parent].terms);
-            block.depth = blocks[block.parent].depth + 1;
-        }
-        max_depth = std::max(max_depth, block.depth);
-        for (uint32_t symbol : block.terms) {
-            blocks_by_symbol[symbol].push_back(static_cast<uint32_t>(block_index));
-        }
-    }
-
-    uint64_t prepared_operations = 0;
-    for (const PresampledExpressionBlock& block : blocks) {
-        prepared_operations += block.delta_terms.size();
-        prepared_operations += static_cast<uint64_t>(block.invert_parent);
-        prepared_operations +=
-            static_cast<uint64_t>(block.parent != std::numeric_limits<uint32_t>::max());
-        prepared_operations += block.registers.size() - 1;
-    }
-    // Parent and duplicate copies each require a full packed-column pass.
-    // Retain the ordinary dependency path unless the compiled tape removes
-    // enough passes to amortize its extra plan storage and reset bookkeeping.
-    if (prepared_operations * kBatchExpressionCostDenominator >
-        original_presampled_terms * kBatchExpressionCostNumerator) {
-        return;
-    }
-    output_.batch_noise_outcomes_ = std::move(batch_noise_outcomes);
-    output_.batch_noise_assignments_ = std::move(batch_noise_assignments);
-
-    std::vector<std::vector<ExecutablePlan::PresampledExpressionInitialization>>
-        initializations_by_level(static_cast<size_t>(max_depth) + 1);
-    std::vector<std::vector<ExecutablePlan::PresampledExpressionDelta>> deltas_by_level(
-        static_cast<size_t>(max_depth) + 1);
-    for (const PresampledExpressionBlock& block : blocks) {
-        assert(!block.registers.empty() && "interned expression block must have a destination");
-        const uint32_t destination = block.registers.front();
-        if (block.parent != std::numeric_limits<uint32_t>::max()) {
-            initializations_by_level[block.depth].push_back(
-                {destination, blocks[block.parent].registers.front(), block.invert_parent});
-        }
-        for (uint32_t symbol : block.delta_terms) {
-            deltas_by_level[block.depth].push_back({symbol, destination});
-        }
-        for (size_t register_index = 1; register_index < block.registers.size(); ++register_index) {
-            output_.presampled_copies_.push_back({destination, block.registers[register_index]});
-        }
-    }
-
-    output_.presampled_initialization_level_offsets_.push_back(0);
-    output_.presampled_delta_level_offsets_.push_back(0);
-    for (size_t level = 0; level < initializations_by_level.size(); ++level) {
-        auto& deltas = deltas_by_level[level];
-        std::ranges::sort(deltas, {}, &ExecutablePlan::PresampledExpressionDelta::carrier);
-        if (initializations_by_level[level].size() >
-                std::numeric_limits<uint32_t>::max() - output_.presampled_initializations_.size() ||
-            deltas.size() >
-                std::numeric_limits<uint32_t>::max() - output_.presampled_deltas_.size()) {
-            throw std::length_error(
-                "sampling executable presampled expression tape exceeds uint32 range");
-        }
-        output_.presampled_initializations_.insert(output_.presampled_initializations_.end(),
-                                                   initializations_by_level[level].begin(),
-                                                   initializations_by_level[level].end());
-        output_.presampled_deltas_.insert(output_.presampled_deltas_.end(), deltas.begin(),
-                                          deltas.end());
-        output_.presampled_initialization_level_offsets_.push_back(
-            static_cast<uint32_t>(output_.presampled_initializations_.size()));
-        output_.presampled_delta_level_offsets_.push_back(
-            static_cast<uint32_t>(output_.presampled_deltas_.size()));
-    }
-}
-
-CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::prepare_batch_symbol_storage() {
-    if (output_.batch_noise_outcomes_.empty()) {
-        return;
-    }
-
-    constexpr uint32_t kUnassigned = std::numeric_limits<uint32_t>::max();
-    std::vector<uint32_t> carrier_slots(output_.num_symbols_, kUnassigned);
-    const auto mark_carrier = [&](uint32_t symbol) {
-        assert(symbol < source_.symbols.size() &&
-               source_.symbols[symbol].kind == SymbolKind::Presampled &&
-               "batch carrier must originate from a presampled symbol");
-        carrier_slots[symbol] = 0;
-    };
-    for (uint32_t assignment : output_.batch_noise_assignments_) {
-        mark_carrier(assignment);
-    }
-    for (const ExecutablePlan::PresampledExpressionDelta& delta : output_.presampled_deltas_) {
-        mark_carrier(delta.carrier);
-    }
-    for (uint32_t& slot : carrier_slots) {
-        if (slot != kUnassigned) {
-            slot = output_.num_batch_noise_carriers_++;
-        }
-    }
-    for (uint32_t& assignment : output_.batch_noise_assignments_) {
-        assignment = carrier_slots[assignment];
-    }
-    for (ExecutablePlan::PresampledExpressionDelta& delta : output_.presampled_deltas_) {
-        delta.carrier = carrier_slots[delta.carrier];
-    }
-}
-
 CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::validate_executable_plan() const {
 #ifndef NDEBUG
     assert(expression_term_begins_.size() == output_.expression_register_constants_.size() &&
            "expression register storage is inconsistent");
     output_.expression_dependencies_.validate(output_.num_symbols_,
                                               output_.expression_register_constants_.size());
-    if (!output_.presampled_initialization_level_offsets_.empty()) {
-        assert(output_.presampled_initialization_level_offsets_.size() ==
-                   output_.presampled_delta_level_offsets_.size() &&
-               output_.presampled_initialization_level_offsets_.front() == 0 &&
-               output_.presampled_delta_level_offsets_.front() == 0 &&
-               output_.presampled_initialization_level_offsets_.back() ==
-                   output_.presampled_initializations_.size() &&
-               output_.presampled_delta_level_offsets_.back() ==
-                   output_.presampled_deltas_.size() &&
-               "presampled expression levels must cover their operation tapes");
-        for (const ExecutablePlan::PresampledExpressionInitialization& initialization :
-             output_.presampled_initializations_) {
-            assert(initialization.destination < output_.expression_register_constants_.size() &&
-                   initialization.parent < output_.expression_register_constants_.size() &&
-                   "presampled expression initialization must name valid registers");
-        }
-        for (const ExecutablePlan::PresampledExpressionDelta& delta : output_.presampled_deltas_) {
-            assert(delta.carrier < output_.num_batch_noise_carriers_ &&
-                   delta.destination < output_.expression_register_constants_.size() &&
-                   "presampled expression delta must name valid storage");
-        }
-        for (const ExecutablePlan::PresampledExpressionCopy& copy : output_.presampled_copies_) {
-            assert(copy.source < output_.expression_register_constants_.size() &&
-                   copy.destination < output_.expression_register_constants_.size() &&
-                   "presampled expression copy must name valid registers");
-        }
-    }
-    if (!output_.batch_noise_outcomes_.empty()) {
-        assert(output_.batch_noise_outcomes_.size() == output_.noise_outcomes_.size() &&
-               output_.num_batch_noise_carriers_ != 0 &&
-               "batch noise outcomes must parallel scalar outcomes");
-        for (const ExecutablePlan::PreparedBatchNoiseOutcome& outcome :
-             output_.batch_noise_outcomes_) {
-            const size_t end =
-                static_cast<size_t>(outcome.assignment_begin) + outcome.assignment_count;
-            assert(end <= output_.batch_noise_assignments_.size() &&
-                   "batch noise assignment must stay in its prepared tape");
-            for (size_t assignment = outcome.assignment_begin; assignment < end; ++assignment) {
-                const uint32_t carrier = output_.batch_noise_assignments_[assignment];
-                assert(carrier < output_.num_batch_noise_carriers_ &&
-                       "batch noise assignment must name a compact carrier");
-            }
-        }
-    } else {
-        assert(output_.batch_noise_assignments_.empty() && output_.num_batch_noise_carriers_ == 0 &&
-               "batch noise assignments require parallel outcomes");
+    if (output_.batch_presampled_program_.has_value()) {
+        output_.batch_presampled_program_->validate(output_.noise_outcomes_.size(),
+                                                    output_.expression_register_constants_.size());
     }
     const size_t num_records =
         static_cast<size_t>(output_.num_visible_records_) + output_.num_hidden_records_;

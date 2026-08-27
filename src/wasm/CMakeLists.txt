@@ -43,6 +43,7 @@ add_library(clifft_core STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/sampling/planner_frame.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/sampling/pauli_preparation.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/sampling/batch/policy.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/sampling/batch/presampled_program.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/sampling/kernel_dispatch.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/sampling/executable_plan.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/sampling/executable_plan_builder.cc

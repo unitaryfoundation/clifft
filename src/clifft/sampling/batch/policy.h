@@ -50,7 +50,7 @@ inline constexpr bool kPackedBatchExecutionAvailable = true;
 #endif
 
 struct BatchExecutionPolicy {
-    // Stable number of shot lanes assigned to each packed batch.
+    // Number of shot lanes in a full packed batch.
     uint32_t lane_capacity = 1;
 
     // Maximum simultaneous workers allowed by work and memory budgets.

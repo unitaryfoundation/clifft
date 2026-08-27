@@ -8,9 +8,14 @@
 
 namespace clifft::sampling {
 
-// Fixed-capacity symbol-major bit columns used by packed cross-shot execution.
-// Construction owns all allocation; hot operations only overwrite existing
-// words. Column c and lane s live at words_[c * word_capacity_ + s / 64].
+// Dense bit matrix with one stored Boolean value per column and one shot per
+// lane:
+//
+//                         shot lane
+//   value/column c  [0 1 ... 63] [64 ...]
+//
+// Column c and lane s live at words_[c * word_capacity_ + s / 64]. Construction
+// owns all allocation, so hot operations only overwrite existing words.
 class PackedBitColumns {
   public:
     PackedBitColumns() = default;

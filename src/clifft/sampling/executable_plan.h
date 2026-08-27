@@ -1,5 +1,6 @@
 #pragma once
 
+#include "clifft/sampling/batch/presampled_program.h"
 #include "clifft/sampling/kernel_dispatch.h"
 #include "clifft/sampling/kernels.h"
 #include "clifft/sampling/plan.h"
@@ -100,7 +101,8 @@ class ExecutablePlan {
         return num_readout_noise_sites_;
     }
     [[nodiscard]] uint32_t num_batch_noise_carriers() const noexcept {
-        return num_batch_noise_carriers_;
+        return batch_presampled_program_.has_value() ? batch_presampled_program_->num_carriers()
+                                                     : 0;
     }
     [[nodiscard]] size_t num_actions() const { return actions_.size(); }
     [[nodiscard]] size_t num_new_x_instrument_activations() const;
@@ -118,10 +120,11 @@ class ExecutablePlan {
   private:
     friend class Executor;
     friend class BatchExecutor;
+    friend class BatchPresampledProgram;
     friend class ExecutablePlanBuilder;
 
-    // To keep actions compact, register_id refers to expression details in the
-    // storage near the end of this class.
+    // Actions retain only this index so repeated affine expressions stay in
+    // shared plan storage.
     struct PreparedExpression {
         uint32_t register_id = 0;
     };
@@ -149,22 +152,6 @@ class ExecutablePlan {
 
         std::vector<uint32_t> offsets_;
         std::vector<uint32_t> targets_;
-    };
-
-    struct PresampledExpressionInitialization {
-        uint32_t destination = 0;
-        uint32_t parent = 0;
-        bool invert_parent = false;
-    };
-
-    struct PresampledExpressionDelta {
-        uint32_t carrier = 0;
-        uint32_t destination = 0;
-    };
-
-    struct PresampledExpressionCopy {
-        uint32_t source = 0;
-        uint32_t destination = 0;
     };
 
     // CPU action descriptors. They contain only fixed operands and indices;
@@ -351,11 +338,6 @@ class ExecutablePlan {
         double conditioned_probability = 0.0;
     };
 
-    struct PreparedBatchNoiseOutcome {
-        uint32_t assignment_begin = 0;
-        uint32_t assignment_count = 0;
-    };
-
     using Action =
         std::variant<ExecuteRotation, ExecuteFusedRotation, ExecuteDynamicFusedRotation,
                      ExecutePromotion, ExecuteActiveMeasurement, ExecuteDormantMeasurement,
@@ -373,7 +355,6 @@ class ExecutablePlan {
     uint32_t num_observables_ = 0;
     uint32_t num_exp_vals_ = 0;
     uint32_t num_symbols_ = 0;
-    uint32_t num_batch_noise_carriers_ = 0;
     bool has_postselection_ = false;
     bool has_readout_noise_ = false;
     bool has_instruments_ = false;
@@ -382,49 +363,35 @@ class ExecutablePlan {
     uint32_t initial_noise_end_ = 0;
     std::optional<Tableau> final_tableau_;
 
-    // Affine register initialization and reverse symbol dependencies.
-
-    // Constants are indexed by PreparedExpression::register_id.
+    // Affine registers. Constants are indexed by
+    // PreparedExpression::register_id.
     std::vector<uint8_t> expression_register_constants_;
     ExpressionDependencies expression_dependencies_;
 
-    // Presampled inputs and their circuit-site distributions.
-
-    // Maps each dense presampled input position to its plan-local SymbolId.
-    // The constructor records those ids in ascending order.
+    // Presampled inputs and their circuit-site distributions. Symbol lists use
+    // ascending plan-local ids so execution can index them without a map.
     std::vector<uint32_t> presampled_symbols_;
     std::vector<uint32_t> unbound_presampled_symbols_;
     std::vector<PreparedNoiseOutcome> noise_outcomes_;
     std::vector<PreparedNoiseSite> noise_sites_;
     std::vector<double> noise_hazards_;
     std::optional<double> uniform_noise_inverse_hazard_;
-    // Batch-only categorical factorization. It is either empty or parallel to
-    // noise_outcomes_; each assignment names a compact carrier column whose
-    // packed bit is set when that outcome is selected.
-    std::vector<PreparedBatchNoiseOutcome> batch_noise_outcomes_;
-    std::vector<uint32_t> batch_noise_assignments_;
+    std::optional<BatchPresampledProgram> batch_presampled_program_;
+
+    // Packed-only output parities.
     std::vector<PreparedRecordParity> batch_record_parities_;
     std::vector<uint32_t> batch_record_parity_terms_;
 
-    // Input distributions consulted when instruments fire.
+    // Instrument inputs and continuation offsets share the same site index.
     std::vector<InstrumentDistribution> instrument_distributions_;
-
-    // Continuation offsets, prepared fused descriptors, and the hot action
-    // stream. Actions refer to side storage by stable indices.
     std::vector<uint32_t> instrument_resume_offsets_;
+
+    // Hot action stream and its indexed prepared payloads. The source map is
+    // an optional debug sidecar rather than parallel production storage.
     std::vector<PreparedFusedRotationExecution> fused_rotations_;
     std::vector<PreparedDynamicFusedRotationExecution> dynamic_fused_rotations_;
     std::vector<Action> actions_;
-    // Optional debug sidecar parallel to actions_. It stays empty for ordinary
-    // compilation and therefore adds no per-action production storage.
     std::vector<PlanActionRange> action_plan_ranges_;
-    // Optional batch-only tape for shared presampled expression prefixes.
-    // Dynamic symbols still use the ordinary reverse dependency index.
-    std::vector<uint32_t> presampled_initialization_level_offsets_;
-    std::vector<PresampledExpressionInitialization> presampled_initializations_;
-    std::vector<uint32_t> presampled_delta_level_offsets_;
-    std::vector<PresampledExpressionDelta> presampled_deltas_;
-    std::vector<PresampledExpressionCopy> presampled_copies_;
 };
 
 }  // namespace clifft::sampling

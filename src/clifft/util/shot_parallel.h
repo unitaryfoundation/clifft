@@ -54,6 +54,8 @@ inline uint32_t shot_chunk_size(uint32_t shots, uint32_t workers,
                                 uint32_t minimum_chunk_size = 1) noexcept {
     assert(workers != 0 && minimum_chunk_size != 0 &&
            "shot chunking requires workers and a positive minimum chunk");
+    // Several claims per worker redistribute uneven shot costs without paying
+    // for one atomic scheduler operation per shot.
     constexpr uint64_t kTargetChunksPerWorker = 8;
     const uint64_t target_chunks = static_cast<uint64_t>(workers) * kTargetChunksPerWorker;
     const uint64_t target_size = std::max<uint64_t>(

@@ -118,10 +118,10 @@ void BatchExecutor::reset_batch(const SeedRoot& root, uint32_t first_shot,
     assert(shots <= lane_capacity_ && "packed batch must fit retained capacity");
     live_count_ = shots;
     fill_low_lane_mask(live_words_, shots);
-    if (symbols_.num_columns() != 0) {
-        symbols_.clear();
-    } else {
+    if (plan_->batch_presampled_program_.has_value()) {
         batch_noise_carriers_.clear();
+    } else {
+        symbols_.clear();
     }
     expression_registers_.clear();
     records_.clear();
@@ -157,40 +157,37 @@ void BatchExecutor::initialize_expression_registers() noexcept {
 }
 
 void BatchExecutor::initialize_presampled_expressions() noexcept {
-    assert(!plan_->presampled_initialization_level_offsets_.empty() &&
-           plan_->presampled_initialization_level_offsets_.size() ==
-               plan_->presampled_delta_level_offsets_.size() &&
+    assert(plan_->batch_presampled_program_.has_value() &&
            "presampled expression program must contain matching levels");
-    const size_t levels = plan_->presampled_initialization_level_offsets_.size() - 1;
+    const BatchPresampledProgram& program = *plan_->batch_presampled_program_;
+    const size_t levels = program.initialization_level_offsets_.size() - 1;
     for (size_t level = 0; level < levels; ++level) {
-        const uint32_t initialization_begin =
-            plan_->presampled_initialization_level_offsets_[level];
-        const uint32_t initialization_end =
-            plan_->presampled_initialization_level_offsets_[level + 1];
+        const uint32_t initialization_begin = program.initialization_level_offsets_[level];
+        const uint32_t initialization_end = program.initialization_level_offsets_[level + 1];
         for (uint32_t index = initialization_begin; index < initialization_end; ++index) {
-            const ExecutablePlan::PresampledExpressionInitialization& initialization =
-                plan_->presampled_initializations_[index];
+            const BatchPresampledProgram::InitializeExpression& initialization =
+                program.initializations_[index];
             expression_registers_.copy(initialization.destination, initialization.parent);
             if (initialization.invert_parent) {
                 expression_registers_.xor_into(initialization.destination, live_words_);
             }
         }
-        const uint32_t delta_begin = plan_->presampled_delta_level_offsets_[level];
-        const uint32_t delta_end = plan_->presampled_delta_level_offsets_[level + 1];
-        for (uint32_t index = delta_begin; index < delta_end; ++index) {
-            const ExecutablePlan::PresampledExpressionDelta& delta =
-                plan_->presampled_deltas_[index];
-            expression_registers_.xor_into(delta.destination,
-                                           batch_noise_carriers_.column(delta.carrier));
+        const uint32_t carrier_xor_begin = program.carrier_xor_level_offsets_[level];
+        const uint32_t carrier_xor_end = program.carrier_xor_level_offsets_[level + 1];
+        for (uint32_t index = carrier_xor_begin; index < carrier_xor_end; ++index) {
+            const BatchPresampledProgram::XorCarrierIntoExpression& carrier_xor =
+                program.carrier_xors_[index];
+            expression_registers_.xor_into(carrier_xor.destination,
+                                           batch_noise_carriers_.column(carrier_xor.carrier));
         }
     }
-    for (const ExecutablePlan::PresampledExpressionCopy& copy : plan_->presampled_copies_) {
+    for (const BatchPresampledProgram::CopyExpression& copy : program.copies_) {
         expression_registers_.copy(copy.destination, copy.source);
     }
 }
 
 void BatchExecutor::finalize_presampled_symbols() noexcept {
-    if (plan_->presampled_initialization_level_offsets_.empty()) {
+    if (!plan_->batch_presampled_program_.has_value()) {
         for (uint32_t symbol : plan_->presampled_symbols_) {
             propagate_symbol(symbol, symbols_.column(symbol));
         }
@@ -285,21 +282,21 @@ void BatchExecutor::activate_noise_site(uint32_t lane, uint32_t site_index) noex
             assert(outcome_index < outcome_end && "channel draw must select a prepared outcome");
         }
     }
-    if (plan_->batch_noise_outcomes_.empty()) {
+    if (!plan_->batch_presampled_program_.has_value()) {
         const uint32_t symbol = plan_->noise_outcomes_[outcome_index].symbol;
         assert(!symbols_.bit(symbol, lane) && "noise site must define a fresh lane symbol");
         symbols_.set_bit(symbol, lane);
         return;
     }
 
-    const ExecutablePlan::PreparedBatchNoiseOutcome& batch_outcome =
-        plan_->batch_noise_outcomes_[outcome_index];
-    const uint32_t assignment_end = batch_outcome.assignment_begin + batch_outcome.assignment_count;
-    assert(assignment_end <= plan_->batch_noise_assignments_.size() &&
+    const BatchPresampledProgram& program = *plan_->batch_presampled_program_;
+    const BatchPresampledProgram::OutcomeAssignments& batch_outcome =
+        program.outcome_assignments_[outcome_index];
+    const uint32_t assignment_end = batch_outcome.begin + batch_outcome.count;
+    assert(assignment_end <= program.assigned_carriers_.size() &&
            "batch noise assignment must stay in its prepared tape");
-    for (uint32_t assignment = batch_outcome.assignment_begin; assignment < assignment_end;
-         ++assignment) {
-        const uint32_t carrier = plan_->batch_noise_assignments_[assignment];
+    for (uint32_t assignment = batch_outcome.begin; assignment < assignment_end; ++assignment) {
+        const uint32_t carrier = program.assigned_carriers_[assignment];
         assert(!batch_noise_carriers_.bit(carrier, lane) &&
                "batch noise carrier must be assigned once per site");
         batch_noise_carriers_.set_bit(carrier, lane);
