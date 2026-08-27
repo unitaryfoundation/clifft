@@ -13,7 +13,19 @@ namespace clifft {
 /// active coordinates sooner, and non-Clifford expansions are deferred.
 class StatevectorSqueezePass : public HirPass {
   public:
+    StatevectorSqueezePass() = default;
+
+    [[nodiscard]] static StatevectorSqueezePass with_reversed_commuting_expansions() {
+        return StatevectorSqueezePass{true};
+    }
+
     void run(HirModule& hir) override;
+
+  private:
+    explicit StatevectorSqueezePass(bool reverse_commuting_expansions)
+        : reverse_commuting_expansions_(reverse_commuting_expansions) {}
+
+    bool reverse_commuting_expansions_ = false;
 };
 
 }  // namespace clifft

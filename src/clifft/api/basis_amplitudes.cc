@@ -60,6 +60,25 @@ Circuit append_terminal_measurements(const Circuit& source) {
     return result;
 }
 
+struct PlannedAmplitude {
+    SamplingPlan plan;
+    std::complex<double> phase;
+};
+
+PlannedAmplitude plan_amplitude(HirModule hir, PhaseAwareCliffordFrame final_clifford_frame,
+                                std::span<const uint8_t> output_records,
+                                std::span<const uint64_t> output_basis,
+                                std::complex<double> source_phase,
+                                StatevectorSqueezePass squeeze_pass) {
+    squeeze_pass.run(hir);
+    PhaseAwareSamplingPlan planned =
+        plan_sampling_phase_aware(hir, std::move(final_clifford_frame), output_records);
+    std::complex<double> phase = source_phase * planned.scalar;
+    phase *= internal::clifford_row_phase(planned.final_tableau, planned.final_clifford_frame,
+                                          output_basis);
+    return PlannedAmplitude{.plan = std::move(planned.plan), .phase = phase};
+}
+
 }  // namespace
 
 BasisAmplitudeQuery::Prepared BasisAmplitudeQuery::prepare(const Circuit& circuit,
@@ -72,18 +91,24 @@ BasisAmplitudeQuery::Prepared BasisAmplitudeQuery::prepare(const Circuit& circui
     }
     PhaseAwareHir traced =
         trace_phase_aware_terminal_measurements(append_terminal_measurements(circuit));
-    // Output effects move left while non-Clifford expansions move right. The
-    // target-aware planner retains forced-branch phases across the resulting
-    // coordinate changes and scalar rotations.
-    StatevectorSqueezePass{}.run(traced.hir);
-    PhaseAwareSamplingPlan planned = plan_sampling_phase_aware(
-        traced.hir, std::move(traced.final_clifford_frame), output_records);
-    std::complex<double> phase = input_phase * traced.source_scalar * planned.scalar;
-    phase *= internal::clifford_row_phase(planned.final_tableau, planned.final_clifford_frame,
-                                          output_basis);
-    return Prepared{.plan = std::move(planned.plan),
+    HirModule alternate_hir = traced.hir;
+    PhaseAwareCliffordFrame alternate_frame = traced.final_clifford_frame;
+    const std::complex<double> source_phase = input_phase * traced.source_scalar;
+
+    // Commuting expansions admit multiple legal schedules around the fixed
+    // output effects. Plan both stable extremes and retain the cheaper dense
+    // state without changing the ordinary sampling pipeline.
+    PlannedAmplitude canonical =
+        plan_amplitude(std::move(traced.hir), std::move(traced.final_clifford_frame),
+                       output_records, output_basis, source_phase, StatevectorSqueezePass{});
+    PlannedAmplitude alternate = plan_amplitude(
+        std::move(alternate_hir), std::move(alternate_frame), output_records, output_basis,
+        source_phase, StatevectorSqueezePass::with_reversed_commuting_expansions());
+    PlannedAmplitude& selected =
+        alternate.plan.peak_active_width < canonical.plan.peak_active_width ? alternate : canonical;
+    return Prepared{.plan = std::move(selected.plan),
                     .output_records = std::move(output_records),
-                    .phase = phase};
+                    .phase = selected.phase};
 }
 
 BasisAmplitudeQuery::BasisAmplitudeQuery(const Circuit& circuit,

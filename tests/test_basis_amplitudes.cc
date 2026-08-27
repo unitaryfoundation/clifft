@@ -221,6 +221,15 @@ TEST_CASE("Basis amplitude query contracts its terminal output effect") {
     check_complex(query.evaluate(), std::polar(0.5, std::numbers::pi / 4.0));
 }
 
+TEST_CASE("Basis amplitude query selects the lower width commuting schedule") {
+    const clifft::Circuit circuit = clifft::parse("H 0 1\nT 0\nTPP Z0*Z1\nH 1");
+    const std::vector<uint64_t> output{0};
+    const clifft::sampling::BasisAmplitudeQuery query(circuit, output);
+
+    CHECK(query.peak_active_width() == 1);
+    check_complex(query.evaluate(), {0.6035533905932737, 0.25});
+}
+
 TEST_CASE("Basis amplitude query avoids whole-state width in either gate order") {
     constexpr uint32_t num_qubits = 60;
     const std::vector<uint64_t> output{0};

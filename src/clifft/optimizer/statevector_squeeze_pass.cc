@@ -35,9 +35,9 @@ void StatevectorSqueezePass::run(HirModule& hir) {
                 size_t curr = i;
                 while (curr < hir.ops.size() - 1 &&
                        can_swap(hir.ops[curr], hir.ops[curr + 1], hir)) {
-                    // Don't uselessly reorder two expanding gates past each other
                     auto nt = hir.ops[curr + 1].op_type();
-                    if (nt == OpType::T_GATE || nt == OpType::PHASE_ROTATION) {
+                    if (!reverse_commuting_expansions_ &&
+                        (nt == OpType::T_GATE || nt == OpType::PHASE_ROTATION)) {
                         break;
                     }
                     std::swap(hir.ops[curr], hir.ops[curr + 1]);

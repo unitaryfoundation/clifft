@@ -1006,6 +1006,22 @@ TEST_CASE("Squeeze: measurement does not bubble past NOISE and EXP_VAL", "[optim
     REQUIRE(hir.ops[3].op_type() == OpType::MEASURE);
 }
 
+TEST_CASE("Squeeze alternate expansion order can reduce peak active width", "[optimizer]") {
+    auto canonical = hir_from(
+        "H 0 1\n"
+        "T 0\n"
+        "TPP Z0*Z1\n"
+        "H 1\n"
+        "M 1");
+    auto alternate = canonical;
+
+    StatevectorSqueezePass{}.run(canonical);
+    StatevectorSqueezePass::with_reversed_commuting_expansions().run(alternate);
+
+    CHECK(clifft::sampling::plan_sampling(canonical).peak_active_width == 2);
+    CHECK(clifft::sampling::plan_sampling(alternate).peak_active_width == 1);
+}
+
 TEST_CASE("Peephole: virtual S conjugation updates EXP_VAL masks", "[optimizer][exp_val]") {
     // Circuit: T 0, T 0, EXP_VAL X0
     // T+T fuses to virtual S on Z0. The S conjugation must update the
