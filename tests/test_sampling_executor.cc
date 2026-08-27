@@ -1352,6 +1352,292 @@ TEST_CASE("Threaded fixed-row sampling preserves seeded shot order") {
     }
 }
 
+TEST_CASE("Explicit batch capacities replay seeded fixed rows") {
+    const ExecutablePlan executable(clifft::sampling::plan_sampling(clifft::trace(clifft::parse(R"(
+        X_ERROR(0.125) 0
+        H 0 1
+        T 0
+        M(0.25) 0 1
+        DETECTOR rec[-2] rec[-1]
+        OBSERVABLE_INCLUDE(0) rec[-1]
+        EXP_VAL Z0
+    )"))));
+    for (uint32_t capacity : std::array<uint32_t, 4>{2, 63, 64, 65}) {
+        const clifft::sampling::SamplingResult packed =
+            clifft::sampling::sample(executable, 257, uint64_t{91831}, 1, std::nullopt, capacity);
+        const clifft::sampling::SamplingResult replay =
+            clifft::sampling::sample(executable, 257, uint64_t{91831}, 4, std::nullopt, capacity);
+        CAPTURE(capacity);
+        REQUIRE(packed.measurements == replay.measurements);
+        REQUIRE(packed.detectors == replay.detectors);
+        REQUIRE(packed.observables == replay.observables);
+        REQUIRE(packed.exp_vals == replay.exp_vals);
+    }
+}
+
+TEST_CASE("Packed presampled expression program matches a categorical statistical oracle") {
+    constexpr uint32_t num_sites = 32;
+    constexpr uint32_t num_symbols = 64;
+    constexpr uint32_t num_unique_expressions = 32;
+    constexpr uint32_t num_records = 40;
+    constexpr uint32_t shots = 50'000;
+    SamplingPlan plan;
+    plan.num_noise_sites = num_sites;
+    plan.num_visible_records = num_records;
+    for (uint32_t symbol = 0; symbol < num_symbols; ++symbol) {
+        plan.symbols.push_back(
+            SymbolInfo{SymbolKind::Presampled, std::nullopt, NoiseSiteId{symbol / 2}});
+    }
+    std::array<double, num_symbols> outcome_probabilities{};
+    for (uint32_t site = 0; site < num_sites; ++site) {
+        const uint32_t first_symbol = 2 * site;
+        const double first_probability = 0.005 + 0.0005 * site;
+        const double second_probability = 0.01 + 0.0007 * site;
+        outcome_probabilities[first_symbol] = first_probability;
+        outcome_probabilities[first_symbol + 1] = second_probability;
+        plan.presampled_noise_sites.push_back(PresampledNoiseSite{
+            NoiseSiteId{site},
+            first_probability + second_probability,
+            {PresampledNoiseOutcome{SymbolId{first_symbol}, first_probability},
+             PresampledNoiseOutcome{SymbolId{first_symbol + 1}, second_probability}}});
+    }
+    std::vector<double> expected_record_probabilities(num_records, 0.0);
+    for (uint32_t record = 0; record < num_records; ++record) {
+        const uint32_t expression = record % num_unique_expressions;
+        std::vector<SymbolId> terms;
+        terms.reserve(48);
+        for (uint32_t symbol = 0; symbol < 48; ++symbol) {
+            if (symbol != expression) {
+                terms.push_back(SymbolId{symbol});
+            }
+        }
+        terms.push_back(SymbolId{48 + expression % 16});
+        std::array<uint8_t, num_symbols> included{};
+        for (SymbolId term : terms) {
+            included[index(term)] = 1;
+        }
+        double even_minus_odd = 1.0;
+        for (uint32_t site = 0; site < num_sites; ++site) {
+            const uint32_t first_symbol = 2 * site;
+            double odd_probability = 0.0;
+            if (included[first_symbol] != 0) {
+                odd_probability += outcome_probabilities[first_symbol];
+            }
+            if (included[first_symbol + 1] != 0) {
+                odd_probability += outcome_probabilities[first_symbol + 1];
+            }
+            even_minus_odd *= 1.0 - 2.0 * odd_probability;
+        }
+        const double odd_probability = 0.5 * (1.0 - even_minus_odd);
+        expected_record_probabilities[record] =
+            expression % 2 == 0 ? odd_probability : 1.0 - odd_probability;
+        plan.actions.push_back(PlannedAction{
+            0, 0,
+            RecordClassical{AffineBool::from_canonical_terms(expression % 2 != 0, std::move(terms)),
+                            RecordSlot{record}}});
+    }
+
+    const ExecutablePlan executable(plan);
+    REQUIRE(executable.num_batch_noise_carriers() > 0);
+    const auto record_frequencies = [](const clifft::sampling::SamplingResult& result) {
+        std::array<double, num_records> frequencies{};
+        for (uint32_t shot = 0; shot < shots; ++shot) {
+            for (uint32_t record = 0; record < num_records; ++record) {
+                frequencies[record] +=
+                    result.measurements[static_cast<size_t>(shot) * num_records + record];
+            }
+        }
+        for (double& frequency : frequencies) {
+            frequency /= shots;
+        }
+        return frequencies;
+    };
+    const clifft::sampling::SamplingResult scalar =
+        clifft::sampling::sample(executable, shots, uint64_t{91832}, 1, std::nullopt, uint32_t{1});
+    const std::array<double, num_records> scalar_frequencies = record_frequencies(scalar);
+    for (uint32_t record = 0; record < num_records; ++record) {
+        CAPTURE(record);
+        REQUIRE_THAT(scalar_frequencies[record],
+                     Catch::Matchers::WithinAbs(expected_record_probabilities[record], 0.015));
+    }
+
+    for (uint32_t capacity : std::array<uint32_t, 5>{2, 63, 64, 65, 128}) {
+        const clifft::sampling::SamplingResult packed =
+            clifft::sampling::sample(executable, shots, uint64_t{91832}, 1, std::nullopt, capacity);
+        const std::array<double, num_records> packed_frequencies = record_frequencies(packed);
+        for (uint32_t record = 0; record < num_records; ++record) {
+            CAPTURE(capacity, record);
+            REQUIRE_THAT(packed_frequencies[record],
+                         Catch::Matchers::WithinAbs(expected_record_probabilities[record], 0.015));
+            REQUIRE_THAT(packed_frequencies[record],
+                         Catch::Matchers::WithinAbs(scalar_frequencies[record], 0.02));
+        }
+    }
+}
+
+TEST_CASE("Packed syndrome outputs preserve record snapshots") {
+    const std::array<uint8_t, 2> expected_detectors{1, 1};
+    const std::array<uint8_t, 3> expected_observables{1, 1, 1};
+    clifft::sampling::SamplingPlanOptions options;
+    options.expected_detectors = expected_detectors;
+    options.expected_observables = expected_observables;
+    const ExecutablePlan executable(clifft::sampling::plan_sampling(clifft::trace(clifft::parse(R"(
+            X 0
+            M 0
+            DETECTOR rec[-1]
+            OBSERVABLE_INCLUDE(0) rec[-1]
+            OBSERVABLE_INCLUDE(2) rec[-1]
+            READOUT_NOISE(1) rec[-1]
+            DETECTOR rec[-1]
+            OBSERVABLE_INCLUDE(1) rec[-1]
+            OBSERVABLE_INCLUDE(2) rec[-1]
+        )")),
+                                                                    options));
+    const clifft::sampling::SamplingResult scalar =
+        clifft::sampling::sample(executable, 257, uint64_t{918321}, 1, std::nullopt, uint32_t{1});
+
+    for (uint32_t capacity : std::array<uint32_t, 5>{2, 63, 64, 65, 128}) {
+        const clifft::sampling::SamplingResult packed =
+            clifft::sampling::sample(executable, 257, uint64_t{918321}, 1, std::nullopt, capacity);
+        CAPTURE(capacity);
+        REQUIRE(packed.measurements == scalar.measurements);
+        REQUIRE(packed.detectors == scalar.detectors);
+        REQUIRE(packed.observables == scalar.observables);
+        for (uint32_t shot = 0; shot < 257; ++shot) {
+            REQUIRE(packed.measurements[shot] == 0);
+            REQUIRE(packed.detectors[2 * shot] == 0);
+            REQUIRE(packed.detectors[2 * shot + 1] == 1);
+            REQUIRE(packed.observables[3 * shot] == 0);
+            REQUIRE(packed.observables[3 * shot + 1] == 1);
+            REQUIRE(packed.observables[3 * shot + 2] == 0);
+        }
+    }
+}
+
+TEST_CASE("Scalar and packed sampling are statistically equivalent") {
+    constexpr uint32_t shots = 100000;
+    const ExecutablePlan executable(clifft::sampling::plan_sampling(clifft::trace(clifft::parse(R"(
+            X_ERROR(0.125) 0
+            H 1
+            M 0 1
+            DETECTOR rec[-2]
+            OBSERVABLE_INCLUDE(0) rec[-1]
+        )"))));
+    const clifft::sampling::SamplingResult scalar =
+        clifft::sampling::sample(executable, shots, uint64_t{91833}, 1, std::nullopt, uint32_t{1});
+    const clifft::sampling::SamplingResult packed = clifft::sampling::sample(
+        executable, shots, uint64_t{91833}, 1, std::nullopt, uint32_t{257});
+
+    const auto frequencies = [](const clifft::sampling::SamplingResult& result) {
+        std::array<double, 2> ones{};
+        for (size_t shot = 0; shot < result.measurements.size() / 2; ++shot) {
+            ones[0] += result.measurements[2 * shot];
+            ones[1] += result.measurements[2 * shot + 1];
+        }
+        ones[0] /= shots;
+        ones[1] /= shots;
+        return ones;
+    };
+    const std::array<double, 2> scalar_frequencies = frequencies(scalar);
+    const std::array<double, 2> packed_frequencies = frequencies(packed);
+    REQUIRE_THAT(scalar_frequencies[0], Catch::Matchers::WithinAbs(0.125, 0.01));
+    REQUIRE_THAT(packed_frequencies[0], Catch::Matchers::WithinAbs(0.125, 0.01));
+    REQUIRE_THAT(scalar_frequencies[1], Catch::Matchers::WithinAbs(0.5, 0.01));
+    REQUIRE_THAT(packed_frequencies[1], Catch::Matchers::WithinAbs(0.5, 0.01));
+    REQUIRE_THAT(packed_frequencies[0], Catch::Matchers::WithinAbs(scalar_frequencies[0], 0.01));
+    REQUIRE_THAT(packed_frequencies[1], Catch::Matchers::WithinAbs(scalar_frequencies[1], 0.01));
+
+    const auto output_frequency = [](const std::vector<uint8_t>& values) {
+        return static_cast<double>(std::ranges::count(values, uint8_t{1})) / shots;
+    };
+    const double scalar_detector = output_frequency(scalar.detectors);
+    const double packed_detector = output_frequency(packed.detectors);
+    const double scalar_observable = output_frequency(scalar.observables);
+    const double packed_observable = output_frequency(packed.observables);
+    REQUIRE_THAT(scalar_detector, Catch::Matchers::WithinAbs(0.125, 0.01));
+    REQUIRE_THAT(packed_detector, Catch::Matchers::WithinAbs(0.125, 0.01));
+    REQUIRE_THAT(packed_detector, Catch::Matchers::WithinAbs(scalar_detector, 0.01));
+    REQUIRE_THAT(scalar_observable, Catch::Matchers::WithinAbs(0.5, 0.01));
+    REQUIRE_THAT(packed_observable, Catch::Matchers::WithinAbs(0.5, 0.01));
+    REQUIRE_THAT(packed_observable, Catch::Matchers::WithinAbs(scalar_observable, 0.01));
+}
+
+TEST_CASE("Packed uniform sparse noise matches its Bernoulli rate") {
+    constexpr uint32_t sites = 64;
+    constexpr uint32_t shots = 100000;
+    std::string circuit = "X_ERROR(0.001)";
+    for (uint32_t qubit = 0; qubit < sites; ++qubit) {
+        circuit.append(" ").append(std::to_string(qubit));
+    }
+    circuit.append("\nM");
+    for (uint32_t qubit = 0; qubit < sites; ++qubit) {
+        circuit.append(" ").append(std::to_string(qubit));
+    }
+    circuit.push_back('\n');
+    const ExecutablePlan executable(
+        clifft::sampling::plan_sampling(clifft::trace(clifft::parse(circuit))));
+    const clifft::sampling::SamplingResult result = clifft::sampling::sample(
+        executable, shots, uint64_t{91834}, 1, std::nullopt, uint32_t{2048});
+
+    uint64_t faults = 0;
+    for (uint8_t value : result.measurements) {
+        faults += value;
+    }
+    REQUIRE(faults > 5900);
+    REQUIRE(faults < 6900);
+}
+
+TEST_CASE("Packed certain noise fires every site") {
+    const ExecutablePlan executable(clifft::sampling::plan_sampling(
+        clifft::trace(clifft::parse("X_ERROR(1) 0 1 2\nM 0 1 2\n"))));
+    const clifft::sampling::SamplingResult result =
+        clifft::sampling::sample(executable, 257, uint64_t{91835}, 1, std::nullopt, uint32_t{65});
+    REQUIRE(std::ranges::all_of(result.measurements, [](uint8_t value) { return value == 1; }));
+}
+
+TEST_CASE("Packed symmetric readout matches its Bernoulli rates") {
+    constexpr uint32_t shots = 100000;
+    const ExecutablePlan executable(clifft::sampling::plan_sampling(
+        clifft::trace(clifft::parse("M(0.001) 0\nM(0.5) 1\nX 2\nM(1) 2\n"))));
+    const clifft::sampling::SamplingResult result = clifft::sampling::sample(
+        executable, shots, uint64_t{91836}, 1, std::nullopt, uint32_t{2048});
+
+    std::array<uint32_t, 3> ones{};
+    for (uint32_t shot = 0; shot < shots; ++shot) {
+        for (uint32_t record = 0; record < 3; ++record) {
+            ones[record] += result.measurements[static_cast<size_t>(shot) * 3 + record];
+        }
+    }
+    REQUIRE(ones[0] > 50);
+    REQUIRE(ones[0] < 150);
+    REQUIRE(ones[1] > 49000);
+    REQUIRE(ones[1] < 51000);
+    REQUIRE(ones[2] == 0);
+}
+
+TEST_CASE("Packed asymmetric readout matches both conditional rates") {
+    constexpr uint32_t shots = 100000;
+    const ExecutablePlan executable(clifft::sampling::plan_sampling(clifft::trace(clifft::parse(R"(
+        M 0
+        READOUT_NOISE(0.3, 0.05) rec[-1]
+        X 1
+        M 1
+        READOUT_NOISE(0.3, 0.05) rec[-1]
+    )"))));
+    const clifft::sampling::SamplingResult result = clifft::sampling::sample(
+        executable, shots, uint64_t{91837}, 1, std::nullopt, uint32_t{2048});
+
+    std::array<uint32_t, 2> ones{};
+    for (uint32_t shot = 0; shot < shots; ++shot) {
+        ones[0] += result.measurements[static_cast<size_t>(shot) * 2];
+        ones[1] += result.measurements[static_cast<size_t>(shot) * 2 + 1];
+    }
+    REQUIRE(ones[0] > 29000);
+    REQUIRE(ones[0] < 31000);
+    REQUIRE(ones[1] > 94000);
+    REQUIRE(ones[1] < 96000);
+}
+
 TEST_CASE("Sampling thread layouts validate explicit worker counts") {
     const ExecutablePlan executable(plan_from("H 0\nM 0\n"));
     REQUIRE_THROWS_WITH(clifft::sampling::sample(executable, 1, uint64_t{11}, 1,
@@ -1485,7 +1771,9 @@ TEST_CASE("Threaded survivor sampling preserves seeded survivors and records") {
             OBSERVABLE_INCLUDE(0) rec[-1]
             EXP_VAL Z1
         )")),
-                                        {.postselection_mask = postselection}));
+                                        {.postselection_mask = postselection,
+                                         .expected_detectors = {},
+                                         .expected_observables = {}}));
     const clifft::sampling::SamplingSurvivorResult serial =
         clifft::sampling::sample_survivors(executable, 257, uint64_t{9184}, true, 1);
 
@@ -1502,6 +1790,91 @@ TEST_CASE("Threaded survivor sampling preserves seeded survivors and records") {
         REQUIRE(threaded.observables == serial.observables);
         REQUIRE(threaded.exp_vals == serial.exp_vals);
     }
+}
+
+TEST_CASE("Explicit batch capacities replay seeded survivor rows") {
+    const std::array<uint8_t, 1> postselection{1};
+    const ExecutablePlan executable(
+        clifft::sampling::plan_sampling(clifft::trace(clifft::parse(R"(
+            H 0
+            M 0
+            EXP_VAL Z0
+            DETECTOR rec[-1]
+            H 1
+            T 1
+            EXP_VAL X1
+            M 1
+            OBSERVABLE_INCLUDE(0) rec[-1]
+        )")),
+                                        {.postselection_mask = postselection,
+                                         .expected_detectors = {},
+                                         .expected_observables = {}}));
+    for (uint32_t capacity : std::array<uint32_t, 4>{2, 63, 64, 65}) {
+        const clifft::sampling::SamplingSurvivorResult packed = clifft::sampling::sample_survivors(
+            executable, 257, uint64_t{91841}, true, 1, std::nullopt, capacity);
+        const clifft::sampling::SamplingSurvivorResult replay = clifft::sampling::sample_survivors(
+            executable, 257, uint64_t{91841}, true, 4, std::nullopt, capacity);
+        CAPTURE(capacity);
+        REQUIRE(packed.total_shots == replay.total_shots);
+        REQUIRE(packed.passed_shots == replay.passed_shots);
+        REQUIRE(packed.logical_errors == replay.logical_errors);
+        REQUIRE(packed.observable_ones == replay.observable_ones);
+        REQUIRE(packed.measurements == replay.measurements);
+        REQUIRE(packed.detectors == replay.detectors);
+        REQUIRE(packed.observables == replay.observables);
+        REQUIRE(packed.exp_vals == replay.exp_vals);
+    }
+}
+
+TEST_CASE("Packed survivors retain long-tail rows after heavy rejection") {
+    constexpr uint32_t shots = 4096;
+    constexpr uint32_t tail_probes = 96;
+    std::string circuit = R"(
+        X_ERROR(0.9) 0
+        M 0
+        EXP_VAL Z0
+        DETECTOR rec[-1]
+        H 1
+    )";
+    for (uint32_t probe = 0; probe < tail_probes; ++probe) {
+        circuit.append("T 1\nEXP_VAL X1\nH 1\n");
+    }
+    const clifft::HirModule hir = clifft::trace(clifft::parse(circuit));
+    const std::array<uint8_t, 1> postselection{1};
+    const ExecutablePlan executable(
+        clifft::sampling::plan_sampling(hir, {.postselection_mask = postselection,
+                                              .expected_detectors = {},
+                                              .expected_observables = {}}));
+    REQUIRE(executable.num_actions() > 190);
+    REQUIRE(executable.num_exp_vals() == tail_probes + 1);
+
+    const clifft::sampling::SamplingSurvivorResult result = clifft::sampling::sample_survivors(
+        executable, shots, uint64_t{91842}, true, 1, std::nullopt, uint32_t{2048});
+    const clifft::sampling::SamplingSurvivorResult replay = clifft::sampling::sample_survivors(
+        executable, shots, uint64_t{91842}, true, 4, std::nullopt, uint32_t{2048});
+
+    REQUIRE(result.passed_shots > 300);
+    REQUIRE(result.passed_shots < 520);
+    REQUIRE(result.measurements.size() == result.passed_shots);
+    REQUIRE(result.detectors.size() == result.passed_shots);
+    REQUIRE(result.exp_vals.size() ==
+            static_cast<size_t>(result.passed_shots) * executable.num_exp_vals());
+    REQUIRE(std::ranges::all_of(result.measurements, [](uint8_t value) { return value == 0; }));
+    REQUIRE(std::ranges::all_of(result.detectors, [](uint8_t value) { return value == 0; }));
+    for (uint32_t shot = 0; shot < result.passed_shots; ++shot) {
+        const size_t offset = static_cast<size_t>(shot) * executable.num_exp_vals();
+        REQUIRE_THAT(result.exp_vals[offset], Catch::Matchers::WithinAbs(1.0, 1e-12));
+    }
+    REQUIRE(std::ranges::all_of(result.exp_vals, [](double value) {
+        return std::isfinite(value) && value >= -1.000000000001 && value <= 1.000000000001;
+    }));
+    REQUIRE(replay.passed_shots == result.passed_shots);
+    REQUIRE(replay.logical_errors == result.logical_errors);
+    REQUIRE(replay.observable_ones == result.observable_ones);
+    REQUIRE(replay.measurements == result.measurements);
+    REQUIRE(replay.detectors == result.detectors);
+    REQUIRE(replay.observables == result.observables);
+    REQUIRE(replay.exp_vals == result.exp_vals);
 }
 
 TEST_CASE("Sampling survivor execution normalizes and rejects detectors") {

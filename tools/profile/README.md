@@ -73,6 +73,9 @@ CLIFFT_CIRCUIT_FILE=tools/bench/fixtures/qv20_seed42.stim \
 | `CLIFFT_PROFILE_INTRA_SHOT_MIN_ACTIVE_WIDTH` | 18 | Expert kernel threshold; requires an explicit layout |
 | `CLIFFT_PROFILE_WARMUPS` | 2 | Untimed sample calls |
 | `CLIFFT_PROFILE_REPETITIONS` | 20 | Timed sample calls |
+| `CLIFFT_PROFILE_BATCH_SIZE` | auto | Force a positive packed lane capacity; `1` selects scalar execution |
+| `CLIFFT_PROFILE_AGGREGATE_SURVIVORS` | unset | Profile counts-only survivor sampling instead of fixed-row output |
+| `CLIFFT_PROFILE_POSTSELECT_ALL` | unset | Mark every detector for postselection; requires aggregate survivors |
 | `CLIFFT_PROFILE_GENERATED_WIDTH` | unset | Generate a rotation-heavy circuit of this width instead of loading a file |
 | `CLIFFT_PROFILE_GENERATED_DEPTH` | 20 | Layers in the generated circuit |
 

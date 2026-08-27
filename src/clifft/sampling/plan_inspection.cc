@@ -82,6 +82,28 @@ std::string_view instrument_mode_name(InstrumentMode mode) {
     return "unknown";
 }
 
+void write_batch_record_parity(std::ostream& out, const std::optional<BatchRecordParity>& parity) {
+    if (!parity.has_value()) {
+        return;
+    }
+    out << " batch_parity=";
+    bool wrote = false;
+    if (parity->constant) {
+        out << '1';
+        wrote = true;
+    }
+    for (RecordSlot record : parity->records) {
+        if (wrote) {
+            out << '^';
+        }
+        out << 'r' << index(record);
+        wrote = true;
+    }
+    if (!wrote) {
+        out << '0';
+    }
+}
+
 // Writes the mnemonic, operand, and key=value fields for one action, without
 // the leading active-width prefix or dense-pass count. Both the full and
 // compact inspection forms share this body and differ only in how they wrap
@@ -128,10 +150,12 @@ void write_action_body(std::ostream& out, const SamplingAction& action,
                 if (typed.postselected) {
                     out << " postselect";
                 }
+                write_batch_record_parity(out, typed.batch_parity);
             } else if constexpr (std::is_same_v<T, WriteObservable>) {
                 out << "WRITE_OBSERVABLE outcome="
                     << format_expression(typed.outcome, max_expression_terms) << " observable=o"
                     << index(typed.observable);
+                write_batch_record_parity(out, typed.batch_parity);
             } else if constexpr (std::is_same_v<T, WriteExpectationValue>) {
                 out << "WRITE_EXPECTATION ";
                 if (typed.active_projection.has_value()) {

@@ -1,6 +1,7 @@
 """Python integration tests for clifft.compile and clifft.sample."""
 
 import warnings
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -139,6 +140,53 @@ class TestSample:
         result2 = sampling_api.sample(prog, 100, seed=12345)
         assert np.array_equal(result1.measurements, result2.measurements)
 
+    @pytest.mark.parametrize("batch_size", ["auto", 1, 2, 65])
+    def test_sample_batch_configuration_replays_seeded_rows(
+        self, sampling_api: Any, batch_size: Any
+    ) -> None:
+        """A seed replays exactly when the batching configuration is unchanged."""
+        prog = sampling_api.compile("X_ERROR(0.125) 0\nH 1\nM 0 1\nDETECTOR rec[-2] rec[-1]")
+        first = sampling_api.sample(prog, 257, seed=12345, batch_size=batch_size)
+        replay = sampling_api.sample(prog, 257, seed=12345, batch_size=batch_size)
+        np.testing.assert_array_equal(first.measurements, replay.measurements)
+        np.testing.assert_array_equal(first.detectors, replay.detectors)
+
+    def test_scalar_and_packed_modes_are_statistically_equivalent(self, sampling_api: Any) -> None:
+        """Changing execution mode may change rows but not the sampled distribution."""
+        prog = sampling_api.compile("X_ERROR(0.125) 0\nH 1\nM 0 1")
+        shots = 50_000
+        scalar = sampling_api.sample(prog, shots, seed=12346, batch_size=1)
+        packed = sampling_api.sample(prog, shots, seed=12346, batch_size=257)
+        expected = (0.125, 0.5)
+        for column, probability in enumerate(expected):
+            tolerance = binomial_tolerance(probability, shots)
+            assert abs(float(np.mean(scalar.measurements[:, column])) - probability) < tolerance
+            assert abs(float(np.mean(packed.measurements[:, column])) - probability) < tolerance
+
+    @pytest.mark.parametrize("batch_size", [0, -1, "all", 1.5])
+    def test_sample_rejects_invalid_batch_size(self, sampling_api: Any, batch_size: Any) -> None:
+        """Only positive integer capacities and the auto sentinel are accepted."""
+        prog = sampling_api.compile("M 0")
+        with pytest.raises((TypeError, ValueError), match="batch_size|incompatible"):
+            sampling_api.sample(prog, 1, batch_size=batch_size)
+
+    def test_packed_batch_rejects_intra_shot_workers(self, sampling_api: Any) -> None:
+        prog = sampling_api.compile("H 0\nT 0\nM 0")
+        with pytest.raises(ValueError, match="batch_size|intra-shot"):
+            sampling_api.sample(
+                prog,
+                64,
+                thread_layout=(1, 2),
+                intra_shot_min_active_width=0,
+                batch_size=64,
+            )
+
+    def test_explicit_batch_size_rejects_unsafe_state_footprint(self, sampling_api: Any) -> None:
+        circuit = "\n".join(f"H {qubit}\nT {qubit}" for qubit in range(20))
+        prog = sampling_api.compile(circuit)
+        with pytest.raises(ValueError, match="64 MiB packed-state limit"):
+            sampling_api.sample(prog, 4096, batch_size=2048)
+
     @pytest.mark.parametrize("threads", [2, "auto"])
     def test_sample_threads_preserve_seeded_rows(self, sampling_api: Any, threads: Any) -> None:
         """Worker count and dynamic scheduling do not change seeded rows."""
@@ -147,6 +195,21 @@ class TestSample:
         )
         serial = sampling_api.sample(prog, 257, seed=12345, threads=1)
         threaded = sampling_api.sample(prog, 257, seed=12345, threads=threads)
+        np.testing.assert_array_equal(threaded.measurements, serial.measurements)
+        np.testing.assert_array_equal(threaded.detectors, serial.detectors)
+        np.testing.assert_array_equal(threaded.observables, serial.observables)
+
+    def test_auto_batch_boundaries_ignore_worker_budget(self, sampling_api: Any) -> None:
+        """Memory-limited worker counts do not change automatic batch RNG boundaries."""
+        circuit = (
+            Path(__file__).parent.parent / "fixtures" / "surface_d7_r7_p001.stim"
+        ).read_text()
+        prog = sampling_api.compile(circuit)
+        shots = 32_768
+
+        serial = sampling_api.sample(prog, shots, seed=42, threads=1)
+        threaded = sampling_api.sample(prog, shots, seed=42, threads=16)
+
         np.testing.assert_array_equal(threaded.measurements, serial.measurements)
         np.testing.assert_array_equal(threaded.detectors, serial.detectors)
         np.testing.assert_array_equal(threaded.observables, serial.observables)
@@ -903,6 +966,46 @@ class TestSampleSurvivors:
         assert np.all(result.detectors[:, 0] == 0)
         # All surviving observables should be 0
         assert np.all(result.observables == 0)
+
+    def test_packed_aggregate_matches_retained_rows(self, sampling_api: Any) -> None:
+        """Counts-only packed output exactly aggregates the retained rows."""
+        circuit = """
+            H 0 1 2
+            M 0 1 2
+            DETECTOR rec[-3]
+            OBSERVABLE_INCLUDE(0) rec[-2]
+            OBSERVABLE_INCLUDE(1) rec[-2] rec[-1]
+        """
+        program = sampling_api.compile(circuit, postselection_mask=[1])
+        rows = sampling_api.sample_survivors(
+            program, 513, seed=91842, keep_records=True, batch_size=65
+        )
+        aggregate = sampling_api.sample_survivors(
+            program, 513, seed=91842, keep_records=False, batch_size=65
+        )
+
+        assert aggregate.total_shots == rows.total_shots
+        assert aggregate.passed_shots == rows.passed_shots
+        assert aggregate.discards == rows.discards
+        expected_ones = np.sum(rows.observables, axis=0, dtype=np.uint64)
+        expected_logical_errors = int(np.count_nonzero(np.any(rows.observables, axis=1)))
+        np.testing.assert_array_equal(aggregate.observable_ones, expected_ones)
+        assert aggregate.logical_errors == expected_logical_errors
+        assert aggregate.measurements.shape == (0, program.num_measurements)
+        assert aggregate.detectors.shape == (0, program.num_detectors)
+        assert aggregate.observables.shape == (0, program.num_observables)
+
+    def test_packed_survivors_replay_seeded_rows(self, sampling_api: Any) -> None:
+        prog = sampling_api.compile(
+            "H 0\nM 0\nDETECTOR rec[-1]\nH 1\nM 1\nOBSERVABLE_INCLUDE(0) rec[-1]",
+            postselection_mask=[1],
+        )
+        first = sampling_api.sample_survivors(prog, 257, seed=43, keep_records=True, batch_size=65)
+        replay = sampling_api.sample_survivors(prog, 257, seed=43, keep_records=True, batch_size=65)
+        assert first.passed_shots == replay.passed_shots
+        assert first.logical_errors == replay.logical_errors
+        np.testing.assert_array_equal(first.measurements, replay.measurements)
+        np.testing.assert_array_equal(first.observables, replay.observables)
 
     @pytest.mark.parametrize("threads", [3, "auto"])
     def test_threads_preserve_survivor_rows(self, sampling_api: Any, threads: Any) -> None:

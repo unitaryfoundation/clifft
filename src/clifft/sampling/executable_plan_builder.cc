@@ -3,8 +3,8 @@
 #include "clifft/util/noise_sampling.h"
 
 #include <algorithm>
-#include <bit>
 #include <cassert>
+#include <cmath>
 #include <limits>
 #include <optional>
 #include <span>
@@ -34,6 +34,8 @@ bool activates_new_x(const ApplyInstrument& instrument, uint32_t active_after) {
     return instrument.mode == InstrumentMode::Activate && active_after > 0 &&
            instrument.source.z == 0 && instrument.source.x == (uint64_t{1} << (active_after - 1));
 }
+
+inline constexpr double kMaxSparseBatchReadoutProbability = 0.05;
 
 }  // namespace
 
@@ -90,6 +92,8 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::compile() {
     prepare_noise_and_boundaries();
     lower_action_stream();
     build_expression_dependencies();
+    output_.batch_presampled_program_ =
+        BatchPresampledProgram::build(output_, source_, expression_terms_, expression_term_begins_);
     validate_executable_plan();
 }
 
@@ -163,6 +167,8 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::prepare_noise_and_bounda
     output_.noise_hazards_.reserve(source_.presampled_noise_sites.size());
 
     double cumulative_hazard = 0.0;
+    std::optional<double> uniform_site_probability;
+    bool uniform_site_probabilities = true;
     for (const PresampledNoiseSite& site : source_.presampled_noise_sites) {
         const uint32_t begin = static_cast<uint32_t>(output_.noise_outcomes_.size());
         double cumulative_probability = 0.0;
@@ -171,11 +177,31 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::prepare_noise_and_bounda
             output_.noise_outcomes_.push_back({index(outcome.symbol), cumulative_probability});
             bound_presampled[index(outcome.symbol)] = true;
         }
+        if (output_.noise_outcomes_.size() != begin) {
+            // The validated source permits roundoff-sized disagreement between
+            // a channel's declared total and the sum of its outcomes. Use the
+            // declared total as the final bound so scalar and grouped batch
+            // sampling agree on the site's Bernoulli probability.
+            cumulative_probability = site.total_probability;
+            output_.noise_outcomes_.back().cumulative_probability = cumulative_probability;
+        }
         output_.noise_sites_.push_back(
             {begin, static_cast<uint32_t>(output_.noise_outcomes_.size()) - begin,
              site.total_probability});
         cumulative_hazard += bernoulli_hazard(cumulative_probability);
         output_.noise_hazards_.push_back(cumulative_hazard);
+        if (!uniform_site_probability.has_value()) {
+            uniform_site_probability = site.total_probability;
+        } else {
+            uniform_site_probabilities &= site.total_probability == *uniform_site_probability;
+        }
+    }
+    if (uniform_site_probabilities && uniform_site_probability.has_value() &&
+        *uniform_site_probability > 0.0) {
+        const double inverse_hazard = 1.0 / bernoulli_hazard(*uniform_site_probability);
+        if (std::isfinite(inverse_hazard)) {
+            output_.uniform_noise_inverse_hazard_ = inverse_hazard;
+        }
     }
     for (uint32_t symbol = 0; symbol < source_.symbols.size(); ++symbol) {
         if (source_.symbols[symbol].kind != SymbolKind::Presampled) {
@@ -244,6 +270,26 @@ ExecutablePlanBuilder::prepare_measurement_correction(const AffineBool& outcome,
     return {register_id};
 }
 
+CLIFFT_BUILDER_FORCE_INLINE uint32_t
+ExecutablePlanBuilder::prepare_batch_record_parity(const std::optional<BatchRecordParity>& parity) {
+    if (!parity.has_value()) {
+        return std::numeric_limits<uint32_t>::max();
+    }
+    if (output_.batch_record_parities_.size() >= std::numeric_limits<uint32_t>::max() ||
+        parity->records.size() >
+            std::numeric_limits<uint32_t>::max() - output_.batch_record_parity_terms_.size()) {
+        throw std::length_error("sampling executable batch record parity exceeds uint32 range");
+    }
+    const uint32_t parity_index = static_cast<uint32_t>(output_.batch_record_parities_.size());
+    const uint32_t begin = static_cast<uint32_t>(output_.batch_record_parity_terms_.size());
+    for (RecordSlot record : parity->records) {
+        output_.batch_record_parity_terms_.push_back(index(record));
+    }
+    output_.batch_record_parities_.push_back(
+        {begin, static_cast<uint32_t>(parity->records.size()), parity->constant});
+    return parity_index;
+}
+
 CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::lower_action(const PlannedAction& planned,
                                                                      size_t& boundary_index) {
     std::visit(
@@ -280,16 +326,27 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::lower_action(const Plann
                     prepare_expression(typed.value), index(typed.symbol)});
             } else if constexpr (std::is_same_v<T, ApplyReadoutNoise>) {
                 output_.has_readout_noise_ = true;
+                double batch_symmetric_inverse_hazard = 0.0;
+                if (typed.prob_zero_to_one == typed.prob_one_to_zero &&
+                    typed.prob_zero_to_one > 0.0 &&
+                    typed.prob_zero_to_one <= kMaxSparseBatchReadoutProbability) {
+                    const double inverse_hazard = 1.0 / bernoulli_hazard(typed.prob_zero_to_one);
+                    if (std::isfinite(inverse_hazard)) {
+                        batch_symmetric_inverse_hazard = inverse_hazard;
+                    }
+                }
                 output_.actions_.emplace_back(ExecutablePlan::ExecuteReadoutNoise{
                     prepare_expression(typed.source), index(typed.flip), index(typed.record),
                     output_.num_readout_noise_sites_++, typed.prob_zero_to_one,
-                    typed.prob_one_to_zero});
+                    typed.prob_one_to_zero, batch_symmetric_inverse_hazard});
             } else if constexpr (std::is_same_v<T, WriteDetector>) {
                 output_.actions_.emplace_back(ExecutablePlan::ExecuteDetector{
-                    prepare_expression(typed.outcome), index(typed.detector), typed.postselected});
+                    prepare_expression(typed.outcome), index(typed.detector), typed.postselected,
+                    prepare_batch_record_parity(typed.batch_parity)});
             } else if constexpr (std::is_same_v<T, WriteObservable>) {
                 output_.actions_.emplace_back(ExecutablePlan::ExecuteObservable{
-                    prepare_expression(typed.outcome), index(typed.observable)});
+                    prepare_expression(typed.outcome), index(typed.observable),
+                    prepare_batch_record_parity(typed.batch_parity)});
             } else if constexpr (std::is_same_v<T, WriteExpectationValue>) {
                 std::optional<PreparedPauli> active_projection;
                 if (typed.active_projection.has_value()) {
@@ -445,6 +502,21 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::validate_executable_plan
            "expression register storage is inconsistent");
     output_.expression_dependencies_.validate(output_.num_symbols_,
                                               output_.expression_register_constants_.size());
+    if (output_.batch_presampled_program_.has_value()) {
+        output_.batch_presampled_program_->validate(output_.noise_outcomes_.size(),
+                                                    output_.expression_register_constants_.size());
+    }
+    const size_t num_records =
+        static_cast<size_t>(output_.num_visible_records_) + output_.num_hidden_records_;
+    for (const ExecutablePlan::PreparedRecordParity& parity : output_.batch_record_parities_) {
+        const size_t end = static_cast<size_t>(parity.begin) + parity.count;
+        assert(end <= output_.batch_record_parity_terms_.size() &&
+               "batch record parity must stay in its prepared tape");
+        for (size_t term = parity.begin; term < end; ++term) {
+            assert(output_.batch_record_parity_terms_[term] < num_records &&
+                   "batch record parity must name a valid record");
+        }
+    }
     if (source_.source_map.has_value()) {
         assert(output_.action_plan_ranges_.size() == output_.actions_.size() &&
                "executable provenance must remain parallel to the action stream");
@@ -465,6 +537,11 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::validate_executable_plan
     auto validate_expression = [&](ExecutablePlan::PreparedExpression expression) {
         assert(expression.register_id < output_.expression_register_constants_.size() &&
                "action expression is out of range");
+    };
+    auto validate_record_parity = [&](uint32_t parity) {
+        assert((parity == std::numeric_limits<uint32_t>::max() ||
+                parity < output_.batch_record_parities_.size()) &&
+               "action record parity is out of range");
     };
     for (const ExecutablePlan::Action& action : output_.actions_) {
         std::visit(
@@ -494,8 +571,10 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::validate_executable_plan
                     validate_expression(typed.source);
                 } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteDetector>) {
                     validate_expression(typed.outcome);
+                    validate_record_parity(typed.record_parity);
                 } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteObservable>) {
                     validate_expression(typed.outcome);
+                    validate_record_parity(typed.record_parity);
                 } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteExpectation>) {
                     validate_expression(typed.sign);
                 } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteInstrument>) {

@@ -2,6 +2,7 @@
 #include "clifft/util/numeric.h"
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers_string.hpp>
 #include <limits>
 #include <stdexcept>
 #include <string>
@@ -11,6 +12,7 @@ using clifft::sampling::ActivePauli;
 using clifft::sampling::AffineBool;
 using clifft::sampling::ApplyInstrument;
 using clifft::sampling::ApplyReadoutNoise;
+using clifft::sampling::BatchRecordParity;
 using clifft::sampling::DefineSymbol;
 using clifft::sampling::DetectorSlot;
 using clifft::sampling::ExpValSlot;
@@ -114,8 +116,12 @@ SamplingPlan valid_syndrome_plan() {
     plan.actions = {
         PlannedAction{0, 0, RecordClassical{AffineBool{}, RecordSlot{0}}},
         PlannedAction{0, 0, ApplyReadoutNoise{readout, AffineBool{}, RecordSlot{0}, 0.1, 0.2}},
-        PlannedAction{0, 0, WriteDetector{AffineBool::symbol(readout), DetectorSlot{0}, true}},
-        PlannedAction{0, 0, WriteObservable{AffineBool::symbol(readout), ObservableSlot{0}}},
+        PlannedAction{0, 0,
+                      WriteDetector{AffineBool::symbol(readout), DetectorSlot{0}, true,
+                                    BatchRecordParity{false, {RecordSlot{0}}}}},
+        PlannedAction{0, 0,
+                      WriteObservable{AffineBool::symbol(readout), ObservableSlot{0},
+                                      BatchRecordParity{false, {RecordSlot{0}}}}},
     };
     return plan;
 }
@@ -274,6 +280,26 @@ TEST_CASE("Sampling plan rejects record slots outside stable storage") {
     record.record = RecordSlot{2};
 
     REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
+}
+
+TEST_CASE("Sampling plan rejects inconsistent record parity sidecars") {
+    SamplingPlan plan = valid_syndrome_plan();
+    auto& observable = std::get<WriteObservable>(plan.actions[3].action);
+    observable.batch_parity->constant = true;
+
+    REQUIRE_THROWS_WITH(plan.validate(),
+                        "invalid SamplingPlan: action 3 batch record parity disagrees with its "
+                        "affine outcome");
+}
+
+TEST_CASE("Sampling plan rejects stale readout sources") {
+    SamplingPlan plan = valid_syndrome_plan();
+    auto& readout = std::get<ApplyReadoutNoise>(plan.actions[1].action);
+    readout.source = AffineBool(true);
+
+    REQUIRE_THROWS_WITH(
+        plan.validate(),
+        "invalid SamplingPlan: action 1 readout source disagrees with the current record value");
 }
 
 TEST_CASE("Sampling plan rejects duplicate record writes") {

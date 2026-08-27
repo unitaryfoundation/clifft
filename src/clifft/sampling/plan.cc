@@ -196,6 +196,34 @@ void validate_written_record(const SamplingPlan& plan, RecordSlot record, uint32
     }
 }
 
+void validate_batch_record_parity(const SamplingPlan& plan, const BatchRecordParity& parity,
+                                  uint32_t action_index,
+                                  const std::unordered_set<uint32_t>& written_records,
+                                  std::span<const AffineBool* const> record_values,
+                                  const AffineBool& expected) {
+    uint32_t previous = 0;
+    bool first = true;
+    AffineBool actual(parity.constant);
+    for (RecordSlot record : parity.records) {
+        if (!first && index(record) <= previous) {
+            invalid_plan("action " + std::to_string(action_index) +
+                         " has noncanonical batch record parity");
+        }
+        validate_written_record(plan, record, action_index, written_records);
+        if (record_values[index(record)] == nullptr) {
+            invalid_plan("action " + std::to_string(action_index) +
+                         " batch record parity has no symbolic record value");
+        }
+        actual ^= *record_values[index(record)];
+        previous = index(record);
+        first = false;
+    }
+    if (actual != expected) {
+        invalid_plan("action " + std::to_string(action_index) +
+                     " batch record parity disagrees with its affine outcome");
+    }
+}
+
 }  // namespace
 
 std::span<const uint32_t> PlanSourceMap::lines_for(size_t action) const {
@@ -540,6 +568,8 @@ void SamplingPlan::validate() const {
     std::unordered_set<uint32_t> written_detectors;
     std::unordered_set<uint32_t> written_observables;
     std::unordered_set<uint32_t> written_exp_vals;
+    std::vector<const AffineBool*> record_values(total_records, nullptr);
+    std::vector<std::optional<AffineBool>> readout_record_values(total_records);
     bool observed_postselection = false;
     uint32_t observed_instruments = 0;
     uint32_t observed_instrument_boundaries = 0;
@@ -605,6 +635,7 @@ void SamplingPlan::validate() const {
                     validate_measurement_pivot(typed, action_index);
                     validate_measurement_outcome(*this, typed.outcome, typed.branch, action_index);
                     validate_record(*this, typed.record, action_index, written_records);
+                    record_values[index(typed.record)] = &typed.outcome;
                 } else if constexpr (std::is_same_v<T, MeasureDormantRandom>) {
                     if (planned.active_after != planned.active_before ||
                         typed.dormant_pivot < planned.active_before ||
@@ -613,12 +644,14 @@ void SamplingPlan::validate() const {
                     }
                     validate_measurement_outcome(*this, typed.outcome, typed.branch, action_index);
                     validate_record(*this, typed.record, action_index, written_records);
+                    record_values[index(typed.record)] = &typed.outcome;
                 } else if constexpr (std::is_same_v<T, RecordClassical>) {
                     if (planned.active_after != planned.active_before) {
                         invalid_plan("classical record changes active width");
                     }
                     validate_expression(*this, typed.outcome, action_index, definition, false);
                     validate_record(*this, typed.record, action_index, written_records);
+                    record_values[index(typed.record)] = &typed.outcome;
                 } else if constexpr (std::is_same_v<T, DefineSymbol>) {
                     if (planned.active_after != planned.active_before) {
                         invalid_plan("symbol definition changes active width");
@@ -632,6 +665,15 @@ void SamplingPlan::validate() const {
                     }
                     validate_expression(*this, typed.source, action_index, definition, false);
                     validate_written_record(*this, typed.record, action_index, written_records);
+                    const uint32_t record_index = index(typed.record);
+                    if (record_values[record_index] == nullptr ||
+                        *record_values[record_index] != typed.source) {
+                        invalid_plan("action " + std::to_string(action_index) +
+                                     " readout source disagrees with the current record value");
+                    }
+                    readout_record_values[record_index] =
+                        typed.source ^ AffineBool::symbol(typed.flip);
+                    record_values[record_index] = &*readout_record_values[record_index];
                 } else if constexpr (std::is_same_v<T, WriteDetector>) {
                     if (planned.active_after != planned.active_before ||
                         index(typed.detector) >= num_detectors ||
@@ -639,6 +681,10 @@ void SamplingPlan::validate() const {
                         invalid_plan("detector write has invalid width or slot");
                     }
                     validate_expression(*this, typed.outcome, action_index, definition, false);
+                    if (typed.batch_parity.has_value()) {
+                        validate_batch_record_parity(*this, *typed.batch_parity, action_index,
+                                                     written_records, record_values, typed.outcome);
+                    }
                     observed_postselection |= typed.postselected;
                 } else if constexpr (std::is_same_v<T, WriteObservable>) {
                     if (planned.active_after != planned.active_before ||
@@ -647,6 +693,10 @@ void SamplingPlan::validate() const {
                         invalid_plan("observable write has invalid width or slot");
                     }
                     validate_expression(*this, typed.outcome, action_index, definition, false);
+                    if (typed.batch_parity.has_value()) {
+                        validate_batch_record_parity(*this, *typed.batch_parity, action_index,
+                                                     written_records, record_values, typed.outcome);
+                    }
                 } else if constexpr (std::is_same_v<T, WriteExpectationValue>) {
                     if (planned.active_after != planned.active_before ||
                         index(typed.exp_val) >= num_exp_vals ||

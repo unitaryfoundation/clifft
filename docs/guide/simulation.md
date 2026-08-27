@@ -239,9 +239,65 @@ r2 = clifft.sample(program, 100, seed=42)
 assert (r1.measurements == r2.measurements).all()  # Identical
 ```
 
-If `seed` is omitted or set to `None`, Clifft uses hardware entropy from the operating system.
-Each shot derives an independent random stream from the call seed and its shot
-index. Seeded results therefore do not depend on how shots are scheduled.
+Set an explicit seed when exact replay is useful for debugging or tests. If
+`seed` is omitted or set to `None`, Clifft uses operating-system entropy; this
+is normally preferable for independent production simulations.
+
+Seeded replay is guaranteed within the same sampling mode and configuration.
+Changing the thread count alone does not change its rows, but scalar and packed
+execution use separate random streams, and different packed capacities may do
+so as well. Results from every supported sampling mode remain statistically
+equivalent.
+
+## Packed Batch Sampling
+
+Batching and multithreading are independent forms of parallelism. A packed
+batch stores several shots together so one CPU SIMD instruction can operate on
+them and their state data stays cache-friendly. Multithreading runs work on
+several CPU threads, ideally on separate cores. Clifft can combine both by
+running multiple packed workers.
+
+The four fixed-plan sampling functions accept `batch_size`. Its default,
+`"auto"`, selects packed execution when the plan and request are expected to
+benefit:
+
+```python
+import clifft
+
+program = clifft.compile("M 0")
+result = clifft.sample(program, 100_000, seed=42, batch_size="auto")
+scalar = clifft.sample(program, 100_000, seed=42, batch_size=1)
+packed = clifft.sample(program, 100_000, seed=42, batch_size=1024)
+```
+
+The state-vector footprint grows exponentially with maximum active width and
+linearly with batch size. Once a worker's complete working set outgrows useful
+CPU caches, a larger batch can therefore become slower. Automatic mode estimates
+the memory required by the selected sampling and output mode, targets at most
+8 MiB per worker and 64 MiB across workers, and reduces either the batch size or
+concurrent worker count when necessary. Capacity selection is independent of
+the requested thread count, preserving deterministic batch boundaries.
+
+Automatic selection currently requires at least 64 shots and a peak active
+width of at most 5, and it considers capacities up to 2048 lanes. Set
+`batch_size=1` to disable batching. An explicit positive integer requests a
+capacity up to 2048 and is mainly useful for profiling or overriding the
+conservative automatic policy. Explicit mode still rejects a dense packed
+state above 64 MiB per worker, but plans retaining many symbols, expressions,
+or records can use additional memory beyond that state-vector limit.
+
+Packed execution supports ordinary sampling, post-selected survivor sampling,
+counts-only survivor aggregation, expectation values, and fixed-k importance
+sampling. Current limitations are:
+
+- transition instruments, traps, and continuations stay on the noncomputational
+  trajectory path;
+- packed execution cannot be combined with intra-shot OpenMP workers;
+- WebAssembly uses scalar execution;
+- `record_probabilities()` is an exact replay API and does not use batching.
+
+These restrictions do not remove the corresponding scalar or trajectory
+functionality. `batch_size=1` selects the existing scalar fixed-plan executor.
 
 ## Parallel Sampling
 
@@ -307,9 +363,15 @@ run.
 
 Each cross-shot worker owns a separate executor. Its dense coefficient and
 measurement scratch storage uses roughly $24 \times 2^k$ bytes at peak active width $k$,
-plus symbolic state, records, and other executor metadata. Set an explicit
-layout when memory is more constrained than CPU availability. Intra-shot
-workers cooperate on one executor and do not replicate this storage.
+plus lane-scaled packed symbolic state, expression registers, records, outputs,
+and other executor metadata. Each packed bit column uses
+$8 \times \lceil b / 64 \rceil$ bytes at lane capacity $b$, and every cross-shot
+worker owns its own copy. Automatic batch selection accounts for both the
+per-worker footprint and the number of packed workers. Fixed-k workers share one
+immutable conditioning table while retaining independent selection scratch and
+RNG state. Set an explicit layout when memory is more constrained than CPU
+availability. Intra-shot workers cooperate on one executor and do not replicate
+this storage.
 Noncomputational workers also own their trajectory continuations and compile
 new continuations independently as their shots encounter jumps.
 
@@ -328,8 +390,8 @@ result = clifft.sample_k_survivors(prog, shots=50_000, k=3, seed=42)
 
 Key API:
 
-- **`clifft.sample_k(program, shots, k, seed=None, threads=1, thread_layout=None, intra_shot_min_active_width=None)`** -- Like `sample()`, but forces exactly `k` faults. Only valid for programs without post-selection; post-selected programs must use `sample_k_survivors()`. Returns a `SampleResult` with `.measurements`, `.detectors`, and `.observables`.
-- **`clifft.sample_k_survivors(program, shots, k, seed=None, keep_records=False, threads=1, thread_layout=None, intra_shot_min_active_width=None)`** -- Like `sample_survivors()`, but forces exactly `k` faults. Returns a `SampleResult` whose arrays contain only surviving shots plus survivor metadata.
+- **`clifft.sample_k(program, shots, k, seed=None, threads=1, thread_layout=None, intra_shot_min_active_width=None, batch_size="auto")`** -- Like `sample()`, but forces exactly `k` faults. Only valid for programs without post-selection; post-selected programs must use `sample_k_survivors()`. Returns a `SampleResult` with `.measurements`, `.detectors`, and `.observables`.
+- **`clifft.sample_k_survivors(program, shots, k, seed=None, keep_records=False, threads=1, thread_layout=None, intra_shot_min_active_width=None, batch_size="auto")`** -- Like `sample_survivors()`, but forces exactly `k` faults. Returns a `SampleResult` whose arrays contain only surviving shots plus survivor metadata.
 - **`program.noise_site_probabilities`** -- 1D NumPy array of per-site fault probabilities, with quantum noise sites followed by readout noise entries. Use this for computing the Poisson-binomial PMF.
 
 See the [Importance Sampling Tutorial](importance-sampling.md) for a complete walkthrough.

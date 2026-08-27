@@ -134,6 +134,29 @@ bool option_bit(std::span<const uint8_t> values, uint32_t index) {
     return index < values.size() && values[index] != 0;
 }
 
+BatchRecordParity make_batch_record_parity(std::span<const uint32_t> records, bool constant) {
+    std::vector<uint32_t> sorted(records.begin(), records.end());
+    std::ranges::sort(sorted);
+    BatchRecordParity result;
+    result.constant = constant;
+    for (size_t begin = 0; begin < sorted.size();) {
+        size_t end = begin + 1;
+        while (end < sorted.size() && sorted[end] == sorted[begin]) {
+            ++end;
+        }
+        if ((end - begin) % 2 != 0) {
+            result.records.push_back(RecordSlot{sorted[begin]});
+        }
+        begin = end;
+    }
+    return result;
+}
+
+struct ObservableRecordReference {
+    uint32_t record = 0;
+    uint32_t generation = 0;
+};
+
 struct PlanningRequirements {
     uint32_t symbol_count = 0;
     bool supports_final_state_queries = true;
@@ -426,7 +449,9 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
     SymbolicPauliFrame symbolic_frame(hir.num_qubits, requirements.symbol_count);
     std::vector<std::optional<AffineBool>> record_values(static_cast<size_t>(hir.num_measurements) +
                                                          hir.num_hidden_measurements);
+    std::vector<uint32_t> record_generations(record_values.size(), 0);
     std::vector<AffineBool> observable_values(hir.num_observables);
+    std::vector<std::vector<ObservableRecordReference>> observable_records(hir.num_observables);
     std::vector<std::vector<uint32_t>> observable_source_lines;
     if (plan.source_map.has_value()) {
         observable_source_lines.resize(hir.num_observables);
@@ -551,6 +576,7 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
                                                     entry.prob_one_to_zero}},
                     source_lines);
                 record_values[index(record)] = source ^ AffineBool::symbol(flip);
+                ++record_generations[index(record)];
                 break;
             }
             case OpType::INSTRUMENT: {
@@ -577,13 +603,17 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
                     throw std::invalid_argument("sampling planner detector is out of range");
                 }
                 AffineBool outcome = record_parity(hir.detector_targets[targets_index], i);
-                outcome ^= option_bit(options.expected_detectors, detector_index);
+                const bool expected = option_bit(options.expected_detectors, detector_index);
+                outcome ^= expected;
                 const bool postselected = option_bit(options.postselection_mask, detector_index);
-                append_action(plan,
-                              PlannedAction{active_width, active_width,
-                                            WriteDetector{outcome, DetectorSlot{detector_index},
-                                                          postselected}},
-                              source_lines);
+                append_action(
+                    plan,
+                    PlannedAction{
+                        active_width, active_width,
+                        WriteDetector{outcome, DetectorSlot{detector_index}, postselected,
+                                      make_batch_record_parity(hir.detector_targets[targets_index],
+                                                               expected)}},
+                    source_lines);
                 plan.has_postselection |= postselected;
                 ++detector_index;
                 break;
@@ -597,6 +627,10 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
                 }
                 observable_values[observable_index] ^=
                     record_parity(hir.observable_targets[targets_index], i);
+                for (uint32_t record : hir.observable_targets[targets_index]) {
+                    observable_records[observable_index].push_back(
+                        {record, record_generations.at(record)});
+                }
                 if (plan.source_map.has_value()) {
                     observable_source_lines[observable_index].insert(
                         observable_source_lines[observable_index].end(), source_lines.begin(),
@@ -651,15 +685,30 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
     }
     for (uint32_t observable = 0; observable < observable_values.size(); ++observable) {
         observable_values[observable] ^= option_bit(options.expected_observables, observable);
+        std::optional<BatchRecordParity> batch_parity;
+        const bool records_are_current =
+            std::ranges::all_of(observable_records[observable], [&](const auto& reference) {
+                return reference.generation == record_generations[reference.record];
+            });
+        if (records_are_current) {
+            std::vector<uint32_t> records;
+            records.reserve(observable_records[observable].size());
+            for (const ObservableRecordReference& reference : observable_records[observable]) {
+                records.push_back(reference.record);
+            }
+            batch_parity = make_batch_record_parity(
+                records, option_bit(options.expected_observables, observable));
+        }
         const std::span<const uint32_t> source_lines =
             plan.source_map.has_value()
                 ? std::span<const uint32_t>(observable_source_lines[observable])
                 : std::span<const uint32_t>{};
-        append_action(plan,
-                      PlannedAction{active_width, active_width,
-                                    WriteObservable{observable_values[observable],
-                                                    ObservableSlot{observable}}},
-                      source_lines);
+        append_action(
+            plan,
+            PlannedAction{active_width, active_width,
+                          WriteObservable{observable_values[observable], ObservableSlot{observable},
+                                          std::move(batch_parity)}},
+            source_lines);
     }
 
     if (plan.final_tableau.has_value() && final_coordinates_changed) {
@@ -667,7 +716,9 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
         plan.final_tableau = coordinates_to_physical.then(*plan.final_tableau);
     }
 
-    plan.validate();
+    // CPU and HIP executable construction validate both compiler-produced and
+    // externally assembled plans before execution. Repeating that full scan
+    // here makes the normal compile path validate the same plan twice.
     return plan;
 }
 
