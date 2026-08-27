@@ -621,7 +621,7 @@ bool BatchExecutor::should_compact(const ExecutablePlan::ExecuteDetector& detect
                                  forced_readout_.num_columns();
     // Packed-column compaction performs several dependent bit operations per
     // retained bit, so a coefficient-sized unit materially understates it.
-    constexpr uint64_t kPackedBitCompactionWeight = 4;
+    constexpr uint64_t kPackedBitCompactionWeight = 16;
     const uint64_t bit_compaction_units = saturating_add_u64(
         live_count_, saturating_add_u64(old_words, saturating_multiply_u64(word_capacity_, 2)));
     const uint64_t sidecar_cost = saturating_multiply_u64(
