@@ -9,7 +9,6 @@
 #include <cassert>
 #include <cmath>
 #include <cstddef>
-#include <numbers>
 #include <stdexcept>
 #include <utility>
 
@@ -67,42 +66,24 @@ BasisAmplitudeQuery::Prepared BasisAmplitudeQuery::prepare(const Circuit& circui
                                                            std::span<const uint64_t> output_basis,
                                                            std::complex<double> input_phase) {
     validate_output_basis(circuit.num_qubits, output_basis);
-    PhaseAwareHir traced =
-        trace_phase_aware_terminal_measurements(append_terminal_measurements(circuit));
-    if (!traced.hir.final_tableau.has_value()) {
-        throw std::runtime_error("phase-aware trace did not retain its final Clifford frame");
-    }
-    // Output effects move left while non-Clifford expansions move right. The
-    // scalar sidecar below retains phases when a rotation becomes an effect-
-    // dependent scalar after this phase-safe reordering.
-    StatevectorSqueezePass{}.run(traced.hir);
-    PhaseAwareSamplingPlan planned =
-        plan_sampling_phase_aware(traced.hir, std::move(traced.final_clifford_frame));
-    if (!planned.final_tableau.has_value()) {
-        throw std::runtime_error("phase-aware planner did not retain its final Clifford frame");
-    }
-    const std::complex<double> frame_phase = internal::clifford_row_phase(
-        *planned.final_tableau, planned.final_clifford_frame, output_basis);
-
     std::vector<uint8_t> output_records(circuit.num_qubits);
     for (uint32_t q = 0; q < circuit.num_qubits; ++q) {
         output_records[q] = static_cast<uint8_t>((output_basis[q / 64U] >> (q % 64U)) & 1U);
     }
-    std::vector<ScalarRotation> scalar_rotations;
-    scalar_rotations.reserve(planned.scalar_rotations.size());
-    for (PhaseAwareScalarRotation& rotation : planned.scalar_rotations) {
-        std::vector<uint32_t> symbols;
-        symbols.reserve(rotation.sign.terms().size());
-        for (SymbolId symbol : rotation.sign.terms()) {
-            symbols.push_back(index(symbol));
-        }
-        scalar_rotations.push_back(
-            ScalarRotation{rotation.half_turns, rotation.sign.constant(), std::move(symbols)});
-    }
+    PhaseAwareHir traced =
+        trace_phase_aware_terminal_measurements(append_terminal_measurements(circuit));
+    // Output effects move left while non-Clifford expansions move right. The
+    // target-aware planner retains forced-branch phases across the resulting
+    // coordinate changes and scalar rotations.
+    StatevectorSqueezePass{}.run(traced.hir);
+    PhaseAwareSamplingPlan planned = plan_sampling_phase_aware(
+        traced.hir, std::move(traced.final_clifford_frame), output_records);
+    std::complex<double> phase = input_phase * traced.source_scalar * planned.scalar;
+    phase *= internal::clifford_row_phase(planned.final_tableau, planned.final_clifford_frame,
+                                          output_basis);
     return Prepared{.plan = std::move(planned.plan),
                     .output_records = std::move(output_records),
-                    .phase = input_phase * traced.source_scalar * frame_phase * planned.scalar,
-                    .scalar_rotations = std::move(scalar_rotations)};
+                    .phase = phase};
 }
 
 BasisAmplitudeQuery::BasisAmplitudeQuery(const Circuit& circuit,
@@ -113,8 +94,7 @@ BasisAmplitudeQuery::BasisAmplitudeQuery(const Circuit& circuit,
 BasisAmplitudeQuery::BasisAmplitudeQuery(Prepared prepared)
     : plan_(std::move(prepared.plan)),
       output_records_(std::move(prepared.output_records)),
-      phase_(prepared.phase),
-      scalar_rotations_(std::move(prepared.scalar_rotations)) {}
+      phase_(prepared.phase) {}
 
 std::complex<double> BasisAmplitudeQuery::evaluate() const {
     Executor executor(plan_);
@@ -125,19 +105,8 @@ std::complex<double> BasisAmplitudeQuery::evaluate() const {
     const State& state = executor.state();
     assert(state.active_width() == 0 && "terminal effects must eliminate every active coordinate");
 
-    std::complex<double> phase = phase_;
-    const std::span<const uint8_t> symbols = executor.symbols();
-    for (const ScalarRotation& rotation : scalar_rotations_) {
-        bool sign = rotation.sign_constant;
-        for (uint32_t symbol : rotation.sign_symbols) {
-            assert(symbol < symbols.size());
-            sign ^= symbols[symbol] != 0;
-        }
-        const double eigenvalue = sign ? -1.0 : 1.0;
-        phase *= std::polar(1.0, -std::numbers::pi * rotation.half_turns * eigenvalue / 2.0);
-    }
     const std::complex<double> normalized{state.real_data()[0], state.imag_data()[0]};
-    return phase * std::exp(0.5 * replay.log_probability) * normalized;
+    return phase_ * std::exp(0.5 * replay.log_probability) * normalized;
 }
 
 }  // namespace clifft::sampling

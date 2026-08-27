@@ -139,6 +139,68 @@ TEST_CASE("Basis amplitude query tracks multiple planner coordinate changes") {
     check_complex(query.evaluate(), {-0.5260513809700655, -0.09917410893680134});
 }
 
+TEST_CASE("Basis amplitude query retains terminal Pauli correction phases") {
+    const clifft::Qasm2Import imported = clifft::parse_qasm2(R"(
+        OPENQASM 2.0;
+        include "qelib1.inc";
+        qreg q[2];
+        h q[0];
+        t q[1];
+        cx q[0],q[1];
+        u3(0.31,-0.47,0.59) q[0];
+    )");
+    const std::complex<double> input_phase =
+        std::polar(1.0, std::numbers::pi * imported.global_phase_half_turns);
+    constexpr double inv_sqrt_2 = 0.707106781186547524400844362104849039;
+    constexpr double theta = 0.31;
+    constexpr double phi = -0.47;
+    constexpr double lambda = 0.59;
+    const double cosine = inv_sqrt_2 * std::cos(theta / 2.0);
+    const double sine = inv_sqrt_2 * std::sin(theta / 2.0);
+    const std::vector<std::complex<double>> expected{
+        {cosine, 0.0},
+        std::polar(sine, phi),
+        -std::polar(sine, lambda),
+        std::polar(cosine, phi + lambda),
+    };
+    for (uint64_t basis = 0; basis < expected.size(); ++basis) {
+        const std::vector<uint64_t> output{basis};
+        INFO("basis " << basis);
+        check_complex(
+            clifft::sampling::BasisAmplitudeQuery(imported.circuit, output, input_phase).evaluate(),
+            expected[basis]);
+    }
+}
+
+TEST_CASE("Basis amplitude query retains phases across effect driven reactivation") {
+    constexpr double alpha = -0.91895274734932797;
+    constexpr double beta = -0.97914769400380908;
+    const clifft::Qasm2Import imported = clifft::parse_qasm2(R"(
+        OPENQASM 2.0;
+        include "qelib1.inc";
+        qreg q[2];
+        ry(-0.91895274734932797) q[0];
+        cx q[0],q[1];
+        rx(-0.97914769400380908) q[0];
+    )");
+    const double cosine_alpha = std::cos(alpha / 2.0);
+    const double sine_alpha = std::sin(alpha / 2.0);
+    const double cosine_beta = std::cos(beta / 2.0);
+    const double sine_beta = std::sin(beta / 2.0);
+    const std::vector<std::complex<double>> expected{
+        {cosine_alpha * cosine_beta, 0.0},
+        {0.0, -cosine_alpha * sine_beta},
+        {0.0, -sine_alpha * sine_beta},
+        {sine_alpha * cosine_beta, 0.0},
+    };
+    for (uint64_t basis = 0; basis < expected.size(); ++basis) {
+        const std::vector<uint64_t> output{basis};
+        INFO("basis " << basis);
+        check_complex(clifft::sampling::BasisAmplitudeQuery(imported.circuit, output).evaluate(),
+                      expected[basis]);
+    }
+}
+
 TEST_CASE("Basis amplitude query calibrates inverse Clifford rows") {
     const clifft::Circuit circuit = clifft::parse("S_DAG 2\nX 0\nSWAP 0 1\nS_DAG 1\nCX 2 1");
     for (uint64_t basis = 0; basis < 8; ++basis) {
