@@ -66,7 +66,14 @@ if(CLIFFT_X86_RUNTIME_DISPATCH)
     set_source_files_properties(sampling/kernels_avx512.cc
         PROPERTIES COMPILE_OPTIONS "-mavx2;-mbmi2;-mfma;-mavx512f;-mavx512dq"
     )
-    target_compile_definitions(clifft_core PRIVATE CLIFFT_ENABLE_RUNTIME_DISPATCH)
+    target_compile_definitions(clifft_core PRIVATE CLIFFT_ENABLE_X86_RUNTIME_DISPATCH)
+endif()
+
+# Apple arm64 has a process-wide NEON baseline. Keep its implementation in a
+# separate TU so portable code does not expose architecture-specific types.
+if(CLIFFT_APPLE_NEON_DISPATCH)
+    target_sources(clifft_core PRIVATE sampling/kernels_neon.cc)
+    target_compile_definitions(clifft_core PRIVATE CLIFFT_ENABLE_APPLE_NEON)
 endif()
 
 # Enable position-independent code for use in shared libraries (Python bindings).

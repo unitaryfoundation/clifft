@@ -15,6 +15,7 @@ namespace clifft::sampling {
 // tags do not encode or rediscover the process ISA.
 enum class ExecutorBackend : uint8_t {
     Scalar,
+    Neon,
     Avx2,
     Avx512,
 };
@@ -61,8 +62,10 @@ enum class NewXInstrumentKernel : uint8_t {
 [[nodiscard]] NewXInstrumentKernel resolve_new_x_instrument_kernel(
     uint32_t active_width, ExecutorBackend backend) noexcept;
 
-// Entry points implemented in translation units compiled with explicit x86
-// ISA flags. Only a matching backend-specialized executor calls them.
+// Entry points implemented in architecture-specific translation units. Only
+// a matching backend-specialized executor calls them.
+void apply_direct_rotation_neon(State& state, const PreparedRotation& rotation,
+                                DirectRotationKernel kernel, bool sign) noexcept;
 void apply_direct_rotation_avx2(State& state, const PreparedRotation& rotation,
                                 DirectRotationKernel kernel, bool sign) noexcept;
 void apply_direct_rotation_avx512(State& state, const PreparedRotation& rotation,
@@ -73,6 +76,9 @@ void apply_direct_rotation_avx2_parallel(State& state, const PreparedRotation& r
 void apply_direct_rotation_avx512_parallel(State& state, const PreparedRotation& rotation,
                                            DirectRotationKernel kernel, bool sign, uint32_t workers,
                                            uint32_t min_active_width) noexcept;
+void apply_direct_rotation_neon_parallel(State& state, const PreparedRotation& rotation,
+                                         DirectRotationKernel kernel, bool sign, uint32_t workers,
+                                         uint32_t min_active_width) noexcept;
 
 [[nodiscard]] MeasurementProbabilities active_measurement_probabilities_avx2(
     const State& state, const PreparedMeasurement& measurement,
@@ -86,10 +92,18 @@ void collapse_active_measurement_avx2(State& state, const PreparedMeasurement& m
 void collapse_active_measurement_avx512(State& state, const PreparedMeasurement& measurement,
                                         ActiveMeasurementKernel kernel, bool branch,
                                         double branch_probability) noexcept;
+[[nodiscard]] MeasurementProbabilities active_measurement_probabilities_neon(
+    const State& state, const PreparedMeasurement& measurement,
+    ActiveMeasurementKernel kernel) noexcept;
+void collapse_active_measurement_neon(State& state, const PreparedMeasurement& measurement,
+                                      ActiveMeasurementKernel kernel, bool branch,
+                                      double branch_probability) noexcept;
 
 [[nodiscard]] FusedRotationSidecar prepare_fused_rotation_avx2_sidecar(
     const PreparedFusedRotation& rotation);
 [[nodiscard]] FusedRotationSidecar prepare_fused_rotation_avx512_sidecar(
+    const PreparedFusedRotation& rotation);
+[[nodiscard]] FusedRotationSidecar prepare_fused_rotation_neon_sidecar(
     const PreparedFusedRotation& rotation);
 
 void apply_new_x_instrument_no_fire_avx2(State& state, double factor_zero, double factor_one,

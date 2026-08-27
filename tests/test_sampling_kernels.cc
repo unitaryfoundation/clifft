@@ -18,12 +18,14 @@
 
 using clifft::internal::RuntimeIsa;
 using clifft::sampling::activate_zero_coordinate;
+using clifft::sampling::active_measurement_probabilities_neon;
 using clifft::sampling::ActiveMeasurementKernel;
 using clifft::sampling::ActivePauli;
 using clifft::sampling::apply_instrument_no_fire;
 using clifft::sampling::apply_new_x_instrument_no_fire;
 using clifft::sampling::apply_promotion;
 using clifft::sampling::apply_rotation;
+using clifft::sampling::collapse_active_measurement_neon;
 using clifft::sampling::collapse_instrument_source;
 using clifft::sampling::collapse_measurement;
 using clifft::sampling::collapse_new_x_instrument_source;
@@ -351,10 +353,20 @@ TEST_CASE("Direct rotation SIMD selection preserves scalar boundaries") {
     REQUIRE(select({0b10000, 0b01111}, 5, ExecutorBackend::Avx2) ==
             DirectRotationKernel::HighPivot);
     REQUIRE(select({0b01, 0b10}, 2, ExecutorBackend::Scalar) == DirectRotationKernel::Scalar);
+
+    REQUIRE(select({0, 0b11}, 2, ExecutorBackend::Neon) == DirectRotationKernel::Scalar);
+    REQUIRE(select({0, 0b101}, 3, ExecutorBackend::Neon) == DirectRotationKernel::Diagonal);
+    REQUIRE(select({0b100, 0b011}, 3, ExecutorBackend::Neon) == DirectRotationKernel::Scalar);
+    REQUIRE(select({0b1000, 0b0111}, 4, ExecutorBackend::Neon) == DirectRotationKernel::HighPivot);
+    REQUIRE(select({0b001, 0b110}, 3, ExecutorBackend::Neon) == DirectRotationKernel::LanePaired);
+    REQUIRE(select({0b0001, 0b1110}, 4, ExecutorBackend::Neon) == DirectRotationKernel::LanePaired);
+    REQUIRE(select({0b000001, 0b111110}, 6, ExecutorBackend::Neon) ==
+            DirectRotationKernel::LanePaired);
 }
 
 TEST_CASE("Sampling executor backend follows the resolved process ISA") {
     REQUIRE(resolve_executor_backend(RuntimeIsa::Scalar) == ExecutorBackend::Scalar);
+    REQUIRE(resolve_executor_backend(RuntimeIsa::Neon) == ExecutorBackend::Neon);
     REQUIRE(resolve_executor_backend(RuntimeIsa::Avx2) == ExecutorBackend::Avx2);
     REQUIRE(resolve_executor_backend(RuntimeIsa::Avx512) == ExecutorBackend::Avx512);
     REQUIRE_THROWS(resolve_executor_backend(RuntimeIsa::TrapUnknown));
@@ -382,6 +394,11 @@ TEST_CASE("Active measurement SIMD selection preserves scalar boundaries") {
     REQUIRE(select({0b100, 0b011}, 3, 2, ExecutorBackend::Avx2) ==
             ActiveMeasurementKernel::HighPivot);
     REQUIRE(select({0b01, 0b110}, 3, 0, ExecutorBackend::Scalar) ==
+            ActiveMeasurementKernel::Scalar);
+    REQUIRE(select({0, 0b10000}, 5, 4, ExecutorBackend::Neon) == ActiveMeasurementKernel::Scalar);
+    REQUIRE(select({0, 0b100000}, 6, 5, ExecutorBackend::Neon) ==
+            ActiveMeasurementKernel::Diagonal);
+    REQUIRE(select({0b100000, 0b011111}, 6, 5, ExecutorBackend::Neon) ==
             ActiveMeasurementKernel::Scalar);
 }
 
@@ -643,6 +660,50 @@ TEST_CASE("Diagonal active measurement SIMD matches scalar compaction") {
                     }
                     require_vectors_close(coefficients(vector_state), coefficients(scalar_state));
                 }
+            }
+        }
+    }
+}
+#endif
+
+#if defined(CLIFFT_TESTS_HAVE_APPLE_NEON)
+TEST_CASE("Apple NEON diagonal measurement matches scalar compaction") {
+    constexpr uint32_t kActiveWidth = 6;
+    const uint64_t z_limit = uint64_t{1} << kActiveWidth;
+    const std::vector<std::complex<double>> input = deterministic_state(kActiveWidth);
+    for (uint64_t z = 1; z < z_limit; ++z) {
+        for (uint32_t pivot : valid_measurement_pivots(0, z, kActiveWidth)) {
+            const uint64_t pivot_bit = uint64_t{1} << pivot;
+            if ((z & (pivot_bit - 1)) != 0) {
+                continue;
+            }
+            CAPTURE(z, pivot);
+            const PreparedMeasurement measurement =
+                prepare_measurement({0, z}, kActiveWidth, pivot);
+            State scalar_probability_state(kActiveWidth, kActiveWidth);
+            load_state(scalar_probability_state, input);
+            const MeasurementProbabilities expected =
+                measurement_probabilities(scalar_probability_state, measurement);
+
+            State vector_probability_state(kActiveWidth, kActiveWidth);
+            load_state(vector_probability_state, input);
+            const MeasurementProbabilities actual = active_measurement_probabilities_neon(
+                vector_probability_state, measurement, ActiveMeasurementKernel::Diagonal);
+            REQUIRE_THAT(actual.zero, Catch::Matchers::WithinAbs(expected.zero, kTolerance));
+            REQUIRE_THAT(actual.one, Catch::Matchers::WithinAbs(expected.one, kTolerance));
+
+            for (bool branch : {false, true}) {
+                State scalar_state(kActiveWidth, kActiveWidth);
+                load_state(scalar_state, input);
+                collapse_measurement(scalar_state, measurement, branch,
+                                     expected.for_branch(branch));
+
+                State vector_state(kActiveWidth, kActiveWidth);
+                load_state(vector_state, input);
+                collapse_active_measurement_neon(vector_state, measurement,
+                                                 ActiveMeasurementKernel::Diagonal, branch,
+                                                 actual.for_branch(branch));
+                require_vectors_close(coefficients(vector_state), coefficients(scalar_state));
             }
         }
     }

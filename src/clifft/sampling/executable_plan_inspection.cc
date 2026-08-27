@@ -26,6 +26,8 @@ std::string_view backend_name(ExecutorBackend backend) {
     switch (backend) {
         case ExecutorBackend::Scalar:
             return "scalar";
+        case ExecutorBackend::Neon:
+            return "neon";
         case ExecutorBackend::Avx2:
             return "avx2";
         case ExecutorBackend::Avx512:

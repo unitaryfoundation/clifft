@@ -9,8 +9,10 @@ namespace clifft::internal {
 // CLIFFT_FORCE_ISA, so tests can exercise every portable fallback.
 enum class RuntimeIsa {
     Scalar,
+    Neon,
     Avx2,
     Avx512,
+    TrapNeon,
     TrapAvx2,
     TrapAvx512,
     TrapUnknown,

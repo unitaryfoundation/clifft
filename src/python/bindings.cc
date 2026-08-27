@@ -227,8 +227,8 @@ NB_MODULE(_clifft_core, m) {
     m.def(
         "runtime_isa",
         []() { return clifft::internal::runtime_isa_name(clifft::internal::runtime_isa()); },
-        "Return the resolved kernel ISA: 'scalar', 'avx2', 'avx512', or a 'trap:...' value when "
-        "CLIFFT_FORCE_ISA requests an unavailable backend");
+        "Return the resolved kernel ISA: 'scalar', 'neon', 'avx2', 'avx512', or a 'trap:...' "
+        "value when CLIFFT_FORCE_ISA requests an unavailable backend");
 
     register_noncomp(m);
 
