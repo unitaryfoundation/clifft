@@ -197,9 +197,16 @@ struct ApplyReadoutNoise {
     double prob_one_to_zero = 0.0;
 };
 
-// A parity over circuit record slots at the point where a circuit output is
-// written. Construction sorts the slots and removes even multiplicities so
-// every value has one deterministic representation.
+// Circuit outputs are XOR parities of measurement-record snapshots. A detector
+// is written at its circuit position, where every referenced slot is current.
+// Observable includes instead accumulate until one final write; if a referenced
+// slot changes in between, the planner preserves its historical snapshot as an
+// AffineBool. Otherwise it retains the cheaper RecordParity. Executors consume
+// the chosen representation without repeating this freshness analysis.
+//
+// RecordParity is a parity over current circuit record slots. Construction
+// sorts the slots and removes even multiplicities so every value has one
+// deterministic representation.
 class RecordParity {
   public:
     RecordParity() = default;
