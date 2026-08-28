@@ -504,6 +504,27 @@ TEST_CASE("Sampling basis probabilities conjugate a complex Clifford frame") {
     }
 }
 
+TEST_CASE("Sampling basis probabilities apply later Z pivot sign updates") {
+    const ExecutablePlan executable(plan_from("R_X(-2.3) 2\nTPP X0*X1*Y2\n"));
+    const std::vector<double> probabilities = clifft::sampling::basis_probabilities(
+        executable, std::array<uint64_t, 4>{0, 3, 4, 7}, 4, 1);
+
+    const double rx_zero = std::pow(std::cos(-2.3 * std::numbers::pi / 2.0), 2);
+    const double rx_one = std::pow(std::sin(-2.3 * std::numbers::pi / 2.0), 2);
+    const double tpp_no_flip = std::pow(std::cos(std::numbers::pi / 8.0), 2);
+    const double tpp_flip = std::pow(std::sin(std::numbers::pi / 8.0), 2);
+    const std::array<double, 4> expected{
+        rx_zero * tpp_no_flip,
+        rx_one * tpp_flip,
+        rx_one * tpp_no_flip,
+        rx_zero * tpp_flip,
+    };
+
+    for (size_t k = 0; k < expected.size(); ++k) {
+        REQUIRE_THAT(probabilities[k], Catch::Matchers::WithinAbs(expected[k], 1e-12));
+    }
+}
+
 TEST_CASE("Sampling statevectors reject nonunitary and oversized plans") {
     const ExecutablePlan measured(plan_from("H 0\nM 0\n"));
     REQUIRE_THROWS_AS(clifft::sampling::get_statevector(measured), std::invalid_argument);
