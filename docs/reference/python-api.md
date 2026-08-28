@@ -115,6 +115,8 @@ Sampling under a five-level leakage/loss model. See the
 
 ## Type Aliases
 
+::: clifft.BasisBitstring
+
 ::: clifft.BasisBitstrings
 
 ::: clifft.MeasurementRecords

@@ -10,8 +10,6 @@
 
 namespace clifft {
 
-class PhaseAwareCliffordFrame;
-
 namespace sampling {
 
 // Exact final-state queries execute one prepared trajectory, then reconstruct
@@ -20,16 +18,6 @@ namespace sampling {
                                                       std::span<const uint64_t> basis_masks,
                                                       size_t num_basis_masks,
                                                       size_t words_per_basis_mask);
-
-namespace internal {
-
-// Phase-aware compilation calibrates the exact Clifford representative once,
-// then supplies the resulting scalar to the selected-basis amplitude walk.
-[[nodiscard]] std::complex<double> clifford_row_phase(const Tableau& final_tableau,
-                                                      const PhaseAwareCliffordFrame& exact_frame,
-                                                      std::span<const uint64_t> physical_basis);
-
-}  // namespace internal
 
 // The returned vector is normalized and represents the final state ray. Its
 // global phase is unspecified.

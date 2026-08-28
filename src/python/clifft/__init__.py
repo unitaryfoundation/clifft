@@ -76,6 +76,7 @@ from clifft._clifft_core import (
 )
 from clifft._sample_result import SampleResult
 
+BasisBitstring: TypeAlias = str | npt.NDArray[np.bool_] | npt.NDArray[np.uint8]
 BasisBitstrings: TypeAlias = str | Sequence[str] | npt.NDArray[np.bool_] | npt.NDArray[np.uint8]
 MeasurementRecords: TypeAlias = str | Sequence[str] | npt.NDArray[np.bool_] | npt.NDArray[np.uint8]
 
@@ -160,6 +161,26 @@ def _basis_masks_from_bitstrings(
     )
 
 
+def _basis_mask_from_bitstring(
+    program: _BasisWidth,
+    bitstring: BasisBitstring,
+    bit_order: str,
+) -> npt.NDArray[np.uint64]:
+    if isinstance(bitstring, str):
+        return cast(
+            npt.NDArray[np.uint64],
+            _basis_masks_from_bitstrings(program, bitstring, bit_order)[0],
+        )
+    if not isinstance(bitstring, np.ndarray):
+        raise TypeError("bitstring must be a string or a 1D bool/uint8 NumPy array")
+    if bitstring.ndim != 1:
+        raise ValueError("bitstring array must be 1D with shape (num_qubits,)")
+    return cast(
+        npt.NDArray[np.uint64],
+        _basis_masks_from_bitstrings(program, bitstring[np.newaxis, :], bit_order)[0],
+    )
+
+
 def basis_probabilities(
     program: Program,
     bitstrings: BasisBitstrings,
@@ -199,7 +220,7 @@ def basis_probabilities(
 
 def compile_basis_amplitude(
     circuit_text: str,
-    output_bits: BasisBitstrings,
+    output_bits: BasisBitstring,
     *,
     bit_order: str = "big",
     input_format: Literal["stim", "qasm2"] = "stim",
@@ -225,10 +246,8 @@ def compile_basis_amplitude(
     else:
         raise ValueError("input_format must be 'stim' or 'qasm2'")
 
-    masks = _basis_masks_from_bitstrings(circuit, output_bits, bit_order)
-    if masks.shape[0] != 1:
-        raise ValueError("output_bits must describe exactly one computational basis state")
-    return _compile_basis_amplitude(circuit, masks[0], input_phase)
+    mask = _basis_mask_from_bitstring(circuit, output_bits, bit_order)
+    return _compile_basis_amplitude(circuit, mask, input_phase)
 
 
 def evaluate_amplitude(query: BasisAmplitudeQuery) -> complex:
@@ -394,6 +413,7 @@ def compile(
 __all__ = [
     "AstNode",
     "BasisAmplitudeQuery",
+    "BasisBitstring",
     "BasisBitstrings",
     "MeasurementRecords",
     "Circuit",

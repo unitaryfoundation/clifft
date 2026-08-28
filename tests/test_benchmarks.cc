@@ -75,6 +75,20 @@ TEST_CASE("Bench: squeeze parallel T convoy", "[bench]") {
     };
 }
 
+static Circuit all_h_circuit(uint32_t num_qubits) {
+    Circuit circuit;
+    circuit.num_qubits = num_qubits;
+    circuit.nodes.reserve(num_qubits);
+    for (uint32_t q = 0; q < num_qubits; ++q) {
+        circuit.nodes.push_back(AstNode{.gate = GateType::H,
+                                        .targets = {Target::qubit(q)},
+                                        .args = {},
+                                        .source_line = 0,
+                                        .tag = {}});
+    }
+    return circuit;
+}
+
 // EXP_VAL-heavy synthetic circuit: prepares a Clifford state on n qubits,
 // then evaluates `num_probes` weight-3 multi-Pauli expectation values per shot.
 // Stays at zero peak active width (fully Clifford prep) so the cost is dominated by the
@@ -188,20 +202,20 @@ TEST_CASE("Bench: EXP_VAL 20q 200 probes", "[bench]") {
 }
 
 TEST_CASE("Bench: phase-aware input composition", "[bench]") {
-    constexpr uint32_t num_qubits = 256;
-    Circuit circuit;
-    circuit.num_qubits = num_qubits;
-    circuit.nodes.reserve(num_qubits);
-    for (uint32_t q = 0; q < num_qubits; ++q) {
-        circuit.nodes.push_back(AstNode{.gate = GateType::H,
-                                        .targets = {Target::qubit(q)},
-                                        .args = {},
-                                        .source_line = 0,
-                                        .tag = {}});
-    }
-    const std::vector<uint64_t> output((num_qubits + 63U) / 64U, 0);
+    const Circuit circuit_256 = all_h_circuit(256);
+    const Circuit circuit_1024 = all_h_circuit(1024);
+    const Circuit circuit_2048 = all_h_circuit(2048);
+    const std::vector<uint64_t> output_256((256 + 63) / 64, 0);
+    const std::vector<uint64_t> output_1024((1024 + 63) / 64, 0);
+    const std::vector<uint64_t> output_2048((2048 + 63) / 64, 0);
 
     BENCHMARK("amplitude compile 256q Clifford") {
-        return sampling::BasisAmplitudeQuery(circuit, output).peak_active_width();
+        return sampling::BasisAmplitudeQuery(circuit_256, output_256).peak_active_width();
+    };
+    BENCHMARK("amplitude compile 1024q Clifford") {
+        return sampling::BasisAmplitudeQuery(circuit_1024, output_1024).peak_active_width();
+    };
+    BENCHMARK("amplitude compile 2048q Clifford") {
+        return sampling::BasisAmplitudeQuery(circuit_2048, output_2048).peak_active_width();
     };
 }

@@ -6,7 +6,9 @@
 #include "clifft/frontend/hir.h"
 #include "clifft/tableau/stabilizer_ch_form.h"
 
+#include <array>
 #include <complex>
+#include <initializer_list>
 #include <span>
 #include <variant>
 #include <vector>
@@ -15,9 +17,17 @@ namespace clifft {
 
 class PhaseAwareCliffordFrame {
   public:
-    struct NamedOperation {
-        GateType gate;
-        std::vector<uint32_t> targets;
+    class NamedOperation {
+      public:
+        NamedOperation(GateType gate, std::span<const uint32_t> targets);
+        NamedOperation(GateType gate, std::initializer_list<uint32_t> targets);
+
+        [[nodiscard]] GateType gate() const { return gate_; }
+        [[nodiscard]] std::span<const uint32_t> targets() const;
+
+      private:
+        GateType gate_;
+        std::array<uint32_t, 2> targets_{};
     };
 
     explicit PhaseAwareCliffordFrame(uint32_t num_qubits);

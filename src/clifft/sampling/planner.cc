@@ -917,10 +917,8 @@ PhaseAwareSamplingPlan plan_sampling_phase_aware(const HirModule& hir,
             std::polar(1.0, -std::numbers::pi *
                                 reduce_phase_half_turns(rotation.half_turns * eigenvalue) / 2.0);
     }
-    clifft::Tableau final_tableau = context.final_clifford_frame.tableau();
     return PhaseAwareSamplingPlan{.plan = std::move(plan),
                                   .final_clifford_frame = std::move(context.final_clifford_frame),
-                                  .final_tableau = std::move(final_tableau),
                                   .scalar = context.scalar};
 }
 

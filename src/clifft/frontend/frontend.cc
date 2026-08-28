@@ -726,10 +726,32 @@ void validate_trace_circuit(const Circuit& circuit) {
 
 }  // namespace
 
+PhaseAwareCliffordFrame::NamedOperation::NamedOperation(GateType gate,
+                                                        std::span<const uint32_t> targets)
+    : gate_(gate) {
+    const GateArity arity = gate_arity(gate);
+    const size_t expected = arity == GateArity::SINGLE ? 1U : 2U;
+    if (!is_clifford(gate) || (arity != GateArity::SINGLE && arity != GateArity::PAIR) ||
+        targets.size() != expected) {
+        throw std::invalid_argument(
+            "phase-aware named operation requires a fixed one- or two-qubit Clifford gate");
+    }
+    std::ranges::copy(targets, targets_.begin());
+}
+
+PhaseAwareCliffordFrame::NamedOperation::NamedOperation(GateType gate,
+                                                        std::initializer_list<uint32_t> targets)
+    : NamedOperation(gate, std::span<const uint32_t>(targets.begin(), targets.size())) {}
+
+std::span<const uint32_t> PhaseAwareCliffordFrame::NamedOperation::targets() const {
+    const size_t count = gate_arity(gate_) == GateArity::SINGLE ? 1U : 2U;
+    return std::span<const uint32_t>(targets_).first(count);
+}
+
 PhaseAwareCliffordFrame::PhaseAwareCliffordFrame(uint32_t num_qubits) : num_qubits_(num_qubits) {}
 
 void PhaseAwareCliffordFrame::apply_named_gate(GateType gate, std::span<const uint32_t> targets) {
-    source_operations_.push_back(NamedOperation{gate, {targets.begin(), targets.end()}});
+    source_operations_.emplace_back(NamedOperation(gate, targets));
 }
 
 void PhaseAwareCliffordFrame::apply_pauli_rotation(PauliStringView axis, bool dagger) {
@@ -750,7 +772,7 @@ Tableau PhaseAwareCliffordFrame::tableau() const {
             [&](const auto& typed) {
                 using Operation = std::decay_t<decltype(typed)>;
                 if constexpr (std::is_same_v<Operation, NamedOperation>) {
-                    result.prepend_named_gate(typed.gate, typed.targets);
+                    result.prepend_named_gate(typed.gate(), typed.targets());
                 } else {
                     result.prepend_pauli_rotation(typed.axis.view(), typed.dagger);
                 }
@@ -758,7 +780,7 @@ Tableau PhaseAwareCliffordFrame::tableau() const {
             *it);
     }
     for (const NamedOperation& operation : input_operations_reversed_) {
-        result.prepend_named_gate(operation.gate, operation.targets);
+        result.prepend_named_gate(operation.gate(), operation.targets());
     }
     return result;
 }
@@ -781,7 +803,7 @@ StabilizerChForm PhaseAwareCliffordFrame::inverse_on_basis(std::span<const uint6
     auto apply_inverse = [&](const auto& operation) {
         using Operation = std::decay_t<decltype(operation)>;
         if constexpr (std::is_same_v<Operation, NamedOperation>) {
-            state.apply_named_gate(inverse_clifford_gate(operation.gate), operation.targets);
+            state.apply_named_gate(inverse_clifford_gate(operation.gate()), operation.targets());
         } else {
             state.apply_pauli_rotation(operation.axis.view(), !operation.dagger);
         }

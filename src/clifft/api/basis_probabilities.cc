@@ -2,7 +2,6 @@
 // inverse Clifford tableau and the per-bitstring amplitude lookup are the
 // implementation of the algorithm derived in docs/theory/basis_probabilities.md.
 
-#include "clifft/frontend/phase_aware_frontend.h"
 #include "clifft/sampling/executor.h"
 #include "clifft/sampling/state_queries.h"
 #include "clifft/util/mask_view.h"
@@ -575,40 +574,6 @@ std::vector<double> basis_probabilities(const ExecutablePlan& plan,
         },
         basis_masks, num_basis_masks, words_per_basis_mask);
 }
-
-namespace internal {
-
-std::complex<double> clifford_row_phase(const Tableau& final_tableau,
-                                        const PhaseAwareCliffordFrame& exact_frame,
-                                        std::span<const uint64_t> physical_basis) {
-    const uint32_t n = final_tableau.num_qubits();
-    if (exact_frame.num_qubits() != n) {
-        throw std::invalid_argument("exact Clifford frame width does not match its tableau");
-    }
-
-    const auto structure = make_stabilizer_amplitude_structure(n, final_tableau.inverse(), 0);
-    const auto query = structure.bind(MaskView{physical_basis});
-    StabilizerChForm exact_row = exact_frame.inverse_on_basis(physical_basis);
-    const BasisMask& virtual_basis = query.base;
-    BasisMask residual_storage = zero_basis_mask(n);
-    BasisMask current_storage = zero_basis_mask(n);
-    const std::complex<double> canonical =
-        query.amplitude(basis_mask_view(virtual_basis), mutable_basis_mask_view(residual_storage),
-                        mutable_basis_mask_view(current_storage));
-    const std::complex<double> exact = exact_row.amplitude(virtual_basis);
-    if (canonical == std::complex<double>{0.0, 0.0} || exact == std::complex<double>{0.0, 0.0}) {
-        if (canonical == std::complex<double>{0.0, 0.0}) {
-            throw std::runtime_error("canonical Clifford-frame phase anchor is zero");
-        }
-        throw std::runtime_error("exact Clifford-frame phase anchor is zero at canonical basis " +
-                                 std::to_string(virtual_basis.empty() ? 0 : virtual_basis.front()));
-    }
-    // The selected-basis walk conjugates <y|U_C^dagger|x> when forming
-    // <x|U_C|y>, so its row correction is conjugated as well.
-    return std::conj(exact / canonical);
-}
-
-}  // namespace internal
 
 }  // namespace sampling
 

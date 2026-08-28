@@ -71,7 +71,7 @@ def exact_statevector(circuit_text: str, num_qubits: int) -> np.ndarray:
     return np.asarray(
         [
             clifft.evaluate_amplitude(
-                clifft.compile_basis_amplitude(circuit_text, [output_bits(basis, num_qubits)])
+                clifft.compile_basis_amplitude(circuit_text, output_bits(basis, num_qubits))
             )
             for basis in range(1 << num_qubits)
         ],
@@ -145,7 +145,7 @@ def test_qasm2_query_restores_source_global_phase() -> None:
             clifft.evaluate_amplitude(
                 clifft.compile_basis_amplitude(
                     source,
-                    [output_bits(basis, 2)],
+                    output_bits(basis, 2),
                     input_format="qasm2",
                 )
             )
@@ -157,7 +157,7 @@ def test_qasm2_query_restores_source_global_phase() -> None:
 
 def test_output_effect_can_reduce_reported_peak_width() -> None:
     """The target basis state can make terminal-effect rotations deterministic."""
-    query = clifft.compile_basis_amplitude("H 1\nH 0\nT 1\nT 0", ["10"])
+    query = clifft.compile_basis_amplitude("H 1\nH 0\nT 1\nT 0", "10")
     assert query.peak_active_width == 0
     assert clifft.evaluate_amplitude(query) == pytest.approx(0.5 * np.exp(1j * np.pi / 4))
 
@@ -170,7 +170,7 @@ def test_amplitude_magnitude_matches_existing_probability_query() -> None:
     probabilities = clifft.basis_probabilities(program, bitstrings)
     amplitudes = np.asarray(
         [
-            clifft.evaluate_amplitude(clifft.compile_basis_amplitude(source, [bitstring]))
+            clifft.evaluate_amplitude(clifft.compile_basis_amplitude(source, bitstring))
             for bitstring in bitstrings
         ]
     )
@@ -179,12 +179,40 @@ def test_amplitude_magnitude_matches_existing_probability_query() -> None:
 
 def test_amplitude_query_validates_target_and_unitarity() -> None:
     """The initial API accepts one complete target for a pure unitary only."""
-    with pytest.raises(ValueError, match="exactly one"):
-        clifft.compile_basis_amplitude("H 0", ["0", "1"])
+    with pytest.raises(TypeError, match="string or a 1D"):
+        clifft.compile_basis_amplitude("H 0", ["0", "1"])  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="length"):
-        clifft.compile_basis_amplitude("H 0", ["00"])
+        clifft.compile_basis_amplitude("H 0", "00")
     with pytest.raises(ValueError, match="pure-unitary"):
-        clifft.compile_basis_amplitude("M 0", ["0"])
+        clifft.compile_basis_amplitude("M 0", "0")
+
+
+@pytest.mark.parametrize(
+    ("output", "bit_order"),
+    [
+        (np.asarray([1, 0], dtype=np.bool_), "big"),
+        (np.asarray([0, 1], dtype=np.uint8), "little"),
+    ],
+)
+def test_amplitude_query_accepts_singular_numpy_bitstrings(
+    output: np.ndarray, bit_order: str
+) -> None:
+    """A one-dimensional array describes the same one target as a string."""
+    query = clifft.compile_basis_amplitude("X 0\nH 1\nH 1", output, bit_order=bit_order)
+    assert clifft.evaluate_amplitude(query) == 1.0
+
+
+def test_amplitude_query_rejects_nonsingular_numpy_bitstrings() -> None:
+    """Batch shapes and unsupported element representations fail at the Python boundary."""
+    with pytest.raises(ValueError, match="must be 1D"):
+        clifft.compile_basis_amplitude("H 0", np.asarray([[0]], dtype=np.uint8))
+    with pytest.raises(TypeError, match="dtype"):
+        clifft.compile_basis_amplitude(
+            "H 0",
+            np.asarray([0], dtype=np.int64),  # type: ignore[arg-type]
+        )
+    with pytest.raises(ValueError, match="only 0 and 1"):
+        clifft.compile_basis_amplitude("H 0", np.asarray([2], dtype=np.uint8))
 
 
 @pytest.mark.parametrize("gate", ["SQRT_XX", "CZ", "ISWAP"])
@@ -194,4 +222,4 @@ def test_duplicate_pair_targets_are_rejected_consistently(gate: str) -> None:
     with pytest.raises(ValueError, match="distinct targets"):
         clifft.compile(source, hir_passes=None)
     with pytest.raises(ValueError, match="distinct targets"):
-        clifft.compile_basis_amplitude(source, ["0"])
+        clifft.compile_basis_amplitude(source, "0")

@@ -53,6 +53,8 @@ TEST_CASE("Basis amplitude query retains canonical Clifford phases") {
     check_complex(amplitude("H 0\nS 0", 1), {0.0, clifft::test::kInvSqrt2});
     check_complex(amplitude("Y 0", 1), {0.0, 1.0});
     check_complex(amplitude("X 0\nZ 0", 1), {-1.0, 0.0});
+    check_complex(amplitude("X 0", 0), {0.0, 0.0});
+    check_complex(amplitude("H 0\nCX 0 1", 1), {0.0, 0.0});
     check_complex(amplitude("SQRT_X 0", 0), {0.5, 0.5});
     check_complex(amplitude("SQRT_X 0", 1), {0.5, -0.5});
 }
@@ -244,7 +246,7 @@ TEST_CASE("Basis amplitude query retains phases across effect driven reactivatio
     }
 }
 
-TEST_CASE("Basis amplitude query calibrates inverse Clifford rows") {
+TEST_CASE("Basis amplitude query retains inverse Clifford row phases") {
     const clifft::Circuit circuit = clifft::parse("S_DAG 2\nX 0\nSWAP 0 1\nS_DAG 1\nCX 2 1");
     for (uint64_t basis = 0; basis < 8; ++basis) {
         const std::vector<uint64_t> output{basis};
@@ -328,14 +330,22 @@ TEST_CASE("Phase-aware Clifford input composition preserves operator order") {
 
     clifft::Tableau expected(3);
     for (const auto& operation : second_input) {
-        expected.append_named_gate(operation.gate, operation.targets);
+        expected.append_named_gate(operation.gate(), operation.targets());
     }
     for (const auto& operation : first_input) {
-        expected.append_named_gate(operation.gate, operation.targets);
+        expected.append_named_gate(operation.gate(), operation.targets());
     }
     expected.append_named_gate(clifft::GateType::H, {0});
     expected = expected.then(clifft::Tableau::from_pauli_rotation(axis.view(), false));
     expected.append_named_gate(clifft::GateType::S, {2});
 
     CHECK(frame.tableau() == expected);
+}
+
+TEST_CASE("Phase-aware named operations reject unsupported shapes") {
+    using NamedOperation = clifft::PhaseAwareCliffordFrame::NamedOperation;
+
+    CHECK_THROWS_AS(NamedOperation(clifft::GateType::T, {0}), std::invalid_argument);
+    CHECK_THROWS_AS(NamedOperation(clifft::GateType::H, {0, 1}), std::invalid_argument);
+    CHECK_THROWS_AS(NamedOperation(clifft::GateType::CX, {0}), std::invalid_argument);
 }

@@ -33,7 +33,7 @@ circuit = """
     T 0
 """
 
-query = clifft.compile_basis_amplitude(circuit, ["11"])
+query = clifft.compile_basis_amplitude(circuit, "11")
 print(query.peak_active_width)
 
 amplitude = clifft.evaluate_amplitude(query)

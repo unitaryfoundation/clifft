@@ -4,7 +4,6 @@
 #include "clifft/optimizer/statevector_squeeze_pass.h"
 #include "clifft/sampling/executor.h"
 #include "clifft/sampling/phase_aware_planner.h"
-#include "clifft/sampling/state_queries.h"
 #include "clifft/util/mask_view.h"
 
 #include <cassert>
@@ -13,6 +12,7 @@
 #include <numbers>
 #include <stdexcept>
 #include <utility>
+#include <vector>
 
 namespace clifft::sampling {
 namespace {
@@ -30,6 +30,19 @@ double exact_half_amplitude_scale(uint32_t count) {
     const int exponent = -static_cast<int>(count / 2U);
     const double odd_factor = count % 2U == 0 ? 1.0 : 1.0 / std::numbers::sqrt2;
     return std::ldexp(odd_factor, exponent);
+}
+
+std::complex<double> selected_clifford_phase(const PhaseAwareCliffordFrame& frame,
+                                             std::span<const uint64_t> output_basis) {
+    const StabilizerChForm exact_row = frame.inverse_on_basis(output_basis);
+    const std::vector<uint64_t> zero(mask_word_count(frame.num_qubits()), 0);
+    const std::complex<double> amplitude = exact_row.amplitude(zero);
+    // Terminal-effect planning chooses |0...0> as the surviving virtual basis.
+    // A zero overlap is an unreachable effect, so its unused phase is arbitrary.
+    if (amplitude == std::complex<double>{0.0, 0.0}) {
+        return {1.0, 0.0};
+    }
+    return std::conj(amplitude / std::abs(amplitude));
 }
 
 uint32_t final_active_width(const SamplingPlan& plan) {
@@ -77,8 +90,7 @@ BasisAmplitudeQuery::Prepared BasisAmplitudeQuery::prepare(const Circuit& circui
         throw std::logic_error("terminal effects did not eliminate every active coordinate");
     }
     std::complex<double> phase = input_phase * traced.source_scalar * planned.scalar;
-    phase *= internal::clifford_row_phase(planned.final_tableau, planned.final_clifford_frame,
-                                          output_basis);
+    phase *= selected_clifford_phase(planned.final_clifford_frame, output_basis);
     return Prepared{.plan = std::move(planned.plan),
                     .output_records = std::move(output_records),
                     .phase = phase};
@@ -96,7 +108,7 @@ BasisAmplitudeQuery::BasisAmplitudeQuery(Prepared prepared)
 
 std::complex<double> BasisAmplitudeQuery::evaluate() const {
     Executor executor(plan_);
-    const ReplayResult replay = executor.replay_effect(output_records_);
+    const auto replay = executor.replay_effect(output_records_);
     if (!replay.reachable) {
         return {0.0, 0.0};
     }

@@ -14,7 +14,6 @@ namespace clifft::sampling {
 struct PhaseAwareSamplingPlan {
     SamplingPlan plan;
     PhaseAwareCliffordFrame final_clifford_frame;
-    Tableau final_tableau;
     std::complex<double> scalar{1.0, 0.0};
 };
 
