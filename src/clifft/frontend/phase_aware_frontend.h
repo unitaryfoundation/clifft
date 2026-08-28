@@ -44,7 +44,6 @@ class PhaseAwareCliffordFrame {
     // Constructs the exact stabilizer state U_C^dagger|basis> for the
     // accumulated Clifford operator U_C.
     [[nodiscard]] StabilizerChForm inverse_on_basis(std::span<const uint64_t> basis) const;
-    [[nodiscard]] Tableau tableau() const;
 
   private:
     struct PauliRotation {

@@ -765,26 +765,6 @@ void PhaseAwareCliffordFrame::compose_input(std::span<const NamedOperation> oper
     }
 }
 
-Tableau PhaseAwareCliffordFrame::tableau() const {
-    Tableau result(num_qubits_);
-    for (auto it = source_operations_.rbegin(); it != source_operations_.rend(); ++it) {
-        std::visit(
-            [&](const auto& typed) {
-                using Operation = std::decay_t<decltype(typed)>;
-                if constexpr (std::is_same_v<Operation, NamedOperation>) {
-                    result.prepend_named_gate(typed.gate(), typed.targets());
-                } else {
-                    result.prepend_pauli_rotation(typed.axis.view(), typed.dagger);
-                }
-            },
-            *it);
-    }
-    for (const NamedOperation& operation : input_operations_reversed_) {
-        result.prepend_named_gate(operation.gate(), operation.targets());
-    }
-    return result;
-}
-
 StabilizerChForm PhaseAwareCliffordFrame::inverse_on_basis(std::span<const uint64_t> basis) const {
     if (basis.size() != mask_word_count(num_qubits_)) {
         throw std::invalid_argument("Clifford-frame basis width does not match the operator");
@@ -1556,25 +1536,22 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
 
 namespace {
 
-PhaseAwareHir trace_phase_aware_impl(const Circuit& circuit, bool allow_terminal_measurements) {
+PhaseAwareHir trace_phase_aware_impl(const Circuit& circuit) {
     validate_trace_circuit(circuit);
     for (size_t i = 0; i < circuit.nodes.size(); ++i) {
         const AstNode& node = circuit.nodes[i];
-        const bool query_terminal_measurement = allow_terminal_measurements &&
-                                                i + 1 == circuit.nodes.size() &&
-                                                node.gate == GateType::M;
+        const bool query_terminal_measurement =
+            i + 1 == circuit.nodes.size() && node.gate == GateType::M;
         if (query_terminal_measurement) {
             continue;
         }
         const bool has_record_target =
             std::ranges::any_of(node.targets, [](Target target) { return target.is_rec(); });
         if (has_record_target || (!is_unitary(node.gate) && node.gate != GateType::TICK)) {
-            const std::string requirement = allow_terminal_measurements
-                                                ? "a pure-unitary source before its output effect"
-                                                : "a pure-unitary circuit";
-            throw std::invalid_argument("phase-aware trace requires " + requirement +
-                                        "; unsupported gate " + std::string(gate_name(node.gate)) +
-                                        " at line " + std::to_string(node.source_line));
+            throw std::invalid_argument(
+                "phase-aware trace requires a pure-unitary source before its output effect; "
+                "unsupported gate " +
+                std::string(gate_name(node.gate)) + " at line " + std::to_string(node.source_line));
         }
     }
 
@@ -1588,7 +1565,7 @@ PhaseAwareHir trace_phase_aware_impl(const Circuit& circuit, bool allow_terminal
 }  // namespace
 
 PhaseAwareHir trace_phase_aware_terminal_measurements(const Circuit& circuit) {
-    return trace_phase_aware_impl(circuit, true);
+    return trace_phase_aware_impl(circuit);
 }
 
 }  // namespace clifft

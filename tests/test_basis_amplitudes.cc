@@ -73,6 +73,23 @@ TEST_CASE("Basis amplitude query retains named phase gate scalars") {
     check_complex(amplitude("TPP X0*Y1", 3), std::complex<double>{0.0, 1.0} * pauli_coefficient);
 }
 
+TEST_CASE("Basis amplitude query retains entangled relative phase interference") {
+    const std::complex<double> eighth_turn = std::polar(1.0, std::numbers::pi / 4.0);
+    const clifft::Circuit circuit = clifft::parse("H 0\nCX 0 1\nT 1\nCX 0 1\nH 0");
+    const std::vector<std::complex<double>> expected{
+        (1.0 + eighth_turn) / 2.0,
+        (1.0 - eighth_turn) / 2.0,
+        {0.0, 0.0},
+        {0.0, 0.0},
+    };
+    for (uint64_t basis = 0; basis < expected.size(); ++basis) {
+        INFO("basis " << basis);
+        const std::vector<uint64_t> output{basis};
+        check_complex(clifft::sampling::BasisAmplitudeQuery(circuit, output).evaluate(),
+                      expected[basis]);
+    }
+}
+
 TEST_CASE("Basis amplitude query retains exponential rotation scalars") {
     const auto quarter_turn = std::polar(1.0, std::numbers::pi / 4.0);
     check_complex(amplitude("R_Z(0.5) 0", 0), std::conj(quarter_turn));
@@ -300,6 +317,24 @@ TEST_CASE("Basis amplitude query preserves exact dyadic terminal factors") {
     }
 }
 
+TEST_CASE("Basis amplitude query handles boundary sized outputs") {
+    const clifft::Circuit empty;
+    check_complex(clifft::sampling::BasisAmplitudeQuery(empty, std::vector<uint64_t>{}).evaluate(),
+                  {1.0, 0.0});
+
+    const clifft::Circuit multiword = clifft::parse("X 69");
+    std::vector<uint64_t> output(2, 0);
+    output[1] = uint64_t{1} << 5U;
+    check_complex(clifft::sampling::BasisAmplitudeQuery(multiword, output).evaluate(), {1.0, 0.0});
+
+    output[1] = uint64_t{1} << 6U;
+    REQUIRE_THROWS_AS(clifft::sampling::BasisAmplitudeQuery(multiword, output),
+                      std::invalid_argument);
+    REQUIRE_THROWS_AS(clifft::sampling::BasisAmplitudeQuery(
+                          multiword, std::span<const uint64_t>(output).first(1)),
+                      std::invalid_argument);
+}
+
 TEST_CASE("Basis amplitude query retains active numerical dust") {
     constexpr double alpha = 1e-10;
     const clifft::Circuit circuit = clifft::parse("R_Y(1e-10) 0");
@@ -328,18 +363,29 @@ TEST_CASE("Phase-aware Clifford input composition preserves operator order") {
     frame.compose_input(first_input);
     frame.compose_input(second_input);
 
-    clifft::Tableau expected(3);
-    for (const auto& operation : second_input) {
-        expected.append_named_gate(operation.gate(), operation.targets());
-    }
-    for (const auto& operation : first_input) {
-        expected.append_named_gate(operation.gate(), operation.targets());
-    }
-    expected.append_named_gate(clifft::GateType::H, {0});
-    expected = expected.then(clifft::Tableau::from_pauli_rotation(axis.view(), false));
-    expected.append_named_gate(clifft::GateType::S, {2});
+    for (uint64_t physical = 0; physical < 8; ++physical) {
+        const std::vector<uint64_t> physical_basis{physical};
+        const clifft::StabilizerChForm actual = frame.inverse_on_basis(physical_basis);
+        clifft::StabilizerChForm expected(3);
+        for (uint32_t q = 0; q < 3; ++q) {
+            if (((physical >> q) & 1U) != 0) {
+                expected.apply_x(q);
+            }
+        }
+        expected.apply_s_dag(2);
+        expected.apply_pauli_rotation(axis.view(), true);
+        expected.apply_h(0);
+        expected.apply_x(2);
+        expected.apply_cx(0, 1);
+        expected.apply_s(0);
+        expected.apply_swap(1, 2);
 
-    CHECK(frame.tableau() == expected);
+        for (uint64_t virtual_basis = 0; virtual_basis < 8; ++virtual_basis) {
+            INFO("physical basis " << physical << " virtual basis " << virtual_basis);
+            const std::vector<uint64_t> output{virtual_basis};
+            check_complex(actual.amplitude(output), expected.amplitude(output));
+        }
+    }
 }
 
 TEST_CASE("Phase-aware named operations reject unsupported shapes") {
