@@ -15,6 +15,7 @@
 #include "clifft/circuit/parser.h"
 #include "clifft/frontend/frontend.h"
 #include "clifft/optimizer/pass_factory.h"
+#include "clifft/optimizer/statevector_squeeze_pass.h"
 #include "clifft/sampling/planner.h"
 #include "clifft/sampling/sampler.h"
 
@@ -47,6 +48,28 @@ static sampling::ExecutablePlan compile_circuit(const std::string& path) {
 
 static sampling::ExecutablePlan compile_text(const std::string& text) {
     return compile_parsed(parse(text));
+}
+
+static HirModule parallel_t_hir(uint32_t num_qubits) {
+    std::ostringstream s;
+    s << "T";
+    for (uint32_t q = 0; q < num_qubits; ++q) {
+        s << " " << q;
+    }
+    return trace(parse(s.str()));
+}
+
+// A suffix containing only expansions has no useful bypass destination. This
+// wide case guards against searching that suffix with full-mask commutation
+// checks once for every T gate.
+TEST_CASE("Bench: squeeze parallel T convoy", "[bench]") {
+    auto hir = parallel_t_hir(8192);
+    REQUIRE(hir.ops.size() == 8192);
+
+    BENCHMARK("squeeze 8192 parallel T gates") {
+        StatevectorSqueezePass{}.run(hir);
+        return hir.ops.size();
+    };
 }
 
 // EXP_VAL-heavy synthetic circuit: prepares a Clifford state on n qubits,
