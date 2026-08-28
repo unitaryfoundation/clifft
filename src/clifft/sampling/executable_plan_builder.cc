@@ -175,8 +175,8 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::initialize_program() {
 
     const ProgramStorageEstimate storage = estimate_program_storage();
     output_.actions_.reserve(source_.actions.size());
-    retain_action_batch_lane_work_ = storage.has_postselection;
-    if (retain_action_batch_lane_work_) {
+    output_.has_postselection_ = storage.has_postselection;
+    if (output_.has_postselection_) {
         action_batch_lane_work_.reserve(source_.actions.size());
     }
     if (source_.source_map.has_value()) {
@@ -422,10 +422,11 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::lower_action(const Plann
                     output_.num_readout_noise_sites_++, typed.prob_zero_to_one,
                     typed.prob_one_to_zero, batch_symmetric_inverse_hazard});
             } else if constexpr (std::is_same_v<T, WriteDetector>) {
-                output_.has_postselection_ |= typed.postselected;
                 output_.actions_.emplace_back(
                     ExecutablePlan::ExecuteDetector{prepare_record_parity(typed.outcome),
-                                                    index(typed.detector), typed.postselected, 0});
+                                                    index(typed.detector),
+                                                    typed.postselected,
+                                                    {}});
             } else if constexpr (std::is_same_v<T, WriteObservable>) {
                 output_.actions_.emplace_back(ExecutablePlan::ExecuteObservable{
                     prepare_observable_value(typed.outcome), index(typed.observable)});
@@ -513,7 +514,7 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::lower_action(const Plann
 CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::record_batch_lane_work(
     batch_detail::BatchWorkEstimate work) {
     estimated_batch_lane_work_ = add_batch_work_estimate(estimated_batch_lane_work_, work);
-    if (retain_action_batch_lane_work_) {
+    if (output_.has_postselection_) {
         assert(action_batch_lane_work_.size() + 1 == output_.actions_.size() &&
                "each lowered action must receive one batch work estimate");
         action_batch_lane_work_.push_back(work.all_widths);
@@ -582,13 +583,12 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::lower_action_stream() {
 
 CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::prepare_batch_compaction_costs() {
     output_.estimated_batch_lane_work_ = estimated_batch_lane_work_;
-    if (!retain_action_batch_lane_work_) {
-        assert(action_batch_lane_work_.empty() && !output_.has_postselection_ &&
+    if (!output_.has_postselection_) {
+        assert(action_batch_lane_work_.empty() &&
                "ordinary plans must not retain compaction metadata");
         return;
     }
     assert(action_batch_lane_work_.size() == output_.actions_.size() &&
-           output_.has_postselection_ &&
            "postselected batch work must parallel executable actions");
     batch_detail::BatchLaneWork remaining_lane_work;
     for (size_t index = output_.actions_.size(); index-- > 0;) {

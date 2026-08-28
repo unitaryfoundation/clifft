@@ -283,9 +283,11 @@ safety limits. Since the best capacity varies by circuit, sampling function,
 shot count, thread count, and CPU, benchmark a few sizes such as `1`, `256`, and
 `1024` with representative arguments before choosing an override.
 
-With explicit batching and postselection, rejected lanes stop executing
-immediately. Clifft may wait to repack the remaining live lanes until repacking
-is expected to save more work than it costs.
+With explicit batching and postselection, rejected lanes are masked immediately
+and stop contributing outputs or per-lane random work. Until Clifft repacks the
+remaining live lanes, packed coefficient kernels may still process their
+physical lane positions. Repacking occurs when it is expected to save more work
+than it costs.
 
 Packed execution supports ordinary sampling, post-selected survivor sampling,
 counts-only survivor aggregation, expectation values, and fixed-k importance

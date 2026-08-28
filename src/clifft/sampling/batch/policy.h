@@ -71,6 +71,22 @@ struct BatchWorkEstimate {
     BatchLaneWork width_five;
 };
 
+// Runtime values used to decide whether moving live lanes now costs less than
+// carrying dead physical lanes through the remaining packed work.
+struct BatchCompactionPolicyInput {
+    BatchLaneWork remaining_lane_work;
+    uint64_t state_size = 0;
+    uint64_t bit_columns = 0;
+    uint64_t row_output_entries = 0;
+    size_t word_capacity = 0;
+    uint32_t peak_active_width = 0;
+    uint32_t active_lanes = 0;
+    uint32_t live_lanes = 0;
+};
+
+[[nodiscard]] bool should_compact_batch_lanes(const BatchCompactionPolicyInput& input,
+                                              BatchOutputMode output_mode) noexcept;
+
 }  // namespace batch_detail
 
 #if defined(__EMSCRIPTEN__)

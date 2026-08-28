@@ -70,7 +70,6 @@ class ExecutablePlanBuilder {
     std::vector<uint8_t> bound_presampled_symbols_;
     batch_detail::BatchWorkEstimate estimated_batch_lane_work_;
     std::vector<batch_detail::BatchLaneWork> action_batch_lane_work_;
-    bool retain_action_batch_lane_work_ = false;
 };
 
 }  // namespace clifft::sampling

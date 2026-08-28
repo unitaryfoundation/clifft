@@ -95,6 +95,43 @@ uint64_t batch_worker_storage_bytes(const ExecutablePlan& plan, uint32_t lane_ca
     return bytes;
 }
 
+bool should_compact_batch_lanes(const BatchCompactionPolicyInput& input,
+                                BatchOutputMode output_mode) noexcept {
+    if (input.live_lanes == 0 || input.live_lanes == input.active_lanes) {
+        return false;
+    }
+    // Classical packed actions already carry rejected lanes as masked bits. With
+    // no coefficient state, reclaiming those lanes cannot reduce the fixed-width
+    // sidecar operations enough to justify moving every retained column.
+    if (input.peak_active_width == 0) {
+        return false;
+    }
+    const uint64_t remaining_lane_work = input.remaining_lane_work.for_output_mode(output_mode);
+    if (remaining_lane_work == 0) {
+        return false;
+    }
+    const uint64_t old_words = packed_word_count(input.active_lanes);
+    const uint64_t dead_lanes = input.active_lanes - input.live_lanes;
+    // Packed-column compaction performs several dependent bit operations per
+    // retained bit, so a coefficient-sized unit materially understates it.
+    constexpr uint64_t kPackedBitCompactionWeight = 16;
+    const uint64_t bit_compaction_units = saturating_add_u64(
+        input.live_lanes,
+        saturating_add_u64(old_words, saturating_multiply_u64(input.word_capacity, 2)));
+    const uint64_t sidecar_cost =
+        saturating_multiply_u64(saturating_multiply_u64(input.bit_columns, bit_compaction_units),
+                                kPackedBitCompactionWeight);
+    const uint64_t state_cost =
+        saturating_multiply_u64(saturating_multiply_u64(input.state_size, input.live_lanes), 2);
+    const uint64_t row_output_entries =
+        output_mode == BatchOutputMode::Rows ? input.row_output_entries : 0;
+    const uint64_t lane_cost = saturating_add_u64(
+        input.active_lanes, saturating_multiply_u64(input.live_lanes, row_output_entries + 3));
+    const uint64_t compact_cost =
+        saturating_add_u64(sidecar_cost, saturating_add_u64(state_cost, lane_cost));
+    return remaining_lane_work > compact_cost / dead_lanes;
+}
+
 }  // namespace batch_detail
 
 BatchExecutionPolicy resolve_batch_execution_policy(

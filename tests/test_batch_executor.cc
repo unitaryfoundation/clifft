@@ -25,19 +25,24 @@ using clifft::sampling::BatchExecutionPolicy;
 using clifft::sampling::BatchExecutor;
 using clifft::sampling::BatchOutputMode;
 using clifft::sampling::BatchSamplingMode;
+using clifft::sampling::DetectorSlot;
 using clifft::sampling::ExecutablePlan;
 using clifft::sampling::ExpValSlot;
 using clifft::sampling::kDefaultMaxWidthFiveBatchLaneWork;
 using clifft::sampling::MeasureActivePauli;
 using clifft::sampling::PlannedAction;
 using clifft::sampling::RecordClassical;
+using clifft::sampling::RecordParity;
 using clifft::sampling::RecordSlot;
 using clifft::sampling::resolve_batch_execution_policy;
 using clifft::sampling::RotateActivePauli;
 using clifft::sampling::SamplingPlan;
 using clifft::sampling::SymbolId;
 using clifft::sampling::SymbolKind;
+using clifft::sampling::WriteDetector;
 using clifft::sampling::WriteExpectationValue;
+using clifft::sampling::batch_detail::BatchCompactionPolicyInput;
+using clifft::sampling::batch_detail::should_compact_batch_lanes;
 
 namespace {
 
@@ -151,6 +156,63 @@ TEST_CASE("Packed executor replays fixed-fault rows") {
         REQUIRE(replay.shot_index(shot) == shot);
         compare_lane_outputs(batch, replay, shot, plan);
     }
+}
+
+TEST_CASE("Packed compaction policy distinguishes compact and defer decisions") {
+    BatchCompactionPolicyInput input{
+        .remaining_lane_work = {.common = 1},
+        .state_size = 2,
+        .bit_columns = 1,
+        .word_capacity = 2,
+        .peak_active_width = 1,
+        .active_lanes = 128,
+        .live_lanes = 64,
+    };
+
+    CHECK_FALSE(should_compact_batch_lanes(input, BatchOutputMode::Rows));
+    input.remaining_lane_work.common = 1'000'000;
+    CHECK(should_compact_batch_lanes(input, BatchOutputMode::Rows));
+
+    input.live_lanes = input.active_lanes;
+    CHECK_FALSE(should_compact_batch_lanes(input, BatchOutputMode::Rows));
+}
+
+TEST_CASE("Packed compaction policy excludes aggregate expectation tails") {
+    const BatchCompactionPolicyInput input{
+        .remaining_lane_work = {.row_output = 24'000},
+        .state_size = 2,
+        .bit_columns = 1,
+        .row_output_entries = 3'000,
+        .word_capacity = 2,
+        .peak_active_width = 1,
+        .active_lanes = 128,
+        .live_lanes = 64,
+    };
+
+    CHECK(should_compact_batch_lanes(input, BatchOutputMode::Rows));
+    CHECK_FALSE(should_compact_batch_lanes(input, BatchOutputMode::AggregateSurvivors));
+}
+
+TEST_CASE("Executable postselection metadata tracks a fused rotation tail") {
+    SamplingPlan plan;
+    plan.num_qubits = 2;
+    plan.initial_active_width = 2;
+    plan.peak_active_width = 2;
+    plan.num_detectors = 1;
+    plan.actions = {
+        PlannedAction{2, 2, WriteDetector{RecordParity{}, DetectorSlot{0}, true}},
+        PlannedAction{2, 2, RotateActivePauli{ActivePauli{0b01, 0b00}, 0.25, AffineBool{}}},
+        PlannedAction{2, 2, RotateActivePauli{ActivePauli{0b10, 0b01}, -0.3, AffineBool{true}}},
+        PlannedAction{2, 2, RotateActivePauli{ActivePauli{0b11, 0b11}, 0.4, AffineBool{}}},
+    };
+
+    const ExecutablePlan executable(plan);
+    REQUIRE(executable.num_actions() == 2);
+    CHECK(executable.inspect_action(0) ==
+          "WRITE_DETECTOR detector=d0 outcome=0 postselect "
+          "remaining_batch_lane_work_common=32 remaining_batch_lane_work_row_output=0");
+    CHECK(executable.inspect_action(1) == "FUSED_ROTATION descriptor=0");
+    CHECK(executable.estimated_batch_lane_work(BatchOutputMode::AggregateSurvivors) == 32);
 }
 
 TEST_CASE("Packed capacity policy bounds worker state footprint") {

@@ -310,17 +310,15 @@ void BatchExecutor::propagate_symbol(uint32_t symbol, std::span<const uint64_t> 
 }
 
 void BatchExecutor::execute_actions() noexcept {
-    for (size_t action_index = 0; action_index < plan_->actions_.size(); ++action_index) {
-        const ExecutablePlan::Action& action = plan_->actions_[action_index];
-        std::visit([&](const auto& typed) noexcept { execute_action(typed, action_index); },
-                   action);
+    for (const ExecutablePlan::Action& action : plan_->actions_) {
+        std::visit([&](const auto& typed) noexcept { execute_action(typed); }, action);
         if (live_count_ == 0) {
             return;
         }
     }
 }
 
-void BatchExecutor::execute_action(const ExecutablePlan::ExecuteRotation& action, size_t) noexcept {
+void BatchExecutor::execute_action(const ExecutablePlan::ExecuteRotation& action) noexcept {
     const std::span<const uint64_t> signs = evaluate(action.sign);
     for (uint32_t lane = 0; lane < active_lanes(); ++lane) {
         lane_bytes_[lane] = static_cast<uint8_t>(lane_bit(signs, lane));
@@ -330,16 +328,15 @@ void BatchExecutor::execute_action(const ExecutablePlan::ExecuteRotation& action
     apply_interleaved_rotation(state_, action.rotation, signed_sines_);
 }
 
-void BatchExecutor::execute_action(const ExecutablePlan::ExecuteFusedRotation& action,
-                                   size_t) noexcept {
+void BatchExecutor::execute_action(const ExecutablePlan::ExecuteFusedRotation& action) noexcept {
     assert(action.rotation_index < plan_->fused_rotations_.size() &&
            "fused rotation action must reference prepared execution");
     apply_interleaved_fused_rotation(state_,
                                      plan_->fused_rotations_[action.rotation_index].rotation());
 }
 
-void BatchExecutor::execute_action(const ExecutablePlan::ExecuteDynamicFusedRotation& action,
-                                   size_t) noexcept {
+void BatchExecutor::execute_action(
+    const ExecutablePlan::ExecuteDynamicFusedRotation& action) noexcept {
     assert(action.rotation_index < plan_->dynamic_fused_rotations_.size() &&
            "dynamic fused rotation action must reference prepared execution");
     const auto& rotation = plan_->dynamic_fused_rotations_[action.rotation_index];
@@ -369,8 +366,7 @@ void BatchExecutor::execute_action(const ExecutablePlan::ExecuteDynamicFusedRota
         std::span<const uint8_t>(lane_bytes_).first(active_lanes()));
 }
 
-void BatchExecutor::execute_action(const ExecutablePlan::ExecutePromotion& action,
-                                   size_t) noexcept {
+void BatchExecutor::execute_action(const ExecutablePlan::ExecutePromotion& action) noexcept {
     const std::span<const uint64_t> signs = evaluate(action.sign);
     for (uint32_t lane = 0; lane < active_lanes(); ++lane) {
         lane_bytes_[lane] = static_cast<uint8_t>(lane_bit(signs, lane));
@@ -380,8 +376,8 @@ void BatchExecutor::execute_action(const ExecutablePlan::ExecutePromotion& actio
     apply_interleaved_promotion(state_, action.promotion, signed_sines_);
 }
 
-void BatchExecutor::execute_action(const ExecutablePlan::ExecuteActiveMeasurement& action,
-                                   size_t) noexcept {
+void BatchExecutor::execute_action(
+    const ExecutablePlan::ExecuteActiveMeasurement& action) noexcept {
     const std::span<const uint64_t> corrections = evaluate(action.correction);
     interleaved_measurement_probabilities(state_, action.measurement, probability_zero_,
                                           probability_one_);
@@ -419,8 +415,8 @@ void BatchExecutor::execute_action(const ExecutablePlan::ExecuteActiveMeasuremen
     }
 }
 
-void BatchExecutor::execute_action(const ExecutablePlan::ExecuteDormantMeasurement& action,
-                                   size_t) noexcept {
+void BatchExecutor::execute_action(
+    const ExecutablePlan::ExecuteDormantMeasurement& action) noexcept {
     const std::span<const uint64_t> corrections = evaluate(action.correction);
     fill_random_half_bits();
     propagate_symbol(action.branch, scratch_words_);
@@ -429,20 +425,17 @@ void BatchExecutor::execute_action(const ExecutablePlan::ExecuteDormantMeasureme
     }
 }
 
-void BatchExecutor::execute_action(const ExecutablePlan::ExecuteClassicalRecord& action,
-                                   size_t) noexcept {
+void BatchExecutor::execute_action(const ExecutablePlan::ExecuteClassicalRecord& action) noexcept {
     if (records_.num_columns() != 0) {
         records_.assign(action.record, evaluate(action.outcome), live_words_);
     }
 }
 
-void BatchExecutor::execute_action(const ExecutablePlan::ExecuteSymbolDefinition& action,
-                                   size_t) noexcept {
+void BatchExecutor::execute_action(const ExecutablePlan::ExecuteSymbolDefinition& action) noexcept {
     propagate_symbol(action.symbol, evaluate(action.value));
 }
 
-void BatchExecutor::execute_action(const ExecutablePlan::ExecuteReadoutNoise& action,
-                                   size_t) noexcept {
+void BatchExecutor::execute_action(const ExecutablePlan::ExecuteReadoutNoise& action) noexcept {
     const std::span<const uint64_t> sources = evaluate(action.source);
     std::ranges::fill(scratch_words_, uint64_t{0});
     bool sampled_packed = false;
@@ -495,7 +488,7 @@ void BatchExecutor::execute_action(const ExecutablePlan::ExecuteReadoutNoise& ac
     }
 }
 
-void BatchExecutor::execute_action(const ExecutablePlan::ExecuteDetector& action, size_t) noexcept {
+void BatchExecutor::execute_action(const ExecutablePlan::ExecuteDetector& action) noexcept {
     const std::span<const uint64_t> outcomes = evaluate_record_parity(action.outcome);
     if (output_mode_ == BatchOutputMode::Rows) {
         detectors_.assign(action.detector, outcomes, live_words_);
@@ -515,14 +508,12 @@ void BatchExecutor::execute_action(const ExecutablePlan::ExecuteDetector& action
     }
 }
 
-void BatchExecutor::execute_action(const ExecutablePlan::ExecuteObservable& action,
-                                   size_t) noexcept {
+void BatchExecutor::execute_action(const ExecutablePlan::ExecuteObservable& action) noexcept {
     const std::span<const uint64_t> outcomes = evaluate_observable(action.outcome);
     observables_.assign(action.observable, outcomes, live_words_);
 }
 
-void BatchExecutor::execute_action(const ExecutablePlan::ExecuteExpectation& action,
-                                   size_t) noexcept {
+void BatchExecutor::execute_action(const ExecutablePlan::ExecuteExpectation& action) noexcept {
     if (output_mode_ == BatchOutputMode::AggregateSurvivors) {
         return;
     }
@@ -546,11 +537,11 @@ void BatchExecutor::execute_action(const ExecutablePlan::ExecuteExpectation& act
     }
 }
 
-void BatchExecutor::execute_action(const ExecutablePlan::ExecuteInstrument&, size_t) noexcept {
+void BatchExecutor::execute_action(const ExecutablePlan::ExecuteInstrument&) noexcept {
     assert(false && "instrument actions must remain on the scalar trajectory executor");
 }
 
-void BatchExecutor::execute_action(const ExecutablePlan::ExecuteBoundary&, size_t) noexcept {
+void BatchExecutor::execute_action(const ExecutablePlan::ExecuteBoundary&) noexcept {
     assert(false && "continuation boundaries must remain on the scalar trajectory executor");
 }
 
@@ -602,42 +593,19 @@ bool BatchExecutor::is_live(uint32_t lane) const noexcept {
 }
 
 bool BatchExecutor::should_compact(const ExecutablePlan::ExecuteDetector& detector) const noexcept {
-    if (live_count_ == 0 || live_count_ == active_lanes()) {
-        return false;
-    }
-    // Classical packed actions already carry rejected lanes as masked bits. With
-    // no coefficient state, reclaiming those lanes cannot reduce the fixed-width
-    // sidecar operations enough to justify moving every retained column.
-    if (plan_->peak_active_width() == 0) {
-        return false;
-    }
-    const uint64_t remaining_lane_work =
-        detector.remaining_batch_lane_work.for_output_mode(output_mode_);
-    if (remaining_lane_work == 0) {
-        return false;
-    }
-    const uint64_t old_words = packed_word_count(active_lanes());
-    const uint64_t dead_lanes = active_lanes() - live_count_;
     const uint64_t bit_columns = expression_registers_.num_columns() + records_.num_columns() +
                                  detectors_.num_columns() + observables_.num_columns() +
                                  forced_readout_.num_columns();
-    // Packed-column compaction performs several dependent bit operations per
-    // retained bit, so a coefficient-sized unit materially understates it.
-    constexpr uint64_t kPackedBitCompactionWeight = 16;
-    const uint64_t bit_compaction_units = saturating_add_u64(
-        live_count_, saturating_add_u64(old_words, saturating_multiply_u64(word_capacity_, 2)));
-    const uint64_t sidecar_cost = saturating_multiply_u64(
-        saturating_multiply_u64(bit_columns, bit_compaction_units), kPackedBitCompactionWeight);
-    const uint64_t state_cost =
-        saturating_multiply_u64(saturating_multiply_u64(state_.size(), live_count_), 2);
-    const uint64_t row_output_entries =
-        output_mode_ == BatchOutputMode::Rows ? plan_->num_exp_vals_ : 0;
-    const uint64_t lane_cost = saturating_add_u64(
-        active_lanes(),
-        saturating_multiply_u64(live_count_, static_cast<uint64_t>(row_output_entries) + 3));
-    const uint64_t compact_cost =
-        saturating_add_u64(sidecar_cost, saturating_add_u64(state_cost, lane_cost));
-    return remaining_lane_work > compact_cost / dead_lanes;
+    return batch_detail::should_compact_batch_lanes(
+        {.remaining_lane_work = detector.remaining_batch_lane_work,
+         .state_size = state_.size(),
+         .bit_columns = bit_columns,
+         .row_output_entries = plan_->num_exp_vals_,
+         .word_capacity = word_capacity_,
+         .peak_active_width = plan_->peak_active_width(),
+         .active_lanes = active_lanes(),
+         .live_lanes = live_count_},
+        output_mode_);
 }
 
 void BatchExecutor::compact_live_lanes() noexcept {
