@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 import stim
 from qiskit import QuantumCircuit
-from qiskit_aer import AerSimulator
+from utils_qiskit import qiskit_statevector, stim_to_qiskit_noiseless
 
 import clifft
 
@@ -96,29 +96,31 @@ def test_named_clifford_matrices_match_stim(gate: str, num_qubits: int) -> None:
 def test_random_clifford_t_amplitudes_match_qiskit_aer_componentwise() -> None:
     """Random complex amplitudes match an independent strong simulator without phase alignment."""
     rng = random.Random(0x408)
-    simulator = AerSimulator(method="statevector")
     for _ in range(30):
         num_qubits = rng.randrange(1, 5)
-        reference = QuantumCircuit(num_qubits)
         source: list[str] = []
         for _ in range(rng.randrange(5, 25)):
             gate = rng.choice(["h", "s", "t", "tdg", "x", "y", "z", "cx", "cz"])
             if gate in {"cx", "cz"} and num_qubits > 1:
                 q1, q2 = rng.sample(range(num_qubits), 2)
                 source.append(f"{gate.upper()} {q1} {q2}")
-                getattr(reference, gate)(q1, q2)
             else:
                 if gate in {"cx", "cz"}:
                     gate = rng.choice(["h", "s", "t", "tdg", "x", "y", "z"])
                 qubit = rng.randrange(num_qubits)
                 source_gate = "T_DAG" if gate == "tdg" else gate.upper()
                 source.append(f"{source_gate} {qubit}")
-                getattr(reference, gate)(qubit)
 
-        reference.save_statevector()
-        expected = np.asarray(simulator.run(reference).result().get_statevector())
-        actual = exact_statevector("\n".join(source), num_qubits)
+        circuit_text = "\n".join(source)
+        expected = qiskit_statevector(stim_to_qiskit_noiseless(circuit_text))
+        actual = exact_statevector(circuit_text, num_qubits)
         np.testing.assert_allclose(actual, expected, rtol=0.0, atol=2e-12)
+
+        bitstrings = [output_bits(basis, num_qubits) for basis in range(1 << num_qubits)]
+        probabilities = clifft.basis_probabilities(
+            clifft.compile(circuit_text, hir_passes=None), bitstrings
+        )
+        np.testing.assert_allclose(np.abs(actual) ** 2, probabilities, rtol=0.0, atol=2e-12)
 
 
 def test_qasm2_query_restores_source_global_phase() -> None:
@@ -137,10 +139,7 @@ def test_qasm2_query_restores_source_global_phase() -> None:
     reference.t(1)
     reference.cx(0, 1)
     reference.u(0.31, -0.47, 0.59, 0)
-    reference.save_statevector()
-    expected = np.asarray(
-        AerSimulator(method="statevector").run(reference).result().get_statevector()
-    )
+    expected = qiskit_statevector(reference)
     actual = np.asarray(
         [
             clifft.evaluate_amplitude(
@@ -186,3 +185,13 @@ def test_amplitude_query_validates_target_and_unitarity() -> None:
         clifft.compile_basis_amplitude("H 0", ["00"])
     with pytest.raises(ValueError, match="pure-unitary"):
         clifft.compile_basis_amplitude("M 0", ["0"])
+
+
+@pytest.mark.parametrize("gate", ["SQRT_XX", "CZ", "ISWAP"])
+def test_duplicate_pair_targets_are_rejected_consistently(gate: str) -> None:
+    """Both strong-simulation entry points reject degenerate two-qubit gates."""
+    source = f"{gate} 0 0"
+    with pytest.raises(ValueError, match="distinct targets"):
+        clifft.compile(source, hir_passes=None)
+    with pytest.raises(ValueError, match="distinct targets"):
+        clifft.compile_basis_amplitude(source, ["0"])

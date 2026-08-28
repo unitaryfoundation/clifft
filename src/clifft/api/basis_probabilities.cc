@@ -6,6 +6,7 @@
 #include "clifft/sampling/executor.h"
 #include "clifft/sampling/state_queries.h"
 #include "clifft/util/mask_view.h"
+#include "clifft/util/numeric.h"
 
 #include <algorithm>
 #include <bit>
@@ -52,12 +53,8 @@ struct IdentityConstraint {
     BasisMask sign_mask;
 };
 
-[[nodiscard]] size_t basis_word_count(uint32_t n) {
-    return (static_cast<size_t>(n) + 63U) / 64U;
-}
-
 [[nodiscard]] BasisMask zero_basis_mask(uint32_t n) {
-    return BasisMask(basis_word_count(n), 0);
+    return BasisMask(mask_word_count(n), 0);
 }
 
 void mask_xor_with(BasisMask& dst, const BasisMask& src) {
@@ -70,15 +67,6 @@ void mask_xor_with(MutableMaskView dst, MaskView src) {
 
 [[nodiscard]] bool mask_is_zero(MaskView mask) {
     return mask.is_zero();
-}
-
-[[nodiscard]] bool mask_has_only_qubit_bits(MaskView mask, uint32_t n) {
-    const uint32_t used_bits = n % 64;
-    if (mask.words.empty() || used_bits == 0) {
-        return true;
-    }
-    const uint64_t used_mask = (uint64_t{1} << used_bits) - 1U;
-    return (mask.words.back() & ~used_mask) == 0;
 }
 
 [[nodiscard]] bool mask_parity(MaskView lhs, MaskView rhs) {
@@ -112,22 +100,9 @@ void mask_xor_with(MutableMaskView dst, MaskView src) {
     return mask;
 }
 
-[[nodiscard]] std::complex<double> i_pow(uint32_t phase_idx) {
-    switch (phase_idx & 3U) {
-        case 0:
-            return {1.0, 0.0};
-        case 1:
-            return {0.0, 1.0};
-        case 2:
-            return {-1.0, 0.0};
-        default:
-            return {0.0, -1.0};
-    }
-}
-
 [[nodiscard]] uint32_t pauli_y_count(const StabilizerRow& p, uint32_t n) {
     uint32_t count = 0;
-    const size_t words = basis_word_count(n);
+    const size_t words = mask_word_count(n);
     for (size_t w = 0; w < words; ++w) {
         count += std::popcount(p.x().words[w] & p.z().words[w] & valid_word_mask(n, words, w));
     }
@@ -140,7 +115,7 @@ void mask_xor_with(MutableMaskView dst, MaskView src) {
     // contributes i for each Y plus the Z eigenvalue on the pre-flip basis.
     uint32_t phase_idx = (sign ? 2U : 0U) + y_count;
     bool z_basis_parity = false;
-    const size_t words = basis_word_count(n);
+    const size_t words = mask_word_count(n);
     for (size_t w = 0; w < words; ++w) {
         const uint64_t valid = valid_word_mask(n, words, w);
         z_basis_parity ^= (std::popcount(p.z().words[w] & basis.words[w] & valid) & 1U) != 0;
@@ -148,7 +123,7 @@ void mask_xor_with(MutableMaskView dst, MaskView src) {
     if (z_basis_parity) {
         phase_idx += 2;
     }
-    return i_pow(phase_idx);
+    return i_power(phase_idx);
 }
 
 void multiply_row_by(StabilizerRow& dst, BasisMask& dst_sign_mask, const StabilizerRow& src,
@@ -158,7 +133,7 @@ void multiply_row_by(StabilizerRow& dst, BasisMask& dst_sign_mask, const Stabili
 }
 
 [[nodiscard]] bool row_has_any_z(const StabilizerRow& p, uint32_t n) {
-    const size_t words = basis_word_count(n);
+    const size_t words = mask_word_count(n);
     for (size_t w = 0; w < words; ++w) {
         if ((p.z().words[w] & valid_word_mask(n, words, w)) != 0) {
             return true;
@@ -418,18 +393,17 @@ std::complex<double> BoundStabilizerAmplitudeQuery::amplitude(MaskView basis,
     return structure;
 }
 
-template <typename Output, typename CoefficientAt, typename Finish>
-std::vector<Output> selected_basis_values_from_factored_state(
+template <typename CoefficientAt>
+std::vector<double> basis_probabilities_from_factored_state(
     uint32_t n, uint32_t active_width, uint64_t active_size, const Tableau& final_tableau,
     MaskView state_px, uint64_t active_z_mask, CoefficientAt coefficient_at,
-    std::span<const uint64_t> basis_masks, size_t num_basis_masks, size_t words_per_basis_mask,
-    Finish finish) {
+    std::span<const uint64_t> basis_masks, size_t num_basis_masks, size_t words_per_basis_mask) {
     // The factored state is U_C * P * (|phi>_A x |0>_D). The inverse tableau
     // lets the batch query evaluator reuse stabilizers of U_C^dagger |x> for
     // every requested physical bitstring x.
     Tableau inv_tableau = final_tableau.inverse();
 
-    const size_t expected_words = basis_word_count(n);
+    const size_t expected_words = mask_word_count(n);
     if (words_per_basis_mask != expected_words) {
         throw std::invalid_argument(
             "probability basis masks must have ceil(num_qubits / 64) words");
@@ -451,12 +425,12 @@ std::vector<Output> selected_basis_values_from_factored_state(
     const uint64_t active_mask =
         active_width == 0 ? uint64_t{0} : (uint64_t{1} << active_width) - uint64_t{1};
 
-    std::vector<Output> out;
+    std::vector<double> out;
     out.reserve(num_basis_masks);
     for (size_t basis_idx = 0; basis_idx < num_basis_masks; ++basis_idx) {
         const auto basis_mask =
             MaskView{basis_masks.subspan(basis_idx * expected_words, expected_words)};
-        if (!mask_has_only_qubit_bits(basis_mask, n)) {
+        if (!mask_has_only_bits(basis_mask, n)) {
             throw std::invalid_argument("probability basis masks must not set unused high bits");
         }
 
@@ -566,7 +540,7 @@ std::vector<Output> selected_basis_values_from_factored_state(
             }
             amp = total;
         }
-        out.push_back(finish(amp));
+        out.push_back(std::norm(amp));
     }
     return out;
 }
@@ -592,15 +566,14 @@ std::vector<double> basis_probabilities(const ExecutablePlan& plan,
     executor.run_shot();
     const State& state = executor.state();
     BasisMask zero_frame = zero_basis_mask(plan.num_qubits());
-    return selected_basis_values_from_factored_state<double>(
+    return basis_probabilities_from_factored_state(
         plan.num_qubits(), state.active_width(), state.size(), *final_tableau,
         basis_mask_view(zero_frame), 0,
         [&](uint64_t active_index) {
             return std::complex<double>{state.real_data()[active_index],
                                         state.imag_data()[active_index]};
         },
-        basis_masks, num_basis_masks, words_per_basis_mask,
-        [](std::complex<double> amplitude) { return std::norm(amplitude); });
+        basis_masks, num_basis_masks, words_per_basis_mask);
 }
 
 namespace internal {

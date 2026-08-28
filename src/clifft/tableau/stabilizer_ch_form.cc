@@ -1,5 +1,7 @@
 #include "clifft/tableau/stabilizer_ch_form.h"
 
+#include "clifft/util/numeric.h"
+
 #include <algorithm>
 #include <bit>
 #include <cassert>
@@ -12,19 +14,6 @@ namespace {
 constexpr double kInvSqrt2 = 0.707106781186547524400844362104849039;
 constexpr std::complex<double> kSqrtI{kInvSqrt2, kInvSqrt2};
 constexpr std::complex<double> kSqrtMinusI{kInvSqrt2, -kInvSqrt2};
-
-[[nodiscard]] std::complex<double> i_pow(uint8_t exponent) {
-    switch (exponent & 3U) {
-        case 0:
-            return {1.0, 0.0};
-        case 1:
-            return {0.0, 1.0};
-        case 2:
-            return {-1.0, 0.0};
-        default:
-            return {0.0, -1.0};
-    }
-}
 
 }  // namespace
 
@@ -104,7 +93,17 @@ void StabilizerChForm::xor_bit(Bits& bits, uint32_t index) const {
 }
 
 bool StabilizerChForm::bits_equal(const Bits& lhs, const Bits& rhs) const {
-    return lhs == rhs;
+    assert(lhs.size() == words_ && rhs.size() == words_);
+    for (size_t w = 0; w < words_; ++w) {
+        uint64_t difference = lhs[w] ^ rhs[w];
+        if (w + 1 == words_ && num_qubits_ % 64U != 0) {
+            difference &= (uint64_t{1} << (num_qubits_ % 64U)) - 1U;
+        }
+        if (difference != 0) {
+            return false;
+        }
+    }
+    return true;
 }
 
 bool StabilizerChForm::parity_and(std::span<const uint64_t> a, std::span<const uint64_t> b) const {
@@ -172,7 +171,7 @@ StabilizerChForm::HDecomposition StabilizerChForm::decompose_h_sum(bool has_h, b
     assert(y != z);
     HDecomposition result;
     if (!has_h) {
-        result.omega = i_pow(static_cast<uint8_t>(delta * static_cast<uint8_t>(y)));
+        result.omega = i_power(static_cast<uint8_t>(delta * static_cast<uint8_t>(y)));
         const uint8_t adjusted = static_cast<uint8_t>((y ? (4U - delta) : delta) & 3U);
         result.basis = (adjusted >> 1U) != 0;
         result.apply_s = (adjusted & 1U) != 0;
@@ -187,7 +186,7 @@ StabilizerChForm::HDecomposition StabilizerChForm::decompose_h_sum(bool has_h, b
         return result;
     }
 
-    result.omega = kInvSqrt2 * (std::complex<double>{1.0, 0.0} + i_pow(delta));
+    result.omega = kInvSqrt2 * (std::complex<double>{1.0, 0.0} + i_power(delta));
     result.apply_s = true;
     result.apply_h = true;
     result.basis = !(((delta >> 1U) != 0) ^ y);
@@ -198,7 +197,7 @@ void StabilizerChForm::update_sum(Bits t, Bits u, uint8_t delta, bool alpha) {
     if (bits_equal(t, u)) {
         basis_ = std::move(t);
         omega_ *=
-            kInvSqrt2 * (alpha ? -1.0 : 1.0) * (std::complex<double>{1.0, 0.0} + i_pow(delta));
+            kInvSqrt2 * (alpha ? -1.0 : 1.0) * (std::complex<double>{1.0, 0.0} + i_power(delta));
         return;
     }
 
@@ -700,14 +699,11 @@ void StabilizerChForm::apply_global_phase(std::complex<double> phase) {
 }
 
 std::complex<double> StabilizerChForm::amplitude(std::span<const uint64_t> basis) const {
-    if (basis.size() != words_) {
+    if (basis.size() != mask_word_count(num_qubits_)) {
         throw std::invalid_argument("CH-form basis mask width does not match the state");
     }
-    if (!basis.empty() && num_qubits_ % 64U != 0) {
-        const uint64_t valid = (uint64_t{1} << (num_qubits_ % 64U)) - 1U;
-        if ((basis.back() & ~valid) != 0) {
-            throw std::invalid_argument("CH-form basis mask sets unused high bits");
-        }
+    if (!mask_has_only_bits(MaskView{basis}, num_qubits_)) {
+        throw std::invalid_argument("CH-form basis mask sets unused high bits");
     }
 
     uint8_t phase = 0;
@@ -734,7 +730,7 @@ std::complex<double> StabilizerChForm::amplitude(std::span<const uint64_t> basis
 
     const bool sign = parity_and3(std::span<const uint64_t>(h_), u, basis_);
     const double magnitude = std::exp2(-0.5 * static_cast<double>(popcount(h_)));
-    return omega_ * magnitude * i_pow(phase) * (sign ? -1.0 : 1.0);
+    return omega_ * magnitude * i_power(phase) * (sign ? -1.0 : 1.0);
 }
 
 }  // namespace clifft

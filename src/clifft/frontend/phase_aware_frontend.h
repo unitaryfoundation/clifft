@@ -42,8 +42,11 @@ class PhaseAwareCliffordFrame {
         bool dagger;
     };
 
+    using Operation = std::variant<NamedOperation, PauliRotation>;
+
     uint32_t num_qubits_;
-    std::vector<std::variant<NamedOperation, PauliRotation>> operations_;
+    std::vector<Operation> source_operations_;
+    std::vector<NamedOperation> input_operations_reversed_;
 };
 
 struct PhaseAwareHir {
@@ -51,10 +54,6 @@ struct PhaseAwareHir {
     PhaseAwareCliffordFrame final_clifford_frame;
     std::complex<double> source_scalar{1.0, 0.0};
 };
-
-// Trace a pure-unitary circuit while retaining the scalar discarded by the
-// ordinary projective front end. Non-unitary nodes are rejected before trace.
-[[nodiscard]] PhaseAwareHir trace_phase_aware(const Circuit& circuit);
 
 // Query-private variant for a unitary circuit followed only by computational-
 // basis measurements. The measurement effects retain the unitary source phase.

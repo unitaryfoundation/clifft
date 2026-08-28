@@ -454,7 +454,7 @@ void Executor::execute_action(const ExecutablePlan::ExecuteActiveMeasurement& ac
     }();
     const bool correction = evaluate(action.correction);
     bool branch = false;
-    if constexpr (Mode == ShotMode::ReplayRecords || Mode == ShotMode::ReplayEffects) {
+    if constexpr (is_forced_replay<Mode>()) {
         branch = (forced_records[action.record] != 0) ^ correction;
         const std::optional<double> log_increment = [&]() noexcept {
             if constexpr (Mode == ShotMode::ReplayEffects) {
@@ -505,9 +505,13 @@ void Executor::execute_action(const ExecutablePlan::ExecuteDormantMeasurement& a
                               ReplayResult& result) noexcept {
     const bool correction = evaluate(action.correction);
     bool branch = false;
-    if constexpr (Mode == ShotMode::ReplayRecords || Mode == ShotMode::ReplayEffects) {
+    if constexpr (is_forced_replay<Mode>()) {
         branch = (forced_records[action.record] != 0) ^ correction;
-        result.log_probability += kLogHalf;
+        if constexpr (Mode == ShotMode::ReplayEffects) {
+            ++result.exact_half_probability_factors;
+        } else {
+            result.log_probability += kLogHalf;
+        }
     } else {
         if (forced_record_mask_[action.record] != 0) {
             branch = (forced_record_values_[action.record] != 0) ^ correction;
@@ -525,7 +529,7 @@ void Executor::execute_action(const ExecutablePlan::ExecuteClassicalRecord& acti
                               std::span<const uint8_t> forced_records,
                               ReplayResult& result) noexcept {
     records_[action.record] = static_cast<uint8_t>(evaluate(action.outcome));
-    if constexpr (Mode == ShotMode::ReplayRecords || Mode == ShotMode::ReplayEffects) {
+    if constexpr (is_forced_replay<Mode>()) {
         if (records_[action.record] != forced_records[action.record]) {
             result.reachable = false;
         }
@@ -544,7 +548,7 @@ void Executor::execute_action(const ExecutablePlan::ExecuteSymbolDefinition& act
 template <Executor::ShotMode Mode>
 void Executor::execute_action(const ExecutablePlan::ExecuteReadoutNoise& action,
                               std::span<const uint8_t>, ReplayResult& result) noexcept {
-    if constexpr (Mode == ShotMode::ReplayRecords || Mode == ShotMode::ReplayEffects) {
+    if constexpr (is_forced_replay<Mode>()) {
         result.reachable = false;
     } else {
         const bool source = evaluate(action.source);
@@ -747,7 +751,7 @@ void Executor::execute_instrument(
 template <ExecutorBackend Backend, Executor::ShotMode Mode>
 void Executor::execute_action(const ExecutablePlan::ExecuteInstrument& action,
                               std::span<const uint8_t>, ReplayResult& result) noexcept {
-    if constexpr (Mode == ShotMode::ReplayRecords || Mode == ShotMode::ReplayEffects) {
+    if constexpr (is_forced_replay<Mode>()) {
         result.reachable = false;
     } else {
         std::visit(
@@ -802,7 +806,7 @@ ReplayResult Executor::execute_actions(std::span<const uint8_t> forced_records,
                 }
             },
             action);
-        if constexpr (Mode == ShotMode::ReplayRecords || Mode == ShotMode::ReplayEffects) {
+        if constexpr (is_forced_replay<Mode>()) {
             if (!result.reachable) {
                 return result;
             }

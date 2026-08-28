@@ -32,6 +32,18 @@ struct PhaseAwareScalarRotation {
     AffineBool sign;
 };
 
+struct PhaseAwarePlanningContext {
+    PhaseAwarePlanningContext(PhaseAwareCliffordFrame frame,
+                              std::span<const uint8_t> effect_records)
+        : final_clifford_frame(std::move(frame)), forced_effect_records(effect_records) {}
+
+    std::complex<double> scalar{1.0, 0.0};
+    PhaseAwareCliffordFrame final_clifford_frame;
+    std::span<const uint8_t> forced_effect_records;
+    std::vector<PhaseAwareScalarRotation> scalar_rotations;
+    std::vector<uint8_t> symbol_values;
+};
+
 std::vector<PhaseAwareCliffordFrame::NamedOperation> dormant_promotion_operations(
     const Pauli& promoted, uint32_t active_width, uint32_t dormant_pivot) {
     std::vector<PhaseAwareCliffordFrame::NamedOperation> operations;
@@ -58,9 +70,6 @@ std::vector<PhaseAwareCliffordFrame::NamedOperation> dormant_promotion_operation
     }
     if (promoted.z().bit_get(dormant_pivot)) {
         operations.push_back({GateType::S, {dormant_pivot}});
-    }
-    if (promoted.sign()) {
-        operations.push_back({GateType::Z, {dormant_pivot}});
     }
     return operations;
 }
@@ -385,21 +394,20 @@ void initialize_site_metadata(const HirModule& hir, SamplingPlan& plan) {
 bool process_rotation(const Pauli& body, double half_turns, const AffineBool& sign,
                       SamplingPlan& plan, uint32_t& active_width, CoordinateFrame& coordinates,
                       SymbolicPauliFrame& symbolic_frame, std::span<const uint32_t> source_lines,
-                      std::complex<double>* discarded_scalar, PhaseAwareCliffordFrame* exact_frame,
-                      std::vector<PhaseAwareScalarRotation>* scalar_rotations) {
+                      PhaseAwarePlanningContext* phase_aware) {
     ResolvedPauli resolved = resolve_pauli(body, sign, coordinates, symbolic_frame);
     const std::optional<uint32_t> dormant_pivot = first_x_at_or_above(resolved.body, active_width);
     if (!dormant_pivot.has_value()) {
         const ActivePauli active = active_projection(resolved.body, active_width);
         if (active.is_identity()) {
-            if (discarded_scalar != nullptr) {
+            if (phase_aware != nullptr) {
                 if (resolved.sign.terms().empty()) {
                     const double eigenvalue = resolved.sign.constant() ? -1.0 : 1.0;
-                    *discarded_scalar *=
-                        std::polar(1.0, -std::numbers::pi * half_turns * eigenvalue / 2.0);
+                    phase_aware->scalar *=
+                        std::polar(1.0, -std::numbers::pi *
+                                            reduce_phase_half_turns(half_turns * eigenvalue) / 2.0);
                 } else {
-                    assert(scalar_rotations != nullptr);
-                    scalar_rotations->push_back(
+                    phase_aware->scalar_rotations.push_back(
                         PhaseAwareScalarRotation{half_turns, std::move(resolved.sign)});
                 }
             }
@@ -419,8 +427,9 @@ bool process_rotation(const Pauli& body, double half_turns, const AffineBool& si
             ", but the dense-state limit is " + std::to_string(kDenseActiveWidthLimit));
     }
 
-    if (exact_frame != nullptr) {
-        compose_dormant_promotion(*exact_frame, resolved.body, active_width, *dormant_pivot);
+    if (phase_aware != nullptr) {
+        compose_dormant_promotion(phase_aware->final_clifford_frame, resolved.body, active_width,
+                                  *dormant_pivot);
     }
     coordinates.promote_dormant(resolved.body, active_width, *dormant_pivot);
     append_action(plan,
@@ -436,25 +445,24 @@ AffineBool process_measurement(const Pauli& body, const AffineBool& sign, Record
                                SymbolId branch, SamplingPlan& plan, uint32_t& active_width,
                                CoordinateFrame& coordinates, SymbolicPauliFrame& symbolic_frame,
                                std::span<const uint32_t> source_lines,
-                               PhaseAwareCliffordFrame* exact_frame,
-                               std::span<const uint8_t> forced_effect_records,
-                               std::vector<uint8_t>* exact_symbol_values,
-                               bool& coordinates_changed) {
+                               PhaseAwarePlanningContext* phase_aware, bool& coordinates_changed) {
     ResolvedPauli resolved = resolve_pauli(body, sign, coordinates, symbolic_frame);
     std::optional<bool> forced_branch;
-    if (exact_symbol_values != nullptr) {
-        assert(index(record) < forced_effect_records.size());
-        assert(index(branch) < exact_symbol_values->size());
-        forced_branch = (forced_effect_records[index(record)] != 0) ^
-                        evaluate_known(resolved.sign, *exact_symbol_values);
-        (*exact_symbol_values)[index(branch)] = static_cast<uint8_t>(*forced_branch);
+    if (phase_aware != nullptr) {
+        assert(index(record) < phase_aware->forced_effect_records.size());
+        assert(index(branch) < phase_aware->symbol_values.size());
+        forced_branch = (phase_aware->forced_effect_records[index(record)] != 0) ^
+                        evaluate_known(resolved.sign, phase_aware->symbol_values);
+        phase_aware->symbol_values[index(branch)] = static_cast<uint8_t>(*forced_branch);
     }
     const std::optional<uint32_t> dormant_pivot = first_x_at_or_above(resolved.body, active_width);
     if (dormant_pivot.has_value()) {
-        if (exact_frame != nullptr) {
-            compose_dormant_measurement(*exact_frame, resolved.body, *dormant_pivot);
+        if (phase_aware != nullptr) {
+            compose_dormant_measurement(phase_aware->final_clifford_frame, resolved.body,
+                                        *dormant_pivot);
             if (forced_branch.value_or(false)) {
-                compose_selected_measurement_branch(*exact_frame, *dormant_pivot);
+                compose_selected_measurement_branch(phase_aware->final_clifford_frame,
+                                                    *dormant_pivot);
             }
         }
         coordinates.measure_dormant(resolved.body, *dormant_pivot);
@@ -493,10 +501,12 @@ AffineBool process_measurement(const Pauli& body, const AffineBool& sign, Record
         active_body.set_pauli(q, resolved.body.x().bit_get(q), resolved.body.z().bit_get(q));
     }
     active_body.set_sign(false);
-    if (exact_frame != nullptr) {
-        compose_active_measurement(*exact_frame, active_body, active_width, *pivot);
+    if (phase_aware != nullptr) {
+        compose_active_measurement(phase_aware->final_clifford_frame, active_body, active_width,
+                                   *pivot);
         if (forced_branch.value_or(false)) {
-            compose_selected_measurement_branch(*exact_frame, active_width - 1);
+            compose_selected_measurement_branch(phase_aware->final_clifford_frame,
+                                                active_width - 1);
         }
     }
     coordinates.measure_active(active_body, active_width, *pivot);
@@ -589,11 +599,7 @@ void process_instrument(const HirModule& hir, const HeisenbergOp& op, uint32_t n
 }  // namespace
 
 SamplingPlan plan_sampling_impl(const HirModule& hir, SamplingPlanOptions options,
-                                std::complex<double>* discarded_scalar,
-                                PhaseAwareCliffordFrame* exact_frame,
-                                std::vector<PhaseAwareScalarRotation>* scalar_rotations,
-                                std::span<const uint8_t> forced_effect_records,
-                                std::vector<uint8_t>* exact_symbol_values) {
+                                PhaseAwarePlanningContext* phase_aware) {
     SamplingPlan plan;
     plan.num_qubits = hir.num_qubits;
     plan.num_visible_records = hir.num_measurements;
@@ -619,14 +625,14 @@ SamplingPlan plan_sampling_impl(const HirModule& hir, SamplingPlanOptions option
     if (requirements.supports_final_state_queries) {
         plan.final_tableau = hir.final_tableau;
     }
-    if (exact_symbol_values != nullptr) {
+    if (phase_aware != nullptr) {
         const size_t record_count =
             static_cast<size_t>(hir.num_measurements) + hir.num_hidden_measurements;
-        if (forced_effect_records.size() != record_count) {
+        if (phase_aware->forced_effect_records.size() != record_count) {
             throw std::invalid_argument(
                 "phase-aware effect planning requires one value per measurement record");
         }
-        exact_symbol_values->assign(requirements.symbol_count, 0);
+        phase_aware->symbol_values.assign(requirements.symbol_count, 0);
     }
     CoordinateFrame coordinates(hir.num_qubits);
     SymbolicPauliFrame symbolic_frame(hir.num_qubits, requirements.symbol_count);
@@ -678,16 +684,16 @@ SamplingPlan plan_sampling_impl(const HirModule& hir, SamplingPlanOptions option
             case OpType::T_GATE: {
                 const double half_turns = op.is_dagger() ? -0.25 : 0.25;
                 const Pauli body = pauli_from_hir(hir, op);
-                final_coordinates_changed |= process_rotation(
-                    body, half_turns, AffineBool(hir.sign(op)), plan, active_width, coordinates,
-                    symbolic_frame, source_lines, discarded_scalar, exact_frame, scalar_rotations);
+                final_coordinates_changed |=
+                    process_rotation(body, half_turns, AffineBool(hir.sign(op)), plan, active_width,
+                                     coordinates, symbolic_frame, source_lines, phase_aware);
                 break;
             }
             case OpType::PHASE_ROTATION: {
                 const Pauli body = pauli_from_hir(hir, op);
-                final_coordinates_changed |= process_rotation(
-                    body, op.alpha(), AffineBool(hir.sign(op)), plan, active_width, coordinates,
-                    symbolic_frame, source_lines, discarded_scalar, exact_frame, scalar_rotations);
+                final_coordinates_changed |=
+                    process_rotation(body, op.alpha(), AffineBool(hir.sign(op)), plan, active_width,
+                                     coordinates, symbolic_frame, source_lines, phase_aware);
                 break;
             }
             case OpType::MEASURE: {
@@ -696,8 +702,7 @@ SamplingPlan plan_sampling_impl(const HirModule& hir, SamplingPlanOptions option
                 const Pauli body = pauli_from_hir(hir, op);
                 const AffineBool outcome = process_measurement(
                     body, AffineBool(hir.sign(op)), record, branch, plan, active_width, coordinates,
-                    symbolic_frame, source_lines, exact_frame, forced_effect_records,
-                    exact_symbol_values, final_coordinates_changed);
+                    symbolic_frame, source_lines, phase_aware, final_coordinates_changed);
                 assign_record(record, outcome, i);
                 break;
             }
@@ -898,27 +903,25 @@ SamplingPlan plan_sampling_impl(const HirModule& hir, SamplingPlanOptions option
 }
 
 SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
-    return plan_sampling_impl(hir, options, nullptr, nullptr, nullptr, {}, nullptr);
+    return plan_sampling_impl(hir, options, nullptr);
 }
 
 PhaseAwareSamplingPlan plan_sampling_phase_aware(const HirModule& hir,
                                                  PhaseAwareCliffordFrame final_clifford_frame,
                                                  std::span<const uint8_t> forced_effect_records) {
-    std::complex<double> scalar{1.0, 0.0};
-    std::vector<PhaseAwareScalarRotation> scalar_rotations;
-    std::vector<uint8_t> symbol_values;
-    SamplingPlan plan =
-        plan_sampling_impl(hir, {}, &scalar, &final_clifford_frame, &scalar_rotations,
-                           forced_effect_records, &symbol_values);
-    for (const PhaseAwareScalarRotation& rotation : scalar_rotations) {
-        const double eigenvalue = evaluate_known(rotation.sign, symbol_values) ? -1.0 : 1.0;
-        scalar *= std::polar(1.0, -std::numbers::pi * rotation.half_turns * eigenvalue / 2.0);
+    PhaseAwarePlanningContext context(std::move(final_clifford_frame), forced_effect_records);
+    SamplingPlan plan = plan_sampling_impl(hir, {}, &context);
+    for (const PhaseAwareScalarRotation& rotation : context.scalar_rotations) {
+        const double eigenvalue = evaluate_known(rotation.sign, context.symbol_values) ? -1.0 : 1.0;
+        context.scalar *=
+            std::polar(1.0, -std::numbers::pi *
+                                reduce_phase_half_turns(rotation.half_turns * eigenvalue) / 2.0);
     }
-    clifft::Tableau final_tableau = final_clifford_frame.tableau();
+    clifft::Tableau final_tableau = context.final_clifford_frame.tableau();
     return PhaseAwareSamplingPlan{.plan = std::move(plan),
-                                  .final_clifford_frame = std::move(final_clifford_frame),
+                                  .final_clifford_frame = std::move(context.final_clifford_frame),
                                   .final_tableau = std::move(final_tableau),
-                                  .scalar = scalar};
+                                  .scalar = context.scalar};
 }
 
 }  // namespace clifft::sampling

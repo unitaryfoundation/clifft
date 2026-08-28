@@ -38,3 +38,12 @@ TEST_CASE("Probability checks survive finite-math optimization") {
     CHECK_FALSE(is_probability(clifft::test::opaque_infinity()));
     CHECK_FALSE(is_probability(clifft::test::opaque_nonfinite(0xFFF0000000000000ULL)));
 }
+
+TEST_CASE("Exact phase helpers preserve periodic residues") {
+    CHECK(reduce_phase_half_turns(1000000000000001.0) == 1.0);
+    CHECK(reduce_phase_half_turns(-1000000000000001.0) == -1.0);
+    CHECK(i_power(0) == std::complex<double>{1.0, 0.0});
+    CHECK(i_power(5) == std::complex<double>{0.0, 1.0});
+    CHECK(i_power(10) == std::complex<double>{-1.0, 0.0});
+    CHECK(i_power(15) == std::complex<double>{0.0, -1.0});
+}

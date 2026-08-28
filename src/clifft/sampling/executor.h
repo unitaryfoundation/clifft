@@ -24,6 +24,7 @@ class BasisAmplitudeQuery;
 struct ReplayResult {
     bool reachable = true;
     double log_probability = 0.0;
+    uint32_t exact_half_probability_factors = 0;
 };
 
 struct InstrumentTrap {
@@ -127,6 +128,11 @@ class Executor {
         ReplayRecords,
         ReplayEffects,
     };
+
+    template <ShotMode Mode>
+    [[nodiscard]] static constexpr bool is_forced_replay() {
+        return Mode == ShotMode::ReplayRecords || Mode == ShotMode::ReplayEffects;
+    }
 
     enum class IntraShotMode : uint8_t {
         Serial,

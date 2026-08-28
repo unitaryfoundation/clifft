@@ -2,8 +2,10 @@
 
 #include "clifft/frontend/phase_aware_frontend.h"
 #include "clifft/tableau/tableau.h"
+#include "clifft/util/mask_view.h"
 #include "clifft/util/numeric.h"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <complex>
@@ -40,7 +42,8 @@ struct ExactTraceState {
     }
 
     void multiply_source_scalar(double rotation_half_turns) {
-        scalar *= std::polar(1.0, -std::numbers::pi * rotation_half_turns / 2.0);
+        scalar *=
+            std::polar(1.0, -std::numbers::pi * reduce_phase_half_turns(rotation_half_turns) / 2.0);
     }
 
     void multiply_t_scalar(bool dagger) {
@@ -563,56 +566,209 @@ void validate_instrument_probabilities(const InstrumentProbabilities& probabilit
     }
 }
 
+[[noreturn]] void malformed_node(const AstNode& node, std::string_view reason) {
+    throw std::invalid_argument("trace: malformed " + std::string(gate_name(node.gate)) +
+                                " at line " + std::to_string(node.source_line) + ": " +
+                                std::string(reason));
+}
+
+bool uses_pauli_targets(GateType gate) {
+    switch (gate) {
+        case GateType::MPP:
+        case GateType::SPP:
+        case GateType::SPP_DAG:
+        case GateType::TPP:
+        case GateType::TPP_DAG:
+        case GateType::R_PAULI:
+        case GateType::CORRELATED_ERROR:
+        case GateType::ELSE_CORRELATED_ERROR:
+        case GateType::EXP_VAL:
+            return true;
+        default:
+            return false;
+    }
+}
+
+void validate_trace_circuit(const Circuit& circuit) {
+    uint32_t measurements_seen = 0;
+    for (const AstNode& node : circuit.nodes) {
+        const size_t gate_index = static_cast<size_t>(node.gate);
+        if (gate_index >= static_cast<size_t>(GateType::UNKNOWN)) {
+            throw std::invalid_argument("trace: circuit contains an unknown gate");
+        }
+        if (is_parser_desugared(node.gate)) {
+            malformed_node(node, "parser-only gate was not lowered");
+        }
+        if (is_identity_noop(node.gate)) {
+            malformed_node(node, "parser-only identity was not eliminated");
+        }
+
+        const size_t target_count = node.targets.size();
+        switch (gate_arity(node.gate)) {
+            case GateArity::SINGLE:
+                if (target_count == 0) {
+                    malformed_node(node, "requires at least one target");
+                }
+                break;
+            case GateArity::PAIR:
+                if (target_count == 0 || target_count % 2U != 0) {
+                    malformed_node(node, "requires complete target pairs");
+                }
+                for (size_t i = 0; i < target_count; i += 2) {
+                    if (!node.targets[i].is_rec() && !node.targets[i + 1].is_rec() &&
+                        node.targets[i].value() == node.targets[i + 1].value()) {
+                        malformed_node(node, "requires distinct targets in each pair");
+                    }
+                }
+                if (std::ranges::any_of(node.targets,
+                                        [](Target target) { return target.is_rec(); })) {
+                    if (node.gate != GateType::CX && node.gate != GateType::CZ) {
+                        malformed_node(node, "does not support record-controlled pairs");
+                    }
+                    for (size_t i = 0; i < target_count; i += 2) {
+                        if (!node.targets[i].is_rec() || node.targets[i + 1].is_rec()) {
+                            malformed_node(node, "feedback requires a record then a qubit");
+                        }
+                    }
+                }
+                break;
+            case GateArity::TRIPLE:
+                if (target_count == 0 || target_count % 3U != 0) {
+                    malformed_node(node, "requires complete target triples");
+                }
+                for (size_t i = 0; i < target_count; i += 3) {
+                    const uint32_t a = node.targets[i].value();
+                    const uint32_t b = node.targets[i + 1].value();
+                    const uint32_t c = node.targets[i + 2].value();
+                    if (a == b || a == c || b == c) {
+                        malformed_node(node, "requires distinct targets in each triple");
+                    }
+                }
+                break;
+            case GateArity::MULTI:
+                if (target_count == 0 && node.gate != GateType::CORRELATED_ERROR &&
+                    node.gate != GateType::ELSE_CORRELATED_ERROR) {
+                    malformed_node(node, "requires at least one target");
+                }
+                break;
+            case GateArity::ANNOTATION:
+                if (node.gate == GateType::TICK && target_count != 0) {
+                    malformed_node(node, "does not accept targets");
+                }
+                break;
+        }
+
+        const bool pauli_targets = uses_pauli_targets(node.gate);
+        for (size_t i = 0; i < target_count; ++i) {
+            const Target target = node.targets[i];
+            if (target.is_rec()) {
+                if (target.value() >= measurements_seen) {
+                    malformed_node(node, "record target refers to a future measurement");
+                }
+                const bool feedback = (node.gate == GateType::CX || node.gate == GateType::CZ) &&
+                                      i % 2U == 0 && i + 1 < target_count &&
+                                      !node.targets[i + 1].is_rec();
+                const bool record_annotation = node.gate == GateType::READOUT_NOISE ||
+                                               node.gate == GateType::DETECTOR ||
+                                               node.gate == GateType::OBSERVABLE_INCLUDE;
+                if (!feedback && !record_annotation) {
+                    malformed_node(node, "record target is not valid for this gate");
+                }
+                continue;
+            }
+            if (node.gate == GateType::DETECTOR || node.gate == GateType::OBSERVABLE_INCLUDE ||
+                node.gate == GateType::READOUT_NOISE) {
+                malformed_node(node, "requires record targets");
+            }
+            if (node.gate == GateType::MPAD) {
+                if (target.has_pauli() || target.value() > 1) {
+                    malformed_node(node, "MPAD targets must be Boolean literals");
+                }
+                continue;
+            }
+            if (target.value() >= circuit.num_qubits) {
+                malformed_node(node, "qubit target is outside the circuit");
+            }
+            if (target.has_pauli() != pauli_targets) {
+                malformed_node(node, pauli_targets ? "requires Pauli-tagged targets"
+                                                   : "does not accept Pauli-tagged targets");
+            }
+            if (pauli_targets) {
+                for (size_t earlier = 0; earlier < i; ++earlier) {
+                    if (node.targets[earlier].value() == target.value()) {
+                        malformed_node(node, "repeats a Pauli target");
+                    }
+                }
+            }
+        }
+
+        const bool one_rotation_argument =
+            node.gate == GateType::R_X || node.gate == GateType::R_Y ||
+            node.gate == GateType::R_Z || node.gate == GateType::R_XX ||
+            node.gate == GateType::R_YY || node.gate == GateType::R_ZZ ||
+            node.gate == GateType::R_PAULI;
+        if (one_rotation_argument && node.args.size() != 1) {
+            malformed_node(node, "requires exactly one rotation argument");
+        }
+        if (node.gate == GateType::U3 && node.args.size() != 3) {
+            malformed_node(node, "requires exactly three rotation arguments");
+        }
+
+        if (is_measurement(node.gate)) {
+            const size_t added = node.gate == GateType::MPP ? 1 : target_count;
+            if (added > std::numeric_limits<uint32_t>::max() - measurements_seen) {
+                malformed_node(node, "measurement count exceeds uint32 range");
+            }
+            measurements_seen += static_cast<uint32_t>(added);
+        }
+    }
+}
+
 }  // namespace
 
 PhaseAwareCliffordFrame::PhaseAwareCliffordFrame(uint32_t num_qubits) : num_qubits_(num_qubits) {}
 
 void PhaseAwareCliffordFrame::apply_named_gate(GateType gate, std::span<const uint32_t> targets) {
-    operations_.push_back(NamedOperation{gate, {targets.begin(), targets.end()}});
+    source_operations_.push_back(NamedOperation{gate, {targets.begin(), targets.end()}});
 }
 
 void PhaseAwareCliffordFrame::apply_pauli_rotation(PauliStringView axis, bool dagger) {
-    operations_.push_back(PauliRotation{PauliString(axis), dagger});
+    source_operations_.push_back(PauliRotation{PauliString(axis), dagger});
 }
 
 void PhaseAwareCliffordFrame::compose_input(std::span<const NamedOperation> operations) {
-    std::vector<std::variant<NamedOperation, PauliRotation>> input;
-    input.reserve(operations.size());
-    for (const NamedOperation& operation : operations) {
-        input.emplace_back(operation);
+    input_operations_reversed_.reserve(input_operations_reversed_.size() + operations.size());
+    for (auto it = operations.rbegin(); it != operations.rend(); ++it) {
+        input_operations_reversed_.push_back(*it);
     }
-    operations_.insert(operations_.begin(), std::make_move_iterator(input.begin()),
-                       std::make_move_iterator(input.end()));
 }
 
 Tableau PhaseAwareCliffordFrame::tableau() const {
     Tableau result(num_qubits_);
-    for (const auto& operation : operations_) {
+    for (auto it = source_operations_.rbegin(); it != source_operations_.rend(); ++it) {
         std::visit(
             [&](const auto& typed) {
                 using Operation = std::decay_t<decltype(typed)>;
                 if constexpr (std::is_same_v<Operation, NamedOperation>) {
-                    result.append_named_gate(typed.gate, typed.targets);
+                    result.prepend_named_gate(typed.gate, typed.targets);
                 } else {
-                    result =
-                        result.then(Tableau::from_pauli_rotation(typed.axis.view(), typed.dagger));
+                    result.prepend_pauli_rotation(typed.axis.view(), typed.dagger);
                 }
             },
-            operation);
+            *it);
+    }
+    for (const NamedOperation& operation : input_operations_reversed_) {
+        result.prepend_named_gate(operation.gate, operation.targets);
     }
     return result;
 }
 
 StabilizerChForm PhaseAwareCliffordFrame::inverse_on_basis(std::span<const uint64_t> basis) const {
-    const size_t expected_words = (static_cast<size_t>(num_qubits_) + 63U) / 64U;
-    if (basis.size() != expected_words) {
+    if (basis.size() != mask_word_count(num_qubits_)) {
         throw std::invalid_argument("Clifford-frame basis width does not match the operator");
     }
-    if (!basis.empty() && num_qubits_ % 64U != 0) {
-        const uint64_t valid = (uint64_t{1} << (num_qubits_ % 64U)) - 1U;
-        if ((basis.back() & ~valid) != 0) {
-            throw std::invalid_argument("Clifford-frame basis sets unused high bits");
-        }
+    if (!mask_has_only_bits(MaskView{basis}, num_qubits_)) {
+        throw std::invalid_argument("Clifford-frame basis sets unused high bits");
     }
 
     StabilizerChForm state(num_qubits_);
@@ -622,30 +778,34 @@ StabilizerChForm PhaseAwareCliffordFrame::inverse_on_basis(std::span<const uint6
         }
     }
 
-    for (auto it = operations_.rbegin(); it != operations_.rend(); ++it) {
-        std::visit(
-            [&](const auto& operation) {
-                using Operation = std::decay_t<decltype(operation)>;
-                if constexpr (std::is_same_v<Operation, NamedOperation>) {
-                    state.apply_named_gate(inverse_clifford_gate(operation.gate),
-                                           operation.targets);
-                } else {
-                    state.apply_pauli_rotation(operation.axis.view(), !operation.dagger);
-                }
-            },
-            *it);
+    auto apply_inverse = [&](const auto& operation) {
+        using Operation = std::decay_t<decltype(operation)>;
+        if constexpr (std::is_same_v<Operation, NamedOperation>) {
+            state.apply_named_gate(inverse_clifford_gate(operation.gate), operation.targets);
+        } else {
+            state.apply_pauli_rotation(operation.axis.view(), !operation.dagger);
+        }
+    };
+    for (auto it = source_operations_.rbegin(); it != source_operations_.rend(); ++it) {
+        std::visit(apply_inverse, *it);
+    }
+    for (const NamedOperation& operation : input_operations_reversed_) {
+        apply_inverse(operation);
     }
     return state;
 }
 
 template <typename TraceState>
 HirModule trace_impl(const Circuit& circuit, const InstrumentTraceOptions* instruments,
-                     TraceState& trace_state) {
+                     TraceState& trace_state, bool input_validated = false) {
     // Avoid an accidental multi-gigabyte tableau allocation. This
     // conservative safety ceiling is far above practical circuit sizes.
     if (circuit.num_qubits > 65536) {
         throw std::runtime_error("Circuit exceeds the 65536-qubit frontend safety limit: " +
                                  std::to_string(circuit.num_qubits) + " qubits");
+    }
+    if (!input_validated) {
+        validate_trace_circuit(circuit);
     }
     if (instruments != nullptr && instruments->forced_traceout_node.has_value()) {
         const size_t node_index = *instruments->forced_traceout_node;
@@ -1375,15 +1535,20 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
 namespace {
 
 PhaseAwareHir trace_phase_aware_impl(const Circuit& circuit, bool allow_terminal_measurements) {
-    bool measurements_started = false;
-    for (const auto& node : circuit.nodes) {
-        if (allow_terminal_measurements && node.gate == GateType::M) {
-            measurements_started = true;
+    validate_trace_circuit(circuit);
+    for (size_t i = 0; i < circuit.nodes.size(); ++i) {
+        const AstNode& node = circuit.nodes[i];
+        const bool query_terminal_measurement = allow_terminal_measurements &&
+                                                i + 1 == circuit.nodes.size() &&
+                                                node.gate == GateType::M;
+        if (query_terminal_measurement) {
             continue;
         }
-        if (measurements_started || (!is_unitary(node.gate) && node.gate != GateType::TICK)) {
+        const bool has_record_target =
+            std::ranges::any_of(node.targets, [](Target target) { return target.is_rec(); });
+        if (has_record_target || (!is_unitary(node.gate) && node.gate != GateType::TICK)) {
             const std::string requirement = allow_terminal_measurements
-                                                ? "a unitary prefix and terminal M gates"
+                                                ? "a pure-unitary source before its output effect"
                                                 : "a pure-unitary circuit";
             throw std::invalid_argument("phase-aware trace requires " + requirement +
                                         "; unsupported gate " + std::string(gate_name(node.gate)) +
@@ -1392,17 +1557,13 @@ PhaseAwareHir trace_phase_aware_impl(const Circuit& circuit, bool allow_terminal
     }
 
     ExactTraceState trace_state(circuit.num_qubits);
-    HirModule hir = trace_impl(circuit, nullptr, trace_state);
+    HirModule hir = trace_impl(circuit, nullptr, trace_state, true);
     return PhaseAwareHir{.hir = std::move(hir),
                          .final_clifford_frame = std::move(trace_state.frame),
                          .source_scalar = trace_state.scalar};
 }
 
 }  // namespace
-
-PhaseAwareHir trace_phase_aware(const Circuit& circuit) {
-    return trace_phase_aware_impl(circuit, false);
-}
 
 PhaseAwareHir trace_phase_aware_terminal_measurements(const Circuit& circuit) {
     return trace_phase_aware_impl(circuit, true);

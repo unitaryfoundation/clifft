@@ -12,6 +12,7 @@
 // Or directly through the test binary for detailed Catch2 output:
 //   ./build/tests/clifft_tests "[bench]" --benchmark-samples 10
 
+#include "clifft/api/basis_amplitudes.h"
 #include "clifft/circuit/parser.h"
 #include "clifft/frontend/frontend.h"
 #include "clifft/optimizer/pass_factory.h"
@@ -21,8 +22,10 @@
 
 #include <catch2/benchmark/catch_benchmark.hpp>
 #include <catch2/catch_test_macros.hpp>
+#include <cstdint>
 #include <sstream>
 #include <string>
+#include <vector>
 
 using namespace clifft;
 
@@ -181,5 +184,24 @@ TEST_CASE("Bench: EXP_VAL 20q 200 probes", "[bench]") {
     // bench-history workflow's parser (.github/workflows/bench.yml).
     BENCHMARK("exp-val 20q 200 probes x100k") {
         return sampling::sample(mod, 100000, 0);
+    };
+}
+
+TEST_CASE("Bench: phase-aware input composition", "[bench]") {
+    constexpr uint32_t num_qubits = 256;
+    Circuit circuit;
+    circuit.num_qubits = num_qubits;
+    circuit.nodes.reserve(num_qubits);
+    for (uint32_t q = 0; q < num_qubits; ++q) {
+        circuit.nodes.push_back(AstNode{.gate = GateType::H,
+                                        .targets = {Target::qubit(q)},
+                                        .args = {},
+                                        .source_line = 0,
+                                        .tag = {}});
+    }
+    const std::vector<uint64_t> output((num_qubits + 63U) / 64U, 0);
+
+    BENCHMARK("amplitude compile 256q Clifford") {
+        return sampling::BasisAmplitudeQuery(circuit, output).peak_active_width();
     };
 }

@@ -1,6 +1,7 @@
 #include "clifft/sampling/executor.h"
 #include "clifft/sampling/state_queries.h"
 #include "clifft/sampling/state_query_limits.h"
+#include "clifft/util/numeric.h"
 
 #include <algorithm>
 #include <bit>
@@ -25,25 +26,12 @@ void validate_statevector_size(uint32_t num_qubits) {
     }
 }
 
-[[nodiscard]] std::complex<double> i_pow(uint8_t phase) {
-    switch (phase & 3U) {
-        case 0:
-            return {1.0, 0.0};
-        case 1:
-            return {0.0, 1.0};
-        case 2:
-            return {-1.0, 0.0};
-        default:
-            return {0.0, -1.0};
-    }
-}
-
 void apply_pauli(PauliStringView pauli, std::span<const std::complex<double>> input,
                  std::span<std::complex<double>> output) {
     assert(input.size() == output.size());
     const uint64_t x = pauli.x().words.empty() ? 0 : pauli.x().words[0];
     const uint64_t z = pauli.z().words.empty() ? 0 : pauli.z().words[0];
-    const std::complex<double> phase = i_pow(pauli.phase());
+    const std::complex<double> phase = i_power(pauli.phase());
     for (uint64_t basis = 0; basis < input.size(); ++basis) {
         const double z_sign = (std::popcount(basis & z) & 1U) != 0 ? -1.0 : 1.0;
         output[basis ^ x] = phase * z_sign * input[basis];

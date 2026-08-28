@@ -1,5 +1,7 @@
 #include "clifft/tableau/stabilizer_ch_form.h"
 
+#include "test_helpers.h"
+
 #include <catch2/catch_test_macros.hpp>
 #include <cmath>
 #include <complex>
@@ -9,17 +11,13 @@
 
 namespace {
 
-constexpr double kInvSqrt2 = 0.707106781186547524400844362104849039;
-
 std::complex<double> amplitude(const clifft::StabilizerChForm& state, uint64_t basis) {
     const std::vector<uint64_t> mask{basis};
     return state.amplitude(mask);
 }
 
-void check_complex(std::complex<double> actual, std::complex<double> expected,
-                   double tolerance = 1e-12) {
-    CHECK(std::abs(actual - expected) < tolerance);
-}
+using clifft::test::check_complex;
+using clifft::test::kInvSqrt2;
 
 using DenseState = std::vector<std::complex<double>>;
 

@@ -5,47 +5,42 @@
 #include "clifft/sampling/executor.h"
 #include "clifft/sampling/phase_aware_planner.h"
 #include "clifft/sampling/state_queries.h"
+#include "clifft/util/mask_view.h"
 
 #include <cassert>
 #include <cmath>
 #include <cstddef>
+#include <numbers>
 #include <stdexcept>
 #include <utility>
 
 namespace clifft::sampling {
 namespace {
 
-[[nodiscard]] size_t basis_word_count(uint32_t num_qubits) {
-    return (static_cast<size_t>(num_qubits) + 63U) / 64U;
-}
-
 void validate_output_basis(uint32_t num_qubits, std::span<const uint64_t> basis) {
-    const size_t expected_words = basis_word_count(num_qubits);
-    if (basis.size() != expected_words) {
+    if (basis.size() != mask_word_count(num_qubits)) {
         throw std::invalid_argument("amplitude output basis must have ceil(num_qubits / 64) words");
     }
-    const uint32_t used_bits = num_qubits % 64U;
-    if (!basis.empty() && used_bits != 0) {
-        const uint64_t valid = (uint64_t{1} << used_bits) - 1U;
-        if ((basis.back() & ~valid) != 0) {
-            throw std::invalid_argument("amplitude output basis sets unused high bits");
-        }
+    if (!mask_has_only_bits(MaskView{basis}, num_qubits)) {
+        throw std::invalid_argument("amplitude output basis sets unused high bits");
     }
+}
+
+double exact_half_amplitude_scale(uint32_t count) {
+    const int exponent = -static_cast<int>(count / 2U);
+    const double odd_factor = count % 2U == 0 ? 1.0 : 1.0 / std::numbers::sqrt2;
+    return std::ldexp(odd_factor, exponent);
+}
+
+uint32_t final_active_width(const SamplingPlan& plan) {
+    return plan.actions.empty() ? plan.initial_active_width : plan.actions.back().active_after;
 }
 
 Circuit append_terminal_measurements(const Circuit& source) {
-    for (const AstNode& node : source.nodes) {
-        if (!is_unitary(node.gate) && node.gate != GateType::TICK) {
-            throw std::invalid_argument("basis amplitude query requires a pure-unitary circuit");
-        }
-        const size_t arity = node.targets.size();
-        if ((gate_arity(node.gate) == GateArity::PAIR && arity % 2U != 0) ||
-            (gate_arity(node.gate) == GateArity::TRIPLE && arity % 3U != 0)) {
-            throw std::invalid_argument("basis amplitude query received malformed gate targets");
-        }
-    }
-
     Circuit result(source);
+    if (source.num_qubits == 0) {
+        return result;
+    }
     std::vector<Target> targets;
     targets.reserve(source.num_qubits);
     for (uint32_t q = 0; q < source.num_qubits; ++q) {
@@ -78,6 +73,9 @@ BasisAmplitudeQuery::Prepared BasisAmplitudeQuery::prepare(const Circuit& circui
     StatevectorSqueezePass{}.run(traced.hir);
     PhaseAwareSamplingPlan planned = plan_sampling_phase_aware(
         traced.hir, std::move(traced.final_clifford_frame), output_records);
+    if (final_active_width(planned.plan) != 0) {
+        throw std::logic_error("terminal effects did not eliminate every active coordinate");
+    }
     std::complex<double> phase = input_phase * traced.source_scalar * planned.scalar;
     phase *= internal::clifford_row_phase(planned.final_tableau, planned.final_clifford_frame,
                                           output_basis);
@@ -106,7 +104,8 @@ std::complex<double> BasisAmplitudeQuery::evaluate() const {
     assert(state.active_width() == 0 && "terminal effects must eliminate every active coordinate");
 
     const std::complex<double> normalized{state.real_data()[0], state.imag_data()[0]};
-    return phase_ * std::exp(0.5 * replay.log_probability) * normalized;
+    return phase_ * std::exp(0.5 * replay.log_probability) *
+           exact_half_amplitude_scale(replay.exact_half_probability_factors) * normalized;
 }
 
 }  // namespace clifft::sampling

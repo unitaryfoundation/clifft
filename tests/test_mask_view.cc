@@ -10,6 +10,8 @@
 using clifft::BitMask;
 using clifft::lowest_bit_at_or_above;
 using clifft::lowest_bit_below;
+using clifft::mask_has_only_bits;
+using clifft::mask_word_count;
 using clifft::MaskView;
 using clifft::mut_view;
 using clifft::MutableMaskView;
@@ -54,6 +56,19 @@ TEST_CASE("MaskView: bit_get and is_zero across word boundaries") {
     REQUIRE_FALSE(cv.bit_get(62));
     REQUIRE_FALSE(cv.bit_get(190));
     REQUIRE(cv.popcount() == 6);
+}
+
+TEST_CASE("MaskView: logical width helpers validate shape and high bits") {
+    CHECK(mask_word_count(0) == 0);
+    CHECK(mask_word_count(1) == 1);
+    CHECK(mask_word_count(64) == 1);
+    CHECK(mask_word_count(65) == 2);
+
+    const std::array<uint64_t, 2> valid{~uint64_t{0}, 1};
+    const std::array<uint64_t, 2> invalid{0, 2};
+    CHECK(mask_has_only_bits(MaskView{valid}, 65));
+    CHECK_FALSE(mask_has_only_bits(MaskView{invalid}, 65));
+    CHECK_FALSE(mask_has_only_bits(MaskView{valid}, 64));
 }
 
 TEST_CASE("MaskView: lowest_bit returns sentinel when empty") {

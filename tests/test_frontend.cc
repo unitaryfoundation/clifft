@@ -819,7 +819,7 @@ TEST_CASE("Frontend: CY classical feedback throws", "[frontend][regression]") {
     cy_node.targets.push_back(Target::qubit(0));
     circuit.nodes.push_back(cy_node);
 
-    REQUIRE_THROWS_AS(trace(circuit), std::runtime_error);
+    REQUIRE_THROWS_AS(trace(circuit), std::invalid_argument);
 }
 
 // =============================================================================

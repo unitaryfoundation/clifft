@@ -143,6 +143,22 @@ struct BasicMaskView {
 using MaskView = BasicMaskView<const uint64_t>;
 using MutableMaskView = BasicMaskView<uint64_t>;
 
+[[nodiscard]] constexpr size_t mask_word_count(uint32_t num_bits) {
+    return (static_cast<size_t>(num_bits) + 63U) / 64U;
+}
+
+[[nodiscard]] inline bool mask_has_only_bits(MaskView mask, uint32_t num_bits) {
+    if (mask.words.size() != mask_word_count(num_bits)) {
+        return false;
+    }
+    const uint32_t used_bits = num_bits % 64U;
+    if (mask.words.empty() || used_bits == 0) {
+        return true;
+    }
+    const uint64_t used_mask = (uint64_t{1} << used_bits) - 1U;
+    return (mask.words.back() & ~used_mask) == 0;
+}
+
 /// Bitwise equality on runtime-width mask views: same width and identical
 /// contents. Mutable views convert implicitly so `mut == const` works.
 [[nodiscard]] inline bool operator==(MaskView a, MaskView b) {

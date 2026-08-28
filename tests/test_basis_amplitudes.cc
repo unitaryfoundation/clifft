@@ -1,6 +1,10 @@
 #include "clifft/api/basis_amplitudes.h"
 #include "clifft/circuit/parser.h"
 #include "clifft/circuit/qasm2_parser.h"
+#include "clifft/frontend/frontend.h"
+#include "clifft/frontend/phase_aware_frontend.h"
+
+#include "test_helpers.h"
 
 #include <catch2/catch_test_macros.hpp>
 #include <cmath>
@@ -38,21 +42,15 @@ clifft::Circuit layered_circuit(clifft::GateType first, clifft::GateType second,
     return circuit;
 }
 
-void check_complex(std::complex<double> actual, std::complex<double> expected,
-                   double tolerance = 1e-12) {
-    INFO("actual " << actual << " expected " << expected);
-    CHECK(std::abs(actual - expected) < tolerance);
-}
+using clifft::test::check_complex;
 
 }  // namespace
 
 TEST_CASE("Basis amplitude query retains canonical Clifford phases") {
-    constexpr double inv_sqrt_2 = 0.707106781186547524400844362104849039;
-
-    check_complex(amplitude("H 0", 0), {inv_sqrt_2, 0.0});
-    check_complex(amplitude("H 0", 1), {inv_sqrt_2, 0.0});
-    check_complex(amplitude("H 0\nS 0", 0), {inv_sqrt_2, 0.0});
-    check_complex(amplitude("H 0\nS 0", 1), {0.0, inv_sqrt_2});
+    check_complex(amplitude("H 0", 0), {clifft::test::kInvSqrt2, 0.0});
+    check_complex(amplitude("H 0", 1), {clifft::test::kInvSqrt2, 0.0});
+    check_complex(amplitude("H 0\nS 0", 0), {clifft::test::kInvSqrt2, 0.0});
+    check_complex(amplitude("H 0\nS 0", 1), {0.0, clifft::test::kInvSqrt2});
     check_complex(amplitude("Y 0", 1), {0.0, 1.0});
     check_complex(amplitude("X 0\nZ 0", 1), {-1.0, 0.0});
     check_complex(amplitude("SQRT_X 0", 0), {0.5, 0.5});
@@ -98,6 +96,15 @@ TEST_CASE("Basis amplitude query retains exponential rotation scalars") {
                              std::numbers::pi * (phi - lambda) / 2.0));
 }
 
+TEST_CASE("Basis amplitude query reduces large rotation phases before evaluation") {
+    constexpr const char* kLargeOddHalfTurn = "1000000000000001";
+    check_complex(amplitude(std::string("R_X(") + kLargeOddHalfTurn + ") 0", 1), {0.0, -1.0});
+    check_complex(amplitude(std::string("R_Y(") + kLargeOddHalfTurn + ") 0", 1), {1.0, 0.0});
+    check_complex(amplitude(std::string("R_Z(") + kLargeOddHalfTurn + ") 0", 0), {0.0, -1.0});
+    check_complex(amplitude("R_Z(1000000000000000.5) 0", 0),
+                  std::polar(1.0, -std::numbers::pi / 4.0));
+}
+
 TEST_CASE("Basis amplitude query rejects nonunitary circuits") {
     const clifft::Circuit circuit = clifft::parse("M 0");
     const std::vector<uint64_t> output{0};
@@ -117,6 +124,43 @@ TEST_CASE("Basis amplitude query rejects incomplete paired operations") {
     const std::vector<uint64_t> output{0};
     REQUIRE_THROWS_AS(clifft::sampling::BasisAmplitudeQuery(circuit, output),
                       std::invalid_argument);
+}
+
+TEST_CASE("Trace surfaces reject malformed raw circuit nodes consistently") {
+    const std::vector<uint64_t> output{0};
+    auto check_rejected = [&](clifft::AstNode node, uint32_t num_qubits = 1) {
+        clifft::Circuit circuit;
+        circuit.num_qubits = num_qubits;
+        circuit.nodes.push_back(std::move(node));
+        REQUIRE_THROWS_AS(clifft::trace(circuit), std::invalid_argument);
+        REQUIRE_THROWS_AS(clifft::sampling::BasisAmplitudeQuery(circuit, output),
+                          std::invalid_argument);
+    };
+
+    SECTION("missing rotation argument") {
+        check_rejected(
+            {.gate = clifft::GateType::R_Z, .targets = {clifft::Target::qubit(0)}, .args = {}});
+    }
+    SECTION("duplicate pair target") {
+        check_rejected({.gate = clifft::GateType::SQRT_XX,
+                        .targets = {clifft::Target::qubit(0), clifft::Target::qubit(0)},
+                        .args = {}});
+    }
+    SECTION("duplicate controlled target") {
+        check_rejected({.gate = clifft::GateType::CZ,
+                        .targets = {clifft::Target::qubit(0), clifft::Target::qubit(0)},
+                        .args = {}});
+    }
+    SECTION("duplicate swap target") {
+        check_rejected({.gate = clifft::GateType::ISWAP,
+                        .targets = {clifft::Target::qubit(0), clifft::Target::qubit(0)},
+                        .args = {}});
+    }
+    SECTION("record before measurement") {
+        check_rejected({.gate = clifft::GateType::CX,
+                        .targets = {clifft::Target::rec(0), clifft::Target::qubit(0)},
+                        .args = {}});
+    }
 }
 
 TEST_CASE("Basis amplitude query tracks multiple planner coordinate changes") {
@@ -151,12 +195,11 @@ TEST_CASE("Basis amplitude query retains terminal Pauli correction phases") {
     )");
     const std::complex<double> input_phase =
         std::polar(1.0, std::numbers::pi * imported.global_phase_half_turns);
-    constexpr double inv_sqrt_2 = 0.707106781186547524400844362104849039;
     constexpr double theta = 0.31;
     constexpr double phi = -0.47;
     constexpr double lambda = 0.59;
-    const double cosine = inv_sqrt_2 * std::cos(theta / 2.0);
-    const double sine = inv_sqrt_2 * std::sin(theta / 2.0);
+    const double cosine = clifft::test::kInvSqrt2 * std::cos(theta / 2.0);
+    const double sine = clifft::test::kInvSqrt2 * std::sin(theta / 2.0);
     const std::vector<std::complex<double>> expected{
         {cosine, 0.0},
         std::polar(sine, phi),
@@ -236,4 +279,63 @@ TEST_CASE("Basis amplitude query avoids whole-state width in either gate order")
         // threshold, but a selected-amplitude query must still retain it.
         check_complex(query.evaluate(), {std::ldexp(1.0, -30), 0.0});
     }
+}
+
+TEST_CASE("Basis amplitude query preserves exact dyadic terminal factors") {
+    for (const uint32_t num_qubits : {64U, 512U, 2048U}) {
+        clifft::Circuit circuit;
+        circuit.num_qubits = num_qubits;
+        for (uint32_t q = 0; q < num_qubits; ++q) {
+            circuit.nodes.push_back(
+                {.gate = clifft::GateType::H, .targets = {clifft::Target::qubit(q)}, .args = {}});
+        }
+        const std::vector<uint64_t> output((num_qubits + 63U) / 64U, 0);
+        const clifft::sampling::BasisAmplitudeQuery query(circuit, output);
+
+        INFO("num_qubits " << num_qubits);
+        CHECK(query.evaluate() ==
+              std::complex<double>{std::ldexp(1.0, -static_cast<int>(num_qubits / 2U)), 0.0});
+    }
+}
+
+TEST_CASE("Basis amplitude query retains active numerical dust") {
+    constexpr double alpha = 1e-10;
+    const clifft::Circuit circuit = clifft::parse("R_Y(1e-10) 0");
+    const std::vector<uint64_t> output{1};
+    const clifft::sampling::BasisAmplitudeQuery query(circuit, output);
+
+    CHECK(query.peak_active_width() == 1);
+    check_complex(query.evaluate(), {std::sin(std::numbers::pi * alpha / 2.0), 0.0}, 1e-20);
+}
+
+TEST_CASE("Phase-aware Clifford input composition preserves operator order") {
+    clifft::PhaseAwareCliffordFrame frame(3);
+    frame.apply_named_gate(clifft::GateType::H, std::array<uint32_t, 1>{0});
+    clifft::PauliString axis(3);
+    axis.set_pauli(1, true, true);
+    axis.set_sign(false);
+    frame.apply_pauli_rotation(axis.view(), false);
+    frame.apply_named_gate(clifft::GateType::S, std::array<uint32_t, 1>{2});
+
+    const std::array first_input{
+        clifft::PhaseAwareCliffordFrame::NamedOperation{clifft::GateType::CX, {0, 1}},
+        clifft::PhaseAwareCliffordFrame::NamedOperation{clifft::GateType::X, {2}}};
+    const std::array second_input{
+        clifft::PhaseAwareCliffordFrame::NamedOperation{clifft::GateType::SWAP, {1, 2}},
+        clifft::PhaseAwareCliffordFrame::NamedOperation{clifft::GateType::S_DAG, {0}}};
+    frame.compose_input(first_input);
+    frame.compose_input(second_input);
+
+    clifft::Tableau expected(3);
+    for (const auto& operation : second_input) {
+        expected.append_named_gate(operation.gate, operation.targets);
+    }
+    for (const auto& operation : first_input) {
+        expected.append_named_gate(operation.gate, operation.targets);
+    }
+    expected.append_named_gate(clifft::GateType::H, {0});
+    expected = expected.then(clifft::Tableau::from_pauli_rotation(axis.view(), false));
+    expected.append_named_gate(clifft::GateType::S, {2});
+
+    CHECK(frame.tableau() == expected);
 }
