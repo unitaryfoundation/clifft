@@ -1,0 +1,14 @@
+shots: 100000
+threads: 1 8
+warmups: 2
+repetitions: 11
+fixed_k: 1
+apis: sample sample_survivors sample_k sample_k_survivors
+keep_records: 0 1
+batches: 1 auto 256 1024
+postselection: none all alternating
+threshold: 0.05
+fixtures: active_width5_transient.stim active_width5_sustained.stim
+baseline: fba10d75acc77ac559e5750e1ccb162993340723
+candidate: 26f3ba1ab05d46f9ad7ea24d89174b9e53266532
+expected_cases_per_csv: 56
