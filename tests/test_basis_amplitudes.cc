@@ -90,6 +90,39 @@ TEST_CASE("Basis amplitude query retains entangled relative phase interference")
     }
 }
 
+TEST_CASE("Basis amplitude query retains persistent three qubit correlations") {
+    const std::complex<double> phased = std::polar(clifft::test::kInvSqrt2, std::numbers::pi / 4.0);
+    const clifft::Circuit circuit = clifft::parse("H 0\nCX 0 1\nCX 1 2\nT 2");
+    for (uint64_t basis = 0; basis < 8; ++basis) {
+        const std::complex<double> expected =
+            basis == 0   ? std::complex<double>{clifft::test::kInvSqrt2, 0.0}
+            : basis == 7 ? phased
+                         : std::complex<double>{0.0, 0.0};
+        INFO("basis " << basis);
+        const std::vector<uint64_t> output{basis};
+        check_complex(clifft::sampling::BasisAmplitudeQuery(circuit, output).evaluate(), expected);
+    }
+}
+
+TEST_CASE("Basis amplitude query retains cross word Bell correlations") {
+    const std::complex<double> phased = std::polar(clifft::test::kInvSqrt2, std::numbers::pi / 4.0);
+    const clifft::Circuit circuit = clifft::parse("H 0\nCX 0 69\nT 69\nX 69");
+    for (uint64_t q0 = 0; q0 < 2; ++q0) {
+        for (uint64_t q69 = 0; q69 < 2; ++q69) {
+            std::vector<uint64_t> output(2, 0);
+            output[0] = q0;
+            output[1] = q69 << 5U;
+            const std::complex<double> expected =
+                q0 == 0 && q69 == 1   ? std::complex<double>{clifft::test::kInvSqrt2, 0.0}
+                : q0 == 1 && q69 == 0 ? phased
+                                      : std::complex<double>{0.0, 0.0};
+            INFO("q0 " << q0 << " q69 " << q69);
+            check_complex(clifft::sampling::BasisAmplitudeQuery(circuit, output).evaluate(),
+                          expected);
+        }
+    }
+}
+
 TEST_CASE("Basis amplitude query retains exponential rotation scalars") {
     const auto quarter_turn = std::polar(1.0, std::numbers::pi / 4.0);
     check_complex(amplitude("R_Z(0.5) 0", 0), std::conj(quarter_turn));
