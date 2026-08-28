@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787822920549,
+  "lastUpdate": 1787909517631,
   "repoUrl": "https://github.com/unitaryfoundation/clifft",
   "entries": {
     "C++ Catch2 benchmarks (scalar)": [
@@ -6526,6 +6526,70 @@ window.BENCHMARK_DATA = {
             "name": "exp-val 20q 200 probes x100k",
             "value": 98.0209,
             "range": "± 1.44555",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Brad Chase",
+            "username": "bachase",
+            "email": "14430+bachase@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "4b5c0c448046f71cc62429680b31030c791838fc",
+          "message": "perf(sampling): add Apple NEON active-state kernels (#416)\n\nperf(sampling): add Apple Silicon NEON backend\n\nAdd Apple arm64 NEON kernels for direct and fused rotations and diagonal\nactive measurements, including intra-shot parallel execution. Select the\nbackend automatically, prepare fused-rotation sidecars during planning,\nand retain scalar fallbacks below measured profitability thresholds.\n\nAdd scalar-differential kernel coverage, an end-to-end Apple Silicon\nintegration test, and documentation for the new backend.\n\nAssisted-by: Codex (GPT-5.6) <noreply@openai.com>",
+          "timestamp": "2026-08-27T20:45:53Z",
+          "url": "https://github.com/unitaryfoundation/clifft/commit/4b5c0c448046f71cc62429680b31030c791838fc"
+        },
+        "date": 1787909513862,
+        "tool": "catch2",
+        "benches": [
+          {
+            "name": "QV-10 x100 shots",
+            "value": 21.4026,
+            "range": "± 1.11505",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "cultivation-d5 x1000 shots",
+            "value": 59.8674,
+            "range": "± 748.417",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d7-r7 p=1e-3 x10000 shots",
+            "value": 33.1297,
+            "range": "± 537.52",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d5-r5 p=0.05 x10000 shots",
+            "value": 37.0792,
+            "range": "± 154.302",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d11-r11 p=1e-3 x1000 shots",
+            "value": 13.4567,
+            "range": "± 445.101",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "exp-val 20q 200 probes x100k",
+            "value": 114.351,
+            "range": "± 2.16325",
             "unit": "ms",
             "extra": "100 samples\n1 iterations"
           }
