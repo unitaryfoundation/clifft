@@ -64,6 +64,12 @@ inline constexpr double kMaxSparseBatchReadoutProbability = 0.05;
             .row_output = saturating_add_u64(lhs.row_output, rhs.row_output)};
 }
 
+[[nodiscard]] batch_detail::BatchWorkEstimate add_batch_work_estimate(
+    batch_detail::BatchWorkEstimate lhs, batch_detail::BatchWorkEstimate rhs) noexcept {
+    return {.all_widths = add_batch_lane_work(lhs.all_widths, rhs.all_widths),
+            .width_five = add_batch_lane_work(lhs.width_five, rhs.width_five)};
+}
+
 [[nodiscard]] batch_detail::BatchWorkEstimate planned_batch_lane_work(
     const PlannedAction& planned) noexcept {
     const batch_detail::BatchLaneWork work = std::visit(
@@ -167,21 +173,27 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::initialize_program() {
 
     output_.num_symbols_ = static_cast<uint32_t>(source_.symbols.size());
 
+    const ProgramStorageEstimate storage = estimate_program_storage();
     output_.actions_.reserve(source_.actions.size());
-    action_batch_lane_work_.reserve(source_.actions.size());
+    retain_action_batch_lane_work_ = storage.has_postselection;
+    if (retain_action_batch_lane_work_) {
+        action_batch_lane_work_.reserve(source_.actions.size());
+    }
     if (source_.source_map.has_value()) {
         output_.action_plan_ranges_.reserve(source_.actions.size());
     }
     output_.expression_register_constants_.reserve(source_.actions.size());
-    // The reserve prepass pays for itself on expression-heavy plans by
-    // avoiding repeated growth of the temporary term tape.
-    expression_terms_.reserve(estimate_expression_terms());
+    // The storage prepass avoids repeated growth of the temporary term tape
+    // and identifies plans that need reverse compaction metadata.
+    expression_terms_.reserve(storage.expression_terms);
     expression_term_begins_.reserve(source_.actions.size());
     output_.instrument_resume_offsets_.assign(source_.instrument_distributions.size(),
                                               std::numeric_limits<uint32_t>::max());
 }
 
-CLIFFT_BUILDER_FORCE_INLINE size_t ExecutablePlanBuilder::estimate_expression_terms() const {
+CLIFFT_BUILDER_FORCE_INLINE ExecutablePlanBuilder::ProgramStorageEstimate
+ExecutablePlanBuilder::estimate_program_storage() const {
+    ProgramStorageEstimate storage;
     size_t num_terms = 0;
     for (const PlannedAction& planned : source_.actions) {
         std::visit(
@@ -202,7 +214,7 @@ CLIFFT_BUILDER_FORCE_INLINE size_t ExecutablePlanBuilder::estimate_expression_te
                 } else if constexpr (std::is_same_v<T, ApplyReadoutNoise>) {
                     num_terms += typed.source.terms().size();
                 } else if constexpr (std::is_same_v<T, WriteDetector>) {
-                    // Detector record parities do not use affine registers.
+                    storage.has_postselection |= typed.postselected;
                 } else if constexpr (std::is_same_v<T, WriteObservable>) {
                     if (const auto* expression = std::get_if<AffineBool>(&typed.outcome)) {
                         num_terms += expression->terms().size();
@@ -224,7 +236,8 @@ CLIFFT_BUILDER_FORCE_INLINE size_t ExecutablePlanBuilder::estimate_expression_te
     if (num_terms > std::numeric_limits<uint32_t>::max()) {
         throw std::length_error("sampling executable expression storage exceeds uint32 range");
     }
-    return num_terms;
+    storage.expression_terms = num_terms;
+    return storage;
 }
 
 CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::prepare_noise_and_boundaries() {
@@ -494,9 +507,20 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::lower_action(const Plann
             }
         },
         planned.action);
-    assert(action_batch_lane_work_.size() + 1 == output_.actions_.size() &&
-           "each lowered action must receive one batch work estimate");
-    action_batch_lane_work_.push_back(planned_batch_lane_work(planned));
+    record_batch_lane_work(planned_batch_lane_work(planned));
+}
+
+CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::record_batch_lane_work(
+    batch_detail::BatchWorkEstimate work) {
+    estimated_batch_lane_work_ = add_batch_work_estimate(estimated_batch_lane_work_, work);
+    if (retain_action_batch_lane_work_) {
+        assert(action_batch_lane_work_.size() + 1 == output_.actions_.size() &&
+               "each lowered action must receive one batch work estimate");
+        action_batch_lane_work_.push_back(work.all_widths);
+    } else {
+        assert(action_batch_lane_work_.empty() &&
+               "ordinary plans must not retain action-level batch work");
+    }
 }
 
 CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::lower_action_stream() {
@@ -525,7 +549,7 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::lower_action_stream() {
                 static_cast<uint32_t>(output_.dynamic_fused_rotations_.size());
             output_.dynamic_fused_rotations_.push_back(std::move(execution));
             output_.actions_.emplace_back(ExecutablePlan::ExecuteDynamicFusedRotation{fused_index});
-            action_batch_lane_work_.push_back(fused_batch_lane_work(
+            record_batch_lane_work(fused_batch_lane_work(
                 output_.dynamic_fused_rotations_.back().variants.front().rotation()));
             record_action_origin(static_cast<uint32_t>(planned_index),
                                  static_cast<uint32_t>(planned_index + dynamic_run.action_count));
@@ -539,7 +563,7 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::lower_action_stream() {
             const uint32_t fused_index = static_cast<uint32_t>(output_.fused_rotations_.size());
             output_.fused_rotations_.emplace_back(std::move(*run.rotation), backend_);
             output_.actions_.emplace_back(ExecutablePlan::ExecuteFusedRotation{fused_index});
-            action_batch_lane_work_.push_back(
+            record_batch_lane_work(
                 fused_batch_lane_work(output_.fused_rotations_.back().rotation()));
             record_action_origin(static_cast<uint32_t>(planned_index),
                                  static_cast<uint32_t>(planned_index + run.action_count));
@@ -557,22 +581,27 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::lower_action_stream() {
 }
 
 CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::prepare_batch_compaction_costs() {
+    output_.estimated_batch_lane_work_ = estimated_batch_lane_work_;
+    if (!retain_action_batch_lane_work_) {
+        assert(action_batch_lane_work_.empty() && !output_.has_postselection_ &&
+               "ordinary plans must not retain compaction metadata");
+        return;
+    }
     assert(action_batch_lane_work_.size() == output_.actions_.size() &&
-           "batch work estimates must parallel executable actions");
+           output_.has_postselection_ &&
+           "postselected batch work must parallel executable actions");
     batch_detail::BatchLaneWork remaining_lane_work;
-    batch_detail::BatchLaneWork width_five_lane_work;
     for (size_t index = output_.actions_.size(); index-- > 0;) {
         if (auto* detector =
                 std::get_if<ExecutablePlan::ExecuteDetector>(&output_.actions_[index])) {
             detector->remaining_batch_lane_work = remaining_lane_work;
         }
         remaining_lane_work =
-            add_batch_lane_work(remaining_lane_work, action_batch_lane_work_[index].all_widths);
-        width_five_lane_work =
-            add_batch_lane_work(width_five_lane_work, action_batch_lane_work_[index].width_five);
+            add_batch_lane_work(remaining_lane_work, action_batch_lane_work_[index]);
     }
-    output_.estimated_batch_lane_work_ = {.all_widths = remaining_lane_work,
-                                          .width_five = width_five_lane_work};
+    assert(remaining_lane_work.common == estimated_batch_lane_work_.all_widths.common &&
+           remaining_lane_work.row_output == estimated_batch_lane_work_.all_widths.row_output &&
+           "forward and reverse batch work totals must agree");
 }
 
 CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::record_action_origin(uint32_t plan_begin,

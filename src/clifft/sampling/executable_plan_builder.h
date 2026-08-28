@@ -18,6 +18,11 @@ class ExecutablePlanBuilder {
   private:
     friend class ExecutablePlan;
 
+    struct ProgramStorageEstimate {
+        size_t expression_terms = 0;
+        bool has_postselection = false;
+    };
+
     static void build(ExecutablePlan& output, const SamplingPlan& source);
     ExecutablePlanBuilder(ExecutablePlan& output, const SamplingPlan& source);
 
@@ -34,6 +39,7 @@ class ExecutablePlanBuilder {
     // adjacent-rotation fusion without introducing a general pass pipeline.
     void lower_action_stream();
     void lower_action(const PlannedAction& planned, size_t& boundary_index);
+    void record_batch_lane_work(batch_detail::BatchWorkEstimate work);
     void record_action_origin(uint32_t plan_begin, uint32_t plan_end);
     void prepare_batch_compaction_costs();
 
@@ -42,7 +48,7 @@ class ExecutablePlanBuilder {
 
     // Check construction-only invariants in Debug builds.
     void validate_executable_plan() const;
-    [[nodiscard]] size_t estimate_expression_terms() const;
+    [[nodiscard]] ProgramStorageEstimate estimate_program_storage() const;
 
     [[nodiscard]] ExecutablePlan::PreparedExpression prepare_expression(
         const AffineBool& expression);
@@ -62,7 +68,9 @@ class ExecutablePlanBuilder {
     std::vector<uint32_t> expression_term_begins_;
     std::vector<uint32_t> boundary_noise_starts_;
     std::vector<uint8_t> bound_presampled_symbols_;
-    std::vector<batch_detail::BatchWorkEstimate> action_batch_lane_work_;
+    batch_detail::BatchWorkEstimate estimated_batch_lane_work_;
+    std::vector<batch_detail::BatchLaneWork> action_batch_lane_work_;
+    bool retain_action_batch_lane_work_ = false;
 };
 
 }  // namespace clifft::sampling
