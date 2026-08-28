@@ -328,6 +328,7 @@ std::complex<double> BoundStabilizerAmplitudeQuery::amplitude(MaskView basis,
                                         sign_masks.end());
     size_t rank_z = 0;
     std::vector<uint32_t> z_pivot_cols;
+    z_pivot_cols.reserve(z_rows.size());
     // Pure Z constraints fix one base bit at a time. After binding x, each
     // pivot equation says whether the corresponding bit of the affine base
     // string is 0 or 1.
@@ -364,8 +365,9 @@ std::complex<double> BoundStabilizerAmplitudeQuery::amplitude(MaskView basis,
     std::vector<DynamicSignTerm> base_terms;
     base_terms.reserve(rank_z);
     for (size_t r = 0; r < rank_z; ++r) {
-        base_terms.push_back(DynamicSignTerm{
-            .bit = z_pivot_cols[r], .static_sign = z_rows[r].sign(), .sign_mask = z_sign_masks[r]});
+        base_terms.push_back(DynamicSignTerm{.bit = z_pivot_cols[r],
+                                             .static_sign = z_rows[r].sign(),
+                                             .sign_mask = std::move(z_sign_masks[r])});
     }
 
     std::vector<IdentityConstraint> identity_constraints;
