@@ -2,190 +2,75 @@
 
 All notable changes to this project will be documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/),
-and this project adheres to [Semantic Versioning](https://semver.org/).
+The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [0.9.0] - 2026-08-24
 
-Clifft 0.9.0 adds parallel sampling across ordinary,
-post-selected, forced-fault, and noncomputational workloads. A single
-`threads` budget can spread work across independent shots, or, for
-some large `k`/active-width workloads, use OpenMP within each
-shot. Expert callers can select an explicit hybrid layout.
+Clifft 0.9.0 adds parallel sampling across ordinary, post-selected, forced-fault, and noncomputational workloads. A single `threads` budget can spread work across independent shots, or, for some large `k`/active-width workloads, use OpenMP within each shot. Expert callers can select an explicit hybrid layout.
 
-The release also defines exact statevectors projectively, up to global phase.
-That simpler contract lets the compiler absorb Clifford-valued rotations
-earlier and remove global-phase bookkeeping, while new SIMD measurement
-kernels accelerate important active-state paths. See
-[Parallel Sampling](https://unitaryfoundation.github.io/clifft/stable/guide/simulation/#parallel-sampling)
-for the threading model, resource tradeoffs, and advanced controls.
+The release also defines exact statevectors projectively, up to global phase. That simpler contract lets the compiler absorb Clifford-valued rotations earlier and remove global-phase bookkeeping, while new SIMD measurement kernels accelerate important active-state paths. See [Parallel Sampling](https://unitaryfoundation.github.io/clifft/stable/guide/simulation/#parallel-sampling) for the threading model, resource tradeoffs, and advanced controls.
 
 ### Added
 
-- Added parallel sampling to `sample()`, `sample_survivors()`, `sample_k()`,
-  `sample_k_survivors()`, and `noncomp.sample()`. `threads` accepts a positive
-  worker budget or `"auto"`; fixed-plan sampling automatically chooses
-  cross-shot or intra-shot execution, while `thread_layout` and
-  `intra_shot_min_active_width` provide expert control. This stack preserves
-  seeded results across worker layouts and keeps noncomputational result
-  sidecars in deterministic row order, by @bachase in
-  [#352](https://github.com/unitaryfoundation/clifft/pull/352),
-  [#354](https://github.com/unitaryfoundation/clifft/pull/354),
-  [#355](https://github.com/unitaryfoundation/clifft/pull/355), and
-  [#379](https://github.com/unitaryfoundation/clifft/pull/379).
+- Added parallel sampling to `sample()`, `sample_survivors()`, `sample_k()`, `sample_k_survivors()`, and `noncomp.sample()`. `threads` accepts a positive worker budget or `"auto"`; fixed-plan sampling automatically chooses cross-shot or intra-shot execution, while `thread_layout` and `intra_shot_min_active_width` provide expert control. This stack preserves seeded results across worker layouts and keeps noncomputational result sidecars in deterministic row order, by @bachase in [#352](https://github.com/unitaryfoundation/clifft/pull/352), [#354](https://github.com/unitaryfoundation/clifft/pull/354), [#355](https://github.com/unitaryfoundation/clifft/pull/355), and [#379](https://github.com/unitaryfoundation/clifft/pull/379).
 
 ### Changed
 
-- **Breaking:** `threads` now represents a total sampling worker budget and
-  may select intra-shot OpenMP execution for wide, undersubscribed fixed-plan
-  workloads. Use `thread_layout=(shot_workers, 1)` to preserve cross-shot-only
-  scheduling. Seeded ordinary and fixed-fault sampling now derives each shot
-  from the call seed and global shot index, so rows differ from v0.8 for the
-  same seed even though v0.9 results are reproducible across worker layouts,
-  by @bachase in [#352](https://github.com/unitaryfoundation/clifft/pull/352)
-  and [#379](https://github.com/unitaryfoundation/clifft/pull/379).
-- **Breaking:** `get_statevector()` now returns a normalized representative of
-  the final state ray and no longer guarantees the source matrix's global
-  phase. Compare statevectors up to global phase, or compare probabilities or
-  fidelity. Building on this contract, the compiler now removes global-phase
-  bookkeeping and absorbs Clifford-valued axis and Pauli-product rotations
-  during tracing and peephole fusion, avoiding unnecessary actions and
-  active-width growth, by @bachase in
-  [#369](https://github.com/unitaryfoundation/clifft/pull/369),
-  [#372](https://github.com/unitaryfoundation/clifft/pull/372),
-  [#378](https://github.com/unitaryfoundation/clifft/pull/378), and
-  [#383](https://github.com/unitaryfoundation/clifft/pull/383).
+- **Breaking:** `threads` now represents a total sampling worker budget and may select intra-shot OpenMP execution for wide, undersubscribed fixed-plan workloads. Use `thread_layout=(shot_workers, 1)` to preserve cross-shot-only scheduling. Seeded ordinary and fixed-fault sampling now derives each shot from the call seed and global shot index, so rows differ from v0.8 for the same seed even though v0.9 results are reproducible across worker layouts, by @bachase in [#352](https://github.com/unitaryfoundation/clifft/pull/352) and [#379](https://github.com/unitaryfoundation/clifft/pull/379).
+- **Breaking:** `get_statevector()` now returns a normalized representative of the final state ray and no longer guarantees the source matrix's global phase. Compare statevectors up to global phase, or compare probabilities or fidelity. Building on this contract, the compiler now removes global-phase bookkeeping and absorbs Clifford-valued axis and Pauli-product rotations during tracing and peephole fusion, avoiding unnecessary actions and active-width growth, by @bachase in [#369](https://github.com/unitaryfoundation/clifft/pull/369), [#372](https://github.com/unitaryfoundation/clifft/pull/372), [#378](https://github.com/unitaryfoundation/clifft/pull/378), and [#383](https://github.com/unitaryfoundation/clifft/pull/383).
 
 ### Performance
 
-- Vectorized high-pivot and diagonal active-measurement probability
-  and collapse paths for AVX2 and AVX-512 while retaining scalar fallbacks, by
-  @bachase in [#374](https://github.com/unitaryfoundation/clifft/pull/374).
+- Vectorized high-pivot and diagonal active-measurement probability and collapse paths for AVX2 and AVX-512 while retaining scalar fallbacks, by @bachase in [#374](https://github.com/unitaryfoundation/clifft/pull/374).
 
 ### Fixed
 
-- Fixed `basis_probabilities()` for outcomes where multiple active coordinates
-  interfere with complex relative weights. Both the Gray-code and fallback
-  paths now conjugate the inverse-frame expansion correctly, with analytic and
-  randomized independent-reference regressions, by @bachase in
-  [#381](https://github.com/unitaryfoundation/clifft/pull/381).
+- Fixed `basis_probabilities()` for outcomes where multiple active coordinates interfere with complex relative weights. Both the Gray-code and fallback paths now conjugate the inverse-frame expansion correctly, with analytic and randomized independent-reference regressions, by @bachase in [#381](https://github.com/unitaryfoundation/clifft/pull/381).
 
 ### CI
 
-- Consolidated the post-0.8 CI work into a stricter release-confidence stack:
-  deterministic AVX-512 execution under Intel SDE, Linux arm64 coverage, the
-  full Python suite against optimized builds, nightly ASan and UBSan, abi3
-  verification on the newest stable CPython, bounded tool setup and jobs, an
-  aggregate merge gate, packaging round trips on every pull request, and a
-  shorter dedicated benchmark-history workflow, by @bachase in
-  [#353](https://github.com/unitaryfoundation/clifft/pull/353),
-  [#356](https://github.com/unitaryfoundation/clifft/pull/356),
-  [#357](https://github.com/unitaryfoundation/clifft/pull/357),
-  [#358](https://github.com/unitaryfoundation/clifft/pull/358),
-  [#359](https://github.com/unitaryfoundation/clifft/pull/359),
-  [#363](https://github.com/unitaryfoundation/clifft/pull/363),
-  [#364](https://github.com/unitaryfoundation/clifft/pull/364),
-  [#365](https://github.com/unitaryfoundation/clifft/pull/365),
-  [#368](https://github.com/unitaryfoundation/clifft/pull/368),
-  [#370](https://github.com/unitaryfoundation/clifft/pull/370), and
-  [#373](https://github.com/unitaryfoundation/clifft/pull/373).
+- Consolidated the post-0.8 CI work into a stricter release-confidence stack: deterministic AVX-512 execution under Intel SDE, Linux arm64 coverage, the full Python suite against optimized builds, nightly ASan and UBSan, abi3 verification on the newest stable CPython, bounded tool setup and jobs, an aggregate merge gate, packaging round trips on every pull request, and a shorter dedicated benchmark-history workflow, by @bachase in [#353](https://github.com/unitaryfoundation/clifft/pull/353), [#356](https://github.com/unitaryfoundation/clifft/pull/356), [#357](https://github.com/unitaryfoundation/clifft/pull/357), [#358](https://github.com/unitaryfoundation/clifft/pull/358), [#359](https://github.com/unitaryfoundation/clifft/pull/359), [#363](https://github.com/unitaryfoundation/clifft/pull/363), [#364](https://github.com/unitaryfoundation/clifft/pull/364), [#365](https://github.com/unitaryfoundation/clifft/pull/365), [#368](https://github.com/unitaryfoundation/clifft/pull/368), [#370](https://github.com/unitaryfoundation/clifft/pull/370), and [#373](https://github.com/unitaryfoundation/clifft/pull/373).
 
 ### Documentation
 
-- Corrected the arXiv badge identifier and made documentation links stable
-  across versioned deployments, by @bachase in
-  [#351](https://github.com/unitaryfoundation/clifft/pull/351) and
-  [#362](https://github.com/unitaryfoundation/clifft/pull/362).
+- Corrected the arXiv badge identifier and made documentation links stable across versioned deployments, by @bachase in [#351](https://github.com/unitaryfoundation/clifft/pull/351) and [#362](https://github.com/unitaryfoundation/clifft/pull/362).
 
 ## [0.8.0] - 2026-08-18
 
-Clifft 0.8.0 replaces the original localized-Pauli Schrodinger virtual
-machine (SVM) with a symbolic-coordinate compiler and sampler. Drawing on the
-recent [SymFT paper](https://arxiv.org/abs/2607.28600) and
-[reference implementation](https://github.com/haoliri0/SOFT), the new backend
-combines symbolic Clifford-Pauli-frame factorization and adaptive
-stabilizer-coordinate planning with Clifft's
-[original factored active-state representation](https://arxiv.org/abs/2604.27058).
-Its planner resolves Clifford coordinates, affine Pauli-frame effects, active
-Pauli shapes, and symbolic dependencies ahead of time, while prepared scalar,
-AVX2, and AVX-512 kernels apply multi-coordinate operations directly. The usual
-`compile()` and sampling APIs retain their output contracts, and the new path
-also powers exact state queries and leakage/loss continuations.
+Clifft 0.8.0 replaces the original localized-Pauli Schrodinger virtual machine (SVM) with a symbolic-coordinate compiler and sampler. Drawing on the recent [SymFT paper](https://arxiv.org/abs/2607.28600) and [reference implementation](https://github.com/haoliri0/SOFT), the new backend combines symbolic Clifford-Pauli-frame factorization and adaptive stabilizer-coordinate planning with Clifft's [original factored active-state representation](https://arxiv.org/abs/2604.27058). Its planner resolves Clifford coordinates, affine Pauli-frame effects, active Pauli shapes, and symbolic dependencies ahead of time, while prepared scalar, AVX2, and AVX-512 kernels apply multi-coordinate operations directly. The usual `compile()` and sampling APIs retain their output contracts, and the new path also powers exact state queries and leakage/loss continuations.
 
-Across the release benchmark corpus, the new sampler is faster than the SVM
-on five of seven real workloads and remains close on the other two. See
-[Symbolic Sampling in Clifft](https://unitaryfoundation.github.io/clifft/stable/updates/symbolic-sampling/)
-for the design, API migration guide, matched benchmark results, and method
-provenance.
+Across the release benchmark corpus, the new sampler is faster than the SVM on five of seven real workloads and remains close on the other two. See [Symbolic Sampling in Clifft](https://unitaryfoundation.github.io/clifft/stable/updates/symbolic-sampling/) for the design, API migration guide, matched benchmark results, and method provenance.
 
 ### Added
 
-- Added `Program.inspect()` and `Program.inspect_action()` for diagnostic
-  views of prepared sampling plans. The playground now presents the same
-  symbolic plan with circuit-source provenance.
-- Added generalized Pauli-product phase gates: Clifford `SPP` / `SPP_DAG`
-  and non-Clifford `TPP` / `TPP_DAG` by @danielgaskins in
-  [#333](https://github.com/unitaryfoundation/clifft/pull/333).
-- Added the `LEAKAGE(p)` circuit annotation for source-preserving transitions
-  from `g` to `leak_g` and `e` to `leak_e` by @bachase in
-  [#244](https://github.com/unitaryfoundation/clifft/pull/244).
-- Added `Program.peak_active_width` as the canonical name for the largest
-  dense active-state width. `Program.peak_rank` remains as a deprecated alias
-  for this release, by @bachase in
-  [#338](https://github.com/unitaryfoundation/clifft/pull/338).
+- Added `Program.inspect()` and `Program.inspect_action()` for diagnostic views of prepared sampling plans. The playground now presents the same symbolic plan with circuit-source provenance.
+- Added generalized Pauli-product phase gates: Clifford `SPP` / `SPP_DAG` and non-Clifford `TPP` / `TPP_DAG` by @danielgaskins in [#333](https://github.com/unitaryfoundation/clifft/pull/333).
+- Added the `LEAKAGE(p)` circuit annotation for source-preserving transitions from `g` to `leak_g` and `e` to `leak_e` by @bachase in [#244](https://github.com/unitaryfoundation/clifft/pull/244).
+- Added `Program.peak_active_width` as the canonical name for the largest dense active-state width. `Program.peak_rank` remains as a deprecated alias for this release, by @bachase in [#338](https://github.com/unitaryfoundation/clifft/pull/338).
 
 ### Changed
 
-- `clifft.compile()` now returns the symbolic sampling `Program`. It is an
-  opaque, reusable compiled program rather than an iterable bytecode module;
-  `num_actions` replaces `num_instructions` for diagnostic action counts.
-- `clifft.noncomp.sample(..., max_rank=...)` is now
-  `clifft.noncomp.sample(..., max_active_width=...)`.
-- The default optimizer removes rotations whose phase is unobservable at a
-  later terminal measurement, including safe cases across resets, disjoint
-  conditional corrections, noise, and classical bookkeeping, by @bachase in
-  [#239](https://github.com/unitaryfoundation/clifft/pull/239) and
-  [#243](https://github.com/unitaryfoundation/clifft/pull/243).
-- A fixed seed remains reproducible for a fixed version and call, but sampled
-  rows need not match v0.7 because the new executor has a different random
-  number schedule.
+- `clifft.compile()` now returns the symbolic sampling `Program`. It is an opaque, reusable compiled program rather than an iterable bytecode module; `num_actions` replaces `num_instructions` for diagnostic action counts.
+- `clifft.noncomp.sample(..., max_rank=...)` is now `clifft.noncomp.sample(..., max_active_width=...)`.
+- The default optimizer removes rotations whose phase is unobservable at a later terminal measurement, including safe cases across resets, disjoint conditional corrections, noise, and classical bookkeeping, by @bachase in [#239](https://github.com/unitaryfoundation/clifft/pull/239) and [#243](https://github.com/unitaryfoundation/clifft/pull/243).
+- A fixed seed remains reproducible for a fixed version and call, but sampled rows need not match v0.7 because the new executor has a different random number schedule.
 
 ### Removed
 
-- Removed the SVM, public `Opcode`, `Instruction`, bytecode `Program`
-  iteration and inspection helpers (`source_map`, `active_k_history`, and
-  `as_dict()`), bytecode pass APIs, and the `bytecode_passes` argument to
-  `compile()`. Use `Program.inspect()` for diagnostic plan text; HIR passes
-  remain the supported compiler-customization boundary.
-- Removed the mutable `State` / `execute()` inspection workflow. Use
-  `get_statevector(program)` for eligible final states.
-- Removed the SVM backend and OpenMP controls: `svm_backend()`,
-  `get_num_threads()`, and `set_num_threads()`. Parallel sampling and
-  intra-shot parallel kernels are tracked as future work.
+- Removed the SVM, public `Opcode`, `Instruction`, bytecode `Program` iteration and inspection helpers (`source_map`, `active_k_history`, and `as_dict()`), bytecode pass APIs, and the `bytecode_passes` argument to `compile()`. Use `Program.inspect()` for diagnostic plan text; HIR passes remain the supported compiler-customization boundary.
+- Removed the mutable `State` / `execute()` inspection workflow. Use `get_statevector(program)` for eligible final states.
+- Removed the SVM backend and OpenMP controls: `svm_backend()`, `get_num_threads()`, and `set_num_threads()`. Parallel sampling and intra-shot parallel kernels are tracked as future work.
 
 ### Fixed
 
-- Reject invalid inverted targets instead of accepting inversion on
-  operations where it has no defined meaning, by @bachase in
-  [#241](https://github.com/unitaryfoundation/clifft/pull/241).
-- Harden noncomputational continuation planning and reuse its storage without
-  changing trajectory semantics.
+- Reject invalid inverted targets instead of accepting inversion on operations where it has no defined meaning, by @bachase in [#241](https://github.com/unitaryfoundation/clifft/pull/241).
+- Harden noncomputational continuation planning and reuse its storage without changing trajectory semantics.
 
 ## [0.7.0] - 2026-07-31
 
-Clifft 0.7.0 adds experimental simulation of leakage and loss through the new
-`clifft.noncomp` Python API. It samples trajectories across two computational
-levels, two leaked levels, and loss, with state-dependent transitions,
-state-selective measurement, and back-action on the computational state.
-Transitions can be attached to gates or placed explicitly in the circuit, and
-results include measurement records, detector and observable values, heralds,
-and final per-qubit status.
+Clifft 0.7.0 adds experimental simulation of leakage and loss through the new `clifft.noncomp` Python API. It samples trajectories across two computational levels, two leaked levels, and loss, with state-dependent transitions, state-selective measurement, and back-action on the computational state. Transitions can be attached to gates or placed explicitly in the circuit, and results include measurement records, detector and observable values, heralds, and final per-qubit status.
 
-The [Leakage and Loss guide](https://unitaryfoundation.github.io/clifft/stable/guide/leakage-and-loss/)
-introduces the model and API. The [Delayed Loss tutorial](https://unitaryfoundation.github.io/clifft/stable/guide/delayed-loss/)
-applies it to a surface-code memory experiment, where losses of the same data
-qubit at different times produce the same final herald but different detector
-histories.
+The [Leakage and Loss guide](https://unitaryfoundation.github.io/clifft/stable/guide/leakage-and-loss/) introduces the model and API. The [Delayed Loss tutorial](https://unitaryfoundation.github.io/clifft/stable/guide/delayed-loss/) applies it to a surface-code memory experiment, where losses of the same data qubit at different times produce the same final herald but different detector histories.
 
 ### CI
 
@@ -205,11 +90,7 @@ histories.
 
 ## [0.6.0] - 2026-07-14
 
-Clifft 0.6.0 adds Stim-compatible correlated Pauli noise chains through
-`CORRELATED_ERROR` / `E` and `ELSE_CORRELATED_ERROR`. It also adds a dedicated
-[front-end integrations guide](https://unitaryfoundation.github.io/clifft/stable/getting-started/integrations/)
-for using Clifft from Qiskit and Cirq through their separately maintained
-companion packages.
+Clifft 0.6.0 adds Stim-compatible correlated Pauli noise chains through `CORRELATED_ERROR` / `E` and `ELSE_CORRELATED_ERROR`. It also adds a dedicated [front-end integrations guide](https://unitaryfoundation.github.io/clifft/stable/getting-started/integrations/) for using Clifft from Qiskit and Cirq through their separately maintained companion packages.
 
 ### Documentation
 
