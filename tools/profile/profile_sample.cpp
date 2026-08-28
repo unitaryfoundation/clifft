@@ -387,10 +387,17 @@ int main() {
     clifft::sampling::SamplingPlanOptions plan_options;
     plan_options.postselection_mask = postselection_mask;
     clifft::sampling::SamplingPlan plan = clifft::sampling::plan_sampling(hir, plan_options);
+    const clifft::sampling::BatchOutputMode output_mode =
+        is_survivor_api(api) && !keep_records
+            ? clifft::sampling::BatchOutputMode::AggregateSurvivors
+            : clifft::sampling::BatchOutputMode::Rows;
 
     std::cout << "Plan: " << hir.num_qubits << " qubits, peak active width "
-              << plan.peak_active_width << ", " << plan.actions.size() << " actions\n\n";
+              << plan.peak_active_width << ", " << plan.actions.size() << " actions\n";
     clifft::sampling::ExecutablePlan program(plan);
+    std::cout << "Batch work:  " << program.estimated_batch_lane_work(output_mode)
+              << " estimated coefficient visits/lane, "
+              << program.estimated_width_five_batch_lane_work(output_mode) << " at width 5\n\n";
     const std::optional<clifft::sampling::ThreadLayout> thread_layout =
         has_layout
             ? std::optional<clifft::sampling::ThreadLayout>{{.shot_workers = static_cast<uint32_t>(
@@ -406,10 +413,6 @@ int main() {
         batch_is_auto ? std::nullopt : std::optional<uint32_t>{static_cast<uint32_t>(batch_size)};
     const clifft::sampling::ThreadLayout resolved_layout = resolve_profile_thread_layout(
         program, static_cast<uint32_t>(shots), static_cast<uint32_t>(threads), thread_layout);
-    const clifft::sampling::BatchOutputMode output_mode =
-        is_survivor_api(api) && !keep_records
-            ? clifft::sampling::BatchOutputMode::AggregateSurvivors
-            : clifft::sampling::BatchOutputMode::Rows;
     const clifft::sampling::BatchSamplingMode sampling_mode =
         is_fixed_k_api(api) ? clifft::sampling::BatchSamplingMode::FixedFaults
                             : clifft::sampling::BatchSamplingMode::Ordinary;
@@ -502,6 +505,9 @@ int main() {
               << " effective_workers=" << effective_workers
               << " shot_workers=" << resolved_layout.shot_workers
               << " intra_shot_workers=" << resolved_layout.intra_shot_workers
+              << " batch_lane_work=" << program.estimated_batch_lane_work(output_mode)
+              << " width_five_batch_lane_work="
+              << program.estimated_width_five_batch_lane_work(output_mode)
               << " worker_bytes=" << batch_worker_bytes << " median_ms=" << summary.median
               << " mean_ms=" << summary.mean << " passed_shots=" << passed_shots
               << " survival=" << static_cast<double>(passed_shots) / static_cast<double>(shots)

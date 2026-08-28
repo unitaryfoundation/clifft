@@ -62,34 +62,20 @@ class BatchExecutor {
     void fill_random_half_bits() noexcept;
 
     void execute_actions() noexcept;
-    void execute_action(const ExecutablePlan::ExecuteRotation& action,
-                        size_t action_index) noexcept;
-    void execute_action(const ExecutablePlan::ExecuteFusedRotation& action,
-                        size_t action_index) noexcept;
-    void execute_action(const ExecutablePlan::ExecuteDynamicFusedRotation& action,
-                        size_t action_index) noexcept;
-    void execute_action(const ExecutablePlan::ExecutePromotion& action,
-                        size_t action_index) noexcept;
-    void execute_action(const ExecutablePlan::ExecuteActiveMeasurement& action,
-                        size_t action_index) noexcept;
-    void execute_action(const ExecutablePlan::ExecuteDormantMeasurement& action,
-                        size_t action_index) noexcept;
-    void execute_action(const ExecutablePlan::ExecuteClassicalRecord& action,
-                        size_t action_index) noexcept;
-    void execute_action(const ExecutablePlan::ExecuteSymbolDefinition& action,
-                        size_t action_index) noexcept;
-    void execute_action(const ExecutablePlan::ExecuteReadoutNoise& action,
-                        size_t action_index) noexcept;
-    void execute_action(const ExecutablePlan::ExecuteDetector& action,
-                        size_t action_index) noexcept;
-    void execute_action(const ExecutablePlan::ExecuteObservable& action,
-                        size_t action_index) noexcept;
-    void execute_action(const ExecutablePlan::ExecuteExpectation& action,
-                        size_t action_index) noexcept;
-    void execute_action(const ExecutablePlan::ExecuteInstrument& action,
-                        size_t action_index) noexcept;
-    void execute_action(const ExecutablePlan::ExecuteBoundary& action,
-                        size_t action_index) noexcept;
+    void execute_action(const ExecutablePlan::ExecuteRotation& action) noexcept;
+    void execute_action(const ExecutablePlan::ExecuteFusedRotation& action) noexcept;
+    void execute_action(const ExecutablePlan::ExecuteDynamicFusedRotation& action) noexcept;
+    void execute_action(const ExecutablePlan::ExecutePromotion& action) noexcept;
+    void execute_action(const ExecutablePlan::ExecuteActiveMeasurement& action) noexcept;
+    void execute_action(const ExecutablePlan::ExecuteDormantMeasurement& action) noexcept;
+    void execute_action(const ExecutablePlan::ExecuteClassicalRecord& action) noexcept;
+    void execute_action(const ExecutablePlan::ExecuteSymbolDefinition& action) noexcept;
+    void execute_action(const ExecutablePlan::ExecuteReadoutNoise& action) noexcept;
+    void execute_action(const ExecutablePlan::ExecuteDetector& action) noexcept;
+    void execute_action(const ExecutablePlan::ExecuteObservable& action) noexcept;
+    void execute_action(const ExecutablePlan::ExecuteExpectation& action) noexcept;
+    void execute_action(const ExecutablePlan::ExecuteInstrument& action) noexcept;
+    void execute_action(const ExecutablePlan::ExecuteBoundary& action) noexcept;
 
     [[nodiscard]] std::span<const uint64_t> evaluate(
         ExecutablePlan::PreparedExpression expression) const noexcept;
@@ -100,7 +86,8 @@ class BatchExecutor {
     [[nodiscard]] bool lane_bit(std::span<const uint64_t> bits, uint32_t lane) const noexcept;
     [[nodiscard]] bool is_live(uint32_t lane) const noexcept;
     [[nodiscard]] uint32_t active_lanes() const noexcept { return state_.active_lanes(); }
-    [[nodiscard]] bool should_compact(size_t action_index) const noexcept;
+    [[nodiscard]] bool should_compact(
+        const ExecutablePlan::ExecuteDetector& detector) const noexcept;
     void compact_live_lanes() noexcept;
     void finalize_live_lanes() noexcept;
 

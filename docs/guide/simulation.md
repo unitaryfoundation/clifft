@@ -270,21 +270,24 @@ scalar = clifft.sample(program, 100_000, seed=42, batch_size=1)
 packed = clifft.sample(program, 100_000, seed=42, batch_size=1024)
 ```
 
-The state-vector footprint grows exponentially with maximum active width and
-linearly with batch size. Once a worker's complete working set outgrows useful
-CPU caches, a larger batch can therefore become slower. Automatic mode estimates
-the memory required by the selected sampling and output mode, targets at most
-8 MiB per worker and 64 MiB across workers, and reduces either the batch size or
-concurrent worker count when necessary. Capacity selection is independent of
-the requested thread count, preserving deterministic batch boundaries.
+Automatic mode requires at least 64 shots, no postselection, and a peak active
+width of at most 5. Within those limits, it chooses a lane capacity based on the
+plan's work and memory needs; long width-5 plans fall back to scalar execution.
+Postselected plans remain scalar in automatic mode because their benefit
+depends on circuit- and noise-specific survivor lifetimes that cannot be
+predicted reliably from the plan alone.
 
-Automatic selection currently requires at least 64 shots and a peak active
-width of at most 5, and it considers capacities up to 2048 lanes. Set
-`batch_size=1` to disable batching. An explicit positive integer requests a
-capacity up to 2048 and is mainly useful for profiling or overriding the
-conservative automatic policy. Explicit mode still rejects a dense packed
-state above 64 MiB per worker, but plans retaining many symbols, expressions,
-or records can use additional memory beyond that state-vector limit.
+Set `batch_size=1` to require scalar execution. An explicit positive integer
+requests up to 2048 lanes and overrides the automatic policy, subject to memory
+safety limits. Since the best capacity varies by circuit, sampling function,
+shot count, thread count, and CPU, benchmark a few sizes such as `1`, `256`, and
+`1024` with representative arguments before choosing an override.
+
+With explicit batching and postselection, rejected lanes are masked immediately
+and stop contributing outputs or per-lane random work. Until Clifft repacks the
+remaining live lanes, packed coefficient kernels may still process their
+physical lane positions. Repacking occurs when it is expected to save more work
+than it costs.
 
 Packed execution supports ordinary sampling, post-selected survivor sampling,
 counts-only survivor aggregation, expectation values, and fixed-k importance

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "clifft/sampling/batch/policy.h"
 #include "clifft/sampling/batch/presampled_program.h"
 #include "clifft/sampling/kernel_dispatch.h"
 #include "clifft/sampling/kernels.h"
@@ -105,6 +106,13 @@ class ExecutablePlan {
                                                      : 0;
     }
     [[nodiscard]] size_t num_actions() const { return actions_.size(); }
+    [[nodiscard]] uint64_t estimated_batch_lane_work(BatchOutputMode output_mode) const noexcept {
+        return estimated_batch_lane_work_.all_widths.for_output_mode(output_mode);
+    }
+    [[nodiscard]] uint64_t estimated_width_five_batch_lane_work(
+        BatchOutputMode output_mode) const noexcept {
+        return estimated_batch_lane_work_.width_five.for_output_mode(output_mode);
+    }
     [[nodiscard]] size_t num_new_x_instrument_activations() const;
     [[nodiscard]] uint32_t num_unbound_presampled_symbols() const {
         return static_cast<uint32_t>(unbound_presampled_symbols_.size());
@@ -241,6 +249,9 @@ class ExecutablePlan {
         PreparedRecordParity outcome;
         uint32_t detector = 0;
         bool postselected = false;
+        // Planner-precomputed coefficient work remaining after this detector,
+        // measured in approximate per-lane coefficient visits for each output mode.
+        batch_detail::BatchLaneWork remaining_batch_lane_work;
     };
 
     struct ExecuteObservable {
@@ -365,6 +376,7 @@ class ExecutablePlan {
     ExecutorBackend backend_ = ExecutorBackend::Scalar;
     uint32_t num_readout_noise_sites_ = 0;
     uint32_t initial_noise_end_ = 0;
+    batch_detail::BatchWorkEstimate estimated_batch_lane_work_;
     std::optional<Tableau> final_tableau_;
 
     // Affine registers. Constants are indexed by

@@ -3,25 +3,15 @@
 #include "clifft/sampling/batch/bits.h"
 #include "clifft/sampling/batch/interleaved_state.h"
 #include "clifft/sampling/executable_plan.h"
+#include "clifft/util/numeric.h"
 
 #include <algorithm>
 #include <bit>
-#include <limits>
 #include <stdexcept>
 
 namespace clifft::sampling {
 
 namespace {
-
-[[nodiscard]] uint64_t saturating_add(uint64_t left, uint64_t right) noexcept {
-    constexpr uint64_t kMax = std::numeric_limits<uint64_t>::max();
-    return right > kMax - left ? kMax : left + right;
-}
-
-[[nodiscard]] uint64_t saturating_multiply(uint64_t left, uint64_t right) noexcept {
-    constexpr uint64_t kMax = std::numeric_limits<uint64_t>::max();
-    return left != 0 && right > kMax / left ? kMax : left * right;
-}
 
 #if !defined(__EMSCRIPTEN__)
 [[nodiscard]] uint32_t batch_worker_count(uint32_t shots, uint32_t shot_workers,
@@ -79,11 +69,11 @@ uint64_t batch_worker_storage_bytes(const ExecutablePlan& plan, uint32_t lane_ca
         batch_worker_storage_layout(plan, lane_capacity, output_mode, sampling_mode);
     uint64_t bytes = interleaved_batch_state_bytes(layout.peak_active_width, layout.lane_capacity);
     const auto add_entries = [&](uint64_t entries, size_t entry_bytes) {
-        bytes = saturating_add(bytes, saturating_multiply(entries, entry_bytes));
+        bytes = saturating_add_u64(bytes, saturating_multiply_u64(entries, entry_bytes));
     };
     const auto add_columns = [&](size_t columns) {
-        bytes =
-            saturating_add(bytes, packed_bit_columns_storage_bytes(columns, layout.lane_capacity));
+        bytes = saturating_add_u64(bytes,
+                                   packed_bit_columns_storage_bytes(columns, layout.lane_capacity));
     };
     add_entries(layout.shot_index_entries, sizeof(uint32_t));
     add_columns(layout.symbol_columns);
@@ -152,7 +142,14 @@ BatchExecutionPolicy resolve_batch_execution_policy(
     if (shots < kDefaultMinAutoBatchShots) {
         return {};
     }
-    if (plan.peak_active_width() > 5) {
+    // A static plan does not predict survivor lifetimes portably enough to
+    // choose packed execution without an explicit user request.
+    if (plan.has_postselection()) {
+        return {};
+    }
+    if (plan.peak_active_width() > 5 ||
+        (plan.peak_active_width() == 5 && plan.estimated_width_five_batch_lane_work(output_mode) >
+                                              kDefaultMaxWidthFiveBatchLaneWork)) {
         return {};
     }
     uint32_t capacity = std::min(shots, kDefaultMaxAutoBatchShots);
@@ -162,7 +159,7 @@ BatchExecutionPolicy resolve_batch_execution_policy(
             capacity = std::bit_floor(capacity - 1);
             continue;
         }
-        const uint64_t worker_bytes = saturating_add(
+        const uint64_t worker_bytes = saturating_add_u64(
             batch_detail::batch_worker_storage_bytes(plan, capacity, output_mode, sampling_mode),
             additional_worker_bytes);
         if (worker_bytes <= kDefaultBatchWorkerBudget) {
