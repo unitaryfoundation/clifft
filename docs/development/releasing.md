@@ -45,6 +45,11 @@ This prepends only the unreleased changes since the previous tag and preserves
 older hand-edited release sections. Do not use `-o CHANGELOG.md` for routine
 releases unless you intentionally want to regenerate the entire changelog.
 
+Keep each changelog paragraph and list item on one physical line, and use blank
+lines only to separate Markdown blocks. The release workflow copies the
+changelog section verbatim, and GitHub Releases renders ordinary line endings
+inside prose as visible line breaks. Let the editor wrap long lines visually.
+
 Write documentation links in changelog entries (and the README) with the
 versioned `stable/` prefix, e.g.
 `https://unitaryfoundation.github.io/clifft/stable/guide/strong-simulation/`.
