@@ -75,7 +75,7 @@ CLIFFT_CIRCUIT_FILE=tools/bench/fixtures/qv20_seed42.stim \
 | `CLIFFT_PROFILE_WARMUPS` | 2 | Untimed sample calls |
 | `CLIFFT_PROFILE_REPETITIONS` | 20 | Timed sample calls |
 | `CLIFFT_PROFILE_API` | `sample` | Public API to profile: `sample`, `sample_survivors`, `sample_k`, or `sample_k_survivors` |
-| `CLIFFT_PROFILE_BATCH_SIZE` | auto | Force a positive packed lane capacity; `1` selects scalar execution |
+| `CLIFFT_PROFILE_BATCH_SIZE` | auto | Select the conservative automatic policy; a positive integer forces that capacity and `1` selects scalar execution |
 | `CLIFFT_PROFILE_KEEP_RECORDS` | unset | Retain surviving rows for either survivor API |
 | `CLIFFT_PROFILE_FIXED_K` | 1 | Fault count for either fixed-fault API |
 | `CLIFFT_PROFILE_POSTSELECTION` | `none` | Survivor detector mask: `none`, `all`, `first-half`, `last-half`, or `alternating` |
@@ -87,11 +87,12 @@ CLIFFT_CIRCUIT_FILE=tools/bench/fixtures/qv20_seed42.stim \
 The profiler prints the planner's estimated coefficient visits per lane and a
 final `RESULT` line with that estimate, the requested batch setting, effective
 lane capacity and worker count, timing, survival rate, and retained row count.
-For example, this compares scalar and automatic execution of the aggregate
-survivor path with every detector postselected:
+For example, this compares scalar and explicit packed capacities for the
+aggregate survivor path with every detector postselected. Automatic mode is
+intentionally scalar for a postselected plan.
 
 ```bash
-for batch in 1 auto; do
+for batch in 1 256 1024; do
   env CLIFFT_CIRCUIT_FILE=tests/fixtures/surface_d7_r7_p001.stim \
     CLIFFT_PROFILE_API=sample_survivors \
     CLIFFT_PROFILE_KEEP_RECORDS=0 \

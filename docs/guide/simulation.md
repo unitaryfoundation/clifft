@@ -278,23 +278,35 @@ the memory required by the selected sampling and output mode, targets at most
 concurrent worker count when necessary. Capacity selection is independent of
 the requested thread count, preserving deterministic batch boundaries.
 
-Automatic selection currently requires at least 64 shots and a peak active
-width of at most 5, and it considers capacities up to 2048 lanes. At peak width
-5, the planner also estimates the coefficient visits performed per lane and
-selects scalar execution when that work exceeds 16,384 visits. This keeps short
-or transient width-5 plans eligible while avoiding packed execution for plans
-that sustain width-5 coefficient work. Set `batch_size=1` to disable batching.
-An explicit positive integer requests a capacity up to 2048 and is mainly useful
-for profiling or overriding the conservative automatic policy. Explicit mode
-still rejects a dense packed state above 64 MiB per worker, but plans retaining
-many symbols, expressions, or records can use additional memory beyond that
-state-vector limit.
+Automatic selection is conservative. It requires at least 64 shots, no
+postselection, and a peak active width of at most 5, and it considers capacities
+up to 2048 lanes. At peak width 5, the planner also estimates the coefficient
+visits performed per lane and selects scalar execution when that work exceeds
+16,384 visits. This keeps short or transient width-5 plans eligible while
+avoiding packed execution for plans that sustain width-5 coefficient work.
+Plans with postselection use scalar execution in automatic mode because their
+benefit depends on circuit- and noise-specific survivor lifetimes that the
+static policy cannot reliably predict.
 
-Postselection marks rejected packed lanes immediately, while physical lane
-compaction is deferred until its planner-estimated reduction in remaining
-coefficient work exceeds the cost of moving the live coefficient state and
-packed sidecars. Classical plans carry only the logical live mask and compact
-once if retained rows must be returned.
+Set `batch_size=1` to require scalar execution. An explicit positive integer
+requests a capacity up to 2048 and overrides the conservative automatic policy.
+Explicit mode still rejects a dense packed state above 64 MiB per worker, but
+plans retaining many symbols, expressions, or records can use additional memory
+beyond that state-vector limit.
+
+Explicit batching can still improve plans that automatic mode leaves scalar,
+and the best capacity can vary by circuit, sampling function, shot count,
+thread count, and CPU. For a repeated workload, benchmark `1`, `256`, and
+`1024` on the target machine with representative arguments before choosing an
+override. Warm up each configuration, use repeated timings, and verify survivor
+counts or output statistics. Treat the selected capacity as a workload- and
+machine-specific setting rather than a portable default.
+
+When explicitly enabled for a postselected plan, packed execution marks rejected
+lanes immediately. Physical lane compaction is deferred until its
+planner-estimated reduction in remaining coefficient work exceeds the cost of
+moving the live coefficient state and packed sidecars. Classical plans carry
+only the logical live mask and compact once if retained rows must be returned.
 
 Packed execution supports ordinary sampling, post-selected survivor sampling,
 counts-only survivor aggregation, expectation values, and fixed-k importance

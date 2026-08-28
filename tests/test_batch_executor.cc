@@ -167,6 +167,16 @@ TEST_CASE("Packed capacity policy bounds worker state footprint") {
         resolve_batch_execution_policy(narrow, 4096, 1, 2, BatchOutputMode::Rows, uint32_t{2}),
         "packed batch_size is incompatible with intra-shot workers");
 
+    const std::array<uint8_t, 1> postselection{1};
+    const ExecutablePlan postselected = compile_batch_test_plan(postselection);
+    REQUIRE(postselected.has_postselection());
+    REQUIRE(resolve_batch_execution_policy(postselected, 4096, 1, 1, BatchOutputMode::Rows,
+                                           std::nullopt)
+                .lane_capacity == 1);
+    REQUIRE(resolve_batch_execution_policy(postselected, 4096, 1, 1, BatchOutputMode::Rows,
+                                           uint32_t{65})
+                .lane_capacity == 65);
+
     std::string circuit;
     for (uint32_t qubit = 0; qubit < 18; ++qubit) {
         circuit.append("H ")

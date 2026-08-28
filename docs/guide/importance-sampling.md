@@ -349,8 +349,11 @@ exceeds the number of non-zero-probability sites).
 sampling policy described in [Parallel Sampling](simulation.md#parallel-sampling).
 The expert `intra_shot_min_active_width` override defaults to 18 and requires an
 explicit layout. `batch_size` follows the ordinary sampling policy: `"auto"`
-selects packed execution when suitable, `1` forces scalar execution, and a
-positive integer requests an explicit packed lane capacity.
+selects packed execution for suitable plans without postselection, `1` forces
+scalar execution, and a positive integer requests an explicit packed lane
+capacity. Automatic mode remains scalar for postselected survivor sampling;
+benchmark explicit capacities on the target workload and machine when packed
+execution may be beneficial.
 
 ### `clifft.sample_k_survivors(program, shots, k, seed=None, keep_records=False, threads=1, thread_layout=None, intra_shot_min_active_width=None, batch_size="auto")`
 

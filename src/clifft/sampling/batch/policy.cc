@@ -142,6 +142,11 @@ BatchExecutionPolicy resolve_batch_execution_policy(
     if (shots < kDefaultMinAutoBatchShots) {
         return {};
     }
+    // A static plan does not predict survivor lifetimes portably enough to
+    // choose packed execution without an explicit user request.
+    if (plan.has_postselection()) {
+        return {};
+    }
     if (plan.peak_active_width() > 5 ||
         (plan.peak_active_width() == 5 &&
          plan.estimated_batch_lane_work() > kDefaultMaxWidthFiveBatchLaneWork)) {
