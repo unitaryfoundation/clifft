@@ -65,8 +65,8 @@ source correction for phase-sensitive amplitude queries.
 `global_phase_half_turns` is a value `t` representing
 `exp(1j * pi * t)`. Sampling, probability, and state-vector APIs do not
 propagate it beyond the import boundary. The target-specific
-`compile_basis_amplitude(..., input_format="qasm2")` path consumes it and
-returns amplitudes under the source QASM matrix convention.
+`basis_amplitude(..., input_format="qasm2")` path consumes it and returns
+amplitudes under the source QASM matrix convention.
 
 For gate phase conventions, Clifft follows Qiskit's de-facto convention:
 `U`/`u1`/`u2`/`u3` use Qiskit's cosine-top-left Euler matrix, while `rz` is the

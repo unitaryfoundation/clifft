@@ -51,15 +51,15 @@ Sampling under a five-level leakage/loss model. See the
 
 ## Strong Simulation
 
-::: clifft.compile_basis_amplitude
-
-::: clifft.evaluate_amplitude
-
-::: clifft.BasisAmplitudeQuery
-
 ::: clifft.basis_probabilities
 
 ::: clifft.record_probabilities
+
+::: clifft.basis_amplitude
+
+::: clifft.compile_basis_amplitude
+
+::: clifft.BasisAmplitudeQuery
 
 ## State Inspection
 

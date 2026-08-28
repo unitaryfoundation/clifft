@@ -307,7 +307,7 @@ TEST_CASE("Basis amplitude query retains inverse Clifford row phases") {
     }
 }
 
-TEST_CASE("Basis amplitude query contracts its terminal output effect") {
+TEST_CASE("Basis amplitude query contracts its selected output") {
     const clifft::Circuit circuit = clifft::parse("H 1\nH 0\nT 1\nT 0");
     const std::vector<uint64_t> output{1};
     const clifft::sampling::BasisAmplitudeQuery query(circuit, output);

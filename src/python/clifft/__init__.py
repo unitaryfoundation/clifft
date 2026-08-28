@@ -230,7 +230,7 @@ def compile_basis_amplitude(
     The query represents ``<output_bits|U|0...0>`` under the canonical matrix
     conventions of the selected input format. Only pure-unitary circuits are
     accepted. Inspect ``query.peak_active_width`` before calling
-    :func:`evaluate_amplitude` when feasibility matters.
+    ``query.evaluate()`` when feasibility matters.
 
     ``bit_order="big"`` maps the first bit to qubit 0, matching
     :func:`basis_probabilities`. ``output_bits`` must describe exactly one
@@ -250,8 +250,25 @@ def compile_basis_amplitude(
     return _compile_basis_amplitude(circuit, mask, input_phase)
 
 
-def evaluate_amplitude(query: BasisAmplitudeQuery) -> complex:
-    """Evaluate a compiled basis-amplitude query."""
+def basis_amplitude(
+    circuit_text: str,
+    output_bits: BasisBitstring,
+    *,
+    bit_order: str = "big",
+    input_format: Literal["stim", "qasm2"] = "stim",
+) -> complex:
+    """Return the exact amplitude ``<output_bits|U|0...0>``.
+
+    Only pure-unitary circuits and one complete output bitstring are accepted.
+    Use :func:`compile_basis_amplitude` when the query's peak active width must
+    be inspected before evaluation.
+    """
+    query = compile_basis_amplitude(
+        circuit_text,
+        output_bits,
+        bit_order=bit_order,
+        input_format=input_format,
+    )
     return complex(query.evaluate())
 
 
@@ -432,12 +449,12 @@ __all__ = [
     "SampleResult",
     "StatevectorSqueezePass",
     "Target",
+    "basis_amplitude",
     "basis_probabilities",
     "compile_basis_amplitude",
     "compile",
     "compute_reference_syndrome",
     "default_hir_pass_manager",
-    "evaluate_amplitude",
     "experimental",
     "get_statevector",
     "lower",

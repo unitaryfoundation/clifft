@@ -389,6 +389,6 @@ GateType parse_gate_name(std::string_view name);
 
 // Returns the named inverse of a fixed Clifford gate. Parameterized and
 // non-Clifford unitaries require argument-aware inversion by their caller.
-GateType inverse_clifford_gate(GateType gate);
+GateType inverse_fixed_clifford_gate(GateType gate);
 
 }  // namespace clifft

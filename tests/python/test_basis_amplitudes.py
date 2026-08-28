@@ -70,9 +70,7 @@ def exact_statevector(circuit_text: str, num_qubits: int) -> np.ndarray:
     """Evaluate every output row through independently compiled target queries."""
     return np.asarray(
         [
-            clifft.evaluate_amplitude(
-                clifft.compile_basis_amplitude(circuit_text, output_bits(basis, num_qubits))
-            )
+            clifft.basis_amplitude(circuit_text, output_bits(basis, num_qubits))
             for basis in range(1 << num_qubits)
         ],
         dtype=np.complex128,
@@ -142,12 +140,10 @@ def test_qasm2_query_restores_source_global_phase() -> None:
     expected = qiskit_statevector(reference)
     actual = np.asarray(
         [
-            clifft.evaluate_amplitude(
-                clifft.compile_basis_amplitude(
-                    source,
-                    output_bits(basis, 2),
-                    input_format="qasm2",
-                )
+            clifft.basis_amplitude(
+                source,
+                output_bits(basis, 2),
+                input_format="qasm2",
             )
             for basis in range(4)
         ]
@@ -155,11 +151,11 @@ def test_qasm2_query_restores_source_global_phase() -> None:
     np.testing.assert_allclose(actual, expected, rtol=0.0, atol=1e-12)
 
 
-def test_output_effect_can_reduce_reported_peak_width() -> None:
-    """The target basis state can make terminal-effect rotations deterministic."""
+def test_selected_output_can_reduce_reported_peak_width() -> None:
+    """The target basis state can make terminal rotations deterministic."""
     query = clifft.compile_basis_amplitude("H 1\nH 0\nT 1\nT 0", "10")
     assert query.peak_active_width == 0
-    assert clifft.evaluate_amplitude(query) == pytest.approx(0.5 * np.exp(1j * np.pi / 4))
+    assert query.evaluate() == pytest.approx(0.5 * np.exp(1j * np.pi / 4))
 
 
 def test_amplitude_magnitude_matches_existing_probability_query() -> None:
@@ -168,12 +164,7 @@ def test_amplitude_magnitude_matches_existing_probability_query() -> None:
     program = clifft.compile(source, hir_passes=None)
     bitstrings = [output_bits(basis, 2) for basis in range(4)]
     probabilities = clifft.basis_probabilities(program, bitstrings)
-    amplitudes = np.asarray(
-        [
-            clifft.evaluate_amplitude(clifft.compile_basis_amplitude(source, bitstring))
-            for bitstring in bitstrings
-        ]
-    )
+    amplitudes = np.asarray([clifft.basis_amplitude(source, bitstring) for bitstring in bitstrings])
     np.testing.assert_allclose(np.abs(amplitudes) ** 2, probabilities, rtol=0.0, atol=1e-12)
 
 
@@ -199,7 +190,7 @@ def test_amplitude_query_accepts_singular_numpy_bitstrings(
 ) -> None:
     """A one-dimensional array describes the same one target as a string."""
     query = clifft.compile_basis_amplitude("X 0\nH 1\nH 1", output, bit_order=bit_order)
-    assert clifft.evaluate_amplitude(query) == 1.0
+    assert query.evaluate() == 1.0
 
 
 def test_amplitude_query_rejects_nonsingular_numpy_bitstrings() -> None:

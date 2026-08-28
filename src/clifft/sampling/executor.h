@@ -113,15 +113,16 @@ class Executor {
   private:
     friend class BasisAmplitudeQuery;
 
-    struct ExecutionResult {
-        bool reachable = true;
-        double log_probability = 0.0;
+    // Dispatch extends the stable replay result only for query-private effect
+    // metadata. Counting exact half-probability branches lets amplitude
+    // reconstruction use ldexp instead of round-tripping them through logs.
+    struct DispatchResult : ReplayResult {
         uint32_t exact_half_probability_factors = 0;
     };
 
     // Terminal effects preserve small positive branch mass that ordinary
     // sampling intentionally classifies as numerical dust.
-    [[nodiscard]] ExecutionResult replay_effect(std::span<const uint8_t> forced_records) noexcept;
+    [[nodiscard]] DispatchResult replay_effect(std::span<const uint8_t> forced_records) noexcept;
 
     // Selects the complete per-shot policy at compile time. Keeping the
     // supported modes named prevents unsupported combinations of record,
@@ -155,49 +156,49 @@ class Executor {
                                          uint32_t symbol_prefix_size) noexcept;
 
     template <ShotMode Mode>
-    [[nodiscard]] ExecutionResult execute_actions_for_backend(
+    [[nodiscard]] DispatchResult execute_actions_for_backend(
         std::span<const uint8_t> forced_records, uint32_t begin = 0) noexcept;
     template <ExecutorBackend Backend, ShotMode Mode, IntraShotMode IntraShot>
-    [[nodiscard]] ExecutionResult execute_actions(std::span<const uint8_t> forced_records,
-                                                  uint32_t begin = 0) noexcept;
+    [[nodiscard]] DispatchResult execute_actions(std::span<const uint8_t> forced_records,
+                                                 uint32_t begin = 0) noexcept;
     template <ExecutorBackend Backend, IntraShotMode IntraShot>
     void execute_action(const ExecutablePlan::ExecuteRotation& action,
-                        std::span<const uint8_t> forced_records, ExecutionResult& result) noexcept;
+                        std::span<const uint8_t> forced_records, DispatchResult& result) noexcept;
     template <IntraShotMode IntraShot>
     void execute_action(const ExecutablePlan::ExecuteFusedRotation& action,
-                        std::span<const uint8_t> forced_records, ExecutionResult& result) noexcept;
+                        std::span<const uint8_t> forced_records, DispatchResult& result) noexcept;
     template <IntraShotMode IntraShot>
     void execute_action(const ExecutablePlan::ExecuteDynamicFusedRotation& action,
-                        std::span<const uint8_t> forced_records, ExecutionResult& result) noexcept;
+                        std::span<const uint8_t> forced_records, DispatchResult& result) noexcept;
     template <IntraShotMode IntraShot>
     void execute_action(const ExecutablePlan::ExecutePromotion& action,
-                        std::span<const uint8_t> forced_records, ExecutionResult& result) noexcept;
+                        std::span<const uint8_t> forced_records, DispatchResult& result) noexcept;
     template <ExecutorBackend Backend, ShotMode Mode>
     void execute_action(const ExecutablePlan::ExecuteActiveMeasurement& action,
-                        std::span<const uint8_t> forced_records, ExecutionResult& result) noexcept;
+                        std::span<const uint8_t> forced_records, DispatchResult& result) noexcept;
     template <ShotMode Mode>
     void execute_action(const ExecutablePlan::ExecuteDormantMeasurement& action,
-                        std::span<const uint8_t> forced_records, ExecutionResult& result) noexcept;
+                        std::span<const uint8_t> forced_records, DispatchResult& result) noexcept;
     template <ShotMode Mode>
     void execute_action(const ExecutablePlan::ExecuteClassicalRecord& action,
-                        std::span<const uint8_t> forced_records, ExecutionResult& result) noexcept;
+                        std::span<const uint8_t> forced_records, DispatchResult& result) noexcept;
     void execute_action(const ExecutablePlan::ExecuteSymbolDefinition& action,
-                        std::span<const uint8_t> forced_records, ExecutionResult& result) noexcept;
+                        std::span<const uint8_t> forced_records, DispatchResult& result) noexcept;
     template <ShotMode Mode>
     void execute_action(const ExecutablePlan::ExecuteReadoutNoise& action,
-                        std::span<const uint8_t> forced_records, ExecutionResult& result) noexcept;
+                        std::span<const uint8_t> forced_records, DispatchResult& result) noexcept;
     void execute_action(const ExecutablePlan::ExecuteDetector& action,
-                        std::span<const uint8_t> forced_records, ExecutionResult& result) noexcept;
+                        std::span<const uint8_t> forced_records, DispatchResult& result) noexcept;
     void execute_action(const ExecutablePlan::ExecuteObservable& action,
-                        std::span<const uint8_t> forced_records, ExecutionResult& result) noexcept;
+                        std::span<const uint8_t> forced_records, DispatchResult& result) noexcept;
     void execute_action(const ExecutablePlan::ExecuteExpectation& action,
-                        std::span<const uint8_t> forced_records, ExecutionResult& result) noexcept;
+                        std::span<const uint8_t> forced_records, DispatchResult& result) noexcept;
     template <ExecutorBackend Backend, ShotMode Mode>
     void execute_action(const ExecutablePlan::ExecuteInstrument& action,
-                        std::span<const uint8_t> forced_records, ExecutionResult& result) noexcept;
+                        std::span<const uint8_t> forced_records, DispatchResult& result) noexcept;
     template <ShotMode Mode>
     void execute_action(const ExecutablePlan::ExecuteBoundary& action,
-                        std::span<const uint8_t> forced_records, ExecutionResult& result) noexcept;
+                        std::span<const uint8_t> forced_records, DispatchResult& result) noexcept;
 
     [[nodiscard]] bool evaluate(ExecutablePlan::PreparedExpression expression) const noexcept;
     [[nodiscard]] bool evaluate_observable(

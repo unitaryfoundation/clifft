@@ -10,6 +10,7 @@ add_library(clifft_core STATIC
     tableau/stabilizer_ch_form.cc
     tableau/tableau.cc
     frontend/frontend.cc
+    frontend/phase_aware_frontend.cc
     optimizer/hir_pass_manager.cc
     optimizer/drop_non_unitary_pass.cc
     optimizer/commutation.cc

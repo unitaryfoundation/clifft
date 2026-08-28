@@ -1,10 +1,6 @@
-# Strong Simulation: Exact Amplitudes and Probabilities
+# Strong Simulation: Exact Probabilities and Amplitudes
 
-Clifft provides an exact complex-amplitude query and two exact-probability APIs:
-
-- **`clifft.compile_basis_amplitude(circuit, output_bits)`** followed by
-  **`clifft.evaluate_amplitude(query)`** — the phase-sensitive scalar
-  $\langle x|U|0\ldots0\rangle$ for one complete output bitstring.
+Clifft provides two exact-probability APIs and one selected-amplitude API:
 
 - **`clifft.basis_probabilities(unitary_program, bitstrings)`** — exact
   computational-basis probabilities for a unitary program.
@@ -12,6 +8,8 @@ Clifft provides an exact complex-amplitude query and two exact-probability APIs:
   joint probabilities of measurement records for a unitary circuit that
   contains measurements (with or without classical feedback). Noise is
   not supported.
+- **`clifft.basis_amplitude(circuit, output_bits)`** — the phase-sensitive
+  scalar $\langle x|U|0\ldots0\rangle$, where `output_bits` is $x$.
 
 You can convert a basis-probability problem into a record-probability problem
 by adding explicit terminal measurements to a unitary program, and the two
@@ -19,56 +17,14 @@ distributions match on the bitstrings the records encode. The runtime cost can
 differ substantially — see
 [Performance on overlapping circuits](#performance-on-overlapping-circuits).
 
-## Exact selected amplitudes
-
-An amplitude query is compiled for one output effect. Compilation reports its
-active-width requirement before the exponential evaluation begins:
-
-```python
-import clifft
-
-circuit = """
-    H 0
-    CX 0 1
-    T 0
-"""
-
-query = clifft.compile_basis_amplitude(circuit, "11")
-print(query.peak_active_width)
-
-amplitude = clifft.evaluate_amplitude(query)
-print(amplitude)
-```
-
-The compiler represents the selected bra as query-private terminal
-computational-basis effects. `StatevectorSqueezePass` can commute those effects
-left through the circuit and eliminate active coordinates early, giving the
-amplitude query the same target-aware width reduction as terminal-measurement
-`record_probabilities()`. A phase ledger retains the complex scalar that the
-probability-only path can discard. This does not change the source circuit or
-the ordinary sampling program.
-
-Only a pure-unitary source circuit and one complete computational-basis target
-are accepted. `bit_order="big"` maps the first bit to qubit 0, matching
-`basis_probabilities()`. Pass `input_format="qasm2"` to consume the native
-OpenQASM 2 source-phase sidecar as part of the returned scalar.
-
-Named Clifford gates use their documented Stim matrices, including global
-phase. `T` and `T_DAG` are `diag(1, exp(+/- i*pi/4))`. A rotation
-`R_P(alpha)` is `exp(-i*pi*alpha*P/2)`. OpenQASM `U`/`u1`/`u2`/`u3` use the
-Qiskit/OpenQASM matrix convention rather than Clifft's phase-insensitive state
-representative. Native-format `U3` uses Clifft's determinant-one
-`R_Z(phi) R_Y(theta) R_Z(lambda)` convention; select `input_format="qasm2"`
-when the source QASM scalar is part of the desired amplitude.
-
 ## When to use which
 
 | Your circuit… | Use |
 |---|---|
-| needs one phase-sensitive basis amplitude | `compile_basis_amplitude()` |
 | needs basis probabilities and has no measurements | `basis_probabilities()` |
 | has any measurement (terminal or intermediate) | `record_probabilities()` |
 | has classical feedback (`CX rec[-1] q`, etc.) | `record_probabilities()` |
+| needs one phase-sensitive basis amplitude | `basis_amplitude()` |
 | has noise, detectors, observables, or post-selection | neither — use `sample()` |
 
 ## `basis_probabilities()`: probabilities of a unitary state
@@ -327,6 +283,49 @@ Output:
 Unreachable records are reported as `0.0` in linear output and `-inf` in
 log output.
 
+## `basis_amplitude()`: one selected complex amplitude
+
+`basis_amplitude()` returns $\langle x|U|0\ldots0\rangle$ for one complete
+output bitstring $x$:
+
+```python
+import clifft
+
+circuit = """
+    H 0
+    CX 0 1
+    T 0
+"""
+
+amplitude = clifft.basis_amplitude(circuit, "11")
+print(amplitude)
+```
+
+For a feasibility-sensitive query, compile it first and inspect the peak active
+width before beginning exponential evaluation:
+
+<!--pytest-codeblocks:cont-->
+
+```python
+query = clifft.compile_basis_amplitude(circuit, "11")
+print(query.peak_active_width)
+
+amplitude = query.evaluate()
+```
+
+Only pure-unitary source text and one complete output bitstring are accepted;
+the input state is always $|0\ldots0\rangle$. `bit_order="big"` maps the first
+bit to qubit 0, matching `basis_probabilities()`. Pass `input_format="qasm2"`
+for OpenQASM 2 source.
+
+Compilation is target-aware, so the selected output can reduce
+`peak_active_width` without changing ordinary sampling. Named Clifford gates
+use their documented Stim matrices, including global phase. `T` and `T_DAG`
+are `diag(1, exp(+/- i*pi/4))`, and `R_P(alpha)` is
+`exp(-i*pi*alpha*P/2)`. OpenQASM `U` gates use the Qiskit/OpenQASM matrix
+convention; native-format `U3` uses Clifft's determinant-one
+`R_Z(phi) R_Y(theta) R_Z(lambda)` convention.
+
 ## Performance on overlapping circuits
 
 When the circuit is a unitary prefix followed by terminal `M`-all, either
@@ -403,10 +402,10 @@ measure-then-feedback) are also rejected. Recompile without resets, or use
 `sample()` to marginalize over the hidden outcomes.
 
 Amplitude-query compilation rejects measurements, resets, feedback, noise,
-detectors, observables, expectation probes, and postselection. It intentionally
-does not accept a precompiled `Program` or user-selected HIR passes: exact phase
-tracking and target-aware orientation selection are part of its built-in
-compiler contract.
+detectors, observables, expectation probes, and postselection. It accepts source
+text instead of a precompiled `Program` because ordinary programs discard global
+phase, and its target-aware compilation depends on the requested output
+bitstring.
 
 ## How it works
 

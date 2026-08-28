@@ -5,7 +5,7 @@
 
 namespace clifft {
 
-GateType inverse_clifford_gate(GateType gate) {
+GateType inverse_fixed_clifford_gate(GateType gate) {
     switch (gate) {
         case GateType::S:
             return GateType::S_DAG;
