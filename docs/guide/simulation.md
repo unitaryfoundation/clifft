@@ -270,43 +270,22 @@ scalar = clifft.sample(program, 100_000, seed=42, batch_size=1)
 packed = clifft.sample(program, 100_000, seed=42, batch_size=1024)
 ```
 
-The state-vector footprint grows exponentially with maximum active width and
-linearly with batch size. Once a worker's complete working set outgrows useful
-CPU caches, a larger batch can therefore become slower. Automatic mode estimates
-the memory required by the selected sampling and output mode, targets at most
-8 MiB per worker and 64 MiB across workers, and reduces either the batch size or
-concurrent worker count when necessary. Capacity selection is independent of
-the requested thread count, preserving deterministic batch boundaries.
-
-Automatic selection is conservative. It requires at least 64 shots, no
-postselection, and a peak active width of at most 5, and it considers capacities
-up to 2048 lanes. At peak width 5, the planner also estimates the coefficient
-visits performed per lane and selects scalar execution when that work exceeds
-16,384 visits. This keeps short or transient width-5 plans eligible while
-avoiding packed execution for plans that sustain width-5 coefficient work.
-Plans with postselection use scalar execution in automatic mode because their
-benefit depends on circuit- and noise-specific survivor lifetimes that the
-static policy cannot reliably predict.
+Automatic mode requires at least 64 shots, no postselection, and a peak active
+width of at most 5. Within those limits, it chooses a lane capacity based on the
+plan's work and memory needs; long width-5 plans fall back to scalar execution.
+Postselected plans remain scalar in automatic mode because their benefit
+depends on circuit- and noise-specific survivor lifetimes that cannot be
+predicted reliably from the plan alone.
 
 Set `batch_size=1` to require scalar execution. An explicit positive integer
-requests a capacity up to 2048 and overrides the conservative automatic policy.
-Explicit mode still rejects a dense packed state above 64 MiB per worker, but
-plans retaining many symbols, expressions, or records can use additional memory
-beyond that state-vector limit.
+requests up to 2048 lanes and overrides the automatic policy, subject to memory
+safety limits. Since the best capacity varies by circuit, sampling function,
+shot count, thread count, and CPU, benchmark a few sizes such as `1`, `256`, and
+`1024` with representative arguments before choosing an override.
 
-Explicit batching can still improve plans that automatic mode leaves scalar,
-and the best capacity can vary by circuit, sampling function, shot count,
-thread count, and CPU. For a repeated workload, benchmark `1`, `256`, and
-`1024` on the target machine with representative arguments before choosing an
-override. Warm up each configuration, use repeated timings, and verify survivor
-counts or output statistics. Treat the selected capacity as a workload- and
-machine-specific setting rather than a portable default.
-
-When explicitly enabled for a postselected plan, packed execution marks rejected
-lanes immediately. Physical lane compaction is deferred until its
-planner-estimated reduction in remaining coefficient work exceeds the cost of
-moving the live coefficient state and packed sidecars. Classical plans carry
-only the logical live mask and compact once if retained rows must be returned.
+With explicit batching and postselection, rejected lanes stop executing
+immediately. Clifft may wait to repack the remaining live lanes until repacking
+is expected to save more work than it costs.
 
 Packed execution supports ordinary sampling, post-selected survivor sampling,
 counts-only survivor aggregation, expectation values, and fixed-k importance
