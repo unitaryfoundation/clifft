@@ -1,0 +1,37 @@
+machine_label: macos-m4-pro
+model_name: MacBook Pro
+model_identifier: Mac16,7
+model_number: MX2U3LL/A
+chip: Apple M4 Pro
+architecture: arm64
+cores: 14 (10 performance, 4 efficiency)
+memory: 48 GB
+os: macOS 26.5.2 (25F84)
+kernel: Darwin 25.5.0
+compiler: Apple clang 17.0.0 (clang-1700.6.3.2)
+cmake: 4.1.2
+python: 3.13.6
+power_source: AC
+pmset_lowpowermode: 2
+
+baseline: fba10d75acc77ac559e5750e1ccb162993340723
+candidate: 26f3ba1ab05d46f9ad7ea24d89174b9e53266532
+branch_base: 26f3ba1ab05d46f9ad7ea24d89174b9e53266532
+
+build_type: RelWithDebInfo
+cpu_baseline: native
+profiler: tools/profile/run_sampling_mode_matrix.py
+shots: 100000
+warmups: 2
+repetitions: 7
+fixed_k: 1
+apis: sample sample_survivors sample_k sample_k_survivors
+keep_records: 0 1
+postselection: none all
+batches: 1 auto 64 256 1024 2048
+threads: 1 8
+classification_threshold: 0.05
+fixtures: active_width5_transient.stim active_width5_sustained.stim
+
+run_window_local: 2026-08-27 through 2026-08-28 America/New_York
+notes: The four t8 matrices were rerun after the task resumed; the final reruns are retained.
