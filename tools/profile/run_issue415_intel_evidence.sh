@@ -26,8 +26,13 @@ for command in cmake git lscpu mpstat ninja nproc python3 taskset uv; do
     fi
 done
 
-if [[ $(lscpu -p=VENDOR | awk -F, '!/^#/ { print $1; exit }') != "GenuineIntel" ]]; then
-    echo "This runner requires an Intel CPU." >&2
+cpu_vendor=$(awk -F: '/^vendor_id/ {
+    gsub(/^[ \t]+|[ \t]+$/, "", $2)
+    print $2
+    exit
+}' /proc/cpuinfo)
+if [[ ${cpu_vendor} != "GenuineIntel" ]]; then
+    echo "This runner requires an Intel CPU; detected vendor: ${cpu_vendor:-unknown}." >&2
     exit 1
 fi
 if (( $(nproc) < 8 )); then
