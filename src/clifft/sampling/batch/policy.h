@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <optional>
 
 namespace clifft::sampling {
@@ -44,6 +45,33 @@ enum class BatchSamplingMode : uint8_t {
     Ordinary,
     FixedFaults,
 };
+
+namespace batch_detail {
+
+// Approximate coefficient visits performed for one lane. Row output can add
+// work, such as expectation-value probes, beyond the common execution path.
+struct BatchLaneWork {
+    uint64_t common = 0;
+    uint64_t row_output = 0;
+
+    [[nodiscard]] uint64_t for_output_mode(BatchOutputMode output_mode) const noexcept {
+        if (output_mode == BatchOutputMode::AggregateSurvivors) {
+            return common;
+        }
+        return common > std::numeric_limits<uint64_t>::max() - row_output
+                   ? std::numeric_limits<uint64_t>::max()
+                   : common + row_output;
+    }
+};
+
+// Policy decisions need both total future work and the portion executed while
+// the active state has the width whose packed/scalar crossover is calibrated.
+struct BatchWorkEstimate {
+    BatchLaneWork all_widths;
+    BatchLaneWork width_five;
+};
+
+}  // namespace batch_detail
 
 #if defined(__EMSCRIPTEN__)
 // WebAssembly retains the scalar executor to minimize its binary footprint.

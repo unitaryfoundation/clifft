@@ -148,8 +148,8 @@ BatchExecutionPolicy resolve_batch_execution_policy(
         return {};
     }
     if (plan.peak_active_width() > 5 ||
-        (plan.peak_active_width() == 5 &&
-         plan.estimated_batch_lane_work() > kDefaultMaxWidthFiveBatchLaneWork)) {
+        (plan.peak_active_width() == 5 && plan.estimated_width_five_batch_lane_work(output_mode) >
+                                              kDefaultMaxWidthFiveBatchLaneWork)) {
         return {};
     }
     uint32_t capacity = std::min(shots, kDefaultMaxAutoBatchShots);

@@ -28,9 +28,15 @@ using clifft::sampling::BatchSamplingMode;
 using clifft::sampling::ExecutablePlan;
 using clifft::sampling::ExpValSlot;
 using clifft::sampling::kDefaultMaxWidthFiveBatchLaneWork;
+using clifft::sampling::MeasureActivePauli;
 using clifft::sampling::PlannedAction;
+using clifft::sampling::RecordClassical;
+using clifft::sampling::RecordSlot;
 using clifft::sampling::resolve_batch_execution_policy;
+using clifft::sampling::RotateActivePauli;
 using clifft::sampling::SamplingPlan;
+using clifft::sampling::SymbolId;
+using clifft::sampling::SymbolKind;
 using clifft::sampling::WriteExpectationValue;
 
 namespace {
@@ -222,13 +228,49 @@ TEST_CASE("Packed capacity policy bounds worker state footprint") {
                                                 ExpValSlot{probe}}});
     }
     const ExecutablePlan sustained(sustained_plan);
-    REQUIRE(sustained.estimated_batch_lane_work() > kDefaultMaxWidthFiveBatchLaneWork);
+    REQUIRE(sustained.estimated_width_five_batch_lane_work(BatchOutputMode::Rows) >
+            kDefaultMaxWidthFiveBatchLaneWork);
+    REQUIRE(sustained.estimated_width_five_batch_lane_work(BatchOutputMode::AggregateSurvivors) ==
+            0);
     REQUIRE(
         resolve_batch_execution_policy(sustained, 4096, 1, 1, BatchOutputMode::Rows, std::nullopt)
             .lane_capacity == 1);
+    REQUIRE(resolve_batch_execution_policy(sustained, 4096, 1, 1,
+                                           BatchOutputMode::AggregateSurvivors, std::nullopt)
+                .lane_capacity == 1024);
     REQUIRE(
         resolve_batch_execution_policy(sustained, 4096, 1, 1, BatchOutputMode::Rows, uint32_t{64})
             .lane_capacity == 64);
+
+    SamplingPlan brief_width_five_plan;
+    brief_width_five_plan.num_qubits = 5;
+    brief_width_five_plan.initial_active_width = 5;
+    brief_width_five_plan.peak_active_width = 5;
+    brief_width_five_plan.num_visible_records = 2104;
+    brief_width_five_plan.symbols.assign(4, SymbolKind::Branch);
+    for (uint32_t measurement = 0; measurement < 4; ++measurement) {
+        const uint32_t active_before = 5 - measurement;
+        const uint32_t pivot = active_before - 1;
+        const SymbolId branch{measurement};
+        brief_width_five_plan.actions.push_back(
+            PlannedAction{active_before, active_before - 1,
+                          MeasureActivePauli{ActivePauli{uint64_t{1} << pivot, 0}, pivot, branch,
+                                             AffineBool::symbol(branch), RecordSlot{measurement}}});
+    }
+    for (uint32_t cycle = 0; cycle < 2100; ++cycle) {
+        brief_width_five_plan.actions.push_back(
+            PlannedAction{1, 1, RotateActivePauli{ActivePauli{1, 0}, 0.25, AffineBool{}}});
+        brief_width_five_plan.actions.push_back(
+            PlannedAction{1, 1, RecordClassical{AffineBool{}, RecordSlot{cycle + 4}}});
+    }
+    const ExecutablePlan brief_width_five(brief_width_five_plan);
+    REQUIRE(brief_width_five.estimated_batch_lane_work(BatchOutputMode::Rows) >
+            kDefaultMaxWidthFiveBatchLaneWork);
+    REQUIRE(brief_width_five.estimated_width_five_batch_lane_work(BatchOutputMode::Rows) <
+            kDefaultMaxWidthFiveBatchLaneWork);
+    REQUIRE(resolve_batch_execution_policy(brief_width_five, 4096, 1, 1, BatchOutputMode::Rows,
+                                           std::nullopt)
+                .lane_capacity > 1);
 
     const ExecutablePlan noisy = compile_batch_test_plan();
     REQUIRE(noisy.num_batch_noise_carriers() == 0);

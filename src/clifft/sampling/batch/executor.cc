@@ -611,7 +611,9 @@ bool BatchExecutor::should_compact(const ExecutablePlan::ExecuteDetector& detect
     if (plan_->peak_active_width() == 0) {
         return false;
     }
-    if (detector.remaining_batch_lane_work == 0) {
+    const uint64_t remaining_lane_work =
+        detector.remaining_batch_lane_work.for_output_mode(output_mode_);
+    if (remaining_lane_work == 0) {
         return false;
     }
     const uint64_t old_words = packed_word_count(active_lanes());
@@ -628,12 +630,14 @@ bool BatchExecutor::should_compact(const ExecutablePlan::ExecuteDetector& detect
         saturating_multiply_u64(bit_columns, bit_compaction_units), kPackedBitCompactionWeight);
     const uint64_t state_cost =
         saturating_multiply_u64(saturating_multiply_u64(state_.size(), live_count_), 2);
+    const uint64_t row_output_entries =
+        output_mode_ == BatchOutputMode::Rows ? plan_->num_exp_vals_ : 0;
     const uint64_t lane_cost = saturating_add_u64(
         active_lanes(),
-        saturating_multiply_u64(live_count_, static_cast<uint64_t>(plan_->num_exp_vals_) + 3));
+        saturating_multiply_u64(live_count_, static_cast<uint64_t>(row_output_entries) + 3));
     const uint64_t compact_cost =
         saturating_add_u64(sidecar_cost, saturating_add_u64(state_cost, lane_cost));
-    return detector.remaining_batch_lane_work > compact_cost / dead_lanes;
+    return remaining_lane_work > compact_cost / dead_lanes;
 }
 
 void BatchExecutor::compact_live_lanes() noexcept {

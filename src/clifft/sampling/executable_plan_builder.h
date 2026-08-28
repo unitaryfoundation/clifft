@@ -62,7 +62,7 @@ class ExecutablePlanBuilder {
     std::vector<uint32_t> expression_term_begins_;
     std::vector<uint32_t> boundary_noise_starts_;
     std::vector<uint8_t> bound_presampled_symbols_;
-    std::vector<uint64_t> action_batch_lane_work_;
+    std::vector<batch_detail::BatchWorkEstimate> action_batch_lane_work_;
 };
 
 }  // namespace clifft::sampling

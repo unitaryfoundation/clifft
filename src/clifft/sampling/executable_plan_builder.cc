@@ -44,29 +44,56 @@ inline constexpr double kMaxSparseBatchReadoutProbability = 0.05;
     return uint64_t{1} << active_width;
 }
 
-[[nodiscard]] uint64_t planned_batch_lane_work(const PlannedAction& planned) noexcept {
-    return std::visit(
-        [&](const auto& typed) -> uint64_t {
+[[nodiscard]] batch_detail::BatchLaneWork common_batch_lane_work(uint64_t work) noexcept {
+    return {.common = work};
+}
+
+[[nodiscard]] batch_detail::BatchLaneWork row_output_batch_lane_work(uint64_t work) noexcept {
+    return {.row_output = work};
+}
+
+[[nodiscard]] batch_detail::BatchWorkEstimate classify_batch_lane_work(
+    batch_detail::BatchLaneWork work, uint32_t active_width) noexcept {
+    return {.all_widths = work,
+            .width_five = active_width == 5 ? work : batch_detail::BatchLaneWork{}};
+}
+
+[[nodiscard]] batch_detail::BatchLaneWork add_batch_lane_work(
+    batch_detail::BatchLaneWork lhs, batch_detail::BatchLaneWork rhs) noexcept {
+    return {.common = saturating_add_u64(lhs.common, rhs.common),
+            .row_output = saturating_add_u64(lhs.row_output, rhs.row_output)};
+}
+
+[[nodiscard]] batch_detail::BatchWorkEstimate planned_batch_lane_work(
+    const PlannedAction& planned) noexcept {
+    const batch_detail::BatchLaneWork work = std::visit(
+        [&](const auto& typed) -> batch_detail::BatchLaneWork {
             using T = std::decay_t<decltype(typed)>;
             const uint64_t size = coefficient_size(planned.active_before);
             if constexpr (std::is_same_v<T, RotateActivePauli>) {
-                return saturating_multiply_u64(size, 4);
+                return common_batch_lane_work(saturating_multiply_u64(size, 4));
             } else if constexpr (std::is_same_v<T, PromoteDormantRotation>) {
-                return saturating_multiply_u64(size, 4);
+                return common_batch_lane_work(saturating_multiply_u64(size, 4));
             } else if constexpr (std::is_same_v<T, MeasureActivePauli>) {
-                return saturating_multiply_u64(size, 6);
+                return common_batch_lane_work(saturating_multiply_u64(size, 6));
             } else if constexpr (std::is_same_v<T, WriteExpectationValue>) {
-                return typed.active.has_value() ? saturating_multiply_u64(size, 4) : 0;
+                return typed.active.has_value()
+                           ? row_output_batch_lane_work(saturating_multiply_u64(size, 4))
+                           : batch_detail::BatchLaneWork{};
             } else {
-                return 0;
+                return {};
             }
         },
         planned.action);
+    return classify_batch_lane_work(work, planned.active_before);
 }
 
-[[nodiscard]] uint64_t fused_batch_lane_work(const PreparedFusedRotation& rotation) noexcept {
+[[nodiscard]] batch_detail::BatchWorkEstimate fused_batch_lane_work(
+    const PreparedFusedRotation& rotation) noexcept {
     const uint64_t dimension = uint64_t{1} << rotation.orbit_rank;
-    return saturating_multiply_u64(coefficient_size(rotation.active_width), 2 * dimension);
+    return classify_batch_lane_work(common_batch_lane_work(saturating_multiply_u64(
+                                        coefficient_size(rotation.active_width), 2 * dimension)),
+                                    rotation.active_width);
 }
 
 }  // namespace
@@ -532,16 +559,20 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::lower_action_stream() {
 CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::prepare_batch_compaction_costs() {
     assert(action_batch_lane_work_.size() == output_.actions_.size() &&
            "batch work estimates must parallel executable actions");
-    uint64_t remaining_lane_work = 0;
+    batch_detail::BatchLaneWork remaining_lane_work;
+    batch_detail::BatchLaneWork width_five_lane_work;
     for (size_t index = output_.actions_.size(); index-- > 0;) {
         if (auto* detector =
                 std::get_if<ExecutablePlan::ExecuteDetector>(&output_.actions_[index])) {
             detector->remaining_batch_lane_work = remaining_lane_work;
         }
         remaining_lane_work =
-            saturating_add_u64(remaining_lane_work, action_batch_lane_work_[index]);
+            add_batch_lane_work(remaining_lane_work, action_batch_lane_work_[index].all_widths);
+        width_five_lane_work =
+            add_batch_lane_work(width_five_lane_work, action_batch_lane_work_[index].width_five);
     }
-    output_.estimated_batch_lane_work_ = remaining_lane_work;
+    output_.estimated_batch_lane_work_ = {.all_widths = remaining_lane_work,
+                                          .width_five = width_five_lane_work};
 }
 
 CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::record_action_origin(uint32_t plan_begin,
