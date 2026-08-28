@@ -3,8 +3,29 @@
 #include "clifft/optimizer/commutation.h"
 
 #include <algorithm>
+#include <optional>
 
 namespace clifft {
+
+namespace {
+
+bool is_expansion(const HeisenbergOp& op) {
+    return op.op_type() == OpType::T_GATE || op.op_type() == OpType::PHASE_ROTATION;
+}
+
+std::optional<size_t> bypass_target(const HirModule& hir, size_t moving) {
+    for (size_t next = moving + 1; next < hir.ops.size(); ++next) {
+        if (!can_swap(hir.ops[moving], hir.ops[next], hir)) {
+            return std::nullopt;
+        }
+        if (!is_expansion(hir.ops[next])) {
+            return next;
+        }
+    }
+    return std::nullopt;
+}
+
+}  // namespace
 
 void StatevectorSqueezePass::run(HirModule& hir) {
     bool has_sm = hir.source_map.size() == hir.ops.size();
@@ -27,18 +48,33 @@ void StatevectorSqueezePass::run(HirModule& hir) {
         }
     }
 
-    // Sweep 2: Lazy Expansion (rightward bubble of non-Clifford gates)
+    // Sweep 2: Lazy Expansion (rightward bubble of non-Clifford gates).
+    // For example, T0 T1 H1 M1 can become T1 H1 M1 T0: T1 is blocked by
+    // H1, but T0 commutes with every operation on qubit 1.
     if (hir.ops.size() >= 2) {
         for (size_t i = hir.ops.size() - 2;; --i) {
-            auto t = hir.ops[i].op_type();
-            if (t == OpType::T_GATE || t == OpType::PHASE_ROTATION) {
+            if (is_expansion(hir.ops[i])) {
                 size_t curr = i;
                 while (curr < hir.ops.size() - 1 &&
                        can_swap(hir.ops[curr], hir.ops[curr + 1], hir)) {
-                    // Don't uselessly reorder two expanding gates past each other
-                    auto nt = hir.ops[curr + 1].op_type();
-                    if (nt == OpType::T_GATE || nt == OpType::PHASE_ROTATION) {
-                        break;
+                    // Crossing another expansion is useful only when it lets
+                    // this one move past a later non-expanding operation.
+                    if (is_expansion(hir.ops[curr + 1])) {
+                        const std::optional<size_t> target = bypass_target(hir, curr);
+                        if (!target.has_value()) {
+                            break;
+                        }
+                        std::rotate(hir.ops.begin() + static_cast<std::ptrdiff_t>(curr),
+                                    hir.ops.begin() + static_cast<std::ptrdiff_t>(curr + 1),
+                                    hir.ops.begin() + static_cast<std::ptrdiff_t>(*target + 1));
+                        if (has_sm) {
+                            std::rotate(
+                                hir.source_map.begin() + static_cast<std::ptrdiff_t>(curr),
+                                hir.source_map.begin() + static_cast<std::ptrdiff_t>(curr + 1),
+                                hir.source_map.begin() + static_cast<std::ptrdiff_t>(*target + 1));
+                        }
+                        curr = *target;
+                        continue;
                     }
                     std::swap(hir.ops[curr], hir.ops[curr + 1]);
                     if (has_sm) {
