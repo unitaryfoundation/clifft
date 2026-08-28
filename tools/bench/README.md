@@ -30,3 +30,50 @@ Pre-generated circuit files live in `fixtures/`:
 - **`qv20_seed42.stim`** — 20-qubit Quantum Volume circuit (seed=42) in Stim-superset
   format. Peak active width 20 (2^20 = 1M complex amplitudes, 16 MB statevector).
   Useful for profiling dense active-state kernels.
+
+## EC2 compiler matrix
+
+The issue 317 EC2 collector compares GCC 13 and Clang 18, with and without
+LTO, on QV-20 and QEC circuits with peak active ranks 0, 4, 5, 7, and 10. It
+pins the public `clifft-bench` QEC corpus by commit and SHA-256 digest, rotates
+configuration order between repetitions, records EC2 and CPU metadata, and
+checks scalar, AVX2, and AVX-512 output checksums before collection.
+
+Use a regular Intel `c7i.2xlarge` or `c6i.2xlarge` running Ubuntu 24.04. Clone
+the benchmark branch, then install the pinned build dependencies:
+
+```bash
+git clone --branch codex/issue-317-ec2-compiler-matrix \
+  https://github.com/unitaryfoundation/clifft.git
+cd clifft
+./tools/bench/ec2_compiler_matrix.py install-deps
+```
+
+Run the matrix inside `tmux`. The default takes several minutes and uses one
+pinned logical CPU. It requires OpenMP in every build so the configurations
+match the Linux release feature set. Keep the selected CPU's SMT sibling idle
+during collection.
+
+```bash
+EXECUTION_ID="c7i-$(date -u +%Y%m%d)"
+./tools/bench/ec2_compiler_matrix.py run --execution-id "$EXECUTION_ID"
+```
+
+Inspect the generated `tools/bench/ec2-results/issue-317/$EXECUTION_ID`
+directory. Publishing is deliberately separate and refuses unrelated worktree
+or staged changes:
+
+```bash
+./tools/bench/ec2_compiler_matrix.py publish \
+  --execution-id "$EXECUTION_ID" \
+  --push
+```
+
+The push uses the checkout's existing Git credentials and creates a normal
+commit on `codex/issue-317-ec2-compiler-matrix`. Configure `user.name` and
+`user.email` before publishing if the EC2 checkout does not already have an
+author identity. The first publish also resolves the locked development tools
+and runs the repository's required pre-commit suite. Stop the instance after
+the push completes.
+
+For a short harness check without collecting reportable numbers, add `--quick`.
