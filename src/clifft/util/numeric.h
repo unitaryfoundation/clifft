@@ -3,6 +3,7 @@
 // Numeric checks that must remain valid under Release -ffast-math.
 
 #include <cmath>
+#include <complex>
 #include <cstdint>
 #include <cstring>
 #include <limits>
@@ -41,6 +42,26 @@ inline constexpr double kRotationCanonicalizationTolerance = 1e-12;
 }
 
 enum class CliffordRotation : uint8_t { IDENTITY = 0, SQRT = 1, PAULI = 2, SQRT_DAG = 3 };
+
+// Scalar phases of exp(-i*pi*alpha*P/2) are periodic in four half-turns.
+// Reduce before multiplying by pi so large exactly representable rotations do
+// not lose their low phase bits during range reduction in libm.
+inline double reduce_phase_half_turns(double alpha) {
+    return std::fmod(alpha, 4.0);
+}
+
+[[nodiscard]] constexpr std::complex<double> i_power(uint32_t exponent) {
+    switch (exponent & 3U) {
+        case 0:
+            return {1.0, 0.0};
+        case 1:
+            return {0.0, 1.0};
+        case 2:
+            return {-1.0, 0.0};
+        default:
+            return {0.0, -1.0};
+    }
+}
 
 // The IEEE 754 bit trick below assumes that layout. Make it explicit.
 static_assert(std::numeric_limits<double>::is_iec559,

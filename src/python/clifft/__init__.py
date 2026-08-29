@@ -30,6 +30,7 @@ ensure_supported_cpu(CPU_BASELINE)
 from clifft import noncomp
 from clifft._clifft_core import (
     AstNode,
+    BasisAmplitudeQuery,
     Circuit,
     DropNonUnitaryPass,
     GateType,
@@ -46,6 +47,7 @@ from clifft._clifft_core import (
     StatevectorSqueezePass,
     Target,
     _basis_probabilities_from_bitmasks,
+    _compile_basis_amplitude,
     _record_probabilities_from_records,
     compute_reference_syndrome,
     default_hir_pass_manager,
@@ -74,6 +76,7 @@ from clifft._clifft_core import (
 )
 from clifft._sample_result import SampleResult
 
+BasisBitstring: TypeAlias = str | npt.NDArray[np.bool_] | npt.NDArray[np.uint8]
 BasisBitstrings: TypeAlias = str | Sequence[str] | npt.NDArray[np.bool_] | npt.NDArray[np.uint8]
 MeasurementRecords: TypeAlias = str | Sequence[str] | npt.NDArray[np.bool_] | npt.NDArray[np.uint8]
 
@@ -83,8 +86,13 @@ class _MeasurementProgram(Protocol):
     def num_measurements(self) -> int: ...
 
 
+class _BasisWidth(Protocol):
+    @property
+    def num_qubits(self) -> int: ...
+
+
 def _basis_masks_from_bitstrings(
-    program: Program,
+    program: _BasisWidth,
     bitstrings: BasisBitstrings,
     bit_order: str,
 ) -> npt.NDArray[np.uint64]:
@@ -153,6 +161,26 @@ def _basis_masks_from_bitstrings(
     )
 
 
+def _basis_mask_from_bitstring(
+    program: _BasisWidth,
+    bitstring: BasisBitstring,
+    bit_order: str,
+) -> npt.NDArray[np.uint64]:
+    if isinstance(bitstring, str):
+        return cast(
+            npt.NDArray[np.uint64],
+            _basis_masks_from_bitstrings(program, bitstring, bit_order)[0],
+        )
+    if not isinstance(bitstring, np.ndarray):
+        raise TypeError("bitstring must be a string or a 1D bool/uint8 NumPy array")
+    if bitstring.ndim != 1:
+        raise ValueError("bitstring array must be 1D with shape (num_qubits,)")
+    return cast(
+        npt.NDArray[np.uint64],
+        _basis_masks_from_bitstrings(program, bitstring[np.newaxis, :], bit_order)[0],
+    )
+
+
 def basis_probabilities(
     program: Program,
     bitstrings: BasisBitstrings,
@@ -188,6 +216,60 @@ def basis_probabilities(
         with np.errstate(divide="ignore"):
             return np.log(probs)
     return probs
+
+
+def compile_basis_amplitude(
+    circuit_text: str,
+    output_bits: BasisBitstring,
+    *,
+    bit_order: str = "big",
+    input_format: Literal["stim", "qasm2"] = "stim",
+) -> BasisAmplitudeQuery:
+    """Compile one exact computational-basis amplitude query.
+
+    The query represents ``<output_bits|U|0...0>`` under the canonical matrix
+    conventions of the selected input format. Only pure-unitary circuits are
+    accepted. Inspect ``query.peak_active_width`` before calling
+    ``query.evaluate()`` when feasibility matters.
+
+    ``bit_order="big"`` maps the first bit to qubit 0, matching
+    :func:`basis_probabilities`. ``output_bits`` must describe exactly one
+    complete basis state.
+    """
+    if input_format == "stim":
+        circuit = parse(circuit_text)
+        input_phase = 1.0 + 0.0j
+    elif input_format == "qasm2":
+        imported = parse_qasm2(circuit_text)
+        circuit = imported.circuit
+        input_phase = complex(np.exp(1j * np.pi * imported.global_phase_half_turns))
+    else:
+        raise ValueError("input_format must be 'stim' or 'qasm2'")
+
+    mask = _basis_mask_from_bitstring(circuit, output_bits, bit_order)
+    return _compile_basis_amplitude(circuit, mask, input_phase)
+
+
+def basis_amplitude(
+    circuit_text: str,
+    output_bits: BasisBitstring,
+    *,
+    bit_order: str = "big",
+    input_format: Literal["stim", "qasm2"] = "stim",
+) -> complex:
+    """Return the exact amplitude ``<output_bits|U|0...0>``.
+
+    Only pure-unitary circuits and one complete output bitstring are accepted.
+    Use :func:`compile_basis_amplitude` when the query's peak active width must
+    be inspected before evaluation.
+    """
+    query = compile_basis_amplitude(
+        circuit_text,
+        output_bits,
+        bit_order=bit_order,
+        input_format=input_format,
+    )
+    return complex(query.evaluate())
 
 
 def _records_from_outcomes(
@@ -347,6 +429,8 @@ def compile(
 
 __all__ = [
     "AstNode",
+    "BasisAmplitudeQuery",
+    "BasisBitstring",
     "BasisBitstrings",
     "MeasurementRecords",
     "Circuit",
@@ -365,7 +449,9 @@ __all__ = [
     "SampleResult",
     "StatevectorSqueezePass",
     "Target",
+    "basis_amplitude",
     "basis_probabilities",
+    "compile_basis_amplitude",
     "compile",
     "compute_reference_syndrome",
     "default_hir_pass_manager",

@@ -8,7 +8,9 @@
 #include <span>
 #include <vector>
 
-namespace clifft::sampling {
+namespace clifft {
+
+namespace sampling {
 
 // Exact final-state queries execute one prepared trajectory, then reconstruct
 // physical-basis results through the plan's final coordinate map.
@@ -21,4 +23,5 @@ namespace clifft::sampling {
 // global phase is unspecified.
 [[nodiscard]] std::vector<std::complex<double>> get_statevector(const ExecutablePlan& plan);
 
-}  // namespace clifft::sampling
+}  // namespace sampling
+}  // namespace clifft

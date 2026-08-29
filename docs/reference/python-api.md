@@ -55,6 +55,12 @@ Sampling under a five-level leakage/loss model. See the
 
 ::: clifft.record_probabilities
 
+::: clifft.basis_amplitude
+
+::: clifft.compile_basis_amplitude
+
+::: clifft.BasisAmplitudeQuery
+
 ## State Inspection
 
 ::: clifft.get_statevector
@@ -108,6 +114,8 @@ Sampling under a five-level leakage/loss model. See the
 ::: clifft.compute_reference_syndrome
 
 ## Type Aliases
+
+::: clifft.BasisBitstring
 
 ::: clifft.BasisBitstrings
 

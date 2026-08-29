@@ -1,6 +1,6 @@
-# Strong Simulation: Exact Probabilities
+# Strong Simulation: Exact Probabilities and Amplitudes
 
-Clifft provides two exact-probability APIs covering complementary regimes:
+Clifft provides two exact-probability APIs and one selected-amplitude API:
 
 - **`clifft.basis_probabilities(unitary_program, bitstrings)`** — exact
   computational-basis probabilities for a unitary program.
@@ -8,20 +8,23 @@ Clifft provides two exact-probability APIs covering complementary regimes:
   joint probabilities of measurement records for a unitary circuit that
   contains measurements (with or without classical feedback). Noise is
   not supported.
+- **`clifft.basis_amplitude(circuit, output_bits)`** — the phase-sensitive
+  scalar $\langle x|U|0\ldots0\rangle$, where `output_bits` is $x$.
 
-You can convert the former problem into the latter by adding explicit
-terminal measurements to a unitary program, and the two distributions match
-on the bitstrings the records encode. The runtime cost can differ
-substantially — see
+You can convert a basis-probability problem into a record-probability problem
+by adding explicit terminal measurements to a unitary program, and the two
+distributions match on the bitstrings the records encode. The runtime cost can
+differ substantially — see
 [Performance on overlapping circuits](#performance-on-overlapping-circuits).
 
 ## When to use which
 
 | Your circuit… | Use |
 |---|---|
-| has no measurements | `basis_probabilities()` |
+| needs basis probabilities and has no measurements | `basis_probabilities()` |
 | has any measurement (terminal or intermediate) | `record_probabilities()` |
 | has classical feedback (`CX rec[-1] q`, etc.) | `record_probabilities()` |
+| needs one phase-sensitive basis amplitude | `basis_amplitude()` |
 | has noise, detectors, observables, or post-selection | neither — use `sample()` |
 
 ## `basis_probabilities()`: probabilities of a unitary state
@@ -280,10 +283,53 @@ Output:
 Unreachable records are reported as `0.0` in linear output and `-inf` in
 log output.
 
+## `basis_amplitude()`: one selected complex amplitude
+
+`basis_amplitude()` returns $\langle x|U|0\ldots0\rangle$ for one complete
+output bitstring $x$:
+
+```python
+import clifft
+
+circuit = """
+    H 0
+    CX 0 1
+    T 0
+"""
+
+amplitude = clifft.basis_amplitude(circuit, "11")
+print(amplitude)
+```
+
+For a feasibility-sensitive query, compile it first and inspect the peak active
+width before beginning exponential evaluation:
+
+<!--pytest-codeblocks:cont-->
+
+```python
+query = clifft.compile_basis_amplitude(circuit, "11")
+print(query.peak_active_width)
+
+amplitude = query.evaluate()
+```
+
+Only pure-unitary source text and one complete output bitstring are accepted;
+the input state is always $|0\ldots0\rangle$. `bit_order="big"` maps the first
+bit to qubit 0, matching `basis_probabilities()`. Pass `input_format="qasm2"`
+for OpenQASM 2 source.
+
+Compilation is target-aware, so the selected output can reduce
+`peak_active_width` without changing ordinary sampling. Named Clifford gates
+use their documented Stim matrices, including global phase. `T` and `T_DAG`
+are `diag(1, exp(+/- i*pi/4))`, and `R_P(alpha)` is
+`exp(-i*pi*alpha*P/2)`. OpenQASM `U` gates use the Qiskit/OpenQASM matrix
+convention; native-format `U3` uses Clifft's determinant-one
+`R_Z(phi) R_Y(theta) R_Z(lambda)` convention.
+
 ## Performance on overlapping circuits
 
 When the circuit is a unitary prefix followed by terminal `M`-all, either
-API mathematically applies. They use very different execution strategies,
+probability API mathematically applies. They use very different execution strategies,
 though, and the difference can be 100×+ in either direction:
 
 - `basis_probabilities()` evolves the program once, then walks
@@ -335,9 +381,9 @@ default.
 
 ## Limitations
 
-Both APIs reject programs that include noise, readout noise, detectors,
+The probability APIs reject programs that include noise, readout noise, detectors,
 observables, or post-selection. These constructs make the trajectory
-multi-valued or signal-conditioned in a way neither API models. Use
+multi-valued or signal-conditioned in a way neither probability API models. Use
 [`sample()`](simulation.md#sampling) or
 [`sample_survivors()`](simulation.md) for those workflows.
 
@@ -354,6 +400,12 @@ original circuit.
 hidden measurement slots (from `R` / reset gates lowered to
 measure-then-feedback) are also rejected. Recompile without resets, or use
 `sample()` to marginalize over the hidden outcomes.
+
+Amplitude-query compilation rejects measurements, resets, feedback, noise,
+detectors, observables, expectation probes, and postselection. It accepts source
+text instead of a precompiled `Program` because ordinary programs discard global
+phase, and its target-aware compilation depends on the requested output
+bitstring.
 
 ## How it works
 

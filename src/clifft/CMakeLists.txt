@@ -2,11 +2,15 @@
 # This library contains the compiler pipeline and sampling runtime.
 
 add_library(clifft_core STATIC
+    api/basis_amplitudes.cc
+    circuit/gate_data.cc
     circuit/parser.cc
     circuit/qasm2_parser.cc
     tableau/pauli_string.cc
+    tableau/stabilizer_ch_form.cc
     tableau/tableau.cc
     frontend/frontend.cc
+    frontend/phase_aware_frontend.cc
     optimizer/hir_pass_manager.cc
     optimizer/drop_non_unitary_pass.cc
     optimizer/commutation.cc

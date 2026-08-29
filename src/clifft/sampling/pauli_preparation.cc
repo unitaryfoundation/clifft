@@ -29,14 +29,12 @@ PreparedPauli prepare_pauli(ActivePauli pauli, uint32_t active_width) {
         throw std::invalid_argument("prepared Pauli has bits outside its active width");
     }
 
-    static constexpr std::complex<double> kIPowers[4] = {
-        {1.0, 0.0}, {0.0, 1.0}, {-1.0, 0.0}, {0.0, -1.0}};
     const uint32_t overlap = std::popcount(pauli.x & pauli.z);
     return PreparedPauli{.active_width = active_width,
                          .x = pauli.x,
                          .z = pauli.z,
                          .pairing_bit = std::bit_floor(pauli.x),
-                         .even_phase = kIPowers[overlap & 3U]};
+                         .even_phase = i_power(overlap)};
 }
 
 PreparedRotation prepare_rotation(ActivePauli pauli, uint32_t active_width, double half_turns) {
@@ -46,7 +44,7 @@ PreparedRotation prepare_rotation(ActivePauli pauli, uint32_t active_width, doub
     if (pauli.is_identity()) {
         throw std::invalid_argument("cannot prepare an identity rotation");
     }
-    const double angle = std::numbers::pi * half_turns / 2.0;
+    const double angle = std::numbers::pi * reduce_phase_half_turns(half_turns) / 2.0;
     return PreparedRotation{prepare_pauli(pauli, active_width), std::cos(angle), std::sin(angle)};
 }
 
@@ -54,7 +52,7 @@ PreparedPromotion prepare_promotion(double half_turns) {
     if (!is_finite_robust(half_turns)) {
         throw std::invalid_argument("prepared promotion angle must be finite");
     }
-    const double angle = std::numbers::pi * half_turns / 2.0;
+    const double angle = std::numbers::pi * reduce_phase_half_turns(half_turns) / 2.0;
     return PreparedPromotion{std::cos(angle), std::sin(angle)};
 }
 

@@ -163,7 +163,7 @@ dev = [
     { name = "qiskit-aer", specifier = ">=0.14" },
     { name = "ruff", specifier = ">=0.3" },
     { name = "scikit-build-core", specifier = ">=0.10" },
-    { name = "stim", specifier = ">=1.10" },
+    { name = "stim", specifier = ">=1.15" },
 ]
 docs = [
     { name = "mike", specifier = ">=2.1" },

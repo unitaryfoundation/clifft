@@ -427,11 +427,12 @@ TEST_CASE("Sampling replay inverts affine records and preserves branch dependenc
     const ExecutablePlan executable(plan);
     Executor executor(executable);
     for (uint8_t forced_record : {uint8_t{0}, uint8_t{1}}) {
-        const ReplayResult replay = executor.replay_shot(std::array<uint8_t, 1>{forced_record});
+        const auto [reachable, log_probability] =
+            executor.replay_shot(std::array<uint8_t, 1>{forced_record});
         const bool branch = forced_record == 0;
         CAPTURE(forced_record, branch);
-        REQUIRE(replay.reachable);
-        REQUIRE_THAT(replay.log_probability, Catch::Matchers::WithinAbs(std::log(0.5), 1e-15));
+        REQUIRE(reachable);
+        REQUIRE_THAT(log_probability, Catch::Matchers::WithinAbs(std::log(0.5), 1e-15));
         REQUIRE(executor.visible_records()[0] == forced_record);
         REQUIRE(executor.symbols()[0] == branch);
         const double expected_imag = branch ? 0.5 : -0.5;

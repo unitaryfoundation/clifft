@@ -17,6 +17,8 @@ class KFaultSampler;
 
 namespace clifft::sampling {
 
+class BasisAmplitudeQuery;
+
 // Describes whether a requested record can occur and, if so, its conditional
 // joint log probability. The probability is meaningful only when reachable.
 struct ReplayResult {
@@ -109,7 +111,20 @@ class Executor {
     [[nodiscard]] uint64_t dust_clamps() const { return dust_clamps_; }
 
   private:
-    // Selects the complete per-shot policy at compile time. Keeping the four
+    friend class BasisAmplitudeQuery;
+
+    // Dispatch extends the stable replay result only for query-private effect
+    // metadata. Counting exact half-probability branches lets amplitude
+    // reconstruction use ldexp instead of round-tripping them through logs.
+    struct DispatchResult : ReplayResult {
+        uint32_t exact_half_probability_factors = 0;
+    };
+
+    // Terminal effects preserve small positive branch mass that ordinary
+    // sampling intentionally classifies as numerical dust.
+    [[nodiscard]] DispatchResult replay_effect(std::span<const uint8_t> forced_records) noexcept;
+
+    // Selects the complete per-shot policy at compile time. Keeping the
     // supported modes named prevents unsupported combinations of record,
     // noise, and fixed-fault behavior from reaching the action loop.
     enum class ShotMode : uint8_t {
@@ -117,7 +132,13 @@ class Executor {
         UsePresampledNoise,
         FixedFaultCount,
         ReplayRecords,
+        ReplayEffects,
     };
+
+    template <ShotMode Mode>
+    [[nodiscard]] static constexpr bool is_forced_replay() {
+        return Mode == ShotMode::ReplayRecords || Mode == ShotMode::ReplayEffects;
+    }
 
     enum class IntraShotMode : uint8_t {
         Serial,
@@ -135,49 +156,49 @@ class Executor {
                                          uint32_t symbol_prefix_size) noexcept;
 
     template <ShotMode Mode>
-    [[nodiscard]] ReplayResult execute_actions_for_backend(std::span<const uint8_t> forced_records,
-                                                           uint32_t begin = 0) noexcept;
+    [[nodiscard]] DispatchResult execute_actions_for_backend(
+        std::span<const uint8_t> forced_records, uint32_t begin = 0) noexcept;
     template <ExecutorBackend Backend, ShotMode Mode, IntraShotMode IntraShot>
-    [[nodiscard]] ReplayResult execute_actions(std::span<const uint8_t> forced_records,
-                                               uint32_t begin = 0) noexcept;
+    [[nodiscard]] DispatchResult execute_actions(std::span<const uint8_t> forced_records,
+                                                 uint32_t begin = 0) noexcept;
     template <ExecutorBackend Backend, IntraShotMode IntraShot>
     void execute_action(const ExecutablePlan::ExecuteRotation& action,
-                        std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
+                        std::span<const uint8_t> forced_records, DispatchResult& result) noexcept;
     template <IntraShotMode IntraShot>
     void execute_action(const ExecutablePlan::ExecuteFusedRotation& action,
-                        std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
+                        std::span<const uint8_t> forced_records, DispatchResult& result) noexcept;
     template <IntraShotMode IntraShot>
     void execute_action(const ExecutablePlan::ExecuteDynamicFusedRotation& action,
-                        std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
+                        std::span<const uint8_t> forced_records, DispatchResult& result) noexcept;
     template <IntraShotMode IntraShot>
     void execute_action(const ExecutablePlan::ExecutePromotion& action,
-                        std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
+                        std::span<const uint8_t> forced_records, DispatchResult& result) noexcept;
     template <ExecutorBackend Backend, ShotMode Mode>
     void execute_action(const ExecutablePlan::ExecuteActiveMeasurement& action,
-                        std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
+                        std::span<const uint8_t> forced_records, DispatchResult& result) noexcept;
     template <ShotMode Mode>
     void execute_action(const ExecutablePlan::ExecuteDormantMeasurement& action,
-                        std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
+                        std::span<const uint8_t> forced_records, DispatchResult& result) noexcept;
     template <ShotMode Mode>
     void execute_action(const ExecutablePlan::ExecuteClassicalRecord& action,
-                        std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
+                        std::span<const uint8_t> forced_records, DispatchResult& result) noexcept;
     void execute_action(const ExecutablePlan::ExecuteSymbolDefinition& action,
-                        std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
+                        std::span<const uint8_t> forced_records, DispatchResult& result) noexcept;
     template <ShotMode Mode>
     void execute_action(const ExecutablePlan::ExecuteReadoutNoise& action,
-                        std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
+                        std::span<const uint8_t> forced_records, DispatchResult& result) noexcept;
     void execute_action(const ExecutablePlan::ExecuteDetector& action,
-                        std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
+                        std::span<const uint8_t> forced_records, DispatchResult& result) noexcept;
     void execute_action(const ExecutablePlan::ExecuteObservable& action,
-                        std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
+                        std::span<const uint8_t> forced_records, DispatchResult& result) noexcept;
     void execute_action(const ExecutablePlan::ExecuteExpectation& action,
-                        std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
+                        std::span<const uint8_t> forced_records, DispatchResult& result) noexcept;
     template <ExecutorBackend Backend, ShotMode Mode>
     void execute_action(const ExecutablePlan::ExecuteInstrument& action,
-                        std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
+                        std::span<const uint8_t> forced_records, DispatchResult& result) noexcept;
     template <ShotMode Mode>
     void execute_action(const ExecutablePlan::ExecuteBoundary& action,
-                        std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
+                        std::span<const uint8_t> forced_records, DispatchResult& result) noexcept;
 
     [[nodiscard]] bool evaluate(ExecutablePlan::PreparedExpression expression) const noexcept;
     [[nodiscard]] bool evaluate_observable(
@@ -187,6 +208,8 @@ class Executor {
     [[nodiscard]] bool sample_active_branch(MeasurementProbabilities probabilities) noexcept;
     [[nodiscard]] std::optional<double> force_active_branch(MeasurementProbabilities probabilities,
                                                             bool branch) noexcept;
+    [[nodiscard]] static std::optional<double> force_active_effect_branch(
+        MeasurementProbabilities probabilities, bool branch) noexcept;
     [[nodiscard]] bool sample_dormant_branch() noexcept;
     void trap_instrument(uint32_t site, uint8_t source, bool destination_pending) noexcept;
     void finish_instrument_fire(uint32_t site, uint32_t destination_flip, uint8_t source,

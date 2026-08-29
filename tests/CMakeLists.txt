@@ -6,6 +6,7 @@ include(Catch)
 
 add_executable(clifft_tests
     test_benchmarks.cc
+    test_basis_amplitudes.cc
     test_bitmask.cc
     test_batch_bits.cc
     test_batch_executor.cc
@@ -15,6 +16,7 @@ add_executable(clifft_tests
     test_parser.cc
     test_qasm2_parser.cc
     test_reference_clifford.cc
+    test_stabilizer_ch_form.cc
     test_tableau.cc
     test_hir.cc
     test_frontend.cc
