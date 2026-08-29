@@ -346,6 +346,40 @@ TEST_CASE("Packed capacity policy bounds worker state footprint") {
                 .lane_capacity == 1);
 }
 
+TEST_CASE("Packed worker storage follows selected external outputs") {
+    const ExecutablePlan executable = compile_batch_test_plan();
+    const auto detectors = clifft::sampling::batch_detail::batch_worker_storage_layout(
+        executable, 65, BatchOutputMode::Rows, BatchSamplingMode::Ordinary, {.detectors = true});
+    REQUIRE(detectors.record_columns == executable.num_visible_records());
+    REQUIRE(detectors.detector_columns == executable.num_detectors());
+    REQUIRE(detectors.observable_columns == 0);
+    REQUIRE(detectors.exp_value_entries == 0);
+
+    const auto measurements = clifft::sampling::batch_detail::batch_worker_storage_layout(
+        executable, 65, BatchOutputMode::Rows, BatchSamplingMode::Ordinary, {.measurements = true});
+    REQUIRE(measurements.record_columns == executable.num_visible_records());
+    REQUIRE(measurements.detector_columns == 0);
+    REQUIRE(measurements.observable_columns == 0);
+    REQUIRE(measurements.exp_value_entries == 0);
+
+    const auto none = clifft::sampling::batch_detail::batch_worker_storage_layout(
+        executable, 65, BatchOutputMode::Rows, BatchSamplingMode::Ordinary, {});
+    REQUIRE(none.record_columns == 0);
+    REQUIRE(none.detector_columns == 0);
+    REQUIRE(none.observable_columns == 0);
+    REQUIRE(none.exp_value_entries == 0);
+
+    const std::array<uint8_t, 1> postselection{1};
+    const ExecutablePlan postselected = compile_batch_test_plan(postselection);
+    const auto survivor_rows = clifft::sampling::batch_detail::batch_worker_storage_layout(
+        postselected, 65, BatchOutputMode::Rows, BatchSamplingMode::Ordinary,
+        {.measurements = true});
+    REQUIRE(survivor_rows.record_columns == postselected.num_visible_records());
+    REQUIRE(survivor_rows.detector_columns == 0);
+    REQUIRE(survivor_rows.observable_columns == postselected.num_observables());
+    REQUIRE(survivor_rows.exp_value_entries == 0);
+}
+
 TEST_CASE("Packed capacity policy accounts for lane-scaled sidecars") {
     constexpr uint32_t shots = 100'000;
     const ExecutablePlan d7 = compile_batch_fixture("surface_d7_r7_p001.stim");

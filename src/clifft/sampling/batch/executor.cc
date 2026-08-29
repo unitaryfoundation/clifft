@@ -58,10 +58,11 @@ enum class MeasurementBranchKind : uint8_t {
 }  // namespace
 
 BatchExecutor::BatchExecutor(const ExecutablePlan& plan, uint32_t lane_capacity,
-                             BatchOutputMode output_mode, BatchSamplingMode sampling_mode)
+                             BatchOutputMode output_mode, BatchSamplingMode sampling_mode,
+                             SamplingOutputSelection outputs)
     : BatchExecutor(plan, output_mode, sampling_mode,
                     batch_detail::batch_worker_storage_layout(plan, lane_capacity, output_mode,
-                                                              sampling_mode)) {}
+                                                              sampling_mode, outputs)) {}
 
 BatchExecutor::BatchExecutor(const ExecutablePlan& plan, BatchOutputMode output_mode,
                              BatchSamplingMode sampling_mode,
@@ -489,8 +490,11 @@ void BatchExecutor::execute_action(const ExecutablePlan::ExecuteReadoutNoise& ac
 }
 
 void BatchExecutor::execute_action(const ExecutablePlan::ExecuteDetector& action) noexcept {
+    if (detectors_.num_columns() == 0 && !action.postselected) {
+        return;
+    }
     const std::span<const uint64_t> outcomes = evaluate_record_parity(action.outcome);
-    if (output_mode_ == BatchOutputMode::Rows) {
+    if (detectors_.num_columns() != 0) {
         detectors_.assign(action.detector, outcomes, live_words_);
     }
     if (!action.postselected) {
@@ -509,12 +513,15 @@ void BatchExecutor::execute_action(const ExecutablePlan::ExecuteDetector& action
 }
 
 void BatchExecutor::execute_action(const ExecutablePlan::ExecuteObservable& action) noexcept {
+    if (observables_.num_columns() == 0) {
+        return;
+    }
     const std::span<const uint64_t> outcomes = evaluate_observable(action.outcome);
     observables_.assign(action.observable, outcomes, live_words_);
 }
 
 void BatchExecutor::execute_action(const ExecutablePlan::ExecuteExpectation& action) noexcept {
-    if (output_mode_ == BatchOutputMode::AggregateSurvivors) {
+    if (exp_vals_.empty()) {
         return;
     }
     assert(action.exp_val < plan_->num_exp_vals_ &&
@@ -639,7 +646,7 @@ void BatchExecutor::compact_live_lanes() noexcept {
             shot_indices_[destination] = shot_indices_[source];
         }
     }
-    if (output_mode_ == BatchOutputMode::Rows) {
+    if (!exp_vals_.empty()) {
         for (uint32_t exp_val = 0; exp_val < plan_->num_exp_vals_; ++exp_val) {
             double* values = exp_vals_.data() + static_cast<size_t>(exp_val) * lane_capacity_;
             for (destination = 0; destination < live_count_; ++destination) {
@@ -707,6 +714,35 @@ double BatchExecutor::exp_val(uint32_t lane, uint32_t exp_val_index) const noexc
     assert(lane < live_count_ && exp_val_index < plan_->num_exp_vals_ &&
            "expectation output must be live and in range");
     return exp_vals_[static_cast<size_t>(exp_val_index) * lane_capacity_ + lane];
+}
+
+void BatchExecutor::write_bit_rows(SamplingBitSource source, SamplingBitPacking packing,
+                                   std::span<uint8_t> destination, size_t row_stride,
+                                   size_t column_offset) const noexcept {
+    assert(active_lanes() == live_count_ && "batch outputs require finalized live lanes");
+    const PackedBitColumns* columns = nullptr;
+    switch (source) {
+        case SamplingBitSource::Measurements:
+            columns = &records_;
+            break;
+        case SamplingBitSource::Detectors:
+            columns = &detectors_;
+            break;
+        case SamplingBitSource::Observables:
+            columns = &observables_;
+            break;
+    }
+    assert(columns != nullptr && "sampling bit source must be valid");
+    const size_t output_columns = source == SamplingBitSource::Measurements
+                                      ? plan_->num_visible_records_
+                                      : columns->num_columns();
+    if (packing == SamplingBitPacking::BitPacked) {
+        columns->write_packed_rows(live_count_, output_columns, destination, row_stride,
+                                   column_offset);
+    } else {
+        columns->write_unpacked_rows(live_count_, output_columns, destination, row_stride,
+                                     column_offset);
+    }
 }
 
 }  // namespace clifft::sampling

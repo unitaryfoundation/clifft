@@ -35,6 +35,18 @@ uint64_t compress_bits_portable(uint64_t bits, uint64_t keep) noexcept {
     return output;
 }
 
+// The input bytes are eight bit columns across eight lanes. The output bytes
+// are the corresponding eight lane rows. This orientation also preserves the
+// little-endian column order used by Stim's b8 matrices.
+uint64_t transpose_8x8(uint64_t bits) noexcept {
+    uint64_t swap = (bits ^ (bits >> 7)) & 0x00AA00AA00AA00AAULL;
+    bits ^= swap ^ (swap << 7);
+    swap = (bits ^ (bits >> 14)) & 0x0000CCCC0000CCCCULL;
+    bits ^= swap ^ (swap << 14);
+    swap = (bits ^ (bits >> 28)) & 0x00000000F0F0F0F0ULL;
+    return bits ^ swap ^ (swap << 28);
+}
+
 #ifndef NDEBUG
 uint32_t count_lane_bits(std::span<const uint64_t> bits, uint32_t lanes) noexcept {
     const size_t live_words = packed_word_count(lanes);
@@ -152,6 +164,80 @@ void PackedBitColumns::xor_into(size_t column_index, std::span<const uint64_t> s
 #endif
     for (size_t word = 0; word < word_capacity_; ++word) {
         destination[word] ^= source[word];
+    }
+}
+
+void PackedBitColumns::write_unpacked_rows(uint32_t lanes, size_t columns,
+                                           std::span<uint8_t> destination, size_t row_stride,
+                                           size_t column_offset) const noexcept {
+    assert(lanes <= lane_capacity_ && columns <= columns_ && column_offset <= row_stride &&
+           columns <= row_stride - column_offset &&
+           (lanes == 0 || destination.size() >= static_cast<size_t>(lanes) * row_stride) &&
+           "unpacked row destination must cover every requested lane and column");
+    for (uint32_t lane_base = 0; lane_base < lanes; lane_base += 8) {
+        const size_t word = lane_base >> 6;
+        const uint32_t shift = lane_base & 63;
+        const uint32_t lane_count = std::min(uint32_t{8}, lanes - lane_base);
+        for (size_t column_base = 0; column_base < columns; column_base += 8) {
+            const size_t column_count = std::min(size_t{8}, columns - column_base);
+            uint64_t column_bytes = 0;
+            for (size_t column_offset_in_block = 0; column_offset_in_block < column_count;
+                 ++column_offset_in_block) {
+                const uint8_t lane_bits = static_cast<uint8_t>(
+                    column(column_base + column_offset_in_block)[word] >> shift);
+                column_bytes |= static_cast<uint64_t>(lane_bits) << (8 * column_offset_in_block);
+            }
+            const uint64_t row_bytes = transpose_8x8(column_bytes);
+            for (uint32_t lane = 0; lane < lane_count; ++lane) {
+                const uint8_t bits = static_cast<uint8_t>(row_bytes >> (8 * lane));
+                uint8_t* row = destination.data() +
+                               static_cast<size_t>(lane_base + lane) * row_stride + column_offset;
+                for (size_t column = 0; column < column_count; ++column) {
+                    row[column_base + column] = (bits >> column) & uint8_t{1};
+                }
+            }
+        }
+    }
+}
+
+void PackedBitColumns::write_packed_rows(uint32_t lanes, size_t columns,
+                                         std::span<uint8_t> destination, size_t row_stride,
+                                         size_t bit_offset) const noexcept {
+    const size_t end_bit = bit_offset + columns;
+    const size_t required_stride = end_bit / 8 + static_cast<size_t>((end_bit & 7) != 0);
+    assert(lanes <= lane_capacity_ && columns <= columns_ && bit_offset <= end_bit &&
+           row_stride >= required_stride &&
+           (lanes == 0 || destination.size() >= static_cast<size_t>(lanes) * row_stride) &&
+           "packed row destination must cover every requested lane and column");
+    (void)required_stride;
+    for (uint32_t lane_base = 0; lane_base < lanes; lane_base += 8) {
+        const size_t word = lane_base >> 6;
+        const uint32_t shift = lane_base & 63;
+        const uint32_t lane_count = std::min(uint32_t{8}, lanes - lane_base);
+        for (size_t column_base = 0; column_base < columns; column_base += 8) {
+            const size_t column_count = std::min(size_t{8}, columns - column_base);
+            uint64_t column_bytes = 0;
+            for (size_t column_in_block = 0; column_in_block < column_count; ++column_in_block) {
+                const uint8_t lane_bits =
+                    static_cast<uint8_t>(column(column_base + column_in_block)[word] >> shift);
+                column_bytes |= static_cast<uint64_t>(lane_bits) << (8 * column_in_block);
+            }
+            const uint64_t row_bytes = transpose_8x8(column_bytes);
+            const size_t destination_bit = bit_offset + column_base;
+            const size_t destination_byte = destination_bit >> 3;
+            const uint32_t destination_shift = destination_bit & 7;
+            for (uint32_t lane = 0; lane < lane_count; ++lane) {
+                uint8_t* row =
+                    destination.data() + static_cast<size_t>(lane_base + lane) * row_stride;
+                const uint16_t bits = static_cast<uint8_t>(row_bytes >> (8 * lane));
+                row[destination_byte] |= static_cast<uint8_t>(bits << destination_shift);
+                if (destination_shift != 0 && destination_byte + 1 < row_stride &&
+                    column_count > 8 - destination_shift) {
+                    row[destination_byte + 1] |=
+                        static_cast<uint8_t>(bits >> (8 - destination_shift));
+                }
+            }
+        }
     }
 }
 

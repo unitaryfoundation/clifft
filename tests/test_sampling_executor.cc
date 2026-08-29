@@ -1328,6 +1328,174 @@ TEST_CASE("Selected survivor sampling compacts only requested output matrices") 
     REQUIRE(selected.exp_vals.empty());
 }
 
+TEST_CASE("Packed sampling writes little endian selected rows") {
+    const ExecutablePlan executable(clifft::sampling::plan_sampling(clifft::trace(clifft::parse(R"(
+        H 0 1 2 3 4 5 6 7 8 9
+        M 0 1 2 3 4 5 6 7 8 9
+        DETECTOR rec[-10]
+        DETECTOR rec[-9]
+        DETECTOR rec[-8]
+        DETECTOR rec[-7]
+        DETECTOR rec[-6]
+        DETECTOR rec[-5]
+        DETECTOR rec[-4]
+        DETECTOR rec[-3]
+        DETECTOR rec[-2]
+        DETECTOR rec[-1]
+        OBSERVABLE_INCLUDE(0) rec[-10] rec[-1]
+        OBSERVABLE_INCLUDE(1) rec[-9] rec[-2]
+        OBSERVABLE_INCLUDE(2) rec[-8] rec[-3]
+        EXP_VAL Z0
+    )"))));
+    constexpr uint32_t shots = 129;
+    const clifft::sampling::SamplingOutputSelection outputs{
+        .detectors = true,
+        .observables = true,
+        .exp_vals = true,
+    };
+    const auto bit = [](std::span<const uint8_t> rows, size_t stride, uint32_t shot,
+                        size_t column) {
+        return (rows[static_cast<size_t>(shot) * stride + (column >> 3)] >> (column & 7)) &
+               uint8_t{1};
+    };
+
+    for (uint32_t capacity : std::array<uint32_t, 2>{1, 65}) {
+        const clifft::sampling::SamplingResult unpacked = clifft::sampling::sample_selected(
+            executable, shots, outputs, uint64_t{91823}, 1, std::nullopt, capacity);
+        const clifft::sampling::PackedSamplingResult packed =
+            clifft::sampling::sample_packed_selected(executable, shots, outputs, uint64_t{91823}, 1,
+                                                     std::nullopt, capacity);
+        constexpr size_t detector_stride = 2;
+        constexpr size_t observable_stride = 1;
+        CAPTURE(capacity);
+        REQUIRE(packed.measurements.empty());
+        REQUIRE(packed.detectors.size() == shots * detector_stride);
+        REQUIRE(packed.observables.size() == shots * observable_stride);
+        REQUIRE(packed.exp_vals == unpacked.exp_vals);
+        for (uint32_t shot = 0; shot < shots; ++shot) {
+            for (uint32_t detector = 0; detector < executable.num_detectors(); ++detector) {
+                REQUIRE(bit(packed.detectors, detector_stride, shot, detector) ==
+                        unpacked.detectors[static_cast<size_t>(shot) * executable.num_detectors() +
+                                           detector]);
+            }
+            for (uint32_t observable = 0; observable < executable.num_observables(); ++observable) {
+                REQUIRE(
+                    bit(packed.observables, observable_stride, shot, observable) ==
+                    unpacked.observables[static_cast<size_t>(shot) * executable.num_observables() +
+                                         observable]);
+            }
+            REQUIRE((packed.detectors[static_cast<size_t>(shot) * detector_stride + 1] & 0xFC) ==
+                    0);
+            REQUIRE((packed.observables[shot] & 0xF8) == 0);
+        }
+    }
+}
+
+TEST_CASE("Caller output buffers compose detector and observable rows") {
+    const ExecutablePlan executable(clifft::sampling::plan_sampling(clifft::trace(clifft::parse(R"(
+        H 0 1 2 3
+        M 0 1 2 3
+        DETECTOR rec[-4]
+        DETECTOR rec[-3]
+        DETECTOR rec[-2]
+        DETECTOR rec[-1]
+        OBSERVABLE_INCLUDE(0) rec[-4] rec[-1]
+        OBSERVABLE_INCLUDE(1) rec[-3] rec[-2]
+        EXP_VAL Z0
+    )"))));
+    constexpr uint32_t shots = 129;
+    const clifft::sampling::SamplingResult expected =
+        clifft::sampling::sample(executable, shots, uint64_t{91824}, 1, std::nullopt, 65);
+    const size_t measurement_stride = executable.num_visible_records() + 2;
+    const size_t logical_bits = executable.num_observables() * 2 + executable.num_detectors();
+    const size_t combined_stride = (logical_bits + 7) / 8 + 1;
+    std::vector<uint8_t> measurements(shots * measurement_stride, 0xFF);
+    std::vector<uint8_t> combined(shots * combined_stride, 0xFF);
+    std::vector<double> exp_vals(shots * 3, -17.0);
+    const std::array<clifft::sampling::SamplingBitOutput, 4> destinations{
+        clifft::sampling::SamplingBitOutput{
+            .source = clifft::sampling::SamplingBitSource::Measurements,
+            .data = measurements,
+            .row_stride = measurement_stride,
+            .column_offset = 1,
+        },
+        clifft::sampling::SamplingBitOutput{
+            .source = clifft::sampling::SamplingBitSource::Observables,
+            .packing = clifft::sampling::SamplingBitPacking::BitPacked,
+            .data = combined,
+            .row_stride = combined_stride,
+        },
+        clifft::sampling::SamplingBitOutput{
+            .source = clifft::sampling::SamplingBitSource::Detectors,
+            .packing = clifft::sampling::SamplingBitPacking::BitPacked,
+            .data = combined,
+            .row_stride = combined_stride,
+            .column_offset = executable.num_observables(),
+        },
+        clifft::sampling::SamplingBitOutput{
+            .source = clifft::sampling::SamplingBitSource::Observables,
+            .packing = clifft::sampling::SamplingBitPacking::BitPacked,
+            .data = combined,
+            .row_stride = combined_stride,
+            .column_offset = executable.num_observables() + executable.num_detectors(),
+        },
+    };
+    clifft::sampling::sample_into(
+        executable, shots, {.bits = destinations, .exp_vals = exp_vals, .exp_val_row_stride = 3},
+        uint64_t{91824}, 1, std::nullopt, 65);
+
+    for (uint32_t shot = 0; shot < shots; ++shot) {
+        const size_t expected_measurement =
+            static_cast<size_t>(shot) * executable.num_visible_records();
+        const size_t measurement_row = static_cast<size_t>(shot) * measurement_stride;
+        REQUIRE(measurements[measurement_row] == 0);
+        REQUIRE(measurements[measurement_row + measurement_stride - 1] == 0);
+        for (uint32_t record = 0; record < executable.num_visible_records(); ++record) {
+            REQUIRE(measurements[measurement_row + 1 + record] ==
+                    expected.measurements[expected_measurement + record]);
+        }
+        const auto combined_bit = [&](size_t column) {
+            return (combined[static_cast<size_t>(shot) * combined_stride + (column >> 3)] >>
+                    (column & 7)) &
+                   uint8_t{1};
+        };
+        for (uint32_t observable = 0; observable < executable.num_observables(); ++observable) {
+            const uint8_t value =
+                expected.observables[static_cast<size_t>(shot) * executable.num_observables() +
+                                     observable];
+            REQUIRE(combined_bit(observable) == value);
+            REQUIRE(combined_bit(executable.num_observables() + executable.num_detectors() +
+                                 observable) == value);
+        }
+        for (uint32_t detector = 0; detector < executable.num_detectors(); ++detector) {
+            REQUIRE(combined_bit(executable.num_observables() + detector) ==
+                    expected.detectors[static_cast<size_t>(shot) * executable.num_detectors() +
+                                       detector]);
+        }
+        REQUIRE(exp_vals[static_cast<size_t>(shot) * 3] == expected.exp_vals[shot]);
+        REQUIRE(exp_vals[static_cast<size_t>(shot) * 3 + 1] == -17.0);
+        REQUIRE(exp_vals[static_cast<size_t>(shot) * 3 + 2] == -17.0);
+        REQUIRE(combined[static_cast<size_t>(shot) * combined_stride + combined_stride - 1] == 0);
+    }
+}
+
+TEST_CASE("Caller output buffers reject undersized rows before sampling") {
+    const ExecutablePlan executable(
+        clifft::sampling::plan_sampling(clifft::trace(clifft::parse("M 0 1 2"))));
+    std::vector<uint8_t> output(4, 0xA5);
+    const clifft::sampling::SamplingBitOutput destination{
+        .source = clifft::sampling::SamplingBitSource::Measurements,
+        .packing = clifft::sampling::SamplingBitPacking::BitPacked,
+        .data = output,
+        .row_stride = 1,
+        .column_offset = 6,
+    };
+    REQUIRE_THROWS_WITH(
+        clifft::sampling::sample_into(executable, 4, {.bits = {&destination, 1}}, uint64_t{91825}),
+        "sampling bit output row stride is too small");
+    REQUIRE(std::ranges::all_of(output, [](uint8_t value) { return value == 0xA5; }));
+}
+
 TEST_CASE("Sampling executor presamples mutually exclusive Pauli noise") {
     const clifft::HirModule hir = clifft::trace(clifft::parse(R"(
         E(0.5) X0
