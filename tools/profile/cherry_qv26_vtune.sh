@@ -7,6 +7,7 @@ readonly repo_root="$(git -C "${script_dir}" rev-parse --show-toplevel)"
 readonly clang_version="22.1.8.1"
 readonly qiskit_version="2.3.1"
 readonly vtune_package_version="2024.3.0-29"
+readonly vtune_nofile_limit="65536"
 # The public QV campaign records this artifact identity for QV26 seed 42.
 readonly qv_qasm_sha256="6ecab6f0ed2746161133a88a7afc38d61a37bb82f320d77b173c97295e1cd9da"
 readonly profile_cache_root="${XDG_CACHE_HOME:-${HOME}/.cache}/clifft-vtune"
@@ -165,6 +166,16 @@ vtune_backend_command() {
     else
         die "VTune Profiler Server is missing; run setup"
     fi
+}
+
+raise_open_file_limit() {
+    local hard_limit
+    hard_limit="$(ulimit -Hn)"
+    if [[ "${hard_limit}" != "unlimited" ]] && ((hard_limit < vtune_nofile_limit)); then
+        die "open-file hard limit ${hard_limit} is below VTune requirement ${vtune_nofile_limit}"
+    fi
+    ulimit -Sn "${vtune_nofile_limit}" || \
+        die "could not raise open-file soft limit for VTune driverless collection"
 }
 
 install_host_packages() {
@@ -442,6 +453,7 @@ task-clock,context-switches,cpu-migrations,page-faults -- "${profile_command[@]}
 
 collect_profiles() {
     configure_toolchain
+    raise_open_file_limit
     check_host
     mkdir -p "${output_root}"
     select_cpus
