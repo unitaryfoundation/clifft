@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787909521193,
+  "lastUpdate": 1787985560334,
   "repoUrl": "https://github.com/unitaryfoundation/clifft",
   "entries": {
     "C++ Catch2 benchmarks (AVX2)": [
@@ -6590,6 +6590,70 @@ window.BENCHMARK_DATA = {
             "name": "exp-val 20q 200 probes x100k",
             "value": 112.026,
             "range": "± 566.869",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Brad Chase",
+            "username": "bachase",
+            "email": "14430+bachase@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "f2d9fbad446c7219f069c1470950f1c8173f9b4c",
+          "message": "fix: retain final Z pivot signs in basis queries (#423)\n\nBuild affine base terms only after Z-block Gauss-Jordan elimination\ncompletes so later pivots cannot leave copied dynamic signs stale.\n\nMove finalized sign masks into the amplitude structure and reserve pivot\nstorage to avoid unnecessary allocations during query setup.\n\nAdd a deterministic entangled regression with analytic probabilities.\n\nAssisted-by: Codex (GPT-5) <codex@openai.com>",
+          "timestamp": "2026-08-28T20:37:14Z",
+          "url": "https://github.com/unitaryfoundation/clifft/commit/f2d9fbad446c7219f069c1470950f1c8173f9b4c"
+        },
+        "date": 1787985559362,
+        "tool": "catch2",
+        "benches": [
+          {
+            "name": "QV-10 x100 shots",
+            "value": 6.20025,
+            "range": "± 76.3976",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "cultivation-d5 x1000 shots",
+            "value": 22.3792,
+            "range": "± 81.3228",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d7-r7 p=1e-3 x10000 shots",
+            "value": 35.4762,
+            "range": "± 114.969",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d5-r5 p=0.05 x10000 shots",
+            "value": 38.8573,
+            "range": "± 578.086",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d11-r11 p=1e-3 x1000 shots",
+            "value": 13.8307,
+            "range": "± 135.134",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "exp-val 20q 200 probes x100k",
+            "value": 164.117,
+            "range": "± 2.19998",
             "unit": "ms",
             "extra": "100 samples\n1 iterations"
           }
