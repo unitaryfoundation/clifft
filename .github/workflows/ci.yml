@@ -8,6 +8,9 @@ on:
 permissions:
   contents: read
 
+env:
+  CLIFFT_LINUX_WHEEL_CLANG_VERSION: "22.1.8.1"
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
@@ -294,10 +297,14 @@ jobs:
     env:
       CMAKE_BUILD_TYPE: Release
       CLIFFT_CPU_BASELINE: x86-64-v2
+      CLIFFT_INTERPROCEDURAL_OPTIMIZATION: "ON"
+      CLIFFT_OPENMP: "ON"
       CMAKE_GENERATOR: Ninja
       CMAKE_C_COMPILER_LAUNCHER: ccache
       CMAKE_CXX_COMPILER_LAUNCHER: ccache
       CCACHE_COMPILERCHECK: content
+      # Catch2 3.5 uses __COUNTER__, which Clang 22 diagnoses under -Wpedantic.
+      CXXFLAGS: -Wno-c2y-extensions
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -309,6 +316,14 @@ jobs:
         uses: ./.github/actions/setup-native-tools
         with:
           install-qemu: "true"
+
+      - name: Install pinned Clang and OpenMP
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libomp-18-dev
+          .github/scripts/install_ubuntu_clang.sh \
+            "${{ env.CLIFFT_LINUX_WHEEL_CLANG_VERSION }}" \
+            "$RUNNER_TEMP/clifft-clang"
 
       - name: Install Intel SDE
         run: |
@@ -324,7 +339,7 @@ jobs:
       - name: Setup ccache
         uses: hendrikmuhs/ccache-action@v1.2
         with:
-          key: ${{ runner.os }}-ccache-${{ env.CMAKE_BUILD_TYPE }}-${{ env.CLIFFT_CPU_BASELINE }}
+          key: ${{ runner.os }}-ccache-clang-${{ env.CLIFFT_LINUX_WHEEL_CLANG_VERSION }}-${{ env.CMAKE_BUILD_TYPE }}-${{ env.CLIFFT_CPU_BASELINE }}
           # Caches saved from PR runs are scoped to the PR ref and cannot be
           # reused elsewhere; saving only on main limits repo cache eviction.
           save: ${{ github.ref == 'refs/heads/main' }}
@@ -334,6 +349,8 @@ jobs:
         run: |
           cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=${{ env.CMAKE_BUILD_TYPE }} \
+            -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=${{ env.CLIFFT_INTERPROCEDURAL_OPTIMIZATION }} \
+            -DCLIFFT_OPENMP=${{ env.CLIFFT_OPENMP }} \
             -DCLIFFT_CPU_BASELINE=${{ env.CLIFFT_CPU_BASELINE }}
 
       - name: Build C++ tests
@@ -343,6 +360,8 @@ jobs:
         run: |
           python3 tools/ci/audit_build_flags.py \
             --compile-commands build/compile_commands.json
+          rg --quiet -- '-flto=thin' build/compile_commands.json
+          rg --quiet -- '-fuse-ld=lld' build/build.ninja
 
       - name: Run C++ smoke tests
         run: |
@@ -361,10 +380,10 @@ jobs:
           python-version: "3.12"
 
       # assert() stays active in the optimized extension so the full
-      # Python suite checks invariants through GCC optimized codegen and
-      # -ffast-math. ISA dispatch does not depend on NDEBUG, so the
-      # emulated smokes below reuse this wheel; the published artifact
-      # keeps its own smoke in the release workflow.
+      # Python suite checks invariants through the shipping Clang, ThinLTO,
+      # and -ffast-math codegen. ISA dispatch does not depend on NDEBUG, so the
+      # emulated smokes below reuse this wheel; repaired artifacts are checked
+      # separately by linux-release-wheel-smoke and the release workflow.
       - name: Install Python package (release baseline, asserts on)
         env:
           SKBUILD_CMAKE_BUILD_TYPE: Release
@@ -400,6 +419,60 @@ jobs:
         run: PYTHON=$(pwd)/.smoke-venv/bin/python .github/scripts/wheel_smoke.sh sde skx auto pass avx512
       - name: SDE smoke -- Skylake-X + FORCE_ISA=avx512
         run: PYTHON=$(pwd)/.smoke-venv/bin/python .github/scripts/wheel_smoke.sh sde skx avx512 pass avx512 intra-shot
+
+  # Build and test the repaired manylinux artifacts on every pull request.
+  # This uses the same compiler, ThinLTO, linker, OpenMP, and CPU baselines as
+  # the release workflow while the GCC jobs retain source-build coverage.
+  linux-release-wheel-smoke:
+    name: Linux release wheel (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            arch: x86_64
+            cpu_baseline: x86-64-v2
+          - os: ubuntu-24.04-arm
+            arch: aarch64
+            cpu_baseline: generic
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Build and test repaired wheel
+        uses: pypa/cibuildwheel@v4.2
+        env:
+          CIBW_BUILD: "cp312-manylinux_*"
+          CIBW_ARCHS: ${{ matrix.arch }}
+          CIBW_MANYLINUX_X86_64_IMAGE: manylinux_2_28
+          CIBW_MANYLINUX_AARCH64_IMAGE: manylinux_2_28
+          CIBW_ENVIRONMENT_LINUX: >-
+            CC=/opt/clang/bin/clang
+            CXX=/opt/clang/bin/clang++
+            CPATH=/opt/clifft-openmp/include
+            LDFLAGS=-fuse-ld=lld
+            CLIFFT_CPU_BASELINE=${{ matrix.cpu_baseline }}
+            CLIFFT_INTERPROCEDURAL_OPTIMIZATION=ON
+            CLIFFT_OPENMP=ON
+            SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0.dev0
+          CIBW_BEFORE_ALL_LINUX: >-
+            bash {package}/.github/scripts/install_manylinux_clang.sh
+            ${{ env.CLIFFT_LINUX_WHEEL_CLANG_VERSION }}
+          CIBW_BEFORE_BUILD: pip install setuptools-scm
+          CIBW_TEST_COMMAND_LINUX: >-
+            python {project}/.github/scripts/artifact_smoke.py --exercise-intra-shot
+            &&
+            python {project}/tools/ci/audit_python_exports.py
+
+      - name: Upload repaired wheel
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-linux-wheel-${{ matrix.arch }}
+          path: wheelhouse/*.whl
 
   # Round-trips the packaging pipeline on every pull request: the sdist
   # must be complete and buildable, it must produce a cp312-abi3 wheel,
@@ -584,6 +657,7 @@ jobs:
       - hip-offline-build
       - build-and-test
       - release-cpp-smoke
+      - linux-release-wheel-smoke
       - package-smoke
       - cross-platform
     runs-on: ubuntu-24.04
