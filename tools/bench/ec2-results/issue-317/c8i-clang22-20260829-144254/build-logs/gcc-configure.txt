@@ -1,0 +1,18 @@
+-- The CXX compiler identification is GNU 13.3.0
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /usr/bin/g++-13 - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Clifft version from git: 0.9.0.dev26+g1ff133ba
+-- CLIFFT_CPU_BASELINE = x86-64-v2
+-- CLIFFT_OPENMP = ON (enabled: ON)
+-- Using x86-64-v2 CPU baseline: -march=x86-64-v2 -ffast-math
+-- Tests are disabled. Set FASTFLOAT_TEST to ON to run tests.
+-- Benchmarks are disabled. Set FASTFLOAT_BENCHMARKS to ON to build benchmarks (assumes C++17).
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD - Success
+-- Found Threads: TRUE
+-- Configuring done (1.3s)
+-- Generating done (0.0s)
+-- Build files have been written to: /home/ubuntu/clifft/.ec2-compiler-matrix-work/builds/gcc
