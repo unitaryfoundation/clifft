@@ -360,8 +360,8 @@ jobs:
         run: |
           python3 tools/ci/audit_build_flags.py \
             --compile-commands build/compile_commands.json
-          rg --quiet -- '-flto=thin' build/compile_commands.json
-          rg --quiet -- '-fuse-ld=lld' build/build.ninja
+          grep --quiet -- '-flto=thin' build/compile_commands.json
+          grep --quiet -- '-fuse-ld=lld' build/build.ninja
 
       - name: Run C++ smoke tests
         run: |
