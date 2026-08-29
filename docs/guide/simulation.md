@@ -87,6 +87,53 @@ returns measurements, detectors, observables, and expectation values together,
 and its related APIs cover post-selection and importance sampling. The compiled
 sampler classes are the narrower compatibility and repeated-sampling surface.
 
+### Sinter Backend
+
+Install `clifft[sinter-pymatching]` to use Clifft as the simulator behind a
+Sinter sampling-and-decoding worker:
+
+<!--pytest-codeblocks:skip-->
+
+```python
+import clifft
+import sinter
+import stim
+
+circuit = stim.Circuit.generated(
+    "repetition_code:memory",
+    rounds=10,
+    distance=5,
+    before_round_data_depolarization=0.001,
+)
+
+stats = sinter.collect(
+    num_workers=4,
+    tasks=[sinter.Task(circuit=circuit)],
+    decoders=["clifft-pymatching"],
+    custom_decoders={
+        "clifft-pymatching": clifft.sinter.ClifftSampler(),
+    },
+    max_shots=1_000_000,
+    max_errors=100,
+)
+```
+
+`ClifftSampler` defaults to one native thread per Sinter worker, preventing
+process-by-thread oversubscription. Pass `threads=` only when intentionally
+using fewer Sinter workers with multiple Clifft workers. Packed detectors and
+observables flow directly from C++ into the decoder. Detector postselection is
+also compiled into the native plan so rejected shots stop early; requesting
+detection-event counts disables that optimization because Sinter's count
+semantics require complete detector rows.
+
+Pass any `sinter.Decoder` through `ClifftSampler(decoder=...)`. The string
+shortcuts `"pymatching"` and `"pymatching-correlated"` cover the common built-in
+workflow. Decoders that only implement Sinter's file protocol require
+`tmp_dir=`.
+
+This integration is a sampling backend. Stim circuit generation, detector
+error-model analysis, diagrams, tableaux, and flow APIs remain Stim's domain.
+
 ## State Vector Extraction
 
 For debugging and small pure-unitary circuits, `get_statevector()` returns the final dense state vector:

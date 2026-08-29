@@ -41,6 +41,22 @@ compiler and execution engine.
 
 ::: clifft.sample_k_survivors
 
+### Sinter Sampling Backend
+
+`clifft.sinter.ClifftSampler` implements Sinter's `Sampler` contract. Importing
+this optional module requires `clifft[sinter]`; the PyMatching string shortcuts
+require `clifft[sinter-pymatching]`.
+
+```python
+from clifft.sinter import ClifftSampler
+
+backend = ClifftSampler(
+    decoder="pymatching",
+    threads=1,
+    batch_size="auto",
+)
+```
+
 ## Leakage and Loss (experimental)
 
 Sampling under a five-level leakage/loss model. See the
