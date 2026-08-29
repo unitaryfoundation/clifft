@@ -28,7 +28,8 @@ namespace batch_detail {
 BatchWorkerStorageLayout batch_worker_storage_layout(const ExecutablePlan& plan,
                                                      uint32_t lane_capacity,
                                                      BatchOutputMode output_mode,
-                                                     BatchSamplingMode sampling_mode) {
+                                                     BatchSamplingMode sampling_mode,
+                                                     SamplingOutputSelection outputs) {
     BatchWorkerStorageLayout layout;
     layout.peak_active_width = plan.peak_active_width();
     layout.initial_active_width = plan.initial_active_width();
@@ -41,15 +42,23 @@ BatchWorkerStorageLayout batch_worker_storage_layout(const ExecutablePlan& plan,
             : 0;
     layout.noise_carrier_columns = plan.num_batch_noise_carriers();
     layout.expression_register_columns = plan.num_expression_registers();
+    const bool evaluates_output_parities = outputs.detectors || outputs.observables ||
+                                           plan.has_postselection() ||
+                                           output_mode == BatchOutputMode::AggregateSurvivors;
     layout.record_columns =
-        output_mode == BatchOutputMode::Rows || plan.output_parities_read_records()
+        (output_mode == BatchOutputMode::Rows && outputs.measurements) ||
+                (evaluates_output_parities && plan.output_parities_read_records())
             ? static_cast<size_t>(plan.num_visible_records()) + plan.num_hidden_records()
             : 0;
-    layout.detector_columns = output_mode == BatchOutputMode::Rows ? plan.num_detectors() : 0;
-    layout.observable_columns = plan.num_observables();
+    layout.detector_columns =
+        output_mode == BatchOutputMode::Rows && outputs.detectors ? plan.num_detectors() : 0;
+    layout.observable_columns = (output_mode == BatchOutputMode::AggregateSurvivors ||
+                                 outputs.observables || plan.has_postselection())
+                                    ? plan.num_observables()
+                                    : 0;
     layout.forced_readout_columns =
         sampling_mode == BatchSamplingMode::FixedFaults ? plan.num_readout_noise_sites() : 0;
-    layout.exp_value_entries = output_mode == BatchOutputMode::Rows
+    layout.exp_value_entries = output_mode == BatchOutputMode::Rows && outputs.exp_vals
                                    ? static_cast<uint64_t>(plan.num_exp_vals()) * lane_capacity
                                    : 0;
     layout.live_word_entries = layout.word_capacity;
@@ -64,9 +73,10 @@ BatchWorkerStorageLayout batch_worker_storage_layout(const ExecutablePlan& plan,
 }
 
 uint64_t batch_worker_storage_bytes(const ExecutablePlan& plan, uint32_t lane_capacity,
-                                    BatchOutputMode output_mode, BatchSamplingMode sampling_mode) {
+                                    BatchOutputMode output_mode, BatchSamplingMode sampling_mode,
+                                    SamplingOutputSelection outputs) {
     const BatchWorkerStorageLayout layout =
-        batch_worker_storage_layout(plan, lane_capacity, output_mode, sampling_mode);
+        batch_worker_storage_layout(plan, lane_capacity, output_mode, sampling_mode, outputs);
     uint64_t bytes = interleaved_batch_state_bytes(layout.peak_active_width, layout.lane_capacity);
     const auto add_entries = [&](uint64_t entries, size_t entry_bytes) {
         bytes = saturating_add_u64(bytes, saturating_multiply_u64(entries, entry_bytes));
@@ -100,7 +110,8 @@ uint64_t batch_worker_storage_bytes(const ExecutablePlan& plan, uint32_t lane_ca
 BatchExecutionPolicy resolve_batch_execution_policy(
     const ExecutablePlan& plan, uint32_t shots, uint32_t shot_workers, uint32_t intra_shot_workers,
     BatchOutputMode output_mode, std::optional<uint32_t> requested_batch_size,
-    BatchSamplingMode sampling_mode, uint64_t additional_worker_bytes) {
+    BatchSamplingMode sampling_mode, uint64_t additional_worker_bytes,
+    SamplingOutputSelection outputs) {
     if (requested_batch_size.has_value() && *requested_batch_size == 0) {
         throw std::invalid_argument("batch_size must be a positive integer or 'auto'");
     }
@@ -159,9 +170,10 @@ BatchExecutionPolicy resolve_batch_execution_policy(
             capacity = std::bit_floor(capacity - 1);
             continue;
         }
-        const uint64_t worker_bytes = saturating_add_u64(
-            batch_detail::batch_worker_storage_bytes(plan, capacity, output_mode, sampling_mode),
-            additional_worker_bytes);
+        const uint64_t worker_bytes =
+            saturating_add_u64(batch_detail::batch_worker_storage_bytes(plan, capacity, output_mode,
+                                                                        sampling_mode, outputs),
+                               additional_worker_bytes);
         if (worker_bytes <= kDefaultBatchWorkerBudget) {
             const uint32_t requested_workers = batch_worker_count(shots, shot_workers, capacity);
             const uint64_t memory_workers = std::max<uint64_t>(

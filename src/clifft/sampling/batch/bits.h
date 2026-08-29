@@ -40,6 +40,14 @@ class PackedBitColumns {
     void copy(size_t destination, size_t source) noexcept;
     void xor_into(size_t column, std::span<const uint64_t> source) noexcept;
 
+    // Transpose the lane-major view into caller-owned row-major output. Packed
+    // rows use little-endian bits and may begin at an arbitrary destination
+    // bit, so independently produced column groups can share a row.
+    void write_unpacked_rows(uint32_t lanes, size_t columns, std::span<uint8_t> destination,
+                             size_t row_stride, size_t column_offset) const noexcept;
+    void write_packed_rows(uint32_t lanes, size_t columns, std::span<uint8_t> destination,
+                           size_t row_stride, size_t bit_offset) const noexcept;
+
     // Stable-compacts every column using keep_mask. scratch is one fixed-size
     // word row prepared by the owning executor before dispatch.
     void compact(std::span<const uint64_t> keep_mask, uint32_t old_lanes, uint32_t new_lanes,
