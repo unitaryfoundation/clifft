@@ -6,8 +6,8 @@ namespace clifft {
 
 /// Minimizes the active spacetime volume by reordering HIR operations:
 /// - Sweep 1 (leftward): bubbles MEASURE ops as early as possible
-/// - Sweep 2 (rightward): bubbles T_GATE and PHASE_ROTATION
-///   ops as late as possible
+/// - Sweep 2 (rightward): bubbles T_GATE and PHASE_ROTATION ops as late as
+///   possible, bypassing blocked commuting expansions when useful
 ///
 /// This reduces peak active width by compacting qubit lifetimes: measurements free
 /// active coordinates sooner, and non-Clifford expansions are deferred.

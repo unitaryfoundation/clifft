@@ -1006,6 +1006,19 @@ TEST_CASE("Squeeze: measurement does not bubble past NOISE and EXP_VAL", "[optim
     REQUIRE(hir.ops[3].op_type() == OpType::MEASURE);
 }
 
+TEST_CASE("Squeeze: commuting expansions do not convoy across a measurement", "[optimizer]") {
+    auto hir = hir_from(
+        "H 0 1\n"
+        "T 0\n"
+        "TPP Z0*Z1\n"
+        "H 1\n"
+        "M 1");
+
+    StatevectorSqueezePass{}.run(hir);
+
+    CHECK(clifft::sampling::plan_sampling(hir).peak_active_width == 1);
+}
+
 TEST_CASE("Peephole: virtual S conjugation updates EXP_VAL masks", "[optimizer][exp_val]") {
     // Circuit: T 0, T 0, EXP_VAL X0
     // T+T fuses to virtual S on Z0. The S conjugation must update the
