@@ -197,10 +197,12 @@ clifft::HirModule prepare_qasm2_for_lowering(const std::string& qasm_text, bool 
 
 std::unique_ptr<clifft::sampling::CompiledSampler> make_compiled_sampler(
     clifft::HirModule hir, std::vector<uint8_t> expected_detectors,
-    std::vector<uint8_t> expected_observables, bool detector_profile, std::optional<uint64_t> seed,
-    uint32_t threads, std::optional<uint32_t> batch_size) {
-    auto plan = std::make_shared<const clifft::sampling::ExecutablePlan>(
-        clifft::sampling::plan_sampling(hir, {{}, expected_detectors, expected_observables}));
+    std::vector<uint8_t> expected_observables, std::vector<uint8_t> postselection_mask,
+    bool detector_profile, std::optional<uint64_t> seed, uint32_t threads,
+    std::optional<uint32_t> batch_size) {
+    auto plan =
+        std::make_shared<const clifft::sampling::ExecutablePlan>(clifft::sampling::plan_sampling(
+            hir, {postselection_mask, expected_detectors, expected_observables}));
     const clifft::sampling::SamplingOutputSelection outputs =
         detector_profile
             ? clifft::sampling::SamplingOutputSelection{.detectors = true, .observables = true}
@@ -217,8 +219,24 @@ std::unique_ptr<clifft::sampling::CompiledSampler> compile_sampler_text(
     clifft::HirModule hir = prepare_hir_for_lowering(stim_text, detector_profile, hir_passes,
                                                      expected_detectors, expected_observables);
     return make_compiled_sampler(std::move(hir), std::move(expected_detectors),
-                                 std::move(expected_observables), detector_profile, seed, threads,
-                                 batch_size);
+                                 std::move(expected_observables), {}, detector_profile, seed,
+                                 threads, batch_size);
+}
+
+std::unique_ptr<clifft::sampling::CompiledSampler> compile_postselected_sampler_text(
+    const std::string& stim_text, std::vector<uint8_t> postselection_mask,
+    std::optional<uint64_t> seed, uint32_t threads, std::optional<uint32_t> batch_size,
+    clifft::HirPassManager* hir_passes) {
+    std::vector<uint8_t> expected_detectors;
+    std::vector<uint8_t> expected_observables;
+    clifft::HirModule hir = prepare_hir_for_lowering(stim_text, true, hir_passes,
+                                                     expected_detectors, expected_observables);
+    if (postselection_mask.size() != hir.num_detectors) {
+        throw std::invalid_argument("postselection mask length must equal the detector count");
+    }
+    return make_compiled_sampler(std::move(hir), std::move(expected_detectors),
+                                 std::move(expected_observables), std::move(postselection_mask),
+                                 true, seed, threads, batch_size);
 }
 
 std::unique_ptr<clifft::sampling::CompiledSampler> compile_sampler_circuit(
@@ -229,8 +247,8 @@ std::unique_ptr<clifft::sampling::CompiledSampler> compile_sampler_circuit(
     clifft::HirModule hir = prepare_circuit_for_lowering(circuit, detector_profile, hir_passes,
                                                          expected_detectors, expected_observables);
     return make_compiled_sampler(std::move(hir), std::move(expected_detectors),
-                                 std::move(expected_observables), detector_profile, seed, threads,
-                                 batch_size);
+                                 std::move(expected_observables), {}, detector_profile, seed,
+                                 threads, batch_size);
 }
 
 }  // namespace
@@ -984,6 +1002,34 @@ NB_MODULE(_clifft_core, m) {
             nb::arg("separate_observables"), nb::arg("bit_packed"), nb::arg("dets_out"),
             nb::arg("obs_out") = nb::none())
         .def(
+            "_sample_postselected_detectors",
+            [](clifft::sampling::CompiledSampler& sampler, uint32_t shots,
+               const WritableNumpyArray& detector_output,
+               const WritableNumpyArray& observable_output) {
+                const size_t detector_columns = sampler.plan().num_detectors();
+                const size_t observable_columns = sampler.plan().num_observables();
+                validate_sampling_array(detector_output, shots, detector_columns, true, "dets_out");
+                validate_sampling_array(observable_output, shots, observable_columns, true,
+                                        "obs_out");
+                const std::array destinations{
+                    clifft::sampling::SamplingBitOutput{
+                        .source = clifft::sampling::SamplingBitSource::Detectors,
+                        .packing = clifft::sampling::SamplingBitPacking::BitPacked,
+                        .data = sampling_array_bytes(detector_output),
+                        .row_stride = packed_width(detector_columns),
+                    },
+                    clifft::sampling::SamplingBitOutput{
+                        .source = clifft::sampling::SamplingBitSource::Observables,
+                        .packing = clifft::sampling::SamplingBitPacking::BitPacked,
+                        .data = sampling_array_bytes(observable_output),
+                        .row_stride = packed_width(observable_columns),
+                    },
+                };
+                nb::gil_scoped_release release;
+                return sampler.sample_survivors(shots, {.bits = destinations});
+            },
+            nb::arg("shots"), nb::arg("dets_out"), nb::arg("obs_out"))
+        .def(
             "_sample_write_measurements",
             [](clifft::sampling::CompiledSampler& sampler, uint32_t shots,
                const std::string& filepath, const std::string& format) {
@@ -1103,6 +1149,22 @@ NB_MODULE(_clifft_core, m) {
                                            hir_passes);
         },
         nb::arg("circuit"), nb::arg("detector_profile"), nb::arg("seed") = nb::none(),
+        nb::arg("threads") = ThreadOption{int64_t{1}},
+        nb::arg("batch_size") = BatchOption{std::string{"auto"}},
+        nb::arg("hir_passes") = nb::none());
+
+    m.def(
+        "_compile_postselected_detector_sampler_text",
+        [](const std::string& stim_text, std::vector<uint8_t> postselection_mask,
+           std::optional<uint64_t> seed, const ThreadOption& thread_option,
+           const BatchOption& batch_option, clifft::HirPassManager* hir_passes) {
+            const uint32_t threads = parse_thread_option(thread_option);
+            const std::optional<uint32_t> batch_size = parse_batch_option(batch_option);
+            nb::gil_scoped_release release;
+            return compile_postselected_sampler_text(stim_text, std::move(postselection_mask), seed,
+                                                     threads, batch_size, hir_passes);
+        },
+        nb::arg("stim_text"), nb::arg("postselection_mask"), nb::arg("seed") = nb::none(),
         nb::arg("threads") = ThreadOption{int64_t{1}},
         nb::arg("batch_size") = BatchOption{std::string{"auto"}},
         nb::arg("hir_passes") = nb::none());

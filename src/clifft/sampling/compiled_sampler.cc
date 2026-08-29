@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cassert>
 #include <limits>
 #include <ostream>
@@ -140,7 +141,8 @@ void write_scalar_outputs(SamplingOutputBuffer output, const Executor& executor,
 
 void write_batch_outputs(SamplingOutputBuffer output, const BatchExecutor& executor,
                          uint32_t first_shot, uint32_t shots, const ExecutablePlan& plan) noexcept {
-    assert(executor.surviving_shots() == shots && "compiled fixed-row batch must retain all shots");
+    assert(executor.surviving_shots() == shots &&
+           "compiled output batch must contain the requested live rows");
     for (const SamplingBitOutput& destination : output.bits) {
         executor.write_bit_rows(
             destination.source, destination.packing,
@@ -209,9 +211,6 @@ CompiledSampler::CompiledSampler(std::shared_ptr<const ExecutablePlan> plan,
     if (plan_->has_instruments()) {
         throw std::invalid_argument("compiled samplers do not support instrument traps");
     }
-    if (plan_->has_postselection()) {
-        throw std::invalid_argument("fixed-row compiled samplers do not support postselection");
-    }
     if (plan_->num_unbound_presampled_symbols() != 0) {
         throw std::invalid_argument(
             "compiled samplers require a distribution for every presampled symbol");
@@ -272,6 +271,10 @@ void CompiledSampler::execute_rows(const SeedRoot& root, uint32_t first_root_sho
 
 void CompiledSampler::sample(uint32_t shots, SamplingOutputBuffer output) {
     validate_output(*plan_, available_outputs_, shots, output);
+    if (plan_->has_postselection()) {
+        throw std::invalid_argument(
+            "fixed-row compiled sampling does not support postselection; use survivor sampling");
+    }
     std::lock_guard lock(mutex_);
     if (shots == 0) {
         clear_bit_outputs(shots, output);
@@ -283,7 +286,68 @@ void CompiledSampler::sample(uint32_t shots, SamplingOutputBuffer output) {
     ++calls_completed_;
 }
 
+uint32_t CompiledSampler::execute_survivors(const SeedRoot& root, uint32_t shots,
+                                            SamplingOutputBuffer output) {
+    clear_bit_outputs(shots, output);
+    if (shots == 0) {
+        return 0;
+    }
+
+    std::atomic<uint32_t> next_output{0};
+    const uint32_t requested_workers =
+        std::min<uint32_t>(static_cast<uint32_t>(workers_.size()), shots);
+    if (lane_capacity_ > 1) {
+        (void)run_shot_ranges(
+            shots, requested_workers, [&](uint32_t worker) { return workers_[worker].get(); },
+            [&](Worker* worker, ShotRange range) noexcept {
+                for (uint32_t first_shot = range.begin; first_shot < range.end;) {
+                    const uint32_t batch = std::min(lane_capacity_, range.end - first_shot);
+                    worker->batch->run_batch(root, first_shot, batch);
+                    const uint32_t survivors = worker->batch->surviving_shots();
+                    const uint32_t first_output =
+                        next_output.fetch_add(survivors, std::memory_order_relaxed);
+                    write_batch_outputs(output, *worker->batch, first_output, survivors, *plan_);
+                    first_shot += batch;
+                }
+            },
+            lane_capacity_);
+    } else {
+        (void)run_shot_ranges(
+            shots, requested_workers, [&](uint32_t worker) { return workers_[worker].get(); },
+            [&](Worker* worker, ShotRange range) noexcept {
+                for (uint32_t shot = range.begin; shot < range.end; ++shot) {
+                    reseed_executor(*worker->scalar, root, shot);
+                    worker->scalar->run_shot();
+                    if (worker->scalar->discarded()) {
+                        continue;
+                    }
+                    const uint32_t output_shot =
+                        next_output.fetch_add(1, std::memory_order_relaxed);
+                    write_scalar_outputs(output, *worker->scalar, output_shot);
+                }
+            });
+    }
+    return next_output.load(std::memory_order_relaxed);
+}
+
+uint32_t CompiledSampler::sample_survivors(uint32_t shots, SamplingOutputBuffer output) {
+    validate_output(*plan_, available_outputs_, shots, output);
+    std::lock_guard lock(mutex_);
+    if (shots == 0) {
+        clear_bit_outputs(shots, output);
+        return 0;
+    }
+
+    const SeedRoot root = call_seed_root(seed_root_, calls_completed_);
+    const uint32_t survivors = execute_survivors(root, shots, output);
+    ++calls_completed_;
+    return survivors;
+}
+
 void CompiledSampler::sample_write(uint32_t shots, std::span<const SamplingFileOutput> outputs) {
+    if (plan_->has_postselection()) {
+        throw std::invalid_argument("compiled sample_write does not support postselection");
+    }
     std::vector<PreparedFileOutput> files;
     files.reserve(outputs.size());
     size_t bytes_per_shot = 0;

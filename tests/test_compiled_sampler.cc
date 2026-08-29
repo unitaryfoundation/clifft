@@ -246,3 +246,44 @@ TEST_CASE("Compiled sampler validates retained sources before advancing") {
     REQUIRE(sampler.calls_completed() == 0);
     REQUIRE(sample_all(sampler, 65).measurements == sample_all(replay, 65).measurements);
 }
+
+TEST_CASE("Compiled sampler retains packed rows from surviving shots") {
+    const clifft::HirModule hir = clifft::trace(clifft::parse(R"(
+        X_ERROR(0.5) 0
+        M 0
+        DETECTOR rec[-1]
+        X_ERROR(1) 1
+        M 1
+        DETECTOR rec[-1]
+        OBSERVABLE_INCLUDE(0) rec[-1]
+    )"));
+    constexpr std::array<uint8_t, 2> postselection{1, 0};
+    const auto plan = std::make_shared<const ExecutablePlan>(
+        clifft::sampling::plan_sampling(hir, {.postselection_mask = postselection}));
+    constexpr SamplingOutputSelection outputs{.detectors = true, .observables = true};
+    CompiledSampler sampler(plan, outputs, uint64_t{81239}, 4, uint32_t{65});
+
+    constexpr uint32_t shots = 513;
+    std::vector<uint8_t> detectors(shots, 0xFF);
+    std::vector<uint8_t> observables(shots, 0xFF);
+    const std::array destinations{
+        SamplingBitOutput{.source = SamplingBitSource::Detectors,
+                          .packing = SamplingBitPacking::BitPacked,
+                          .data = detectors,
+                          .row_stride = 1},
+        SamplingBitOutput{.source = SamplingBitSource::Observables,
+                          .packing = SamplingBitPacking::BitPacked,
+                          .data = observables,
+                          .row_stride = 1},
+    };
+    const uint32_t survivors = sampler.sample_survivors(shots, {.bits = destinations});
+
+    REQUIRE(survivors > 200);
+    REQUIRE(survivors < 310);
+    for (uint32_t shot = 0; shot < survivors; ++shot) {
+        REQUIRE(detectors[shot] == 0b10);
+        REQUIRE(observables[shot] == 0b1);
+    }
+    REQUIRE(sampler.calls_completed() == 1);
+    REQUIRE_THROWS_AS(sampler.sample(shots, {.bits = destinations}), std::invalid_argument);
+}

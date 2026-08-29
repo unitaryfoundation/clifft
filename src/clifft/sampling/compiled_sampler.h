@@ -23,7 +23,7 @@ struct SamplingFileOutput {
     std::span<const SamplingBitSource> sources;
 };
 
-// Stateful fixed-row sampler used by Stim-compatible facades. The executable
+// Stateful sampler used by Stim-compatible facades. The executable
 // plan, executor contexts, worker scratch, and sampler RNG root outlive every
 // sample call. Calls are serialized so one sampler advances one reproducible
 // stream even when Python releases the GIL.
@@ -41,6 +41,7 @@ class CompiledSampler {
     CompiledSampler& operator=(CompiledSampler&&) = delete;
 
     void sample(uint32_t shots, SamplingOutputBuffer output);
+    [[nodiscard]] uint32_t sample_survivors(uint32_t shots, SamplingOutputBuffer output);
     void sample_write(uint32_t shots, std::span<const SamplingFileOutput> outputs);
 
     [[nodiscard]] const ExecutablePlan& plan() const noexcept { return *plan_; }
@@ -58,6 +59,8 @@ class CompiledSampler {
 
     void execute_rows(const SeedRoot& root, uint32_t first_root_shot, uint32_t shots,
                       SamplingOutputBuffer output);
+    [[nodiscard]] uint32_t execute_survivors(const SeedRoot& root, uint32_t shots,
+                                             SamplingOutputBuffer output);
 
     std::shared_ptr<const ExecutablePlan> plan_;
     SamplingOutputSelection available_outputs_;
