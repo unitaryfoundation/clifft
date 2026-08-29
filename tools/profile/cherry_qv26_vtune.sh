@@ -447,8 +447,12 @@ task-clock,context-switches,cpu-migrations,page-faults -- "${profile_command[@]}
     run_logged "${isa_dir}/vtune-uarch-collect.txt" \
         "${vtune}" -collect uarch-exploration -result-dir "${uarch_result}" \
         -- "${profile_command[@]}"
-    "${vtune}" -report summary -result-dir "${uarch_result}" \
-        -report-output "${isa_dir}/vtune-uarch-summary.txt"
+    # The 2024 reporter can abort after writing a complete summary on newer
+    # kernels. Preserve the authoritative raw result and collection log.
+    if ! "${vtune}" -report summary -result-dir "${uarch_result}" \
+        -report-output "${isa_dir}/vtune-uarch-summary.txt"; then
+        echo "warning: VTune summary regeneration failed; raw result is intact" >&2
+    fi
 }
 
 collect_profiles() {
