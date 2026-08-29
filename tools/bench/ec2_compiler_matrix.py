@@ -15,6 +15,7 @@ import socket
 import statistics
 import subprocess
 import sys
+import tarfile
 import time
 import urllib.error
 import urllib.request
@@ -23,13 +24,22 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-BRANCH = "codex/issue-317-ec2-compiler-matrix"
+BRANCH = "codex/issue-317-clang22-ec2-benchmark"
 CORPUS_REPOSITORY = "https://github.com/unitaryfoundation/clifft-bench.git"
 CORPUS_COMMIT = "ac97bbca5c5f2cc765eef0311611980d11e91d94"
 RESULT_ROOT = Path("tools/bench/ec2-results/issue-317")
 WORK_ROOT = Path(".ec2-compiler-matrix-work")
 ASSISTED_BY = "Assisted-by: Codex (GPT-5) <noreply@openai.com>"
 UV_VERSION = "0.12.5"
+STATIC_CLANG_VERSION = "22.1.8.1"
+STATIC_CLANG_COMPILER_VERSION = "22.1.8"
+STATIC_CLANG_ARCHIVE = "static-clang-linux-amd64.tar.xz"
+STATIC_CLANG_ARCHIVE_SHA256 = "6a5419dbb658dd9c379e4cddc2a130d33aef458add0c7ccd1f529f12b0a4d67a"
+STATIC_CLANG_URL = (
+    "https://github.com/mayeut/static-clang-images/releases/download/"
+    f"v{STATIC_CLANG_VERSION}/{STATIC_CLANG_ARCHIVE}"
+)
+STATIC_CLANG_ROOT = WORK_ROOT / "toolchains" / f"clang-{STATIC_CLANG_VERSION}"
 
 
 @dataclass(frozen=True)
@@ -55,9 +65,12 @@ class Workload:
 
 CONFIGURATIONS = {
     "gcc": BuildConfiguration("gcc", "gcc", ("g++-13",), False),
-    "gcc-lto": BuildConfiguration("gcc-lto", "gcc", ("g++-13",), True),
-    "clang": BuildConfiguration("clang", "clang", ("clang++-18",), False),
-    "clang-thinlto": BuildConfiguration("clang-thinlto", "clang", ("clang++-18",), True),
+    "clang22-thinlto": BuildConfiguration(
+        "clang22-thinlto",
+        "clang",
+        (str(STATIC_CLANG_ROOT / "bin" / "clang++"),),
+        True,
+    ),
 }
 
 WORKLOADS = {
@@ -99,7 +112,7 @@ WORKLOADS = {
         "workloads/circuits/coherent_d3_r3.stim",
         "corpus",
         "87d1308c83894e87c60aeb2dc31b74be89b3460a951929951f2c3ac92606827d",
-        7,
+        5,
         50_000,
         "auto",
         "sample_survivors",
@@ -170,6 +183,83 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def configure_static_clang(repo: Path, toolchain_root: Path) -> None:
+    gcc_triple = run_command(["gcc-13", "-dumpmachine"], cwd=repo).stdout.strip()
+    config_name = "ubuntu-x86_64.cfg"
+    common = toolchain_root / "bin" / config_name
+    common.write_text(
+        "-target x86_64-unknown-linux-gnu\n"
+        "-march=x86-64\n"
+        "--gcc-toolchain=/usr\n"
+        f"--gcc-triple={gcc_triple}\n"
+    )
+    for driver in ("clang", "clang++", "clang-cpp"):
+        (toolchain_root / "bin" / f"{driver}.cfg").write_text(f"@{config_name}\n")
+
+
+def install_openmp_shim(repo: Path) -> Path:
+    system_include = Path("/usr/lib/llvm-18/lib/clang/18/include")
+    openmp_library = Path("/usr/lib/llvm-18/lib/libomp.so")
+    if not (system_include / "omp.h").is_file() or not openmp_library.is_file():
+        raise RuntimeError("libomp-18-dev is missing; rerun install-deps")
+    shim = (repo / WORK_ROOT / "toolchains" / "openmp" / "include").resolve()
+    shim.mkdir(parents=True, exist_ok=True)
+    for name in ("omp.h", "omp-tools.h", "ompt.h", "ompt-multiplex.h", "ompx.h"):
+        source = system_include / name
+        target = shim / name
+        if not source.is_file():
+            continue
+        if target.exists() or target.is_symlink():
+            if target.resolve() != source.resolve():
+                raise RuntimeError(f"unexpected OpenMP shim already exists: {target}")
+            continue
+        target.symlink_to(source)
+    return shim
+
+
+def install_static_clang(repo: Path) -> None:
+    toolchain_root = (repo / STATIC_CLANG_ROOT).resolve()
+    compiler = toolchain_root / "bin" / "clang++"
+    if compiler.is_file():
+        version = run_command([str(compiler), "--version"], cwd=repo)
+        if f"clang version {STATIC_CLANG_COMPILER_VERSION}" in version.stdout:
+            configure_static_clang(repo, toolchain_root)
+            return
+        raise RuntimeError(f"unexpected compiler already installed at {compiler}")
+
+    download_root = (repo / WORK_ROOT / "downloads").resolve()
+    download_root.mkdir(parents=True, exist_ok=True)
+    archive = download_root / STATIC_CLANG_ARCHIVE
+    if not archive.is_file() or sha256(archive) != STATIC_CLANG_ARCHIVE_SHA256:
+        partial = archive.with_suffix(f"{archive.suffix}.partial")
+        partial.unlink(missing_ok=True)
+        print(f"downloading pinned Clang {STATIC_CLANG_VERSION}", flush=True)
+        with urllib.request.urlopen(STATIC_CLANG_URL, timeout=60) as response:
+            with partial.open("wb") as stream:
+                shutil.copyfileobj(response, stream)
+        if sha256(partial) != STATIC_CLANG_ARCHIVE_SHA256:
+            raise RuntimeError(f"static Clang archive digest mismatch: {partial}")
+        partial.replace(archive)
+
+    toolchain_root.parent.mkdir(parents=True, exist_ok=True)
+    staging = toolchain_root.with_name(f".{toolchain_root.name}.installing")
+    if staging.exists():
+        shutil.rmtree(staging)
+    staging.mkdir()
+    with tarfile.open(archive, "r:xz") as bundle:
+        bundle.extractall(staging, filter="data")
+    extracted = staging / "clang"
+    if not (extracted / "bin" / "clang++").is_file():
+        raise RuntimeError("static Clang archive has an unexpected layout")
+    extracted.rename(toolchain_root)
+    staging.rmdir()
+    configure_static_clang(repo, toolchain_root)
+
+    version = run_command([str(compiler), "--version"], cwd=repo)
+    if f"clang version {STATIC_CLANG_COMPILER_VERSION}" not in version.stdout:
+        raise RuntimeError(f"installed compiler has an unexpected version:\n{version.stdout}")
+
+
 def checked_identifier(value: str) -> str:
     if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,79}", value) is None:
         raise argparse.ArgumentTypeError(
@@ -210,18 +300,17 @@ def install_dependencies(repo: Path) -> None:
         raise RuntimeError("expected Ubuntu 24.04 for the reference EC2 run")
     packages = [
         "build-essential",
-        "clang-18",
         "cmake",
+        "curl",
         "g++-13",
         "gcc-13",
         "git",
         "libomp-18-dev",
-        "lld-18",
-        "llvm-18",
         "ninja-build",
         "pipx",
         "python3",
         "util-linux",
+        "xz-utils",
     ]
     run_command(["sudo", "apt-get", "update"], cwd=repo)
     run_command(["sudo", "apt-get", "install", "-y", *packages], cwd=repo)
@@ -233,10 +322,21 @@ def install_dependencies(repo: Path) -> None:
         print("warning: matching perf tools were not installed; wall timings remain available")
     if find_uv() is None:
         run_command(["pipx", "install", f"uv=={UV_VERSION}"], cwd=repo)
+    install_static_clang(repo)
+    install_openmp_shim(repo)
 
 
-def resolve_tool(candidates: tuple[str, ...]) -> str:
+def resolve_tool(repo: Path, candidates: tuple[str, ...]) -> str:
     for candidate in candidates:
+        candidate_path = Path(candidate)
+        if candidate_path.parent != Path("."):
+            resolved_path = (
+                candidate_path if candidate_path.is_absolute() else repo / candidate_path
+            )
+            if resolved_path.is_file() and os.access(resolved_path, os.X_OK):
+                # Preserve the clang++ driver name; resolving its symlink to
+                # clang would silently omit the C++ runtime during linking.
+                return str(resolved_path.absolute())
         resolved = shutil.which(candidate)
         if resolved is not None:
             return resolved
@@ -287,6 +387,23 @@ def compiler_metadata(compiler: str) -> dict[str, str]:
     return {"path": compiler, "version": completed.stdout.strip()}
 
 
+def clang_build_environment(repo: Path) -> tuple[dict[str, str], dict[str, str]]:
+    openmp_include = install_openmp_shim(repo)
+    openmp_library = Path("/usr/lib/llvm-18/lib/libomp.so")
+    environment = os.environ.copy()
+    for name, value in {
+        "CPATH": str(openmp_include),
+        "LIBRARY_PATH": str(openmp_library.parent),
+    }.items():
+        if environment.get(name):
+            value += os.pathsep + environment[name]
+        environment[name] = value
+    return environment, {
+        "openmp_include": str(openmp_include),
+        "openmp_library": str(openmp_library),
+    }
+
+
 def build_configuration(
     repo: Path,
     work_root: Path,
@@ -296,7 +413,7 @@ def build_configuration(
     openmp: str,
     fast_float_dir: Path | None,
 ) -> dict[str, Any]:
-    compiler = resolve_tool(configuration.compiler_candidates)
+    compiler = resolve_tool(repo, configuration.compiler_candidates)
     build_dir = work_root / "builds" / configuration.name
     if build_dir.exists():
         shutil.rmtree(build_dir)
@@ -318,22 +435,28 @@ def build_configuration(
         "-DCLIFFT_BUILD_PROFILER=ON",
         "-DCLIFFT_BUILD_TESTS=OFF",
     ]
+    build_environment = os.environ.copy()
+    toolchain_environment: dict[str, str] = {}
     clang_linker = None
     if configuration.family == "clang":
-        clang_linker = shutil.which("ld.lld-18") or shutil.which("ld.lld")
-        if clang_linker is not None:
-            cmake_command.extend(
-                [
-                    f"-DCMAKE_EXE_LINKER_FLAGS=--ld-path={clang_linker}",
-                    f"-DCMAKE_SHARED_LINKER_FLAGS=--ld-path={clang_linker}",
-                ]
-            )
+        clang_linker_path = Path(compiler).with_name("ld.lld")
+        if not clang_linker_path.is_file():
+            raise RuntimeError(f"pinned Clang is missing lld: {clang_linker_path}")
+        clang_linker = str(clang_linker_path)
+        build_environment, toolchain_environment = clang_build_environment(repo)
+        cmake_command.extend(
+            [
+                "-DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld",
+                "-DCMAKE_SHARED_LINKER_FLAGS=-fuse-ld=lld",
+            ]
+        )
     if fast_float_dir is not None:
         cmake_command.append(f"-DFETCHCONTENT_SOURCE_DIR_FAST_FLOAT={fast_float_dir}")
-    configured = run_command(cmake_command, cwd=repo)
+    configured = run_command(cmake_command, cwd=repo, env=build_environment)
     built = run_command(
         ["cmake", "--build", str(build_dir), "--target", "profile_sample", f"-j{jobs}"],
         cwd=repo,
+        env=build_environment,
     )
     audit = run_command(
         [
@@ -358,8 +481,10 @@ def build_configuration(
     has_lto = any("-flto" in command for command in commands)
     if has_lto != configuration.lto:
         raise RuntimeError(f"unexpected LTO flags for {configuration.name}")
-    if configuration.name == "clang-thinlto" and not any(
-        "-flto=thin" in command for command in commands
+    if (
+        configuration.family == "clang"
+        and configuration.lto
+        and not any("-flto=thin" in command for command in commands)
     ):
         raise RuntimeError("Clang IPO did not select ThinLTO")
 
@@ -375,6 +500,7 @@ def build_configuration(
         "lto": configuration.lto,
         "compiler": compiler_metadata(compiler),
         "clang_linker": clang_linker or "compiler default",
+        "toolchain_environment": toolchain_environment,
         "openmp_enabled": openmp_match.group(1) == "ON",
         "binary": str(binary),
         "binary_sha256": sha256(binary),
