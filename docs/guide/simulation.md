@@ -49,6 +49,44 @@ Terminology follows Stim's model:
 
 All three are returned per shot. Detectors and observables are empty arrays when the circuit does not declare them.
 
+## Retained Stim-Compatible Samplers
+
+Use the compiled sampler API when existing code expects Stim's measurement or
+detector sampler shape, or when the same circuit will be sampled repeatedly:
+
+```python
+import clifft
+
+sampler = clifft.compile_detector_sampler("""
+    X_ERROR(0.01) 0
+    M 0
+    DETECTOR rec[-1]
+    OBSERVABLE_INCLUDE(0) rec[-1]
+""", seed=42)
+
+detectors, observables = sampler.sample(
+    10000,
+    separate_observables=True,
+    bit_packed=True,
+)
+```
+
+`CompiledMeasurementSampler.sample()` and `CompiledDetectorSampler.sample()`
+match Stim's common sampling signatures, array shapes, Boolean and
+little-endian packed dtypes, observable placement, and caller-provided output
+arrays. `sample_write()` streams `01` or `b8` rows without materializing a full
+matrix.
+
+The compiled object retains its native plan, executor workers, and scratch
+storage across calls. Python allocates the requested NumPy destination, then
+C++ fills it directly while the GIL is released. A seed reproduces the sequence
+of calls made to a sampler; successive calls advance that sequence.
+
+The existing `compile()` plus `sample()` API remains the general Clifft API. It
+returns measurements, detectors, observables, and expectation values together,
+and its related APIs cover post-selection and importance sampling. The compiled
+sampler classes are the narrower compatibility and repeated-sampling surface.
+
 ## State Vector Extraction
 
 For debugging and small pure-unitary circuits, `get_statevector()` returns the final dense state vector:
