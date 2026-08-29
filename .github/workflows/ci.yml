@@ -420,6 +420,63 @@ jobs:
       - name: SDE smoke -- Skylake-X + FORCE_ISA=avx512
         run: PYTHON=$(pwd)/.smoke-venv/bin/python .github/scripts/wheel_smoke.sh sde skx avx512 pass avx512 intra-shot
 
+  # Source and sdist consumers commonly build with the system GCC. Exercise
+  # its optimized -ffast-math behavior without duplicating the shipping-wheel
+  # Python and ISA-emulation coverage above.
+  gcc-release-cpp:
+    timeout-minutes: 30
+    runs-on: ubuntu-24.04
+    env:
+      CC: gcc
+      CXX: g++
+      CMAKE_BUILD_TYPE: Release
+      CLIFFT_CPU_BASELINE: x86-64-v2
+      CLIFFT_INTERPROCEDURAL_OPTIMIZATION: "OFF"
+      CLIFFT_OPENMP: "ON"
+      CMAKE_GENERATOR: Ninja
+      CMAKE_CXX_COMPILER_LAUNCHER: ccache
+      CCACHE_COMPILERCHECK: content
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install pinned build tools
+        uses: ./.github/actions/setup-native-tools
+
+      - name: Setup ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ${{ runner.os }}-ccache-gcc-${{ env.CMAKE_BUILD_TYPE }}-${{ env.CLIFFT_CPU_BASELINE }}
+          save: ${{ github.ref == 'refs/heads/main' }}
+          evict-old-files: job
+
+      - name: Configure C++ build
+        run: |
+          g++ --version
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=${{ env.CMAKE_BUILD_TYPE }} \
+            -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=${{ env.CLIFFT_INTERPROCEDURAL_OPTIMIZATION }} \
+            -DCLIFFT_OPENMP=${{ env.CLIFFT_OPENMP }} \
+            -DCLIFFT_CPU_BASELINE=${{ env.CLIFFT_CPU_BASELINE }}
+
+      - name: Build C++ tests
+        run: cmake --build build --target clifft_tests --parallel
+
+      - name: Audit release build flags
+        run: |
+          python3 tools/ci/audit_build_flags.py \
+            --compile-commands build/compile_commands.json
+
+      - name: Run C++ tests
+        run: |
+          ctest --test-dir build \
+            --build-config ${{ env.CMAKE_BUILD_TYPE }} \
+            --output-on-failure \
+            --parallel \
+            --timeout 300 \
+            -E "Bench"
+        shell: bash
+
   # Build and test the repaired manylinux artifacts on every pull request.
   # This uses the same compiler, ThinLTO, linker, OpenMP, and CPU baselines as
   # the release workflow while the GCC jobs retain source-build coverage.
@@ -657,6 +714,7 @@ jobs:
       - hip-offline-build
       - build-and-test
       - release-cpp-smoke
+      - gcc-release-cpp
       - linux-release-wheel-smoke
       - package-smoke
       - cross-platform
