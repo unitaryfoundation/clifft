@@ -33,6 +33,7 @@ add_library(clifft_core STATIC
     sampling/batch/interleaved_kernels.cc
     sampling/batch/interleaved_state.cc
     sampling/kernels.cc
+    sampling/output_writer.cc
     sampling/sampler.cc
     sampling/state.cc
     api/basis_probabilities.cc
