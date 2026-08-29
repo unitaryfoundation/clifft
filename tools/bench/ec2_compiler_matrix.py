@@ -592,7 +592,7 @@ def read_optional(path: Path) -> str | None:
 
 
 def machine_metadata(repo: Path, cpu: int, perf_status: tuple[bool, str | None]) -> dict[str, Any]:
-    tools = {}
+    tools: dict[str, str | None] = {}
     for name in ("cmake", "ninja", "perf", "python3"):
         executable = shutil.which(name)
         if executable is None:
@@ -725,7 +725,7 @@ def collect(args: argparse.Namespace, repo: Path) -> Path:
         if not (args.fast_float_dir / "include/fast_float/fast_float.h").is_file():
             raise RuntimeError(f"invalid fast_float source directory: {args.fast_float_dir}")
     result_root = work_root / "quick-results" if args.quick else repo / RESULT_ROOT
-    final_dir = result_root / args.execution_id
+    final_dir: Path = result_root / args.execution_id
     incomplete_dir = final_dir.with_name(f".{args.execution_id}.incomplete")
     if final_dir.exists() or incomplete_dir.exists():
         raise RuntimeError(f"execution ID already exists: {args.execution_id}")
