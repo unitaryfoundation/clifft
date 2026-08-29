@@ -262,6 +262,10 @@ else()
         )
         add_executable(profile_sample tools/profile/profile_sample.cpp)
         target_link_libraries(profile_sample PRIVATE clifft_core)
+        if(CLIFFT_OPENMP_ENABLED)
+            target_link_libraries(profile_sample PRIVATE OpenMP::OpenMP_CXX)
+            target_compile_definitions(profile_sample PRIVATE CLIFFT_USE_OPENMP)
+        endif()
         target_include_directories(profile_sample PRIVATE
             ${CMAKE_CURRENT_SOURCE_DIR}/src
             ${CMAKE_CURRENT_BINARY_DIR}/generated

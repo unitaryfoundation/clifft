@@ -146,3 +146,41 @@ perf script -i perf-compile.data > profile.linux-perf.txt
 Use `perf annotate -i perf-compile.data --stdio --symbol=<symbol>` to inspect
 one hot function's generated assembly, and `perf stat -d <command>` for
 hardware-counter totals.
+
+## Cherry Servers QV26 and VTune capture
+
+`cherry_qv26_vtune.sh` bootstraps an Ubuntu 24.04 Intel bare-metal host and
+collects a reproducible QV26 profile. It uses the pinned Clang toolchain used by
+Linux release builds, ThinLTO, the `x86-64-v2` wheel baseline, runtime AVX-512
+or AVX2 dispatch, and the exact Qiskit 2.3.1 circuit construction used by the
+`clifft-bench` QV campaign. Fixture generation stays outside the measured
+process, and its QASM hash is checked against the published QV26 seed-42 result
+before Clifft is built.
+
+On a fresh server, clone this branch and run:
+
+```bash
+tools/profile/cherry_qv26_vtune.sh all
+```
+
+The command installs the standalone VTune package from Intel's APT repository,
+builds `profile_sample`, checks PMU access, collects `perf stat`, `perf record`,
+VTune Hotspots, and VTune Microarchitecture Exploration for both AVX-512 and
+AVX2, and writes a compressed archive under `~/clifft-vtune-results`.
+
+The default collection matches the public campaign's 16 physical-core budget,
+selecting one logical CPU from each core on NUMA node 0. Override the thread
+count or collect one ISA when a focused profile is more useful:
+
+```bash
+tools/profile/cherry_qv26_vtune.sh collect --threads 1 --isa avx512
+```
+
+After collection, start the browser GUI on loopback:
+
+```bash
+tools/profile/cherry_qv26_vtune.sh serve
+```
+
+The script prints the SSH port-forwarding command to run on the client. It does
+not expose the VTune web port to the public network.
