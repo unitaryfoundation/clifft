@@ -417,8 +417,11 @@ collect_one_isa() {
         perf stat -e cycles,instructions,branches,branch-misses,cache-references,cache-misses,\
 task-clock,context-switches,cpu-migrations,page-faults -- "${profile_command[@]}"
     run_logged "${isa_dir}/perf-record.txt" \
-        perf record -e cycles:u -F 999 -g --call-graph dwarf \
+        perf record -e cycles:u -F 499 \
         -o "${isa_dir}/perf.data" -- "${profile_command[@]}"
+    perf report --stdio --no-children --percent-limit 0.1 \
+        --sort overhead,symbol,dso -i "${isa_dir}/perf.data" \
+        >"${isa_dir}/perf-report.txt"
 
     run_logged "${isa_dir}/vtune-hotspots-collect.txt" \
         "${vtune}" -collect hotspots -knob sampling-mode=hw \
