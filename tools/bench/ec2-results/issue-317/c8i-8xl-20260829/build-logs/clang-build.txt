@@ -1,0 +1,482 @@
+[1/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/optimizer/drop_non_unitary_pass.cc.o
+In file included from /home/ubuntu/clifft/src/clifft/optimizer/drop_non_unitary_pass.cc:1:
+In file included from /home/ubuntu/clifft/src/clifft/../clifft/optimizer/drop_non_unitary_pass.h:3:
+In file included from /home/ubuntu/clifft/src/clifft/../clifft/optimizer/hir_pass.h:3:
+/home/ubuntu/clifft/src/clifft/../clifft/frontend/hir.h:374:13: warning: private field 'pad_' is not used [-Wunused-private-field]
+  374 |     uint8_t pad_[2];  // 2 bytes
+      |             ^
+1 warning generated.
+[2/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/optimizer/hir_pass_manager.cc.o
+In file included from /home/ubuntu/clifft/src/clifft/optimizer/hir_pass_manager.cc:1:
+In file included from /home/ubuntu/clifft/src/clifft/../clifft/optimizer/hir_pass_manager.h:3:
+In file included from /home/ubuntu/clifft/src/clifft/../clifft/optimizer/hir_pass.h:3:
+/home/ubuntu/clifft/src/clifft/../clifft/frontend/hir.h:374:13: warning: private field 'pad_' is not used [-Wunused-private-field]
+  374 |     uint8_t pad_[2];  // 2 bytes
+      |             ^
+1 warning generated.
+[3/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/tableau/pauli_string.cc.o
+[4/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/tableau/tableau.cc.o
+[5/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/optimizer/commutation.cc.o
+In file included from /home/ubuntu/clifft/src/clifft/optimizer/commutation.cc:1:
+In file included from /home/ubuntu/clifft/src/clifft/../clifft/optimizer/commutation.h:3:
+/home/ubuntu/clifft/src/clifft/../clifft/frontend/hir.h:374:13: warning: private field 'pad_' is not used [-Wunused-private-field]
+  374 |     uint8_t pad_[2];  // 2 bytes
+      |             ^
+1 warning generated.
+[6/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/optimizer/pass_factory.cc.o
+In file included from /home/ubuntu/clifft/src/clifft/optimizer/pass_factory.cc:1:
+In file included from /home/ubuntu/clifft/src/clifft/../clifft/optimizer/pass_factory.h:3:
+In file included from /home/ubuntu/clifft/src/clifft/../clifft/optimizer/hir_pass.h:3:
+/home/ubuntu/clifft/src/clifft/../clifft/frontend/hir.h:374:13: warning: private field 'pad_' is not used [-Wunused-private-field]
+  374 |     uint8_t pad_[2];  // 2 bytes
+      |             ^
+1 warning generated.
+[7/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/optimizer/peephole.cc.o
+In file included from /home/ubuntu/clifft/src/clifft/optimizer/peephole.cc:1:
+In file included from /home/ubuntu/clifft/src/clifft/../clifft/optimizer/peephole.h:3:
+In file included from /home/ubuntu/clifft/src/clifft/../clifft/optimizer/hir_pass.h:3:
+/home/ubuntu/clifft/src/clifft/../clifft/frontend/hir.h:374:13: warning: private field 'pad_' is not used [-Wunused-private-field]
+  374 |     uint8_t pad_[2];  // 2 bytes
+      |             ^
+1 warning generated.
+[8/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/optimizer/statevector_squeeze_pass.cc.o
+In file included from /home/ubuntu/clifft/src/clifft/optimizer/statevector_squeeze_pass.cc:1:
+In file included from /home/ubuntu/clifft/src/clifft/../clifft/optimizer/statevector_squeeze_pass.h:3:
+In file included from /home/ubuntu/clifft/src/clifft/../clifft/optimizer/hir_pass.h:3:
+/home/ubuntu/clifft/src/clifft/../clifft/frontend/hir.h:374:13: warning: private field 'pad_' is not used [-Wunused-private-field]
+  374 |     uint8_t pad_[2];  // 2 bytes
+      |             ^
+1 warning generated.
+[9/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/optimizer/remove_noise_pass.cc.o
+In file included from /home/ubuntu/clifft/src/clifft/optimizer/remove_noise_pass.cc:1:
+In file included from /home/ubuntu/clifft/src/clifft/../clifft/optimizer/remove_noise_pass.h:3:
+In file included from /home/ubuntu/clifft/src/clifft/../clifft/optimizer/hir_pass.h:3:
+/home/ubuntu/clifft/src/clifft/../clifft/frontend/hir.h:374:13: warning: private field 'pad_' is not used [-Wunused-private-field]
+  374 |     uint8_t pad_[2];  // 2 bytes
+      |             ^
+1 warning generated.
+[10/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/sampling/inspection_format.cc.o
+[11/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/circuit/qasm2_parser.cc.o
+/home/ubuntu/clifft/src/clifft/circuit/qasm2_parser.cc:47:58: warning: missing field 'text' initializer [-Wmissing-field-initializers]
+   47 |             return {.kind = TokenKind::End, .line = line_};
+      |                                                          ^
+In file included from /home/ubuntu/clifft/src/clifft/circuit/qasm2_parser.cc:10:
+In file included from /home/ubuntu/clifft/.ec2-compiler-matrix-work/builds/clang/_deps/fast_float-src/include/fast_float/fast_float.h:90:
+/home/ubuntu/clifft/.ec2-compiler-matrix-work/builds/clang/_deps/fast_float-src/include/fast_float/parse_number.h:64:28: warning: use of infinity is undefined behavior due to the currently enabled floating-point options [-Wnan-infinity-disabled]
+   64 |       value = minusSign ? -std::numeric_limits<T>::infinity()
+      |                            ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/ubuntu/clifft/.ec2-compiler-matrix-work/builds/clang/_deps/fast_float-src/include/fast_float/parse_number.h:325:22: note: in instantiation of function template specialization 'fast_float::detail::parse_infnan<double, char>' requested here
+  325 |       return detail::parse_infnan(first, last, value, fmt);
+      |                      ^
+/home/ubuntu/clifft/.ec2-compiler-matrix-work/builds/clang/_deps/fast_float-src/include/fast_float/parse_number.h:462:12: note: in instantiation of function template specialization 'fast_float::from_chars_float_advanced<double, char>' requested here
+  462 |     return from_chars_float_advanced(first, last, value, options);
+      |            ^
+/home/ubuntu/clifft/.ec2-compiler-matrix-work/builds/clang/_deps/fast_float-src/include/fast_float/parse_number.h:481:57: note: in instantiation of function template specialization 'fast_float::from_chars_advanced_caller<1>::call<double, char>' requested here
+  481 |       2 * size_t(is_supported_integer_type<T>::value)>::call(first, last, value,
+      |                                                         ^
+/home/ubuntu/clifft/.ec2-compiler-matrix-work/builds/clang/_deps/fast_float-src/include/fast_float/parse_number.h:145:12: note: in instantiation of function template specialization 'fast_float::from_chars_advanced<double, char>' requested here
+  145 |     return from_chars_advanced(first, last, value, options);
+      |            ^
+/home/ubuntu/clifft/.ec2-compiler-matrix-work/builds/clang/_deps/fast_float-src/include/fast_float/parse_number.h:187:32: note: in instantiation of function template specialization 'fast_float::from_chars_caller<double>::call<char>' requested here
+  187 |   return from_chars_caller<T>::call(first, last, value,
+      |                                ^
+/home/ubuntu/clifft/src/clifft/circuit/qasm2_parser.cc:461:45: note: in instantiation of function template specialization 'fast_float::from_chars<double, char, int>' requested here
+  461 |             const auto parsed = fast_float::from_chars(
+      |                                             ^
+In file included from /home/ubuntu/clifft/src/clifft/circuit/qasm2_parser.cc:10:
+In file included from /home/ubuntu/clifft/.ec2-compiler-matrix-work/builds/clang/_deps/fast_float-src/include/fast_float/fast_float.h:90:
+/home/ubuntu/clifft/.ec2-compiler-matrix-work/builds/clang/_deps/fast_float-src/include/fast_float/parse_number.h:65:27: warning: use of infinity is undefined behavior due to the currently enabled floating-point options [-Wnan-infinity-disabled]
+   65 |                         : std::numeric_limits<T>::infinity();
+      |                           ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+3 warnings generated.
+[12/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/frontend/frontend.cc.o
+In file included from /home/ubuntu/clifft/src/clifft/frontend/frontend.cc:1:
+In file included from /home/ubuntu/clifft/src/clifft/../clifft/frontend/frontend.h:21:
+/home/ubuntu/clifft/src/clifft/../clifft/frontend/hir.h:374:13: warning: private field 'pad_' is not used [-Wunused-private-field]
+  374 |     uint8_t pad_[2];  // 2 bytes
+      |             ^
+1 warning generated.
+[13/55] Building CXX object CMakeFiles/profile_sample.dir/tools/profile/profile_sample.cpp.o
+In file included from /home/ubuntu/clifft/tools/profile/profile_sample.cpp:14:
+In file included from /home/ubuntu/clifft/src/clifft/sampling/executable_plan.h:4:
+In file included from /home/ubuntu/clifft/src/clifft/sampling/kernel_dispatch.h:3:
+In file included from /home/ubuntu/clifft/src/clifft/sampling/fused_rotation.h:3:
+/home/ubuntu/clifft/src/clifft/sampling/plan.h:348:1: warning: 'SamplingPlan' defined as a struct here but previously declared as a class; this is valid, but may result in linker errors under the Microsoft C++ ABI [-Wmismatched-tags]
+  348 | struct SamplingPlan {
+      | ^
+/home/ubuntu/clifft/src/clifft/sampling/batch/presampled_program.h:14:1: note: did you mean struct here?
+   14 | class SamplingPlan;
+      | ^~~~~
+      | struct
+1 warning generated.
+[14/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/sampling/batch/bits.cc.o
+[15/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/sampling/plan_inspection.cc.o
+[16/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/sampling/pauli_preparation.cc.o
+[17/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/circuit/parser.cc.o
+In file included from /home/ubuntu/clifft/src/clifft/circuit/parser.cc:10:
+In file included from /home/ubuntu/clifft/.ec2-compiler-matrix-work/builds/clang/_deps/fast_float-src/include/fast_float/fast_float.h:90:
+/home/ubuntu/clifft/.ec2-compiler-matrix-work/builds/clang/_deps/fast_float-src/include/fast_float/parse_number.h:64:28: warning: use of infinity is undefined behavior due to the currently enabled floating-point options [-Wnan-infinity-disabled]
+   64 |       value = minusSign ? -std::numeric_limits<T>::infinity()
+      |                            ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/ubuntu/clifft/.ec2-compiler-matrix-work/builds/clang/_deps/fast_float-src/include/fast_float/parse_number.h:325:22: note: in instantiation of function template specialization 'fast_float::detail::parse_infnan<double, char>' requested here
+  325 |       return detail::parse_infnan(first, last, value, fmt);
+      |                      ^
+/home/ubuntu/clifft/.ec2-compiler-matrix-work/builds/clang/_deps/fast_float-src/include/fast_float/parse_number.h:462:12: note: in instantiation of function template specialization 'fast_float::from_chars_float_advanced<double, char>' requested here
+  462 |     return from_chars_float_advanced(first, last, value, options);
+      |            ^
+/home/ubuntu/clifft/.ec2-compiler-matrix-work/builds/clang/_deps/fast_float-src/include/fast_float/parse_number.h:481:57: note: in instantiation of function template specialization 'fast_float::from_chars_advanced_caller<1>::call<double, char>' requested here
+  481 |       2 * size_t(is_supported_integer_type<T>::value)>::call(first, last, value,
+      |                                                         ^
+/home/ubuntu/clifft/.ec2-compiler-matrix-work/builds/clang/_deps/fast_float-src/include/fast_float/parse_number.h:145:12: note: in instantiation of function template specialization 'fast_float::from_chars_advanced<double, char>' requested here
+  145 |     return from_chars_advanced(first, last, value, options);
+      |            ^
+/home/ubuntu/clifft/.ec2-compiler-matrix-work/builds/clang/_deps/fast_float-src/include/fast_float/parse_number.h:187:32: note: in instantiation of function template specialization 'fast_float::from_chars_caller<double>::call<char>' requested here
+  187 |   return from_chars_caller<T>::call(first, last, value,
+      |                                ^
+/home/ubuntu/clifft/src/clifft/circuit/parser.cc:268:37: note: in instantiation of function template specialization 'fast_float::from_chars<double, char, int>' requested here
+  268 |                         fast_float::from_chars(token.data(), token.data() + token.size(), val);
+      |                                     ^
+In file included from /home/ubuntu/clifft/src/clifft/circuit/parser.cc:10:
+In file included from /home/ubuntu/clifft/.ec2-compiler-matrix-work/builds/clang/_deps/fast_float-src/include/fast_float/fast_float.h:90:
+/home/ubuntu/clifft/.ec2-compiler-matrix-work/builds/clang/_deps/fast_float-src/include/fast_float/parse_number.h:65:27: warning: use of infinity is undefined behavior due to the currently enabled floating-point options [-Wnan-infinity-disabled]
+   65 |                         : std::numeric_limits<T>::infinity();
+      |                           ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/ubuntu/clifft/src/clifft/circuit/parser.cc:424:76: warning: missing field 'tag' initializer [-Wmissing-field-initializers]
+  424 |                 circuit.nodes.push_back({GateType::TICK, {}, args, line_num});
+      |                                                                            ^
+/home/ubuntu/clifft/src/clifft/circuit/parser.cc:434:77: warning: missing field 'tag' initializer [-Wmissing-field-initializers]
+  434 |         AstNode node{gate, {Target::qubit(qubit)}, std::move(args), line_num};
+      |                                                                             ^
+/home/ubuntu/clifft/src/clifft/circuit/parser.cc:441:80: warning: missing field 'tag' initializer [-Wmissing-field-initializers]
+  441 |         AstNode node{gate, {Target::qubit(q0), Target::qubit(q1)}, {}, line_num};
+      |                                                                                ^
+/home/ubuntu/clifft/src/clifft/circuit/parser.cc:785:75: warning: missing field 'tag' initializer [-Wmissing-field-initializers]
+  785 |                     AstNode node{gate, {t}, std::move(node_args), line_num};
+      |                                                                           ^
+/home/ubuntu/clifft/src/clifft/circuit/parser.cc:794:95: warning: missing field 'tag' initializer [-Wmissing-field-initializers]
+  794 |                             {GateType::READOUT_NOISE, {Target::rec(meas_idx)}, {arg}, line_num});
+      |                                                                                               ^
+/home/ubuntu/clifft/src/clifft/circuit/parser.cc:831:58: warning: missing field 'tag' initializer [-Wmissing-field-initializers]
+  831 |                                                  line_num});
+      |                                                          ^
+/home/ubuntu/clifft/src/clifft/circuit/parser.cc:839:62: warning: missing field 'tag' initializer [-Wmissing-field-initializers]
+  839 |                                                      line_num});
+      |                                                              ^
+/home/ubuntu/clifft/src/clifft/circuit/parser.cc:859:64: warning: missing field 'tag' initializer [-Wmissing-field-initializers]
+  859 |                     AstNode node{gate, {t0, t1}, args, line_num};
+      |                                                                ^
+/home/ubuntu/clifft/src/clifft/circuit/parser.cc:873:91: warning: missing field 'tag' initializer [-Wmissing-field-initializers]
+  873 |                         gate, {targets[i], targets[i + 1], targets[i + 2]}, args, line_num};
+      |                                                                                           ^
+/home/ubuntu/clifft/src/clifft/circuit/parser.cc:880:71: warning: missing field 'tag' initializer [-Wmissing-field-initializers]
+  880 |                 circuit.nodes.push_back({gate, targets, args, line_num});
+      |                                                                       ^
+/home/ubuntu/clifft/src/clifft/circuit/parser.cc:1096:82: warning: missing field 'tag' initializer [-Wmissing-field-initializers]
+ 1096 |             circuit.nodes.push_back({gate, std::move(pauli_targets), {}, line_num});
+      |                                                                                  ^
+/home/ubuntu/clifft/src/clifft/circuit/parser.cc:1220:74: warning: missing field 'tag' initializer [-Wmissing-field-initializers]
+ 1220 |         circuit.nodes.push_back({gate, std::move(targets), args, line_num});
+      |                                                                          ^
+/home/ubuntu/clifft/src/clifft/circuit/parser.cc:1232:79: warning: missing field 'tag' initializer [-Wmissing-field-initializers]
+ 1232 |             AstNode node{GateType::MPP, std::move(pauli_targets), {}, line_num};
+      |                                                                               ^
+/home/ubuntu/clifft/src/clifft/circuit/parser.cc:1239:87: warning: missing field 'tag' initializer [-Wmissing-field-initializers]
+ 1239 |                     {GateType::READOUT_NOISE, {Target::rec(meas_idx)}, {arg}, line_num});
+      |                                                                                       ^
+/home/ubuntu/clifft/src/clifft/circuit/parser.cc:1251:83: warning: missing field 'tag' initializer [-Wmissing-field-initializers]
+ 1251 |             AstNode node{GateType::EXP_VAL, std::move(pauli_targets), {}, line_num};
+      |                                                                                   ^
+/home/ubuntu/clifft/src/clifft/circuit/parser.cc:1274:93: warning: missing field 'tag' initializer [-Wmissing-field-initializers]
+ 1274 |         circuit.nodes.push_back({GateType::R_PAULI, std::move(pauli_targets), args, line_num});
+      |                                                                                             ^
+/home/ubuntu/clifft/src/clifft/circuit/parser.cc:1302:86: warning: missing field 'tag' initializer [-Wmissing-field-initializers]
+ 1302 |         circuit.nodes.push_back({GateType::DETECTOR, std::move(targets), {}, line_num});
+      |                                                                                      ^
+/home/ubuntu/clifft/src/clifft/circuit/parser.cc:1343:79: warning: missing field 'tag' initializer [-Wmissing-field-initializers]
+ 1343 |             {GateType::OBSERVABLE_INCLUDE, std::move(targets), {arg}, line_num});
+      |                                                                               ^
+20 warnings generated.
+[18/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/sampling/planner_frame.cc.o
+[19/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/sampling/plan.cc.o
+[20/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/sampling/kernel_dispatch.cc.o
+[21/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/sampling/batch/policy.cc.o
+In file included from /home/ubuntu/clifft/src/clifft/sampling/batch/policy.cc:5:
+In file included from /home/ubuntu/clifft/src/clifft/../clifft/sampling/executable_plan.h:4:
+In file included from /home/ubuntu/clifft/src/clifft/../clifft/sampling/kernel_dispatch.h:3:
+In file included from /home/ubuntu/clifft/src/clifft/../clifft/sampling/fused_rotation.h:3:
+/home/ubuntu/clifft/src/clifft/../clifft/sampling/plan.h:348:1: warning: 'SamplingPlan' defined as a struct here but previously declared as a class; this is valid, but may result in linker errors under the Microsoft C++ ABI [-Wmismatched-tags]
+  348 | struct SamplingPlan {
+      | ^
+/home/ubuntu/clifft/src/clifft/../clifft/sampling/batch/presampled_program.h:14:1: note: did you mean struct here?
+   14 | class SamplingPlan;
+      | ^~~~~
+      | struct
+1 warning generated.
+[22/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/sampling/planner.cc.o
+[23/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/sampling/batch/executor.cc.o
+In file included from /home/ubuntu/clifft/src/clifft/sampling/batch/executor.cc:1:
+In file included from /home/ubuntu/clifft/src/clifft/../clifft/sampling/batch/executor.h:7:
+In file included from /home/ubuntu/clifft/src/clifft/../clifft/sampling/executable_plan.h:3:
+/home/ubuntu/clifft/src/clifft/../clifft/sampling/batch/presampled_program.h:14:1: warning: class 'SamplingPlan' was previously declared as a struct; this is valid, but may result in linker errors under the Microsoft C++ ABI [-Wmismatched-tags]
+   14 | class SamplingPlan;
+      | ^
+/home/ubuntu/clifft/src/clifft/../clifft/sampling/plan.h:348:8: note: previous use is here
+  348 | struct SamplingPlan {
+      |        ^
+/home/ubuntu/clifft/src/clifft/../clifft/sampling/batch/presampled_program.h:14:1: note: did you mean struct here?
+   14 | class SamplingPlan;
+      | ^~~~~
+      | struct
+1 warning generated.
+[24/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/sampling/executable_plan.cc.o
+In file included from /home/ubuntu/clifft/src/clifft/sampling/executable_plan.cc:1:
+In file included from /home/ubuntu/clifft/src/clifft/../clifft/sampling/executable_plan.h:4:
+In file included from /home/ubuntu/clifft/src/clifft/../clifft/sampling/kernel_dispatch.h:3:
+In file included from /home/ubuntu/clifft/src/clifft/../clifft/sampling/fused_rotation.h:3:
+/home/ubuntu/clifft/src/clifft/../clifft/sampling/plan.h:348:1: warning: 'SamplingPlan' defined as a struct here but previously declared as a class; this is valid, but may result in linker errors under the Microsoft C++ ABI [-Wmismatched-tags]
+  348 | struct SamplingPlan {
+      | ^
+/home/ubuntu/clifft/src/clifft/../clifft/sampling/batch/presampled_program.h:14:1: note: did you mean struct here?
+   14 | class SamplingPlan;
+      | ^~~~~
+      | struct
+1 warning generated.
+[25/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/sampling/executable_plan_inspection.cc.o
+In file included from /home/ubuntu/clifft/src/clifft/sampling/executable_plan_inspection.cc:1:
+In file included from /home/ubuntu/clifft/src/clifft/../clifft/sampling/executable_plan.h:4:
+In file included from /home/ubuntu/clifft/src/clifft/../clifft/sampling/kernel_dispatch.h:3:
+In file included from /home/ubuntu/clifft/src/clifft/../clifft/sampling/fused_rotation.h:3:
+/home/ubuntu/clifft/src/clifft/../clifft/sampling/plan.h:348:1: warning: 'SamplingPlan' defined as a struct here but previously declared as a class; this is valid, but may result in linker errors under the Microsoft C++ ABI [-Wmismatched-tags]
+  348 | struct SamplingPlan {
+      | ^
+/home/ubuntu/clifft/src/clifft/../clifft/sampling/batch/presampled_program.h:14:1: note: did you mean struct here?
+   14 | class SamplingPlan;
+      | ^~~~~
+      | struct
+1 warning generated.
+[26/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/sampling/batch/interleaved_state.cc.o
+[27/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/sampling/batch/presampled_program.cc.o
+In file included from /home/ubuntu/clifft/src/clifft/sampling/batch/presampled_program.cc:3:
+In file included from /home/ubuntu/clifft/src/clifft/../clifft/sampling/executable_plan.h:4:
+In file included from /home/ubuntu/clifft/src/clifft/../clifft/sampling/kernel_dispatch.h:3:
+In file included from /home/ubuntu/clifft/src/clifft/../clifft/sampling/fused_rotation.h:3:
+/home/ubuntu/clifft/src/clifft/../clifft/sampling/plan.h:348:1: warning: 'SamplingPlan' defined as a struct here but previously declared as a class; this is valid, but may result in linker errors under the Microsoft C++ ABI [-Wmismatched-tags]
+  348 | struct SamplingPlan {
+      | ^
+/home/ubuntu/clifft/src/clifft/../clifft/sampling/batch/presampled_program.h:14:1: note: did you mean struct here?
+   14 | class SamplingPlan;
+      | ^~~~~
+      | struct
+1 warning generated.
+[28/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/sampling/kernels.cc.o
+/home/ubuntu/clifft/src/clifft/sampling/kernels.cc:19:43: warning: unused parameter 'state' [-Wunused-parameter]
+   19 | void assert_descriptor_width(const State& state, const PreparedPauli& pauli) {
+      |                                           ^
+/home/ubuntu/clifft/src/clifft/sampling/kernels.cc:19:71: warning: unused parameter 'pauli' [-Wunused-parameter]
+   19 | void assert_descriptor_width(const State& state, const PreparedPauli& pauli) {
+      |                                                                       ^
+2 warnings generated.
+[29/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/sampling/state.cc.o
+[30/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/sampling/batch/interleaved_kernels.cc.o
+[31/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/sampling/fused_rotation.cc.o
+/home/ubuntu/clifft/src/clifft/sampling/fused_rotation.cc:519:57: warning: comparison of integers of different signs: '_If_is_unsigned_integer<unsigned long, int>' (aka 'int') and 'const uint32_t' (aka 'const unsigned int') [-Wsign-compare]
+  519 |         std::countr_zero(std::bit_floor(orbit_rows[0])) < kMinDynamicFusedRotationPivot) {
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ^ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+1 warning generated.
+[32/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/sampling/executable_plan_builder.cc.o
+In file included from /home/ubuntu/clifft/src/clifft/sampling/executable_plan_builder.cc:1:
+In file included from /home/ubuntu/clifft/src/clifft/../clifft/sampling/executable_plan_builder.h:3:
+In file included from /home/ubuntu/clifft/src/clifft/../clifft/sampling/executable_plan.h:4:
+In file included from /home/ubuntu/clifft/src/clifft/../clifft/sampling/kernel_dispatch.h:3:
+In file included from /home/ubuntu/clifft/src/clifft/../clifft/sampling/fused_rotation.h:3:
+/home/ubuntu/clifft/src/clifft/../clifft/sampling/plan.h:348:1: warning: 'SamplingPlan' defined as a struct here but previously declared as a class; this is valid, but may result in linker errors under the Microsoft C++ ABI [-Wmismatched-tags]
+  348 | struct SamplingPlan {
+      | ^
+/home/ubuntu/clifft/src/clifft/../clifft/sampling/batch/presampled_program.h:14:1: note: did you mean struct here?
+   14 | class SamplingPlan;
+      | ^~~~~
+      | struct
+/home/ubuntu/clifft/src/clifft/sampling/executable_plan_builder.cc:208:13: warning: use of infinity is undefined behavior due to the currently enabled floating-point options [-Wnan-infinity-disabled]
+  208 |         if (std::isfinite(inverse_hazard)) {
+      |             ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/ubuntu/clifft/src/clifft/sampling/executable_plan_builder.cc:342:25: warning: use of infinity is undefined behavior due to the currently enabled floating-point options [-Wnan-infinity-disabled]
+  342 |                     if (std::isfinite(inverse_hazard)) {
+      |                         ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/ubuntu/clifft/src/clifft/sampling/executable_plan_builder.cc:342:25: warning: use of infinity is undefined behavior due to the currently enabled floating-point options [-Wnan-infinity-disabled]
+  342 |                     if (std::isfinite(inverse_hazard)) {
+      |                         ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/type_traits:2558:7: note: in instantiation of function template specialization 'clifft::sampling::ExecutablePlanBuilder::lower_action(const PlannedAction &, size_t &)::(anonymous class)::operator()<clifft::sampling::ApplyReadoutNoise>' requested here
+ 2558 |       std::declval<_Fn>()(std::declval<_Args>()...)
+      |       ^
+/usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/type_traits:2569:24: note: while substituting deduced template arguments into function template '_S_test' [with _Fn = (lambda at /home/ubuntu/clifft/src/clifft/sampling/executable_plan_builder.cc:304:9), _Args = (no value)]
+ 2569 |       typedef decltype(_S_test<_Functor, _ArgTypes...>(0)) type;
+      |                        ^
+/usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/type_traits:2575:14: note: in instantiation of template class 'std::__result_of_impl<false, false, (lambda at /home/ubuntu/clifft/src/clifft/sampling/executable_plan_builder.cc:304:9), const clifft::sampling::ApplyReadoutNoise &>' requested here
+ 2575 |     : public __result_of_impl<
+      |              ^
+/usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/type_traits:3062:14: note: in instantiation of template class 'std::__invoke_result<(lambda at /home/ubuntu/clifft/src/clifft/sampling/executable_plan_builder.cc:304:9), const clifft::sampling::ApplyReadoutNoise &>' requested here
+ 3062 |     : public __invoke_result<_Functor, _ArgTypes...>
+      |              ^
+/usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/type_traits:3073:5: note: in instantiation of template class 'std::invoke_result<(lambda at /home/ubuntu/clifft/src/clifft/sampling/executable_plan_builder.cc:304:9), const clifft::sampling::ApplyReadoutNoise &>' requested here
+ 3073 |     using invoke_result_t = typename invoke_result<_Fn, _Args...>::type;
+      |     ^
+/usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/variant:1132:2: note: in instantiation of template type alias 'invoke_result_t' requested here
+ 1132 |         invoke_result_t<_Visitor, __get_t<_Idxs, _Variant>>...
+      |         ^
+/usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/variant:1868:6: note: in instantiation of function template specialization 'std::__detail::__variant::__check_visitor_results<(lambda at /home/ubuntu/clifft/src/clifft/sampling/executable_plan_builder.cc:304:9), const std::variant<clifft::sampling::RotateActivePauli, clifft::sampling::PromoteDormantRotation, clifft::sampling::MeasureActivePauli, clifft::sampling::MeasureDormantRandom, clifft::sampling::RecordClassical, clifft::sampling::DefineSymbol, clifft::sampling::ApplyReadoutNoise, clifft::sampling::WriteDetector, clifft::sampling::WriteObservable, clifft::sampling::WriteExpectationValue, clifft::sampling::ApplyInstrument, clifft::sampling::InstrumentBoundary> &, 0UL, 1UL, 2UL, 3UL, 4UL, 5UL, 6UL, 7UL, 8UL, 9UL, 10UL, 11UL>' requested here
+ 1868 |             __check_visitor_results<_Visitor, _Vp>(
+      |             ^
+/home/ubuntu/clifft/src/clifft/sampling/executable_plan_builder.cc:303:10: note: in instantiation of function template specialization 'std::visit<(lambda at /home/ubuntu/clifft/src/clifft/sampling/executable_plan_builder.cc:304:9), const std::variant<clifft::sampling::RotateActivePauli, clifft::sampling::PromoteDormantRotation, clifft::sampling::MeasureActivePauli, clifft::sampling::MeasureDormantRandom, clifft::sampling::RecordClassical, clifft::sampling::DefineSymbol, clifft::sampling::ApplyReadoutNoise, clifft::sampling::WriteDetector, clifft::sampling::WriteObservable, clifft::sampling::WriteExpectationValue, clifft::sampling::ApplyInstrument, clifft::sampling::InstrumentBoundary> &>' requested here
+  303 |     std::visit(
+      |          ^
+4 warnings generated.
+[33/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/util/page_allocation.cc.o
+[34/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/util/fault_sampling.cc.o
+/home/ubuntu/clifft/src/clifft/util/fault_sampling.cc:19:19: warning: use of infinity is undefined behavior due to the currently enabled floating-point options [-Wnan-infinity-disabled]
+   19 |     if (first == -std::numeric_limits<double>::infinity()) {
+      |                   ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/ubuntu/clifft/src/clifft/util/fault_sampling.cc:22:20: warning: use of infinity is undefined behavior due to the currently enabled floating-point options [-Wnan-infinity-disabled]
+   22 |     if (second == -std::numeric_limits<double>::infinity()) {
+      |                    ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/ubuntu/clifft/src/clifft/util/fault_sampling.cc:99:33: warning: use of infinity is undefined behavior due to the currently enabled floating-point options [-Wnan-infinity-disabled]
+   99 |         stable &= odds > 0.0 && std::isfinite(odds);
+      |                                 ^~~~~~~~~~~~~~~~~~~
+/home/ubuntu/clifft/src/clifft/util/fault_sampling.cc:116:38: warning: use of infinity is undefined behavior due to the currently enabled floating-point options [-Wnan-infinity-disabled]
+  116 |             stable &= value > 0.0 && std::isfinite(value);
+      |                                      ^~~~~~~~~~~~~~~~~~~~
+/home/ubuntu/clifft/src/clifft/util/fault_sampling.cc:142:61: warning: use of infinity is undefined behavior due to the currently enabled floating-point options [-Wnan-infinity-disabled]
+  142 |             if (!(probability > 0.0 && probability < 1.0 && std::isfinite(probability))) {
+      |                                                             ^~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/ubuntu/clifft/src/clifft/util/fault_sampling.cc:162:30: warning: use of infinity is undefined behavior due to the currently enabled floating-point options [-Wnan-infinity-disabled]
+  162 |     const double log_zero = -std::numeric_limits<double>::infinity();
+      |                              ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+6 warnings generated.
+[35/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/api/statevector.cc.o
+In file included from /home/ubuntu/clifft/src/clifft/api/statevector.cc:1:
+In file included from /home/ubuntu/clifft/src/clifft/../clifft/sampling/executor.h:3:
+In file included from /home/ubuntu/clifft/src/clifft/../clifft/sampling/executable_plan.h:4:
+In file included from /home/ubuntu/clifft/src/clifft/../clifft/sampling/kernel_dispatch.h:3:
+In file included from /home/ubuntu/clifft/src/clifft/../clifft/sampling/fused_rotation.h:3:
+/home/ubuntu/clifft/src/clifft/../clifft/sampling/plan.h:348:1: warning: 'SamplingPlan' defined as a struct here but previously declared as a class; this is valid, but may result in linker errors under the Microsoft C++ ABI [-Wmismatched-tags]
+  348 | struct SamplingPlan {
+      | ^
+/home/ubuntu/clifft/src/clifft/../clifft/sampling/batch/presampled_program.h:14:1: note: did you mean struct here?
+   14 | class SamplingPlan;
+      | ^~~~~
+      | struct
+1 warning generated.
+[36/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/util/hir_introspection.cc.o
+In file included from /home/ubuntu/clifft/src/clifft/util/hir_introspection.cc:1:
+In file included from /home/ubuntu/clifft/src/clifft/../clifft/util/hir_introspection.h:5:
+/home/ubuntu/clifft/src/clifft/../clifft/frontend/hir.h:374:13: warning: private field 'pad_' is not used [-Wunused-private-field]
+  374 |     uint8_t pad_[2];  // 2 bytes
+      |             ^
+1 warning generated.
+[37/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/util/runtime_isa.cc.o
+[38/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/api/reference_syndrome.cc.o
+In file included from /home/ubuntu/clifft/src/clifft/api/reference_syndrome.cc:5:
+In file included from /home/ubuntu/clifft/src/clifft/../clifft/sampling/sampler.h:3:
+In file included from /home/ubuntu/clifft/src/clifft/../clifft/sampling/executable_plan.h:3:
+/home/ubuntu/clifft/src/clifft/../clifft/sampling/batch/presampled_program.h:14:1: warning: class 'SamplingPlan' was previously declared as a struct; this is valid, but may result in linker errors under the Microsoft C++ ABI [-Wmismatched-tags]
+   14 | class SamplingPlan;
+      | ^
+/home/ubuntu/clifft/src/clifft/../clifft/sampling/plan.h:348:8: note: previous use is here
+  348 | struct SamplingPlan {
+      |        ^
+/home/ubuntu/clifft/src/clifft/../clifft/sampling/batch/presampled_program.h:14:1: note: did you mean struct here?
+   14 | class SamplingPlan;
+      | ^~~~~
+      | struct
+1 warning generated.
+[39/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/util/xoshiro.cc.o
+[40/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/api/basis_probabilities.cc.o
+In file included from /home/ubuntu/clifft/src/clifft/api/basis_probabilities.cc:5:
+In file included from /home/ubuntu/clifft/src/clifft/../clifft/sampling/executor.h:3:
+In file included from /home/ubuntu/clifft/src/clifft/../clifft/sampling/executable_plan.h:4:
+In file included from /home/ubuntu/clifft/src/clifft/../clifft/sampling/kernel_dispatch.h:3:
+In file included from /home/ubuntu/clifft/src/clifft/../clifft/sampling/fused_rotation.h:3:
+/home/ubuntu/clifft/src/clifft/../clifft/sampling/plan.h:348:1: warning: 'SamplingPlan' defined as a struct here but previously declared as a class; this is valid, but may result in linker errors under the Microsoft C++ ABI [-Wmismatched-tags]
+  348 | struct SamplingPlan {
+      | ^
+/home/ubuntu/clifft/src/clifft/../clifft/sampling/batch/presampled_program.h:14:1: note: did you mean struct here?
+   14 | class SamplingPlan;
+      | ^~~~~
+      | struct
+1 warning generated.
+[41/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/noncomp/transition_instrument.cc.o
+[42/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/noncomp/transition_hooks.cc.o
+[43/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/noncomp/instrument_options.cc.o
+In file included from /home/ubuntu/clifft/src/clifft/noncomp/instrument_options.cc:1:
+In file included from /home/ubuntu/clifft/src/clifft/../clifft/noncomp/instrument_options.h:9:
+In file included from /home/ubuntu/clifft/src/clifft/../clifft/frontend/frontend.h:21:
+/home/ubuntu/clifft/src/clifft/../clifft/frontend/hir.h:374:13: warning: private field 'pad_' is not used [-Wunused-private-field]
+  374 |     uint8_t pad_[2];  // 2 bytes
+      |             ^
+1 warning generated.
+[44/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/noncomp/classifier.cc.o
+[45/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/noncomp/status_walk.cc.o
+[46/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/noncomp/sample.cc.o
+[47/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/noncomp/model.cc.o
+[48/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/noncomp/rewriter.cc.o
+/home/ubuntu/clifft/src/clifft/noncomp/rewriter.cc:24:55: warning: missing field 'tag' initializer [-Wmissing-field-initializers]
+   24 |     return AstNode{gate, {Target::qubit(qubit)}, {}, 0};
+      |                                                       ^
+/home/ubuntu/clifft/src/clifft/noncomp/rewriter.cc:29:63: warning: missing field 'tag' initializer [-Wmissing-field-initializers]
+   29 |     return AstNode{GateType::MPAD, {Target::qubit(bit)}, {}, 0};
+      |                                                               ^
+/home/ubuntu/clifft/src/clifft/noncomp/rewriter.cc:35:75: warning: missing field 'tag' initializer [-Wmissing-field-initializers]
+   35 |     return AstNode{GateType::READOUT_NOISE, {Target::rec(slot)}, {prob}, 0};
+      |                                                                           ^
+/home/ubuntu/clifft/src/clifft/noncomp/rewriter.cc:84:92: warning: missing field 'tag' initializer [-Wmissing-field-initializers]
+   84 |     out.nodes.push_back(AstNode{GateType::READOUT_NOISE, {Target::rec(slot)}, {p01, p10}, 0});
+      |                                                                                            ^
+4 warnings generated.
+[49/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/sampling/executor.cc.o
+In file included from /home/ubuntu/clifft/src/clifft/sampling/executor.cc:1:
+In file included from /home/ubuntu/clifft/src/clifft/../clifft/sampling/executor.h:3:
+In file included from /home/ubuntu/clifft/src/clifft/../clifft/sampling/executable_plan.h:4:
+In file included from /home/ubuntu/clifft/src/clifft/../clifft/sampling/kernel_dispatch.h:3:
+In file included from /home/ubuntu/clifft/src/clifft/../clifft/sampling/fused_rotation.h:3:
+/home/ubuntu/clifft/src/clifft/../clifft/sampling/plan.h:348:1: warning: 'SamplingPlan' defined as a struct here but previously declared as a class; this is valid, but may result in linker errors under the Microsoft C++ ABI [-Wmismatched-tags]
+  348 | struct SamplingPlan {
+      | ^
+/home/ubuntu/clifft/src/clifft/../clifft/sampling/batch/presampled_program.h:14:1: note: did you mean struct here?
+   14 | class SamplingPlan;
+      | ^~~~~
+      | struct
+/home/ubuntu/clifft/src/clifft/sampling/executor.cc:455:41: warning: unused variable 'forced' [-Wunused-variable]
+  455 |             const std::optional<double> forced = force_active_branch(probabilities, branch);
+      |                                         ^~~~~~
+2 warnings generated.
+[50/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/sampling/sampler.cc.o
+In file included from /home/ubuntu/clifft/src/clifft/sampling/sampler.cc:1:
+In file included from /home/ubuntu/clifft/src/clifft/../clifft/sampling/sampler.h:3:
+In file included from /home/ubuntu/clifft/src/clifft/../clifft/sampling/executable_plan.h:4:
+In file included from /home/ubuntu/clifft/src/clifft/../clifft/sampling/kernel_dispatch.h:3:
+In file included from /home/ubuntu/clifft/src/clifft/../clifft/sampling/fused_rotation.h:3:
+/home/ubuntu/clifft/src/clifft/../clifft/sampling/plan.h:348:1: warning: 'SamplingPlan' defined as a struct here but previously declared as a class; this is valid, but may result in linker errors under the Microsoft C++ ABI [-Wmismatched-tags]
+  348 | struct SamplingPlan {
+      | ^
+/home/ubuntu/clifft/src/clifft/../clifft/sampling/batch/presampled_program.h:14:1: note: did you mean struct here?
+   14 | class SamplingPlan;
+      | ^~~~~
+      | struct
+1 warning generated.
+[51/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/sampling/kernels_avx2.cc.o
+[52/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/sampling/kernels_avx512.cc.o
+[53/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/noncomp/trajectory_driver.cc.o
+In file included from /home/ubuntu/clifft/src/clifft/noncomp/trajectory_driver.cc:25:
+In file included from /home/ubuntu/clifft/src/clifft/../clifft/sampling/executor.h:3:
+In file included from /home/ubuntu/clifft/src/clifft/../clifft/sampling/executable_plan.h:4:
+In file included from /home/ubuntu/clifft/src/clifft/../clifft/sampling/kernel_dispatch.h:3:
+In file included from /home/ubuntu/clifft/src/clifft/../clifft/sampling/fused_rotation.h:3:
+/home/ubuntu/clifft/src/clifft/../clifft/sampling/plan.h:348:1: warning: 'SamplingPlan' defined as a struct here but previously declared as a class; this is valid, but may result in linker errors under the Microsoft C++ ABI [-Wmismatched-tags]
+  348 | struct SamplingPlan {
+      | ^
+/home/ubuntu/clifft/src/clifft/../clifft/sampling/batch/presampled_program.h:14:1: note: did you mean struct here?
+   14 | class SamplingPlan;
+      | ^~~~~
+      | struct
+1 warning generated.
+[54/55] Linking CXX static library src/clifft/libclifft_core.a
+[55/55] Linking CXX executable profile_sample

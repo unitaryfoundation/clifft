@@ -1,0 +1,197 @@
+[1/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/tableau/pauli_string.cc.o
+[2/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/optimizer/drop_non_unitary_pass.cc.o
+[3/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/optimizer/hir_pass_manager.cc.o
+[4/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/tableau/tableau.cc.o
+[5/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/optimizer/commutation.cc.o
+[6/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/frontend/frontend.cc.o
+[7/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/optimizer/remove_noise_pass.cc.o
+[8/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/circuit/qasm2_parser.cc.o
+/home/ubuntu/clifft/src/clifft/circuit/qasm2_parser.cc: In member function ‘clifft::{anonymous}::Token clifft::{anonymous}::Lexer::next()’:
+/home/ubuntu/clifft/src/clifft/circuit/qasm2_parser.cc:47:58: warning: missing initializer for member ‘clifft::{anonymous}::Token::text’ [-Wmissing-field-initializers]
+   47 |             return {.kind = TokenKind::End, .line = line_};
+      |                                                          ^
+[9/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/optimizer/peephole.cc.o
+[10/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/optimizer/pass_factory.cc.o
+[11/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/optimizer/statevector_squeeze_pass.cc.o
+[12/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/circuit/parser.cc.o
+/home/ubuntu/clifft/src/clifft/circuit/parser.cc: In member function ‘void clifft::{anonymous}::Parser::parse_line(std::string_view, uint32_t&, clifft::Circuit&, std::string_view&, uint32_t)’:
+/home/ubuntu/clifft/src/clifft/circuit/parser.cc:424:40: warning: missing initializer for member ‘clifft::AstNode::tag’ [-Wmissing-field-initializers]
+  424 |                 circuit.nodes.push_back({GateType::TICK, {}, args, line_num});
+      |                 ~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/ubuntu/clifft/src/clifft/circuit/parser.cc: In member function ‘void clifft::{anonymous}::Parser::append_rewrite_single(clifft::GateType, uint32_t, uint32_t, clifft::Circuit&, std::vector<double>)’:
+/home/ubuntu/clifft/src/clifft/circuit/parser.cc:434:77: warning: missing initializer for member ‘clifft::AstNode::tag’ [-Wmissing-field-initializers]
+  434 |         AstNode node{gate, {Target::qubit(qubit)}, std::move(args), line_num};
+      |                                                                             ^
+/home/ubuntu/clifft/src/clifft/circuit/parser.cc: In member function ‘void clifft::{anonymous}::Parser::append_rewrite_pair(clifft::GateType, uint32_t, uint32_t, uint32_t, clifft::Circuit&)’:
+/home/ubuntu/clifft/src/clifft/circuit/parser.cc:441:80: warning: missing initializer for member ‘clifft::AstNode::tag’ [-Wmissing-field-initializers]
+  441 |         AstNode node{gate, {Target::qubit(q0), Target::qubit(q1)}, {}, line_num};
+      |                                                                                ^
+/home/ubuntu/clifft/src/clifft/circuit/parser.cc: In member function ‘void clifft::{anonymous}::Parser::parse_standard_gate(clifft::GateType, std::string_view, uint32_t, clifft::Circuit&, double, const std::vector<double>&, const std::string&)’:
+/home/ubuntu/clifft/src/clifft/circuit/parser.cc:785:75: warning: missing initializer for member ‘clifft::AstNode::tag’ [-Wmissing-field-initializers]
+  785 |                     AstNode node{gate, {t}, std::move(node_args), line_num};
+      |                                                                           ^
+/home/ubuntu/clifft/src/clifft/circuit/parser.cc:793:48: warning: missing initializer for member ‘clifft::AstNode::tag’ [-Wmissing-field-initializers]
+  793 |                         circuit.nodes.push_back(
+      |                         ~~~~~~~~~~~~~~~~~~~~~~~^
+  794 |                             {GateType::READOUT_NOISE, {Target::rec(meas_idx)}, {arg}, line_num});
+      |                             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/ubuntu/clifft/src/clifft/circuit/parser.cc:828:48: warning: missing initializer for member ‘clifft::AstNode::tag’ [-Wmissing-field-initializers]
+  828 |                         circuit.nodes.push_back({GateType::MPP,
+      |                         ~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~
+  829 |                                                  {p0, p1},
+      |                                                  ~~~~~~~~~
+  830 |                                                  is_noisy_meas ? std::vector<double>{} : args,
+      |                                                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  831 |                                                  line_num});
+      |                                                  ~~~~~~~~~~
+/home/ubuntu/clifft/src/clifft/circuit/parser.cc:836:52: warning: missing initializer for member ‘clifft::AstNode::tag’ [-Wmissing-field-initializers]
+  836 |                             circuit.nodes.push_back({GateType::READOUT_NOISE,
+      |                             ~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~
+  837 |                                                      {Target::rec(meas_idx)},
+      |                                                      ~~~~~~~~~~~~~~~~~~~~~~~~
+  838 |                                                      {arg},
+      |                                                      ~~~~~~
+  839 |                                                      line_num});
+      |                                                      ~~~~~~~~~~
+/home/ubuntu/clifft/src/clifft/circuit/parser.cc:859:64: warning: missing initializer for member ‘clifft::AstNode::tag’ [-Wmissing-field-initializers]
+  859 |                     AstNode node{gate, {t0, t1}, args, line_num};
+      |                                                                ^
+/home/ubuntu/clifft/src/clifft/circuit/parser.cc:873:91: warning: missing initializer for member ‘clifft::AstNode::tag’ [-Wmissing-field-initializers]
+  873 |                         gate, {targets[i], targets[i + 1], targets[i + 2]}, args, line_num};
+      |                                                                                           ^
+/home/ubuntu/clifft/src/clifft/circuit/parser.cc:880:40: warning: missing initializer for member ‘clifft::AstNode::tag’ [-Wmissing-field-initializers]
+  880 |                 circuit.nodes.push_back({gate, targets, args, line_num});
+      |                 ~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/ubuntu/clifft/src/clifft/circuit/parser.cc: In member function ‘void clifft::{anonymous}::Parser::parse_pauli_product_phases(clifft::GateType, std::string_view, uint32_t, clifft::Circuit&)’:
+/home/ubuntu/clifft/src/clifft/circuit/parser.cc:1096:36: warning: missing initializer for member ‘clifft::AstNode::tag’ [-Wmissing-field-initializers]
+ 1096 |             circuit.nodes.push_back({gate, std::move(pauli_targets), {}, line_num});
+      |             ~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/ubuntu/clifft/src/clifft/circuit/parser.cc: In member function ‘void clifft::{anonymous}::Parser::parse_correlated_error(clifft::GateType, std::string_view, uint32_t, clifft::Circuit&, const std::vector<double>&)’:
+/home/ubuntu/clifft/src/clifft/circuit/parser.cc:1220:32: warning: missing initializer for member ‘clifft::AstNode::tag’ [-Wmissing-field-initializers]
+ 1220 |         circuit.nodes.push_back({gate, std::move(targets), args, line_num});
+      |         ~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/ubuntu/clifft/src/clifft/circuit/parser.cc: In member function ‘void clifft::{anonymous}::Parser::parse_mpp(std::string_view, uint32_t, clifft::Circuit&, double)’:
+/home/ubuntu/clifft/src/clifft/circuit/parser.cc:1232:79: warning: missing initializer for member ‘clifft::AstNode::tag’ [-Wmissing-field-initializers]
+ 1232 |             AstNode node{GateType::MPP, std::move(pauli_targets), {}, line_num};
+      |                                                                               ^
+/home/ubuntu/clifft/src/clifft/circuit/parser.cc:1238:40: warning: missing initializer for member ‘clifft::AstNode::tag’ [-Wmissing-field-initializers]
+ 1238 |                 circuit.nodes.push_back(
+      |                 ~~~~~~~~~~~~~~~~~~~~~~~^
+ 1239 |                     {GateType::READOUT_NOISE, {Target::rec(meas_idx)}, {arg}, line_num});
+      |                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/ubuntu/clifft/src/clifft/circuit/parser.cc: In member function ‘void clifft::{anonymous}::Parser::parse_exp_val(std::string_view, uint32_t, clifft::Circuit&)’:
+/home/ubuntu/clifft/src/clifft/circuit/parser.cc:1251:83: warning: missing initializer for member ‘clifft::AstNode::tag’ [-Wmissing-field-initializers]
+ 1251 |             AstNode node{GateType::EXP_VAL, std::move(pauli_targets), {}, line_num};
+      |                                                                                   ^
+/home/ubuntu/clifft/src/clifft/circuit/parser.cc: In member function ‘void clifft::{anonymous}::Parser::parse_r_pauli(std::string_view, uint32_t, clifft::Circuit&, const std::vector<double>&)’:
+/home/ubuntu/clifft/src/clifft/circuit/parser.cc:1274:32: warning: missing initializer for member ‘clifft::AstNode::tag’ [-Wmissing-field-initializers]
+ 1274 |         circuit.nodes.push_back({GateType::R_PAULI, std::move(pauli_targets), args, line_num});
+      |         ~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/ubuntu/clifft/src/clifft/circuit/parser.cc: In member function ‘void clifft::{anonymous}::Parser::parse_detector(std::string_view, uint32_t, clifft::Circuit&)’:
+/home/ubuntu/clifft/src/clifft/circuit/parser.cc:1302:32: warning: missing initializer for member ‘clifft::AstNode::tag’ [-Wmissing-field-initializers]
+ 1302 |         circuit.nodes.push_back({GateType::DETECTOR, std::move(targets), {}, line_num});
+      |         ~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/ubuntu/clifft/src/clifft/circuit/parser.cc: In member function ‘void clifft::{anonymous}::Parser::parse_observable_include(std::string_view, uint32_t, clifft::Circuit&, double)’:
+/home/ubuntu/clifft/src/clifft/circuit/parser.cc:1342:32: warning: missing initializer for member ‘clifft::AstNode::tag’ [-Wmissing-field-initializers]
+ 1342 |         circuit.nodes.push_back(
+      |         ~~~~~~~~~~~~~~~~~~~~~~~^
+ 1343 |             {GateType::OBSERVABLE_INCLUDE, std::move(targets), {arg}, line_num});
+      |             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+[13/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/sampling/inspection_format.cc.o
+[14/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/sampling/batch/bits.cc.o
+[15/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/sampling/plan_inspection.cc.o
+[16/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/sampling/pauli_preparation.cc.o
+[17/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/sampling/planner_frame.cc.o
+[18/55] Building CXX object CMakeFiles/profile_sample.dir/tools/profile/profile_sample.cpp.o
+[19/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/sampling/plan.cc.o
+[20/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/sampling/batch/policy.cc.o
+[21/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/sampling/kernel_dispatch.cc.o
+[22/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/sampling/batch/executor.cc.o
+[23/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/sampling/planner.cc.o
+[24/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/sampling/executable_plan.cc.o
+[25/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/sampling/executable_plan_inspection.cc.o
+[26/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/sampling/batch/interleaved_state.cc.o
+[27/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/sampling/batch/presampled_program.cc.o
+[28/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/sampling/batch/interleaved_kernels.cc.o
+[29/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/sampling/state.cc.o
+[30/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/sampling/kernels.cc.o
+/home/ubuntu/clifft/src/clifft/sampling/kernels.cc: In function ‘void clifft::sampling::{anonymous}::assert_descriptor_width(const clifft::sampling::State&, const clifft::sampling::PreparedPauli&)’:
+/home/ubuntu/clifft/src/clifft/sampling/kernels.cc:19:43: warning: unused parameter ‘state’ [-Wunused-parameter]
+   19 | void assert_descriptor_width(const State& state, const PreparedPauli& pauli) {
+      |                              ~~~~~~~~~~~~~^~~~~
+/home/ubuntu/clifft/src/clifft/sampling/kernels.cc:19:71: warning: unused parameter ‘pauli’ [-Wunused-parameter]
+   19 | void assert_descriptor_width(const State& state, const PreparedPauli& pauli) {
+      |                                                  ~~~~~~~~~~~~~~~~~~~~~^~~~~
+[31/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/sampling/executable_plan_builder.cc.o
+[32/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/sampling/fused_rotation.cc.o
+/home/ubuntu/clifft/src/clifft/sampling/fused_rotation.cc: In function ‘clifft::sampling::DynamicFusedRotationRun clifft::sampling::prepare_dynamic_fused_rotation_run(std::span<const PlannedAction>)’:
+/home/ubuntu/clifft/src/clifft/sampling/fused_rotation.cc:519:57: warning: comparison of integer expressions of different signedness: ‘std::_If_is_unsigned_integer<long unsigned int, int>’ {aka ‘int’} and ‘const uint32_t’ {aka ‘const unsigned int’} [-Wsign-compare]
+  519 |         std::countr_zero(std::bit_floor(orbit_rows[0])) < kMinDynamicFusedRotationPivot) {
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+[33/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/util/page_allocation.cc.o
+[34/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/util/hir_introspection.cc.o
+[35/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/util/fault_sampling.cc.o
+[36/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/util/runtime_isa.cc.o
+[37/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/api/statevector.cc.o
+[38/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/api/basis_probabilities.cc.o
+[39/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/api/reference_syndrome.cc.o
+[40/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/sampling/executor.cc.o
+[41/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/util/xoshiro.cc.o
+[42/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/noncomp/transition_instrument.cc.o
+[43/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/noncomp/transition_hooks.cc.o
+[44/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/sampling/sampler.cc.o
+[45/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/noncomp/classifier.cc.o
+[46/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/noncomp/instrument_options.cc.o
+[47/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/noncomp/status_walk.cc.o
+[48/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/noncomp/model.cc.o
+[49/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/noncomp/sample.cc.o
+[50/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/noncomp/rewriter.cc.o
+/home/ubuntu/clifft/src/clifft/noncomp/rewriter.cc: In function ‘clifft::AstNode clifft::{anonymous}::single_qubit_op(clifft::GateType, uint32_t)’:
+/home/ubuntu/clifft/src/clifft/noncomp/rewriter.cc:24:55: warning: missing initializer for member ‘clifft::AstNode::tag’ [-Wmissing-field-initializers]
+   24 |     return AstNode{gate, {Target::qubit(qubit)}, {}, 0};
+      |                                                       ^
+/home/ubuntu/clifft/src/clifft/noncomp/rewriter.cc: In function ‘clifft::AstNode clifft::{anonymous}::mpad_op(uint8_t)’:
+/home/ubuntu/clifft/src/clifft/noncomp/rewriter.cc:29:63: warning: missing initializer for member ‘clifft::AstNode::tag’ [-Wmissing-field-initializers]
+   29 |     return AstNode{GateType::MPAD, {Target::qubit(bit)}, {}, 0};
+      |                                                               ^
+/home/ubuntu/clifft/src/clifft/noncomp/rewriter.cc: In function ‘clifft::AstNode clifft::{anonymous}::readout_noise_op(uint32_t, double)’:
+/home/ubuntu/clifft/src/clifft/noncomp/rewriter.cc:35:75: warning: missing initializer for member ‘clifft::AstNode::tag’ [-Wmissing-field-initializers]
+   35 |     return AstNode{GateType::READOUT_NOISE, {Target::rec(slot)}, {prob}, 0};
+      |                                                                           ^
+/home/ubuntu/clifft/src/clifft/noncomp/rewriter.cc: In function ‘void clifft::{anonymous}::append_computational_confusion(clifft::Circuit&, const clifft::NonComputationalModel&, bool, uint32_t)’:
+/home/ubuntu/clifft/src/clifft/noncomp/rewriter.cc:84:92: warning: missing initializer for member ‘clifft::AstNode::tag’ [-Wmissing-field-initializers]
+   84 |     out.nodes.push_back(AstNode{GateType::READOUT_NOISE, {Target::rec(slot)}, {p01, p10}, 0});
+      |                                                                                            ^
+[51/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/sampling/kernels_avx512.cc.o
+/home/ubuntu/clifft/src/clifft/sampling/kernels_avx512.cc: In function ‘void clifft::sampling::{anonymous}::apply_fused_rotation_avx512(clifft::sampling::State&, const clifft::sampling::PreparedFusedRotation&, const void*)’:
+/home/ubuntu/clifft/src/clifft/sampling/kernels_avx512.cc:403:39: warning: ignoring attributes on template argument ‘__m512d’ [-Wignored-attributes]
+  403 |         std::array<__m512d, kDimension> input_real;
+      |                                       ^
+/home/ubuntu/clifft/src/clifft/sampling/kernels_avx512.cc:404:39: warning: ignoring attributes on template argument ‘__m512d’ [-Wignored-attributes]
+  404 |         std::array<__m512d, kDimension> input_imag;
+      |                                       ^
+/home/ubuntu/clifft/src/clifft/sampling/kernels_avx512.cc: In lambda function:
+/home/ubuntu/clifft/src/clifft/sampling/kernels_avx512.cc:540:47: warning: ignoring attributes on template argument ‘__m512d’ [-Wignored-attributes]
+  540 |                 std::array<__m512d, kDimension> input_real;
+      |                                               ^
+/home/ubuntu/clifft/src/clifft/sampling/kernels_avx512.cc:541:47: warning: ignoring attributes on template argument ‘__m512d’ [-Wignored-attributes]
+  541 |                 std::array<__m512d, kDimension> input_imag;
+      |                                               ^
+[52/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/sampling/kernels_avx2.cc.o
+/home/ubuntu/clifft/src/clifft/sampling/kernels_avx2.cc: In function ‘void clifft::sampling::{anonymous}::apply_fused_rotation_avx2(clifft::sampling::State&, const clifft::sampling::PreparedFusedRotation&, const void*)’:
+/home/ubuntu/clifft/src/clifft/sampling/kernels_avx2.cc:401:39: warning: ignoring attributes on template argument ‘__m256d’ [-Wignored-attributes]
+  401 |         std::array<__m256d, kDimension> input_real;
+      |                                       ^
+/home/ubuntu/clifft/src/clifft/sampling/kernels_avx2.cc:402:39: warning: ignoring attributes on template argument ‘__m256d’ [-Wignored-attributes]
+  402 |         std::array<__m256d, kDimension> input_imag;
+      |                                       ^
+/home/ubuntu/clifft/src/clifft/sampling/kernels_avx2.cc: In lambda function:
+/home/ubuntu/clifft/src/clifft/sampling/kernels_avx2.cc:537:47: warning: ignoring attributes on template argument ‘__m256d’ [-Wignored-attributes]
+  537 |                 std::array<__m256d, kDimension> input_real;
+      |                                               ^
+/home/ubuntu/clifft/src/clifft/sampling/kernels_avx2.cc:538:47: warning: ignoring attributes on template argument ‘__m256d’ [-Wignored-attributes]
+  538 |                 std::array<__m256d, kDimension> input_imag;
+      |                                               ^
+[53/55] Building CXX object src/clifft/CMakeFiles/clifft_core.dir/noncomp/trajectory_driver.cc.o
+[54/55] Linking CXX static library src/clifft/libclifft_core.a
+[55/55] Linking CXX executable profile_sample
