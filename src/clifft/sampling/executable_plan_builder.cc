@@ -4,12 +4,18 @@
 #include "clifft/util/numeric.h"
 
 #include <algorithm>
+#include <array>
+#include <bit>
 #include <cassert>
+#include <charconv>
 #include <cmath>
+#include <complex>
+#include <cstdlib>
 #include <limits>
 #include <optional>
 #include <span>
 #include <stdexcept>
+#include <string_view>
 #include <type_traits>
 #include <utility>
 
@@ -37,6 +43,236 @@ bool activates_new_x(const ApplyInstrument& instrument, uint32_t active_after) {
 }
 
 inline constexpr double kMaxSparseBatchReadoutProbability = 0.05;
+
+inline constexpr uint32_t kExperimentalCacheBlockRank = 14;
+inline constexpr uint32_t kExperimentalCacheBlockDefaultMinActiveWidth = 24;
+inline constexpr size_t kExperimentalCacheBlockMinExecutablePasses = 6;
+inline constexpr uint32_t kAvx512LaneIndexBitsForCacheBlock = 3;
+inline constexpr uint32_t kExperimentalCacheBlockMaxFusedSigns = 2;
+inline constexpr uint32_t kExperimentalCacheBlockMaxFusedSelectors = 5;
+
+[[nodiscard]] bool experimental_cache_blocking_enabled() noexcept {
+    const char* const value = std::getenv("CLIFFT_EXPERIMENTAL_CACHE_BLOCKED_ROTATIONS");
+    return value != nullptr && std::string_view(value) == "1";
+}
+
+[[nodiscard]] uint32_t experimental_cache_block_min_active_width() noexcept {
+    const char* const text = std::getenv("CLIFFT_EXPERIMENTAL_CACHE_BLOCKED_MIN_ACTIVE_WIDTH");
+    if (text == nullptr) {
+        return kExperimentalCacheBlockDefaultMinActiveWidth;
+    }
+    uint32_t value = 0;
+    const std::string_view input(text);
+    const auto result = std::from_chars(input.data(), input.data() + input.size(), value);
+    if (result.ec != std::errc{} || result.ptr != input.data() + input.size() ||
+        value >= kDenseActiveWidthLimit) {
+        return kExperimentalCacheBlockDefaultMinActiveWidth;
+    }
+    return value;
+}
+
+class CacheBlockBasis {
+  public:
+    [[nodiscard]] bool insert(uint64_t value, uint32_t max_rank) noexcept {
+        uint64_t reduced = value;
+        for (int pivot = 63; pivot >= 0; --pivot) {
+            const uint64_t bit = uint64_t{1} << pivot;
+            if ((reduced & bit) != 0 && rows_[pivot] != 0) {
+                reduced ^= rows_[pivot];
+            }
+        }
+        if (reduced == 0) {
+            return true;
+        }
+        if (rank_ == max_rank) {
+            return false;
+        }
+        const uint32_t pivot = 63U - static_cast<uint32_t>(std::countl_zero(reduced));
+        const uint64_t bit = uint64_t{1} << pivot;
+        for (uint64_t& row : rows_) {
+            if ((row & bit) != 0) {
+                row ^= reduced;
+            }
+        }
+        rows_[pivot] = reduced;
+        ++rank_;
+        return true;
+    }
+
+    [[nodiscard]] uint32_t rank() const noexcept { return rank_; }
+
+    [[nodiscard]] std::vector<uint64_t> rows() const {
+        std::vector<uint64_t> result;
+        result.reserve(rank_);
+        for (uint64_t row : rows_) {
+            if (row != 0) {
+                result.push_back(row);
+            }
+        }
+        return result;
+    }
+
+    [[nodiscard]] uint64_t coordinates(uint64_t value) const noexcept {
+        uint64_t result = 0;
+        uint32_t coordinate = 0;
+        for (uint64_t row : rows_) {
+            if (row == 0) {
+                continue;
+            }
+            const uint64_t pivot = std::bit_floor(row);
+            if ((value & pivot) != 0) {
+                value ^= row;
+                result |= uint64_t{1} << coordinate;
+            }
+            ++coordinate;
+        }
+        assert(value == 0 && "cache-blocked Pauli X mask must belong to the block span");
+        return result;
+    }
+
+  private:
+    std::array<uint64_t, 64> rows_{};
+    uint32_t rank_ = 0;
+};
+
+struct CacheSelector {
+    uint64_t local = 0;
+    uint64_t external = 0;
+
+    CacheSelector& operator^=(const CacheSelector& other) noexcept {
+        local ^= other.local;
+        external ^= other.external;
+        return *this;
+    }
+};
+
+[[nodiscard]] bool cache_selector_bit(const CacheSelector& selector, uint32_t bit) noexcept {
+    return bit < 64 ? ((selector.local >> bit) & 1U) != 0
+                    : ((selector.external >> (bit - 64)) & 1U) != 0;
+}
+
+class CacheSelectorBasis {
+  public:
+    [[nodiscard]] bool insert(CacheSelector value, uint32_t max_rank) noexcept {
+        for (int pivot = 127; pivot >= 0; --pivot) {
+            if (cache_selector_bit(value, static_cast<uint32_t>(pivot)) &&
+                (rows_[pivot].local != 0 || rows_[pivot].external != 0)) {
+                value ^= rows_[pivot];
+            }
+        }
+        if (value.local == 0 && value.external == 0) {
+            return true;
+        }
+        if (rank_ == max_rank) {
+            return false;
+        }
+        uint32_t pivot = 0;
+        for (int candidate = 127; candidate >= 0; --candidate) {
+            if (cache_selector_bit(value, static_cast<uint32_t>(candidate))) {
+                pivot = static_cast<uint32_t>(candidate);
+                break;
+            }
+        }
+        for (CacheSelector& row : rows_) {
+            if (cache_selector_bit(row, pivot)) {
+                row ^= value;
+            }
+        }
+        rows_[pivot] = value;
+        ++rank_;
+        return true;
+    }
+
+    [[nodiscard]] std::vector<CacheSelector> rows() const {
+        std::vector<CacheSelector> result;
+        result.reserve(rank_);
+        for (const CacheSelector& row : rows_) {
+            if (row.local != 0 || row.external != 0) {
+                result.push_back(row);
+            }
+        }
+        return result;
+    }
+
+    [[nodiscard]] uint32_t coordinates(CacheSelector value) const noexcept {
+        uint32_t result = 0;
+        uint32_t coordinate = 0;
+        for (const CacheSelector& row : rows_) {
+            if (row.local == 0 && row.external == 0) {
+                continue;
+            }
+            uint32_t pivot = 0;
+            for (uint32_t candidate = 0; candidate < 128; ++candidate) {
+                if (cache_selector_bit(row, candidate)) {
+                    pivot = candidate;
+                }
+            }
+            if (cache_selector_bit(value, pivot)) {
+                value ^= row;
+                result |= uint32_t{1} << coordinate;
+            }
+            ++coordinate;
+        }
+        assert(value.local == 0 && value.external == 0 &&
+               "cache selector must belong to its prepared basis");
+        return result;
+    }
+
+  private:
+    std::array<CacheSelector, 128> rows_{};
+    uint32_t rank_ = 0;
+};
+
+class CacheSignBasis {
+  public:
+    [[nodiscard]] bool insert(const AffineBool& value, uint32_t max_rank) {
+        AffineBool reduced(false, value.terms());
+        while (!reduced.terms().empty()) {
+            const uint32_t pivot = index(reduced.terms().back());
+            if (pivot < rows_.size() && rows_[pivot].has_value()) {
+                reduced ^= rows_[pivot]->expression;
+                continue;
+            }
+            if (expressions_.size() == max_rank) {
+                return false;
+            }
+            if (pivot >= rows_.size()) {
+                rows_.resize(static_cast<size_t>(pivot) + 1);
+            }
+            const uint32_t coordinate = static_cast<uint32_t>(expressions_.size());
+            expressions_.push_back(reduced);
+            rows_[pivot] = Row{std::move(reduced), coordinate};
+            return true;
+        }
+        return true;
+    }
+
+    [[nodiscard]] uint32_t coordinates(const AffineBool& value) const {
+        AffineBool reduced(false, value.terms());
+        uint32_t result = 0;
+        while (!reduced.terms().empty()) {
+            const uint32_t pivot = index(reduced.terms().back());
+            assert(pivot < rows_.size() && rows_[pivot].has_value() &&
+                   "cache sign must belong to its prepared basis");
+            result ^= uint32_t{1} << rows_[pivot]->coordinate;
+            reduced ^= rows_[pivot]->expression;
+        }
+        return result;
+    }
+
+    [[nodiscard]] const std::vector<AffineBool>& expressions() const noexcept {
+        return expressions_;
+    }
+
+  private:
+    struct Row {
+        AffineBool expression;
+        uint32_t coordinate = 0;
+    };
+
+    std::vector<std::optional<Row>> rows_;
+    std::vector<AffineBool> expressions_;
+};
 
 [[nodiscard]] uint64_t coefficient_size(uint32_t active_width) noexcept {
     assert(active_width < kDenseActiveWidthLimit &&
@@ -156,6 +392,7 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::compile() {
     initialize_program();
     prepare_noise_and_boundaries();
     lower_action_stream();
+    prepare_cache_blocked_rotation_regions();
     prepare_batch_compaction_costs();
     build_expression_dependencies();
     output_.batch_presampled_program_ = BatchPresampledProgram::build(
@@ -175,6 +412,7 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::initialize_program() {
 
     const ProgramStorageEstimate storage = estimate_program_storage();
     output_.actions_.reserve(source_.actions.size());
+    lowered_action_ranges_.reserve(source_.actions.size());
     output_.has_postselection_ = storage.has_postselection;
     if (output_.has_postselection_) {
         action_batch_lane_work_.reserve(source_.actions.size());
@@ -581,6 +819,223 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::lower_action_stream() {
     }
 }
 
+CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::prepare_cache_blocked_rotation_regions() {
+    if (!experimental_cache_blocking_enabled() || backend_ != ExecutorBackend::Avx512) {
+        lowered_action_ranges_.clear();
+        return;
+    }
+
+    assert(lowered_action_ranges_.size() == output_.actions_.size() &&
+           "cache-block preparation requires one source range per executable action");
+    constexpr uint32_t kNoRegion = std::numeric_limits<uint32_t>::max();
+    output_.cache_blocked_region_by_action_.assign(output_.actions_.size(), kNoRegion);
+    const uint32_t min_active_width = experimental_cache_block_min_active_width();
+
+    size_t action_begin = 0;
+    while (action_begin < output_.actions_.size()) {
+        const ExecutablePlan::PlanActionRange& first_range = lowered_action_ranges_[action_begin];
+        const PlannedAction& first_planned = source_.actions[first_range.begin];
+        const uint32_t active_width = first_planned.active_before;
+        if (active_width < min_active_width) {
+            ++action_begin;
+            continue;
+        }
+
+        CacheBlockBasis basis;
+        for (uint32_t lane = 0; lane < kAvx512LaneIndexBitsForCacheBlock; ++lane) {
+            [[maybe_unused]] const bool inserted =
+                basis.insert(uint64_t{1} << lane, kExperimentalCacheBlockRank);
+            assert(inserted && "AVX-512 lane coordinates must fit the cache block");
+        }
+
+        size_t action_end = action_begin;
+        uint32_t expected_plan_begin = first_range.begin;
+        size_t source_rotation_count = 0;
+        while (action_end < output_.actions_.size()) {
+            const ExecutablePlan::PlanActionRange& range = lowered_action_ranges_[action_end];
+            if (range.begin != expected_plan_begin) {
+                break;
+            }
+
+            CacheBlockBasis candidate = basis;
+            bool eligible = true;
+            for (uint32_t plan_index = range.begin; plan_index < range.end; ++plan_index) {
+                const PlannedAction& planned = source_.actions[plan_index];
+                const auto* rotation = std::get_if<RotateActivePauli>(&planned.action);
+                if (rotation == nullptr || planned.active_before != active_width ||
+                    planned.active_after != active_width ||
+                    !candidate.insert(rotation->pauli.x, kExperimentalCacheBlockRank)) {
+                    eligible = false;
+                    break;
+                }
+            }
+            if (!eligible) {
+                break;
+            }
+
+            basis = candidate;
+            source_rotation_count += range.end - range.begin;
+            expected_plan_begin = range.end;
+            ++action_end;
+        }
+
+        if (action_end - action_begin < kExperimentalCacheBlockMinExecutablePasses) {
+            ++action_begin;
+            continue;
+        }
+
+        ExecutablePlan::PreparedCacheBlockedRotationRegion region;
+        region.action_begin = static_cast<uint32_t>(action_begin);
+        region.action_end = static_cast<uint32_t>(action_end);
+        region.active_width = active_width;
+        region.block_rank = basis.rank();
+        region.basis_masks = basis.rows();
+        region.basis_pivots.reserve(region.basis_masks.size());
+        for (uint64_t row : region.basis_masks) {
+            region.basis_pivots.push_back(
+                static_cast<uint32_t>(std::countr_zero(std::bit_floor(row))));
+        }
+        region.operations.reserve(source_rotation_count);
+        uint64_t block_pivot_mask = 0;
+        for (uint32_t pivot : region.basis_pivots) {
+            block_pivot_mask |= uint64_t{1} << pivot;
+        }
+
+        struct LocalizedRotation {
+            PreparedRotation rotation;
+            AffineBool sign;
+            uint64_t external_z = 0;
+            bool phase_flip = false;
+        };
+        for (size_t action_index = action_begin; action_index < action_end; ++action_index) {
+            const ExecutablePlan::PlanActionRange& range = lowered_action_ranges_[action_index];
+            std::vector<LocalizedRotation> localized;
+            localized.reserve(range.end - range.begin);
+            for (uint32_t plan_index = range.begin; plan_index < range.end; ++plan_index) {
+                const PlannedAction& planned = source_.actions[plan_index];
+                const auto& source_rotation = std::get<RotateActivePauli>(planned.action);
+                const PreparedRotation global_rotation = prepare_rotation(
+                    source_rotation.pauli, active_width, source_rotation.half_turns);
+                const uint64_t local_x = basis.coordinates(source_rotation.pauli.x);
+                uint64_t local_z = 0;
+                for (size_t coordinate = 0; coordinate < region.basis_masks.size(); ++coordinate) {
+                    local_z |= static_cast<uint64_t>(std::popcount(region.basis_masks[coordinate] &
+                                                                   source_rotation.pauli.z) &
+                                                     1U)
+                               << coordinate;
+                }
+                const PreparedPauli local_pauli =
+                    prepare_pauli({local_x, local_z}, region.block_rank);
+                const std::complex<double> phase_ratio =
+                    global_rotation.pauli.even_phase * std::conj(local_pauli.even_phase);
+                assert(std::abs(phase_ratio.imag()) < 1e-12 &&
+                       std::abs(std::abs(phase_ratio.real()) - 1.0) < 1e-12 &&
+                       "basis localization must preserve a Hermitian Pauli up to sign");
+                localized.push_back({{local_pauli, global_rotation.cosine, global_rotation.sine},
+                                     source_rotation.sign,
+                                     source_rotation.pauli.z,
+                                     phase_ratio.real() < 0.0});
+            }
+
+            const bool was_fused =
+                std::holds_alternative<ExecutablePlan::ExecuteFusedRotation>(
+                    output_.actions_[action_index]) ||
+                std::holds_alternative<ExecutablePlan::ExecuteDynamicFusedRotation>(
+                    output_.actions_[action_index]);
+            CacheBlockBasis orbit_basis;
+            CacheSignBasis sign_basis;
+            bool can_fuse = was_fused;
+            for (const LocalizedRotation& rotation : localized) {
+                can_fuse &= orbit_basis.insert(rotation.rotation.pauli.x, 2);
+                can_fuse &= sign_basis.insert(rotation.sign, kExperimentalCacheBlockMaxFusedSigns);
+            }
+
+            const std::vector<uint64_t> orbit_masks = orbit_basis.rows();
+            uint64_t orbit_pivot_mask = 0;
+            for (uint64_t mask : orbit_masks) {
+                orbit_pivot_mask |= std::bit_floor(mask);
+            }
+            CacheSelectorBasis selector_basis;
+            for (const LocalizedRotation& rotation : localized) {
+                can_fuse &= selector_basis.insert({rotation.rotation.pauli.z & ~orbit_pivot_mask,
+                                                   rotation.external_z & ~block_pivot_mask},
+                                                  kExperimentalCacheBlockMaxFusedSelectors);
+            }
+
+            if (can_fuse) {
+                const std::vector<CacheSelector> selector_rows = selector_basis.rows();
+                std::vector<uint64_t> local_selector_masks;
+                std::vector<uint64_t> external_selector_masks;
+                local_selector_masks.reserve(selector_rows.size());
+                external_selector_masks.reserve(selector_rows.size());
+                for (const CacheSelector& row : selector_rows) {
+                    local_selector_masks.push_back(row.local);
+                    external_selector_masks.push_back(row.external);
+                }
+
+                std::vector<uint32_t> sign_coordinates;
+                std::vector<uint32_t> selector_coordinates;
+                sign_coordinates.reserve(localized.size());
+                selector_coordinates.reserve(localized.size());
+                for (const LocalizedRotation& rotation : localized) {
+                    sign_coordinates.push_back(sign_basis.coordinates(rotation.sign));
+                    selector_coordinates.push_back(
+                        selector_basis.coordinates({rotation.rotation.pauli.z & ~orbit_pivot_mask,
+                                                    rotation.external_z & ~block_pivot_mask}));
+                }
+
+                ExecutablePlan::PreparedCacheBlockedFusedRotation fused;
+                fused.external_selector_masks = std::move(external_selector_masks);
+                for (const AffineBool& expression : sign_basis.expressions()) {
+                    fused.sign_basis.push_back(prepare_expression(expression));
+                }
+                const size_t num_sign_variants = size_t{1} << fused.sign_basis.size();
+                fused.variants.reserve(num_sign_variants);
+                std::vector<PreparedFusedRotationTerm> terms;
+                terms.reserve(localized.size());
+                for (size_t variant = 0; variant < num_sign_variants; ++variant) {
+                    terms.clear();
+                    for (size_t i = 0; i < localized.size(); ++i) {
+                        const LocalizedRotation& rotation = localized[i];
+                        const bool sign =
+                            rotation.sign.constant() ^ rotation.phase_flip ^
+                            ((std::popcount(static_cast<uint32_t>(variant) & sign_coordinates[i]) &
+                              1U) != 0);
+                        terms.push_back({rotation.rotation, selector_coordinates[i], sign});
+                    }
+                    fused.variants.emplace_back(
+                        prepare_fused_rotation_from_terms(region.block_rank, orbit_masks,
+                                                          local_selector_masks, terms),
+                        backend_);
+                }
+                region.operations.emplace_back(std::move(fused));
+                continue;
+            }
+
+            for (LocalizedRotation& rotation : localized) {
+                const DirectRotationKernel kernel =
+                    rotation.rotation.pauli.is_identity()
+                        ? DirectRotationKernel::Scalar
+                        : resolve_direct_rotation_kernel(rotation.rotation, backend_);
+                region.operations.emplace_back(ExecutablePlan::PreparedCacheBlockedRotation{
+                    std::move(rotation.rotation), prepare_expression(rotation.sign),
+                    rotation.external_z, rotation.phase_flip, kernel});
+            }
+        }
+
+        const uint32_t region_index =
+            static_cast<uint32_t>(output_.cache_blocked_rotation_regions_.size());
+        output_.cache_blocked_region_by_action_[action_begin] = region_index;
+        output_.cache_blocked_rotation_regions_.push_back(std::move(region));
+        action_begin = action_end;
+    }
+
+    if (output_.cache_blocked_rotation_regions_.empty()) {
+        output_.cache_blocked_region_by_action_.clear();
+    }
+    lowered_action_ranges_.clear();
+}
+
 CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::prepare_batch_compaction_costs() {
     output_.estimated_batch_lane_work_ = estimated_batch_lane_work_;
     if (!output_.has_postselection_) {
@@ -606,14 +1061,16 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::prepare_batch_compaction
 
 CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::record_action_origin(uint32_t plan_begin,
                                                                              uint32_t plan_end) {
-    if (!source_.source_map.has_value()) {
-        return;
-    }
     assert(plan_begin < plan_end && plan_end <= source_.actions.size() &&
            "executable action must name a nonempty plan range");
-    assert(output_.action_plan_ranges_.size() + 1 == output_.actions_.size() &&
-           "each executable action must receive exactly one plan range");
-    output_.action_plan_ranges_.push_back({plan_begin, plan_end});
+    assert(lowered_action_ranges_.size() + 1 == output_.actions_.size() &&
+           "each executable action must retain one construction-time source range");
+    lowered_action_ranges_.push_back({plan_begin, plan_end});
+    if (source_.source_map.has_value()) {
+        assert(output_.action_plan_ranges_.size() + 1 == output_.actions_.size() &&
+               "each inspected executable action must receive one source range");
+        output_.action_plan_ranges_.push_back({plan_begin, plan_end});
+    }
 }
 
 CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::build_expression_dependencies() {
@@ -733,6 +1190,55 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::validate_executable_plan
         for (ExecutablePlan::PreparedExpression sign : rotation.sign_basis) {
             validate_expression(sign);
         }
+    }
+    if (output_.cache_blocked_rotation_regions_.empty()) {
+        assert(output_.cache_blocked_region_by_action_.empty() &&
+               "an empty cache-block plan must not retain an action index");
+    } else {
+        assert(output_.cache_blocked_region_by_action_.size() == output_.actions_.size() &&
+               "cache-block action indices must parallel the fallback stream");
+    }
+    uint32_t previous_end = 0;
+    for (size_t region_index = 0; region_index < output_.cache_blocked_rotation_regions_.size();
+         ++region_index) {
+        const auto& region = output_.cache_blocked_rotation_regions_[region_index];
+        assert(region.action_begin >= previous_end && region.action_begin < region.action_end &&
+               region.action_end <= output_.actions_.size() &&
+               "cache-blocked fallback ranges must be ordered and nonempty");
+        assert(region.block_rank == region.basis_masks.size() &&
+               region.block_rank == region.basis_pivots.size() &&
+               region.block_rank <= kExperimentalCacheBlockRank &&
+               "cache-block geometry must fit its prepared rank");
+        assert(output_.cache_blocked_region_by_action_[region.action_begin] == region_index &&
+               "cache-block action index must select its prepared region");
+        for (const auto& operation : region.operations) {
+            std::visit(
+                [&](const auto& prepared) {
+                    using Operation = std::decay_t<decltype(prepared)>;
+                    if constexpr (std::is_same_v<Operation,
+                                                 ExecutablePlan::PreparedCacheBlockedRotation>) {
+                        assert(prepared.rotation.pauli.active_width == region.block_rank &&
+                               "localized rotation width must match its cache block");
+                        validate_expression(prepared.sign);
+                    } else {
+                        assert(!prepared.variants.empty() &&
+                               prepared.external_selector_masks.size() <=
+                                   kExperimentalCacheBlockMaxFusedSelectors &&
+                               "cache-block fused variants must fit their controls");
+                        for (ExecutablePlan::PreparedExpression sign : prepared.sign_basis) {
+                            validate_expression(sign);
+                        }
+                        for (const PreparedFusedRotationExecution& variant : prepared.variants) {
+                            assert(variant.rotation().active_width == region.block_rank &&
+                                   variant.rotation().selector_masks.size() ==
+                                       prepared.external_selector_masks.size() &&
+                                   "cache-block fused geometry must match its region");
+                        }
+                    }
+                },
+                operation);
+        }
+        previous_end = region.action_end;
     }
 #endif
 }

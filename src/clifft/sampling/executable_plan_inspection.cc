@@ -88,7 +88,8 @@ std::string ExecutablePlan::inspect() const {
     out << "executable_plan backend=" << backend_name(backend_) << " actions=" << actions_.size()
         << " expression_registers=" << expression_register_constants_.size()
         << " fused_rotations=" << fused_rotations_.size()
-        << " dynamic_fused_rotations=" << dynamic_fused_rotations_.size() << '\n';
+        << " dynamic_fused_rotations=" << dynamic_fused_rotations_.size()
+        << " cache_blocked_rotation_regions=" << cache_blocked_rotation_regions_.size() << '\n';
     for (size_t i = 0; i < actions_.size(); ++i) {
         out << "  " << i;
         if (const auto range = action_plan_range(i)) {

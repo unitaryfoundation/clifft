@@ -150,6 +150,9 @@ class Executor {
     void execute_action(const ExecutablePlan::ExecuteDynamicFusedRotation& action,
                         std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
     template <IntraShotMode IntraShot>
+    void execute_cache_blocked_rotation_region(
+        const ExecutablePlan::PreparedCacheBlockedRotationRegion& region) noexcept;
+    template <IntraShotMode IntraShot>
     void execute_action(const ExecutablePlan::ExecutePromotion& action,
                         std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
     template <ExecutorBackend Backend, ShotMode Mode>

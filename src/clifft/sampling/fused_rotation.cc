@@ -218,72 +218,22 @@ std::optional<PreparedFusedRotation> prepare_fused_rotation(std::span<const Plan
     }
     const std::vector<uint64_t> selector_rows = selector_basis.rows();
 
-    PreparedFusedRotation result;
-    result.active_width = active_width;
-    result.orbit_rank = orbit_basis.rank();
-    for (size_t i = 0; i < orbit_rows.size(); ++i) {
-        result.orbit_masks[i] = orbit_rows[i];
-        result.orbit_pivots[i] =
-            static_cast<uint32_t>(std::countr_zero(std::bit_floor(orbit_rows[i])));
+    std::vector<PreparedFusedRotationTerm> terms;
+    terms.reserve(actions.size());
+    for (const PlannedAction& planned : actions) {
+        const auto& rotation = std::get<RotateActivePauli>(planned.action);
+        terms.push_back({prepare_rotation(rotation.pauli, active_width, rotation.half_turns),
+                         basis_coordinates(rotation.pauli.z & ~orbit_pivots, selector_rows),
+                         rotation.sign.constant()});
     }
-    result.selector_masks = selector_rows;
-
-    // Precompose one dense unitary for every possible assignment of the
-    // independent representative parities.
-    const size_t dimension = size_t{1} << result.orbit_rank;
-    const size_t matrix_size = dimension * dimension;
-    const size_t num_variants = size_t{1} << selector_rows.size();
-    result.matrices.resize(num_variants * matrix_size);
-    for (size_t variant = 0; variant < num_variants; ++variant) {
-        std::span<std::complex<double>> matrix(result.matrices.data() + variant * matrix_size,
-                                               matrix_size);
-        for (size_t diagonal = 0; diagonal < dimension; ++diagonal) {
-            matrix[diagonal * dimension + diagonal] = 1.0;
-        }
-
-        for (const PlannedAction& planned : actions) {
-            const auto& rotation = std::get<RotateActivePauli>(planned.action);
-            const PreparedRotation prepared =
-                prepare_rotation(rotation.pauli, active_width, rotation.half_turns);
-            const uint32_t x_coordinates = basis_coordinates(rotation.pauli.x, orbit_rows);
-            const uint32_t selector_coordinates =
-                basis_coordinates(rotation.pauli.z & ~orbit_pivots, selector_rows);
-
-            // local_z records how the Pauli phase changes between members of
-            // one orbit; representative_phase supplies the shared offset.
-            uint32_t local_z = 0;
-            for (size_t i = 0; i < orbit_rows.size(); ++i) {
-                local_z |=
-                    static_cast<uint32_t>(std::popcount(orbit_rows[i] & rotation.pauli.z) & 1U)
-                    << i;
-            }
-            const bool representative_phase =
-                (std::popcount(static_cast<uint32_t>(variant) & selector_coordinates) & 1U) != 0;
-            const double sine = rotation.sign.constant() ? -prepared.sine : prepared.sine;
-
-            std::array<std::complex<double>, 16> unitary{};
-            for (size_t column = 0; column < dimension; ++column) {
-                unitary[column * dimension + column] += prepared.cosine;
-                const bool odd_phase =
-                    representative_phase !=
-                    ((std::popcount(static_cast<uint32_t>(column) & local_z) & 1U) != 0);
-                const std::complex<double> phase =
-                    odd_phase ? -prepared.pauli.even_phase : prepared.pauli.even_phase;
-                unitary[(column ^ x_coordinates) * dimension + column] +=
-                    std::complex<double>{0.0, -sine} * phase;
-            }
-            multiply_matrix_left(matrix,
-                                 std::span<const std::complex<double>>(unitary).first(matrix_size),
-                                 dimension);
-        }
-    }
-    return result;
+    return prepare_fused_rotation_from_terms(active_width, orbit_rows, selector_rows, terms);
 }
 
 // Each orbit is a one-, two-, or four-dimensional coefficient subspace. Gather
 // its coefficients, apply the selected dense unitary, and scatter them back.
 template <size_t Dimension>
-void apply_fused_rotation_orbits(State& state, const PreparedFusedRotation& rotation) noexcept {
+void apply_fused_rotation_orbits(State& state, const PreparedFusedRotation& rotation,
+                                 uint32_t selector_xor) noexcept {
     static_assert(Dimension == 1 || Dimension == 2 || Dimension == 4);
     const uint64_t orbit_count = state.size() / Dimension;
     const size_t matrix_size = Dimension * Dimension;
@@ -304,7 +254,8 @@ void apply_fused_rotation_orbits(State& state, const PreparedFusedRotation& rota
             representative = insert_zero_bit(representative, rotation.orbit_pivots[1]);
         }
 
-        const size_t selector = selector_index(representative, rotation.selector_masks);
+        const size_t selector =
+            selector_index(representative, rotation.selector_masks) ^ selector_xor;
         const std::complex<double>* const matrix =
             rotation.matrices.data() + selector * matrix_size;
 
@@ -414,6 +365,68 @@ void apply_fused_rotation_orbits_parallel(State& state, const PreparedFusedRotat
 }
 
 }  // namespace
+
+PreparedFusedRotation prepare_fused_rotation_from_terms(
+    uint32_t active_width, std::span<const uint64_t> orbit_masks,
+    std::span<const uint64_t> selector_masks, std::span<const PreparedFusedRotationTerm> terms) {
+    assert(orbit_masks.size() <= 2 && selector_masks.size() <= kMaxFusedRotationSelectors &&
+           !terms.empty() && "prepared fused terms must fit bounded matrix geometry");
+
+    PreparedFusedRotation result;
+    result.active_width = active_width;
+    result.orbit_rank = static_cast<uint32_t>(orbit_masks.size());
+    for (size_t i = 0; i < orbit_masks.size(); ++i) {
+        result.orbit_masks[i] = orbit_masks[i];
+        result.orbit_pivots[i] =
+            static_cast<uint32_t>(std::countr_zero(std::bit_floor(orbit_masks[i])));
+    }
+    result.selector_masks.assign(selector_masks.begin(), selector_masks.end());
+
+    const size_t dimension = size_t{1} << result.orbit_rank;
+    const size_t matrix_size = dimension * dimension;
+    const size_t num_variants = size_t{1} << selector_masks.size();
+    result.matrices.resize(num_variants * matrix_size);
+    for (size_t variant = 0; variant < num_variants; ++variant) {
+        std::span<std::complex<double>> matrix(result.matrices.data() + variant * matrix_size,
+                                               matrix_size);
+        for (size_t diagonal = 0; diagonal < dimension; ++diagonal) {
+            matrix[diagonal * dimension + diagonal] = 1.0;
+        }
+
+        for (const PreparedFusedRotationTerm& term : terms) {
+            assert(term.rotation.pauli.active_width == active_width &&
+                   term.selector_coordinates < num_variants &&
+                   "fused term must match its descriptor geometry");
+            const uint32_t x_coordinates = basis_coordinates(term.rotation.pauli.x, orbit_masks);
+            uint32_t local_z = 0;
+            for (size_t i = 0; i < orbit_masks.size(); ++i) {
+                local_z |= static_cast<uint32_t>(
+                               std::popcount(orbit_masks[i] & term.rotation.pauli.z) & 1U)
+                           << i;
+            }
+            const bool representative_phase =
+                (std::popcount(static_cast<uint32_t>(variant) & term.selector_coordinates) & 1U) !=
+                0;
+            const double sine = term.sign ? -term.rotation.sine : term.rotation.sine;
+
+            std::array<std::complex<double>, 16> unitary{};
+            for (size_t column = 0; column < dimension; ++column) {
+                unitary[column * dimension + column] += term.rotation.cosine;
+                const bool odd_phase =
+                    representative_phase !=
+                    ((std::popcount(static_cast<uint32_t>(column) & local_z) & 1U) != 0);
+                const std::complex<double> phase =
+                    odd_phase ? -term.rotation.pauli.even_phase : term.rotation.pauli.even_phase;
+                unitary[(column ^ x_coordinates) * dimension + column] +=
+                    std::complex<double>{0.0, -sine} * phase;
+            }
+            multiply_matrix_left(matrix,
+                                 std::span<const std::complex<double>>(unitary).first(matrix_size),
+                                 dimension);
+        }
+    }
+    return result;
+}
 
 FusedRotationRun prepare_fused_rotation_run(std::span<const PlannedAction> actions) {
     FusedRotationRun result;
@@ -553,18 +566,21 @@ DynamicFusedRotationRun prepare_dynamic_fused_rotation_run(std::span<const Plann
     return result;
 }
 
-void apply_fused_rotation(State& state, const PreparedFusedRotation& rotation) noexcept {
+void apply_fused_rotation(State& state, const PreparedFusedRotation& rotation,
+                          uint32_t selector_xor) noexcept {
+    assert(selector_xor < (uint32_t{1} << rotation.selector_masks.size()) &&
+           "fused selector offset must fit the prepared matrix table");
     assert(state.active_width() == rotation.active_width &&
            "fused rotation width must match the active state");
     switch (rotation.orbit_rank) {
         case 0:
-            apply_fused_rotation_orbits<1>(state, rotation);
+            apply_fused_rotation_orbits<1>(state, rotation, selector_xor);
             return;
         case 1:
-            apply_fused_rotation_orbits<2>(state, rotation);
+            apply_fused_rotation_orbits<2>(state, rotation, selector_xor);
             return;
         case 2:
-            apply_fused_rotation_orbits<4>(state, rotation);
+            apply_fused_rotation_orbits<4>(state, rotation, selector_xor);
             return;
         default:
             assert(false && "fused rotation orbit rank must be at most two");

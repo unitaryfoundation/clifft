@@ -38,6 +38,7 @@ class ExecutablePlanBuilder {
     // Scan semantic actions once, selecting CPU descriptors and bounded
     // adjacent-rotation fusion without introducing a general pass pipeline.
     void lower_action_stream();
+    void prepare_cache_blocked_rotation_regions();
     void lower_action(const PlannedAction& planned, size_t& boundary_index);
     void record_batch_lane_work(batch_detail::BatchWorkEstimate work);
     void record_action_origin(uint32_t plan_begin, uint32_t plan_end);
@@ -68,6 +69,7 @@ class ExecutablePlanBuilder {
     std::vector<uint32_t> expression_term_begins_;
     std::vector<uint32_t> boundary_noise_starts_;
     std::vector<uint8_t> bound_presampled_symbols_;
+    std::vector<ExecutablePlan::PlanActionRange> lowered_action_ranges_;
     batch_detail::BatchWorkEstimate estimated_batch_lane_work_;
     std::vector<batch_detail::BatchLaneWork> action_batch_lane_work_;
 };

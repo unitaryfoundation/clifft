@@ -1,5 +1,6 @@
 #pragma once
 
+#include "clifft/sampling/pauli_preparation.h"
 #include "clifft/sampling/plan.h"
 #include "clifft/sampling/state.h"
 
@@ -29,6 +30,14 @@ struct PreparedFusedRotation {
     std::vector<std::complex<double>> matrices;
 };
 
+// One rotation in a fused descriptor whose representative-parity coordinates
+// were prepared by a caller that owns a larger affine blocking geometry.
+struct PreparedFusedRotationTerm {
+    PreparedRotation rotation;
+    uint32_t selector_coordinates = 0;
+    bool sign = false;
+};
+
 // Describes the maximal rank-two-eligible constant-sign rotation run beginning
 // at the supplied action. A populated rotation replaces all action_count
 // inputs; otherwise the caller lowers that many actions individually.
@@ -53,7 +62,11 @@ struct DynamicFusedRotationRun {
 [[nodiscard]] FusedRotationRun prepare_fused_rotation_run(std::span<const PlannedAction> actions);
 [[nodiscard]] DynamicFusedRotationRun prepare_dynamic_fused_rotation_run(
     std::span<const PlannedAction> actions);
-void apply_fused_rotation(State& state, const PreparedFusedRotation& rotation) noexcept;
+[[nodiscard]] PreparedFusedRotation prepare_fused_rotation_from_terms(
+    uint32_t active_width, std::span<const uint64_t> orbit_masks,
+    std::span<const uint64_t> selector_masks, std::span<const PreparedFusedRotationTerm> terms);
+void apply_fused_rotation(State& state, const PreparedFusedRotation& rotation,
+                          uint32_t selector_xor = 0) noexcept;
 void apply_fused_rotation_parallel(State& state, const PreparedFusedRotation& rotation,
                                    uint32_t workers, uint32_t min_active_width) noexcept;
 

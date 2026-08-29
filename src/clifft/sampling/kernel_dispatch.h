@@ -45,6 +45,8 @@ enum class ActiveMeasurementKernel : uint8_t {
 using FusedRotationKernel = void (*)(State&, const PreparedFusedRotation&, const void*) noexcept;
 using FusedRotationParallelKernel = void (*)(State&, const PreparedFusedRotation&, const void*,
                                              uint32_t, uint32_t) noexcept;
+using FusedRotationSelectedKernel = void (*)(State&, const PreparedFusedRotation&, const void*,
+                                             uint32_t) noexcept;
 
 // Type-erases optional backend-specific preparation without exposing vector
 // types to the portable executable plan.
@@ -52,6 +54,7 @@ struct FusedRotationSidecar {
     std::shared_ptr<const void> storage;
     FusedRotationKernel kernel = nullptr;
     FusedRotationParallelKernel parallel_kernel = nullptr;
+    FusedRotationSelectedKernel selected_kernel = nullptr;
 };
 
 enum class NewXInstrumentKernel : uint8_t {

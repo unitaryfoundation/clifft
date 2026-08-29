@@ -1,11 +1,13 @@
 #include "clifft/sampling/executor.h"
 
+#include "clifft/sampling/indexing.h"
 #include "clifft/util/fault_sampling.h"
 #include "clifft/util/intra_shot_parallel.h"
 #include "clifft/util/noise_sampling.h"
 #include "clifft/util/numeric.h"
 
 #include <algorithm>
+#include <bit>
 #include <cassert>
 #include <cmath>
 #include <limits>
@@ -29,6 +31,57 @@ struct MeasurementBranchClassification {
     MeasurementBranchKind kind = MeasurementBranchKind::Random;
     bool clamped_dust = false;
 };
+
+uint64_t cache_block_representative(uint64_t packed, std::span<const uint32_t> pivots) noexcept {
+    uint64_t representative = packed;
+    for (uint32_t pivot : pivots) {
+        representative = insert_zero_bit(representative, pivot);
+    }
+    return representative;
+}
+
+void gather_cache_block(const State& source, State& block, uint64_t representative,
+                        std::span<const uint64_t> basis_masks) noexcept {
+    uint64_t global_index = representative;
+    uint64_t previous_gray = 0;
+    for (uint64_t packed = 0; packed < block.size(); ++packed) {
+        const uint64_t gray = packed ^ (packed >> 1);
+        if (packed != 0) {
+            const uint64_t changed = gray ^ previous_gray;
+            global_index ^= basis_masks[std::countr_zero(changed)];
+        }
+        block.real_data()[gray] = source.real_data()[global_index];
+        block.imag_data()[gray] = source.imag_data()[global_index];
+        previous_gray = gray;
+    }
+}
+
+void scatter_cache_block(State& destination, const State& block, uint64_t representative,
+                         std::span<const uint64_t> basis_masks) noexcept {
+    uint64_t global_index = representative;
+    uint64_t previous_gray = 0;
+    for (uint64_t packed = 0; packed < block.size(); ++packed) {
+        const uint64_t gray = packed ^ (packed >> 1);
+        if (packed != 0) {
+            const uint64_t changed = gray ^ previous_gray;
+            global_index ^= basis_masks[std::countr_zero(changed)];
+        }
+        destination.real_data()[global_index] = block.real_data()[gray];
+        destination.imag_data()[global_index] = block.imag_data()[gray];
+        previous_gray = gray;
+    }
+}
+
+void apply_identity_rotation(State& state, const PreparedRotation& rotation, bool sign) noexcept {
+    assert(rotation.pauli.is_identity() && "identity cache rotation must be block-local scalar");
+    const double sine = sign ? -rotation.sine : rotation.sine;
+    for (uint64_t basis = 0; basis < state.size(); ++basis) {
+        const double real = state.real_data()[basis];
+        const double imag = state.imag_data()[basis];
+        state.real_data()[basis] = rotation.cosine * real + sine * imag;
+        state.imag_data()[basis] = rotation.cosine * imag - sine * real;
+    }
+}
 
 uint32_t resolve_intra_shot_workers(const ExecutablePlan& plan, uint32_t requested_workers,
                                     uint32_t min_active_width) {
@@ -409,6 +462,83 @@ void Executor::execute_action(const ExecutablePlan::ExecuteDynamicFusedRotation&
 }
 
 template <Executor::IntraShotMode IntraShot>
+void Executor::execute_cache_blocked_rotation_region(
+    const ExecutablePlan::PreparedCacheBlockedRotationRegion& region) noexcept {
+#if defined(CLIFFT_ENABLE_X86_RUNTIME_DISPATCH)
+    assert(backend_ == ExecutorBackend::Avx512 &&
+           "experimental cache blocks require the AVX-512 executor");
+    assert(state_.active_width() == region.active_width &&
+           region.block_rank == region.basis_masks.size() &&
+           region.block_rank == region.basis_pivots.size() &&
+           "cache-block geometry must match the live state");
+    const uint64_t block_size = uint64_t{1} << region.block_rank;
+    const uint64_t block_count = uint64_t{1} << (region.active_width - region.block_rank);
+    if constexpr (IntraShot == IntraShotMode::OpenMP) {
+        assert(block_size * intra_shot_workers_ <= state_.capacity() / 2 &&
+               "cache blocks must fit preallocated measurement scratch");
+    } else {
+        assert(block_size <= state_.capacity() / 2 &&
+               "cache blocks must fit preallocated measurement scratch");
+    }
+
+    const auto execute_range = [&](uint64_t worker, uint64_t begin, uint64_t end) noexcept {
+        double* const scratch_real = state_.scratch_real_data() + worker * block_size;
+        double* const scratch_imag = state_.scratch_imag_data() + worker * block_size;
+        for (uint64_t packed_block = begin; packed_block < end; ++packed_block) {
+            const uint64_t representative =
+                cache_block_representative(packed_block, region.basis_pivots);
+            State block =
+                State::borrowed_coefficients(scratch_real, scratch_imag, region.block_rank);
+            gather_cache_block(state_, block, representative, region.basis_masks);
+            for (const auto& operation : region.operations) {
+                std::visit(
+                    [&](const auto& prepared) noexcept {
+                        using Operation = std::decay_t<decltype(prepared)>;
+                        if constexpr (std::is_same_v<
+                                          Operation,
+                                          ExecutablePlan::PreparedCacheBlockedRotation>) {
+                            const bool sign =
+                                evaluate(prepared.sign) ^ prepared.phase_flip ^
+                                ((std::popcount(representative & prepared.external_z) & 1U) != 0);
+                            if (prepared.rotation.pauli.is_identity()) {
+                                apply_identity_rotation(block, prepared.rotation, sign);
+                            } else if (prepared.kernel == DirectRotationKernel::Scalar) {
+                                apply_rotation(block, prepared.rotation, sign);
+                            } else {
+                                apply_direct_rotation_avx512(block, prepared.rotation,
+                                                             prepared.kernel, sign);
+                            }
+                        } else {
+                            uint32_t variant = 0;
+                            for (size_t i = 0; i < prepared.sign_basis.size(); ++i) {
+                                variant |= static_cast<uint32_t>(evaluate(prepared.sign_basis[i]))
+                                           << i;
+                            }
+                            assert(variant < prepared.variants.size() &&
+                                   "cache-block sign assignment must select a fused variant");
+                            const uint32_t selector_xor = static_cast<uint32_t>(
+                                selector_index(representative, prepared.external_selector_masks));
+                            prepared.variants[variant].apply_selected(block, selector_xor);
+                        }
+                    },
+                    operation);
+            }
+            scatter_cache_block(state_, block, representative, region.basis_masks);
+        }
+    };
+
+    if constexpr (IntraShot == IntraShotMode::OpenMP) {
+        intra_shot_parallel_indexed_ranges(block_count, intra_shot_workers_, execute_range);
+    } else {
+        execute_range(0, 0, block_count);
+    }
+#else
+    static_cast<void>(region);
+    assert(false && "cache-blocked rotation execution requires x86 runtime dispatch");
+#endif
+}
+
+template <Executor::IntraShotMode IntraShot>
 void Executor::execute_action(const ExecutablePlan::ExecutePromotion& action,
                               std::span<const uint8_t>, ReplayResult&) noexcept {
     if constexpr (IntraShot == IntraShotMode::OpenMP) {
@@ -759,6 +889,28 @@ ReplayResult Executor::execute_actions(std::span<const uint8_t> forced_records,
     ReplayResult result;
     assert(begin <= plan_->actions_.size() && "execution offset must be inside the action stream");
     for (size_t action_index = begin; action_index < plan_->actions_.size(); ++action_index) {
+#if defined(CLIFFT_ENABLE_X86_RUNTIME_DISPATCH)
+        if constexpr (Backend == ExecutorBackend::Avx512) {
+            if constexpr (IntraShot == IntraShotMode::OpenMP) {
+                if (!plan_->cache_blocked_region_by_action_.empty()) {
+                    constexpr uint32_t kNoRegion = std::numeric_limits<uint32_t>::max();
+                    const uint32_t region_index =
+                        plan_->cache_blocked_region_by_action_[action_index];
+                    if (region_index != kNoRegion) {
+                        assert(region_index < plan_->cache_blocked_rotation_regions_.size() &&
+                               "cache-block action index must name a prepared region");
+                        const auto& region = plan_->cache_blocked_rotation_regions_[region_index];
+                        const uint64_t block_size = uint64_t{1} << region.block_rank;
+                        if (block_size * intra_shot_workers_ <= state_.capacity() / 2) {
+                            execute_cache_blocked_rotation_region<IntraShot>(region);
+                            action_index = region.action_end - 1;
+                            continue;
+                        }
+                    }
+                }
+            }
+        }
+#endif
         const ExecutablePlan::Action& action = plan_->actions_[action_index];
         std::visit(
             [&](const auto& typed) noexcept {

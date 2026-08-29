@@ -46,6 +46,14 @@ class PreparedFusedRotationExecution {
         }
     }
 
+    void apply_selected(State& state, uint32_t selector_xor) const noexcept {
+        if (sidecar_.storage != nullptr && sidecar_.selected_kernel != nullptr) {
+            sidecar_.selected_kernel(state, rotation_, sidecar_.storage.get(), selector_xor);
+        } else {
+            apply_fused_rotation(state, rotation_, selector_xor);
+        }
+    }
+
     [[nodiscard]] const PreparedFusedRotation& rotation() const noexcept { return rotation_; }
 
   private:
@@ -187,6 +195,36 @@ class ExecutablePlan {
     struct PreparedDynamicFusedRotationExecution {
         std::vector<PreparedExpression> sign_basis;
         std::vector<PreparedFusedRotationExecution> variants;
+    };
+
+    // Experimental regions retain the ordinary lowered actions as a fallback.
+    // AVX-512 execution may instead gather one compiler-prepared affine block,
+    // apply the source rotations in its local coordinates, and scatter once.
+    struct PreparedCacheBlockedRotation {
+        PreparedRotation rotation;
+        PreparedExpression sign;
+        uint64_t external_z = 0;
+        bool phase_flip = false;
+        DirectRotationKernel kernel = DirectRotationKernel::Scalar;
+    };
+
+    struct PreparedCacheBlockedFusedRotation {
+        std::vector<PreparedExpression> sign_basis;
+        std::vector<uint64_t> external_selector_masks;
+        std::vector<PreparedFusedRotationExecution> variants;
+    };
+
+    using PreparedCacheBlockedRotationOperation =
+        std::variant<PreparedCacheBlockedRotation, PreparedCacheBlockedFusedRotation>;
+
+    struct PreparedCacheBlockedRotationRegion {
+        uint32_t action_begin = 0;
+        uint32_t action_end = 0;
+        uint32_t active_width = 0;
+        uint32_t block_rank = 0;
+        std::vector<uint64_t> basis_masks;
+        std::vector<uint32_t> basis_pivots;
+        std::vector<PreparedCacheBlockedRotationOperation> operations;
     };
 
     struct ExecutePromotion {
@@ -405,6 +443,8 @@ class ExecutablePlan {
     // an optional debug sidecar rather than parallel production storage.
     std::vector<PreparedFusedRotationExecution> fused_rotations_;
     std::vector<PreparedDynamicFusedRotationExecution> dynamic_fused_rotations_;
+    std::vector<PreparedCacheBlockedRotationRegion> cache_blocked_rotation_regions_;
+    std::vector<uint32_t> cache_blocked_region_by_action_;
     std::vector<Action> actions_;
     std::vector<PlanActionRange> action_plan_ranges_;
 };

@@ -26,6 +26,12 @@ class State {
     State(State&& other) noexcept;
     State& operator=(State&& other) noexcept;
 
+    // Creates a non-owning state facade over caller-provided aligned arrays.
+    // Cache-block execution uses this only after its per-worker scratch has
+    // been allocated with the owning shot state.
+    [[nodiscard]] static State borrowed_coefficients(double* real, double* imag,
+                                                     uint32_t active_width) noexcept;
+
     // Restore the configured initial width and |0...0> coefficients.
     // The allocation and all array addresses remain unchanged.
     void reset() noexcept;
@@ -66,6 +72,9 @@ class State {
     void set_active_width(uint32_t width) noexcept;
 
   private:
+    struct BorrowedStorageTag {};
+
+    State(BorrowedStorageTag, double* real, double* imag, uint32_t active_width) noexcept;
     void release() noexcept;
     void move_from(State&& other) noexcept;
 

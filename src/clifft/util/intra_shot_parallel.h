@@ -67,6 +67,33 @@ CLIFFT_INTRA_SHOT_INLINE void intra_shot_parallel_ranges(uint64_t count, uint32_
 #endif
 }
 
+// Cache-blocked kernels also need a stable scratch slot per team member. Pass
+// that index alongside the same deterministic contiguous range partition used
+// by ordinary intra-shot kernels.
+template <typename Kernel>
+CLIFFT_INTRA_SHOT_INLINE void intra_shot_parallel_indexed_ranges(uint64_t count, uint32_t workers,
+                                                                 Kernel&& kernel) noexcept {
+#if defined(CLIFFT_USE_OPENMP)
+    const int requested_team_size =
+        static_cast<int>(workers > static_cast<uint32_t>(std::numeric_limits<int>::max())
+                             ? std::numeric_limits<int>::max()
+                             : workers);
+#pragma omp parallel num_threads(requested_team_size)
+    {
+        const uint64_t team_size = static_cast<uint64_t>(omp_get_num_threads());
+        const uint64_t thread = static_cast<uint64_t>(omp_get_thread_num());
+        const uint64_t range_size = count / team_size;
+        const uint64_t extra = count % team_size;
+        const uint64_t begin = thread * range_size + (thread < extra ? thread : extra);
+        const uint64_t end = begin + range_size + (thread < extra ? 1 : 0);
+        kernel(thread, begin, end);
+    }
+#else
+    static_cast<void>(workers);
+    kernel(0, 0, count);
+#endif
+}
+
 #undef CLIFFT_INTRA_SHOT_INLINE
 
 }  // namespace clifft

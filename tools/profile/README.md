@@ -84,6 +84,24 @@ CLIFFT_CIRCUIT_FILE=tools/bench/fixtures/qv20_seed42.stim \
 | `CLIFFT_PROFILE_GENERATED_WIDTH` | unset | Generate a rotation-heavy circuit of this width instead of loading a file |
 | `CLIFFT_PROFILE_GENERATED_DEPTH` | 20 | Layers in the generated circuit |
 
+The cache-blocked rotation prototype is opt-in and applies only to AVX-512
+single-shot execution with more than one intra-shot worker. It gathers a
+compiler-prepared rank-14 affine block, runs the existing fused rotation
+matrices while the coefficients are cache-resident, and scatters the block
+once. The default minimum active width is 24 so smaller workloads keep the
+ordinary fused path.
+
+```bash
+CLIFFT_EXPERIMENTAL_CACHE_BLOCKED_ROTATIONS=1 \
+  CLIFFT_CIRCUIT_FILE=path/to/qv26.stim \
+  CLIFFT_PROFILE_SHOTS=1 \
+  CLIFFT_PROFILE_THREADS=16 \
+  ./build-profile/profile_sample
+```
+
+`CLIFFT_EXPERIMENTAL_CACHE_BLOCKED_MIN_ACTIVE_WIDTH` overrides the width
+threshold for controlled comparisons.
+
 The profiler prints the planner's estimated coefficient visits per lane and a
 final `RESULT` line with that estimate, the requested batch setting, effective
 lane capacity and worker count, timing, survival rate, and retained row count.

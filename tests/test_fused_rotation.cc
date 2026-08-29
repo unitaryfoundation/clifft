@@ -8,10 +8,13 @@
 #include <array>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <optional>
 #include <span>
+#include <stdexcept>
 #include <string>
 #include <utility>
 #include <variant>
@@ -50,6 +53,62 @@ SamplingPlan rotation_plan(uint32_t active_width, std::span<const RotateActivePa
         plan.actions.push_back(PlannedAction{active_width, active_width, rotation});
     }
     return plan;
+}
+
+void set_environment_variable(const char* name, const char* value) {
+#if defined(_WIN32)
+    if (_putenv_s(name, value == nullptr ? "" : value) != 0) {
+        throw std::runtime_error("failed to update test environment variable");
+    }
+#else
+    const int result = value == nullptr ? unsetenv(name) : setenv(name, value, 1);
+    if (result != 0) {
+        throw std::runtime_error("failed to update test environment variable");
+    }
+#endif
+}
+
+class ScopedEnvironmentVariable {
+  public:
+    ScopedEnvironmentVariable(const char* name, const char* value) : name_(name) {
+        if (const char* previous = std::getenv(name); previous != nullptr) {
+            previous_ = previous;
+        }
+        set_environment_variable(name_.c_str(), value);
+    }
+
+    ~ScopedEnvironmentVariable() {
+        set_environment_variable(name_.c_str(), previous_ ? previous_->c_str() : nullptr);
+    }
+
+    ScopedEnvironmentVariable(const ScopedEnvironmentVariable&) = delete;
+    ScopedEnvironmentVariable& operator=(const ScopedEnvironmentVariable&) = delete;
+
+  private:
+    std::string name_;
+    std::optional<std::string> previous_;
+};
+
+void require_states_close(const State& actual, const State& expected, double tolerance) {
+    REQUIRE(actual.size() == expected.size());
+    double max_error = 0.0;
+    uint64_t worst_basis = 0;
+    for (uint64_t basis = 0; basis < actual.size(); ++basis) {
+        const double real_error = std::abs(actual.real_data()[basis] - expected.real_data()[basis]);
+        const double imag_error = std::abs(actual.imag_data()[basis] - expected.imag_data()[basis]);
+        const double error = std::max(real_error, imag_error);
+        if (!std::isfinite(error)) {
+            max_error = std::numeric_limits<double>::infinity();
+            worst_basis = basis;
+            break;
+        }
+        if (error > max_error) {
+            max_error = error;
+            worst_basis = basis;
+        }
+    }
+    CAPTURE(worst_basis, max_error);
+    REQUIRE(max_error <= tolerance);
 }
 
 void require_matches_scalar(const SamplingPlan& plan, uint8_t presampled_value,
@@ -158,6 +217,66 @@ TEST_CASE("Fused rotation falls back for a rank three run") {
         RotateActivePauli{{0b100, 0b001}, 0.4, AffineBool(false)},
     };
     require_matches_scalar(rotation_plan(3, rotations), 0, 3);
+}
+
+TEST_CASE("Cache blocked rotations match the ordinary fused path") {
+    if (clifft::internal::runtime_isa() != clifft::internal::RuntimeIsa::Avx512) {
+        return;
+    }
+
+    constexpr uint32_t kActiveWidth = 20;
+    std::vector<RotateActivePauli> rotations;
+    rotations.reserve(48);
+    for (uint32_t group = 0; group < 16; ++group) {
+        const uint64_t shared_x = uint64_t{1} << 3;
+        const uint64_t novel_x = uint64_t{1} << (4 + group);
+        const uint64_t external_z = uint64_t{1} << ((group + 9) % kActiveWidth);
+        rotations.push_back(
+            {{shared_x, external_z | (uint64_t{1} << (group % 3))},
+             0.11 + 0.003 * group,
+             group % 3 == 0 ? AffineBool::symbol(SymbolId{0}) : AffineBool(group % 2 != 0)});
+        rotations.push_back({{novel_x, uint64_t{1} << ((group + 5) % kActiveWidth)},
+                             -0.17 + 0.002 * group,
+                             AffineBool(group % 2 == 0)});
+        rotations.push_back({{shared_x ^ novel_x, external_z | (uint64_t{1} << ((group + 1) % 3))},
+                             0.23 - 0.004 * group,
+                             AffineBool(false)});
+    }
+    const SamplingPlan plan = rotation_plan(kActiveWidth, rotations);
+
+    ScopedEnvironmentVariable disabled("CLIFFT_EXPERIMENTAL_CACHE_BLOCKED_ROTATIONS", nullptr);
+    ScopedEnvironmentVariable default_min_width(
+        "CLIFFT_EXPERIMENTAL_CACHE_BLOCKED_MIN_ACTIVE_WIDTH", nullptr);
+    const ExecutablePlan ordinary(plan);
+    REQUIRE(ordinary.inspect().find("cache_blocked_rotation_regions=0") != std::string::npos);
+
+    Executor ordinary_executor(ordinary);
+    ordinary_executor.run_shot(std::array<uint8_t, 1>{1});
+
+    {
+        ScopedEnvironmentVariable enabled("CLIFFT_EXPERIMENTAL_CACHE_BLOCKED_ROTATIONS", "1");
+        const ExecutablePlan below_default_width(plan);
+        REQUIRE(below_default_width.inspect().find("cache_blocked_rotation_regions=0") !=
+                std::string::npos);
+
+        {
+            ScopedEnvironmentVariable min_width(
+                "CLIFFT_EXPERIMENTAL_CACHE_BLOCKED_MIN_ACTIVE_WIDTH", "20");
+            const ExecutablePlan blocked(plan);
+            REQUIRE(blocked.inspect().find("cache_blocked_rotation_regions=2") !=
+                    std::string::npos);
+
+            Executor blocked_executor(blocked);
+            blocked_executor.run_shot(std::array<uint8_t, 1>{1});
+            require_states_close(blocked_executor.state(), ordinary_executor.state(), 2e-11);
+
+#if defined(CLIFFT_TESTS_HAVE_OPENMP)
+            Executor parallel_executor(blocked, 0, 4, 0);
+            parallel_executor.run_shot(std::array<uint8_t, 1>{1});
+            require_states_close(parallel_executor.state(), blocked_executor.state(), 2e-11);
+#endif
+        }
+    }
 }
 
 #if defined(CLIFFT_TESTS_HAVE_APPLE_NEON)

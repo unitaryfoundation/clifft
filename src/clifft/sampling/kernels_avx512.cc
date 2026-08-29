@@ -380,14 +380,17 @@ void apply_nondiagonal_rotation_avx512_parallel(State& state, const PreparedRota
 // Fused matrices vary with representative parity. The sidecar expands those
 // choices by lane so the hot loop can traverse eight independent orbits without
 // gathers or selector branches.
-void apply_fused_rotation_avx512(State& state, const PreparedFusedRotation& rotation,
-                                 const void* opaque_sidecar) noexcept {
+void apply_fused_rotation_avx512_selected(State& state, const PreparedFusedRotation& rotation,
+                                          const void* opaque_sidecar,
+                                          uint32_t selector_xor) noexcept {
     const auto& sidecar = *static_cast<const FusedRotationAvx512Sidecar*>(opaque_sidecar);
     assert(rotation.orbit_rank == 2 && rotation.orbit_pivots[0] >= 3 &&
            rotation.orbit_pivots[0] < rotation.orbit_pivots[1] &&
            "AVX-512 fused rotation requires ordered high-pivot rank-two orbits");
     assert(state.active_width() == rotation.active_width &&
            "fused rotation width must match the active state");
+    assert(selector_xor < (uint32_t{1} << rotation.selector_masks.size()) &&
+           "fused selector offset must fit the prepared matrix table");
 
     const uint64_t orbit_count = state.size() / kDimension;
     double* const real = state.real_data();
@@ -398,7 +401,7 @@ void apply_fused_rotation_avx512(State& state, const PreparedFusedRotation& rota
         representative = insert_zero_bit(representative, rotation.orbit_pivots[1]);
         const LaneWeights* const matrix =
             sidecar.weights.data() +
-            selector_index(representative, rotation.selector_masks) * kMatrixSize;
+            (selector_index(representative, rotation.selector_masks) ^ selector_xor) * kMatrixSize;
 
         std::array<__m512d, kDimension> input_real;
         std::array<__m512d, kDimension> input_imag;
@@ -445,6 +448,11 @@ void apply_fused_rotation_avx512(State& state, const PreparedFusedRotation& rota
             _mm512_store_pd(imag + physical_base, _mm512_permutexvar_pd(permutation, output_imag));
         }
     }
+}
+
+void apply_fused_rotation_avx512(State& state, const PreparedFusedRotation& rotation,
+                                 const void* opaque_sidecar) noexcept {
+    apply_fused_rotation_avx512_selected(state, rotation, opaque_sidecar, 0);
 }
 
 MeasurementProbabilities active_diagonal_measurement_probabilities_avx512_impl(
@@ -973,7 +981,8 @@ FusedRotationSidecar prepare_fused_rotation_avx512_sidecar(const PreparedFusedRo
     }
 
     return FusedRotationSidecar{std::move(sidecar), apply_fused_rotation_avx512,
-                                apply_fused_rotation_avx512_parallel};
+                                apply_fused_rotation_avx512_parallel,
+                                apply_fused_rotation_avx512_selected};
 }
 
 }  // namespace clifft::sampling

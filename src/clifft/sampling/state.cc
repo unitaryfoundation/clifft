@@ -81,6 +81,22 @@ State& State::operator=(State&& other) noexcept {
     return *this;
 }
 
+State State::borrowed_coefficients(double* real, double* imag, uint32_t active_width) noexcept {
+    assert(real != nullptr && imag != nullptr && "borrowed coefficient arrays must be present");
+    assert(active_width < kDenseActiveWidthLimit &&
+           "borrowed coefficient width must fit dense state limits");
+    return State(BorrowedStorageTag{}, real, imag, active_width);
+}
+
+State::State(BorrowedStorageTag, double* real, double* imag, uint32_t active_width) noexcept
+    : real_(real),
+      imag_(imag),
+      capacity_(uint64_t{1} << active_width),
+      coefficient_stride_(capacity_),
+      initial_active_width_(active_width),
+      active_width_(active_width),
+      max_active_width_(active_width) {}
+
 void State::reset() noexcept {
     assert(!allocation_.empty() && "cannot reset a moved-from sampling state");
     active_width_ = initial_active_width_;
