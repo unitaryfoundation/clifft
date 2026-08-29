@@ -7,6 +7,7 @@ import pytest
 import stim
 
 import clifft
+from clifft._compiled_sampler import _compile_postselected_detector_sampler
 
 MEASUREMENT_CIRCUIT = """
     X 0 2 8
@@ -208,3 +209,27 @@ def test_compiled_detector_distribution_matches_stim() -> None:
     expected = stim.Circuit(circuit).compile_detector_sampler(seed=23).sample(shots)
     assert isinstance(actual, np.ndarray)
     np.testing.assert_allclose(actual.mean(axis=0), expected.mean(axis=0), atol=0.025, rtol=0)
+
+
+def test_private_postselected_sampler_returns_only_packed_survivor_rows() -> None:
+    sampler = _compile_postselected_detector_sampler(
+        """
+        X_ERROR(0.5) 0
+        M 0
+        DETECTOR rec[-1]
+        X_ERROR(1) 1
+        M 1
+        DETECTOR rec[-1]
+        OBSERVABLE_INCLUDE(0) rec[-1]
+        """,
+        [1, 0],
+        threads=2,
+        batch_size=65,
+    )
+    detectors, observables, survivors = sampler._sample_postselected(1000)
+
+    assert 400 < survivors < 600
+    assert detectors.shape == (survivors, 1)
+    assert observables.shape == (survivors, 1)
+    np.testing.assert_array_equal(detectors, np.full((survivors, 1), 0b10, dtype=np.uint8))
+    np.testing.assert_array_equal(observables, np.ones((survivors, 1), dtype=np.uint8))

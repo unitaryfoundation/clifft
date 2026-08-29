@@ -15,6 +15,7 @@ from clifft._clifft_core import (
     HirPassManager,
     _compile_fixed_sampler_circuit,
     _compile_fixed_sampler_text,
+    _compile_postselected_detector_sampler_text,
     _CompiledSampler,
     default_hir_pass_manager,
 )
@@ -182,6 +183,24 @@ class CompiledDetectorSampler:
             obs_out_format,
         )
 
+    def _sample_postselected(
+        self, shots: int
+    ) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8], int]:
+        """Return packed survivor rows for Sinter's batch-level orchestration."""
+        shot_count = _shot_count(shots)
+        detectors = cast(
+            npt.NDArray[np.uint8],
+            _allocate_sample_array(shot_count, self.num_detectors, True),
+        )
+        observables = cast(
+            npt.NDArray[np.uint8],
+            _allocate_sample_array(shot_count, self.num_observables, True),
+        )
+        survivors = int(
+            self._native._sample_postselected_detectors(shot_count, detectors, observables)
+        )
+        return detectors[:survivors], observables[:survivors], survivors
+
     def __repr__(self) -> str:
         return (
             "CompiledDetectorSampler("
@@ -286,5 +305,23 @@ def compile_detector_sampler(
         threads=threads,
         batch_size=batch_size,
         hir_passes=passes,
+    )
+    return CompiledDetectorSampler(native)
+
+
+def _compile_postselected_detector_sampler(
+    stim_text: str,
+    postselection_mask: list[int],
+    *,
+    threads: ThreadOption,
+    batch_size: BatchOption,
+) -> CompiledDetectorSampler:
+    native = _compile_postselected_detector_sampler_text(
+        stim_text,
+        postselection_mask,
+        None,
+        threads,
+        batch_size,
+        default_hir_pass_manager(),
     )
     return CompiledDetectorSampler(native)
