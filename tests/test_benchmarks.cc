@@ -15,13 +15,16 @@
 #include "clifft/circuit/parser.h"
 #include "clifft/frontend/frontend.h"
 #include "clifft/optimizer/pass_factory.h"
+#include "clifft/sampling/compiled_sampler.h"
 #include "clifft/sampling/planner.h"
 #include "clifft/sampling/sampler.h"
 
 #include <catch2/benchmark/catch_benchmark.hpp>
 #include <catch2/catch_test_macros.hpp>
+#include <memory>
 #include <sstream>
 #include <string>
+#include <vector>
 
 using namespace clifft;
 
@@ -125,6 +128,21 @@ TEST_CASE("Bench: surface d7 detector output materialization", "[bench]") {
     };
     BENCHMARK("surface-d7 packed dets x10k") {
         return sampling::sample_packed_selected(mod, 10000, detectors_only, 0);
+    };
+
+    auto retained_plan = std::make_shared<const sampling::ExecutablePlan>(std::move(mod));
+    sampling::CompiledSampler retained(retained_plan, detectors_only, uint64_t{0}, 1);
+    const size_t row_stride = (retained_plan->num_detectors() + 7) / 8;
+    std::vector<uint8_t> rows(10000 * row_stride);
+    const sampling::SamplingBitOutput destination{
+        .source = sampling::SamplingBitSource::Detectors,
+        .packing = sampling::SamplingBitPacking::BitPacked,
+        .data = rows,
+        .row_stride = row_stride,
+    };
+    BENCHMARK("surface-d7 retained dets x10k") {
+        retained.sample(10000, {.bits = std::span(&destination, 1)});
+        return rows.front();
     };
 }
 

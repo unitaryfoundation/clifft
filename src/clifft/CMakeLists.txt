@@ -24,6 +24,7 @@ add_library(clifft_core STATIC
     sampling/batch/executor.cc
     sampling/batch/policy.cc
     sampling/batch/presampled_program.cc
+    sampling/compiled_sampler.cc
     sampling/kernel_dispatch.cc
     sampling/executable_plan.cc
     sampling/executable_plan_inspection.cc
