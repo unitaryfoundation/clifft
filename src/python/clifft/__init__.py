@@ -401,8 +401,8 @@ __version__ = version()
 
 
 def __getattr__(name: str) -> ModuleType:
-    if name == "experimental":
-        module = importlib.import_module("clifft.experimental")
+    if name in {"experimental", "sinter"}:
+        module = importlib.import_module(f"clifft.{name}")
         globals()[name] = module
         return module
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

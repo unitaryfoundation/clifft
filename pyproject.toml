@@ -26,6 +26,15 @@ dependencies = [
     "numpy>=1.26",
 ]
 
+[project.optional-dependencies]
+sinter = [
+    "sinter>=1.15",
+]
+sinter-pymatching = [
+    "sinter>=1.15",
+    "pymatching>=2.3.1",
+]
+
 [dependency-groups]
 dev = [
     "pytest>=8.0",
@@ -38,6 +47,8 @@ dev = [
     "nanobind>=2.0",
     "scikit-build-core>=0.10",
     "stim>=1.10",
+    "sinter>=1.15",
+    "pymatching>=2.3.1",
     "qiskit>=1.0",
     "qiskit-aer>=0.14",
     "pytest-codeblocks>=0.17.0",
@@ -101,7 +112,7 @@ no_implicit_optional = true
 strict_equality = true
 
 [[tool.mypy.overrides]]
-module = ["numpy.*", "stim.*", "pytest.*", "clifft", "clifft._clifft_core", "qiskit.*", "qiskit_aer.*", "matplotlib", "matplotlib.*"]
+module = ["numpy.*", "stim.*", "sinter.*", "pymatching.*", "pytest.*", "clifft", "clifft._clifft_core", "qiskit.*", "qiskit_aer.*", "matplotlib", "matplotlib.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
