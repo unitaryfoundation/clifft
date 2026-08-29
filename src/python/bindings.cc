@@ -13,6 +13,7 @@
 #include "clifft/optimizer/peephole.h"
 #include "clifft/optimizer/remove_noise_pass.h"
 #include "clifft/optimizer/statevector_squeeze_pass.h"
+#include "clifft/sampling/compiled_sampler.h"
 #include "clifft/sampling/planner.h"
 #include "clifft/sampling/sampler.h"
 #include "clifft/sampling/state_queries.h"
@@ -21,6 +22,8 @@
 #include "clifft/util/runtime_isa.h"
 #include "clifft/util/version.h"
 
+#include <array>
+#include <fstream>
 #include <limits>
 #include <nanobind/nanobind.h>
 #include <nanobind/ndarray.h>
@@ -29,6 +32,7 @@
 #include <nanobind/stl/string.h>
 #include <nanobind/stl/string_view.h>
 #include <nanobind/stl/tuple.h>
+#include <nanobind/stl/unique_ptr.h>
 #include <nanobind/stl/variant.h>
 #include <nanobind/stl/vector.h>
 #include <span>
@@ -42,6 +46,7 @@ namespace {
 
 using ThreadOption = std::variant<int64_t, std::string>;
 using BatchOption = ThreadOption;
+using WritableNumpyArray = nb::ndarray<nb::numpy>;
 
 std::optional<uint32_t> parse_positive_uint32_option(const ThreadOption& option,
                                                      const char* field) {
@@ -66,6 +71,46 @@ uint32_t parse_thread_option(const ThreadOption& option) {
 
 std::optional<uint32_t> parse_batch_option(const BatchOption& option) {
     return parse_positive_uint32_option(option, "batch_size");
+}
+
+clifft::sampling::SamplingFileFormat parse_sampling_file_format(const std::string& format) {
+    if (format == "01") {
+        return clifft::sampling::SamplingFileFormat::Format01;
+    }
+    if (format == "b8") {
+        return clifft::sampling::SamplingFileFormat::B8;
+    }
+    throw std::invalid_argument("format must be '01' or 'b8'");
+}
+
+size_t packed_width(size_t columns) noexcept {
+    return columns / 8 + static_cast<size_t>((columns & 7) != 0);
+}
+
+void validate_sampling_array(const WritableNumpyArray& array, uint32_t shots, size_t columns,
+                             bool bit_packed, const char* field) {
+    const nb::dlpack::dtype expected_dtype = bit_packed ? nb::dtype<uint8_t>() : nb::dtype<bool>();
+    if (array.dtype() != expected_dtype) {
+        throw nb::type_error(
+            (std::string(field) + " dtype must be " + (bit_packed ? "uint8" : "bool")).c_str());
+    }
+    const size_t expected_columns = bit_packed ? packed_width(columns) : columns;
+    if (array.ndim() != 2 || array.shape(0) != shots || array.shape(1) != expected_columns) {
+        throw nb::value_error((std::string(field) + " must have shape (" + std::to_string(shots) +
+                               ", " + std::to_string(expected_columns) + ")")
+                                  .c_str());
+    }
+    if (array.size() != 0 && array.shape(0) > 1 &&
+        array.stride(0) != static_cast<int64_t>(expected_columns)) {
+        throw nb::value_error((std::string(field) + " must be C-contiguous").c_str());
+    }
+    if (array.size() != 0 && array.shape(1) > 1 && array.stride(1) != 1) {
+        throw nb::value_error((std::string(field) + " must be C-contiguous").c_str());
+    }
+}
+
+std::span<uint8_t> sampling_array_bytes(const WritableNumpyArray& array) noexcept {
+    return {static_cast<uint8_t*>(array.data()), array.nbytes()};
 }
 
 std::optional<clifft::sampling::ThreadLayout> parse_thread_layout(
@@ -148,6 +193,44 @@ clifft::HirModule prepare_qasm2_for_lowering(const std::string& qasm_text, bool 
     clifft::Qasm2Import imported = clifft::parse_qasm2(qasm_text);
     return prepare_circuit_for_lowering(imported.circuit, normalize_syndromes, hir_passes,
                                         expected_detectors, expected_observables);
+}
+
+std::unique_ptr<clifft::sampling::CompiledSampler> make_compiled_sampler(
+    clifft::HirModule hir, std::vector<uint8_t> expected_detectors,
+    std::vector<uint8_t> expected_observables, bool detector_profile, std::optional<uint64_t> seed,
+    uint32_t threads, std::optional<uint32_t> batch_size) {
+    auto plan = std::make_shared<const clifft::sampling::ExecutablePlan>(
+        clifft::sampling::plan_sampling(hir, {{}, expected_detectors, expected_observables}));
+    const clifft::sampling::SamplingOutputSelection outputs =
+        detector_profile
+            ? clifft::sampling::SamplingOutputSelection{.detectors = true, .observables = true}
+            : clifft::sampling::SamplingOutputSelection{.measurements = true};
+    return std::make_unique<clifft::sampling::CompiledSampler>(std::move(plan), outputs, seed,
+                                                               threads, batch_size);
+}
+
+std::unique_ptr<clifft::sampling::CompiledSampler> compile_sampler_text(
+    const std::string& stim_text, bool detector_profile, std::optional<uint64_t> seed,
+    uint32_t threads, std::optional<uint32_t> batch_size, clifft::HirPassManager* hir_passes) {
+    std::vector<uint8_t> expected_detectors;
+    std::vector<uint8_t> expected_observables;
+    clifft::HirModule hir = prepare_hir_for_lowering(stim_text, detector_profile, hir_passes,
+                                                     expected_detectors, expected_observables);
+    return make_compiled_sampler(std::move(hir), std::move(expected_detectors),
+                                 std::move(expected_observables), detector_profile, seed, threads,
+                                 batch_size);
+}
+
+std::unique_ptr<clifft::sampling::CompiledSampler> compile_sampler_circuit(
+    const clifft::Circuit& circuit, bool detector_profile, std::optional<uint64_t> seed,
+    uint32_t threads, std::optional<uint32_t> batch_size, clifft::HirPassManager* hir_passes) {
+    std::vector<uint8_t> expected_detectors;
+    std::vector<uint8_t> expected_observables;
+    clifft::HirModule hir = prepare_circuit_for_lowering(circuit, detector_profile, hir_passes,
+                                                         expected_detectors, expected_observables);
+    return make_compiled_sampler(std::move(hir), std::move(expected_detectors),
+                                 std::move(expected_observables), detector_profile, seed, threads,
+                                 batch_size);
 }
 
 }  // namespace
@@ -796,6 +879,233 @@ NB_MODULE(_clifft_core, m) {
                    " actions, peak_active_width=" + std::to_string(p.peak_active_width()) + ", " +
                    std::to_string(p.num_visible_records()) + " measurements)";
         });
+
+    nb::class_<clifft::sampling::CompiledSampler>(m, "_CompiledSampler")
+        .def_prop_ro("num_measurements",
+                     [](const clifft::sampling::CompiledSampler& sampler) {
+                         return sampler.plan().num_visible_records();
+                     })
+        .def_prop_ro("num_detectors",
+                     [](const clifft::sampling::CompiledSampler& sampler) {
+                         return sampler.plan().num_detectors();
+                     })
+        .def_prop_ro("num_observables",
+                     [](const clifft::sampling::CompiledSampler& sampler) {
+                         return sampler.plan().num_observables();
+                     })
+        .def_prop_ro("lane_capacity", &clifft::sampling::CompiledSampler::lane_capacity)
+        .def_prop_ro("worker_count", &clifft::sampling::CompiledSampler::worker_count)
+        .def_prop_ro("calls_completed", &clifft::sampling::CompiledSampler::calls_completed)
+        .def(
+            "_sample_measurements",
+            [](clifft::sampling::CompiledSampler& sampler, uint32_t shots, bool bit_packed,
+               const WritableNumpyArray& output) {
+                const size_t columns = sampler.plan().num_visible_records();
+                validate_sampling_array(output, shots, columns, bit_packed, "output");
+                const clifft::sampling::SamplingBitOutput destination{
+                    .source = clifft::sampling::SamplingBitSource::Measurements,
+                    .packing = bit_packed ? clifft::sampling::SamplingBitPacking::BitPacked
+                                          : clifft::sampling::SamplingBitPacking::Unpacked,
+                    .data = sampling_array_bytes(output),
+                    .row_stride = bit_packed ? packed_width(columns) : columns,
+                };
+                nb::gil_scoped_release release;
+                sampler.sample(shots, {.bits = std::span(&destination, 1)});
+            },
+            nb::arg("shots"), nb::arg("bit_packed"), nb::arg("output"))
+        .def(
+            "_sample_detectors",
+            [](clifft::sampling::CompiledSampler& sampler, uint32_t shots, bool prepend_observables,
+               bool append_observables, bool separate_observables, bool bit_packed,
+               const WritableNumpyArray& detector_output, nb::object observable_output_object) {
+                if (separate_observables && (prepend_observables || append_observables)) {
+                    throw nb::value_error(
+                        "separate_observables cannot be combined with prepending or appending "
+                        "observables");
+                }
+                const size_t detector_columns = sampler.plan().num_detectors();
+                const size_t observable_columns = sampler.plan().num_observables();
+                const size_t main_columns =
+                    detector_columns +
+                    observable_columns * (static_cast<size_t>(prepend_observables) +
+                                          static_cast<size_t>(append_observables));
+                validate_sampling_array(detector_output, shots, main_columns, bit_packed,
+                                        "dets_out");
+
+                std::optional<WritableNumpyArray> observable_output;
+                if (!observable_output_object.is_none()) {
+                    observable_output.emplace(
+                        nb::cast<WritableNumpyArray>(observable_output_object));
+                    validate_sampling_array(*observable_output, shots, observable_columns,
+                                            bit_packed, "obs_out");
+                }
+                if (separate_observables && !observable_output.has_value()) {
+                    throw nb::value_error(
+                        "separate_observables requires an observable output array");
+                }
+
+                std::array<clifft::sampling::SamplingBitOutput, 4> destinations;
+                size_t count = 0;
+                size_t offset = 0;
+                const auto packing = bit_packed ? clifft::sampling::SamplingBitPacking::BitPacked
+                                                : clifft::sampling::SamplingBitPacking::Unpacked;
+                const size_t main_stride = bit_packed ? packed_width(main_columns) : main_columns;
+                auto add_main = [&](clifft::sampling::SamplingBitSource source, size_t columns) {
+                    destinations[count++] = {
+                        .source = source,
+                        .packing = packing,
+                        .data = sampling_array_bytes(detector_output),
+                        .row_stride = main_stride,
+                        .column_offset = offset,
+                    };
+                    offset += columns;
+                };
+                if (prepend_observables) {
+                    add_main(clifft::sampling::SamplingBitSource::Observables, observable_columns);
+                }
+                add_main(clifft::sampling::SamplingBitSource::Detectors, detector_columns);
+                if (append_observables) {
+                    add_main(clifft::sampling::SamplingBitSource::Observables, observable_columns);
+                }
+                if (observable_output.has_value()) {
+                    destinations[count++] = {
+                        .source = clifft::sampling::SamplingBitSource::Observables,
+                        .packing = packing,
+                        .data = sampling_array_bytes(*observable_output),
+                        .row_stride =
+                            bit_packed ? packed_width(observable_columns) : observable_columns,
+                    };
+                }
+
+                nb::gil_scoped_release release;
+                sampler.sample(shots, {.bits = std::span(destinations).first(count)});
+            },
+            nb::arg("shots"), nb::arg("prepend_observables"), nb::arg("append_observables"),
+            nb::arg("separate_observables"), nb::arg("bit_packed"), nb::arg("dets_out"),
+            nb::arg("obs_out") = nb::none())
+        .def(
+            "_sample_write_measurements",
+            [](clifft::sampling::CompiledSampler& sampler, uint32_t shots,
+               const std::string& filepath, const std::string& format) {
+                const auto parsed_format = parse_sampling_file_format(format);
+                std::ofstream output(filepath, std::ios::binary | std::ios::trunc);
+                if (!output.is_open()) {
+                    throw std::runtime_error("failed to open sampling output file: " + filepath);
+                }
+                constexpr std::array sources{clifft::sampling::SamplingBitSource::Measurements};
+                const clifft::sampling::SamplingFileOutput file{
+                    .output = &output,
+                    .format = parsed_format,
+                    .sources = sources,
+                };
+                {
+                    nb::gil_scoped_release release;
+                    sampler.sample_write(shots, std::span(&file, 1));
+                    output.flush();
+                }
+                if (!output) {
+                    throw std::runtime_error("failed to flush sampling output file: " + filepath);
+                }
+            },
+            nb::arg("shots"), nb::arg("filepath"), nb::arg("format"))
+        .def(
+            "_sample_write_detectors",
+            [](clifft::sampling::CompiledSampler& sampler, uint32_t shots,
+               const std::string& filepath, const std::string& format, bool prepend_observables,
+               bool append_observables, std::optional<std::string> obs_out_filepath,
+               const std::string& obs_out_format) {
+                if (obs_out_filepath.has_value() && *obs_out_filepath == filepath) {
+                    throw nb::value_error("obs_out_filepath must differ from filepath");
+                }
+                const auto parsed_format = parse_sampling_file_format(format);
+                const auto parsed_obs_format = parse_sampling_file_format(obs_out_format);
+                std::ofstream output(filepath, std::ios::binary | std::ios::trunc);
+                if (!output.is_open()) {
+                    throw std::runtime_error("failed to open sampling output file: " + filepath);
+                }
+                std::ofstream observable_output;
+                if (obs_out_filepath.has_value()) {
+                    observable_output.open(*obs_out_filepath, std::ios::binary | std::ios::trunc);
+                    if (!observable_output.is_open()) {
+                        throw std::runtime_error("failed to open observable output file: " +
+                                                 *obs_out_filepath);
+                    }
+                }
+
+                std::array<clifft::sampling::SamplingBitSource, 3> main_sources;
+                size_t main_source_count = 0;
+                if (prepend_observables) {
+                    main_sources[main_source_count++] =
+                        clifft::sampling::SamplingBitSource::Observables;
+                }
+                main_sources[main_source_count++] = clifft::sampling::SamplingBitSource::Detectors;
+                if (append_observables) {
+                    main_sources[main_source_count++] =
+                        clifft::sampling::SamplingBitSource::Observables;
+                }
+                constexpr std::array observable_sources{
+                    clifft::sampling::SamplingBitSource::Observables};
+                std::array<clifft::sampling::SamplingFileOutput, 2> files;
+                size_t file_count = 0;
+                files[file_count++] = {
+                    .output = &output,
+                    .format = parsed_format,
+                    .sources = std::span(main_sources).first(main_source_count),
+                };
+                if (obs_out_filepath.has_value()) {
+                    files[file_count++] = {
+                        .output = &observable_output,
+                        .format = parsed_obs_format,
+                        .sources = observable_sources,
+                    };
+                }
+                {
+                    nb::gil_scoped_release release;
+                    sampler.sample_write(shots, std::span(files).first(file_count));
+                    output.flush();
+                    if (obs_out_filepath.has_value()) {
+                        observable_output.flush();
+                    }
+                }
+                if (!output || (obs_out_filepath.has_value() && !observable_output)) {
+                    throw std::runtime_error("failed to flush compiled detector sampler output");
+                }
+            },
+            nb::arg("shots"), nb::arg("filepath"), nb::arg("format"),
+            nb::arg("prepend_observables"), nb::arg("append_observables"),
+            nb::arg("obs_out_filepath") = nb::none(), nb::arg("obs_out_format") = "01");
+
+    m.def(
+        "_compile_fixed_sampler_text",
+        [](const std::string& stim_text, bool detector_profile, std::optional<uint64_t> seed,
+           const ThreadOption& thread_option, const BatchOption& batch_option,
+           clifft::HirPassManager* hir_passes) {
+            const uint32_t threads = parse_thread_option(thread_option);
+            const std::optional<uint32_t> batch_size = parse_batch_option(batch_option);
+            nb::gil_scoped_release release;
+            return compile_sampler_text(stim_text, detector_profile, seed, threads, batch_size,
+                                        hir_passes);
+        },
+        nb::arg("stim_text"), nb::arg("detector_profile"), nb::arg("seed") = nb::none(),
+        nb::arg("threads") = ThreadOption{int64_t{1}},
+        nb::arg("batch_size") = BatchOption{std::string{"auto"}},
+        nb::arg("hir_passes") = nb::none());
+
+    m.def(
+        "_compile_fixed_sampler_circuit",
+        [](const clifft::Circuit& circuit, bool detector_profile, std::optional<uint64_t> seed,
+           const ThreadOption& thread_option, const BatchOption& batch_option,
+           clifft::HirPassManager* hir_passes) {
+            const uint32_t threads = parse_thread_option(thread_option);
+            const std::optional<uint32_t> batch_size = parse_batch_option(batch_option);
+            nb::gil_scoped_release release;
+            return compile_sampler_circuit(circuit, detector_profile, seed, threads, batch_size,
+                                           hir_passes);
+        },
+        nb::arg("circuit"), nb::arg("detector_profile"), nb::arg("seed") = nb::none(),
+        nb::arg("threads") = ThreadOption{int64_t{1}},
+        nb::arg("batch_size") = BatchOption{std::string{"auto"}},
+        nb::arg("hir_passes") = nb::none());
 
     m.def(
         "lower",

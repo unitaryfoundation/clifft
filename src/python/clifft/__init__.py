@@ -72,6 +72,12 @@ from clifft._clifft_core import (
 from clifft._clifft_core import (
     compile as _compile_core,
 )
+from clifft._compiled_sampler import (
+    CompiledDetectorSampler,
+    CompiledMeasurementSampler,
+    compile_detector_sampler,
+    compile_sampler,
+)
 from clifft._sample_result import SampleResult
 
 BasisBitstrings: TypeAlias = str | Sequence[str] | npt.NDArray[np.bool_] | npt.NDArray[np.uint8]
@@ -350,6 +356,8 @@ __all__ = [
     "BasisBitstrings",
     "MeasurementRecords",
     "Circuit",
+    "CompiledDetectorSampler",
+    "CompiledMeasurementSampler",
     "GateType",
     "HeisenbergOp",
     "HirModule",
@@ -367,6 +375,8 @@ __all__ = [
     "Target",
     "basis_probabilities",
     "compile",
+    "compile_detector_sampler",
+    "compile_sampler",
     "compute_reference_syndrome",
     "default_hir_pass_manager",
     "experimental",

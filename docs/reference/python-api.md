@@ -1,8 +1,9 @@
 # Python API Reference
 
-`clifft.compile()` returns a reusable `Program` consumed by the sampling and
-exact-query functions below. All public sampling functions use that program
-directly; there is no sampler-selection module or backend switch.
+`clifft.compile()` returns a reusable `Program` for Clifft's general sampling
+and exact-query APIs. The compiled sampler classes provide a second,
+Stim-shaped surface for detector-sampling backends; both use the same native
+compiler and execution engine.
 
 ## Compilation
 
@@ -23,6 +24,14 @@ directly; there is no sampler-selection module or backend switch.
 ::: clifft.ParseError
 
 ## Sampling
+
+::: clifft.compile_sampler
+
+::: clifft.CompiledMeasurementSampler
+
+::: clifft.compile_detector_sampler
+
+::: clifft.CompiledDetectorSampler
 
 ::: clifft.sample
 
