@@ -678,7 +678,7 @@ def make_summary(
 def write_summary_csv(path: Path, summary: list[dict[str, Any]]) -> None:
     fieldnames = list(summary[0])
     with path.open("w", newline="") as stream:
-        writer = csv.DictWriter(stream, fieldnames=fieldnames)
+        writer = csv.DictWriter(stream, fieldnames=fieldnames, lineterminator="\n")
         writer.writeheader()
         writer.writerows(summary)
 
@@ -865,6 +865,7 @@ def publish(args: argparse.Namespace, repo: Path) -> None:
         raise RuntimeError("result bundle is not complete or has the wrong execution ID")
     if result.get("settings", {}).get("quick"):
         raise RuntimeError("quick validation results are not publishable")
+    write_summary_csv(result_dir / "summary.csv", result["summary"])
 
     status = git(repo, "status", "--porcelain", "--untracked-files=all")
     allowed_prefix = str(result_dir.relative_to(repo)) + "/"
