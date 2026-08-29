@@ -14,12 +14,13 @@ namespace clifft {
 namespace {
 
 inline constexpr double kMaxConditioningRow = 0x1p500;
+inline constexpr double kLogZero = -std::numeric_limits<double>::max();
 
 double log_add_exp(double first, double second) noexcept {
-    if (first == -std::numeric_limits<double>::infinity()) {
+    if (first == kLogZero) {
         return second;
     }
-    if (second == -std::numeric_limits<double>::infinity()) {
+    if (second == kLogZero) {
         return first;
     }
     const double greater = std::max(first, second);
@@ -96,7 +97,7 @@ KFaultDistribution::KFaultDistribution(std::span<const double> probabilities, ui
     const long double normalization = static_cast<long double>(uncertain_sites_.size()) / odds_sum;
     for (double& odds : odds_ratios) {
         odds = static_cast<double>(static_cast<long double>(odds) * normalization);
-        stable &= odds > 0.0 && std::isfinite(odds);
+        stable &= odds > 0.0 && is_finite_robust(odds);
     }
     selection_probabilities_.assign(rows * stride, 0.0);
     std::vector<double> row_scale_ratios(uncertain_sites_.size(), 1.0);
@@ -113,7 +114,7 @@ KFaultDistribution::KFaultDistribution(std::span<const double> probabilities, ui
                     odds_ratios[row] * selection_probabilities_[(row + 1) * stride + selected - 1];
             }
             selection_probabilities_[row * stride + selected] = value;
-            stable &= value > 0.0 && std::isfinite(value);
+            stable &= value > 0.0 && is_finite_robust(value);
             row_max = std::max(row_max, value);
         }
         if (stable && row_max > kMaxConditioningRow) {
@@ -139,7 +140,7 @@ KFaultDistribution::KFaultDistribution(std::span<const double> probabilities, ui
             const double probability =
                 odds_ratios[row] * selection_probabilities_[(row + 1) * stride + selected - 1] *
                 row_scale_ratios[row] / selection_probabilities_[row * stride + selected];
-            if (!(probability > 0.0 && probability < 1.0 && std::isfinite(probability))) {
+            if (!(probability > 0.0 && probability < 1.0 && is_finite_robust(probability))) {
                 stable = false;
                 break;
             }
@@ -159,8 +160,10 @@ KFaultDistribution::KFaultDistribution(std::span<const double> probabilities, ui
         const double probability = probabilities[site];
         log_odds_ratios.push_back(std::log(probability) - std::log1p(-probability));
     }
-    const double log_zero = -std::numeric_limits<double>::infinity();
-    selection_probabilities_.assign(rows * stride, log_zero);
+    // Keep the log-zero sentinel finite because -ffast-math makes expressions
+    // containing infinity undefined. Structurally impossible entries are
+    // never added to a log odds value below.
+    selection_probabilities_.assign(rows * stride, kLogZero);
     selection_probabilities_[uncertain_sites_.size() * stride] = 0.0;
     for (size_t row = uncertain_sites_.size(); row-- > 0;) {
         const uint32_t remaining = static_cast<uint32_t>(uncertain_sites_.size() - row);
@@ -168,10 +171,12 @@ KFaultDistribution::KFaultDistribution(std::span<const double> probabilities, ui
         const uint32_t max_selected = std::min(remaining, remaining_k_);
         for (uint32_t selected = min_selected; selected <= max_selected; ++selected) {
             const double without_site = selection_probabilities_[(row + 1) * stride + selected];
-            double with_site = log_zero;
+            double with_site = kLogZero;
             if (selected != 0) {
-                with_site = log_odds_ratios[row] +
-                            selection_probabilities_[(row + 1) * stride + selected - 1];
+                const double suffix = selection_probabilities_[(row + 1) * stride + selected - 1];
+                if (suffix != kLogZero) {
+                    with_site = log_odds_ratios[row] + suffix;
+                }
             }
             selection_probabilities_[row * stride + selected] =
                 log_add_exp(without_site, with_site);

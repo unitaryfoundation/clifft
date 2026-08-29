@@ -279,7 +279,7 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::prepare_noise_and_bounda
     if (uniform_site_probabilities && uniform_site_probability.has_value() &&
         *uniform_site_probability > 0.0) {
         const double inverse_hazard = 1.0 / bernoulli_hazard(*uniform_site_probability);
-        if (std::isfinite(inverse_hazard)) {
+        if (is_finite_robust(inverse_hazard)) {
             output_.uniform_noise_inverse_hazard_ = inverse_hazard;
         }
     }
@@ -413,7 +413,7 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::lower_action(const Plann
                     typed.prob_zero_to_one > 0.0 &&
                     typed.prob_zero_to_one <= kMaxSparseBatchReadoutProbability) {
                     const double inverse_hazard = 1.0 / bernoulli_hazard(typed.prob_zero_to_one);
-                    if (std::isfinite(inverse_hazard)) {
+                    if (is_finite_robust(inverse_hazard)) {
                         batch_symmetric_inverse_hazard = inverse_hazard;
                     }
                 }
