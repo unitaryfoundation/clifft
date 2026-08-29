@@ -17,6 +17,9 @@ on:
 permissions:
   contents: read
 
+env:
+  CLIFFT_LINUX_WHEEL_CLANG_VERSION: "22.1.8.1"
+
 jobs:
   # -----------------------------------------------------------
   # Build sdist (source distribution)
@@ -76,26 +79,44 @@ jobs:
           fetch-depth: 0  # Full history for setuptools-scm
 
       - name: Build wheels
-        uses: pypa/cibuildwheel@v2.22
+        uses: pypa/cibuildwheel@v4.2
         env:
           CIBW_BUILD: "cp312-*"
           CIBW_ARCHS: ${{ matrix.cibw_archs }}
           CIBW_SKIP: "*-musllinux*"
-          # manylinux_2_28 (AlmaLinux 8, GCC 12) supports the explicit
-          # x86-64 baseline flags used for Linux wheels.
+          # manylinux_2_28 retains the glibc 2.28 compatibility policy while
+          # providing the pinned static Clang installer used below.
           CIBW_MANYLINUX_X86_64_IMAGE: manylinux_2_28
           CIBW_MANYLINUX_AARCH64_IMAGE: manylinux_2_28
           CIBW_ENVIRONMENT: >-
             CLIFFT_CPU_BASELINE=${{ matrix.cpu_baseline }}
             ${{ matrix.cibw_environment || '' }}
             ${{ inputs.test_version && format('SETUPTOOLS_SCM_PRETEND_VERSION={0}', inputs.test_version) || '' }}
-          # Install build dependencies inside the cibuildwheel container
+          CIBW_ENVIRONMENT_LINUX: >-
+            CC=/opt/clang/bin/clang
+            CXX=/opt/clang/bin/clang++
+            CPATH=/opt/clifft-openmp/include
+            LDFLAGS=-fuse-ld=lld
+            CLIFFT_CPU_BASELINE=${{ matrix.cpu_baseline }}
+            CLIFFT_INTERPROCEDURAL_OPTIMIZATION=ON
+            CLIFFT_OPENMP=ON
+            ${{ inputs.test_version && format('SETUPTOOLS_SCM_PRETEND_VERSION={0}', inputs.test_version) || '' }}
+          CIBW_BEFORE_ALL_LINUX: >-
+            bash {package}/.github/scripts/install_manylinux_clang.sh
+            ${{ env.CLIFFT_LINUX_WHEEL_CLANG_VERSION }}
+          # Install Python build dependencies inside the cibuildwheel environment.
           CIBW_BEFORE_BUILD: pip install setuptools-scm
           # Apple Clang needs Homebrew's runtime for intra-shot OpenMP kernels.
           CIBW_BEFORE_ALL_MACOS: brew install libomp
           # Smoke-test: import the built package and audit exported symbols
           CIBW_TEST_COMMAND: >-
             python -c "import clifft; print(clifft.__version__); print(clifft.CPU_BASELINE); print(type(clifft.compile('M 0')).__name__)"
+            &&
+            python {project}/tools/ci/audit_python_exports.py
+          # Exercise the repaired wheel against its bundled OpenMP runtime on
+          # both Linux architectures.
+          CIBW_TEST_COMMAND_LINUX: >-
+            python {project}/.github/scripts/artifact_smoke.py --exercise-intra-shot
             &&
             python {project}/tools/ci/audit_python_exports.py
           # Test the repaired wheel's bundled runtime, not the source build.
