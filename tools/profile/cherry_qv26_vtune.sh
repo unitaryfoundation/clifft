@@ -6,6 +6,7 @@ readonly script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 readonly repo_root="$(git -C "${script_dir}" rev-parse --show-toplevel)"
 readonly clang_version="22.1.8.1"
 readonly qiskit_version="2.3.1"
+readonly vtune_package_version="2024.3.0-29"
 # The public QV campaign records this artifact identity for QV26 seed 42.
 readonly qv_qasm_sha256="6ecab6f0ed2746161133a88a7afc38d61a37bb82f320d77b173c97295e1cd9da"
 readonly profile_cache_root="${XDG_CACHE_HOME:-${HOME}/.cache}/clifft-vtune"
@@ -171,7 +172,8 @@ install_host_packages() {
     run_as_root apt-get update
     run_as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y \
         build-essential cmake curl git gnupg libomp-18-dev linux-tools-common \
-        linux-tools-generic ninja-build numactl python3 python3-venv wget xz-utils zstd
+        linux-tools-generic ninja-build numactl pkg-config python3 python3-venv \
+        wget xz-utils zstd
 }
 
 install_clang() {
@@ -189,8 +191,9 @@ install_clang() {
 }
 
 install_vtune() {
-    if command -v vtune >/dev/null 2>&1 || \
-       [[ -x /opt/intel/oneapi/vtune/latest/bin64/vtune ]]; then
+    local installed_version
+    installed_version="$(dpkg-query -W -f='${Version}' intel-oneapi-vtune 2>/dev/null || true)"
+    if [[ "${installed_version}" == "${vtune_package_version}" ]]; then
         return
     fi
 
@@ -206,7 +209,10 @@ install_vtune() {
         >"${staging}/oneAPI.list"
     run_as_root install -m 0644 "${staging}/oneAPI.list" /etc/apt/sources.list.d/oneAPI.list
     run_as_root apt-get update
-    run_as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y intel-oneapi-vtune
+    # VTune 2025 and newer dropped CPU analysis for Cascade Lake. Cherry's
+    # Xeon Gold 6230R requires the last 2024 release for hardware sampling.
+    run_as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y \
+        --allow-downgrades "intel-oneapi-vtune=${vtune_package_version}"
     rm -rf -- "${staging}"
 }
 
