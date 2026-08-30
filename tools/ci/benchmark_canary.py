@@ -1,35 +1,44 @@
 #!/usr/bin/env python3
-"""Render an advisory PR comment from paired Catch2 benchmark runs."""
+"""Render an advisory PR comment from paired Google Benchmark runs."""
 
 from __future__ import annotations
 
 import argparse
+import json
 import math
 import os
 import platform
+import statistics
 import subprocess
+from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
-from xml.etree import ElementTree
 
 COMMENT_MARKER = "<!-- clifft-performance-canary -->"
 NOTABLE_THRESHOLD = 0.05
 POSSIBLE_REGRESSION_THRESHOLD = 0.10
 
 DISPLAY_NAMES = {
-    "squeeze 8192 parallel T gates": "Squeeze 8192 T gates",
-    "QV-10 x100 shots": "QV-10, 100 shots",
-    "cultivation-d5 x1000 shots": "Cultivation d5, 1,000 shots",
-    "surface-d7-r7 p=1e-3 x10000 shots": "Surface code d7/r7, 10,000 shots",
-    "surface-d5-r5 p=0.05 x10000 shots": "Surface code d5/r5 high noise, 10,000 shots",
-    "surface-d11-r11 p=1e-3 x1000 shots": "Surface code d11/r11, 1,000 shots",
-    "exp-val 20q 200 probes x100k": "EXP_VAL 20q/200 probes, 100,000 shots",
+    "squeeze_parallel_t_8192": "Squeeze 8192 T gates",
+    "sample_qv10_100_shots": "QV-10, 100 shots",
+    "sample_cultivation_d5_1000_shots": "Cultivation d5, 1,000 shots",
+    "sample_surface_d7_r7_10000_shots": "Surface code d7/r7, 10,000 shots",
+    "sample_surface_d5_r5_high_noise_10000_shots": ("Surface code d5/r5 high noise, 10,000 shots"),
+    "sample_surface_d11_r11_1000_shots": "Surface code d11/r11, 1,000 shots",
+    "sample_exp_val_20q_200_probes_100000_shots": ("EXP_VAL 20q/200 probes, 100,000 shots"),
+}
+
+TIME_UNIT_TO_NS = {
+    "ns": 1.0,
+    "us": 1e3,
+    "ms": 1e6,
+    "s": 1e9,
 }
 
 
 @dataclass(frozen=True)
 class BenchmarkEstimate:
-    mean_ns: float
+    median_ns: float
     relative_stddev: float
 
 
@@ -68,31 +77,41 @@ class Comparison:
         raise AssertionError("material change was not classified")
 
 
-def parse_catch2_benchmarks(path: Path) -> dict[str, BenchmarkEstimate]:
-    root = ElementTree.parse(path).getroot()
-    overall = root.find("OverallResults")
-    if overall is None or int(overall.attrib.get("failures", "1")) != 0:
-        raise ValueError(f"Catch2 run did not succeed: {path}")
+def parse_google_benchmarks(path: Path) -> dict[str, BenchmarkEstimate]:
+    payload = json.loads(path.read_text())
+    benchmarks = payload.get("benchmarks")
+    if not isinstance(benchmarks, list):
+        raise ValueError(f"malformed Google Benchmark output: {path}")
 
-    results: dict[str, BenchmarkEstimate] = {}
-    for benchmark in root.iter("BenchmarkResults"):
-        name = benchmark.attrib.get("name")
-        mean = benchmark.find("mean")
-        if not name or mean is None:
-            raise ValueError(f"malformed Catch2 benchmark result: {path}")
-        mean_ns = float(mean.attrib["value"])
-        if not math.isfinite(mean_ns) or mean_ns <= 0:
-            raise ValueError(f"invalid mean for {name!r}: {mean_ns}")
-        standard_deviation = benchmark.find("standardDeviation")
-        stddev_ns = 0.0 if standard_deviation is None else float(standard_deviation.attrib["value"])
-        if not math.isfinite(stddev_ns) or stddev_ns < 0:
-            raise ValueError(f"invalid standard deviation for {name!r}: {stddev_ns}")
-        if name in results:
-            raise ValueError(f"duplicate benchmark {name!r}: {path}")
-        results[name] = BenchmarkEstimate(mean_ns, stddev_ns / mean_ns)
+    repetitions: dict[str, list[float]] = defaultdict(list)
+    for benchmark in benchmarks:
+        if not isinstance(benchmark, dict):
+            raise ValueError(f"malformed Google Benchmark result: {path}")
+        if benchmark.get("error_occurred"):
+            message = benchmark.get("error_message", "unknown benchmark error")
+            raise ValueError(f"Google Benchmark run did not succeed: {message}")
+        if benchmark.get("run_type", "iteration") != "iteration":
+            continue
+        name = benchmark.get("run_name", benchmark.get("name"))
+        time_unit = benchmark.get("time_unit")
+        if not isinstance(name, str) or time_unit not in TIME_UNIT_TO_NS:
+            raise ValueError(f"malformed Google Benchmark result: {path}")
+        cpu_time = float(benchmark.get("cpu_time", math.nan))
+        nanoseconds = cpu_time * TIME_UNIT_TO_NS[time_unit]
+        if not math.isfinite(nanoseconds) or nanoseconds <= 0:
+            raise ValueError(f"invalid CPU time for {name!r}: {cpu_time}")
+        repetitions[name].append(nanoseconds)
 
-    if not results:
-        raise ValueError(f"no Catch2 benchmark results found: {path}")
+    if not repetitions:
+        raise ValueError(f"no Google Benchmark results found: {path}")
+
+    results = {}
+    for name, values in repetitions.items():
+        median_ns = statistics.median(values)
+        relative_stddev = (
+            statistics.stdev(values) / statistics.mean(values) if len(values) > 1 else 0
+        )
+        results[name] = BenchmarkEstimate(median_ns, relative_stddev)
     return results
 
 
@@ -102,10 +121,10 @@ def compare_runs(
     head_second_path: Path,
     base_second_path: Path,
 ) -> tuple[list[Comparison], list[str], list[str]]:
-    base_first = parse_catch2_benchmarks(base_first_path)
-    head_first = parse_catch2_benchmarks(head_first_path)
-    head_second = parse_catch2_benchmarks(head_second_path)
-    base_second = parse_catch2_benchmarks(base_second_path)
+    base_first = parse_google_benchmarks(base_first_path)
+    head_first = parse_google_benchmarks(head_first_path)
+    head_second = parse_google_benchmarks(head_second_path)
+    base_second = parse_google_benchmarks(base_second_path)
 
     if base_first.keys() != base_second.keys():
         raise ValueError("the two base runs contain different benchmarks")
@@ -123,16 +142,16 @@ def compare_runs(
     comparisons = []
     for name in ordered_names:
         estimates = (base_first[name], head_first[name], head_second[name], base_second[name])
-        base_ns = math.sqrt(base_first[name].mean_ns * base_second[name].mean_ns)
-        head_ns = math.sqrt(head_first[name].mean_ns * head_second[name].mean_ns)
+        base_ns = math.sqrt(base_first[name].median_ns * base_second[name].median_ns)
+        head_ns = math.sqrt(head_first[name].median_ns * head_second[name].median_ns)
         comparisons.append(
             Comparison(
                 name=name,
                 base_ns=base_ns,
                 head_ns=head_ns,
                 change=head_ns / base_ns - 1.0,
-                first_change=head_first[name].mean_ns / base_first[name].mean_ns - 1.0,
-                second_change=head_second[name].mean_ns / base_second[name].mean_ns - 1.0,
+                first_change=head_first[name].median_ns / base_first[name].median_ns - 1.0,
+                second_change=head_second[name].median_ns / base_second[name].median_ns - 1.0,
                 max_relative_stddev=max(estimate.relative_stddev for estimate in estimates),
             )
         )
@@ -230,7 +249,7 @@ def _environment_value(override: str | None, kind: str) -> str:
         return platform.processor() or platform.machine()
     try:
         first_line = subprocess.check_output(
-            ["c++", "--version"], text=True, stderr=subprocess.STDOUT
+            [os.environ.get("CXX", "c++"), "--version"], text=True, stderr=subprocess.STDOUT
         ).splitlines()[0]
     except (OSError, subprocess.CalledProcessError, IndexError):
         return "unknown"
@@ -254,11 +273,14 @@ def render_report(
     base_label: str,
     base_sha: str,
     head_sha: str,
-    samples: int,
+    repetitions: int,
+    min_time: float,
+    warmup_time: float,
     added: list[str],
     removed: list[str],
     cpu: str | None = None,
     compiler: str | None = None,
+    cpu_core: str | None = None,
     run_url: str | None = None,
 ) -> str:
     lines = [
@@ -290,12 +312,14 @@ def render_report(
             "<summary>Environment and method</summary>",
             "",
             f"- Runner CPU: {_environment_value(cpu, 'cpu')}",
-            "- ISA: automatic runtime dispatch",
+            f"- Pinned logical CPU: {cpu_core or 'unknown'}",
+            "- ISA: AVX2 runtime backend (forced)",
             f"- Compiler: {_environment_value(compiler, 'compiler')}",
-            f"- Each pass uses {samples} Catch2 samples.",
-            "- One unreported pass per revision warms the runner before the measured A/B/B/A "
-            "sequence.",
-            "- Displayed timings are the geometric mean of the two drift-balanced pass means.",
+            "- Build: Release, x86-64-v2, ThinLTO, lld, and OpenMP enabled.",
+            f"- Each pass uses {repetitions} Google Benchmark repetitions with at least "
+            f"{min_time:g} seconds of measured CPU time and {warmup_time:g} seconds of warmup "
+            "per workload.",
+            "- Displayed timings are the geometric mean of the two drift-balanced pass medians.",
             "- Material changes must repeat in both pairs with under 5% within-pass relative "
             "standard deviation; otherwise they are inconclusive.",
             "- Results apply only to this runner and are intended to detect large regressions, "
@@ -359,9 +383,12 @@ def main() -> None:
     report_parser.add_argument("--head-first", type=Path, required=True)
     report_parser.add_argument("--head-second", type=Path, required=True)
     report_parser.add_argument("--base-second", type=Path, required=True)
-    report_parser.add_argument("--samples", type=int, required=True)
+    report_parser.add_argument("--repetitions", type=int, required=True)
+    report_parser.add_argument("--min-time", type=float, required=True)
+    report_parser.add_argument("--warmup-time", type=float, required=True)
     report_parser.add_argument("--cpu")
     report_parser.add_argument("--compiler")
+    report_parser.add_argument("--cpu-core")
     args = parser.parse_args()
 
     if args.command == "failure":
@@ -380,11 +407,14 @@ def main() -> None:
             base_label=args.base_label,
             base_sha=args.base_sha,
             head_sha=args.head_sha,
-            samples=args.samples,
+            repetitions=args.repetitions,
+            min_time=args.min_time,
+            warmup_time=args.warmup_time,
             added=added,
             removed=removed,
             cpu=args.cpu,
             compiler=args.compiler,
+            cpu_core=args.cpu_core,
             run_url=args.run_url,
         )
     write_report(args.output, content)

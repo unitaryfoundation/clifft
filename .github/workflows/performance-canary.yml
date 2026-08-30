@@ -12,6 +12,9 @@ on:
 permissions:
   contents: read
 
+env:
+  CLIFFT_LINUX_WHEEL_CLANG_VERSION: "22.1.8.1"
+
 concurrency:
   group: performance-canary-${{ github.event.pull_request.number }}
   cancel-in-progress: true
@@ -29,11 +32,18 @@ jobs:
     env:
       CMAKE_BUILD_TYPE: Release
       CLIFFT_CPU_BASELINE: x86-64-v2
+      CLIFFT_INTERPROCEDURAL_OPTIMIZATION: "ON"
+      CLIFFT_OPENMP: "ON"
+      CLIFFT_FORCE_ISA: avx2
       CMAKE_GENERATOR: Ninja
       CMAKE_C_COMPILER_LAUNCHER: ccache
       CMAKE_CXX_COMPILER_LAUNCHER: ccache
       CCACHE_COMPILERCHECK: content
-      BENCHMARK_SAMPLES: "10"
+      OMP_DYNAMIC: "FALSE"
+      OMP_NUM_THREADS: "1"
+      BENCHMARK_REPETITIONS: "3"
+      BENCHMARK_MIN_TIME: "0.5"
+      BENCHMARK_WARMUP_TIME: "0.2"
     steps:
       - name: Checkout PR revision
         uses: actions/checkout@v4
@@ -54,10 +64,28 @@ jobs:
       - name: Install native build tools
         uses: ./.github/actions/setup-native-tools
 
+      - name: Install pinned Clang and OpenMP
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libomp-18-dev
+          .github/scripts/install_ubuntu_clang.sh \
+            "${{ env.CLIFFT_LINUX_WHEEL_CLANG_VERSION }}" \
+            "$RUNNER_TEMP/clifft-clang"
+
+      - name: Select benchmark CPU
+        run: |
+          python3 - <<'PY'
+          import os
+
+          core = min(os.sched_getaffinity(0))
+          with open(os.environ["GITHUB_ENV"], "a") as environment:
+              environment.write(f"BENCHMARK_CPU_CORE={core}\n")
+          PY
+
       - name: Set up ccache
         uses: hendrikmuhs/ccache-action@v1.2
         with:
-          key: ${{ runner.os }}-performance-canary-${{ github.event.pull_request.number }}
+          key: ${{ runner.os }}-performance-canary-clang-${{ env.CLIFFT_LINUX_WHEEL_CLANG_VERSION }}-${{ github.event.pull_request.number }}
           evict-old-files: job
 
       - name: Prepare fallback report
@@ -81,44 +109,54 @@ jobs:
         run: |
           set -euo pipefail
 
-          git -C benchmark-source checkout --detach --force "$BASE_SHA"
-          cmake -S benchmark-source -B build-base \
-            -DCMAKE_BUILD_TYPE="$CMAKE_BUILD_TYPE" \
-            -DCLIFFT_CPU_BASELINE="$CLIFFT_CPU_BASELINE"
-          cmake --build build-base --target clifft_tests --parallel
+          mkdir -p canary-bin canary-results
 
-          git -C benchmark-source checkout --detach --force "$HEAD_SHA"
-          cmake -S benchmark-source -B build-head \
-            -DCMAKE_BUILD_TYPE="$CMAKE_BUILD_TYPE" \
-            -DCLIFFT_CPU_BASELINE="$CLIFFT_CPU_BASELINE"
-          cmake --build build-head --target clifft_tests --parallel
+          build_benchmarks() {
+            local revision="$1"
+            local output="$2"
+            git -C benchmark-source checkout --detach --force "$revision"
+            cmake -E remove_directory benchmark-build
+            cmake -S benchmarks -B benchmark-build \
+              -DCLIFFT_SOURCE_DIR="$GITHUB_WORKSPACE/benchmark-source" \
+              -DCMAKE_BUILD_TYPE="$CMAKE_BUILD_TYPE" \
+              -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+              -DCMAKE_INTERPROCEDURAL_OPTIMIZATION="$CLIFFT_INTERPROCEDURAL_OPTIMIZATION" \
+              -DCLIFFT_OPENMP="$CLIFFT_OPENMP" \
+              -DCLIFFT_CPU_BASELINE="$CLIFFT_CPU_BASELINE"
+            cmake --build benchmark-build --target clifft_benchmarks --parallel
+            grep --quiet -- '-flto=thin' benchmark-build/compile_commands.json
+            grep --quiet -- '-fuse-ld=lld' benchmark-build/build.ninja
+            cmake -E copy benchmark-build/clifft_benchmarks "$output"
+          }
+
+          build_benchmarks "$BASE_SHA" canary-bin/base
+          build_benchmarks "$HEAD_SHA" canary-bin/head
 
           run_benchmarks() {
             local revision="$1"
             local executable="$2"
             local output="$3"
             git -C benchmark-source checkout --detach --force "$revision" >/dev/null
-            "$executable" "[bench]" \
-              --reporter xml \
-              --benchmark-samples "$BENCHMARK_SAMPLES" \
-              --benchmark-warmup-time 100 \
-              --rng-seed 0 \
-              --out "$output"
+            (
+              cd benchmark-source
+              taskset --cpu-list "$BENCHMARK_CPU_CORE" \
+                "$GITHUB_WORKSPACE/$executable" \
+                --benchmark_min_time="${BENCHMARK_MIN_TIME}s" \
+                --benchmark_min_warmup_time="$BENCHMARK_WARMUP_TIME" \
+                --benchmark_repetitions="$BENCHMARK_REPETITIONS" \
+                --benchmark_out="$GITHUB_WORKSPACE/$output" \
+                --benchmark_out_format=json
+            )
           }
 
-          # Discard one pass per revision so first-use effects cannot bias the measured sequence.
           run_benchmarks \
-            "$BASE_SHA" build-base/tests/clifft_tests canary-results/warmup-base.xml
+            "$BASE_SHA" canary-bin/base canary-results/base-first.json
           run_benchmarks \
-            "$HEAD_SHA" build-head/tests/clifft_tests canary-results/warmup-head.xml
+            "$HEAD_SHA" canary-bin/head canary-results/head-first.json
           run_benchmarks \
-            "$BASE_SHA" build-base/tests/clifft_tests canary-results/base-first.xml
+            "$HEAD_SHA" canary-bin/head canary-results/head-second.json
           run_benchmarks \
-            "$HEAD_SHA" build-head/tests/clifft_tests canary-results/head-first.xml
-          run_benchmarks \
-            "$HEAD_SHA" build-head/tests/clifft_tests canary-results/head-second.xml
-          run_benchmarks \
-            "$BASE_SHA" build-base/tests/clifft_tests canary-results/base-second.xml
+            "$BASE_SHA" canary-bin/base canary-results/base-second.json
 
       - name: Render comparison
         id: report
@@ -134,11 +172,14 @@ jobs:
             --base-label "$BASE_LABEL" \
             --base-sha "$BASE_SHA" \
             --head-sha "$HEAD_SHA" \
-            --base-first canary-results/base-first.xml \
-            --head-first canary-results/head-first.xml \
-            --head-second canary-results/head-second.xml \
-            --base-second canary-results/base-second.xml \
-            --samples "$BENCHMARK_SAMPLES"
+            --base-first canary-results/base-first.json \
+            --head-first canary-results/head-first.json \
+            --head-second canary-results/head-second.json \
+            --base-second canary-results/base-second.json \
+            --repetitions "$BENCHMARK_REPETITIONS" \
+            --min-time "$BENCHMARK_MIN_TIME" \
+            --warmup-time "$BENCHMARK_WARMUP_TIME" \
+            --cpu-core "$BENCHMARK_CPU_CORE"
 
       - name: Report canary infrastructure failure
         if: >-
