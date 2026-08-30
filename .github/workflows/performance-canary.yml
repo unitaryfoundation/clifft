@@ -1,0 +1,196 @@
+name: Performance canary
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+      - "mkdocs.yml"
+      - ".github/ISSUE_TEMPLATE/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: performance-canary-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  benchmark:
+    name: advisory benchmark
+    if: >-
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      CMAKE_BUILD_TYPE: Release
+      CLIFFT_CPU_BASELINE: x86-64-v2
+      CMAKE_GENERATOR: Ninja
+      CMAKE_C_COMPILER_LAUNCHER: ccache
+      CMAKE_CXX_COMPILER_LAUNCHER: ccache
+      CCACHE_COMPILERCHECK: content
+      BENCHMARK_SAMPLES: "10"
+    steps:
+      - name: Checkout PR revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+
+      - name: Checkout base revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: benchmark-base
+          persist-credentials: false
+
+      - name: Install native build tools
+        uses: ./.github/actions/setup-native-tools
+
+      - name: Set up ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ${{ runner.os }}-performance-canary-${{ github.event.pull_request.number }}
+          evict-old-files: job
+
+      - name: Prepare fallback report
+        env:
+          BASE_LABEL: ${{ github.event.pull_request.base.ref }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          python3 tools/ci/benchmark_canary.py failure \
+            --output canary-results/report.md \
+            --base-label "$BASE_LABEL" \
+            --base-sha "$BASE_SHA" \
+            --head-sha "$HEAD_SHA"
+
+      - name: Build and run paired benchmarks
+        id: benchmark
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+
+          cmake -S benchmark-base -B build-base \
+            -DCMAKE_BUILD_TYPE="$CMAKE_BUILD_TYPE" \
+            -DCLIFFT_CPU_BASELINE="$CLIFFT_CPU_BASELINE"
+          cmake --build build-base --target clifft_tests --parallel
+
+          cmake -S . -B build-head \
+            -DCMAKE_BUILD_TYPE="$CMAKE_BUILD_TYPE" \
+            -DCLIFFT_CPU_BASELINE="$CLIFFT_CPU_BASELINE"
+          cmake --build build-head --target clifft_tests --parallel
+
+          run_benchmarks() {
+            "$1" "[bench]" \
+              --reporter xml \
+              --benchmark-samples "$BENCHMARK_SAMPLES" \
+              --benchmark-warmup-time 100 \
+              --rng-seed 0 \
+              --out "$2"
+          }
+
+          run_benchmarks build-base/tests/clifft_tests canary-results/base-first.xml
+          run_benchmarks build-head/tests/clifft_tests canary-results/head-first.xml
+          run_benchmarks build-head/tests/clifft_tests canary-results/head-second.xml
+          run_benchmarks build-base/tests/clifft_tests canary-results/base-second.xml
+
+      - name: Render comparison
+        id: report
+        if: steps.benchmark.outcome == 'success'
+        continue-on-error: true
+        env:
+          BASE_LABEL: ${{ github.event.pull_request.base.ref }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          python3 tools/ci/benchmark_canary.py report \
+            --output canary-results/report.md \
+            --base-label "$BASE_LABEL" \
+            --base-sha "$BASE_SHA" \
+            --head-sha "$HEAD_SHA" \
+            --base-first canary-results/base-first.xml \
+            --head-first canary-results/head-first.xml \
+            --head-second canary-results/head-second.xml \
+            --base-second canary-results/base-second.xml \
+            --samples "$BENCHMARK_SAMPLES"
+
+      - name: Report canary infrastructure failure
+        if: >-
+          steps.benchmark.outcome == 'failure' ||
+          steps.report.outcome == 'failure'
+        run: echo "::warning::The performance canary could not produce a comparison"
+
+      - name: Add report to workflow summary
+        if: always()
+        run: cat canary-results/report.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload benchmark evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-canary-${{ github.event.pull_request.number }}
+          path: canary-results/
+          retention-days: 7
+
+  comment:
+    name: update PR comment
+    needs: benchmark
+    if: >-
+      always() &&
+      needs.benchmark.result == 'success' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Download benchmark evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: performance-canary-${{ github.event.pull_request.number }}
+          path: canary-results
+
+      - name: Create or update sticky comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const marker = '<!-- clifft-performance-canary -->';
+            const body = fs.readFileSync('canary-results/report.md', 'utf8');
+            if (!body.includes(marker)) {
+              core.setFailed('Benchmark report is missing its identity marker');
+              return;
+            }
+
+            const issue_number = context.issue.number;
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number,
+              per_page: 100,
+            });
+            const existing = comments.find(comment =>
+              comment.user?.login === 'github-actions[bot]' && comment.body?.includes(marker)
+            );
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number,
+                body,
+              });
+            }
