@@ -1,6 +1,8 @@
 #include "clifft/sampling/plan.h"
 #include "clifft/util/numeric.h"
 
+#include "test_helpers.h"
+
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 #include <limits>
@@ -459,15 +461,14 @@ TEST_CASE("Sampling plan rejects invalid numeric metadata") {
 
     SECTION("active rotation angle is not finite") {
         SamplingPlan plan = valid_rotation_plan();
-        std::get<RotateActivePauli>(plan.actions[0].action).half_turns =
-            std::numeric_limits<double>::quiet_NaN();
+        std::get<RotateActivePauli>(plan.actions[0].action).half_turns = clifft::test::opaque_nan();
         REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
     }
 
     SECTION("dormant promotion angle is not finite") {
         SamplingPlan plan = valid_plan();
         std::get<PromoteDormantRotation>(plan.actions[0].action).half_turns =
-            std::numeric_limits<double>::infinity();
+            clifft::test::opaque_infinity();
         REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
     }
 }

@@ -7,6 +7,11 @@ derive the package version from git tags. The release workflow builds
 wheels for Linux (x86_64, aarch64), macOS (arm64), and Windows (amd64), then publishes to
 PyPI via trusted publishers.
 
+Linux wheels use the exact Clang version pinned by `CLIFFT_LINUX_WHEEL_CLANG_VERSION` in the
+release workflow, the matching `lld` linker, and ThinLTO. Update that pin deliberately after
+building and benchmarking representative Linux wheels; do not replace it with a floating
+`latest` toolchain.
+
 ## Versioning
 
 The version is determined automatically from git tags:

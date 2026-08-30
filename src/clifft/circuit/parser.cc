@@ -84,6 +84,22 @@ std::string_view trim(std::string_view s) {
     return s;
 }
 
+bool is_explicit_nonfinite_literal(std::string_view token) {
+    if (!token.empty() && (token.front() == '+' || token.front() == '-')) {
+        token.remove_prefix(1);
+    }
+    if (token.size() < 3) {
+        return false;
+    }
+    const auto ascii_lower = [](char c) {
+        return static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    };
+    const std::array<char, 3> prefix{ascii_lower(token[0]), ascii_lower(token[1]),
+                                     ascii_lower(token[2])};
+    return prefix == std::array<char, 3>{'n', 'a', 'n'} ||
+           prefix == std::array<char, 3>{'i', 'n', 'f'};
+}
+
 }  // namespace
 
 // Tags are trimmed as they are parsed, and a '#' starts a comment that
@@ -263,6 +279,11 @@ class Parser {
                 std::string_view token = trim(
                     comma_pos == std::string_view::npos ? args_str : args_str.substr(0, comma_pos));
                 if (!token.empty()) {
+                    // fast_float materializes these from nonfinite constants, whose behavior is
+                    // undefined under the Release build's -ffast-math assumptions.
+                    if (is_explicit_nonfinite_literal(token)) {
+                        throw ParseError("Invalid gate argument: " + std::string(token), line_num);
+                    }
                     double val = 0.0;
                     auto result =
                         fast_float::from_chars(token.data(), token.data() + token.size(), val);

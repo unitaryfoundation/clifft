@@ -1,5 +1,7 @@
 #pragma once
 
+#include "clifft/util/numeric.h"
+
 #include <algorithm>
 #include <cassert>
 #include <cmath>
@@ -15,7 +17,7 @@ inline constexpr uint32_t kNoNoiseSite = std::numeric_limits<uint32_t>::max();
 // clamp keeps a probability rounded to one finite and aligned with the finest
 // probability step of the repository's deterministic [0, 1) RNG conversion.
 [[nodiscard]] inline double bernoulli_hazard(double probability) noexcept {
-    assert(std::isfinite(probability) && probability >= 0.0 &&
+    assert(is_finite_robust(probability) && probability >= 0.0 &&
            "noise probability must be finite and nonnegative");
     return -std::log1p(-std::min(probability, 1.0 - 0x1.0p-53));
 }

@@ -72,6 +72,8 @@ fallback_version = "0.0.0"
 
 [tool.scikit-build.cmake.define]
 CLIFFT_CPU_BASELINE = { env = "CLIFFT_CPU_BASELINE", default = "native" }
+CMAKE_INTERPROCEDURAL_OPTIMIZATION = { env = "CLIFFT_INTERPROCEDURAL_OPTIMIZATION", default = "OFF" }
+CLIFFT_OPENMP = { env = "CLIFFT_OPENMP", default = "AUTO" }
 
 [tool.ruff]
 line-length = 100

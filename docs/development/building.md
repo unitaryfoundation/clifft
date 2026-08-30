@@ -48,7 +48,7 @@ The editable install (`-e .`) means you can re-run `uv pip install -e .` after m
 - Published wheels use explicit portable baselines chosen in CI.
 - Local Python source builds and standalone C++ Release builds default to `CLIFFT_CPU_BASELINE=native`.
 - Supported values are `native`, `generic`, `x86-64-v2`, and `x86-64-v3`.
-- Linux `x86_64` wheels use `x86-64-v2` as the global baseline. Higher-ISA symbolic sampling kernels are compiled separately and selected at runtime when the host supports them.
+- Linux wheels use a pinned Clang toolchain with ThinLTO. Linux `x86_64` wheels use `x86-64-v2` as the global baseline; higher-ISA symbolic sampling kernels are compiled separately and selected at runtime when the host supports them.
 
 Override the default when needed:
 

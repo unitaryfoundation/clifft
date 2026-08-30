@@ -6,6 +6,7 @@
 #include "clifft/sampling/state_queries.h"
 #include "clifft/util/intra_shot_parallel.h"
 #include "clifft/util/noise_sampling.h"
+#include "clifft/util/numeric.h"
 #include "clifft/util/shot_seed.h"
 #include "clifft/util/xoshiro.h"
 
@@ -1861,7 +1862,8 @@ TEST_CASE("Packed survivors retain long-tail rows after heavy rejection") {
         REQUIRE_THAT(result.exp_vals[offset], Catch::Matchers::WithinAbs(1.0, 1e-12));
     }
     REQUIRE(std::ranges::all_of(result.exp_vals, [](double value) {
-        return std::isfinite(value) && value >= -1.000000000001 && value <= 1.000000000001;
+        return clifft::is_finite_robust(value) && value >= -1.000000000001 &&
+               value <= 1.000000000001;
     }));
     REQUIRE(replay.passed_shots == result.passed_shots);
     REQUIRE(replay.logical_errors == result.logical_errors);
