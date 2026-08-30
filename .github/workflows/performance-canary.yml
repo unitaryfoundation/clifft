@@ -41,11 +41,14 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
 
-      - name: Checkout base revision
+      # Building both revisions from this one path keeps __FILE__, fixture paths,
+      # and the resulting executable layout comparable.
+      - name: Checkout normalized benchmark source
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.base.sha }}
-          path: benchmark-base
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          path: benchmark-source
           persist-credentials: false
 
       - name: Install native build tools
@@ -72,35 +75,50 @@ jobs:
       - name: Build and run paired benchmarks
         id: benchmark
         continue-on-error: true
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
 
-          cmake -S benchmark-base -B build-base \
+          git -C benchmark-source checkout --detach --force "$BASE_SHA"
+          cmake -S benchmark-source -B build-base \
             -DCMAKE_BUILD_TYPE="$CMAKE_BUILD_TYPE" \
             -DCLIFFT_CPU_BASELINE="$CLIFFT_CPU_BASELINE"
           cmake --build build-base --target clifft_tests --parallel
 
-          cmake -S . -B build-head \
+          git -C benchmark-source checkout --detach --force "$HEAD_SHA"
+          cmake -S benchmark-source -B build-head \
             -DCMAKE_BUILD_TYPE="$CMAKE_BUILD_TYPE" \
             -DCLIFFT_CPU_BASELINE="$CLIFFT_CPU_BASELINE"
           cmake --build build-head --target clifft_tests --parallel
 
           run_benchmarks() {
-            "$1" "[bench]" \
+            local revision="$1"
+            local executable="$2"
+            local output="$3"
+            git -C benchmark-source checkout --detach --force "$revision" >/dev/null
+            "$executable" "[bench]" \
               --reporter xml \
               --benchmark-samples "$BENCHMARK_SAMPLES" \
               --benchmark-warmup-time 100 \
               --rng-seed 0 \
-              --out "$2"
+              --out "$output"
           }
 
           # Discard one pass per revision so first-use effects cannot bias the measured sequence.
-          run_benchmarks build-base/tests/clifft_tests canary-results/warmup-base.xml
-          run_benchmarks build-head/tests/clifft_tests canary-results/warmup-head.xml
-          run_benchmarks build-base/tests/clifft_tests canary-results/base-first.xml
-          run_benchmarks build-head/tests/clifft_tests canary-results/head-first.xml
-          run_benchmarks build-head/tests/clifft_tests canary-results/head-second.xml
-          run_benchmarks build-base/tests/clifft_tests canary-results/base-second.xml
+          run_benchmarks \
+            "$BASE_SHA" build-base/tests/clifft_tests canary-results/warmup-base.xml
+          run_benchmarks \
+            "$HEAD_SHA" build-head/tests/clifft_tests canary-results/warmup-head.xml
+          run_benchmarks \
+            "$BASE_SHA" build-base/tests/clifft_tests canary-results/base-first.xml
+          run_benchmarks \
+            "$HEAD_SHA" build-head/tests/clifft_tests canary-results/head-first.xml
+          run_benchmarks \
+            "$HEAD_SHA" build-head/tests/clifft_tests canary-results/head-second.xml
+          run_benchmarks \
+            "$BASE_SHA" build-base/tests/clifft_tests canary-results/base-second.xml
 
       - name: Render comparison
         id: report
