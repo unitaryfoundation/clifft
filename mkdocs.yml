@@ -129,5 +129,4 @@ nav:
       - HIP Kernel Development: development/hip-kernel-development.md
     - Testing Strategy: development/testing.md
     - Tableau Conventions: development/tableau-conventions.md
-    - Archived Benchmark History: development/benchmark-history.md
     - Releasing: development/releasing.md
