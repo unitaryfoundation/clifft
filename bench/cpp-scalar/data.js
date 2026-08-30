@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787985557145,
+  "lastUpdate": 1788071990473,
   "repoUrl": "https://github.com/unitaryfoundation/clifft",
   "entries": {
     "C++ Catch2 benchmarks (scalar)": [
@@ -6654,6 +6654,77 @@ window.BENCHMARK_DATA = {
             "name": "exp-val 20q 200 probes x100k",
             "value": 149.623,
             "range": "± 251.067",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Brad Chase",
+            "username": "bachase",
+            "email": "14430+bachase@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "8ae0f5dcd05efb0805c72fe3b9f91ec44d3c6780",
+          "message": "perf(optimizer): bypass commuting expansion convoys (#424)\n\nAllow statevector squeeze expansions to commute across expansion convoys when a movable non-expanding operation lies beyond them. Cache the next non-expanding position to keep lookahead linear, preserve stable ordering at blocked crossings, and rotate source-map entries with their HIR operations.\n\nReduce coherent QEC peak active width from 8 to 5 and 24 to 13 on the d3/r3 and d5/r5 workloads. Add deterministic Stim-backed integration coverage across unoptimized, peephole-only, and production schedules, including scalar, automatic, and packed sampling.\n\nAssisted-by: Codex (GPT-5.6) <noreply@openai.com>",
+          "timestamp": "2026-08-29T11:42:05Z",
+          "url": "https://github.com/unitaryfoundation/clifft/commit/8ae0f5dcd05efb0805c72fe3b9f91ec44d3c6780"
+        },
+        "date": 1788071985971,
+        "tool": "catch2",
+        "benches": [
+          {
+            "name": "squeeze 8192 parallel T gates",
+            "value": 29.4733,
+            "range": "± 3.76752",
+            "unit": "us",
+            "extra": "100 samples\n2 iterations"
+          },
+          {
+            "name": "QV-10 x100 shots",
+            "value": 20.7419,
+            "range": "± 515.398",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "cultivation-d5 x1000 shots",
+            "value": 54.7957,
+            "range": "± 244.276",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d7-r7 p=1e-3 x10000 shots",
+            "value": 29.8582,
+            "range": "± 419.165",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d5-r5 p=0.05 x10000 shots",
+            "value": 36.2645,
+            "range": "± 619.785",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d11-r11 p=1e-3 x1000 shots",
+            "value": 12.1819,
+            "range": "± 749.018",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "exp-val 20q 200 probes x100k",
+            "value": 140.404,
+            "range": "± 721.202",
             "unit": "ms",
             "extra": "100 samples\n1 iterations"
           }
