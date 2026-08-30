@@ -139,6 +139,18 @@ TEST_CASE("Bench: surface d7 r7 p1e-3 sampling 10000 shots", "[bench]") {
     };
 }
 
+TEST_CASE("Bench: surface d7 detector output materialization", "[bench]") {
+    auto mod = compile_circuit(fixture("surface_d7_r7_p001.stim"));
+    const sampling::SamplingOutputSelection detectors_only{.detectors = true};
+
+    BENCHMARK("surface-d7 unpacked dets x10k") {
+        return sampling::sample_selected(mod, 10000, detectors_only, 0);
+    };
+    BENCHMARK("surface-d7 packed dets x10k") {
+        return sampling::sample_packed_selected(mod, 10000, detectors_only, 0);
+    };
+}
+
 // ---------------------------------------------------------------------------
 // Surface code d=5 r=5 with high physical noise (p=0.05): forces most NOISE
 // sites to fire, exercising the APPLY_PAULI / NOISE full-mask XOR + popcount

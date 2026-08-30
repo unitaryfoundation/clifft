@@ -69,6 +69,21 @@ struct ThreadLayout {
     std::optional<ThreadLayout> thread_layout = std::nullopt,
     std::optional<uint32_t> batch_size = std::nullopt);
 
+// Samples fixed rows directly into caller-owned destinations. Boolean sources
+// may be emitted more than once and composed at arbitrary column offsets.
+// Storage is validated and initialized before hot execution.
+void sample_into(const ExecutablePlan& plan, uint32_t shots, SamplingOutputBuffer output,
+                 std::optional<uint64_t> seed = std::nullopt, uint32_t threads = 1,
+                 std::optional<ThreadLayout> thread_layout = std::nullopt,
+                 std::optional<uint32_t> batch_size = std::nullopt);
+
+// Allocates little-endian packed Boolean rows for the selected sources.
+[[nodiscard]] PackedSamplingResult sample_packed_selected(
+    const ExecutablePlan& plan, uint32_t shots, SamplingOutputSelection outputs,
+    std::optional<uint64_t> seed = std::nullopt, uint32_t threads = 1,
+    std::optional<ThreadLayout> thread_layout = std::nullopt,
+    std::optional<uint32_t> batch_size = std::nullopt);
+
 [[nodiscard]] SamplingSurvivorResult sample_survivors(
     const ExecutablePlan& plan, uint32_t shots, std::optional<uint64_t> seed = std::nullopt,
     bool keep_records = false, uint32_t threads = 1,

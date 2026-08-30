@@ -5,6 +5,7 @@
 #include "clifft/sampling/batch/interleaved_state.h"
 #include "clifft/sampling/batch/policy.h"
 #include "clifft/sampling/executable_plan.h"
+#include "clifft/sampling/results.h"
 #include "clifft/util/shot_seed.h"
 #include "clifft/util/xoshiro.h"
 
@@ -26,7 +27,8 @@ class BatchExecutor {
   public:
     BatchExecutor(const ExecutablePlan& plan, uint32_t lane_capacity,
                   BatchOutputMode output_mode = BatchOutputMode::Rows,
-                  BatchSamplingMode sampling_mode = BatchSamplingMode::Ordinary);
+                  BatchSamplingMode sampling_mode = BatchSamplingMode::Ordinary,
+                  SamplingOutputSelection outputs = SamplingOutputSelection::all());
 
     BatchExecutor(const BatchExecutor&) = delete;
     BatchExecutor& operator=(const BatchExecutor&) = delete;
@@ -45,6 +47,9 @@ class BatchExecutor {
     [[nodiscard]] bool detector(uint32_t lane, uint32_t detector) const noexcept;
     [[nodiscard]] bool observable(uint32_t lane, uint32_t observable) const noexcept;
     [[nodiscard]] double exp_val(uint32_t lane, uint32_t exp_val) const noexcept;
+    void write_bit_rows(SamplingBitSource source, SamplingBitPacking packing,
+                        std::span<uint8_t> destination, size_t row_stride,
+                        size_t column_offset) const noexcept;
 
   private:
     BatchExecutor(const ExecutablePlan& plan, BatchOutputMode output_mode,

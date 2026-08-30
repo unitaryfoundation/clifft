@@ -1,5 +1,6 @@
 #pragma once
 
+#include "clifft/sampling/results.h"
 #include "clifft/util/numeric.h"
 
 #include <cassert>
@@ -173,15 +174,15 @@ struct BatchWorkerStorageLayout {
     size_t lane_value_entries = 0;
 };
 
-[[nodiscard]] BatchWorkerStorageLayout batch_worker_storage_layout(const ExecutablePlan& plan,
-                                                                   uint32_t lane_capacity,
-                                                                   BatchOutputMode output_mode,
-                                                                   BatchSamplingMode sampling_mode);
+[[nodiscard]] BatchWorkerStorageLayout batch_worker_storage_layout(
+    const ExecutablePlan& plan, uint32_t lane_capacity, BatchOutputMode output_mode,
+    BatchSamplingMode sampling_mode,
+    SamplingOutputSelection outputs = SamplingOutputSelection::all());
 
-[[nodiscard]] uint64_t batch_worker_storage_bytes(const ExecutablePlan& plan,
-                                                  uint32_t lane_capacity,
-                                                  BatchOutputMode output_mode,
-                                                  BatchSamplingMode sampling_mode);
+[[nodiscard]] uint64_t batch_worker_storage_bytes(
+    const ExecutablePlan& plan, uint32_t lane_capacity, BatchOutputMode output_mode,
+    BatchSamplingMode sampling_mode,
+    SamplingOutputSelection outputs = SamplingOutputSelection::all());
 
 }  // namespace batch_detail
 
@@ -192,6 +193,7 @@ struct BatchWorkerStorageLayout {
     const ExecutablePlan& plan, uint32_t shots, uint32_t shot_workers, uint32_t intra_shot_workers,
     BatchOutputMode output_mode, std::optional<uint32_t> requested_batch_size,
     BatchSamplingMode sampling_mode = BatchSamplingMode::Ordinary,
-    uint64_t additional_worker_bytes = 0);
+    uint64_t additional_worker_bytes = 0,
+    SamplingOutputSelection outputs = SamplingOutputSelection::all());
 
 }  // namespace clifft::sampling
