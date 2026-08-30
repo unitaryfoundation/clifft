@@ -1285,6 +1285,71 @@ TEST_CASE("Sampling batch and survivor results carry expectation columns") {
     }
 }
 
+TEST_CASE("Selected sampling materializes only requested output matrices") {
+    const ExecutablePlan executable(clifft::sampling::plan_sampling(clifft::trace(clifft::parse(R"(
+        H 0 1
+        T 0
+        M 0 1
+        DETECTOR rec[-2] rec[-1]
+        OBSERVABLE_INCLUDE(0) rec[-1]
+        EXP_VAL Z0
+    )"))));
+    constexpr uint32_t shots = 257;
+    const clifft::sampling::SamplingOutputSelection outputs{
+        .detectors = true,
+        .observables = true,
+    };
+
+    for (uint32_t capacity : std::array<uint32_t, 2>{1, 65}) {
+        const clifft::sampling::SamplingResult full =
+            clifft::sampling::sample(executable, shots, uint64_t{91821}, 1, std::nullopt, capacity);
+        const clifft::sampling::SamplingResult selected = clifft::sampling::sample_selected(
+            executable, shots, outputs, uint64_t{91821}, 1, std::nullopt, capacity);
+        CAPTURE(capacity);
+        REQUIRE(selected.measurements.empty());
+        REQUIRE(selected.detectors == full.detectors);
+        REQUIRE(selected.observables == full.observables);
+        REQUIRE(selected.exp_vals.empty());
+    }
+
+    const clifft::sampling::SamplingResult empty = clifft::sampling::sample_selected(
+        executable, shots, {}, uint64_t{91821}, 1, std::nullopt, uint32_t{65});
+    REQUIRE(empty.measurements.empty());
+    REQUIRE(empty.detectors.empty());
+    REQUIRE(empty.observables.empty());
+    REQUIRE(empty.exp_vals.empty());
+}
+
+TEST_CASE("Selected survivor sampling compacts only requested output matrices") {
+    const std::array<uint8_t, 1> postselection{1};
+    const ExecutablePlan executable(
+        clifft::sampling::plan_sampling(clifft::trace(clifft::parse(R"(
+            H 0
+            M 0
+            DETECTOR rec[-1]
+            H 1
+            M 1
+            OBSERVABLE_INCLUDE(0) rec[-1]
+            EXP_VAL Z1
+        )")),
+                                        {.postselection_mask = postselection}));
+    const clifft::sampling::SamplingSurvivorResult full = clifft::sampling::sample_survivors(
+        executable, 257, uint64_t{91822}, true, 1, std::nullopt, uint32_t{65});
+    const clifft::sampling::SamplingSurvivorResult selected =
+        clifft::sampling::sample_survivors_selected(executable, 257,
+                                                    {.detectors = true, .observables = true},
+                                                    uint64_t{91822}, 1, std::nullopt, uint32_t{65});
+
+    REQUIRE(selected.total_shots == full.total_shots);
+    REQUIRE(selected.passed_shots == full.passed_shots);
+    REQUIRE(selected.logical_errors == full.logical_errors);
+    REQUIRE(selected.observable_ones == full.observable_ones);
+    REQUIRE(selected.measurements.empty());
+    REQUIRE(selected.detectors == full.detectors);
+    REQUIRE(selected.observables == full.observables);
+    REQUIRE(selected.exp_vals.empty());
+}
+
 TEST_CASE("Sampling executor presamples mutually exclusive Pauli noise") {
     const clifft::HirModule hir = clifft::trace(clifft::parse(R"(
         E(0.5) X0
