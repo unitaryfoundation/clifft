@@ -189,3 +189,12 @@ def test_parser_normalizes_time_units(tmp_path: Path) -> None:
     )
 
     assert benchmark_canary.parse_google_benchmarks(path)["one"].median_ns == 1_250_000
+
+
+def test_parser_combines_one_benchmark_per_file(tmp_path: Path) -> None:
+    directory = tmp_path / "results"
+    directory.mkdir()
+    _write_results(directory / "one.json", {"one": 100.0})
+    _write_results(directory / "two.json", {"two": 200.0})
+
+    assert set(benchmark_canary.parse_google_benchmarks(directory)) == {"one", "two"}

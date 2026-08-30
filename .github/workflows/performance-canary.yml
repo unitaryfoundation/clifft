@@ -51,8 +51,8 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
 
-      # Building both revisions from this one path keeps __FILE__, fixture paths,
-      # and the resulting executable layout comparable.
+      # The Clifft source and build paths stay fixed across both revisions. The
+      # benchmark definition and fixtures come from the PR for both binaries.
       - name: Checkout normalized benchmark source
         uses: actions/checkout@v4
         with:
@@ -133,30 +133,60 @@ jobs:
           build_benchmarks "$HEAD_SHA" canary-bin/head
 
           run_benchmarks() {
-            local revision="$1"
-            local executable="$2"
-            local output="$3"
-            git -C benchmark-source checkout --detach --force "$revision" >/dev/null
+            local executable="$1"
+            local output="$2"
+            local filter="$3"
+            local repetitions="$4"
+            local min_time="$5"
+            local warmup_time="$6"
             (
               cd benchmark-source
               taskset --cpu-list "$BENCHMARK_CPU_CORE" \
                 "$GITHUB_WORKSPACE/$executable" \
-                --benchmark_min_time="${BENCHMARK_MIN_TIME}s" \
-                --benchmark_min_warmup_time="$BENCHMARK_WARMUP_TIME" \
-                --benchmark_repetitions="$BENCHMARK_REPETITIONS" \
+                --benchmark_filter="$filter" \
+                --benchmark_min_time="${min_time}s" \
+                --benchmark_min_warmup_time="$warmup_time" \
+                --benchmark_repetitions="$repetitions" \
                 --benchmark_out="$GITHUB_WORKSPACE/$output" \
                 --benchmark_out_format=json
             )
           }
 
+          # Consume process-wide first-use effects before collecting any evidence.
           run_benchmarks \
-            "$BASE_SHA" canary-bin/base canary-results/base-first.json
+            canary-bin/base canary-results/warmup-base.json '.*' 1 0.1 0.1
           run_benchmarks \
-            "$HEAD_SHA" canary-bin/head canary-results/head-first.json
-          run_benchmarks \
-            "$HEAD_SHA" canary-bin/head canary-results/head-second.json
-          run_benchmarks \
-            "$BASE_SHA" canary-bin/base canary-results/base-second.json
+            canary-bin/head canary-results/warmup-head.json '.*' 1 0.1 0.1
+
+          benchmarks=(
+            squeeze_parallel_t_8192
+            sample_qv10_100_shots
+            sample_cultivation_d5_1000_shots
+            sample_surface_d7_r7_10000_shots
+            sample_surface_d5_r5_high_noise_10000_shots
+            sample_surface_d11_r11_1000_shots
+            sample_exp_val_20q_200_probes_100000_shots
+          )
+          mkdir -p \
+            canary-results/base-first \
+            canary-results/head-first \
+            canary-results/head-second \
+            canary-results/base-second
+          for benchmark in "${benchmarks[@]}"; do
+            filter="^${benchmark}$"
+            run_benchmarks \
+              canary-bin/base "canary-results/base-first/${benchmark}.json" \
+              "$filter" "$BENCHMARK_REPETITIONS" "$BENCHMARK_MIN_TIME" "$BENCHMARK_WARMUP_TIME"
+            run_benchmarks \
+              canary-bin/head "canary-results/head-first/${benchmark}.json" \
+              "$filter" "$BENCHMARK_REPETITIONS" "$BENCHMARK_MIN_TIME" "$BENCHMARK_WARMUP_TIME"
+            run_benchmarks \
+              canary-bin/head "canary-results/head-second/${benchmark}.json" \
+              "$filter" "$BENCHMARK_REPETITIONS" "$BENCHMARK_MIN_TIME" "$BENCHMARK_WARMUP_TIME"
+            run_benchmarks \
+              canary-bin/base "canary-results/base-second/${benchmark}.json" \
+              "$filter" "$BENCHMARK_REPETITIONS" "$BENCHMARK_MIN_TIME" "$BENCHMARK_WARMUP_TIME"
+          done
 
       - name: Render comparison
         id: report
@@ -172,10 +202,10 @@ jobs:
             --base-label "$BASE_LABEL" \
             --base-sha "$BASE_SHA" \
             --head-sha "$HEAD_SHA" \
-            --base-first canary-results/base-first.json \
-            --head-first canary-results/head-first.json \
-            --head-second canary-results/head-second.json \
-            --base-second canary-results/base-second.json \
+            --base-first canary-results/base-first \
+            --head-first canary-results/head-first \
+            --head-second canary-results/head-second \
+            --base-second canary-results/base-second \
             --repetitions "$BENCHMARK_REPETITIONS" \
             --min-time "$BENCHMARK_MIN_TIME" \
             --warmup-time "$BENCHMARK_WARMUP_TIME" \

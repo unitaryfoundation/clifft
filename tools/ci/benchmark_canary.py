@@ -78,40 +78,47 @@ class Comparison:
 
 
 def parse_google_benchmarks(path: Path) -> dict[str, BenchmarkEstimate]:
-    payload = json.loads(path.read_text())
-    benchmarks = payload.get("benchmarks")
-    if not isinstance(benchmarks, list):
-        raise ValueError(f"malformed Google Benchmark output: {path}")
-
-    repetitions: dict[str, list[float]] = defaultdict(list)
-    for benchmark in benchmarks:
-        if not isinstance(benchmark, dict):
-            raise ValueError(f"malformed Google Benchmark result: {path}")
-        if benchmark.get("error_occurred"):
-            message = benchmark.get("error_message", "unknown benchmark error")
-            raise ValueError(f"Google Benchmark run did not succeed: {message}")
-        if benchmark.get("run_type", "iteration") != "iteration":
-            continue
-        name = benchmark.get("run_name", benchmark.get("name"))
-        time_unit = benchmark.get("time_unit")
-        if not isinstance(name, str) or time_unit not in TIME_UNIT_TO_NS:
-            raise ValueError(f"malformed Google Benchmark result: {path}")
-        cpu_time = float(benchmark.get("cpu_time", math.nan))
-        nanoseconds = cpu_time * TIME_UNIT_TO_NS[time_unit]
-        if not math.isfinite(nanoseconds) or nanoseconds <= 0:
-            raise ValueError(f"invalid CPU time for {name!r}: {cpu_time}")
-        repetitions[name].append(nanoseconds)
-
-    if not repetitions:
-        raise ValueError(f"no Google Benchmark results found: {path}")
-
     results = {}
-    for name, values in repetitions.items():
-        median_ns = statistics.median(values)
-        relative_stddev = (
-            statistics.stdev(values) / statistics.mean(values) if len(values) > 1 else 0
-        )
-        results[name] = BenchmarkEstimate(median_ns, relative_stddev)
+    paths = sorted(path.glob("*.json")) if path.is_dir() else [path]
+    if not paths:
+        raise ValueError(f"no Google Benchmark result files found: {path}")
+
+    for result_path in paths:
+        payload = json.loads(result_path.read_text())
+        benchmarks = payload.get("benchmarks")
+        if not isinstance(benchmarks, list):
+            raise ValueError(f"malformed Google Benchmark output: {result_path}")
+
+        repetitions: dict[str, list[float]] = defaultdict(list)
+        for benchmark in benchmarks:
+            if not isinstance(benchmark, dict):
+                raise ValueError(f"malformed Google Benchmark result: {result_path}")
+            if benchmark.get("error_occurred"):
+                message = benchmark.get("error_message", "unknown benchmark error")
+                raise ValueError(f"Google Benchmark run did not succeed: {message}")
+            if benchmark.get("run_type", "iteration") != "iteration":
+                continue
+            name = benchmark.get("run_name", benchmark.get("name"))
+            time_unit = benchmark.get("time_unit")
+            if not isinstance(name, str) or time_unit not in TIME_UNIT_TO_NS:
+                raise ValueError(f"malformed Google Benchmark result: {result_path}")
+            cpu_time = float(benchmark.get("cpu_time", math.nan))
+            nanoseconds = cpu_time * TIME_UNIT_TO_NS[time_unit]
+            if not math.isfinite(nanoseconds) or nanoseconds <= 0:
+                raise ValueError(f"invalid CPU time for {name!r}: {cpu_time}")
+            repetitions[name].append(nanoseconds)
+
+        for name, values in repetitions.items():
+            if name in results:
+                raise ValueError(f"duplicate benchmark {name!r}: {path}")
+            median_ns = statistics.median(values)
+            relative_stddev = (
+                statistics.stdev(values) / statistics.mean(values) if len(values) > 1 else 0
+            )
+            results[name] = BenchmarkEstimate(median_ns, relative_stddev)
+
+    if not results:
+        raise ValueError(f"no Google Benchmark results found: {path}")
     return results
 
 
@@ -304,9 +311,10 @@ def render_report(
         [
             "",
             f"Compared `{base_label}` (`{base_sha[:7]}`) with this PR (`{head_sha[:7]}`) on "
-            "the same runner using A/B/B/A ordering. Positive changes are slower. Changes under "
-            "5% are reported as no material change; changes of at least 5% but under 10% are "
-            "notable; changes of at least 10% are possible regressions or improvements.",
+            "the same runner using workload-local A/B/B/A ordering. Positive changes are slower. "
+            "Changes under 5% are reported as no material change; changes of at least 5% but "
+            "under 10% are notable; changes of at least 10% are possible regressions or "
+            "improvements.",
             "",
             "<details>",
             "<summary>Environment and method</summary>",
@@ -319,6 +327,7 @@ def render_report(
             f"- Each pass uses {repetitions} Google Benchmark repetitions with at least "
             f"{min_time:g} seconds of measured CPU time and {warmup_time:g} seconds of warmup "
             "per workload.",
+            "- One unreported full-suite process per revision runs before the measured pairs.",
             "- Displayed timings are the geometric mean of the two drift-balanced pass medians.",
             "- Material changes must repeat in both pairs with under 5% within-pass relative "
             "standard deviation; otherwise they are inconclusive.",

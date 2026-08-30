@@ -6,7 +6,6 @@
 #include "clifft/sampling/sampler.h"
 
 #include <benchmark/benchmark.h>
-
 #include <cstdint>
 #include <filesystem>
 #include <sstream>
@@ -68,8 +67,8 @@ std::string exp_val_heavy_text(uint32_t num_qubits, uint32_t num_probes) {
         if (q3 == q1 || q3 == q2) {
             q3 = (q3 + 2) % num_qubits;
         }
-        source << "EXP_VAL " << basis[probe % 3] << q1 << "*" << basis[(probe / 3) % 3]
-               << q2 << "*" << basis[(probe / 9) % 3] << q3 << "\n";
+        source << "EXP_VAL " << basis[probe % 3] << q1 << "*" << basis[(probe / 3) % 3] << q2 << "*"
+               << basis[(probe / 9) % 3] << q3 << "\n";
     }
     return source.str();
 }
