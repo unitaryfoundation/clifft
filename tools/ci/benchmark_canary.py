@@ -28,14 +28,35 @@ DISPLAY_NAMES = {
 
 
 @dataclass(frozen=True)
+class BenchmarkEstimate:
+    mean_ns: float
+    relative_stddev: float
+
+
+@dataclass(frozen=True)
 class Comparison:
     name: str
     base_ns: float
     head_ns: float
     change: float
+    first_change: float
+    second_change: float
+    max_relative_stddev: float
 
     @property
     def assessment(self) -> str:
+        if abs(self.change) < NOTABLE_THRESHOLD:
+            return "No material change"
+        if self.max_relative_stddev >= NOTABLE_THRESHOLD:
+            return "Inconclusive"
+        if self.change > 0 and (
+            self.first_change < NOTABLE_THRESHOLD or self.second_change < NOTABLE_THRESHOLD
+        ):
+            return "Inconclusive"
+        if self.change < 0 and (
+            self.first_change > -NOTABLE_THRESHOLD or self.second_change > -NOTABLE_THRESHOLD
+        ):
+            return "Inconclusive"
         if self.change >= POSSIBLE_REGRESSION_THRESHOLD:
             return "Possible regression"
         if self.change >= NOTABLE_THRESHOLD:
@@ -44,27 +65,31 @@ class Comparison:
             return "Improvement"
         if self.change <= -NOTABLE_THRESHOLD:
             return "Notable improvement"
-        return "No material change"
+        raise AssertionError("material change was not classified")
 
 
-def parse_catch2_benchmarks(path: Path) -> dict[str, float]:
+def parse_catch2_benchmarks(path: Path) -> dict[str, BenchmarkEstimate]:
     root = ElementTree.parse(path).getroot()
     overall = root.find("OverallResults")
     if overall is None or int(overall.attrib.get("failures", "1")) != 0:
         raise ValueError(f"Catch2 run did not succeed: {path}")
 
-    results: dict[str, float] = {}
+    results: dict[str, BenchmarkEstimate] = {}
     for benchmark in root.iter("BenchmarkResults"):
         name = benchmark.attrib.get("name")
         mean = benchmark.find("mean")
         if not name or mean is None:
             raise ValueError(f"malformed Catch2 benchmark result: {path}")
-        value = float(mean.attrib["value"])
-        if not math.isfinite(value) or value <= 0:
-            raise ValueError(f"invalid mean for {name!r}: {value}")
+        mean_ns = float(mean.attrib["value"])
+        if not math.isfinite(mean_ns) or mean_ns <= 0:
+            raise ValueError(f"invalid mean for {name!r}: {mean_ns}")
+        standard_deviation = benchmark.find("standardDeviation")
+        stddev_ns = 0.0 if standard_deviation is None else float(standard_deviation.attrib["value"])
+        if not math.isfinite(stddev_ns) or stddev_ns < 0:
+            raise ValueError(f"invalid standard deviation for {name!r}: {stddev_ns}")
         if name in results:
             raise ValueError(f"duplicate benchmark {name!r}: {path}")
-        results[name] = value
+        results[name] = BenchmarkEstimate(mean_ns, stddev_ns / mean_ns)
 
     if not results:
         raise ValueError(f"no Catch2 benchmark results found: {path}")
@@ -97,9 +122,20 @@ def compare_runs(
     ordered_names.extend(sorted(common_names - DISPLAY_NAMES.keys()))
     comparisons = []
     for name in ordered_names:
-        base_ns = math.sqrt(base_first[name] * base_second[name])
-        head_ns = math.sqrt(head_first[name] * head_second[name])
-        comparisons.append(Comparison(name, base_ns, head_ns, head_ns / base_ns - 1.0))
+        estimates = (base_first[name], head_first[name], head_second[name], base_second[name])
+        base_ns = math.sqrt(base_first[name].mean_ns * base_second[name].mean_ns)
+        head_ns = math.sqrt(head_first[name].mean_ns * head_second[name].mean_ns)
+        comparisons.append(
+            Comparison(
+                name=name,
+                base_ns=base_ns,
+                head_ns=head_ns,
+                change=head_ns / base_ns - 1.0,
+                first_change=head_first[name].mean_ns / base_first[name].mean_ns - 1.0,
+                second_change=head_second[name].mean_ns / base_second[name].mean_ns - 1.0,
+                max_relative_stddev=max(estimate.relative_stddev for estimate in estimates),
+            )
+        )
 
     return comparisons, sorted(head_names - base_names), sorted(base_names - head_names)
 
@@ -136,25 +172,33 @@ def format_change_cell(change: float) -> str:
 
 
 def _summary(comparisons: list[Comparison]) -> str:
-    regressions = sum(c.change >= POSSIBLE_REGRESSION_THRESHOLD for c in comparisons)
-    notable_slowdowns = sum(
-        NOTABLE_THRESHOLD <= c.change < POSSIBLE_REGRESSION_THRESHOLD for c in comparisons
-    )
-    improvements = sum(c.change <= -NOTABLE_THRESHOLD for c in comparisons)
+    assessments = [comparison.assessment for comparison in comparisons]
+    regressions = assessments.count("Possible regression")
+    notable_slowdowns = assessments.count("Notable slowdown")
+    improvements = assessments.count("Improvement") + assessments.count("Notable improvement")
+    inconclusive = assessments.count("Inconclusive")
     total = len(comparisons)
 
     if regressions:
         verb = "was" if regressions == 1 else "were"
-        return (
+        summary = (
             f"**Possible regression detected:** {regressions} of {total} benchmarks {verb} at "
             "least 10% slower. This does not block merging."
         )
+        return _append_inconclusive(summary, inconclusive)
     if notable_slowdowns:
         verb = "was" if notable_slowdowns == 1 else "were"
-        return (
+        summary = (
             f"**Notable slowdown detected:** {notable_slowdowns} of {total} benchmarks {verb} "
             "between 5% and 10% slower. No possible regression was detected. This does not "
             "block merging."
+        )
+        return _append_inconclusive(summary, inconclusive)
+    if inconclusive:
+        noun = "comparison was" if inconclusive == 1 else "comparisons were"
+        return (
+            f"**No confirmed regressions detected.** {inconclusive} benchmark {noun} "
+            "inconclusive. This does not block merging."
         )
     if improvements:
         noun = "benchmark" if improvements == 1 else "benchmarks"
@@ -166,6 +210,13 @@ def _summary(comparisons: list[Comparison]) -> str:
         f"**No material performance changes detected.** All {total} benchmarks remained within "
         "5% of the base."
     )
+
+
+def _append_inconclusive(summary: str, count: int) -> str:
+    if not count:
+        return summary
+    noun = "comparison was" if count == 1 else "comparisons were"
+    return f"{summary} {count} additional benchmark {noun} inconclusive."
 
 
 def _environment_value(override: str | None, kind: str) -> str:
@@ -242,7 +293,11 @@ def render_report(
             "- ISA: automatic runtime dispatch",
             f"- Compiler: {_environment_value(compiler, 'compiler')}",
             f"- Each pass uses {samples} Catch2 samples.",
+            "- One unreported pass per revision warms the runner before the measured A/B/B/A "
+            "sequence.",
             "- Displayed timings are the geometric mean of the two drift-balanced pass means.",
+            "- Material changes must repeat in both pairs with under 5% within-pass relative "
+            "standard deviation; otherwise they are inconclusive.",
             "- Results apply only to this runner and are intended to detect large regressions, "
             "not establish release performance.",
         ]

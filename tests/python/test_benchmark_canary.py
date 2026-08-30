@@ -23,9 +23,12 @@ def _load_benchmark_canary_module():
 benchmark_canary = _load_benchmark_canary_module()
 
 
-def _write_results(path: Path, results: dict[str, float], failures: int = 0) -> Path:
+def _write_results(
+    path: Path, results: dict[str, float], failures: int = 0, relative_stddev: float = 0.0
+) -> Path:
     benchmarks = "\n".join(
-        f'<BenchmarkResults name="{name}"><mean value="{value}"/></BenchmarkResults>'
+        f'<BenchmarkResults name="{name}"><mean value="{value}"/>'
+        f'<standardDeviation value="{value * relative_stddev}"/></BenchmarkResults>'
         for name, value in results.items()
     )
     path.write_text(
@@ -109,6 +112,24 @@ def test_compare_rejects_inconsistent_repeat(tmp_path: Path) -> None:
             _write_results(tmp_path / "head-second.xml", {"one": 100.0}),
             _write_results(tmp_path / "base-second.xml", {"other": 100.0}),
         )
+
+
+def test_material_change_requires_consistent_low_noise_pairs(tmp_path: Path) -> None:
+    inconsistent, _, _ = benchmark_canary.compare_runs(
+        _write_results(tmp_path / "inconsistent-base-first.xml", {"bench": 100.0}),
+        _write_results(tmp_path / "inconsistent-head-first.xml", {"bench": 120.0}),
+        _write_results(tmp_path / "inconsistent-head-second.xml", {"bench": 100.0}),
+        _write_results(tmp_path / "inconsistent-base-second.xml", {"bench": 100.0}),
+    )
+    noisy, _, _ = benchmark_canary.compare_runs(
+        _write_results(tmp_path / "noisy-base-first.xml", {"bench": 100.0}),
+        _write_results(tmp_path / "noisy-head-first.xml", {"bench": 120.0}, relative_stddev=0.06),
+        _write_results(tmp_path / "noisy-head-second.xml", {"bench": 120.0}),
+        _write_results(tmp_path / "noisy-base-second.xml", {"bench": 100.0}),
+    )
+
+    assert inconsistent[0].assessment == "Inconclusive"
+    assert noisy[0].assessment == "Inconclusive"
 
 
 def test_parser_rejects_failed_catch_run(tmp_path: Path) -> None:

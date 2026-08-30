@@ -94,6 +94,9 @@ jobs:
               --out "$2"
           }
 
+          # Discard one pass per revision so first-use effects cannot bias the measured sequence.
+          run_benchmarks build-base/tests/clifft_tests canary-results/warmup-base.xml
+          run_benchmarks build-head/tests/clifft_tests canary-results/warmup-head.xml
           run_benchmarks build-base/tests/clifft_tests canary-results/base-first.xml
           run_benchmarks build-head/tests/clifft_tests canary-results/head-first.xml
           run_benchmarks build-head/tests/clifft_tests canary-results/head-second.xml
