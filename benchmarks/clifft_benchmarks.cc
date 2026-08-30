@@ -8,6 +8,7 @@
 #include <benchmark/benchmark.h>
 #include <cstdint>
 #include <filesystem>
+#include <fstream>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -23,6 +24,16 @@ std::string fixture(const char* name) {
             "run clifft_benchmarks with the Clifft source tree as the working directory");
     }
     return path.string();
+}
+
+std::string read_fixture(const char* name) {
+    std::ifstream input(fixture(name));
+    if (!input) {
+        throw std::runtime_error("could not read benchmark fixture");
+    }
+    std::ostringstream source;
+    source << input.rdbuf();
+    return source.str();
 }
 
 sampling::ExecutablePlan compile_parsed(Circuit circuit) {
@@ -85,6 +96,20 @@ void squeeze_parallel_t(benchmark::State& state) {
     }
 }
 
+void compile_plan_cultivation_d5(benchmark::State& state) {
+    // Keep filesystem behavior outside the compiler pipeline being measured.
+    const auto source = read_fixture("cultivation_d5.stim");
+    const auto validation = compile_text(source);
+    if (validation.peak_active_width() != 10) {
+        state.SkipWithError("unexpected cultivation active width");
+        return;
+    }
+    for ([[maybe_unused]] auto _ : state) {
+        auto plan = compile_text(source);
+        benchmark::DoNotOptimize(plan);
+    }
+}
+
 void sample_qv10(benchmark::State& state) {
     const auto plan = compile_circuit(fixture("qv10.stim"));
     if (plan.peak_active_width() != 10) {
@@ -105,6 +130,18 @@ void sample_cultivation_d5(benchmark::State& state) {
     }
     for ([[maybe_unused]] auto _ : state) {
         auto result = sampling::sample_survivors(plan, 1000, 0, false);
+        benchmark::DoNotOptimize(result);
+    }
+}
+
+void sample_coherent_d5(benchmark::State& state) {
+    const auto plan = compile_circuit(fixture("coherent_d5_r5.stim"));
+    if (plan.peak_active_width() != 13) {
+        state.SkipWithError("unexpected coherent d5 active width");
+        return;
+    }
+    for ([[maybe_unused]] auto _ : state) {
+        auto result = sampling::sample(plan, 100, 0);
         benchmark::DoNotOptimize(result);
     }
 }
@@ -154,8 +191,10 @@ void sample_exp_val(benchmark::State& state) {
 }
 
 BENCHMARK(squeeze_parallel_t)->Name("squeeze_parallel_t_8192");
+BENCHMARK(compile_plan_cultivation_d5)->Name("compile_plan_cultivation_d5");
 BENCHMARK(sample_qv10)->Name("sample_qv10_100_shots");
 BENCHMARK(sample_cultivation_d5)->Name("sample_cultivation_d5_1000_shots");
+BENCHMARK(sample_coherent_d5)->Name("sample_coherent_d5_r5_100_shots");
 BENCHMARK(sample_surface_d7)->Name("sample_surface_d7_r7_10000_shots");
 BENCHMARK(sample_surface_d5_high_noise)->Name("sample_surface_d5_r5_high_noise_10000_shots");
 BENCHMARK(sample_surface_d11)->Name("sample_surface_d11_r11_1000_shots");

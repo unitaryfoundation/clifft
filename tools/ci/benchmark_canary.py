@@ -20,8 +20,10 @@ POSSIBLE_REGRESSION_THRESHOLD = 0.10
 
 DISPLAY_NAMES = {
     "squeeze_parallel_t_8192": "Squeeze 8192 T gates",
+    "compile_plan_cultivation_d5": "Compile/plan cultivation d5",
     "sample_qv10_100_shots": "QV-10, 100 shots",
     "sample_cultivation_d5_1000_shots": "Cultivation d5, 1,000 shots",
+    "sample_coherent_d5_r5_100_shots": "Coherent QEC d5/r5, width 13, 100 shots",
     "sample_surface_d7_r7_10000_shots": "Surface code d7/r7, 10,000 shots",
     "sample_surface_d5_r5_high_noise_10000_shots": ("Surface code d5/r5 high noise, 10,000 shots"),
     "sample_surface_d11_r11_1000_shots": "Surface code d11/r11, 1,000 shots",

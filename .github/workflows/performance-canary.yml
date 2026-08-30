@@ -160,8 +160,10 @@ jobs:
 
           benchmarks=(
             squeeze_parallel_t_8192
+            compile_plan_cultivation_d5
             sample_qv10_100_shots
             sample_cultivation_d5_1000_shots
+            sample_coherent_d5_r5_100_shots
             sample_surface_d7_r7_10000_shots
             sample_surface_d5_r5_high_noise_10000_shots
             sample_surface_d11_r11_1000_shots
