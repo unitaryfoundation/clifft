@@ -1,8 +1,12 @@
 # Python API Reference
 
-`clifft.compile()` returns a reusable `Program` consumed by the sampling and
-exact-query functions below. All public sampling functions use that program
-directly; there is no sampler-selection module or backend switch.
+The stable CPU workflow starts with `clifft.compile()`, which returns a reusable
+`Program` consumed by the sampling and exact-query functions below. These
+functions do not take a backend switch. Experimental hardware backends use
+separate, explicitly selected APIs and program types.
+
+See [Choose a Workflow](../getting-started/choosing-a-workflow.md) to select an
+API by result and circuit constraints before using this reference.
 
 ## Compilation
 

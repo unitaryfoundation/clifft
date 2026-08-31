@@ -1,5 +1,10 @@
 # Simulation
 
+Not sure which API applies to your circuit? Start with
+[Choose a Workflow](../getting-started/choosing-a-workflow.md). This page
+describes simulation workflows and their results; batching, threading, and
+hardware backends are separate execution choices.
+
 Clifft runs compiled programs through the following simulation APIs:
 
 - `sample()` for ordinary shot-based sampling

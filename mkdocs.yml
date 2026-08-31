@@ -96,6 +96,7 @@ nav:
   - Getting Started:
     - Installation: getting-started/installation.md
     - Quick Start: getting-started/quickstart.md
+    - Choose a Workflow: getting-started/choosing-a-workflow.md
     - Front-End Integrations:
       - Overview: getting-started/integrations.md
       - OpenQASM 2: getting-started/openqasm2.md

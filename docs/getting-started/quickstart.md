@@ -84,6 +84,7 @@ result = clifft.sample(program, shots=10000, seed=42)
 
 ## Next Steps
 
+- [Choose a Workflow](choosing-a-workflow.md) - select the API that matches the result you need
 - [Compiling Circuits](../guide/compilation.md) — the compilation pipeline in detail
 - [Simulation](../guide/simulation.md) — sampling, state vectors, and detectors
 - [Leakage and Loss](../guide/leakage-and-loss.md): noncomputational trajectory sampling
