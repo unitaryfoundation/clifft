@@ -33,7 +33,7 @@ cmake -S . -B build-hip -G Ninja \
     -DCLIFFT_ENABLE_HIP=ON \
     -DCMAKE_HIP_ARCHITECTURES=gfx942
 cmake --build build-hip --target clifft_tests clifft_hip_tests -j
-ctest --test-dir build-hip --output-on-failure -E Bench
+ctest --test-dir build-hip --output-on-failure
 ```
 
 The exe.dev Linux image exposes ROCm through Clang rather than `hipcc`. Its

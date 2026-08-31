@@ -1,0 +1,284 @@
+name: Performance canary
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+      - "mkdocs.yml"
+      - ".github/ISSUE_TEMPLATE/**"
+
+permissions:
+  contents: read
+
+env:
+  # Match the release-wheel compiler rather than introducing another toolchain.
+  CLIFFT_LINUX_WHEEL_CLANG_VERSION: "22.1.8.1"
+
+concurrency:
+  group: performance-canary-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  benchmark:
+    name: advisory benchmark
+    if: >-
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      CMAKE_BUILD_TYPE: Release
+      CLIFFT_CPU_BASELINE: x86-64-v2
+      CLIFFT_INTERPROCEDURAL_OPTIMIZATION: "ON"
+      CLIFFT_OPENMP: "ON"
+      CLIFFT_FORCE_ISA: avx2
+      CMAKE_GENERATOR: Ninja
+      # An ephemeral cache is shared by the base and PR builds within this job.
+      # No PR-scoped cache is saved to the repository cache service.
+      CMAKE_C_COMPILER_LAUNCHER: ccache
+      CMAKE_CXX_COMPILER_LAUNCHER: ccache
+      CCACHE_COMPILERCHECK: content
+      OMP_DYNAMIC: "FALSE"
+      OMP_NUM_THREADS: "1"
+      BENCHMARK_REPETITIONS: "3"
+      BENCHMARK_MIN_TIME: "0.5"
+      BENCHMARK_WARMUP_TIME: "0.2"
+    steps:
+      - name: Checkout PR revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+
+      # The Clifft source and build paths stay fixed across both revisions. The
+      # benchmark definition and fixtures come from the PR for both binaries.
+      - name: Checkout normalized benchmark source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          path: benchmark-source
+          persist-credentials: false
+
+      - name: Install native build tools
+        uses: ./.github/actions/setup-native-tools
+
+      - name: Install pinned Clang and OpenMP
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libomp-18-dev
+          .github/scripts/install_ubuntu_clang.sh \
+            "${{ env.CLIFFT_LINUX_WHEEL_CLANG_VERSION }}" \
+            "$RUNNER_TEMP/clifft-clang"
+
+      - name: Select benchmark CPU
+        run: |
+          python3 - <<'PY'
+          import os
+
+          # Selecting the lowest allowed core is deterministic across all pairs.
+          core = min(os.sched_getaffinity(0))
+          with open(os.environ["GITHUB_ENV"], "a") as environment:
+              environment.write(f"BENCHMARK_CPU_CORE={core}\n")
+          PY
+
+      - name: Prepare fallback report
+        env:
+          BASE_LABEL: ${{ github.event.pull_request.base.ref }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          python3 tools/ci/benchmark_canary.py failure \
+            --output canary-results/report.md \
+            --base-label "$BASE_LABEL" \
+            --base-sha "$BASE_SHA" \
+            --head-sha "$HEAD_SHA"
+
+      - name: Build and run paired benchmarks
+        id: benchmark
+        continue-on-error: true
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p canary-bin canary-results
+
+          build_benchmarks() {
+            local revision="$1"
+            local output="$2"
+            git -C benchmark-source checkout --detach --force "$revision"
+            cmake -E remove_directory benchmark-build
+            cmake -S benchmarks -B benchmark-build \
+              -DCLIFFT_SOURCE_DIR="$GITHUB_WORKSPACE/benchmark-source" \
+              -DCMAKE_BUILD_TYPE="$CMAKE_BUILD_TYPE" \
+              -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+              -DCMAKE_INTERPROCEDURAL_OPTIMIZATION="$CLIFFT_INTERPROCEDURAL_OPTIMIZATION" \
+              -DCLIFFT_OPENMP="$CLIFFT_OPENMP" \
+              -DCLIFFT_CPU_BASELINE="$CLIFFT_CPU_BASELINE"
+            cmake --build benchmark-build --target clifft_benchmarks --parallel
+            grep --quiet -- '-flto=thin' benchmark-build/compile_commands.json
+            grep --quiet -- '-fuse-ld=lld' benchmark-build/build.ninja
+            cmake -E copy benchmark-build/clifft_benchmarks "$output"
+          }
+
+          build_benchmarks "$BASE_SHA" canary-bin/base
+          build_benchmarks "$HEAD_SHA" canary-bin/head
+
+          run_benchmarks() {
+            local executable="$1"
+            local output="$2"
+            local filter="$3"
+            local repetitions="$4"
+            local min_time="$5"
+            local warmup_time="$6"
+            taskset --cpu-list "$BENCHMARK_CPU_CORE" \
+              "$GITHUB_WORKSPACE/$executable" \
+              --benchmark_filter="$filter" \
+              --benchmark_min_time="${min_time}s" \
+              --benchmark_min_warmup_time="$warmup_time" \
+              --benchmark_repetitions="$repetitions" \
+              --benchmark_out="$GITHUB_WORKSPACE/$output" \
+              --benchmark_out_format=json
+          }
+
+          # Consume process-wide first-use effects before collecting any evidence.
+          run_benchmarks \
+            canary-bin/base canary-results/warmup-base.json '.*' 1 0.1 0.1
+          run_benchmarks \
+            canary-bin/head canary-results/warmup-head.json '.*' 1 0.1 0.1
+
+          ./canary-bin/head --benchmark_list_tests=true > canary-results/benchmarks.txt
+          mapfile -t benchmarks < canary-results/benchmarks.txt
+          if (( ${#benchmarks[@]} == 0 )); then
+            echo "No benchmarks were registered" >&2
+            exit 1
+          fi
+          mkdir -p \
+            canary-results/base-first \
+            canary-results/head-first \
+            canary-results/head-second \
+            canary-results/base-second
+          for benchmark in "${benchmarks[@]}"; do
+            if [[ ! "$benchmark" =~ ^[a-z0-9_]+$ ]]; then
+              echo "Unsupported benchmark name: $benchmark" >&2
+              exit 1
+            fi
+            filter="^${benchmark}$"
+            run_benchmarks \
+              canary-bin/base "canary-results/base-first/${benchmark}.json" \
+              "$filter" "$BENCHMARK_REPETITIONS" "$BENCHMARK_MIN_TIME" "$BENCHMARK_WARMUP_TIME"
+            run_benchmarks \
+              canary-bin/head "canary-results/head-first/${benchmark}.json" \
+              "$filter" "$BENCHMARK_REPETITIONS" "$BENCHMARK_MIN_TIME" "$BENCHMARK_WARMUP_TIME"
+            run_benchmarks \
+              canary-bin/head "canary-results/head-second/${benchmark}.json" \
+              "$filter" "$BENCHMARK_REPETITIONS" "$BENCHMARK_MIN_TIME" "$BENCHMARK_WARMUP_TIME"
+            run_benchmarks \
+              canary-bin/base "canary-results/base-second/${benchmark}.json" \
+              "$filter" "$BENCHMARK_REPETITIONS" "$BENCHMARK_MIN_TIME" "$BENCHMARK_WARMUP_TIME"
+          done
+
+      - name: Render comparison
+        id: report
+        if: steps.benchmark.outcome == 'success'
+        continue-on-error: true
+        env:
+          BASE_LABEL: ${{ github.event.pull_request.base.ref }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          python3 tools/ci/benchmark_canary.py report \
+            --output canary-results/report.md \
+            --base-label "$BASE_LABEL" \
+            --base-sha "$BASE_SHA" \
+            --head-sha "$HEAD_SHA" \
+            --base-first canary-results/base-first \
+            --head-first canary-results/head-first \
+            --head-second canary-results/head-second \
+            --base-second canary-results/base-second \
+            --repetitions "$BENCHMARK_REPETITIONS" \
+            --min-time "$BENCHMARK_MIN_TIME" \
+            --warmup-time "$BENCHMARK_WARMUP_TIME" \
+            --cpu-core "$BENCHMARK_CPU_CORE"
+
+      - name: Report canary infrastructure failure
+        if: >-
+          steps.benchmark.outcome == 'failure' ||
+          steps.report.outcome == 'failure'
+        run: echo "::warning::The performance canary could not produce a comparison"
+
+      - name: Add report to workflow summary
+        if: always()
+        run: cat canary-results/report.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload benchmark evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-canary-${{ github.event.pull_request.number }}
+          path: canary-results/
+          retention-days: 7
+
+  comment:
+    name: update PR comment
+    needs: benchmark
+    if: >-
+      always() &&
+      needs.benchmark.result == 'success' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Download benchmark evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: performance-canary-${{ github.event.pull_request.number }}
+          path: canary-results
+
+      - name: Create or update sticky comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const marker = '<!-- clifft-performance-canary -->';
+            const body = fs.readFileSync('canary-results/report.md', 'utf8');
+            if (!body.includes(marker)) {
+              core.setFailed('Benchmark report is missing its identity marker');
+              return;
+            }
+
+            const issue_number = context.issue.number;
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number,
+              per_page: 100,
+            });
+            const existing = comments.find(comment =>
+              comment.user?.login === 'github-actions[bot]' && comment.body?.includes(marker)
+            );
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number,
+                body,
+              });
+            }

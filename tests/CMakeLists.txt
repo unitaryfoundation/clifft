@@ -5,7 +5,6 @@ include(CTest)
 include(Catch)
 
 add_executable(clifft_tests
-    test_benchmarks.cc
     test_bitmask.cc
     test_batch_bits.cc
     test_batch_executor.cc
@@ -52,7 +51,6 @@ target_link_libraries(clifft_tests PRIVATE
     Catch2::Catch2WithMain
 )
 
-# Provide absolute path to test fixture files so benchmarks work from any cwd.
 target_compile_definitions(clifft_tests PRIVATE
     CLIFFT_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures"
     CLIFFT_DOCS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../docs"

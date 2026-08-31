@@ -48,12 +48,11 @@ jobs:
       - name: Build C++
         run: cmake --build build --parallel
 
-      - name: Run C++ tests under TSan (skip benchmarks)
+      - name: Run C++ tests under TSan
         run: |
           ctest --test-dir build \
             --output-on-failure \
-            --timeout 600 \
-            -E "Bench"
+            --timeout 600
 
   asan-ubsan:
     name: ASan and UBSan OpenMP ${{ matrix.openmp }}
@@ -95,9 +94,8 @@ jobs:
       - name: Build C++
         run: cmake --build build --parallel
 
-      - name: Run C++ tests under ASan and UBSan (skip benchmarks)
+      - name: Run C++ tests under ASan and UBSan
         run: |
           ctest --test-dir build \
             --output-on-failure \
-            --timeout 600 \
-            -E "Bench"
+            --timeout 600

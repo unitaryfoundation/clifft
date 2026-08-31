@@ -234,6 +234,14 @@ include(cmake/FetchFastFloat.cmake)
 # Build the core library
 add_subdirectory(src/clifft)
 
+# Native performance benchmarks are isolated from the correctness suite and
+# omitted from ordinary source and package builds.
+option(CLIFFT_BUILD_BENCHMARKS "Build the native performance benchmark harness" OFF)
+if(CLIFFT_BUILD_BENCHMARKS)
+    include(cmake/FetchGoogleBenchmark.cmake)
+    add_subdirectory(benchmarks)
+endif()
+
 # Python bindings (only when building via scikit-build-core)
 if(SKBUILD)
     add_subdirectory(src/python)

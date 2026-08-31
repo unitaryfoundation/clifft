@@ -228,8 +228,7 @@ jobs:
             --build-config ${{ env.CMAKE_BUILD_TYPE }} \
             --output-on-failure \
             --parallel \
-            --timeout 300 \
-            -E "Bench"
+            --timeout 300
         shell: bash
 
       - name: Run C++ tests (scalar ISA)
@@ -240,8 +239,7 @@ jobs:
             --build-config ${{ env.CMAKE_BUILD_TYPE }} \
             --output-on-failure \
             --parallel \
-            --timeout 300 \
-            -E "Bench"
+            --timeout 300
         shell: bash
 
       - name: Run C++ tests (avx2 ISA)
@@ -253,8 +251,7 @@ jobs:
             --build-config ${{ env.CMAKE_BUILD_TYPE }} \
             --output-on-failure \
             --parallel \
-            --timeout 300 \
-            -E "Bench"
+            --timeout 300
         shell: bash
 
       # Supplemental host-dependent coverage: runner CPU models vary, so
@@ -270,8 +267,7 @@ jobs:
             --build-config ${{ env.CMAKE_BUILD_TYPE }} \
             --output-on-failure \
             --parallel \
-            --timeout 300 \
-            -E "Bench"
+            --timeout 300
         shell: bash
 
       - name: Install Python package
@@ -369,8 +365,7 @@ jobs:
             --build-config ${{ env.CMAKE_BUILD_TYPE }} \
             --output-on-failure \
             --parallel \
-            --timeout 300 \
-            -E "Bench"
+            --timeout 300
         shell: bash
 
       - name: Setup uv and Python
@@ -473,8 +468,7 @@ jobs:
             --build-config ${{ env.CMAKE_BUILD_TYPE }} \
             --output-on-failure \
             --parallel \
-            --timeout 300 \
-            -E "Bench"
+            --timeout 300
         shell: bash
 
   # Build and test the repaired manylinux artifacts on every pull request.
@@ -681,14 +675,13 @@ jobs:
         if: runner.os == 'Windows'
         run: ccache -sv
 
-      - name: Run C++ tests (skip benchmarks on cross-platform)
+      - name: Run C++ tests
         run: |
           ctest --test-dir build \
             --build-config ${{ env.CMAKE_BUILD_TYPE }} \
             --output-on-failure \
             --parallel \
-            --timeout 300 \
-            -E "Bench"
+            --timeout 300
         shell: bash
 
       - name: Install Python package
