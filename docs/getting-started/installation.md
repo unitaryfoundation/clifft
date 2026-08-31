@@ -63,3 +63,6 @@ and then requesting intra-shot threads in the child can hang in some OpenMP
 runtimes.
 
 See [Building from Source](../development/building.md) for the full development setup.
+
+Next, follow the [Quick Start](quickstart.md) or choose a path from
+[Circuit Inputs and Integrations](integrations.md).

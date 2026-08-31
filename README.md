@@ -97,22 +97,21 @@ result = clifft.sample(program, shots=1000, seed=42)
 print(result.measurements[:5])
 ```
 
-For more details and examples, check out the [documentation](https://unitaryfoundation.github.io/clifft) or take Clifft for a spin in the web-based [interactive playground](https://unitaryfoundation.github.io/clifft/playground/).
+Continue with the [Quick Start](https://unitaryfoundation.github.io/clifft/stable/getting-started/quickstart/),
+or use [Choose a Workflow](https://unitaryfoundation.github.io/clifft/stable/getting-started/choosing-a-workflow/)
+to select an API by the result you need. You can also try Clifft in the
+web-based [interactive playground](https://unitaryfoundation.github.io/clifft/playground/).
 
-## Front-End Integrations
+## Circuit Inputs and Integrations
 
-Clifft's native API accepts Stim-compatible circuit text. If your workflow
-starts in another circuit framework, companion packages make the supported path
-discoverable:
+| Starting point | Path |
+|---|---|
+| Stim-compatible text | Use the native `clifft` API for the broadest feature support. |
+| Unitary OpenQASM 2 text | Pass `input_format="qasm2"` to `clifft.compile()`. |
+| Qiskit `QuantumCircuit` | Use [`clifft-qiskit`](https://github.com/unitaryfoundation/clifft-qiskit), a Qiskit `BackendV2` provider. |
+| Cirq `cirq.Circuit` | Use [`clifft-cirq`](https://github.com/unitaryfoundation/clifft-cirq), a converter and Cirq-style sampler. |
 
-- **Qiskit**: [`clifft-qiskit`](https://github.com/unitaryfoundation/clifft-qiskit)
-  provides a Qiskit `BackendV2` provider for running supported
-  `QuantumCircuit` instances on Clifft.
-- **Cirq**: [`clifft-cirq`](https://github.com/unitaryfoundation/clifft-cirq)
-  converts parameter-resolved `cirq.Circuit` instances to Clifft text and
-  provides a Cirq-style sampler backed by Clifft.
-
-See the [front-end integrations guide](https://unitaryfoundation.github.io/clifft/stable/getting-started/integrations/)
+See [Circuit Inputs and Integrations](https://unitaryfoundation.github.io/clifft/stable/getting-started/integrations/)
 for installation commands, minimal examples, and current limitations.
 
 ## Citation

@@ -97,9 +97,12 @@ nav:
     - Installation: getting-started/installation.md
     - Quick Start: getting-started/quickstart.md
     - Choose a Workflow: getting-started/choosing-a-workflow.md
-    - Front-End Integrations:
+    - Circuit Inputs:
       - Overview: getting-started/integrations.md
+      - Stim-Compatible Text: getting-started/stim-input.md
       - OpenQASM 2: getting-started/openqasm2.md
+      - Qiskit: getting-started/qiskit.md
+      - Cirq: getting-started/cirq.md
   - User Guide:
     - Compiling Circuits: guide/compilation.md
     - Simulation: guide/simulation.md

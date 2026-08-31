@@ -79,9 +79,10 @@ print(result.measurements[:5])  # First 5 shots.
 
     Multi-level optimization passes reduce active state-vector work before execution.
 
-- **Qiskit and Cirq Integrations**
+- **Multiple Circuit Inputs**
 
-    Run supported circuits from Qiskit or Cirq through companion packages without hand-writing Clifft circuit text.
+    Use native Stim-compatible text, unitary OpenQASM 2, or supported circuits
+    from Qiskit and Cirq companion packages.
 
 - **Active-Width Scaling**
 
@@ -101,9 +102,13 @@ For QEC workflows, Clifft also supports detector-based post-selection, survivor 
 
 [Install Clifft](getting-started/installation.md){ .md-button .md-button--primary }
 
-[Try the Playground]({{ playground_url }}){ .md-button }
+[Quick Start](getting-started/quickstart.md){ .md-button .md-button--primary }
 
-[Use Qiskit or Cirq](getting-started/integrations.md){ .md-button }
+[Choose a Workflow](getting-started/choosing-a-workflow.md){ .md-button }
+
+[Bring Your Circuit](getting-started/integrations.md){ .md-button }
+
+[Try the Playground]({{ playground_url }}){ .md-button }
 
 ## What's New in 0.9.0
 
