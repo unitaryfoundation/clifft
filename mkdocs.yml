@@ -105,10 +105,10 @@ nav:
       - Cirq: getting-started/cirq.md
   - User Guide:
     - Compiling Circuits: guide/compilation.md
-    - Simulation: guide/simulation.md
+    - Sampling and Results: guide/simulation.md
     - Leakage and Loss: guide/leakage-and-loss.md
     - Performance: guide/performance.md
-    - "Tutorial: Strong Simulation": guide/strong-simulation.md
+    - Exact Probabilities: guide/strong-simulation.md
     - "Tutorial: Surface Code": guide/surface-code.md
     - "Tutorial: Delayed Loss": guide/delayed-loss.md
     - "Tutorial: Importance Sampling": guide/importance-sampling.md

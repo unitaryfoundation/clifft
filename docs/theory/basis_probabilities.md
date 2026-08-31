@@ -215,6 +215,6 @@ For circuits ending in measurements (with or without classical feedback),
 [`clifft.record_probabilities()`](../guide/strong-simulation.md)
 returns the exact joint probability of a given measurement record. For
 broader workflows that include noise or post-selection, use
-[sampling](../guide/simulation.md#sampling), or
+[sampling](../guide/simulation.md#ordinary-sampling), or
 [`DropNonUnitaryPass`](../reference/passes.md) if you intentionally want
 to query the unitary skeleton of a mixed circuit.

@@ -1,22 +1,23 @@
-# Simulation
+# Sampling and Results
 
 !!! tip "Not sure which API to use?"
     Start with [Choose a Workflow](../getting-started/choosing-a-workflow.md).
 
-This simulation guide describes workflows and their results. Batching,
-threading, and hardware backends are separate execution choices.
+This page covers the common fixed-plan sampling workflows:
 
-Clifft runs compiled programs through the following simulation APIs:
+- Use `clifft.sample()` when every requested shot should produce one output row.
+- Compile with a detector `postselection_mask` and use
+  `clifft.sample_survivors()` when rejected shots must be discarded.
 
-- `sample()` for ordinary shot-based sampling
-- [`noncomp.sample()`](leakage-and-loss.md) for leakage and loss trajectories
-- `sample_survivors()` for post-selected sampling
-- `basis_probabilities()` for exact computational-basis probabilities of a unitary program
-- `record_probabilities()` for exact joint probabilities of measurement records
-- `get_statevector()` for inspecting small pure-unitary final states
-- `sample_k()` and `sample_k_survivors()` for stratified importance sampling
+Both functions consume the reusable `Program` returned by `clifft.compile()`
+and return a `SampleResult`. Exact queries, fixed-fault importance sampling,
+and noncomputational trajectories are separate scientific workflows linked
+under [Specialized workflows](#specialized-workflows).
 
-## Sampling
+Batching, threading, and hardware backends are execution choices. They do not
+change which sampling function matches the circuit semantics.
+
+## Ordinary Sampling
 
 `clifft.sample()` runs a compiled program for multiple shots and returns a `SampleResult` with measurement, detector, and observable outcomes:
 
@@ -55,59 +56,7 @@ Terminology follows Stim's model:
 
 All three are returned per shot. Detectors and observables are empty arrays when the circuit does not declare them.
 
-## State Vector Extraction
-
-For debugging and small pure-unitary circuits, `get_statevector()` returns the final dense state vector:
-
-```python
-import clifft
-
-program = clifft.compile("""
-    H 0
-    CNOT 0 1
-""")
-
-sv = clifft.get_statevector(program)
-
-print(sv)  # [0.707+0j, 0+0j, 0+0j, 0.707+0j]
-```
-
-!!! warning "State vector extraction is for small circuits"
-    `get_statevector()` expands Clifft's factored representation into a dense
-    $2^n$ state vector over all physical qubits. This is useful for debugging
-    and validation, but it is not the scalable simulation path. The returned
-    vector is normalized and defined only up to global phase: relative
-    amplitudes and phases are preserved, but the global phase may vary across
-    equivalent source circuits, compiler pass configurations, or Clifft
-    versions. The current dense expansion is limited to 10 qubits.
-
-## Exact Probabilities
-
-Clifft offers two exact-probability APIs:
-
-- **`clifft.basis_probabilities(program, bitstrings)`** — computational-basis
-  probabilities for a unitary program.
-- **`clifft.record_probabilities(program, records)`** — joint probabilities
-  of measurement records for a unitary circuit that has measurements (no
-  noise).
-
-```python
-import clifft
-
-unitary = clifft.compile("H 0\nCNOT 0 1")
-ps = clifft.basis_probabilities(unitary, ["00", "01", "10", "11"])
-print(ps)  # [0.5, 0.0, 0.0, 0.5]
-
-measured = clifft.compile("H 0\nCNOT 0 1\nM 0 1")
-qs = clifft.record_probabilities(measured, ["00", "01", "10", "11"])
-print(qs)  # [0.5, 0.0, 0.0, 0.5]
-```
-
-See [Strong Simulation: Exact Probabilities](strong-simulation.md) for
-walkthroughs of both APIs, their limitations, and how their runtime cost
-depends on the circuit.
-
-## Detectors, Observables, and Post-Selection
+## Detectors and Observables
 
 Circuits with `DETECTOR` and `OBSERVABLE_INCLUDE` annotations automatically produce detector and observable results alongside measurements:
 
@@ -169,7 +118,7 @@ program = clifft.compile(
 See [Compiling Circuits](compilation.md#reference-syndrome-computation) for
 computing reference syndromes directly.
 
-### Post-Selection / Survivor Sampling
+## Post-Selection / Survivor Sampling
 
 For circuits with post-selection, compile with a `postselection_mask` and sample with `sample_survivors()`. The mask has one entry per detector: set `mask[i] = 1` to discard shots where detector `i` fires.
 
@@ -200,7 +149,9 @@ The returned `SampleResult` object contains:
 - `logical_errors` — count of logical errors
 - `observable_ones` — NumPy array of per-observable error counts
 
-Pass `keep_records=True` to also get the raw `detectors` and `observables` arrays for surviving shots.
+With the default `keep_records=False`, the per-shot `.measurements`,
+`.detectors`, `.observables`, and `.exp_vals` arrays are empty. Pass
+`keep_records=True` to retain those arrays with one row per surviving shot.
 
 Post-selection is implemented as survivor sampling. Marked detectors are checked during execution, and shots are discarded as soon as Clifft can determine that they fail the post-selection condition. This avoids spending full simulation time on shots that cannot contribute to the surviving sample.
 
@@ -249,13 +200,22 @@ Set an explicit seed when exact replay is useful for debugging or tests. If
 `seed` is omitted or set to `None`, Clifft uses operating-system entropy; this
 is normally preferable for independent production simulations.
 
-Seeded replay is guaranteed within the same sampling mode and configuration.
+Seeded replay is guaranteed within the same sampling workflow and execution
+configuration.
 Changing the thread count alone does not change its rows, but scalar and packed
 execution use separate random streams, and different packed capacities may do
-so as well. Results from every supported sampling mode remain statistically
-equivalent.
+so as well. Results from every supported execution strategy remain
+statistically equivalent.
 
-## Packed Batch Sampling
+## Advanced CPU Execution
+
+Most users can stop after choosing `sample()` or `sample_survivors()` and keep
+the execution defaults. The settings below tune how supported workflows run on
+the CPU; they do not change the workflow or result contract. A dedicated
+advanced execution guide will collect these controls as the backend
+documentation evolves.
+
+### Packed Batch Sampling
 
 Batching and multithreading are independent forms of parallelism. A packed
 batch stores several shots together so one CPU SIMD instruction can operate on
@@ -308,7 +268,7 @@ sampling. Current limitations are:
 These restrictions do not remove the corresponding scalar or trajectory
 functionality. `batch_size=1` selects the existing scalar fixed-plan executor.
 
-## Parallel Sampling
+### Parallel Sampling
 
 `sample()`, `sample_survivors()`, `sample_k()`, `sample_k_survivors()`, and
 [`noncomp.sample()`](leakage-and-loss.md) accept a `threads` argument. It defaults
@@ -384,26 +344,43 @@ this storage.
 Noncomputational workers also own their trajectory continuations and compile
 new continuations independently as their shots encounter jumps.
 
-## Importance Sampling (Forced k-Faults)
+## Specialized Workflows
 
-For circuits where logical errors are rare, standard Monte Carlo can require an impractical number of shots. Clifft provides stratified importance sampling via `sample_k` and `sample_k_survivors`, which force exactly `k` physical faults per shot. Results from different `k` strata must be combined using the corresponding Poisson-binomial probability $P(K = k)$.
+These workflows answer different scientific questions. They are not CPU
+execution modes, and their compatibility rules determine which API to call.
 
-<!--pytest.mark.skip-->
+### State Vector Extraction
 
-```python
-import clifft
+`clifft.get_statevector()` expands the final pure unitary state over all
+physical qubits. It is a debugging and validation path, is currently limited to
+10 qubits, and returns the state only up to global phase. See the
+[Quick Start](../getting-started/quickstart.md#state-vector-access) for a minimal
+example.
 
-result = clifft.sample_k_survivors(prog, shots=50_000, k=3, seed=42)
-# Returns SampleResult with survivor metadata and surviving-shot arrays
-```
+### Exact Probabilities
 
-Key API:
+Use `clifft.basis_probabilities()` to query computational-basis probabilities
+for a unitary program without measurements. Use
+`clifft.record_probabilities()` for exact joint probabilities of measurement
+records in a noiseless circuit. Both reject noise, detectors, observables, and
+post-selection. See [Strong Simulation: Exact Probabilities](strong-simulation.md)
+for examples, detailed limits, and cost tradeoffs.
 
-- **`clifft.sample_k(program, shots, k, seed=None, threads=1, thread_layout=None, intra_shot_min_active_width=None, batch_size="auto")`** -- Like `sample()`, but forces exactly `k` faults. Only valid for programs without post-selection; post-selected programs must use `sample_k_survivors()`. Returns a `SampleResult` with `.measurements`, `.detectors`, and `.observables`.
-- **`clifft.sample_k_survivors(program, shots, k, seed=None, keep_records=False, threads=1, thread_layout=None, intra_shot_min_active_width=None, batch_size="auto")`** -- Like `sample_survivors()`, but forces exactly `k` faults. Returns a `SampleResult` whose arrays contain only surviving shots plus survivor metadata.
-- **`program.noise_site_probabilities`** -- 1D NumPy array of per-site fault probabilities, with quantum noise sites followed by readout noise entries. Use this for computing the Poisson-binomial PMF.
+### Importance Sampling (Forced k-Faults)
 
-See the [Importance Sampling Tutorial](importance-sampling.md) for a complete walkthrough.
+`clifft.sample_k()` and `clifft.sample_k_survivors()` condition every shot on
+exactly `k` physical faults. Use the survivor variant when the program has a
+post-selection mask. Results from different strata must be combined with their
+fault-count probabilities; a single stratum is not an unconditional error-rate
+estimate. See the [Importance Sampling Tutorial](importance-sampling.md) for the
+complete statistical workflow.
+
+### Leakage and Loss Trajectories
+
+Experimental `clifft.noncomp.sample()` accepts a circuit and noncomputational
+model together. It compiles trajectory-specific continuations internally, so
+there is no separate `clifft.compile()` step. See
+[Leakage and Loss](leakage-and-loss.md) for supported models and limits.
 
 ## Performance and Limits
 

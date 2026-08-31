@@ -19,10 +19,11 @@ substantially — see
 
 | Your circuit… | Use |
 |---|---|
-| has no measurements | `basis_probabilities()` |
-| has any measurement (terminal or intermediate) | `record_probabilities()` |
-| has classical feedback (`CX rec[-1] q`, etc.) | `record_probabilities()` |
-| has noise, detectors, observables, or post-selection | neither — use `sample()` |
+| has post-selection | neither exact API - use `sample_survivors()` |
+| has noise, detectors, or observables | neither exact API - use `sample()` |
+| has no measurements or other non-unitary operations | `basis_probabilities()` |
+| has measurements but no noise, detectors, observables, or post-selection | `record_probabilities()` |
+| has classical feedback but no other unsupported construct | `record_probabilities()` |
 
 ## `basis_probabilities()`: probabilities of a unitary state
 
@@ -338,7 +339,7 @@ default.
 Both APIs reject programs that include noise, readout noise, detectors,
 observables, or post-selection. These constructs make the trajectory
 multi-valued or signal-conditioned in a way neither API models. Use
-[`sample()`](simulation.md#sampling) or
+[`sample()`](simulation.md#ordinary-sampling) or
 [`sample_survivors()`](simulation.md) for those workflows.
 
 `basis_probabilities()` additionally rejects programs that contain any
