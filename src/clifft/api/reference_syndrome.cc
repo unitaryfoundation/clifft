@@ -22,7 +22,7 @@ ReferenceSyndrome compute_reference_syndrome(const HirModule& hir) {
         return ref;
     }
 
-    // A fixed seed keeps the single reference shot deterministic.
+    // A fixed seed makes the single reference shot reproducible across calls.
     auto clean_res = sampling::sample(clean_program, 1, uint64_t{0});
     ref.detectors = std::move(clean_res.detectors);
     ref.observables = std::move(clean_res.observables);
