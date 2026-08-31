@@ -82,33 +82,35 @@ By default, detector and observable values are raw measurement parities. This ma
 
 Use `normalize_syndromes=True` at compile time to XOR detector and observable outputs against a noiseless reference:
 
-<!--pytest.mark.skip-->
-
 ```python
 import clifft
 
 program = clifft.compile(
-    circuit_text,
+    "X 0\nM 0\nDETECTOR rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]",
     normalize_syndromes=True,
 )
 
-result = clifft.sample(program, shots=10000, seed=42)
+result = clifft.sample(program, shots=10, seed=42)
+assert not result.detectors.any()
+assert not result.observables.any()
 ```
 
 This is often useful before passing detector data to decoders. It also composes with post-selection: detectors that fire in the noiseless reference will not cause spurious discards after normalization.
 
 You can also supply explicit reference parities if you've computed them yourself:
 
-<!--pytest.mark.skip-->
-
 ```python
 import clifft
 
 program = clifft.compile(
-    circuit_text,
-    expected_detectors=[1, 0, 0, 1],
+    "X 0\nM 0\nDETECTOR rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]",
+    expected_detectors=[1],
     expected_observables=[1],
 )
+
+result = clifft.sample(program, shots=10, seed=42)
+assert not result.detectors.any()
+assert not result.observables.any()
 ```
 
 !!! note
@@ -127,16 +129,15 @@ For circuits with post-selection, compile with a `postselection_mask` and sample
     It is not bit-packed. If you are converting a bit-packed Sinter mask, unpack
     it first with `numpy.unpackbits(..., count=num_det, bitorder="little")`.
 
-<!--pytest.mark.skip-->
-
 ```python
 import clifft
 
-# Mark detectors 0 and 2 for post-selection
-program = clifft.compile(circuit_text, postselection_mask=[1, 0, 1])
+program = clifft.compile(
+    "H 0\nM 0\nDETECTOR rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]",
+    postselection_mask=[1],
+)
 
-# Only returns stats for shots that pass post-selection
-result = clifft.sample_survivors(program, shots=1_000_000, seed=42)
+result = clifft.sample_survivors(program, shots=10_000, seed=42)
 print(f"Survival rate: {result.passed_shots / result.total_shots:.4f}")
 print(f"Logical errors: {result.logical_errors}")
 ```
@@ -220,15 +221,16 @@ tradeoffs.
 ## Specialized Workflows
 
 These workflows answer different scientific questions. They are not CPU
-execution modes, and their compatibility rules determine which API to call.
+execution strategies, and their compatibility rules determine which API to
+call.
 
 ### State Vector Extraction
 
 `clifft.get_statevector()` expands the final pure unitary state over all
 physical qubits. It is a debugging and validation path, is currently limited to
-10 qubits, and returns the state only up to global phase. See the
-[Quick Start](../getting-started/quickstart.md#state-vector-access) for a minimal
-example.
+10 qubits, and returns the state only up to global phase. See
+[`clifft.get_statevector()`](../reference/python-api.md#clifft.get_statevector)
+for the API contract.
 
 ### Exact Probabilities
 

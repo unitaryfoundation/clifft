@@ -16,9 +16,9 @@ and launch controls do not leak into the stable CPU contract.
 
 | Backend | Status | Selection | Distribution |
 |---|---|---|---|
-| CPU | Stable default | `clifft.compile()` and the ordinary sampling APIs | Published wheels and source builds |
-| AMD HIP | Experimental | Explicit `clifft.experimental.hip` API | HIP-enabled source build only |
-| NVIDIA CUDA | Planned, not implemented | No API or automatic selection | Not available |
+{% for backend in workflow_contracts['backends'] -%}
+| {{ backend['name'] }} | {{ backend['status'] }} | {{ backend['selection'] }} | {{ backend['distribution'] }} |
+{% endfor %}
 
 CUDA will receive its own explicit experimental boundary when an implementation
 exists. The HIP API and current capabilities should not be interpreted as a
@@ -28,17 +28,9 @@ CUDA support promise.
 
 | Workflow or feature | Stable CPU | Experimental HIP |
 |---|---|---|
-| Ordinary fixed-row sampling | Supported | Supported for eligible programs |
-| Post-selected survivor sampling | Supported | Supported for eligible programs |
-| Measurements, detectors, observables, and `EXP_VAL` | Supported | Supported |
-| Pauli and readout noise | Supported | Supported |
-| Fixed-fault importance sampling | Supported | Not supported |
-| Leakage, loss, and transition instruments | Experimental CPU trajectory workflow | Not supported |
-| `basis_probabilities()`, `record_probabilities()`, and `get_statevector()` | Supported subject to each API contract | Not supported through these APIs |
-| Forced-record replay | Used by CPU exact-query internals | Experimental `Sampler.replay_shot()` |
-| Peak active width | Memory-limited CPU execution | `k <= 4` |
-| Coefficient precision | FP64 | FP64 default; FP32 experimental |
-| Asynchronous or multi-GPU execution | Not exposed by the stable sampling API | Not supported |
+{% for capability in workflow_contracts['backend_capabilities'] -%}
+| {{ capability['feature'] }} | {{ capability['cpu'] }} | {{ capability['hip'] }} |
+{% endfor %}
 
 The current HIP tier uses one GPU thread per shot and targets workloads with
 small active states. It supports the existing prepared sampling actions for
@@ -158,7 +150,7 @@ aggregate survivor metadata and retains per-survivor rows only when
 ## Precision, Workspace, and Launch Controls
 
 FP64 coefficient evolution is the default. FP32 reduces coefficient storage
-and is a separate experimental numerical mode:
+and is a separate experimental precision configuration:
 
 ```python
 sampler = hip.Sampler(
@@ -171,7 +163,8 @@ print(sampler.allocated_device_bytes)
 ```
 
 Probability reductions, normalization factors, aggregate statistics, replay
-log-probabilities, and `EXP_VAL` outputs remain FP64 in both modes.
+log-probabilities, and `EXP_VAL` outputs remain FP64 in both precision
+configurations.
 
 - `max_batch_shots` bounds the retained device workspace. Larger requests are
   divided into synchronous launches that reuse it.

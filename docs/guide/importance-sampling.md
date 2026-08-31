@@ -352,7 +352,7 @@ The expert `intra_shot_min_active_width` override defaults to 18 and requires an
 explicit layout. `batch_size` follows the ordinary sampling policy: `"auto"`
 selects packed execution for suitable plans without postselection, `1` forces
 scalar execution, and a positive integer requests an explicit packed lane
-capacity. Automatic mode remains scalar for postselected survivor sampling;
+capacity. Automatic batching remains scalar for postselected survivor sampling;
 benchmark explicit capacities on the target workload and machine when packed
 execution may be beneficial.
 

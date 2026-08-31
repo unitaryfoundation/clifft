@@ -1,4 +1,4 @@
-"""MkDocs macros hook: loads compiler IR and pass metadata."""
+"""MkDocs macros hook: loads validated documentation metadata."""
 
 import json
 from pathlib import Path
@@ -12,6 +12,12 @@ def define_env(env: Any) -> None:
 
     with open(data_path) as f:
         data = json.load(f)
+
+    workflow_contracts_path = docs_dir / "workflow_contracts.json"
+    with open(workflow_contracts_path) as f:
+        workflow_contracts = json.load(f)
+
+    env.variables["workflow_contracts"] = workflow_contracts
 
     site_url = env.conf["site_url"].rstrip("/")
     env.variables["playground_url"] = f"{site_url}/playground/"

@@ -32,38 +32,24 @@ path does not select the simulation workflow or execution backend.
 
 ### Sample circuit outcomes
 
-- **I need an output row for every requested shot.** Use `clifft.compile()` and
-  `clifft.sample()` to obtain measurement, detector, observable, and expectation
-  value results. Start with the [Simulation guide](../guide/simulation.md).
-- **I need samples conditioned on post-selection.** Compile with a
-  `postselection_mask`, then use `clifft.sample_survivors()`. It returns survivor
-  counts and can optionally retain each survivor's records. See the
-  [post-selection workflow](../guide/simulation.md#post-selection-survivor-sampling).
-- **I need rare-event estimates conditioned on exactly `k` faults.** Use
-  `clifft.sample_k()` or `clifft.sample_k_survivors()`, then combine the
-  conditional results with the corresponding fault-count probabilities. This
-  is an advanced workflow covered by the
-  [Importance Sampling tutorial](../guide/importance-sampling.md).
+{% for workflow in workflow_contracts['workflows'] if workflow['group'] == 'sampling' %}
+- **{{ workflow['prompt'] }}** {{ workflow['route'] }} See
+  [{{ workflow['guide_label'] }}](../{{ workflow['guide'] }}).
+{% endfor %}
 
 ### Calculate exact probabilities
 
-- **My unitary circuit has no measurements.** Use
-  `clifft.basis_probabilities()` to query selected computational-basis outcomes
-  without constructing every output probability.
-- **My noiseless circuit includes measurements or classical feedback.** Use
-  `clifft.record_probabilities()` to query exact probabilities of selected
-  measurement records.
-
-Both APIs have circuit restrictions. The
-[Strong Simulation tutorial](../guide/strong-simulation.md) explains when to
-use each one.
+{% for workflow in workflow_contracts['workflows'] if workflow['group'] == 'exact' %}
+- **{{ workflow['prompt'] }}** {{ workflow['route'] }} See
+  [{{ workflow['guide_label'] }}](../{{ workflow['guide'] }}).
+{% endfor %}
 
 ### Model leakage or loss
 
-Use the experimental `clifft.noncomp.sample()` trajectory workflow for
-supported noncomputational transitions. It accepts a circuit and model together
-and compiles continuations internally. See
-[Leakage and Loss](../guide/leakage-and-loss.md) for the model and its limits.
+{% for workflow in workflow_contracts['workflows'] if workflow['group'] == 'specialized' %}
+- **{{ workflow['prompt'] }}** {{ workflow['route'] }} See
+  [{{ workflow['guide_label'] }}](../{{ workflow['guide'] }}).
+{% endfor %}
 
 ## 3. Choose performance options
 

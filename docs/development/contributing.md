@@ -71,6 +71,23 @@ uv run --frozen --only-group dev pre-commit run --all-files --show-diff-on-failu
 - **Type checker:** mypy (strict mode)
 - **Python version:** 3.12+
 
+### Documentation
+
+- Use **circuit input**, **simulation workflow**, **CPU execution strategy**,
+  and **hardware backend** for the separate choices described in
+  [Choose a Workflow](../getting-started/choosing-a-workflow.md).
+- Update `docs/workflow_contracts.json` when a workflow, public entry point, or
+  experimental backend capability changes. It renders the canonical chooser
+  and GPU tables and is checked against the Python API and HIP implementation.
+- Keep user-guide examples self-contained and executable. Use a code-block skip
+  only when an optional backend, external package, or companion repository owns
+  the runnable integration, and retain focused test coverage at that boundary.
+- Edit public API descriptions in their Python docstrings; the API reference is
+  generated from those signatures and docstrings.
+
+Run `just py-doctest` for examples and `just docs-build` for the strict site
+build before submitting documentation changes.
+
 ## Running Tests
 
 === "Python"
