@@ -24,7 +24,8 @@ jobs:
     permissions:
       actions: read
       contents: read
-      pull-requests: write
+      issues: write
+      pull-requests: read
     steps:
       - name: Resolve trusted workflow run metadata
         id: resolve

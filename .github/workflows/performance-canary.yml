@@ -284,7 +284,7 @@ jobs:
     timeout-minutes: 5
     permissions:
       contents: read
-      pull-requests: write
+      issues: write
     steps:
       - name: Download benchmark evidence
         uses: actions/download-artifact@v8
