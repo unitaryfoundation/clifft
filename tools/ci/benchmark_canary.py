@@ -20,6 +20,13 @@ COMMENT_MARKER = "<!-- clifft-performance-canary -->"
 MATERIAL_CHANGE_THRESHOLD = 0.05
 MAX_RELATIVE_STDDEV = 0.05
 POSSIBLE_CHANGE_THRESHOLD = 0.10
+CANARY_MANIFEST_SCHEMA = 1
+CANARY_REPETITIONS = 3
+CANARY_MIN_TIME = 0.5
+CANARY_WARMUP_TIME = 0.2
+MAX_MANIFEST_BYTES = 16 * 1024
+MAX_RESULT_BYTES = 1024 * 1024
+MAX_BENCHMARK_ROWS = 100
 BENCHMARK_SOURCE = Path(__file__).resolve().parents[2] / "benchmarks" / "clifft_benchmarks.cc"
 
 DISPLAY_NAMES = {
@@ -46,6 +53,7 @@ TIME_UNIT_TO_NS = {
 class BenchmarkEstimate:
     median_ns: float
     relative_stddev: float
+    sample_count: int
 
 
 @dataclass(frozen=True)
@@ -96,6 +104,8 @@ def parse_google_benchmarks(path: Path) -> dict[str, BenchmarkEstimate]:
         benchmarks = payload.get("benchmarks")
         if not isinstance(benchmarks, list):
             raise ValueError(f"malformed Google Benchmark output: {result_path}")
+        if len(benchmarks) > MAX_BENCHMARK_ROWS:
+            raise ValueError(f"too many Google Benchmark rows: {result_path}")
 
         repetitions: dict[str, list[float]] = defaultdict(list)
         for benchmark in benchmarks:
@@ -123,7 +133,7 @@ def parse_google_benchmarks(path: Path) -> dict[str, BenchmarkEstimate]:
             relative_stddev = (
                 statistics.stdev(values) / statistics.mean(values) if len(values) > 1 else 0
             )
-            results[name] = BenchmarkEstimate(median_ns, relative_stddev)
+            results[name] = BenchmarkEstimate(median_ns, relative_stddev, len(values))
 
     if not results:
         raise ValueError(f"no Google Benchmark results found: {path}")
@@ -357,6 +367,7 @@ def render_report(
     compiler: str | None = None,
     cpu_core: str | None = None,
     run_url: str | None = None,
+    benchmark_sha: str | None = None,
 ) -> str:
     lines = [
         COMMENT_MARKER,
@@ -386,7 +397,7 @@ def render_report(
             "|---|---:|---:|---:|---|",
         ]
     )
-    source_links = _benchmark_source_links(head_sha)
+    source_links = _benchmark_source_links(benchmark_sha or head_sha)
     for comparison in comparisons:
         name = DISPLAY_NAMES.get(comparison.name, comparison.name).replace("|", "\\|")
         if comparison.name in source_links:
@@ -406,10 +417,10 @@ def render_report(
             "<details>",
             "<summary>Environment and method</summary>",
             "",
-            f"- Runner CPU: {_environment_value(cpu, 'cpu')}",
-            f"- Pinned logical CPU: {cpu_core or 'unknown'}",
+            f"- Runner CPU: <code>{html.escape(_environment_value(cpu, 'cpu'))}</code>",
+            f"- Pinned logical CPU: <code>{html.escape(cpu_core or 'unknown')}</code>",
             "- ISA: AVX2 runtime backend (forced)",
-            f"- Compiler: {_environment_value(compiler, 'compiler')}",
+            f"- Compiler: <code>{html.escape(_environment_value(compiler, 'compiler'))}</code>",
             "- Build: Release, x86-64-v2, ThinLTO, lld, and OpenMP enabled.",
             f"- Each pass warms every workload for at least {warmup_time:g} seconds, then runs "
             f"{repetitions} Google Benchmark repetitions with at least {min_time:g} seconds of "
@@ -423,6 +434,8 @@ def render_report(
             "not establish release performance.",
         ]
     )
+    if benchmark_sha and benchmark_sha != head_sha:
+        lines.append("- Workloads and fixtures come from the base revision for fork isolation.")
     if added:
         lines.append(f"- Added in the PR and not compared: {', '.join(added)}")
     if removed:
@@ -444,12 +457,204 @@ def render_failure(
         "",
         "**The canary could not produce a comparison.** This does not block merging.",
         "",
-        f"Attempted to compare `{base_label}` (`{base_sha[:7]}`) with this PR (`{head_sha[:7]}`).",
+        f"Attempted to compare <code>{html.escape(base_label)}</code> "
+        f"(<code>{html.escape(base_sha[:7])}</code>) with this PR "
+        f"(<code>{html.escape(head_sha[:7])}</code>).",
     ]
     resolved_run_url = _run_url(run_url)
     if resolved_run_url:
         lines.extend(["", f"[View workflow run]({resolved_run_url})"])
     return "\n".join(lines) + "\n"
+
+
+def write_manifest(
+    path: Path,
+    *,
+    repository: str,
+    pr_number: int,
+    base_label: str,
+    base_sha: str,
+    head_repository: str,
+    head_sha: str,
+    run_id: int,
+    repetitions: int,
+    min_time: float,
+    warmup_time: float,
+    cpu_core: str,
+    cpu: str | None = None,
+    compiler: str | None = None,
+) -> None:
+    if (
+        repetitions != CANARY_REPETITIONS
+        or min_time != CANARY_MIN_TIME
+        or warmup_time != CANARY_WARMUP_TIME
+    ):
+        raise ValueError("benchmark settings do not match the trusted reporter")
+    payload = {
+        "schema": CANARY_MANIFEST_SCHEMA,
+        "repository": repository,
+        "pr_number": pr_number,
+        "base_label": base_label,
+        "base_sha": base_sha,
+        "head_repository": head_repository,
+        "head_sha": head_sha,
+        "run_id": run_id,
+        "repetitions": repetitions,
+        "min_time": min_time,
+        "warmup_time": warmup_time,
+        "cpu_core": cpu_core,
+        "cpu": _environment_value(cpu, "cpu"),
+        "compiler": _environment_value(compiler, "compiler"),
+    }
+    write_report(path, json.dumps(payload, indent=2, sort_keys=True) + "\n")
+
+
+def _validated_plain_text(value: object, field: str, max_length: int = 256) -> str:
+    if not isinstance(value, str) or not value or len(value) > max_length:
+        raise ValueError(f"invalid {field} in benchmark manifest")
+    if any(ord(character) < 0x20 or ord(character) > 0x7E for character in value):
+        raise ValueError(f"invalid {field} in benchmark manifest")
+    return value
+
+
+def _load_fork_manifest(
+    evidence: Path,
+    *,
+    expected_repository: str,
+    expected_pr_number: int,
+    expected_base_label: str,
+    expected_base_sha: str,
+    expected_head_repository: str,
+    expected_head_sha: str,
+    expected_run_id: int,
+) -> dict[str, object]:
+    manifest_path = evidence / "manifest.json"
+    if manifest_path.is_symlink() or not manifest_path.is_file():
+        raise ValueError("benchmark manifest is missing or is not a regular file")
+    if manifest_path.stat().st_size > MAX_MANIFEST_BYTES:
+        raise ValueError("benchmark manifest is too large")
+    payload = json.loads(manifest_path.read_text())
+    expected_fields = {
+        "schema",
+        "repository",
+        "pr_number",
+        "base_label",
+        "base_sha",
+        "head_repository",
+        "head_sha",
+        "run_id",
+        "repetitions",
+        "min_time",
+        "warmup_time",
+        "cpu_core",
+        "cpu",
+        "compiler",
+    }
+    if not isinstance(payload, dict) or set(payload) != expected_fields:
+        raise ValueError("benchmark manifest has an unexpected schema")
+
+    exact_values = {
+        "schema": CANARY_MANIFEST_SCHEMA,
+        "repository": expected_repository,
+        "pr_number": expected_pr_number,
+        "base_label": expected_base_label,
+        "base_sha": expected_base_sha,
+        "head_repository": expected_head_repository,
+        "head_sha": expected_head_sha,
+        "run_id": expected_run_id,
+        "repetitions": CANARY_REPETITIONS,
+        "min_time": CANARY_MIN_TIME,
+        "warmup_time": CANARY_WARMUP_TIME,
+    }
+    for field, expected in exact_values.items():
+        if type(payload[field]) is not type(expected) or payload[field] != expected:
+            raise ValueError(f"benchmark manifest {field} does not match the workflow run")
+
+    sha_pattern = re.compile(r"^[0-9a-f]{40}$")
+    if not sha_pattern.fullmatch(expected_base_sha) or not sha_pattern.fullmatch(expected_head_sha):
+        raise ValueError("workflow metadata contains an invalid commit SHA")
+    _validated_plain_text(payload["repository"], "repository")
+    _validated_plain_text(payload["base_label"], "base label")
+    _validated_plain_text(payload["head_repository"], "head repository")
+    cpu_core = _validated_plain_text(payload["cpu_core"], "CPU core", 16)
+    if not cpu_core.isdigit():
+        raise ValueError("invalid CPU core in benchmark manifest")
+    _validated_plain_text(payload["cpu"], "CPU", 256)
+    _validated_plain_text(payload["compiler"], "compiler", 512)
+    return payload
+
+
+def _validate_fork_results(path: Path, repetitions: int) -> None:
+    expected_names = set(DISPLAY_NAMES)
+    expected_files = {f"{name}.json" for name in expected_names}
+    if path.is_symlink() or not path.is_dir():
+        raise ValueError(f"benchmark evidence directory is missing: {path.name}")
+    entries = list(path.iterdir())
+    if {entry.name for entry in entries} != expected_files:
+        raise ValueError(f"benchmark evidence has an unexpected file set: {path.name}")
+    for result_path in entries:
+        if result_path.is_symlink() or not result_path.is_file():
+            raise ValueError(f"benchmark evidence is not a regular file: {result_path.name}")
+        if result_path.stat().st_size > MAX_RESULT_BYTES:
+            raise ValueError(f"benchmark evidence is too large: {result_path.name}")
+
+    estimates = parse_google_benchmarks(path)
+    if set(estimates) != expected_names:
+        raise ValueError(f"benchmark evidence has an unexpected workload set: {path.name}")
+    for name, estimate in estimates.items():
+        if estimate.sample_count != repetitions:
+            raise ValueError(f"benchmark {name!r} has an unexpected repetition count")
+
+
+def render_fork_report(
+    evidence: Path,
+    *,
+    expected_repository: str,
+    expected_pr_number: int,
+    expected_base_label: str,
+    expected_base_sha: str,
+    expected_head_repository: str,
+    expected_head_sha: str,
+    expected_run_id: int,
+    run_url: str,
+) -> str:
+    manifest = _load_fork_manifest(
+        evidence,
+        expected_repository=expected_repository,
+        expected_pr_number=expected_pr_number,
+        expected_base_label=expected_base_label,
+        expected_base_sha=expected_base_sha,
+        expected_head_repository=expected_head_repository,
+        expected_head_sha=expected_head_sha,
+        expected_run_id=expected_run_id,
+    )
+    result_directories = [
+        evidence / "base-first",
+        evidence / "head-first",
+        evidence / "head-second",
+        evidence / "base-second",
+    ]
+    for result_directory in result_directories:
+        _validate_fork_results(result_directory, CANARY_REPETITIONS)
+    comparisons, added, removed = compare_runs(*result_directories)
+    if added or removed:
+        raise ValueError("fork benchmark evidence changed the trusted workload set")
+    return render_report(
+        comparisons,
+        base_label=expected_base_label,
+        base_sha=expected_base_sha,
+        head_sha=expected_head_sha,
+        repetitions=CANARY_REPETITIONS,
+        min_time=CANARY_MIN_TIME,
+        warmup_time=CANARY_WARMUP_TIME,
+        added=added,
+        removed=removed,
+        cpu=str(manifest["cpu"]),
+        compiler=str(manifest["compiler"]),
+        cpu_core=str(manifest["cpu_core"]),
+        run_url=run_url,
+        benchmark_sha=expected_base_sha,
+    )
 
 
 def write_report(path: Path, content: str) -> None:
@@ -486,6 +691,35 @@ def main() -> None:
     report_parser.add_argument("--cpu")
     report_parser.add_argument("--compiler")
     report_parser.add_argument("--cpu-core")
+    report_parser.add_argument("--benchmark-sha")
+
+    manifest_parser = subparsers.add_parser("manifest")
+    manifest_parser.add_argument("--output", type=Path, required=True)
+    manifest_parser.add_argument("--repository", required=True)
+    manifest_parser.add_argument("--pr-number", type=int, required=True)
+    manifest_parser.add_argument("--base-label", required=True)
+    manifest_parser.add_argument("--base-sha", required=True)
+    manifest_parser.add_argument("--head-repository", required=True)
+    manifest_parser.add_argument("--head-sha", required=True)
+    manifest_parser.add_argument("--run-id", type=int, required=True)
+    manifest_parser.add_argument("--repetitions", type=int, required=True)
+    manifest_parser.add_argument("--min-time", type=float, required=True)
+    manifest_parser.add_argument("--warmup-time", type=float, required=True)
+    manifest_parser.add_argument("--cpu-core", required=True)
+    manifest_parser.add_argument("--cpu")
+    manifest_parser.add_argument("--compiler")
+
+    fork_report_parser = subparsers.add_parser("fork-report")
+    fork_report_parser.add_argument("--output", type=Path, required=True)
+    fork_report_parser.add_argument("--base-label", required=True)
+    fork_report_parser.add_argument("--base-sha", required=True)
+    fork_report_parser.add_argument("--head-sha", required=True)
+    fork_report_parser.add_argument("--run-url", required=True)
+    fork_report_parser.add_argument("--evidence", type=Path, required=True)
+    fork_report_parser.add_argument("--repository", required=True)
+    fork_report_parser.add_argument("--pr-number", type=int, required=True)
+    fork_report_parser.add_argument("--head-repository", required=True)
+    fork_report_parser.add_argument("--run-id", type=int, required=True)
     args = parser.parse_args()
 
     if args.command == "failure":
@@ -495,7 +729,8 @@ def main() -> None:
             head_sha=args.head_sha,
             run_url=args.run_url,
         )
-    else:
+        write_report(args.output, content)
+    elif args.command == "report":
         comparisons, added, removed = compare_runs(
             args.base_first, args.head_first, args.head_second, args.base_second
         )
@@ -513,8 +748,39 @@ def main() -> None:
             compiler=args.compiler,
             cpu_core=args.cpu_core,
             run_url=args.run_url,
+            benchmark_sha=args.benchmark_sha,
         )
-    write_report(args.output, content)
+        write_report(args.output, content)
+    elif args.command == "manifest":
+        write_manifest(
+            args.output,
+            repository=args.repository,
+            pr_number=args.pr_number,
+            base_label=args.base_label,
+            base_sha=args.base_sha,
+            head_repository=args.head_repository,
+            head_sha=args.head_sha,
+            run_id=args.run_id,
+            repetitions=args.repetitions,
+            min_time=args.min_time,
+            warmup_time=args.warmup_time,
+            cpu_core=args.cpu_core,
+            cpu=args.cpu,
+            compiler=args.compiler,
+        )
+    else:
+        content = render_fork_report(
+            args.evidence,
+            expected_repository=args.repository,
+            expected_pr_number=args.pr_number,
+            expected_base_label=args.base_label,
+            expected_base_sha=args.base_sha,
+            expected_head_repository=args.head_repository,
+            expected_head_sha=args.head_sha,
+            expected_run_id=args.run_id,
+            run_url=args.run_url,
+        )
+        write_report(args.output, content)
 
 
 if __name__ == "__main__":

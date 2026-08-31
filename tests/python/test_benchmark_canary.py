@@ -23,6 +23,11 @@ def _load_benchmark_canary_module():
 
 benchmark_canary = _load_benchmark_canary_module()
 
+REPOSITORY = "unitaryfoundation/clifft"
+HEAD_REPOSITORY = "contributor/clifft"
+BASE_SHA = "1" * 40
+HEAD_SHA = "2" * 40
+
 
 def _write_results(
     path: Path,
@@ -59,6 +64,37 @@ def _write_results(
             }
         )
     path.write_text(json.dumps({"context": {}, "benchmarks": benchmarks}))
+    return path
+
+
+def _write_fork_evidence(path: Path) -> Path:
+    path.mkdir()
+    for directory_name, multiplier in (
+        ("base-first", 1.0),
+        ("head-first", 1.1),
+        ("head-second", 1.1),
+        ("base-second", 1.0),
+    ):
+        directory = path / directory_name
+        directory.mkdir()
+        for index, name in enumerate(benchmark_canary.DISPLAY_NAMES, start=1):
+            _write_results(directory / f"{name}.json", {name: index * 100.0 * multiplier})
+    benchmark_canary.write_manifest(
+        path / "manifest.json",
+        repository=REPOSITORY,
+        pr_number=123,
+        base_label="main",
+        base_sha=BASE_SHA,
+        head_repository=HEAD_REPOSITORY,
+        head_sha=HEAD_SHA,
+        run_id=456,
+        repetitions=benchmark_canary.CANARY_REPETITIONS,
+        min_time=benchmark_canary.CANARY_MIN_TIME,
+        warmup_time=benchmark_canary.CANARY_WARMUP_TIME,
+        cpu_core="3",
+        cpu="Example CPU",
+        compiler="Example compiler",
+    )
     return path
 
 
@@ -107,7 +143,7 @@ def test_report_classifies_paired_changes(tmp_path: Path) -> None:
     assert "<summary>View 4 benchmark results</summary>" not in report
     assert "<sub>Compared <code>main</code> (<code>1234567</code>)" in report
     assert "Example CPU" in report
-    assert "Pinned logical CPU: 3" in report
+    assert "Pinned logical CPU: <code>3</code>" in report
     assert "Release, x86-64-v2, ThinLTO, lld" in report
     assert "[View workflow run](https://example.com/run)" in report
 
@@ -284,3 +320,131 @@ def test_parser_combines_one_benchmark_per_file(tmp_path: Path) -> None:
     _write_results(directory / "two.json", {"two": 200.0})
 
     assert set(benchmark_canary.parse_google_benchmarks(directory)) == {"one", "two"}
+
+
+def test_fork_report_validates_evidence_and_uses_base_workloads(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    evidence = _write_fork_evidence(tmp_path / "evidence")
+    monkeypatch.setenv("GITHUB_SERVER_URL", "https://github.example")
+    monkeypatch.setenv("GITHUB_REPOSITORY", REPOSITORY)
+
+    report = benchmark_canary.render_fork_report(
+        evidence,
+        expected_repository=REPOSITORY,
+        expected_pr_number=123,
+        expected_base_label="main",
+        expected_base_sha=BASE_SHA,
+        expected_head_repository=HEAD_REPOSITORY,
+        expected_head_sha=HEAD_SHA,
+        expected_run_id=456,
+        run_url="https://github.example/run/456",
+    )
+
+    assert "**Possible regression detected:** 9 of 9 benchmarks were at least 10% slower." in report
+    assert f"/{REPOSITORY}/blob/{BASE_SHA}/benchmarks/clifft_benchmarks.cc#L" in report
+    assert f"/{REPOSITORY}/blob/{HEAD_SHA}/benchmarks/clifft_benchmarks.cc#L" not in report
+    assert "<code>Example CPU</code>" in report
+    assert "Workloads and fixtures come from the base revision for fork isolation." in report
+    assert "[View workflow run](https://github.example/run/456)" in report
+
+
+def test_fork_report_rejects_manifest_not_bound_to_run(tmp_path: Path) -> None:
+    evidence = _write_fork_evidence(tmp_path / "evidence")
+    manifest_path = evidence / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["head_sha"] = "3" * 40
+    manifest_path.write_text(json.dumps(manifest))
+
+    with pytest.raises(ValueError, match="head_sha does not match"):
+        benchmark_canary.render_fork_report(
+            evidence,
+            expected_repository=REPOSITORY,
+            expected_pr_number=123,
+            expected_base_label="main",
+            expected_base_sha=BASE_SHA,
+            expected_head_repository=HEAD_REPOSITORY,
+            expected_head_sha=HEAD_SHA,
+            expected_run_id=456,
+            run_url="https://github.example/run/456",
+        )
+
+
+def test_fork_report_rejects_base_revision_not_bound_to_artifact(tmp_path: Path) -> None:
+    evidence = _write_fork_evidence(tmp_path / "evidence")
+    manifest_path = evidence / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["base_sha"] = "3" * 40
+    manifest_path.write_text(json.dumps(manifest))
+
+    with pytest.raises(ValueError, match="base_sha does not match"):
+        benchmark_canary.render_fork_report(
+            evidence,
+            expected_repository=REPOSITORY,
+            expected_pr_number=123,
+            expected_base_label="main",
+            expected_base_sha=BASE_SHA,
+            expected_head_repository=HEAD_REPOSITORY,
+            expected_head_sha=HEAD_SHA,
+            expected_run_id=456,
+            run_url="https://github.example/run/456",
+        )
+
+
+def test_fork_report_rejects_unexpected_workload_files(tmp_path: Path) -> None:
+    evidence = _write_fork_evidence(tmp_path / "evidence")
+    _write_results(evidence / "base-first" / "invented.json", {"invented": 100.0})
+
+    with pytest.raises(ValueError, match="unexpected file set"):
+        benchmark_canary.render_fork_report(
+            evidence,
+            expected_repository=REPOSITORY,
+            expected_pr_number=123,
+            expected_base_label="main",
+            expected_base_sha=BASE_SHA,
+            expected_head_repository=HEAD_REPOSITORY,
+            expected_head_sha=HEAD_SHA,
+            expected_run_id=456,
+            run_url="https://github.example/run/456",
+        )
+
+
+def test_fork_report_rejects_multiline_environment_text(tmp_path: Path) -> None:
+    evidence = _write_fork_evidence(tmp_path / "evidence")
+    manifest_path = evidence / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["compiler"] = "compiler\nforged report"
+    manifest_path.write_text(json.dumps(manifest))
+
+    with pytest.raises(ValueError, match="invalid compiler"):
+        benchmark_canary.render_fork_report(
+            evidence,
+            expected_repository=REPOSITORY,
+            expected_pr_number=123,
+            expected_base_label="main",
+            expected_base_sha=BASE_SHA,
+            expected_head_repository=HEAD_REPOSITORY,
+            expected_head_sha=HEAD_SHA,
+            expected_run_id=456,
+            run_url="https://github.example/run/456",
+        )
+
+
+def test_manifest_rejects_settings_not_supported_by_reporter(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="settings do not match"):
+        benchmark_canary.write_manifest(
+            tmp_path / "manifest.json",
+            repository=REPOSITORY,
+            pr_number=123,
+            base_label="main",
+            base_sha=BASE_SHA,
+            head_repository=HEAD_REPOSITORY,
+            head_sha=HEAD_SHA,
+            run_id=456,
+            repetitions=4,
+            min_time=benchmark_canary.CANARY_MIN_TIME,
+            warmup_time=benchmark_canary.CANARY_WARMUP_TIME,
+            cpu_core="3",
+            cpu="Example CPU",
+            compiler="Example compiler",
+        )
