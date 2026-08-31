@@ -9,7 +9,7 @@ namespace clifft {
 ReferenceSyndrome compute_reference_syndrome(const HirModule& hir) {
     ReferenceSyndrome ref;
 
-    // Make a clean copy and strip all noise
+    // Removing stochastic noise makes the reference circuit deterministic.
     HirModule clean_hir = hir;
     RemoveNoisePass strip;
     strip.run(clean_hir);
@@ -22,7 +22,7 @@ ReferenceSyndrome compute_reference_syndrome(const HirModule& hir) {
         return ref;
     }
 
-    // Run exactly one deterministic shot (seed=0)
+    // A fixed seed keeps the single reference shot deterministic.
     auto clean_res = sampling::sample(clean_program, 1, uint64_t{0});
     ref.detectors = std::move(clean_res.detectors);
     ref.observables = std::move(clean_res.observables);
