@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 
-# This directory is also a standalone driver so CI can use the benchmark
-# definition from the PR while compiling either the base or PR source tree.
+# This directory is also a standalone driver so CI can hold the benchmark
+# definition fixed while compiling either the base or proposed source tree.
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     project(clifft_benchmarks LANGUAGES CXX)
 

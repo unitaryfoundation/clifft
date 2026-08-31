@@ -1,0 +1,256 @@
+name: Performance canary reporter
+
+on:
+  workflow_run:
+    workflows: [Performance canary]
+    types: [completed]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: performance-canary-reporter-${{ github.event.workflow_run.head_repository.id }}-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: true
+
+jobs:
+  report:
+    name: report fork comparison
+    if: >-
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.head_repository.full_name != github.repository &&
+      github.event.workflow_run.conclusion != 'cancelled'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+      pull-requests: read
+    steps:
+      - name: Resolve trusted workflow run metadata
+        id: resolve
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const run = context.payload.workflow_run;
+            const workflowPath = '.github/workflows/performance-canary.yml';
+            const {data: workflow} = await github.rest.actions.getWorkflow({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'performance-canary.yml',
+            });
+            if (run.workflow_id !== workflow.id || run.path !== workflowPath) {
+              core.warning('Ignoring a run that did not use the canonical canary workflow');
+              core.setOutput('should_report', 'false');
+              return;
+            }
+
+            const associatedPulls = await github.paginate(
+              github.rest.repos.listPullRequestsAssociatedWithCommit,
+              {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                commit_sha: run.head_sha,
+                per_page: 100,
+              }
+            );
+            const candidates = associatedPulls.filter(pr =>
+              pr.state === 'open' &&
+              pr.base.repo.full_name === `${context.repo.owner}/${context.repo.repo}` &&
+              pr.head.sha === run.head_sha &&
+              pr.head.repo?.full_name === run.head_repository.full_name
+            );
+            if (candidates.length !== 1) {
+              core.warning(`Expected one open PR for canary run; found ${candidates.length}`);
+              core.setOutput('should_report', 'false');
+              return;
+            }
+
+            const {data: pull} = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: candidates[0].number,
+            });
+            // Re-check live PR metadata so an obsolete workflow_run cannot
+            // publish results after the fork branch has moved.
+            if (
+              pull.draft ||
+              pull.head.sha !== run.head_sha ||
+              pull.head.repo?.full_name !== run.head_repository.full_name
+            ) {
+              core.notice('Ignoring an obsolete or draft fork canary run');
+              core.setOutput('should_report', 'false');
+              return;
+            }
+
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: pull.number,
+              per_page: 100,
+            });
+            if (files.length !== pull.changed_files) {
+              core.warning('Fork canary reporting requires a complete changed-file listing');
+              core.setOutput('should_report', 'false');
+              return;
+            }
+            if (
+              files.some(file =>
+                file.filename === workflowPath || file.previous_filename === workflowPath
+              )
+            ) {
+              core.warning('Fork canary reporting is disabled when its producer contract changes');
+              core.setOutput('should_report', 'false');
+              return;
+            }
+
+            const artifacts = await github.paginate(
+              github.rest.actions.listWorkflowRunArtifacts,
+              {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                run_id: run.id,
+                per_page: 100,
+              }
+            );
+            // Recover the run's original base revision from artifact metadata so
+            // an unrelated base-branch update cannot rebind a completed comparison.
+            const artifactPattern = new RegExp(
+              `^performance-canary-${pull.number}-([0-9a-f]{40})$`
+            );
+            const matchingArtifacts = artifacts.flatMap(artifact => {
+              const match = artifact.name.match(artifactPattern);
+              return match && !artifact.expired ? [{artifact, baseSha: match[1]}] : [];
+            });
+            const artifactReady =
+              matchingArtifacts.length === 1 &&
+              matchingArtifacts[0].artifact.size_in_bytes <= 10 * 1024 * 1024;
+            if (!artifactReady) {
+              core.warning('Canary evidence is missing, ambiguous, expired, or too large');
+            }
+            const artifactName = artifactReady ? matchingArtifacts[0].artifact.name : '';
+            const baseSha = artifactReady ? matchingArtifacts[0].baseSha : pull.base.sha;
+
+            core.setOutput('should_report', 'true');
+            core.setOutput('artifact_ready', artifactReady ? 'true' : 'false');
+            core.setOutput('artifact_name', artifactName);
+            core.setOutput('pr_number', String(pull.number));
+            core.setOutput('base_label', pull.base.ref);
+            core.setOutput('base_sha', baseSha);
+            core.setOutput('head_repository', pull.head.repo.full_name);
+            core.setOutput('head_sha', pull.head.sha);
+
+      - name: Checkout trusted reporter
+        if: steps.resolve.outputs.should_report == 'true'
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: trusted-reporter
+          persist-credentials: false
+
+      - name: Download untrusted benchmark evidence
+        id: download
+        if: >-
+          steps.resolve.outputs.should_report == 'true' &&
+          steps.resolve.outputs.artifact_ready == 'true'
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ steps.resolve.outputs.artifact_name }}
+          path: ${{ runner.temp }}/canary-evidence
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+
+      - name: Render validated comparison
+        id: render
+        if: steps.download.outcome == 'success'
+        continue-on-error: true
+        env:
+          BASE_LABEL: ${{ steps.resolve.outputs.base_label }}
+          BASE_SHA: ${{ steps.resolve.outputs.base_sha }}
+          HEAD_REPOSITORY: ${{ steps.resolve.outputs.head_repository }}
+          HEAD_SHA: ${{ steps.resolve.outputs.head_sha }}
+          PR_NUMBER: ${{ steps.resolve.outputs.pr_number }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/trusted-canary-report"
+          python3 trusted-reporter/tools/ci/benchmark_canary.py fork-report \
+            --output "$RUNNER_TEMP/trusted-canary-report/report.md" \
+            --evidence "$RUNNER_TEMP/canary-evidence" \
+            --repository "$GITHUB_REPOSITORY" \
+            --pr-number "$PR_NUMBER" \
+            --base-label "$BASE_LABEL" \
+            --base-sha "$BASE_SHA" \
+            --head-repository "$HEAD_REPOSITORY" \
+            --head-sha "$HEAD_SHA" \
+            --run-id "$RUN_ID" \
+            --run-url "$RUN_URL"
+
+      - name: Render trusted failure report
+        if: >-
+          steps.resolve.outputs.should_report == 'true' &&
+          steps.render.outcome != 'success'
+        env:
+          BASE_LABEL: ${{ steps.resolve.outputs.base_label }}
+          BASE_SHA: ${{ steps.resolve.outputs.base_sha }}
+          HEAD_SHA: ${{ steps.resolve.outputs.head_sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }}
+        run: |
+          python3 trusted-reporter/tools/ci/benchmark_canary.py failure \
+            --output "$RUNNER_TEMP/trusted-canary-report/report.md" \
+            --base-label "$BASE_LABEL" \
+            --base-sha "$BASE_SHA" \
+            --head-sha "$HEAD_SHA" \
+            --run-url "$RUN_URL"
+
+      - name: Add trusted report to workflow summary
+        if: steps.resolve.outputs.should_report == 'true'
+        run: cat "$RUNNER_TEMP/trusted-canary-report/report.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Create or update sticky comment
+        if: steps.resolve.outputs.should_report == 'true'
+        uses: actions/github-script@v9
+        env:
+          PR_NUMBER: ${{ steps.resolve.outputs.pr_number }}
+          REPORT_PATH: ${{ runner.temp }}/trusted-canary-report/report.md
+        with:
+          script: |
+            const fs = require('fs');
+            const marker = '<!-- clifft-performance-canary -->';
+            const body = fs.readFileSync(process.env.REPORT_PATH, 'utf8');
+            const issue_number = Number(process.env.PR_NUMBER);
+            if (!Number.isInteger(issue_number) || issue_number <= 0) {
+              core.setFailed('Resolved PR number is invalid');
+              return;
+            }
+            if (!body.startsWith(`${marker}\n`) || body.length > 60_000) {
+              core.setFailed('Trusted benchmark report is invalid');
+              return;
+            }
+
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number,
+              per_page: 100,
+            });
+            const existing = comments.find(comment =>
+              comment.user?.login === 'github-actions[bot]' && comment.body?.includes(marker)
+            );
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number,
+                body,
+              });
+            }

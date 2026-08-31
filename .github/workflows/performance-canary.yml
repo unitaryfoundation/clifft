@@ -23,9 +23,7 @@ concurrency:
 jobs:
   benchmark:
     name: advisory benchmark
-    if: >-
-      github.event.pull_request.draft == false &&
-      github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event.pull_request.draft == false
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -44,25 +42,48 @@ jobs:
       CCACHE_COMPILERCHECK: content
       OMP_DYNAMIC: "FALSE"
       OMP_NUM_THREADS: "1"
+      # These values are also enforced by the trusted fork reporter's CANARY_*
+      # constants, so changing the workload contract requires updating both.
       BENCHMARK_REPETITIONS: "3"
       BENCHMARK_MIN_TIME: "0.5"
       BENCHMARK_WARMUP_TIME: "0.2"
     steps:
-      - name: Checkout PR revision
-        uses: actions/checkout@v4
+      - name: Checkout PR benchmark harness
+        if: github.event.pull_request.head.repo.full_name == github.repository
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
 
-      # The Clifft source and build paths stay fixed across both revisions. The
-      # benchmark definition and fixtures come from the PR for both binaries.
-      - name: Checkout normalized benchmark source
-        uses: actions/checkout@v4
+      # Fork code runs without secrets or write permissions and uses benchmark
+      # definitions from the trusted base revision.
+      - name: Checkout trusted benchmark harness
+        if: github.event.pull_request.head.repo.full_name != github.repository
+        uses: actions/checkout@v7
         with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+
+      # The Clifft source and build paths stay fixed across both revisions. The
+      # benchmark definition and fixtures come from one trusted revision for
+      # both binaries when the PR originates from a fork.
+      - name: Checkout normalized benchmark source
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
           path: benchmark-source
           persist-credentials: false
+
+      - name: Fetch base revision for fork comparison
+        if: github.event.pull_request.head.repo.full_name != github.repository
+        env:
+          BASE_REPOSITORY: ${{ github.repository }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          git -C benchmark-source remote add base "$GITHUB_SERVER_URL/$BASE_REPOSITORY.git"
+          git -C benchmark-source fetch --no-tags --depth=1 base "$BASE_SHA"
 
       - name: Install native build tools
         uses: ./.github/actions/setup-native-tools
@@ -97,6 +118,28 @@ jobs:
             --base-label "$BASE_LABEL" \
             --base-sha "$BASE_SHA" \
             --head-sha "$HEAD_SHA"
+
+      - name: Record benchmark evidence metadata
+        env:
+          BASE_LABEL: ${{ github.event.pull_request.base.ref }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          python3 tools/ci/benchmark_canary.py manifest \
+            --output canary-results/manifest.json \
+            --repository "$GITHUB_REPOSITORY" \
+            --pr-number "$PR_NUMBER" \
+            --base-label "$BASE_LABEL" \
+            --base-sha "$BASE_SHA" \
+            --head-repository "$HEAD_REPOSITORY" \
+            --head-sha "$HEAD_SHA" \
+            --run-id "$GITHUB_RUN_ID" \
+            --repetitions "$BENCHMARK_REPETITIONS" \
+            --min-time "$BENCHMARK_MIN_TIME" \
+            --warmup-time "$BENCHMARK_WARMUP_TIME" \
+            --cpu-core "$BENCHMARK_CPU_CORE"
 
       - name: Build and run paired benchmarks
         id: benchmark
@@ -191,6 +234,7 @@ jobs:
         env:
           BASE_LABEL: ${{ github.event.pull_request.base.ref }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BENCHMARK_SHA: ${{ github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.sha || github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           python3 tools/ci/benchmark_canary.py report \
@@ -202,6 +246,7 @@ jobs:
             --head-first canary-results/head-first \
             --head-second canary-results/head-second \
             --base-second canary-results/base-second \
+            --benchmark-sha "$BENCHMARK_SHA" \
             --repetitions "$BENCHMARK_REPETITIONS" \
             --min-time "$BENCHMARK_MIN_TIME" \
             --warmup-time "$BENCHMARK_WARMUP_TIME" \
@@ -219,10 +264,13 @@ jobs:
 
       - name: Upload benchmark evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
-          name: performance-canary-${{ github.event.pull_request.number }}
+          name: performance-canary-${{ github.event.pull_request.number }}-${{ github.event.pull_request.base.sha }}
           path: canary-results/
+          # The reporter bounds the stored artifact size before downloading it.
+          # Disabling compression makes that bound resist highly compressible input.
+          compression-level: 0
           retention-days: 7
 
   comment:
@@ -236,16 +284,16 @@ jobs:
     timeout-minutes: 5
     permissions:
       contents: read
-      pull-requests: write
+      issues: write
     steps:
       - name: Download benchmark evidence
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
-          name: performance-canary-${{ github.event.pull_request.number }}
+          name: performance-canary-${{ github.event.pull_request.number }}-${{ github.event.pull_request.base.sha }}
           path: canary-results
 
       - name: Create or update sticky comment
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const fs = require('fs');
