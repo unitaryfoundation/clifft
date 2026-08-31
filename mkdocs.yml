@@ -106,6 +106,7 @@ nav:
   - User Guide:
     - Compiling Circuits: guide/compilation.md
     - Sampling and Results: guide/simulation.md
+    - CPU Execution and Tuning: guide/cpu-execution.md
     - Leakage and Loss: guide/leakage-and-loss.md
     - Performance: guide/performance.md
     - Exact Probabilities: guide/strong-simulation.md

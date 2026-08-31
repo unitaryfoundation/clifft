@@ -10,6 +10,9 @@ $2^k$ amplitudes, so both the peak width and the time spent at each width matter
 Total qubit count and non-Clifford gate count alone are poor performance
 predictors.
 
+See [CPU Execution and Tuning](cpu-execution.md) before overriding the default
+batch or thread policies.
+
 ## Choosing a simulator
 
 | Regime | Recommended tool | Why |

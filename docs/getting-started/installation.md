@@ -62,6 +62,9 @@ or use the `spawn` or `forkserver` start method. Forking after a threaded sample
 and then requesting intra-shot threads in the child can hang in some OpenMP
 runtimes.
 
+See [CPU Execution and Tuning](../guide/cpu-execution.md) for automatic
+scheduling, explicit layouts, batching, and memory tradeoffs.
+
 See [Building from Source](../development/building.md) for the full development setup.
 
 Next, follow the [Quick Start](quickstart.md) or choose a path from

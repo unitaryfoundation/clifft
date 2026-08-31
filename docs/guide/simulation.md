@@ -207,142 +207,15 @@ execution use separate random streams, and different packed capacities may do
 so as well. Results from every supported execution strategy remain
 statistically equivalent.
 
-## Advanced CPU Execution
+## CPU Execution Settings
 
-Most users can stop after choosing `sample()` or `sample_survivors()` and keep
-the execution defaults. The settings below tune how supported workflows run on
-the CPU; they do not change the workflow or result contract. A dedicated
-advanced execution guide will collect these controls as the backend
-documentation evolves.
+The fixed-plan samplers support automatic packed batching, cross-shot workers,
+and intra-shot OpenMP workers. Most users should keep `batch_size="auto"` and
+set only a total `threads` budget when more CPU parallelism is needed.
 
-### Packed Batch Sampling
-
-Batching and multithreading are independent forms of parallelism. A packed
-batch stores several shots together so one CPU SIMD instruction can operate on
-them and their state data stays cache-friendly. Multithreading runs work on
-several CPU threads, ideally on separate cores. Clifft can combine both by
-running multiple packed workers.
-
-The four fixed-plan sampling functions accept `batch_size`. Its default,
-`"auto"`, selects packed execution when the plan and request are expected to
-benefit:
-
-```python
-import clifft
-
-program = clifft.compile("M 0")
-result = clifft.sample(program, 100_000, seed=42, batch_size="auto")
-scalar = clifft.sample(program, 100_000, seed=42, batch_size=1)
-packed = clifft.sample(program, 100_000, seed=42, batch_size=1024)
-```
-
-Automatic mode requires at least 64 shots, no postselection, and a peak active
-width of at most 5. Within those limits, it chooses a lane capacity based on the
-plan's work and memory needs; long width-5 plans fall back to scalar execution.
-Postselected plans remain scalar in automatic mode because their benefit
-depends on circuit- and noise-specific survivor lifetimes that cannot be
-predicted reliably from the plan alone.
-
-Set `batch_size=1` to require scalar execution. An explicit positive integer
-requests up to 2048 lanes and overrides the automatic policy, subject to memory
-safety limits. Since the best capacity varies by circuit, sampling function,
-shot count, thread count, and CPU, benchmark a few sizes such as `1`, `256`, and
-`1024` with representative arguments before choosing an override.
-
-With explicit batching and postselection, rejected lanes are masked immediately
-and stop contributing outputs or per-lane random work. Until Clifft repacks the
-remaining live lanes, packed coefficient kernels may still process their
-physical lane positions. Repacking occurs when it is expected to save more work
-than it costs.
-
-Packed execution supports ordinary sampling, post-selected survivor sampling,
-counts-only survivor aggregation, expectation values, and fixed-k importance
-sampling. Current limitations are:
-
-- transition instruments, traps, and continuations stay on the noncomputational
-  trajectory path;
-- packed execution cannot be combined with intra-shot OpenMP workers;
-- WebAssembly uses scalar execution;
-- `record_probabilities()` is an exact replay API and does not use batching.
-
-These restrictions do not remove the corresponding scalar or trajectory
-functionality. `batch_size=1` selects the existing scalar fixed-plan executor.
-
-### Parallel Sampling
-
-`sample()`, `sample_survivors()`, `sample_k()`, `sample_k_survivors()`, and
-[`noncomp.sample()`](leakage-and-loss.md) accept a `threads` argument. It defaults
-to `1`, so existing calls remain serial. Pass a positive count to set the total
-worker budget, or `threads="auto"` to use the implementation-reported hardware
-concurrency. In containers or processes with CPU-affinity limits, set an
-explicit count if the reported hardware concurrency exceeds the available CPU
-quota.
-
-For the fixed-plan symbolic sampler, Clifft automatically chooses one of two
-ways to use that budget:
-
-- With enough shots, it runs several shots at once.
-- With fewer shots and a peak active width of at least 18, an OpenMP-enabled
-  build shares the work within each shot instead.
-
-Clifft does not combine these strategies automatically. Builds without OpenMP
-can only spread work across shots, and `noncomp.sample()` also uses only that
-strategy. The width cutoff is a measured default; advanced users can override
-the layout and cutoff for their hardware.
-
-Most users should use `threads`. The symbolic sampling functions also accept
-the advanced override
-`thread_layout=(shot_workers, intra_shot_workers)`. The override replaces the
-automatic choice, ignores `threads`, and may request a hybrid layout. Both
-counts must be positive, and an intra-shot count above one requires an
-OpenMP-enabled build. The active-width threshold still applies within each
-executor. Keep the layout's worker-count product within the CPUs available to
-the process.
-
-Expert callers can change the threshold for an explicit layout with
-`intra_shot_min_active_width`. It defaults to 18 and is resolved before hot
-execution, so changing it does not add policy or allocation work inside a
-kernel:
-
-<!--pytest.mark.skip-->
-
-```python
-result = clifft.sample(
-    program,
-    shots=8,
-    thread_layout=(2, 4),
-    intra_shot_min_active_width=17,
-)
-```
-
-In this example, Clifft runs two shots at once and gives each shot up to four
-OpenMP workers once its active width reaches 17. It therefore uses at most eight
-execution threads.
-
-Hybrid layouts combine shot workers with OpenMP teams, so they require OpenMP
-processor binding to be disabled. Clifft rejects a hybrid layout when
-`OMP_PROC_BIND` is active. Pure cross-shot and pure intra-shot layouts can use
-OpenMP binding.
-
-Workers dynamically claim contiguous shot ranges from a shared scheduler.
-With a fixed seed, changing `threads` produces exactly the same result.
-`sample()` and `sample_k()` keep each shot at the same row, and the survivor
-APIs return accepted shots in the same order as the corresponding one-thread
-run.
-
-Each cross-shot worker owns a separate executor. Its dense coefficient and
-measurement scratch storage uses roughly $24 \times 2^k$ bytes at peak active width $k$,
-plus lane-scaled packed symbolic state, expression registers, records, outputs,
-and other executor metadata. Each packed bit column uses
-$8 \times \lceil b / 64 \rceil$ bytes at lane capacity $b$, and every cross-shot
-worker owns its own copy. Automatic batch selection accounts for both the
-per-worker footprint and the number of packed workers. Fixed-k workers share one
-immutable conditioning table while retaining independent selection scratch and
-RNG state. Set an explicit layout when memory is more constrained than CPU
-availability. Intra-shot workers cooperate on one executor and do not replicate
-this storage.
-Noncomputational workers also own their trajectory continuations and compile
-new continuations independently as their shots encounter jumps.
+See [CPU Execution and Tuning](cpu-execution.md) for the compatibility matrix,
+automatic policies, expert overrides, reproducibility boundaries, and memory
+tradeoffs.
 
 ## Specialized Workflows
 

@@ -20,6 +20,10 @@
 
 ## Sampling
 
+The four fixed-plan functions share CPU batching and threading arguments. See
+[CPU Execution and Tuning](../guide/cpu-execution.md) for their interaction and
+compatibility limits.
+
 ::: clifft.sample
 
 ::: clifft.sample_survivors

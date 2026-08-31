@@ -346,7 +346,8 @@ exceeds the number of non-zero-probability sites).
 
 `threads` is the total worker budget. The optional advanced
 `thread_layout=(shot_workers, intra_shot_workers)` override follows the ordinary
-sampling policy described in [Parallel Sampling](simulation.md#parallel-sampling).
+sampling policy described in
+[CPU Execution and Tuning](cpu-execution.md#thread-budget-and-automatic-scheduling).
 The expert `intra_shot_min_active_width` override defaults to 18 and requires an
 explicit layout. `batch_size` follows the ordinary sampling policy: `"auto"`
 selects packed execution for suitable plans without postselection, `1` forces

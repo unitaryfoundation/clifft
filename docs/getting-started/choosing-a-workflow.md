@@ -79,8 +79,7 @@ users.
 Advanced callers can tune cross-shot workers, intra-shot OpenMP workers, hybrid
 layouts, and explicit packed capacities. These settings change how a supported
 workflow executes, not its statistical meaning. See
-[Packed Batch Sampling](../guide/simulation.md#packed-batch-sampling) and
-[Parallel Sampling](../guide/simulation.md#parallel-sampling).
+[CPU Execution and Tuning](../guide/cpu-execution.md).
 
 ### GPU (experimental)
 
