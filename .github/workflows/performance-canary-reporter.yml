@@ -45,16 +45,23 @@ jobs:
               return;
             }
 
-            const associatedPulls = await github.paginate(
-              github.rest.repos.listPullRequestsAssociatedWithCommit,
-              {
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                commit_sha: run.head_sha,
-                per_page: 100,
-              }
-            );
-            const candidates = associatedPulls.filter(pr =>
+            const headOwner = run.head_repository.owner?.login;
+            if (!headOwner || !run.head_branch) {
+              core.warning('Fork canary run is missing head repository metadata');
+              core.setOutput('should_report', 'false');
+              return;
+            }
+            // Fork-only commits are not addressable through the upstream
+            // commit-to-PR endpoint, so resolve by owner and branch before
+            // binding the candidate back to the immutable run SHA.
+            const headPulls = await github.paginate(github.rest.pulls.list, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              head: `${headOwner}:${run.head_branch}`,
+              per_page: 100,
+            });
+            const candidates = headPulls.filter(pr =>
               pr.state === 'open' &&
               pr.base.repo.full_name === `${context.repo.owner}/${context.repo.repo}` &&
               pr.head.sha === run.head_sha &&
