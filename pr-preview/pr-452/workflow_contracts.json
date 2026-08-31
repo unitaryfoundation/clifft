@@ -1,0 +1,146 @@
+{
+  "workflows": [
+    {
+      "id": "ordinary_sampling",
+      "goal": "Draw measurement outcomes, detector events, observables, or expectation values",
+      "use": "`clifft.compile()` then `clifft.sample()`",
+      "contract": "Returns one row per requested shot. The compiled program must not have a post-selection mask.",
+      "public_apis": ["clifft.compile", "clifft.sample"],
+      "guide": "guide/simulation.md"
+    },
+    {
+      "id": "survivor_sampling",
+      "goal": "Discard shots when selected detectors fire",
+      "use": "Compile with `postselection_mask`, then use `clifft.sample_survivors()`",
+      "contract": "Returns survivor counts. Pass `keep_records=True` when per-survivor rows are also needed.",
+      "public_apis": ["clifft.compile", "clifft.sample_survivors"],
+      "guide": "guide/simulation.md"
+    },
+    {
+      "id": "basis_probabilities",
+      "goal": "Query exact computational-basis probabilities for a unitary circuit with no measurements",
+      "use": "`clifft.basis_probabilities()`",
+      "contract": "Queries selected bitstrings without constructing every output probability. Noise, measurements, detectors, observables, and post-selection are not supported.",
+      "public_apis": ["clifft.basis_probabilities"],
+      "guide": "guide/strong-simulation.md"
+    },
+    {
+      "id": "record_probabilities",
+      "goal": "Query exact probabilities of measurement records in a noiseless circuit",
+      "use": "`clifft.record_probabilities()`",
+      "contract": "Supports measurement records and classical feedback. Noise, detectors, observables, post-selection, and hidden reset records are not supported.",
+      "public_apis": ["clifft.record_probabilities"],
+      "guide": "guide/strong-simulation.md"
+    },
+    {
+      "id": "statevector",
+      "goal": "Inspect the complete final pure state of a small unitary circuit",
+      "use": "`clifft.get_statevector()`",
+      "contract": "Debugging and validation path. Expands all physical qubits and is currently limited to 10 qubits.",
+      "public_apis": ["clifft.get_statevector"],
+      "guide": "guide/strong-simulation.md"
+    },
+    {
+      "id": "fixed_fault_sampling",
+      "goal": "Estimate rare events by conditioning on exactly `k` faults",
+      "use": "`clifft.sample_k()` or `clifft.sample_k_survivors()`",
+      "contract": "Advanced statistical workflow. Results are conditional on `K = k` and must be combined with the corresponding fault-count probabilities.",
+      "public_apis": ["clifft.sample_k", "clifft.sample_k_survivors"],
+      "guide": "guide/importance-sampling.md"
+    },
+    {
+      "id": "noncomputational_trajectories",
+      "goal": "Model leakage, loss, or other supported noncomputational transitions",
+      "use": "`clifft.noncomp.sample()`",
+      "contract": "Experimental trajectory workflow. It accepts a circuit and model together and compiles continuations internally.",
+      "public_apis": ["clifft.noncomp.sample"],
+      "guide": "guide/leakage-and-loss.md"
+    }
+  ],
+  "backends": [
+    {
+      "id": "cpu",
+      "name": "CPU",
+      "status": "Stable default",
+      "selection": "`clifft.compile()` and the ordinary sampling APIs",
+      "distribution": "Published wheels and source builds",
+      "public_apis": ["clifft.compile", "clifft.sample"]
+    },
+    {
+      "id": "hip",
+      "name": "AMD HIP",
+      "status": "Experimental",
+      "selection": "Explicit `clifft.experimental.hip` API",
+      "distribution": "HIP-enabled source build only",
+      "public_apis": ["clifft.experimental.hip.compile", "clifft.experimental.hip.Sampler"],
+      "limits": {
+        "peak_active_width": 4
+      }
+    },
+    {
+      "id": "cuda",
+      "name": "NVIDIA CUDA",
+      "status": "Planned, not implemented",
+      "selection": "No API or automatic selection",
+      "distribution": "Not available",
+      "public_apis": []
+    }
+  ],
+  "backend_capabilities": [
+    {
+      "feature": "Ordinary fixed-row sampling",
+      "cpu": "Supported",
+      "hip": "Supported for eligible programs"
+    },
+    {
+      "feature": "Post-selected survivor sampling",
+      "cpu": "Supported",
+      "hip": "Supported for eligible programs"
+    },
+    {
+      "feature": "Measurements, detectors, observables, and `EXP_VAL`",
+      "cpu": "Supported",
+      "hip": "Supported"
+    },
+    {
+      "feature": "Pauli and readout noise",
+      "cpu": "Supported",
+      "hip": "Supported"
+    },
+    {
+      "feature": "Fixed-fault importance sampling",
+      "cpu": "Supported",
+      "hip": "Not supported"
+    },
+    {
+      "feature": "Leakage, loss, and transition instruments",
+      "cpu": "Experimental CPU trajectory workflow",
+      "hip": "Not supported"
+    },
+    {
+      "feature": "`basis_probabilities()`, `record_probabilities()`, and `get_statevector()`",
+      "cpu": "Supported subject to each API contract",
+      "hip": "Not supported through these APIs"
+    },
+    {
+      "feature": "Forced-record replay",
+      "cpu": "Used by CPU exact-query internals",
+      "hip": "Experimental `Sampler.replay_shot()`"
+    },
+    {
+      "feature": "Peak active width",
+      "cpu": "Memory-limited CPU execution",
+      "hip": "`k <= 4`"
+    },
+    {
+      "feature": "Coefficient precision",
+      "cpu": "FP64",
+      "hip": "FP64 default; FP32 experimental"
+    },
+    {
+      "feature": "Asynchronous or multi-GPU execution",
+      "cpu": "Not exposed by the stable sampling API",
+      "hip": "Not supported"
+    }
+  ]
+}
