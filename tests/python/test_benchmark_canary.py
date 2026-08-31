@@ -344,7 +344,7 @@ def test_fork_report_validates_evidence_and_uses_base_workloads(
     assert "**Possible regression detected:** 9 of 9 benchmarks were at least 10% slower." in report
     assert f"/{REPOSITORY}/blob/{BASE_SHA}/benchmarks/clifft_benchmarks.cc#L" in report
     assert f"/{REPOSITORY}/blob/{HEAD_SHA}/benchmarks/clifft_benchmarks.cc#L" not in report
-    assert "<code>Example CPU</code>" in report
+    assert "Runner CPU: ` Example CPU `" in report
     assert "Workloads and fixtures come from the base revision for fork isolation." in report
     assert "[View workflow run](https://github.example/run/456)" in report
 
@@ -428,6 +428,31 @@ def test_fork_report_rejects_multiline_environment_text(tmp_path: Path) -> None:
             expected_run_id=456,
             run_url="https://github.example/run/456",
         )
+
+
+def test_fork_report_quotes_markdown_in_environment_text(tmp_path: Path) -> None:
+    evidence = _write_fork_evidence(tmp_path / "evidence")
+    manifest_path = evidence / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["cpu"] = "[click](https://example.invalid)"
+    manifest["compiler"] = "compiler `with` backticks"
+    manifest_path.write_text(json.dumps(manifest))
+
+    report = benchmark_canary.render_fork_report(
+        evidence,
+        expected_repository=REPOSITORY,
+        expected_pr_number=123,
+        expected_base_label="main",
+        expected_base_sha=BASE_SHA,
+        expected_head_repository=HEAD_REPOSITORY,
+        expected_head_sha=HEAD_SHA,
+        expected_run_id=456,
+        run_url="https://github.example/run/456",
+    )
+
+    assert "Runner CPU: ` [click](https://example.invalid) `" in report
+    assert "Compiler: `` compiler `with` backticks ``" in report
+    assert "<code>[click]" not in report
 
 
 def test_manifest_rejects_settings_not_supported_by_reporter(tmp_path: Path) -> None:

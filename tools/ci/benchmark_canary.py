@@ -219,6 +219,14 @@ def _threshold_percent(threshold: float) -> str:
     return f"{threshold:.0%}"
 
 
+def _markdown_code_span(value: str) -> str:
+    longest_backtick_run = max((len(run) for run in re.findall(r"`+", value)), default=0)
+    delimiter = "`" * (longest_backtick_run + 1)
+    # Padding preserves leading/trailing spaces while keeping any shorter
+    # backtick runs inside the code span rather than executable Markdown.
+    return f"{delimiter} {value} {delimiter}"
+
+
 def _summary(comparisons: list[Comparison]) -> str:
     assessments = [comparison.assessment for comparison in comparisons]
     regressions = assessments.count("Possible regression")
@@ -417,10 +425,10 @@ def render_report(
             "<details>",
             "<summary>Environment and method</summary>",
             "",
-            f"- Runner CPU: <code>{html.escape(_environment_value(cpu, 'cpu'))}</code>",
+            f"- Runner CPU: {_markdown_code_span(_environment_value(cpu, 'cpu'))}",
             f"- Pinned logical CPU: <code>{html.escape(cpu_core or 'unknown')}</code>",
             "- ISA: AVX2 runtime backend (forced)",
-            f"- Compiler: <code>{html.escape(_environment_value(compiler, 'compiler'))}</code>",
+            f"- Compiler: {_markdown_code_span(_environment_value(compiler, 'compiler'))}",
             "- Build: Release, x86-64-v2, ThinLTO, lld, and OpenMP enabled.",
             f"- Each pass warms every workload for at least {warmup_time:g} seconds, then runs "
             f"{repetitions} Google Benchmark repetitions with at least {min_time:g} seconds of "

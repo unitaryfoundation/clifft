@@ -70,11 +70,8 @@ jobs:
               repo: context.repo.repo,
               pull_number: candidates[0].number,
             });
-            if (files.length !== pull.changed_files) {
-              core.warning('Fork canary reporting requires a complete changed-file listing');
-              core.setOutput('should_report', 'false');
-              return;
-            }
+            // Re-check live PR metadata so an obsolete workflow_run cannot
+            // publish results after the fork branch has moved.
             if (
               pull.draft ||
               pull.head.sha !== run.head_sha ||
@@ -91,12 +88,17 @@ jobs:
               pull_number: pull.number,
               per_page: 100,
             });
+            if (files.length !== pull.changed_files) {
+              core.warning('Fork canary reporting requires a complete changed-file listing');
+              core.setOutput('should_report', 'false');
+              return;
+            }
             if (
               files.some(file =>
                 file.filename === workflowPath || file.previous_filename === workflowPath
               )
             ) {
-              core.warning('Fork canary reporting is disabled when its producer workflow changes');
+              core.warning('Fork canary reporting is disabled when its producer contract changes');
               core.setOutput('should_report', 'false');
               return;
             }
@@ -139,7 +141,7 @@ jobs:
 
       - name: Checkout trusted reporter
         if: steps.resolve.outputs.should_report == 'true'
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.event.repository.default_branch }}
           path: trusted-reporter
