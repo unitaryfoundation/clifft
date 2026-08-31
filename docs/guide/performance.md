@@ -13,6 +13,10 @@ predictors.
 See [CPU Execution and Tuning](cpu-execution.md) before overriding the default
 batch or thread policies.
 
+GPU execution has a separate experimental support tier and is not represented
+by the CPU results on this page. See
+[Experimental GPU Execution](gpu-execution.md).
+
 ## Choosing a simulator
 
 | Regime | Recommended tool | Why |

@@ -23,6 +23,10 @@ pip install clifft
 All other platforms and CPU families should build from source. See
 [Building from Source](../development/building.md).
 
+Published wheels use the stable CPU backend. The current AMD HIP backend is an
+explicit, source-build-only experiment; see
+[Experimental GPU Execution](../guide/gpu-execution.md).
+
 ## From Source
 
 For development, or if pre-built wheels are not available for your platform or CPU family:

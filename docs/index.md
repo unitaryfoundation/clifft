@@ -94,6 +94,12 @@ print(result.measurements[:5])  # First 5 shots.
     measurement classification, and back-action on the computational state.
     See the [Leakage and Loss guide](guide/leakage-and-loss.md).
 
+- **GPU Execution (Experimental)**
+
+    Build the AMD HIP backend explicitly for its current small-active-width
+    sampling tier. It uses a separate experimental API and is never selected
+    automatically. See [Experimental GPU Execution](guide/gpu-execution.md).
+
 </div>
 
 For QEC workflows, Clifft also supports detector-based post-selection, survivor sampling, and stratified importance sampling for rare-event estimation.

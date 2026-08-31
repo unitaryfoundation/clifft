@@ -107,6 +107,7 @@ nav:
     - Compiling Circuits: guide/compilation.md
     - Sampling and Results: guide/simulation.md
     - CPU Execution and Tuning: guide/cpu-execution.md
+    - Experimental GPU Execution: guide/gpu-execution.md
     - Leakage and Loss: guide/leakage-and-loss.md
     - Performance: guide/performance.md
     - Exact Probabilities: guide/strong-simulation.md
@@ -130,7 +131,7 @@ nav:
     - Contributing: development/contributing.md
     - Building from Source: development/building.md
     - Experimental:
-      - HIP Sampling Backend: development/hip-backend.md
+      - HIP Backend Internals: development/hip-backend.md
       - HIP Kernel Development: development/hip-kernel-development.md
     - Testing Strategy: development/testing.md
     - Tableau Conventions: development/tableau-conventions.md

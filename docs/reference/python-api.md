@@ -32,6 +32,29 @@ compatibility limits.
 
 ::: clifft.sample_k_survivors
 
+## Experimental Hardware Backends
+
+!!! warning "Experimental"
+    These APIs require backend-specific source builds and may change without
+    compatibility guarantees. They are not selected by the regular CPU API.
+
+See [Experimental GPU Execution](../guide/gpu-execution.md) for the current
+hardware and workflow limits.
+
+::: clifft.experimental.hip.is_built
+
+::: clifft.experimental.hip.is_available
+
+::: clifft.experimental.hip.backend_info
+
+::: clifft.experimental.hip.compile
+
+::: clifft.experimental.hip.Program
+
+::: clifft.experimental.hip.Sampler
+
+::: clifft.experimental.hip.ReplayResult
+
 ## Leakage and Loss (experimental)
 
 Sampling under a five-level leakage/loss model. See the

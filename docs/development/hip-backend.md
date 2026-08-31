@@ -1,10 +1,15 @@
 <!--pytest-codeblocks:skipfile-->
 
-# Experimental HIP Sampling Backend
+# HIP Backend Internals
 
 Clifft has an optional AMD HIP sampling backend for Linux x86-64 and
-MI300X-class `gfx942` devices. It is a development target, not a public API or
-an automatically selected runtime backend. The default build remains CPU-only.
+MI300X-class `gfx942` devices. It exposes a source-build-only experimental API,
+not a stable or automatically selected runtime backend. The default build
+remains CPU-only.
+
+This page documents the compiler and runtime boundary for contributors. See
+[Experimental GPU Execution](../guide/gpu-execution.md) for the user-facing
+support matrix, build workflow, and Python examples.
 
 The semantic boundary is `sampling::SamplingPlan`:
 

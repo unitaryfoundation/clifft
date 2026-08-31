@@ -4,6 +4,9 @@ CPU execution settings control how a supported sampling workflow uses lanes,
 threads, and memory. They do not change the circuit semantics or select a
 different scientific workflow.
 
+GPU execution is separate and never selected by these controls. See
+[Experimental GPU Execution](gpu-execution.md) for the current HIP boundary.
+
 ## Defaults First
 
 Start with the sampling function selected in

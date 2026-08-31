@@ -86,5 +86,5 @@ workflow executes, not its statistical meaning. See
 GPU execution is experimental and is never selected automatically. The current
 HIP backend uses the separate `clifft.experimental.hip` API, supports only its
 documented subset, and requires an explicit HIP-enabled source build. See the
-[Experimental HIP Sampling Backend](../development/hip-backend.md) before using
+[Experimental GPU Execution](../guide/gpu-execution.md) guide before using
 it.

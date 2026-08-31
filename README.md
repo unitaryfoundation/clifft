@@ -63,6 +63,10 @@ benchmarks.
 For QEC workflows, Clifft also supports detector-based post-selection, survivor
 sampling, and stratified importance sampling for rare-event estimation.
 
+An [experimental AMD HIP backend](https://unitaryfoundation.github.io/clifft/stable/guide/gpu-execution/)
+is available through an explicit source build and separate API. It is not part
+of the stable CPU wheels or selected automatically.
+
 ## Installation
 
 <!--pytest.mark.skip-->
