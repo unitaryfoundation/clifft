@@ -103,7 +103,9 @@ def test_report_classifies_paired_changes(tmp_path: Path) -> None:
     assert "| notable | 100 ns | 106 ns | **+6.0%** | Notable slowdown |" in report
     assert "| regression | 100 ns | 114 ns | **+14.0%** | Possible regression |" in report
     assert "| improvement | 100 ns | 89.0 ns | **-11.0%** | Improvement |" in report
-    assert "`main` (`1234567`)" in report
+    assert "## :baby_chick: Performance Canary" in report
+    assert "<summary>View 4 benchmark results</summary>" not in report
+    assert "<sub>Compared <code>main</code> (<code>1234567</code>)" in report
     assert "Example CPU" in report
     assert "Pinned logical CPU: 3" in report
     assert "Release, x86-64-v2, ThinLTO, lld" in report
@@ -233,7 +235,19 @@ def test_report_links_workload_name_to_source_rationale(monkeypatch: pytest.Monk
         "https://github.example/unitaryfoundation/clifft/blob/abcdef0/"
         f"benchmarks/clifft_benchmarks.cc#L{rationale_line}"
     )
+    assert "<summary>View 1 benchmark result</summary>" in report
     assert f"| [Squeeze 8192 T gates]({expected_link}) |" in report
+
+
+def test_failure_report_uses_succinct_heading() -> None:
+    report = benchmark_canary.render_failure(
+        base_label="main",
+        base_sha="1234567",
+        head_sha="abcdef0",
+    )
+
+    assert "## :baby_chick: Performance Canary" in report
+    assert "(advisory)" not in report
 
 
 def test_parser_rejects_failed_google_benchmark_run(tmp_path: Path) -> None:

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import html
 import json
 import math
 import os
@@ -324,6 +325,23 @@ def _run_url(override: str | None) -> str | None:
     return None
 
 
+def _comparison_note(base_label: str, base_sha: str, head_sha: str) -> str:
+    return (
+        "<sub>"
+        f"Compared <code>{html.escape(base_label)}</code> (<code>{base_sha[:7]}</code>) with "
+        f"this PR (<code>{head_sha[:7]}</code>) on the same runner using workload-local A/B/B/A "
+        "ordering. Positive changes are slower. "
+        f"Changes under {_threshold_percent(MATERIAL_CHANGE_THRESHOLD)} are reported as no "
+        f"material change; changes of at least "
+        f"{_threshold_percent(MATERIAL_CHANGE_THRESHOLD)} but under "
+        f"{_threshold_percent(POSSIBLE_CHANGE_THRESHOLD)} are notable; changes of at least "
+        f"{_threshold_percent(POSSIBLE_CHANGE_THRESHOLD)} are possible regressions or "
+        "improvements. Material changes that do not repeat in both pairs with low noise are "
+        "inconclusive."
+        "</sub>"
+    )
+
+
 def render_report(
     comparisons: list[Comparison],
     *,
@@ -342,13 +360,32 @@ def render_report(
 ) -> str:
     lines = [
         COMMENT_MARKER,
-        "## Performance canary (advisory)",
+        "## :baby_chick: Performance Canary",
         "",
         _summary(comparisons),
         "",
-        "| Benchmark | Base | PR | Runtime change | Assessment |",
-        "|---|---:|---:|---:|---|",
     ]
+    collapse_results = (
+        bool(comparisons)
+        and not added
+        and not removed
+        and all(comparison.assessment == "No material change" for comparison in comparisons)
+    )
+    if collapse_results:
+        noun = "result" if len(comparisons) == 1 else "results"
+        lines.extend(
+            [
+                "<details>",
+                f"<summary>View {len(comparisons)} benchmark {noun}</summary>",
+                "",
+            ]
+        )
+    lines.extend(
+        [
+            "| Benchmark | Base | PR | Runtime change | Assessment |",
+            "|---|---:|---:|---:|---|",
+        ]
+    )
     source_links = _benchmark_source_links(head_sha)
     for comparison in comparisons:
         name = DISPLAY_NAMES.get(comparison.name, comparison.name).replace("|", "\\|")
@@ -360,18 +397,11 @@ def render_report(
             f"{format_change_cell(comparison.change)} | {comparison.assessment} |"
         )
 
+    lines.extend(["", _comparison_note(base_label, base_sha, head_sha)])
+    if collapse_results:
+        lines.extend(["", "</details>"])
     lines.extend(
         [
-            "",
-            f"Compared `{base_label}` (`{base_sha[:7]}`) with this PR (`{head_sha[:7]}`) on "
-            "the same runner using workload-local A/B/B/A ordering. Positive changes are slower. "
-            f"Changes under {_threshold_percent(MATERIAL_CHANGE_THRESHOLD)} are reported as no "
-            f"material change; changes of at least "
-            f"{_threshold_percent(MATERIAL_CHANGE_THRESHOLD)} but under "
-            f"{_threshold_percent(POSSIBLE_CHANGE_THRESHOLD)} are notable; changes of at least "
-            f"{_threshold_percent(POSSIBLE_CHANGE_THRESHOLD)} are possible regressions or "
-            "improvements. Material changes that do not repeat in both pairs with low noise are "
-            "inconclusive.",
             "",
             "<details>",
             "<summary>Environment and method</summary>",
@@ -410,7 +440,7 @@ def render_failure(
 ) -> str:
     lines = [
         COMMENT_MARKER,
-        "## Performance canary (advisory)",
+        "## :baby_chick: Performance Canary",
         "",
         "**The canary could not produce a comparison.** This does not block merging.",
         "",
