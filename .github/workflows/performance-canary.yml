@@ -13,6 +13,7 @@ permissions:
   contents: read
 
 env:
+  # Match the release-wheel compiler rather than introducing another toolchain.
   CLIFFT_LINUX_WHEEL_CLANG_VERSION: "22.1.8.1"
 
 concurrency:
@@ -36,6 +37,8 @@ jobs:
       CLIFFT_OPENMP: "ON"
       CLIFFT_FORCE_ISA: avx2
       CMAKE_GENERATOR: Ninja
+      # An ephemeral cache is shared by the base and PR builds within this job.
+      # No PR-scoped cache is saved to the repository cache service.
       CMAKE_C_COMPILER_LAUNCHER: ccache
       CMAKE_CXX_COMPILER_LAUNCHER: ccache
       CCACHE_COMPILERCHECK: content
@@ -77,16 +80,11 @@ jobs:
           python3 - <<'PY'
           import os
 
+          # Selecting the lowest allowed core is deterministic across all pairs.
           core = min(os.sched_getaffinity(0))
           with open(os.environ["GITHUB_ENV"], "a") as environment:
               environment.write(f"BENCHMARK_CPU_CORE={core}\n")
           PY
-
-      - name: Set up ccache
-        uses: hendrikmuhs/ccache-action@v1.2
-        with:
-          key: ${{ runner.os }}-performance-canary-clang-${{ env.CLIFFT_LINUX_WHEEL_CLANG_VERSION }}-${{ github.event.pull_request.number }}
-          evict-old-files: job
 
       - name: Prepare fallback report
         env:
@@ -139,17 +137,14 @@ jobs:
             local repetitions="$4"
             local min_time="$5"
             local warmup_time="$6"
-            (
-              cd benchmark-source
-              taskset --cpu-list "$BENCHMARK_CPU_CORE" \
-                "$GITHUB_WORKSPACE/$executable" \
-                --benchmark_filter="$filter" \
-                --benchmark_min_time="${min_time}s" \
-                --benchmark_min_warmup_time="$warmup_time" \
-                --benchmark_repetitions="$repetitions" \
-                --benchmark_out="$GITHUB_WORKSPACE/$output" \
-                --benchmark_out_format=json
-            )
+            taskset --cpu-list "$BENCHMARK_CPU_CORE" \
+              "$GITHUB_WORKSPACE/$executable" \
+              --benchmark_filter="$filter" \
+              --benchmark_min_time="${min_time}s" \
+              --benchmark_min_warmup_time="$warmup_time" \
+              --benchmark_repetitions="$repetitions" \
+              --benchmark_out="$GITHUB_WORKSPACE/$output" \
+              --benchmark_out_format=json
           }
 
           # Consume process-wide first-use effects before collecting any evidence.
@@ -158,23 +153,22 @@ jobs:
           run_benchmarks \
             canary-bin/head canary-results/warmup-head.json '.*' 1 0.1 0.1
 
-          benchmarks=(
-            squeeze_parallel_t_8192
-            compile_plan_cultivation_d5
-            sample_qv10_100_shots
-            sample_cultivation_d5_1000_shots
-            sample_coherent_d5_r5_100_shots
-            sample_surface_d7_r7_10000_shots
-            sample_surface_d5_r5_high_noise_10000_shots
-            sample_surface_d11_r11_1000_shots
-            sample_exp_val_20q_200_probes_100000_shots
-          )
+          ./canary-bin/head --benchmark_list_tests=true > canary-results/benchmarks.txt
+          mapfile -t benchmarks < canary-results/benchmarks.txt
+          if (( ${#benchmarks[@]} == 0 )); then
+            echo "No benchmarks were registered" >&2
+            exit 1
+          fi
           mkdir -p \
             canary-results/base-first \
             canary-results/head-first \
             canary-results/head-second \
             canary-results/base-second
           for benchmark in "${benchmarks[@]}"; do
+            if [[ ! "$benchmark" =~ ^[a-z0-9_]+$ ]]; then
+              echo "Unsupported benchmark name: $benchmark" >&2
+              exit 1
+            fi
             filter="^${benchmark}$"
             run_benchmarks \
               canary-bin/base "canary-results/base-first/${benchmark}.json" \

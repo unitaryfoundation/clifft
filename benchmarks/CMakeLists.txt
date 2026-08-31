@@ -19,3 +19,11 @@ endif()
 add_executable(clifft_benchmarks clifft_benchmarks.cc)
 target_link_libraries(clifft_benchmarks PRIVATE clifft_core benchmark::benchmark_main)
 target_compile_features(clifft_benchmarks PRIVATE cxx_std_20)
+get_filename_component(
+    _CLIFFT_BENCHMARK_FIXTURES_DIR
+    "${CMAKE_CURRENT_SOURCE_DIR}/../tests/fixtures"
+    ABSOLUTE
+)
+target_compile_definitions(clifft_benchmarks PRIVATE
+    CLIFFT_BENCHMARK_FIXTURES_DIR="${_CLIFFT_BENCHMARK_FIXTURES_DIR}"
+)

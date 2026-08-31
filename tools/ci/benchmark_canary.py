@@ -8,6 +8,7 @@ import json
 import math
 import os
 import platform
+import re
 import statistics
 import subprocess
 from collections import defaultdict
@@ -15,8 +16,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 COMMENT_MARKER = "<!-- clifft-performance-canary -->"
-NOTABLE_THRESHOLD = 0.05
-POSSIBLE_REGRESSION_THRESHOLD = 0.10
+MATERIAL_CHANGE_THRESHOLD = 0.05
+MAX_RELATIVE_STDDEV = 0.05
+POSSIBLE_CHANGE_THRESHOLD = 0.10
+BENCHMARK_SOURCE = Path(__file__).resolve().parents[2] / "benchmarks" / "clifft_benchmarks.cc"
 
 DISPLAY_NAMES = {
     "squeeze_parallel_t_8192": "Squeeze 8192 T gates",
@@ -56,25 +59,27 @@ class Comparison:
 
     @property
     def assessment(self) -> str:
-        if abs(self.change) < NOTABLE_THRESHOLD:
+        if abs(self.change) < MATERIAL_CHANGE_THRESHOLD:
             return "No material change"
-        if self.max_relative_stddev >= NOTABLE_THRESHOLD:
+        if self.max_relative_stddev >= MAX_RELATIVE_STDDEV:
             return "Inconclusive"
         if self.change > 0 and (
-            self.first_change < NOTABLE_THRESHOLD or self.second_change < NOTABLE_THRESHOLD
+            self.first_change < MATERIAL_CHANGE_THRESHOLD
+            or self.second_change < MATERIAL_CHANGE_THRESHOLD
         ):
             return "Inconclusive"
         if self.change < 0 and (
-            self.first_change > -NOTABLE_THRESHOLD or self.second_change > -NOTABLE_THRESHOLD
+            self.first_change > -MATERIAL_CHANGE_THRESHOLD
+            or self.second_change > -MATERIAL_CHANGE_THRESHOLD
         ):
             return "Inconclusive"
-        if self.change >= POSSIBLE_REGRESSION_THRESHOLD:
+        if self.change >= POSSIBLE_CHANGE_THRESHOLD:
             return "Possible regression"
-        if self.change >= NOTABLE_THRESHOLD:
+        if self.change >= MATERIAL_CHANGE_THRESHOLD:
             return "Notable slowdown"
-        if self.change <= -POSSIBLE_REGRESSION_THRESHOLD:
+        if self.change <= -POSSIBLE_CHANGE_THRESHOLD:
             return "Improvement"
-        if self.change <= -NOTABLE_THRESHOLD:
+        if self.change <= -MATERIAL_CHANGE_THRESHOLD:
             return "Notable improvement"
         raise AssertionError("material change was not classified")
 
@@ -112,7 +117,7 @@ def parse_google_benchmarks(path: Path) -> dict[str, BenchmarkEstimate]:
 
         for name, values in repetitions.items():
             if name in results:
-                raise ValueError(f"duplicate benchmark {name!r}: {path}")
+                raise ValueError(f"duplicate benchmark {name!r}: {result_path}")
             median_ns = statistics.median(values)
             relative_stddev = (
                 statistics.stdev(values) / statistics.mean(values) if len(values) > 1 else 0
@@ -194,9 +199,13 @@ def format_change(change: float) -> str:
 
 def format_change_cell(change: float) -> str:
     rendered = format_change(change)
-    if abs(change) >= NOTABLE_THRESHOLD:
+    if abs(change) >= MATERIAL_CHANGE_THRESHOLD:
         return f"**{rendered}**"
     return rendered
+
+
+def _threshold_percent(threshold: float) -> str:
+    return f"{threshold:.0%}"
 
 
 def _summary(comparisons: list[Comparison]) -> str:
@@ -211,32 +220,37 @@ def _summary(comparisons: list[Comparison]) -> str:
         verb = "was" if regressions == 1 else "were"
         summary = (
             f"**Possible regression detected:** {regressions} of {total} benchmarks {verb} at "
-            "least 10% slower. This does not block merging."
+            f"least {_threshold_percent(POSSIBLE_CHANGE_THRESHOLD)} slower."
         )
-        return _append_inconclusive(summary, inconclusive)
+        return f"{_append_inconclusive(summary, inconclusive)} This does not block merging."
     if notable_slowdowns:
         verb = "was" if notable_slowdowns == 1 else "were"
         summary = (
             f"**Notable slowdown detected:** {notable_slowdowns} of {total} benchmarks {verb} "
-            "between 5% and 10% slower. No possible regression was detected. This does not "
-            "block merging."
+            f"between {_threshold_percent(MATERIAL_CHANGE_THRESHOLD)} and "
+            f"{_threshold_percent(POSSIBLE_CHANGE_THRESHOLD)} slower. No possible regression "
+            "was detected."
         )
-        return _append_inconclusive(summary, inconclusive)
+        return f"{_append_inconclusive(summary, inconclusive)} This does not block merging."
     if inconclusive:
-        noun = "comparison was" if inconclusive == 1 else "comparisons were"
-        return (
-            f"**No confirmed regressions detected.** {inconclusive} benchmark {noun} "
-            "inconclusive. This does not block merging."
-        )
+        summary = "**No confirmed regressions detected.**"
+        if improvements:
+            noun = "benchmark" if improvements == 1 else "benchmarks"
+            summary += (
+                f" {improvements} {noun} showed an improvement of at least "
+                f"{_threshold_percent(MATERIAL_CHANGE_THRESHOLD)}."
+            )
+        return f"{_append_inconclusive(summary, inconclusive)} This does not block merging."
     if improvements:
         noun = "benchmark" if improvements == 1 else "benchmarks"
         return (
             "**No possible regressions detected.** "
-            f"{improvements} {noun} showed an improvement of at least 5%."
+            f"{improvements} {noun} showed an improvement of at least "
+            f"{_threshold_percent(MATERIAL_CHANGE_THRESHOLD)}."
         )
     return (
         f"**No material performance changes detected.** All {total} benchmarks remained within "
-        "5% of the base."
+        f"{_threshold_percent(MATERIAL_CHANGE_THRESHOLD)} of the base."
     )
 
 
@@ -244,7 +258,41 @@ def _append_inconclusive(summary: str, count: int) -> str:
     if not count:
         return summary
     noun = "comparison was" if count == 1 else "comparisons were"
-    return f"{summary} {count} additional benchmark {noun} inconclusive."
+    return f"{summary} {count} benchmark {noun} inconclusive."
+
+
+def _benchmark_source_links(head_sha: str) -> dict[str, str]:
+    server = os.environ.get("GITHUB_SERVER_URL")
+    repository = os.environ.get("GITHUB_REPOSITORY")
+    if not server or not repository or not BENCHMARK_SOURCE.is_file():
+        return {}
+
+    lines = BENCHMARK_SOURCE.read_text().splitlines()
+    function_lines = {}
+    function_pattern = re.compile(r"^void ([a-z0-9_]+)\(benchmark::State& state\) \{$")
+    for index, line in enumerate(lines):
+        match = function_pattern.match(line)
+        if not match:
+            continue
+        source_line = index + 1
+        comment_index = index - 1
+        while comment_index >= 0 and lines[comment_index].startswith("//"):
+            source_line = comment_index + 1
+            comment_index -= 1
+        function_lines[match.group(1)] = source_line
+
+    registration_pattern = re.compile(r'^BENCHMARK\(([a-z0-9_]+)\)->Name\("([^"]+)"\);$')
+    links = {}
+    for line in lines:
+        match = registration_pattern.match(line)
+        if not match or match.group(1) not in function_lines:
+            continue
+        function, benchmark_name = match.groups()
+        links[benchmark_name] = (
+            f"{server.rstrip('/')}/{repository}/blob/{head_sha}/"
+            f"benchmarks/clifft_benchmarks.cc#L{function_lines[function]}"
+        )
+    return links
 
 
 def _environment_value(override: str | None, kind: str) -> str:
@@ -301,8 +349,11 @@ def render_report(
         "| Benchmark | Base | PR | Runtime change | Assessment |",
         "|---|---:|---:|---:|---|",
     ]
+    source_links = _benchmark_source_links(head_sha)
     for comparison in comparisons:
         name = DISPLAY_NAMES.get(comparison.name, comparison.name).replace("|", "\\|")
+        if comparison.name in source_links:
+            name = f"[{name}]({source_links[comparison.name]})"
         lines.append(
             f"| {name} | {format_duration(comparison.base_ns)} | "
             f"{format_duration(comparison.head_ns)} | "
@@ -314,9 +365,13 @@ def render_report(
             "",
             f"Compared `{base_label}` (`{base_sha[:7]}`) with this PR (`{head_sha[:7]}`) on "
             "the same runner using workload-local A/B/B/A ordering. Positive changes are slower. "
-            "Changes under 5% are reported as no material change; changes of at least 5% but "
-            "under 10% are notable; changes of at least 10% are possible regressions or "
-            "improvements.",
+            f"Changes under {_threshold_percent(MATERIAL_CHANGE_THRESHOLD)} are reported as no "
+            f"material change; changes of at least "
+            f"{_threshold_percent(MATERIAL_CHANGE_THRESHOLD)} but under "
+            f"{_threshold_percent(POSSIBLE_CHANGE_THRESHOLD)} are notable; changes of at least "
+            f"{_threshold_percent(POSSIBLE_CHANGE_THRESHOLD)} are possible regressions or "
+            "improvements. Material changes that do not repeat in both pairs with low noise are "
+            "inconclusive.",
             "",
             "<details>",
             "<summary>Environment and method</summary>",
@@ -326,13 +381,14 @@ def render_report(
             "- ISA: AVX2 runtime backend (forced)",
             f"- Compiler: {_environment_value(compiler, 'compiler')}",
             "- Build: Release, x86-64-v2, ThinLTO, lld, and OpenMP enabled.",
-            f"- Each pass uses {repetitions} Google Benchmark repetitions with at least "
-            f"{min_time:g} seconds of measured CPU time and {warmup_time:g} seconds of warmup "
-            "per workload.",
+            f"- Each pass warms every workload for at least {warmup_time:g} seconds, then runs "
+            f"{repetitions} Google Benchmark repetitions with at least {min_time:g} seconds of "
+            "measured CPU time each.",
             "- One unreported full-suite process per revision runs before the measured pairs.",
             "- Displayed timings are the geometric mean of the two drift-balanced pass medians.",
-            "- Material changes must repeat in both pairs with under 5% within-pass relative "
-            "standard deviation; otherwise they are inconclusive.",
+            "- Material changes must repeat in both pairs with under "
+            f"{_threshold_percent(MAX_RELATIVE_STDDEV)} within-pass relative standard deviation; "
+            "otherwise they are inconclusive.",
             "- Results apply only to this runner and are intended to detect large regressions, "
             "not establish release performance.",
         ]

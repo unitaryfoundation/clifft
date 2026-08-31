@@ -18,10 +18,9 @@ using namespace clifft;
 namespace {
 
 std::string fixture(const char* name) {
-    const auto path = std::filesystem::path("tests") / "fixtures" / name;
+    const auto path = std::filesystem::path(CLIFFT_BENCHMARK_FIXTURES_DIR) / name;
     if (!std::filesystem::is_regular_file(path)) {
-        throw std::runtime_error(
-            "run clifft_benchmarks with the Clifft source tree as the working directory");
+        throw std::runtime_error("benchmark fixture is missing: " + path.string());
     }
     return path.string();
 }
@@ -84,6 +83,8 @@ std::string exp_val_heavy_text(uint32_t num_qubits, uint32_t num_probes) {
     return source.str();
 }
 
+// Expansion-only suffixes have no useful bypass destination. This wide convoy
+// catches accidental per-T full-mask commutation scans in squeeze planning.
 void squeeze_parallel_t(benchmark::State& state) {
     auto hir = parallel_t_hir(8192);
     if (hir.ops.size() != 8192) {
@@ -96,6 +97,8 @@ void squeeze_parallel_t(benchmark::State& state) {
     }
 }
 
+// Cultivation combines parsing, optimization, postselection planning, and
+// active-state lowering, protecting the complete compiler pipeline's latency.
 void compile_plan_cultivation_d5(benchmark::State& state) {
     // Keep filesystem behavior outside the compiler pipeline being measured.
     const auto source = read_fixture("cultivation_d5.stim");
@@ -110,6 +113,8 @@ void compile_plan_cultivation_d5(benchmark::State& state) {
     }
 }
 
+// Dense arbitrary two-qubit layers drive the width-10 coefficient-state path
+// instead of the mostly Clifford and noise-oriented execution paths below.
 void sample_qv10(benchmark::State& state) {
     const auto plan = compile_circuit(fixture("qv10.stim"));
     if (plan.peak_active_width() != 10) {
@@ -122,6 +127,8 @@ void sample_qv10(benchmark::State& state) {
     }
 }
 
+// Sparse noisy QEC with T gates and postselection protects survivor sampling
+// at moderate active width.
 void sample_cultivation_d5(benchmark::State& state) {
     const auto plan = compile_circuit(fixture("cultivation_d5.stim"));
     if (plan.peak_active_width() != 10) {
@@ -134,6 +141,8 @@ void sample_cultivation_d5(benchmark::State& state) {
     }
 }
 
+// Coherent QEC protects production squeeze decisions and coefficient-state
+// execution at width 13, beyond the width-10 workloads above.
 void sample_coherent_d5(benchmark::State& state) {
     const auto plan = compile_circuit(fixture("coherent_d5_r5.stim"));
     if (plan.peak_active_width() != 13) {
@@ -146,6 +155,8 @@ void sample_coherent_d5(benchmark::State& state) {
     }
 }
 
+// This low-noise Clifford workload keeps most noise sites dormant, making
+// symbolic dispatch and gap sampling dominant in the single-word frame regime.
 void sample_surface_d7(benchmark::State& state) {
     const auto plan = compile_circuit(fixture("surface_d7_r7_p001.stim"));
     if (plan.peak_active_width() != 0 || plan.num_qubits() > 128) {
@@ -158,14 +169,22 @@ void sample_surface_d7(benchmark::State& state) {
     }
 }
 
+// High physical noise forces most noise sites to fire, protecting the
+// full-mask XOR and popcount path used to compose Pauli errors.
 void sample_surface_d5_high_noise(benchmark::State& state) {
     const auto plan = compile_circuit(fixture("surface_d5_r5_p05.stim"));
+    if (plan.peak_active_width() != 0 || plan.num_qubits() > 128) {
+        state.SkipWithError("unexpected high-noise surface d5 plan shape");
+        return;
+    }
     for ([[maybe_unused]] auto _ : state) {
         auto result = sampling::sample(plan, 10000, 0);
         benchmark::DoNotOptimize(result);
     }
 }
 
+// The larger Clifford surface workload crosses the single-word frame boundary,
+// protecting runtime-width mask handling without active coefficient state.
 void sample_surface_d11(benchmark::State& state) {
     const auto plan = compile_circuit(fixture("surface_d11_r11_p001.stim"));
     if (plan.peak_active_width() != 0 || plan.num_qubits() <= 128) {
@@ -178,6 +197,8 @@ void sample_surface_d11(benchmark::State& state) {
     }
 }
 
+// Weight-three probes protect EXP_VAL frame conjugation and the dormant/active
+// split; each probe must walk both halves of the full Pauli mask.
 void sample_exp_val(benchmark::State& state) {
     const auto plan = compile_text(exp_val_heavy_text(20, 200));
     if (plan.num_exp_vals() != 200) {

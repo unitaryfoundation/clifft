@@ -164,6 +164,78 @@ def test_material_change_requires_consistent_low_noise_pairs(tmp_path: Path) -> 
     assert noisy[0].assessment == "Inconclusive"
 
 
+def test_inconclusive_summary_retains_improvements() -> None:
+    improvement = benchmark_canary.Comparison(
+        name="improvement",
+        base_ns=100.0,
+        head_ns=88.0,
+        change=-0.12,
+        first_change=-0.12,
+        second_change=-0.12,
+        max_relative_stddev=0.01,
+    )
+    inconclusive = benchmark_canary.Comparison(
+        name="inconclusive",
+        base_ns=100.0,
+        head_ns=112.0,
+        change=0.12,
+        first_change=0.12,
+        second_change=0.12,
+        max_relative_stddev=0.06,
+    )
+
+    summary = benchmark_canary._summary([improvement, inconclusive])
+
+    assert "**No confirmed regressions detected.**" in summary
+    assert "1 benchmark showed an improvement of at least 5%." in summary
+    assert "1 benchmark comparison was inconclusive." in summary
+
+
+def test_report_links_workload_name_to_source_rationale(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GITHUB_SERVER_URL", "https://github.example")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "unitaryfoundation/clifft")
+    source_lines = benchmark_canary.BENCHMARK_SOURCE.read_text().splitlines()
+    rationale_line = next(
+        index
+        for index, line in enumerate(source_lines, start=1)
+        if line.startswith("// Expansion-only suffixes")
+    )
+    source_links = benchmark_canary._benchmark_source_links("abcdef0")
+    assert benchmark_canary.DISPLAY_NAMES.keys() <= source_links.keys()
+    for source_link in source_links.values():
+        linked_line = int(source_link.rsplit("#L", 1)[1])
+        assert source_lines[linked_line - 1].startswith("//")
+    comparison = benchmark_canary.Comparison(
+        name="squeeze_parallel_t_8192",
+        base_ns=100.0,
+        head_ns=100.0,
+        change=0.0,
+        first_change=0.0,
+        second_change=0.0,
+        max_relative_stddev=0.0,
+    )
+
+    report = benchmark_canary.render_report(
+        [comparison],
+        base_label="main",
+        base_sha="1234567",
+        head_sha="abcdef0",
+        repetitions=3,
+        min_time=0.5,
+        warmup_time=0.2,
+        added=[],
+        removed=[],
+        cpu="CPU",
+        compiler="compiler",
+    )
+
+    expected_link = (
+        "https://github.example/unitaryfoundation/clifft/blob/abcdef0/"
+        f"benchmarks/clifft_benchmarks.cc#L{rationale_line}"
+    )
+    assert f"| [Squeeze 8192 T gates]({expected_link}) |" in report
+
+
 def test_parser_rejects_failed_google_benchmark_run(tmp_path: Path) -> None:
     path = _write_results(tmp_path / "failed.json", {"one": 100.0}, error="benchmark failed")
     with pytest.raises(ValueError, match="did not succeed"):
