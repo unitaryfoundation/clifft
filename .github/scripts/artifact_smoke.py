@@ -26,6 +26,8 @@ def validate_typing_artifacts() -> None:
 
     if not marker_path.is_file():
         raise AssertionError(f"typing marker is missing: {marker_path}")
+    if not stub_path.is_file():
+        raise AssertionError(f"nanobind stub is missing: {stub_path}")
     ast.parse(stub_path.read_text(), filename=str(stub_path))
 
 

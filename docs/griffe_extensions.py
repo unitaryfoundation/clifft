@@ -16,11 +16,10 @@ def _merge_stub_signatures(dynamic: Module | Class, stub: Module | Class) -> Non
         if isinstance(dynamic_member, Function) and isinstance(stub_member, Function):
             dynamic_member.parameters = deepcopy(stub_member.parameters)
             dynamic_member.returns = deepcopy(stub_member.returns)
-            dynamic_member.overloads = deepcopy(stub_member.overloads)
         elif isinstance(dynamic_member, Attribute) and isinstance(stub_member, Attribute):
             dynamic_member.annotation = deepcopy(stub_member.annotation)
         elif isinstance(dynamic_member, Class) and isinstance(stub_member, Class):
-            if "__init__" not in stub_member.members:
+            if "__init__" not in stub_member.members and "__init__" not in stub_member.overloads:
                 dynamic_member.members.pop("__init__", None)
             _merge_stub_signatures(dynamic_member, stub_member)
 
