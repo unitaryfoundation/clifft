@@ -43,6 +43,29 @@ def test_runtime_isa_reflects_forced_scalar_backend() -> None:
     assert output.strip() == "scalar"
 
 
+@pytest.mark.parametrize(
+    "function_name",
+    ["sample", "sample_k", "sample_k_survivors", "sample_survivors"],
+)
+def test_sampling_signature_has_public_result_type(function_name: str) -> None:
+    """Test that nanobind metadata describes the stable public result type."""
+    function = getattr(clifft, function_name)
+    signatures = function.__nb_signature__
+    assert len(signatures) == 1
+    signature = signatures[0][0]
+    assert "typing.Literal['auto']" in signature
+    assert signature.endswith("-> clifft.SampleResult")
+
+
+def test_hir_pass_manager_add_has_valid_keyword_name() -> None:
+    """Test that pass managers expose a keyword that is valid Python syntax."""
+    manager = clifft.HirPassManager()
+    manager.add(hir_pass=clifft.PeepholeFusionPass())
+
+    signature = clifft.HirPassManager.add.__nb_signature__[0][0]
+    assert "hir_pass: clifft._clifft_core.HirPass" in signature
+
+
 # --------------------------------------------------------------------------
 # Parser tests
 # --------------------------------------------------------------------------

@@ -10,12 +10,23 @@ keep those markers stable.
 from __future__ import annotations
 
 import argparse
+import ast
 import sys
 from pathlib import Path
 
 import clifft
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+
+def validate_typing_artifacts() -> None:
+    package_dir = Path(clifft.__file__).resolve().parent
+    stub_path = package_dir / "_clifft_core.pyi"
+    marker_path = package_dir / "py.typed"
+
+    if not marker_path.is_file():
+        raise AssertionError(f"typing marker is missing: {marker_path}")
+    ast.parse(stub_path.read_text(), filename=str(stub_path))
 
 
 def parse_python_version(value: str) -> tuple[int, int]:
@@ -51,6 +62,7 @@ def main() -> None:
     print(f"python={sys.version.split()[0]}", flush=True)
     print(f"version={clifft.__version__}  baseline={clifft.CPU_BASELINE}", flush=True)
     print(f"isa={clifft.runtime_isa()}", flush=True)
+    validate_typing_artifacts()
 
     symbolic = clifft.compile((_PROJECT_ROOT / "tests/fixtures/qv10.stim").read_text())
     result = clifft.sample(symbolic, shots=1, seed=280)
