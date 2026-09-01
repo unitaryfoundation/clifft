@@ -76,6 +76,14 @@ class DormantSubspace {
     // unchanged.
     MeasurementEffect apply_measurement(const PauliString& body);
 
+    // Returns the current generators of S as unsigned Pauli bodies (S is an
+    // unsigned isotropic subspace; no sign is tracked). apply_rotation and
+    // apply_measurement can leave S with different generators depending on
+    // pivot choice, so two DormantSubspace instances describe the same
+    // subspace exactly when each one's generators are all contained in the
+    // other, not when this list matches element-for-element.
+    [[nodiscard]] std::vector<PauliString> generators() const;
+
   private:
     [[nodiscard]] MaskView row_x(uint32_t index) const;
     [[nodiscard]] MaskView row_z(uint32_t index) const;

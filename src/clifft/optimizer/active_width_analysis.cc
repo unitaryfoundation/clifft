@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cassert>
 #include <span>
+#include <utility>
 
 namespace clifft {
 
@@ -151,6 +152,18 @@ DormantSubspace::MeasurementEffect DormantSubspace::apply_measurement(const Paul
     }
     append_generator(body);
     return MeasurementEffect::Active;
+}
+
+std::vector<PauliString> DormantSubspace::generators() const {
+    std::vector<PauliString> result;
+    result.reserve(dimension_);
+    for (uint32_t i = 0; i < dimension_; ++i) {
+        PauliString generator(num_qubits_);
+        generator.mut_x().xor_with(row_x(i));
+        generator.mut_z().xor_with(row_z(i));
+        result.push_back(std::move(generator));
+    }
+    return result;
 }
 
 std::optional<uint32_t> DormantSubspace::reduce_against_membership_cache(
