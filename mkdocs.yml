@@ -137,4 +137,5 @@ nav:
     - Tableau Conventions: development/tableau-conventions.md
     - Releasing: development/releasing.md
   - Development Blog:
+    - "v0.9.0 (August 2026): Parallel Sampling": updates/parallel-sampling.md
     - "v0.8.0 (August 2026): Symbolic Sampling": updates/symbolic-sampling.md
