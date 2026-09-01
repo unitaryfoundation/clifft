@@ -6,6 +6,9 @@ This guide is the handoff point for extending the experimental AMD backend.
 The backend is intentionally private below `SamplingPlan`: changes to its
 packed actions, workspace, and kernels do not define a cross-backend ABI.
 
+For the experimental user contract and minimal Python workflow, start with
+[HIP Backend](hip-backend.md).
+
 ## Build a Developer Installation
 
 The ordinary Python package always contains `clifft.experimental.hip`, but its
@@ -29,7 +32,7 @@ CMAKE_ARGS="-DCLIFFT_ENABLE_HIP=ON \
 ```
 
 For C++ iteration, use the standalone build documented in
-[Experimental HIP Sampling Backend](hip-backend.md). Both paths compile device
+[HIP Backend](hip-backend.md). Both paths compile device
 code offline; only kernel-launch tests require a visible GPU.
 
 ## Python Iteration Loop

@@ -55,9 +55,9 @@ maps Pauli operations into those coordinates, and derives the affine Boolean
 expressions needed for branch-dependent signs. The resulting `SamplingPlan`
 is a target-independent description of the work common to every shot.
 
-Keeping this boundary semantic matters. A CPU executor and a future target can
-share the same coordinate choices and output contract without sharing action
-layouts, kernel selectors, or fusion policy.
+Keeping this boundary semantic matters. The CPU executor and experimental HIP
+backend share the same coordinate choices and output contract without sharing
+action layouts, kernel selectors, or fusion policy.
 
 ### Executable Preparation
 
@@ -74,6 +74,11 @@ This keeps target selection consistent across the whole executor.
 `ExecutablePlan` is immutable after construction. Its builder is temporary
 and is discarded once the fixed storage is ready; it is not another persistent
 IR or a runtime pass manager.
+
+The experimental HIP backend starts from the same `SamplingPlan` boundary but
+prepares a backend-private GPU executable and device workspace. Its packed
+actions and launch controls are not part of the stable CPU API; see
+[HIP Backend](../development/hip-backend.md).
 
 !!! important "Planning boundary"
     Runtime kernels do not evolve tableaus, localize Paulis, analyze
@@ -110,8 +115,8 @@ Architecture-specific kernels live in separate translation units compiled
 with their required flags. Portable code contains no SIMD types and retains
 the scalar reference path. Supported x86 builds can therefore select explicit
 AVX2 or AVX-512 kernels without allowing those instructions to leak into
-fallback execution on other CPUs. Portable ARM, Windows, and WebAssembly
-builds use the scalar backend.
+fallback execution on other CPUs. Apple arm64 builds use NEON kernels. Linux
+arm64, Windows, and WebAssembly builds use the scalar backend.
 
 WebAssembly follows the same HIR, `SamplingPlan`, and `ExecutablePlan`
 boundaries. The playground can inspect the semantic and prepared plans, while

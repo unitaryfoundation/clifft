@@ -224,7 +224,7 @@ multiply modulo Pauli phase, so `E(1) X0 Z0` is equivalent to a Y error and
 firing. Clifft lowers each contiguous chain to one noise site with absolute
 channel probabilities.
 
-### Leakage and Loss Annotations (experimental)
+### Leakage and Loss Annotations
 
 | Instruction | Notes |
 |-------------|-------|
@@ -232,8 +232,8 @@ channel probabilities.
 | `LOSS(p)` | Loses each target with probability `p`, from any occupied level |
 | `LEVEL_TRANSITION[name]` | Fires the model's named transition matrix on each target |
 
-Both are recognized only by the leakage/loss sampler — `clifft.compile()`
-rejects them and points to `clifft.noncomp.sample`. See the
+All three are recognized only by the leakage/loss sampler — `clifft.compile()`
+rejects them and points to `clifft.noncomp.sample()`. See the
 [Leakage and Loss guide](../guide/leakage-and-loss.md).
 
 ## Identity Gates

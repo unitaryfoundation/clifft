@@ -3,7 +3,7 @@
 For unitary programs, `clifft.basis_probabilities()` computes exact probabilities for
 full-register computational-basis bitstrings without materializing the full
 $2^n$ statevector. This page summarizes the algorithm behind that API. For
-usage examples, see [Strong Simulation with Exact Probabilities](../guide/strong-simulation.md).
+usage examples, see the [Exact Probabilities guide](../guide/strong-simulation.md).
 
 Clifft starts from the factored state
 
@@ -200,7 +200,7 @@ speedup on Clifford+T workloads.
 ## When to use this versus dense statevector
 
 For very small circuits ($n \lesssim 10$),
-[`clifft.get_statevector()`](../guide/simulation.md) returns the full
+[`clifft.get_statevector()`](../guide/strong-simulation.md#inspect-a-small-statevector) returns the full
 $2^n$-amplitude vector and squaring its absolute value is the fastest
 path to a probability table. `basis_probabilities()` shines when:
 
@@ -215,6 +215,6 @@ For circuits ending in measurements (with or without classical feedback),
 [`clifft.record_probabilities()`](../guide/strong-simulation.md)
 returns the exact joint probability of a given measurement record. For
 broader workflows that include noise or post-selection, use
-[sampling](../guide/simulation.md#sampling), or
+[sampling](../guide/simulation.md#ordinary-sampling), or
 [`DropNonUnitaryPass`](../reference/passes.md) if you intentionally want
 to query the unitary skeleton of a mixed circuit.

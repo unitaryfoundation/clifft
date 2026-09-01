@@ -8,7 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 Clifft 0.9.0 adds parallel sampling across ordinary, post-selected, forced-fault, and noncomputational workloads. A single `threads` budget can spread work across independent shots, or, for some large `k`/active-width workloads, use OpenMP within each shot. Expert callers can select an explicit hybrid layout.
 
-The release also defines exact statevectors projectively, up to global phase. That simpler contract lets the compiler absorb Clifford-valued rotations earlier and remove global-phase bookkeeping, while new SIMD measurement kernels accelerate important active-state paths. See [Parallel Sampling](https://unitaryfoundation.github.io/clifft/stable/guide/simulation/#parallel-sampling) for the threading model, resource tradeoffs, and advanced controls.
+The release also defines exact statevectors projectively, up to global phase. That simpler contract lets the compiler absorb Clifford-valued rotations earlier and remove global-phase bookkeeping, while new SIMD measurement kernels accelerate important active-state paths. See [CPU Execution and Tuning](https://unitaryfoundation.github.io/clifft/stable/guide/cpu-execution/) for the threading model, resource tradeoffs, and advanced controls.
 
 ### Added
 
@@ -153,7 +153,7 @@ This patch makes Linux wheel CPU targeting consistent and portable across Clifft
 
 ## [0.4.0] - 2026-05-15
 
-This release expands strong simulation with a new `clifft.record_probabilities()` API that returns the joint probability `sample()` would assign to a given measurement record (or batch of records). Combined with the existing basis-probability path, Clifft now answers two complementary "what's the exact probability of …" questions: bitstring outcomes for unitary circuits, and measurement-record outcomes for circuits that contain measurements with or without classical feedback. See the [strong-simulation tutorial](https://unitaryfoundation.github.io/clifft/stable/guide/strong-simulation/) for both APIs side-by-side and more detail on when to choose one versus anothr.
+This release expands strong simulation with a new `clifft.record_probabilities()` API that returns the joint probability `sample()` would assign to a given measurement record (or batch of records). Combined with the existing basis-probability path, Clifft now answers two complementary "what's the exact probability of …" questions: bitstring outcomes for unitary circuits, and measurement-record outcomes for circuits that contain measurements with or without classical feedback. See the [Exact Probabilities guide](https://unitaryfoundation.github.io/clifft/stable/guide/strong-simulation/) for both APIs side-by-side and more detail on when to choose one versus another.
 
 The probability surface is also faster and clearer. `basis_probabilities()` is roughly 17× faster on representative inputs via a Gray-code walk over X-generators when the dormant block reduces cleanly during RREF. As part of unifying the docs, the two queries were renamed to make the queried object explicit:
 

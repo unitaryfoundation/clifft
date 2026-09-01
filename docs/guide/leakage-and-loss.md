@@ -1,9 +1,5 @@
 # Leakage and Loss
 
-!!! warning "Experimental"
-    `clifft.noncomp` is new and actively evolving. Try it and share feedback,
-    but expect its API and supported models to change as use cases develop.
-
 Pauli noise acts within a qubit's two-dimensional computational subspace. Real
 hardware can instead drive the state out of that subspace through *leakage*, or
 lose the physical carrier from its site entirely through *loss*. Neither
@@ -327,9 +323,9 @@ semantics and active-width cost are described in
   that remains active do not increase the width further. `"neglect"` omits
   this cost and the no-jump back-action, introducing an error of order
   $\lvert p_g - p_e \rvert$ per transition position. There is no error when
-  $p_g = p_e$, so `LEAKAGE(p)` and `LOSS(p)` are always exact. See the
-  [performance model](performance.md) for how active width affects simulation
-  cost.
+  $p_g = p_e$, so `LEAKAGE(p)` and `LOSS(p)` are always exact. The cost doubles
+  with each additional unit of active width because the active-state dimension
+  is $2^k$.
 - **`seed`**: same contract as ordinary sampling: a fixed seed is fully
   reproducible, `None` uses hardware entropy.
 - **`threads`** (default `1`): number of cross-shot workers. Use a positive

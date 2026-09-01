@@ -19,10 +19,32 @@ substantially — see
 
 | Your circuit… | Use |
 |---|---|
-| has no measurements | `basis_probabilities()` |
-| has any measurement (terminal or intermediate) | `record_probabilities()` |
-| has classical feedback (`CX rec[-1] q`, etc.) | `record_probabilities()` |
-| has noise, detectors, observables, or post-selection | neither — use `sample()` |
+| has post-selection | neither exact API - use `sample_survivors()` |
+| has noise, detectors, or observables | neither exact API - use `sample()` |
+| has no measurements or other non-unitary operations | `basis_probabilities()` |
+| has measurements but no noise, detectors, observables, or post-selection | `record_probabilities()` |
+| has classical feedback but no other unsupported construct | `record_probabilities()` |
+
+## Inspect a small statevector
+
+For debugging and validation of a small pure-unitary circuit,
+`get_statevector()` returns the final dense statevector:
+
+```python
+import clifft
+
+program = clifft.compile("H 0\nCNOT 0 1")
+state = clifft.get_statevector(program)
+
+print(state)
+```
+
+The result contains all $2^n$ amplitudes, is normalized, and is defined only up
+to global phase. Relative amplitudes and phases are preserved. In each integer
+statevector index, bit `q` corresponds to physical qubit `q`, so qubit 0 is the
+least-significant bit. Dense expansion is limited to 10 qubits; use
+`basis_probabilities()` when a larger circuit only needs probabilities for
+selected output bitstrings.
 
 ## `basis_probabilities()`: probabilities of a unitary state
 
@@ -283,8 +305,8 @@ log output.
 ## Performance on overlapping circuits
 
 When the circuit is a unitary prefix followed by terminal `M`-all, either
-API mathematically applies. They use very different execution strategies,
-though, and the difference can be 100×+ in either direction:
+API mathematically applies. They use different execution strategies, so
+performance can differ substantially:
 
 - `basis_probabilities()` evolves the program once, then walks
   active-state amplitudes per queried bitstring. The up-front cost is
@@ -296,9 +318,10 @@ though, and the difference can be 100×+ in either direction:
 
 A practical way to choose is to compile both forms and compare their
 `program.peak_active_width` values. When the *measured* form has a noticeably
-lower peak active width than the unitary form, `record_probabilities()` is
-typically faster per query. When the two widths match, `basis_probabilities()` wins
-because it amortizes plan execution across queries.
+lower peak active width than the unitary form, that reduction can make
+`record_probabilities()` more efficient per query. When the two widths match,
+`basis_probabilities()` can benefit from amortizing plan execution across the
+batch.
 
 ```python
 import clifft
@@ -322,23 +345,24 @@ print(f"basis_probabilities()  peak active width: {unitary.peak_active_width}")
 print(f"record_probabilities() peak active width: {measured.peak_active_width}")
 ```
 
-A gap in `peak_active_width` indicates roughly a
-$2^{(k_{\text{unitary}} - k_{\text{measured}})}$ speedup ceiling for
-`record_probabilities()` over `basis_probabilities()` on this circuit,
-independent of batch size. At equal peak active width,
-`basis_probabilities()` wins by roughly the plan-to-amplitude-walk
-cost ratio for any moderately sized batch.
+The ratio $2^{(k_{\text{unitary}} - k_{\text{measured}})}$ describes the
+difference in peak active-state dimensions, not a predicted wall-clock
+speedup. Actual performance also depends on plan replay, amplitude walking,
+and batch size. At equal peak width, batching often favors
+`basis_probabilities()` because it reuses one evolved program across the
+queries.
 
-If neither performance regime dominates your workload, picking by the
-table at the top — does the circuit have measurements? — is the right
-default.
+If neither performance regime dominates your workload, use the circuit
+constraints in the table at the top: unitary programs use
+`basis_probabilities()`, while eligible programs with measurements use
+`record_probabilities()`.
 
 ## Limitations
 
 Both APIs reject programs that include noise, readout noise, detectors,
 observables, or post-selection. These constructs make the trajectory
 multi-valued or signal-conditioned in a way neither API models. Use
-[`sample()`](simulation.md#sampling) or
+[`sample()`](simulation.md#ordinary-sampling) or
 [`sample_survivors()`](simulation.md) for those workflows.
 
 `basis_probabilities()` additionally rejects programs that contain any

@@ -2,10 +2,6 @@
 
 # Tutorial: Delayed Loss in a Surface Code
 
-!!! warning "Experimental"
-    `clifft.noncomp` is new and actively evolving. Try it and share feedback,
-    but expect its API and supported models to change as use cases develop.
-
 This tutorial recreates the idea behind Figure 8 of Baranes *et al.*,
 ["Leveraging Qubit Loss Detection in Fault Tolerant Quantum
 Algorithms"](https://arxiv.org/abs/2502.20558). We lose the same data qubit at

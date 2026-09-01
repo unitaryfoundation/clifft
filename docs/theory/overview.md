@@ -231,8 +231,10 @@ Preparation turns the semantic plan into fixed storage for the selected
 executor backend. It arranges symbolic dependencies for incremental
 evaluation, combines supported rotation runs, and selects scalar or
 architecture-specific kernels. On x86 builds with runtime dispatch, this
-selects the scalar, AVX2, or AVX-512 backend once for the plan; portable builds
-use the scalar backend.
+selects the scalar, AVX2, or AVX-512 backend once for the plan. Apple arm64
+builds use NEON kernels; other CPU and WebAssembly builds use the scalar
+backend. The experimental HIP backend instead prepares a backend-private GPU
+executable from the same semantic plan.
 
 ### Sampling
 
@@ -281,8 +283,8 @@ measurements, and which do not use postselection,
 `clifft.record_probabilities()` evaluates selected records exactly without
 sampling.
 
-See [Basis-State Probabilities](basis_probabilities.md) and
-[Strong Simulation with Exact Probabilities](../guide/strong-simulation.md).
+See [Basis-State Probabilities](basis_probabilities.md) and the
+[Exact Probabilities guide](../guide/strong-simulation.md).
 
 ## References
 

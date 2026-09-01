@@ -16,8 +16,9 @@ building and benchmarking representative Linux wheels; do not replace it with a 
 
 The version is determined automatically from git tags:
 
-- **Tagged commits** (e.g., `v0.2.0`): version is `0.2.0`
-- **Development builds**: version is `0.2.1.dev3+g1a2b3c4` (tag + commit distance + hash)
+- **Tagged commits** (e.g., `v1.2.3`): version is `1.2.3`
+- **Development builds** (e.g., `1.2.4.dev3+g1a2b3c4`): the latest tag,
+  commit distance, and hash determine the version
 
 There is no hardcoded version in `pyproject.toml`. The git tag is the single source of truth.
 
@@ -43,7 +44,7 @@ Manual dispatch always publishes to TestPyPI only — it cannot publish to PyPI.
 Generate the new release section using [git-cliff](https://git-cliff.org/):
 
 ```bash
-git cliff --unreleased --tag v0.2.0 --prepend CHANGELOG.md
+git cliff --unreleased --tag vX.Y.Z --prepend CHANGELOG.md
 ```
 
 This prepends only the unreleased changes since the previous tag and preserves
@@ -68,7 +69,7 @@ remove noise), then commit:
 
 ```bash
 git add CHANGELOG.md
-git commit -m "docs: update changelog for v0.2.0"
+git commit -m "docs: update changelog for vX.Y.Z"
 ```
 
 ### 3. Update the docs home page
@@ -82,8 +83,8 @@ full changelog.
 ### 4. Tag and push
 
 ```bash
-git tag v0.2.0
-git push origin main v0.2.0
+git tag vX.Y.Z
+git push origin main vX.Y.Z
 ```
 
 ### 5. CI runs automatically
@@ -102,7 +103,7 @@ If any step fails, subsequent steps are skipped.
 ### 6. Verify
 
 ```bash
-pip install clifft==0.2.0
+pip install clifft==X.Y.Z
 python -c "import clifft; print(clifft.__version__)"
 ```
 
@@ -166,11 +167,3 @@ These steps are needed once when setting up the repository:
 3. **GitHub environments**: Create two environments in repo settings:
     - `pypi` — optionally add required reviewers for production releases
     - `testpypi` — no restrictions needed
-
-4. **Initial version tag**: After migrating to the new repo, push the first
-   tag to establish the version baseline:
-
-    ```bash
-    git tag v0.1.0
-    git push origin v0.1.0
-    ```
