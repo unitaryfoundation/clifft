@@ -239,5 +239,4 @@ Stim is expected to be faster here: because it is Clifford-only, it never
 needs an active statevector array and can pack work from many shots into SIMD
 instructions. The key result of this tutorial is that the logical error rates
 agree while Clifft's compiler and sampler also generalize beyond stabilizer
-circuits. See [Performance](performance.md) for maintained Clifft measurements
-and guidance on comparing simulators.
+circuits.

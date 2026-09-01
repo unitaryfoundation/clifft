@@ -1,9 +1,5 @@
 # Python API Reference
 
-`clifft.compile()` returns a reusable `Program` consumed by the sampling and
-exact-query functions below. All public sampling functions use that program
-directly; there is no sampler-selection module or backend switch.
-
 ## Compilation
 
 ::: clifft.compile
@@ -24,6 +20,10 @@ directly; there is no sampler-selection module or backend switch.
 
 ## Sampling
 
+The four fixed-plan functions share CPU batching and threading arguments. See
+[CPU Execution and Tuning](../guide/cpu-execution.md) for their interaction and
+compatibility limits.
+
 ::: clifft.sample
 
 ::: clifft.sample_survivors
@@ -31,6 +31,29 @@ directly; there is no sampler-selection module or backend switch.
 ::: clifft.sample_k
 
 ::: clifft.sample_k_survivors
+
+## Experimental Hardware Backends
+
+!!! warning "Experimental"
+    These APIs require backend-specific source builds and may change without
+    compatibility guarantees. They are not selected by the regular CPU API.
+
+See [HIP Backend](../development/hip-backend.md) for the current hardware and
+workflow limits.
+
+::: clifft.experimental.hip.is_built
+
+::: clifft.experimental.hip.is_available
+
+::: clifft.experimental.hip.backend_info
+
+::: clifft.experimental.hip.compile
+
+::: clifft.experimental.hip.Program
+
+::: clifft.experimental.hip.Sampler
+
+::: clifft.experimental.hip.ReplayResult
 
 ## Leakage and Loss (experimental)
 

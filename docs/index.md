@@ -28,7 +28,7 @@ A fast exact simulator for near-Clifford quantum circuits.
 
 ## What is Clifft?
 
-Clifft is an exact simulator for quantum circuits whose dominant structure is Clifford, but whose behavior depends on localized non-Clifford operations. It accepts Stim-compatible circuits, extends them with non-Clifford gates, and compiles them into a high-performance symbolic-coordinate sampling plan.
+Clifft is an exact simulator for quantum circuits whose dominant structure is Clifford, but whose behavior depends on localized non-Clifford operations. It accepts Stim circuits, extends them with non-Clifford gates, and compiles them into a high-performance symbolic-coordinate sampling plan.
 
 Clifft factors each trajectory into an offline Clifford coordinate map,
 branch-dependent Pauli corrections represented by affine Boolean signs, and a
@@ -67,9 +67,11 @@ print(result.measurements[:5])  # First 5 shots.
 
 <div class="grid cards" markdown>
 
-- **Stim-Compatible Format and API**
+- **Stim Circuits with Non-Clifford Extensions**
 
-    Parse Stim-format circuits, including noise channels, detectors, observables, and repeat blocks, with extensions for non-Clifford gates. Compile once, then sample many shots through a familiar Python interface.
+    Existing Stim circuits compile directly. Add Clifft's non-Clifford gates
+    when needed, then compile once and sample many shots through a familiar
+    Python interface. OpenQASM 2, Qiskit, and Cirq inputs are also available.
 
 - **Exact Near-Clifford Simulation**
 
@@ -79,19 +81,9 @@ print(result.measurements[:5])  # First 5 shots.
 
     Multi-level optimization passes reduce active state-vector work before execution.
 
-- **Qiskit and Cirq Integrations**
-
-    Run supported circuits from Qiskit or Cirq through companion packages without hand-writing Clifft circuit text.
-
 - **Active-Width Scaling**
 
     For circuits with bounded active width, memory and runtime scale with the localized active state rather than the full qubit count.
-
-- **Leakage and Loss Trajectories (Experimental)**
-
-    Sample five-level leakage and loss models with state-dependent transitions,
-    measurement classification, and back-action on the computational state.
-    See the [Leakage and Loss guide](guide/leakage-and-loss.md).
 
 </div>
 
@@ -99,11 +91,12 @@ For QEC workflows, Clifft also supports detector-based post-selection, survivor 
 
 ## Get Started
 
-[Install Clifft](getting-started/installation.md){ .md-button .md-button--primary }
-
+[Quick Start](getting-started/quickstart.md){ .md-button .md-button--primary }
 [Try the Playground]({{ playground_url }}){ .md-button }
 
-[Use Qiskit or Cirq](getting-started/integrations.md){ .md-button }
+[Installation](getting-started/installation.md) ·
+[Choose a Workflow](getting-started/choosing-a-workflow.md) ·
+[Circuit Inputs](getting-started/integrations.md)
 
 ## What's New in 0.9.0
 
@@ -120,7 +113,7 @@ Clifford-valued rotations earlier during compilation, vectorizes additional
 active-measurement kernels, and fixes complex-interference cases in
 `basis_probabilities()`.
 
-Read [Parallel Sampling](guide/simulation.md#parallel-sampling) for the
+Read [CPU Execution and Tuning](guide/cpu-execution.md) for the
 threading model, memory tradeoffs, and expert controls.
 
 ## What's New in 0.8.0

@@ -96,19 +96,27 @@ nav:
   - Getting Started:
     - Installation: getting-started/installation.md
     - Quick Start: getting-started/quickstart.md
-    - Front-End Integrations:
-      - Overview: getting-started/integrations.md
-      - OpenQASM 2: getting-started/openqasm2.md
+    - Choose a Workflow: getting-started/choosing-a-workflow.md
   - User Guide:
-    - Compiling Circuits: guide/compilation.md
-    - Simulation: guide/simulation.md
-    - Leakage and Loss: guide/leakage-and-loss.md
-    - Performance: guide/performance.md
-    - "Tutorial: Strong Simulation": guide/strong-simulation.md
-    - "Tutorial: Surface Code": guide/surface-code.md
-    - "Tutorial: Delayed Loss": guide/delayed-loss.md
-    - "Tutorial: Importance Sampling": guide/importance-sampling.md
-    - "Scaling Experiment: Clifft and Qiskit Aer": guide/benchmark.md
+    - Circuits:
+      - Circuit Inputs: getting-started/integrations.md
+      - Stim + Clifft Extensions: getting-started/stim-input.md
+      - OpenQASM 2: getting-started/openqasm2.md
+      - Qiskit: getting-started/qiskit.md
+      - Cirq: getting-started/cirq.md
+      - Compiling Circuits: guide/compilation.md
+    - Workflows:
+      - Sampling and Results: guide/simulation.md
+      - Exact Probabilities: guide/strong-simulation.md
+      - Importance Sampling: guide/importance-sampling.md
+      - Leakage and Loss: guide/leakage-and-loss.md
+    - Execution:
+      - CPU Execution and Tuning: guide/cpu-execution.md
+    - Tutorials:
+      - Surface Code: guide/surface-code.md
+      - Delayed Loss: guide/delayed-loss.md
+      - Magic State Cultivation with Importance Sampling: guide/importance-sampling-tutorial.md
+      - Scaling Experiment: guide/benchmark.md
   - Theory:
     - Overview: theory/overview.md
     - Architecture: theory/architecture.md
@@ -125,7 +133,7 @@ nav:
     - Contributing: development/contributing.md
     - Building from Source: development/building.md
     - Experimental:
-      - HIP Sampling Backend: development/hip-backend.md
+      - HIP Backend: development/hip-backend.md
       - HIP Kernel Development: development/hip-kernel-development.md
     - Testing Strategy: development/testing.md
     - Tableau Conventions: development/tableau-conventions.md

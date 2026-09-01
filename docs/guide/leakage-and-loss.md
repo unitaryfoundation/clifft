@@ -327,9 +327,9 @@ semantics and active-width cost are described in
   that remains active do not increase the width further. `"neglect"` omits
   this cost and the no-jump back-action, introducing an error of order
   $\lvert p_g - p_e \rvert$ per transition position. There is no error when
-  $p_g = p_e$, so `LEAKAGE(p)` and `LOSS(p)` are always exact. See the
-  [performance model](performance.md) for how active width affects simulation
-  cost.
+  $p_g = p_e$, so `LEAKAGE(p)` and `LOSS(p)` are always exact. The cost doubles
+  with each additional unit of active width because the active-state dimension
+  is $2^k$.
 - **`seed`**: same contract as ordinary sampling: a fixed seed is fully
   reproducible, `None` uses hardware entropy.
 - **`threads`** (default `1`): number of cross-shot workers. Use a positive

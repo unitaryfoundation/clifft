@@ -23,6 +23,9 @@ pip install clifft
 All other platforms and CPU families should build from source. See
 [Building from Source](../development/building.md).
 
+Published wheels are CPU-only. The AMD HIP backend remains an explicit,
+source-build-only experiment; see [HIP Backend](../development/hip-backend.md).
+
 ## From Source
 
 For development, or if pre-built wheels are not available for your platform or CPU family:
@@ -62,4 +65,10 @@ or use the `spawn` or `forkserver` start method. Forking after a threaded sample
 and then requesting intra-shot threads in the child can hang in some OpenMP
 runtimes.
 
+See [CPU Execution and Tuning](../guide/cpu-execution.md) for automatic
+scheduling, explicit layouts, batching, and memory tradeoffs.
+
 See [Building from Source](../development/building.md) for the full development setup.
+
+Next, follow the [Quick Start](quickstart.md) or choose a path from
+[Circuit Inputs](integrations.md).

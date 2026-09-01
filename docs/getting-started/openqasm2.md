@@ -3,6 +3,9 @@
 Clifft can natively parse and compile a unitary subset of OpenQASM 2.0 without a
 Qiskit runtime dependency.
 
+See [Circuit Inputs](integrations.md) to compare this path with Stim circuits
+and the Qiskit or Cirq adapters.
+
 Select the format explicitly when compiling:
 
 ```python
