@@ -37,23 +37,7 @@
          <lastmod>2026-09-01</lastmod>
     </url>
     <url>
-         <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-455/getting-started/cirq/</loc>
-         <lastmod>2026-09-01</lastmod>
-    </url>
-    <url>
          <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-455/getting-started/installation/</loc>
-         <lastmod>2026-09-01</lastmod>
-    </url>
-    <url>
-         <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-455/getting-started/integrations/</loc>
-         <lastmod>2026-09-01</lastmod>
-    </url>
-    <url>
-         <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-455/getting-started/openqasm2/</loc>
-         <lastmod>2026-09-01</lastmod>
-    </url>
-    <url>
-         <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-455/getting-started/qiskit/</loc>
          <lastmod>2026-09-01</lastmod>
     </url>
     <url>
@@ -61,11 +45,11 @@
          <lastmod>2026-09-01</lastmod>
     </url>
     <url>
-         <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-455/getting-started/stim-input/</loc>
+         <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-455/guide/</loc>
          <lastmod>2026-09-01</lastmod>
     </url>
     <url>
-         <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-455/guide/benchmark/</loc>
+         <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-455/guide/circuit-inputs/</loc>
          <lastmod>2026-09-01</lastmod>
     </url>
     <url>
