@@ -729,7 +729,7 @@ NB_MODULE(_clifft_core, m) {
         .def(nb::init<>())
         .def(
             "add",
-            [](clifft::HirPassManager& pm, clifft::HirPass& pass) {
+            [](clifft::HirPassManager& pm, clifft::HirPass& hir_pass) {
                 // HirPassManager needs unique_ptr ownership, but Python owns the pass.
                 // Use a thin non-owning wrapper that delegates to the Python-owned pass.
                 struct BorrowedPass : clifft::HirPass {
@@ -737,9 +737,9 @@ NB_MODULE(_clifft_core, m) {
                     explicit BorrowedPass(clifft::HirPass& r) : ref(r) {}
                     void run(clifft::HirModule& hir) override { ref.run(hir); }
                 };
-                pm.add_pass(std::make_unique<BorrowedPass>(pass));
+                pm.add_pass(std::make_unique<BorrowedPass>(hir_pass));
             },
-            nb::arg("pass"), nb::keep_alive<1, 2>(),
+            nb::arg("hir_pass"), nb::keep_alive<1, 2>(),
             "Add an optimization pass. Passes run in the order added.")
         .def(
             "run", [](clifft::HirPassManager& pm, clifft::HirModule& hir) { pm.run(hir); },
@@ -929,6 +929,11 @@ NB_MODULE(_clifft_core, m) {
         nb::arg("threads") = int64_t{1}, nb::arg("thread_layout") = nb::none(),
         nb::arg("intra_shot_min_active_width") = nb::none(),
         nb::arg("batch_size") = BatchOption{std::string{"auto"}},
+        nb::sig("def sample(program: Program, shots: int, seed: int | None = None, "
+                "threads: int | typing.Literal['auto'] = 1, "
+                "thread_layout: tuple[int, int] | None = None, "
+                "intra_shot_min_active_width: int | None = None, "
+                "batch_size: int | typing.Literal['auto'] = 'auto') -> clifft.SampleResult"),
         "Run a compiled program and return a SampleResult.\n\n"
         "Raises ValueError for post-selected programs because fixed-row output\n"
         "cannot represent discarded shots. Use sample_survivors() instead.\n\n"
@@ -985,6 +990,11 @@ NB_MODULE(_clifft_core, m) {
         nb::arg("threads") = int64_t{1}, nb::arg("thread_layout") = nb::none(),
         nb::arg("intra_shot_min_active_width") = nb::none(),
         nb::arg("batch_size") = BatchOption{std::string{"auto"}},
+        nb::sig("def sample_k(program: Program, shots: int, k: int, seed: int | None = None, "
+                "threads: int | typing.Literal['auto'] = 1, "
+                "thread_layout: tuple[int, int] | None = None, "
+                "intra_shot_min_active_width: int | None = None, "
+                "batch_size: int | typing.Literal['auto'] = 'auto') -> clifft.SampleResult"),
         "Sample with exactly k forced faults per shot (importance sampling).\n\n"
         "Sites are drawn from the exact conditional Poisson-Binomial\n"
         "distribution. Results are conditioned on K=k and must be combined\n"
@@ -1058,6 +1068,12 @@ NB_MODULE(_clifft_core, m) {
         nb::arg("keep_records") = false, nb::arg("threads") = int64_t{1},
         nb::arg("thread_layout") = nb::none(), nb::arg("intra_shot_min_active_width") = nb::none(),
         nb::arg("batch_size") = BatchOption{std::string{"auto"}},
+        nb::sig("def sample_k_survivors(program: Program, shots: int, k: int, "
+                "seed: int | None = None, keep_records: bool = False, "
+                "threads: int | typing.Literal['auto'] = 1, "
+                "thread_layout: tuple[int, int] | None = None, "
+                "intra_shot_min_active_width: int | None = None, "
+                "batch_size: int | typing.Literal['auto'] = 'auto') -> clifft.SampleResult"),
         "Sample survivors with exactly k forced faults per shot.\n\n"
         "Results are conditioned on K=k. To estimate the overall logical\n"
         "error rate across strata, weight numerator and denominator\n"
@@ -1102,6 +1118,11 @@ NB_MODULE(_clifft_core, m) {
         nb::arg("keep_records") = false, nb::arg("threads") = int64_t{1},
         nb::arg("thread_layout") = nb::none(), nb::arg("intra_shot_min_active_width") = nb::none(),
         nb::arg("batch_size") = BatchOption{std::string{"auto"}},
+        nb::sig("def sample_survivors(program: Program, shots: int, seed: int | None = None, "
+                "keep_records: bool = False, threads: int | typing.Literal['auto'] = 1, "
+                "thread_layout: tuple[int, int] | None = None, "
+                "intra_shot_min_active_width: int | None = None, "
+                "batch_size: int | typing.Literal['auto'] = 'auto') -> clifft.SampleResult"),
         "Sample shots and return results only for surviving (non-discarded) shots.\n\n"
         "If seed is None (default), uses hardware entropy. threads is a positive\n"
         "total worker budget or 'auto' to use the implementation-reported hardware\n"

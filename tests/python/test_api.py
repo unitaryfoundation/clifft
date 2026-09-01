@@ -10,6 +10,37 @@ import pytest
 
 import clifft
 
+_SAMPLING_SIGNATURES = {
+    "sample": (
+        "def sample(program: Program, shots: int, seed: int | None = None, "
+        "threads: int | typing.Literal['auto'] = 1, "
+        "thread_layout: tuple[int, int] | None = None, "
+        "intra_shot_min_active_width: int | None = None, "
+        "batch_size: int | typing.Literal['auto'] = 'auto') -> clifft.SampleResult"
+    ),
+    "sample_k": (
+        "def sample_k(program: Program, shots: int, k: int, seed: int | None = None, "
+        "threads: int | typing.Literal['auto'] = 1, "
+        "thread_layout: tuple[int, int] | None = None, "
+        "intra_shot_min_active_width: int | None = None, "
+        "batch_size: int | typing.Literal['auto'] = 'auto') -> clifft.SampleResult"
+    ),
+    "sample_k_survivors": (
+        "def sample_k_survivors(program: Program, shots: int, k: int, seed: int | None = None, "
+        "keep_records: bool = False, threads: int | typing.Literal['auto'] = 1, "
+        "thread_layout: tuple[int, int] | None = None, "
+        "intra_shot_min_active_width: int | None = None, "
+        "batch_size: int | typing.Literal['auto'] = 'auto') -> clifft.SampleResult"
+    ),
+    "sample_survivors": (
+        "def sample_survivors(program: Program, shots: int, seed: int | None = None, "
+        "keep_records: bool = False, threads: int | typing.Literal['auto'] = 1, "
+        "thread_layout: tuple[int, int] | None = None, "
+        "intra_shot_min_active_width: int | None = None, "
+        "batch_size: int | typing.Literal['auto'] = 'auto') -> clifft.SampleResult"
+    ),
+}
+
 
 def test_version() -> None:
     """Test that version() returns a valid version string."""
@@ -41,6 +72,31 @@ def test_runtime_isa_reflects_forced_scalar_backend() -> None:
         text=True,
     )
     assert output.strip() == "scalar"
+
+
+@pytest.mark.parametrize(
+    ("function_name", "expected_signature"),
+    _SAMPLING_SIGNATURES.items(),
+)
+def test_sampling_signature_matches_public_contract(
+    function_name: str,
+    expected_signature: str,
+) -> None:
+    """Test that nanobind metadata matches the public sampling contract."""
+    function = getattr(clifft, function_name)
+    signatures = function.__nb_signature__
+    assert len(signatures) == 1
+    assert signatures[0][0] == expected_signature
+
+
+def test_hir_pass_manager_add_has_valid_keyword_name() -> None:
+    """Test that pass managers expose a keyword that is valid Python syntax."""
+    manager = clifft.HirPassManager()
+    manager.add(hir_pass=clifft.PeepholeFusionPass())
+
+    signatures = clifft.HirPassManager.add.__nb_signature__
+    assert len(signatures) == 1
+    assert signatures[0][0] == ("def add(self, hir_pass: clifft._clifft_core.HirPass) -> None")
 
 
 # --------------------------------------------------------------------------
