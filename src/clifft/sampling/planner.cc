@@ -3,9 +3,9 @@
 #include "clifft/sampling/planner_frame.h"
 #include "clifft/util/hir_introspection.h"
 #include "clifft/util/numeric.h"
+#include "clifft/util/symplectic.h"
 
 #include <algorithm>
-#include <bit>
 #include <cmath>
 #include <cstdint>
 #include <limits>
@@ -24,18 +24,6 @@ using Pauli = internal::PlannerPauli;
 using Tableau = internal::PlannerTableau;
 using internal::CoordinateFrame;
 using internal::SymbolicPauliFrame;
-
-// Symplectic inner product over runtime-width mask views: true when the two
-// Pauli strings anti-commute. optimizer/commutation.h has the same helper,
-// but sampling/ has no other dependency on optimizer/, so this stays a
-// local copy rather than introducing one.
-bool anti_commute(MaskView x1, MaskView z1, MaskView x2, MaskView z2) {
-    int parity = 0;
-    for (uint32_t i = 0; i < x1.num_words(); ++i) {
-        parity += std::popcount((x1.words[i] & z2.words[i]) ^ (z1.words[i] & x2.words[i]));
-    }
-    return (parity & 1) != 0;
-}
 
 Pauli pauli_from_hir(const HirModule& hir, const HeisenbergOp& op) {
     Pauli result(hir.num_qubits);
