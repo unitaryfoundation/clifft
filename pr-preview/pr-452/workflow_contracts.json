@@ -2,59 +2,66 @@
   "workflows": [
     {
       "id": "ordinary_sampling",
-      "goal": "Draw measurement outcomes, detector events, observables, or expectation values",
-      "use": "`clifft.compile()` then `clifft.sample()`",
-      "contract": "Returns one row per requested shot. The compiled program must not have a post-selection mask.",
+      "group": "sampling",
+      "prompt": "I need an output row for every requested shot.",
+      "route": "Use `clifft.compile()` and `clifft.sample()` to obtain measurement, detector, observable, and expectation-value results.",
+      "guide_label": "Sampling and Results",
       "public_apis": ["clifft.compile", "clifft.sample"],
       "guide": "guide/simulation.md"
     },
     {
       "id": "survivor_sampling",
-      "goal": "Discard shots when selected detectors fire",
-      "use": "Compile with `postselection_mask`, then use `clifft.sample_survivors()`",
-      "contract": "Returns survivor counts. Pass `keep_records=True` when per-survivor rows are also needed.",
+      "group": "sampling",
+      "prompt": "I need samples conditioned on post-selection.",
+      "route": "Compile with a `postselection_mask`, then use `clifft.sample_survivors()`. It returns survivor counts and can optionally retain each survivor's records.",
+      "guide_label": "Post-Selection in Sampling and Results",
       "public_apis": ["clifft.compile", "clifft.sample_survivors"],
       "guide": "guide/simulation.md"
     },
     {
       "id": "basis_probabilities",
-      "goal": "Query exact computational-basis probabilities for a unitary circuit with no measurements",
-      "use": "`clifft.basis_probabilities()`",
-      "contract": "Queries selected bitstrings without constructing every output probability. Noise, measurements, detectors, observables, and post-selection are not supported.",
+      "group": "exact",
+      "prompt": "My unitary circuit has no measurements.",
+      "route": "Use `clifft.basis_probabilities()` to query selected computational-basis outcomes without constructing every output probability.",
+      "guide_label": "Strong Simulation",
       "public_apis": ["clifft.basis_probabilities"],
       "guide": "guide/strong-simulation.md"
     },
     {
       "id": "record_probabilities",
-      "goal": "Query exact probabilities of measurement records in a noiseless circuit",
-      "use": "`clifft.record_probabilities()`",
-      "contract": "Supports measurement records and classical feedback. Noise, detectors, observables, post-selection, and hidden reset records are not supported.",
+      "group": "exact",
+      "prompt": "My noiseless circuit includes measurements or classical feedback.",
+      "route": "Use `clifft.record_probabilities()` to query exact probabilities of selected measurement records.",
+      "guide_label": "Strong Simulation",
       "public_apis": ["clifft.record_probabilities"],
       "guide": "guide/strong-simulation.md"
     },
     {
-      "id": "statevector",
-      "goal": "Inspect the complete final pure state of a small unitary circuit",
-      "use": "`clifft.get_statevector()`",
-      "contract": "Debugging and validation path. Expands all physical qubits and is currently limited to 10 qubits.",
-      "public_apis": ["clifft.get_statevector"],
-      "guide": "guide/strong-simulation.md"
-    },
-    {
       "id": "fixed_fault_sampling",
-      "goal": "Estimate rare events by conditioning on exactly `k` faults",
-      "use": "`clifft.sample_k()` or `clifft.sample_k_survivors()`",
-      "contract": "Advanced statistical workflow. Results are conditional on `K = k` and must be combined with the corresponding fault-count probabilities.",
+      "group": "sampling",
+      "prompt": "I need rare-event estimates conditioned on exactly `k` faults.",
+      "route": "Use `clifft.sample_k()` or `clifft.sample_k_survivors()`, then combine the conditional results with the corresponding fault-count probabilities. This is an advanced statistical workflow.",
+      "guide_label": "Importance Sampling",
       "public_apis": ["clifft.sample_k", "clifft.sample_k_survivors"],
       "guide": "guide/importance-sampling.md"
     },
     {
       "id": "noncomputational_trajectories",
-      "goal": "Model leakage, loss, or other supported noncomputational transitions",
-      "use": "`clifft.noncomp.sample()`",
-      "contract": "Experimental trajectory workflow. It accepts a circuit and model together and compiles continuations internally.",
+      "group": "specialized",
+      "prompt": "I need to model leakage, loss, or another supported noncomputational transition.",
+      "route": "Use the experimental `clifft.noncomp.sample()` trajectory workflow. It accepts a circuit and model together and compiles continuations internally.",
+      "guide_label": "Leakage and Loss",
       "public_apis": ["clifft.noncomp.sample"],
       "guide": "guide/leakage-and-loss.md"
+    }
+  ],
+  "inspection_tools": [
+    {
+      "id": "statevector",
+      "purpose": "Debug or validate the complete final pure state of a small unitary circuit.",
+      "contract": "Expands all physical qubits and is currently limited to 10 qubits.",
+      "public_apis": ["clifft.get_statevector"],
+      "guide": "guide/strong-simulation.md"
     }
   ],
   "backends": [
