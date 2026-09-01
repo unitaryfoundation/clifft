@@ -46,23 +46,32 @@ ones = result.measurements[:, 0].sum()
 print(f"|1> probability: {ones / len(result.measurements):.3f}")  # ~0.146
 ```
 
-## State Vector Access
+## Measurement, Detector, and Observable Results
 
-For debugging or verification, you can extract the full state vector:
+Sampling always returns measurement results. Circuits can also declare
+detectors and logical observables, which are returned alongside the
+measurements for every shot:
 
 ```python
 import clifft
 
-# Compile without measurements
 program = clifft.compile("""
     H 0
     CNOT 0 1
+    M 0 1
+    DETECTOR rec[-1] rec[-2]
+    OBSERVABLE_INCLUDE(0) rec[-1]
 """)
 
-# Expand the final pure state
-sv = clifft.get_statevector(program)
-print(sv)  # [0.707+0j, 0+0j, 0+0j, 0.707+0j]
+result = clifft.sample(program, shots=1000, seed=42)
+print(result.measurements.shape)  # (1000, 2)
+print(result.detectors.shape)     # (1000, 1)
+print(result.observables.shape)   # (1000, 1)
 ```
+
+Measurements are raw circuit outcomes. Detectors are parities of earlier
+measurements, commonly used as error syndromes, while observables track declared
+logical outcomes.
 
 ## Noisy Circuits
 
@@ -85,8 +94,8 @@ result = clifft.sample(program, shots=10000, seed=42)
 ## Next Steps
 
 - [Choose a Workflow](choosing-a-workflow.md) - select the API that matches the result you need
-- [Compiling Circuits](../guide/compilation.md) — the compilation pipeline in detail
-- [Simulation](../guide/simulation.md) — sampling, state vectors, and detectors
+- [Compiling Circuits](../guide/compilation.md) - the compilation pipeline in detail
+- [Simulation](../guide/simulation.md) - sampling, detectors, and observables
 - [Leakage and Loss](../guide/leakage-and-loss.md): noncomputational trajectory sampling
 - [Front-End Integrations](integrations.md): using Clifft from Qiskit or Cirq
-- [Supported Gates](../reference/gates.md) — full gate reference
+- [Supported Gates](../reference/gates.md) - full gate reference

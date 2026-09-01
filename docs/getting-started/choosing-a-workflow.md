@@ -1,89 +1,91 @@
 # Choose a Workflow
 
-Choose the result you need before choosing performance settings. Circuit input,
-simulation workflow, CPU execution strategy, and hardware backend are separate
-decisions in Clifft.
+Clifft offers several ways to provide a circuit, obtain results, and tune
+performance. This page walks through those three choices so you can select a
+workflow from the result you need rather than from Clifft's implementation
+details.
 
-If you are unsure, start with the ordinary CPU workflow:
+!!! tip "First time using Clifft?"
+    Start with the [Quick Start](quickstart.md) to compile and sample your first
+    circuit, then return here when you need a different result or execution
+    strategy.
 
-```python
-import clifft
+## 1. Provide a circuit
 
-program = clifft.compile("H 0\nT 0\nM 0")
-result = clifft.sample(program, shots=1000)
-print(result.measurements[:5])
-```
+For most users, the starting point is Stim-compatible circuit text passed to
+`clifft.compile()`. This is Clifft's native input and supports the complete
+circuit workflow.
 
-This uses the stable CPU backend and its default execution settings. Change the
-workflow only when the result or circuit semantics require it. Tune execution
-only after measuring a representative workload.
+If your circuit already uses another format:
 
-## Choose the result you need
+- pass supported unitary OpenQASM 2 text with `input_format="qasm2"`
+- use the separately released `clifft-qiskit` adapter for supported Qiskit
+  circuits
+- use the separately released `clifft-cirq` converter or sampler for supported
+  Cirq circuits
 
-| Goal or circuit requirement | Use | Result and important constraints |
-|---|---|---|
-| Draw measurement outcomes, detector events, observables, or expectation values | `clifft.compile()` then `clifft.sample()` | Returns one row per requested shot. The compiled program must not have a post-selection mask. |
-| Discard shots when selected detectors fire | Compile with `postselection_mask`, then use `clifft.sample_survivors()` | Returns survivor counts. Pass `keep_records=True` when per-survivor rows are also needed. |
-| Query exact computational-basis probabilities for a unitary circuit with no measurements | `clifft.basis_probabilities()` | Queries selected bitstrings without constructing every output probability. Noise, measurements, detectors, observables, and post-selection are not supported. |
-| Query exact probabilities of measurement records in a noiseless circuit | `clifft.record_probabilities()` | Supports measurement records and classical feedback. Noise, detectors, observables, post-selection, and hidden reset records are not supported. |
-| Inspect the complete final pure state of a small unitary circuit | `clifft.get_statevector()` | Debugging and validation path. Expands all physical qubits and is currently limited to 10 qubits. |
-| Estimate rare events by conditioning on exactly `k` faults | `clifft.sample_k()` or `clifft.sample_k_survivors()` | Advanced statistical workflow. Results are conditional on `K = k` and must be combined with the corresponding fault-count probabilities. |
-| Model leakage, loss, or other supported noncomputational transitions | `clifft.noncomp.sample()` | Experimental trajectory workflow. It accepts a circuit and model together and compiles continuations internally. |
+These alternatives have format-specific restrictions. See
+[Circuit Inputs and Integrations](integrations.md) before using one. The input
+path does not select the simulation workflow or execution backend.
 
-Use the [Simulation guide](../guide/simulation.md) for ordinary and
-post-selected sampling. The
-[Strong Simulation tutorial](../guide/strong-simulation.md) covers exact
-queries, the [Importance Sampling tutorial](../guide/importance-sampling.md)
-covers fixed-fault strata, and the
-[Leakage and Loss guide](../guide/leakage-and-loss.md) covers noncomputational
-trajectories.
+## 2. What do you want to know?
 
-## Choose the circuit input separately
+### Sample circuit outcomes
 
-The input path does not select the simulation workflow or execution backend.
+- **I need an output row for every requested shot.** Use `clifft.compile()` and
+  `clifft.sample()` to obtain measurement, detector, observable, and expectation
+  value results. Start with the [Simulation guide](../guide/simulation.md).
+- **I need samples conditioned on post-selection.** Compile with a
+  `postselection_mask`, then use `clifft.sample_survivors()`. It returns survivor
+  counts and can optionally retain each survivor's records. See the
+  [post-selection workflow](../guide/simulation.md#post-selection-survivor-sampling).
+- **I need rare-event estimates conditioned on exactly `k` faults.** Use
+  `clifft.sample_k()` or `clifft.sample_k_survivors()`, then combine the
+  conditional results with the corresponding fault-count probabilities. This
+  is an advanced workflow covered by the
+  [Importance Sampling tutorial](../guide/importance-sampling.md).
 
-| Starting point | Path |
-|---|---|
-| Stim-compatible text with Clifft extensions | Pass the text to `clifft.compile()`. This is the native path and supports the full stable circuit workflow. |
-| Unitary OpenQASM 2 text | Pass `input_format="qasm2"` to `clifft.compile()`. Only the documented unitary subset is supported. |
-| Qiskit `QuantumCircuit` | Use the separately released `clifft-qiskit` adapter for its supported terminal-measurement workflow. |
-| Cirq `cirq.Circuit` | Use the separately released `clifft-cirq` converter or sampler for its supported circuit subset. |
+### Calculate exact probabilities
 
-See [Circuit Inputs and Integrations](integrations.md) for installation,
-examples, and current limitations.
+- **My unitary circuit has no measurements.** Use
+  `clifft.basis_probabilities()` to query selected computational-basis outcomes
+  without constructing every output probability.
+- **My noiseless circuit includes measurements or classical feedback.** Use
+  `clifft.record_probabilities()` to query exact probabilities of selected
+  measurement records.
 
-## Choose execution only after the workflow
+Both APIs have circuit restrictions. The
+[Strong Simulation tutorial](../guide/strong-simulation.md) explains when to
+use each one.
 
-The stable `clifft.compile()` and sampling APIs execute on the CPU. Automatic
-packed-batch selection is enabled by default where supported, while sampling
-uses one worker by default. Most users should keep the automatic batch policy
-and use `threads` only to provide a larger CPU worker budget.
+### Model leakage or loss
 
-Advanced CPU callers can control cross-shot workers, intra-shot OpenMP workers,
-hybrid layouts, and explicit packed capacities. These settings change how a
-supported workflow executes; they do not change its statistical meaning. See
+Use the experimental `clifft.noncomp.sample()` trajectory workflow for
+supported noncomputational transitions. It accepts a circuit and model together
+and compiles continuations internally. See
+[Leakage and Loss](../guide/leakage-and-loss.md) for the model and its limits.
+
+## 3. Choose performance options
+
+Choose performance settings only after selecting the workflow that produces
+the right result.
+
+### CPU
+
+The regular compilation and sampling APIs execute on the CPU. Their automatic
+batching and single-worker defaults are appropriate starting points for most
+users.
+
+Advanced callers can tune cross-shot workers, intra-shot OpenMP workers, hybrid
+layouts, and explicit packed capacities. These settings change how a supported
+workflow executes, not its statistical meaning. See
 [Packed Batch Sampling](../guide/simulation.md#packed-batch-sampling) and
 [Parallel Sampling](../guide/simulation.md#parallel-sampling).
+
+### GPU (experimental)
 
 GPU execution is experimental and is never selected automatically. The current
 HIP backend uses the separate `clifft.experimental.hip` API, supports only its
 documented subset, and requires an explicit HIP-enabled source build. See the
 [Experimental HIP Sampling Backend](../development/hip-backend.md) before using
-it. Additional GPU backends will follow the same explicit experimental boundary
-until their support contracts are promoted.
-
-## Terminology
-
-- **Circuit input** describes how a circuit reaches Clifft: native
-  Stim-compatible text, OpenQASM 2 text, or a framework adapter.
-- **Simulation workflow** describes the mathematical result and sampling
-  semantics: ordinary samples, survivors, exact queries, fixed-fault strata, or
-  noncomputational trajectories.
-- **CPU execution strategy** describes how CPU work is scheduled or packed:
-  cross-shot, intra-shot, hybrid, scalar, or packed execution.
-- **Hardware backend** describes where a prepared workload runs. The stable
-  default is CPU execution; HIP is currently an explicit experimental backend.
-
-These choices can interact through documented capability limits, but they are
-not interchangeable modes. Start with the workflow, keep its defaults, and use
-backend or execution controls only when the workload and hardware justify them.
+it.
