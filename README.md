@@ -115,7 +115,7 @@ web-based [interactive playground](https://unitaryfoundation.github.io/clifft/pl
 | Qiskit `QuantumCircuit` | Use [`clifft-qiskit`](https://github.com/unitaryfoundation/clifft-qiskit), a Qiskit `BackendV2` provider. |
 | Cirq `cirq.Circuit` | Use [`clifft-cirq`](https://github.com/unitaryfoundation/clifft-cirq), a converter and Cirq-style sampler. |
 
-See [Circuit Inputs](https://unitaryfoundation.github.io/clifft/stable/getting-started/integrations/)
+See [Circuit Inputs](https://unitaryfoundation.github.io/clifft/stable/guide/circuit-inputs/)
 for installation commands, minimal examples, and current limitations.
 
 ## Citation

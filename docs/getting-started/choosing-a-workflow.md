@@ -25,7 +25,7 @@ If your circuit already uses another format:
   Cirq circuits
 
 These alternatives have format-specific restrictions. See
-[Circuit Inputs](integrations.md) before using one. The input
+[Circuit Inputs](../guide/circuit-inputs.md) before using one. The input
 path does not select the simulation workflow or execution backend.
 
 ## 2. What do you want to know?

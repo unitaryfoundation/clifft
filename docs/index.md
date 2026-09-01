@@ -77,9 +77,11 @@ print(result.measurements[:5])  # First 5 shots.
 
     Simulate circuits with localized non-Clifford operations exactly, without approximating the quantum state.
 
-- **Optimizing Compiler Pipeline**
+- **Leakage and Loss**
 
-    Multi-level optimization passes reduce active state-vector work before execution.
+    Model state-dependent leakage and loss, including measurement
+    classification and back-action on the computational state. See the
+    [Leakage and Loss guide](guide/leakage-and-loss.md).
 
 - **Active-Width Scaling**
 
@@ -93,10 +95,6 @@ For QEC workflows, Clifft also supports detector-based post-selection, survivor 
 
 [Quick Start](getting-started/quickstart.md){ .md-button .md-button--primary }
 [Try the Playground]({{ playground_url }}){ .md-button }
-
-[Installation](getting-started/installation.md) ·
-[Choose a Workflow](getting-started/choosing-a-workflow.md) ·
-[Circuit Inputs](getting-started/integrations.md)
 
 ## What's New in 0.9.0
 

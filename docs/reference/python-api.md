@@ -55,7 +55,7 @@ workflow limits.
 
 ::: clifft.experimental.hip.ReplayResult
 
-## Leakage and Loss (experimental)
+## Leakage and Loss
 
 Sampling under a five-level leakage/loss model. See the
 [Leakage and Loss guide](../guide/leakage-and-loss.md).

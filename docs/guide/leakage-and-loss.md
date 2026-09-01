@@ -1,9 +1,5 @@
 # Leakage and Loss
 
-!!! warning "Experimental"
-    `clifft.noncomp` is new and actively evolving. Try it and share feedback,
-    but expect its API and supported models to change as use cases develop.
-
 Pauli noise acts within a qubit's two-dimensional computational subspace. Real
 hardware can instead drive the state out of that subspace through *leakage*, or
 lose the physical carrier from its site entirely through *loss*. Neither

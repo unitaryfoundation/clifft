@@ -1,26 +1,20 @@
 # Compiling Circuits
 
-Clifft compiles Stim-format circuit text into a reusable sampling `Program`.
-For most users, `clifft.compile()` is the only compilation API needed.
-Lower-level APIs remain available for inspecting the circuit and Heisenberg IR
-or for supplying a custom HIR optimization pipeline.
+Clifft compiles a supported [circuit input](circuit-inputs.md) into a reusable
+`Program`. Compilation resolves Clifford coordinates, symbolic dependencies,
+active-state transitions, and executable actions before sampling starts.
 
-!!! note "Leakage and loss"
-    Circuits containing `LEAKAGE`, `LOSS`, or `LEVEL_TRANSITION` annotations
-    use `clifft.noncomp.sample()` instead. See
-    [Leakage and Loss](leakage-and-loss.md).
+```text
+circuit input -> parse -> trace to HIR -> optimize -> plan and prepare -> Program
+```
 
-!!! tip "Using Qiskit or Cirq?"
-    Use the companion
-    [`clifft-qiskit`](https://github.com/unitaryfoundation/clifft-qiskit) or
-    [`clifft-cirq`](https://github.com/unitaryfoundation/clifft-cirq) package
-    to translate supported circuits into Clifft's Stim-compatible text format.
+Most users only need `clifft.compile()`. The lower-level functions expose the
+same pipeline for inspecting intermediate representations or supplying a custom
+optimization sequence.
 
-## One-Step Compilation
+## Default path
 
-`clifft.compile()` parses the circuit, traces Clifford operations into the
-Heisenberg IR, applies the default HIR passes, plans active stabilizer
-coordinates, and prepares an executable plan:
+Pass circuit text directly to `clifft.compile()`:
 
 ```python
 import clifft
@@ -33,26 +27,32 @@ program = clifft.compile("""
 """)
 ```
 
-The returned `Program` can be passed directly to `clifft.sample()`,
-`clifft.sample_survivors()`, the fixed-fault samplers, or the exact-query APIs.
+The returned program can be reused by ordinary sampling, survivor sampling,
+fixed-fault importance sampling, or an exact-query API when the circuit meets
+that API's requirements:
 
-To skip HIR optimization, pass `hir_passes=None`:
+<!--pytest-codeblocks:cont-->
 
 ```python
-import clifft
-
-program = clifft.compile("H 0\nT 0\nM 0", hir_passes=None)
+result = clifft.sample(program, shots=1_000, seed=42)
 ```
 
-You can also supply a custom `HirPassManager`. Compilation options such as
-`postselection_mask`, `normalize_syndromes`, `expected_detectors`, and
-`expected_observables` define the output contract used during sampling.
+Compilation options such as `postselection_mask`, `normalize_syndromes`,
+`expected_detectors`, and `expected_observables` define the result contract
+used during sampling.
 
-## Step-by-Step Compilation
+Leakage and loss take a trajectory-specific path. Pass the circuit and model
+to `clifft.noncomp.sample()` rather than compiling one fixed program first; see
+[Leakage and Loss](leakage-and-loss.md).
 
-### 1. Parse
+## Inspect or customize the pipeline
 
-`clifft.parse()` converts circuit text into a `Circuit`:
+The following APIs are intended for power users working on compiler behavior,
+custom optimization, or intermediate-representation inspection.
+
+### Parse the circuit
+
+`clifft.parse()` returns a `Circuit` without tracing or lowering it:
 
 ```python
 import clifft
@@ -60,19 +60,14 @@ import clifft
 circuit = clifft.parse("H 0\nCNOT 0 1\nM 0 1")
 ```
 
-You can also parse from a file:
+Use `clifft.parse_file()` for a file, or the format-specific parsing functions
+listed on [Circuit Inputs](circuit-inputs.md) for OpenQASM 2.
 
-<!--pytest.mark.skip-->
-
-```python
-circuit = clifft.parse_file("my_circuit.stim")
-```
-
-### 2. Trace Clifford Operations
+### Trace to the Heisenberg IR
 
 `clifft.trace()` absorbs Clifford operations into an offline tableau and emits
-the explicit non-Clifford operations, measurements, noise, and classical
-outputs in the Heisenberg frame as a `HirModule`:
+explicit non-Clifford operations, measurements, noise, and classical outputs
+in the Heisenberg frame:
 
 ```python
 import clifft
@@ -81,66 +76,61 @@ hir = clifft.trace(clifft.parse("H 0\nCNOT 0 1\nT 0\nM 0 1"))
 print(hir)
 ```
 
-### 3. Optimize the HIR
+### Optimize the HIR
+
+The default pass manager applies the same HIR optimization sequence used by
+`clifft.compile()`:
 
 ```python
 import clifft
 
 hir = clifft.trace(clifft.parse("H 0\nCNOT 0 1\nT 0\nM 0 1"))
-
-# Use the default pipeline.
-pm = clifft.default_hir_pass_manager()
-pm.run(hir)
-
-# Or construct a focused pipeline.
-pm = clifft.HirPassManager()
-pm.add(clifft.PeepholeFusionPass())
-pm.run(hir)
+clifft.default_hir_pass_manager().run(hir)
 ```
 
-### 4. Plan and Prepare Execution
-
-`clifft.lower()` plans and prepares an optimized `HirModule`, returning the
-same `Program` type as `clifft.compile()`:
-
-<!--pytest-codeblocks:cont-->
-
-```python
-program = clifft.lower(hir)
-```
-
-Internally, lowering has two boundaries. Coordinate planning first produces a
-semantic `SamplingPlan`: it selects active coordinates and records expressions,
-measurements, rotations, width transitions, and outputs without choosing a CPU
-instruction set or target-specific data layout. Executable preparation then
-converts that plan into the immutable descriptors and dependency tables used
-by the host executor. It also chooses any supported fusion and scalar or SIMD
-kernels.
-
-The private `SamplingPlan` is useful for separating compiler decisions from
-target preparation; the public result of both steps remains one reusable
-`Program`. Runtime kernels therefore do not perform tableau evolution, choose
-coordinates, localize Paulis, or discover dependencies.
-
-See [Software Architecture](../theory/architecture.md) for the contracts
-between HIR, semantic planning, executable preparation, and shot execution.
-
-## Full Custom Pipeline
+Construct a focused pipeline when individual passes need to be controlled:
 
 ```python
 import clifft
 
-circuit = clifft.parse("H 0\nT 0\nCNOT 0 1\nM 0 1")
-hir = clifft.trace(circuit)
+hir = clifft.trace(clifft.parse("H 0\nT 0\nM 0"))
+passes = clifft.HirPassManager()
+passes.add(clifft.PeepholeFusionPass())
+passes.run(hir)
+```
+
+Pass `hir_passes=None` to `clifft.compile()` to skip HIR optimization while
+keeping the one-step API.
+
+### Plan and prepare execution
+
+`clifft.lower()` converts an optimized `HirModule` into the same public
+`Program` type returned by `clifft.compile()`:
+
+```python
+import clifft
+
+hir = clifft.trace(clifft.parse("H 0\nT 0\nM 0"))
 clifft.default_hir_pass_manager().run(hir)
 program = clifft.lower(hir)
 ```
 
-## Reference Syndrome Computation
+Internally, lowering first creates a semantic sampling plan that selects active
+coordinates and records expressions, rotations, measurements, width
+transitions, and outputs. Executable preparation then creates the immutable
+descriptors and dependency tables used by the executor and selects supported
+scalar or SIMD kernels.
+
+These decisions happen before execution. Runtime kernels do not evolve a
+tableau, choose coordinates, localize Paulis, or discover dependencies. See
+[Software Architecture](../theory/architecture.md) for the contracts between
+HIR, semantic planning, executable preparation, and shot execution.
+
+## Reference syndrome computation
 
 For QEC workflows, `compute_reference_syndrome()` computes noiseless detector
-and observable parities for a `HirModule`. This is the same normalization used
-by `clifft.compile(..., normalize_syndromes=True)`.
+and observable parities for an HIR module. This is the normalization used by
+`clifft.compile(..., normalize_syndromes=True)`.
 
 <!--pytest.mark.skip-->
 

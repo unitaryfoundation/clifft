@@ -71,6 +71,11 @@ plugins:
   - redirects:
       redirect_maps:
         reference/instructions.md: reference/compiler-ir.md
+        getting-started/integrations.md: guide/circuit-inputs.md
+        getting-started/stim-input.md: guide/circuit-inputs.md#stim-with-clifft-extensions
+        getting-started/openqasm2.md: guide/circuit-inputs.md#openqasm-2
+        getting-started/qiskit.md: guide/circuit-inputs.md#qiskit
+        getting-started/cirq.md: guide/circuit-inputs.md#cirq
   - macros:
       module_name: docs/macros
   - minify:
@@ -98,32 +103,26 @@ nav:
     - Quick Start: getting-started/quickstart.md
     - Choose a Workflow: getting-started/choosing-a-workflow.md
   - User Guide:
+    - Overview: guide/index.md
     - Circuits:
-      - Circuit Inputs: getting-started/integrations.md
-      - Stim + Clifft Extensions: getting-started/stim-input.md
-      - OpenQASM 2: getting-started/openqasm2.md
-      - Qiskit: getting-started/qiskit.md
-      - Cirq: getting-started/cirq.md
+      - Circuit Inputs: guide/circuit-inputs.md
       - Compiling Circuits: guide/compilation.md
     - Workflows:
       - Sampling and Results: guide/simulation.md
-      - Exact Probabilities: guide/strong-simulation.md
       - Importance Sampling: guide/importance-sampling.md
       - Leakage and Loss: guide/leakage-and-loss.md
+      - Exact Probabilities: guide/strong-simulation.md
     - Execution:
       - CPU Execution and Tuning: guide/cpu-execution.md
     - Tutorials:
       - Surface Code: guide/surface-code.md
       - Delayed Loss: guide/delayed-loss.md
       - Magic State Cultivation with Importance Sampling: guide/importance-sampling-tutorial.md
-      - Scaling Experiment: guide/benchmark.md
   - Theory:
     - Overview: theory/overview.md
     - Architecture: theory/architecture.md
     - Basis-State Probabilities: theory/basis_probabilities.md
     - Noncomputational States: theory/noncomputational.md
-  - Updates:
-    - "v0.8.0 (August 2026): Symbolic Sampling": updates/symbolic-sampling.md
   - Reference:
     - Supported Gates: reference/gates.md
     - Compiler IR Reference: reference/compiler-ir.md
@@ -138,3 +137,5 @@ nav:
     - Testing Strategy: development/testing.md
     - Tableau Conventions: development/tableau-conventions.md
     - Releasing: development/releasing.md
+  - Development Blog:
+    - "v0.8.0 (August 2026): Symbolic Sampling": updates/symbolic-sampling.md

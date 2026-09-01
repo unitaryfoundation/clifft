@@ -71,4 +71,4 @@ scheduling, explicit layouts, batching, and memory tradeoffs.
 See [Building from Source](../development/building.md) for the full development setup.
 
 Next, follow the [Quick Start](quickstart.md) or choose a path from
-[Circuit Inputs](integrations.md).
+[Circuit Inputs](../guide/circuit-inputs.md).

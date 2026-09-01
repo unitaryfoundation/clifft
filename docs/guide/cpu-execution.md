@@ -15,7 +15,9 @@ samplers share the same CPU controls:
 - `clifft.sample_k_survivors()`
 
 For most workloads, leave `batch_size="auto"` and the expert layout controls
-unset. Set `threads` only when the process should use a larger worker budget:
+unset. Clifft uses one CPU thread by default; it does not automatically claim
+all cores on the machine. Set `threads` when the process should use a larger
+worker budget:
 
 ```python
 import clifft

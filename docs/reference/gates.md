@@ -224,7 +224,7 @@ multiply modulo Pauli phase, so `E(1) X0 Z0` is equivalent to a Y error and
 firing. Clifft lowers each contiguous chain to one noise site with absolute
 channel probabilities.
 
-### Leakage and Loss Annotations (experimental)
+### Leakage and Loss Annotations
 
 | Instruction | Notes |
 |-------------|-------|

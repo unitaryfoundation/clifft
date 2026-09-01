@@ -2,7 +2,7 @@
 
 This guide walks through compiling and simulating your first quantum circuit
 with Clifft. It uses a Stim circuit with Clifft extensions; see
-[Circuit Inputs](integrations.md) if your circuit starts in
+[Circuit Inputs](../guide/circuit-inputs.md) if your circuit starts in
 OpenQASM 2, Qiskit, or Cirq.
 
 ## Your First Circuit
@@ -97,7 +97,7 @@ result = clifft.sample(program, shots=10000, seed=42)
 ## Next Steps
 
 - [Choose a Workflow](choosing-a-workflow.md) - select the API that matches the result you need
-- [Circuit Inputs](integrations.md) - bring a circuit from another format or framework
+- [Circuit Inputs](../guide/circuit-inputs.md) - bring a circuit from another format or framework
 - [Sampling and Results](../guide/simulation.md) - ordinary shots, detectors, observables, and post-selection
 - [Leakage and Loss](../guide/leakage-and-loss.md): noncomputational trajectory sampling
 - [Supported Gates](../reference/gates.md) - full gate reference
