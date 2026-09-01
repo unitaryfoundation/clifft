@@ -329,49 +329,12 @@ postselection. Key observations:
 - Both curves were generated from the **same reweighting approach** --
   no re-simulation needed to sweep across $p$ values.
 
-## API Reference
+## API details
 
-### `clifft.sample_k(program, shots, k, seed=None, threads=1, thread_layout=None, intra_shot_min_active_width=None, batch_size="auto")`
-
-Sample with exactly `k` forced faults per shot. Returns
-a `SampleResult`, just like `clifft.sample()`. Results must be weighted by $P(K=k)$ for correct
-error rate estimation.
-
-For programs with post-selection, use `clifft.sample_k_survivors(...)`
-instead. Fixed-row output from `sample_k(...)` cannot represent
-discarded shots.
-
-Raises `ValueError` if the stratum has zero probability mass (e.g., `k`
-exceeds the number of non-zero-probability sites).
-
-`threads` is the total worker budget. The optional advanced
-`thread_layout=(shot_workers, intra_shot_workers)` override follows the ordinary
-sampling policy described in
-[CPU Execution and Tuning](cpu-execution.md#thread-budgets-and-layouts).
-The expert `intra_shot_min_active_width` override defaults to 18 and requires an
-explicit layout. `batch_size` follows the ordinary sampling policy: `"auto"`
-selects packed execution for suitable plans without postselection, `1` forces
-scalar execution, and a positive integer requests an explicit packed lane
-capacity. Automatic mode remains scalar for postselected survivor sampling;
-benchmark explicit capacities on the target workload and machine when packed
-execution may be beneficial.
-
-### `clifft.sample_k_survivors(program, shots, k, seed=None, keep_records=False, threads=1, thread_layout=None, intra_shot_min_active_width=None, batch_size="auto")`
-
-Sample survivors with exactly `k` forced faults per shot. Returns a
-`SampleResult` whose `.measurements`, `.detectors`, and `.observables`
-arrays contain only surviving shots. Survivor metadata is available via
-`.total_shots`, `.passed_shots`, `.discards`, `.logical_errors`, and
-`.observable_ones`.
-
-Raises `ValueError` if the stratum has zero probability mass.
-The thread-layout and batch options have the same meaning as for `sample_k`.
-
-### `program.noise_site_probabilities`
-
-1D numpy array of per-site total fault probabilities. Quantum noise
-sites (sum of channel probabilities) come first, followed by readout
-noise entries. Use for computing the fault-count PMF.
+For function selection and result behavior, see the
+[Importance Sampling guide](importance-sampling.md). Complete signatures and
+execution options are listed in the
+[Python API reference](../reference/python-api.md#sampling).
 
 ## Generating the Plots
 

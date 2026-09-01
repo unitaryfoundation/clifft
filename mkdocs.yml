@@ -72,10 +72,9 @@ plugins:
       redirect_maps:
         reference/instructions.md: reference/compiler-ir.md
         getting-started/integrations.md: guide/circuit-inputs.md
-        getting-started/stim-input.md: guide/circuit-inputs.md#stim-with-clifft-extensions
         getting-started/openqasm2.md: guide/circuit-inputs.md#openqasm-2
-        getting-started/qiskit.md: guide/circuit-inputs.md#qiskit
-        getting-started/cirq.md: guide/circuit-inputs.md#cirq
+        guide/performance.md: guide/cpu-execution.md
+        guide/benchmark.md: guide/cpu-execution.md#benchmark-before-overriding
   - macros:
       module_name: docs/macros
   - minify:

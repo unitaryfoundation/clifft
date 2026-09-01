@@ -38,6 +38,12 @@ result = clifft.sample(program, shots=10_000, seed=42)
 assert result.measurements.shape == (10_000, 2)
 ```
 
+The optional `seed` is mainly useful for repeatable tests and debugging. Leave
+it unset to use hardware entropy. A fixed seed replays results when the
+execution configuration is unchanged; changing packed-batch settings can
+change individual rows. See [Reproducibility](cpu-execution.md#reproducibility)
+for the execution details.
+
 For Stim-style compatibility, the measurement, detector, and observable arrays
 can also be obtained by tuple unpacking:
 

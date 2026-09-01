@@ -200,7 +200,7 @@ speedup on Clifford+T workloads.
 ## When to use this versus dense statevector
 
 For very small circuits ($n \lesssim 10$),
-[`clifft.get_statevector()`](../guide/simulation.md) returns the full
+[`clifft.get_statevector()`](../guide/strong-simulation.md#inspect-a-small-statevector) returns the full
 $2^n$-amplitude vector and squaring its absolute value is the fastest
 path to a probability table. `basis_probabilities()` shines when:
 

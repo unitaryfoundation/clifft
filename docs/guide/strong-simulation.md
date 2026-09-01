@@ -25,6 +25,25 @@ substantially — see
 | has measurements but no noise, detectors, observables, or post-selection | `record_probabilities()` |
 | has classical feedback but no other unsupported construct | `record_probabilities()` |
 
+## Inspect a small statevector
+
+For debugging and validation of a small pure-unitary circuit,
+`get_statevector()` returns the final dense statevector:
+
+```python
+import clifft
+
+program = clifft.compile("H 0\nCNOT 0 1")
+state = clifft.get_statevector(program)
+
+print(state)
+```
+
+The result contains all $2^n$ amplitudes, is normalized, and is defined only up
+to global phase. Relative amplitudes and phases are preserved. Dense expansion
+is limited to 10 qubits; use `basis_probabilities()` when a larger circuit only
+needs probabilities for selected output bitstrings.
+
 ## `basis_probabilities()`: probabilities of a unitary state
 
 The smallest example is a Bell state. The circuit has four possible two-bit
@@ -330,9 +349,10 @@ independent of batch size. At equal peak active width,
 `basis_probabilities()` wins by roughly the plan-to-amplitude-walk
 cost ratio for any moderately sized batch.
 
-If neither performance regime dominates your workload, picking by the
-table at the top — does the circuit have measurements? — is the right
-default.
+If neither performance regime dominates your workload, use the circuit
+constraints in the table at the top: unitary programs use
+`basis_probabilities()`, while eligible programs with measurements use
+`record_probabilities()`.
 
 ## Limitations
 
