@@ -39,6 +39,10 @@ The documented target is Linux `x86_64` with ROCm and an MI300X-class `gfx942`
 device. Hardware validation is still manual. Other AMD architectures can be
 development targets but do not have the same conformance coverage.
 
+HIP builds require CMake 3.21 or newer and a ROCm toolchain. The commands below
+assume the HIP compiler and ROCm root are discoverable automatically unless
+their locations are supplied explicitly.
+
 Build an editable installation from a checkout:
 
 ```bash
@@ -59,6 +63,15 @@ CMAKE_ARGS="-DCLIFFT_ENABLE_HIP=ON \
     -DCMAKE_HIP_COMPILER=/usr/bin/clang++-17 \
     -DCMAKE_HIP_COMPILER_ROCM_ROOT=/usr" \
     uv pip install -e .
+```
+
+For standalone C++ development, configure and build the HIP target directly:
+
+```bash
+cmake -S . -B build-hip -G Ninja \
+    -DCLIFFT_ENABLE_HIP=ON \
+    -DCMAKE_HIP_ARCHITECTURES=gfx942
+cmake --build build-hip -j
 ```
 
 The build can compile device code without a visible GPU. Sampling requires a

@@ -77,6 +77,12 @@ Install `clifft-qiskit` and run a supported circuit through its Qiskit
 
 <!--pytest.mark.skip-->
 
+```bash
+pip install clifft-qiskit
+```
+
+<!--pytest.mark.skip-->
+
 ```python
 from qiskit import QuantumCircuit
 from clifft_qiskit import ClifftProvider
@@ -99,6 +105,12 @@ for its current basis, decomposition behavior, and package-specific limits.
 ## Cirq
 
 Install `clifft-cirq` to convert or sample a supported Cirq circuit:
+
+<!--pytest.mark.skip-->
+
+```bash
+pip install clifft-cirq
+```
 
 <!--pytest.mark.skip-->
 

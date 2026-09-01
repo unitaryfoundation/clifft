@@ -19,10 +19,12 @@ Hermitian Pauli. Implementations may use a phase modulo four while multiplying
 Paulis, but values stored in HIR masks and tableau generator rows are
 Hermitian.
 
-Bit `q` always refers to physical qubit `q`. Dense statevector indices and
-bit-string inputs are little-endian: qubit 0 is the least-significant bit.
-Masks are stored in 64-bit words, with qubit `q` at bit `q % 64` of word
-`q / 64`. Unused high bits in the final word must be zero.
+Bit `q` always refers to physical qubit `q`. In a dense statevector index,
+qubit 0 is the least-significant bit. Public `basis_probabilities()` bit-string
+and array inputs instead use the requested `bit_order`; by default, the first
+character or column maps to qubit 0. Masks are stored in 64-bit words, with
+qubit `q` at bit `q % 64` of word `q / 64`. Unused high bits in the final word
+must be zero.
 
 ## Tableau rows
 

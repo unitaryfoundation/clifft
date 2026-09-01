@@ -3,7 +3,7 @@
 For unitary programs, `clifft.basis_probabilities()` computes exact probabilities for
 full-register computational-basis bitstrings without materializing the full
 $2^n$ statevector. This page summarizes the algorithm behind that API. For
-usage examples, see [Strong Simulation with Exact Probabilities](../guide/strong-simulation.md).
+usage examples, see the [Exact Probabilities guide](../guide/strong-simulation.md).
 
 Clifft starts from the factored state
 

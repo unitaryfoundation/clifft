@@ -205,11 +205,11 @@ playground-build:
 # Release
 # -------------------------
 
-# Preview changelog for the next release (pass version, e.g. just changelog-preview v0.2.0)
+# Preview changelog for the next release (pass version, e.g. just changelog-preview vX.Y.Z)
 changelog-preview version:
   git cliff --tag {{version}} --unreleased
 
-# Generate CHANGELOG.md for the next release (pass version, e.g. just changelog v0.2.0)
+# Generate CHANGELOG.md for the next release (pass version, e.g. just changelog vX.Y.Z)
 changelog version:
   git cliff --unreleased --tag {{version}} --prepend CHANGELOG.md
   @echo "Updated CHANGELOG.md — review, edit, then commit."

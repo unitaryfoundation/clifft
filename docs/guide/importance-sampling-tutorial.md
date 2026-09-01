@@ -29,13 +29,24 @@ Circuits" ([arXiv:2512.23037](https://arxiv.org/abs/2512.23037)).
 
 This is an advanced tutorial. It assumes familiarity with detector-based QEC circuits, post-selection, and logical error-rate estimation.
 
+## Prerequisites
+
+This tutorial uses SciPy to compute binomial probabilities and Matplotlib to
+generate plots:
+
+```bash
+pip install clifft scipy matplotlib
+```
+
+The cultivation circuit files used below are included in the Clifft repository.
+
 ## Overview
 
 The workflow has four steps:
 
 1. **Compile** a noisy circuit and extract per-site fault probabilities
 2. **Compute** the Binomial PMF $P(K = k)$
-3. **Sample** each stratum with `sample_k_survivors`
+3. **Sample** each stratum with `sample_k_survivors()`
 4. **Combine** results with the stratified estimator
 
 A bonus step shows how to **reweight** the same simulation data to
@@ -160,7 +171,7 @@ rates (e.g., $p = 0.01$ where $\mu \approx 5.2$).
 
 ## Step 3: Stratified Sampling
 
-Use `sample_k_survivors` to run shots with exactly $k$ forced faults.
+Use `sample_k_survivors()` to run shots with exactly $k$ forced faults.
 The function draws the $k$ fault locations from the exact conditional
 Poisson-Binomial distribution. When all site probabilities are equal
 (as detected automatically), it uses an efficient $O(k)$ Fisher-Yates
@@ -180,8 +191,7 @@ for k in range(max_k + 1):
     })
 ```
 
-This should run quickly on most machines, simulating
-12.75 million shots across 17 strata.
+This configuration simulates 12.75 million shots across 17 strata.
 
 ### Combining with the Stratified Estimator
 
@@ -312,10 +322,9 @@ Output:
 ![Error rate sweep](images/is_error_rate_sweep.png)
 
 The plot above shows both the **T-gate** (red squares) and **S-gate**
-(blue diamonds) cultivation circuits. A single simulation run per
-circuit (12.75M shots each, ~18 seconds for T and faster for S)
-produced the complete error rate curves with 95% confidence intervals
-across 6 physical error rates.
+(blue diamonds) cultivation circuits. A single simulation run per circuit
+(12.75M shots each) produced the complete error rate curves with 95%
+confidence intervals across 6 physical error rates.
 
 The x-axis shows "attempts per kept shot" -- the overhead cost of
 postselection. Key observations:
@@ -342,7 +351,7 @@ The plots in this tutorial can be reproduced with the script at
 [`docs/guide/scripts/importance_sampling_tutorial.py`](scripts/importance_sampling_tutorial.py):
 
 ```bash
-uv run --with matplotlib python docs/guide/scripts/importance_sampling_tutorial.py
+uv run --with matplotlib --with scipy python docs/guide/scripts/importance_sampling_tutorial.py
 ```
 
 ## Further Reading

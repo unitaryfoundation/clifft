@@ -55,7 +55,7 @@ path does not select the simulation workflow or execution backend.
   measurement records.
 
 Both APIs have circuit restrictions. The
-[Strong Simulation tutorial](../guide/strong-simulation.md) explains when to
+[Exact Probabilities guide](../guide/strong-simulation.md) explains when to
 use each one.
 
 ### Model leakage or loss

@@ -110,6 +110,8 @@ Sampling under a five-level leakage/loss model. See the
 
 ## Pass Managers
 
+::: clifft.HirPass
+
 ::: clifft.HirPassManager
 
 ::: clifft.default_hir_pass_manager
@@ -127,6 +129,8 @@ Sampling under a five-level leakage/loss model. See the
 ## Utilities
 
 ::: clifft.version
+
+::: clifft.runtime_isa
 
 ::: clifft.compute_reference_syndrome
 

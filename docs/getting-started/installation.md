@@ -15,7 +15,7 @@ pip install clifft
 
 | Platform / CPU family | PyPI wheel |
 |---|---|
-| Linux `x86_64` with AVX2 | :white_check_mark: Supported |
+| Linux `x86_64` with x86-64-v2 support | :white_check_mark: Supported |
 | Linux `aarch64` | :white_check_mark: Supported |
 | macOS `arm64` | :white_check_mark: Supported |
 | Windows `amd64` | :white_check_mark: Supported |
@@ -51,22 +51,9 @@ uv run python -c "import clifft; print(clifft.version())"
 - **OpenMP runtime** (optional) — detected automatically; Apple Clang users can
   install Homebrew `libomp` for intra-shot parallel sampling
 
-OpenMP-enabled Clifft builds load an OpenMP runtime. Some scientific Python
-packages bundle a different runtime, which can cause conflicts, especially on
-macOS. Leaving Clifft at its default `threads=1` avoids calling its OpenMP
-kernels. If another package has already used its own OpenMP runtime, do not then
-request Clifft intra-shot workers in the same macOS process. Build with
-`CLIFFT_OPENMP=OFF` or run the packages in separate processes when both need
-threaded execution; starting Clifft before the other runtime can also work, but
-process isolation is the robust choice.
-
-On POSIX systems, create process workers before using threaded Clifft sampling,
-or use the `spawn` or `forkserver` start method. Forking after a threaded sample
-and then requesting intra-shot threads in the child can hang in some OpenMP
-runtimes.
-
 See [CPU Execution and Tuning](../guide/cpu-execution.md) for automatic
-scheduling, explicit layouts, batching, and memory tradeoffs.
+scheduling, explicit layouts, batching, memory tradeoffs, OpenMP runtime
+compatibility, and process-start guidance.
 
 See [Building from Source](../development/building.md) for the full development setup.
 

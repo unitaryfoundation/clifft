@@ -99,6 +99,6 @@ result = clifft.sample(program, shots=10000, seed=42)
 - [Choose a Workflow](choosing-a-workflow.md) - select the API that matches the result you need
 - [Circuit Inputs](../guide/circuit-inputs.md) - bring a circuit from another format or framework
 - [Sampling and Results](../guide/simulation.md) - ordinary shots, detectors, observables, and post-selection
-- [Leakage and Loss](../guide/leakage-and-loss.md): noncomputational trajectory sampling
+- [Leakage and Loss](../guide/leakage-and-loss.md) - noncomputational trajectory sampling
 - [Supported Gates](../reference/gates.md) - full gate reference
 - [Compiling Circuits](../guide/compilation.md) - inspect or customize the compilation pipeline
