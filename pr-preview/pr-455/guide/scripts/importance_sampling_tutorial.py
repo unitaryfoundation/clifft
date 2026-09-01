@@ -8,7 +8,7 @@ logical error thresholds with the Pauli Frame Sparse Representation" by
 Thomas Tuloup and Thomas Ayral (arXiv:2603.14670).
 
 Usage:
-    uv run --with matplotlib python docs/guide/scripts/importance_sampling_tutorial.py
+    uv run --with matplotlib --with scipy python docs/guide/scripts/importance_sampling_tutorial.py
 
 Generates:
     docs/guide/images/is_pmf_and_error_rate.png
