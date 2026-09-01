@@ -50,6 +50,9 @@ void DropNonUnitaryPass::run(HirModule& hir) {
     hir.detector_targets.clear();
     hir.observable_targets.clear();
     hir.noise_channel_masks = PauliMaskArena{};
+    // With every noise site gone there is nothing left for a logical
+    // position to correct for.
+    hir.logical_noise_prefix.clear();
 
     hir.num_measurements = 0;
     hir.num_hidden_measurements = 0;
