@@ -1,18 +1,18 @@
 name: Release
 
-# Trigger on version tags (e.g., v0.1.0, v1.2.3)
+# Trigger on final and release-candidate version tags.
 on:
   push:
     tags:
       - "v[0-9]+.[0-9]+.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+rc[0-9]+"
   workflow_dispatch:
     # Manual dispatch always publishes to TestPyPI only.
     # PyPI publishing requires a version tag push.
     inputs:
       test_version:
-        description: "Version for TestPyPI (e.g. 0.8.0.dev1). Required because PyPI rejects local version specifiers from untagged builds."
+        description: "Unique TestPyPI-only version (e.g. 0.10.0rc1.dev1). Do not reuse a version intended for a tag."
         required: true
-        default: "0.8.0.dev1"
 
 permissions:
   contents: read
@@ -262,13 +262,23 @@ jobs:
 
       - name: Extract release notes from CHANGELOG.md
         run: |
-          # Extract the section for this version from the committed changelog.
-          # Matches from "## [X.Y.Z]" to the next "## [" or end of file.
+          extract_notes() {
+            local version="$1"
+            awk -v ver="$version" '
+              /^## \[/ { if (found) exit; if ($0 ~ "^## \\[" ver "\\]") found=1; next }
+              found { print }
+            ' CHANGELOG.md
+          }
+
           VERSION="${GITHUB_REF_NAME#v}"
-          awk -v ver="$VERSION" '
-            /^## \[/ { if (found) exit; if ($0 ~ "^## \\[" ver "\\]") found=1; next }
-            found { print }
-          ' CHANGELOG.md > RELEASE_NOTES.md
+          extract_notes "$VERSION" > RELEASE_NOTES.md
+
+          # Release candidates normally share the final release's prepared
+          # changelog section instead of duplicating it under an rc heading.
+          if [[ ! -s RELEASE_NOTES.md && "$VERSION" =~ ^([0-9]+\.[0-9]+\.[0-9]+)rc[0-9]+$ ]]; then
+            BASE_VERSION="${BASH_REMATCH[1]}"
+            extract_notes "$BASE_VERSION" > RELEASE_NOTES.md
+          fi
 
           if [ ! -s RELEASE_NOTES.md ]; then
             echo "No entry found for $VERSION in CHANGELOG.md, using tag message." >&2
@@ -279,16 +289,25 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          release_args=()
+          if [[ "${GITHUB_REF_NAME}" =~ rc[0-9]+$ ]]; then
+            release_args+=(--prerelease)
+          fi
           gh release create "${{ github.ref_name }}" \
             --title "${{ github.ref_name }}" \
-            --notes-file RELEASE_NOTES.md
+            --notes-file RELEASE_NOTES.md \
+            "${release_args[@]}"
 
   # -----------------------------------------------------------
   # Publish versioned documentation and playground
   # -----------------------------------------------------------
   publish-docs:
     needs: [github-release]
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    # Release candidates publish packages and a GitHub prerelease, but no docs.
+    if: >-
+      github.event_name == 'push' &&
+      startsWith(github.ref, 'refs/tags/v') &&
+      !contains(github.ref_name, 'rc')
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     concurrency:

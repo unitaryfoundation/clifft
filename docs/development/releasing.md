@@ -17,12 +17,50 @@ building and benchmarking representative Linux wheels; do not replace it with a 
 The version is determined automatically from git tags:
 
 - **Tagged commits** (e.g., `v1.2.3`): version is `1.2.3`
+- **Release-candidate tags** (e.g., `v1.3.0rc1`): version is `1.3.0rc1`
 - **Development builds** (e.g., `1.2.4.dev3+g1a2b3c4`): the latest tag,
   commit distance, and hash determine the version
 
 There is no hardcoded version in `pyproject.toml`. The git tag is the single source of truth.
 
+## Release candidates
+
+Use a release candidate when the package must be installed from PyPI for validation before the
+final release. Complete the changelog and docs-home preparation described below before tagging the
+first candidate. Prepare the final release section, such as `## [0.3.0]`, rather than a separate rc
+section; the GitHub prerelease uses that section for its notes. The final release date may remain
+unset until the final tag.
+
+Optionally run the manual TestPyPI workflow first with a unique development version such as
+`0.3.0rc1.dev1`. Do not use `0.3.0rc1` for that smoke run: the tag-triggered workflow publishes the
+same artifacts to TestPyPI before PyPI, and TestPyPI rejects a duplicate version.
+
+Tag the prepared commit using the canonical Python release-candidate form:
+
+```bash
+git tag v0.3.0rc1
+git push origin v0.3.0rc1
+```
+
+The tag builds and tests the release artifacts, publishes them to TestPyPI and PyPI, and creates a
+GitHub prerelease. It does not publish versioned docs, update `stable`, or refresh the root
+Playground. Install the published wheel explicitly for validation:
+
+```bash
+python -m pip install --only-binary=:all: "clifft==0.3.0rc1"
+python -c "import clifft; print(clifft.__version__)"
+```
+
+After validation, update the existing final changelog section and make documentation-only changes
+without regenerating the changelog from `--unreleased`: the rc tag is now the latest version tag and
+would hide earlier release commits from that view. If runtime, packaging, compiler, or build inputs
+change, increment the candidate tag (for example, `v0.3.0rc2`) and repeat validation. Otherwise,
+create the final tag using the normal process below.
+
 ## Release process
+
+Follow every step for a release made without a candidate. When finalizing a validated candidate,
+update the already-prepared changelog and docs instead of generating them again.
 
 ### 1. Test on TestPyPI (optional but recommended)
 
@@ -31,11 +69,13 @@ Manual dispatch always publishes to TestPyPI only — it cannot publish to PyPI.
 
 1. Go to **Actions** > **Release** > **Run workflow**
 2. Select the branch (usually `main`)
-3. Wait for builds to complete, then verify:
+3. Enter a unique `test_version` used only for this TestPyPI upload
+4. Wait for builds to complete, then verify the exact version:
 
     ```bash
+    TEST_VERSION=0.3.0.dev1
     pip install --index-url https://test.pypi.org/simple/ \
-        --extra-index-url https://pypi.org/simple/ clifft
+        --extra-index-url https://pypi.org/simple/ "clifft==$TEST_VERSION"
     python -c "import clifft; print(clifft.__version__)"
     ```
 
@@ -50,6 +90,8 @@ git cliff --unreleased --tag vX.Y.Z --prepend CHANGELOG.md
 This prepends only the unreleased changes since the previous tag and preserves
 older hand-edited release sections. Do not use `-o CHANGELOG.md` for routine
 releases unless you intentionally want to regenerate the entire changelog.
+Generate this section before the first release candidate. After an rc tag exists,
+edit the prepared section directly rather than running this command again.
 
 Keep each changelog paragraph and list item on one physical line, and use blank
 lines only to separate Markdown blocks. The release workflow copies the
@@ -122,9 +164,10 @@ Then verify the hosted docs and Playground:
 
 Documentation is versioned separately from package builds. Pushes to `main`
 publish unreleased documentation to
-`https://unitaryfoundation.github.io/clifft/dev/`. Tagged releases publish the
-exact release version, update the `stable` docs copy, and refresh the root
+`https://unitaryfoundation.github.io/clifft/dev/`. Final release tags publish
+the exact release version, update the `stable` docs copy, and refresh the root
 stable Playground at `https://unitaryfoundation.github.io/clifft/playground/`.
+Release-candidate tags do not publish documentation.
 If a lower SemVer patch line is released after a newer stable version, the
 workflow publishes the exact version docs but leaves `stable` and the root
 Playground unchanged.
