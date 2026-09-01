@@ -344,11 +344,46 @@ size_t eliminate_terminal_measurement_phases(HirModule& hir, std::vector<uint8_t
 
 }  // namespace
 
+namespace {
+
+// True when every operation's logical_noise_prefix entry equals its
+// schedule position, i.e. nothing has yet been reordered across a noise
+// site. An empty vector (schedule semantics) trivially satisfies this.
+bool logical_noise_prefix_is_consistent(const HirModule& hir) {
+    if (!hir.has_logical_noise_prefix()) {
+        return true;
+    }
+    uint32_t schedule_count = 0;
+    for (size_t i = 0; i < hir.ops.size(); ++i) {
+        if (hir.logical_noise_prefix[i] != schedule_count) {
+            return false;
+        }
+        if (hir.ops[i].op_type() == OpType::NOISE) {
+            ++schedule_count;
+        }
+    }
+    return true;
+}
+
+}  // namespace
+
 void PeepholeFusionPass::run(HirModule& hir) {
     cancellations_ = 0;
     fusions_ = 0;
 
+    // Virtual S and Pauli absorption below conjugates every later operation
+    // and noise-site mask in schedule order. The planner's logical-noise
+    // correction compares an operation's mask against noise-site masks that
+    // may then sit in a different Clifford frame than the one they were
+    // recorded against, unless every mask is still at its schedule
+    // position. Bail out rather than risk that mismatch; fusion on an
+    // already-consistent vector proceeds exactly as before.
+    if (!logical_noise_prefix_is_consistent(hir)) {
+        return;
+    }
+
     bool has_source_map = hir.source_map.size() == hir.ops.size();
+    bool has_lnp = hir.has_logical_noise_prefix();
 
     bool changed = true;
     while (changed) {
@@ -571,6 +606,9 @@ void PeepholeFusionPass::run(HirModule& hir) {
                         if (has_source_map) {
                             hir.source_map[write] = std::move(hir.source_map[read]);
                         }
+                        if (has_lnp) {
+                            hir.logical_noise_prefix[write] = hir.logical_noise_prefix[read];
+                        }
                     }
                     ++write;
                 }
@@ -578,6 +616,9 @@ void PeepholeFusionPass::run(HirModule& hir) {
             hir.ops.erase(hir.ops.begin() + static_cast<ptrdiff_t>(write), hir.ops.end());
             if (has_source_map) {
                 hir.source_map.resize(write);
+            }
+            if (has_lnp) {
+                hir.logical_noise_prefix.resize(write);
             }
         }
     }

@@ -460,6 +460,33 @@ struct HirModule {
     /// invalidated the map for that op.
     std::vector<std::vector<uint32_t>> source_map;
 
+    // Every NOISE channel is presampled: its symbol's value exists before
+    // the action stream, not at the schedule position where the planner
+    // happens to consume it. That is what lets an operation cross a NOISE
+    // op at all -- the crossing only changes which presampled symbols the
+    // planner must fold into the operation's sign, not when noise is
+    // sampled. logical_noise_prefix[i], when non-empty, is the number of
+    // NOISE ops that logically precede ops[i] in the original circuit, and
+    // the planner resolves ops[i]'s noise-dependent sign from that count
+    // instead of from ops[i]'s position among the NOISE ops before it in
+    // `ops`. Noise sites themselves never move, so a logical position is
+    // always expressible as a plain site count.
+    //
+    // Empty means schedule semantics: every operation's logical position
+    // equals its schedule position, i.e. today's behavior with nothing
+    // reordered across noise.
+    //
+    // Contract for passes, mirroring source_map: an entry travels with its
+    // operation, and a pass that deletes an operation drops its entry. A
+    // pass that removes NOISE ops must clear the vector entirely, because
+    // once the sites are gone there is nothing left for a stale entry to
+    // correct for. A pass that absorbs a virtual Clifford gate into later
+    // operation and noise-site masks must not run while an entry disagrees
+    // with its schedule position, because the correction it implies
+    // compares an operation's mask against noise-site masks that the frame
+    // change may have moved into a different basis.
+    std::vector<uint32_t> logical_noise_prefix;
+
     std::optional<Tableau> final_tableau;
 
     // Hidden measurement slot trace() assigned to the requested node's
@@ -480,6 +507,31 @@ struct HirModule {
             }
         }
         return true;
+    }
+
+    /// True when logical_noise_prefix is materialized and parallel to ops.
+    /// An empty ops list is never considered materialized, since an empty
+    /// vector cannot then be distinguished from the schedule-semantics
+    /// sentinel.
+    [[nodiscard]] bool has_logical_noise_prefix() const {
+        return !ops.empty() && logical_noise_prefix.size() == ops.size();
+    }
+
+    /// Fills logical_noise_prefix with each operation's schedule-order
+    /// noise count, making today's implicit schedule semantics explicit.
+    /// A no-op when the vector is already non-empty.
+    void materialize_logical_noise_prefix() {
+        if (!logical_noise_prefix.empty()) {
+            return;
+        }
+        logical_noise_prefix.reserve(ops.size());
+        uint32_t schedule_count = 0;
+        for (const HeisenbergOp& op : ops) {
+            logical_noise_prefix.push_back(schedule_count);
+            if (op.op_type() == OpType::NOISE) {
+                ++schedule_count;
+            }
+        }
     }
 
     // --- Mask accessors ---
