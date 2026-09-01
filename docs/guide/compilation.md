@@ -41,6 +41,13 @@ Compilation options such as `postselection_mask`, `normalize_syndromes`,
 `expected_detectors`, and `expected_observables` define the result contract
 used during sampling.
 
+For detector-based post-selection, set `normalize_syndromes=True` unless raw
+measurement parities are intentional. Clifft computes the noiseless detector
+and observable reference once during compilation and stores the normalization
+in the program. `sample_survivors()` then applies the post-selection mask to
+those normalized detector values; it does not recompute the reference per
+call.
+
 Leakage and loss take a trajectory-specific path. Pass the circuit and model
 to `clifft.noncomp.sample()` rather than compiling one fixed program first; see
 [Leakage and Loss](leakage-and-loss.md).
@@ -125,18 +132,3 @@ These decisions happen before execution. Runtime kernels do not evolve a
 tableau, choose coordinates, localize Paulis, or discover dependencies. See
 [Software Architecture](../theory/architecture.md) for the contracts between
 HIR, semantic planning, executable preparation, and shot execution.
-
-## Reference syndrome computation
-
-For QEC workflows, `compute_reference_syndrome()` computes noiseless detector
-and observable parities for an HIR module. This is the normalization used by
-`clifft.compile(..., normalize_syndromes=True)`.
-
-<!--pytest.mark.skip-->
-
-```python
-circuit = clifft.parse(circuit_text)
-reference = clifft.compute_reference_syndrome(clifft.trace(circuit))
-print(reference["detectors"])
-print(reference["observables"])
-```

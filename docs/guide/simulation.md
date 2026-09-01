@@ -148,9 +148,9 @@ assert not result.observables.any()
 ```
 
 `normalize_syndromes=True` cannot be combined with `expected_detectors` or
-`expected_observables`. See
-[Compiling Circuits](compilation.md#reference-syndrome-computation) for the
-reference-syndrome rules.
+`expected_observables`. Most users should prefer automatic normalization;
+callers that need to inspect the reference directly can use
+[`compute_reference_syndrome()`](../reference/python-api.md#clifft.compute_reference_syndrome).
 
 ### Expectation values
 
