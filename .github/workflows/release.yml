@@ -225,6 +225,7 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           repository-url: https://test.pypi.org/legacy/
+          skip-existing: true
 
   # -----------------------------------------------------------
   # Publish to PyPI (only on tag push, after TestPyPI)
@@ -255,46 +256,61 @@ jobs:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    outputs:
+      prerelease: ${{ steps.release_metadata.outputs.prerelease }}
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
 
-      - name: Extract release notes from CHANGELOG.md
+      - name: Classify release
+        id: release_metadata
         run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          if [[ "$VERSION" =~ ^([0-9]+\.[0-9]+\.[0-9]+)rc[0-9]+$ ]]; then
+            echo "notes_version=${BASH_REMATCH[1]}" >> "$GITHUB_OUTPUT"
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "notes_version=$VERSION" >> "$GITHUB_OUTPUT"
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Extract release notes from CHANGELOG.md
+        env:
+          NOTES_VERSION: ${{ steps.release_metadata.outputs.notes_version }}
+        run: |
+          # Print the body beneath "## [VERSION]" up to the next release
+          # heading. The release heading itself is not part of GitHub's notes.
           extract_notes() {
             local version="$1"
-            awk -v ver="$version" '
-              /^## \[/ { if (found) exit; if ($0 ~ "^## \\[" ver "\\]") found=1; next }
+            awk -v heading="## [${version}]" '
+              /^## \[/ {
+                if (found) exit
+                if (index($0, heading) == 1) found=1
+                next
+              }
               found { print }
             ' CHANGELOG.md
           }
 
-          VERSION="${GITHUB_REF_NAME#v}"
-          extract_notes "$VERSION" > RELEASE_NOTES.md
+          extract_notes "$NOTES_VERSION" > RELEASE_NOTES.md
 
-          # Release candidates normally share the final release's prepared
-          # changelog section instead of duplicating it under an rc heading.
-          if [[ ! -s RELEASE_NOTES.md && "$VERSION" =~ ^([0-9]+\.[0-9]+\.[0-9]+)rc[0-9]+$ ]]; then
-            BASE_VERSION="${BASH_REMATCH[1]}"
-            extract_notes "$BASE_VERSION" > RELEASE_NOTES.md
-          fi
-
-          if [ ! -s RELEASE_NOTES.md ]; then
-            echo "No entry found for $VERSION in CHANGELOG.md, using tag message." >&2
-            echo "Release $VERSION" > RELEASE_NOTES.md
+          if ! grep -q '[^[:space:]]' RELEASE_NOTES.md; then
+            echo "CHANGELOG.md has no substantive [$NOTES_VERSION] release notes." >&2
+            exit 1
           fi
 
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
+          PRERELEASE: ${{ steps.release_metadata.outputs.prerelease }}
         run: |
           release_args=()
-          if [[ "${GITHUB_REF_NAME}" =~ rc[0-9]+$ ]]; then
+          if [[ "$PRERELEASE" == "true" ]]; then
             release_args+=(--prerelease)
           fi
-          gh release create "${{ github.ref_name }}" \
-            --title "${{ github.ref_name }}" \
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
             --notes-file RELEASE_NOTES.md \
             "${release_args[@]}"
 
@@ -307,7 +323,7 @@ jobs:
     if: >-
       github.event_name == 'push' &&
       startsWith(github.ref, 'refs/tags/v') &&
-      !contains(github.ref_name, 'rc')
+      needs.github-release.outputs.prerelease != 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     concurrency:
