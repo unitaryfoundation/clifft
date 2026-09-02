@@ -434,6 +434,8 @@ ActiveWidthSchedulePass::ActiveWidthSchedulePass(ActiveWidthScheduleOptions opti
     : options_(options) {}
 
 void ActiveWidthSchedulePass::run(HirModule& hir) {
+    built_dependence_ = false;
+
     const ActiveWidthTrace incumbent_trace = analyze_active_width(hir);
     incumbent_peak_ = incumbent_trace.peak_width;
     incumbent_dense_work_ = estimate_dense_work(incumbent_trace);
@@ -452,6 +454,7 @@ void ActiveWidthSchedulePass::run(HirModule& hir) {
     dependence_options.noise_transparent = options_.noise_transparent;
     const detail::ScheduleDependence dependence =
         detail::ScheduleDependence::build(hir, dependence_options);
+    built_dependence_ = true;
 
     std::vector<uint32_t> order = run_beam_search(hir, dependence, options_.beam_width);
 

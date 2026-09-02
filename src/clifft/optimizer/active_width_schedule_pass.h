@@ -77,6 +77,12 @@ class ActiveWidthSchedulePass : public HirPass {
     [[nodiscard]] double result_dense_work() const { return result_dense_work_; }
     [[nodiscard]] bool applied() const { return applied_; }
 
+    // True when the last run() call built the detail::ScheduleDependence
+    // relation, i.e. did not take the early exit above. A structural
+    // witness that the exit actually happened, for tests that would
+    // otherwise have to infer it from a timing side-channel.
+    [[nodiscard]] bool built_dependence() const { return built_dependence_; }
+
   private:
     ActiveWidthScheduleOptions options_;
     uint32_t incumbent_peak_ = 0;
@@ -84,6 +90,7 @@ class ActiveWidthSchedulePass : public HirPass {
     double incumbent_dense_work_ = 0.0;
     double result_dense_work_ = 0.0;
     bool applied_ = false;
+    bool built_dependence_ = false;
 };
 
 }  // namespace clifft

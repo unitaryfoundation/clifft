@@ -21,7 +21,6 @@
 #include "test_helpers.h"
 
 #include <catch2/catch_test_macros.hpp>
-#include <chrono>
 #include <cstdint>
 #include <limits>
 #include <memory>
@@ -238,13 +237,10 @@ TEST_CASE("Schedule pass reaches the expected peak and dense work on fixture cir
 // surface_d7_r7_p001 has no T_GATE or PHASE_ROTATION op at all (a pure
 // stabilizer QEC memory circuit), so both early-exit conditions hold on its
 // raw, unpassed HIR: incumbent peak 0, and no rotation to branch on either
-// way. The bound below is relative to a measurement taken in the same run,
-// not a fixed millisecond budget, so it holds on any host regardless of
-// load or hardware: it directly times ScheduleDependence::build's O(N^2)
-// can_swap scan on this same HIR -- the work the early exit is supposed to
-// skip -- and requires the pass to finish under that time. On this fixture
-// the build is at least an order of magnitude slower than the analysis
-// alone, so the margin stays comfortable even under CI load.
+// way. built_dependence() observes directly whether run() built the
+// detail::ScheduleDependence relation -- the O(N^2) can_swap scan the early
+// exit is supposed to skip -- rather than inferring it from a timing
+// side-channel.
 TEST_CASE("Schedule pass exits before building the dependence relation when nothing can move",
           "[schedule_pass]") {
     const Circuit circuit =
@@ -253,24 +249,27 @@ TEST_CASE("Schedule pass exits before building the dependence relation when noth
     HirModule hir = original;
 
     ActiveWidthSchedulePass pass;
-    const auto pass_start = std::chrono::steady_clock::now();
     pass.run(hir);
-    const auto pass_elapsed = std::chrono::steady_clock::now() - pass_start;
 
-    const auto build_start = std::chrono::steady_clock::now();
-    const ScheduleDependence dependence = ScheduleDependence::build(original, {});
-    const auto build_elapsed = std::chrono::steady_clock::now() - build_start;
-
-    const double pass_ms = std::chrono::duration<double, std::milli>(pass_elapsed).count();
-    const double build_ms = std::chrono::duration<double, std::milli>(build_elapsed).count();
-    INFO("pass_ms=" << pass_ms << " build_ms=" << build_ms
-                    << " dependence_ops=" << dependence.num_ops());
-    REQUIRE(pass_ms < build_ms);
-
+    REQUIRE_FALSE(pass.built_dependence());
     REQUIRE_FALSE(pass.applied());
     REQUIRE(pass.result_peak() == pass.incumbent_peak());
     REQUIRE(pass.result_dense_work() == pass.incumbent_dense_work());
     REQUIRE(hir_unchanged(hir, original));
+}
+
+// coherent_d3_r3 has T_GATE/PHASE_ROTATION ops and a nonzero incumbent
+// peak, so neither early-exit condition holds: run() must build the
+// dependence relation to have anything to search over.
+TEST_CASE("Schedule pass builds the dependence relation when something can move",
+          "[schedule_pass]") {
+    const Circuit circuit =
+        clifft::parse_file(std::string(CLIFFT_FIXTURES_DIR) + "/coherent_d3_r3.stim");
+    const HirModule raw = clifft::trace(circuit);
+    ActiveWidthSchedulePass pass;
+    run_peephole_squeeze_schedule(raw, pass);
+
+    REQUIRE(pass.built_dependence());
 }
 
 // ---------------------------------------------------------------------------
