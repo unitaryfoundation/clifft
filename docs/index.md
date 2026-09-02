@@ -96,6 +96,23 @@ For QEC workflows, Clifft also supports detector-based post-selection, survivor 
 [Quick Start](getting-started/quickstart.md){ .md-button .md-button--primary }
 [Try the Playground]({{ playground_url }}){ .md-button }
 
+## What's New in 0.10.0
+
+Clifft 0.10.0 adds automatic packed batch sampling for eligible
+low-active-width CPU workloads and Apple Silicon NEON kernels for active-state
+operations. Advanced callers can use `batch_size` to tune the packed-lane
+capacity, while the default cost-aware policy balances throughput and memory.
+
+The release also accepts supported unitary OpenQASM 2 circuits without Qiskit
+and moves production builds onto Clifft's native Clifford implementation. Stim
+remains an independent test oracle. An experimental AMD HIP backend is
+available through an explicit source build and the `clifft.experimental.hip`
+API.
+
+Read [Circuit Inputs](guide/circuit-inputs.md) for OpenQASM, Qiskit, and Cirq
+options, or [CPU Execution and Tuning](guide/cpu-execution.md) for batching,
+threading, reproducibility, and memory guidance.
+
 ## What's New in 0.9.0
 
 Clifft 0.9.0 adds parallel sampling for ordinary,
