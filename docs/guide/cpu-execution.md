@@ -177,7 +177,8 @@ choose a layout from peak width alone.
 `ActiveWidthSchedulePass` is an opt-in HIR pass, not part of the default
 pipeline, that reorders Heisenberg IR operations to reduce peak active
 width, then a dense-work estimate; it never leaves a circuit worse than it
-found it. See [Active-Width Scheduling](../theory/active-width.md) for the
+found it by peak active width and then by estimated dense work. See
+[Active-Width Scheduling](../theory/active-width.md) for the
 structural model it searches over. Enable it by building a custom
 `HirPassManager` that runs it last, after `PeepholeFusionPass` and
 `StatevectorSqueezePass`, and passing that manager to `hir_passes`:

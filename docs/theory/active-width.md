@@ -24,8 +24,9 @@ $p$ updates $S$ by one of two rules, depending on the operation type:
 ```text
 rotation about p:    S <- S cap p-perp          k -> k+1 iff p is not in S-perp
 measurement of p:     S <- (S cap p-perp) + <p>  k -> k-1 iff p is in S-perp but not in S
-noise, feedback, detector, observable, readout,
-and every other non-rotation, non-measurement op: S unchanged
+transition instrument, Activate branch: same as rotation about p
+noise, feedback, detector, observable, readout, every other instrument
+branch, and every other op: S unchanged
 ```
 
 Here $S^\perp$ is the symplectic-orthogonal complement of $S$: the set of
@@ -51,7 +52,10 @@ the formula actually changes $\dim S$:
 
 Every other HIR operation type -- noise, feedback, detectors, observables,
 readout corrections -- reads or writes classical state only and leaves $S$
-untouched.
+untouched. A transition instrument leaves $S$ untouched the same way on
+every branch except `Activate`; taking the `Activate` branch, it instead
+follows the rotation rule above, promoting a coordinate exactly as a
+rotation would.
 
 ### Pivot Independence
 
@@ -226,22 +230,25 @@ HIR's own width trace, lexicographically by peak active width and then by a
 dense-work estimate (the planning-time proxy $\sum 2^{w}$ over actions that
 touch the active array, at the width $w$ each one runs at). The pass applies
 its candidate only when that comparison is strictly better; otherwise the
-HIR is left byte-for-byte untouched. This "never worse than the incumbent"
-guarantee is what makes the pass safe to run unconditionally: unlike the
-exact search, it carries no certificate of optimality, only a guarantee that
-it cannot regress the circuit it started from.
+HIR is left byte-for-byte untouched. This "never worse than the incumbent,
+by peak active width and then by estimated dense work" guarantee is what
+makes the pass safe to run unconditionally: unlike the exact search, it
+carries no certificate of optimality, only a guarantee that it cannot
+regress the circuit's peak active width or, short of an improvement there,
+its estimated dense work. It is not a guarantee about compile time or about
+measured sampling throughput.
 
 ## Measured Effect
 
 Measured once, single host, Release build, at commit `d169751b`: sampling
 throughput with the production pipeline (`PeepholeFusionPass` then
-`StatevectorSqueezePass`) versus the production pipeline plus the opt-in
-`ActiveWidthSchedulePass` (at its default options), on the `clifft-paper`
+`StatevectorSqueezePass`) versus production plus the opt-in schedule pass
+(`ActiveWidthSchedulePass`, at its default options), on the `clifft-paper`
 QEC corpus at commit `db7dc9f`, best of 3 timed batches after warmup. "Plan
 work" is the planner's own $\sum 2^{k}$ over dense actions -- the same
 quantity `estimate_dense_work` approximates ahead of planning.
 
-| Circuit | Production: peak / plan work / shots per s | Default pipeline: peak / plan work / shots per s | Pass wall time |
+| Circuit | Production: peak / plan work / shots per s | Production + schedule pass: peak / plan work / shots per s | Pass wall time |
 |---|---|---|---|
 | coherent d3 r3 | 5 / 1247 / 1.08M | 4 / 381 / 2.03M | 17 ms |
 | coherent d5 r1 | 12 / 35875 / 82k | 0 / 0 / 3.8M | 2 ms |
