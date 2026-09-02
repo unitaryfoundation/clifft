@@ -23,9 +23,9 @@
 #include <algorithm>
 #include <catch2/catch_test_macros.hpp>
 #include <cstdint>
-#include <exception>
 #include <memory>
 #include <random>
+#include <stdexcept>
 #include <string>
 #include <utility>
 #include <variant>
@@ -133,12 +133,15 @@ void require_trace_matches_plan(const HirModule& hir, const SamplingPlan& plan) 
 // Best-effort variant of the above for HIR that may legitimately overflow
 // the planner's dense active-width limit (raw or peephole-only HIR for a
 // wide circuit, before the squeeze pass narrows the peak). Returns whether
-// the comparison actually ran.
+// the comparison actually ran. Catches only std::overflow_error, the
+// specific exception plan_sampling throws for that limit (see
+// kDenseActiveWidthLimit); any other exception is a genuine bug this test
+// should surface rather than silently skip.
 bool require_trace_matches_plan_if_plannable(const HirModule& hir) {
     SamplingPlan plan;
     try {
         plan = clifft::sampling::plan_sampling(hir);
-    } catch (const std::exception&) {
+    } catch (const std::overflow_error&) {
         return false;
     }
     require_trace_matches_plan(hir, plan);
