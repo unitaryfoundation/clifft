@@ -38,7 +38,8 @@ compatibility limits.
     These APIs require backend-specific source builds and may change without
     compatibility guarantees. They are not selected by the regular CPU API.
 
-See [HIP Backend](../development/hip-backend.md) for the current hardware and
+See [HIP Backend](../development/hip-backend.md) and
+[CUDA Backend](../development/cuda-backend.md) for the current hardware and
 workflow limits.
 
 ::: clifft.experimental.hip.is_built
@@ -54,6 +55,22 @@ workflow limits.
 ::: clifft.experimental.hip.Sampler
 
 ::: clifft.experimental.hip.ReplayResult
+
+::: clifft.experimental.cuda.is_built
+
+::: clifft.experimental.cuda.is_available
+
+::: clifft.experimental.cuda.backend_info
+
+::: clifft.experimental.cuda.compile
+
+::: clifft.experimental.cuda.selected_tier
+
+::: clifft.experimental.cuda.Program
+
+::: clifft.experimental.cuda.Sampler
+
+::: clifft.experimental.cuda.ReplayResult
 
 ## Leakage and Loss
 

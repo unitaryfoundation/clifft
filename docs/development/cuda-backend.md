@@ -29,7 +29,6 @@ outside the stable API, and the CPU executor remains the semantic oracle.
 | Leakage, loss, and transition instruments | Not supported |
 | Exact-probability and state-vector queries | Not supported |
 | Asynchronous or multi-GPU execution | Not supported |
-| Python facade | Not yet; C++ only |
 
 Unsupported programs are rejected during lowering; there is no automatic CPU
 fallback.
@@ -70,7 +69,19 @@ Other architectures can be development targets by setting
 branch, but their shared-memory budgets and conformance coverage differ.
 
 CUDA builds require a CUDA toolkit with C++20 support (CUDA 12 or newer).
-Configure and build the CUDA targets directly:
+Build an editable installation from a checkout:
+
+```bash
+git clone https://github.com/unitaryfoundation/clifft.git
+cd clifft
+
+uv venv
+CMAKE_ARGS="-DCLIFFT_ENABLE_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=90" \
+    uv pip install -e .
+```
+
+For standalone C++ development, configure and build the CUDA targets
+directly:
 
 ```bash
 cmake -S . -B build-cuda -G Ninja \
@@ -80,10 +91,41 @@ cmake --build build-cuda -j
 ```
 
 The build compiles device code without a visible GPU. Sampling requires a
-compatible device at runtime; `clifft::sampling::cuda::is_available()` and
-`backend_info()` report what the runtime sees.
+compatible device at runtime:
+
+```python
+from clifft.experimental import cuda
+
+print(cuda.is_built())
+print(cuda.is_available())
+print(cuda.backend_info())
+```
 
 ## Compile and reuse a sampler
+
+```python
+from clifft.experimental import cuda
+
+program = cuda.compile("""
+    H 0
+    T 0
+    H 0
+    M 0
+    OBSERVABLE_INCLUDE(0) rec[-1]
+""")
+
+sampler = cuda.Sampler(program)
+result = sampler.sample(100_000, seed=1234)
+print(sampler.tier)
+print(result.measurements.shape)
+```
+
+`cuda.Program` and `clifft.Program` are not interchangeable. `cuda.compile()`
+currently accepts Stim circuit text and does not expose the CPU
+`input_format` switch. `cuda.selected_tier(program)` reports the tier
+automatic selection would pick without allocating a workspace.
+
+The same contract is available from C++:
 
 ```cpp
 #include "clifft/circuit/parser.h"
@@ -119,13 +161,26 @@ program. Survivor sampling always returns aggregate counts; pass
 
 ### Precision and launch controls
 
+```python
+sampler = cuda.Sampler(
+    program,
+    precision="fp32",
+    max_batch_shots=16_384,
+    tier="auto",
+    max_concurrent_shots=0,
+)
+result = sampler.sample(100_000, seed=42, block_size=256)
+print(sampler.allocated_device_bytes)
+```
+
+The C++ constructor takes the same values in the same order:
+
 ```cpp
 sampling::cuda::Sampler sampler(executable,
                                 sampling::cuda::CoefficientPrecision::FP32,
                                 /*max_batch_shots=*/16384,
                                 sampling::cuda::ExecutionTier::Auto,
                                 /*max_concurrent_shots=*/0);
-const auto rows = sampler.sample(100000, uint64_t{42}, /*block_size=*/256);
 ```
 
 - FP64 coefficient evolution is the default. FP32 halves coefficient storage
@@ -134,8 +189,10 @@ const auto rows = sampler.sample(100000, uint64_t{42}, /*block_size=*/256);
   `EXP_VAL` outputs remain FP64 in both modes.
 - `max_batch_shots` bounds the retained per-shot output rows. Larger requests
   are split into synchronous launches that reuse the workspace.
-- `tier` forces one execution tier for experiments; `BlockShared` is rejected
-  when the program does not fit the device.
+- `tier` forces one execution tier for experiments (`"thread_per_shot"`,
+  `"block_shared"`, or `"block_global"` from Python); `block_shared` is
+  rejected when the program does not fit the device. `Sampler.tier` reports
+  the resolved choice.
 - `max_concurrent_shots` caps how many shots the cooperative tiers keep
   resident per launch, which bounds `BlockGlobal` slab memory. Zero derives the
   cap from the multiprocessor count and free device memory.
@@ -168,7 +225,8 @@ layouts, workspaces, and kernels remain backend-specific.
 | Change a packed action | `src/clifft/sampling/cuda/device_program.h` | Private host/device descriptor |
 | Change coefficient evolution | Device half of `src/clifft/sampling/cuda/sampler.cu` | Lane-strided FP32 and FP64 action bodies shared by every tier |
 | Change tier selection or launch | Host half of `sampler.cu` | `resolve_tier`, `resolve_concurrency`, and `Sampler::Impl::launch` |
-| Add conformance cases | `tests/test_cuda_sampler.cc` | CPU oracle, replay, tiers, and distributions |
+| Change the Python experiment | `src/python/clifft/experimental/cuda.py` | Typed optional facade over `_clifft_cuda` |
+| Add conformance cases | `tests/test_cuda_sampler.cc` and `tests/python/utils_cuda.py` | CPU oracle, replay, tiers, and distributions |
 
 When changing the kernels, preserve these invariants:
 
@@ -193,6 +251,12 @@ conformance cases:
 ```bash
 cmake --build build-cuda --target clifft_tests clifft_cuda_tests -j
 ctest --test-dir build-cuda --output-on-failure -R CUDA
+```
+
+The Python suite provides quick developer probes with the same helpers:
+
+```bash
+uv run pytest tests/python/test_experimental_cuda.py -v
 ```
 
 Kernel-launch tests are skipped without a visible NVIDIA GPU, so this coverage

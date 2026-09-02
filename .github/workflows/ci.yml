@@ -152,6 +152,15 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Setup uv and Python
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          python-version: "3.12"
+
+      - name: Install Python binding build dependencies
+        run: uv sync --frozen --only-group dev --no-install-project
+
       - name: Configure sm_90 CUDA build
         run: |
           cmake -S . -B build-cuda -G Ninja \
@@ -164,6 +173,18 @@ jobs:
 
       - name: Run GPU-free CUDA conformance tests
         run: ctest --test-dir build-cuda --output-on-failure --no-tests=error -R CUDA
+
+      - name: Build editable CUDA Python package
+        env:
+          CMAKE_ARGS: >-
+            -DCMAKE_BUILD_TYPE=Release
+            -DCLIFFT_ENABLE_CUDA=ON
+            -DCMAKE_CUDA_ARCHITECTURES=90
+          CMAKE_BUILD_PARALLEL_LEVEL: "2"
+        run: uv pip install --editable .
+
+      - name: Run GPU-free CUDA Python boundary tests
+        run: uv run --no-sync pytest tests/python/test_experimental_cuda.py -v
 
   build-and-test:
     timeout-minutes: 45
