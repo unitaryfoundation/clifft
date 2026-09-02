@@ -47,6 +47,7 @@ from clifft._clifft_core import (
     Target,
     _basis_probabilities_from_bitmasks,
     _record_probabilities_from_records,
+    active_width_trace,
     compute_reference_syndrome,
     default_hir_pass_manager,
     get_statevector,
@@ -60,6 +61,7 @@ from clifft._clifft_core import (
     sample_k,
     sample_k_survivors,
     sample_survivors,
+    search_width_schedule,
     trace,
     version,
 )
@@ -365,6 +367,7 @@ __all__ = [
     "SampleResult",
     "StatevectorSqueezePass",
     "Target",
+    "active_width_trace",
     "basis_probabilities",
     "compile",
     "compute_reference_syndrome",
@@ -383,6 +386,7 @@ __all__ = [
     "sample_k",
     "sample_k_survivors",
     "sample_survivors",
+    "search_width_schedule",
     "trace",
     "version",
 ]

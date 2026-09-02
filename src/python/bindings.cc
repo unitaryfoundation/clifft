@@ -7,11 +7,14 @@
 #include "clifft/noncomp/model.h"
 #include "clifft/noncomp/policy.h"
 #include "clifft/noncomp/sample.h"
+#include "clifft/optimizer/active_width_analysis.h"
+#include "clifft/optimizer/active_width_search.h"
 #include "clifft/optimizer/drop_non_unitary_pass.h"
 #include "clifft/optimizer/hir_pass_manager.h"
 #include "clifft/optimizer/pass_factory.h"
 #include "clifft/optimizer/peephole.h"
 #include "clifft/optimizer/remove_noise_pass.h"
+#include "clifft/optimizer/schedule_dependence.h"
 #include "clifft/optimizer/statevector_squeeze_pass.h"
 #include "clifft/sampling/planner.h"
 #include "clifft/sampling/sampler.h"
@@ -148,6 +151,38 @@ clifft::HirModule prepare_qasm2_for_lowering(const std::string& qasm_text, bool 
     clifft::Qasm2Import imported = clifft::parse_qasm2(qasm_text);
     return prepare_circuit_for_lowering(imported.circuit, normalize_syndromes, hir_passes,
                                         expected_detectors, expected_observables);
+}
+
+// Lower-case names for active_width_trace()'s per-op 'effects' list. Python
+// tooling consumes these as plain strings rather than an enum, so this
+// mapping -- not clifft::WidthEffect's own C++ identifiers -- is what that
+// output format actually commits to.
+const char* width_effect_to_str(clifft::WidthEffect effect) {
+    switch (effect) {
+        case clifft::WidthEffect::None:
+            return "none";
+        case clifft::WidthEffect::RotationStabilizer:
+            return "rotation_stabilizer";
+        case clifft::WidthEffect::RotationNeutral:
+            return "rotation_neutral";
+        case clifft::WidthEffect::RotationPromote:
+            return "rotation_promote";
+        case clifft::WidthEffect::MeasureClassical:
+            return "measure_classical";
+        case clifft::WidthEffect::MeasureDormantRandom:
+            return "measure_dormant_random";
+        case clifft::WidthEffect::MeasureActive:
+            return "measure_active";
+        case clifft::WidthEffect::InstrumentClassical:
+            return "instrument_classical";
+        case clifft::WidthEffect::InstrumentActive:
+            return "instrument_active";
+        case clifft::WidthEffect::InstrumentActivate:
+            return "instrument_activate";
+        case clifft::WidthEffect::InstrumentDormantTrap:
+            return "instrument_dormant_trap";
+    }
+    return "unknown";
 }
 
 }  // namespace
@@ -748,6 +783,84 @@ NB_MODULE(_clifft_core, m) {
     m.def(
         "default_hir_pass_manager", []() { return clifft::default_hir_pass_manager(); },
         nb::rv_policy::move, "Return an HirPassManager pre-loaded with the default passes.");
+
+    m.def(
+        "active_width_trace",
+        [](const clifft::HirModule& hir) {
+            clifft::ActiveWidthTrace trace;
+            {
+                nb::gil_scoped_release release;
+                trace = clifft::analyze_active_width(hir);
+            }
+            nb::list widths;
+            nb::list effects;
+            for (const clifft::WidthTransition& transition : trace.transitions) {
+                widths.append(transition.after);
+                effects.append(width_effect_to_str(transition.effect));
+            }
+            nb::dict d;
+            d["initial"] = trace.initial_width;
+            d["peak"] = trace.peak_width;
+            d["final"] = trace.final_width;
+            d["widths"] = widths;
+            d["effects"] = effects;
+            return d;
+        },
+        nb::arg("hir"),
+        "Structural active-width trace of an HIR module, without lowering it "
+        "to an executable program.\n\n"
+        "Returns a dict with 'initial', 'peak', and 'final' width, plus "
+        "per-op 'widths' (the width after each op) and 'effects' (a "
+        "lower-case effect name per op).");
+
+    m.def(
+        "search_width_schedule",
+        [](clifft::HirModule& hir, bool noise_transparent, uint64_t node_budget, bool apply) {
+            clifft::ScheduleDependenceOptions dependence_options;
+            dependence_options.noise_transparent = noise_transparent;
+            clifft::WidthSearchOptions search_options;
+            search_options.node_budget = node_budget;
+
+            clifft::WidthSearchResult result;
+            {
+                nb::gil_scoped_release release;
+                const clifft::ScheduleDependence dependence =
+                    clifft::ScheduleDependence::build(hir, dependence_options);
+                result = clifft::search_width_schedule(hir, dependence, search_options);
+                if (apply && result.upper_bound < result.incumbent_peak) {
+                    clifft::apply_schedule(hir, dependence, result.best_order);
+                }
+            }
+
+            nb::dict d;
+            d["incumbent_peak"] = result.incumbent_peak;
+            d["upper_bound"] = result.upper_bound;
+            d["lower_bound"] = result.lower_bound;
+            d["optimal"] = result.optimal();
+            d["explored_nodes"] = result.explored_nodes;
+            d["budget_exhausted"] = result.budget_exhausted;
+            d["noise_transparent"] = result.noise_transparent;
+            d["order"] = nb::cast(result.best_order);
+            return d;
+        },
+        nb::arg("hir"), nb::kw_only(), nb::arg("noise_transparent") = true,
+        nb::arg("node_budget") = uint64_t{200000}, nb::arg("apply") = true,
+        "Exact, budgeted search for the schedule of `hir` that minimizes peak "
+        "active width.\n\n"
+        "Certifies a minimum ('optimal' True in the result) over the trace "
+        "class of this exact HIR under the searched dependence relation, "
+        "scored by the sampling planner's own structural width model; it "
+        "says nothing about schedules reachable only through a rewrite that "
+        "exposes new gate fusion, about amplitude-level stabilizers the "
+        "structural planner does not track, or about any other circuit that "
+        "merely samples the same distribution as this one.\n\n"
+        "With apply=True (the default), applies the found schedule to `hir` "
+        "in place when it improves on the incumbent peak; otherwise `hir` is "
+        "left untouched.\n\n"
+        "Returns a dict with 'incumbent_peak', 'upper_bound', 'lower_bound', "
+        "'optimal', 'explored_nodes', 'budget_exhausted', "
+        "'noise_transparent', and 'order' (the schedule found, as op "
+        "indices).");
 
     nb::class_<clifft::sampling::ExecutablePlan>(m, "Program",
                                                  "A reusable compiled sampling program")
