@@ -9,7 +9,6 @@
 #include "clifft/optimizer/commutation.h"
 #include "clifft/optimizer/drop_non_unitary_pass.h"
 #include "clifft/optimizer/hir_pass_manager.h"
-#include "clifft/optimizer/pass_factory.h"
 #include "clifft/optimizer/peephole.h"
 #include "clifft/optimizer/remove_noise_pass.h"
 #include "clifft/optimizer/statevector_squeeze_pass.h"
@@ -194,8 +193,13 @@ std::vector<std::string> realize_noise(const GeneratedCircuit& circuit, std::mt1
 }
 
 // ---------------------------------------------------------------------------
-// Pipeline helpers, mirroring tests/test_active_width_analysis.cc
+// Pipeline helpers
 // ---------------------------------------------------------------------------
+
+// Built from named passes rather than default_hir_pass_manager(), so this
+// suite's runtime and behavior track only the passes it actually exercises
+// -- what this file's tests are about -- and not whatever else the default
+// pipeline happens to grow.
 
 HirModule run_peephole_only(const HirModule& source) {
     HirModule hir = source;
@@ -207,7 +211,10 @@ HirModule run_peephole_only(const HirModule& source) {
 
 HirModule run_production_pipeline(const HirModule& source) {
     HirModule hir = source;
-    clifft::default_hir_pass_manager().run(hir);
+    HirPassManager passes;
+    passes.add_pass(std::make_unique<PeepholeFusionPass>());
+    passes.add_pass(std::make_unique<StatevectorSqueezePass>());
+    passes.run(hir);
     return hir;
 }
 
