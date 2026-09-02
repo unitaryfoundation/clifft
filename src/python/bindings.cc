@@ -738,6 +738,9 @@ NB_MODULE(_clifft_core, m) {
             "__init__",
             [](clifft::ActiveWidthSchedulePass* self, bool noise_transparent, uint32_t beam_width,
                bool sink_neutral_rotations) {
+                if (beam_width == 0) {
+                    throw std::invalid_argument("beam_width must be positive");
+                }
                 clifft::ActiveWidthScheduleOptions options;
                 options.noise_transparent = noise_transparent;
                 options.beam_width = beam_width;

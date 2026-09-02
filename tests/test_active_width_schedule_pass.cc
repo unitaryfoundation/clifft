@@ -25,6 +25,7 @@
 #include <limits>
 #include <memory>
 #include <random>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -270,6 +271,16 @@ TEST_CASE("Schedule pass builds the dependence relation when something can move"
     run_peephole_squeeze_schedule(raw, pass);
 
     REQUIRE(pass.built_dependence());
+}
+
+// ---------------------------------------------------------------------------
+// Input validation
+// ---------------------------------------------------------------------------
+
+TEST_CASE("Schedule pass rejects a zero beam width", "[schedule_pass]") {
+    ActiveWidthScheduleOptions options;
+    options.beam_width = 0;
+    REQUIRE_THROWS_AS(ActiveWidthSchedulePass{options}, std::invalid_argument);
 }
 
 // ---------------------------------------------------------------------------

@@ -54,7 +54,8 @@ struct ActiveWidthScheduleOptions {
     // Number of partial schedules kept at each beam-search step. 1
     // degenerates to the greedy closure scheduler (always take the single
     // best-looking ready expanding op); larger values explore more of the
-    // choice tree at proportionally higher cost.
+    // choice tree at proportionally higher cost. 0 leaves nothing for the
+    // beam to keep, so the constructor rejects it.
     uint32_t beam_width = 8;
 
     // Whether to bubble width-neutral rotations rightward past independent

@@ -7,7 +7,7 @@
 #include <algorithm>
 #include <cassert>
 #include <cstdint>
-#include <numeric>
+#include <stdexcept>
 #include <tuple>
 #include <utility>
 #include <vector>
@@ -234,9 +234,8 @@ const BeamState* pick_best_completed(const std::vector<BeamState>& completed) {
 // Beam search over the closure/readiness machinery active_width_closure.h
 // shares with the exact search. beam_width == 1 degenerates to the greedy
 // closure scheduler: at every step, take whichever single ready expanding
-// op's own closure sweep scores best. Falls back to the identity order if
-// no beam_width (e.g. a caller-supplied 0) ever lets a schedule complete;
-// the pass's own "never worse" check downstream makes that fallback safe.
+// op's own closure sweep scores best. The constructor rejects beam_width ==
+// 0, so at least one beam member always survives to complete a schedule.
 //
 // Two-phase per step: score_candidates ranks every ready expanding op of
 // every current beam state cheaply (see its own comment), then only the
@@ -336,11 +335,8 @@ std::vector<uint32_t> run_beam_search(const HirModule& hir,
     }
 
     const BeamState* best = pick_best_completed(completed);
-    if (best == nullptr) {
-        std::vector<uint32_t> identity(hir.ops.size());
-        std::iota(identity.begin(), identity.end(), uint32_t{0});
-        return identity;
-    }
+    assert(best != nullptr &&
+           "beam_width >= 1 (the constructor rejects 0) guarantees at least one completed state");
     return best->order;
 }
 
@@ -431,7 +427,11 @@ bool has_rotation_op(const HirModule& hir) {
 }  // namespace
 
 ActiveWidthSchedulePass::ActiveWidthSchedulePass(ActiveWidthScheduleOptions options)
-    : options_(options) {}
+    : options_(options) {
+    if (options_.beam_width == 0) {
+        throw std::invalid_argument("ActiveWidthSchedulePass: beam_width must be positive");
+    }
+}
 
 void ActiveWidthSchedulePass::run(HirModule& hir) {
     built_dependence_ = false;

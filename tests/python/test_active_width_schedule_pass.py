@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+import pytest
 from conftest import cross_binomial_tolerance
 
 import clifft
@@ -142,3 +143,8 @@ def test_keyword_only_construction() -> None:
 
     default_pass = clifft.ActiveWidthSchedulePass()
     assert isinstance(default_pass, clifft.HirPass)
+
+
+def test_zero_beam_width_is_rejected() -> None:
+    with pytest.raises(ValueError, match="beam_width"):
+        clifft.ActiveWidthSchedulePass(beam_width=0)
