@@ -30,21 +30,32 @@ def test_experimental_namespace_reports_optional_hip_build() -> None:
         assert info == "HIP backend not built; rebuild Clifft with CLIFFT_ENABLE_HIP=ON"
 
 
-def test_import_clifft_does_not_eagerly_load_experimental_hip() -> None:
+def test_experimental_namespace_reports_optional_cuda_build() -> None:
+    built = clifft.experimental.cuda.is_built()
+    info = clifft.experimental.cuda.backend_info()
+
+    if built:
+        assert info.startswith("CUDA ")
+    else:
+        assert info == "CUDA backend not built; rebuild Clifft with CLIFFT_ENABLE_CUDA=ON"
+
+
+def test_import_clifft_does_not_eagerly_load_experimental_backends() -> None:
     completed = subprocess.run(
         [
             sys.executable,
             "-c",
             "import sys; import clifft; "
             "print('clifft.experimental' in sys.modules); "
-            "print('clifft._clifft_hip' in sys.modules)",
+            "print('clifft._clifft_hip' in sys.modules); "
+            "print('clifft._clifft_cuda' in sys.modules)",
         ],
         capture_output=True,
         check=True,
         text=True,
     )
 
-    assert completed.stdout.splitlines() == ["False", "False"]
+    assert completed.stdout.splitlines() == ["False", "False", "False"]
 
 
 @pytest.mark.skipif(
