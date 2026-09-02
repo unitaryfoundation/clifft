@@ -256,13 +256,16 @@ almost nothing, because its per-shot cost is dominated by frame, record, and
 detector work rather than dense active-state work. Coherent d5 r1's coherent
 noise is invisible in the output distribution once every rotation lands
 behind a commuting measurement, so the pass finds a schedule with zero
-active width at all. Cultivation d5 is where this page's certificates
-matter most for reading the table correctly: the exact search certifies
-cultivation d3's peak of 4 (a smaller, related fixture, not shown above) as
-optimal for its trace class, but on d5 the same search exhausts its node
-budget without settling either bound, so d5 carries no certificate. The
-pass finds a slightly cheaper schedule at the same peak here -- a real
-improvement, not evidence that no better schedule exists.
+active width at all. This page's certificates matter most for reading
+cultivation d5 and coherent d5 r5 correctly. The exact search certifies
+cultivation d3 at peak 4 (a smaller, related fixture, not shown above) and
+cultivation d5 at peak 10 under both relations, so both are intrinsic to
+their trace classes: no legal reordering reaches a lower peak. The pass's
+small dense-work gain on cultivation d5 is at that certified peak, not a
+step toward a lower one. Coherent d5 r5 is the one corpus circuit whose
+certificate did not complete within the exact search's 200k-node budget,
+so the 13 reported for it above is an upper bound, not a certified
+optimum.
 
 ## References
 
