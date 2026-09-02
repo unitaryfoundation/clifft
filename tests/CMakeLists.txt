@@ -31,6 +31,7 @@ add_executable(clifft_tests
     test_source_map.cc
     test_logical_noise_prefix.cc
     test_schedule_dependence.cc
+    test_active_width_search.cc
     test_importance_sampling.cc
     test_runtime_isa.cc
     test_shot_parallel.cc
