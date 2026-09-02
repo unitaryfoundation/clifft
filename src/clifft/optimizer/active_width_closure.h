@@ -27,19 +27,25 @@
 //
 // Closure theorem: some schedule that minimizes peak active width executes
 // every ready non-expanding op as soon as it is ready. Sketch: readiness
-// only grows as ops execute, a rotation that currently commutes with S stays
-// commuting under any op independent of it (an independent op's body cannot
-// be one of the directions S changes along, by can_swap's own soundness),
-// and no non-expanding op's execution can make another already-ready
-// non-expanding op expanding, so delaying a ready non-expanding op can only
-// ever leave the peak the same or larger, never smaller. Consequently a
-// scheduler only has to branch on which ready expanding op to execute next;
-// closure fills in the rest deterministically. An INSTRUMENT is a
-// positional barrier under ScheduleDependence (commutation.cc's can_swap
-// refuses to reorder anything across one), so every op before it in
-// original order is transitively its predecessor and every op after it is
-// transitively its successor -- when it is ready, it is therefore the only
-// ready op, and it executes regardless of whether it is expanding.
+// only grows as ops execute. A ready non-expanding rotation has an axis that
+// commutes with every generator of S; an independent op's body commutes
+// with that axis too (the dependence relation keeps every non-commuting
+// pair ordered), so after the independent op updates S -- whether by
+// intersecting with its body's commutant or by adding its body -- the axis
+// still commutes with every generator, and the rotation stays non-expanding.
+// For measurements, adding a measurement's body to S never raises the
+// width, so firing a ready measurement earlier only lowers the intermediate
+// widths it passes. So no non-expanding op's execution can make another
+// already-ready non-expanding op expanding, and delaying a ready
+// non-expanding op can only ever leave the peak the same or larger, never
+// smaller. Consequently a scheduler only has to branch on which ready
+// expanding op to execute next; closure fills in the rest deterministically.
+// An INSTRUMENT is a positional barrier under ScheduleDependence
+// (commutation.cc's can_swap refuses to reorder anything across one), so
+// every op before it in original order is transitively its predecessor and
+// every op after it is transitively its successor -- when it is ready, it
+// is therefore the only ready op, and it executes regardless of whether it
+// is expanding.
 //
 // Confluence: the subspace S reached by executing a given set of ops is the
 // same regardless of the order they executed in (independent GF(2) updates

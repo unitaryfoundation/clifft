@@ -158,7 +158,7 @@ TEST_CASE("Schedule pass finds the certified optimum for the four operation circ
 }
 
 // ---------------------------------------------------------------------------
-// Fixture certificates
+// Fixture expectations
 // ---------------------------------------------------------------------------
 
 TEST_CASE("Schedule pass reaches the expected peak and dense work on fixture circuits",
