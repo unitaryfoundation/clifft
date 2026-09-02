@@ -4,6 +4,51 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.10.0] - 2026-09-02
+
+Clifft 0.10.0 adds high-throughput packed batch sampling for eligible low-active-width CPU workloads. Automatic, cost-aware lane selection accelerates multi-shot sampling, while the new `batch_size` control lets advanced users trade throughput against memory. Apple Silicon builds also gain NEON active-state kernels, and optimizer changes reduce peak active width in coherent QEC workloads.
+
+The release also adds dependency-free unitary OpenQASM 2 input and moves production compilation, planning, exact queries, Python, and WebAssembly targets onto Clifft's native Pauli and tableau implementation; Stim remains an independent test oracle. An experimental source-built AMD HIP workflow is available under `clifft.experimental.hip`. See [Circuit Inputs](https://unitaryfoundation.github.io/clifft/stable/guide/circuit-inputs/), [CPU Execution and Tuning](https://unitaryfoundation.github.io/clifft/stable/guide/cpu-execution/), and the [HIP Backend](https://unitaryfoundation.github.io/clifft/stable/development/hip-backend/) for details.
+
+### Added
+
+- **Breaking:** Added automatic packed batch execution to `sample()`, `sample_survivors()`, `sample_k()`, and `sample_k_survivors()`. The new `batch_size="auto"` default may select packed execution for eligible multi-shot workloads; exact seeded rows remain reproducible within a fixed sampling mode and configuration but may differ between scalar and packed execution, by @bachase in [#407](https://github.com/unitaryfoundation/clifft/pull/407) and [#418](https://github.com/unitaryfoundation/clifft/pull/418).
+- Added a dependency-free parser for the supported unitary OpenQASM 2 subset through `input_format="qasm2"`, `parse_qasm2()`, and `parse_qasm2_file()`, with gate semantics validated against Qiskit and unsupported dynamic constructs rejected explicitly, by @bachase in [#410](https://github.com/unitaryfoundation/clifft/pull/410).
+- Added an experimental, source-built AMD HIP backend with retained FP32 and FP64 sampling, survivor sampling, forced replay, bounded device workspaces, and Python access through `clifft.experimental.hip`, by @bachase in [#384](https://github.com/unitaryfoundation/clifft/pull/384) and [#395](https://github.com/unitaryfoundation/clifft/pull/395).
+
+### Changed
+
+- Replaced Stim in production compilation and execution targets with Clifft's native Pauli and tableau implementation, including the frontend, optimizers, planner, exact state queries, Python extension, and WebAssembly build. Stim remains an independent test oracle, by @bachase in [#386](https://github.com/unitaryfoundation/clifft/pull/386), [#387](https://github.com/unitaryfoundation/clifft/pull/387), [#389](https://github.com/unitaryfoundation/clifft/pull/389), [#390](https://github.com/unitaryfoundation/clifft/pull/390), [#391](https://github.com/unitaryfoundation/clifft/pull/391), [#397](https://github.com/unitaryfoundation/clifft/pull/397), [#400](https://github.com/unitaryfoundation/clifft/pull/400), and [#401](https://github.com/unitaryfoundation/clifft/pull/401).
+- **Breaking:** `HirPassManager.add()` now names its keyword argument `hir_pass` instead of the invalid Python keyword `pass`. Positional calls are unchanged, by @bachase.
+
+### Performance
+
+- Added Apple Silicon NEON kernels for direct and fused rotations and diagonal active measurements, with automatic dispatch, intra-shot parallel support, and scalar fallbacks below measured profitability thresholds, by @bachase in [#416](https://github.com/unitaryfoundation/clifft/pull/416).
+- Allowed statevector-squeeze expansions to commute across expansion convoys, reducing peak active width from 8 to 5 on the coherent d3/r3 workload and from 24 to 13 on d5/r5, by @bachase in [#424](https://github.com/unitaryfoundation/clifft/pull/424).
+- Restored native Clifford compile-time scaling with cached fixed-gate tableaus, sparse-row composition, reusable prepend storage, and packed planner updates, by @bachase in [#393](https://github.com/unitaryfoundation/clifft/pull/393).
+- Reduced sampling metadata, memory, and compilation overhead by unifying planned syndrome values across scalar, packed, and HIP backends and page-aligning packed bit storage, by @bachase in [#413](https://github.com/unitaryfoundation/clifft/pull/413).
+
+### Fixed
+
+- Fixed `basis_probabilities()` for circuits where later Z-block pivots could leave earlier affine signs stale, with a deterministic entangled regression against analytic probabilities, by @bachase in [#423](https://github.com/unitaryfoundation/clifft/pull/423).
+- Deferred packed post-selection lane compaction until the final output boundary, avoiding repeated sidecar movement while preserving survivor ordering, by @bachase in [#417](https://github.com/unitaryfoundation/clifft/pull/417).
+- Hardened the native Clifford migration by rejecting unmapped inverse gates, handling floating cancellation during stabilizer projection, and expanding structural inverse coverage, by @bachase in [#392](https://github.com/unitaryfoundation/clifft/pull/392).
+
+### Build
+
+- Pinned Linux release wheels to Clang 22.1.8.1 with `lld`, ThinLTO, and explicit OpenMP, and added native, QEMU, and Intel SDE smoke coverage for installed artifacts, by @bachase in [#433](https://github.com/unitaryfoundation/clifft/pull/433).
+
+### CI
+
+- Replaced the scheduled absolute-timing history with an advisory paired A/B performance canary for pull requests, including a trusted reporter for fork contributions, by @bachase in [#435](https://github.com/unitaryfoundation/clifft/pull/435), [#436](https://github.com/unitaryfoundation/clifft/pull/436), [#437](https://github.com/unitaryfoundation/clifft/pull/437), and [#439](https://github.com/unitaryfoundation/clifft/pull/439).
+- Extended documentation previews to stacked pull requests and queued shared `gh-pages` deployments, by @bachase in [#453](https://github.com/unitaryfoundation/clifft/pull/453) and [#454](https://github.com/unitaryfoundation/clifft/pull/454).
+- Added release-candidate publishing to PyPI and GitHub prereleases while keeping candidate docs unpublished, by @bachase in [#456](https://github.com/unitaryfoundation/clifft/pull/456).
+
+### Documentation
+
+- Reorganized the documentation around circuit inputs, result-oriented workflows, CPU execution controls, exact probability APIs, importance sampling, and experimental HIP support, by @bachase in [#455](https://github.com/unitaryfoundation/clifft/pull/455).
+- Kept changelog paragraphs and list items on single physical lines so GitHub release notes render editorial wrapping correctly, by @bachase in [#421](https://github.com/unitaryfoundation/clifft/pull/421).
+
 ## [0.9.0] - 2026-08-24
 
 Clifft 0.9.0 adds parallel sampling across ordinary, post-selected, forced-fault, and noncomputational workloads. A single `threads` budget can spread work across independent shots, or, for some large `k`/active-width workloads, use OpenMP within each shot. Expert callers can select an explicit hybrid layout.
