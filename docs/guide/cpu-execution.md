@@ -171,3 +171,21 @@ and `1024`, using the production worker budget and result options.
 
 Use `program.peak_active_width` as a first-order cost indicator, but do not
 choose a layout from peak width alone.
+
+## Compile-time scheduling
+
+`clifft.compile()` runs `ActiveWidthSchedulePass` by default. It reorders
+Heisenberg IR operations to reduce peak active width, then a dense-work
+estimate, and never leaves a circuit worse than it found it; see
+[Active-Width Scheduling](../theory/active-width.md) for the structural
+model it searches over. On most circuits this costs single-digit
+milliseconds, but circuits with many simultaneously-ready, mutually
+independent non-Clifford rotations can push compile time toward a second, a
+cost that is paid once per compiled program rather than once per shot.
+
+If compile-time latency matters more than the throughput this pass can find
+-- for example, compiling many small circuits in a tight loop -- pass a
+custom `hir_passes` pipeline that omits `ActiveWidthSchedulePass`, or
+`hir_passes=None` to skip HIR optimization entirely. See
+[Optimization Passes](../reference/passes.md) for every available pass and
+its default.

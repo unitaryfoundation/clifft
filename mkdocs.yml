@@ -120,6 +120,7 @@ nav:
   - Theory:
     - Overview: theory/overview.md
     - Architecture: theory/architecture.md
+    - Active-Width Scheduling: theory/active-width.md
     - Basis-State Probabilities: theory/basis_probabilities.md
     - Noncomputational States: theory/noncomputational.md
   - Reference:
