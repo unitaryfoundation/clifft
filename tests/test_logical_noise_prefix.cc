@@ -16,6 +16,7 @@
 #include "clifft/sampling/plan.h"
 #include "clifft/sampling/planner.h"
 #include "clifft/sampling/sampler.h"
+#include "clifft/util/symplectic.h"
 
 #include "test_helpers.h"
 
@@ -190,6 +191,78 @@ std::vector<std::string> realize_noise(const GeneratedCircuit& circuit, std::mt1
         realized.push_back(replacement[i].empty() ? circuit.lines[i] : replacement[i]);
     }
     return realized;
+}
+
+// Same movable-gate mix as generate_noisy_circuit, plus DEPOLARIZE2 on a
+// random pair and a PAULI_CHANNEL_1 whose P(Y) argument is always exactly
+// zero, so that channel is structurally absent rather than merely
+// improbable. Used only for sampling-equivalence: unlike
+// generate_noisy_circuit, it has no realize_noise counterpart.
+std::string generate_multi_channel_noisy_source(std::mt19937& rng, uint32_t num_qubits,
+                                                uint32_t num_ops) {
+    static const double kAngles[] = {0.125, 0.25, 0.375, 0.625, 0.75, 0.875};
+    static const double kNoiseProbs[] = {0.05, 0.1, 0.2, 0.3};
+
+    std::vector<std::string> lines;
+    uint32_t measurement_count = 0;
+    for (uint32_t op = 0; op < num_ops; ++op) {
+        const uint32_t q = rng() % num_qubits;
+        switch (rng() % 11) {
+            case 0:
+                lines.push_back("T " + std::to_string(q));
+                break;
+            case 1:
+                lines.push_back("T_DAG " + std::to_string(q));
+                break;
+            case 2:
+                lines.push_back("R_Z(" + std::to_string(kAngles[rng() % std::size(kAngles)]) +
+                                ") " + std::to_string(q));
+                break;
+            case 3:
+                lines.push_back("M " + std::to_string(q));
+                ++measurement_count;
+                break;
+            case 4:
+                lines.push_back("MX " + std::to_string(q));
+                ++measurement_count;
+                break;
+            case 5:
+                lines.push_back("MR " + std::to_string(q));
+                ++measurement_count;
+                break;
+            case 6:
+                lines.push_back("R " + std::to_string(q));
+                break;
+            case 7: {
+                const double prob = kNoiseProbs[rng() % std::size(kNoiseProbs)];
+                lines.push_back("DEPOLARIZE1(" + std::to_string(prob) + ") " + std::to_string(q));
+                break;
+            }
+            case 8: {
+                // A second target distinct from q, so DEPOLARIZE2 always
+                // gets two real qubits even at the smallest generated width.
+                const uint32_t q2 = (q + 1 + rng() % (num_qubits - 1)) % num_qubits;
+                const double prob = kNoiseProbs[rng() % std::size(kNoiseProbs)];
+                lines.push_back("DEPOLARIZE2(" + std::to_string(prob) + ") " + std::to_string(q) +
+                                " " + std::to_string(q2));
+                break;
+            }
+            case 9: {
+                const double px = kNoiseProbs[rng() % std::size(kNoiseProbs)];
+                const double pz = kNoiseProbs[rng() % std::size(kNoiseProbs)];
+                lines.push_back("PAULI_CHANNEL_1(" + std::to_string(px) + ", 0, " +
+                                std::to_string(pz) + ") " + std::to_string(q));
+                break;
+            }
+            default:
+                break;
+        }
+        if (measurement_count > 0 && (rng() % 5) == 0) {
+            const uint32_t back = 1 + (rng() % measurement_count);
+            lines.push_back("DETECTOR rec[-" + std::to_string(back) + "]");
+        }
+    }
+    return join_lines(lines);
 }
 
 // ---------------------------------------------------------------------------
@@ -419,6 +492,121 @@ TEST_CASE("Logical noise prefix folds in exactly the anticommuting DEPOLARIZE1 c
     REQUIRE(action_as<RecordClassical>(naive_plan, 0).outcome == AffineBool(false));
 }
 
+TEST_CASE(
+    "Logical noise prefix folds in exactly the anticommuting DEPOLARIZE2 channels for a "
+    "moved rotation",
+    "[logical_noise_prefix]") {
+    const HirModule original =
+        clifft::trace(clifft::parse("H 0\nH 1\nDEPOLARIZE2(0.2) 0 1\nT 0\nM 0\nM 1\n"));
+    REQUIRE(original.ops.size() == 4);
+    REQUIRE(original.ops[0].op_type() == OpType::NOISE);
+    REQUIRE(original.ops[1].op_type() == OpType::T_GATE);
+    REQUIRE(original.ops[2].op_type() == OpType::MEASURE);
+    REQUIRE(original.ops[3].op_type() == OpType::MEASURE);
+    REQUIRE(original.noise_sites.at(0).channels.size() == 15);
+
+    const SamplingPlan original_plan = clifft::sampling::plan_sampling(original);
+    const AffineBool original_sign = action_as<PromoteDormantRotation>(original_plan, 0).sign;
+
+    // Move T before DEPOLARIZE2, keeping its logical prefix at 1: it still
+    // logically follows the noise site.
+    HirModule reordered = original;
+    std::swap(reordered.ops[0], reordered.ops[1]);  // [T_GATE, NOISE, MEASURE, MEASURE]
+    reordered.logical_noise_prefix = {1, 0, 1, 1};
+
+    const SamplingPlan reordered_plan = clifft::sampling::plan_sampling(reordered);
+    const auto& reordered_outcomes = reordered_plan.presampled_noise_sites.at(0).outcomes;
+    REQUIRE(reordered_outcomes.size() == 15);
+
+    // Build the expected sign from this plan's own channel symbols. A
+    // two-qubit channel folds in exactly when its Pauli anticommutes with
+    // the rotation's initial-frame body under the full symplectic inner
+    // product, not just the component on the rotation's own qubit.
+    AffineBool expected;
+    const std::vector<NoiseChannel>& channels = reordered.noise_sites.at(0).channels;
+    const HeisenbergOp& t_op = reordered.ops[0];
+    for (size_t ch = 0; ch < channels.size(); ++ch) {
+        const PauliMaskView mask = reordered.noise_channel_masks.at(channels[ch].mask);
+        if (anti_commute(reordered.destab_mask(t_op), reordered.stab_mask(t_op), mask.x(),
+                         mask.z())) {
+            expected ^= AffineBool::symbol(reordered_outcomes[ch].symbol);
+        }
+    }
+    REQUIRE(action_as<PromoteDormantRotation>(reordered_plan, 0).sign == expected);
+
+    // T_GATE never reserves a prepass symbol, so moving it ahead of the
+    // site does not shift any channel's symbol numbering: the correction
+    // reproduces the original plan's sign expression term for term.
+    REQUIRE(action_as<PromoteDormantRotation>(reordered_plan, 0).sign == original_sign);
+
+    HirModule naive = reordered;
+    naive.logical_noise_prefix.clear();
+    const SamplingPlan naive_plan = clifft::sampling::plan_sampling(naive);
+    REQUIRE(action_as<PromoteDormantRotation>(naive_plan, 0).sign == AffineBool(false));
+}
+
+TEST_CASE(
+    "Logical noise prefix indexes a moved measurement's correction by nonzero "
+    "PAULI_CHANNEL_1 channel",
+    "[logical_noise_prefix]") {
+    const HirModule original =
+        clifft::trace(clifft::parse("H 0\nPAULI_CHANNEL_1(0.1, 0, 0.1) 0\nMX 0\n"));
+    REQUIRE(original.ops.size() == 2);
+    REQUIRE(original.ops[0].op_type() == OpType::NOISE);
+    REQUIRE(original.ops[1].op_type() == OpType::MEASURE);
+    // The zero-probability P(Y) argument never becomes a channel: only the
+    // X and Z channels survive, so this site's outcomes are indexed by
+    // nonzero channel only, with no reserved gap where Y would have been.
+    REQUIRE(original.noise_sites.at(0).channels.size() == 2);
+
+    const HeisenbergOp& measure_op = original.ops[1];
+    const std::vector<NoiseChannel>& channels = original.noise_sites.at(0).channels;
+
+    // Build the expected record from a plan's own channel symbols, keyed by
+    // position in noise_sites(0).channels -- which the reorder below leaves
+    // untouched -- rather than by PAULI_CHANNEL_1's original 3-argument
+    // (X, Y, Z) position.
+    auto expected_outcome = [&](const SamplingPlan& plan) {
+        AffineBool expected;
+        const auto& outcomes = plan.presampled_noise_sites.at(0).outcomes;
+        REQUIRE(outcomes.size() == channels.size());
+        for (size_t ch = 0; ch < channels.size(); ++ch) {
+            const PauliMaskView mask = original.noise_channel_masks.at(channels[ch].mask);
+            if (anti_commute(original.destab_mask(measure_op), original.stab_mask(measure_op),
+                             mask.x(), mask.z())) {
+                expected ^= AffineBool::symbol(outcomes[ch].symbol);
+            }
+        }
+        return expected;
+    };
+
+    const SamplingPlan original_plan = clifft::sampling::plan_sampling(original);
+    REQUIRE(action_as<RecordClassical>(original_plan, 0).outcome ==
+            expected_outcome(original_plan));
+
+    // Move MX before the channel, keeping its logical prefix at 1: it still
+    // logically follows the noise site.
+    HirModule reordered = original;
+    std::swap(reordered.ops[0], reordered.ops[1]);  // [MEASURE, NOISE]
+    reordered.logical_noise_prefix = {1, 0};
+
+    const SamplingPlan reordered_plan = clifft::sampling::plan_sampling(reordered);
+    REQUIRE(action_as<RecordClassical>(reordered_plan, 0).outcome ==
+            expected_outcome(reordered_plan));
+
+    // The reordered plan's record expression matches the original plan's:
+    // the same channel-index selection, computed the same way, just
+    // renumbered because MX's own branch symbol is now reserved before the
+    // site's channel symbols instead of after.
+    REQUIRE(action_as<RecordClassical>(original_plan, 0).outcome.terms().size() ==
+            action_as<RecordClassical>(reordered_plan, 0).outcome.terms().size());
+
+    HirModule naive = reordered;
+    naive.logical_noise_prefix.clear();
+    const SamplingPlan naive_plan = clifft::sampling::plan_sampling(naive);
+    REQUIRE(action_as<RecordClassical>(naive_plan, 0).outcome == AffineBool(false));
+}
+
 // ---------------------------------------------------------------------------
 // Reordering helper shared by sampling-equivalence and legality-oracle tests
 // ---------------------------------------------------------------------------
@@ -595,6 +783,33 @@ TEST_CASE("Logical noise prefix preserves the sampling distribution across noise
                                       8 * static_cast<int>(reordered.ops.size()) + 8);
 
         check_sampling_equivalent(original, reordered, kShots, 0x1234, 0x5678);
+    }
+}
+
+TEST_CASE(
+    "Logical noise prefix preserves the sampling distribution across DEPOLARIZE2 and "
+    "PAULI_CHANNEL_1 reorders",
+    "[logical_noise_prefix]") {
+    constexpr uint32_t kShots = 20000;
+    constexpr uint32_t kTrials = 10;
+    std::mt19937 circuit_rng(0xD0DE2);
+    std::mt19937 control_rng(0x51DE9A2);
+    for (uint32_t trial = 0; trial < kTrials; ++trial) {
+        const uint32_t num_qubits = 4 + (trial % 5);
+        const uint32_t num_ops = 25 + (trial % 20);
+        const std::string source =
+            generate_multi_channel_noisy_source(circuit_rng, num_qubits, num_ops);
+        CAPTURE(trial, num_qubits, num_ops, source);
+
+        const HirModule original = clifft::trace(clifft::parse(source));
+        HirModule reordered = original;
+        std::vector<size_t> original_index(reordered.ops.size());
+        std::iota(original_index.begin(), original_index.end(), 0);
+        std::mt19937 reorder_rng(control_rng());
+        randomly_reorder_across_noise(reordered, original_index, reorder_rng,
+                                      8 * static_cast<int>(reordered.ops.size()) + 8);
+
+        check_sampling_equivalent(original, reordered, kShots, control_rng(), control_rng());
     }
 }
 
