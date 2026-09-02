@@ -19,6 +19,7 @@
 #include <algorithm>
 #include <catch2/catch_test_macros.hpp>
 #include <cstdint>
+#include <cstring>
 #include <optional>
 #include <random>
 #include <span>
@@ -497,4 +498,175 @@ TEST_CASE("A random linear extension under noise transparency is sampling equiva
 
         clifft::test::check_sampling_equivalent(original, reordered, kShots, 0x1234, 0x5678);
     }
+}
+
+// ---------------------------------------------------------------------------
+// Fingerprint covers exactly what can_swap reads
+// ---------------------------------------------------------------------------
+
+TEST_CASE("apply_schedule rejects a target whose detector references a different measurement",
+          "[schedule_dependence]") {
+    // Source and target have the same op-type sequence (MEASURE, MEASURE,
+    // DETECTOR) and the same per-op inline masks and record indices; only
+    // the DETECTOR's target list differs (source reads record 0, target
+    // reads record 1). Both modules own a single detector, so both DETECTOR
+    // ops carry detector_idx 0 -- a fingerprint over ops' own fields plus
+    // side-table indices cannot tell them apart; only dereferencing into
+    // detector_targets can.
+    HirModule source = clifft::trace(clifft::parse("M 0\nM 1\nDETECTOR rec[-2]\n"));
+    REQUIRE(source.ops.size() == 3);
+    REQUIRE(source.ops[2].op_type() == OpType::DETECTOR);
+    REQUIRE(source.detector_targets[static_cast<uint32_t>(source.ops[2].detector_idx())] ==
+            std::vector<uint32_t>{0});
+
+    const ScheduleDependence dep = ScheduleDependence::build(source);
+    const std::vector<uint32_t> order = {0, 2, 1};
+    REQUIRE(dep.is_linear_extension(order));
+
+    HirModule target = clifft::trace(clifft::parse("M 0\nM 1\nDETECTOR rec[-1]\n"));
+    REQUIRE(target.ops.size() == source.ops.size());
+    REQUIRE(target.detector_targets[static_cast<uint32_t>(target.ops[2].detector_idx())] ==
+            std::vector<uint32_t>{1});
+
+    const HirModule target_before = target;
+    REQUIRE_THROWS_AS(apply_schedule(target, dep, order), std::invalid_argument);
+
+    // apply_schedule only ever assigns to ops, source_map, and
+    // logical_noise_prefix; a rejected target must come back with all three
+    // untouched. HeisenbergOp is a fixed 16-byte POD (see its static_assert
+    // in hir.h), so a bitwise compare is exact.
+    REQUIRE(target.ops.size() == target_before.ops.size());
+    REQUIRE(std::memcmp(target.ops.data(), target_before.ops.data(),
+                        target.ops.size() * sizeof(HeisenbergOp)) == 0);
+    REQUIRE(target.source_map == target_before.source_map);
+    REQUIRE(target.logical_noise_prefix == target_before.logical_noise_prefix);
+}
+
+TEST_CASE("apply_schedule rejects a target that changes anything can_swap reads",
+          "[schedule_dependence]") {
+    // One circuit exercising every op type can_swap follows through a
+    // side-table reference, plus a movable rotation for the inline-mask
+    // case: measurements, a conditional Pauli, a readout-noise entry, a
+    // two-target detector, an observable, a two-channel noise site, and a
+    // T gate.
+    const HirModule original =
+        clifft::trace(clifft::parse("T 0\n"
+                                    "M 0\n"
+                                    "CX rec[-1] 1\n"
+                                    "M 1\n"
+                                    "PAULI_CHANNEL_1(0.2, 0, 0.3) 2\n"
+                                    "M(0.1) 2\n"
+                                    "DETECTOR rec[-3] rec[-1]\n"
+                                    "OBSERVABLE_INCLUDE(0) rec[-2]\n"));
+
+    REQUIRE(original.ops.size() == 9);
+    REQUIRE(original.ops[0].op_type() == OpType::T_GATE);
+    REQUIRE(original.ops[1].op_type() == OpType::MEASURE);
+    REQUIRE(original.ops[2].op_type() == OpType::CONDITIONAL_PAULI);
+    REQUIRE(original.ops[3].op_type() == OpType::MEASURE);
+    REQUIRE(original.ops[4].op_type() == OpType::NOISE);
+    REQUIRE(original.ops[5].op_type() == OpType::MEASURE);
+    REQUIRE(original.ops[6].op_type() == OpType::READOUT_NOISE);
+    REQUIRE(original.ops[7].op_type() == OpType::DETECTOR);
+    REQUIRE(original.ops[8].op_type() == OpType::OBSERVABLE);
+    REQUIRE(original.noise_sites[static_cast<uint32_t>(original.ops[4].noise_site_idx())]
+                .channels.size() == 2);
+    REQUIRE(
+        original.detector_targets[static_cast<uint32_t>(original.ops[7].detector_idx())].size() ==
+        2);
+
+    std::vector<uint32_t> identity_order(original.ops.size());
+    for (size_t i = 0; i < identity_order.size(); ++i) {
+        identity_order[i] = static_cast<uint32_t>(i);
+    }
+
+    const ScheduleDependence dep = ScheduleDependence::build(original);
+    const CommutationFingerprint original_fp = commutation_fingerprint(original);
+    // Every relation edge i -> j has i < j, so the identity order never
+    // inverts one: it is a linear extension of any relation, which isolates
+    // every SECTION below to testing the fingerprint check specifically.
+    REQUIRE(dep.is_linear_extension(identity_order));
+
+    SECTION("unmutated copy is accepted") {
+        HirModule unmutated = original;
+        REQUIRE(commutation_fingerprint(unmutated) == original_fp);
+        REQUIRE_NOTHROW(apply_schedule(unmutated, dep, identity_order));
+    }
+
+    SECTION("detector target changed") {
+        HirModule mutated = original;
+        auto& targets =
+            mutated.detector_targets[static_cast<uint32_t>(mutated.ops[7].detector_idx())];
+        targets[0] = targets[0] + 1;
+        REQUIRE(commutation_fingerprint(mutated) != original_fp);
+        REQUIRE_THROWS_AS(apply_schedule(mutated, dep, identity_order), std::invalid_argument);
+    }
+
+    SECTION("observable target changed") {
+        HirModule mutated = original;
+        auto& targets = mutated.observable_targets[mutated.ops[8].observable_target_list_idx()];
+        targets[0] = targets[0] + 1;
+        REQUIRE(commutation_fingerprint(mutated) != original_fp);
+        REQUIRE_THROWS_AS(apply_schedule(mutated, dep, identity_order), std::invalid_argument);
+    }
+
+    SECTION("readout entry meas_idx changed") {
+        HirModule mutated = original;
+        ReadoutNoiseEntry& entry =
+            mutated.readout_noise[static_cast<uint32_t>(mutated.ops[6].readout_noise_idx())];
+        entry.meas_idx += 1;
+        REQUIRE(commutation_fingerprint(mutated) != original_fp);
+        REQUIRE_THROWS_AS(apply_schedule(mutated, dep, identity_order), std::invalid_argument);
+    }
+
+    SECTION("noise channel mask bit flipped") {
+        HirModule mutated = original;
+        const NoiseSite& site =
+            mutated.noise_sites[static_cast<uint32_t>(mutated.ops[4].noise_site_idx())];
+        mutated.noise_channel_masks.mut_at(site.channels[0].mask).x().bit_xor(2);
+        REQUIRE(commutation_fingerprint(mutated) != original_fp);
+        REQUIRE_THROWS_AS(apply_schedule(mutated, dep, identity_order), std::invalid_argument);
+    }
+
+    SECTION("rotation mask bit flipped") {
+        HirModule mutated = original;
+        mutated.mask_at(mutated.ops[0]).x().bit_xor(0);
+        REQUIRE(commutation_fingerprint(mutated) != original_fp);
+        REQUIRE_THROWS_AS(apply_schedule(mutated, dep, identity_order), std::invalid_argument);
+    }
+
+    SECTION("measurement record index changed") {
+        HirModule mutated = original;
+        HeisenbergOp& op = mutated.ops[1];
+        const auto new_idx = static_cast<uint32_t>(op.meas_record_idx()) + 1;
+        op = HeisenbergOp::make_measure(op.mask_handle(), MeasRecordIdx{new_idx});
+        REQUIRE(commutation_fingerprint(mutated) != original_fp);
+        REQUIRE_THROWS_AS(apply_schedule(mutated, dep, identity_order), std::invalid_argument);
+    }
+
+    SECTION("conditional Pauli controlling index changed") {
+        HirModule mutated = original;
+        HeisenbergOp& op = mutated.ops[2];
+        const auto new_idx = static_cast<uint32_t>(op.controlling_meas()) + 1;
+        op = HeisenbergOp::make_conditional(op.mask_handle(), ControllingMeasIdx{new_idx});
+        REQUIRE(commutation_fingerprint(mutated) != original_fp);
+        REQUIRE_THROWS_AS(apply_schedule(mutated, dep, identity_order), std::invalid_argument);
+    }
+}
+
+TEST_CASE("commutation_fingerprint is unaffected by materializing logical_noise_prefix",
+          "[schedule_dependence]") {
+    std::mt19937 rng(0xFEED2);
+    const std::string source = random_noisy_source(rng, /*trial=*/3);
+    CAPTURE(source);
+
+    HirModule hir = clifft::trace(clifft::parse(source));
+    REQUIRE_FALSE(hir.has_logical_noise_prefix());
+    const CommutationFingerprint before = commutation_fingerprint(hir);
+
+    hir.materialize_logical_noise_prefix();
+    REQUIRE(hir.has_logical_noise_prefix());
+    const CommutationFingerprint after = commutation_fingerprint(hir);
+
+    REQUIRE(after == before);
 }

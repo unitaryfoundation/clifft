@@ -58,6 +58,7 @@
 // namespace clifft::detail and is not exposed to Python.
 
 #include "clifft/frontend/hir.h"
+#include "clifft/optimizer/commutation.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -70,21 +71,6 @@ namespace clifft::detail {
 // file comment for why the relaxation is sound.
 struct ScheduleDependenceOptions {
     bool noise_transparent = true;
-};
-
-// Content fingerprint of the HIR a ScheduleDependence was built from: the
-// operation and qubit counts plus a hash over every op's identity (see
-// schedule_dependence.cc for exactly what feeds the hash). apply_schedule()
-// recomputes this for its target HIR and compares, so a relation's edges --
-// computed from one specific program's commutation structure -- can never
-// be silently replayed against a different program that happens to share
-// an operation count.
-struct HirFingerprint {
-    size_t op_count = 0;
-    uint32_t qubit_count = 0;
-    uint64_t content_hash = 0;
-
-    [[nodiscard]] bool operator==(const HirFingerprint&) const = default;
 };
 
 // A DAG of "must not reorder" edges over one HIR's op indices, built once
@@ -115,17 +101,17 @@ class ScheduleDependence {
     // exactly the orders this accepts.
     [[nodiscard]] bool is_linear_extension(std::span<const uint32_t> order) const;
 
-    // Fingerprint of the HIR build() computed this relation from. See
-    // apply_schedule()'s comment for how this guards against a mismatched
-    // target.
-    [[nodiscard]] const HirFingerprint& fingerprint() const { return fingerprint_; }
+    // Fingerprint (see commutation.h) of the HIR build() computed this
+    // relation from. See apply_schedule()'s comment for how this guards
+    // against a mismatched target.
+    [[nodiscard]] const CommutationFingerprint& fingerprint() const { return fingerprint_; }
 
   private:
     ScheduleDependence() = default;
 
     bool noise_transparent_ = false;
     std::vector<bool> movable_;
-    HirFingerprint fingerprint_;
+    CommutationFingerprint fingerprint_;
 
     // CSR adjacency: op i's entries occupy indices
     // [offsets[i], offsets[i + 1]) of the matching indices vector, both
