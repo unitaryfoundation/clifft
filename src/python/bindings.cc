@@ -7,6 +7,8 @@
 #include "clifft/noncomp/model.h"
 #include "clifft/noncomp/policy.h"
 #include "clifft/noncomp/sample.h"
+#include "clifft/optimizer/active_width_analysis.h"
+#include "clifft/optimizer/active_width_schedule_pass.h"
 #include "clifft/optimizer/drop_non_unitary_pass.h"
 #include "clifft/optimizer/hir_pass_manager.h"
 #include "clifft/optimizer/pass_factory.h"
@@ -148,6 +150,38 @@ clifft::HirModule prepare_qasm2_for_lowering(const std::string& qasm_text, bool 
     clifft::Qasm2Import imported = clifft::parse_qasm2(qasm_text);
     return prepare_circuit_for_lowering(imported.circuit, normalize_syndromes, hir_passes,
                                         expected_detectors, expected_observables);
+}
+
+// Lower-case names for active_width_trace()'s per-op 'effects' list. Python
+// tooling consumes these as plain strings rather than an enum, so this
+// mapping -- not clifft::WidthEffect's own C++ identifiers -- is what that
+// output format actually commits to.
+const char* width_effect_to_str(clifft::WidthEffect effect) {
+    switch (effect) {
+        case clifft::WidthEffect::None:
+            return "none";
+        case clifft::WidthEffect::RotationStabilizer:
+            return "rotation_stabilizer";
+        case clifft::WidthEffect::RotationNeutral:
+            return "rotation_neutral";
+        case clifft::WidthEffect::RotationPromote:
+            return "rotation_promote";
+        case clifft::WidthEffect::MeasureClassical:
+            return "measure_classical";
+        case clifft::WidthEffect::MeasureDormantRandom:
+            return "measure_dormant_random";
+        case clifft::WidthEffect::MeasureActive:
+            return "measure_active";
+        case clifft::WidthEffect::InstrumentClassical:
+            return "instrument_classical";
+        case clifft::WidthEffect::InstrumentActive:
+            return "instrument_active";
+        case clifft::WidthEffect::InstrumentActivate:
+            return "instrument_activate";
+        case clifft::WidthEffect::InstrumentDormantTrap:
+            return "instrument_dormant_trap";
+    }
+    return "unknown";
 }
 
 }  // namespace
@@ -694,6 +728,35 @@ NB_MODULE(_clifft_core, m) {
         "non-Clifford gates rightward to minimize peak active width.")
         .def(nb::init<>());
 
+    nb::class_<clifft::ActiveWidthSchedulePass, clifft::HirPass>(
+        m, "ActiveWidthSchedulePass",
+        "State-aware beam search over the schedule-dependence trace class that\n"
+        "minimizes peak active width, then a dense-work estimate. Off by\n"
+        "default; must run last in a pipeline, after PeepholeFusionPass and\n"
+        "StatevectorSqueezePass.")
+        .def(
+            "__init__",
+            [](clifft::ActiveWidthSchedulePass* self, bool noise_transparent, uint32_t beam_width,
+               bool sink_neutral_rotations) {
+                clifft::ActiveWidthScheduleOptions options;
+                options.noise_transparent = noise_transparent;
+                options.beam_width = beam_width;
+                options.sink_neutral_rotations = sink_neutral_rotations;
+                new (self) clifft::ActiveWidthSchedulePass(options);
+            },
+            nb::arg("noise_transparent") = true, nb::arg("beam_width") = uint32_t{8},
+            nb::arg("sink_neutral_rotations") = true)
+        .def_prop_ro("incumbent_peak", &clifft::ActiveWidthSchedulePass::incumbent_peak)
+        .def_prop_ro("result_peak", &clifft::ActiveWidthSchedulePass::result_peak)
+        .def_prop_ro("incumbent_dense_work", &clifft::ActiveWidthSchedulePass::incumbent_dense_work)
+        .def_prop_ro("result_dense_work", &clifft::ActiveWidthSchedulePass::result_dense_work)
+        .def_prop_ro("applied", &clifft::ActiveWidthSchedulePass::applied)
+        .def("__repr__", [](const clifft::ActiveWidthSchedulePass& p) {
+            return "ActiveWidthSchedulePass(incumbent_peak=" + std::to_string(p.incumbent_peak()) +
+                   ", result_peak=" + std::to_string(p.result_peak()) +
+                   ", applied=" + (p.applied() ? "True" : "False") + ")";
+        });
+
     nb::class_<clifft::RemoveNoisePass, clifft::HirPass>(
         m, "RemoveNoisePass",
         "Strips all stochastic noise and readout noise ops from the HIR.\n"
@@ -748,6 +811,35 @@ NB_MODULE(_clifft_core, m) {
     m.def(
         "default_hir_pass_manager", []() { return clifft::default_hir_pass_manager(); },
         nb::rv_policy::move, "Return an HirPassManager pre-loaded with the default passes.");
+
+    m.def(
+        "active_width_trace",
+        [](const clifft::HirModule& hir) {
+            clifft::ActiveWidthTrace trace;
+            {
+                nb::gil_scoped_release release;
+                trace = clifft::analyze_active_width(hir);
+            }
+            nb::list widths;
+            nb::list effects;
+            for (const clifft::WidthTransition& transition : trace.transitions) {
+                widths.append(transition.after);
+                effects.append(width_effect_to_str(transition.effect));
+            }
+            nb::dict d;
+            d["initial"] = trace.initial_width;
+            d["peak"] = trace.peak_width;
+            d["final"] = trace.final_width;
+            d["widths"] = widths;
+            d["effects"] = effects;
+            return d;
+        },
+        nb::arg("hir"),
+        "Structural active-width trace of an HIR module, without lowering it "
+        "to an executable program.\n\n"
+        "Returns a dict with 'initial', 'peak', and 'final' width, plus "
+        "per-op 'widths' (the width after each op) and 'effects' (a "
+        "lower-case effect name per op).");
 
     nb::class_<clifft::sampling::ExecutablePlan>(m, "Program",
                                                  "A reusable compiled sampling program")

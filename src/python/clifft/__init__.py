@@ -29,6 +29,7 @@ ensure_supported_cpu(CPU_BASELINE)
 
 from clifft import noncomp
 from clifft._clifft_core import (
+    ActiveWidthSchedulePass,
     AstNode,
     Circuit,
     DropNonUnitaryPass,
@@ -47,6 +48,7 @@ from clifft._clifft_core import (
     Target,
     _basis_probabilities_from_bitmasks,
     _record_probabilities_from_records,
+    active_width_trace,
     compute_reference_syndrome,
     default_hir_pass_manager,
     get_statevector,
@@ -346,6 +348,7 @@ def compile(
 
 
 __all__ = [
+    "ActiveWidthSchedulePass",
     "AstNode",
     "BasisBitstrings",
     "MeasurementRecords",
@@ -365,6 +368,7 @@ __all__ = [
     "SampleResult",
     "StatevectorSqueezePass",
     "Target",
+    "active_width_trace",
     "basis_probabilities",
     "compile",
     "compute_reference_syndrome",
