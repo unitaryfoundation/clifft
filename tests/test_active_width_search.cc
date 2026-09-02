@@ -85,7 +85,13 @@ HirModule coherent_d3_r3_production() {
     const Circuit circuit =
         clifft::parse_file(std::string(CLIFFT_FIXTURES_DIR) + "/coherent_d3_r3.stim");
     HirModule hir = clifft::trace(circuit);
-    clifft::default_hir_pass_manager().run(hir);  // PeepholeFusionPass then StatevectorSqueezePass
+    // Explicitly PeepholeFusionPass then StatevectorSqueezePass, not
+    // default_hir_pass_manager(): this fixture feeds search_width_schedule
+    // directly below, to certify how much further the exact search can go
+    // on top of that incumbent, independent of whatever else the default
+    // pipeline includes (which now also runs a scheduler of its own).
+    clifft::make_hir_pass("PeepholeFusionPass")->run(hir);
+    clifft::make_hir_pass("StatevectorSqueezePass")->run(hir);
     return hir;
 }
 

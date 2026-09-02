@@ -30,6 +30,21 @@ def _production_hir(name: str) -> Any:
     return hir
 
 
+def _peephole_squeeze_hir(name: str) -> Any:
+    # Explicitly peephole+squeeze rather than the full default pipeline: the
+    # search-certificate tests below measure how much further
+    # search_width_schedule can improve on top of that incumbent, which is a
+    # different question from what the default pipeline (which now also
+    # schedules) settles on.
+    circuit = (_FIXTURES / name).read_text()
+    hir = clifft.trace(clifft.parse(circuit))
+    passes = clifft.HirPassManager()
+    passes.add(clifft.PeepholeFusionPass())
+    passes.add(clifft.StatevectorSqueezePass())
+    passes.run(hir)
+    return hir
+
+
 def _assert_column_probabilities_match(reference: Any, candidate: Any, *, label: str) -> None:
     # Same six-sigma cross-binomial column comparison
     # test_squeeze_benchmark_integration.py's three-way oracle uses.
@@ -63,7 +78,7 @@ def test_active_width_trace_peak_matches_lowered_program() -> None:
 
 
 def test_search_width_schedule_certifies_coherent_d3_r3() -> None:
-    hir = _production_hir("coherent_d3_r3.stim")
+    hir = _peephole_squeeze_hir("coherent_d3_r3.stim")
     result = clifft.search_width_schedule(hir, noise_transparent=True, apply=False)
 
     assert result["incumbent_peak"] == 5
@@ -74,11 +89,11 @@ def test_search_width_schedule_certifies_coherent_d3_r3() -> None:
 
 
 def test_search_width_schedule_apply_lowers_peak_and_preserves_sampling() -> None:
-    unoptimized_hir = _production_hir("coherent_d3_r3.stim")
+    unoptimized_hir = _peephole_squeeze_hir("coherent_d3_r3.stim")
     unoptimized_program = clifft.lower(unoptimized_hir)
     assert unoptimized_program.peak_active_width == 5
 
-    optimized_hir = _production_hir("coherent_d3_r3.stim")
+    optimized_hir = _peephole_squeeze_hir("coherent_d3_r3.stim")
     result = clifft.search_width_schedule(optimized_hir, noise_transparent=True, apply=True)
     assert result["upper_bound"] == 4
 
@@ -98,7 +113,7 @@ def test_search_width_schedule_apply_lowers_peak_and_preserves_sampling() -> Non
 
 
 def test_search_width_schedule_apply_false_leaves_hir_unchanged() -> None:
-    hir = _production_hir("coherent_d3_r3.stim")
+    hir = _peephole_squeeze_hir("coherent_d3_r3.stim")
     before_peak = clifft.lower(hir).peak_active_width
 
     result = clifft.search_width_schedule(hir, noise_transparent=True, apply=False)

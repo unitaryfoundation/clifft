@@ -122,7 +122,7 @@ def define_env(env: Any) -> None:
         {
             "name": "ActiveWidthSchedulePass",
             "kind": "HIR",
-            "default_enabled": False,
+            "default_enabled": True,
             "preserves_record_order": False,
             "preserves_instrument_prefix": False,
             "python_name": "ActiveWidthSchedulePass",
@@ -130,17 +130,24 @@ def define_env(env: Any) -> None:
             "detail": (
                 "Beam-searches the closure/readiness trace class StatevectorSqueezePass "
                 "already reorders within, scoring each partial schedule by peak active "
-                "width first and a dense-work estimate second, then sinks width-neutral "
-                "rotations next to the following expansion. An optional bounded exact "
-                "search can polish the beam's own answer further, but defaults to off "
-                "(a node budget of 0): measured on a QEC corpus it never lowered a peak "
-                "the beam had not already reached and cost seconds of wall time on "
-                "larger circuits, so it is opt-in rather than on by default. Noise "
-                "transparency lets it reorder across NOISE ops using the same logical-position "
-                "sign correction StatevectorSqueezePass relies on. "
+                "width first and, among ties, preferring the choice whose closure sweeps "
+                "the most operations into place, then sinks width-neutral rotations next "
+                "to the following expansion. An optional bounded exact search can polish "
+                "the beam's own answer further, but defaults to off (a node budget of 0): "
+                "measured on a QEC corpus it never lowered a peak the beam had not already "
+                "reached and cost seconds of wall time on larger circuits, so it is opt-in "
+                "rather than on by default. Noise transparency lets it reorder across "
+                "NOISE ops using the same logical-position sign correction "
+                "StatevectorSqueezePass relies on. "
                 "It must run last in a pipeline, after PeepholeFusionPass and "
-                "StatevectorSqueezePass, and is off by default until measured on real "
-                "workloads."
+                "StatevectorSqueezePass, and is enabled by default: it never leaves peak "
+                "active width or the dense-work estimate worse than its input, and it only "
+                "replaces the HIR when it finds a strictly better schedule. On the corpus's "
+                "largest fixture (a distance-5, five-round coherent memory circuit), "
+                "compiling with the pass costs roughly half a second to a second in local "
+                "Release measurements, versus a few milliseconds without it; that fixture "
+                "is where the pass currently spends the most time relative to the rest of "
+                "compilation."
             ),
         },
         {

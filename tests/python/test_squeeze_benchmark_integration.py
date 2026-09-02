@@ -159,7 +159,7 @@ def test_coherent_d3_three_way_semantic_oracle(
     programs = coherent_d3_programs
     assert programs.unoptimized.peak_active_width == 8
     assert programs.peephole_only.peak_active_width == 8
-    assert programs.production.peak_active_width == 5
+    assert programs.production.peak_active_width == 4
     assert programs.production.peak_active_width < programs.peephole_only.peak_active_width
 
     samples = {

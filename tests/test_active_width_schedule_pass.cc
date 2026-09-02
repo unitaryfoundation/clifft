@@ -396,13 +396,17 @@ TEST_CASE("Schedule pass does not reorder around an INSTRUMENT barrier", "[sched
 // Registry
 // ---------------------------------------------------------------------------
 
-TEST_CASE("Schedule pass registry entry resolves and stays out of the default pipeline",
+TEST_CASE("Schedule pass registry entry resolves and joins the default pipeline",
           "[schedule_pass]") {
     bool found = false;
     for (const auto& info : clifft::kRegisteredPasses) {
         if (info.name == "ActiveWidthSchedulePass") {
             found = true;
-            REQUIRE_FALSE(info.default_enabled);
+            REQUIRE(info.default_enabled);
+            // Record-order breaking keeps it out of clifft::noncomp::sample's
+            // trajectory pipeline regardless of default_enabled: see
+            // trajectory_hir_pass_manager() and the trajectory compatibility
+            // test in test_optimizer.cc.
             REQUIRE_FALSE(clifft::is_trajectory_compatible(info));
         }
     }
@@ -411,12 +415,15 @@ TEST_CASE("Schedule pass registry entry resolves and stays out of the default pi
     const std::unique_ptr<HirPass> pass = clifft::make_hir_pass("ActiveWidthSchedulePass");
     REQUIRE(pass != nullptr);
 
-    auto circuit = clifft::parse("H 0\nCNOT 0 1\nM 0\nM 1");
-    auto default_hir = clifft::trace(circuit);
+    // default_hir_pass_manager() now runs PeepholeFusionPass,
+    // StatevectorSqueezePass, and ActiveWidthSchedulePass in that order, so
+    // this fixture reaches the same peak the fixture certificate above shows
+    // for the standalone pass after peephole and squeeze -- proving the
+    // registry wiring actually schedules, not just that the metadata says it
+    // should.
+    const Circuit circuit =
+        clifft::parse_file(std::string(CLIFFT_FIXTURES_DIR) + "/coherent_d3_r3.stim");
+    HirModule default_hir = clifft::trace(circuit);
     clifft::default_hir_pass_manager().run(default_hir);
-    // default_hir_pass_manager() only adds default_enabled passes, so this
-    // circuit's width (0 for a Clifford-only program) is untouched by
-    // ActiveWidthSchedulePass regardless: the real check above is the
-    // registry metadata, not this circuit's own numbers.
-    REQUIRE(default_hir.num_qubits == 2);
+    REQUIRE(analyze_active_width(default_hir).peak_width == 4);
 }
