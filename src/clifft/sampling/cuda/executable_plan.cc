@@ -1,0 +1,266 @@
+#include "clifft/sampling/cuda/executable_plan.h"
+
+#include "clifft/sampling/pauli_preparation.h"
+
+#include <limits>
+#include <sstream>
+#include <stdexcept>
+#include <string>
+#include <type_traits>
+#include <variant>
+
+namespace clifft::sampling::cuda {
+
+namespace {
+
+template <typename>
+inline constexpr bool kAlwaysFalse = false;
+
+void require_uint32_size(size_t size, const char* storage) {
+    if (size > std::numeric_limits<uint32_t>::max()) {
+        throw std::length_error(std::string("CUDA executable ") + storage +
+                                " exceeds uint32 range");
+    }
+}
+
+void flatten_pauli(detail::Action& action, const PreparedPauli& pauli) {
+    action.phase_real = static_cast<int8_t>(pauli.even_phase.real());
+    action.phase_imag = static_cast<int8_t>(pauli.even_phase.imag());
+    action.x = pauli.x;
+    action.z = pauli.z;
+}
+
+const char* action_tag_name(detail::ActionTag tag) {
+    switch (tag) {
+        case detail::ActionTag::RotateActivePauli:
+            return "RotateActivePauli";
+        case detail::ActionTag::PromoteDormantRotation:
+            return "PromoteDormantRotation";
+        case detail::ActionTag::MeasureActivePauli:
+            return "MeasureActivePauli";
+        case detail::ActionTag::MeasureDormantRandom:
+            return "MeasureDormantRandom";
+        case detail::ActionTag::RecordClassical:
+            return "RecordClassical";
+        case detail::ActionTag::DefineSymbol:
+            return "DefineSymbol";
+        case detail::ActionTag::ApplyReadoutNoise:
+            return "ApplyReadoutNoise";
+        case detail::ActionTag::WriteDetector:
+            return "WriteDetector";
+        case detail::ActionTag::WriteObservable:
+            return "WriteObservable";
+        case detail::ActionTag::WriteExpectationValue:
+            return "WriteExpectationValue";
+    }
+    return "Unknown";
+}
+
+}  // namespace
+
+ExecutablePlan::ExecutablePlan(const SamplingPlan& plan)
+    : initial_active_width_(plan.initial_active_width),
+      peak_active_width_(plan.peak_active_width),
+      num_symbols_(static_cast<uint32_t>(plan.symbols.size())),
+      num_visible_records_(plan.num_visible_records),
+      num_hidden_records_(plan.num_hidden_records),
+      num_detectors_(plan.num_detectors),
+      num_observables_(plan.num_observables),
+      num_exp_vals_(plan.num_exp_vals) {
+    plan.validate();
+    require_uint32_size(plan.symbols.size(), "symbol storage");
+    require_uint32_size(plan.actions.size(), "action storage");
+    if (plan.peak_active_width > kMaxActiveWidth) {
+        throw std::invalid_argument("CUDA execution supports peak active width at most " +
+                                    std::to_string(kMaxActiveWidth));
+    }
+    if (!plan.instrument_distributions.empty()) {
+        throw std::invalid_argument("CUDA execution does not support transition instruments");
+    }
+
+    std::vector<bool> bound_presampled(plan.symbols.size(), false);
+    noise_sites_.reserve(plan.presampled_noise_sites.size());
+    for (const PresampledNoiseSite& site : plan.presampled_noise_sites) {
+        require_uint32_size(noise_outcomes_.size(), "noise outcome storage");
+        const uint32_t begin = static_cast<uint32_t>(noise_outcomes_.size());
+        double cumulative_probability = 0.0;
+        for (const PresampledNoiseOutcome& outcome : site.outcomes) {
+            cumulative_probability += outcome.probability;
+            noise_outcomes_.push_back({index(outcome.symbol), 0, cumulative_probability});
+            bound_presampled[index(outcome.symbol)] = true;
+        }
+        require_uint32_size(noise_outcomes_.size() - begin, "noise site outcome storage");
+        noise_sites_.push_back(
+            {begin, static_cast<uint32_t>(noise_outcomes_.size()) - begin, cumulative_probability});
+    }
+    for (size_t symbol = 0; symbol < plan.symbols.size(); ++symbol) {
+        if (plan.symbols[symbol] == SymbolKind::Presampled && !bound_presampled[symbol]) {
+            throw std::invalid_argument(
+                "CUDA execution requires a distribution for every presampled symbol");
+        }
+    }
+
+    actions_.reserve(plan.actions.size());
+    expressions_.reserve(plan.actions.size());
+    for (const PlannedAction& action : plan.actions) {
+        actions_.push_back(lower_action(action));
+    }
+}
+
+size_t ExecutablePlan::packed_bytes() const {
+    return actions_.size() * sizeof(detail::Action) +
+           expressions_.size() * sizeof(detail::Expression) +
+           expression_terms_.size() * sizeof(uint32_t) +
+           noise_sites_.size() * sizeof(detail::NoiseSite) +
+           noise_outcomes_.size() * sizeof(detail::NoiseOutcome);
+}
+
+std::string ExecutablePlan::inspect() const {
+    std::ostringstream output;
+    output << "CUDA executable: actions=" << actions_.size()
+           << " peak_active_width=" << peak_active_width_ << " packed_bytes=" << packed_bytes()
+           << '\n';
+    output << "storage: symbols=" << num_symbols_ << " records=" << num_records()
+           << " detectors=" << num_detectors_ << " observables=" << num_observables_
+           << " exp_vals=" << num_exp_vals_ << '\n';
+    for (size_t index = 0; index < actions_.size(); ++index) {
+        const detail::Action& action = actions_[index];
+        output << index << ": " << action_tag_name(action.tag)
+               << " active_before=" << action.active_before << " expression=" << action.expression
+               << " x=" << action.x << " z=" << action.z << " index0=" << action.index0
+               << " index1=" << action.index1 << " index2=" << action.index2
+               << " flags=" << static_cast<uint32_t>(action.flags) << '\n';
+    }
+    return output.str();
+}
+
+uint32_t ExecutablePlan::append_expression(const AffineBool& expression) {
+    require_uint32_size(expressions_.size(), "expression storage");
+    require_uint32_size(expression_terms_.size(), "expression term storage");
+    if (expression.terms().size() >
+        std::numeric_limits<uint32_t>::max() - expression_terms_.size()) {
+        throw std::length_error("CUDA executable expression term storage exceeds uint32 range");
+    }
+    const uint32_t expression_index = static_cast<uint32_t>(expressions_.size());
+    const uint32_t term_begin = static_cast<uint32_t>(expression_terms_.size());
+    for (SymbolId term : expression.terms()) {
+        expression_terms_.push_back(index(term));
+    }
+    expressions_.push_back({term_begin,
+                            static_cast<uint32_t>(expression.terms().size()),
+                            static_cast<uint8_t>(expression.constant()),
+                            {}});
+    return expression_index;
+}
+
+uint32_t ExecutablePlan::append_record_parity(const RecordParity& parity) {
+    require_uint32_size(expressions_.size(), "record parity storage");
+    require_uint32_size(expression_terms_.size(), "record parity term storage");
+    if (parity.records().size() > std::numeric_limits<uint32_t>::max() - expression_terms_.size()) {
+        throw std::length_error("CUDA executable record parity term storage exceeds uint32 range");
+    }
+    const uint32_t parity_index = static_cast<uint32_t>(expressions_.size());
+    const uint32_t term_begin = static_cast<uint32_t>(expression_terms_.size());
+    for (RecordSlot record : parity.records()) {
+        expression_terms_.push_back(index(record));
+    }
+    expressions_.push_back({term_begin,
+                            static_cast<uint32_t>(parity.records().size()),
+                            static_cast<uint8_t>(parity.constant()),
+                            {}});
+    return parity_index;
+}
+
+void ExecutablePlan::lower_observable_value(detail::Action& action, const ObservableValue& value) {
+    if (const auto* expression = std::get_if<AffineBool>(&value)) {
+        action.expression = append_expression(*expression);
+        return;
+    }
+    action.flags |= detail::kRecordParity;
+    action.expression = append_record_parity(std::get<RecordParity>(value));
+}
+
+detail::Action ExecutablePlan::lower_action(const PlannedAction& planned) {
+    return std::visit(
+        [&](const auto& typed) -> detail::Action {
+            using T = std::decay_t<decltype(typed)>;
+            detail::Action action;
+            action.active_before = planned.active_before;
+            if constexpr (std::is_same_v<T, RotateActivePauli>) {
+                const PreparedRotation rotation =
+                    prepare_rotation(typed.pauli, planned.active_before, typed.half_turns);
+                action.tag = detail::ActionTag::RotateActivePauli;
+                action.expression = append_expression(typed.sign);
+                flatten_pauli(action, rotation.pauli);
+                action.pair_stride = rotation.pauli.pairing_bit;
+                action.value0 = rotation.cosine;
+                action.value1 = rotation.sine;
+            } else if constexpr (std::is_same_v<T, PromoteDormantRotation>) {
+                const PreparedPromotion promotion = prepare_promotion(typed.half_turns);
+                action.tag = detail::ActionTag::PromoteDormantRotation;
+                action.expression = append_expression(typed.sign);
+                action.value0 = promotion.cosine;
+                action.value1 = promotion.sine;
+            } else if constexpr (std::is_same_v<T, MeasureActivePauli>) {
+                const PreparedMeasurement measurement =
+                    prepare_measurement(typed.pauli, planned.active_before, typed.active_pivot);
+                action.tag = detail::ActionTag::MeasureActivePauli;
+                action.expression = append_expression(typed.outcome);
+                flatten_pauli(action, measurement.pauli);
+                action.index0 = index(typed.branch);
+                action.index1 = index(typed.record);
+                action.index2 = measurement.pivot;
+            } else if constexpr (std::is_same_v<T, MeasureDormantRandom>) {
+                action.tag = detail::ActionTag::MeasureDormantRandom;
+                action.expression = append_expression(typed.outcome);
+                action.index0 = index(typed.branch);
+                action.index1 = index(typed.record);
+            } else if constexpr (std::is_same_v<T, RecordClassical>) {
+                action.tag = detail::ActionTag::RecordClassical;
+                action.expression = append_expression(typed.outcome);
+                action.index0 = index(typed.record);
+            } else if constexpr (std::is_same_v<T, DefineSymbol>) {
+                action.tag = detail::ActionTag::DefineSymbol;
+                action.expression = append_expression(typed.value);
+                action.index0 = index(typed.symbol);
+            } else if constexpr (std::is_same_v<T, ApplyReadoutNoise>) {
+                action.tag = detail::ActionTag::ApplyReadoutNoise;
+                action.expression = append_expression(typed.source);
+                action.index0 = index(typed.flip);
+                action.index1 = index(typed.record);
+                action.value0 = typed.prob_zero_to_one;
+                action.value1 = typed.prob_one_to_zero;
+            } else if constexpr (std::is_same_v<T, WriteDetector>) {
+                action.tag = detail::ActionTag::WriteDetector;
+                has_postselection_ |= typed.postselected;
+                action.flags =
+                    detail::kRecordParity | (typed.postselected ? detail::kPostselected : 0);
+                action.expression = append_record_parity(typed.outcome);
+                action.index0 = index(typed.detector);
+            } else if constexpr (std::is_same_v<T, WriteObservable>) {
+                action.tag = detail::ActionTag::WriteObservable;
+                lower_observable_value(action, typed.outcome);
+                action.index0 = index(typed.observable);
+            } else if constexpr (std::is_same_v<T, WriteExpectationValue>) {
+                action.tag = detail::ActionTag::WriteExpectationValue;
+                action.index0 = index(typed.exp_val);
+                if (!typed.active.has_value()) {
+                    action.flags = detail::kAbsentActiveProjection;
+                } else {
+                    action.expression = append_expression(typed.active->sign);
+                    flatten_pauli(action,
+                                  prepare_pauli(typed.active->projection, planned.active_before));
+                }
+            } else if constexpr (std::is_same_v<T, ApplyInstrument> ||
+                                 std::is_same_v<T, InstrumentBoundary>) {
+                throw std::invalid_argument(
+                    "CUDA execution does not support transition instruments");
+            } else {
+                static_assert(kAlwaysFalse<T>, "Unhandled SamplingAction alternative");
+            }
+            return action;
+        },
+        planned.action);
+}
+
+}  // namespace clifft::sampling::cuda

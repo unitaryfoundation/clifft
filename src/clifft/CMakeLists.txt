@@ -125,6 +125,40 @@ if(CLIFFT_ENABLE_HIP)
     )
 endif()
 
+# Host-side lowering of sampling plans to the CUDA device descriptors. Plain
+# C++, so it builds and tests without a CUDA toolchain.
+add_library(clifft_cuda_plan STATIC
+    sampling/cuda/executable_plan.cc
+)
+set_target_properties(clifft_cuda_plan PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_include_directories(clifft_cuda_plan PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+    ${CMAKE_BINARY_DIR}/generated
+)
+target_link_libraries(clifft_cuda_plan PUBLIC clifft_core)
+target_compile_features(clifft_cuda_plan PUBLIC cxx_std_20)
+
+if(CLIFFT_ENABLE_CUDA)
+    find_package(CUDAToolkit REQUIRED)
+    add_library(clifft_cuda_backend STATIC sampling/cuda/sampler.cu)
+    set_target_properties(clifft_cuda_backend PROPERTIES
+        POSITION_INDEPENDENT_CODE ON
+        CUDA_STANDARD 20
+        CUDA_STANDARD_REQUIRED ON
+    )
+    target_include_directories(clifft_cuda_backend PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/..
+        ${CMAKE_BINARY_DIR}/generated
+    )
+    target_link_libraries(clifft_cuda_backend PUBLIC clifft_cuda_plan CUDA::cudart_static)
+    target_compile_features(clifft_cuda_backend PUBLIC cxx_std_20)
+    # Strict floating point keeps both device interpreters on the same
+    # footing against the CPU oracle; the HIP backend disables fast math too.
+    target_compile_options(clifft_cuda_backend PRIVATE
+        $<$<COMPILE_LANGUAGE:CUDA>:--fmad=false;-Xcompiler=-Wall,-Wextra>
+    )
+endif()
+
 # Code coverage instrumentation (only for Clifft code, not dependencies)
 if(CLIFFT_COVERAGE)
     target_compile_options(clifft_core PRIVATE --coverage -fprofile-arcs -ftest-coverage)

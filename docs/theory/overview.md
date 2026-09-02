@@ -233,8 +233,8 @@ evaluation, combines supported rotation runs, and selects scalar or
 architecture-specific kernels. On x86 builds with runtime dispatch, this
 selects the scalar, AVX2, or AVX-512 backend once for the plan. Apple arm64
 builds use NEON kernels; other CPU and WebAssembly builds use the scalar
-backend. The experimental HIP backend instead prepares a backend-private GPU
-executable from the same semantic plan.
+backend. The experimental HIP and CUDA backends instead prepare a
+backend-private GPU executable from the same semantic plan.
 
 ### Sampling
 

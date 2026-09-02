@@ -42,9 +42,10 @@ add_executable(clifft_tests
     test_trajectory_driver.cc
     test_noncomp_validation.cc
     test_hip_executable_plan.cc
+    test_cuda_executable_plan.cc
 )
 
-target_link_libraries(clifft_tests PRIVATE clifft_hip_plan)
+target_link_libraries(clifft_tests PRIVATE clifft_hip_plan clifft_cuda_plan)
 
 target_link_libraries(clifft_tests PRIVATE
     clifft_core
@@ -92,6 +93,18 @@ if(CLIFFT_ENABLE_HIP)
         Catch2::Catch2WithMain
     )
     catch_discover_tests(clifft_hip_tests PROPERTIES SKIP_RETURN_CODE 4)
+endif()
+
+if(CLIFFT_ENABLE_CUDA)
+    # Same isolation as the HIP suite: device skips exit with code 4 from a
+    # dedicated executable so they cannot mask a CPU failure.
+    add_executable(clifft_cuda_tests test_cuda_sampler.cc)
+    target_link_libraries(clifft_cuda_tests PRIVATE
+        clifft_core
+        clifft_cuda_backend
+        Catch2::Catch2WithMain
+    )
+    catch_discover_tests(clifft_cuda_tests PROPERTIES SKIP_RETURN_CODE 4)
 endif()
 
 if(CLIFFT_OPENMP_ENABLED)

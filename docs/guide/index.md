@@ -44,5 +44,6 @@ default. [CPU Execution and Tuning](cpu-execution.md) documents worker budgets,
 packed sampling, reproducibility, and memory tradeoffs for workloads that need
 explicit tuning.
 
-The AMD [HIP backend](../development/hip-backend.md) is a separate,
-source-build-only experiment. It is never selected by the regular CPU API.
+The AMD [HIP backend](../development/hip-backend.md) and NVIDIA
+[CUDA backend](../development/cuda-backend.md) are separate, source-build-only
+experiments. They are never selected by the regular CPU API.
