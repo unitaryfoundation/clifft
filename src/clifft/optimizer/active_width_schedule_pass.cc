@@ -1,12 +1,12 @@
 #include "clifft/optimizer/active_width_schedule_pass.h"
 
 #include "clifft/optimizer/active_width_analysis.h"
-#include "clifft/optimizer/active_width_closure.h"
 #include "clifft/optimizer/schedule_dependence.h"
 
 #include <algorithm>
 #include <cassert>
 #include <cstdint>
+#include <optional>
 #include <stdexcept>
 #include <tuple>
 #include <utility>
@@ -17,16 +17,263 @@ namespace clifft {
 namespace {
 
 // ---------------------------------------------------------------------------
+// Closure and readiness bookkeeping for the beam search below.
+//
+// Invariants (see docs/theory/active-width.md for the closure theorem's
+// full argument and its confluence corollary):
+//   ready       every predecessor of the op, per ScheduleDependence, has
+//               already executed.
+//   expanding   executing the op would raise the active width: a T_GATE or
+//               PHASE_ROTATION whose axis does not commute with every
+//               generator of the current DormantSubspace, or an
+//               INSTRUMENT that takes the Activate branch. Every other
+//               ready op is non-expanding.
+//   closure     repeatedly executing the lowest-index ready non-expanding
+//               op until none remains never raises the peak a schedule
+//               could otherwise reach, so a scheduler only has to choose
+//               which ready expanding op fires next; closure fills in the
+//               rest deterministically.
+//   confluence  the subspace reached by executing a given set of ops does
+//               not depend on the order they executed in, so a scheduling
+//               state is fully determined by its executed-op set -- the
+//               identity the beam search's dedup step below relies on.
+// ---------------------------------------------------------------------------
+
+// True when executing `op` against `subspace` would raise the active width:
+// a T_GATE/PHASE_ROTATION whose axis does not commute with every generator
+// of S, or an INSTRUMENT that takes the Activate branch (see
+// active_width_analysis.h's WidthEffect). Pure query, no mutation, so a
+// caller can test every ready op before committing to one.
+bool is_expanding(const HirModule& hir, const HeisenbergOp& op, const DormantSubspace& subspace) {
+    switch (op.op_type()) {
+        case OpType::T_GATE:
+        case OpType::PHASE_ROTATION:
+            return !subspace.commutes_with_all(hir.destab_mask(op), hir.stab_mask(op));
+        case OpType::INSTRUMENT: {
+            const MaskView x = hir.destab_mask(op);
+            const MaskView z = hir.stab_mask(op);
+            if (subspace.commutes_with_all(x, z)) {
+                return false;  // Classical or Active: non-expanding.
+            }
+            const InstrumentSite& site =
+                hir.instrument_sites.at(static_cast<uint32_t>(op.instrument_site_idx()));
+            const bool traps = hir.neglect_instrument_damping ||
+                               site.probabilities.p_fire[0] == site.probabilities.p_fire[1];
+            return !traps;  // Activate iff it does not trap.
+        }
+        default:
+            return false;
+    }
+}
+
+// One execute()/undo() bracket: the op that executed, and how many
+// successors newly became ready as a result. The count indexes into the
+// caller's own shared newly-ready log (see SearchFrontier::execute), so
+// backtracking never pays for a fresh heap allocation per step the way a
+// per-step std::vector<uint32_t> would.
+struct UndoStep {
+    uint32_t op = 0;
+    uint32_t newly_ready_count = 0;
+};
+
+// Tracks which ops are executed and which are ready (every predecessor
+// executed) as one mutable structure a caller updates via execute()/undo()
+// pairs bracketing each recursive or speculative step. Readiness and the
+// executed set are both pure functions of the executed-op set alone (see
+// the confluence invariant above), so undo() only has to reverse exactly
+// what its matching execute() call did, never recompute anything from
+// scratch. Copyable: a caller exploring several independent speculative
+// continuations (rather than backtracking one shared instance) can clone a
+// frontier instead of using execute()/undo().
+//
+// Readiness lives in a flat ready_flag_ array rather than a std::set: it
+// churns on every execute()/undo() call in the beam search's inner loop,
+// and a flag flip is both allocation-free and branch-cheap where a tree
+// insert or erase is neither. lowest_ready_hint_ is a safe lower bound on
+// the smallest ready op index (never above the true minimum, though it can
+// undershoot after a removal until the next scan walks past the gap),
+// letting find_ready_non_expanding's ascending scan skip the already-known-
+// empty prefix below it while still visiting ready ops in the same
+// lowest-index-first order a std::set would and stopping at the first
+// non-expanding one -- which is what makes each avoided is_expanding() call
+// (a GF(2) commutation scan against every generator of S) worth avoiding.
+class SearchFrontier {
+  public:
+    explicit SearchFrontier(const detail::ScheduleDependence& dependence);
+
+    [[nodiscard]] bool is_ready(uint32_t op) const { return ready_flag_[op] != 0; }
+    [[nodiscard]] uint32_t num_ops() const { return static_cast<uint32_t>(ready_flag_.size()); }
+    [[nodiscard]] uint32_t lowest_ready_hint() const { return lowest_ready_hint_; }
+    [[nodiscard]] const std::vector<uint64_t>& executed_bits() const { return executed_; }
+    [[nodiscard]] size_t executed_count() const { return executed_count_; }
+
+    // Marks `op` executed. Appends each successor that newly became ready to
+    // the end of `newly_ready_log` (grown, never cleared here, so a caller
+    // threading one log across a whole closure sweep or search amortizes
+    // its allocations instead of paying for a fresh vector per call) and
+    // returns how many entries it appended -- store this (typically in an
+    // UndoStep) to undo exactly this call later.
+    uint32_t execute(uint32_t op, std::vector<uint32_t>& newly_ready_log);
+
+    // Reverses exactly an execute() call that appended `newly_ready_count`
+    // entries to the end of `newly_ready_log`, popping them back off.
+    void undo(uint32_t op, uint32_t newly_ready_count, std::vector<uint32_t>& newly_ready_log);
+
+  private:
+    void mark_ready(uint32_t op);
+    void mark_not_ready(uint32_t op);
+
+    const detail::ScheduleDependence* dependence_;
+    std::vector<uint64_t> executed_;
+    std::vector<uint32_t> remaining_preds_;
+    std::vector<uint8_t> ready_flag_;
+    uint32_t lowest_ready_hint_ = 0;
+    size_t executed_count_ = 0;
+};
+
+void bitset_set(std::vector<uint64_t>& bits, uint32_t index) {
+    bits[index / 64] |= (uint64_t{1} << (index % 64));
+}
+
+void bitset_clear(std::vector<uint64_t>& bits, uint32_t index) {
+    bits[index / 64] &= ~(uint64_t{1} << (index % 64));
+}
+
+SearchFrontier::SearchFrontier(const detail::ScheduleDependence& dependence)
+    : dependence_(&dependence),
+      executed_((dependence.num_ops() + 63) / 64, 0),
+      remaining_preds_(dependence.num_ops()),
+      ready_flag_(dependence.num_ops(), 0) {
+    for (uint32_t op = 0; op < dependence.num_ops(); ++op) {
+        remaining_preds_[op] = static_cast<uint32_t>(dependence.predecessors(op).size());
+        if (remaining_preds_[op] == 0) {
+            mark_ready(op);
+        }
+    }
+}
+
+void SearchFrontier::mark_ready(uint32_t op) {
+    ready_flag_[op] = 1;
+    lowest_ready_hint_ = std::min(lowest_ready_hint_, op);
+}
+
+void SearchFrontier::mark_not_ready(uint32_t op) {
+    ready_flag_[op] = 0;
+    // Only a cheap, exact-match bump: the op just removed was the hint's own
+    // witness, so the hint must move at least past it, but the true new
+    // minimum among whatever remains ready is not known without a scan --
+    // find_ready_non_expanding's own scan discovers it lazily instead.
+    if (op == lowest_ready_hint_) {
+        ++lowest_ready_hint_;
+    }
+}
+
+uint32_t SearchFrontier::execute(uint32_t op, std::vector<uint32_t>& newly_ready_log) {
+    assert(is_ready(op) && "execute() called on a non-ready op");
+    mark_not_ready(op);
+    bitset_set(executed_, op);
+    ++executed_count_;
+
+    uint32_t count = 0;
+    for (uint32_t succ : dependence_->successors(op)) {
+        if (--remaining_preds_[succ] == 0) {
+            mark_ready(succ);
+            newly_ready_log.push_back(succ);
+            ++count;
+        }
+    }
+    return count;
+}
+
+void SearchFrontier::undo(uint32_t op, uint32_t newly_ready_count,
+                          std::vector<uint32_t>& newly_ready_log) {
+    for (uint32_t succ : dependence_->successors(op)) {
+        ++remaining_preds_[succ];
+    }
+
+    assert(newly_ready_log.size() >= newly_ready_count &&
+           "undo() asked to reverse more newly-ready entries than the log holds");
+    for (uint32_t i = 0; i < newly_ready_count; ++i) {
+        mark_not_ready(newly_ready_log.back());
+        newly_ready_log.pop_back();
+    }
+
+    bitset_clear(executed_, op);
+    --executed_count_;
+    // op is ready again, and may be lower than the current hint (it was
+    // ready before this undo's matching execute() call raised the hint past
+    // it), so this goes through mark_ready rather than a raw flag set.
+    mark_ready(op);
+}
+
+// Undoes every step in `log`, most recent first, against the shared
+// `newly_ready_log` every step's SearchFrontier::execute() call appended to.
+void undo_all(SearchFrontier& frontier, const std::vector<UndoStep>& log,
+              std::vector<uint32_t>& newly_ready_log) {
+    for (auto it = log.rbegin(); it != log.rend(); ++it) {
+        frontier.undo(it->op, it->newly_ready_count, newly_ready_log);
+    }
+}
+
+// Lowest-index ready op that is not expanding, or nullopt when every
+// currently ready op (if any) is expanding.
+std::optional<uint32_t> find_ready_non_expanding(const HirModule& hir,
+                                                 const SearchFrontier& frontier,
+                                                 const DormantSubspace& subspace) {
+    // Ascending scan starting from the hint (a safe lower bound, never above
+    // the true minimum ready index): a cheap is_ready() check skips every
+    // not-ready index, so is_expanding() only ever runs on an actual ready
+    // op, in the same lowest-index-first order a sorted container would
+    // visit them, stopping at the first non-expanding one.
+    for (uint32_t op = frontier.lowest_ready_hint(); op < frontier.num_ops(); ++op) {
+        if (!frontier.is_ready(op)) {
+            continue;
+        }
+        if (!is_expanding(hir, hir.ops[op], subspace)) {
+            return op;
+        }
+    }
+    return std::nullopt;
+}
+
+// Executes every ready non-expanding op, lowest index first, until none is
+// ready: the closure step the closure invariant above justifies. Appends
+// each executed op, in execution order, to `order` and logs it in `log`
+// (backed by `newly_ready_log`, which every logged step's execute() call
+// appends to) for the caller to undo later if needed. When `transitions` is
+// non-null, each executed op's classification (before/after width and
+// effect) is appended to it in the same order, so a caller that needs
+// per-op dense-work contributions (the scheduling pass) can accumulate them
+// without a second pass over the same ops; a caller that only needs width
+// leaves this null.
+void run_closure(const HirModule& hir, SearchFrontier& frontier, DormantSubspace& subspace,
+                 std::vector<uint32_t>& order, std::vector<UndoStep>& log,
+                 std::vector<uint32_t>& newly_ready_log,
+                 std::vector<WidthTransition>* transitions = nullptr) {
+    while (const std::optional<uint32_t> op = find_ready_non_expanding(hir, frontier, subspace)) {
+        const uint32_t newly_ready_count = frontier.execute(*op, newly_ready_log);
+        log.push_back(UndoStep{*op, newly_ready_count});
+        order.push_back(*op);
+        const WidthTransition transition = classify_and_apply(hir, hir.ops[*op], subspace);
+        assert(!is_expanding_effect(transition.effect) &&
+               "find_ready_non_expanding chose an op classify_and_apply treats as expanding");
+        if (transitions != nullptr) {
+            transitions->push_back(transition);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Beam state: one partial schedule, closed (every ready non-expanding op
 // already executed), tracking everything needed to score and extend it
 // further without replaying the ops executed so far.
 // ---------------------------------------------------------------------------
 
 struct BeamState {
-    BeamState(detail::SearchFrontier frontier_in, DormantSubspace subspace_in)
+    BeamState(SearchFrontier frontier_in, DormantSubspace subspace_in)
         : frontier(std::move(frontier_in)), subspace(std::move(subspace_in)) {}
 
-    detail::SearchFrontier frontier;
+    SearchFrontier frontier;
     DormantSubspace subspace;
     uint32_t peak = 0;
     double dense_work = 0.0;
@@ -48,12 +295,12 @@ void absorb_closure_transitions(BeamState& state, const std::vector<WidthTransit
 
 BeamState make_initial_beam_state(const HirModule& hir,
                                   const detail::ScheduleDependence& dependence) {
-    BeamState state(detail::SearchFrontier(dependence), DormantSubspace(hir.num_qubits));
-    std::vector<detail::UndoStep> discarded_log;
+    BeamState state(SearchFrontier(dependence), DormantSubspace(hir.num_qubits));
+    std::vector<UndoStep> discarded_log;
     std::vector<uint32_t> discarded_newly_ready;
     std::vector<WidthTransition> transitions;
-    detail::run_closure(hir, state.frontier, state.subspace, state.order, discarded_log,
-                        discarded_newly_ready, &transitions);
+    run_closure(hir, state.frontier, state.subspace, state.order, discarded_log,
+                discarded_newly_ready, &transitions);
     absorb_closure_transitions(state, transitions);
     return state;
 }
@@ -71,7 +318,7 @@ BeamState make_initial_beam_state(const HirModule& hir,
 // This runs once per beam member per beam step, not once per closure step,
 // so a scan over a few thousand ops here is negligible next to the cost of
 // scoring and closing each candidate.
-std::vector<uint32_t> ready_ops_snapshot(const detail::SearchFrontier& frontier) {
+std::vector<uint32_t> ready_ops_snapshot(const SearchFrontier& frontier) {
     std::vector<uint32_t> ready;
     for (uint32_t op = frontier.lowest_ready_hint(); op < frontier.num_ops(); ++op) {
         if (frontier.is_ready(op)) {
@@ -121,15 +368,15 @@ std::vector<ScoredCandidate> score_candidates(const HirModule& hir, BeamState& p
                                               uint32_t parent_index) {
     std::vector<ScoredCandidate> scored;
     for (uint32_t op : ready_ops_snapshot(parent.frontier)) {
-        if (!detail::is_expanding(hir, hir.ops[op], parent.subspace)) {
+        if (!is_expanding(hir, hir.ops[op], parent.subspace)) {
             continue;
         }
 
         DormantSubspace scratch(parent.subspace);
-        std::vector<detail::UndoStep> log;
+        std::vector<UndoStep> log;
         std::vector<uint32_t> newly_ready_log;
 
-        log.push_back(detail::UndoStep{op, parent.frontier.execute(op, newly_ready_log)});
+        log.push_back(UndoStep{op, parent.frontier.execute(op, newly_ready_log)});
         ScoredCandidate candidate;
         candidate.parent_index = parent_index;
         candidate.first_op = op;
@@ -145,14 +392,13 @@ std::vector<ScoredCandidate> score_candidates(const HirModule& hir, BeamState& p
                                                                 first_transition.after);
 
         std::vector<WidthTransition> swept;
-        detail::run_closure(hir, parent.frontier, scratch, candidate.ops, log, newly_ready_log,
-                            &swept);
+        run_closure(hir, parent.frontier, scratch, candidate.ops, log, newly_ready_log, &swept);
         absorb_transitions(candidate.peak, candidate.dense_work, swept);
 
         candidate.width_after_closure = scratch.active_width();
         candidate.executed_bits = parent.frontier.executed_bits();
 
-        detail::undo_all(parent.frontier, log, newly_ready_log);
+        undo_all(parent.frontier, log, newly_ready_log);
         scored.push_back(std::move(candidate));
     }
     return scored;
@@ -231,11 +477,11 @@ const BeamState* pick_best_completed(const std::vector<BeamState>& completed) {
     return best;
 }
 
-// Beam search over the closure/readiness machinery active_width_closure.h
-// shares with the exact search. beam_width == 1 degenerates to the greedy
-// closure scheduler: at every step, take whichever single ready expanding
-// op's own closure sweep scores best. The constructor rejects beam_width ==
-// 0, so at least one beam member always survives to complete a schedule.
+// Beam search over the closure/readiness machinery above. beam_width == 1
+// degenerates to the greedy closure scheduler: at every step, take
+// whichever single ready expanding op's own closure sweep scores best. The
+// constructor rejects beam_width == 0, so at least one beam member always
+// survives to complete a schedule.
 //
 // Two-phase per step: score_candidates ranks every ready expanding op of
 // every current beam state cheaply (see its own comment), then only the
@@ -272,7 +518,7 @@ std::vector<uint32_t> run_beam_search(const HirModule& hir,
             // Closure already consumed every ready non-expanding op, so no
             // ready expanding candidates left means no ready ops left at
             // all, which is only possible once every op has executed (see
-            // active_width_closure.h's confluence note).
+            // the confluence invariant above).
             assert(beam[i].frontier.executed_count() == dependence.num_ops() &&
                    "a closed beam state with no ready expanding op must have executed every op");
             completed.push_back(std::move(beam[i]));

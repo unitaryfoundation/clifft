@@ -5,7 +5,7 @@
 // Objective, lexicographic: first minimize peak active width, then minimize
 // estimate_dense_work's planning proxy for the dense work a trace performs
 // along the way. Closure theorem, restated in one sentence (see
-// active_width_closure.h for the full argument and its confluence
+// docs/theory/active-width.md for the full argument and its confluence
 // corollary): some peak-minimizing schedule executes every ready
 // non-expanding op as soon as it is ready, so a scheduler only has to
 // choose, at each step, which ready expanding rotation fires next. This

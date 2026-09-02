@@ -169,7 +169,7 @@ enum class WidthEffect : uint8_t {
 
 // True for the two WidthEffect values that raise active width. A scheduler
 // branches only on these; every other effect is safe to fold into a closure
-// sweep (see active_width_closure.h for the closure argument this
+// sweep (see docs/theory/active-width.md for the closure argument this
 // distinction supports).
 [[nodiscard]] constexpr bool is_expanding_effect(WidthEffect effect) {
     return effect == WidthEffect::RotationPromote || effect == WidthEffect::InstrumentActivate;
