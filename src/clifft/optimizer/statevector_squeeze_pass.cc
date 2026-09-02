@@ -32,6 +32,7 @@ bool can_bypass_to(const HirModule& hir, size_t moving, size_t target) {
 
 void StatevectorSqueezePass::run(HirModule& hir) {
     bool has_sm = hir.source_map.size() == hir.ops.size();
+    bool has_lnp = hir.has_logical_noise_prefix();
 
     // EXP_VAL acts as a hard barrier via can_swap(), so neither sweep
     // will move operations across an expectation value probe.
@@ -46,6 +47,9 @@ void StatevectorSqueezePass::run(HirModule& hir) {
             std::swap(hir.ops[curr - 1], hir.ops[curr]);
             if (has_sm) {
                 std::swap(hir.source_map[curr - 1], hir.source_map[curr]);
+            }
+            if (has_lnp) {
+                std::swap(hir.logical_noise_prefix[curr - 1], hir.logical_noise_prefix[curr]);
             }
             --curr;
         }
@@ -90,6 +94,14 @@ void StatevectorSqueezePass::run(HirModule& hir) {
                                 hir.source_map.begin() + static_cast<std::ptrdiff_t>(curr + 1),
                                 hir.source_map.begin() + static_cast<std::ptrdiff_t>(target + 1));
                         }
+                        if (has_lnp) {
+                            std::rotate(hir.logical_noise_prefix.begin() +
+                                            static_cast<std::ptrdiff_t>(curr),
+                                        hir.logical_noise_prefix.begin() +
+                                            static_cast<std::ptrdiff_t>(curr + 1),
+                                        hir.logical_noise_prefix.begin() +
+                                            static_cast<std::ptrdiff_t>(target + 1));
+                        }
                         --*target_it;
                         curr = target;
                         continue;
@@ -101,6 +113,10 @@ void StatevectorSqueezePass::run(HirModule& hir) {
                     std::swap(hir.ops[curr], hir.ops[curr + 1]);
                     if (has_sm) {
                         std::swap(hir.source_map[curr], hir.source_map[curr + 1]);
+                    }
+                    if (has_lnp) {
+                        std::swap(hir.logical_noise_prefix[curr],
+                                  hir.logical_noise_prefix[curr + 1]);
                     }
                     auto crossed =
                         std::upper_bound(non_expansions.begin(), non_expansions.end(), curr);
