@@ -31,6 +31,7 @@
 
 using namespace clifft;
 using namespace clifft::test;
+using clifft::detail::ScheduleDependence;
 using clifft::sampling::ApplyInstrument;
 using clifft::sampling::SamplingPlan;
 

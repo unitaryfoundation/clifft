@@ -4,16 +4,115 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cstring>
 #include <optional>
 #include <stdexcept>
 #include <utility>
 
-namespace clifft {
+namespace clifft::detail {
 
 namespace {
 
 bool is_movable_op(OpType type) {
     return type == OpType::T_GATE || type == OpType::PHASE_ROTATION || type == OpType::MEASURE;
+}
+
+// FNV-1a, matching the mixing constants clifft::sampling's expression_hash
+// uses. Not a cryptographic hash: a fingerprint only has to make a build()
+// versus apply_schedule() mismatch overwhelmingly likely to be caught, not
+// resist a deliberate collision.
+void fnv_mix(uint64_t& hash, uint64_t word) {
+    hash ^= word;
+    hash *= 0x100000001b3ULL;
+}
+
+void fnv_mix_words(uint64_t& hash, MaskView view) {
+    for (uint64_t word : view.words) {
+        fnv_mix(hash, word);
+    }
+}
+
+uint64_t double_bits(double value) {
+    uint64_t bits = 0;
+    std::memcpy(&bits, &value, sizeof(bits));
+    return bits;
+}
+
+// Folds every op's type, flags, payload fields, and Pauli mask words into
+// one hash, plus the words of each NOISE op's channel masks (NOISE carries
+// no inline Pauli mask of its own) and logical_noise_prefix when
+// materialized. See HirFingerprint's own comment for why this exists.
+HirFingerprint compute_hir_fingerprint(const HirModule& hir) {
+    HirFingerprint fingerprint;
+    fingerprint.op_count = hir.ops.size();
+    fingerprint.qubit_count = hir.num_qubits;
+
+    uint64_t hash = 0xcbf29ce484222325ULL;  // FNV offset basis.
+    fnv_mix(hash, fingerprint.op_count);
+    fnv_mix(hash, fingerprint.qubit_count);
+
+    for (const HeisenbergOp& op : hir.ops) {
+        fnv_mix(hash, static_cast<uint64_t>(op.op_type()));
+        fnv_mix(hash, op.flags());
+        if (op.has_mask()) {
+            fnv_mix_words(hash, hir.destab_mask(op));
+            fnv_mix_words(hash, hir.stab_mask(op));
+        }
+        switch (op.op_type()) {
+            case OpType::MEASURE:
+                fnv_mix(hash, static_cast<uint64_t>(op.meas_record_idx()));
+                break;
+            case OpType::CONDITIONAL_PAULI:
+                fnv_mix(hash, static_cast<uint64_t>(op.controlling_meas()));
+                break;
+            case OpType::NOISE: {
+                const auto site_idx = static_cast<uint32_t>(op.noise_site_idx());
+                fnv_mix(hash, site_idx);
+                const NoiseSite& site = hir.noise_sites[site_idx];
+                for (const NoiseChannel& channel : site.channels) {
+                    const PauliMaskView channel_view = hir.noise_channel_masks.at(channel.mask);
+                    fnv_mix_words(hash, channel_view.x());
+                    fnv_mix_words(hash, channel_view.z());
+                }
+                break;
+            }
+            case OpType::READOUT_NOISE:
+                fnv_mix(hash, static_cast<uint64_t>(op.readout_noise_idx()));
+                break;
+            case OpType::DETECTOR:
+                fnv_mix(hash, static_cast<uint64_t>(op.detector_idx()));
+                break;
+            case OpType::OBSERVABLE:
+                fnv_mix(hash, static_cast<uint64_t>(op.observable_idx()));
+                fnv_mix(hash, op.observable_target_list_idx());
+                break;
+            case OpType::EXP_VAL:
+                fnv_mix(hash, static_cast<uint64_t>(op.exp_val_idx()));
+                break;
+            case OpType::INSTRUMENT:
+                fnv_mix(hash, static_cast<uint64_t>(op.instrument_site_idx()));
+                break;
+            case OpType::PHASE_ROTATION:
+                fnv_mix(hash, double_bits(op.alpha()));
+                break;
+            case OpType::T_GATE:
+            case OpType::NUM_OP_TYPES:
+                break;
+        }
+    }
+
+    // Distinguishes a materialized-but-empty vector (an empty-ops HIR) from
+    // an unmaterialized one, and from disagreement on materialization
+    // itself between build() and apply_schedule()'s target.
+    fnv_mix(hash, hir.has_logical_noise_prefix() ? uint64_t{1} : uint64_t{0});
+    if (hir.has_logical_noise_prefix()) {
+        for (uint32_t prefix : hir.logical_noise_prefix) {
+            fnv_mix(hash, prefix);
+        }
+    }
+
+    fingerprint.content_hash = hash;
+    return fingerprint;
 }
 
 // True when no edge is needed between the ops at i < j: either they pass
@@ -63,6 +162,7 @@ ScheduleDependence ScheduleDependence::build(const HirModule& hir,
     const size_t n = hir.ops.size();
     ScheduleDependence dep;
     dep.noise_transparent_ = options.noise_transparent;
+    dep.fingerprint_ = compute_hir_fingerprint(hir);
     dep.movable_.resize(n);
     for (size_t i = 0; i < n; ++i) {
         dep.movable_[i] = is_movable_op(hir.ops[i].op_type());
@@ -163,9 +263,10 @@ bool ScheduleDependence::is_linear_extension(std::span<const uint32_t> order) co
 
 void apply_schedule(HirModule& hir, const ScheduleDependence& dependence,
                     std::span<const uint32_t> order) {
-    if (dependence.num_ops() != hir.ops.size()) {
+    if (!(compute_hir_fingerprint(hir) == dependence.fingerprint())) {
         throw std::invalid_argument(
-            "apply_schedule: dependence relation was not built from this HIR's operation count");
+            "apply_schedule: target HIR's fingerprint does not match the HIR the dependence "
+            "relation was built from");
     }
     if (!dependence.is_linear_extension(order)) {
         throw std::invalid_argument(
@@ -209,4 +310,4 @@ void apply_schedule(HirModule& hir, const ScheduleDependence& dependence,
     }
 }
 
-}  // namespace clifft
+}  // namespace clifft::detail

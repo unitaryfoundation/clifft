@@ -53,6 +53,9 @@
 // prototype; a real scheduler would want cheap pruning (for example,
 // bounding the pairwise scan by qubit overlap) before running on the
 // largest circuits in the corpus.
+//
+// This is pass-internal machinery, not part of the public API: it lives in
+// namespace clifft::detail and is not exposed to Python.
 
 #include "clifft/frontend/hir.h"
 
@@ -61,12 +64,27 @@
 #include <span>
 #include <vector>
 
-namespace clifft {
+namespace clifft::detail {
 
 // Controls how much freedom the relation grants around NOISE ops. See the
 // file comment for why the relaxation is sound.
 struct ScheduleDependenceOptions {
     bool noise_transparent = true;
+};
+
+// Content fingerprint of the HIR a ScheduleDependence was built from: the
+// operation and qubit counts plus a hash over every op's identity (see
+// schedule_dependence.cc for exactly what feeds the hash). apply_schedule()
+// recomputes this for its target HIR and compares, so a relation's edges --
+// computed from one specific program's commutation structure -- can never
+// be silently replayed against a different program that happens to share
+// an operation count.
+struct HirFingerprint {
+    size_t op_count = 0;
+    uint32_t qubit_count = 0;
+    uint64_t content_hash = 0;
+
+    [[nodiscard]] bool operator==(const HirFingerprint&) const = default;
 };
 
 // A DAG of "must not reorder" edges over one HIR's op indices, built once
@@ -97,11 +115,17 @@ class ScheduleDependence {
     // exactly the orders this accepts.
     [[nodiscard]] bool is_linear_extension(std::span<const uint32_t> order) const;
 
+    // Fingerprint of the HIR build() computed this relation from. See
+    // apply_schedule()'s comment for how this guards against a mismatched
+    // target.
+    [[nodiscard]] const HirFingerprint& fingerprint() const { return fingerprint_; }
+
   private:
     ScheduleDependence() = default;
 
     bool noise_transparent_ = false;
     std::vector<bool> movable_;
+    HirFingerprint fingerprint_;
 
     // CSR adjacency: op i's entries occupy indices
     // [offsets[i], offsets[i + 1]) of the matching indices vector, both
@@ -113,9 +137,10 @@ class ScheduleDependence {
 };
 
 // Reorders hir.ops (and its parallel side tables) in place to `order`, a
-// linear extension of `dependence`. Throws std::invalid_argument if
-// `dependence` was not built from an HIR with the same operation count as
-// `hir`, or if `order` is not a linear extension of `dependence`.
+// linear extension of `dependence`. Throws std::invalid_argument if `hir`'s
+// fingerprint does not match the HIR `dependence` was built from (which
+// subsumes an operation-count mismatch), or if `order` is not a linear
+// extension of `dependence`.
 //
 // ops, source_map (when parallel to ops), and logical_noise_prefix (when
 // present) are permuted together so every side-table entry travels with
@@ -143,4 +168,4 @@ class ScheduleDependence {
 void apply_schedule(HirModule& hir, const ScheduleDependence& dependence,
                     std::span<const uint32_t> order);
 
-}  // namespace clifft
+}  // namespace clifft::detail

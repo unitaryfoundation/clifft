@@ -33,9 +33,10 @@
 // Early exit: with a 0 incumbent peak, or no T_GATE or PHASE_ROTATION op in
 // the HIR, there is no ready expanding rotation for a scheduler to choose
 // among -- an expanding INSTRUMENT is always the only ready op when it
-// fires (ScheduleDependence treats it as a positional barrier), so it
-// offers no scheduling freedom either -- and run() reports the incumbent
-// unchanged without paying for ScheduleDependence::build's O(N^2) scan.
+// fires (detail::ScheduleDependence treats it as a positional barrier), so
+// it offers no scheduling freedom either -- and run() reports the incumbent
+// unchanged without paying for detail::ScheduleDependence::build's O(N^2)
+// scan.
 
 #include "clifft/frontend/hir.h"
 #include "clifft/optimizer/hir_pass.h"
@@ -45,8 +46,9 @@
 namespace clifft {
 
 struct ActiveWidthScheduleOptions {
-    // Passed through to ScheduleDependence::build. See schedule_dependence.h
-    // for why crossing a NOISE op is sound under this relaxation.
+    // Passed through to detail::ScheduleDependence::build. See
+    // schedule_dependence.h for why crossing a NOISE op is sound under this
+    // relaxation.
     bool noise_transparent = true;
 
     // Number of partial schedules kept at each beam-search step. 1

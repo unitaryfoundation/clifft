@@ -46,7 +46,8 @@ void absorb_closure_transitions(BeamState& state, const std::vector<WidthTransit
     absorb_transitions(state.peak, state.dense_work, transitions);
 }
 
-BeamState make_initial_beam_state(const HirModule& hir, const ScheduleDependence& dependence) {
+BeamState make_initial_beam_state(const HirModule& hir,
+                                  const detail::ScheduleDependence& dependence) {
     BeamState state(detail::SearchFrontier(dependence), DormantSubspace(hir.num_qubits));
     std::vector<detail::UndoStep> discarded_log;
     std::vector<uint32_t> discarded_newly_ready;
@@ -245,7 +246,8 @@ const BeamState* pick_best_completed(const std::vector<BeamState>& completed) {
 // on fixtures with many independent expanding rotations, so this ordering
 // (score everything, materialize only the winners) is what makes the beam
 // width affordable to scale.
-std::vector<uint32_t> run_beam_search(const HirModule& hir, const ScheduleDependence& dependence,
+std::vector<uint32_t> run_beam_search(const HirModule& hir,
+                                      const detail::ScheduleDependence& dependence,
                                       uint32_t beam_width) {
     std::vector<BeamState> beam;
     beam.push_back(make_initial_beam_state(hir, dependence));
@@ -346,7 +348,7 @@ std::vector<uint32_t> run_beam_search(const HirModule& hir, const ScheduleDepend
 // Neutral-rotation sinking: a rightward bubble per RotationNeutral op.
 // ---------------------------------------------------------------------------
 
-bool independent(const ScheduleDependence& dependence, uint32_t a, uint32_t b) {
+bool independent(const detail::ScheduleDependence& dependence, uint32_t a, uint32_t b) {
     return !std::ranges::binary_search(dependence.successors(a), b) &&
            !std::ranges::binary_search(dependence.predecessors(a), b);
 }
@@ -376,7 +378,7 @@ std::vector<WidthEffect> effect_by_op_index(const HirModule& hir,
 // each other, so every intermediate and final order stays a legal linear
 // extension of `dependence`. Does not move RotationStabilizer ops: they
 // emit no planner action, so sinking one would not change dense work.
-void sink_neutral_rotations(const HirModule& hir, const ScheduleDependence& dependence,
+void sink_neutral_rotations(const HirModule& hir, const detail::ScheduleDependence& dependence,
                             std::vector<uint32_t>& order) {
     const std::vector<WidthEffect> effect = effect_by_op_index(hir, order);
 
@@ -417,8 +419,9 @@ void sink_neutral_rotations(const HirModule& hir, const ScheduleDependence& depe
 // True when `hir` has any op a beam search could ever branch on. T_GATE and
 // PHASE_ROTATION are the only op types is_expanding ever calls genuinely
 // discretionary: an expanding INSTRUMENT is always the sole ready op when it
-// fires (ScheduleDependence treats it as a positional barrier), so its
-// presence or absence changes nothing a scheduler could choose differently.
+// fires (detail::ScheduleDependence treats it as a positional barrier), so
+// its presence or absence changes nothing a scheduler could choose
+// differently.
 bool has_rotation_op(const HirModule& hir) {
     return std::ranges::any_of(hir.ops, [](const HeisenbergOp& op) {
         return op.op_type() == OpType::T_GATE || op.op_type() == OpType::PHASE_ROTATION;
@@ -445,9 +448,10 @@ void ActiveWidthSchedulePass::run(HirModule& hir) {
         return;
     }
 
-    ScheduleDependenceOptions dependence_options;
+    detail::ScheduleDependenceOptions dependence_options;
     dependence_options.noise_transparent = options_.noise_transparent;
-    const ScheduleDependence dependence = ScheduleDependence::build(hir, dependence_options);
+    const detail::ScheduleDependence dependence =
+        detail::ScheduleDependence::build(hir, dependence_options);
 
     std::vector<uint32_t> order = run_beam_search(hir, dependence, options_.beam_width);
 
@@ -456,7 +460,7 @@ void ActiveWidthSchedulePass::run(HirModule& hir) {
     }
 
     HirModule candidate = hir;
-    apply_schedule(candidate, dependence, order);
+    detail::apply_schedule(candidate, dependence, order);
     const ActiveWidthTrace candidate_trace = analyze_active_width(candidate);
     const double candidate_dense_work = estimate_dense_work(candidate_trace);
 

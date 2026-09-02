@@ -29,6 +29,9 @@
 
 using namespace clifft;
 using namespace clifft::test;
+using clifft::detail::apply_schedule;
+using clifft::detail::ScheduleDependence;
+using clifft::detail::ScheduleDependenceOptions;
 using clifft::sampling::SamplingPlan;
 
 namespace {
@@ -391,6 +394,27 @@ TEST_CASE("apply_schedule rejects an order that is not a linear extension",
         HirModule other = clifft::trace(clifft::parse("M 0\nM 0\n"));
         const std::vector<uint32_t> order = {0};
         REQUIRE_THROWS_AS(apply_schedule(other, dep, order), std::invalid_argument);
+    }
+
+    SECTION("dependence built from a different HIR with the same operation count") {
+        HirModule source = clifft::trace(clifft::parse("M 0\nM 1\n"));
+        REQUIRE(source.ops.size() == 2);
+        const ScheduleDependence dep = ScheduleDependence::build(source);
+        // The source's two measurements are on different qubits (Z0, Z1)
+        // and commute, so build() places no edge between them: {1, 0} is a
+        // legal linear extension of this relation.
+        const std::vector<uint32_t> order = {1, 0};
+        REQUIRE(dep.is_linear_extension(order));
+
+        HirModule target = clifft::trace(clifft::parse("M 0\nMX 0\n"));
+        REQUIRE(target.ops.size() == source.ops.size());
+        // The target's two measurements are on the same qubit (Z0, X0) and
+        // anticommute -- non-commuting in the target though the relation's
+        // actual source ops commute -- so the fingerprint mismatch must
+        // reject this before {1, 0}'s illegal swap could reach the
+        // target's ops.
+        REQUIRE_FALSE(can_swap(target.ops[0], target.ops[1], target));
+        REQUIRE_THROWS_AS(apply_schedule(target, dep, order), std::invalid_argument);
     }
 }
 
