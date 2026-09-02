@@ -4,12 +4,13 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cmath>
 #include <span>
 #include <utility>
 
 namespace clifft {
 
-namespace {
+namespace detail {
 
 PauliString pauli_body(const HirModule& hir, const HeisenbergOp& op) {
     PauliString result(hir.num_qubits);
@@ -17,6 +18,24 @@ PauliString pauli_body(const HirModule& hir, const HeisenbergOp& op) {
     result.mut_z().xor_with(hir.stab_mask(op));
     return result;
 }
+
+double dense_work_contribution(WidthEffect effect, uint32_t before, uint32_t after) {
+    switch (effect) {
+        case WidthEffect::RotationNeutral:
+        case WidthEffect::RotationPromote:
+        case WidthEffect::InstrumentActive:
+        case WidthEffect::InstrumentActivate:
+            return std::ldexp(1.0, static_cast<int>(after));
+        case WidthEffect::MeasureActive:
+            return std::ldexp(1.0, static_cast<int>(before));
+        default:
+            return 0.0;
+    }
+}
+
+}  // namespace detail
+
+namespace {
 
 // The (x, z) mask pair is treated as one combined GF(2) vector of length
 // 2 * domain, with x occupying [0, domain) and z occupying [domain, 2 *
@@ -215,70 +234,69 @@ bool DormantSubspace::contains(const PauliString& p) const {
     return !remainder.has_value();
 }
 
-namespace {
-
-void record_transition(ActiveWidthTrace& trace, uint32_t& width, WidthEffect effect,
-                       uint32_t after) {
-    trace.transitions.push_back(WidthTransition{width, after, effect});
-    width = after;
-    trace.peak_width = std::max(trace.peak_width, width);
-}
-
-void analyze_rotation(const HirModule& hir, const HeisenbergOp& op, DormantSubspace& subspace,
-                      ActiveWidthTrace& trace, uint32_t& width) {
-    const PauliString body = pauli_body(hir, op);
-    if (subspace.apply_rotation(body)) {
-        record_transition(trace, width, WidthEffect::RotationPromote, subspace.active_width());
-    } else if (subspace.contains(body)) {
-        record_transition(trace, width, WidthEffect::RotationStabilizer, width);
-    } else {
-        record_transition(trace, width, WidthEffect::RotationNeutral, width);
-    }
-}
-
-void analyze_measurement(const HirModule& hir, const HeisenbergOp& op, DormantSubspace& subspace,
-                         ActiveWidthTrace& trace, uint32_t& width) {
-    const PauliString body = pauli_body(hir, op);
-    switch (subspace.apply_measurement(body)) {
-        case DormantSubspace::MeasurementEffect::DormantRandom:
-            record_transition(trace, width, WidthEffect::MeasureDormantRandom, width);
-            return;
-        case DormantSubspace::MeasurementEffect::Classical:
-            record_transition(trace, width, WidthEffect::MeasureClassical, width);
-            return;
-        case DormantSubspace::MeasurementEffect::Active:
-            record_transition(trace, width, WidthEffect::MeasureActive, subspace.active_width());
-            return;
-    }
-    assert(false && "unreachable DormantSubspace::MeasurementEffect");
-}
-
-void analyze_instrument(const HirModule& hir, const HeisenbergOp& op, DormantSubspace& subspace,
-                        ActiveWidthTrace& trace, uint32_t& width) {
-    const PauliString body = pauli_body(hir, op);
-    const InstrumentSite& site =
-        hir.instrument_sites.at(static_cast<uint32_t>(op.instrument_site_idx()));
-
-    if (!subspace.commutes_with_all(body)) {
-        const bool traps = hir.neglect_instrument_damping ||
-                           site.probabilities.p_fire[0] == site.probabilities.p_fire[1];
-        if (traps) {
-            record_transition(trace, width, WidthEffect::InstrumentDormantTrap, width);
-            return;
+WidthTransition classify_and_apply(const HirModule& hir, const HeisenbergOp& op,
+                                   DormantSubspace& subspace) {
+    const uint32_t before = subspace.active_width();
+    switch (op.op_type()) {
+        case OpType::T_GATE:
+        case OpType::PHASE_ROTATION: {
+            const PauliString body = detail::pauli_body(hir, op);
+            if (subspace.apply_rotation(body)) {
+                return WidthTransition{before, subspace.active_width(),
+                                       WidthEffect::RotationPromote};
+            }
+            if (subspace.contains(body)) {
+                return WidthTransition{before, before, WidthEffect::RotationStabilizer};
+            }
+            return WidthTransition{before, before, WidthEffect::RotationNeutral};
         }
-        [[maybe_unused]] const bool promoted = subspace.apply_rotation(body);
-        assert(promoted && "instrument body must anticommute with S here");
-        record_transition(trace, width, WidthEffect::InstrumentActivate, subspace.active_width());
-        return;
-    }
-    if (subspace.contains(body)) {
-        record_transition(trace, width, WidthEffect::InstrumentClassical, width);
-        return;
-    }
-    record_transition(trace, width, WidthEffect::InstrumentActive, width);
-}
+        case OpType::MEASURE: {
+            const PauliString body = detail::pauli_body(hir, op);
+            switch (subspace.apply_measurement(body)) {
+                case DormantSubspace::MeasurementEffect::DormantRandom:
+                    return WidthTransition{before, before, WidthEffect::MeasureDormantRandom};
+                case DormantSubspace::MeasurementEffect::Classical:
+                    return WidthTransition{before, before, WidthEffect::MeasureClassical};
+                case DormantSubspace::MeasurementEffect::Active:
+                    return WidthTransition{before, subspace.active_width(),
+                                           WidthEffect::MeasureActive};
+            }
+            assert(false && "unreachable DormantSubspace::MeasurementEffect");
+            return WidthTransition{before, before, WidthEffect::None};
+        }
+        case OpType::INSTRUMENT: {
+            const PauliString body = detail::pauli_body(hir, op);
+            const InstrumentSite& site =
+                hir.instrument_sites.at(static_cast<uint32_t>(op.instrument_site_idx()));
 
-}  // namespace
+            if (!subspace.commutes_with_all(body)) {
+                const bool traps = hir.neglect_instrument_damping ||
+                                   site.probabilities.p_fire[0] == site.probabilities.p_fire[1];
+                if (traps) {
+                    return WidthTransition{before, before, WidthEffect::InstrumentDormantTrap};
+                }
+                [[maybe_unused]] const bool promoted = subspace.apply_rotation(body);
+                assert(promoted && "instrument body must anticommute with S here");
+                return WidthTransition{before, subspace.active_width(),
+                                       WidthEffect::InstrumentActivate};
+            }
+            if (subspace.contains(body)) {
+                return WidthTransition{before, before, WidthEffect::InstrumentClassical};
+            }
+            return WidthTransition{before, before, WidthEffect::InstrumentActive};
+        }
+        case OpType::CONDITIONAL_PAULI:
+        case OpType::NOISE:
+        case OpType::READOUT_NOISE:
+        case OpType::DETECTOR:
+        case OpType::OBSERVABLE:
+        case OpType::EXP_VAL:
+        case OpType::NUM_OP_TYPES:
+            return WidthTransition{before, before, WidthEffect::None};
+    }
+    assert(false && "unreachable OpType");
+    return WidthTransition{before, before, WidthEffect::None};
+}
 
 ActiveWidthTrace analyze_active_width(const HirModule& hir) {
     ActiveWidthTrace trace;
@@ -287,33 +305,24 @@ ActiveWidthTrace analyze_active_width(const HirModule& hir) {
     trace.peak_width = trace.initial_width;
     trace.transitions.reserve(hir.ops.size());
 
-    uint32_t width = trace.initial_width;
     for (const HeisenbergOp& op : hir.ops) {
-        switch (op.op_type()) {
-            case OpType::T_GATE:
-            case OpType::PHASE_ROTATION:
-                analyze_rotation(hir, op, subspace, trace, width);
-                break;
-            case OpType::MEASURE:
-                analyze_measurement(hir, op, subspace, trace, width);
-                break;
-            case OpType::INSTRUMENT:
-                analyze_instrument(hir, op, subspace, trace, width);
-                break;
-            case OpType::CONDITIONAL_PAULI:
-            case OpType::NOISE:
-            case OpType::READOUT_NOISE:
-            case OpType::DETECTOR:
-            case OpType::OBSERVABLE:
-            case OpType::EXP_VAL:
-            case OpType::NUM_OP_TYPES:
-                record_transition(trace, width, WidthEffect::None, width);
-                break;
-        }
+        const WidthTransition transition = classify_and_apply(hir, op, subspace);
+        trace.transitions.push_back(transition);
+        trace.peak_width = std::max(trace.peak_width, transition.after);
     }
 
-    trace.final_width = width;
+    trace.final_width =
+        trace.transitions.empty() ? trace.initial_width : trace.transitions.back().after;
     return trace;
+}
+
+double estimate_dense_work(const ActiveWidthTrace& trace) {
+    double work = 0.0;
+    for (const WidthTransition& transition : trace.transitions) {
+        work +=
+            detail::dense_work_contribution(transition.effect, transition.before, transition.after);
+    }
+    return work;
 }
 
 }  // namespace clifft

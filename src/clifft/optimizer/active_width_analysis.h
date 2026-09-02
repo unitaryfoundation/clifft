@@ -151,6 +151,14 @@ enum class WidthEffect : uint8_t {
                             // InstrumentMode::DormantTrap.
 };
 
+// True for the two WidthEffect values that raise active width. A search or
+// scheduler branches only on these; every other effect is safe to fold into
+// a closure sweep (see active_width_search.h for the closure argument this
+// distinction supports).
+[[nodiscard]] constexpr bool is_expanding_effect(WidthEffect effect) {
+    return effect == WidthEffect::RotationPromote || effect == WidthEffect::InstrumentActivate;
+}
+
 struct WidthTransition {
     uint32_t before = 0;
     uint32_t after = 0;
@@ -164,6 +172,35 @@ struct ActiveWidthTrace {
     std::vector<WidthTransition> transitions;
 };
 
+namespace detail {
+
+// Reconstructs `op`'s Pauli body directly from HIR-frame masks. Shared by
+// classify_and_apply and by every scheduler that replays ops against a
+// DormantSubspace one at a time (active_width_search.cc,
+// active_width_schedule_pass.cc), so they all read the same bits the same
+// way rather than keeping independent copies in sync by hand.
+[[nodiscard]] PauliString pauli_body(const HirModule& hir, const HeisenbergOp& op);
+
+// Per-transition contribution to estimate_dense_work's planning proxy: 2^w
+// for the width w the dense state has when the transition's action runs, or
+// 0 for an action that never touches the dense state. See
+// estimate_dense_work's comment for the exact per-effect table. Exposed
+// separately so a caller that builds a schedule incrementally (the
+// scheduling pass) can accumulate this per op instead of replaying a whole
+// trace after every candidate move.
+[[nodiscard]] double dense_work_contribution(WidthEffect effect, uint32_t before, uint32_t after);
+
+}  // namespace detail
+
+// Classifies `op` against `subspace` exactly as analyze_active_width does,
+// applies its effect, and returns the transition (before/after width and
+// effect). This is the per-op primitive analyze_active_width loops over;
+// the exact search and the scheduling pass reuse it too, so all three agree
+// on the same classification by construction rather than by three
+// hand-synchronized copies.
+[[nodiscard]] WidthTransition classify_and_apply(const HirModule& hir, const HeisenbergOp& op,
+                                                 DormantSubspace& subspace);
+
 // Recomputes the sampling planner's active-width trace directly from HIR,
 // without building a coordinate frame or symbolic Pauli frame and without
 // mutating `hir`. Produces exactly one transition per HIR op, in op order.
@@ -175,5 +212,19 @@ struct ActiveWidthTrace {
 // executable output still goes through sampling::plan_sampling, which
 // enforces that limit itself.
 [[nodiscard]] ActiveWidthTrace analyze_active_width(const HirModule& hir);
+
+// Planning proxy for the dense work a trace performs: the sum, over
+// transitions, of 2^w for each action that touches the dense state, where w
+// is the width at the moment that action runs -- the width just before a
+// collapsing measurement (MeasureActive), or just after an expansion
+// (RotationPromote, InstrumentActivate) or a width-neutral dense action
+// (RotationNeutral, InstrumentActive). Every other effect contributes
+// nothing: it never reads or writes the dense coefficient state.
+//
+// This is a planning proxy, not a runtime cost model: kernel fusion,
+// batching, and ISA dispatch all change the real per-action cost. It exists
+// only so a scheduler can rank candidate traces of otherwise-equal peak
+// width by how much dense work they do along the way.
+[[nodiscard]] double estimate_dense_work(const ActiveWidthTrace& trace);
 
 }  // namespace clifft
