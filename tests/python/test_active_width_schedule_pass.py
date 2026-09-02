@@ -28,15 +28,17 @@ def test_coherent_d3_reaches_peak_four() -> None:
 
 def test_coherent_d5_reaches_peak_at_most_thirteen() -> None:
     circuit = (_FIXTURES / "coherent_d5_r5.stim").read_text()
-    # coherent_d5_r5 is a few thousand HIR ops; ScheduleDependence::build is
-    # an O(N^2) can_swap scan, run once here and again for the pass's
-    # exact-repair copy. A narrower beam and no exact-repair budget measure
-    # within a couple percent of the class default's dense-work reduction
-    # on this fixture (both land far short of half) while running orders of
-    # magnitude faster, so this test uses cheaper options than the default
-    # to stay fast; see test_active_width_schedule_pass.cc's matching C++
-    # fixture test for the measurements this mirrors.
-    fast_pass = clifft.ActiveWidthSchedulePass(beam_width=1, exact_node_budget=0)
+    # coherent_d5_r5 is a few thousand HIR ops. exact_node_budget already
+    # defaults to 0 (see the C++ header comment: measured on the corpus,
+    # exact repair never lowered a peak the beam had not already reached).
+    # The beam search's own two-phase scoring keeps a full beam_width of 8
+    # well under a second in Release, but Debug's lack of inlining leaves
+    # per-candidate SearchFrontier::execute/undo (a std::set insert/erase
+    # pair) as the dominant cost on this fixture's wide branching factor
+    # regardless, so this test still narrows the beam to stay fast; see
+    # test_active_width_schedule_pass.cc's matching C++ fixture test for
+    # the beam_width 1 vs 8 dense-work comparison this mirrors.
+    fast_pass = clifft.ActiveWidthSchedulePass(beam_width=1)
     program = clifft.compile(circuit, hir_passes=_schedule_pass_manager(fast_pass))
     assert program.peak_active_width <= 13
 
@@ -82,10 +84,14 @@ def test_pass_statistics_are_populated() -> None:
     # HirPassManager.add() wraps a non-owning delegate around the
     # Python-owned pass and HirPassManager.run() drives it, so the original
     # pass_ object's statistics are populated in place afterward.
+    #
+    # exact_node_budget defaults to 0, so this test passes a nonzero value
+    # explicitly (cheap on this small fixture regardless) to keep the
+    # exact-repair code path exercised from Python.
     circuit = (_FIXTURES / "coherent_d3_r3.stim").read_text()
     hir = clifft.trace(clifft.parse(circuit))
 
-    pass_ = clifft.ActiveWidthSchedulePass()
+    pass_ = clifft.ActiveWidthSchedulePass(exact_node_budget=2000)
     pm = _schedule_pass_manager(pass_)
     pm.run(hir)
 
@@ -99,7 +105,7 @@ def test_keyword_only_construction() -> None:
     pass_ = clifft.ActiveWidthSchedulePass(
         noise_transparent=False,
         beam_width=2,
-        exact_node_budget=0,
+        exact_node_budget=500,
         sink_neutral_rotations=False,
     )
     assert isinstance(pass_, clifft.HirPass)

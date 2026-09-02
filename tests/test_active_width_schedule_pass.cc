@@ -153,30 +153,33 @@ TEST_CASE("Schedule pass finds the certified optimum for the four operation circ
 // Fixture certificates
 // ---------------------------------------------------------------------------
 
-// coherent_d5_r5, cultivation_d5, and surface_d7_r7_p001 are all a few
-// thousand ops wide, and ScheduleDependence::build is a documented O(N^2)
-// can_swap scan (schedule_dependence.h); this pass builds one relation up
-// front and, when exact_node_budget > 0, a second one for the repair copy.
-// Measured against the unmodified default options, both the exact-repair
-// budget and beam widths above 1 cost tens of seconds on these fixtures for
-// dense-work gains too small to matter here (confirmed by direct
-// measurement: exact_node_budget 0, 500, 2000, and the 20000 default all
-// land on the identical dense-work figure below for both fixtures that
-// have one), so this test uses cheaper options than the class default to
-// stay well under Debug's per-test time budget, and documents the
-// default-options numbers actually measured (also reported in the PR body)
-// instead of asserting them here.
-constexpr ActiveWidthScheduleOptions kFastRepairOptions{/*noise_transparent=*/true,
-                                                        /*beam_width=*/8, /*exact_node_budget=*/0,
-                                                        /*sink_neutral_rotations=*/true};
-
+// exact_node_budget defaults to 0 (off): measured on the clifft-paper
+// corpus, exact repair never lowered a peak the beam search alone had not
+// already reached, and its own ScheduleDependence::build on the repair
+// copy (a documented O(N^2) can_swap scan) cost seconds on the larger
+// fixtures for no numeric benefit. The coherent_d3_r3 section below passes
+// a nonzero budget explicitly so the repair code path stays covered by a
+// fixture cheap enough that the extra build does not matter.
+//
+// coherent_d5_r5 is a few thousand ops wide. Its beam search branches on
+// tens of simultaneously-ready, mutually independent expanding rotations
+// at many steps; the two-phase scoring in run_beam_search (score every
+// candidate against a shared frontier and a scratch subspace copy, then
+// materialize a full BeamState only for the beam_width survivors) keeps a
+// full beam_width of 8 well under a second in Release, but Debug's lack of
+// inlining leaves per-candidate SearchFrontier::execute/undo (a std::set
+// insert/erase pair) as the dominant cost regardless of how little else is
+// cloned, so this section still narrows the beam to keep the Debug test
+// fast; see the PR body for the beam_width 1 vs 8 dense-work comparison.
 TEST_CASE("Schedule pass reaches the expected peak and dense work on fixture circuits",
           "[schedule_pass]") {
-    SECTION("coherent_d3_r3 reaches peak 4") {
+    SECTION("coherent_d3_r3 reaches peak 4 with exact repair explicitly enabled") {
         const Circuit circuit =
             clifft::parse_file(std::string(CLIFFT_FIXTURES_DIR) + "/coherent_d3_r3.stim");
         const HirModule raw = clifft::trace(circuit);
-        ActiveWidthSchedulePass pass;  // default options: this fixture is cheap either way.
+        ActiveWidthScheduleOptions options;
+        options.exact_node_budget = 2000;  // nonzero: keeps maybe_exact_repair covered.
+        ActiveWidthSchedulePass pass(options);
         const HirModule scheduled = run_peephole_squeeze_schedule(raw, pass);
 
         INFO("incumbent_peak=" << pass.incumbent_peak() << " result_peak=" << pass.result_peak()
@@ -192,9 +195,9 @@ TEST_CASE("Schedule pass reaches the expected peak and dense work on fixture cir
         const HirModule raw = clifft::trace(circuit);
         // beam_width 1 (greedy) measures within 2% of beam_width 8's dense
         // work on this fixture (both land around 62% of the incumbent, well
-        // short of half) while running roughly two orders of magnitude
-        // faster, so this section additionally narrows the beam.
-        ActiveWidthScheduleOptions options = kFastRepairOptions;
+        // short of half); see the header comment above for why this section
+        // narrows the beam despite beam_width 8 being affordable in Release.
+        ActiveWidthScheduleOptions options;
         options.beam_width = 1;
         ActiveWidthSchedulePass pass(options);
         run_peephole_squeeze_schedule(raw, pass);
@@ -211,7 +214,7 @@ TEST_CASE("Schedule pass reaches the expected peak and dense work on fixture cir
         const Circuit circuit =
             clifft::parse_file(std::string(CLIFFT_FIXTURES_DIR) + "/cultivation_d5.stim");
         const HirModule raw = clifft::trace(circuit);
-        ActiveWidthSchedulePass pass{kFastRepairOptions};
+        ActiveWidthSchedulePass pass;  // default options (exact_node_budget = 0).
         run_peephole_squeeze_schedule(raw, pass);
 
         INFO("incumbent_peak=" << pass.incumbent_peak() << " result_peak=" << pass.result_peak()
@@ -225,7 +228,7 @@ TEST_CASE("Schedule pass reaches the expected peak and dense work on fixture cir
         const Circuit circuit =
             clifft::parse_file(std::string(CLIFFT_FIXTURES_DIR) + "/surface_d7_r7_p001.stim");
         const HirModule raw = clifft::trace(circuit);
-        ActiveWidthSchedulePass pass{kFastRepairOptions};
+        ActiveWidthSchedulePass pass;  // default options (exact_node_budget = 0).
         run_peephole_squeeze_schedule(raw, pass);
 
         INFO("incumbent_peak=" << pass.incumbent_peak() << " result_peak=" << pass.result_peak()

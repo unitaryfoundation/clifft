@@ -50,8 +50,16 @@ struct ActiveWidthScheduleOptions {
     uint32_t beam_width = 8;
 
     // Node budget for the optional exact-repair step that runs
-    // search_width_schedule on the beam's own result. 0 disables repair.
-    uint64_t exact_node_budget = 20000;
+    // search_width_schedule on the beam's own result. 0 disables repair,
+    // and is the default: measured against the beam search alone on the
+    // clifft-paper corpus in a Release build, exact repair never lowered a
+    // peak the beam had not already reached and cost seconds of Release
+    // wall time on the larger fixtures (ScheduleDependence::build is a
+    // documented O(N^2) scan, and repair pays for a second one against the
+    // beam's own result), so it is opt-in rather than on by default. The
+    // knob stays because a circuit the beam handles worse than this corpus
+    // could still benefit from it.
+    uint64_t exact_node_budget = 0;
 
     // Whether to bubble width-neutral rotations rightward past independent
     // non-expanding ops after scheduling, clustering them just before the

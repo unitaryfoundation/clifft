@@ -748,8 +748,7 @@ NB_MODULE(_clifft_core, m) {
                 new (self) clifft::ActiveWidthSchedulePass(options);
             },
             nb::arg("noise_transparent") = true, nb::arg("beam_width") = uint32_t{8},
-            nb::arg("exact_node_budget") = uint64_t{20000},
-            nb::arg("sink_neutral_rotations") = true)
+            nb::arg("exact_node_budget") = uint64_t{0}, nb::arg("sink_neutral_rotations") = true)
         .def_prop_ro("incumbent_peak", &clifft::ActiveWidthSchedulePass::incumbent_peak)
         .def_prop_ro("result_peak", &clifft::ActiveWidthSchedulePass::result_peak)
         .def_prop_ro("incumbent_dense_work", &clifft::ActiveWidthSchedulePass::incumbent_dense_work)
