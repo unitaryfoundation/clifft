@@ -108,7 +108,7 @@ and moves production builds onto Clifft's native Clifford implementation. Stim
 remains an independent test oracle.
 
 Read [Packed Sampling in Clifft](updates/packed-sampling.md) for the design,
-automatic policy, reproducibility contract, and v0.9 comparison. See
+automatic policy, and v0.9 comparison. See
 [Circuit Inputs](guide/circuit-inputs.md) for OpenQASM, Qiskit, and Cirq options,
 or [CPU Execution and Tuning](guide/cpu-execution.md) for detailed controls.
 

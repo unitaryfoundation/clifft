@@ -1,180 +1,115 @@
 # Packed Sampling in Clifft (v0.10.0, September 2026)
 
 Version 0.8.0 rebuilt Clifft around symbolic-coordinate sampling. Version
-0.9.0 then restored multicore execution, letting one worker budget run many
-shots concurrently or divide a wide active state across OpenMP workers.
+0.9.0 restored multicore execution, letting one worker budget run many shots
+concurrently or divide a wide active state across OpenMP workers.
 
-Version 0.10.0 adds a third form of CPU parallelism: packed batch sampling.
-Instead of advancing each trajectory through the prepared plan independently,
-Clifft can advance a group of low-active-width trajectories together. The goal
-is higher throughput when each individual shot is too small to keep modern CPU
+Version 0.10.0 adds another level of CPU parallelism: packed batch sampling.
+Clifft can now advance a group of low-active-width trajectories together,
+improving throughput when each individual shot is too small to keep modern CPU
 execution resources busy on its own.
 
-This is still exact simulation. Packing changes how Clifft organizes work and
-random streams, not the circuit distribution being sampled.
+This remains exact simulation. Packing changes how Clifft organizes the work,
+not the circuit distribution being sampled.
 
-## From cores to lanes
-
-The parallelism added in v0.9.0 works at the worker level. Cross-shot workers
-own separate executors and claim independent ranges of shots, while intra-shot
-workers cooperate on the coefficient array for one wide trajectory.
-
-That model works well when there are enough substantial shots to distribute or
-when one active state is large enough to divide across cores. It leaves another
-important regime: many shots whose active states stay small.
+## Why pack shots?
 
 At active width $k$, Clifft's dense active state contains $2^k$ complex
-coefficients. When $k$ is small, the arithmetic for one action can be cheaper
-than the surrounding control flow, symbolic expression evaluation, record
-updates, and repeated passes over short arrays. Adding more independent worker
-objects does not remove that per-shot work.
+coefficients. Wide states provide enough arithmetic to divide within a shot,
+while large shot counts can be spread across independent workers. But many
+near-Clifford workloads combine a large number of shots with small active
+states.
 
-Packed sampling instead treats several shots as lanes of one executor. Each
-prepared action is visited once for the group, and its lane-local effects are
-applied across the active trajectories together.
-
-## One plan, many trajectories
-
-Clifft prepares the packed path before entering hot execution:
-
-- stochastic symbols are sampled for the batch and Boolean values are stored
-  as packed bit columns;
-- record, detector, observable, and symbolic sidecars use the same lane
-  organization;
-- active-state coefficients are interleaved by basis index so the values for
-  neighboring lanes are contiguous;
-- rotations, promotions, measurements, conditional variants, and expectation
-  values operate directly on that representation; and
-- rejected post-selection lanes can be compacted while retaining survivor
-  order and the associated sidecars.
-
-The executor therefore reuses one prepared action stream without merging the
-trajectories mathematically. Every lane still carries its own random choices,
-record history, symbolic state, and active-state coefficients.
+In that regime, advancing shots one at a time repeatedly evaluates the same
+prepared action stream and operates on arrays too short to use the CPU
+efficiently. Packed sampling instead treats several shots as lanes of one
+executor. Boolean state is stored in packed columns, active-state coefficients
+are interleaved across lanes, and each prepared action is applied to the group.
+The trajectories remain mathematically independent, but the executor shares
+more of the work around them.
 
 The approach was inspired by the packed cross-shot path in
-[SymFT](https://arxiv.org/abs/2607.28600), whose low-active-width results helped
-motivate bringing a similar execution mode to Clifft. Clifft adapts that idea
-to its own prepared sampling plans and supports ordinary rows, retained
-post-selected survivors, and fixed-fault workflows through the same public
-sampling APIs. Comparisons with SymFT belong on the dedicated Performance page;
-this article focuses on what changed between Clifft v0.9.0 and v0.10.0.
+[SymFT](https://arxiv.org/abs/2607.28600), whose results on low-active-width
+circuits helped motivate a similar mode in Clifft. Clifft adapts the idea to
+its prepared sampling plans and result APIs. The dedicated Performance page
+will present the broader comparisons with SymFT; here the focus is the change
+from Clifft v0.9.0 to v0.10.0.
 
-## Automatic when the shape is right
+## Automatic when useful
 
-Packed execution is not universally faster. It adds transposition, lane
-bookkeeping, and memory costs that must be recovered by sharing enough useful
-work. The best choice depends on shot count, active width over time, output
-mode, post-selection lifetime, worker count, and the machine running the job.
+Packed execution has its own bookkeeping and memory costs, so it is not faster
+for every circuit. The default `batch_size="auto"` policy considers the shot
+count, active width, estimated lane work, output mode, and retained storage. It
+selects packing conservatively for workloads expected to benefit and keeps the
+scalar path otherwise.
 
-The default `batch_size="auto"` policy is deliberately conservative. It
-considers packing for ordinary fixed-plan sampling when at least 64 shots were
-requested, the program has no post-selection, peak active width is at most 5,
-and estimated work and retained storage fit automatic budgets. A long width-5
-program can still stay scalar when the estimate says packing is unlikely to
-pay off.
+The same interface is available on the four fixed-plan samplers:
 
-Automatic survivor sampling stays scalar because static planning cannot
-predict how long rejected lanes will remain alive. Advanced callers can still
-request an explicit packed capacity for measured workloads:
+- `sample()`
+- `sample_survivors()`
+- `sample_k()`
+- `sample_k_survivors()`
 
-<!--pytest.mark.skip-->
+Most users can leave the automatic policy alone. Advanced callers can set
+`batch_size=1` to require scalar execution or request an explicit packed
+capacity after measuring their own workload. Automatic survivor sampling stays
+scalar because the planner cannot predict how long post-selected lanes will
+remain alive.
 
-```python
-import clifft
+Packed execution cannot be combined with intra-shot OpenMP, since both modes
+organize the active-state kernels in different ways. The
+[CPU execution guide](../guide/cpu-execution.md) documents the selection
+policy, supported combinations, and memory tradeoffs.
 
-program = clifft.compile("H 0\nT 0\nM 0")
+## Less work before faster execution
 
-automatic = clifft.sample(program, shots=100_000, seed=42)
-scalar = clifft.sample(program, shots=100_000, seed=42, batch_size=1)
-packed = clifft.sample(program, shots=100_000, seed=42, batch_size=1024)
-```
+The runtime improvements are paired with compiler work that can shrink the
+active state before execution begins. Clifft's statevector-squeeze pass delays
+expansions when intervening operations permit it, giving measurements an
+earlier opportunity to remove active coordinates.
 
-A positive integer requests capacity for up to that many lanes, subject to the
-shot count and safety limits. Explicit capacities are power-user controls, not
-recommendations that larger batches are always better. The
-[CPU execution guide](../guide/cpu-execution.md) documents the current policy,
-supported APIs, memory model, and tuning guidance.
-
-Packed execution and intra-shot OpenMP both target the active-state kernels in
-different ways, so they cannot be combined. Use cross-shot workers with packed
-lanes when both controls must be fixed explicitly.
-
-## Reproducibility across execution modes
-
-Changing only the cross-shot worker count preserves seeded rows and survivor
-order. Workers claim deterministic shot ranges from the same scalar or packed
-random stream.
-
-Scalar and packed execution intentionally use separate random-stream domains,
-and different explicit packed capacities can group draws differently. A fixed
-seed therefore reproduces results when the complete execution configuration is
-unchanged, but it does not promise identical rows after switching between
-scalar and packed modes.
-
-All supported modes sample the same circuit distribution. This distinction
-keeps exact replay well defined without coupling future execution strategies to
-one historical random-number schedule.
-
-## Reducing the work before packing it
-
-The largest performance wins often come from shrinking the active state before
-choosing how to execute it. Clifft's statevector-squeeze pass moves expansions
-later when intervening operations permit it, allowing measurements to remove
-active coordinates sooner.
-
-Version 0.10.0 extends that motion across expansion convoys: sequences of
-expanding operations that previously blocked a safe non-expanding operation
-waiting beyond them. The new lookahead preserves stable ordering at blocked
-crossings while avoiding repeated scans.
-
-On the coherent QEC integration workloads used during development, this lowers
-peak active width from 8 to 5 for the distance-3, three-round circuit and from
-24 to 13 for the distance-5, five-round circuit. Since coefficient storage and
-kernel work scale with $2^k$, reducing $k$ is complementary to both packed and
-threaded execution.
+Version 0.10.0 extends that motion across sequences of expanding operations
+that previously blocked a safe non-expanding operation. On the coherent QEC
+workloads used during development, this reduces peak active width from 8 to 5
+for the distance-3, three-round circuit and from 24 to 13 for the distance-5,
+five-round circuit. Since storage and kernel work scale with $2^k$, reducing
+$k$ complements both packed and threaded execution.
 
 Apple Silicon also gains native NEON kernels for direct and fused rotations and
-diagonal active measurements. Clifft selects them automatically when the
-operation is large enough to benefit and retains scalar fallbacks below the
-measured profitability thresholds.
+diagonal active measurements. Clifft selects them automatically when an
+operation is large enough to benefit and retains scalar fallbacks for smaller
+work.
 
 ## Measured against v0.9.0
 
 !!! note "Benchmark figure pending"
     The final article will summarize matched `clifft-bench` measurements of
     PyPI v0.9.0 and the exact v0.10.0 release candidate on the same host and
-    workload corpus. This section will contain the headline findings and one
-    figure; the dedicated Performance page will own the broader results,
-    methodology, raw-data links, and SymFT comparisons.
+    workload corpus. It will include the headline findings and one figure. The
+    dedicated Performance page will contain the wider results, methodology,
+    raw-data links, and SymFT comparisons.
 
-The comparison will separate improvements from packed execution, compiler
-active-width reductions, and architecture-specific kernels where the workload
-and hardware make those distinctions meaningful. Workloads that remain scalar
-under the automatic policy are part of the result too: avoiding an unprofitable
-mode is one of the policy's jobs.
+The comparison will cover both workloads accelerated by packing and workloads
+that benefit from the compiler or architecture-specific changes instead.
+Remaining on the scalar path when packing would lose is also part of the
+automatic policy's job.
 
 ## A more self-contained core
 
-The packed executor is the main user-visible performance change, but v0.10.0
-also reduces Clifft's production dependency surface.
-
+Version 0.10.0 also reduces Clifft's production dependency surface.
 Compilation, optimization, planning, exact state queries, Python, and
-WebAssembly now use Clifft's native runtime-width Pauli strings and tableaus.
-Stim remains valuable as an independent Python test oracle, but production
-targets no longer fetch or link it. This separation makes the correctness
-boundary clearer and reduces production build time and build-tree size without
-claiming a runtime speedup from the dependency change itself.
+WebAssembly now use Clifft's native Pauli strings and tableaus. Stim remains an
+independent test oracle, but production targets no longer fetch or link it.
+This reduces production build time and build-tree size without claiming a
+runtime speedup from the dependency change itself.
 
 Clifft also accepts a documented unitary subset of OpenQASM 2 without requiring
 Qiskit. The native parser supports standard `qelib1.inc` unitary operations,
 register broadcasting, barriers, and finite constant-angle expressions. It
-rejects measurements, resets, classical control, and custom gate declarations
-rather than assigning them approximate semantics. See
-[Circuit Inputs](../guide/circuit-inputs.md) for the supported paths and their
-limits.
+rejects unsupported dynamic constructs rather than assigning them approximate
+semantics. See [Circuit Inputs](../guide/circuit-inputs.md) for the supported
+paths and their limits.
 
-Together, these changes continue the arc begun in v0.8.0: plan more work ahead
-of execution, keep the hot path specialized to the workload shape, and retain
-explicit controls when automatic policy cannot know enough about a production
-environment.
+Together, these changes keep more work in the prepared plan, choose an
+execution strategy suited to the workload, and make the core package more
+self-contained.
