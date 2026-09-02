@@ -33,12 +33,17 @@ struct BeamState {
     std::vector<uint32_t> order;
 };
 
-void absorb_closure_transitions(BeamState& state, const std::vector<WidthTransition>& transitions) {
+void absorb_transitions(uint32_t& peak, double& dense_work,
+                        const std::vector<WidthTransition>& transitions) {
     for (const WidthTransition& transition : transitions) {
-        state.peak = std::max(state.peak, transition.after);
-        state.dense_work +=
+        peak = std::max(peak, transition.after);
+        dense_work +=
             detail::dense_work_contribution(transition.effect, transition.before, transition.after);
     }
+}
+
+void absorb_closure_transitions(BeamState& state, const std::vector<WidthTransition>& transitions) {
+    absorb_transitions(state.peak, state.dense_work, transitions);
 }
 
 BeamState make_initial_beam_state(const HirModule& hir, const ScheduleDependence& dependence) {
@@ -51,57 +56,116 @@ BeamState make_initial_beam_state(const HirModule& hir, const ScheduleDependence
     return state;
 }
 
-// One child of a beam state: commit to `first_op` (a ready expanding op)
-// then close. Scored by (peak, width_after_closure, dense_work, first_op)
-// ascending, matching search_width_schedule's own candidate ranking so the
-// beam and the exact repair step agree on which move looks best whenever
-// both consider the same choice.
-struct BeamCandidate {
-    BeamState state;
-    uint32_t width_after_closure = 0;
-    uint32_t first_op = 0;
-};
-
 std::vector<uint32_t> ready_ops_snapshot(const detail::SearchFrontier& frontier) {
     return std::vector<uint32_t>(frontier.ready().begin(), frontier.ready().end());
 }
 
-// Expands `parent` into one child per ready expanding op: each child is an
-// independent clone (never a mutation of `parent`), since the beam keeps
-// several partial schedules alive at once rather than backtracking one
-// shared frontier the way the exact search's DFS does.
-std::vector<BeamCandidate> expand_state(const HirModule& hir, const BeamState& parent) {
-    std::vector<BeamCandidate> children;
+// A scored but not yet materialized child of beam[parent_index]: committing
+// to `first_op` (a ready expanding op) and closing would append `ops`
+// (first_op followed by its closure sweep, in execution order) to the
+// parent's own order and reach `width_after_closure`/peak/dense_work.
+// executed_bits is the parent's post-candidate executed-op bitset, captured
+// for deduplication without needing a per-candidate SearchFrontier clone.
+// Scored by (peak, width_after_closure, dense_work, first_op) ascending,
+// matching search_width_schedule's own candidate ranking so the beam and
+// the exact repair step agree on which move looks best whenever both
+// consider the same choice.
+struct ScoredCandidate {
+    uint32_t parent_index = 0;
+    std::vector<uint32_t> ops;
+    std::vector<uint64_t> executed_bits;
+    uint32_t width_after_closure = 0;
+    uint32_t peak = 0;
+    double dense_work = 0.0;
+    uint32_t first_op = 0;
+};
+
+// Scores every ready expanding op of `parent` without materializing a full
+// child BeamState for each: `parent.frontier` is mutated and restored via
+// execute()/undo() exactly as active_width_search.cc's simulate_candidate
+// mutates and restores its shared DFS frontier, and only `subspace` (which
+// has no cheap undo) is cloned, once per candidate. This is the expensive
+// step's cost reduction: on a fixture with many simultaneously-ready
+// independent expanding ops, most candidates are discarded after scoring,
+// so paying only for a DormantSubspace clone and a small ops list here --
+// not a SearchFrontier clone and a full copy of the (potentially
+// near-complete) order vector -- is what keeps this affordable. `parent` is
+// left exactly as found on return.
+std::vector<ScoredCandidate> score_candidates(const HirModule& hir, BeamState& parent,
+                                              uint32_t parent_index) {
+    std::vector<ScoredCandidate> scored;
     for (uint32_t op : ready_ops_snapshot(parent.frontier)) {
         if (!detail::is_expanding(hir, hir.ops[op], parent.subspace)) {
             continue;
         }
 
-        BeamState child_state(parent.frontier, parent.subspace);
-        child_state.peak = parent.peak;
-        child_state.dense_work = parent.dense_work;
-        child_state.order = parent.order;
+        DormantSubspace scratch(parent.subspace);
+        std::vector<detail::UndoStep> log;
 
-        child_state.frontier.execute(op);
-        child_state.order.push_back(op);
-        const WidthTransition first_transition =
-            classify_and_apply(hir, hir.ops[op], child_state.subspace);
+        log.emplace_back(op, parent.frontier.execute(op));
+        ScoredCandidate candidate;
+        candidate.parent_index = parent_index;
+        candidate.first_op = op;
+        candidate.ops.push_back(op);
+
+        const WidthTransition first_transition = classify_and_apply(hir, hir.ops[op], scratch);
         assert(is_expanding_effect(first_transition.effect) &&
-               "expand_state chose a ready op is_expanding did not classify as expanding");
-        child_state.peak = std::max(child_state.peak, first_transition.after);
-        child_state.dense_work += detail::dense_work_contribution(
-            first_transition.effect, first_transition.before, first_transition.after);
+               "score_candidates chose a ready op is_expanding did not classify as expanding");
+        candidate.peak = std::max(parent.peak, first_transition.after);
+        candidate.dense_work =
+            parent.dense_work + detail::dense_work_contribution(first_transition.effect,
+                                                                first_transition.before,
+                                                                first_transition.after);
 
-        std::vector<detail::UndoStep> discarded_log;
         std::vector<WidthTransition> swept;
-        detail::run_closure(hir, child_state.frontier, child_state.subspace, child_state.order,
-                            discarded_log, &swept);
-        absorb_closure_transitions(child_state, swept);
+        detail::run_closure(hir, parent.frontier, scratch, candidate.ops, log, &swept);
+        absorb_transitions(candidate.peak, candidate.dense_work, swept);
 
-        const uint32_t width_after_closure = child_state.subspace.active_width();
-        children.push_back(BeamCandidate{std::move(child_state), width_after_closure, op});
+        candidate.width_after_closure = scratch.active_width();
+        candidate.executed_bits = parent.frontier.executed_bits();
+
+        detail::undo_all(parent.frontier, log);
+        scored.push_back(std::move(candidate));
     }
-    return children;
+    return scored;
+}
+
+// Materializes a beam_width survivor: clones its parent once (the only
+// clone this candidate ever needed) and replays `candidate.ops` -- already
+// known from scoring, so this is a deterministic replay rather than a new
+// search -- through the clone's own frontier and subspace. The assertions
+// cross-check that this replay reaches exactly what score_candidates
+// predicted, since the two are computed by independent code paths that
+// must agree bit-for-bit (dense_work accumulates the same transitions in
+// the same order in both places, so the floating-point sums match exactly,
+// not just numerically).
+BeamState materialize_candidate(const HirModule& hir, const std::vector<BeamState>& beam,
+                                const ScoredCandidate& candidate) {
+    const BeamState& parent = beam[candidate.parent_index];
+    BeamState state(parent.frontier, parent.subspace);
+    state.peak = parent.peak;
+    state.dense_work = parent.dense_work;
+    state.order = parent.order;
+    state.order.reserve(state.order.size() + candidate.ops.size());
+
+    for (uint32_t op : candidate.ops) {
+        state.frontier.execute(op);
+        const WidthTransition transition = classify_and_apply(hir, hir.ops[op], state.subspace);
+        state.peak = std::max(state.peak, transition.after);
+        state.dense_work +=
+            detail::dense_work_contribution(transition.effect, transition.before, transition.after);
+        state.order.push_back(op);
+    }
+
+    assert(state.subspace.active_width() == candidate.width_after_closure &&
+           "materialize_candidate's replay disagrees with score_candidates' speculative width");
+    assert(state.peak == candidate.peak &&
+           "materialize_candidate's replay disagrees with score_candidates' speculative peak");
+    assert(
+        state.dense_work == candidate.dense_work &&
+        "materialize_candidate's replay disagrees with score_candidates' speculative dense work");
+
+    return state;
 }
 
 // Among completed (fully executed) beam states, the one with the smallest
@@ -140,6 +204,15 @@ const BeamState* pick_best_completed(const std::vector<BeamState>& completed) {
 // op's own closure sweep scores best. Falls back to the identity order if
 // no beam_width (e.g. a caller-supplied 0) ever lets a schedule complete;
 // the pass's own "never worse" check downstream makes that fallback safe.
+//
+// Two-phase per step: score_candidates ranks every ready expanding op of
+// every current beam state cheaply (see its own comment), then only the
+// surviving beam_width candidates -- picked by the same dedup-then-rank
+// rule the single-phase version used -- pay to materialize a full BeamState
+// via materialize_candidate. A wide, mostly-discarded generation is common
+// on fixtures with many independent expanding rotations, so this ordering
+// (score everything, materialize only the winners) is what makes the beam
+// width affordable to scale.
 std::vector<uint32_t> run_beam_search(const HirModule& hir, const ScheduleDependence& dependence,
                                       uint32_t beam_width) {
     std::vector<BeamState> beam;
@@ -147,23 +220,29 @@ std::vector<uint32_t> run_beam_search(const HirModule& hir, const ScheduleDepend
 
     std::vector<BeamState> completed;
     while (!beam.empty()) {
-        std::vector<BeamCandidate> generation;
-        for (BeamState& parent : beam) {
-            std::vector<BeamCandidate> children = expand_state(hir, parent);
-            if (children.empty()) {
-                // Closure already consumed every ready non-expanding op, so
-                // no ready expanding candidates left means no ready ops
-                // left at all, which is only possible once every op has
-                // executed (see active_width_search.h's confluence note).
-                assert(
-                    parent.frontier.executed_count() == dependence.num_ops() &&
-                    "a closed beam state with no ready expanding op must have executed every op");
-                completed.push_back(std::move(parent));
+        std::vector<ScoredCandidate> generation;
+        std::vector<bool> parent_has_candidates(beam.size(), false);
+        for (uint32_t i = 0; i < beam.size(); ++i) {
+            std::vector<ScoredCandidate> scored = score_candidates(hir, beam[i], i);
+            if (!scored.empty()) {
+                parent_has_candidates[i] = true;
+                for (ScoredCandidate& candidate : scored) {
+                    generation.push_back(std::move(candidate));
+                }
+            }
+        }
+
+        for (uint32_t i = 0; i < beam.size(); ++i) {
+            if (parent_has_candidates[i]) {
                 continue;
             }
-            for (BeamCandidate& child : children) {
-                generation.push_back(std::move(child));
-            }
+            // Closure already consumed every ready non-expanding op, so no
+            // ready expanding candidates left means no ready ops left at
+            // all, which is only possible once every op has executed (see
+            // active_width_search.h's confluence note).
+            assert(beam[i].frontier.executed_count() == dependence.num_ops() &&
+                   "a closed beam state with no ready expanding op must have executed every op");
+            completed.push_back(std::move(beam[i]));
         }
 
         if (generation.empty()) {
@@ -173,14 +252,13 @@ std::vector<uint32_t> run_beam_search(const HirModule& hir, const ScheduleDepend
         // Deduplicate by executed-op bitset: by confluence, the same set of
         // executed ops always reaches the same subspace and width, so only
         // the smaller-dense-work copy is worth keeping.
-        std::ranges::sort(generation, [](const BeamCandidate& a, const BeamCandidate& b) {
-            return a.state.frontier.executed_bits() < b.state.frontier.executed_bits();
+        std::ranges::sort(generation, [](const ScoredCandidate& a, const ScoredCandidate& b) {
+            return a.executed_bits < b.executed_bits;
         });
-        std::vector<BeamCandidate> deduped;
-        for (BeamCandidate& candidate : generation) {
-            if (!deduped.empty() && deduped.back().state.frontier.executed_bits() ==
-                                        candidate.state.frontier.executed_bits()) {
-                if (candidate.state.dense_work < deduped.back().state.dense_work) {
+        std::vector<ScoredCandidate> deduped;
+        for (ScoredCandidate& candidate : generation) {
+            if (!deduped.empty() && deduped.back().executed_bits == candidate.executed_bits) {
+                if (candidate.dense_work < deduped.back().dense_work) {
                     deduped.back() = std::move(candidate);
                 }
                 continue;
@@ -188,23 +266,25 @@ std::vector<uint32_t> run_beam_search(const HirModule& hir, const ScheduleDepend
             deduped.push_back(std::move(candidate));
         }
 
-        std::ranges::sort(deduped, [](const BeamCandidate& a, const BeamCandidate& b) {
-            if (a.state.peak != b.state.peak) {
-                return a.state.peak < b.state.peak;
+        std::ranges::sort(deduped, [](const ScoredCandidate& a, const ScoredCandidate& b) {
+            if (a.peak != b.peak) {
+                return a.peak < b.peak;
             }
             if (a.width_after_closure != b.width_after_closure) {
                 return a.width_after_closure < b.width_after_closure;
             }
-            if (a.state.dense_work != b.state.dense_work) {
-                return a.state.dense_work < b.state.dense_work;
+            if (a.dense_work != b.dense_work) {
+                return a.dense_work < b.dense_work;
             }
             return a.first_op < b.first_op;
         });
 
-        beam.clear();
+        std::vector<BeamState> next_beam;
+        next_beam.reserve(std::min<size_t>(deduped.size(), beam_width));
         for (size_t i = 0; i < deduped.size() && i < beam_width; ++i) {
-            beam.push_back(std::move(deduped[i].state));
+            next_beam.push_back(materialize_candidate(hir, beam, deduped[i]));
         }
+        beam = std::move(next_beam);
     }
 
     const BeamState* best = pick_best_completed(completed);
