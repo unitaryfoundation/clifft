@@ -109,7 +109,12 @@ ResolvedPauli resolve_pauli(const Pauli& initial_body, const AffineBool& initial
     Pauli body = coordinates.to_current(initial_body);
     sign ^= body.sign();
     body.set_sign(false);
-    sign ^= logical_noise_correction(hir, initial_body, noise_site_symbol_base, crossing);
+    // Schedule and logical positions agree unless a materialized
+    // logical_noise_prefix moved this operation across a noise site; skip
+    // building and XORing in a correction that would resolve to nothing.
+    if (crossing.schedule_count != crossing.logical_prefix) {
+        sign ^= logical_noise_correction(hir, initial_body, noise_site_symbol_base, crossing);
+    }
     return ResolvedPauli{std::move(body), std::move(sign)};
 }
 
@@ -235,7 +240,10 @@ struct PlanningRequirements {
     // site's own nonzero channels, i.e. the value plan.symbols.size() will
     // have when the main loop's NOISE case starts pushing that site's
     // symbols. Indexed by NoiseSiteIdx; sized to hir.noise_sites.size() even
-    // though only sites actually reached by a NOISE op are meaningful.
+    // though only sites actually reached by a NOISE op are meaningful. Left
+    // empty when HIR has no materialized logical_noise_prefix, since no
+    // operation can then cross a noise site and nothing needs a base to
+    // correct from.
     std::vector<uint32_t> noise_site_symbol_base;
 };
 
@@ -260,7 +268,12 @@ bool operation_supports_final_state_queries(OpType type) {
 
 PlanningRequirements inspect_planning_requirements(const HirModule& hir) {
     PlanningRequirements result;
-    result.noise_site_symbol_base.assign(hir.noise_sites.size(), 0);
+    // Only a materialized logical_noise_prefix can move an operation across
+    // a noise site, so only that case needs a base to correct from.
+    const bool track_noise_site_symbol_base = hir.has_logical_noise_prefix();
+    if (track_noise_site_symbol_base) {
+        result.noise_site_symbol_base.assign(hir.noise_sites.size(), 0);
+    }
     auto add = [&](size_t amount) {
         if (amount > std::numeric_limits<uint32_t>::max() - result.symbol_count) {
             throw std::length_error("sampling planner symbol count exceeds uint32 range");
@@ -282,7 +295,9 @@ PlanningRequirements inspect_planning_requirements(const HirModule& hir) {
                 if (site_index >= hir.noise_sites.size()) {
                     throw std::invalid_argument("sampling planner noise site is out of range");
                 }
-                result.noise_site_symbol_base[site_index] = result.symbol_count;
+                if (track_noise_site_symbol_base) {
+                    result.noise_site_symbol_base[site_index] = result.symbol_count;
+                }
                 const NoiseSite& site = hir.noise_sites[site_index];
                 add(std::ranges::count_if(site.channels, [](const NoiseChannel& channel) {
                     return channel.prob != 0.0;
@@ -661,7 +676,11 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
                 }
                 ++next_noise_site;
                 const NoiseSite& hir_site = hir.noise_sites[site_index];
-                assert(plan.symbols.size() == requirements.noise_site_symbol_base[site_index] &&
+                // The base is only populated when HIR has a materialized
+                // logical_noise_prefix; skip the check rather than index an
+                // empty vector when it was left untracked.
+                assert((!hir.has_logical_noise_prefix() ||
+                        plan.symbols.size() == requirements.noise_site_symbol_base[site_index]) &&
                        "sampling planner symbol prepass disagrees with the schedule-order "
                        "allocation it precomputed for this noise site");
                 PresampledNoiseSite& plan_site = plan.presampled_noise_sites[site_index];
