@@ -16,10 +16,6 @@ when they know better. A sampling call supplies a total worker budget; Clifft
 decides whether to spend it across independent shots or within a single
 expensive shot.
 
-Just as importantly, that execution choice does not change seeded results.
-Parallelism affects how Clifft computes a sample, not which experiment the
-sample represents.
-
 ## One worker budget, two forms of parallelism
 
 Near-Clifford workloads have different shapes.
@@ -47,7 +43,6 @@ program = clifft.compile("H 0\nT 0\nM 0")
 result = clifft.sample(
     program,
     shots=100_000,
-    seed=42,
     threads=8,
 )
 ```
@@ -124,26 +119,6 @@ These results recover a capability present in the original SVM rather than
 establishing multicore Clifft for the first time. What changes in v0.9.0 is the
 execution engine beneath it, the unified worker-budget interface, and the
 ability to choose between intra-shot and cross-shot work automatically.
-
-## Reproducibility across worker layouts
-
-Parallel scheduling creates a subtle reproducibility problem. If every worker
-draws from one shared random stream, changing the worker count or execution
-order can change which random values belong to which shot.
-
-Clifft 0.9.0 instead derives a separate random stream for every shot from the
-call seed, global shot index, and a domain identifying the source of
-randomness. A shot therefore receives the same stream regardless of which
-worker executes it.
-
-Workers may dynamically claim work to balance uneven shot costs, while results
-are restored to global shot order. With a fixed seed, changing `threads`
-preserves measurement, detector, and observable rows, survivor order, and
-noncomputational result sidecars.
-
-Seeded rows do differ from v0.8 because v0.9 introduced this per-shot
-derivation. Within v0.9, however, the worker layout is not part of the seeded
-result.
 
 ## Parallelism and memory
 
