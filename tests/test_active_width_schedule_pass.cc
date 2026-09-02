@@ -23,6 +23,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <chrono>
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <random>
 #include <string>
@@ -460,4 +461,112 @@ TEST_CASE("Schedule pass registry entry resolves and the factory produces a work
     passes.add_pass(clifft::make_hir_pass("ActiveWidthSchedulePass"));
     passes.run(hir);
     REQUIRE(analyze_active_width(hir).peak_width == 4);
+}
+
+// ---------------------------------------------------------------------------
+// Beam dedup regression: peak before dense work
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// Width the trace would peak at if `hir`'s ops executed in `order` (a
+// permutation of op indices), replayed directly against a fresh subspace.
+// Equivalent to analyze_active_width on a copy of `hir` reordered to
+// `order`, without paying for that copy on every candidate order the
+// brute-force search below tries.
+uint32_t peak_for_order(const HirModule& hir, const std::vector<uint32_t>& order) {
+    DormantSubspace subspace(hir.num_qubits);
+    uint32_t peak = subspace.active_width();
+    for (uint32_t op : order) {
+        const WidthTransition transition = classify_and_apply(hir, hir.ops[op], subspace);
+        peak = std::max(peak, transition.after);
+    }
+    return peak;
+}
+
+// Backtracking enumeration of every linear extension of `dep`: at each
+// step, branches on every currently ready op (the same readiness
+// bookkeeping SearchFrontier uses internally), recurses, then restores
+// remaining_preds for every successor of the op just tried -- not only the
+// ones that became newly ready -- so a sibling branch sees the same counts
+// the current one started with.
+void enumerate_linear_extensions(const ScheduleDependence& dep,
+                                 std::vector<uint32_t>& remaining_preds,
+                                 std::vector<bool>& executed, std::vector<uint32_t>& order,
+                                 const HirModule& hir, uint32_t& best_peak) {
+    if (order.size() == dep.num_ops()) {
+        best_peak = std::min(best_peak, peak_for_order(hir, order));
+        return;
+    }
+    for (uint32_t op = 0; op < dep.num_ops(); ++op) {
+        if (executed[op] || remaining_preds[op] != 0) {
+            continue;
+        }
+        executed[op] = true;
+        order.push_back(op);
+        for (uint32_t succ : dep.successors(op)) {
+            --remaining_preds[succ];
+        }
+        enumerate_linear_extensions(dep, remaining_preds, executed, order, hir, best_peak);
+        for (uint32_t succ : dep.successors(op)) {
+            ++remaining_preds[succ];
+        }
+        order.pop_back();
+        executed[op] = false;
+    }
+}
+
+// Minimum peak active width over every legal reordering of `hir`'s ops
+// (every linear extension of its ScheduleDependence), found by exhaustive
+// search rather than the pass's own beam heuristic. Only affordable because
+// the regression circuit below is small (8 ops): the search space is at
+// most 8! = 40320 and smaller in practice once fixed-order and
+// non-commuting edges prune it.
+uint32_t brute_force_min_peak(const HirModule& hir) {
+    const ScheduleDependence dep = ScheduleDependence::build(hir);
+    std::vector<uint32_t> remaining_preds(dep.num_ops());
+    for (uint32_t op = 0; op < dep.num_ops(); ++op) {
+        remaining_preds[op] = static_cast<uint32_t>(dep.predecessors(op).size());
+    }
+    std::vector<bool> executed(dep.num_ops(), false);
+    std::vector<uint32_t> order;
+    uint32_t best = std::numeric_limits<uint32_t>::max();
+    enumerate_linear_extensions(dep, remaining_preds, executed, order, hir, best);
+    return best;
+}
+
+}  // namespace
+
+// Found by a seeded random search over small circuits, run against an
+// instrumented copy of the dedup step that flagged every case where two
+// candidates in the same beam generation converged on the same executed-op
+// set at different peaks. At beam_width 16 this eight-op circuit produces
+// exactly that: the lower-peak duplicate has the higher dense_work.
+// Deduping by dense_work alone (the pre-fix rule) keeps the higher-peak
+// duplicate instead, and the beam search never recovers -- it reports the
+// incumbent's own peak (4) as final, finding no improvement at all.
+// Deduping by (peak, dense_work, first_op) keeps the lower-peak duplicate
+// and the pass reaches the brute-force optimum (3).
+TEST_CASE("Schedule pass reaches the brute-force optimal peak on a beam dedup regression circuit",
+          "[schedule_pass]") {
+    HirModule hir(4, 8);
+    hir.num_measurements = 1;
+    clifft::test::append_tgate(hir, 0x8, 0x8, false);                      // Y3
+    clifft::test::append_phase_rotation(hir, 0x8, 0x8, false, 0.3);        // Y3
+    clifft::test::append_tgate(hir, 0x8, 0x0, false);                      // X3
+    clifft::test::append_phase_rotation(hir, 0x8, 0x0, false, 0.3);        // X3
+    clifft::test::append_tgate(hir, 0x6, 0x2, false);                      // Y1 X2
+    clifft::test::append_tgate(hir, 0x2, 0x2, false);                      // Y1
+    clifft::test::append_phase_rotation(hir, 0x1, 0x3, false, 0.3);        // Y0 Z1
+    clifft::test::append_measure(hir, 0x2, 0x2, false, MeasRecordIdx{0});  // Y1
+
+    ActiveWidthScheduleOptions options;
+    options.beam_width = 16;
+    options.sink_neutral_rotations = false;
+    ActiveWidthSchedulePass pass(options);
+    HirModule scheduled = hir;
+    pass.run(scheduled);
+
+    INFO("incumbent_peak=" << pass.incumbent_peak() << " result_peak=" << pass.result_peak());
+    REQUIRE(pass.result_peak() == brute_force_min_peak(hir));
 }

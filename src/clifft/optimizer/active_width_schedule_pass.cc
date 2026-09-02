@@ -8,6 +8,7 @@
 #include <cassert>
 #include <cstdint>
 #include <numeric>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -282,14 +283,28 @@ std::vector<uint32_t> run_beam_search(const HirModule& hir, const ScheduleDepend
 
         // Deduplicate by executed-op bitset: by confluence, the same set of
         // executed ops always reaches the same subspace and width, so only
-        // the smaller-dense-work copy is worth keeping.
+        // one survivor is worth keeping. The peak reached along the way is
+        // not confluent, though: it is a running max over a path-dependent
+        // sequence of transitions, so two candidates that converge on the
+        // same executed set can still disagree on peak. Keeping whichever
+        // has the smaller dense_work, regardless of peak, can therefore
+        // discard the strictly better duplicate -- lower peak but higher
+        // dense_work -- since peak can only stay the same or grow over the
+        // rest of the schedule while dense_work is only a secondary
+        // objective. Rank by the pass's own lexicographic objective,
+        // (peak, dense_work), instead, with first_op breaking a remaining
+        // tie deterministically.
         std::ranges::sort(generation, [](const ScoredCandidate& a, const ScoredCandidate& b) {
             return a.executed_bits < b.executed_bits;
         });
         std::vector<ScoredCandidate> deduped;
         for (ScoredCandidate& candidate : generation) {
             if (!deduped.empty() && deduped.back().executed_bits == candidate.executed_bits) {
-                if (candidate.dense_work < deduped.back().dense_work) {
+                const ScoredCandidate& kept = deduped.back();
+                const bool candidate_is_better =
+                    std::tie(candidate.peak, candidate.dense_work, candidate.first_op) <
+                    std::tie(kept.peak, kept.dense_work, kept.first_op);
+                if (candidate_is_better) {
                     deduped.back() = std::move(candidate);
                 }
                 continue;
