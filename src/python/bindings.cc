@@ -8,6 +8,7 @@
 #include "clifft/noncomp/policy.h"
 #include "clifft/noncomp/sample.h"
 #include "clifft/optimizer/active_width_analysis.h"
+#include "clifft/optimizer/active_width_schedule_pass.h"
 #include "clifft/optimizer/active_width_search.h"
 #include "clifft/optimizer/drop_non_unitary_pass.h"
 #include "clifft/optimizer/hir_pass_manager.h"
@@ -728,6 +729,37 @@ NB_MODULE(_clifft_core, m) {
         "Bidirectional bubble sort: moves measurements leftward and\n"
         "non-Clifford gates rightward to minimize peak active width.")
         .def(nb::init<>());
+
+    nb::class_<clifft::ActiveWidthSchedulePass, clifft::HirPass>(
+        m, "ActiveWidthSchedulePass",
+        "State-aware beam search over the schedule-dependence trace class that\n"
+        "minimizes peak active width, then a dense-work estimate. Off by\n"
+        "default; must run last in a pipeline, after PeepholeFusionPass and\n"
+        "StatevectorSqueezePass.")
+        .def(
+            "__init__",
+            [](clifft::ActiveWidthSchedulePass* self, bool noise_transparent, uint32_t beam_width,
+               uint64_t exact_node_budget, bool sink_neutral_rotations) {
+                clifft::ActiveWidthScheduleOptions options;
+                options.noise_transparent = noise_transparent;
+                options.beam_width = beam_width;
+                options.exact_node_budget = exact_node_budget;
+                options.sink_neutral_rotations = sink_neutral_rotations;
+                new (self) clifft::ActiveWidthSchedulePass(options);
+            },
+            nb::arg("noise_transparent") = true, nb::arg("beam_width") = uint32_t{8},
+            nb::arg("exact_node_budget") = uint64_t{20000},
+            nb::arg("sink_neutral_rotations") = true)
+        .def_prop_ro("incumbent_peak", &clifft::ActiveWidthSchedulePass::incumbent_peak)
+        .def_prop_ro("result_peak", &clifft::ActiveWidthSchedulePass::result_peak)
+        .def_prop_ro("incumbent_dense_work", &clifft::ActiveWidthSchedulePass::incumbent_dense_work)
+        .def_prop_ro("result_dense_work", &clifft::ActiveWidthSchedulePass::result_dense_work)
+        .def_prop_ro("applied", &clifft::ActiveWidthSchedulePass::applied)
+        .def("__repr__", [](const clifft::ActiveWidthSchedulePass& p) {
+            return "ActiveWidthSchedulePass(incumbent_peak=" + std::to_string(p.incumbent_peak()) +
+                   ", result_peak=" + std::to_string(p.result_peak()) +
+                   ", applied=" + (p.applied() ? "True" : "False") + ")";
+        });
 
     nb::class_<clifft::RemoveNoisePass, clifft::HirPass>(
         m, "RemoveNoisePass",

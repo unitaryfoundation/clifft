@@ -29,6 +29,7 @@ ensure_supported_cpu(CPU_BASELINE)
 
 from clifft import noncomp
 from clifft._clifft_core import (
+    ActiveWidthSchedulePass,
     AstNode,
     Circuit,
     DropNonUnitaryPass,
@@ -348,6 +349,7 @@ def compile(
 
 
 __all__ = [
+    "ActiveWidthSchedulePass",
     "AstNode",
     "BasisBitstrings",
     "MeasurementRecords",
