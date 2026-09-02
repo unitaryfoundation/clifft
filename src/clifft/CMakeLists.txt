@@ -9,12 +9,14 @@ add_library(clifft_core STATIC
     frontend/frontend.cc
     optimizer/hir_pass_manager.cc
     optimizer/active_width_analysis.cc
+    optimizer/active_width_closure.cc
     optimizer/drop_non_unitary_pass.cc
     optimizer/commutation.cc
     optimizer/peephole.cc
     optimizer/pass_factory.cc
     optimizer/remove_noise_pass.cc
     optimizer/schedule_dependence.cc
+    optimizer/active_width_schedule_pass.cc
     optimizer/statevector_squeeze_pass.cc
     sampling/plan.cc
     sampling/plan_inspection.cc
