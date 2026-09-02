@@ -371,8 +371,9 @@ circuit and model together and compiles internally.
 Each continuation uses the default optimization passes that preserve
 measurement-record order and explicitly opt in to instrument-prefix stability.
 At the HIR stage, this means `PeepholeFusionPass`;
-`StatevectorSqueezePass` is omitted because it can move measurements. See
-[Optimization Passes](../reference/passes.md) for the available HIR passes.
+`StatevectorSqueezePass` and `ActiveWidthSchedulePass` are omitted because
+both can move measurements. See [Optimization Passes](../reference/passes.md)
+for the available HIR passes.
 
 This restriction matters because resolving a trapped transition may add a
 forced, hidden trace-out measurement. Moving another measurement across that

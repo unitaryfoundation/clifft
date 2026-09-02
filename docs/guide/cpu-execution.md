@@ -171,3 +171,35 @@ and `1024`, using the production worker budget and result options.
 
 Use `program.peak_active_width` as a first-order cost indicator, but do not
 choose a layout from peak width alone.
+
+## Compile-time scheduling
+
+`ActiveWidthSchedulePass` is an opt-in HIR pass, not part of the default
+pipeline, that reorders Heisenberg IR operations to reduce peak active
+width, then a dense-work estimate; it never leaves a circuit worse than it
+found it. See [Active-Width Scheduling](../theory/active-width.md) for the
+structural model it searches over. Enable it by building a custom
+`HirPassManager` that runs it last, after `PeepholeFusionPass` and
+`StatevectorSqueezePass`, and passing that manager to `hir_passes`:
+
+```python
+import clifft
+
+pm = clifft.HirPassManager()
+pm.add(clifft.PeepholeFusionPass())
+pm.add(clifft.StatevectorSqueezePass())
+pm.add(clifft.ActiveWidthSchedulePass())
+
+program = clifft.compile("H 0\nT 0\nM 0", hir_passes=pm)
+```
+
+On most circuits this costs single-digit milliseconds, but circuits with
+many simultaneously-ready, mutually independent non-Clifford rotations can
+push compile time higher -- about 600 ms on the largest circuit in the
+measured `clifft-paper` QEC corpus, a cost paid once per compiled program
+rather than once per shot. See
+[Measured Effect](../theory/active-width.md#measured-effect) for the full
+per-circuit table.
+
+See [Optimization Passes](../reference/passes.md) for every available pass
+and its default.

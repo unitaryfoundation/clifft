@@ -210,7 +210,10 @@ basis. These operations form the Heisenberg IR, or HIR.
 
 HIR passes use Pauli algebra and dataflow to fuse or cancel operations and,
 when safe, shorten how long coordinates must remain active. This reduces the
-work handed to the planner without fixing a runtime representation.
+work handed to the planner without fixing a runtime representation. Passes
+that reorder operations to shorten active lifetimes, including
+`ActiveWidthSchedulePass`, rely on a structural model of active width
+described in [Active-Width Scheduling](active-width.md).
 
 ### Coordinate Planning
 
