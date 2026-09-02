@@ -1,18 +1,18 @@
 name: Release
 
-# Trigger on version tags (e.g., v0.1.0, v1.2.3)
+# Trigger on final and release-candidate version tags.
 on:
   push:
     tags:
       - "v[0-9]+.[0-9]+.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+rc[0-9]+"
   workflow_dispatch:
     # Manual dispatch always publishes to TestPyPI only.
     # PyPI publishing requires a version tag push.
     inputs:
       test_version:
-        description: "Version for TestPyPI (e.g. 0.8.0.dev1). Required because PyPI rejects local version specifiers from untagged builds."
+        description: "Unique TestPyPI-only version (e.g. 0.10.0rc1.dev1). Do not reuse a version intended for a tag."
         required: true
-        default: "0.8.0.dev1"
 
 permissions:
   contents: read
@@ -225,6 +225,7 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           repository-url: https://test.pypi.org/legacy/
+          skip-existing: true
 
   # -----------------------------------------------------------
   # Publish to PyPI (only on tag push, after TestPyPI)
@@ -255,40 +256,74 @@ jobs:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    outputs:
+      prerelease: ${{ steps.release_metadata.outputs.prerelease }}
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
 
-      - name: Extract release notes from CHANGELOG.md
+      - name: Classify release
+        id: release_metadata
         run: |
-          # Extract the section for this version from the committed changelog.
-          # Matches from "## [X.Y.Z]" to the next "## [" or end of file.
           VERSION="${GITHUB_REF_NAME#v}"
-          awk -v ver="$VERSION" '
-            /^## \[/ { if (found) exit; if ($0 ~ "^## \\[" ver "\\]") found=1; next }
-            found { print }
-          ' CHANGELOG.md > RELEASE_NOTES.md
+          if [[ "$VERSION" =~ ^([0-9]+\.[0-9]+\.[0-9]+)rc[0-9]+$ ]]; then
+            echo "notes_version=${BASH_REMATCH[1]}" >> "$GITHUB_OUTPUT"
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "notes_version=$VERSION" >> "$GITHUB_OUTPUT"
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
 
-          if [ ! -s RELEASE_NOTES.md ]; then
-            echo "No entry found for $VERSION in CHANGELOG.md, using tag message." >&2
-            echo "Release $VERSION" > RELEASE_NOTES.md
+      - name: Extract release notes from CHANGELOG.md
+        env:
+          NOTES_VERSION: ${{ steps.release_metadata.outputs.notes_version }}
+        run: |
+          # Print the body beneath "## [VERSION]" up to the next release
+          # heading. The release heading itself is not part of GitHub's notes.
+          extract_notes() {
+            local version="$1"
+            awk -v heading="## [${version}]" '
+              /^## \[/ {
+                if (found) exit
+                if (index($0, heading) == 1) found=1
+                next
+              }
+              found { print }
+            ' CHANGELOG.md
+          }
+
+          extract_notes "$NOTES_VERSION" > RELEASE_NOTES.md
+
+          if ! grep -q '[^[:space:]]' RELEASE_NOTES.md; then
+            echo "CHANGELOG.md has no substantive [$NOTES_VERSION] release notes." >&2
+            exit 1
           fi
 
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
+          PRERELEASE: ${{ steps.release_metadata.outputs.prerelease }}
         run: |
-          gh release create "${{ github.ref_name }}" \
-            --title "${{ github.ref_name }}" \
-            --notes-file RELEASE_NOTES.md
+          release_args=()
+          if [[ "$PRERELEASE" == "true" ]]; then
+            release_args+=(--prerelease)
+          fi
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --notes-file RELEASE_NOTES.md \
+            "${release_args[@]}"
 
   # -----------------------------------------------------------
   # Publish versioned documentation and playground
   # -----------------------------------------------------------
   publish-docs:
     needs: [github-release]
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    # Release candidates publish packages and a GitHub prerelease, but no docs.
+    if: >-
+      github.event_name == 'push' &&
+      startsWith(github.ref, 'refs/tags/v') &&
+      needs.github-release.outputs.prerelease != 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     concurrency:
