@@ -194,11 +194,11 @@ pm.add(clifft.ActiveWidthSchedulePass())
 program = clifft.compile("H 0\nT 0\nM 0", hir_passes=pm)
 ```
 
-On most circuits this costs single-digit milliseconds, but circuits with
-many simultaneously-ready, mutually independent non-Clifford rotations can
-push compile time higher -- about 600 ms on the largest circuit in the
-measured `clifft-paper` QEC corpus, a cost paid once per compiled program
-rather than once per shot. See
+Across the measured `clifft-paper` QEC corpus this costs roughly 2 ms to
+600 ms, growing with the number of simultaneously-ready, mutually
+independent non-Clifford rotations, with the largest cost on the
+five-round distance-5 coherent circuit -- a cost paid once per compiled
+program rather than once per shot. See
 [Measured Effect](../theory/active-width.md#measured-effect) for the full
 per-circuit table.
 

@@ -148,18 +148,18 @@ one is available -- everything else follows deterministically from closure.
 
 ## Noise Transparency
 
-The dependence relation a scheduler searches over is conservative by
-default: it keeps every operation in its original position relative to a
-noise operation whose channel does not commute with it. The reason is
-mechanical: the planner folds a noise site's symbols into an operation's
-sign only when it reaches that operation after the site, in schedule order,
-so moving an operation across the site would silently drop or add that
-contribution. This can be relaxed. Every noise channel is presampled: its
-Boolean outcome exists before the action stream runs, independent of where
-in a schedule a planner happens to consume it. If the planner instead
-resolves an operation's noise-dependent sign from that operation's
-*logical* (original, pre-reorder) position rather than its position in the
-reordered schedule, then for any fixed noise realization a
+Without noise transparency, the dependence relation a scheduler searches
+over is conservative: it keeps every operation in its original position
+relative to a noise operation whose channel does not commute with it. The
+reason is mechanical: the planner folds a noise site's symbols into an
+operation's sign only when it reaches that operation after the site, in
+schedule order, so moving an operation across the site would silently drop
+or add that contribution. This can be relaxed. Every noise channel is
+presampled: its Boolean outcome exists before the action stream runs,
+independent of where in a schedule a planner happens to consume it. If the
+planner instead resolves an operation's noise-dependent sign from that
+operation's *logical* (original, pre-reorder) position rather than its
+position in the reordered schedule, then for any fixed noise realization a
 noise-transparent reorder is just an ordinary legal reordering of the
 noise-free circuit with that realization's Pauli errors absorbed into
 downstream signs -- and ordinary legal reorderings are already known to
