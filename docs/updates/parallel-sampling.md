@@ -1,8 +1,14 @@
 # Parallel Sampling in Clifft (v0.9.0, August 2026)
 
-Clifft 0.8.0 established the symbolic-coordinate sampler as a clean
-single-shot execution baseline. Version 0.9.0 follows by teaching that sampler
-to use more of the CPU.
+Clifft's original localized-Pauli SVM already used OpenMP to divide wide
+active-state kernels across CPU cores. The
+[original Clifft paper benchmarks](https://github.com/unitaryfoundation/clifft-paper/tree/main/qv_bench)
+used that path for their 16-threaded Quantum Volume runs.
+
+The symbolic-coordinate rewrite in v0.8.0 deliberately cut over to a clean
+single-shot baseline without carrying the SVM-specific threading machinery
+forward. Version 0.9.0 restores intra-shot multicore execution on the new
+symbolic sampler and adds integrated cross-shot workers for sampling APIs.
 
 The goal is that users should automatically get the best performance for
 their workload while retaining the flexibility to override Clifft's decisions
@@ -87,6 +93,37 @@ tuning, unusual hardware, and applications that already know more about their
 resource constraints than Clifft can infer. The
 [CPU execution guide](../guide/cpu-execution.md) documents the current policy
 and controls.
+
+## Did v0.9.0 recover multicore scaling?
+
+The `clifft-bench`
+[Quantum Volume campaign](https://github.com/unitaryfoundation/clifft-bench/pull/28)
+measured the restored intra-shot path from 1 to 16 physical cores. It used the
+exact v0.9.0 release commit with OpenMP enabled on an AWS `c8i.8xlarge`, with
+one logical CPU selected from each physical core. Each cell below is the
+median end-to-end compilation plus one-sample latency across three
+deterministic circuit seeds. Speedup is the median of the three paired
+per-seed speedups.
+
+| Workload | 1 core | 16 cores | Speedup |
+|---|---:|---:|---:|
+| QV18 | 0.0514 s | 0.0419 s | 1.21x |
+| QV20 | 0.200 s | 0.0560 s | 3.62x |
+| QV22 | 0.927 s | 0.118 s | 7.51x |
+| QV24 | 7.13 s | 0.701 s | 10.17x |
+| QV26 | 38.4 s | 5.00 s | 7.69x |
+| QV28 | 209 s | 26.5 s | 7.91x |
+
+Quantum Volume circuits are dense in non-Clifford gates and are not Clifft's
+primary near-Clifford workload. Here they provide a useful stress test for
+wide active states. The small gain at QV18 and larger gains at wider sizes also
+show why Clifft uses an active-width threshold instead of entering the OpenMP
+runtime for every kernel.
+
+These results recover a capability present in the original SVM rather than
+establishing multicore Clifft for the first time. What changes in v0.9.0 is the
+execution engine beneath it, the unified worker-budget interface, and the
+ability to choose between intra-shot and cross-shot work automatically.
 
 ## Reproducibility across worker layouts
 
