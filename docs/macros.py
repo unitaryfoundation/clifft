@@ -120,6 +120,27 @@ def define_env(env: Any) -> None:
             ),
         },
         {
+            "name": "ActiveWidthSchedulePass",
+            "kind": "HIR",
+            "default_enabled": False,
+            "preserves_record_order": False,
+            "preserves_instrument_prefix": False,
+            "python_name": "ActiveWidthSchedulePass",
+            "summary": "State-aware scheduling that minimizes peak active width, then dense work.",
+            "detail": (
+                "Beam-searches the closure/readiness trace class StatevectorSqueezePass "
+                "already reorders within, scoring each partial schedule by peak active "
+                "width first and a dense-work estimate second, then optionally spends a "
+                "bounded exact search polishing the beam's own answer and sinks "
+                "width-neutral rotations next to the following expansion. Noise "
+                "transparency lets it reorder across NOISE ops using the same logical-position "
+                "sign correction StatevectorSqueezePass relies on. "
+                "It must run last in a pipeline, after PeepholeFusionPass and "
+                "StatevectorSqueezePass, and is off by default until measured on real "
+                "workloads."
+            ),
+        },
+        {
             "name": "RemoveNoisePass",
             "kind": "HIR",
             "default_enabled": False,

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "clifft/optimizer/active_width_schedule_pass.h"
 #include "clifft/optimizer/drop_non_unitary_pass.h"
 #include "clifft/optimizer/hir_pass.h"
 #include "clifft/optimizer/peephole.h"
@@ -77,6 +78,11 @@ inline const PassInfo kRegisteredPasses[] = {
      .record_order = kBreaksRecordOrder,
      .instrument_prefix = kMayChangeInstrumentPrefix,
      .make = make_hir<StatevectorSqueezePass>},
+    {.name = "ActiveWidthSchedulePass",
+     .default_enabled = false,
+     .record_order = kBreaksRecordOrder,
+     .instrument_prefix = kMayChangeInstrumentPrefix,
+     .make = make_hir<ActiveWidthSchedulePass>},
     {.name = "RemoveNoisePass",
      .default_enabled = false,
      .record_order = kBreaksRecordOrder,

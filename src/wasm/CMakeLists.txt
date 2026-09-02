@@ -39,6 +39,7 @@ add_library(clifft_core STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/remove_noise_pass.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/schedule_dependence.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/active_width_search.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/active_width_schedule_pass.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/statevector_squeeze_pass.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/sampling/plan.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/sampling/plan_inspection.cc

@@ -17,6 +17,7 @@ add_library(clifft_core STATIC
     optimizer/remove_noise_pass.cc
     optimizer/schedule_dependence.cc
     optimizer/active_width_search.cc
+    optimizer/active_width_schedule_pass.cc
     optimizer/statevector_squeeze_pass.cc
     sampling/plan.cc
     sampling/plan_inspection.cc
