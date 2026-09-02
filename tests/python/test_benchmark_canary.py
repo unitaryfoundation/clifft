@@ -341,7 +341,11 @@ def test_fork_report_validates_evidence_and_uses_base_workloads(
         run_url="https://github.example/run/456",
     )
 
-    assert "**Possible regression detected:** 9 of 9 benchmarks were at least 10% slower." in report
+    workload_count = len(benchmark_canary.DISPLAY_NAMES)
+    assert (
+        f"**Possible regression detected:** {workload_count} of {workload_count} "
+        "benchmarks were at least 10% slower." in report
+    )
     assert f"/{REPOSITORY}/blob/{BASE_SHA}/benchmarks/clifft_benchmarks.cc#L" in report
     assert f"/{REPOSITORY}/blob/{HEAD_SHA}/benchmarks/clifft_benchmarks.cc#L" not in report
     assert "Runner CPU: ` Example CPU `" in report
