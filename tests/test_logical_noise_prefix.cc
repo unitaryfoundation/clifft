@@ -225,15 +225,18 @@ HirModule run_production_pipeline(const HirModule& source) {
 // Materializing logical_noise_prefix must never change what plan_sampling
 // produces: an empty vector and a freshly materialized one both describe
 // schedule semantics, just with the counts spelled out explicitly. A HIR
-// that the planner cannot plan at all (legitimately, e.g. a raw or
-// peephole-only wide circuit that has not been through the squeeze pass
-// yet) is skipped rather than failed, matching the active-width analysis
-// tests' precedent for the same class of fixture.
+// that the planner cannot plan at all because it exceeds the dense-state
+// active-width limit (legitimately, e.g. a raw or peephole-only wide
+// circuit that has not been through the squeeze pass yet) is skipped
+// rather than failed, matching the active-width analysis tests' precedent
+// for the same class of fixture. Any other exception -- including the
+// planner's own logical_noise_prefix validation -- is a bug and must
+// propagate to fail the test rather than being treated as an expected skip.
 void check_inert_if_plannable(const HirModule& hir) {
     SamplingPlan schedule_plan;
     try {
         schedule_plan = clifft::sampling::plan_sampling(hir);
-    } catch (const std::exception&) {
+    } catch (const std::overflow_error&) {
         return;
     }
     HirModule materialized = hir;
