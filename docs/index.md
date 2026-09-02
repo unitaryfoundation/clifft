@@ -128,8 +128,9 @@ Clifford-valued rotations earlier during compilation, vectorizes additional
 active-measurement kernels, and fixes complex-interference cases in
 `basis_probabilities()`.
 
-Read [CPU Execution and Tuning](guide/cpu-execution.md) for the
-threading model, memory tradeoffs, and expert controls.
+Read [Parallel Sampling in Clifft](updates/parallel-sampling.md) for the
+threading design, reproducibility contract, memory tradeoffs, and expert
+controls.
 
 ## What's New in 0.8.0
 
