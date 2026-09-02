@@ -30,6 +30,7 @@ add_library(clifft_core STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/tableau/tableau.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/frontend/frontend.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/hir_pass_manager.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/active_width_analysis.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/drop_non_unitary_pass.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/commutation.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/peephole.cc
