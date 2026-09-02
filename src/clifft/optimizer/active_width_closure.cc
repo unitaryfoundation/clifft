@@ -21,10 +21,11 @@ bool is_expanding(const HirModule& hir, const HeisenbergOp& op, const DormantSub
     switch (op.op_type()) {
         case OpType::T_GATE:
         case OpType::PHASE_ROTATION:
-            return !subspace.commutes_with_all(pauli_body(hir, op));
+            return !subspace.commutes_with_all(hir.destab_mask(op), hir.stab_mask(op));
         case OpType::INSTRUMENT: {
-            const PauliString body = pauli_body(hir, op);
-            if (subspace.commutes_with_all(body)) {
+            const MaskView x = hir.destab_mask(op);
+            const MaskView z = hir.stab_mask(op);
+            if (subspace.commutes_with_all(x, z)) {
                 return false;  // Classical or Active: non-expanding.
             }
             const InstrumentSite& site =

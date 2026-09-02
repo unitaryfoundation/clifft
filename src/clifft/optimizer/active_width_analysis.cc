@@ -108,27 +108,29 @@ MutableMaskView DormantSubspace::echelon_row_z(uint32_t index) const {
         echelon_z_.data() + static_cast<size_t>(index) * words_per_row_, words_per_row_)};
 }
 
-std::optional<uint32_t> DormantSubspace::find_anticommuting_generator(const PauliString& p) const {
-    assert(p.num_qubits() == num_qubits_ && "Pauli body must share the subspace's qubit count");
+std::optional<uint32_t> DormantSubspace::find_anticommuting_generator(MaskView x,
+                                                                      MaskView z) const {
+    assert(x.num_words() == words_per_row_ && z.num_words() == words_per_row_ &&
+           "Pauli body must share the subspace's word width");
     for (uint32_t i = 0; i < dimension_; ++i) {
-        if (anti_commute(row_x(i), row_z(i), p.x(), p.z())) {
+        if (anti_commute(row_x(i), row_z(i), x, z)) {
             return i;
         }
     }
     return std::nullopt;
 }
 
-bool DormantSubspace::commutes_with_all(const PauliString& p) const {
-    return !find_anticommuting_generator(p).has_value();
+bool DormantSubspace::commutes_with_all(MaskView x, MaskView z) const {
+    return !find_anticommuting_generator(x, z).has_value();
 }
 
-void DormantSubspace::intersect_with_pivot(const PauliString& p, uint32_t pivot) {
+void DormantSubspace::intersect_with_pivot(MaskView x, MaskView z, uint32_t pivot) {
     assert(pivot < dimension_ && "pivot must be a live generator index");
     for (uint32_t i = 0; i < dimension_; ++i) {
         if (i == pivot) {
             continue;
         }
-        if (anti_commute(row_x(i), row_z(i), p.x(), p.z())) {
+        if (anti_commute(row_x(i), row_z(i), x, z)) {
             row_x(i).xor_with(row_x(pivot));
             row_z(i).xor_with(row_z(pivot));
         }
@@ -142,34 +144,34 @@ void DormantSubspace::intersect_with_pivot(const PauliString& p, uint32_t pivot)
     echelon_dirty_ = true;
 }
 
-void DormantSubspace::append_generator(const PauliString& p) {
+void DormantSubspace::append_generator(MaskView x, MaskView z) {
     assert(dimension_ < num_qubits_ && "S is already Lagrangian; nothing can extend it");
-    std::ranges::copy(p.x().words, row_x(dimension_).words.begin());
-    std::ranges::copy(p.z().words, row_z(dimension_).words.begin());
+    std::ranges::copy(x.words, row_x(dimension_).words.begin());
+    std::ranges::copy(z.words, row_z(dimension_).words.begin());
     ++dimension_;
     echelon_dirty_ = true;
 }
 
-bool DormantSubspace::apply_rotation(const PauliString& axis) {
-    const std::optional<uint32_t> pivot = find_anticommuting_generator(axis);
+bool DormantSubspace::apply_rotation(MaskView x, MaskView z) {
+    const std::optional<uint32_t> pivot = find_anticommuting_generator(x, z);
     if (!pivot.has_value()) {
         return false;
     }
-    intersect_with_pivot(axis, *pivot);
+    intersect_with_pivot(x, z, *pivot);
     return true;
 }
 
-DormantSubspace::MeasurementEffect DormantSubspace::apply_measurement(const PauliString& body) {
-    const std::optional<uint32_t> pivot = find_anticommuting_generator(body);
+DormantSubspace::MeasurementEffect DormantSubspace::apply_measurement(MaskView x, MaskView z) {
+    const std::optional<uint32_t> pivot = find_anticommuting_generator(x, z);
     if (pivot.has_value()) {
-        intersect_with_pivot(body, *pivot);
-        append_generator(body);
+        intersect_with_pivot(x, z, *pivot);
+        append_generator(x, z);
         return MeasurementEffect::DormantRandom;
     }
-    if (contains(body)) {
+    if (contains(x, z)) {
         return MeasurementEffect::Classical;
     }
-    append_generator(body);
+    append_generator(x, z);
     return MeasurementEffect::Active;
 }
 
@@ -222,13 +224,14 @@ void DormantSubspace::rebuild_membership_cache_if_dirty() const {
     echelon_dirty_ = false;
 }
 
-bool DormantSubspace::contains(const PauliString& p) const {
-    assert(p.num_qubits() == num_qubits_ && "Pauli body must share the subspace's qubit count");
+bool DormantSubspace::contains(MaskView x, MaskView z) const {
+    assert(x.num_words() == words_per_row_ && z.num_words() == words_per_row_ &&
+           "Pauli body must share the subspace's word width");
     rebuild_membership_cache_if_dirty();
     // Reduce a scratch copy; the cached echelon rows stay put for reuse by
     // later contains() calls.
-    std::ranges::copy(p.x().words, scratch_x_.begin());
-    std::ranges::copy(p.z().words, scratch_z_.begin());
+    std::ranges::copy(x.words, scratch_x_.begin());
+    std::ranges::copy(z.words, scratch_z_.begin());
     const std::optional<uint32_t> remainder =
         reduce_against_membership_cache(MutableMaskView{scratch_x_}, MutableMaskView{scratch_z_});
     return !remainder.has_value();
@@ -240,19 +243,21 @@ WidthTransition classify_and_apply(const HirModule& hir, const HeisenbergOp& op,
     switch (op.op_type()) {
         case OpType::T_GATE:
         case OpType::PHASE_ROTATION: {
-            const PauliString body = detail::pauli_body(hir, op);
-            if (subspace.apply_rotation(body)) {
+            const MaskView x = hir.destab_mask(op);
+            const MaskView z = hir.stab_mask(op);
+            if (subspace.apply_rotation(x, z)) {
                 return WidthTransition{before, subspace.active_width(),
                                        WidthEffect::RotationPromote};
             }
-            if (subspace.contains(body)) {
+            if (subspace.contains(x, z)) {
                 return WidthTransition{before, before, WidthEffect::RotationStabilizer};
             }
             return WidthTransition{before, before, WidthEffect::RotationNeutral};
         }
         case OpType::MEASURE: {
-            const PauliString body = detail::pauli_body(hir, op);
-            switch (subspace.apply_measurement(body)) {
+            const MaskView x = hir.destab_mask(op);
+            const MaskView z = hir.stab_mask(op);
+            switch (subspace.apply_measurement(x, z)) {
                 case DormantSubspace::MeasurementEffect::DormantRandom:
                     return WidthTransition{before, before, WidthEffect::MeasureDormantRandom};
                 case DormantSubspace::MeasurementEffect::Classical:
@@ -265,22 +270,23 @@ WidthTransition classify_and_apply(const HirModule& hir, const HeisenbergOp& op,
             return WidthTransition{before, before, WidthEffect::None};
         }
         case OpType::INSTRUMENT: {
-            const PauliString body = detail::pauli_body(hir, op);
+            const MaskView x = hir.destab_mask(op);
+            const MaskView z = hir.stab_mask(op);
             const InstrumentSite& site =
                 hir.instrument_sites.at(static_cast<uint32_t>(op.instrument_site_idx()));
 
-            if (!subspace.commutes_with_all(body)) {
+            if (!subspace.commutes_with_all(x, z)) {
                 const bool traps = hir.neglect_instrument_damping ||
                                    site.probabilities.p_fire[0] == site.probabilities.p_fire[1];
                 if (traps) {
                     return WidthTransition{before, before, WidthEffect::InstrumentDormantTrap};
                 }
-                [[maybe_unused]] const bool promoted = subspace.apply_rotation(body);
+                [[maybe_unused]] const bool promoted = subspace.apply_rotation(x, z);
                 assert(promoted && "instrument body must anticommute with S here");
                 return WidthTransition{before, subspace.active_width(),
                                        WidthEffect::InstrumentActivate};
             }
-            if (subspace.contains(body)) {
+            if (subspace.contains(x, z)) {
                 return WidthTransition{before, before, WidthEffect::InstrumentClassical};
             }
             return WidthTransition{before, before, WidthEffect::InstrumentActive};

@@ -40,6 +40,13 @@ namespace clifft {
 // dimension + active_width() == num_qubits always: S is a maximal isotropic
 // (Lagrangian) subspace exactly when active_width() == 0, and every unit the
 // active width grows shrinks S by exactly one dimension.
+//
+// Every query and update below has a MaskView-pair overload that does the
+// real work and a PauliString overload that forwards to it via p.x()/p.z().
+// HIR-frame Pauli bodies already live as two MaskViews per op
+// (HirModule::destab_mask/stab_mask, backed by pauli_masks storage), so a
+// caller that classifies ops one at a time -- every scheduler here -- passes
+// those views straight through and never materializes an owned PauliString.
 class DormantSubspace {
   public:
     explicit DormantSubspace(uint32_t num_qubits);
@@ -52,20 +59,25 @@ class DormantSubspace {
     [[nodiscard]] uint32_t active_width() const { return num_qubits_ - dimension_; }
 
     // True when `p` commutes with every current generator of S.
-    [[nodiscard]] bool commutes_with_all(const PauliString& p) const;
+    [[nodiscard]] bool commutes_with_all(const PauliString& p) const {
+        return commutes_with_all(p.x(), p.z());
+    }
+    [[nodiscard]] bool commutes_with_all(MaskView x, MaskView z) const;
 
     // True when `p` is a product of generators of S, equivalently an element
     // of S. S is abelian, so an anticommuting Pauli is never in S; callers
     // that already know commutes_with_all(p) is true use this to tell a
     // stabilizer Pauli from a width-neutral active one.
-    [[nodiscard]] bool contains(const PauliString& p) const;
+    [[nodiscard]] bool contains(const PauliString& p) const { return contains(p.x(), p.z()); }
+    [[nodiscard]] bool contains(MaskView x, MaskView z) const;
 
     // Applies the planner's rotation bookkeeping for an operation with Pauli
     // body `axis`: if `axis` anticommutes with a generator of S, replaces S
     // with S intersect axis-perp (dimension drops by one, active width grows
     // by one) and returns true. Otherwise leaves S unchanged and returns
     // false.
-    bool apply_rotation(const PauliString& axis);
+    bool apply_rotation(const PauliString& axis) { return apply_rotation(axis.x(), axis.z()); }
+    bool apply_rotation(MaskView x, MaskView z);
 
     enum class MeasurementEffect : uint8_t { DormantRandom, Classical, Active };
 
@@ -74,7 +86,10 @@ class DormantSubspace {
     // with `body` (active width unchanged); Active adds `body` as a new,
     // independent generator (active width drops by one); Classical leaves S
     // unchanged.
-    MeasurementEffect apply_measurement(const PauliString& body);
+    MeasurementEffect apply_measurement(const PauliString& body) {
+        return apply_measurement(body.x(), body.z());
+    }
+    MeasurementEffect apply_measurement(MaskView x, MaskView z);
 
     // Returns the current generators of S as unsigned Pauli bodies (S is an
     // unsigned isotropic subspace; no sign is tracked). apply_rotation and
@@ -92,16 +107,17 @@ class DormantSubspace {
     [[nodiscard]] MutableMaskView echelon_row_x(uint32_t index) const;
     [[nodiscard]] MutableMaskView echelon_row_z(uint32_t index) const;
 
-    [[nodiscard]] std::optional<uint32_t> find_anticommuting_generator(const PauliString& p) const;
+    [[nodiscard]] std::optional<uint32_t> find_anticommuting_generator(MaskView x,
+                                                                       MaskView z) const;
 
     // Replaces S with S intersect p-perp given that generator `pivot`
     // anticommutes with p: XORs every other anticommuting generator with the
     // pivot row, then drops the pivot row. Invalidates the membership cache.
-    void intersect_with_pivot(const PauliString& p, uint32_t pivot);
+    void intersect_with_pivot(MaskView x, MaskView z, uint32_t pivot);
 
     // Appends `p` as a new, independent generator. Only valid when p is not
     // already in S, which callers establish before invoking this.
-    void append_generator(const PauliString& p);
+    void append_generator(MaskView x, MaskView z);
 
     // Reduces the (work_x, work_z) vector against the cached echelon basis
     // in place and returns the pivot bit of the nonzero remainder, or
@@ -194,9 +210,9 @@ namespace detail {
 // Classifies `op` against `subspace` exactly as analyze_active_width does,
 // applies its effect, and returns the transition (before/after width and
 // effect). This is the per-op primitive analyze_active_width loops over;
-// the exact search and the scheduling pass reuse it too, so all three agree
-// on the same classification by construction rather than by three
-// hand-synchronized copies.
+// the scheduling pass reuses it too, so both agree on the same
+// classification by construction rather than by two hand-synchronized
+// copies.
 [[nodiscard]] WidthTransition classify_and_apply(const HirModule& hir, const HeisenbergOp& op,
                                                  DormantSubspace& subspace);
 

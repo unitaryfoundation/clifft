@@ -102,7 +102,7 @@ struct UndoStep {
 // empty prefix below it while still visiting ready ops in the same
 // lowest-index-first order a std::set would and stopping at the first
 // non-expanding one -- which is what makes each avoided is_expanding() call
-// (a PauliString allocation plus a GF(2) commutation scan) worth avoiding.
+// (a GF(2) commutation scan against every generator of S) worth avoiding.
 class SearchFrontier {
   public:
     explicit SearchFrontier(const ScheduleDependence& dependence);
