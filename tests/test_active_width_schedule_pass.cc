@@ -11,6 +11,7 @@
 #include "clifft/optimizer/pass_factory.h"
 #include "clifft/optimizer/pass_registry.h"
 #include "clifft/optimizer/peephole.h"
+#include "clifft/optimizer/schedule_dependence.h"
 #include "clifft/optimizer/statevector_squeeze_pass.h"
 #include "clifft/sampling/plan.h"
 #include "clifft/sampling/planner.h"
@@ -235,10 +236,13 @@ TEST_CASE("Schedule pass reaches the expected peak and dense work on fixture cir
 // surface_d7_r7_p001 has no T_GATE or PHASE_ROTATION op at all (a pure
 // stabilizer QEC memory circuit), so both early-exit conditions hold on its
 // raw, unpassed HIR: incumbent peak 0, and no rotation to branch on either
-// way. ScheduleDependence::build's O(N^2) can_swap scan alone takes much
-// longer than the bound below on this fixture, so a generous bound still
-// only passes if the early exit actually ran before that build, not merely
-// if the whole pass happened to be fast.
+// way. The bound below is relative to a measurement taken in the same run,
+// not a fixed millisecond budget, so it holds on any host regardless of
+// load or hardware: it directly times ScheduleDependence::build's O(N^2)
+// can_swap scan on this same HIR -- the work the early exit is supposed to
+// skip -- and requires the pass to finish under that time. On this fixture
+// the build is at least an order of magnitude slower than the analysis
+// alone, so the margin stays comfortable even under CI load.
 TEST_CASE("Schedule pass exits before building the dependence relation when nothing can move",
           "[schedule_pass]") {
     const Circuit circuit =
@@ -247,13 +251,19 @@ TEST_CASE("Schedule pass exits before building the dependence relation when noth
     HirModule hir = original;
 
     ActiveWidthSchedulePass pass;
-    const auto start = std::chrono::steady_clock::now();
+    const auto pass_start = std::chrono::steady_clock::now();
     pass.run(hir);
-    const auto elapsed = std::chrono::steady_clock::now() - start;
-    const auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count();
+    const auto pass_elapsed = std::chrono::steady_clock::now() - pass_start;
 
-    INFO("elapsed_ms=" << elapsed_ms);
-    REQUIRE(elapsed_ms < 50);
+    const auto build_start = std::chrono::steady_clock::now();
+    const ScheduleDependence dependence = ScheduleDependence::build(original, {});
+    const auto build_elapsed = std::chrono::steady_clock::now() - build_start;
+
+    const double pass_ms = std::chrono::duration<double, std::milli>(pass_elapsed).count();
+    const double build_ms = std::chrono::duration<double, std::milli>(build_elapsed).count();
+    INFO("pass_ms=" << pass_ms << " build_ms=" << build_ms
+                    << " dependence_ops=" << dependence.num_ops());
+    REQUIRE(pass_ms < build_ms);
 
     REQUIRE_FALSE(pass.applied());
     REQUIRE(pass.result_peak() == pass.incumbent_peak());
