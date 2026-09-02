@@ -170,7 +170,8 @@ TEST_CASE("Schedule pass finds the certified optimum for the four operation circ
 // inlining leaves per-candidate SearchFrontier::execute/undo (a std::set
 // insert/erase pair) as the dominant cost regardless of how little else is
 // cloned, so this section still narrows the beam to keep the Debug test
-// fast; see the PR body for the beam_width 1 vs 8 dense-work comparison.
+// fast; see the next section for the beam_width 1 vs 8 dense-work
+// comparison this narrowing relies on.
 TEST_CASE("Schedule pass reaches the expected peak and dense work on fixture circuits",
           "[schedule_pass]") {
     SECTION("coherent_d3_r3 reaches peak 4 with exact repair explicitly enabled") {
@@ -193,10 +194,12 @@ TEST_CASE("Schedule pass reaches the expected peak and dense work on fixture cir
         const Circuit circuit =
             clifft::parse_file(std::string(CLIFFT_FIXTURES_DIR) + "/coherent_d5_r5.stim");
         const HirModule raw = clifft::trace(circuit);
-        // beam_width 1 (greedy) measures within 2% of beam_width 8's dense
-        // work on this fixture (both land around 62% of the incumbent, well
-        // short of half); see the header comment above for why this section
-        // narrows the beam despite beam_width 8 being affordable in Release.
+        // beam_width 1 (greedy) reaches 38.8% of the incumbent's dense work
+        // on this fixture, beam_width 8 39.8% -- beam_width 1 is actually
+        // the lower (better) of the two here, by about 2.6%, rather than
+        // merely close to beam_width 8; both are comfortably under half.
+        // See the header comment above for why this section narrows the
+        // beam despite beam_width 8 being affordable in Release.
         ActiveWidthScheduleOptions options;
         options.beam_width = 1;
         ActiveWidthSchedulePass pass(options);

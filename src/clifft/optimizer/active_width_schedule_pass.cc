@@ -66,10 +66,20 @@ std::vector<uint32_t> ready_ops_snapshot(const detail::SearchFrontier& frontier)
 // parent's own order and reach `width_after_closure`/peak/dense_work.
 // executed_bits is the parent's post-candidate executed-op bitset, captured
 // for deduplication without needing a per-candidate SearchFrontier clone.
-// Scored by (peak, width_after_closure, dense_work, first_op) ascending,
-// matching search_width_schedule's own candidate ranking so the beam and
-// the exact repair step agree on which move looks best whenever both
-// consider the same choice.
+// Scored by (peak, width_after_closure, -ops.size(), first_op) ascending:
+// among candidates tied on peak and width_after_closure, the one whose
+// closure swept the most operations into place (typically measurements)
+// ranks first, ahead of dense_work_so_far. The intuition: a wide sweep
+// usually means several commuting measurements collapsed the subspace
+// immediately, which is a stronger signal that this branch is heading
+// toward a state with few remaining live directions than the dense work
+// spent to get there so far -- measured on the clifft-paper corpus, this
+// tie-break reaches lower summed dense work than tying on dense_work_so_far
+// (with or without also considering sweep count). width_after_closure and
+// first_op still share their tie order with search_width_schedule's own
+// candidate ranking (active_width_search.cc); search_width_schedule has no
+// analog of the sweep-count or dense-work terms, since its DFS only needs
+// to prove threshold feasibility, not minimize dense work.
 struct ScoredCandidate {
     uint32_t parent_index = 0;
     std::vector<uint32_t> ops;
@@ -273,8 +283,8 @@ std::vector<uint32_t> run_beam_search(const HirModule& hir, const ScheduleDepend
             if (a.width_after_closure != b.width_after_closure) {
                 return a.width_after_closure < b.width_after_closure;
             }
-            if (a.dense_work != b.dense_work) {
-                return a.dense_work < b.dense_work;
+            if (a.ops.size() != b.ops.size()) {
+                return a.ops.size() > b.ops.size();  // -swept_count ascending.
             }
             return a.first_op < b.first_op;
         });
