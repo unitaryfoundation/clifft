@@ -16,23 +16,13 @@ campaign measures attempted shots per second for complete circuits on one
 pinned logical CPU. For each workload and simulator, it selects the best batch
 size for that workload before collecting the comparison.
 
-![Clifft v0.10 attempted shots per second across eight near-Clifford workloads](../assets/performance/clifft-throughput-light.png#only-light)
-![Clifft v0.10 attempted shots per second across eight near-Clifford workloads](../assets/performance/clifft-throughput-dark.png#only-dark)
+![Clifft v0.10 and SymFT v0.1 attempted shots per second across eight near-Clifford workloads, with Clifft speedup ratios](../assets/performance/clifft-symft-throughput-light.png#only-light)
+![Clifft v0.10 and SymFT v0.1 attempted shots per second across eight near-Clifford workloads, with Clifft speedup ratios](../assets/performance/clifft-symft-throughput-dark.png#only-dark)
 
 Clifft is faster than SymFT on all eight workloads. The advantage ranges from
-**1.05x to 87.7x**, with a **1.53x median** across the workload set. Absolute
-Clifft rates are listed alongside the ratios for scale.
-
-| Workload | Clifft attempted shots/s | Clifft / SymFT |
-|---|---:|---:|
-| Coherent surface code `d=3, r=1` | 5.89M | **2.18x** |
-| Coherent surface code `d=3, r=3` | 1.07M | **1.84x** |
-| Coherent surface code `d=5, r=1` | 68.9k | **1.99x** |
-| Coherent surface code `d=5, r=5` | 5.82k | **87.7x** |
-| 85-qubit distillation | 1.90M | **1.05x** |
-| Cultivation `d=3` | 2.82M | **1.09x** |
-| Cultivation `d=5` | 193.8k | **1.16x** |
-| Surface-code memory `d=7, r=7` | 4.15M | **1.22x** |
+**1.05x to 87.7x**, with a **1.53x median** across the workload set. The plot
+shows both tools' absolute rates on a shared logarithmic axis; the right-hand
+column gives Clifft's speedup over SymFT for each workload.
 
 These are attempted-shot rates, so post-selected shots that are later discarded
 still count as simulation work. The run used one placement of an AWS
