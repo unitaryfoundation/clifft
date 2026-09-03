@@ -35,28 +35,42 @@ class _PipelinePrograms:
     unoptimized: Any
     peephole_only: Any
     production: Any
+    scheduled: Any | None
 
 
-def _compile_pipeline_variants(name: str) -> _PipelinePrograms:
+def _compile_pipeline_variants(name: str, *, schedule: bool) -> _PipelinePrograms:
     circuit = (_FIXTURES / name).read_text()
     peephole = clifft.HirPassManager()
     peephole.add(clifft.PeepholeFusionPass())
+
+    scheduled = None
+    if schedule:
+        scheduling = clifft.HirPassManager()
+        scheduling.add(clifft.PeepholeFusionPass())
+        scheduling.add(clifft.StatevectorSqueezePass())
+        scheduling.add(clifft.ActiveWidthSchedulePass())
+        scheduled = clifft.compile(circuit, hir_passes=scheduling)
+
     return _PipelinePrograms(
         circuit=circuit,
         unoptimized=clifft.compile(circuit, hir_passes=None),
         peephole_only=clifft.compile(circuit, hir_passes=peephole),
         production=clifft.compile(circuit),
+        scheduled=scheduled,
     )
 
 
 @pytest.fixture(scope="module")
 def coherent_d3_programs() -> _PipelinePrograms:
-    return _compile_pipeline_variants("coherent_d3_r3.stim")
+    return _compile_pipeline_variants("coherent_d3_r3.stim", schedule=True)
 
 
 @pytest.fixture(scope="module")
 def coherent_d5_programs() -> _PipelinePrograms:
-    return _compile_pipeline_variants("coherent_d5_r5.stim")
+    # The schedule pass costs tens of seconds on this fixture in a Debug
+    # extension (see test_active_width_schedule_pass.cc's matching C++
+    # fixture test), and none of the d5 tests below compare against it.
+    return _compile_pipeline_variants("coherent_d5_r5.stim", schedule=False)
 
 
 def _record_converter(circuit: str) -> Any:
@@ -153,7 +167,7 @@ def test_coherent_d5_sampling_modes_preserve_annotations(
         _assert_annotations_match_records(converter, result)
 
 
-def test_coherent_d3_three_way_semantic_oracle(
+def test_coherent_d3_four_way_semantic_oracle(
     coherent_d3_programs: _PipelinePrograms,
 ) -> None:
     programs = coherent_d3_programs
@@ -161,6 +175,9 @@ def test_coherent_d3_three_way_semantic_oracle(
     assert programs.peephole_only.peak_active_width == 8
     assert programs.production.peak_active_width == 5
     assert programs.production.peak_active_width < programs.peephole_only.peak_active_width
+    assert programs.scheduled is not None
+    assert programs.scheduled.peak_active_width == 4
+    assert programs.scheduled.peak_active_width < programs.production.peak_active_width
 
     samples = {
         "unoptimized packed": clifft.sample(
@@ -177,6 +194,9 @@ def test_coherent_d3_three_way_semantic_oracle(
         ),
         "production automatic": clifft.sample(
             programs.production, _D3_SHOTS, seed=53_005, batch_size="auto"
+        ),
+        "scheduled packed": clifft.sample(
+            programs.scheduled, _D3_SHOTS, seed=53_006, batch_size=257
         ),
     }
     converter = _record_converter(programs.circuit)
