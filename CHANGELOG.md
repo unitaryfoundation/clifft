@@ -4,11 +4,13 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [0.10.0] - 2026-09-02
+## [0.10.0] - 2026-09-03
 
 Clifft 0.10.0 adds high-throughput packed batch sampling for eligible low-active-width CPU workloads. Automatic, cost-aware lane selection accelerates multi-shot sampling, while the new `batch_size` control lets advanced users trade throughput against memory. Apple Silicon builds also gain NEON active-state kernels, and optimizer changes reduce peak active width in coherent QEC workloads.
 
 The release also adds dependency-free unitary OpenQASM 2 input and moves production compilation, planning, exact queries, Python, and WebAssembly targets onto Clifft's native Pauli and tableau implementation; Stim remains an independent test oracle. An experimental source-built AMD HIP workflow is available under `clifft.experimental.hip`. See [Circuit Inputs](https://unitaryfoundation.github.io/clifft/stable/guide/circuit-inputs/), [CPU Execution and Tuning](https://unitaryfoundation.github.io/clifft/stable/guide/cpu-execution/), and the [HIP Backend](https://unitaryfoundation.github.io/clifft/stable/development/hip-backend/) for details.
+
+The matched single-core near-Clifford campaign records speedups over v0.9.0 on all eight workloads, with a median per-workload speedup of 3.23x. See [Packed Sampling in Clifft](https://unitaryfoundation.github.io/clifft/stable/updates/packed-sampling/) for the design and release results, and [Performance](https://unitaryfoundation.github.io/clifft/stable/guide/performance/) for absolute throughput, the SymFT comparison, dense Quantum Volume results, and measurement details.
 
 ### Added
 
@@ -46,6 +48,8 @@ The release also adds dependency-free unitary OpenQASM 2 input and moves product
 
 ### Documentation
 
+- Added the Performance guide, benchmark-backed v0.10.0 development post, updated home page and README, and a documented cross-repository benchmark refresh workflow, by @bachase in [#473](https://github.com/unitaryfoundation/clifft/pull/473).
+- Added the v0.9 parallel sampling development post covering worker layouts, memory tradeoffs, and Quantum Volume scaling, by @bachase in [#465](https://github.com/unitaryfoundation/clifft/pull/465).
 - Reorganized the documentation around circuit inputs, result-oriented workflows, CPU execution controls, exact probability APIs, importance sampling, and experimental HIP support, by @bachase in [#455](https://github.com/unitaryfoundation/clifft/pull/455).
 - Kept changelog paragraphs and list items on single physical lines so GitHub release notes render editorial wrapping correctly, by @bachase in [#421](https://github.com/unitaryfoundation/clifft/pull/421).
 
