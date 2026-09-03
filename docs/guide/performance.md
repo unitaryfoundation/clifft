@@ -9,43 +9,35 @@ The measurements below cover three complementary questions: how Clifft
 compares with another near-Clifford CPU simulator, how its throughput has
 changed across releases, and how it behaves when a circuit becomes fully dense.
 
-!!! info "At a glance"
-    On the eight calibrated, single-core near-Clifford workloads below, Clifft
-    v0.10 is faster than SymFT v0.1 on every workload. The advantage ranges
-    from **1.05x to 87.7x**, with a **1.53x median** across the workload set.
-
 ## Near-Clifford throughput
 
 The recurring [`clifft-bench`](https://github.com/unitaryfoundation/clifft-bench)
 campaign measures attempted shots per second for complete circuits on one
-pinned logical CPU. For each workload and simulator it tests batch capacities
-of 1, 32, 256, 1024, and 2048 when supported, then measures the fastest
-configuration. Batch capacity 1 is scalar execution.
+pinned logical CPU. For each workload and simulator, it selects the best batch
+size for that workload before collecting the comparison.
 
 ![Clifft v0.10 throughput relative to SymFT v0.1 across eight near-Clifford workloads](../assets/performance/clifft-vs-symft-light.png#only-light)
 ![Clifft v0.10 throughput relative to SymFT v0.1 across eight near-Clifford workloads](../assets/performance/clifft-vs-symft-dark.png#only-dark)
 
-Diamonds indicate that SymFT selected a packed configuration; circles indicate
-scalar SymFT. Filled markers mean Clifft also selected packing. Both tools were
-calibrated independently for every workload.
+Clifft is faster than SymFT on all eight workloads. The advantage ranges from
+**1.05x to 87.7x**, with a **1.53x median** across the workload set. Absolute
+Clifft rates are listed alongside the ratios for scale.
 
-| Workload | Clifft attempted shots/s | Clifft batch | SymFT batch | Clifft / SymFT |
-|---|---:|---:|---:|---:|
-| Coherent surface code `d=3, r=1` | 5.89M | 2048 | 1024 | **2.18x** |
-| Coherent surface code `d=3, r=3` | 1.07M | scalar | 32 | **1.84x** |
-| Coherent surface code `d=5, r=1` | 68.9k | scalar | scalar | **1.99x** |
-| Coherent surface code `d=5, r=5` | 5.82k | scalar | scalar | **87.7x** |
-| 85-qubit distillation | 1.90M | 1024 | 1024 | **1.05x** |
-| Cultivation `d=3` | 2.82M | 2048 | 256 | **1.09x** |
-| Cultivation `d=5` | 193.8k | scalar | 32 | **1.16x** |
-| Surface-code memory `d=7, r=7` | 4.15M | 2048 | 2048 | **1.22x** |
+| Workload | Clifft attempted shots/s | Clifft / SymFT |
+|---|---:|---:|
+| Coherent surface code `d=3, r=1` | 5.89M | **2.18x** |
+| Coherent surface code `d=3, r=3` | 1.07M | **1.84x** |
+| Coherent surface code `d=5, r=1` | 68.9k | **1.99x** |
+| Coherent surface code `d=5, r=5` | 5.82k | **87.7x** |
+| 85-qubit distillation | 1.90M | **1.05x** |
+| Cultivation `d=3` | 2.82M | **1.09x** |
+| Cultivation `d=5` | 193.8k | **1.16x** |
+| Surface-code memory `d=7, r=7` | 4.15M | **1.22x** |
 
 These are attempted-shot rates, so post-selected shots that are later discarded
 still count as simulation work. The run used one placement of an AWS
 `m7a.xlarge` with an AMD EPYC 9R14, Ubuntu 24.04, and one pinned logical CPU.
 Each reported configuration has five timed samples of at least 30 seconds.
-Calibration selects the best of the declared candidates on this host; it is not
-a claim that the same capacity is optimal on every processor.
 
 See the immutable
 [comparison table](https://github.com/unitaryfoundation/clifft-bench/blob/3a9a2eae6c8a1c144699530b806512a579deacdc/results/release-v1/release-v1-20260903-133252/comparisons.csv)
@@ -57,31 +49,29 @@ for the exact software identities, timing boundaries, and result semantics.
 
 Clifft's compiler-like structure provides several independent places to make
 simulation faster: circuit optimization, symbolic planning, executable
-preparation, and scalar or packed active-state kernels. That structure does not
-mean every speedup comes from the compiler, but it lets later releases improve
-one stage without moving circuit analysis back into the per-shot execution
-loop.
+preparation, and active-state kernels. That structure does not mean every
+speedup comes from the compiler, but it lets later releases improve one stage
+without moving circuit analysis back into the per-shot execution loop.
 
 ![Median Clifft throughput by release relative to v0.1](../assets/performance/performance-over-time-light.png#only-light)
 ![Median Clifft throughput by release relative to v0.1](../assets/performance/performance-over-time-dark.png#only-dark)
 
-The first broad step arrived in v0.8, when symbolic plans replaced the original
-localized-Pauli virtual machine. Version 0.10 combines another compiler
-improvement with packed sampling: its median throughput is **3.23x v0.9** and
-**7.0x v0.1** across the eight workloads.
+The first broad step arrived in [v0.8](../updates/symbolic-sampling.md), when
+symbolic plans replaced the original localized-Pauli virtual machine. Version
+[0.10](../updates/packed-sampling.md) combines another compiler improvement
+with packed sampling: its median throughput is **3.23x v0.9** and **7.0x
+v0.1** across the eight workloads.
 
-Packing was selected for four v0.10 workloads and scalar execution remained
-faster for the other four. The largest v0.10 gain, 837x on coherent
-`d=5, r=5`, remained scalar; it primarily reflects a compiler rewrite that
-reduced the circuit's peak active width from 24 to 13. This is why the release
-history is best read as the result of the whole compile-and-execute system, not
-as a benchmark of one kernel.
+The largest v0.10 gain, 837x on coherent `d=5, r=5`, primarily reflects a
+compiler rewrite that reduced the circuit's peak active width from 24 to 13.
+This is why the release history is best read as the result of the whole
+compile-and-execute system, not as a benchmark of one kernel.
 
 The v0.1 through v0.9 points come from a common
 [history execution](https://github.com/unitaryfoundation/clifft-bench/tree/b1eb8f489b646273538d8a3efcdef5f07a0364d1/results/clifft-history-v1/clifft-history-v1-20260902).
-The v0.10 point chains the paired v0.10/v0.9 ratio from the calibrated release
-run onto that history. This avoids treating an absolute difference between two
-host boots as a product change.
+The v0.10 point chains the paired v0.10/v0.9 ratio from the release run onto
+that history. This avoids treating an absolute difference between two host
+boots as a product change.
 
 ## Dense Quantum Volume circuits
 
@@ -110,13 +100,9 @@ seeds per width on an AWS `c8i.8xlarge`; see the
 and
 [complete result table](https://github.com/unitaryfoundation/clifft-bench/blob/f02d8496ee9269c9fa25a4cf4bdb982ffd8a28e2/experiments/qv/results/qv-0.10.0rc1-20260902/cases.csv).
 
-## Scope and next steps
+## Future benchmark scope
 
 The near-Clifford comparison is CPU-only. A future campaign will cover GPU
 execution, including Tsim, under a separate hardware and measurement contract.
 A pure-Clifford comparison with Stim will likewise be added after the relevant
 Clifft execution changes and benchmark cases land.
-
-The v0.10 measurements use the published `v0.10.0rc1` artifact, which contains
-the runtime code prepared for v0.10.0. Raw results retain that exact candidate
-identity even though reader-facing labels use the target release version.

@@ -31,9 +31,7 @@ more of the work around them.
 The approach was inspired by the packed cross-shot path in
 [SymFT](https://arxiv.org/abs/2607.28600), whose results on low-active-width
 circuits helped motivate a similar mode in Clifft. Clifft adapts the idea to
-its prepared sampling plans and result APIs. The dedicated Performance page
-will present the broader comparisons with SymFT; here the focus is the change
-from Clifft v0.9.0 to v0.10.0.
+its prepared sampling plans and result APIs.
 
 ## Automatic when useful
 

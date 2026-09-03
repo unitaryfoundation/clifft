@@ -69,19 +69,19 @@ of the published wheels or selected automatically.
 
 ## Performance
 
-On eight calibrated near-Clifford workloads using one pinned CPU core, Clifft
-v0.10 is faster than SymFT v0.1 on every workload, from 1.05x to 87.7x. Each
-tool independently selects its fastest measured scalar or packed configuration
-for each circuit.
+**Clifft reaches millions of attempted shots per second** on several complete
+near-Clifford circuits using one CPU core. Its compiler keeps the dense quantum
+state small so that exact near-Clifford simulation can approach the throughput
+usually associated with specialized Clifford tools.
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/unitaryfoundation/clifft/main/docs/assets/performance/clifft-vs-symft-dark.png">
-  <img src="https://raw.githubusercontent.com/unitaryfoundation/clifft/main/docs/assets/performance/clifft-vs-symft-light.png" alt="Clifft v0.10 throughput relative to SymFT v0.1 across eight near-Clifford workloads">
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/unitaryfoundation/clifft/main/docs/assets/performance/clifft-throughput-dark.png">
+  <img src="https://raw.githubusercontent.com/unitaryfoundation/clifft/main/docs/assets/performance/clifft-throughput-light.png" alt="Clifft v0.10 attempted shots per second across eight near-Clifford workloads">
 </picture>
 
 See the [Performance guide](https://unitaryfoundation.github.io/clifft/stable/guide/performance/)
-for absolute throughput, batch sizes, release history, dense Quantum Volume
-results, and the complete measurement methodology.
+for comparisons with other simulators, release history, dense Quantum Volume
+results, and measurement details.
 
 ## Installation
 
