@@ -112,8 +112,11 @@ def define_env(env: Any) -> None:
                 "Attempts to reduce `peak_active_width` by compacting qubit lifetimes. "
                 "Sweep 1 (leftward) bubbles MEASURE ops as early as possible. "
                 "Sweep 2 (rightward) bubbles T_GATE and PHASE_ROTATION ops as "
-                "late as possible. Measurements reduce active width sooner, "
-                "and non-Clifford expansions are deferred."
+                "late as possible, bypassing other commuting expansions when "
+                "that exposes a movable non-expanding operation. "
+                "This prevents a blocked expansion from keeping a later movable "
+                "expansion live across a measurement. Measurements reduce active "
+                "width sooner, and non-Clifford expansions are deferred."
             ),
         },
         {
