@@ -13,6 +13,8 @@
 #include "clifft/optimizer/peephole.h"
 #include "clifft/optimizer/schedule_dependence.h"
 #include "clifft/optimizer/statevector_squeeze_pass.h"
+#include "clifft/sampling/executable_plan.h"
+#include "clifft/sampling/executor.h"
 #include "clifft/sampling/plan.h"
 #include "clifft/sampling/planner.h"
 
@@ -20,11 +22,14 @@
 #include "sampling_equivalence_helpers.h"
 #include "test_helpers.h"
 
+#include <algorithm>
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <cstdint>
 #include <limits>
 #include <memory>
 #include <random>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -33,6 +38,8 @@ using namespace clifft;
 using namespace clifft::test;
 using clifft::detail::ScheduleDependence;
 using clifft::sampling::ApplyInstrument;
+using clifft::sampling::ExecutablePlan;
+using clifft::sampling::Executor;
 using clifft::sampling::SamplingPlan;
 
 namespace {
@@ -473,6 +480,124 @@ TEST_CASE("Schedule pass does not reorder around an INSTRUMENT barrier", "[sched
     REQUIRE(instrument_after != nullptr);
     REQUIRE(instrument_after->mode == mode_before);
     REQUIRE(plan_after.num_exp_vals == plan_before.num_exp_vals);
+}
+
+// The instrument sits on its own qubit (2), disjoint from the two-qubit
+// rotate/measure group on 0 and 1, so it neither blocks nor participates in
+// that group's reordering -- it is there only to prove the planner's symbol
+// prepass accounts for the instrument's own symbol correctly once scheduling
+// moves a site past it. R_PAULI X0*X1, R_PAULI Z0*Y1, MPP Y0*Y1, and MPP Y0
+// reproduce the four-operation regression's Pauli bodies (see "Schedule pass
+// finds the certified optimum for the four operation circuit" above), the
+// smallest known case where reordering the rotation relative to the
+// measurements strictly reduces peak active width; Z_ERROR sits between the
+// two rotations so that improving reorder also has to cross a noise site.
+TEST_CASE(
+    "Schedule pass moves a rotation across a noise site positioned after an INSTRUMENT boundary",
+    "[schedule_pass]") {
+    const InstrumentTraceOptions options = clifft::test::source_dependent_jump_options(false);
+    const std::string source = R"(X_ERROR(0.5) 1
+DEPOLARIZE1(0.3) 0
+LEVEL_TRANSITION[jump] 2
+R_PAULI(0.3) X0*X1
+Z_ERROR(0.5) 0
+R_PAULI(0.3) Z0*Y1
+MPP Y0*Y1
+MPP Y0
+M 2
+)";
+    const HirModule original = clifft::trace(clifft::parse(source), &options);
+
+    const std::vector<OpType> fixed_before = fixed_op_sequence(original);
+    const SamplingPlan plan_before = clifft::sampling::plan_sampling(original);
+    const ApplyInstrument* instrument_before = find_instrument_action(plan_before);
+    REQUIRE(instrument_before != nullptr);
+    const auto mode_before = instrument_before->mode;
+
+    ActiveWidthSchedulePass pass;
+    const HirModule scheduled = run_peephole_squeeze_schedule(original, pass);
+
+    REQUIRE(pass.applied());
+    REQUIRE(crossed_noise(scheduled));
+
+    size_t instrument_position = scheduled.ops.size();
+    for (size_t i = 0; i < scheduled.ops.size(); ++i) {
+        if (scheduled.ops[i].op_type() == OpType::INSTRUMENT) {
+            instrument_position = i;
+            break;
+        }
+    }
+    REQUIRE(instrument_position < scheduled.ops.size());
+
+    // crossed_noise already proved some entry disagrees with its schedule
+    // position; this additionally locates one strictly after the
+    // instrument, so the crossing the planner had to handle sits in the
+    // segment where the instrument's own symbol is also live.
+    bool disagreement_after_instrument = false;
+    uint32_t schedule_count = 0;
+    for (size_t i = 0; i < scheduled.ops.size(); ++i) {
+        if (scheduled.logical_noise_prefix[i] != schedule_count) {
+            disagreement_after_instrument |= i > instrument_position;
+        }
+        if (scheduled.ops[i].op_type() == OpType::NOISE) {
+            ++schedule_count;
+        }
+    }
+    REQUIRE(disagreement_after_instrument);
+
+    REQUIRE(fixed_op_sequence(scheduled) == fixed_before);
+    SamplingPlan plan_after;
+    REQUIRE_NOTHROW(plan_after = clifft::sampling::plan_sampling(scheduled));
+    const ApplyInstrument* instrument_after = find_instrument_action(plan_after);
+    REQUIRE(instrument_after != nullptr);
+    REQUIRE(instrument_after->mode == mode_before);
+
+    // A trapped shot never reaches the tail measurements this compares, and
+    // a discarded one has no meaningful record either; both are excluded
+    // rather than counted as a record of all zeros.
+    constexpr uint32_t kShots = 20000;
+    const uint32_t num_columns = plan_before.num_visible_records;
+    REQUIRE(plan_after.num_visible_records == num_columns);
+
+    auto collect_non_trapped = [&](const SamplingPlan& plan, uint64_t seed) {
+        const ExecutablePlan executable(plan);
+        Executor executor(executable, seed);
+        std::vector<uint8_t> rows;
+        rows.reserve(static_cast<size_t>(kShots) * num_columns);
+        uint32_t kept = 0;
+        for (uint32_t shot = 0; shot < kShots; ++shot) {
+            executor.run_shot();
+            if (executor.pending_trap().has_value() || executor.discarded()) {
+                continue;
+            }
+            const std::span<const uint8_t> records = executor.visible_records();
+            rows.insert(rows.end(), records.begin(), records.end());
+            ++kept;
+        }
+        return std::pair<std::vector<uint8_t>, uint32_t>(std::move(rows), kept);
+    };
+
+    const auto [rows_before, kept_before] = collect_non_trapped(plan_before, 0x5C4E1);
+    const auto [rows_after, kept_after] = collect_non_trapped(plan_after, 0x5C4E2);
+
+    const double fraction_before = static_cast<double>(kept_before) / kShots;
+    const double fraction_after = static_cast<double>(kept_after) / kShots;
+    INFO("fraction_before=" << fraction_before << " fraction_after=" << fraction_after);
+    REQUIRE(fraction_before >= 0.5);
+    REQUIRE(fraction_after >= 0.5);
+    const double fraction_tol = tolerance_at_6_sigma(fraction_before, fraction_after, kShots);
+    REQUIRE_THAT(fraction_before, Catch::Matchers::WithinAbs(fraction_after, fraction_tol));
+
+    // Both sides are still i.i.d. samples of the same distribution after
+    // truncating to a shared prefix, so subsampling the larger side down to
+    // the smaller row count costs nothing but a little statistical power.
+    const uint32_t common_rows = std::min(kept_before, kept_after);
+    const std::span<const uint8_t> a(rows_before.data(),
+                                     static_cast<size_t>(common_rows) * num_columns);
+    const std::span<const uint8_t> b(rows_after.data(),
+                                     static_cast<size_t>(common_rows) * num_columns);
+    check_columns_agree(a, b, num_columns, common_rows, "record");
+    check_parities_agree(a, b, num_columns, common_rows, "record");
 }
 
 // ---------------------------------------------------------------------------
