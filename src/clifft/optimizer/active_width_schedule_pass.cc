@@ -8,7 +8,6 @@
 #include <cstdint>
 #include <optional>
 #include <stdexcept>
-#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -477,6 +476,93 @@ const BeamState* pick_best_completed(const std::vector<BeamState>& completed) {
     return best;
 }
 
+// True when candidate a's complete prospective order -- its parent's
+// already-executed order followed by the ops this step adds -- is
+// lexicographically less than candidate b's. a and b are assumed to share
+// an executed-op set (the caller only ever compares within one dedup
+// group), so the two sequences are permutations of the same op indices and
+// therefore always differ at some position; the length fallback below is
+// only a defensive tie-break for two literally identical sequences.
+// Comparing the full sequence, rather than just first_op, keeps the result
+// independent of which parent produced which candidate -- and therefore
+// independent of the order `generation` happened to be built in -- since
+// two candidates from different parents can otherwise share a first_op.
+bool prospective_order_less(const std::vector<BeamState>& beam, const ScoredCandidate& a,
+                            const ScoredCandidate& b) {
+    const std::vector<uint32_t>& a_parent = beam[a.parent_index].order;
+    const std::vector<uint32_t>& b_parent = beam[b.parent_index].order;
+    const size_t a_len = a_parent.size() + a.ops.size();
+    const size_t b_len = b_parent.size() + b.ops.size();
+    for (size_t i = 0; i < a_len && i < b_len; ++i) {
+        const uint32_t a_val = i < a_parent.size() ? a_parent[i] : a.ops[i - a_parent.size()];
+        const uint32_t b_val = i < b_parent.size() ? b_parent[i] : b.ops[i - b_parent.size()];
+        if (a_val != b_val) {
+            return a_val < b_val;
+        }
+    }
+    return a_len < b_len;
+}
+
+// True when `dominator` dominates `dominated` on the pass's own
+// lexicographic objective: no worse on both peak and dense_work, strictly
+// better on at least one. Two candidates tied on both never dominate each
+// other under this definition -- append_pareto_front collapses those to one
+// canonical survivor via prospective_order_less before dominance is ever
+// checked.
+bool dominates(const ScoredCandidate& dominator, const ScoredCandidate& dominated) {
+    const bool no_worse =
+        dominator.peak <= dominated.peak && dominator.dense_work <= dominated.dense_work;
+    const bool strictly_better =
+        dominator.peak < dominated.peak || dominator.dense_work < dominated.dense_work;
+    return no_worse && strictly_better;
+}
+
+// Reduces one executed-bitset group, generation[begin, end), to its
+// non-dominated (Pareto) front over (peak, dense_work), moving the
+// survivors onto the end of `deduped`. See the dedup comment in
+// run_beam_search for why a single lexicographic winner is not enough here.
+// Two passes over the group: first collapse every exact (peak, dense_work)
+// tie to one canonical representative, picked by prospective_order_less so
+// the result does not depend on `generation`'s order; then drop every
+// representative some other representative dominates. Both passes are a
+// plain O(k^2) scan over the group -- the front is expected to stay tiny in
+// practice (one candidate per distinct peak reached so far), so a sorted or
+// indexed structure would only add bookkeeping for no measurable benefit.
+void append_pareto_front(const std::vector<BeamState>& beam,
+                         std::vector<ScoredCandidate>& generation, size_t begin, size_t end,
+                         std::vector<ScoredCandidate>& deduped) {
+    std::vector<size_t> representatives;
+    for (size_t i = begin; i < end; ++i) {
+        bool collapsed = false;
+        for (size_t& rep : representatives) {
+            if (generation[rep].peak == generation[i].peak &&
+                generation[rep].dense_work == generation[i].dense_work) {
+                if (prospective_order_less(beam, generation[i], generation[rep])) {
+                    rep = i;
+                }
+                collapsed = true;
+                break;
+            }
+        }
+        if (!collapsed) {
+            representatives.push_back(i);
+        }
+    }
+
+    for (size_t rep : representatives) {
+        bool is_dominated = false;
+        for (size_t other : representatives) {
+            if (other != rep && dominates(generation[other], generation[rep])) {
+                is_dominated = true;
+                break;
+            }
+        }
+        if (!is_dominated) {
+            deduped.push_back(std::move(generation[rep]));
+        }
+    }
+}
+
 // Beam search over the closure/readiness machinery above. beam_width == 1
 // degenerates to the greedy closure scheduler: at every step, take
 // whichever single ready expanding op's own closure sweep scores best. The
@@ -529,34 +615,39 @@ std::vector<uint32_t> run_beam_search(const HirModule& hir,
         }
 
         // Deduplicate by executed-op bitset: by confluence, the same set of
-        // executed ops always reaches the same subspace and width, so only
-        // one survivor is worth keeping. The peak reached along the way is
-        // not confluent, though: it is a running max over a path-dependent
-        // sequence of transitions, so two candidates that converge on the
-        // same executed set can still disagree on peak. Keeping whichever
-        // has the smaller dense_work, regardless of peak, can therefore
-        // discard the strictly better duplicate -- lower peak but higher
-        // dense_work -- since peak can only stay the same or grow over the
-        // rest of the schedule while dense_work is only a secondary
-        // objective. Rank by the pass's own lexicographic objective,
-        // (peak, dense_work), instead, with first_op breaking a remaining
-        // tie deterministically.
+        // executed ops always reaches the same subspace and width, so a
+        // candidate outside its own set's Pareto front never has to be
+        // materialized. But peak-so-far and dense-work-so-far are path
+        // properties, not confluent ones -- peak is a running max over a
+        // path-dependent sequence of transitions, and dense_work is the
+        // pass's own secondary objective -- so within one executed set
+        // neither key dominates the other until the rest of the schedule is
+        // known. A candidate reached with lower peak but higher dense work
+        // can still lose to one reached with higher peak but lower dense
+        // work, if the shared suffix later forces both up to that same
+        // higher peak anyway: at that point only the lower-dense_work
+        // duplicate was worth keeping, and a single lexicographic winner
+        // picked here cannot see that coming. So this keeps every candidate
+        // in a set that no other candidate of the same set dominates (peak
+        // no worse and dense work no worse, at least one strictly better),
+        // collapsing candidates tied on both to one canonical survivor (see
+        // append_pareto_front). The front is expected to be tiny in
+        // practice (one candidate per distinct peak), so no special data
+        // structure is needed. The global beam_width cut below then ranks
+        // over every surviving candidate across every set, exactly as it
+        // did when dedup left one candidate per set.
         std::ranges::sort(generation, [](const ScoredCandidate& a, const ScoredCandidate& b) {
             return a.executed_bits < b.executed_bits;
         });
         std::vector<ScoredCandidate> deduped;
-        for (ScoredCandidate& candidate : generation) {
-            if (!deduped.empty() && deduped.back().executed_bits == candidate.executed_bits) {
-                const ScoredCandidate& kept = deduped.back();
-                const bool candidate_is_better =
-                    std::tie(candidate.peak, candidate.dense_work, candidate.first_op) <
-                    std::tie(kept.peak, kept.dense_work, kept.first_op);
-                if (candidate_is_better) {
-                    deduped.back() = std::move(candidate);
-                }
-                continue;
+        for (size_t group_begin = 0; group_begin < generation.size();) {
+            size_t group_end = group_begin + 1;
+            while (group_end < generation.size() &&
+                   generation[group_end].executed_bits == generation[group_begin].executed_bits) {
+                ++group_end;
             }
-            deduped.push_back(std::move(candidate));
+            append_pareto_front(beam, generation, group_begin, group_end, deduped);
+            group_begin = group_end;
         }
 
         std::ranges::sort(deduped, [](const ScoredCandidate& a, const ScoredCandidate& b) {

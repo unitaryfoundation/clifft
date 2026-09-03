@@ -480,19 +480,28 @@ TEST_CASE("Schedule pass registry entry resolves and the factory produces a work
 
 namespace {
 
-// Width the trace would peak at if `hir`'s ops executed in `order` (a
-// permutation of op indices), replayed directly against a fresh subspace.
-// Equivalent to analyze_active_width on a copy of `hir` reordered to
-// `order`, without paying for that copy on every candidate order the
-// brute-force search below tries.
-uint32_t peak_for_order(const HirModule& hir, const std::vector<uint32_t>& order) {
+// The pass's own lexicographic objective -- (peak, dense_work) -- the trace
+// would reach if `hir`'s ops executed in `order` (a permutation of op
+// indices), replayed directly against a fresh subspace. Equivalent to
+// running analyze_active_width and estimate_dense_work on a copy of `hir`
+// reordered to `order`, without paying for that copy on every candidate
+// order the brute-force search below tries.
+struct OrderCost {
+    uint32_t peak = 0;
+    double dense_work = 0.0;
+};
+
+OrderCost cost_for_order(const HirModule& hir, const std::vector<uint32_t>& order) {
     DormantSubspace subspace(hir.num_qubits);
-    uint32_t peak = subspace.active_width();
+    OrderCost cost;
+    cost.peak = subspace.active_width();
     for (uint32_t op : order) {
         const WidthTransition transition = classify_and_apply(hir, hir.ops[op], subspace);
-        peak = std::max(peak, transition.after);
+        cost.peak = std::max(cost.peak, transition.after);
+        cost.dense_work += clifft::detail::dense_work_contribution(
+            transition.effect, transition.before, transition.after);
     }
-    return peak;
+    return cost;
 }
 
 // Backtracking enumeration of every linear extension of `dep`: at each
@@ -500,13 +509,20 @@ uint32_t peak_for_order(const HirModule& hir, const std::vector<uint32_t>& order
 // bookkeeping SearchFrontier uses internally), recurses, then restores
 // remaining_preds for every successor of the op just tried -- not only the
 // ones that became newly ready -- so a sibling branch sees the same counts
-// the current one started with.
+// the current one started with. `best` tracks the lexicographically
+// smallest (peak, dense_work) over every completed order visited so far,
+// the same order the pass's own objective ranks by.
 void enumerate_linear_extensions(const ScheduleDependence& dep,
                                  std::vector<uint32_t>& remaining_preds,
                                  std::vector<bool>& executed, std::vector<uint32_t>& order,
-                                 const HirModule& hir, uint32_t& best_peak) {
+                                 const HirModule& hir, OrderCost& best) {
     if (order.size() == dep.num_ops()) {
-        best_peak = std::min(best_peak, peak_for_order(hir, order));
+        const OrderCost cost = cost_for_order(hir, order);
+        const bool better =
+            cost.peak < best.peak || (cost.peak == best.peak && cost.dense_work < best.dense_work);
+        if (better) {
+            best = cost;
+        }
         return;
     }
     for (uint32_t op = 0; op < dep.num_ops(); ++op) {
@@ -518,7 +534,7 @@ void enumerate_linear_extensions(const ScheduleDependence& dep,
         for (uint32_t succ : dep.successors(op)) {
             --remaining_preds[succ];
         }
-        enumerate_linear_extensions(dep, remaining_preds, executed, order, hir, best_peak);
+        enumerate_linear_extensions(dep, remaining_preds, executed, order, hir, best);
         for (uint32_t succ : dep.successors(op)) {
             ++remaining_preds[succ];
         }
@@ -527,13 +543,14 @@ void enumerate_linear_extensions(const ScheduleDependence& dep,
     }
 }
 
-// Minimum peak active width over every legal reordering of `hir`'s ops
-// (every linear extension of its ScheduleDependence), found by exhaustive
-// search rather than the pass's own beam heuristic. Only affordable because
-// the regression circuit below is small (8 ops): the search space is at
-// most 8! = 40320 and smaller in practice once fixed-order and
-// non-commuting edges prune it.
-uint32_t brute_force_min_peak(const HirModule& hir) {
+// Minimum (peak, dense_work) over every legal reordering of `hir`'s ops
+// (every linear extension of its ScheduleDependence), ordered
+// lexicographically the same way the pass's own objective is, found by
+// exhaustive search rather than the pass's own beam heuristic. Only
+// affordable because every regression circuit in this file is small (at
+// most a dozen ops): the search space is at most num_ops! and smaller in
+// practice once fixed-order and non-commuting edges prune it.
+OrderCost brute_force_optimum(const HirModule& hir) {
     const ScheduleDependence dep = ScheduleDependence::build(hir);
     std::vector<uint32_t> remaining_preds(dep.num_ops());
     for (uint32_t op = 0; op < dep.num_ops(); ++op) {
@@ -541,9 +558,17 @@ uint32_t brute_force_min_peak(const HirModule& hir) {
     }
     std::vector<bool> executed(dep.num_ops(), false);
     std::vector<uint32_t> order;
-    uint32_t best = std::numeric_limits<uint32_t>::max();
+    OrderCost best;
+    best.peak = std::numeric_limits<uint32_t>::max();
+    best.dense_work = std::numeric_limits<double>::infinity();
     enumerate_linear_extensions(dep, remaining_preds, executed, order, hir, best);
     return best;
+}
+
+// Peak component alone, for regressions that only certify the primary
+// objective.
+uint32_t brute_force_min_peak(const HirModule& hir) {
+    return brute_force_optimum(hir).peak;
 }
 
 }  // namespace
@@ -580,4 +605,51 @@ TEST_CASE("Schedule pass reaches the brute-force optimal peak on a beam dedup re
 
     INFO("incumbent_peak=" << pass.incumbent_peak() << " result_peak=" << pass.result_peak());
     REQUIRE(pass.result_peak() == brute_force_min_peak(hir));
+}
+
+// Regression for the Pareto-front fix above: found by extending a seed from
+// the same random search with two more ops, chosen by a further small
+// search for an extension where the final answer actually changes.
+// Instrumenting the dedup step showed the mechanism directly. One
+// executed-op set is reached by two candidates, (peak 3, dense_work 54)
+// and (peak 4, dense_work 52) -- neither dominates the other, since one is
+// better on peak and the other on dense_work. Deduping lexicographically by
+// (peak, dense_work, first_op) (the pre-this-fix rule) keeps only the
+// lower-peak (3, 54) candidate and discards (4, 52) outright. Two steps
+// later the shared suffix forces every surviving path to peak 4 anyway: an
+// executed-op set further on is reached by three candidates, (4, 70) and
+// (4, 94) descending from the kept (3, 54) candidate, and (4, 68)
+// descending from the discarded (4, 52) one -- strictly the best of the
+// three, and gone for good under the old rule. So the old rule's beam
+// search reports (4, 70) as final, while keeping the whole Pareto front
+// reaches the brute-force optimum, (4, 68).
+TEST_CASE("Schedule pass reaches the brute-force optimum on a beam dedup Pareto regression circuit",
+          "[schedule_pass]") {
+    HirModule hir(4, 12);
+    hir.num_measurements = 3;
+    clifft::test::append_phase_rotation(hir, 0x2, 0x2, false, 0.875);      // Y1
+    clifft::test::append_tgate(hir, 0x2, 0x0, false);                      // X1
+    clifft::test::append_measure(hir, 0x5, 0x1, false, MeasRecordIdx{0});  // Y0 X2
+    clifft::test::append_tgate(hir, 0x1, 0x0, false);                      // X0
+    clifft::test::append_tgate(hir, 0x0, 0x9, false);                      // Z0 Z3
+    clifft::test::append_tgate(hir, 0x0, 0x2, false);                      // Z1
+    clifft::test::append_tgate(hir, 0x8, 0x9, false);                      // Z0 Y3
+    clifft::test::append_phase_rotation(hir, 0x2, 0x2, false, 0.25);       // Y1
+    clifft::test::append_measure(hir, 0x8, 0x0, false, MeasRecordIdx{1});  // X3
+    clifft::test::append_phase_rotation(hir, 0x8, 0x0, false, 0.875);      // X3
+    clifft::test::append_measure(hir, 0x8, 0x0, false, MeasRecordIdx{2});  // X3
+    clifft::test::append_tgate(hir, 0x8, 0x8, false);                      // Y3
+
+    ActiveWidthScheduleOptions options;
+    options.beam_width = 16;
+    options.sink_neutral_rotations = false;
+    ActiveWidthSchedulePass pass(options);
+    HirModule scheduled = hir;
+    pass.run(scheduled);
+
+    const OrderCost optimum = brute_force_optimum(hir);
+    INFO("incumbent_peak=" << pass.incumbent_peak() << " result_peak=" << pass.result_peak()
+                           << " result_dense_work=" << pass.result_dense_work());
+    REQUIRE(pass.result_peak() == optimum.peak);
+    REQUIRE(pass.result_dense_work() == optimum.dense_work);
 }
