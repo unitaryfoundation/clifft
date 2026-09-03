@@ -5,6 +5,16 @@
 // noisy-circuit generator plus a statistical equivalence check. Split out of
 // test_logical_noise_prefix.cc so test_schedule_dependence.cc and
 // test_active_width_schedule_pass.cc can reuse both without duplicating them.
+//
+// All of the below take clifft::Xoshiro256PlusPlus rather than
+// std::mt19937: realize_noise draws its firing decision with the same
+// 64-bit uniform recipe the sampler itself uses (next_double below), and
+// that recipe only spans the full [0, 1) range against a generator that
+// actually produces 64 bits per draw. Paired with a 32-bit std::mt19937,
+// the same recipe discards the generator's low bits as if they were the
+// high bits of a wider word, which caps every roll within about 2^-32 of
+// zero -- below every noise probability this suite generates, so no
+// channel could ever fail to fire.
 
 #include "clifft/frontend/hir.h"
 #include "clifft/sampling/executable_plan.h"
@@ -12,6 +22,7 @@
 #include "clifft/sampling/plan.h"
 #include "clifft/sampling/planner.h"
 #include "clifft/sampling/sampler.h"
+#include "clifft/util/xoshiro.h"
 
 #include <algorithm>
 #include <cassert>
@@ -20,7 +31,6 @@
 #include <cmath>
 #include <cstdint>
 #include <optional>
-#include <random>
 #include <span>
 #include <string>
 #include <vector>
@@ -51,10 +61,6 @@ struct GeneratedCircuit {
     std::vector<NoiseLine> noise_lines;
 };
 
-inline double next_unit(std::mt19937& rng) {
-    return static_cast<double>(rng() >> 11) * 0x1.0p-53;
-}
-
 // Deterministic generator over a mixed gate set: absorbed Cliffords (H, S,
 // CX, CZ) that the frontend folds into its frame without emitting an HIR op,
 // movable non-Clifford ops (T, T_DAG, R_Z, M, MX, MR), a reset, a noisy
@@ -69,7 +75,7 @@ inline double next_unit(std::mt19937& rng) {
 // clear check_sampling_equivalent's statistical tolerance to be caught. At a
 // small probability the wrong fraction can hide inside the tolerance band;
 // at 0.5 or 1.0 it cannot.
-inline GeneratedCircuit generate_noisy_circuit(std::mt19937& rng, uint32_t num_qubits,
+inline GeneratedCircuit generate_noisy_circuit(clifft::Xoshiro256PlusPlus& rng, uint32_t num_qubits,
                                                uint32_t num_ops) {
     assert(num_qubits >= 2 && "two-qubit gates and channels need a second qubit");
     static const double kAngles[] = {0.125, 0.25, 0.375, 0.625, 0.75, 0.875};
@@ -230,7 +236,8 @@ inline std::string join_lines(const std::vector<std::string>& lines) {
     return text;
 }
 
-inline std::string generate_noisy_source(std::mt19937& rng, uint32_t num_qubits, uint32_t num_ops) {
+inline std::string generate_noisy_source(clifft::Xoshiro256PlusPlus& rng, uint32_t num_qubits,
+                                         uint32_t num_ops) {
     return join_lines(generate_noisy_circuit(rng, num_qubits, num_ops).lines);
 }
 
@@ -242,12 +249,24 @@ inline std::string generate_noisy_source(std::mt19937& rng, uint32_t num_qubits,
 // same as a dropped line -- which is what lets a legality-oracle test
 // compare the realized circuit's ops one-for-one against the noise-free
 // positions of the original.
-inline std::vector<std::string> realize_noise(const GeneratedCircuit& circuit, std::mt19937& rng) {
+
+// realize_noise's realized lines, plus how many of circuit.noise_lines
+// fired versus dropped -- a witness a caller can require to be positive on
+// both sides, proving the realization stream actually exercises both
+// outcomes rather than only ever firing or only ever dropping.
+struct RealizedCircuit {
+    std::vector<std::string> lines;
+    size_t fired = 0;
+    size_t dropped = 0;
+};
+
+inline RealizedCircuit realize_noise(const GeneratedCircuit& circuit,
+                                     clifft::Xoshiro256PlusPlus& rng) {
     using Kind = GeneratedCircuit::NoiseLine::Kind;
     std::vector<uint8_t> drop(circuit.lines.size(), 0);
     std::vector<std::string> replacement(circuit.lines.size());
     for (const GeneratedCircuit::NoiseLine& noise : circuit.noise_lines) {
-        const double roll = next_unit(rng);
+        const double roll = rng.next_double();
         switch (noise.kind) {
             case Kind::XError:
                 if (roll >= noise.prob) {
@@ -313,15 +332,22 @@ inline std::vector<std::string> realize_noise(const GeneratedCircuit& circuit, s
         }
     }
 
-    std::vector<std::string> realized;
-    realized.reserve(circuit.lines.size());
+    RealizedCircuit result;
+    result.lines.reserve(circuit.lines.size());
     for (size_t i = 0; i < circuit.lines.size(); ++i) {
         if (drop[i]) {
             continue;
         }
-        realized.push_back(replacement[i].empty() ? circuit.lines[i] : replacement[i]);
+        result.lines.push_back(replacement[i].empty() ? circuit.lines[i] : replacement[i]);
     }
-    return realized;
+    for (const GeneratedCircuit::NoiseLine& noise : circuit.noise_lines) {
+        if (drop[noise.line_index]) {
+            ++result.dropped;
+        } else {
+            ++result.fired;
+        }
+    }
+    return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -447,7 +473,8 @@ struct ExactEquivalenceStats {
 // statistics; a wrong sign on a rare channel is as visible here as on a
 // likely one.
 inline ExactEquivalenceStats check_exact_equivalent(const HirModule& original,
-                                                    const HirModule& reordered, std::mt19937& rng,
+                                                    const HirModule& reordered,
+                                                    clifft::Xoshiro256PlusPlus& rng,
                                                     size_t max_realizations = 16) {
     // replay_shot cannot resolve a readout-noise flip from a forced record:
     // execute_action's ReplayRecords specialization for ExecuteReadoutNoise

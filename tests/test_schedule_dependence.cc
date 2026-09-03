@@ -21,7 +21,6 @@
 #include <cstdint>
 #include <cstring>
 #include <optional>
-#include <random>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -54,7 +53,7 @@ bool is_movable_ref(OpType type) {
 // R, X_ERROR, DEPOLARIZE1, and DETECTORs. Wraps the shared generator with
 // this file's qubit-count convention (4 to 10, per the relation's movable
 // op mix) so every call site does not have to repeat the modulus.
-std::string random_noisy_source(std::mt19937& rng, int trial) {
+std::string random_noisy_source(clifft::Xoshiro256PlusPlus& rng, int trial) {
     const uint32_t num_qubits = 4 + static_cast<uint32_t>(trial % 7);
     const uint32_t num_ops = 15 + static_cast<uint32_t>(trial % 25);
     return clifft::test::generate_noisy_source(rng, num_qubits, num_ops);
@@ -65,7 +64,8 @@ std::string random_noisy_source(std::mt19937& rng, int trial) {
 // randomized Kahn's algorithm. Every ScheduleDependence is acyclic by
 // construction (every edge i -> j has i < j), so this always terminates
 // with a full permutation.
-std::vector<uint32_t> random_linear_extension(const ScheduleDependence& dep, std::mt19937& rng) {
+std::vector<uint32_t> random_linear_extension(const ScheduleDependence& dep,
+                                              clifft::Xoshiro256PlusPlus& rng) {
     const size_t n = dep.num_ops();
     std::vector<uint32_t> remaining_preds(n);
     std::vector<uint32_t> ready;
@@ -177,7 +177,8 @@ void check_edges_match_can_swap(const HirModule& hir, bool noise_transparent) {
 // resulting DormantSubspace to agree: same active width, and every
 // generator of one contained in the other. This is the confluence property
 // that makes searching over the relation's linear extensions well defined.
-void check_confluence(const HirModule& hir, bool noise_transparent, std::mt19937& order_rng) {
+void check_confluence(const HirModule& hir, bool noise_transparent,
+                      clifft::Xoshiro256PlusPlus& order_rng) {
     ScheduleDependenceOptions options;
     options.noise_transparent = noise_transparent;
     const ScheduleDependence dep = ScheduleDependence::build(hir, options);
@@ -223,7 +224,7 @@ TEST_CASE("Schedule dependence edges match can_swap on random noisy circuits",
     constexpr uint32_t kSeed = 0x5C4ED;
     constexpr int kTrials = 200;
 
-    std::mt19937 rng(kSeed);
+    clifft::Xoshiro256PlusPlus rng(kSeed);
     for (int trial = 0; trial < kTrials; ++trial) {
         const std::string source = random_noisy_source(rng, trial);
         CAPTURE(trial, source);
@@ -244,8 +245,8 @@ TEST_CASE("A random linear extension keeps fixed ops in order and rejects an inv
     constexpr uint32_t kOrderSeed = 0x11FE2;
     constexpr int kTrials = 60;
 
-    std::mt19937 circuit_rng(kCircuitSeed);
-    std::mt19937 order_rng(kOrderSeed);
+    clifft::Xoshiro256PlusPlus circuit_rng(kCircuitSeed);
+    clifft::Xoshiro256PlusPlus order_rng(kOrderSeed);
     for (int trial = 0; trial < kTrials; ++trial) {
         const std::string source = random_noisy_source(circuit_rng, trial);
         CAPTURE(trial, source);
@@ -300,8 +301,8 @@ TEST_CASE("Different linear extensions reach the same final structural subspace"
     constexpr uint32_t kOrderSeed = 0x9A5E2;
     constexpr int kTrials = 100;
 
-    std::mt19937 circuit_rng(kCircuitSeed);
-    std::mt19937 order_rng(kOrderSeed);
+    clifft::Xoshiro256PlusPlus circuit_rng(kCircuitSeed);
+    clifft::Xoshiro256PlusPlus order_rng(kOrderSeed);
     for (int trial = 0; trial < kTrials; ++trial) {
         const std::string source = random_noisy_source(circuit_rng, trial);
         const HirModule hir = clifft::trace(clifft::parse(source));
@@ -423,7 +424,7 @@ TEST_CASE("apply_schedule rejects an order that is not a linear extension",
 
 TEST_CASE("apply_schedule carries source_map and logical_noise_prefix with their ops",
           "[schedule_dependence]") {
-    std::mt19937 circuit_rng(0xF00D1);
+    clifft::Xoshiro256PlusPlus circuit_rng(0xF00D1);
     const std::string source = clifft::test::generate_noisy_source(circuit_rng, 6, 30);
     CAPTURE(source);
 
@@ -447,7 +448,7 @@ TEST_CASE("apply_schedule carries source_map and logical_noise_prefix with their
     ScheduleDependenceOptions options;
     options.noise_transparent = true;
     const ScheduleDependence dep = ScheduleDependence::build(hir, options);
-    std::mt19937 order_rng(0xBEEF1);
+    clifft::Xoshiro256PlusPlus order_rng(0xBEEF1);
     const std::vector<uint32_t> order = random_linear_extension(dep, order_rng);
 
     apply_schedule(hir, dep, order);
@@ -463,8 +464,8 @@ TEST_CASE("A random linear extension under noise transparency is sampling equiva
 
     SECTION("random circuits") {
         constexpr int kTrials = 20;
-        std::mt19937 circuit_rng(0x5A17C);
-        std::mt19937 control_rng(0x5EED17);
+        clifft::Xoshiro256PlusPlus circuit_rng(0x5A17C);
+        clifft::Xoshiro256PlusPlus control_rng(0x5EED17);
         for (int trial = 0; trial < kTrials; ++trial) {
             const std::string source = random_noisy_source(circuit_rng, trial);
             CAPTURE(trial, source);
@@ -473,7 +474,7 @@ TEST_CASE("A random linear extension under noise transparency is sampling equiva
             ScheduleDependenceOptions options;
             options.noise_transparent = true;
             const ScheduleDependence dep = ScheduleDependence::build(original, options);
-            std::mt19937 order_rng(control_rng());
+            clifft::Xoshiro256PlusPlus order_rng(control_rng());
             const std::vector<uint32_t> order = random_linear_extension(dep, order_rng);
 
             HirModule reordered = original;
@@ -492,7 +493,7 @@ TEST_CASE("A random linear extension under noise transparency is sampling equiva
         ScheduleDependenceOptions options;
         options.noise_transparent = true;
         const ScheduleDependence dep = ScheduleDependence::build(original, options);
-        std::mt19937 order_rng(0x517EE7);
+        clifft::Xoshiro256PlusPlus order_rng(0x517EE7);
         const std::vector<uint32_t> order = random_linear_extension(dep, order_rng);
 
         HirModule reordered = original;
@@ -511,9 +512,9 @@ TEST_CASE(
     constexpr uint32_t kControlSeed = 0xDEC0DE3;
     constexpr int kTrials = 200;
 
-    std::mt19937 circuit_rng(kCircuitSeed);
-    std::mt19937 order_rng(kOrderSeed);
-    std::mt19937 control_rng(kControlSeed);
+    clifft::Xoshiro256PlusPlus circuit_rng(kCircuitSeed);
+    clifft::Xoshiro256PlusPlus order_rng(kOrderSeed);
+    clifft::Xoshiro256PlusPlus control_rng(kControlSeed);
     int skipped = 0;
     int crossed_count = 0;
     for (int trial = 0; trial < kTrials; ++trial) {
@@ -707,7 +708,7 @@ TEST_CASE("apply_schedule rejects a target that changes anything can_swap reads"
 
 TEST_CASE("commutation_fingerprint is unaffected by materializing logical_noise_prefix",
           "[schedule_dependence]") {
-    std::mt19937 rng(0xFEED2);
+    clifft::Xoshiro256PlusPlus rng(0xFEED2);
     const std::string source = random_noisy_source(rng, /*trial=*/3);
     CAPTURE(source);
 

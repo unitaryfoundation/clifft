@@ -26,7 +26,6 @@
 #include <exception>
 #include <memory>
 #include <numeric>
-#include <random>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -57,8 +56,8 @@ const T& action_as(const SamplingPlan& plan, size_t index) {
 // ---------------------------------------------------------------------------
 //
 // GeneratedCircuit, generate_noisy_circuit, join_lines, generate_noisy_source,
-// next_unit, realize_noise, and crossed_noise live in
-// sampling_equivalence_helpers.h, shared with test_schedule_dependence.cc and
+// realize_noise, and crossed_noise live in sampling_equivalence_helpers.h,
+// shared with test_schedule_dependence.cc and
 // test_active_width_schedule_pass.cc.
 
 // ---------------------------------------------------------------------------
@@ -135,7 +134,7 @@ TEST_CASE("Logical noise prefix is inert on fixture circuits", "[logical_noise_p
 TEST_CASE("Logical noise prefix is inert on random noisy circuits", "[logical_noise_prefix]") {
     constexpr uint32_t kSeed = 0x1e94a1;
     constexpr int kTrials = 200;
-    std::mt19937 rng(kSeed);
+    clifft::Xoshiro256PlusPlus rng(kSeed);
     for (int trial = 0; trial < kTrials; ++trial) {
         const uint32_t num_qubits = 4 + static_cast<uint32_t>(trial % 6);
         const uint32_t num_ops = 15 + static_cast<uint32_t>(trial % 25);
@@ -434,7 +433,7 @@ void swap_adjacent_ops(HirModule& hir, std::vector<size_t>& original_index, size
 // started with. original_index must start as 0..ops.size()-1; after the
 // walk, original_index[i] is the original position of the op now at i.
 void randomly_reorder_across_noise(HirModule& hir, std::vector<size_t>& original_index,
-                                   std::mt19937& rng, int iterations) {
+                                   clifft::Xoshiro256PlusPlus& rng, int iterations) {
     hir.materialize_logical_noise_prefix();
     for (int iter = 0; iter < iterations && hir.ops.size() >= 2; ++iter) {
         std::vector<size_t> movable;
@@ -476,8 +475,8 @@ TEST_CASE("Logical noise prefix preserves the sampling distribution across noise
 
     SECTION("random circuits") {
         constexpr uint32_t kTrials = 30;
-        std::mt19937 circuit_rng(0xC0FFEE);
-        std::mt19937 control_rng(0x51DE9A1);
+        clifft::Xoshiro256PlusPlus circuit_rng(0xC0FFEE);
+        clifft::Xoshiro256PlusPlus control_rng(0x51DE9A1);
         for (uint32_t trial = 0; trial < kTrials; ++trial) {
             const uint32_t num_qubits = 4 + (trial % 5);
             const uint32_t num_ops = 25 + (trial % 20);
@@ -488,7 +487,7 @@ TEST_CASE("Logical noise prefix preserves the sampling distribution across noise
             HirModule reordered = original;
             std::vector<size_t> original_index(reordered.ops.size());
             std::iota(original_index.begin(), original_index.end(), 0);
-            std::mt19937 reorder_rng(control_rng());
+            clifft::Xoshiro256PlusPlus reorder_rng(control_rng());
             randomly_reorder_across_noise(reordered, original_index, reorder_rng,
                                           8 * static_cast<int>(reordered.ops.size()) + 8);
 
@@ -503,7 +502,7 @@ TEST_CASE("Logical noise prefix preserves the sampling distribution across noise
         HirModule reordered = original;
         std::vector<size_t> original_index(reordered.ops.size());
         std::iota(original_index.begin(), original_index.end(), 0);
-        std::mt19937 reorder_rng(0x517EE7);
+        clifft::Xoshiro256PlusPlus reorder_rng(0x517EE7);
         randomly_reorder_across_noise(reordered, original_index, reorder_rng,
                                       8 * static_cast<int>(reordered.ops.size()) + 8);
 
@@ -517,8 +516,8 @@ TEST_CASE(
     "[logical_noise_prefix]") {
     constexpr uint32_t kShots = 20000;
     constexpr uint32_t kTrials = 10;
-    std::mt19937 circuit_rng(0xD0DE2);
-    std::mt19937 control_rng(0x51DE9A2);
+    clifft::Xoshiro256PlusPlus circuit_rng(0xD0DE2);
+    clifft::Xoshiro256PlusPlus control_rng(0x51DE9A2);
     for (uint32_t trial = 0; trial < kTrials; ++trial) {
         const uint32_t num_qubits = 4 + (trial % 5);
         const uint32_t num_ops = 25 + (trial % 20);
@@ -529,7 +528,7 @@ TEST_CASE(
         HirModule reordered = original;
         std::vector<size_t> original_index(reordered.ops.size());
         std::iota(original_index.begin(), original_index.end(), 0);
-        std::mt19937 reorder_rng(control_rng());
+        clifft::Xoshiro256PlusPlus reorder_rng(control_rng());
         randomly_reorder_across_noise(reordered, original_index, reorder_rng,
                                       8 * static_cast<int>(reordered.ops.size()) + 8);
 
@@ -546,9 +545,9 @@ TEST_CASE(
     constexpr uint32_t kControlSeed = 0xC0DE73;
     constexpr int kTrials = 150;
 
-    std::mt19937 circuit_rng(kCircuitSeed);
-    std::mt19937 reorder_rng(kReorderSeed);
-    std::mt19937 control_rng(kControlSeed);
+    clifft::Xoshiro256PlusPlus circuit_rng(kCircuitSeed);
+    clifft::Xoshiro256PlusPlus reorder_rng(kReorderSeed);
+    clifft::Xoshiro256PlusPlus control_rng(kControlSeed);
     int checked = 0;
     int skipped = 0;
     for (int trial = 0; trial < kTrials; ++trial) {
@@ -590,7 +589,9 @@ TEST_CASE(
 TEST_CASE("A logical-noise-prefix reorder is a legal can_swap reordering of the realized circuit",
           "[logical_noise_prefix]") {
     constexpr uint32_t kTrials = 30;
-    std::mt19937 circuit_rng(0xA11CE);
+    clifft::Xoshiro256PlusPlus circuit_rng(0xA11CE);
+    size_t fired = 0;
+    size_t dropped = 0;
     for (uint32_t trial = 0; trial < kTrials; ++trial) {
         const uint32_t num_qubits = 4 + (trial % 5);
         const uint32_t num_ops = 20 + (trial % 20);
@@ -606,12 +607,15 @@ TEST_CASE("A logical-noise-prefix reorder is a legal can_swap reordering of the 
 
         std::vector<size_t> original_index(noisy.ops.size());
         std::iota(original_index.begin(), original_index.end(), 0);
-        std::mt19937 reorder_rng(0xB0B0 + trial);
+        clifft::Xoshiro256PlusPlus reorder_rng(0xB0B0 + trial);
         randomly_reorder_across_noise(noisy, original_index, reorder_rng,
                                       6 * static_cast<int>(noisy.ops.size()) + 6);
 
-        std::mt19937 realize_rng(0xFACADE + trial);
-        const std::string realized_source = join_lines(realize_noise(generated, realize_rng));
+        clifft::Xoshiro256PlusPlus realize_rng(0xFACADE + trial);
+        const RealizedCircuit realized_circuit = realize_noise(generated, realize_rng);
+        fired += realized_circuit.fired;
+        dropped += realized_circuit.dropped;
+        const std::string realized_source = join_lines(realized_circuit.lines);
         CAPTURE(realized_source);
         const HirModule realized = clifft::trace(clifft::parse(realized_source));
 
@@ -653,6 +657,14 @@ TEST_CASE("A logical-noise-prefix reorder is a legal can_swap reordering of the 
             }
         }
     }
+
+    // A realization stream that only ever fires (or only ever drops) would
+    // leave this oracle checking a single realization class per circuit --
+    // e.g. always all channels active -- rather than the mix of fired and
+    // dropped sites a real noise draw produces.
+    INFO("fired=" << fired << " dropped=" << dropped);
+    REQUIRE(fired > 0);
+    REQUIRE(dropped > 0);
 }
 
 // ---------------------------------------------------------------------------

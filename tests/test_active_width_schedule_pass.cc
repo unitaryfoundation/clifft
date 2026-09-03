@@ -28,7 +28,6 @@
 #include <cstdint>
 #include <limits>
 #include <memory>
-#include <random>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -299,7 +298,7 @@ TEST_CASE("Schedule pass never regresses peak or dense work and leaves an unimpr
     constexpr uint32_t kSeed = 0x5C4EDA1;
     constexpr int kTrials = 100;
 
-    std::mt19937 rng(kSeed);
+    clifft::Xoshiro256PlusPlus rng(kSeed);
     for (int trial = 0; trial < kTrials; ++trial) {
         const uint32_t num_qubits = 4 + static_cast<uint32_t>(trial % 7);
         const uint32_t num_ops = 15 + static_cast<uint32_t>(trial % 25);
@@ -339,7 +338,7 @@ TEST_CASE("Schedule pass is deterministic across repeated runs", "[schedule_pass
     constexpr uint32_t kSeed = 0x0DE7511;
     constexpr int kTrials = 20;
 
-    std::mt19937 rng(kSeed);
+    clifft::Xoshiro256PlusPlus rng(kSeed);
     for (int trial = 0; trial < kTrials; ++trial) {
         const uint32_t num_qubits = 4 + static_cast<uint32_t>(trial % 7);
         const uint32_t num_ops = 15 + static_cast<uint32_t>(trial % 25);
@@ -382,8 +381,8 @@ TEST_CASE("Scheduled programs remain sampling equivalent to the unoptimized prog
 
     SECTION("random noisy circuits") {
         constexpr int kTrials = 20;
-        std::mt19937 circuit_rng(0x5A17C3);
-        std::mt19937 control_rng(0x5EED173);
+        clifft::Xoshiro256PlusPlus circuit_rng(0x5A17C3);
+        clifft::Xoshiro256PlusPlus control_rng(0x5EED173);
         for (int trial = 0; trial < kTrials; ++trial) {
             const uint32_t num_qubits = 4 + static_cast<uint32_t>(trial % 7);
             const uint32_t num_ops = 15 + static_cast<uint32_t>(trial % 25);
@@ -405,8 +404,8 @@ TEST_CASE("Scheduled programs are exactly sampling equivalent for every checked 
     constexpr uint32_t kControlSeed = 0xFACE2;
     constexpr int kTrials = 5000;
 
-    std::mt19937 circuit_rng(kCircuitSeed);
-    std::mt19937 control_rng(kControlSeed);
+    clifft::Xoshiro256PlusPlus circuit_rng(kCircuitSeed);
+    clifft::Xoshiro256PlusPlus control_rng(kControlSeed);
     int skipped = 0;
     int applied_count = 0;
     int crossed_count = 0;
