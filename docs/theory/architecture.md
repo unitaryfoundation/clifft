@@ -55,9 +55,9 @@ maps Pauli operations into those coordinates, and derives the affine Boolean
 expressions needed for branch-dependent signs. The resulting `SamplingPlan`
 is a target-independent description of the work common to every shot.
 
-Keeping this boundary semantic matters. The CPU executor and experimental HIP
-backend share the same coordinate choices and output contract without sharing
-action layouts, kernel selectors, or fusion policy.
+Keeping this boundary semantic matters. The CPU executor and the experimental
+HIP and CUDA backends share the same coordinate choices and output contract
+without sharing action layouts, kernel selectors, or fusion policy.
 
 ### Executable Preparation
 
@@ -75,10 +75,11 @@ This keeps target selection consistent across the whole executor.
 and is discarded once the fixed storage is ready; it is not another persistent
 IR or a runtime pass manager.
 
-The experimental HIP backend starts from the same `SamplingPlan` boundary but
-prepares a backend-private GPU executable and device workspace. Its packed
-actions and launch controls are not part of the stable CPU API; see
-[HIP Backend](../development/hip-backend.md).
+The experimental HIP and CUDA backends start from the same `SamplingPlan`
+boundary but prepare a backend-private GPU executable and device workspace.
+Their packed actions and launch controls are not part of the stable CPU API;
+see [HIP Backend](../development/hip-backend.md) and
+[CUDA Backend](../development/cuda-backend.md).
 
 !!! important "Planning boundary"
     Runtime kernels do not evolve tableaus, localize Paulis, analyze

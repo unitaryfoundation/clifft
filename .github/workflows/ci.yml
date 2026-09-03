@@ -141,6 +141,30 @@ jobs:
       - name: Run GPU-free HIP Python boundary tests
         run: uv run --no-sync pytest tests/python/test_experimental_hip.py -v
 
+  cuda-offline-build:
+    timeout-minutes: 30
+    runs-on: ubuntu-24.04
+    container: nvidia/cuda:13.0.3-devel-ubuntu24.04
+    steps:
+      - name: Install build tools
+        run: apt-get update && apt-get install -y build-essential cmake git ninja-build
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure sm_90 CUDA build
+        run: |
+          cmake -S . -B build-cuda -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCLIFFT_ENABLE_CUDA=ON \
+            -DCMAKE_CUDA_ARCHITECTURES=90
+
+      - name: Compile CUDA backend and conformance tests
+        run: cmake --build build-cuda --target clifft_cuda_tests --parallel 2
+
+      - name: Run GPU-free CUDA conformance tests
+        run: ctest --test-dir build-cuda --output-on-failure --no-tests=error -R CUDA
+
   build-and-test:
     timeout-minutes: 45
     runs-on: ubuntu-24.04

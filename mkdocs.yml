@@ -136,6 +136,7 @@ nav:
     - Experimental:
       - HIP Backend: development/hip-backend.md
       - HIP Kernel Development: development/hip-kernel-development.md
+      - CUDA Backend: development/cuda-backend.md
     - Testing Strategy: development/testing.md
     - Tableau Conventions: development/tableau-conventions.md
     - Releasing: development/releasing.md
