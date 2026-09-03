@@ -502,6 +502,55 @@ TEST_CASE("A random linear extension under noise transparency is sampling equiva
     }
 }
 
+TEST_CASE(
+    "A random linear extension under noise transparency is exactly sampling equivalent for "
+    "every checked noise realization",
+    "[schedule_dependence]") {
+    constexpr uint32_t kCircuitSeed = 0xDEC0DE1;
+    constexpr uint32_t kOrderSeed = 0xDEC0DE2;
+    constexpr uint32_t kControlSeed = 0xDEC0DE3;
+    constexpr int kTrials = 200;
+
+    std::mt19937 circuit_rng(kCircuitSeed);
+    std::mt19937 order_rng(kOrderSeed);
+    std::mt19937 control_rng(kControlSeed);
+    int skipped = 0;
+    int crossed_count = 0;
+    for (int trial = 0; trial < kTrials; ++trial) {
+        const uint32_t num_qubits = 3 + static_cast<uint32_t>(trial % 4);
+        const uint32_t num_ops = 12 + static_cast<uint32_t>(trial % 13);
+        const std::string source =
+            clifft::test::generate_noisy_source(circuit_rng, num_qubits, num_ops);
+        const HirModule original = clifft::trace(clifft::parse(source));
+        CAPTURE(trial, num_qubits, num_ops, source);
+        // A high measurement count makes the exact check's per-record
+        // enumeration (2^num_visible_records replays per realization)
+        // expensive; that cost buys nothing this test needs, so skip it. A
+        // plain R or a noisy measurement disqualifies a trial outright: the
+        // former lowers to a hidden measurement and the latter to a
+        // READOUT_NOISE action, and check_exact_equivalent requires neither.
+        if (original.num_measurements > 8 || original.num_hidden_measurements > 0 ||
+            !original.readout_noise.empty()) {
+            ++skipped;
+            continue;
+        }
+
+        ScheduleDependenceOptions options;
+        options.noise_transparent = true;
+        const ScheduleDependence dep = ScheduleDependence::build(original, options);
+        const std::vector<uint32_t> order = random_linear_extension(dep, order_rng);
+
+        HirModule reordered = original;
+        apply_schedule(reordered, dep, order);
+        crossed_count += clifft::test::crossed_noise(reordered) ? 1 : 0;
+
+        clifft::test::check_exact_equivalent(original, reordered, control_rng);
+    }
+
+    INFO("skipped=" << skipped << " crossed=" << crossed_count);
+    REQUIRE(crossed_count >= 10);
+}
+
 // ---------------------------------------------------------------------------
 // Fingerprint covers exactly what can_swap reads
 // ---------------------------------------------------------------------------

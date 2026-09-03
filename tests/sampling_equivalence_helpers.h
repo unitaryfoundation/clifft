@@ -8,6 +8,7 @@
 
 #include "clifft/frontend/hir.h"
 #include "clifft/sampling/executable_plan.h"
+#include "clifft/sampling/executor.h"
 #include "clifft/sampling/plan.h"
 #include "clifft/sampling/planner.h"
 #include "clifft/sampling/sampler.h"
@@ -18,6 +19,7 @@
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <cmath>
 #include <cstdint>
+#include <optional>
 #include <random>
 #include <span>
 #include <string>
@@ -425,6 +427,183 @@ inline void check_sampling_equivalent(const HirModule& original, const HirModule
                         "detector");
     check_parities_agree(result_a.measurements, result_b.measurements, plan_a.num_visible_records(),
                          shots, "record");
+}
+
+// ---------------------------------------------------------------------------
+// Exact per-realization equivalence
+// ---------------------------------------------------------------------------
+
+struct ExactEquivalenceStats {
+    size_t realizations = 0;
+    size_t records = 0;
+    size_t reachable = 0;
+};
+
+// For every realization of the presampled noise sites (which channel, if
+// any, fires at each site) and every possible visible record, replays both
+// plans and requires them to agree exactly: same reachability, the same
+// joint log probability, and the same detector and observable outputs. This
+// is the per-realization claim behind noise transparency, checked with no
+// statistics; a wrong sign on a rare channel is as visible here as on a
+// likely one.
+inline ExactEquivalenceStats check_exact_equivalent(const HirModule& original,
+                                                    const HirModule& reordered, std::mt19937& rng,
+                                                    size_t max_realizations = 16) {
+    // replay_shot cannot resolve a readout-noise flip from a forced record:
+    // execute_action's ReplayRecords specialization for ExecuteReadoutNoise
+    // reports the shot unreachable unconditionally, which would make every
+    // realization below look impossible instead of exercising this check.
+    REQUIRE(original.readout_noise.empty());
+    REQUIRE(reordered.readout_noise.empty());
+
+    const clifft::sampling::SamplingPlan plan_a = clifft::sampling::plan_sampling(original);
+    const clifft::sampling::SamplingPlan plan_b = clifft::sampling::plan_sampling(reordered);
+
+    REQUIRE(plan_a.num_hidden_records == 0);
+    REQUIRE(plan_b.num_hidden_records == 0);
+    REQUIRE(plan_a.num_visible_records == plan_b.num_visible_records);
+    REQUIRE(plan_a.num_detectors == plan_b.num_detectors);
+    REQUIRE(plan_a.num_observables == plan_b.num_observables);
+    REQUIRE(plan_a.num_visible_records <= 10);
+
+    REQUIRE(plan_a.presampled_noise_sites.size() == plan_b.presampled_noise_sites.size());
+    const size_t num_sites = plan_a.presampled_noise_sites.size();
+    std::vector<size_t> outcome_counts(num_sites);
+    for (size_t site = 0; site < num_sites; ++site) {
+        const auto& outcomes_a = plan_a.presampled_noise_sites[site].outcomes;
+        const auto& outcomes_b = plan_b.presampled_noise_sites[site].outcomes;
+        REQUIRE(outcomes_a.size() == outcomes_b.size());
+        for (size_t k = 0; k < outcomes_a.size(); ++k) {
+            REQUIRE(outcomes_a[k].probability == outcomes_b[k].probability);
+        }
+        outcome_counts[site] = outcomes_a.size();
+    }
+
+    // SymbolId -> presampled ordinal, in the order Executor::run_shot and
+    // replay_shot expect their presampled_values argument.
+    auto presampled_ordinals = [](const clifft::sampling::SamplingPlan& plan,
+                                  uint32_t num_presampled_symbols) {
+        std::vector<uint32_t> ordinal_of_symbol(plan.symbols.size(), 0);
+        uint32_t count = 0;
+        for (size_t symbol = 0; symbol < plan.symbols.size(); ++symbol) {
+            if (plan.symbols[symbol] == clifft::sampling::SymbolKind::Presampled) {
+                ordinal_of_symbol[symbol] = count++;
+            }
+        }
+        REQUIRE(count == num_presampled_symbols);
+        return ordinal_of_symbol;
+    };
+
+    const clifft::sampling::ExecutablePlan executable_a(plan_a);
+    const clifft::sampling::ExecutablePlan executable_b(plan_b);
+    const std::vector<uint32_t> ordinal_a =
+        presampled_ordinals(plan_a, executable_a.num_presampled_symbols());
+    const std::vector<uint32_t> ordinal_b =
+        presampled_ordinals(plan_b, executable_b.num_presampled_symbols());
+
+    clifft::sampling::Executor executor_a(executable_a);
+    clifft::sampling::Executor executor_b(executable_b);
+
+    const uint32_t num_visible_records = plan_a.num_visible_records;
+    const size_t num_record_patterns = size_t{1} << num_visible_records;
+
+    // One choice per site: nullopt for "no channel fired", or the index of
+    // the outcome that did.
+    std::vector<std::optional<size_t>> realization(num_sites);
+
+    auto apply_realization = [&](const std::vector<uint32_t>& ordinal_of_symbol,
+                                 const clifft::sampling::SamplingPlan& plan,
+                                 std::vector<uint8_t>& presampled_values) {
+        std::ranges::fill(presampled_values, 0);
+        for (size_t site = 0; site < num_sites; ++site) {
+            if (!realization[site].has_value()) {
+                continue;
+            }
+            const clifft::sampling::SymbolId symbol =
+                plan.presampled_noise_sites[site].outcomes[*realization[site]].symbol;
+            presampled_values[ordinal_of_symbol[clifft::sampling::index(symbol)]] = 1;
+        }
+    };
+
+    ExactEquivalenceStats stats;
+    std::vector<uint8_t> presampled_a(executable_a.num_presampled_symbols(), 0);
+    std::vector<uint8_t> presampled_b(executable_b.num_presampled_symbols(), 0);
+    std::vector<uint8_t> forced(num_visible_records);
+
+    // Checks the current `realization` against every one of the 2^m visible
+    // records, then requires the original plan's per-record probabilities
+    // (conditional on this realization) to sum to one -- proof the record
+    // enumeration above covers every reachable outcome, not just the ones
+    // this helper happened to check.
+    auto run_realization = [&]() {
+        ++stats.realizations;
+        apply_realization(ordinal_a, plan_a, presampled_a);
+        apply_realization(ordinal_b, plan_b, presampled_b);
+
+        double total_probability = 0.0;
+        for (size_t pattern = 0; pattern < num_record_patterns; ++pattern) {
+            for (uint32_t bit = 0; bit < num_visible_records; ++bit) {
+                forced[bit] = static_cast<uint8_t>((pattern >> bit) & 1U);
+            }
+            ++stats.records;
+
+            const clifft::sampling::ReplayResult result_a =
+                executor_a.replay_shot(forced, presampled_a);
+            const clifft::sampling::ReplayResult result_b =
+                executor_b.replay_shot(forced, presampled_b);
+            REQUIRE(result_a.reachable == result_b.reachable);
+            if (result_a.reachable) {
+                ++stats.reachable;
+                REQUIRE_THAT(result_a.log_probability,
+                             Catch::Matchers::WithinAbs(result_b.log_probability, 1e-9));
+                REQUIRE(std::ranges::equal(executor_a.detectors(), executor_b.detectors()));
+                REQUIRE(std::ranges::equal(executor_a.observables(), executor_b.observables()));
+                total_probability += std::exp(result_a.log_probability);
+            }
+        }
+        REQUIRE_THAT(total_probability, Catch::Matchers::WithinAbs(1.0, 1e-9));
+    };
+
+    // Mixed-radix count of every (site -> none/outcome) combination; caps at
+    // max_realizations + 1 once the true product no longer matters.
+    size_t total_realizations = 1;
+    for (size_t site = 0; site < num_sites; ++site) {
+        total_realizations *= outcome_counts[site] + 1;
+        if (total_realizations > max_realizations) {
+            total_realizations = max_realizations + 1;
+            break;
+        }
+    }
+
+    if (total_realizations <= max_realizations) {
+        std::vector<size_t> digit(num_sites, 0);
+        for (size_t iter = 0; iter < total_realizations; ++iter) {
+            for (size_t site = 0; site < num_sites; ++site) {
+                realization[site] =
+                    digit[site] == 0 ? std::nullopt : std::optional<size_t>(digit[site] - 1);
+            }
+            run_realization();
+            for (size_t site = 0; site < num_sites; ++site) {
+                if (++digit[site] <= outcome_counts[site]) {
+                    break;
+                }
+                digit[site] = 0;
+            }
+        }
+    } else {
+        std::ranges::fill(realization, std::nullopt);
+        run_realization();
+        for (size_t draw = 1; draw < max_realizations; ++draw) {
+            for (size_t site = 0; site < num_sites; ++site) {
+                const size_t radix = outcome_counts[site] + 1;
+                const size_t choice = rng() % radix;
+                realization[site] = choice == 0 ? std::nullopt : std::optional<size_t>(choice - 1);
+            }
+            run_realization();
+        }
+    }
+
+    return stats;
 }
 
 }  // namespace clifft::test
