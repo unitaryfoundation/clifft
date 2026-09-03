@@ -57,116 +57,9 @@ const T& action_as(const SamplingPlan& plan, size_t index) {
 // ---------------------------------------------------------------------------
 //
 // GeneratedCircuit, generate_noisy_circuit, join_lines, generate_noisy_source,
-// and next_unit live in sampling_equivalence_helpers.h, shared with
-// test_schedule_dependence.cc.
-
-// Replaces every noise line with the explicit Pauli its fixed realization
-// fired, or drops the line if it did not fire. Uses its own RNG stream so
-// the realization is reproducible but independent of any reordering draws.
-std::vector<std::string> realize_noise(const GeneratedCircuit& circuit, std::mt19937& rng) {
-    std::vector<uint8_t> drop(circuit.lines.size(), 0);
-    std::vector<std::string> replacement(circuit.lines.size());
-    for (const GeneratedCircuit::NoiseLine& noise : circuit.noise_lines) {
-        const double roll = next_unit(rng);
-        if (noise.is_depolarize1) {
-            if (roll >= noise.prob) {
-                drop[noise.line_index] = 1;
-                continue;
-            }
-            static const char* const paulis[] = {"X", "Y", "Z"};
-            replacement[noise.line_index] =
-                std::string(paulis[rng() % 3]) + " " + std::to_string(noise.qubit);
-        } else {
-            if (roll >= noise.prob) {
-                drop[noise.line_index] = 1;
-                continue;
-            }
-            replacement[noise.line_index] = "X " + std::to_string(noise.qubit);
-        }
-    }
-
-    std::vector<std::string> realized;
-    realized.reserve(circuit.lines.size());
-    for (size_t i = 0; i < circuit.lines.size(); ++i) {
-        if (drop[i]) {
-            continue;
-        }
-        realized.push_back(replacement[i].empty() ? circuit.lines[i] : replacement[i]);
-    }
-    return realized;
-}
-
-// Same movable-gate mix as generate_noisy_circuit, plus DEPOLARIZE2 on a
-// random pair and a PAULI_CHANNEL_1 whose P(Y) argument is always exactly
-// zero, so that channel is structurally absent rather than merely
-// improbable. Used only for sampling-equivalence: unlike
-// generate_noisy_circuit, it has no realize_noise counterpart.
-std::string generate_multi_channel_noisy_source(std::mt19937& rng, uint32_t num_qubits,
-                                                uint32_t num_ops) {
-    static const double kAngles[] = {0.125, 0.25, 0.375, 0.625, 0.75, 0.875};
-    static const double kNoiseProbs[] = {0.05, 0.1, 0.2, 0.3};
-
-    std::vector<std::string> lines;
-    uint32_t measurement_count = 0;
-    for (uint32_t op = 0; op < num_ops; ++op) {
-        const uint32_t q = rng() % num_qubits;
-        switch (rng() % 11) {
-            case 0:
-                lines.push_back("T " + std::to_string(q));
-                break;
-            case 1:
-                lines.push_back("T_DAG " + std::to_string(q));
-                break;
-            case 2:
-                lines.push_back("R_Z(" + std::to_string(kAngles[rng() % std::size(kAngles)]) +
-                                ") " + std::to_string(q));
-                break;
-            case 3:
-                lines.push_back("M " + std::to_string(q));
-                ++measurement_count;
-                break;
-            case 4:
-                lines.push_back("MX " + std::to_string(q));
-                ++measurement_count;
-                break;
-            case 5:
-                lines.push_back("MR " + std::to_string(q));
-                ++measurement_count;
-                break;
-            case 6:
-                lines.push_back("R " + std::to_string(q));
-                break;
-            case 7: {
-                const double prob = kNoiseProbs[rng() % std::size(kNoiseProbs)];
-                lines.push_back("DEPOLARIZE1(" + std::to_string(prob) + ") " + std::to_string(q));
-                break;
-            }
-            case 8: {
-                // A second target distinct from q, so DEPOLARIZE2 always
-                // gets two real qubits even at the smallest generated width.
-                const uint32_t q2 = (q + 1 + rng() % (num_qubits - 1)) % num_qubits;
-                const double prob = kNoiseProbs[rng() % std::size(kNoiseProbs)];
-                lines.push_back("DEPOLARIZE2(" + std::to_string(prob) + ") " + std::to_string(q) +
-                                " " + std::to_string(q2));
-                break;
-            }
-            case 9: {
-                const double px = kNoiseProbs[rng() % std::size(kNoiseProbs)];
-                const double pz = kNoiseProbs[rng() % std::size(kNoiseProbs)];
-                lines.push_back("PAULI_CHANNEL_1(" + std::to_string(px) + ", 0, " +
-                                std::to_string(pz) + ") " + std::to_string(q));
-                break;
-            }
-            default:
-                break;
-        }
-        if (measurement_count > 0 && (rng() % 5) == 0) {
-            const uint32_t back = 1 + (rng() % measurement_count);
-            lines.push_back("DETECTOR rec[-" + std::to_string(back) + "]");
-        }
-    }
-    return join_lines(lines);
-}
+// next_unit, realize_noise, and crossed_noise live in
+// sampling_equivalence_helpers.h, shared with test_schedule_dependence.cc and
+// test_active_width_schedule_pass.cc.
 
 // ---------------------------------------------------------------------------
 // Pipeline helpers
@@ -619,8 +512,8 @@ TEST_CASE("Logical noise prefix preserves the sampling distribution across noise
 }
 
 TEST_CASE(
-    "Logical noise prefix preserves the sampling distribution across DEPOLARIZE2 and "
-    "PAULI_CHANNEL_1 reorders",
+    "Logical noise prefix preserves the sampling distribution across noise-crossing reorders "
+    "for an independent random sample",
     "[logical_noise_prefix]") {
     constexpr uint32_t kShots = 20000;
     constexpr uint32_t kTrials = 10;
@@ -629,8 +522,7 @@ TEST_CASE(
     for (uint32_t trial = 0; trial < kTrials; ++trial) {
         const uint32_t num_qubits = 4 + (trial % 5);
         const uint32_t num_ops = 25 + (trial % 20);
-        const std::string source =
-            generate_multi_channel_noisy_source(circuit_rng, num_qubits, num_ops);
+        const std::string source = generate_noisy_source(circuit_rng, num_qubits, num_ops);
         CAPTURE(trial, num_qubits, num_ops, source);
 
         const HirModule original = clifft::trace(clifft::parse(source));
