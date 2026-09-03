@@ -75,8 +75,10 @@ move; all other operations retain their relative order. `EXP_VAL` and
 
 The plain relation uses `can_swap` to decide which pairs may exchange order.
 Two rotations or measurements may swap when their Pauli bodies commute.
-[Noise transparency](#noise-transparency) additionally permits them to cross
-`NOISE` operations, with sign corrections described below.
+Measurements cannot cross classical consumers of their records, and rotations
+cannot cross anticommuting feedback Paulis.
+[Noise transparency](#noise-transparency) additionally permits rotations and
+measurements to cross `NOISE` operations, with sign corrections described below.
 
 Suppose $p$ and $q$ commute. Their width updates commute as well:
 
@@ -155,10 +157,10 @@ operation across such a site would add or remove a sign contribution.
 
 Noise transparency preserves that contribution using the operation's
 **logical position**: its position before reordering. Each `NOISE` channel
-is presampled, so its outcome is available regardless of where the site
-appears in the schedule. The HIR's `logical_noise_prefix` records how many
-noise sites originally preceded each operation. This metadata moves with the
-operation, allowing the planner to correct its sign after reordering.
+is presampled, so its outcome is available regardless of where in the schedule
+the operations that depend on it run. The HIR's `logical_noise_prefix` records
+how many noise sites originally preceded each operation. This metadata moves
+with the operation, allowing the planner to correct its sign after reordering.
 
 For a fixed noise realization, absorb the realized Pauli errors into the
 downstream signs. A noise-transparent schedule is then a legal reordering of
