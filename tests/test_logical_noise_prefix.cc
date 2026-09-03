@@ -550,6 +550,7 @@ TEST_CASE(
     clifft::Xoshiro256PlusPlus control_rng(kControlSeed);
     int checked = 0;
     int skipped = 0;
+    int crossed_count = 0;
     for (int trial = 0; trial < kTrials; ++trial) {
         const uint32_t num_qubits = 3 + static_cast<uint32_t>(trial % 4);
         const uint32_t num_ops = 12 + static_cast<uint32_t>(trial % 13);
@@ -573,13 +574,18 @@ TEST_CASE(
         std::iota(original_index.begin(), original_index.end(), 0);
         randomly_reorder_across_noise(reordered, original_index, reorder_rng,
                                       8 * static_cast<int>(reordered.ops.size()) + 8);
+        crossed_count += crossed_noise(reordered) ? 1 : 0;
 
         check_exact_equivalent(original, reordered, control_rng);
         ++checked;
     }
 
-    INFO("checked=" << checked << " skipped=" << skipped);
+    INFO("checked=" << checked << " skipped=" << skipped << " crossed=" << crossed_count);
     REQUIRE(checked >= 10);
+    // Without this, "checked" alone would pass even if the test-only walk
+    // never actually moved an operation across a noise site, leaving the
+    // exact check exercising only trivial (non-crossing) reorders.
+    REQUIRE(crossed_count >= 10);
 }
 
 // ---------------------------------------------------------------------------
