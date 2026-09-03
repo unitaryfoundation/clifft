@@ -56,7 +56,9 @@ After validation, update the existing final changelog section and make documenta
 without prepending a duplicate section. `git-cliff` ignores rc tags, so an unreleased preview still
 covers every commit since the previous final release. If runtime, packaging, compiler, or build
 inputs change, increment the candidate tag (for example, `v1.3.0rc2`) and repeat validation.
-Otherwise, create the final tag using the normal process below.
+Otherwise, create the final tag using the normal process below. When the candidate is used for a
+release benchmark campaign, complete the performance-reporting refresh in step 4 before tagging the
+final release.
 
 ## Release process
 
@@ -93,6 +95,8 @@ older hand-edited release sections. Do not use `-o CHANGELOG.md` for routine
 releases unless you intentionally want to regenerate the entire changelog.
 Generate this section before the first release candidate. After an rc tag exists, edit the prepared
 section directly to avoid prepending a duplicate; rc tags do not truncate unreleased previews.
+Before the final tag, set the existing section's date to the actual publication date and include
+any documentation changes made after the candidate.
 
 Keep each changelog paragraph and list item on one physical line, and use blank
 lines only to separate Markdown blocks. The release workflow copies the
@@ -123,14 +127,46 @@ curated rather than generated directly from the changelog. Link to the
 most relevant new documentation or tutorial, and include a link to the
 full changelog.
 
-### 4. Tag and push
+### 4. Refresh performance reporting (when applicable)
+
+Do this when a release has new, reviewed benchmark results; an ordinary release does not need to
+rerun benchmarks solely to update version labels. Candidate-backed results are refreshed after the
+candidate has been validated and before the final tag.
+
+Treat [`clifft-bench`](https://github.com/unitaryfoundation/clifft-bench) as the source of truth for
+raw results, cross-execution joins, and figure generation. This repository owns the reader-facing
+prose and checked-in rendered assets.
+
+1. In `clifft-bench`, finalize the candidate campaign under a new execution ID and audit the
+   comparison table. Confirm that the measured artifact is the exact published candidate and that
+   no runtime, compiler, packaging, or build input has changed since its tag. If one has, publish and
+   measure another candidate instead of carrying the old results into the final release.
+2. Update the exact execution chain in `reporting/sources.json`, then follow the
+   [`clifft-bench` reporting guide](https://github.com/unitaryfoundation/clifft-bench/blob/main/reporting/README.md)
+   to validate the joins and regenerate the publication and documentation figures. Review and merge
+   the results/reporting PR in `clifft-bench` before copying its outputs here.
+3. Copy the generated documentation figures into `docs/assets/performance/`. Update
+   `docs/guide/performance.md` and any release-specific excerpts in `README.md`, `docs/index.md`, or
+   `docs/updates/`. Keep methodology and raw-result links pinned to the merged `clifft-bench` commit;
+   reader-facing labels may use the target final version while the evidence retains the exact
+   candidate identity.
+4. Check every headline number against the merged comparison table, review both light and dark
+   figures, then run `just docs-build` and the required pre-commit suite.
+
+### 5. Tag and push
+
+After the release-preparation PRs are merged and required checks pass, tag the reviewed `main`
+commit. For a validated candidate, confirm that changes since its tag are documentation-only;
+otherwise repeat candidate validation first.
 
 ```bash
+git switch main
+git pull --ff-only
 git tag vX.Y.Z
-git push origin main vX.Y.Z
+git push origin vX.Y.Z
 ```
 
-### 5. CI runs automatically
+### 6. CI runs automatically
 
 The tag push triggers the release workflow:
 
@@ -143,7 +179,7 @@ The tag push triggers the release workflow:
 
 If any step fails, subsequent steps are skipped.
 
-### 6. Verify
+### 7. Verify
 
 ```bash
 pip install clifft==X.Y.Z

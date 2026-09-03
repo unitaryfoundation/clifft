@@ -16,8 +16,8 @@ campaign measures attempted shots per second for complete circuits on one
 pinned logical CPU. For each workload and simulator, it selects the best batch
 size for that workload before collecting the comparison.
 
-![Clifft v0.10 throughput relative to SymFT v0.1 across eight near-Clifford workloads](../assets/performance/clifft-vs-symft-light.png#only-light)
-![Clifft v0.10 throughput relative to SymFT v0.1 across eight near-Clifford workloads](../assets/performance/clifft-vs-symft-dark.png#only-dark)
+![Clifft v0.10 attempted shots per second across eight near-Clifford workloads](../assets/performance/clifft-throughput-light.png#only-light)
+![Clifft v0.10 attempted shots per second across eight near-Clifford workloads](../assets/performance/clifft-throughput-dark.png#only-dark)
 
 Clifft is faster than SymFT on all eight workloads. The advantage ranges from
 **1.05x to 87.7x**, with a **1.53x median** across the workload set. Absolute
