@@ -31,6 +31,8 @@
 using namespace clifft;
 using namespace clifft::test;
 using clifft::detail::apply_schedule;
+using clifft::detail::commutation_fingerprint;
+using clifft::detail::CommutationFingerprint;
 using clifft::detail::ScheduleDependence;
 using clifft::detail::ScheduleDependenceOptions;
 using clifft::sampling::SamplingPlan;

@@ -155,6 +155,8 @@ bool can_swap(const HeisenbergOp& left, const HeisenbergOp& right, const HirModu
                          hir.stab_mask(right));
 }
 
+namespace detail {
+
 CommutationFingerprint commutation_fingerprint(const HirModule& hir) {
     CommutationFingerprint fingerprint;
     fingerprint.op_count = hir.ops.size();
@@ -250,5 +252,7 @@ CommutationFingerprint commutation_fingerprint(const HirModule& hir) {
     fingerprint.hash = hash;
     return fingerprint;
 }
+
+}  // namespace detail
 
 }  // namespace clifft
