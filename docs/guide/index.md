@@ -5,6 +5,10 @@ Clifft, how it is compiled, which scientific result to request, and how that
 work runs on the available hardware. Start with the result you need; execution
 tuning comes last.
 
+See [Performance](performance.md) for calibrated near-Clifford comparisons,
+release history, dense Quantum Volume results, and the measurement contracts
+behind them.
+
 ## 1. Provide a circuit
 
 Clifft's primary circuit format follows Stim and adds non-Clifford gates and

@@ -103,6 +103,12 @@ low-active-width CPU workloads and Apple Silicon NEON kernels for active-state
 operations. Advanced callers can use `batch_size` to tune the packed-lane
 capacity, while the default cost-aware policy balances throughput and memory.
 
+In calibrated single-core benchmarks, v0.10 is faster than v0.9 on all eight
+measured workloads, with a 3.23x median improvement. It also leads calibrated
+SymFT on all eight, from 1.05x to 87.7x. See [Performance](guide/performance.md)
+for the figures, absolute throughput, dense Quantum Volume results, and
+measurement details.
+
 The release also accepts supported unitary OpenQASM 2 circuits without Qiskit
 and moves production builds onto Clifft's native Clifford implementation. Stim
 remains an independent test oracle.

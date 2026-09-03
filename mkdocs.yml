@@ -73,7 +73,6 @@ plugins:
         reference/instructions.md: reference/compiler-ir.md
         getting-started/integrations.md: guide/circuit-inputs.md
         getting-started/openqasm2.md: guide/circuit-inputs.md#openqasm-2
-        guide/performance.md: guide/cpu-execution.md
         guide/benchmark.md: guide/cpu-execution.md#benchmark-before-overriding
   - macros:
       module_name: docs/macros
@@ -106,6 +105,7 @@ nav:
     - Choose a Workflow: getting-started/choosing-a-workflow.md
   - User Guide:
     - Overview: guide/index.md
+    - Performance: guide/performance.md
     - Circuits:
       - Circuit Inputs: guide/circuit-inputs.md
       - Compiling Circuits: guide/compilation.md

@@ -82,17 +82,26 @@ work.
 
 ## Measured against v0.9.0
 
-!!! note "Benchmark figure pending"
-    The final article will summarize matched `clifft-bench` measurements of
-    PyPI v0.9.0 and the exact v0.10.0 release candidate on the same host and
-    workload corpus. It will include the headline findings and one figure. The
-    dedicated Performance page will contain the wider results, methodology,
-    raw-data links, and SymFT comparisons.
+The matched `clifft-bench` release campaign calibrates each version over the
+supported batch capacities, then runs the selected configuration on one pinned
+logical CPU. Version 0.10 is faster on all eight workloads, with a **3.23x
+median improvement** over v0.9 and a range from **1.06x to 837x**.
 
-The comparison will cover both workloads accelerated by packing and workloads
-that benefit from the compiler or architecture-specific changes instead.
-Remaining on the scalar path when packing would lose is also part of the
-automatic policy's job.
+![Clifft v0.10 throughput relative to v0.9 across eight near-Clifford workloads](../assets/performance/v010-vs-v009-light.png#only-light)
+![Clifft v0.10 throughput relative to v0.9 across eight near-Clifford workloads](../assets/performance/v010-vs-v009-dark.png#only-dark)
+
+Filled markers are workloads where v0.10 selected packed execution; hollow
+markers remained scalar. Packing won on coherent `d=3, r=1`, distillation,
+cultivation `d=3`, and surface-code memory. The other four were faster on the
+scalar path.
+
+The largest gain is not a batching result. Coherent `d=5, r=5` remains scalar
+and improves by 837x after the compiler reduces its peak active width from 24
+to 13. Conversely, the 1.06x cultivation `d=5` result shows the per-workload
+calibration selecting scalar execution when packing's overhead does not pay
+off. The
+[Performance guide](../guide/performance.md) gives the absolute rates, SymFT
+comparison, release history, and full measurement contract.
 
 ## A more self-contained core
 
