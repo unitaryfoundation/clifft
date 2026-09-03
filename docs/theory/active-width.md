@@ -1,252 +1,242 @@
 # Active-Width Scheduling
 
-The active width $k$ introduced in the [Theoretical Overview](overview.md) is
-not just an outcome the compiler reports: it is the value of one GF(2)
-linear-algebra object, tracked as the Heisenberg IR is walked in some order.
-This page describes that object, the structural facts that make it possible
-to search over legal reorderings of an HIR exactly, and what the compiler's
-scheduling passes do with that search space.
+Legal reordering can reduce peak active width without changing the sampling
+distribution. Clifft tracks width using a subspace of Pauli operators. This
+page derives that model, explains which reorderings are allowed, and describes
+the opt-in `ActiveWidthSchedulePass`.
+
+For the active-state representation and its role in simulation cost, see the
+[Theoretical Overview](overview.md).
 
 ## The Structural Width Model
 
-Fix an HIR with $n$ qubits. At every point while walking its operations, the
-compiler tracks the **dormant subspace** $S$: an unsigned, isotropic (pairwise
-commuting) subspace of the $2n$-dimensional GF(2) space of Pauli bodies,
-initialized to the span of $Z$ on every qubit. "Isotropic" here just means
-every two elements of $S$ commute as Paulis, so $S$ can always be extended to
-a full stabilizer group; $S$ starts at its maximum possible dimension, $n$,
-one generator per qubit.
+For an HIR with $n$ qubits, the compiler tracks a **dormant subspace** $S$ of
+unsigned Pauli bodies. These bodies form vectors in $\mathrm{GF}(2)^{2n}$.
+Every pair in $S$ commutes: in symplectic terminology, $S$ is *isotropic* and
+has dimension at most $n$. Initially,
 
-The active width is $S$'s codimension, $k = n - \dim S$: how far $S$ currently
-falls short of full rank. A rotation or measurement with unsigned Pauli body
-$p$ updates $S$ by one of two rules, depending on the operation type:
+$$
+S = \operatorname{span}\{Z_0, \ldots, Z_{n-1}\}.
+$$
 
-```text
-rotation about p:    S <- S cap p-perp          k -> k+1 iff p is not in S-perp
-measurement of p:     S <- (S cap p-perp) + <p>  k -> k-1 iff p is in S-perp but not in S
-transition instrument, Activate branch: same as rotation about p
-noise, feedback, detector, observable, readout, every other instrument
-branch, and every other op: S unchanged
-```
+The active width counts the missing dormant directions:
 
-Here $S^\perp$ is the symplectic-orthogonal complement of $S$: the set of
-Pauli bodies that commute with every generator of $S$. Both update rules are
-uniform formulas, not case splits; the width only moves on the branch where
-the formula actually changes $\dim S$:
+$$
+k = n - \dim S.
+$$
 
-- **Rotation.** If $p$ commutes with all of $S$, $S \cap p^\perp = S$ and
-  nothing changes: either $p \in S$ (the rotation is a global phase the
-  planner emits no action for) or $p \notin S$ (the rotation acts on the
-  active coordinate array without growing it). If $p$ anticommutes with some
-  generator, intersecting drops $\dim S$ by exactly one and $k$ grows by one:
-  a dormant coordinate is promoted into the active array.
-- **Measurement.** Intersecting first mirrors the rotation rule, then
-  $\langle p \rangle$ is added back. If $p$ anticommutes with some generator
-  of $S$, the intersection's one-dimensional loss is immediately restored by
-  re-adding $p$, netting to no change: a random outcome in dormant space that
-  never touches the active array. If $p$ commutes with all of $S$ but was not
-  already in it, adding it is a genuine rank increase: $\dim S$ grows by one
-  and $k$ shrinks by one, an active coordinate collapsing out of the dense
-  state. If $p$ was already in $S$, adding it again changes nothing: a
-  deterministic classical outcome.
+Let $p^\perp$ denote the Pauli bodies that commute with $p$, and $S^\perp$
+those that commute with every element of $S$. A rotation about $p$ and a
+measurement of $p$ update the subspace as follows:
 
-Every other HIR operation type -- noise, feedback, detectors, observables,
-readout corrections -- reads or writes classical state only and leaves $S$
-untouched. A transition instrument leaves $S$ untouched the same way on
-every branch except `Activate`; taking the `Activate` branch, it instead
-follows the rotation rule above, promoting a coordinate exactly as a
-rotation would.
+$$
+\begin{aligned}
+R_p(S) &= S \cap p^\perp, \\
+M_p(S) &= (S \cap p^\perp) + \langle p \rangle.
+\end{aligned}
+$$
+
+Here $\langle p \rangle$ is the span of $p$.
+
+- **Rotation.** If $p \notin S^\perp$, the intersection removes one dimension
+  and $k$ increases by one: a dormant coordinate becomes active. Otherwise
+  the width is unchanged. When $p \in S$, the rotation is a global phase and
+  the planner emits no action; when $p \in S^\perp \setminus S$, it acts on
+  the existing active array.
+- **Measurement.** If $p \notin S^\perp$, the intersection removes one
+  dimension and adding $p$ restores it. This gives a random dormant outcome
+  without changing $k$. If $p \in S^\perp \setminus S$, adding $p$ increases
+  the dimension and reduces $k$ by one: an active coordinate collapses. If
+  $p \in S$, neither the subspace nor the width changes, and the outcome is
+  deterministic.
+
+A transition instrument classified as `Activate` uses the rotation update.
+Its other modes leave $S$ unchanged. All remaining HIR operations, including
+noise, feedback, readout corrections, detectors, and observables, also leave
+$S$ unchanged.
 
 ### Pivot Independence
 
-An implementation represents $S$ by some list of generators, and rewriting
-that list in place (choosing a different pivot row during elimination) is
-exactly what both update rules above do internally. Two representations
-describe the same $S$ exactly when each one's generators are all contained in
-the other's span, not when the generator lists match element-for-element.
-Every question this page's model ever asks of $S$ -- does $p$ commute with
-all of it, is $p$ already in it -- is a question about the *subspace*, so it
-has the same answer no matter which generators happen to represent $S$ at the
-time. Consequently the width trace of a fixed operation sequence is
-independent of pivot choice: a coordinate-frame implementation and a
-from-scratch GF(2) elimination over the same ops necessarily agree on every
-width transition, even though they may never choose the same intermediate
-generators.
+The update rules depend on the subspace, not on the basis used to represent
+it. Changing an elimination pivot changes the generator list but not its
+span. Membership and commutation tests therefore give the same answers for
+any basis of $S$.
+
+For a fixed operation sequence, a coordinate-frame implementation and a
+separate GF(2) elimination must agree on every width transition, even if their
+intermediate generators differ.
 
 ### Confluence and the Order-Invariant Final Width
 
-Fix two operations with unsigned Pauli bodies $p$ and $q$ that commute with
-each other, $p \in q^\perp$. Applying their updates to $S$ in either order
-reaches the same subspace. For two rotations this is immediate: intersection
-commutes, $(S \cap p^\perp) \cap q^\perp = (S \cap q^\perp) \cap p^\perp$.
-For two measurements, apply $p$'s update first:
-$S_1 = (S \cap p^\perp) + \langle p \rangle$. Because $p \in q^\perp$, every
-element of $\langle p \rangle$ already lies in $q^\perp$, so intersecting
-$S_1$ with $q^\perp$ only filters the $S \cap p^\perp$ part:
-$S_1 \cap q^\perp = (S \cap p^\perp \cap q^\perp) + \langle p \rangle$, and
-adding $\langle q \rangle$ back gives
-$(S \cap p^\perp \cap q^\perp) + \langle p \rangle + \langle q \rangle$.
-Running $q$'s update first and then $p$'s reaches the same set by the
-identical argument with $p$ and $q$ exchanged, valid since commutation is
-symmetric ($q \in p^\perp$ too). The same reduction handles one rotation and
-one measurement: a rotation's update is the special case of a measurement's
-with no $\langle \cdot \rangle$ term ever added.
+The scheduler represents ordering constraints as a dependence graph. A legal
+schedule is a topological order of that graph. Only rotations and measurements
+move; all other operations retain their relative order. `EXP_VAL` and
+`INSTRUMENT` are barriers that no operation may cross.
 
-Two rotations or measurements are independent under the dependence relation
--- free to swap in a legal schedule -- exactly when their bodies commute
-(see [Noise Transparency](#noise-transparency) below for the one relaxation
-to that rule, around `NOISE` operations). So the identity above applies to
-every swap a search or scheduling pass can actually make: the subspace
-reached by executing a given *set* of operations is therefore the same
-regardless of the order they executed in.
+The plain relation uses `can_swap` to decide which pairs may exchange order.
+Two rotations or measurements may swap when their Pauli bodies commute.
+[Noise transparency](#noise-transparency) additionally permits them to cross
+`NOISE` operations, with sign corrections described below.
 
-This is what makes reordering worth searching over at all: the final width
-after executing every operation in an HIR is invariant across every legal
-reordering, so a scheduler cannot make the exit state worse, only change how
-$k$ moves on the way there. A search state is fully determined by its set of
-already-executed operations, not by the sequence that reached it -- so two
-different partial schedules that happen to have executed the same operations
-are provably equivalent, which is what lets a search memoize on that set
-instead of re-exploring every path to it.
+Suppose $p$ and $q$ commute. Their width updates commute as well:
+
+$$
+\begin{aligned}
+R_q(R_p(S))
+  &= S \cap p^\perp \cap q^\perp
+   = R_p(R_q(S)), \\
+M_q(M_p(S))
+  &= (S \cap p^\perp \cap q^\perp) + \langle p \rangle + \langle q \rangle
+   = M_p(M_q(S)), \\
+R_q(M_p(S))
+  &= (S \cap p^\perp \cap q^\perp) + \langle p \rangle
+   = M_p(R_q(S)).
+\end{aligned}
+$$
+
+The rotation identity follows from intersecting subspaces in either order.
+For the measurement identities, commutation gives
+$\langle p \rangle \subseteq q^\perp$, so intersecting with $q^\perp$ leaves
+the added span of $p$ intact. The same argument applies with $p$ and $q$
+exchanged.
+
+These identities cover swaps between movable operations. Other permitted
+swaps involve operations that leave $S$ unchanged. Thus any two legal
+prefixes that execute the same set of operations reach the same dormant
+subspace and current width. This property is **confluence**. In particular,
+the final width is invariant under legal reordering, though the intermediate
+widths may differ.
+
+Confluence does not make the full search state independent of its history.
+The peak reached so far and the accumulated dense work depend on the path.
+A search can share subspace and readiness information by executed set, but
+must retain the cost information needed by its objective.
 
 ## The Closure Theorem
 
-Call an operation **ready** once every operation that must precede it has
-executed, and **expanding** if executing it now would grow $k$: a
-`RotationPromote` (a rotation whose body anticommutes with some generator of
-$S$), or a transition instrument taking its `Activate` branch. Every other
-ready operation is **non-expanding**: any measurement, any rotation that
-currently commutes with $S$, and every other fixed operation.
+An operation is **ready** when all its predecessors have executed. It is
+**expanding** if executing it now would increase $k$: a rotation whose body
+anticommutes with some generator of $S$, or an instrument classified as
+`Activate`. All other ready operations are **non-expanding**.
 
-Delaying a ready non-expanding operation can only ever leave the eventual
-peak the same or larger, never smaller. Consider swapping a ready
-non-expanding operation earlier, past some operation it is independent of
-(and therefore free to swap, by the previous section). If it is a
-measurement, its own update never raises $k$ -- that is what non-expanding
-means -- so firing it sooner can only lower, never raise, the width at every
-point it now precedes; and because independent updates commute, the final
-$S$ after both operations execute is unchanged either way. If it is a
-width-neutral rotation, persistence keeps it neutral across the swap: its
-body already commutes with $S$, and, by independence, with the other
-operation's body too, so it still commutes with $S$ once that operation has
-updated it -- moving it earlier changes no width at all. Either way, moving
-a ready non-expanding operation earlier never raises any intermediate width,
-so repeating this exchange shows some peak-minimizing schedule executes
-every ready non-expanding operation as soon as it is ready -- a repeated
-step called **closure**: sweep the lowest-index ready non-expanding
-operation, over and over, until none remains.
+**Closure theorem.** Some peak-minimizing schedule executes ready
+non-expanding operations before choosing a ready expanding operation.
 
-In plain terms, closure means a scheduler never has to decide whether to
-fire a measurement or a width-neutral rotation; that choice is already
-forced. The only operation type that is both fixed in program order and can
-be expanding is a transition instrument taking its `Activate` branch: an
-`INSTRUMENT` is a positional barrier under the dependence relation, so
-whenever it is ready it is also the only ready operation, and firing it is
-forced rather than chosen. The only real decision left, at any point in a
-schedule, is *which* ready expanding rotation to fire next when more than
-one is available -- everything else follows deterministically from closure.
+To see why, take a legal continuation and move a ready non-expanding operation
+to its front. Readiness means every operation it crosses is independent of it.
+
+- For a measurement, confluence lets us view each reordered prefix as the
+  measurement applied after that prefix's other operations. A measurement
+  never increases width, so this prefix has no greater width than it had
+  before the move. The subspaces coincide once both orders have executed the
+  same operations.
+- A width-neutral rotation stays neutral through independent updates. Its
+  body commutes with $S$ and with every Pauli body added by an independent
+  measurement. Intersections cannot break that commutation. Moving the
+  rotation earlier therefore changes no width.
+- Other non-expanding operations leave $S$ unchanged and can likewise move
+  earlier when independent.
+
+Repeating this exchange produces **closure**: execute the lowest-index ready
+non-expanding operation until none remains. The index rule makes the sweep
+deterministic. The theorem concerns peak width; it does not establish minimum
+dense work.
+
+After closure, the scheduler chooses among ready expanding rotations. An
+expanding instrument offers no choice: as a barrier, it is the only ready
+operation when it becomes ready.
 
 ## Noise Transparency
 
-Without noise transparency, the dependence relation a scheduler searches
-over is conservative: it keeps every operation in its original position
-relative to a noise operation whose channel does not commute with it. The
-reason is mechanical: the planner folds a noise site's symbols into an
-operation's sign only when it reaches that operation after the site, in
-schedule order, so moving an operation across the site would silently drop
-or add that contribution. This can be relaxed. Every noise channel is
-presampled: its Boolean outcome exists before the action stream runs,
-independent of where in a schedule a planner happens to consume it. If the
-planner instead resolves an operation's noise-dependent sign from that
-operation's *logical* (original, pre-reorder) position rather than its
-position in the reordered schedule, then for any fixed noise realization a
-noise-transparent reorder is just an ordinary legal reordering of the
-noise-free circuit with that realization's Pauli errors absorbed into
-downstream signs -- and ordinary legal reorderings are already known to
-preserve the sampling distribution. For every fixed noise realization the
-reordered and original schedules have the same distribution over the
-remaining randomness, so they agree for the presampled mixture as well.
+In the plain dependence relation, an operation cannot cross a noise site if
+it anticommutes with one of that site's channels. The planner normally folds
+noise symbols into later operations' signs in schedule order. Moving an
+operation across such a site would add or remove a sign contribution.
 
-This is the same symbolic-frame idea the sampler already uses for
-measurement and feedback signs, described in
-[Planning Pauli-Frame Effects as Symbolic Signs](overview.md#planning-pauli-frame-effects-as-symbolic-signs):
-each stochastic event gets a Boolean symbol, and a sign is an affine formula
-over the symbols relevant to it. Noise transparency reuses exactly that
-mechanism, keyed to an operation's logical rather than scheduled position.
+Noise transparency preserves that contribution using the operation's
+**logical position**: its position before reordering. Each `NOISE` channel
+is presampled, so its outcome is available regardless of where the site
+appears in the schedule. The HIR's `logical_noise_prefix` records how many
+noise sites originally preceded each operation. This metadata moves with the
+operation, allowing the planner to correct its sign after reordering.
+
+For a fixed noise realization, absorb the realized Pauli errors into the
+downstream signs. A noise-transparent schedule is then a legal reordering of
+that noise-free circuit, with the same distribution over the remaining
+randomness. This holds for each realization, so averaging over the noise
+distribution preserves the full sampling distribution.
+
+The correction uses the existing symbolic-frame machinery: signs are affine
+expressions in Boolean event symbols. See
+[Planning Pauli-Frame Effects as Symbolic Signs](overview.md#planning-pauli-frame-effects-as-symbolic-signs).
 
 ## Exact Certificates
 
-The exact search this section describes is not part of the shipped
-library: it lives as a research tool under
-`research/active_width_certificates/` on the repository's research branch.
-The certificates quoted on this page, including the ones in
-[Measured Effect](#measured-effect), were produced with that tool.
+The exact search is a research tool, not part of the shipped library. It lives
+under `research/active_width_certificates/` on the repository's research branch
+and produced the certificates reported below.
 
-Given the dependence relation above, an exact search can ask: does some
-legal reordering of this HIR reach a strictly lower peak active width than a
-given threshold? Because of closure, the search only ever branches on which
-ready expanding operation to fire next, and because of confluence, the set
-of already-executed operations is a sound key for memoizing infeasible
-branches. A bounded, budgeted version of this search produces a witness
-schedule together with a proven lower bound; when the two meet, the schedule
-is certified optimal.
+The search asks whether any legal schedule stays below a proposed peak-width
+threshold. Closure limits branching to ready expanding operations. Among
+prefixes that respect the threshold, confluence makes the executed set a
+valid key for memoizing failed continuations. A budgeted search can return a
+witness schedule and a proven lower bound; when they meet, the schedule is
+certified optimal.
 
-That certificate has a specific, narrow scope. It is a minimum over the
-**trace class** of one exact HIR -- every linear extension of the dependence
-relation the search ran with -- scored by the same structural width model
-described above. It says nothing about:
+The certificate applies only to one HIR, the dependence relation used, and
+the structural width model above. The legal schedules under that relation
+form the HIR's **trace class**. The certificate does not cover:
 
-- schedules reachable only through a *rewrite* that exposes new gate fusion
-  the HIR does not already contain,
-- amplitude-level stabilizers that a purely structural analysis does not
-  track, or
-- any other circuit that merely samples the same output distribution as
-  this one.
+- circuit rewrites that expose new gate fusion;
+- amplitude-level stabilizers absent from the structural model; or
+- other circuits with the same output distribution.
 
-A schedule outside the searched trace class, a rewritten circuit, or a
-distributionally-equivalent but structurally different circuit may still do
-better; the certificate is silent about all three.
+These alternatives may reach a lower peak than any schedule in the searched
+trace class.
 
 ## `ActiveWidthSchedulePass`
 
-Exact search does not scale to every circuit worth compiling: its budget can
-exhaust before proving anything on a large or highly branching HIR. The
-compiler's scheduling pass trades that certificate for scalability: a beam
-search over the same closure/readiness trace class. At each step it extends
-every partial schedule currently in the beam by each of its own ready
-expanding operations, pools every resulting candidate from every kept
-schedule into one generation, and keeps only the best-scoring `beam_width`
-of them across that whole generation -- not the best child of each parent,
-but the best children overall -- ranked by the peak width each candidate's
-closure sweep reaches, then by the width the sweep settles at, then by how
-many operations the sweep executed (more is preferred), with a final
-tie-break on operation index for determinism. The pass is opt-in -- off by
-default -- because its compile-time cost on a large, highly branching HIR
-is not yet bounded to a small multiple of the rest of the pipeline (see
-[Measured Effect](#measured-effect)).
+`ActiveWidthSchedulePass` uses a beam search to limit the number of partial
+schedules retained. It starts with closure, then repeats these steps:
 
-Whatever schedule the pass settles on, it is compared against the input
-HIR's own width trace, lexicographically by peak active width and then by a
-dense-work estimate (the planning-time proxy $\sum 2^{w}$ over actions that
-touch the active array, at the width $w$ each one runs at). The pass applies
-its candidate only when that comparison is strictly better; otherwise the
-HIR is left byte-for-byte untouched. This "never worse than the incumbent,
-by peak active width and then by estimated dense work" guarantee is what
-makes the pass safe to run unconditionally: unlike the exact search, it
-carries no certificate of optimality, only a guarantee that it cannot
-regress the circuit's peak active width or, short of an improvement there,
-its estimated dense work. It is not a guarantee about compile time or about
-measured sampling throughput.
+1. Extend each retained schedule by each of its ready expanding operations.
+   Apply closure to every candidate.
+2. Group candidates by executed set. Discard a candidate if another in its
+   group is no worse in both peak and dense work, and strictly better in at
+   least one. Resolve exact cost ties by comparing the full operation
+   sequences.
+3. Rank all remaining candidates by peak reached, width after closure, number
+   of operations executed in this step (more is preferred), and expanding
+   operation index.
+4. Keep at most `beam_width` candidates across the whole generation. Record
+   completed schedules and continue extending the rest.
+
+The best completed schedule is chosen by peak width, then estimated dense
+work. By default, the pass also moves width-neutral rotations rightward past
+independent non-expanding operations to improve executable-plan rotation
+fusion.
+
+The dense-work estimate sums $2^w$ over actions that touch the active array,
+using the width $w$ at which each action runs. The pass replaces the input HIR
+only if the candidate has a lower peak, or the same peak and lower estimated
+dense work. Otherwise it leaves the HIR untouched. This does not guarantee an
+optimal schedule or improved sampling throughput.
+
+The pass is opt-in because scheduling can be expensive on large, highly
+branching HIRs. Run it last in the HIR pipeline, after `PeepholeFusionPass` and
+`StatevectorSqueezePass`. A noise-transparent reorder can prevent later
+peephole fusion. See [Optimization Passes](../reference/passes.md) for pipeline
+configuration and the measurements below for compile-time costs.
 
 ## Measured Effect
 
-Measured once, single host, Release build, at commit `d169751b`: sampling
-throughput with the production pipeline (`PeepholeFusionPass` then
-`StatevectorSqueezePass`) versus production plus the opt-in schedule pass
-(`ActiveWidthSchedulePass`, at its default options), on the `clifft-paper`
-QEC corpus at commit `db7dc9f`, best of 3 timed batches after warmup. "Plan
-work" is the planner's own $\sum 2^{k}$ over dense actions -- the same
-quantity `estimate_dense_work` approximates ahead of planning.
+The following measurements compare the production pipeline
+(`PeepholeFusionPass` then `StatevectorSqueezePass`) with production plus
+`ActiveWidthSchedulePass` at its default options. They use a Release build at
+commit `d169751b` and the `clifft-paper` QEC corpus at commit `db7dc9f`, on one
+host. Throughput is the best of three timed batches after warmup. "Plan work"
+is the planner's $\sum 2^k$ over dense actions, which `estimate_dense_work`
+approximates before planning.
 
 | Circuit | Production: peak / plan work / shots per s | Production + schedule pass: peak / plan work / shots per s | Pass wall time |
 |---|---|---|---|
@@ -256,23 +246,19 @@ quantity `estimate_dense_work` approximates ahead of planning.
 | distillation | 5 / 155 / 1.12M | 3 / 71 / 1.18M | 6 ms |
 | cultivation d5 | 10 / 56618 / 58k | 10 / 54710 / 60k | 90 ms |
 
-Lower dense work turns into throughput wherever dense work dominates the
-shot cost, as on coherent d3 r3 and coherent d5 r5. Peak width alone is not a
-throughput predictor: distillation loses two units of width but gains
-almost nothing, because its per-shot cost is dominated by frame, record, and
-detector work rather than dense active-state work. Coherent d5 r1's coherent
-noise is invisible in the output distribution once every rotation lands
-behind a commuting measurement, so the pass finds a schedule with zero
-active width at all. This page's certificates matter most for reading
-cultivation d5 and coherent d5 r5 correctly. The exact search certifies
-cultivation d3 at peak 4 (a smaller, related fixture, not shown above) and
-cultivation d5 at peak 10 under both relations, so both are intrinsic to
-their trace classes: no legal reordering reaches a lower peak. The pass's
-small dense-work gain on cultivation d5 is at that certified peak, not a
-step toward a lower one. Coherent d5 r5 is the one corpus circuit whose
-certificate did not complete within the exact search's 200k-node budget,
-so the 13 reported for it above is an upper bound, not a certified
-optimum.
+Reducing dense work improves throughput when it dominates shot cost, as on
+coherent d3 r3 and coherent d5 r5. Distillation gains little despite a lower
+peak: its frame, record, and detector work dominate. On coherent d5 r1, the
+pass moves every rotation behind a commuting measurement, making the
+coherent noise invisible in the output distribution and reducing active
+width to zero.
+
+Exact search certified cultivation d3 at peak 4 (a smaller fixture, not shown)
+and cultivation d5 at peak 10 under both the plain and noise-transparent
+relations. The dense-work gain on cultivation d5 is therefore at its minimum
+peak within either trace class. Coherent d5 r5 was the only corpus circuit
+whose certificate did not complete within the 200k-node budget; its reported
+peak of 13 remains an upper bound, not a certified optimum.
 
 ## References
 
