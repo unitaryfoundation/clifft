@@ -67,6 +67,22 @@ An [experimental AMD HIP backend](https://unitaryfoundation.github.io/clifft/sta
 is available through an explicit source build and separate API. It is not part
 of the published wheels or selected automatically.
 
+## Performance
+
+**Clifft reaches millions of attempted shots per second** on several complete
+near-Clifford circuits using one CPU core. Its compiler keeps the dense quantum
+state small so that exact near-Clifford simulation can approach the throughput
+usually associated with specialized Clifford tools.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/unitaryfoundation/clifft/main/docs/assets/performance/clifft-throughput-dark.png">
+  <img src="https://raw.githubusercontent.com/unitaryfoundation/clifft/main/docs/assets/performance/clifft-throughput-light.png" alt="Clifft v0.10 attempted shots per second across eight near-Clifford workloads">
+</picture>
+
+See the [Performance guide](https://unitaryfoundation.github.io/clifft/stable/guide/performance/)
+for comparisons with other simulators, release history, dense Quantum Volume
+results, and measurement details.
+
 ## Installation
 
 <!--pytest.mark.skip-->

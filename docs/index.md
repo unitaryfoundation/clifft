@@ -103,45 +103,24 @@ low-active-width CPU workloads and Apple Silicon NEON kernels for active-state
 operations. Advanced callers can use `batch_size` to tune the packed-lane
 capacity, while the default cost-aware policy balances throughput and memory.
 
+In single-core benchmarks, v0.10 is faster than v0.9 on all eight measured
+workloads, with a 3.23x median improvement. It also leads SymFT on all eight,
+from 1.05x to 87.7x. See [Performance](guide/performance.md) for the figures,
+absolute throughput, dense Quantum Volume results, and measurement details.
+
 The release also accepts supported unitary OpenQASM 2 circuits without Qiskit
 and moves production builds onto Clifft's native Clifford implementation. Stim
-remains an independent test oracle. An experimental AMD HIP backend is
-available through an explicit source build and the `clifft.experimental.hip`
-API.
+remains an independent test oracle.
 
-Read [Circuit Inputs](guide/circuit-inputs.md) for OpenQASM, Qiskit, and Cirq
-options, or [CPU Execution and Tuning](guide/cpu-execution.md) for batching,
-threading, reproducibility, and memory guidance.
+Read [Packed Sampling in Clifft](updates/packed-sampling.md) for the design,
+automatic policy, and v0.9 comparison. See
+[Circuit Inputs](guide/circuit-inputs.md) for OpenQASM, Qiskit, and Cirq options,
+or [CPU Execution and Tuning](guide/cpu-execution.md) for detailed controls.
 
-## What's New in 0.9.0
+### Earlier development updates
 
-Clifft 0.9.0 adds parallel sampling for ordinary,
-post-selected, forced-fault, and noncomputational workloads. Pass a total
-worker budget with `threads`, and fixed-plan sampling automatically chooses
-between running shots concurrently and using OpenMP within a wide shot.
-Advanced callers can select an explicit hybrid layout. Fixed seeds produce the
-same results across worker layouts, although seeded rows differ from v0.8
-because each shot now has its own random stream.
-
-The release also defines `get_statevector()` up to global phase, absorbs
-Clifford-valued rotations earlier during compilation, vectorizes additional
-active-measurement kernels, and fixes complex-interference cases in
-`basis_probabilities()`.
-
-Read [Parallel Sampling in Clifft](updates/parallel-sampling.md) for the
-threading design, reproducibility contract, memory tradeoffs, and expert
-controls.
-
-## What's New in 0.8.0
-
-Clifft 0.8.0 replaces the original localized-Pauli SVM with a
-symbolic-coordinate compiler and sampler. The main `compile()` and sampling
-workflows remain, while the public VM bytecode and backend-selection APIs have
-been removed. Compiled programs now expose `peak_active_width` and an
-`inspect()` view of the sampling plan.
-
-Read [Symbolic Sampling in Clifft](updates/symbolic-sampling.md) for the design
-motivation, API migration notes, matched performance results, and deferred
-follow-up work.
+Read [Parallel Sampling in Clifft](updates/parallel-sampling.md) for the v0.9.0
+threading work and [Symbolic Sampling in Clifft](updates/symbolic-sampling.md)
+for the v0.8.0 compiler and sampler redesign.
 
 [Full Changelog](https://github.com/unitaryfoundation/clifft/blob/main/CHANGELOG.md){ .md-button }
