@@ -4,6 +4,7 @@
 #include "clifft/optimizer/schedule_dependence.h"
 
 #include <algorithm>
+#include <bit>
 #include <cassert>
 #include <cstdint>
 #include <optional>
@@ -89,44 +90,59 @@ struct UndoStep {
 // continuations (rather than backtracking one shared instance) can clone a
 // frontier instead of using execute()/undo().
 //
-// Readiness lives in a flat ready_flag_ array rather than a std::set: it
+// Readiness lives in a flat ready_bits_ bitset rather than a std::set: it
 // churns on every execute()/undo() call in the beam search's inner loop,
-// and a flag flip is both allocation-free and branch-cheap where a tree
+// and a bit flip is both allocation-free and branch-cheap where a tree
 // insert or erase is neither. lowest_ready_hint_ is a mutable cache of the
 // smallest ready op index, not just a lower bound: lowest_ready() tightens
-// it on demand by scanning upward from the cached value to the first set
-// ready_flag_ entry (or num_ops() if none), then stores that exact result
-// back before returning it. Recomputing the cache is legal from a const
-// method because it is a pure function of ready_flag_ alone -- the same
-// value a caller would get by scanning from zero every time -- so caching
-// it only changes how much of the array a later scan has to revisit, never
-// which op that scan returns. Without the tightening, mark_not_ready's
-// one-step bump is the only thing that ever advances the hint, so after a
-// long run of executed ops above it, find_ready_non_expanding's and
-// ready_ops_snapshot's ascending scans re-walk the same stale not-ready
-// prefix on every call: O(n) per closure step and O(n^2) over a full
-// replay of an n-op circuit.
+// it on demand by scanning upward from the cached value's word to the first
+// set bit at or above it (or num_ops() if none), then stores that exact
+// result back before returning it. Recomputing the cache is legal from a
+// const method because it is a pure function of ready_bits_ alone -- the
+// same value a caller would get by scanning from zero every time -- so
+// caching it only changes how much of the bitset a later scan has to
+// revisit, never which op that scan returns. Without the tightening,
+// mark_not_ready's one-step bump is the only thing that ever advances the
+// hint, so after a long run of executed ops above it, lowest_ready's and
+// ready_ops_snapshot's ascending scans would re-walk the same stale
+// not-ready prefix on every call.
 //
 // The frontier also memoizes, for the closure sweep in progress, which
-// ready ops is_expanding has already found expanding (expanding_stamp_
-// against expanding_generation_), so find_ready_non_expanding never re-runs
-// a commutation scan against every generator of S on an op whose verdict
-// cannot have changed. A rotation that anticommutes with some element of S
-// keeps anticommuting with it while S only grows or stays put, since the
-// new span contains the old one. Inside a sweep every executed op is
-// non-expanding, and of the effects such an op can have only
-// MeasureDormantRandom shrinks S; RotationPromote and InstrumentActivate
-// shrink it too, but they are expanding, so they run only just before a
-// sweep starts. run_closure therefore calls reset_expanding_memo() on entry
-// and after every MeasureDormantRandom step, and a memo hit stands in
-// exactly for the is_expanding call it replaces. The generation counter
-// advances once per sweep or shrink, far fewer than 2^32 times per pass.
+// ready ops is_expanding has already found expanding, as a second bitset
+// (known_expanding_bits_) rather than a generation-stamped array: a rotation
+// that anticommutes with some element of S keeps anticommuting with it while
+// S only grows or stays put, since the new span contains the old one.
+// Inside a sweep every executed op is non-expanding, and of the effects such
+// an op can have only MeasureDormantRandom shrinks S; RotationPromote and
+// InstrumentActivate shrink it too, but they are expanding, so they run only
+// just before a sweep starts. run_closure therefore calls
+// reset_expanding_memo() on entry and after every MeasureDormantRandom step,
+// clearing known_expanding_bits_ with std::ranges::fill -- O(n/64) words,
+// far cheaper than the O(n) walk it replaces -- and resets happen once per
+// sweep entry and once per MeasureDormantRandom step, not once per closure
+// step, so the clear is cheap relative to what it replaces.
+//
+// candidate_hint_ is a lower bound on the smallest index that is ready and
+// not known-expanding, maintained the same way lowest_ready_hint_ is:
+// mark_ready lowers both hints, mark_not_ready and note_expanding each bump
+// their own hint by one on an exact-index match, and reset_expanding_memo
+// resets candidate_hint_ to lowest_ready_hint_ (still a valid lower bound,
+// since every candidate is also ready). first_candidate() tightens it by
+// scanning ready_bits_[w] & ~known_expanding_bits_[w] a word at a time from
+// the hint's word, so a caller walking successive candidates within one
+// sweep pays for the words it skips, not the ops: a sweep over n ops with k
+// memo resets costs O(n/64 * (1 + k)) word operations plus the is_expanding
+// calls it genuinely needs, instead of O(n * distance) op-at-a-time steps.
 class SearchFrontier {
   public:
     explicit SearchFrontier(const detail::ScheduleDependence& dependence);
 
-    [[nodiscard]] bool is_ready(uint32_t op) const { return ready_flag_[op] != 0; }
-    [[nodiscard]] uint32_t num_ops() const { return static_cast<uint32_t>(ready_flag_.size()); }
+    [[nodiscard]] bool is_ready(uint32_t op) const {
+        return (ready_bits_[op / 64] & (uint64_t{1} << (op % 64))) != 0;
+    }
+    [[nodiscard]] uint32_t num_ops() const {
+        return static_cast<uint32_t>(remaining_preds_.size());
+    }
 
     // Tightens lowest_ready_hint_ to the exact smallest ready op index (or
     // num_ops() if none is ready) and returns it. See the class comment
@@ -136,13 +152,21 @@ class SearchFrontier {
 
     // Expanding memo for the closure sweep in progress; see the class
     // comment for why a hit is exact and when it must be reset.
-    void reset_expanding_memo() { ++expanding_generation_; }
+    void reset_expanding_memo();
     [[nodiscard]] bool known_expanding(uint32_t op) const {
-        return expanding_stamp_[op] == expanding_generation_;
+        return (known_expanding_bits_[op / 64] & (uint64_t{1} << (op % 64))) != 0;
     }
-    void note_expanding(uint32_t op) { expanding_stamp_[op] = expanding_generation_; }
+    void note_expanding(uint32_t op);
+
+    // Lowest-index op that is ready and not known-expanding, or nullopt if
+    // none remains, tightening candidate_hint_ to the exact result (or
+    // num_ops() when nullopt) the same way lowest_ready() tightens its own
+    // hint. See the class comment above for the word-at-a-time scan this
+    // replaces a one-op-at-a-time walk with.
+    [[nodiscard]] std::optional<uint32_t> first_candidate();
 
     [[nodiscard]] const std::vector<uint64_t>& executed_bits() const { return executed_; }
+    [[nodiscard]] const std::vector<uint64_t>& ready_bits() const { return ready_bits_; }
     [[nodiscard]] size_t executed_count() const { return executed_count_; }
 
     // Marks `op` executed. Appends each successor that newly became ready to
@@ -164,11 +188,11 @@ class SearchFrontier {
     const detail::ScheduleDependence* dependence_;
     std::vector<uint64_t> executed_;
     std::vector<uint32_t> remaining_preds_;
-    std::vector<uint8_t> ready_flag_;
+    std::vector<uint64_t> ready_bits_;
     mutable uint32_t lowest_ready_hint_ = 0;
     size_t executed_count_ = 0;
-    std::vector<uint32_t> expanding_stamp_;
-    uint32_t expanding_generation_ = 1;
+    std::vector<uint64_t> known_expanding_bits_;
+    uint32_t candidate_hint_ = 0;
 };
 
 void bitset_set(std::vector<uint64_t>& bits, uint32_t index) {
@@ -183,8 +207,8 @@ SearchFrontier::SearchFrontier(const detail::ScheduleDependence& dependence)
     : dependence_(&dependence),
       executed_((dependence.num_ops() + 63) / 64, 0),
       remaining_preds_(dependence.num_ops()),
-      ready_flag_(dependence.num_ops(), 0),
-      expanding_stamp_(dependence.num_ops(), 0) {
+      ready_bits_((dependence.num_ops() + 63) / 64, 0),
+      known_expanding_bits_((dependence.num_ops() + 63) / 64, 0) {
     for (uint32_t op = 0; op < dependence.num_ops(); ++op) {
         remaining_preds_[op] = static_cast<uint32_t>(dependence.predecessors(op).size());
         if (remaining_preds_[op] == 0) {
@@ -194,28 +218,87 @@ SearchFrontier::SearchFrontier(const detail::ScheduleDependence& dependence)
 }
 
 void SearchFrontier::mark_ready(uint32_t op) {
-    ready_flag_[op] = 1;
+    bitset_set(ready_bits_, op);
     lowest_ready_hint_ = std::min(lowest_ready_hint_, op);
+    candidate_hint_ = std::min(candidate_hint_, op);
 }
 
 void SearchFrontier::mark_not_ready(uint32_t op) {
-    ready_flag_[op] = 0;
+    bitset_clear(ready_bits_, op);
     // Only a cheap, exact-match bump: the op just removed was the hint's own
     // witness, so the hint must move at least past it, but the true new
     // minimum among whatever remains ready is not known without a scan --
-    // find_ready_non_expanding's own scan discovers it lazily instead.
+    // lowest_ready()'s and first_candidate()'s own scans discover it lazily
+    // instead.
     if (op == lowest_ready_hint_) {
         ++lowest_ready_hint_;
+    }
+    if (op == candidate_hint_) {
+        ++candidate_hint_;
     }
 }
 
 uint32_t SearchFrontier::lowest_ready() const {
-    while (lowest_ready_hint_ < num_ops() && !is_ready(lowest_ready_hint_)) {
-        ++lowest_ready_hint_;
+    uint32_t word = lowest_ready_hint_ / 64;
+    if (word < ready_bits_.size()) {
+        uint64_t pending = ready_bits_[word] & (~uint64_t{0} << (lowest_ready_hint_ % 64));
+        while (pending == 0) {
+            ++word;
+            if (word >= ready_bits_.size()) {
+                lowest_ready_hint_ = num_ops();
+                pending = 0;
+                break;
+            }
+            pending = ready_bits_[word];
+        }
+        if (pending != 0) {
+            lowest_ready_hint_ = 64 * word + static_cast<uint32_t>(std::countr_zero(pending));
+        }
+    } else {
+        lowest_ready_hint_ = num_ops();
     }
     assert((lowest_ready_hint_ == num_ops() || is_ready(lowest_ready_hint_)) &&
            "lowest_ready() must return num_ops() or an actually ready op");
     return lowest_ready_hint_;
+}
+
+void SearchFrontier::reset_expanding_memo() {
+    // O(n/64) words, not the O(n) walk a per-op reset would cost; this runs
+    // once per closure sweep entry and once per MeasureDormantRandom step
+    // inside a sweep (see the class comment), far less often than the scans
+    // it clears the way for.
+    std::ranges::fill(known_expanding_bits_, uint64_t{0});
+    // lowest_ready_hint_ is already a valid lower bound on the smallest
+    // ready index, and every candidate is also ready, so it remains a valid
+    // lower bound on the smallest ready-and-not-known-expanding index too.
+    candidate_hint_ = lowest_ready_hint_;
+}
+
+void SearchFrontier::note_expanding(uint32_t op) {
+    bitset_set(known_expanding_bits_, op);
+    if (op == candidate_hint_) {
+        ++candidate_hint_;
+    }
+}
+
+std::optional<uint32_t> SearchFrontier::first_candidate() {
+    uint32_t word = candidate_hint_ / 64;
+    if (word >= ready_bits_.size()) {
+        candidate_hint_ = num_ops();
+        return std::nullopt;
+    }
+    uint64_t pending = (ready_bits_[word] & ~known_expanding_bits_[word]) &
+                       (~uint64_t{0} << (candidate_hint_ % 64));
+    while (pending == 0) {
+        ++word;
+        if (word >= ready_bits_.size()) {
+            candidate_hint_ = num_ops();
+            return std::nullopt;
+        }
+        pending = ready_bits_[word] & ~known_expanding_bits_[word];
+    }
+    candidate_hint_ = 64 * word + static_cast<uint32_t>(std::countr_zero(pending));
+    return candidate_hint_;
 }
 
 uint32_t SearchFrontier::execute(uint32_t op, std::vector<uint32_t>& newly_ready_log) {
@@ -269,25 +352,17 @@ void undo_all(SearchFrontier& frontier, const std::vector<UndoStep>& log,
 // currently ready op (if any) is expanding.
 std::optional<uint32_t> find_ready_non_expanding(const HirModule& hir, SearchFrontier& frontier,
                                                  const DormantSubspace& subspace) {
-    // Ascending scan starting from the exact lowest ready index: a cheap
-    // is_ready() check skips every not-ready index above it, so
-    // is_expanding() only ever runs on an actual ready op, in the same
-    // lowest-index-first order a sorted container would visit them,
-    // stopping at the first non-expanding one. A memo hit stands in exactly
-    // for the is_expanding call it replaces (see SearchFrontier), so the op
-    // this returns, and the order ops are visited in, match the unmemoized
-    // scan.
-    for (uint32_t op = frontier.lowest_ready(); op < frontier.num_ops(); ++op) {
-        if (!frontier.is_ready(op)) {
-            continue;
-        }
-        if (frontier.known_expanding(op)) {
-            assert(is_expanding(hir, hir.ops[op], subspace) &&
-                   "memoized expanding verdict disagrees with a fresh is_expanding recheck");
-            continue;
-        }
-        if (is_expanding(hir, hir.ops[op], subspace)) {
-            frontier.note_expanding(op);
+    // first_candidate() scans ready_bits_ & ~known_expanding_bits_ a word at
+    // a time (see SearchFrontier), so it already excludes every op the memo
+    // has found expanding; the op it returns is the same lowest-index
+    // ready-and-not-yet-classified op an unmemoized linear scan would reach
+    // next. Because known-expanding ops never come back around, there is no
+    // "memo hit" branch left to cross-check here: every op this loop sees is
+    // one is_expanding has not yet classified this sweep, so it always runs
+    // fresh.
+    while (const std::optional<uint32_t> op = frontier.first_candidate()) {
+        if (is_expanding(hir, hir.ops[*op], subspace)) {
+            frontier.note_expanding(*op);
             continue;
         }
         return op;
@@ -390,10 +465,23 @@ BeamState make_initial_beam_state(const HirModule& hir,
 // scoring and closing each candidate.
 std::vector<uint32_t> ready_ops_snapshot(const SearchFrontier& frontier) {
     std::vector<uint32_t> ready;
-    for (uint32_t op = frontier.lowest_ready(); op < frontier.num_ops(); ++op) {
-        if (frontier.is_ready(op)) {
-            ready.push_back(op);
+    const uint32_t start = frontier.lowest_ready();
+    if (start >= frontier.num_ops()) {
+        return ready;
+    }
+    const std::vector<uint64_t>& bits = frontier.ready_bits();
+    uint32_t word = start / 64;
+    uint64_t pending = bits[word] & (~uint64_t{0} << (start % 64));
+    for (;;) {
+        while (pending != 0) {
+            ready.push_back(64 * word + static_cast<uint32_t>(std::countr_zero(pending)));
+            pending &= pending - 1;
         }
+        ++word;
+        if (word >= bits.size()) {
+            break;
+        }
+        pending = bits[word];
     }
     return ready;
 }
