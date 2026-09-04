@@ -353,4 +353,7 @@ uv run --with matplotlib python docs/guide/scripts/delayed_loss_tutorial.py
 
 See [Leakage and Loss](leakage-and-loss.md) for the complete model API and
 [Noncomputational States](../theory/noncomputational.md) for the trajectory
-semantics.
+semantics. The advanced [Neutral-Atom Leakage and Loss
+tutorial](neutral-atom-leakage.md) shows state-dependent leakage, logical
+postselection, and exact no-jump back-action in a published neutral-atom
+experiment.
