@@ -59,8 +59,8 @@ quantum `SWAP`. Its phase error appears as `Z_ERROR` on the atoms that arrived
 at their new sites.
 
 The circuits fix the public artifact's noise multiplier at `alpha=1`. The
-[`manifest.json`](circuits/neutral_atom/manifest.json) records the public source,
-archive checksum, licenses, and circuit hashes.
+[`README.txt`](circuits/neutral_atom/README.txt) records where the circuits came
+from, the public artifact archive, and its license.
 
 ## Separate circuit noise from level changes
 
@@ -189,7 +189,7 @@ changes only modestly.
 This tutorial reproduces one published noise setting with checked-in Clifft
 circuits. It does not regenerate the circuits from Cirq or reproduce the full
 ten-value noise sweep. The source schedules, noise parameters, and decoder come
-from the Apache-2.0 supplementary artifact recorded in the manifest.
+from the Apache-2.0 supplementary artifact recorded with the circuits.
 
 The model retains the artifact's Pauli twirls for coherent pulse errors, so the
 `exact` comparison changes only the unequal-rate no-jump treatment. Neither
