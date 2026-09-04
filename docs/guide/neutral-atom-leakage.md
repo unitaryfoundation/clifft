@@ -1,17 +1,24 @@
 <!--pytest-codeblocks:skipfile-->
 
-# Tutorial: Modeling Neutral-Atom Leakage and Loss
+# Tutorial: Reproducing a Neutral-Atom Logical Noise Sweep
 
-This advanced tutorial models a neutral-atom logical experiment with Clifft's
-five-level trajectory API. It recreates the `alpha=1` simulation point from
-Figure 9 of Rines *et al.*, ["Demonstration of a Logical Architecture Uniting
-Motion and In-Place Entanglement"](https://arxiv.org/abs/2509.13247), using the
-authors' [public supplementary artifact](https://zenodo.org/records/17137995).
+This advanced tutorial reconstructs the simulated Shor noise sweep in Figure 9
+of Rines *et al.*, ["Demonstration of a Logical Architecture Uniting Motion and
+In-Place Entanglement"](https://arxiv.org/abs/2509.13247), using Clifft's
+five-level trajectory API and the authors' [public supplementary
+artifact](https://zenodo.org/records/17137995).
 
-The example compares two treatments of state-dependent transition rates. The
-first matches the stabilizer-compatible approximation used by the public
-artifact. The second keeps the published transition matrices unchanged and
-uses Clifft's exact conditional no-jump back-action.
+The reconstruction answers two questions:
+
+1. Can the four published physical schedules and their logical postprocessing
+   reproduce the paper's noise-scaling behavior in Clifft?
+2. When is the stabilizer-compatible approximation to state-dependent
+   transitions measurably different from exact conditional back-action?
+
+The first question validates a realistic end-to-end leakage workflow. The
+second turns that reconstruction into a modeling study: it shows that an
+approximation can preserve decoded TVD while changing which trajectories
+survive postselection.
 
 This page assumes familiarity with Clifford circuits, postselection, and the
 [Leakage and Loss](leakage-and-loss.md) API. For a smaller first example, start
@@ -45,7 +52,7 @@ leaves the flag set.
 
 ## Checked-in Clifft circuits
 
-The four translated schedules are included with the documentation:
+The four final schedules are included with the documentation:
 
 - [`unencoded_alpha1.stim`](circuits/neutral_atom/unencoded_alpha1.stim)
 - [`two_row_alpha1.stim`](circuits/neutral_atom/two_row_alpha1.stim)
@@ -58,16 +65,16 @@ wire labels used by later operations. A move is therefore not represented as a
 quantum `SWAP`. Its phase error appears as `Z_ERROR` on the atoms that arrived
 at their new sites.
 
-The circuits fix the public artifact's noise multiplier at `alpha=1`. The
-[`README.txt`](circuits/neutral_atom/README.txt) records where the circuits came
-from, the public artifact archive, and its license.
+The files record the nominal `alpha=1` probabilities. The runnable script
+rescales the selected terms in memory, so the complete sweep needs only these
+four circuits. The [`README.txt`](circuits/neutral_atom/README.txt) records
+their public source and license.
 
-## Separate circuit noise from level changes
+## Map the five-level noise model
 
-The checked-in circuits contain the Clifford operations and ordinary Pauli
-noise. For example, a physical phase rotation becomes a named Clifford
-rotation followed by its twirled `Z_ERROR` and an explicit level-transition
-site:
+The circuits contain the Clifford operations and ordinary Pauli noise. A
+physical phase rotation, for example, becomes a named Clifford rotation, a
+twirled phase error, and an explicit level-transition site:
 
 ```stim
 SQRT_Z_DAG 10
@@ -75,8 +82,8 @@ Z_ERROR(8.8823809595495095e-05) 10
 LEVEL_TRANSITION[RZ_TRANSITION] 10
 ```
 
-The noncomputational model contains the effects that change or observe the
-atom's level:
+The effects that change or observe the atom's level live in
+`noncomp.Model`:
 
 ```python
 model = noncomp.Model(
@@ -92,7 +99,7 @@ model = noncomp.Model(
 ```
 
 `initial_state` prepares a distribution over `g`, `e`, `leak_g`, `leak_e`, and
-`lost`. The transition matrices use `T[to][from]`. The `CZ` key is a gate hook,
+`lost`. Transition matrices use `T[to][from]`. The `CZ` key is a gate hook,
 while `RZ_TRANSITION` is referenced explicitly because `RZ` means reset in the
 Stim instruction set. The three-symbol classifier produces zero, one, or a
 heralded loss at measurement.
@@ -102,7 +109,7 @@ The full numeric matrices and classifier are kept in the runnable
 Keeping them visible there makes it possible to inspect or modify the physical
 model without regenerating the circuits.
 
-## Matched and exact no-jump behavior
+## Rebalanced and exact no-jump behavior
 
 A transition event collapses its computational source against the live quantum
 state. The absence of an event also carries information when the total event
@@ -117,83 +124,116 @@ $$
 The tutorial exposes two model choices:
 
 - `matched` adds a diagonal self-jump to the lower-rate computational source
-  until the two total rates agree. With equal rates, the no-jump filter is
-  proportional to identity, so `damping="neglect"` is exact for the transformed
-  matrices. This reproduces the public artifact's approximation.
-- `exact` keeps the published unequal rates and uses `damping="exact"`. Clifft
-  then applies the conditional no-jump filter and promotes coherent sites when
-  required.
+  until the two total rates agree. The resulting no-jump filter is proportional
+  to identity, so `damping="neglect"` is exact for the transformed matrices.
+  This is the stabilizer-compatible model used for the reproduction.
+- `exact` keeps the unequal rates and uses `damping="exact"`. Clifft applies
+  the conditional no-jump filter and promotes coherent sites when required.
 
-This changes one modeling assumption while preserving the circuit, initial
-population, readout model, decoder, and Pauli twirls.
+The circuit, initial population, readout model, Pauli twirls, and decoder remain
+the same. Only the treatment of unequal transition rates changes.
 
-## Sample and decode the four schedules
+## Reproduce the Figure 9 noise sweep
 
-Run the matched model on every circuit from the repository root:
+The paper varies a multiplier $\alpha$ from 0.5 to 5. In the public model,
+$\alpha$ scales the CZ phase error, physical-RZ overrotation, and movement
+phase error. It does not scale the transition matrices, initial level
+population, readout classifier, or static global-pulse error. The script keeps
+that distinction; `alpha=1` is the nominal model stored in the circuit files.
+
+![Clifft reconstruction of the Figure 9 neutral-atom Shor noise sweep](images/neutral_atom_figure9.png)
+
+Color identifies the physical realization and lower TVD is better. Solid
+curves with circles use the rebalanced model; crosses use exact no-jump
+back-action. Each checked-in point uses 2,000 trajectories per model. The
+rebalanced curves reproduce the published ordering: the encoded schedules
+initially outperform the unencoded circuit, while their advantage disappears
+as the selected noise terms grow.
+
+The exact markers mostly track the same TVD curves. The important caveat is
+visible at large $\alpha$: the encoded schedules, especially the LDU circuit,
+accept few shots, so TVD among the survivors becomes a noisy way to compare
+models. Acceptance is the more sensitive observable for the approximation.
+
+## Stress-test the approximation
+
+To isolate that effect, keep the real two-row LDU schedule and vary the CZ
+computational-rate asymmetry $\lvert p_g-p_e\rvert$. For each point, the script
+preserves the mean CZ event rate and each source column's conditional
+distribution over jump destinations. It equalizes the smaller RZ asymmetry in
+both arms, leaving CZ no-jump back-action as the controlled difference.
+
+![Exact-minus-rebalanced LDU acceptance under controlled CZ rate asymmetry](images/neutral_atom_rate_asymmetry.png)
+
+The vertical axis is the exact accepted-shot rate minus the rebalanced rate,
+in percentage points. Bands are pointwise 95% normal intervals from the two
+binomial acceptance estimates. The 0.5-point curve is close to the published
+CZ asymmetry; 2 and 4 points are hypothetical stress tests, not new hardware
+fits.
+
+At low noise, the estimated shift grows with the rate asymmetry. The absolute
+difference eventually shrinks because very few trajectories survive either
+model. With 1,000 trajectories per model and point, the bands are deliberately
+wide; increase `--asymmetry-shots` before drawing quantitative conclusions.
+The qualitative lesson is still visible: checking only decoded distributions
+can miss a modeling bias because conditional back-action changes the
+postselected ensemble itself.
+
+The conclusion is not that the published approximation was unusable. Its
+physical asymmetry is mild. The useful result is that Clifft lets us validate
+the approximation on the actual logical workload and remove it when a device
+or protocol has more state-dependent transition rates.
+
+## Run the reconstruction
+
+For a quick `alpha=1` table across the four schedules:
 
 ```bash
 uv run python docs/guide/scripts/neutral_atom_leakage_tutorial.py
 ```
 
-Fixed-seed output with 5,000 trajectories per schedule:
-
-```text
-circuit       model      acceptance   heralded       TVD
-unencoded     matched        99.2%       0.8%    0.0905
-two_row       matched        45.9%       3.7%    0.0296
-two_row_ldu   matched        17.8%      10.3%    0.0718
-three_row     matched        23.9%       8.2%    0.0218
-```
-
-The script converts Clifft's measurement and herald arrays to the public
-artifact's three-symbol records. It then applies the same classical workflow:
-
-1. Reject preparation or LDU flags with invalid values.
-2. Reject unheralded loss where the selected model does not correct it.
-3. Decode each valid `[[4, 2, 2]]` block into two logical bits.
-4. Extract the three Shor output bits and compare their distribution with the
-   ideal distribution using total variation distance, or TVD.
-
-The output reports two complementary quantities. Acceptance is the fraction of
-physical trajectories that survive postselection. TVD measures the decoded
-distribution among those survivors, where lower is better. The three-row
-schedule emits two correlated logical samples per accepted physical trajectory;
-the script accounts for that when reporting acceptance.
-
-To compare the matched and exact models on the LDU circuit:
+To compare both no-jump models at one point:
 
 ```bash
 uv run python docs/guide/scripts/neutral_atom_leakage_tutorial.py \
   --circuits two_row_ldu --models matched exact --shots 5000
 ```
 
-```text
-circuit       model      acceptance   heralded       TVD
-two_row_ldu   matched        17.4%      10.3%    0.0978
-two_row_ldu   exact          17.9%      10.2%    0.0872
+To regenerate both figures at tutorial-friendly precision:
+
+```bash
+uv run --with matplotlib python \
+  docs/guide/scripts/neutral_atom_leakage_tutorial.py --figures
 ```
 
-Five thousand trajectories make this comparison quick enough for a tutorial,
-but they do not precisely resolve the difference between models. Increase
-`--shots` before drawing a quantitative conclusion from the acceptance or TVD
-shift.
+That command uses the same fixed seed and sampling budgets as the checked-in
+images: 2,000 trajectories per model and Figure 9 point and 1,000 per model and
+asymmetry point. For smoother curves and narrower acceptance intervals, raise
+`--figure9-shots` and `--asymmetry-shots`.
 
-Exact simulation is slower here because the LDU schedule has many
-state-dependent transition sites. The important scientific comparison is not
-runtime alone: unequal-rate no-jump back-action can change which trajectories
-survive postselection even when the decoded distribution of those survivors
-changes only modestly.
+The script converts Clifft's measurement and herald arrays to the public
+artifact's three-symbol records, then:
+
+1. rejects invalid preparation or LDU flags;
+2. rejects or corrects a single loss according to the selected schedule;
+3. decodes each valid `[[4, 2, 2]]` block into two logical bits; and
+4. compares the logical Shor distribution with the ideal distribution using
+   total variation distance.
+
+The three-row schedule emits two logical samples per accepted physical
+trajectory; the reported acceptance accounts for that.
 
 ## Scope and provenance
 
-This tutorial reproduces one published noise setting with checked-in Clifft
-circuits. It does not regenerate the circuits from Cirq or reproduce the full
-ten-value noise sweep. The source schedules, noise parameters, and decoder come
-from the Apache-2.0 supplementary artifact recorded with the circuits.
+This is a lightweight reconstruction built from four checked-in final circuits,
+not a general Cirq-to-Clifft converter. It does not recreate the paper's
+hardware data or experimental confidence intervals. The source schedules,
+noise parameters, and decoder come from the Apache-2.0 supplementary artifact
+recorded with the circuits.
 
 The model retains the artifact's Pauli twirls for coherent pulse errors, so the
-`exact` comparison changes only the unequal-rate no-jump treatment. Neither
-configuration should be read as a new hardware fit.
+`exact` comparison changes the unequal-rate no-jump treatment rather than
+claiming a new hardware fit.
 
 See [Noncomputational States](../theory/noncomputational.md) for the trajectory
 semantics and active-width cost of exact damping.

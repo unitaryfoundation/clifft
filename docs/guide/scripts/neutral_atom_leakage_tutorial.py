@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare matched and exact leakage models on neutral-atom Shor circuits.
+"""Reproduce a neutral-atom logical noise sweep and test no-jump approximations.
 
 The schedules and decoder conventions derive from the public SqaleSim Figure 9
 supplementary artifact at Zenodo record 17137995, released under Apache-2.0.
@@ -7,14 +7,21 @@ supplementary artifact at Zenodo record 17137995, released under Apache-2.0.
 Run from the repository root with:
 
     uv run python docs/guide/scripts/neutral_atom_leakage_tutorial.py
+
+Generate the tutorial figures with:
+
+    uv run --with matplotlib python docs/guide/scripts/neutral_atom_leakage_tutorial.py \
+        --figures
 """
 
 from __future__ import annotations
 
 import argparse
+import re
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from math import asin, sin, sqrt
 from pathlib import Path
 from typing import Literal, TypeAlias
 
@@ -26,6 +33,7 @@ from clifft import noncomp
 ModelKind = Literal["matched", "exact"]
 Counts: TypeAlias = Mapping[str, float | int]
 MutableCounts: TypeAlias = dict[str, float | int]
+MODEL_KINDS: tuple[ModelKind, ...] = ("matched", "exact")
 
 CIRCUIT_DIR = Path(__file__).parents[1] / "circuits" / "neutral_atom"
 CIRCUIT_FILES = {
@@ -35,10 +43,17 @@ CIRCUIT_FILES = {
     "three_row": "three_row_alpha1.stim",
 }
 IDEAL_DISTRIBUTION = {"000": 0.25, "010": 0.25, "101": 0.25, "111": 0.25}
+FIGURE9_ALPHAS = (0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0)
+ASYMMETRY_ALPHAS = (0.5, 1.0, 2.0, 3.0, 4.0, 5.0)
+ASYMMETRIES_PP = (0.5, 2.0, 4.0)
+IMAGE_DIR = Path(__file__).parents[1] / "images"
+FIGURE9_IMAGE = IMAGE_DIR / "neutral_atom_figure9.png"
+ASYMMETRY_IMAGE = IMAGE_DIR / "neutral_atom_rate_asymmetry.png"
 
 INITIAL_LEVELS = (0.007 / 2, 1 - 0.007 - 0.014, 0.007 / 2, 0.014, 0.0)
 CLASSIFIER_ERRORS = (0.002, 0.023)
 CZ_PHASE_ERROR = 0.02168835419643766
+MOVEMENT_PHASE_ERROR = 0.012714743326508494
 CZ_LEVEL_TRANSITIONS = (
     (0.00001740, 0.00018500, 0.00000486, 0.00016541, 0.0),
     (0.00001853, 0.00019750, 0.00000461, 0.00017774, 0.0),
@@ -77,11 +92,33 @@ def equalize_computational_jump_rates(matrix: npt.ArrayLike) -> np.ndarray:
     return probabilities
 
 
-def cz_jump_matrix() -> np.ndarray:
+def set_computational_jump_rate_difference(
+    matrix: npt.ArrayLike,
+    difference: float,
+) -> np.ndarray:
+    """Set p_e - p_g while preserving their mean and jump destinations."""
+    probabilities = np.array(matrix, dtype=float, copy=True)
+    p_g, p_e = probabilities[:, :2].sum(axis=0)
+    mean = (p_g + p_e) / 2
+    target_g = mean - difference / 2
+    target_e = mean + difference / 2
+    if target_g < 0 or target_e > 1:
+        raise ValueError(f"rate difference {difference} is incompatible with mean {mean}")
+    for column, current, target in (
+        (noncomp.Level.G, p_g, target_g),
+        (noncomp.Level.E, p_e, target_e),
+    ):
+        if current <= 0:
+            raise ValueError("cannot rescale an empty computational source column")
+        probabilities[:, column] *= target / current
+    return probabilities
+
+
+def cz_jump_matrix(alpha: float = 1.0) -> np.ndarray:
     """Combine CZ level changes with the artifact's phase-flip jump channel."""
     phase = np.zeros((5, 5), dtype=float)
-    phase[noncomp.Level.G, noncomp.Level.G] = 2 * CZ_PHASE_ERROR
-    phase[noncomp.Level.E, noncomp.Level.E] = 2 * CZ_PHASE_ERROR
+    phase[noncomp.Level.G, noncomp.Level.G] = 2 * alpha * CZ_PHASE_ERROR
+    phase[noncomp.Level.E, noncomp.Level.E] = 2 * alpha * CZ_PHASE_ERROR
     return compose_jump_matrices(CZ_LEVEL_TRANSITIONS, phase)
 
 
@@ -97,14 +134,29 @@ def classifier_matrix() -> np.ndarray:
     )
 
 
-def make_model(kind: ModelKind) -> noncomp.Model:
+def make_model(
+    kind: ModelKind,
+    *,
+    alpha: float = 1.0,
+    cz_asymmetry: float | None = None,
+    isolate_cz_asymmetry: bool = False,
+) -> noncomp.Model:
     """Build either the approximation-matched or exact trajectory model."""
     if kind not in ("matched", "exact"):
         raise ValueError(f"unknown model kind: {kind!r}")
+    if alpha <= 0:
+        raise ValueError("alpha must be positive")
 
+    cz_transition = cz_jump_matrix(alpha)
+    if cz_asymmetry is not None:
+        cz_transition = set_computational_jump_rate_difference(cz_transition, cz_asymmetry)
+    rz_transition = np.asarray(RZ_LEVEL_TRANSITIONS, dtype=float)
+    if isolate_cz_asymmetry:
+        # Equalizing RZ in both arms leaves CZ as the only changed no-jump filter.
+        rz_transition = equalize_computational_jump_rates(rz_transition)
     transitions = {
-        "CZ": cz_jump_matrix(),
-        "RZ_TRANSITION": np.asarray(RZ_LEVEL_TRANSITIONS, dtype=float),
+        "CZ": cz_transition,
+        "RZ_TRANSITION": rz_transition,
     }
     if kind == "matched":
         transitions = {
@@ -124,6 +176,23 @@ def make_model(kind: ModelKind) -> noncomp.Model:
         reset_restores_lost=False,
         damping="neglect" if kind == "matched" else "exact",
     )
+
+
+def scale_circuit_noise(circuit_text: str, alpha: float) -> str:
+    """Apply the public artifact's selected alpha scaling to an alpha=1 circuit."""
+    if alpha <= 0:
+        raise ValueError("alpha must be positive")
+
+    def replace_probability(match: re.Match[str]) -> str:
+        probability = float(match.group(1))
+        if np.isclose(probability, MOVEMENT_PHASE_ERROR, rtol=0, atol=1e-15):
+            scaled = alpha * probability
+        else:
+            # Physical RZ overrotation scales as an angle, not as a probability.
+            scaled = sin(alpha * asin(sqrt(probability))) ** 2
+        return f"Z_ERROR({scaled:.17g})"
+
+    return re.sub(r"Z_ERROR\(([^)]+)\)", replace_probability, circuit_text)
 
 
 def process_counts(
@@ -235,6 +304,7 @@ class ExperimentResult:
 
     circuit: str
     model: ModelKind
+    alpha: float
     shots: int
     accepted: int
     decoded_samples: int
@@ -252,8 +322,11 @@ def run_experiment(
     *,
     shots: int,
     seed: int,
+    alpha: float = 1.0,
+    cz_asymmetry: float | None = None,
+    isolate_cz_asymmetry: bool = False,
 ) -> ExperimentResult:
-    """Sample and decode one checked-in alpha=1 schedule."""
+    """Sample and decode one checked-in schedule at a selected noise multiplier."""
     if shots <= 0:
         raise ValueError("shots must be positive")
     try:
@@ -261,9 +334,15 @@ def run_experiment(
     except KeyError as error:
         raise ValueError(f"unknown circuit: {circuit!r}") from error
 
+    circuit_text = (CIRCUIT_DIR / circuit_file).read_text()
     result = noncomp.sample(
-        (CIRCUIT_DIR / circuit_file).read_text(),
-        make_model(model),
+        scale_circuit_noise(circuit_text, alpha),
+        make_model(
+            model,
+            alpha=alpha,
+            cz_asymmetry=cz_asymmetry,
+            isolate_cz_asymmetry=isolate_cz_asymmetry,
+        ),
         shots=shots,
         seed=seed,
     )
@@ -274,12 +353,219 @@ def run_experiment(
     return ExperimentResult(
         circuit=circuit,
         model=model,
+        alpha=alpha,
         shots=shots,
         accepted=accepted,
         decoded_samples=decoded_samples,
         heralded=int(result.heralds.any(axis=1).sum()),
         tvd=total_variation_distance(decoded, IDEAL_DISTRIBUTION),
     )
+
+
+@dataclass(frozen=True)
+class AcceptanceDifference:
+    """Exact-minus-matched acceptance for one controlled asymmetry point."""
+
+    alpha: float
+    asymmetry_pp: float
+    difference: float
+    standard_error: float
+
+
+def figure9_sweep(*, shots: int, seed: int) -> list[ExperimentResult]:
+    """Run both models across the paper's four schedules and alpha grid."""
+    results = []
+    for circuit_index, circuit in enumerate(CIRCUIT_FILES):
+        for alpha_index, alpha in enumerate(FIGURE9_ALPHAS):
+            for model_index, model in enumerate(MODEL_KINDS):
+                print(
+                    f"Figure 9 sweep: {circuit}, {model}, alpha={alpha:g}",
+                    flush=True,
+                )
+                results.append(
+                    run_experiment(
+                        circuit,
+                        model,
+                        shots=shots,
+                        seed=seed + 10_000 * model_index + 100 * circuit_index + alpha_index,
+                        alpha=alpha,
+                    )
+                )
+    return results
+
+
+def asymmetry_sweep(*, shots: int, seed: int) -> list[AcceptanceDifference]:
+    """Measure approximation bias as CZ rate asymmetry and alpha vary."""
+    results = []
+    for asymmetry_index, asymmetry_pp in enumerate(ASYMMETRIES_PP):
+        for alpha_index, alpha in enumerate(ASYMMETRY_ALPHAS):
+            point_seed = seed + 1000 + 100 * asymmetry_index + alpha_index
+            print(
+                f"Asymmetry sweep: delta={asymmetry_pp:g} pp, alpha={alpha:g}",
+                flush=True,
+            )
+            matched = run_experiment(
+                "two_row_ldu",
+                "matched",
+                shots=shots,
+                seed=point_seed,
+                alpha=alpha,
+                cz_asymmetry=asymmetry_pp / 100,
+                isolate_cz_asymmetry=True,
+            )
+            exact = run_experiment(
+                "two_row_ldu",
+                "exact",
+                shots=shots,
+                seed=point_seed + 10_000,
+                alpha=alpha,
+                cz_asymmetry=asymmetry_pp / 100,
+                isolate_cz_asymmetry=True,
+            )
+            standard_error = sqrt(
+                matched.acceptance * (1 - matched.acceptance) / shots
+                + exact.acceptance * (1 - exact.acceptance) / shots
+            )
+            results.append(
+                AcceptanceDifference(
+                    alpha=alpha,
+                    asymmetry_pp=asymmetry_pp,
+                    difference=exact.acceptance - matched.acceptance,
+                    standard_error=standard_error,
+                )
+            )
+    return results
+
+
+def configure_plot_style() -> None:
+    """Use a compact documentation-friendly plotting style."""
+    import matplotlib.pyplot as plt
+
+    plt.rcParams.update(
+        {
+            "font.family": "sans-serif",
+            "font.size": 10,
+            "axes.labelsize": 11,
+            "axes.titlesize": 12,
+            "legend.fontsize": 9,
+        }
+    )
+
+
+def plot_figure9(results: Sequence[ExperimentResult]) -> None:
+    """Plot the Clifft reconstruction of the paper's Figure 9 sweep."""
+    import matplotlib.pyplot as plt
+
+    colors = {
+        "unencoded": "#222222",
+        "two_row": "#D97706",
+        "two_row_ldu": "#2563A5",
+        "three_row": "#16805D",
+    }
+    labels = {
+        "unencoded": "unencoded",
+        "two_row": "two-row",
+        "two_row_ldu": "two-row + LDU",
+        "three_row": "three-row",
+    }
+    figure, axis = plt.subplots(figsize=(7.5, 4.4), constrained_layout=True)
+    for circuit in CIRCUIT_FILES:
+        matched = sorted(
+            (
+                result
+                for result in results
+                if result.circuit == circuit and result.model == "matched"
+            ),
+            key=lambda result: result.alpha,
+        )
+        axis.plot(
+            [point.alpha for point in matched],
+            [point.tvd for point in matched],
+            marker="o",
+            linewidth=2,
+            markersize=4.5,
+            color=colors[circuit],
+            label=labels[circuit],
+        )
+        exact = sorted(
+            (result for result in results if result.circuit == circuit and result.model == "exact"),
+            key=lambda result: result.alpha,
+        )
+        axis.plot(
+            [point.alpha for point in exact],
+            [point.tvd for point in exact],
+            linestyle="none",
+            marker="x",
+            markeredgewidth=1.4,
+            markersize=5.5,
+            color=colors[circuit],
+            label="exact" if circuit == "unencoded" else None,
+        )
+    axis.axvline(1, color="#777777", linestyle=":", linewidth=1)
+    axis.set(xlabel="selected noise multiplier alpha", ylabel="TVD after postselection")
+    axis.set_xlim(0.4, 5.1)
+    axis.set_ylim(bottom=0)
+    axis.grid(axis="y", color="#D7D7D7", linewidth=0.7)
+    axis.spines[["top", "right"]].set_visible(False)
+    axis.legend(frameon=False, ncol=3)
+    axis.set_title("Clifft reconstruction of the Figure 9 noise sweep")
+    IMAGE_DIR.mkdir(parents=True, exist_ok=True)
+    figure.savefig(FIGURE9_IMAGE, dpi=180)
+    plt.close(figure)
+
+
+def plot_asymmetry(results: Sequence[AcceptanceDifference]) -> None:
+    """Plot exact-minus-matched acceptance under controlled CZ asymmetry."""
+    import matplotlib.pyplot as plt
+
+    colors = {0.5: "#D97706", 2.0: "#2563A5", 4.0: "#B42318"}
+    figure, axis = plt.subplots(figsize=(7.5, 4.4), constrained_layout=True)
+    axis.axhline(0, color="#666666", linewidth=1, linestyle="--")
+    for asymmetry_pp in ASYMMETRIES_PP:
+        points = sorted(
+            (point for point in results if point.asymmetry_pp == asymmetry_pp),
+            key=lambda point: point.alpha,
+        )
+        xs = [point.alpha for point in points]
+        ys = [100 * point.difference for point in points]
+        errors = [196 * point.standard_error for point in points]
+        axis.plot(
+            xs,
+            ys,
+            marker="o",
+            linewidth=2,
+            color=colors[asymmetry_pp],
+            label=f"{asymmetry_pp:g} pp",
+        )
+        axis.fill_between(
+            xs,
+            [value - error for value, error in zip(ys, errors, strict=True)],
+            [value + error for value, error in zip(ys, errors, strict=True)],
+            color=colors[asymmetry_pp],
+            alpha=0.12,
+            linewidth=0,
+        )
+    axis.set(
+        xlabel="selected noise multiplier alpha",
+        ylabel="accepted-shot change, exact - rebalanced (pp)",
+    )
+    axis.set_xlim(0.4, 5.1)
+    axis.grid(axis="y", color="#D7D7D7", linewidth=0.7)
+    axis.spines[["top", "right"]].set_visible(False)
+    axis.legend(title="CZ |p_g - p_e|", frameon=False, ncol=3)
+    axis.set_title("Rate asymmetry exposes rebalancing bias")
+    IMAGE_DIR.mkdir(parents=True, exist_ok=True)
+    figure.savefig(ASYMMETRY_IMAGE, dpi=180)
+    plt.close(figure)
+
+
+def generate_figures(*, figure9_shots: int, asymmetry_shots: int, seed: int) -> None:
+    """Run both tutorial sweeps and write their figures."""
+    configure_plot_style()
+    plot_figure9(figure9_sweep(shots=figure9_shots, seed=seed))
+    plot_asymmetry(asymmetry_sweep(shots=asymmetry_shots, seed=seed))
+    print(f"wrote {FIGURE9_IMAGE}")
+    print(f"wrote {ASYMMETRY_IMAGE}")
 
 
 def parse_args() -> argparse.Namespace:
@@ -293,16 +579,43 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--models",
         nargs="+",
-        choices=("matched", "exact"),
+        choices=MODEL_KINDS,
         default=("matched",),
     )
     parser.add_argument("--shots", type=int, default=5_000)
     parser.add_argument("--seed", type=int, default=20260904)
+    parser.add_argument(
+        "--figures",
+        action="store_true",
+        help="run the noise and asymmetry sweeps and write both tutorial figures",
+    )
+    parser.add_argument(
+        "--figure9-shots",
+        type=int,
+        default=2_000,
+        help="trajectories per model and point in the Figure 9 sweep",
+    )
+    parser.add_argument(
+        "--asymmetry-shots",
+        type=int,
+        default=1_000,
+        help="trajectories per model and point in the CZ-asymmetry sweep",
+    )
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
+    if args.shots <= 0 or args.figure9_shots <= 0 or args.asymmetry_shots <= 0:
+        raise ValueError("shot counts must be positive")
+    if args.figures:
+        generate_figures(
+            figure9_shots=args.figure9_shots,
+            asymmetry_shots=args.asymmetry_shots,
+            seed=args.seed,
+        )
+        return 0
+
     print("circuit       model      acceptance   heralded       TVD")
     for circuit_index, circuit in enumerate(args.circuits):
         for model in args.models:

@@ -119,7 +119,7 @@ nav:
     - Tutorials:
       - Surface Code: guide/surface-code.md
       - Delayed Loss: guide/delayed-loss.md
-      - Neutral-Atom Leakage and Loss: guide/neutral-atom-leakage.md
+      - Neutral-Atom Noise Sweep: guide/neutral-atom-leakage.md
       - Magic State Cultivation with Importance Sampling: guide/importance-sampling-tutorial.md
   - Theory:
     - Overview: theory/overview.md

@@ -22,7 +22,7 @@ restored. One program compiled before sampling cannot describe every shot, so
 This page is the API walkthrough. The model and its simulation semantics
 are described in [Noncomputational States](../theory/noncomputational.md).
 The [Delayed Loss tutorial](delayed-loss.md) introduces the API with a
-surface-code memory experiment. The advanced [Neutral-Atom Leakage and Loss
+surface-code memory experiment. The advanced [Neutral-Atom Noise Sweep
 tutorial](neutral-atom-leakage.md) applies the complete five-level model to a
 published logical experiment.
 
