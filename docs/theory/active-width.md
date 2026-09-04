@@ -218,14 +218,33 @@ work. By default, the pass also moves width-neutral rotations rightward past
 independent non-expanding operations to improve executable-plan rotation
 fusion.
 
+The search is bounded by `search_budget`, measured in operations executed
+through closure sweeps and candidate replays as a multiple of the HIR's
+operation count, with two graduated responses. Once the running count exceeds
+half the budget, the remaining lower-ranked schedules in the current
+generation are dropped unscored and the next cut keeps a single survivor.
+Once it exceeds the full budget, each step also scores only the lowest-index
+ready expanding operation. The worst case therefore costs the budget plus a
+few traces regardless of circuit shape, including circuits with many
+simultaneously ready rotations. Counting operations rather than time keeps
+the schedule, and therefore the plan, reproducible across machines. The
+default of 16 comes from measuring peak and dense work across the corpus
+below and larger circuits: narrowing the beam at any point from four traces
+on reached the unbounded search's peak everywhere, eight traces was the
+smallest point that also kept every dense-work gain, and a full budget of
+twice that leaves the greedy remainder enough room to keep scoring
+candidates on the circuits that cross it. The pass reports the count as
+`swept_ops`.
+
 The dense-work estimate sums $2^w$ over actions that touch the active array,
 using the width $w$ at which each action runs. The pass replaces the input HIR
 only if the candidate has a lower peak, or the same peak and lower estimated
 dense work. Otherwise it leaves the HIR untouched. This does not guarantee an
 optimal schedule or improved sampling throughput.
 
-The pass is opt-in because scheduling can be expensive on large, highly
-branching HIRs. Run it last in the HIR pipeline, after `PeepholeFusionPass` and
+The pass is opt-in. Its search cost is bounded by `search_budget`, but the
+dependence build and the traces it needs still add a few passes over the
+HIR. Run it last in the HIR pipeline, after `PeepholeFusionPass` and
 `StatevectorSqueezePass`. A noise-transparent reorder can prevent later
 peephole fusion. See [Optimization Passes](../reference/passes.md) for pipeline
 configuration and the measurements below for compile-time costs.
@@ -235,18 +254,19 @@ configuration and the measurements below for compile-time costs.
 The following measurements compare the production pipeline
 (`PeepholeFusionPass` then `StatevectorSqueezePass`) with production plus
 `ActiveWidthSchedulePass` at its default options. They use a Release build at
-commit `d169751b` and the `clifft-paper` QEC corpus at commit `db7dc9f`, on one
-host. Throughput is the best of three timed batches after warmup. "Plan work"
-is the planner's $\sum 2^k$ over dense actions, which `estimate_dense_work`
-approximates before planning.
+commit `8f69b3c3` and the `clifft-paper` QEC corpus at commit `db7dc9f`, on one
+host with one thread. "Dense work" is `estimate_dense_work` over the HIR each
+pipeline produces, the quantity the pass minimizes second. Throughput is the
+best of three timed batches of 4096 shots after one warmup batch. Pass wall
+time is the best of three runs of the pass alone on the prepared HIR.
 
-| Circuit | Production: peak / plan work / shots per s | Production + schedule pass: peak / plan work / shots per s | Pass wall time |
+| Circuit | Production: peak / dense work / shots per s | Production + schedule pass: peak / dense work / shots per s | Pass wall time |
 |---|---|---|---|
-| coherent d3 r3 | 5 / 1247 / 1.08M | 4 / 381 / 2.03M | 17 ms |
-| coherent d5 r1 | 12 / 35875 / 82k | 0 / 0 / 3.8M | 2 ms |
-| coherent d5 r5 | 13 / 1.99e6 / 2099 | 13 / 7.8e5 / 4938 | 600 ms |
-| distillation | 5 / 155 / 1.12M | 3 / 71 / 1.18M | 6 ms |
-| cultivation d5 | 10 / 56618 / 58k | 10 / 54710 / 60k | 90 ms |
+| coherent d3 r3 | 5 / 1390 / 0.97M | 4 / 420 / 1.84M | 3 ms |
+| coherent d5 r1 | 12 / 39970 / 81k | 0 / 0 / 3.4M | 1 ms |
+| coherent d5 r5 | 13 / 2.19e6 / 2103 | 13 / 8.6e5 / 5204 | 36 ms |
+| distillation | 5 / 186 / 1.01M | 3 / 86 / 1.15M | 1 ms |
+| cultivation d5 | 10 / 58686 / 58.6k | 10 / 56778 / 63.8k | 7 ms |
 
 Reducing dense work improves throughput when it dominates shot cost, as on
 coherent d3 r3 and coherent d5 r5. Distillation gains little despite a lower
@@ -254,6 +274,19 @@ peak: its frame, record, and detector work dominate. On coherent d5 r1, the
 pass moves every rotation behind a commuting measurement, making the
 coherent noise invisible in the output distribution and reducing active
 width to zero.
+
+Pass wall time is dominated by the beam search itself, not by building the
+dependence relation, which keeps only edges that no chain of other edges
+already implies. On circuits an order of magnitude larger than this corpus,
+a 70k-operation distillation circuit on 539 qubits, 80k-operation random
+Clifford+T circuits on 136 to 186 qubits, and a 100k-operation noisy CCZ
+circuit on 834 qubits, the pass takes 1 s to 2.3 s single-threaded under the
+default budget, of which the dependence build is 0.35 s to 0.7 s. On the
+distillation circuits every step has exactly one ready expanding rotation, so
+the trace class contains a single schedule up to closure and the pass reports
+the incumbent unchanged; on the CCZ circuit it lowers the peak from 8 to 5,
+the certified minimum of that trace class, and the budget cuts the search from
+35 traces to 10.
 
 Exact search certified cultivation d3 at peak 4 (a smaller fixture, not shown)
 and cultivation d5 at peak 10 under both the plain and noise-transparent
