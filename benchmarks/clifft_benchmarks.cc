@@ -202,8 +202,13 @@ void schedule_pass_cultivation_d5(benchmark::State& state) {
 // ActiveWidthSchedulePass::run() early-exits on it before ever building
 // detail::ScheduleDependence -- none of the schedule_pass_* benchmarks
 // above ever pay for this build on this fixture. This benchmark
-// deliberately bypasses that early exit to measure build()'s O(N^2)
-// can_swap scan in isolation, on the corpus's largest movable-op count.
+// deliberately bypasses that early exit to measure build()'s
+// ancestor-bitset scan in isolation, on the corpus's largest movable-op
+// count: for each op it walks the zero bits of that op's ancestor bitset
+// (the earlier ops not yet implied by a recorded edge) and calls allowed()
+// only on those, so the cost this benchmark times is that word scan plus
+// one allowed() call per pair not already implied, not a full pairwise
+// scan.
 void schedule_dependence_build_surface_d7(benchmark::State& state) {
     const HirModule prepared = prepare_for_schedule_pass("surface_d7_r7_p001.stim");
     size_t movable_count = 0;

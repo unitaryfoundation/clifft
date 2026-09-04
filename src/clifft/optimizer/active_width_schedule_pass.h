@@ -35,8 +35,7 @@
 // among -- an expanding INSTRUMENT is always the only ready op when it
 // fires (detail::ScheduleDependence treats it as a positional barrier), so
 // it offers no scheduling freedom either -- and run() reports the incumbent
-// unchanged without paying for detail::ScheduleDependence::build's O(N^2)
-// scan.
+// unchanged without paying to build a detail::ScheduleDependence at all.
 
 #include "clifft/frontend/hir.h"
 #include "clifft/optimizer/hir_pass.h"

@@ -681,6 +681,13 @@ std::vector<uint32_t> run_beam_search(const HirModule& hir,
 // Neutral-rotation sinking: a rightward bubble per RotationNeutral op.
 // ---------------------------------------------------------------------------
 
+// Every call site below passes ops that are currently adjacent in `order`,
+// which is exactly the case the adjacency lemma in schedule_dependence.h
+// covers: a missing edge between two ops that are actually next to each
+// other in a schedule cannot be standing in for an implied constraint (that
+// would require some other op strictly between them, contradicting
+// adjacency), so checking direct edges here is as good as checking the
+// full closure.
 bool independent(const detail::ScheduleDependence& dependence, uint32_t a, uint32_t b) {
     return !std::ranges::binary_search(dependence.successors(a), b) &&
            !std::ranges::binary_search(dependence.predecessors(a), b);
@@ -778,8 +785,8 @@ void ActiveWidthSchedulePass::run(HirModule& hir) {
     incumbent_dense_work_ = estimate_dense_work(incumbent_trace);
 
     // See the header comment's "Early exit": with nothing for a scheduler to
-    // choose among, report the incumbent unchanged rather than pay for
-    // ScheduleDependence::build's O(N^2) scan.
+    // choose among, report the incumbent unchanged rather than pay to build
+    // a ScheduleDependence at all.
     if (incumbent_peak_ == 0 || !has_rotation_op(hir)) {
         result_peak_ = incumbent_peak_;
         result_dense_work_ = incumbent_dense_work_;

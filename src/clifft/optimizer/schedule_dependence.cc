@@ -3,8 +3,10 @@
 #include "clifft/optimizer/commutation.h"
 
 #include <algorithm>
+#include <bit>
 #include <cassert>
 #include <optional>
+#include <span>
 #include <stdexcept>
 #include <utility>
 
@@ -16,23 +18,25 @@ bool is_movable_op(OpType type) {
     return type == OpType::T_GATE || type == OpType::PHASE_ROTATION || type == OpType::MEASURE;
 }
 
-// True when no edge is needed between the ops at i < j: either they pass
-// the ordinary commutation test, or noise transparency specifically waives
-// it for a NOISE-versus-movable pair. See the file comment for why the
-// second clause is sound.
+// True when no edge is needed between the ops at i < j: either noise
+// transparency specifically waives it for a NOISE-versus-movable pair, or
+// the pair passes the ordinary commutation test. See the file comment for
+// why the waiver is sound. The waiver is checked first because it is a
+// plain op-type comparison, while can_swap on a NOISE op walks every
+// channel at that site regardless of outcome -- work worth skipping
+// whenever the waiver alone already settles the answer.
 bool allowed(const HirModule& hir, const HeisenbergOp& left, const HeisenbergOp& right,
              bool noise_transparent) {
-    if (can_swap(left, right, hir)) {
-        return true;
+    if (noise_transparent) {
+        const bool left_noise = left.op_type() == OpType::NOISE;
+        const bool right_noise = right.op_type() == OpType::NOISE;
+        const bool left_movable = is_movable_op(left.op_type());
+        const bool right_movable = is_movable_op(right.op_type());
+        if ((left_noise && right_movable) || (right_noise && left_movable)) {
+            return true;
+        }
     }
-    if (!noise_transparent) {
-        return false;
-    }
-    const bool left_noise = left.op_type() == OpType::NOISE;
-    const bool right_noise = right.op_type() == OpType::NOISE;
-    const bool left_movable = is_movable_op(left.op_type());
-    const bool right_movable = is_movable_op(right.op_type());
-    return (left_noise && right_movable) || (right_noise && left_movable);
+    return can_swap(left, right, hir);
 }
 
 // Groups (key, value) pairs into CSR form: offsets[k]..offsets[k + 1]
@@ -69,37 +73,95 @@ ScheduleDependence ScheduleDependence::build(const HirModule& hir,
         dep.movable_[i] = is_movable_op(hir.ops[i].op_type());
     }
 
-    // (from, to) edges, gathered in two structurally different passes below
-    // and only grouped into per-op adjacency (by group_into_csr) once both
-    // are collected, since neither pass alone produces edges in an order
-    // that is already sorted the way the other direction needs.
+    // (from, to) edges, gathered here and only grouped into per-op
+    // adjacency (by group_into_csr) once collection finishes, since the
+    // scan below produces them grouped by "to" (ascending "from" within
+    // each group) while successors needs the opposite grouping too.
     std::vector<std::pair<uint32_t, uint32_t>> edges;
 
-    // Chain consecutive fixed ops so every fixed op keeps its original
-    // relative order, regardless of what can_swap would say about any one
-    // pair of them.
-    std::optional<uint32_t> previous_fixed;
-    for (uint32_t j = 0; j < n; ++j) {
-        if (dep.movable_[j]) {
-            continue;
-        }
-        if (previous_fixed.has_value()) {
-            edges.emplace_back(*previous_fixed, j);
-        }
-        previous_fixed = j;
-    }
+    if (n > 0) {
+        // One ancestor bitset per op, `words` 64-bit words wide (n bits,
+        // rounded up), kept in a ring buffer of `ring_rows` rows: op k's
+        // row lives at slot k % ring_rows, and stays valid to read only
+        // while j - k < ring_rows for the op j currently being processed.
+        // See ScheduleDependenceOptions::ancestor_cache_bytes for how
+        // ring_rows is chosen and why a small ring only costs extra work,
+        // never a wrong answer.
+        const size_t words = (n + 63) / 64;
+        const size_t row_bytes = words * sizeof(uint64_t);
+        const size_t rows_in_budget = options.ancestor_cache_bytes / row_bytes;
+        const size_t ring_rows = std::max<size_t>(1, std::min(n, rows_in_budget));
 
-    // O(N^2) can_swap calls in the worst case: acceptable for this
-    // prototype (see the file comment).
-    for (uint32_t i = 0; i < n; ++i) {
-        for (uint32_t j = i + 1; j < n; ++j) {
-            if (!dep.movable_[i] && !dep.movable_[j]) {
-                continue;  // both fixed: handled by the chain above
+        std::vector<uint64_t> ancestor_rows(ring_rows * words, 0);
+        auto row = [&](size_t k) {
+            return std::span<uint64_t>(ancestor_rows).subspan((k % ring_rows) * words, words);
+        };
+
+        std::optional<uint32_t> previous_fixed;
+
+        for (size_t j = 0; j < n; ++j) {
+            const std::span<uint64_t> rj = row(j);
+            std::ranges::fill(rj, uint64_t{0});
+
+            // Records edge i -> j, and absorbs i's own known ancestors into
+            // rj when i's row has not been evicted from the ring: from
+            // then on, every ancestor of i also reads as an ancestor of j,
+            // so the scan below never re-tests it.
+            auto link = [&](uint32_t i) {
+                if (j - i < ring_rows) {
+                    const std::span<const uint64_t> ri = row(i);
+                    for (size_t w = 0; w < words; ++w) {
+                        rj[w] |= ri[w];
+                    }
+                }
+                rj[i / 64] |= (uint64_t{1} << (i % 64));
+                edges.emplace_back(i, static_cast<uint32_t>(j));
+            };
+
+            // Chains consecutive fixed ops so every fixed op keeps its
+            // original relative order, regardless of what allowed() would
+            // say about any one pair of them. This edge is always direct,
+            // never merely implied, which is what lets callers rely on
+            // finding it via a single predecessors()/successors() lookup.
+            if (!dep.movable_[j]) {
+                if (previous_fixed.has_value()) {
+                    link(*previous_fixed);
+                }
+                previous_fixed = static_cast<uint32_t>(j);
             }
-            if (allowed(hir, hir.ops[i], hir.ops[j], dep.noise_transparent_)) {
+
+            if (j == 0) {
                 continue;
             }
-            edges.emplace_back(i, j);
+
+            // Tests the ops below j not yet known to be its ancestors,
+            // nearest first: linking a close predecessor tends to absorb a
+            // large ancestor set in one step, ruling out many farther-away
+            // candidates before they are ever tested.
+            const size_t top_word = (j - 1) / 64;
+            for (size_t w = top_word + 1; w-- > 0;) {
+                uint64_t mask = ~rj[w];
+                if (w == top_word) {
+                    const size_t valid_bits = j - w * 64;
+                    if (valid_bits < 64) {
+                        mask &= (uint64_t{1} << valid_bits) - 1;
+                    }
+                }
+                while (mask != 0) {
+                    const int bit = 63 - std::countl_zero(mask);
+                    mask &= ~(uint64_t{1} << bit);
+                    const auto i = static_cast<uint32_t>(w * 64 + static_cast<size_t>(bit));
+                    if (!dep.movable_[i] && !dep.movable_[j]) {
+                        continue;  // both fixed: already ordered by the chain above
+                    }
+                    if (!allowed(hir, hir.ops[i], hir.ops[j], dep.noise_transparent_)) {
+                        link(i);
+                        // Whatever link() just absorbed into rj needs no
+                        // further testing in this word.
+                        mask &= ~rj[w];
+                    }
+                }
+            }
         }
     }
 

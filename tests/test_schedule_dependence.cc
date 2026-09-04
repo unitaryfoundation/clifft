@@ -49,6 +49,42 @@ bool is_movable_ref(OpType type) {
     return type == OpType::T_GATE || type == OpType::PHASE_ROTATION || type == OpType::MEASURE;
 }
 
+// Independent copy of schedule_dependence.cc's allowed(): true when i and j
+// need no edge between them, either because they pass the ordinary
+// commutation test or because noise transparency waives it for a
+// NOISE-versus-movable pair.
+bool allowed_ref(const HirModule& hir, const HeisenbergOp& left, const HeisenbergOp& right,
+                 bool noise_transparent) {
+    if (can_swap(left, right, hir)) {
+        return true;
+    }
+    if (!noise_transparent) {
+        return false;
+    }
+    const bool left_noise = left.op_type() == OpType::NOISE;
+    const bool right_noise = right.op_type() == OpType::NOISE;
+    const bool left_movable = is_movable_ref(left.op_type());
+    const bool right_movable = is_movable_ref(right.op_type());
+    return (left_noise && right_movable) || (right_noise && left_movable);
+}
+
+// prev_fixed_of[k] holds the index of the fixed op immediately before k
+// among fixed ops, if any -- the same bookkeeping build()'s chain pass
+// does, recomputed here so the oracle below does not lean on the class
+// under test.
+std::vector<std::optional<uint32_t>> compute_prev_fixed_of(const HirModule& hir) {
+    std::vector<std::optional<uint32_t>> prev_fixed_of(hir.ops.size());
+    std::optional<uint32_t> previous_fixed;
+    for (uint32_t k = 0; k < hir.ops.size(); ++k) {
+        if (is_movable_ref(hir.ops[k].op_type())) {
+            continue;
+        }
+        prev_fixed_of[k] = previous_fixed;
+        previous_fixed = k;
+    }
+    return prev_fixed_of;
+}
+
 // Deterministic generator over a small gate set: T, T_DAG, R_Z, M, MX, MR,
 // R, X_ERROR, DEPOLARIZE1, and DETECTORs. Wraps the shared generator with
 // this file's qubit-count convention (4 to 10, per the relation's movable
@@ -120,13 +156,69 @@ DormantSubspace final_subspace(const HirModule& hir) {
     return subspace;
 }
 
-// For every pair with at least one movable op, the relation must place an
-// edge exactly when allowed(i, j) is false: allowed is can_swap, extended
-// by the noise-transparency carve-out for a NOISE-versus-movable pair.
-// Fixed-fixed pairs are exempted here (checked separately below) since the
-// relation only chains consecutive ones, not every pair.
-void check_edges_match_can_swap(const HirModule& hir, bool noise_transparent) {
-    ScheduleDependenceOptions options;
+// Ancestor closure of the full, un-reduced pairwise relation: ref[j][i] is
+// true iff i must precede j. Built by chaining each direct constraint's own
+// already-known ancestors, where a pair (i, j) counts as a direct
+// constraint exactly the way build() would have placed a direct edge
+// before the ancestor-bitset reduction: consecutive fixed ops chain
+// unconditionally, and any other pair with at least one movable endpoint is
+// constrained iff allowed_ref refuses it.
+std::vector<std::vector<bool>> reference_ancestor_closure(const HirModule& hir,
+                                                          bool noise_transparent) {
+    const size_t n = hir.ops.size();
+    const std::vector<std::optional<uint32_t>> prev_fixed_of = compute_prev_fixed_of(hir);
+
+    std::vector<std::vector<bool>> ref(n, std::vector<bool>(n, false));
+    for (size_t j = 0; j < n; ++j) {
+        const bool j_movable = is_movable_ref(hir.ops[j].op_type());
+        for (size_t i = 0; i < j; ++i) {
+            const bool i_movable = is_movable_ref(hir.ops[i].op_type());
+            const bool constrained =
+                (!i_movable && !j_movable)
+                    ? (prev_fixed_of[j].has_value() && *prev_fixed_of[j] == i)
+                    : !allowed_ref(hir, hir.ops[i], hir.ops[j], noise_transparent);
+            if (!constrained) {
+                continue;
+            }
+            ref[j][i] = true;
+            for (size_t k = 0; k < n; ++k) {
+                if (ref[i][k]) {
+                    ref[j][k] = true;
+                }
+            }
+        }
+    }
+    return ref;
+}
+
+// Ancestor closure of the built DAG, via the same absorb-predecessors
+// recurrence as reference_ancestor_closure, reading direct edges from
+// `dep.predecessors` instead of recomputing them from allowed_ref.
+std::vector<std::vector<bool>> built_ancestor_closure(const ScheduleDependence& dep) {
+    const size_t n = dep.num_ops();
+    std::vector<std::vector<bool>> built(n, std::vector<bool>(n, false));
+    for (size_t j = 0; j < n; ++j) {
+        for (uint32_t i : dep.predecessors(j)) {
+            built[j][i] = true;
+            for (size_t k = 0; k < n; ++k) {
+                if (built[i][k]) {
+                    built[j][k] = true;
+                }
+            }
+        }
+    }
+    return built;
+}
+
+// Requires the built DAG's ancestor closure to match the full pairwise
+// relation's exactly (same set of linear extensions), that every direct
+// edge the build recorded is a genuine constraint (the reduction never
+// invents one), and that every consecutive pair of fixed ops is directly
+// chained. `options.noise_transparent` is overwritten from the argument;
+// other fields (notably ancestor_cache_bytes) pass through, so callers can
+// exercise ring eviction while still asserting the same closure.
+void check_closure_matches_can_swap(const HirModule& hir, bool noise_transparent,
+                                    ScheduleDependenceOptions options = {}) {
     options.noise_transparent = noise_transparent;
     const ScheduleDependence dep = ScheduleDependence::build(hir, options);
 
@@ -136,39 +228,35 @@ void check_edges_match_can_swap(const HirModule& hir, bool noise_transparent) {
         REQUIRE(dep.is_movable(i) == is_movable_ref(hir.ops[i].op_type()));
     }
 
-    for (size_t i = 0; i < hir.ops.size(); ++i) {
-        const bool i_movable = is_movable_ref(hir.ops[i].op_type());
-        for (size_t j = i + 1; j < hir.ops.size(); ++j) {
-            const bool j_movable = is_movable_ref(hir.ops[j].op_type());
-            if (!i_movable && !j_movable) {
-                continue;
-            }
+    const std::vector<std::vector<bool>> reference =
+        reference_ancestor_closure(hir, noise_transparent);
+    const std::vector<std::vector<bool>> built = built_ancestor_closure(dep);
+    REQUIRE(built == reference);
 
-            const bool has_edge =
-                std::ranges::binary_search(dep.predecessors(j), static_cast<uint32_t>(i));
-            const bool noise_pair =
-                noise_transparent && ((hir.ops[i].op_type() == OpType::NOISE && j_movable) ||
-                                      (hir.ops[j].op_type() == OpType::NOISE && i_movable));
-            CAPTURE(i, j, noise_pair);
-            if (noise_pair) {
-                REQUIRE_FALSE(has_edge);
-                continue;
+    const std::vector<std::optional<uint32_t>> prev_fixed_of = compute_prev_fixed_of(hir);
+
+    // Every direct edge the build recorded must be a genuine constraint:
+    // either a consecutive-fixed chain link, or a pair allowed_ref refuses.
+    for (size_t j = 0; j < hir.ops.size(); ++j) {
+        const bool j_movable = is_movable_ref(hir.ops[j].op_type());
+        for (uint32_t i : dep.predecessors(j)) {
+            const bool i_movable = is_movable_ref(hir.ops[i].op_type());
+            CAPTURE(i, j);
+            if (!i_movable && !j_movable) {
+                REQUIRE(prev_fixed_of[j].has_value());
+                REQUIRE(*prev_fixed_of[j] == i);
+            } else {
+                REQUIRE_FALSE(allowed_ref(hir, hir.ops[i], hir.ops[j], noise_transparent));
             }
-            REQUIRE(has_edge == !can_swap(hir.ops[i], hir.ops[j], hir));
         }
     }
 
-    // Every consecutive pair of fixed ops is chained.
-    std::optional<uint32_t> previous_fixed;
+    // Every consecutive pair of fixed ops is directly chained.
     for (uint32_t k = 0; k < hir.ops.size(); ++k) {
-        if (is_movable_ref(hir.ops[k].op_type())) {
-            continue;
+        if (prev_fixed_of[k].has_value()) {
+            CAPTURE(*prev_fixed_of[k], k);
+            REQUIRE(std::ranges::binary_search(dep.predecessors(k), *prev_fixed_of[k]));
         }
-        if (previous_fixed.has_value()) {
-            CAPTURE(*previous_fixed, k);
-            REQUIRE(std::ranges::binary_search(dep.predecessors(k), *previous_fixed));
-        }
-        previous_fixed = k;
     }
 }
 
@@ -219,7 +307,7 @@ void check_confluence(const HirModule& hir, bool noise_transparent,
 // Relation matches can_swap
 // ---------------------------------------------------------------------------
 
-TEST_CASE("Schedule dependence edges match can_swap on random noisy circuits",
+TEST_CASE("Schedule dependence closure matches can_swap on random noisy circuits",
           "[schedule_dependence]") {
     constexpr uint32_t kSeed = 0x5C4ED;
     constexpr int kTrials = 200;
@@ -230,9 +318,86 @@ TEST_CASE("Schedule dependence edges match can_swap on random noisy circuits",
         CAPTURE(trial, source);
 
         const HirModule hir = clifft::trace(clifft::parse(source));
-        check_edges_match_can_swap(hir, /*noise_transparent=*/false);
-        check_edges_match_can_swap(hir, /*noise_transparent=*/true);
+        check_closure_matches_can_swap(hir, /*noise_transparent=*/false);
+        check_closure_matches_can_swap(hir, /*noise_transparent=*/true);
     }
+}
+
+TEST_CASE("Schedule dependence closure matches can_swap with an evicting ancestor cache",
+          "[schedule_dependence]") {
+    constexpr uint32_t kSeed = 0x5C4ED2;
+    constexpr int kTrials = 60;
+
+    clifft::Xoshiro256PlusPlus rng(kSeed);
+    for (int trial = 0; trial < kTrials; ++trial) {
+        const std::string source = random_noisy_source(rng, trial);
+        const HirModule hir = clifft::trace(clifft::parse(source));
+        const size_t words = (hir.ops.size() + 63) / 64;
+
+        for (const bool noise_transparent : {false, true}) {
+            // One budget that forces a single-row ring (every predecessor's
+            // row is evicted before the next op needs it) and one that
+            // keeps a handful of rows, so both the worst case and a
+            // partial-eviction case get exercised.
+            for (const size_t rows : {size_t{1}, size_t{3}}) {
+                ScheduleDependenceOptions options;
+                options.ancestor_cache_bytes = rows * words * sizeof(uint64_t);
+                CAPTURE(trial, source, noise_transparent, rows);
+                check_closure_matches_can_swap(hir, noise_transparent, options);
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Chain reduction has teeth
+// ---------------------------------------------------------------------------
+
+TEST_CASE("An anticommuting measurement chain reduces to N minus one edges",
+          "[schedule_dependence]") {
+    constexpr int kMeasurements = 40;
+
+    std::string source;
+    for (int t = 0; t < kMeasurements; ++t) {
+        source += (t % 2 == 0) ? "MX 0\n" : "MZ 0\n";
+    }
+
+    const HirModule hir = clifft::trace(clifft::parse(source));
+    // Confirms the frontend emits exactly one MEASURE per line and nothing
+    // else, so the N - 1 edge count below is not an artifact of some other
+    // inserted op.
+    REQUIRE(hir.ops.size() == static_cast<size_t>(kMeasurements));
+    for (const HeisenbergOp& op : hir.ops) {
+        REQUIRE(op.op_type() == OpType::MEASURE);
+    }
+
+    const ScheduleDependence dep = ScheduleDependence::build(hir);
+
+    // Every X measurement anticommutes with every Z measurement on the same
+    // qubit regardless of distance, so the full pairwise relation has on
+    // the order of kMeasurements^2 / 4 constrained pairs -- but each one is
+    // implied by the chain of consecutive measurements, so the reduced DAG
+    // should keep only the chain's kMeasurements - 1 direct edges.
+    size_t total_successors = 0;
+    for (size_t op = 0; op < dep.num_ops(); ++op) {
+        total_successors += dep.successors(op).size();
+    }
+    REQUIRE(total_successors == static_cast<size_t>(kMeasurements - 1));
+
+    for (uint32_t t = 0; t + 1 < static_cast<uint32_t>(kMeasurements); ++t) {
+        CAPTURE(t);
+        REQUIRE(std::ranges::binary_search(dep.successors(t), t + 1));
+    }
+
+    std::vector<uint32_t> identity_order(dep.num_ops());
+    for (size_t i = 0; i < identity_order.size(); ++i) {
+        identity_order[i] = static_cast<uint32_t>(i);
+    }
+    REQUIRE(dep.is_linear_extension(identity_order));
+
+    std::vector<uint32_t> swapped_order = identity_order;
+    std::swap(swapped_order[0], swapped_order[1]);
+    REQUIRE_FALSE(dep.is_linear_extension(swapped_order));
 }
 
 // ---------------------------------------------------------------------------
