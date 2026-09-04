@@ -36,6 +36,10 @@ namespace {
 //               not depend on the order they executed in, so a scheduling
 //               state is fully determined by its executed-op set -- the
 //               identity the beam search's dedup step below relies on.
+//
+// A closure sweep also memoizes which ready ops it has already found
+// expanding (see SearchFrontier below), so a later step of the same sweep
+// does not re-run is_expanding on an op whose verdict cannot have changed.
 // ---------------------------------------------------------------------------
 
 // True when executing `op` against `subspace` would raise the active width:
@@ -88,21 +92,56 @@ struct UndoStep {
 // Readiness lives in a flat ready_flag_ array rather than a std::set: it
 // churns on every execute()/undo() call in the beam search's inner loop,
 // and a flag flip is both allocation-free and branch-cheap where a tree
-// insert or erase is neither. lowest_ready_hint_ is a safe lower bound on
-// the smallest ready op index (never above the true minimum, though it can
-// undershoot after a removal until the next scan walks past the gap),
-// letting find_ready_non_expanding's ascending scan skip the already-known-
-// empty prefix below it while still visiting ready ops in the same
-// lowest-index-first order a std::set would and stopping at the first
-// non-expanding one -- which is what makes each avoided is_expanding() call
-// (a GF(2) commutation scan against every generator of S) worth avoiding.
+// insert or erase is neither. lowest_ready_hint_ is a mutable cache of the
+// smallest ready op index, not just a lower bound: lowest_ready() tightens
+// it on demand by scanning upward from the cached value to the first set
+// ready_flag_ entry (or num_ops() if none), then stores that exact result
+// back before returning it. Recomputing the cache is legal from a const
+// method because it is a pure function of ready_flag_ alone -- the same
+// value a caller would get by scanning from zero every time -- so caching
+// it only changes how much of the array a later scan has to revisit, never
+// which op that scan returns. Without the tightening, mark_not_ready's
+// one-step bump is the only thing that ever advances the hint, so after a
+// long run of executed ops above it, find_ready_non_expanding's and
+// ready_ops_snapshot's ascending scans re-walk the same stale not-ready
+// prefix on every call: O(n) per closure step and O(n^2) over a full
+// replay of an n-op circuit.
+//
+// The frontier also memoizes, for the closure sweep in progress, which
+// ready ops is_expanding has already found expanding (expanding_stamp_
+// against expanding_generation_), so find_ready_non_expanding never re-runs
+// a commutation scan against every generator of S on an op whose verdict
+// cannot have changed. A rotation that anticommutes with some element of S
+// keeps anticommuting with it while S only grows or stays put, since the
+// new span contains the old one. Inside a sweep every executed op is
+// non-expanding, and of the effects such an op can have only
+// MeasureDormantRandom shrinks S; RotationPromote and InstrumentActivate
+// shrink it too, but they are expanding, so they run only just before a
+// sweep starts. run_closure therefore calls reset_expanding_memo() on entry
+// and after every MeasureDormantRandom step, and a memo hit stands in
+// exactly for the is_expanding call it replaces. The generation counter
+// advances once per sweep or shrink, far fewer than 2^32 times per pass.
 class SearchFrontier {
   public:
     explicit SearchFrontier(const detail::ScheduleDependence& dependence);
 
     [[nodiscard]] bool is_ready(uint32_t op) const { return ready_flag_[op] != 0; }
     [[nodiscard]] uint32_t num_ops() const { return static_cast<uint32_t>(ready_flag_.size()); }
-    [[nodiscard]] uint32_t lowest_ready_hint() const { return lowest_ready_hint_; }
+
+    // Tightens lowest_ready_hint_ to the exact smallest ready op index (or
+    // num_ops() if none is ready) and returns it. See the class comment
+    // above for why a const method may cache this and why the cache never
+    // changes which op a scan returns.
+    [[nodiscard]] uint32_t lowest_ready() const;
+
+    // Expanding memo for the closure sweep in progress; see the class
+    // comment for why a hit is exact and when it must be reset.
+    void reset_expanding_memo() { ++expanding_generation_; }
+    [[nodiscard]] bool known_expanding(uint32_t op) const {
+        return expanding_stamp_[op] == expanding_generation_;
+    }
+    void note_expanding(uint32_t op) { expanding_stamp_[op] = expanding_generation_; }
+
     [[nodiscard]] const std::vector<uint64_t>& executed_bits() const { return executed_; }
     [[nodiscard]] size_t executed_count() const { return executed_count_; }
 
@@ -126,8 +165,10 @@ class SearchFrontier {
     std::vector<uint64_t> executed_;
     std::vector<uint32_t> remaining_preds_;
     std::vector<uint8_t> ready_flag_;
-    uint32_t lowest_ready_hint_ = 0;
+    mutable uint32_t lowest_ready_hint_ = 0;
     size_t executed_count_ = 0;
+    std::vector<uint32_t> expanding_stamp_;
+    uint32_t expanding_generation_ = 1;
 };
 
 void bitset_set(std::vector<uint64_t>& bits, uint32_t index) {
@@ -142,7 +183,8 @@ SearchFrontier::SearchFrontier(const detail::ScheduleDependence& dependence)
     : dependence_(&dependence),
       executed_((dependence.num_ops() + 63) / 64, 0),
       remaining_preds_(dependence.num_ops()),
-      ready_flag_(dependence.num_ops(), 0) {
+      ready_flag_(dependence.num_ops(), 0),
+      expanding_stamp_(dependence.num_ops(), 0) {
     for (uint32_t op = 0; op < dependence.num_ops(); ++op) {
         remaining_preds_[op] = static_cast<uint32_t>(dependence.predecessors(op).size());
         if (remaining_preds_[op] == 0) {
@@ -165,6 +207,15 @@ void SearchFrontier::mark_not_ready(uint32_t op) {
     if (op == lowest_ready_hint_) {
         ++lowest_ready_hint_;
     }
+}
+
+uint32_t SearchFrontier::lowest_ready() const {
+    while (lowest_ready_hint_ < num_ops() && !is_ready(lowest_ready_hint_)) {
+        ++lowest_ready_hint_;
+    }
+    assert((lowest_ready_hint_ == num_ops() || is_ready(lowest_ready_hint_)) &&
+           "lowest_ready() must return num_ops() or an actually ready op");
+    return lowest_ready_hint_;
 }
 
 uint32_t SearchFrontier::execute(uint32_t op, std::vector<uint32_t>& newly_ready_log) {
@@ -216,21 +267,30 @@ void undo_all(SearchFrontier& frontier, const std::vector<UndoStep>& log,
 
 // Lowest-index ready op that is not expanding, or nullopt when every
 // currently ready op (if any) is expanding.
-std::optional<uint32_t> find_ready_non_expanding(const HirModule& hir,
-                                                 const SearchFrontier& frontier,
+std::optional<uint32_t> find_ready_non_expanding(const HirModule& hir, SearchFrontier& frontier,
                                                  const DormantSubspace& subspace) {
-    // Ascending scan starting from the hint (a safe lower bound, never above
-    // the true minimum ready index): a cheap is_ready() check skips every
-    // not-ready index, so is_expanding() only ever runs on an actual ready
-    // op, in the same lowest-index-first order a sorted container would
-    // visit them, stopping at the first non-expanding one.
-    for (uint32_t op = frontier.lowest_ready_hint(); op < frontier.num_ops(); ++op) {
+    // Ascending scan starting from the exact lowest ready index: a cheap
+    // is_ready() check skips every not-ready index above it, so
+    // is_expanding() only ever runs on an actual ready op, in the same
+    // lowest-index-first order a sorted container would visit them,
+    // stopping at the first non-expanding one. A memo hit stands in exactly
+    // for the is_expanding call it replaces (see SearchFrontier), so the op
+    // this returns, and the order ops are visited in, match the unmemoized
+    // scan.
+    for (uint32_t op = frontier.lowest_ready(); op < frontier.num_ops(); ++op) {
         if (!frontier.is_ready(op)) {
             continue;
         }
-        if (!is_expanding(hir, hir.ops[op], subspace)) {
-            return op;
+        if (frontier.known_expanding(op)) {
+            assert(is_expanding(hir, hir.ops[op], subspace) &&
+                   "memoized expanding verdict disagrees with a fresh is_expanding recheck");
+            continue;
         }
+        if (is_expanding(hir, hir.ops[op], subspace)) {
+            frontier.note_expanding(op);
+            continue;
+        }
+        return op;
     }
     return std::nullopt;
 }
@@ -245,10 +305,18 @@ std::optional<uint32_t> find_ready_non_expanding(const HirModule& hir,
 // per-op dense-work contributions (the scheduling pass) can accumulate them
 // without a second pass over the same ops; a caller that only needs width
 // leaves this null.
+//
+// The frontier's expanding memo is reset on entry, since the caller may
+// have just executed an expanding op (which shrinks the subspace) or be
+// sweeping a different subspace than the frontier's last sweep saw, and
+// again after every MeasureDormantRandom step, the only shrinking effect a
+// sweep can execute; see SearchFrontier for why every other effect keeps a
+// memoized verdict valid.
 void run_closure(const HirModule& hir, SearchFrontier& frontier, DormantSubspace& subspace,
                  std::vector<uint32_t>& order, std::vector<UndoStep>& log,
                  std::vector<uint32_t>& newly_ready_log,
                  std::vector<WidthTransition>* transitions = nullptr) {
+    frontier.reset_expanding_memo();
     while (const std::optional<uint32_t> op = find_ready_non_expanding(hir, frontier, subspace)) {
         const uint32_t newly_ready_count = frontier.execute(*op, newly_ready_log);
         log.push_back(UndoStep{*op, newly_ready_count});
@@ -256,6 +324,9 @@ void run_closure(const HirModule& hir, SearchFrontier& frontier, DormantSubspace
         const WidthTransition transition = classify_and_apply(hir, hir.ops[*op], subspace);
         assert(!is_expanding_effect(transition.effect) &&
                "find_ready_non_expanding chose an op classify_and_apply treats as expanding");
+        if (transition.effect == WidthEffect::MeasureDormantRandom) {
+            frontier.reset_expanding_memo();
+        }
         if (transitions != nullptr) {
             transitions->push_back(transition);
         }
@@ -308,7 +379,7 @@ BeamState make_initial_beam_state(const HirModule& hir,
 // below mutates it: score_candidates' loop executes and undoes each
 // candidate against `parent.frontier` in turn, so iterating a live view of
 // its ready ops while that same loop body edits them is unsafe. The scan is
-// ascending (lowest_ready_hint() up to num_ops()), so the candidate list
+// ascending (lowest_ready() up to num_ops()), so the candidate list
 // score_candidates below produces is ordered the same way regardless of the
 // history of execute()/undo() calls that got `frontier` to its current
 // state -- which matters because the beam ranking sort's key does not fully
@@ -319,7 +390,7 @@ BeamState make_initial_beam_state(const HirModule& hir,
 // scoring and closing each candidate.
 std::vector<uint32_t> ready_ops_snapshot(const SearchFrontier& frontier) {
     std::vector<uint32_t> ready;
-    for (uint32_t op = frontier.lowest_ready_hint(); op < frontier.num_ops(); ++op) {
+    for (uint32_t op = frontier.lowest_ready(); op < frontier.num_ops(); ++op) {
         if (frontier.is_ready(op)) {
             ready.push_back(op);
         }
