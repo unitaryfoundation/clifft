@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "source": {
+    "paper": "Demonstration of a Logical Architecture Uniting Motion and In-Place Entanglement",
+    "paper_url": "https://arxiv.org/abs/2509.13247",
+    "artifact_url": "https://zenodo.org/records/17137995",
+    "archive": "shor_cdcx_mhc.zip",
+    "archive_md5": "9441a5407c19ba7366e041a2241b8b4c",
+    "source_code_license": "Apache-2.0",
+    "artifact_metadata_license": "CC-BY-4.0"
+  },
+  "translation": {
+    "noise_multiplier": 1.0,
+    "motion": "resolved to atom-wire relabeling before export",
+    "circuits": {
+      "unencoded": {
+        "file": "unencoded_alpha1.stim",
+        "sha256": "93d1d20a8022094b300cf26e3aeaa6cbce0253e39765e699be4cb75240dd6e35"
+      },
+      "two_row": {
+        "file": "two_row_alpha1.stim",
+        "sha256": "f910190597adcc5f560684794d93b2a493c6efeaa33249b3d05f296062cf1b7d"
+      },
+      "two_row_ldu": {
+        "file": "two_row_ldu_alpha1.stim",
+        "sha256": "86a5193adead47e52840abf4a29e82b23c0b746008fe7884f382a1530dc3d419"
+      },
+      "three_row": {
+        "file": "three_row_alpha1.stim",
+        "sha256": "3f6e0e5882601bd34f39e2b243445c258cc8d8a09712a33d03603e2a831c4bc8"
+      }
+    }
+  }
+}
