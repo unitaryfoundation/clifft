@@ -737,23 +737,37 @@ NB_MODULE(_clifft_core, m) {
         .def(
             "__init__",
             [](clifft::ActiveWidthSchedulePass* self, bool noise_transparent, uint32_t beam_width,
-               bool sink_neutral_rotations) {
+               std::optional<double> search_budget, bool sink_neutral_rotations) {
                 if (beam_width == 0) {
                     throw std::invalid_argument("beam_width must be positive");
+                }
+                // Bit-level check, not std::isnan/std::isinf or a plain
+                // comparison: Release builds use -ffast-math, under which
+                // the compiler may assume no double is ever non-finite and
+                // fold those checks away. See
+                // clifft::detail::is_finite_non_negative for the same
+                // rationale on the C++ side.
+                if (search_budget && !clifft::detail::is_finite_non_negative(*search_budget)) {
+                    throw std::invalid_argument(
+                        "search_budget must be a finite, non-negative "
+                        "value");
                 }
                 clifft::ActiveWidthScheduleOptions options;
                 options.noise_transparent = noise_transparent;
                 options.beam_width = beam_width;
+                options.search_budget = search_budget;
                 options.sink_neutral_rotations = sink_neutral_rotations;
                 new (self) clifft::ActiveWidthSchedulePass(options);
             },
             nb::arg("noise_transparent") = true, nb::arg("beam_width") = uint32_t{8},
+            nb::arg("search_budget").none() = clifft::ActiveWidthScheduleOptions{}.search_budget,
             nb::arg("sink_neutral_rotations") = true)
         .def_prop_ro("incumbent_peak", &clifft::ActiveWidthSchedulePass::incumbent_peak)
         .def_prop_ro("result_peak", &clifft::ActiveWidthSchedulePass::result_peak)
         .def_prop_ro("incumbent_dense_work", &clifft::ActiveWidthSchedulePass::incumbent_dense_work)
         .def_prop_ro("result_dense_work", &clifft::ActiveWidthSchedulePass::result_dense_work)
         .def_prop_ro("applied", &clifft::ActiveWidthSchedulePass::applied)
+        .def_prop_ro("swept_ops", &clifft::ActiveWidthSchedulePass::swept_ops)
         .def("__repr__", [](const clifft::ActiveWidthSchedulePass& p) {
             return "ActiveWidthSchedulePass(incumbent_peak=" + std::to_string(p.incumbent_peak()) +
                    ", result_peak=" + std::to_string(p.result_peak()) +

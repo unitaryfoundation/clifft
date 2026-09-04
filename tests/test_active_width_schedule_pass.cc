@@ -28,6 +28,7 @@
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -287,6 +288,141 @@ TEST_CASE("Schedule pass rejects a zero beam width", "[schedule_pass]") {
     ActiveWidthScheduleOptions options;
     options.beam_width = 0;
     REQUIRE_THROWS_AS(ActiveWidthSchedulePass{options}, std::invalid_argument);
+}
+
+TEST_CASE("Schedule pass rejects a negative search budget", "[schedule_pass]") {
+    ActiveWidthScheduleOptions options;
+    options.search_budget = -1.0;
+    REQUIRE_THROWS_AS(ActiveWidthSchedulePass{options}, std::invalid_argument);
+}
+
+// Release builds use -ffast-math (finite-math-only), under which a
+// non-finite floating-point *constant* in an expression is undefined
+// behavior and the optimizer may fold it away, which is exactly why
+// search_budget rejects infinity and NaN instead of treating either as a
+// sentinel: this test needs a genuine, unfoldable non-finite value to prove
+// the rejection actually happens at runtime rather than being optimized
+// out, so it builds one from raw IEEE 754 bits behind a volatile via
+// test_helpers.h's opaque_nan/opaque_infinity, the same way every other
+// nonfinite-input test in this suite does.
+TEST_CASE("Schedule pass rejects a non-finite search budget", "[schedule_pass]") {
+    SECTION("infinity") {
+        ActiveWidthScheduleOptions options;
+        options.search_budget = clifft::test::opaque_infinity();
+        REQUIRE_THROWS_AS(ActiveWidthSchedulePass{options}, std::invalid_argument);
+    }
+    SECTION("negative infinity") {
+        ActiveWidthScheduleOptions options;
+        options.search_budget = -clifft::test::opaque_infinity();
+        REQUIRE_THROWS_AS(ActiveWidthSchedulePass{options}, std::invalid_argument);
+    }
+    SECTION("NaN") {
+        ActiveWidthScheduleOptions options;
+        options.search_budget = clifft::test::opaque_nan();
+        REQUIRE_THROWS_AS(ActiveWidthSchedulePass{options}, std::invalid_argument);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Search budget
+// ---------------------------------------------------------------------------
+
+// A budget of 0 crosses *search_budget * hir.ops.size() (== 0) the moment
+// the first candidate is scored, so run_beam_search narrows to width 1
+// before the very first beam cut -- the same width the beam ever has for
+// the rest of the search, since it starts at 1 too. The two configurations
+// therefore walk through the exact same sequence of parents and candidates
+// and must produce byte-for-byte the same scheduled HIR.
+TEST_CASE("A zero search budget matches beam width one exactly on coherent_d3_r3",
+          "[schedule_pass]") {
+    const Circuit circuit =
+        clifft::parse_file(std::string(CLIFFT_FIXTURES_DIR) + "/coherent_d3_r3.stim");
+    const HirModule raw = clifft::trace(circuit);
+
+    ActiveWidthScheduleOptions greedy_options;
+    greedy_options.beam_width = 1;
+    ActiveWidthSchedulePass greedy_pass(greedy_options);
+    const HirModule greedy_hir = run_peephole_squeeze_schedule(raw, greedy_pass);
+
+    ActiveWidthScheduleOptions budget_options;
+    budget_options.search_budget = 0.0;
+    ActiveWidthSchedulePass budget_pass(budget_options);
+    const HirModule budget_hir = run_peephole_squeeze_schedule(raw, budget_pass);
+
+    REQUIRE(hir_unchanged(greedy_hir, budget_hir));
+    REQUIRE(greedy_pass.result_peak() == budget_pass.result_peak());
+    REQUIRE(greedy_pass.result_dense_work() == budget_pass.result_dense_work());
+}
+
+// The default budget is small enough to narrow the beam on this fixture,
+// which the unbounded search sweeps many times over: the two runs must
+// differ in swept ops (otherwise the budget did nothing here) while the
+// narrowed search still reaches the same peak, which is what makes the
+// default acceptable. An empty (std::nullopt) budget is the unbounded
+// search; see ActiveWidthScheduleOptions::search_budget for why nullopt,
+// not infinity, is this codebase's "no bound" value.
+TEST_CASE("The default search budget narrows the search on coherent_d3_r3 without losing its peak",
+          "[schedule_pass]") {
+    const Circuit circuit =
+        clifft::parse_file(std::string(CLIFFT_FIXTURES_DIR) + "/coherent_d3_r3.stim");
+    const HirModule raw = clifft::trace(circuit);
+
+    ActiveWidthSchedulePass default_pass;
+    run_peephole_squeeze_schedule(raw, default_pass);
+
+    ActiveWidthScheduleOptions unbounded_options;
+    unbounded_options.search_budget = std::nullopt;
+    ActiveWidthSchedulePass unbounded_pass(unbounded_options);
+    run_peephole_squeeze_schedule(raw, unbounded_pass);
+
+    INFO("default swept_ops=" << default_pass.swept_ops()
+                              << " unbounded swept_ops=" << unbounded_pass.swept_ops());
+    REQUIRE(default_pass.swept_ops() < unbounded_pass.swept_ops());
+    REQUIRE(default_pass.result_peak() == unbounded_pass.result_peak());
+}
+
+TEST_CASE("Schedule pass reports swept ops through the search", "[schedule_pass]") {
+    SECTION("zero after the early exit") {
+        const Circuit circuit =
+            clifft::parse_file(std::string(CLIFFT_FIXTURES_DIR) + "/surface_d7_r7_p001.stim");
+        const HirModule original = clifft::trace(circuit);
+        HirModule hir = original;
+
+        ActiveWidthSchedulePass pass;
+        pass.run(hir);
+
+        REQUIRE_FALSE(pass.built_dependence());
+        REQUIRE(pass.swept_ops() == 0);
+    }
+
+    SECTION("positive after an applied run") {
+        const Circuit circuit =
+            clifft::parse_file(std::string(CLIFFT_FIXTURES_DIR) + "/coherent_d3_r3.stim");
+        const HirModule raw = clifft::trace(circuit);
+        ActiveWidthSchedulePass pass;
+        run_peephole_squeeze_schedule(raw, pass);
+
+        REQUIRE(pass.applied());
+        REQUIRE(pass.swept_ops() > 0);
+    }
+
+    SECTION("a zero budget sweeps at most as much as an unbounded search") {
+        const Circuit circuit =
+            clifft::parse_file(std::string(CLIFFT_FIXTURES_DIR) + "/coherent_d3_r3.stim");
+        const HirModule raw = clifft::trace(circuit);
+
+        ActiveWidthScheduleOptions budget_options;
+        budget_options.search_budget = 0.0;
+        ActiveWidthSchedulePass budget_pass(budget_options);
+        run_peephole_squeeze_schedule(raw, budget_pass);
+
+        ActiveWidthScheduleOptions unbounded_options;
+        unbounded_options.search_budget = std::nullopt;
+        ActiveWidthSchedulePass unbounded_pass(unbounded_options);
+        run_peephole_squeeze_schedule(raw, unbounded_pass);
+
+        REQUIRE(budget_pass.swept_ops() <= unbounded_pass.swept_ops());
+    }
 }
 
 // ---------------------------------------------------------------------------

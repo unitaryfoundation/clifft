@@ -148,3 +148,52 @@ def test_keyword_only_construction() -> None:
 def test_zero_beam_width_is_rejected() -> None:
     with pytest.raises(ValueError, match="beam_width"):
         clifft.ActiveWidthSchedulePass(beam_width=0)
+
+
+def test_negative_search_budget_is_rejected() -> None:
+    with pytest.raises(ValueError, match="search_budget"):
+        clifft.ActiveWidthSchedulePass(search_budget=-1.0)
+
+
+def test_zero_search_budget_reports_positive_swept_ops() -> None:
+    # A T isolated on one qubit, or entangled through a CX with nothing else
+    # to hide its phase in, is something peephole/squeeze can already reduce
+    # to a stabilizer state before the schedule pass ever sees it; that
+    # reaches peak active width 0 and takes the pass's early exit without
+    # running the beam search at all. Basis-rotating a T on each half of a
+    # Bell pair (H, T, H around the CX on both qubits) keeps a genuine
+    # non-Clifford phase alive through the entangling gate, so the search
+    # runs and, even narrowed to width 1 immediately, sweeps the ops its own
+    # initial closure and first candidate touch.
+    text = "H 0\nT 0\nH 0\nCX 0 1\nT 1\nH 1\nM 0 1"
+    pass_ = clifft.ActiveWidthSchedulePass(search_budget=0.0)
+    clifft.compile(text, hir_passes=_schedule_pass_manager(pass_))
+
+    assert pass_.swept_ops > 0
+
+
+def test_none_search_budget_is_unbounded() -> None:
+    # coherent_d3_r3 is the fixture the C++ suite's own "default search
+    # budget narrows the search ... without losing its peak" test uses to
+    # show the default (8) narrows the beam partway through the search. An
+    # explicit None must reproduce the old always-full-beam_width search
+    # instead, which never sweeps fewer ops than the narrowed default one.
+    circuit = (_FIXTURES / "coherent_d3_r3.stim").read_text()
+
+    default_pass = clifft.ActiveWidthSchedulePass()
+    clifft.compile(circuit, hir_passes=_schedule_pass_manager(default_pass))
+
+    unbounded_pass = clifft.ActiveWidthSchedulePass(search_budget=None)
+    clifft.compile(circuit, hir_passes=_schedule_pass_manager(unbounded_pass))
+
+    assert unbounded_pass.swept_ops >= default_pass.swept_ops
+
+
+def test_non_finite_search_budget_is_rejected() -> None:
+    # Infinity cannot mean "unbounded" here (None does instead) because
+    # Release builds use -ffast-math, under which the compiler may treat
+    # any comparison involving a non-finite double as unreachable; infinity
+    # and NaN are therefore both rejected rather than given any meaning.
+    for budget in (float("inf"), float("-inf"), float("nan")):
+        with pytest.raises(ValueError, match="search_budget"):
+            clifft.ActiveWidthSchedulePass(search_budget=budget)

@@ -40,9 +40,38 @@
 #include "clifft/frontend/hir.h"
 #include "clifft/optimizer/hir_pass.h"
 
+#include <bit>
+#include <cstddef>
 #include <cstdint>
+#include <optional>
 
 namespace clifft {
+
+namespace detail {
+
+// True for a finite value that is not negative (0.0 and -0.0 both count as
+// non-negative). Checked at the IEEE 754 bit level rather than with
+// std::isnan, std::isinf, or a direct comparison against 0.0, because this
+// project builds with -ffast-math (finite-math-only): under that model the
+// compiler is entitled to assume no value is ever NaN or infinity, so a
+// comparison or standard-library classification involving a non-finite
+// value is not reliable at that optimization level -- the same failure
+// mode that ruled out infinity itself as ActiveWidthScheduleOptions's "no
+// budget" sentinel below, in favor of an empty std::optional.
+constexpr bool is_finite_non_negative(double value) {
+    constexpr uint64_t kExponentMask = 0x7FF0000000000000ULL;
+    constexpr uint64_t kSignMask = 0x8000000000000000ULL;
+    const uint64_t bits = std::bit_cast<uint64_t>(value);
+    if ((bits & kExponentMask) == kExponentMask) {
+        return false;  // NaN or +-infinity: every exponent bit set.
+    }
+    // A negative number has the sign bit set and a nonzero magnitude in
+    // the remaining (exponent and mantissa) bits; -0.0 also has the sign
+    // bit set, but its magnitude is all zero, and counts as non-negative.
+    return (bits & kSignMask) == 0 || (bits & ~kSignMask) == 0;
+}
+
+}  // namespace detail
 
 struct ActiveWidthScheduleOptions {
     // Passed through to detail::ScheduleDependence::build. See
@@ -56,6 +85,39 @@ struct ActiveWidthScheduleOptions {
     // choice tree at proportionally higher cost. 0 leaves nothing for the
     // beam to keep, so the constructor rejects it.
     uint32_t beam_width = 8;
+
+    // Work the beam search may spend before narrowing to width 1, in units
+    // of ops executed through closure sweeps per op in the HIR (so 8 means
+    // about eight full replays of the circuit). Counted in swept ops rather
+    // than wall-clock time so a compiled plan does not depend on the machine
+    // that compiled it: the beam-search cost is circuit-shape dependent, and
+    // a wall-clock cutoff would make the schedule (and therefore the plan)
+    // vary run to run. Once the running count exceeds
+    // *search_budget * hir.ops.size(), the beam narrows to width 1 for
+    // every remaining step and finishes greedily; the result is still a
+    // legal schedule, and the never-worse guard in run() still applies, so
+    // narrowing can only give up some of the beam search's improvement over
+    // the incumbent, never regress past it. No bound is expressed by
+    // leaving this empty (std::nullopt), never by an infinite double: this
+    // project builds with -ffast-math, under which a non-finite sentinel
+    // like infinity is not reliably comparable (see detail::
+    // is_finite_non_negative above), so an empty optional is the only value
+    // that reliably means "unbounded" here. An empty budget leaves this
+    // pass's behavior unchanged: the search always runs to completion at
+    // the full beam_width.
+    //
+    // The default, 8, comes from measuring the unbounded search against
+    // narrower budgets over a varied circuit corpus: every budget of 2 or
+    // more reached the unbounded search's own peak on every circuit
+    // measured, 8 was the smallest budget that also kept every dense-work
+    // gain the unbounded search found, and the unbounded search's own cost
+    // varied enormously by circuit shape, while a budget of 8 kept every
+    // measured circuit to a small, comparable multiple of that cost.
+    // Revisit this default if a production circuit's shape falls outside
+    // what was measured.
+    //
+    // The constructor rejects a negative or non-finite value.
+    std::optional<double> search_budget = 8.0;
 
     // Whether to bubble width-neutral rotations rightward past independent
     // non-expanding ops after scheduling, clustering them just before the
@@ -83,6 +145,14 @@ class ActiveWidthSchedulePass : public HirPass {
     // otherwise have to infer it from a timing side-channel.
     [[nodiscard]] bool built_dependence() const { return built_dependence_; }
 
+    // Ops executed through closure sweeps and candidate replays during the
+    // last run() call: the initial closure, every scoring sweep in
+    // score_candidates (including candidates later discarded), and every
+    // materialize_candidate replay. This is the quantity search_budget
+    // bounds. Reset to zero at the start of each run(), and left at zero
+    // when the early exit fires.
+    [[nodiscard]] size_t swept_ops() const { return swept_ops_; }
+
   private:
     ActiveWidthScheduleOptions options_;
     uint32_t incumbent_peak_ = 0;
@@ -91,6 +161,7 @@ class ActiveWidthSchedulePass : public HirPass {
     double result_dense_work_ = 0.0;
     bool applied_ = false;
     bool built_dependence_ = false;
+    size_t swept_ops_ = 0;
 };
 
 }  // namespace clifft

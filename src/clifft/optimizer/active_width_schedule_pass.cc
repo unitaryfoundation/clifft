@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <bit>
 #include <cassert>
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <stdexcept>
@@ -387,15 +388,23 @@ std::optional<uint32_t> find_ready_non_expanding(const HirModule& hir, SearchFro
 // again after every MeasureDormantRandom step, the only shrinking effect a
 // sweep can execute; see SearchFrontier for why every other effect keeps a
 // memoized verdict valid.
+//
+// `swept_ops` accumulates one count per op this sweep executes: the budget
+// ActiveWidthScheduleOptions::search_budget bounds is measured in exactly
+// this quantity, summed across every closure sweep and candidate replay in
+// a run_beam_search call (see run_beam_search), so that the search's cost
+// limit is reproducible across machines instead of depending on wall-clock
+// speed.
 void run_closure(const HirModule& hir, SearchFrontier& frontier, DormantSubspace& subspace,
                  std::vector<uint32_t>& order, std::vector<UndoStep>& log,
-                 std::vector<uint32_t>& newly_ready_log,
+                 std::vector<uint32_t>& newly_ready_log, size_t& swept_ops,
                  std::vector<WidthTransition>* transitions = nullptr) {
     frontier.reset_expanding_memo();
     while (const std::optional<uint32_t> op = find_ready_non_expanding(hir, frontier, subspace)) {
         const uint32_t newly_ready_count = frontier.execute(*op, newly_ready_log);
         log.push_back(UndoStep{*op, newly_ready_count});
         order.push_back(*op);
+        ++swept_ops;
         const WidthTransition transition = classify_and_apply(hir, hir.ops[*op], subspace);
         assert(!is_expanding_effect(transition.effect) &&
                "find_ready_non_expanding chose an op classify_and_apply treats as expanding");
@@ -439,13 +448,13 @@ void absorb_closure_transitions(BeamState& state, const std::vector<WidthTransit
 }
 
 BeamState make_initial_beam_state(const HirModule& hir,
-                                  const detail::ScheduleDependence& dependence) {
+                                  const detail::ScheduleDependence& dependence, size_t& swept_ops) {
     BeamState state(SearchFrontier(dependence), DormantSubspace(hir.num_qubits));
     std::vector<UndoStep> discarded_log;
     std::vector<uint32_t> discarded_newly_ready;
     std::vector<WidthTransition> transitions;
     run_closure(hir, state.frontier, state.subspace, state.order, discarded_log,
-                discarded_newly_ready, &transitions);
+                discarded_newly_ready, swept_ops, &transitions);
     absorb_closure_transitions(state, transitions);
     return state;
 }
@@ -520,10 +529,15 @@ struct ScoredCandidate {
 // independent expanding ops, most candidates are discarded after scoring,
 // so paying only for a DormantSubspace clone and a small ops list here --
 // not a SearchFrontier clone and a full copy of the (potentially
-// near-complete) order vector -- is what keeps this affordable. `parent` is
+// near-complete) order vector -- is what keeps this affordable. `swept_ops`
+// counts each candidate's first op plus its closure sweep, including
+// candidates later discarded here or in run_beam_search's dedup/rank step:
+// the work search_budget bounds is the work this function actually spends
+// finding out a candidate is worth discarding, not just the work spent on
+// eventual survivors. `parent` is
 // left exactly as found on return.
 std::vector<ScoredCandidate> score_candidates(const HirModule& hir, BeamState& parent,
-                                              uint32_t parent_index) {
+                                              uint32_t parent_index, size_t& swept_ops) {
     std::vector<ScoredCandidate> scored;
     for (uint32_t op : ready_ops_snapshot(parent.frontier)) {
         if (!is_expanding(hir, hir.ops[op], parent.subspace)) {
@@ -535,6 +549,7 @@ std::vector<ScoredCandidate> score_candidates(const HirModule& hir, BeamState& p
         std::vector<uint32_t> newly_ready_log;
 
         log.push_back(UndoStep{op, parent.frontier.execute(op, newly_ready_log)});
+        ++swept_ops;
         ScoredCandidate candidate;
         candidate.parent_index = parent_index;
         candidate.first_op = op;
@@ -550,7 +565,8 @@ std::vector<ScoredCandidate> score_candidates(const HirModule& hir, BeamState& p
                                                                 first_transition.after);
 
         std::vector<WidthTransition> swept;
-        run_closure(hir, parent.frontier, scratch, candidate.ops, log, newly_ready_log, &swept);
+        run_closure(hir, parent.frontier, scratch, candidate.ops, log, newly_ready_log, swept_ops,
+                    &swept);
         absorb_transitions(candidate.peak, candidate.dense_work, swept);
 
         candidate.width_after_closure = scratch.active_width();
@@ -570,9 +586,11 @@ std::vector<ScoredCandidate> score_candidates(const HirModule& hir, BeamState& p
 // predicted, since the two are computed by independent code paths that
 // must agree bit-for-bit (dense_work accumulates the same transitions in
 // the same order in both places, so the floating-point sums match exactly,
-// not just numerically).
+// not just numerically). `swept_ops` counts this replay's ops too: it
+// redoes real work (score_candidates' own execute()/undo() bracket left no
+// trace behind to reuse), so it counts against the same budget.
 BeamState materialize_candidate(const HirModule& hir, const std::vector<BeamState>& beam,
-                                const ScoredCandidate& candidate) {
+                                const ScoredCandidate& candidate, size_t& swept_ops) {
     const BeamState& parent = beam[candidate.parent_index];
     BeamState state(parent.frontier, parent.subspace);
     state.peak = parent.peak;
@@ -592,6 +610,7 @@ BeamState materialize_candidate(const HirModule& hir, const std::vector<BeamStat
         state.dense_work +=
             detail::dense_work_contribution(transition.effect, transition.before, transition.after);
         state.order.push_back(op);
+        ++swept_ops;
     }
 
     assert(state.subspace.active_width() == candidate.width_after_closure &&
@@ -736,18 +755,55 @@ void append_pareto_front(const std::vector<BeamState>& beam,
 // on fixtures with many independent expanding rotations, so this ordering
 // (score everything, materialize only the winners) is what makes the beam
 // width affordable to scale.
+//
+// search_budget bounds the beam-search cost as a multiple of hir.ops.size(),
+// counted in swept_ops (see run_closure, score_candidates, and
+// materialize_candidate) rather than wall-clock time, so the point at which
+// the search narrows is the same on every machine and a compiled plan is
+// reproducible. Two places narrow the search once swept_ops exceeds
+// *search_budget * hir.ops.size() (an empty search_budget never narrows).
+// Inside the scoring loop, the remaining lower-ranked parents are dropped
+// unscored as soon as the count is over budget (beam is always in ranked
+// order, since next_beam is filled from the ranked deduped list, so the
+// parents dropped are the weakest); the cut
+// after that generation then keeps a single survivor, and every later step
+// therefore scores one parent and keeps one. Checking between parents
+// rather than between steps matters on a wide beam: one wide generation can
+// cost as much as the whole budget, so a check that waited for the step to
+// finish would let the overshoot equal that whole generation, where checking
+// before each parent bounds it to one parent's candidate sweeps plus one
+// survivor's replay. Narrowing rather than aborting outright keeps every
+// guarantee this function already gives: every order the search can still
+// produce is a legal linear extension of `dependence`, and
+// ActiveWidthSchedulePass::run's incumbent comparison still applies to
+// whatever this returns, so a narrowed search can only give up some of the
+// wide beam's improvement over the incumbent, never regress past it.
 std::vector<uint32_t> run_beam_search(const HirModule& hir,
                                       const detail::ScheduleDependence& dependence,
-                                      uint32_t beam_width) {
+                                      uint32_t beam_width, std::optional<double> search_budget,
+                                      size_t& swept_ops) {
+    swept_ops = 0;
+    const std::optional<double> budget_ops =
+        search_budget ? std::optional<double>(*search_budget * static_cast<double>(hir.ops.size()))
+                      : std::nullopt;
+
     std::vector<BeamState> beam;
-    beam.push_back(make_initial_beam_state(hir, dependence));
+    beam.push_back(make_initial_beam_state(hir, dependence, swept_ops));
 
     std::vector<BeamState> completed;
     while (!beam.empty()) {
         std::vector<ScoredCandidate> generation;
         std::vector<bool> parent_has_candidates(beam.size(), false);
         for (uint32_t i = 0; i < beam.size(); ++i) {
-            std::vector<ScoredCandidate> scored = score_candidates(hir, beam[i], i);
+            if (i > 0 && budget_ops && static_cast<double>(swept_ops) > *budget_ops) {
+                // Over budget: drop the remaining parents unscored, so the
+                // loop below does not mistake them for completed states.
+                // erase(), not resize(): BeamState has no default constructor.
+                beam.erase(beam.begin() + i, beam.end());
+                parent_has_candidates.resize(beam.size());
+                break;
+            }
+            std::vector<ScoredCandidate> scored = score_candidates(hir, beam[i], i, swept_ops);
             if (!scored.empty()) {
                 parent_has_candidates[i] = true;
                 for (ScoredCandidate& candidate : scored) {
@@ -823,9 +879,11 @@ std::vector<uint32_t> run_beam_search(const HirModule& hir,
         });
 
         std::vector<BeamState> next_beam;
-        next_beam.reserve(std::min<size_t>(deduped.size(), beam_width));
-        for (size_t i = 0; i < deduped.size() && i < beam_width; ++i) {
-            next_beam.push_back(materialize_candidate(hir, beam, deduped[i]));
+        const size_t width =
+            budget_ops && static_cast<double>(swept_ops) > *budget_ops ? 1 : beam_width;
+        next_beam.reserve(std::min<size_t>(deduped.size(), width));
+        for (size_t i = 0; i < deduped.size() && i < width; ++i) {
+            next_beam.push_back(materialize_candidate(hir, beam, deduped[i], swept_ops));
         }
         beam = std::move(next_beam);
     }
@@ -934,10 +992,15 @@ ActiveWidthSchedulePass::ActiveWidthSchedulePass(ActiveWidthScheduleOptions opti
     if (options_.beam_width == 0) {
         throw std::invalid_argument("ActiveWidthSchedulePass: beam_width must be positive");
     }
+    if (options_.search_budget && !detail::is_finite_non_negative(*options_.search_budget)) {
+        throw std::invalid_argument(
+            "ActiveWidthSchedulePass: search_budget must be a finite, non-negative value");
+    }
 }
 
 void ActiveWidthSchedulePass::run(HirModule& hir) {
     built_dependence_ = false;
+    swept_ops_ = 0;
 
     const ActiveWidthTrace incumbent_trace = analyze_active_width(hir);
     incumbent_peak_ = incumbent_trace.peak_width;
@@ -945,7 +1008,8 @@ void ActiveWidthSchedulePass::run(HirModule& hir) {
 
     // See the header comment's "Early exit": with nothing for a scheduler to
     // choose among, report the incumbent unchanged rather than pay to build
-    // a ScheduleDependence at all.
+    // a ScheduleDependence at all. swept_ops_ stays zero: the beam search
+    // that would have spent budget never runs.
     if (incumbent_peak_ == 0 || !has_rotation_op(hir)) {
         result_peak_ = incumbent_peak_;
         result_dense_work_ = incumbent_dense_work_;
@@ -959,7 +1023,8 @@ void ActiveWidthSchedulePass::run(HirModule& hir) {
         detail::ScheduleDependence::build(hir, dependence_options);
     built_dependence_ = true;
 
-    std::vector<uint32_t> order = run_beam_search(hir, dependence, options_.beam_width);
+    std::vector<uint32_t> order =
+        run_beam_search(hir, dependence, options_.beam_width, options_.search_budget, swept_ops_);
 
     if (options_.sink_neutral_rotations) {
         sink_neutral_rotations(hir, dependence, order);
