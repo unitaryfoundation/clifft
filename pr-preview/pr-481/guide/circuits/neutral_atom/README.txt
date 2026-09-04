@@ -18,4 +18,5 @@ artifact:
 
 The checked-in circuits use the artifact's alpha=1 noise parameters. Physical
 atom motion has already been resolved into atom-wire relabeling, so no quantum
-SWAP represents a move.
+SWAP represents a move. The tutorial script derives the remaining noise-sweep
+points from these nominal circuits in memory.
