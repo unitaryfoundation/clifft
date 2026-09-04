@@ -25,7 +25,7 @@
 #include "clifft/util/mask_view.h"
 
 #include <cstdint>
-#include <optional>
+#include <span>
 #include <vector>
 
 namespace clifft {
@@ -33,9 +33,35 @@ namespace clifft {
 // Tracks the unsigned isotropic subspace S of dormant stabilizer generators
 // in fixed HIR (initial-frame) coordinates. This is the same subspace the
 // sampling planner evolves through its coordinate frame, but represented
-// directly as a GF(2) generator list rather than a physical-to-current basis
-// change, so deciding whether a Pauli anticommutes with S or lies in it
-// costs linear algebra instead of tableau composition.
+// directly as a GF(2) basis rather than a physical-to-current basis change,
+// so deciding whether a Pauli anticommutes with S or lies in it costs
+// linear algebra instead of tableau composition.
+//
+// The basis is kept permanently in reduced row echelon form (RREF) and
+// updated incrementally, so every query and update below costs
+// O(dimension * words_per_row) with no separate cache to invalidate or
+// rebuild. Combined-vector convention: each row (and each Pauli body passed
+// in) is treated as one GF(2) vector of length 2 * domain, x occupying
+// combined bits [0, domain) and z occupying [domain, 2 * domain), domain =
+// words_per_row_ * 64. Bits at or beyond num_qubits within each half are
+// always zero.
+//
+// The basis rows_x_[0, dimension_), rows_z_[0, dimension_) and their
+// pivots pivot_[0, dimension_) maintain three invariants:
+//
+//   I1: the rows are linearly independent and span S.
+//   I2: pivot_[i] is the lowest set combined bit of row i.
+//   I3: pivots are pairwise distinct, and every row has a 0 at every OTHER
+//       row's pivot. This is what "reduced" (as opposed to merely
+//       "echelon") means: it lets a query vector be reduced against the
+//       rows in any order and still land on the unique remainder, which is
+//       what contains() relies on.
+//
+// The initial state (row q = Z_q, pivot domain + q) satisfies all three:
+// those rows are the standard basis vectors of the Z half of the combined
+// space, so they are independent (I1), each is its own lowest and only set
+// bit (I2), and distinct qubits give distinct pivots with no cross terms
+// (I3).
 //
 // dimension + active_width() == num_qubits always: S is a maximal isotropic
 // (Lagrangian) subspace exactly when active_width() == 0, and every unit the
@@ -100,48 +126,92 @@ class DormantSubspace {
     [[nodiscard]] std::vector<PauliString> generators() const;
 
   private:
-    [[nodiscard]] MaskView row_x(uint32_t index) const;
-    [[nodiscard]] MaskView row_z(uint32_t index) const;
-    [[nodiscard]] MutableMaskView row_x(uint32_t index);
-    [[nodiscard]] MutableMaskView row_z(uint32_t index);
-    [[nodiscard]] MutableMaskView echelon_row_x(uint32_t index) const;
-    [[nodiscard]] MutableMaskView echelon_row_z(uint32_t index) const;
+    // Defined here rather than in the .cc so every per-row iteration in
+    // commutes_with_all, intersect, reduce_into_scratch, and
+    // insert_reduced can inline the accessor instead of paying a call per
+    // row: perf attributes 6-14% of the pass to these four functions when
+    // they are out of line.
+    [[nodiscard]] MaskView row_x(uint32_t index) const {
+        return MaskView{std::span<const uint64_t>(
+            rows_x_.data() + static_cast<size_t>(index) * words_per_row_, words_per_row_)};
+    }
+    [[nodiscard]] MaskView row_z(uint32_t index) const {
+        return MaskView{std::span<const uint64_t>(
+            rows_z_.data() + static_cast<size_t>(index) * words_per_row_, words_per_row_)};
+    }
+    [[nodiscard]] MutableMaskView row_x(uint32_t index) {
+        return MutableMaskView{std::span<uint64_t>(
+            rows_x_.data() + static_cast<size_t>(index) * words_per_row_, words_per_row_)};
+    }
+    [[nodiscard]] MutableMaskView row_z(uint32_t index) {
+        return MutableMaskView{std::span<uint64_t>(
+            rows_z_.data() + static_cast<size_t>(index) * words_per_row_, words_per_row_)};
+    }
 
-    [[nodiscard]] std::optional<uint32_t> find_anticommuting_generator(MaskView x,
-                                                                       MaskView z) const;
+    // Copies (x, z) into scratch_x_/scratch_z_ and reduces the copy against
+    // every row in place: for each row i, if the scratch vector has a set
+    // bit at pivot_[i], XOR row i into it. I3 makes this correct in any row
+    // order, so rows are visited by index without regard to pivot value.
+    // contains() reads whether the remainder left in scratch is zero;
+    // apply_measurement's two branches read the (possibly nonzero)
+    // remainder as an already-reduced vector to hand to insert_reduced.
+    void reduce_into_scratch(MaskView x, MaskView z) const;
 
-    // Replaces S with S intersect p-perp given that generator `pivot`
-    // anticommutes with p: XORs every other anticommuting generator with the
-    // pivot row, then drops the pivot row. Invalidates the membership cache.
-    void intersect_with_pivot(MaskView x, MaskView z, uint32_t pivot);
+    // Replaces S with S intersect p-perp, where p = (x, z), given that at
+    // least one row anticommutes with p. Scans every row once, recording
+    // into anticommute_flags_ which rows anticommute with p and which of
+    // those has the largest pivot value (k); returns false and leaves S
+    // untouched when no row anticommutes (this is how callers discover
+    // whether the precondition holds, in the same pass that would otherwise
+    // have to find k separately). Otherwise XORs row k into every other
+    // row i with anticommute_flags_[i] set, deletes row k by moving the
+    // last row (and its pivot) into slot k, decrements dimension_, and
+    // returns true.
+    //
+    // RREF survives: for i != k with anticommute_flags_[i] set, row i has
+    // zeros below pivot_[i] and a zero at pivot_[k] (I3), row k has zeros
+    // below pivot_[k], and pivot_[k] > pivot_[i] by the choice of k, so row
+    // i XOR row k still has lowest bit pivot_[i]; both rows already have
+    // zeros at every other remaining pivot, so the sum does too. Bit
+    // pivot_[k] may now appear in other rows, which is fine because row k
+    // is gone and pivot_[k] is no longer a pivot.
+    //
+    // The result spans S intersect p-perp: every modified row now commutes
+    // with p (its anticommute flag with p and row k's both were set, so
+    // xoring cancels the anticommutation), every untouched row already
+    // commuted with p, and the dimension dropped by exactly one (row k was
+    // removed and nothing else changed the row count).
+    bool intersect(MaskView x, MaskView z);
 
-    // Appends `p` as a new, independent generator. Only valid when p is not
-    // already in S, which callers establish before invoking this.
-    void append_generator(MaskView x, MaskView z);
-
-    // Reduces the (work_x, work_z) vector against the cached echelon basis
-    // in place and returns the pivot bit of the nonzero remainder, or
-    // nullopt when it reduces to zero (the vector was in the cached span).
-    [[nodiscard]] std::optional<uint32_t> reduce_against_membership_cache(
-        MutableMaskView work_x, MutableMaskView work_z) const;
-
-    // Rebuilds the GF(2) echelon basis from the current generator list when
-    // a change has invalidated it. apply_rotation's promoting branch and
-    // apply_measurement's DormantRandom branch never query membership, so a
-    // run of promotions between two contains() calls rebuilds only once.
-    void rebuild_membership_cache_if_dirty() const;
+    // Inserts (r_x, r_z) as a new generator, given that it is nonzero and
+    // already reduced against every current row (zero at each row's own
+    // pivot_[i]), e.g. the output of reduce_into_scratch. Lets b be the
+    // lowest set combined bit of r; XORs r into every existing row that has
+    // bit b set, then appends r as a new row with pivot b.
+    //
+    // RREF survives: r has zeros at every existing pivot (reduced) and
+    // zeros below b (b is its own lowest set bit), so a row i with bit b
+    // set has b strictly above pivot_[i] (b is set in row i but is not row
+    // i's pivot, and pivot_[i] is row i's lowest set bit). XORing r into
+    // row i therefore leaves every bit of row i below b unchanged, hence
+    // leaves pivot_[i] unchanged, and leaves row i's zeros at every other
+    // pivot unchanged (r is zero there). After the loop, bit b is cleared
+    // from every row that had it, so no other row has bit b when r is
+    // appended with pivot b.
+    void insert_reduced(MaskView r_x, MaskView r_z);
 
     uint32_t num_qubits_;
     uint32_t words_per_row_;
     uint32_t dimension_;
-    std::vector<uint64_t> gen_x_;
-    std::vector<uint64_t> gen_z_;
+    std::vector<uint64_t> rows_x_;
+    std::vector<uint64_t> rows_z_;
+    std::vector<uint32_t> pivot_;
 
-    mutable std::vector<uint64_t> echelon_x_;
-    mutable std::vector<uint64_t> echelon_z_;
-    mutable std::vector<uint32_t> echelon_pivot_;
-    mutable uint32_t echelon_dimension_ = 0;
-    mutable bool echelon_dirty_ = true;
+    // Per-row anticommute flags computed by intersect(), reused across
+    // calls (indices [0, dimension_) are live) so finding and eliminating
+    // a pivot never allocates.
+    std::vector<uint8_t> anticommute_flags_;
+
     mutable std::vector<uint64_t> scratch_x_;
     mutable std::vector<uint64_t> scratch_z_;
 };

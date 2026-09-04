@@ -16,6 +16,7 @@
 #include "clifft/sampling/plan.h"
 #include "clifft/sampling/planner.h"
 #include "clifft/tableau/pauli_string.h"
+#include "clifft/util/xoshiro.h"
 
 #include "instrument_test_helpers.h"
 #include "test_helpers.h"
@@ -452,5 +453,229 @@ TEST_CASE("DormantSubspace treats a rotation or measurement inside S as inert", 
 
         REQUIRE(subspace.apply_measurement(zz) == DormantSubspace::MeasurementEffect::Classical);
         REQUIRE(subspace.active_width() == 0);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Reduced row echelon form and cross-implementation checks
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// Draws an unsigned random Pauli string: each qubit's (x, z) pair comes from
+// two fresh random bits, independent of every other qubit.
+PauliString random_pauli_string(Xoshiro256PlusPlus& rng, uint32_t num_qubits) {
+    PauliString p(num_qubits);
+    for (uint32_t q = 0; q < num_qubits; ++q) {
+        const uint64_t bits = rng();
+        p.set_pauli(q, (bits & 1U) != 0, (bits & 2U) != 0);
+    }
+    return p;
+}
+
+// Mirrors DormantSubspace's combined-vector convention (x bits then z bits)
+// purely through the public PauliString/MaskView API, so the reduced-form
+// test can check I2/I3 from outside without depending on the
+// implementation's own private helpers.
+uint32_t combined_domain(const PauliString& p) {
+    return p.x().num_words() * 64;
+}
+
+bool combined_bit(const PauliString& p, uint32_t domain, uint32_t bit) {
+    return bit < domain ? p.x().bit_get(bit) : p.z().bit_get(bit - domain);
+}
+
+uint32_t combined_lowest_bit(const PauliString& p) {
+    const uint32_t domain = combined_domain(p);
+    const uint32_t x_bit = p.x().lowest_bit();
+    if (x_bit < domain) {
+        return x_bit;
+    }
+    return domain + p.z().lowest_bit();
+}
+
+// Independent textbook-rule reference: a plain, unreduced generator list
+// with brute-force membership (enumerate every subset sum). This exists
+// only to cross-check DormantSubspace's incrementally-maintained RREF basis
+// against a second implementation that shares no code with it, so a bug
+// present in both would have to be a coincidence rather than a shared
+// mistake.
+class ReferenceDormantSubspace {
+  public:
+    explicit ReferenceDormantSubspace(uint32_t num_qubits) : num_qubits_(num_qubits) {
+        for (uint32_t q = 0; q < num_qubits; ++q) {
+            PauliString z(num_qubits);
+            z.set_pauli(q, false, true);
+            generators_.push_back(std::move(z));
+        }
+    }
+
+    [[nodiscard]] uint32_t active_width() const {
+        return num_qubits_ - static_cast<uint32_t>(generators_.size());
+    }
+
+    [[nodiscard]] const std::vector<PauliString>& generators() const { return generators_; }
+
+    [[nodiscard]] bool commutes_with_all(const PauliString& p) const {
+        for (const PauliString& g : generators_) {
+            if (!g.view().commutes(p.view())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    // Brute-force membership: p is in the span of generators_ exactly when
+    // some subset of them XORs to p. Callers only use this at num_qubits
+    // small enough (<= 8 here) that 2^dimension subsets is cheap.
+    [[nodiscard]] bool contains(const PauliString& p) const {
+        const size_t dim = generators_.size();
+        for (uint64_t mask = 0; mask < (uint64_t{1} << dim); ++mask) {
+            PauliString sum(num_qubits_);
+            for (size_t i = 0; i < dim; ++i) {
+                if ((mask & (uint64_t{1} << i)) != 0) {
+                    sum.mut_x().xor_with(generators_[i].x());
+                    sum.mut_z().xor_with(generators_[i].z());
+                }
+            }
+            if (sum == p) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    bool apply_rotation(const PauliString& p) {
+        for (size_t i = 0; i < generators_.size(); ++i) {
+            if (!generators_[i].view().commutes(p.view())) {
+                for (size_t j = 0; j < generators_.size(); ++j) {
+                    if (j != i && !generators_[j].view().commutes(p.view())) {
+                        generators_[j].mut_x().xor_with(generators_[i].x());
+                        generators_[j].mut_z().xor_with(generators_[i].z());
+                    }
+                }
+                generators_.erase(generators_.begin() + static_cast<ptrdiff_t>(i));
+                return true;
+            }
+        }
+        return false;
+    }
+
+    DormantSubspace::MeasurementEffect apply_measurement(const PauliString& p) {
+        if (apply_rotation(p)) {
+            generators_.push_back(p);
+            return DormantSubspace::MeasurementEffect::DormantRandom;
+        }
+        if (contains(p)) {
+            return DormantSubspace::MeasurementEffect::Classical;
+        }
+        generators_.push_back(p);
+        return DormantSubspace::MeasurementEffect::Active;
+    }
+
+  private:
+    uint32_t num_qubits_;
+    std::vector<PauliString> generators_;
+};
+
+}  // namespace
+
+TEST_CASE("DormantSubspace generators stay in reduced row echelon form across random updates",
+          "[active_width]") {
+    const std::vector<uint64_t> seeds = {1, 2, 3, 42, 987654321};
+
+    for (const uint64_t seed : seeds) {
+        for (uint32_t num_qubits = 1; num_qubits <= 12; ++num_qubits) {
+            DYNAMIC_SECTION("seed " << seed << " with " << num_qubits << " qubits") {
+                Xoshiro256PlusPlus rng(seed * 1000003U + num_qubits);
+                DormantSubspace subspace(num_qubits);
+
+                constexpr int kOps = 300;
+                for (int op = 0; op < kOps; ++op) {
+                    const PauliString p = random_pauli_string(rng, num_qubits);
+                    if ((rng() & 1U) != 0) {
+                        subspace.apply_rotation(p);
+                    } else {
+                        subspace.apply_measurement(p);
+                    }
+
+                    const std::vector<PauliString> generators = subspace.generators();
+                    CAPTURE(seed, num_qubits, op);
+                    REQUIRE(generators.size() == num_qubits - subspace.active_width());
+
+                    std::vector<uint32_t> pivots;
+                    pivots.reserve(generators.size());
+                    for (const PauliString& g : generators) {
+                        pivots.push_back(combined_lowest_bit(g));
+                    }
+
+                    // I2/I3 observed from outside: pivots are pairwise
+                    // distinct, and every generator has a zero at every
+                    // other generator's pivot.
+                    std::vector<uint32_t> sorted_pivots = pivots;
+                    std::ranges::sort(sorted_pivots);
+                    REQUIRE(std::adjacent_find(sorted_pivots.begin(), sorted_pivots.end()) ==
+                            sorted_pivots.end());
+
+                    for (size_t i = 0; i < generators.size(); ++i) {
+                        const uint32_t domain = combined_domain(generators[i]);
+                        for (size_t j = 0; j < generators.size(); ++j) {
+                            if (i == j) {
+                                continue;
+                            }
+                            REQUIRE(generators[i].view().commutes(generators[j].view()));
+                            REQUIRE_FALSE(combined_bit(generators[i], domain, pivots[j]));
+                        }
+                    }
+
+                    for (const PauliString& g : generators) {
+                        REQUIRE(subspace.contains(g));
+                        REQUIRE(subspace.commutes_with_all(g));
+                    }
+                }
+            }
+        }
+    }
+}
+
+TEST_CASE("DormantSubspace matches a plain generator-list reference across random updates",
+          "[active_width]") {
+    const std::vector<uint64_t> seeds = {7, 13, 4242};
+
+    for (const uint64_t seed : seeds) {
+        for (uint32_t num_qubits = 1; num_qubits <= 8; ++num_qubits) {
+            DYNAMIC_SECTION("seed " << seed << " with " << num_qubits << " qubits") {
+                Xoshiro256PlusPlus rng(seed * 2654435761U + num_qubits);
+                DormantSubspace subspace(num_qubits);
+                ReferenceDormantSubspace reference(num_qubits);
+
+                constexpr int kOps = 200;
+                for (int op = 0; op < kOps; ++op) {
+                    const PauliString p = random_pauli_string(rng, num_qubits);
+                    CAPTURE(seed, num_qubits, op);
+
+                    if ((rng() & 1U) != 0) {
+                        const bool subspace_result = subspace.apply_rotation(p);
+                        const bool reference_result = reference.apply_rotation(p);
+                        REQUIRE(subspace_result == reference_result);
+                    } else {
+                        const DormantSubspace::MeasurementEffect subspace_result =
+                            subspace.apply_measurement(p);
+                        const DormantSubspace::MeasurementEffect reference_result =
+                            reference.apply_measurement(p);
+                        REQUIRE(subspace_result == reference_result);
+                    }
+
+                    REQUIRE(subspace.active_width() == reference.active_width());
+
+                    for (const PauliString& g : subspace.generators()) {
+                        REQUIRE(reference.contains(g));
+                    }
+                    for (const PauliString& g : reference.generators()) {
+                        REQUIRE(subspace.contains(g));
+                    }
+                }
+            }
+        }
     }
 }

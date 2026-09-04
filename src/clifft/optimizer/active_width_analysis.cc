@@ -5,7 +5,7 @@
 #include <algorithm>
 #include <cassert>
 #include <cmath>
-#include <span>
+#include <optional>
 #include <utility>
 
 namespace clifft {
@@ -40,9 +40,9 @@ namespace {
 // The (x, z) mask pair is treated as one combined GF(2) vector of length
 // 2 * domain, with x occupying [0, domain) and z occupying [domain, 2 *
 // domain), domain = words_per_row * 64. Bits at or beyond num_qubits within
-// each half are always zero -- PauliString and the generator storage both
-// keep that padding clear -- so they are inert dead space at the top of
-// each half and are never selected as a pivot.
+// each half are always zero -- PauliString and the row storage both keep
+// that padding clear -- so they are inert dead space at the top of each
+// half and are never selected as a pivot.
 uint32_t combined_domain(uint32_t words_per_row) {
     return words_per_row * 64;
 }
@@ -65,113 +65,117 @@ DormantSubspace::DormantSubspace(uint32_t num_qubits)
     : num_qubits_(num_qubits),
       words_per_row_((num_qubits + 63) / 64),
       dimension_(num_qubits),
-      gen_x_(static_cast<size_t>(num_qubits) * words_per_row_, 0),
-      gen_z_(static_cast<size_t>(num_qubits) * words_per_row_, 0),
-      echelon_x_(static_cast<size_t>(num_qubits) * words_per_row_, 0),
-      echelon_z_(static_cast<size_t>(num_qubits) * words_per_row_, 0),
-      echelon_pivot_(num_qubits, 0),
+      rows_x_(static_cast<size_t>(num_qubits) * words_per_row_, 0),
+      rows_z_(static_cast<size_t>(num_qubits) * words_per_row_, 0),
+      pivot_(num_qubits, 0),
+      anticommute_flags_(num_qubits, 0),
       scratch_x_(words_per_row_, 0),
       scratch_z_(words_per_row_, 0) {
-    // S starts as the span of Z on every qubit: generator q is Z_q.
+    // S starts as the span of Z on every qubit: row q is Z_q, with pivot
+    // domain + q. See the class comment for why this satisfies I1-I3.
+    const uint32_t domain = combined_domain(words_per_row_);
     for (uint32_t q = 0; q < num_qubits; ++q) {
         row_z(q).bit_set(q, true);
+        pivot_[q] = domain + q;
     }
 }
 
-MaskView DormantSubspace::row_x(uint32_t index) const {
-    return MaskView{std::span<const uint64_t>(
-        gen_x_.data() + static_cast<size_t>(index) * words_per_row_, words_per_row_)};
-}
-
-MaskView DormantSubspace::row_z(uint32_t index) const {
-    return MaskView{std::span<const uint64_t>(
-        gen_z_.data() + static_cast<size_t>(index) * words_per_row_, words_per_row_)};
-}
-
-MutableMaskView DormantSubspace::row_x(uint32_t index) {
-    return MutableMaskView{std::span<uint64_t>(
-        gen_x_.data() + static_cast<size_t>(index) * words_per_row_, words_per_row_)};
-}
-
-MutableMaskView DormantSubspace::row_z(uint32_t index) {
-    return MutableMaskView{std::span<uint64_t>(
-        gen_z_.data() + static_cast<size_t>(index) * words_per_row_, words_per_row_)};
-}
-
-MutableMaskView DormantSubspace::echelon_row_x(uint32_t index) const {
-    return MutableMaskView{std::span<uint64_t>(
-        echelon_x_.data() + static_cast<size_t>(index) * words_per_row_, words_per_row_)};
-}
-
-MutableMaskView DormantSubspace::echelon_row_z(uint32_t index) const {
-    return MutableMaskView{std::span<uint64_t>(
-        echelon_z_.data() + static_cast<size_t>(index) * words_per_row_, words_per_row_)};
-}
-
-std::optional<uint32_t> DormantSubspace::find_anticommuting_generator(MaskView x,
-                                                                      MaskView z) const {
+bool DormantSubspace::commutes_with_all(MaskView x, MaskView z) const {
     assert(x.num_words() == words_per_row_ && z.num_words() == words_per_row_ &&
            "Pauli body must share the subspace's word width");
     for (uint32_t i = 0; i < dimension_; ++i) {
         if (anti_commute(row_x(i), row_z(i), x, z)) {
-            return i;
+            return false;
         }
     }
-    return std::nullopt;
-}
-
-bool DormantSubspace::commutes_with_all(MaskView x, MaskView z) const {
-    return !find_anticommuting_generator(x, z).has_value();
-}
-
-void DormantSubspace::intersect_with_pivot(MaskView x, MaskView z, uint32_t pivot) {
-    assert(pivot < dimension_ && "pivot must be a live generator index");
-    for (uint32_t i = 0; i < dimension_; ++i) {
-        if (i == pivot) {
-            continue;
-        }
-        if (anti_commute(row_x(i), row_z(i), x, z)) {
-            row_x(i).xor_with(row_x(pivot));
-            row_z(i).xor_with(row_z(pivot));
-        }
-    }
-    const uint32_t last = dimension_ - 1;
-    if (pivot != last) {
-        std::ranges::copy(row_x(last).words, row_x(pivot).words.begin());
-        std::ranges::copy(row_z(last).words, row_z(pivot).words.begin());
-    }
-    --dimension_;
-    echelon_dirty_ = true;
-}
-
-void DormantSubspace::append_generator(MaskView x, MaskView z) {
-    assert(dimension_ < num_qubits_ && "S is already Lagrangian; nothing can extend it");
-    std::ranges::copy(x.words, row_x(dimension_).words.begin());
-    std::ranges::copy(z.words, row_z(dimension_).words.begin());
-    ++dimension_;
-    echelon_dirty_ = true;
-}
-
-bool DormantSubspace::apply_rotation(MaskView x, MaskView z) {
-    const std::optional<uint32_t> pivot = find_anticommuting_generator(x, z);
-    if (!pivot.has_value()) {
-        return false;
-    }
-    intersect_with_pivot(x, z, *pivot);
     return true;
 }
 
+void DormantSubspace::reduce_into_scratch(MaskView x, MaskView z) const {
+    std::ranges::copy(x.words, scratch_x_.begin());
+    std::ranges::copy(z.words, scratch_z_.begin());
+    const uint32_t domain = combined_domain(words_per_row_);
+    MutableMaskView work_x{scratch_x_};
+    MutableMaskView work_z{scratch_z_};
+    // I3 makes this correct however the rows are ordered: reducing against
+    // row i only ever touches bit pivot_[i], and no other row has a set bit
+    // there, so visiting rows out of pivot order cannot reintroduce a bit an
+    // earlier step just cleared.
+    for (uint32_t i = 0; i < dimension_; ++i) {
+        if (combined_bit_get(work_x, work_z, domain, pivot_[i])) {
+            work_x.xor_with(row_x(i));
+            work_z.xor_with(row_z(i));
+        }
+    }
+}
+
+bool DormantSubspace::intersect(MaskView x, MaskView z) {
+    std::optional<uint32_t> pivot_row;
+    for (uint32_t i = 0; i < dimension_; ++i) {
+        const bool anticommutes = anti_commute(row_x(i), row_z(i), x, z);
+        anticommute_flags_[i] = anticommutes ? 1 : 0;
+        if (anticommutes && (!pivot_row.has_value() || pivot_[i] > pivot_[*pivot_row])) {
+            pivot_row = i;
+        }
+    }
+    if (!pivot_row.has_value()) {
+        return false;
+    }
+    const uint32_t k = *pivot_row;
+    for (uint32_t i = 0; i < dimension_; ++i) {
+        if (i != k && anticommute_flags_[i] != 0) {
+            row_x(i).xor_with(row_x(k));
+            row_z(i).xor_with(row_z(k));
+        }
+    }
+    const uint32_t last = dimension_ - 1;
+    if (k != last) {
+        std::ranges::copy(row_x(last).words, row_x(k).words.begin());
+        std::ranges::copy(row_z(last).words, row_z(k).words.begin());
+        pivot_[k] = pivot_[last];
+    }
+    --dimension_;
+    return true;
+}
+
+void DormantSubspace::insert_reduced(MaskView r_x, MaskView r_z) {
+    assert(dimension_ < num_qubits_ && "S is already Lagrangian; nothing can extend it");
+    const uint32_t domain = combined_domain(words_per_row_);
+    const uint32_t b = combined_lowest_bit(r_x, r_z, domain);
+    assert(b < 2 * domain && "insert_reduced requires a nonzero vector");
+    for (uint32_t i = 0; i < dimension_; ++i) {
+        if (combined_bit_get(row_x(i), row_z(i), domain, b)) {
+            row_x(i).xor_with(r_x);
+            row_z(i).xor_with(r_z);
+        }
+    }
+    std::ranges::copy(r_x.words, row_x(dimension_).words.begin());
+    std::ranges::copy(r_z.words, row_z(dimension_).words.begin());
+    pivot_[dimension_] = b;
+    ++dimension_;
+}
+
+bool DormantSubspace::apply_rotation(MaskView x, MaskView z) {
+    // intersect()'s own first pass is the anticommutation check: it reports
+    // false, without a second pass over the rows, exactly when none of them
+    // anticommutes with (x, z).
+    return intersect(x, z);
+}
+
 DormantSubspace::MeasurementEffect DormantSubspace::apply_measurement(MaskView x, MaskView z) {
-    const std::optional<uint32_t> pivot = find_anticommuting_generator(x, z);
-    if (pivot.has_value()) {
-        intersect_with_pivot(x, z, *pivot);
-        append_generator(x, z);
+    if (intersect(x, z)) {
+        // S shrank to S intersect p-perp, which cannot contain p (p
+        // anticommuted with a generator of the old S), so the reduced
+        // remainder is guaranteed nonzero and ready for insert_reduced.
+        reduce_into_scratch(x, z);
+        insert_reduced(MaskView{scratch_x_}, MaskView{scratch_z_});
         return MeasurementEffect::DormantRandom;
     }
-    if (contains(x, z)) {
+    reduce_into_scratch(x, z);
+    if (MaskView{scratch_x_}.is_zero() && MaskView{scratch_z_}.is_zero()) {
         return MeasurementEffect::Classical;
     }
-    append_generator(x, z);
+    insert_reduced(MaskView{scratch_x_}, MaskView{scratch_z_});
     return MeasurementEffect::Active;
 }
 
@@ -187,54 +191,11 @@ std::vector<PauliString> DormantSubspace::generators() const {
     return result;
 }
 
-std::optional<uint32_t> DormantSubspace::reduce_against_membership_cache(
-    MutableMaskView work_x, MutableMaskView work_z) const {
-    const uint32_t domain = combined_domain(words_per_row_);
-    for (uint32_t row = 0; row < echelon_dimension_; ++row) {
-        const uint32_t pivot = echelon_pivot_[row];
-        if (combined_bit_get(work_x, work_z, domain, pivot)) {
-            work_x.xor_with(echelon_row_x(row));
-            work_z.xor_with(echelon_row_z(row));
-        }
-    }
-    const uint32_t remainder = combined_lowest_bit(work_x, work_z, domain);
-    if (remainder >= 2 * domain) {
-        return std::nullopt;
-    }
-    return remainder;
-}
-
-void DormantSubspace::rebuild_membership_cache_if_dirty() const {
-    if (!echelon_dirty_) {
-        return;
-    }
-    echelon_dimension_ = 0;
-    for (uint32_t i = 0; i < dimension_; ++i) {
-        std::ranges::copy(row_x(i).words, echelon_row_x(echelon_dimension_).words.begin());
-        std::ranges::copy(row_z(i).words, echelon_row_z(echelon_dimension_).words.begin());
-        const std::optional<uint32_t> pivot = reduce_against_membership_cache(
-            echelon_row_x(echelon_dimension_), echelon_row_z(echelon_dimension_));
-        // The generator list is maintained as a basis by intersect_with_pivot
-        // and append_generator, so inserting an already-independent vector
-        // into the echelon form can never reduce it to zero.
-        assert(pivot.has_value() && "generator list was not linearly independent");
-        echelon_pivot_[echelon_dimension_] = pivot.value_or(0);
-        ++echelon_dimension_;
-    }
-    echelon_dirty_ = false;
-}
-
 bool DormantSubspace::contains(MaskView x, MaskView z) const {
     assert(x.num_words() == words_per_row_ && z.num_words() == words_per_row_ &&
            "Pauli body must share the subspace's word width");
-    rebuild_membership_cache_if_dirty();
-    // Reduce a scratch copy; the cached echelon rows stay put for reuse by
-    // later contains() calls.
-    std::ranges::copy(x.words, scratch_x_.begin());
-    std::ranges::copy(z.words, scratch_z_.begin());
-    const std::optional<uint32_t> remainder =
-        reduce_against_membership_cache(MutableMaskView{scratch_x_}, MutableMaskView{scratch_z_});
-    return !remainder.has_value();
+    reduce_into_scratch(x, z);
+    return MaskView{scratch_x_}.is_zero() && MaskView{scratch_z_}.is_zero();
 }
 
 WidthTransition classify_and_apply(const HirModule& hir, const HeisenbergOp& op,
