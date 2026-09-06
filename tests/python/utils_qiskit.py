@@ -8,12 +8,14 @@ Supported gates: H, S, S_DAG, T, T_DAG, X, Y, Z, CX, CY, CZ, CH, CCZ, CCX,
 M, MX, MY, R, RX, MR, MRX, R_X, R_Y, R_Z, U3, R_XX, R_YY, R_ZZ,
 R_PAULI.
 All rotation angles use half-turn units (alpha * pi = radians).
-Noise instructions and annotations (TICK, DETECTOR, etc.) are skipped.
+The legacy stim_to_qiskit converter skips noise and annotations. The noiseless
+oracle rejects nonunitary operations and unsupported syntax instead.
 """
 
 from __future__ import annotations
 
 import re
+from math import isfinite
 
 import numpy as np
 from qiskit import QuantumCircuit
@@ -76,9 +78,10 @@ def qiskit_statevector(qc: QuantumCircuit) -> np.ndarray:
 
 
 def stim_to_qiskit_noiseless(stim_text: str) -> QuantumCircuit:
-    """Convert a .stim circuit to Qiskit, stripping all measurements.
+    """Convert the supported unitary subset without dropping physical operations.
 
-    Useful for statevector comparison where measurements would collapse state.
+    Noise, measurements, resets, feedback, and unsupported syntax are errors:
+    silently removing them would make the oracle validate a different circuit.
 
     Args:
         stim_text: Circuit in .stim text format.
@@ -86,7 +89,7 @@ def stim_to_qiskit_noiseless(stim_text: str) -> QuantumCircuit:
     Returns:
         Qiskit QuantumCircuit with only unitary gates (no measurements).
     """
-    num_qubits = _find_num_qubits(stim_text)
+    num_qubits = _find_num_qubits(stim_text, unitary_only=True)
     qc = QuantumCircuit(num_qubits)
 
     for line in stim_text.strip().split("\n"):
@@ -94,15 +97,9 @@ def stim_to_qiskit_noiseless(stim_text: str) -> QuantumCircuit:
         if not line or line.startswith("#"):
             continue
 
-        gate, args, targets, pauli_targets = _parse_line(line)
+        gate, args, targets, pauli_targets = _parse_line(line, unitary_only=True)
         if gate is None:
             continue
-
-        if gate in ("M", "MX", "MY", "MR", "MRX", "MRY", "R", "RX", "RY"):
-            raise ValueError(
-                f"Gate '{gate}' not supported in noiseless statevector oracle. "
-                "Measurements and resets collapse state."
-            )
 
         _apply_gate(qc, gate, args, targets, pauli_targets, 0)
 
@@ -112,6 +109,18 @@ def stim_to_qiskit_noiseless(stim_text: str) -> QuantumCircuit:
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+# Target group size and parameter count for the exact unitary translator.
+# R_PAULI accepts one product instead of groups of integer qubit targets.
+_UNITARY_ARITIES = {
+    **dict.fromkeys(("H", "S", "S_DAG", "T", "T_DAG", "X", "Y", "Z"), (1, 0)),
+    **dict.fromkeys(("CX", "CY", "CZ", "CH"), (2, 0)),
+    **dict.fromkeys(("CCX", "CCZ"), (3, 0)),
+    **dict.fromkeys(("R_X", "R_Y", "R_Z"), (1, 1)),
+    **dict.fromkeys(("U3", "U"), (1, 3)),
+    **dict.fromkeys(("R_XX", "RXX", "R_YY", "RYY", "R_ZZ", "RZZ"), (2, 1)),
+    "R_PAULI": (0, 1),
+}
 
 # Gates that are annotations/noise and should be skipped
 _SKIP_GATES = frozenset(
@@ -153,6 +162,8 @@ _GATE_LINE_RE = re.compile(
 
 def _parse_line(
     line: str,
+    *,
+    unitary_only: bool = False,
 ) -> tuple[str | None, list[float], list[int], list[tuple[str, int]]]:
     """Parse a single stim line into (gate, args, qubit_targets, pauli_targets).
 
@@ -169,6 +180,8 @@ def _parse_line(
 
     m = _GATE_LINE_RE.match(line)
     if not m:
+        if unitary_only:
+            raise ValueError(f"Unsupported syntax in noiseless statevector oracle: {line}")
         return None, [], [], []
 
     gate = m.group(1).upper()
@@ -178,6 +191,28 @@ def _parse_line(
     args: list[float] = []
     if args_str:
         args = [float(x.strip()) for x in args_str.split(",")]
+
+    if unitary_only:
+        if gate == "TICK" and not args and not rest:
+            return None, [], [], []
+        if gate not in _UNITARY_ARITIES:
+            raise ValueError(f"Gate '{gate}' not supported in noiseless statevector oracle")
+        group_size, num_args = _UNITARY_ARITIES[gate]
+        if len(args) != num_args or not all(isfinite(arg) for arg in args):
+            raise ValueError(f"Invalid arguments in noiseless statevector oracle: {line}")
+        tokens = rest.split()
+        if group_size == 0:
+            if len(tokens) != 1 or not re.fullmatch(r"[XYZ]\d+(?:\*[XYZ]\d+)*", tokens[0]):
+                raise ValueError(f"Expected one Pauli product in noiseless oracle: {line}")
+            qubits = [int(q) for q in re.findall(r"[XYZ](\d+)", tokens[0])]
+            if len(set(qubits)) != len(qubits):
+                raise ValueError(f"Repeated qubit in noiseless Pauli oracle: {line}")
+        elif (
+            not tokens
+            or len(tokens) % group_size
+            or any(not re.fullmatch(r"\d+", token) for token in tokens)
+        ):
+            raise ValueError(f"Invalid targets in noiseless statevector oracle: {line}")
 
     if gate in _SKIP_GATES:
         return None, [], [], []
@@ -201,7 +236,7 @@ def _parse_line(
     return gate, args, targets, pauli_targets
 
 
-def _find_num_qubits(stim_text: str) -> int:
+def _find_num_qubits(stim_text: str, *, unitary_only: bool = False) -> int:
     """Find the number of qubits (max qubit index + 1).
 
     Returns at least 1 even for empty circuits to avoid creating a
@@ -212,7 +247,7 @@ def _find_num_qubits(stim_text: str) -> int:
         line = line.strip()
         if not line or line.startswith("#"):
             continue
-        gate, _, targets, pauli_targets = _parse_line(line)
+        gate, _, targets, pauli_targets = _parse_line(line, unitary_only=unitary_only)
         if gate is None:
             continue
         if targets:
@@ -316,8 +351,8 @@ def _apply_gate(
             clbit_idx += 1
     elif gate == "MX":
         # Stim MX semantics: H-measure-H preserves X-basis eigenstate.
-        # The post-measurement H is correct for matching Stim's state update,
-        # though stim_to_qiskit_noiseless() skips measurements entirely.
+        # The post-measurement H is correct for matching Stim's state update.
+        # The noiseless oracle rejects measurements instead.
         for q in targets:
             qc.h(q)
             qc.measure(q, clbit_idx)

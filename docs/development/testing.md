@@ -53,6 +53,115 @@ All procedural generators are centralized in [`utils_fuzzing.py`](https://github
 
 ## External Cross-Validation Oracles
 
+### Shared compiler conformance
+
+`tests/python/utils_conformance.py` defines the compiler profiles used by the
+Qiskit statevector suite and the small end-to-end corpus in
+`test_compiler_conformance.py`. Each profile constructs a fresh pass manager;
+the default profile calls the production factory rather than copying its pass
+list. The unoptimized profile disables HIR passes, not planning or executable
+preparation.
+
+The Qiskit suite keeps its existing circuits, seeds, and amplitude assertions
+and runs them under both profiles. The small corpus also compares every
+terminal measurement record's probability with Qiskit, then samples through
+single-shot, packed-capacity-65, and automatic CPU execution with one worker
+so host-dependent thread counts do not change the tested configuration. Sampling checks
+complete record distributions and checks detector and observable bits against
+the returned records. References are computed independently of Clifft and
+cached by source within each worker. Compiled sampling programs are reused
+across execution modes.
+
+A separate analytic case checks every output row exactly at 63, 64, 65, 66,
+129, 130, 131, and 2049 shots. Its 65 measurement columns contain nonzero bits
+on both sides of a word boundary, and its detector and observable rows differ.
+These checks detect unwritten final rows and incorrect output mappings that
+could be too small to affect a statistical histogram. They cover output
+boundaries; the non-Clifford corpus provides the active-state checks.
+
+Two designated circuits require the default pipeline to reduce peak active
+width. One needs peephole cancellation; the other needs squeezing. Disabling
+either pass must fail its witness even when all output probabilities remain
+correct. The mirror case has a known all-zero outcome, but its elimination
+does not count as evidence that later execution paths ran.
+
+The pass-inventory check requires every registered pass to have a witness or
+an explicit exclusion. The current exclusions remove noise or nonunitary
+operations, changing the expected behavior. Add an explicit compiler profile
+and an exercise witness when covering an opt-in pass. New cases then run
+across compatible shared profiles. A new semantic feature still needs cases
+that actually exercise it.
+
+The noiseless oracle accepts only its supported unitary syntax, comments, and
+`TICK`. It rejects noise, measurements, resets, feedback, other annotations,
+and unsupported syntax instead of silently changing the circuit. This corpus
+does not yet provide a noisy, mid-circuit joint-distribution reference or GPU
+execution coverage. GPU adapters must declare their supported operations and
+precision; absence of a required GPU should fail a hardware CI job rather
+than skip all execution tests.
+
+#### Runtime and review
+
+The adapter's configuration-forwarding test alone does not prove which native
+executor ran. The existing policy tests in `tests/test_batch_executor.cc`
+check automatic selection and explicit capacities. For a direct execution
+audit, build the Python extension with Debug symbols and run a designated
+case under a debugger, for example:
+
+```bash
+uv pip install --reinstall-package clifft -e . -Ccmake.build-type=Debug
+gdb --args .venv/bin/python -m pytest -q \
+  'tests/python/test_compiler_conformance.py::test_samples_and_annotations_match_independent_oracle[mixed-pauli-default-packed-65]'
+```
+
+Set pending breakpoints on `clifft::sampling::Executor::run_shot()` and
+`clifft::sampling::BatchExecutor::run_batch(clifft::SeedRoot const&, unsigned int, unsigned int)`.
+Run each compiler profile with `single-shot`, `packed-65`, and `automatic`.
+The single-shot configuration must enter the scalar executor; capacity 65
+must enter the packed executor. The current automatic policy chooses packed
+execution for this case at 8193 shots. Record what actually ran when that
+policy changes. This audit supplies execution evidence; the independent
+oracle assertions supply semantic evidence. It does not validate other
+platforms, GPU execution, or every automatic-selection branch.
+
+Keep the PR corpus bounded. Measure before/after timings with the same build,
+worker count, and host conditions, including cost across the CI matrix.
+`pytest --durations=20` helps locate expensive tests; timing assertions do not
+belong in semantic correctness tests. Larger random sweeps can run separately.
+Do not reduce statistical sensitivity merely to meet a time budget.
+
+When consolidating tests, map each old case, seed, oracle, assertion, and
+execution mode to its replacement before removing it. Keep distinct bug
+regressions and structural or resource-lifetime tests. Some overlap is useful;
+coverage of the same lines alone does not establish redundancy.
+
+Review the source of expected results, explicit configuration selection, and
+exercise witnesses alongside coverage reports. Committed negative controls
+remove each pass from the default factory, zero the last row of each boundary
+output, corrupt correlations, bias legal outcomes, and add an unaccounted pass.
+Run them with `pytest tests/python/test_compiler_conformance.py -k 'rejects or detects'`.
+These controls test whether assertions can detect defects; line or branch
+coverage only shows execution.
+
+#### Extending the corpus
+
+Each new pass, public sampling mode, or backend needs a compatible execution
+configuration, an independent expectation, and a designated case that proves
+its intended transformation or execution path occurs. Include a reproducible
+negative control for a representative defect and explain exclusions. Test
+interactions with the production pipeline, not only the feature in isolation.
+
+Keep the noisy reference bounded and independent of production HIR and plans.
+Validate its supported operations against analytic cases, Aer, or Stim as
+applicable. Stateful sampler call sequences, output formats, postselection
+accounting, and backend resource contracts need focused checks in addition to
+shared distribution checks. GPU hardware jobs must exercise each claimed
+execution tier with appropriate precision tolerances. Larger scheduled
+campaigns should retain the circuit, seed, configuration, and expected/actual
+results on failure so discoveries can become small permanent regressions.
+
+### Existing reference suites
+
 End-to-end Python tests compare Clifft against independent references whenever
 practical. These tests validate the full symbolic sampling pipeline rather
 than isolated implementation details.
