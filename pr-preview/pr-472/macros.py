@@ -128,17 +128,16 @@ def define_env(env: Any) -> None:
             "python_name": "ActiveWidthSchedulePass",
             "summary": "State-aware scheduling that minimizes peak active width, then dense work.",
             "detail": (
-                "Beam-searches the schedule-dependence trace class for an order that "
-                "minimizes peak active width first and a dense-work estimate second, "
-                "closing each partial schedule by executing every ready non-expanding "
-                "operation before choosing among the ready expanding rotations, then sinks "
-                "width-neutral rotations next to the following expansion. "
-                "It never leaves peak active width or the dense-work estimate worse than "
-                "its input, replacing the HIR only when it finds a strictly better "
-                "schedule, but is off by default because its compile-time cost is not yet "
-                "bounded to a small multiple of the rest of the pipeline on circuits with "
-                "many simultaneously ready non-Clifford rotations. "
-                "It must run last in a pipeline, after PeepholeFusionPass and "
+                "Searches legal reorderings of the HIR for one that lowers peak active "
+                "width first and an estimated dense-work cost second. "
+                "It accepts a new order when peak width falls, or when peak width is "
+                "unchanged and estimated dense work falls; otherwise the HIR is left "
+                "untouched. "
+                "The search is bounded by a deterministic work budget, by default about "
+                "sixteen traces of the circuit, so its cost stays predictable regardless of "
+                "circuit shape. "
+                "It is off by default while that default is validated on production "
+                "circuits, and must run last in a pipeline, after PeepholeFusionPass and "
                 "StatevectorSqueezePass, because a noise-transparent reorder leaves the "
                 "HIR in a shape PeepholeFusionPass will not fuse across."
             ),
