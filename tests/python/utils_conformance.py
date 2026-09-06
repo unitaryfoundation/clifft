@@ -33,7 +33,8 @@ class CpuSamplingMode:
     batch_size: int | str
 
     def sample(self, program: Any, shots: int, seed: int) -> Any:
-        return clifft.sample(program, shots, seed=seed, batch_size=self.batch_size)
+        # Host-dependent worker counts can change automatic batch selection.
+        return clifft.sample(program, shots, seed=seed, threads=1, batch_size=self.batch_size)
 
 
 CPU_SAMPLING_MODES = (

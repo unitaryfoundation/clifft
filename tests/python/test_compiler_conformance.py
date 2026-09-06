@@ -49,6 +49,15 @@ CASES = (
     ),
 )
 
+# Nonzero records on both sides of a word boundary expose unwritten output
+# tails that an aggregate statistical check could tolerate.
+BOUNDARY_SOURCE = (
+    "X 0 2 63 64\nM "
+    + " ".join(map(str, range(65)))
+    + "\nDETECTOR rec[-65] rec[-64]\nDETECTOR rec[-2] rec[-1]"
+    + "\nOBSERVABLE_INCLUDE(0) rec[-64]\nOBSERVABLE_INCLUDE(1) rec[-1]"
+)
+
 # These passes deliberately change the reference distribution; they need
 # their own contract tests instead of this original-circuit equivalence test.
 EXCLUDED_PASSES = {
@@ -111,6 +120,42 @@ def test_samples_and_annotations_match_independent_oracle(
     np.testing.assert_array_equal(result.observables, result.measurements[:, -1:])
 
 
+def _assert_boundary_outputs(result: clifft.SampleResult, shots: int) -> None:
+    expected_record = np.zeros(65, dtype=np.uint8)
+    expected_record[[0, 2, 63, 64]] = 1
+    np.testing.assert_array_equal(
+        result.measurements, np.broadcast_to(expected_record, (shots, 65))
+    )
+    np.testing.assert_array_equal(result.detectors, np.broadcast_to([1, 0], (shots, 2)))
+    np.testing.assert_array_equal(result.observables, np.broadcast_to([0, 1], (shots, 2)))
+
+
+@pytest.fixture(scope="module")
+def boundary_program(compiler: CompilerProfile) -> Any:
+    return compiler.compile(BOUNDARY_SOURCE)
+
+
+@pytest.mark.parametrize("mode", CPU_SAMPLING_MODES, ids=lambda mode: mode.name)
+@pytest.mark.parametrize("shots", [63, 64, 65, 66, 129, 130, 131, 2049])
+def test_deterministic_outputs_cross_word_and_batch_boundaries(
+    boundary_program: Any, mode: CpuSamplingMode, shots: int
+) -> None:
+    # The automatic policy currently uses 2048 lanes for this narrow plan;
+    # 2049 therefore checks its partial batch as well as capacity 65 tails.
+    result = mode.sample(boundary_program, shots, seed=1907)
+    _assert_boundary_outputs(result, shots)
+
+
+@pytest.mark.parametrize("output", ["measurements", "detectors", "observables"])
+def test_boundary_check_rejects_an_unwritten_final_row(output: str) -> None:
+    mode = next(mode for mode in CPU_SAMPLING_MODES if mode.name == "packed-65")
+    result = mode.sample(DEFAULT.compile(BOUNDARY_SOURCE), 131, seed=1907)
+    _assert_boundary_outputs(result, 131)
+    getattr(result, output)[-1] = 0
+    with pytest.raises(AssertionError):
+        _assert_boundary_outputs(result, 131)
+
+
 @pytest.mark.parametrize(
     "witness", [case for case in CASES if case.witness_for], ids=lambda c: c.name
 )
@@ -118,6 +163,28 @@ def test_default_pipeline_really_transforms_witness(witness: UnitaryCase) -> Non
     baseline = UNOPTIMIZED.compile(witness.measured_source)
     optimized = DEFAULT.compile(witness.measured_source)
     assert optimized.peak_active_width < baseline.peak_active_width, witness.witness_for
+
+
+@pytest.mark.parametrize(
+    "witness", [case for case in CASES if case.witness_for], ids=lambda c: c.name
+)
+def test_pass_witness_rejects_a_missing_transformation(
+    witness: UnitaryCase, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    remaining_pass = (
+        clifft.StatevectorSqueezePass
+        if witness.witness_for == "PeepholeFusionPass"
+        else clifft.PeepholeFusionPass
+    )
+
+    def remaining_pipeline() -> Any:
+        manager = clifft.HirPassManager()
+        manager.add(remaining_pass())
+        return manager
+
+    monkeypatch.setattr(clifft, "default_hir_pass_manager", remaining_pipeline)
+    with pytest.raises(AssertionError, match=witness.witness_for):
+        test_default_pipeline_really_transforms_witness(witness)
 
 
 def _assert_pass_inventory(registry: dict[str, dict[str, object]]) -> None:
@@ -151,6 +218,15 @@ def test_joint_check_detects_wrong_correlations_with_correct_marginals() -> None
     assert_joint_distribution(correlated, [0.5, 0, 0, 0.5])
     with pytest.raises(AssertionError):
         assert_joint_distribution(anticorrelated, [0.5, 0, 0, 0.5])
+
+
+def test_joint_check_detects_bias_without_impossible_outcomes() -> None:
+    # Both outcomes are legal, so this must fail the statistical bound rather
+    # than the exact-zero support check used by the correlation control.
+    biased = np.zeros((8192, 1), dtype=np.uint8)
+    biased[:2048] = 1
+    with pytest.raises(AssertionError, match="Joint distribution differs"):
+        assert_joint_distribution(biased, [0.5, 0.5])
 
 
 @pytest.mark.parametrize(
@@ -227,4 +303,4 @@ def test_sampling_mode_forwards_its_configuration(
     program = object()
     monkeypatch.setattr(clifft, "sample", lambda *args, **kwargs: calls.append((args, kwargs)))
     mode.sample(program, 8193, 1907)
-    assert calls == [((program, 8193), {"seed": 1907, "batch_size": mode.batch_size})]
+    assert calls == [((program, 8193), {"seed": 1907, "threads": 1, "batch_size": mode.batch_size})]
