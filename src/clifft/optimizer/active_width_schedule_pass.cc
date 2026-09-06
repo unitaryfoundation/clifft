@@ -536,8 +536,21 @@ struct ScoredCandidate {
 // finding out a candidate is worth discarding, not just the work spent on
 // eventual survivors. `parent` is
 // left exactly as found on return.
+//
+// `candidate_budget_ops`, when set, is the second, higher threshold
+// run_beam_search computes (the full *search_budget * hir.ops.size(), where
+// the beam-narrowing threshold it checks between parents is only half of
+// that -- see run_beam_search's comment for why the two differ). Once a
+// scored candidate pushes swept_ops past it, the remaining ready expanding
+// ops of this parent are left unscored: ready_ops_snapshot visits ops in
+// ascending index, so the candidate that crosses the threshold is always
+// the lowest-index one still unscored, and every later step of a search
+// this far over budget scores only that one candidate too, since the
+// count only grows from here.
 std::vector<ScoredCandidate> score_candidates(const HirModule& hir, BeamState& parent,
-                                              uint32_t parent_index, size_t& swept_ops) {
+                                              uint32_t parent_index,
+                                              std::optional<double> candidate_budget_ops,
+                                              size_t& swept_ops) {
     std::vector<ScoredCandidate> scored;
     for (uint32_t op : ready_ops_snapshot(parent.frontier)) {
         if (!is_expanding(hir, hir.ops[op], parent.subspace)) {
@@ -574,6 +587,10 @@ std::vector<ScoredCandidate> score_candidates(const HirModule& hir, BeamState& p
 
         undo_all(parent.frontier, log, newly_ready_log);
         scored.push_back(std::move(candidate));
+
+        if (candidate_budget_ops && static_cast<double>(swept_ops) > *candidate_budget_ops) {
+            break;
+        }
     }
     return scored;
 }
@@ -760,21 +777,48 @@ void append_pareto_front(const std::vector<BeamState>& beam,
 // counted in swept_ops (see run_closure, score_candidates, and
 // materialize_candidate) rather than wall-clock time, so the point at which
 // the search narrows is the same on every machine and a compiled plan is
-// reproducible. Two places narrow the search once swept_ops exceeds
-// *search_budget * hir.ops.size() (an empty search_budget never narrows).
-// Inside the scoring loop, the remaining lower-ranked parents are dropped
-// unscored as soon as the count is over budget (beam is always in ranked
-// order, since next_beam is filled from the ranked deduped list, so the
-// parents dropped are the weakest); the cut
-// after that generation then keeps a single survivor, and every later step
-// therefore scores one parent and keeps one. Checking between parents
-// rather than between steps matters on a wide beam: one wide generation can
-// cost as much as the whole budget, so a check that waited for the step to
-// finish would let the overshoot equal that whole generation, where checking
-// before each parent bounds it to one parent's candidate sweeps plus one
-// survivor's replay. Narrowing rather than aborting outright keeps every
-// guarantee this function already gives: every order the search can still
-// produce is a legal linear extension of `dependence`, and
+// reproducible. It backs two graduated, independently-triggered responses,
+// both checked against the same running swept_ops count:
+//
+//   1. Beam narrowing, at half the budget (swept_ops exceeds
+//      parent_budget_ops == 0.5 * *search_budget * hir.ops.size()). Inside
+//      the scoring loop below, the remaining lower-ranked parents are
+//      dropped unscored as soon as the count is over this threshold (beam
+//      is always in ranked order, since next_beam is filled from the
+//      ranked deduped list, so the parents dropped are the weakest), and
+//      the cut after the generation keeps a single survivor from then on.
+//   2. Candidate narrowing, at the full budget (swept_ops exceeds
+//      candidate_budget_ops == *search_budget * hir.ops.size(), twice the
+//      first threshold). Inside score_candidates itself, the remaining
+//      ready expanding ops of whichever parent is being scored when the
+//      count crosses this threshold are left unscored, so every later step
+//      of an already-narrowed, already-over-this-threshold search scores
+//      only its one surviving parent's lowest-index ready candidate.
+//
+// Splitting the single search_budget into two thresholds this way lets the
+// beam narrow to its cheapest useful shape (one parent) well before that
+// surviving parent's own candidates stop being compared to each other, so
+// a circuit whose ready-candidate count per step stays small keeps
+// exploring properly-ranked choices for the second half of the budget too
+// -- which is what keeps this search's schedule quality close to an
+// unbounded search's on such circuits. Candidate narrowing is the
+// backstop for circuits where that count does not stay small: without it,
+// a single surviving parent with many simultaneously ready, mutually
+// independent expanding rotations would still re-score all of them at
+// every remaining step, making the remaining cost grow with the square of
+// that count instead of staying linear in it. Checking before each parent
+// and before each candidate, rather than only between steps or only once a
+// whole generation finishes, also bounds the worst-case overshoot past
+// either threshold to one parent's or one candidate's own sweep, instead
+// of an entire generation's cost. Altogether, total cost stays near the
+// full budget itself plus about four traces of the circuit: one for the
+// unconditional initial closure before the loop starts, one for the
+// candidate whose scoring first crosses candidate_budget_ops (its own
+// sweep still runs to completion before either check can fire), and one
+// more each for the sweep and the replay every remaining single-beam step
+// performs. Narrowing rather than aborting outright keeps every guarantee
+// this function already gives: every order the search can still produce
+// is a legal linear extension of `dependence`, and
 // ActiveWidthSchedulePass::run's incumbent comparison still applies to
 // whatever this returns, so a narrowed search can only give up some of the
 // wide beam's improvement over the incumbent, never regress past it.
@@ -783,9 +827,11 @@ std::vector<uint32_t> run_beam_search(const HirModule& hir,
                                       uint32_t beam_width, std::optional<double> search_budget,
                                       size_t& swept_ops) {
     swept_ops = 0;
-    const std::optional<double> budget_ops =
+    const std::optional<double> candidate_budget_ops =
         search_budget ? std::optional<double>(*search_budget * static_cast<double>(hir.ops.size()))
                       : std::nullopt;
+    const std::optional<double> parent_budget_ops =
+        candidate_budget_ops ? std::optional<double>(0.5 * *candidate_budget_ops) : std::nullopt;
 
     std::vector<BeamState> beam;
     beam.push_back(make_initial_beam_state(hir, dependence, swept_ops));
@@ -795,15 +841,17 @@ std::vector<uint32_t> run_beam_search(const HirModule& hir,
         std::vector<ScoredCandidate> generation;
         std::vector<bool> parent_has_candidates(beam.size(), false);
         for (uint32_t i = 0; i < beam.size(); ++i) {
-            if (i > 0 && budget_ops && static_cast<double>(swept_ops) > *budget_ops) {
-                // Over budget: drop the remaining parents unscored, so the
-                // loop below does not mistake them for completed states.
-                // erase(), not resize(): BeamState has no default constructor.
+            if (i > 0 && parent_budget_ops && static_cast<double>(swept_ops) > *parent_budget_ops) {
+                // Over the beam-narrowing threshold: drop the remaining
+                // parents unscored, so the loop below does not mistake them
+                // for completed states. erase(), not resize(): BeamState
+                // has no default constructor.
                 beam.erase(beam.begin() + i, beam.end());
                 parent_has_candidates.resize(beam.size());
                 break;
             }
-            std::vector<ScoredCandidate> scored = score_candidates(hir, beam[i], i, swept_ops);
+            std::vector<ScoredCandidate> scored =
+                score_candidates(hir, beam[i], i, candidate_budget_ops, swept_ops);
             if (!scored.empty()) {
                 parent_has_candidates[i] = true;
                 for (ScoredCandidate& candidate : scored) {
@@ -880,7 +928,8 @@ std::vector<uint32_t> run_beam_search(const HirModule& hir,
 
         std::vector<BeamState> next_beam;
         const size_t width =
-            budget_ops && static_cast<double>(swept_ops) > *budget_ops ? 1 : beam_width;
+            parent_budget_ops && static_cast<double>(swept_ops) > *parent_budget_ops ? 1
+                                                                                     : beam_width;
         next_beam.reserve(std::min<size_t>(deduped.size(), width));
         for (size_t i = 0; i < deduped.size() && i < width; ++i) {
             next_beam.push_back(materialize_candidate(hir, beam, deduped[i], swept_ops));

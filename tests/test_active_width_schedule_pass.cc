@@ -65,6 +65,25 @@ HirModule run_peephole_squeeze_schedule(const HirModule& source, ActiveWidthSche
     return hir;
 }
 
+// Source for `num_blocks` mutually independent single-qubit blocks, one per
+// qubit: no block's ops share a qubit with any other block's, so no
+// dependence edge ever links a rotation in one block to a rotation in
+// another. After PeepholeFusionPass fuses each block's H, T, H into one
+// rotation and StatevectorSqueezePass moves its measurement in, every
+// block's rotation is simultaneously ready to fire the moment the search
+// starts, which is exactly the shape score_candidates' own per-parent
+// candidate list has to stay cheap on.
+std::string block_circuit_source(uint32_t num_blocks) {
+    std::string source;
+    for (uint32_t q = 0; q < num_blocks; ++q) {
+        source += "H " + std::to_string(q) + "\n";
+        source += "T " + std::to_string(q) + "\n";
+        source += "H " + std::to_string(q) + "\n";
+        source += "M " + std::to_string(q) + "\n";
+    }
+    return source;
+}
+
 bool ops_equal(const HirModule& a, const HeisenbergOp& op_a, const HirModule& b,
                const HeisenbergOp& op_b) {
     if (op_a.op_type() != op_b.op_type() || op_a.flags() != op_b.flags() ||
@@ -327,31 +346,26 @@ TEST_CASE("Schedule pass rejects a non-finite search budget", "[schedule_pass]")
 // Search budget
 // ---------------------------------------------------------------------------
 
-// A budget of 0 crosses *search_budget * hir.ops.size() (== 0) the moment
-// the first candidate is scored, so run_beam_search narrows to width 1
-// before the very first beam cut -- the same width the beam ever has for
-// the rest of the search, since it starts at 1 too. The two configurations
-// therefore walk through the exact same sequence of parents and candidates
-// and must produce byte-for-byte the same scheduled HIR.
-TEST_CASE("A zero search budget matches beam width one exactly on coherent_d3_r3",
-          "[schedule_pass]") {
+// A budget of 0 crosses both parent_budget_ops and candidate_budget_ops
+// (each 0) the moment the first op is swept, so every step for the rest of
+// the search takes only its single surviving parent's lowest-index ready
+// expanding op, with no comparison against any other ready candidate. The
+// cost is then just the unconditional initial closure plus one closure
+// sweep and one materialize_candidate replay per remaining step, which
+// sums to about three traces of the circuit.
+TEST_CASE("A zero search budget sweeps at most three traces on coherent_d3_r3", "[schedule_pass]") {
     const Circuit circuit =
         clifft::parse_file(std::string(CLIFFT_FIXTURES_DIR) + "/coherent_d3_r3.stim");
     const HirModule raw = clifft::trace(circuit);
-
-    ActiveWidthScheduleOptions greedy_options;
-    greedy_options.beam_width = 1;
-    ActiveWidthSchedulePass greedy_pass(greedy_options);
-    const HirModule greedy_hir = run_peephole_squeeze_schedule(raw, greedy_pass);
 
     ActiveWidthScheduleOptions budget_options;
     budget_options.search_budget = 0.0;
     ActiveWidthSchedulePass budget_pass(budget_options);
     const HirModule budget_hir = run_peephole_squeeze_schedule(raw, budget_pass);
 
-    REQUIRE(hir_unchanged(greedy_hir, budget_hir));
-    REQUIRE(greedy_pass.result_peak() == budget_pass.result_peak());
-    REQUIRE(greedy_pass.result_dense_work() == budget_pass.result_dense_work());
+    INFO("swept_ops=" << budget_pass.swept_ops() << " ops=" << budget_hir.ops.size());
+    REQUIRE(budget_pass.swept_ops() <= 3 * budget_hir.ops.size());
+    REQUIRE(budget_pass.result_peak() <= budget_pass.incumbent_peak());
 }
 
 // The default budget is small enough to narrow the beam on this fixture,
@@ -423,6 +437,37 @@ TEST_CASE("Schedule pass reports swept ops through the search", "[schedule_pass]
 
         REQUIRE(budget_pass.swept_ops() <= unbounded_pass.swept_ops());
     }
+}
+
+// score_candidates used to keep scoring every ready expanding op of a
+// parent regardless of the running swept-op count, so once the beam
+// narrowed to a single surviving parent, a fixture with many mutually
+// independent expanding rotations paid for rescoring nearly all of them at
+// every remaining step: quadratic in the count of such rotations. Doubling
+// k from 128 to 256 exercises that directly: block_circuit_source's blocks
+// share no dependence edges, so all k rotations become ready together, and
+// a quadratic cost would roughly quadruple between those two points instead
+// of at most tripling.
+TEST_CASE("Search budget bounds cost linearly across many independent expanding rotations",
+          "[schedule_pass]") {
+    std::vector<size_t> swept_by_k;
+    for (uint32_t k : {64u, 128u, 256u}) {
+        const HirModule raw = clifft::trace(clifft::parse(block_circuit_source(k)));
+        ActiveWidthSchedulePass pass;  // default options, including the default search budget.
+        const HirModule scheduled = run_peephole_squeeze_schedule(raw, pass);
+
+        INFO("k=" << k << " ops=" << scheduled.ops.size() << " swept_ops=" << pass.swept_ops());
+        // 20x, not the budget's own 16x: about four traces of slack for
+        // the unconditional initial closure, the candidate whose scoring
+        // first crosses candidate_budget_ops, and the sweep-and-replay pair
+        // every remaining single-beam step performs (see run_beam_search's
+        // budget comment).
+        REQUIRE(pass.swept_ops() <= 20 * scheduled.ops.size());
+        REQUIRE(pass.result_peak() <= pass.incumbent_peak());
+        swept_by_k.push_back(pass.swept_ops());
+    }
+
+    REQUIRE(swept_by_k[2] <= 3 * swept_by_k[1]);
 }
 
 // ---------------------------------------------------------------------------

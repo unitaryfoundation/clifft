@@ -86,38 +86,51 @@ struct ActiveWidthScheduleOptions {
     // beam to keep, so the constructor rejects it.
     uint32_t beam_width = 8;
 
-    // Work the beam search may spend before narrowing to width 1, in units
-    // of ops executed through closure sweeps per op in the HIR (so 8 means
-    // about eight full replays of the circuit). Counted in swept ops rather
-    // than wall-clock time so a compiled plan does not depend on the machine
-    // that compiled it: the beam-search cost is circuit-shape dependent, and
-    // a wall-clock cutoff would make the schedule (and therefore the plan)
-    // vary run to run. Once the running count exceeds
-    // *search_budget * hir.ops.size(), the beam narrows to width 1 for
-    // every remaining step and finishes greedily; the result is still a
-    // legal schedule, and the never-worse guard in run() still applies, so
-    // narrowing can only give up some of the beam search's improvement over
-    // the incumbent, never regress past it. No bound is expressed by
-    // leaving this empty (std::nullopt), never by an infinite double: this
-    // project builds with -ffast-math, under which a non-finite sentinel
-    // like infinity is not reliably comparable (see detail::
-    // is_finite_non_negative above), so an empty optional is the only value
-    // that reliably means "unbounded" here. An empty budget leaves this
-    // pass's behavior unchanged: the search always runs to completion at
-    // the full beam_width.
+    // Work the beam search may spend, in units of ops executed through
+    // closure sweeps per op in the HIR (so 16 means about sixteen full
+    // replays of the circuit). Counted in swept ops rather than wall-clock
+    // time so a compiled plan does not depend on the machine that compiled
+    // it: the beam-search cost is circuit-shape dependent, and a
+    // wall-clock cutoff would make the schedule (and therefore the plan)
+    // vary run to run.
     //
-    // The default, 8, comes from measuring the unbounded search against
-    // narrower budgets over a varied circuit corpus: every budget of 2 or
-    // more reached the unbounded search's own peak on every circuit
-    // measured, 8 was the smallest budget that also kept every dense-work
-    // gain the unbounded search found, and the unbounded search's own cost
-    // varied enormously by circuit shape, while a budget of 8 kept every
-    // measured circuit to a small, comparable multiple of that cost.
-    // Revisit this default if a production circuit's shape falls outside
-    // what was measured.
+    // This one budget backs two graduated responses, both measured against
+    // the same running swept-op count and both implemented in
+    // run_beam_search (see its own comment for the exact mechanics). Once
+    // the count exceeds half of *search_budget * hir.ops.size(), the beam
+    // narrows to a single surviving parent for every remaining step. Once
+    // it exceeds the full *search_budget * hir.ops.size(), that surviving
+    // parent also stops comparing its own ready expanding rotations and
+    // simply takes the lowest-index one at every further step. Narrowing
+    // the beam first, while still letting the single survivor's candidates
+    // compete fairly for a while longer, keeps the search's quality close
+    // to an unbounded one on circuits where a handful of ready rotations
+    // recur at every step, while the second, blunter response bounds the
+    // cost even on circuits where that count itself grows with the circuit
+    // size. The result is still a legal schedule, and the never-worse
+    // guard in run() still applies, so narrowing can only give up some of
+    // the beam search's improvement over the incumbent, never regress past
+    // it. No bound is expressed by leaving this empty (std::nullopt),
+    // never by an infinite double: this project builds with -ffast-math,
+    // under which a non-finite sentinel like infinity is not reliably
+    // comparable (see detail::is_finite_non_negative above), so an empty
+    // optional is the only value that reliably means "unbounded" here. An
+    // empty budget leaves this pass's behavior unchanged: the search
+    // always runs to completion at the full beam_width.
+    //
+    // The default, 16, comes from measuring the unbounded search against
+    // narrower budgets over a varied circuit corpus: every budget of 8 or
+    // more (a beam-narrowing threshold of 4 traces or more) reached the
+    // unbounded search's own peak on every circuit measured, and 16 (a
+    // beam-narrowing threshold of 8 traces) was the smallest that also
+    // kept every dense-work gain the unbounded search found. The unbounded
+    // search's own cost varied enormously by circuit shape, while a budget
+    // of 16 kept every measured circuit to a small, comparable multiple of
+    // that cost. Revisit this default if a production circuit's shape
+    // falls outside what was measured.
     //
     // The constructor rejects a negative or non-finite value.
-    std::optional<double> search_budget = 8.0;
+    std::optional<double> search_budget = 16.0;
 
     // Whether to bubble width-neutral rotations rightward past independent
     // non-expanding ops after scheduling, clustering them just before the
