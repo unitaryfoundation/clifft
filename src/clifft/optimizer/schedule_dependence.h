@@ -77,8 +77,8 @@
 // can skip every earlier op already known to be j's ancestor and only call
 // allowed() on the rest. That makes the scan O(n^2 / 64) word operations to
 // find the untested candidates, plus one allowed() call per pair not yet
-// implied -- far short of the full O(N^2) pairwise scan an earlier version
-// of this file ran, and it records far fewer edges on the same input.
+// implied -- far short of checking every pair directly with a full O(N^2)
+// pairwise scan, and it records far fewer edges on the same input.
 // ScheduleDependenceOptions::ancestor_cache_bytes bounds how much of that
 // bitset history build() keeps at once, so memory stays fixed instead of
 // growing with N; see that option's comment for what a smaller budget

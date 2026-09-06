@@ -105,23 +105,23 @@ struct UndoStep {
 // revisit, never which op that scan returns. Without the tightening,
 // mark_not_ready's one-step bump is the only thing that ever advances the
 // hint, so after a long run of executed ops above it, lowest_ready's and
-// ready_ops_snapshot's ascending scans would re-walk the same stale
-// not-ready prefix on every call.
+// ready_ops_snapshot's ascending scans would rescan that same stale
+// not-ready prefix from scratch on every call.
 //
 // The frontier also memoizes, for the closure sweep in progress, which
 // ready ops is_expanding has already found expanding, as a second bitset
-// (known_expanding_bits_) rather than a generation-stamped array: a rotation
-// that anticommutes with some element of S keeps anticommuting with it while
-// S only grows or stays put, since the new span contains the old one.
-// Inside a sweep every executed op is non-expanding, and of the effects such
-// an op can have only MeasureDormantRandom shrinks S; RotationPromote and
-// InstrumentActivate shrink it too, but they are expanding, so they run only
-// just before a sweep starts. run_closure therefore calls
-// reset_expanding_memo() on entry and after every MeasureDormantRandom step,
-// clearing known_expanding_bits_ with std::ranges::fill -- O(n/64) words,
-// far cheaper than the O(n) walk it replaces -- and resets happen once per
+// (known_expanding_bits_): a rotation that anticommutes with some element
+// of S keeps anticommuting with it while S only grows or stays put, since
+// the new span contains the old one. Inside a sweep every executed op is
+// non-expanding, and of the effects such an op can have only
+// MeasureDormantRandom shrinks S; RotationPromote and InstrumentActivate
+// shrink it too, but they are expanding, so they run only just before a
+// sweep starts. run_closure therefore calls reset_expanding_memo() on entry
+// and after every MeasureDormantRandom step, clearing known_expanding_bits_
+// with std::ranges::fill -- O(n/64) words -- and resets happen once per
 // sweep entry and once per MeasureDormantRandom step, not once per closure
-// step, so the clear is cheap relative to what it replaces.
+// step, so the total clearing cost stays small next to the sweep it
+// supports.
 //
 // candidate_hint_ is a lower bound on the smallest index that is ready and
 // not known-expanding, maintained the same way lowest_ready_hint_ is:
@@ -133,7 +133,7 @@ struct UndoStep {
 // the hint's word, so a caller walking successive candidates within one
 // sweep pays for the words it skips, not the ops: a sweep over n ops with k
 // memo resets costs O(n/64 * (1 + k)) word operations plus the is_expanding
-// calls it genuinely needs, instead of O(n * distance) op-at-a-time steps.
+// calls it genuinely needs.
 class SearchFrontier {
   public:
     explicit SearchFrontier(const detail::ScheduleDependence& dependence);
@@ -159,8 +159,8 @@ class SearchFrontier {
     // Lowest-index op that is ready and not known-expanding, or nullopt if
     // none remains, tightening candidate_hint_ to the exact result (or
     // num_ops() when nullopt) the same way lowest_ready() tightens its own
-    // hint. See the class comment above for the word-at-a-time scan this
-    // replaces a one-op-at-a-time walk with.
+    // hint. See the class comment above for why the word-at-a-time scan
+    // behind this stays cheap.
     [[nodiscard]] std::optional<uint32_t> first_candidate();
 
     [[nodiscard]] const std::vector<uint64_t>& executed_bits() const { return executed_; }
@@ -609,9 +609,8 @@ BeamState materialize_candidate(const HirModule& hir, const std::vector<BeamStat
     state.order.reserve(state.order.size() + candidate.ops.size());
 
     // This replay never backtracks, so the newly-ready ops execute() reports
-    // are never read; one scratch vector reused for the whole loop avoids
-    // both a fresh allocation per op and the earlier per-call
-    // std::vector<uint32_t> return this replaced.
+    // are never read; one scratch vector reused for the whole loop avoids a
+    // fresh allocation for every op's execute() call.
     std::vector<uint32_t> discarded_newly_ready;
     for (uint32_t op : candidate.ops) {
         state.frontier.execute(op, discarded_newly_ready);
