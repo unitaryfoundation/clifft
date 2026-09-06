@@ -20,6 +20,7 @@ import clifft
 pm = clifft.HirPassManager()
 pm.add(clifft.PeepholeFusionPass())
 pm.add(clifft.StatevectorSqueezePass())
+pm.add(clifft.ActiveWidthSchedulePass())
 ```
 
 Optimization passes end at the HIR boundary; `SamplingPlan` is not a second
