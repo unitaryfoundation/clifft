@@ -260,12 +260,6 @@ struct ActiveWidthTrace {
 
 namespace detail {
 
-// Reconstructs `op`'s Pauli body directly from HIR-frame masks. Shared by
-// classify_and_apply and by every scheduler that replays ops against a
-// DormantSubspace one at a time, so they all read the same bits the same
-// way rather than keeping independent copies in sync by hand.
-[[nodiscard]] PauliString pauli_body(const HirModule& hir, const HeisenbergOp& op);
-
 // Per-transition contribution to estimate_dense_work's planning proxy: 2^w
 // for the width w the dense state has when the transition's action runs, or
 // 0 for an action that never touches the dense state. See

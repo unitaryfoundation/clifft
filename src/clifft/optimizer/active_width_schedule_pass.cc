@@ -154,9 +154,6 @@ class SearchFrontier {
     // Expanding memo for the closure sweep in progress; see the class
     // comment for why a hit is exact and when it must be reset.
     void reset_expanding_memo();
-    [[nodiscard]] bool known_expanding(uint32_t op) const {
-        return (known_expanding_bits_[op / 64] & (uint64_t{1} << (op % 64))) != 0;
-    }
     void note_expanding(uint32_t op);
 
     // Lowest-index op that is ready and not known-expanding, or nullopt if
@@ -443,10 +440,6 @@ void absorb_transitions(uint32_t& peak, double& dense_work,
     }
 }
 
-void absorb_closure_transitions(BeamState& state, const std::vector<WidthTransition>& transitions) {
-    absorb_transitions(state.peak, state.dense_work, transitions);
-}
-
 BeamState make_initial_beam_state(const HirModule& hir,
                                   const detail::ScheduleDependence& dependence, size_t& swept_ops) {
     BeamState state(SearchFrontier(dependence), DormantSubspace(hir.num_qubits));
@@ -455,7 +448,7 @@ BeamState make_initial_beam_state(const HirModule& hir,
     std::vector<WidthTransition> transitions;
     run_closure(hir, state.frontier, state.subspace, state.order, discarded_log,
                 discarded_newly_ready, swept_ops, &transitions);
-    absorb_closure_transitions(state, transitions);
+    absorb_transitions(state.peak, state.dense_work, transitions);
     return state;
 }
 
@@ -641,34 +634,20 @@ BeamState materialize_candidate(const HirModule& hir, const std::vector<BeamStat
     return state;
 }
 
-// Among completed (fully executed) beam states, the one with the smallest
-// (peak, dense_work), tied by comparing the executed order itself so the
-// choice is fully deterministic even when two structurally different
-// schedules happen to cost exactly the same.
-const BeamState* pick_best_completed(const std::vector<BeamState>& completed) {
-    const BeamState* best = nullptr;
-    for (const BeamState& state : completed) {
-        if (best == nullptr) {
-            best = &state;
-            continue;
-        }
-        if (state.peak != best->peak) {
-            if (state.peak < best->peak) {
-                best = &state;
-            }
-            continue;
-        }
-        if (state.dense_work != best->dense_work) {
-            if (state.dense_work < best->dense_work) {
-                best = &state;
-            }
-            continue;
-        }
-        if (state.order < best->order) {
-            best = &state;
-        }
+// True when `candidate`, a completed (fully executed) beam state, beats
+// `incumbent` on the pass's own objective: lower peak wins outright, a
+// peak tie goes to lower dense work, and a tie on both falls back to
+// comparing the executed order itself so the pick stays fully
+// deterministic even when two structurally different schedules cost
+// exactly the same.
+bool completed_beats(const BeamState& candidate, const BeamState& incumbent) {
+    if (candidate.peak != incumbent.peak) {
+        return candidate.peak < incumbent.peak;
     }
-    return best;
+    if (candidate.dense_work != incumbent.dense_work) {
+        return candidate.dense_work < incumbent.dense_work;
+    }
+    return candidate.order < incumbent.order;
 }
 
 // True when candidate a's complete prospective order -- its parent's
@@ -836,7 +815,7 @@ std::vector<uint32_t> run_beam_search(const HirModule& hir,
     std::vector<BeamState> beam;
     beam.push_back(make_initial_beam_state(hir, dependence, swept_ops));
 
-    std::vector<BeamState> completed;
+    std::optional<BeamState> best;
     while (!beam.empty()) {
         std::vector<ScoredCandidate> generation;
         std::vector<bool> parent_has_candidates(beam.size(), false);
@@ -870,7 +849,9 @@ std::vector<uint32_t> run_beam_search(const HirModule& hir,
             // the confluence invariant above).
             assert(beam[i].frontier.executed_count() == dependence.num_ops() &&
                    "a closed beam state with no ready expanding op must have executed every op");
-            completed.push_back(std::move(beam[i]));
+            if (!best || completed_beats(beam[i], *best)) {
+                best = std::move(beam[i]);
+            }
         }
 
         if (generation.empty()) {
@@ -937,8 +918,7 @@ std::vector<uint32_t> run_beam_search(const HirModule& hir,
         beam = std::move(next_beam);
     }
 
-    const BeamState* best = pick_best_completed(completed);
-    assert(best != nullptr &&
+    assert(best.has_value() &&
            "beam_width >= 1 (the constructor rejects 0) guarantees at least one completed state");
     return best->order;
 }

@@ -738,20 +738,12 @@ NB_MODULE(_clifft_core, m) {
             "__init__",
             [](clifft::ActiveWidthSchedulePass* self, bool noise_transparent, uint32_t beam_width,
                std::optional<double> search_budget, bool sink_neutral_rotations) {
-                if (beam_width == 0) {
-                    throw std::invalid_argument("beam_width must be positive");
-                }
-                // Bit-level check, not std::isnan/std::isinf or a plain
-                // comparison: Release builds use -ffast-math, under which
-                // the compiler may assume no double is ever non-finite and
-                // fold those checks away. See
-                // clifft::detail::is_finite_non_negative for the same
-                // rationale on the C++ side.
-                if (search_budget && !clifft::detail::is_finite_non_negative(*search_budget)) {
-                    throw std::invalid_argument(
-                        "search_budget must be a finite, non-negative "
-                        "value");
-                }
+                // No validation here: the C++ constructor rejects a zero
+                // beam_width or a negative/non-finite search_budget with
+                // std::invalid_argument, which nanobind's default exception
+                // translator turns into a Python ValueError, so duplicating
+                // that check on this side would only be able to drift out
+                // of sync with it.
                 clifft::ActiveWidthScheduleOptions options;
                 options.noise_transparent = noise_transparent;
                 options.beam_width = beam_width;

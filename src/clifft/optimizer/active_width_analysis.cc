@@ -12,13 +12,6 @@ namespace clifft {
 
 namespace detail {
 
-PauliString pauli_body(const HirModule& hir, const HeisenbergOp& op) {
-    PauliString result(hir.num_qubits);
-    result.mut_x().xor_with(hir.destab_mask(op));
-    result.mut_z().xor_with(hir.stab_mask(op));
-    return result;
-}
-
 double dense_work_contribution(WidthEffect effect, uint32_t before, uint32_t after) {
     switch (effect) {
         case WidthEffect::RotationNeutral:

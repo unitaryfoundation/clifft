@@ -39,8 +39,8 @@
 
 #include "clifft/frontend/hir.h"
 #include "clifft/optimizer/hir_pass.h"
+#include "clifft/util/numeric.h"
 
-#include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -50,24 +50,26 @@ namespace clifft {
 namespace detail {
 
 // True for a finite value that is not negative (0.0 and -0.0 both count as
-// non-negative). Checked at the IEEE 754 bit level rather than with
-// std::isnan, std::isinf, or a direct comparison against 0.0, because this
-// project builds with -ffast-math (finite-math-only): under that model the
-// compiler is entitled to assume no value is ever NaN or infinity, so a
+// non-negative). Built on is_finite_robust and opaque_binary64_bits rather
+// than std::isnan, std::isinf, or a direct comparison against 0.0, because
+// this project builds with -ffast-math (finite-math-only): under that model
+// the compiler is entitled to assume no value is ever NaN or infinity, so a
 // comparison or standard-library classification involving a non-finite
 // value is not reliable at that optimization level -- the same failure
 // mode that ruled out infinity itself as ActiveWidthScheduleOptions's "no
-// budget" sentinel below, in favor of an empty std::optional.
-constexpr bool is_finite_non_negative(double value) {
-    constexpr uint64_t kExponentMask = 0x7FF0000000000000ULL;
-    constexpr uint64_t kSignMask = 0x8000000000000000ULL;
-    const uint64_t bits = std::bit_cast<uint64_t>(value);
-    if ((bits & kExponentMask) == kExponentMask) {
-        return false;  // NaN or +-infinity: every exponent bit set.
+// budget" sentinel below, in favor of an empty std::optional. See
+// numeric.h's own comments for why even a direct bit-cast exponent check
+// can still be folded away under that model, which is why this goes
+// through its opaque helper rather than inspecting the bits directly.
+inline bool is_finite_non_negative(double value) {
+    if (!is_finite_robust(value)) {
+        return false;
     }
     // A negative number has the sign bit set and a nonzero magnitude in
     // the remaining (exponent and mantissa) bits; -0.0 also has the sign
     // bit set, but its magnitude is all zero, and counts as non-negative.
+    constexpr uint64_t kSignMask = 0x8000000000000000ULL;
+    const uint64_t bits = opaque_binary64_bits(value);
     return (bits & kSignMask) == 0 || (bits & ~kSignMask) == 0;
 }
 
