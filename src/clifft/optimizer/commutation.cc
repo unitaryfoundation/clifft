@@ -70,6 +70,22 @@ bool noise_sites_anti_commute(const NoiseSite& a, const NoiseSite& b, const HirM
     return false;
 }
 
+// FNV-1a, matching the mixing constants clifft::sampling's expression_hash
+// uses. Not a cryptographic hash: a fingerprint only has to make a
+// commutation_fingerprint mismatch between what a relation was built from
+// and its apply_schedule target overwhelmingly likely to be caught, not
+// resist a deliberate collision.
+void fnv_mix(uint64_t& hash, uint64_t word) {
+    hash ^= word;
+    hash *= 0x100000001b3ULL;
+}
+
+void fnv_mix_words(uint64_t& hash, MaskView view) {
+    for (uint64_t word : view.words) {
+        fnv_mix(hash, word);
+    }
+}
+
 }  // namespace
 
 bool can_swap(const HeisenbergOp& left, const HeisenbergOp& right, const HirModule& hir) {
@@ -138,5 +154,105 @@ bool can_swap(const HeisenbergOp& left, const HeisenbergOp& right, const HirModu
     return !anti_commute(hir.destab_mask(left), hir.stab_mask(left), hir.destab_mask(right),
                          hir.stab_mask(right));
 }
+
+namespace detail {
+
+CommutationFingerprint commutation_fingerprint(const HirModule& hir) {
+    CommutationFingerprint fingerprint;
+    fingerprint.op_count = hir.ops.size();
+    fingerprint.num_qubits = hir.num_qubits;
+
+    uint64_t hash = 0xcbf29ce484222325ULL;  // FNV offset basis.
+    fnv_mix(hash, fingerprint.op_count);
+    fnv_mix(hash, fingerprint.num_qubits);
+
+    // T_GATE, MEASURE, CONDITIONAL_PAULI, and PHASE_ROTATION are exactly the
+    // op types can_swap's final Pauli anti-commutation check (and, when
+    // paired against a NOISE op, anti_commutes_with_noise) reads an inline
+    // mask from.
+    auto mix_inline_mask = [&](const HeisenbergOp& op) {
+        fnv_mix_words(hash, hir.destab_mask(op));
+        fnv_mix_words(hash, hir.stab_mask(op));
+    };
+
+    for (const HeisenbergOp& op : hir.ops) {
+        fnv_mix(hash, static_cast<uint64_t>(op.op_type()));
+        switch (op.op_type()) {
+            case OpType::T_GATE:
+                mix_inline_mask(op);
+                break;
+            case OpType::MEASURE:
+                mix_inline_mask(op);
+                fnv_mix(hash, static_cast<uint64_t>(op.meas_record_idx()));
+                break;
+            case OpType::CONDITIONAL_PAULI:
+                mix_inline_mask(op);
+                fnv_mix(hash, static_cast<uint64_t>(op.controlling_meas()));
+                break;
+            case OpType::PHASE_ROTATION:
+                mix_inline_mask(op);
+                break;
+            case OpType::NOISE: {
+                // can_swap follows noise_site_idx into NoiseSite::channels
+                // and reads every channel's mask regardless of probability
+                // (anti_commutes_with_noise / noise_sites_anti_commute loop
+                // over all of them unconditionally), so the fingerprint
+                // must too. The site index itself is never compared by
+                // can_swap, only dereferenced, so it is not hashed.
+                const NoiseSite& site = hir.noise_sites[static_cast<uint32_t>(op.noise_site_idx())];
+                fnv_mix(hash, static_cast<uint64_t>(site.channels.size()));
+                for (const NoiseChannel& channel : site.channels) {
+                    const PauliMaskView view = hir.noise_channel_masks.at(channel.mask);
+                    fnv_mix_words(hash, view.x());
+                    fnv_mix_words(hash, view.z());
+                }
+                break;
+            }
+            case OpType::READOUT_NOISE: {
+                // Only the referenced entry's meas_idx feeds
+                // accesses_classical_index / get_written_meas_idx; the raw
+                // readout_noise_idx is otherwise just an array offset.
+                const auto entry_idx = static_cast<uint32_t>(op.readout_noise_idx());
+                fnv_mix(hash, static_cast<uint64_t>(hir.readout_noise[entry_idx].meas_idx));
+                break;
+            }
+            case OpType::DETECTOR: {
+                // Length is hashed explicitly (not just implied by the
+                // following elements) so two different-length target lists
+                // whose flattened elements happen to concatenate the same
+                // way cannot hash equal.
+                const auto& targets =
+                    hir.detector_targets[static_cast<uint32_t>(op.detector_idx())];
+                fnv_mix(hash, static_cast<uint64_t>(targets.size()));
+                for (uint32_t target : targets) {
+                    fnv_mix(hash, target);
+                }
+                break;
+            }
+            case OpType::OBSERVABLE: {
+                const auto& targets = hir.observable_targets[op.observable_target_list_idx()];
+                fnv_mix(hash, static_cast<uint64_t>(targets.size()));
+                for (uint32_t target : targets) {
+                    fnv_mix(hash, target);
+                }
+                break;
+            }
+            case OpType::EXP_VAL:
+            case OpType::INSTRUMENT:
+                // can_swap refuses to reorder across either unconditionally,
+                // from the type check alone, without reading their sites --
+                // so only the op type (already mixed above) distinguishes
+                // them.
+                break;
+            case OpType::NUM_OP_TYPES:
+                break;
+        }
+    }
+
+    fingerprint.hash = hash;
+    return fingerprint;
+}
+
+}  // namespace detail
 
 }  // namespace clifft

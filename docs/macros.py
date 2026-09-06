@@ -120,6 +120,29 @@ def define_env(env: Any) -> None:
             ),
         },
         {
+            "name": "ActiveWidthSchedulePass",
+            "kind": "HIR",
+            "default_enabled": False,
+            "preserves_record_order": False,
+            "preserves_instrument_prefix": False,
+            "python_name": "ActiveWidthSchedulePass",
+            "summary": "State-aware scheduling that minimizes peak active width, then dense work.",
+            "detail": (
+                "Searches legal reorderings of the HIR for one that lowers peak active "
+                "width first and an estimated dense-work cost second. "
+                "It accepts a new order when peak width falls, or when peak width is "
+                "unchanged and estimated dense work falls; otherwise the HIR is left "
+                "untouched. "
+                "The search is bounded by a deterministic work budget, by default about "
+                "sixteen traces of the circuit, so its cost stays predictable regardless of "
+                "circuit shape. "
+                "It is off by default while that default is validated on production "
+                "circuits, and must run last in a pipeline, after PeepholeFusionPass and "
+                "StatevectorSqueezePass, because a noise-transparent reorder leaves the "
+                "HIR in a shape PeepholeFusionPass will not fuse across."
+            ),
+        },
+        {
             "name": "RemoveNoisePass",
             "kind": "HIR",
             "default_enabled": False,

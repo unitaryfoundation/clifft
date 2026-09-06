@@ -1,0 +1,1002 @@
+// Tests for ActiveWidthSchedulePass: the beam-search scheduling pass that
+// reduces peak active width, then dense work, seeded by PeepholeFusionPass
+// and StatevectorSqueezePass and never worse than that incumbent.
+
+#include "clifft/circuit/parser.h"
+#include "clifft/frontend/frontend.h"
+#include "clifft/frontend/hir.h"
+#include "clifft/optimizer/active_width_analysis.h"
+#include "clifft/optimizer/active_width_schedule_pass.h"
+#include "clifft/optimizer/hir_pass_manager.h"
+#include "clifft/optimizer/pass_factory.h"
+#include "clifft/optimizer/pass_registry.h"
+#include "clifft/optimizer/peephole.h"
+#include "clifft/optimizer/schedule_dependence.h"
+#include "clifft/optimizer/statevector_squeeze_pass.h"
+#include "clifft/sampling/executable_plan.h"
+#include "clifft/sampling/executor.h"
+#include "clifft/sampling/plan.h"
+#include "clifft/sampling/planner.h"
+
+#include "instrument_test_helpers.h"
+#include "sampling_equivalence_helpers.h"
+#include "test_helpers.h"
+
+#include <algorithm>
+#include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers_floating_point.hpp>
+#include <cstdint>
+#include <limits>
+#include <memory>
+#include <optional>
+#include <span>
+#include <stdexcept>
+#include <string>
+#include <vector>
+
+using namespace clifft;
+using namespace clifft::test;
+using clifft::detail::ScheduleDependence;
+using clifft::sampling::ApplyInstrument;
+using clifft::sampling::ExecutablePlan;
+using clifft::sampling::Executor;
+using clifft::sampling::SamplingPlan;
+
+namespace {
+
+#ifndef CLIFFT_FIXTURES_DIR
+#define CLIFFT_FIXTURES_DIR "tests/fixtures"
+#endif
+
+// ---------------------------------------------------------------------------
+// Shared helpers
+// ---------------------------------------------------------------------------
+
+// Built from named passes through HirPassManager rather than
+// default_hir_pass_manager(), so this suite's runtime and behavior stay
+// independent of whatever passes happen to be default-enabled.
+HirModule run_peephole_squeeze_schedule(const HirModule& source, ActiveWidthSchedulePass& pass) {
+    HirModule hir = source;
+    HirPassManager passes;
+    passes.add_pass(std::make_unique<PeepholeFusionPass>());
+    passes.add_pass(std::make_unique<StatevectorSqueezePass>());
+    passes.run(hir);
+    pass.run(hir);
+    return hir;
+}
+
+// Source for `num_blocks` mutually independent single-qubit blocks, one per
+// qubit: no block's ops share a qubit with any other block's, so no
+// dependence edge ever links a rotation in one block to a rotation in
+// another. After PeepholeFusionPass fuses each block's H, T, H into one
+// rotation and StatevectorSqueezePass moves its measurement in, every
+// block's rotation is simultaneously ready to fire the moment the search
+// starts, which is exactly the shape score_candidates' own per-parent
+// candidate list has to stay cheap on.
+std::string block_circuit_source(uint32_t num_blocks) {
+    std::string source;
+    for (uint32_t q = 0; q < num_blocks; ++q) {
+        source += "H " + std::to_string(q) + "\n";
+        source += "T " + std::to_string(q) + "\n";
+        source += "H " + std::to_string(q) + "\n";
+        source += "M " + std::to_string(q) + "\n";
+    }
+    return source;
+}
+
+bool ops_equal(const HirModule& a, const HeisenbergOp& op_a, const HirModule& b,
+               const HeisenbergOp& op_b) {
+    if (op_a.op_type() != op_b.op_type() || op_a.flags() != op_b.flags() ||
+        op_a.has_mask() != op_b.has_mask()) {
+        return false;
+    }
+    if (op_a.has_mask() && !(a.mask_view(op_a) == b.mask_view(op_b))) {
+        return false;
+    }
+    switch (op_a.op_type()) {
+        case OpType::MEASURE:
+            return op_a.meas_record_idx() == op_b.meas_record_idx();
+        case OpType::CONDITIONAL_PAULI:
+            return op_a.controlling_meas() == op_b.controlling_meas();
+        case OpType::NOISE:
+            return op_a.noise_site_idx() == op_b.noise_site_idx();
+        case OpType::READOUT_NOISE:
+            return op_a.readout_noise_idx() == op_b.readout_noise_idx();
+        case OpType::DETECTOR:
+            return op_a.detector_idx() == op_b.detector_idx();
+        case OpType::OBSERVABLE:
+            return op_a.observable_idx() == op_b.observable_idx() &&
+                   op_a.observable_target_list_idx() == op_b.observable_target_list_idx();
+        case OpType::EXP_VAL:
+            return op_a.exp_val_idx() == op_b.exp_val_idx();
+        case OpType::PHASE_ROTATION:
+            return op_a.alpha() == op_b.alpha();
+        case OpType::INSTRUMENT:
+            return op_a.instrument_site_idx() == op_b.instrument_site_idx();
+        case OpType::T_GATE:
+        case OpType::NUM_OP_TYPES:
+            return true;
+    }
+    return true;
+}
+
+// Field-by-field comparison standing in for a byte-for-byte diff: ops
+// (including type-specific payload and any Pauli mask content), source_map,
+// and logical_noise_prefix all have to match for two HirModules to count as
+// the same program.
+bool hir_unchanged(const HirModule& a, const HirModule& b) {
+    if (a.num_qubits != b.num_qubits || a.ops.size() != b.ops.size()) {
+        return false;
+    }
+    for (size_t i = 0; i < a.ops.size(); ++i) {
+        if (!ops_equal(a, a.ops[i], b, b.ops[i])) {
+            return false;
+        }
+    }
+    return a.source_map == b.source_map && a.logical_noise_prefix == b.logical_noise_prefix;
+}
+
+bool is_fixed_op(OpType type) {
+    return type != OpType::T_GATE && type != OpType::PHASE_ROTATION && type != OpType::MEASURE;
+}
+
+std::vector<OpType> fixed_op_sequence(const HirModule& hir) {
+    std::vector<OpType> fixed;
+    for (const HeisenbergOp& op : hir.ops) {
+        if (is_fixed_op(op.op_type())) {
+            fixed.push_back(op.op_type());
+        }
+    }
+    return fixed;
+}
+
+const ApplyInstrument* find_instrument_action(const SamplingPlan& plan) {
+    for (const auto& action : plan.actions) {
+        if (const auto* instrument = std::get_if<ApplyInstrument>(&action.action)) {
+            return instrument;
+        }
+    }
+    return nullptr;
+}
+
+}  // namespace
+
+// ---------------------------------------------------------------------------
+// Four-operation regression
+// ---------------------------------------------------------------------------
+
+TEST_CASE("Schedule pass finds the certified optimum for the four operation circuit",
+          "[schedule_pass]") {
+    HirModule hir(2, 4);
+    hir.num_measurements = 2;
+    append_phase_rotation(hir, X(0) | X(1), 0, false, 0.3);                  // R_XX
+    append_phase_rotation(hir, X(1), Z(0) | Z(1), false, 0.3);               // R_ZY
+    append_measure(hir, X(0) | X(1), Z(0) | Z(1), false, MeasRecordIdx{0});  // M_YY
+    append_measure(hir, X(0), Z(0), false, MeasRecordIdx{1});                // M_YI
+
+    ActiveWidthSchedulePass pass;
+    pass.run(hir);
+
+    REQUIRE(pass.applied());
+    const ActiveWidthTrace trace = analyze_active_width(hir);
+    std::vector<uint32_t> widths{trace.initial_width};
+    for (const WidthTransition& transition : trace.transitions) {
+        widths.push_back(transition.after);
+    }
+    REQUIRE(widths == std::vector<uint32_t>{0, 1, 1, 1, 0});
+}
+
+// ---------------------------------------------------------------------------
+// Fixture expectations
+// ---------------------------------------------------------------------------
+
+TEST_CASE("Schedule pass reaches the expected peak and dense work on fixture circuits",
+          "[schedule_pass]") {
+    SECTION("coherent_d3_r3 reaches peak 4") {
+        const Circuit circuit =
+            clifft::parse_file(std::string(CLIFFT_FIXTURES_DIR) + "/coherent_d3_r3.stim");
+        const HirModule raw = clifft::trace(circuit);
+        ActiveWidthSchedulePass pass;  // default options.
+        const HirModule scheduled = run_peephole_squeeze_schedule(raw, pass);
+
+        INFO("incumbent_peak=" << pass.incumbent_peak() << " result_peak=" << pass.result_peak()
+                               << " incumbent_dense_work=" << pass.incumbent_dense_work()
+                               << " result_dense_work=" << pass.result_dense_work());
+        REQUIRE(pass.result_peak() == 4);
+        REQUIRE(analyze_active_width(scheduled).peak_width == 4);
+    }
+
+    SECTION("coherent_d5_r5 keeps peak 13 and cuts dense work below 0.45 of the incumbent") {
+        const Circuit circuit =
+            clifft::parse_file(std::string(CLIFFT_FIXTURES_DIR) + "/coherent_d5_r5.stim");
+        const HirModule raw = clifft::trace(circuit);
+        // This fixture alone narrows the beam to keep the Debug build of
+        // this test comfortably under about 15 seconds: default beam_width
+        // 8 costs on the order of 20 seconds here in Debug, versus a few
+        // seconds for beam_width 1, and 1 also reaches the lower (better)
+        // of the two dense-work figures on this fixture (about 39% of the
+        // incumbent either way).
+        ActiveWidthScheduleOptions options;
+        options.beam_width = 1;
+        ActiveWidthSchedulePass pass(options);
+        run_peephole_squeeze_schedule(raw, pass);
+
+        INFO("incumbent_peak=" << pass.incumbent_peak() << " result_peak=" << pass.result_peak()
+                               << " incumbent_dense_work=" << pass.incumbent_dense_work()
+                               << " result_dense_work=" << pass.result_dense_work());
+        REQUIRE(pass.result_peak() == 13);
+        REQUIRE(pass.result_dense_work() <= pass.incumbent_dense_work() * 0.45);
+    }
+
+    SECTION("cultivation_d5 keeps peak 10 without increasing dense work") {
+        const Circuit circuit =
+            clifft::parse_file(std::string(CLIFFT_FIXTURES_DIR) + "/cultivation_d5.stim");
+        const HirModule raw = clifft::trace(circuit);
+        ActiveWidthSchedulePass pass;  // default options.
+        run_peephole_squeeze_schedule(raw, pass);
+
+        INFO("incumbent_peak=" << pass.incumbent_peak() << " result_peak=" << pass.result_peak()
+                               << " incumbent_dense_work=" << pass.incumbent_dense_work()
+                               << " result_dense_work=" << pass.result_dense_work());
+        REQUIRE(pass.result_peak() == 10);
+        REQUIRE(pass.result_dense_work() <= pass.incumbent_dense_work());
+    }
+
+    SECTION("surface_d7_r7_p001 keeps peak 0 without increasing dense work") {
+        const Circuit circuit =
+            clifft::parse_file(std::string(CLIFFT_FIXTURES_DIR) + "/surface_d7_r7_p001.stim");
+        const HirModule raw = clifft::trace(circuit);
+        ActiveWidthSchedulePass pass;  // default options.
+        run_peephole_squeeze_schedule(raw, pass);
+
+        INFO("incumbent_peak=" << pass.incumbent_peak() << " result_peak=" << pass.result_peak()
+                               << " incumbent_dense_work=" << pass.incumbent_dense_work()
+                               << " result_dense_work=" << pass.result_dense_work());
+        REQUIRE(pass.result_peak() == 0);
+        REQUIRE(pass.result_dense_work() <= pass.incumbent_dense_work());
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Early exit
+// ---------------------------------------------------------------------------
+
+// surface_d7_r7_p001 has no T_GATE or PHASE_ROTATION op at all (a pure
+// stabilizer QEC memory circuit), so both early-exit conditions hold on its
+// raw, unpassed HIR: incumbent peak 0, and no rotation to branch on either
+// way. built_dependence() observes directly whether run() built the
+// detail::ScheduleDependence relation -- the O(N^2) can_swap scan the early
+// exit is supposed to skip -- rather than inferring it from a timing
+// side-channel.
+TEST_CASE("Schedule pass exits before building the dependence relation when nothing can move",
+          "[schedule_pass]") {
+    const Circuit circuit =
+        clifft::parse_file(std::string(CLIFFT_FIXTURES_DIR) + "/surface_d7_r7_p001.stim");
+    const HirModule original = clifft::trace(circuit);
+    HirModule hir = original;
+
+    ActiveWidthSchedulePass pass;
+    pass.run(hir);
+
+    REQUIRE_FALSE(pass.built_dependence());
+    REQUIRE_FALSE(pass.applied());
+    REQUIRE(pass.result_peak() == pass.incumbent_peak());
+    REQUIRE(pass.result_dense_work() == pass.incumbent_dense_work());
+    REQUIRE(hir_unchanged(hir, original));
+}
+
+// coherent_d3_r3 has T_GATE/PHASE_ROTATION ops and a nonzero incumbent
+// peak, so neither early-exit condition holds: run() must build the
+// dependence relation to have anything to search over.
+TEST_CASE("Schedule pass builds the dependence relation when something can move",
+          "[schedule_pass]") {
+    const Circuit circuit =
+        clifft::parse_file(std::string(CLIFFT_FIXTURES_DIR) + "/coherent_d3_r3.stim");
+    const HirModule raw = clifft::trace(circuit);
+    ActiveWidthSchedulePass pass;
+    run_peephole_squeeze_schedule(raw, pass);
+
+    REQUIRE(pass.built_dependence());
+}
+
+// ---------------------------------------------------------------------------
+// Input validation
+// ---------------------------------------------------------------------------
+
+TEST_CASE("Schedule pass rejects a zero beam width", "[schedule_pass]") {
+    ActiveWidthScheduleOptions options;
+    options.beam_width = 0;
+    REQUIRE_THROWS_AS(ActiveWidthSchedulePass{options}, std::invalid_argument);
+}
+
+TEST_CASE("Schedule pass rejects a negative search budget", "[schedule_pass]") {
+    ActiveWidthScheduleOptions options;
+    options.search_budget = -1.0;
+    REQUIRE_THROWS_AS(ActiveWidthSchedulePass{options}, std::invalid_argument);
+}
+
+// Release builds use -ffast-math (finite-math-only), under which a
+// non-finite floating-point *constant* in an expression is undefined
+// behavior and the optimizer may fold it away, which is exactly why
+// search_budget rejects infinity and NaN instead of treating either as a
+// sentinel: this test needs a genuine, unfoldable non-finite value to prove
+// the rejection actually happens at runtime rather than being optimized
+// out, so it builds one from raw IEEE 754 bits behind a volatile via
+// test_helpers.h's opaque_nan/opaque_infinity, the same way every other
+// nonfinite-input test in this suite does.
+TEST_CASE("Schedule pass rejects a non-finite search budget", "[schedule_pass]") {
+    SECTION("infinity") {
+        ActiveWidthScheduleOptions options;
+        options.search_budget = clifft::test::opaque_infinity();
+        REQUIRE_THROWS_AS(ActiveWidthSchedulePass{options}, std::invalid_argument);
+    }
+    SECTION("negative infinity") {
+        ActiveWidthScheduleOptions options;
+        options.search_budget = -clifft::test::opaque_infinity();
+        REQUIRE_THROWS_AS(ActiveWidthSchedulePass{options}, std::invalid_argument);
+    }
+    SECTION("NaN") {
+        ActiveWidthScheduleOptions options;
+        options.search_budget = clifft::test::opaque_nan();
+        REQUIRE_THROWS_AS(ActiveWidthSchedulePass{options}, std::invalid_argument);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Search budget
+// ---------------------------------------------------------------------------
+
+// A budget of 0 crosses both parent_budget_ops and candidate_budget_ops
+// (each 0) the moment the first op is swept, so every step for the rest of
+// the search takes only its single surviving parent's lowest-index ready
+// expanding op, with no comparison against any other ready candidate. The
+// cost is then just the unconditional initial closure plus one closure
+// sweep and one materialize_candidate replay per remaining step, which
+// sums to about three traces of the circuit.
+TEST_CASE("A zero search budget sweeps at most three traces on coherent_d3_r3", "[schedule_pass]") {
+    const Circuit circuit =
+        clifft::parse_file(std::string(CLIFFT_FIXTURES_DIR) + "/coherent_d3_r3.stim");
+    const HirModule raw = clifft::trace(circuit);
+
+    ActiveWidthScheduleOptions budget_options;
+    budget_options.search_budget = 0.0;
+    ActiveWidthSchedulePass budget_pass(budget_options);
+    const HirModule budget_hir = run_peephole_squeeze_schedule(raw, budget_pass);
+
+    INFO("swept_ops=" << budget_pass.swept_ops() << " ops=" << budget_hir.ops.size());
+    REQUIRE(budget_pass.swept_ops() <= 3 * budget_hir.ops.size());
+    REQUIRE(budget_pass.result_peak() <= budget_pass.incumbent_peak());
+}
+
+// The default budget is small enough to narrow the beam on this fixture,
+// which the unbounded search sweeps many times over: the two runs must
+// differ in swept ops (otherwise the budget did nothing here) while the
+// narrowed search still reaches the same peak, which is what makes the
+// default acceptable. An empty (std::nullopt) budget is the unbounded
+// search; see ActiveWidthScheduleOptions::search_budget for why nullopt,
+// not infinity, is this codebase's "no bound" value.
+TEST_CASE("The default search budget narrows the search on coherent_d3_r3 without losing its peak",
+          "[schedule_pass]") {
+    const Circuit circuit =
+        clifft::parse_file(std::string(CLIFFT_FIXTURES_DIR) + "/coherent_d3_r3.stim");
+    const HirModule raw = clifft::trace(circuit);
+
+    ActiveWidthSchedulePass default_pass;
+    run_peephole_squeeze_schedule(raw, default_pass);
+
+    ActiveWidthScheduleOptions unbounded_options;
+    unbounded_options.search_budget = std::nullopt;
+    ActiveWidthSchedulePass unbounded_pass(unbounded_options);
+    run_peephole_squeeze_schedule(raw, unbounded_pass);
+
+    INFO("default swept_ops=" << default_pass.swept_ops()
+                              << " unbounded swept_ops=" << unbounded_pass.swept_ops());
+    REQUIRE(default_pass.swept_ops() < unbounded_pass.swept_ops());
+    REQUIRE(default_pass.result_peak() == unbounded_pass.result_peak());
+}
+
+TEST_CASE("Schedule pass reports swept ops through the search", "[schedule_pass]") {
+    SECTION("zero after the early exit") {
+        const Circuit circuit =
+            clifft::parse_file(std::string(CLIFFT_FIXTURES_DIR) + "/surface_d7_r7_p001.stim");
+        const HirModule original = clifft::trace(circuit);
+        HirModule hir = original;
+
+        ActiveWidthSchedulePass pass;
+        pass.run(hir);
+
+        REQUIRE_FALSE(pass.built_dependence());
+        REQUIRE(pass.swept_ops() == 0);
+    }
+
+    SECTION("positive after an applied run") {
+        const Circuit circuit =
+            clifft::parse_file(std::string(CLIFFT_FIXTURES_DIR) + "/coherent_d3_r3.stim");
+        const HirModule raw = clifft::trace(circuit);
+        ActiveWidthSchedulePass pass;
+        run_peephole_squeeze_schedule(raw, pass);
+
+        REQUIRE(pass.applied());
+        REQUIRE(pass.swept_ops() > 0);
+    }
+
+    SECTION("a zero budget sweeps at most as much as an unbounded search") {
+        const Circuit circuit =
+            clifft::parse_file(std::string(CLIFFT_FIXTURES_DIR) + "/coherent_d3_r3.stim");
+        const HirModule raw = clifft::trace(circuit);
+
+        ActiveWidthScheduleOptions budget_options;
+        budget_options.search_budget = 0.0;
+        ActiveWidthSchedulePass budget_pass(budget_options);
+        run_peephole_squeeze_schedule(raw, budget_pass);
+
+        ActiveWidthScheduleOptions unbounded_options;
+        unbounded_options.search_budget = std::nullopt;
+        ActiveWidthSchedulePass unbounded_pass(unbounded_options);
+        run_peephole_squeeze_schedule(raw, unbounded_pass);
+
+        REQUIRE(budget_pass.swept_ops() <= unbounded_pass.swept_ops());
+    }
+}
+
+// score_candidates used to keep scoring every ready expanding op of a
+// parent regardless of the running swept-op count, so once the beam
+// narrowed to a single surviving parent, a fixture with many mutually
+// independent expanding rotations paid for rescoring nearly all of them at
+// every remaining step: quadratic in the count of such rotations. Doubling
+// k from 128 to 256 exercises that directly: block_circuit_source's blocks
+// share no dependence edges, so all k rotations become ready together, and
+// a quadratic cost would roughly quadruple between those two points instead
+// of at most tripling.
+TEST_CASE("Search budget bounds cost linearly across many independent expanding rotations",
+          "[schedule_pass]") {
+    std::vector<size_t> swept_by_k;
+    for (uint32_t k : {64u, 128u, 256u}) {
+        const HirModule raw = clifft::trace(clifft::parse(block_circuit_source(k)));
+        ActiveWidthSchedulePass pass;  // default options, including the default search budget.
+        const HirModule scheduled = run_peephole_squeeze_schedule(raw, pass);
+
+        INFO("k=" << k << " ops=" << scheduled.ops.size() << " swept_ops=" << pass.swept_ops());
+        // 20x, not the budget's own 16x: about four traces of slack for
+        // the unconditional initial closure, the candidate whose scoring
+        // first crosses candidate_budget_ops, and the sweep-and-replay pair
+        // every remaining single-beam step performs (see run_beam_search's
+        // budget comment).
+        REQUIRE(pass.swept_ops() <= 20 * scheduled.ops.size());
+        REQUIRE(pass.result_peak() <= pass.incumbent_peak());
+        swept_by_k.push_back(pass.swept_ops());
+    }
+
+    REQUIRE(swept_by_k[2] <= 3 * swept_by_k[1]);
+}
+
+// ---------------------------------------------------------------------------
+// Never worse than the incumbent
+// ---------------------------------------------------------------------------
+
+TEST_CASE("Schedule pass never regresses peak or dense work and leaves an unimproved HIR untouched",
+          "[schedule_pass]") {
+    constexpr uint32_t kSeed = 0x5C4EDA1;
+    constexpr int kTrials = 100;
+
+    clifft::Xoshiro256PlusPlus rng(kSeed);
+    for (int trial = 0; trial < kTrials; ++trial) {
+        const uint32_t num_qubits = 4 + static_cast<uint32_t>(trial % 7);
+        const uint32_t num_ops = 15 + static_cast<uint32_t>(trial % 25);
+        const std::string source = generate_noisy_source(rng, num_qubits, num_ops);
+        CAPTURE(trial, source);
+
+        HirModule hir = clifft::trace(clifft::parse(source));
+        const HirModule before = hir;
+        const ActiveWidthTrace incumbent_trace = analyze_active_width(hir);
+        const uint32_t incumbent_peak = incumbent_trace.peak_width;
+        const double incumbent_dense_work = estimate_dense_work(incumbent_trace);
+
+        ActiveWidthSchedulePass pass;
+        pass.run(hir);
+
+        REQUIRE(pass.incumbent_peak() == incumbent_peak);
+        REQUIRE(pass.incumbent_dense_work() == incumbent_dense_work);
+
+        const bool no_worse = (pass.result_peak() < incumbent_peak) ||
+                              (pass.result_peak() == incumbent_peak &&
+                               pass.result_dense_work() <= incumbent_dense_work);
+        REQUIRE(no_worse);
+
+        if (!pass.applied()) {
+            REQUIRE(hir_unchanged(hir, before));
+            REQUIRE(pass.result_peak() == incumbent_peak);
+            REQUIRE(pass.result_dense_work() == incumbent_dense_work);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Determinism
+// ---------------------------------------------------------------------------
+
+TEST_CASE("Schedule pass is deterministic across repeated runs", "[schedule_pass]") {
+    constexpr uint32_t kSeed = 0x0DE7511;
+    constexpr int kTrials = 20;
+
+    clifft::Xoshiro256PlusPlus rng(kSeed);
+    for (int trial = 0; trial < kTrials; ++trial) {
+        const uint32_t num_qubits = 4 + static_cast<uint32_t>(trial % 7);
+        const uint32_t num_ops = 15 + static_cast<uint32_t>(trial % 25);
+        const std::string source = generate_noisy_source(rng, num_qubits, num_ops);
+        CAPTURE(trial, source);
+
+        HirModule hir_a = clifft::trace(clifft::parse(source));
+        HirModule hir_b = hir_a;
+
+        ActiveWidthSchedulePass pass_a;
+        ActiveWidthSchedulePass pass_b;
+        pass_a.run(hir_a);
+        pass_b.run(hir_b);
+
+        REQUIRE(pass_a.applied() == pass_b.applied());
+        REQUIRE(pass_a.result_peak() == pass_b.result_peak());
+        REQUIRE(pass_a.result_dense_work() == pass_b.result_dense_work());
+        REQUIRE(hir_unchanged(hir_a, hir_b));
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Sampling equivalence
+// ---------------------------------------------------------------------------
+
+TEST_CASE("Scheduled programs remain sampling equivalent to the unoptimized program",
+          "[schedule_pass]") {
+    constexpr uint32_t kShots = 20000;
+
+    SECTION("coherent_d3_r3 fixture") {
+        const Circuit circuit =
+            clifft::parse_file(std::string(CLIFFT_FIXTURES_DIR) + "/coherent_d3_r3.stim");
+        const HirModule original = clifft::trace(circuit);
+
+        ActiveWidthSchedulePass pass;
+        const HirModule scheduled = run_peephole_squeeze_schedule(original, pass);
+
+        check_sampling_equivalent(original, scheduled, kShots, 0x5C4E1, 0x5C4E2);
+    }
+
+    SECTION("random noisy circuits") {
+        constexpr int kTrials = 20;
+        clifft::Xoshiro256PlusPlus circuit_rng(0x5A17C3);
+        clifft::Xoshiro256PlusPlus control_rng(0x5EED173);
+        for (int trial = 0; trial < kTrials; ++trial) {
+            const uint32_t num_qubits = 4 + static_cast<uint32_t>(trial % 7);
+            const uint32_t num_ops = 15 + static_cast<uint32_t>(trial % 25);
+            const std::string source = generate_noisy_source(circuit_rng, num_qubits, num_ops);
+            CAPTURE(trial, source);
+
+            const HirModule original = clifft::trace(clifft::parse(source));
+            ActiveWidthSchedulePass pass;
+            const HirModule scheduled = run_peephole_squeeze_schedule(original, pass);
+
+            check_sampling_equivalent(original, scheduled, kShots, control_rng(), control_rng());
+        }
+    }
+}
+
+TEST_CASE("Scheduled programs are exactly sampling equivalent for every checked noise realization",
+          "[schedule_pass]") {
+    constexpr uint32_t kCircuitSeed = 0xFACE1;
+    constexpr uint32_t kControlSeed = 0xFACE2;
+    constexpr int kTrials = 5000;
+
+    clifft::Xoshiro256PlusPlus circuit_rng(kCircuitSeed);
+    clifft::Xoshiro256PlusPlus control_rng(kControlSeed);
+    int skipped = 0;
+    int applied_count = 0;
+    int crossed_count = 0;
+    for (int trial = 0; trial < kTrials; ++trial) {
+        const uint32_t num_qubits = 3 + static_cast<uint32_t>(trial % 4);
+        const uint32_t num_ops = 12 + static_cast<uint32_t>(trial % 13);
+        const std::string source = generate_noisy_source(circuit_rng, num_qubits, num_ops);
+        const HirModule original = clifft::trace(clifft::parse(source));
+        CAPTURE(trial, num_qubits, num_ops, source);
+        // A high measurement count makes the exact check's per-record
+        // enumeration (2^num_visible_records replays per realization)
+        // expensive; that cost buys nothing this test needs, so skip it. A
+        // plain R or a noisy measurement disqualifies a trial outright: the
+        // former lowers to a hidden measurement and the latter to a
+        // READOUT_NOISE action, and check_exact_equivalent requires neither.
+        if (original.num_measurements > 8 || original.num_hidden_measurements > 0 ||
+            !original.readout_noise.empty()) {
+            ++skipped;
+            continue;
+        }
+
+        ActiveWidthSchedulePass pass;
+        const HirModule scheduled = run_peephole_squeeze_schedule(original, pass);
+        applied_count += pass.applied() ? 1 : 0;
+        crossed_count += crossed_noise(scheduled) ? 1 : 0;
+
+        check_exact_equivalent(original, scheduled, control_rng);
+    }
+
+    INFO("skipped=" << skipped << " applied=" << applied_count << " crossed=" << crossed_count);
+    REQUIRE(applied_count >= 8);
+    REQUIRE(crossed_count >= 5);
+}
+
+// ---------------------------------------------------------------------------
+// Barriers
+// ---------------------------------------------------------------------------
+
+TEST_CASE("Schedule pass does not reorder around an EXP VAL barrier", "[schedule_pass]") {
+    HirModule hir = clifft::trace(clifft::parse(
+        "H 0\nT 0\nT 1\nX_ERROR(0.1) 2\nEXP_VAL Z0\nT 1\nM 0\nM 1\nM 2\nDETECTOR rec[-1]\n"));
+
+    const std::vector<OpType> fixed_before = fixed_op_sequence(hir);
+    const SamplingPlan plan_before = clifft::sampling::plan_sampling(hir);
+
+    ActiveWidthSchedulePass pass;
+    REQUIRE_NOTHROW(pass.run(hir));
+
+    REQUIRE(fixed_op_sequence(hir) == fixed_before);
+    const SamplingPlan plan_after = clifft::sampling::plan_sampling(hir);
+    REQUIRE(plan_after.num_exp_vals == plan_before.num_exp_vals);
+}
+
+TEST_CASE("Schedule pass does not reorder around an INSTRUMENT barrier", "[schedule_pass]") {
+    const InstrumentTraceOptions options = clifft::test::source_dependent_jump_options(false);
+    HirModule hir = clifft::trace(
+        clifft::parse("H 0\nT 0\nH 1\nT 1\nLEVEL_TRANSITION[jump] 1\nT 0\nM 1\nM 0\n"), &options);
+
+    const std::vector<OpType> fixed_before = fixed_op_sequence(hir);
+    const SamplingPlan plan_before = clifft::sampling::plan_sampling(hir);
+    const ApplyInstrument* instrument_before = find_instrument_action(plan_before);
+    REQUIRE(instrument_before != nullptr);
+    const auto mode_before = instrument_before->mode;
+
+    ActiveWidthSchedulePass pass;
+    REQUIRE_NOTHROW(pass.run(hir));
+
+    REQUIRE(fixed_op_sequence(hir) == fixed_before);
+    const SamplingPlan plan_after = clifft::sampling::plan_sampling(hir);
+    const ApplyInstrument* instrument_after = find_instrument_action(plan_after);
+    REQUIRE(instrument_after != nullptr);
+    REQUIRE(instrument_after->mode == mode_before);
+    REQUIRE(plan_after.num_exp_vals == plan_before.num_exp_vals);
+}
+
+// The instrument sits on its own qubit (2), disjoint from the two-qubit
+// rotate/measure group on 0 and 1, so it neither blocks nor participates in
+// that group's reordering -- it is there only to prove the planner's symbol
+// prepass accounts for the instrument's own symbol correctly once scheduling
+// moves a site past it. R_PAULI X0*X1, R_PAULI Z0*Y1, MPP Y0*Y1, and MPP Y0
+// reproduce the four-operation regression's Pauli bodies (see "Schedule pass
+// finds the certified optimum for the four operation circuit" above), the
+// smallest known case where reordering the rotation relative to the
+// measurements strictly reduces peak active width; Z_ERROR sits between the
+// two rotations so that improving reorder also has to cross a noise site.
+TEST_CASE(
+    "Schedule pass moves a rotation across a noise site positioned after an INSTRUMENT boundary",
+    "[schedule_pass]") {
+    const InstrumentTraceOptions options = clifft::test::source_dependent_jump_options(false);
+    const std::string source = R"(X_ERROR(0.5) 1
+DEPOLARIZE1(0.3) 0
+LEVEL_TRANSITION[jump] 2
+R_PAULI(0.3) X0*X1
+Z_ERROR(0.5) 0
+R_PAULI(0.3) Z0*Y1
+MPP Y0*Y1
+MPP Y0
+M 2
+)";
+    const HirModule original = clifft::trace(clifft::parse(source), &options);
+
+    const std::vector<OpType> fixed_before = fixed_op_sequence(original);
+    const SamplingPlan plan_before = clifft::sampling::plan_sampling(original);
+    const ApplyInstrument* instrument_before = find_instrument_action(plan_before);
+    REQUIRE(instrument_before != nullptr);
+    const auto mode_before = instrument_before->mode;
+
+    ActiveWidthSchedulePass pass;
+    const HirModule scheduled = run_peephole_squeeze_schedule(original, pass);
+
+    REQUIRE(pass.applied());
+    REQUIRE(crossed_noise(scheduled));
+
+    size_t instrument_position = scheduled.ops.size();
+    for (size_t i = 0; i < scheduled.ops.size(); ++i) {
+        if (scheduled.ops[i].op_type() == OpType::INSTRUMENT) {
+            instrument_position = i;
+            break;
+        }
+    }
+    REQUIRE(instrument_position < scheduled.ops.size());
+
+    // crossed_noise already proved some entry disagrees with its schedule
+    // position; this additionally locates one strictly after the
+    // instrument, so the crossing the planner had to handle sits in the
+    // segment where the instrument's own symbol is also live.
+    bool disagreement_after_instrument = false;
+    uint32_t schedule_count = 0;
+    for (size_t i = 0; i < scheduled.ops.size(); ++i) {
+        if (scheduled.logical_noise_prefix[i] != schedule_count) {
+            disagreement_after_instrument |= i > instrument_position;
+        }
+        if (scheduled.ops[i].op_type() == OpType::NOISE) {
+            ++schedule_count;
+        }
+    }
+    REQUIRE(disagreement_after_instrument);
+
+    REQUIRE(fixed_op_sequence(scheduled) == fixed_before);
+    SamplingPlan plan_after;
+    REQUIRE_NOTHROW(plan_after = clifft::sampling::plan_sampling(scheduled));
+    const ApplyInstrument* instrument_after = find_instrument_action(plan_after);
+    REQUIRE(instrument_after != nullptr);
+    REQUIRE(instrument_after->mode == mode_before);
+
+    // A trapped shot never reaches the tail measurements this compares, and
+    // a discarded one has no meaningful record either; both are excluded
+    // rather than counted as a record of all zeros.
+    constexpr uint32_t kShots = 20000;
+    const uint32_t num_columns = plan_before.num_visible_records;
+    REQUIRE(plan_after.num_visible_records == num_columns);
+
+    auto collect_non_trapped = [&](const SamplingPlan& plan, uint64_t seed) {
+        const ExecutablePlan executable(plan);
+        Executor executor(executable, seed);
+        std::vector<uint8_t> rows;
+        rows.reserve(static_cast<size_t>(kShots) * num_columns);
+        uint32_t kept = 0;
+        for (uint32_t shot = 0; shot < kShots; ++shot) {
+            executor.run_shot();
+            if (executor.pending_trap().has_value() || executor.discarded()) {
+                continue;
+            }
+            const std::span<const uint8_t> records = executor.visible_records();
+            rows.insert(rows.end(), records.begin(), records.end());
+            ++kept;
+        }
+        return std::pair<std::vector<uint8_t>, uint32_t>(std::move(rows), kept);
+    };
+
+    const auto [rows_before, kept_before] = collect_non_trapped(plan_before, 0x5C4E1);
+    const auto [rows_after, kept_after] = collect_non_trapped(plan_after, 0x5C4E2);
+
+    const double fraction_before = static_cast<double>(kept_before) / kShots;
+    const double fraction_after = static_cast<double>(kept_after) / kShots;
+    INFO("fraction_before=" << fraction_before << " fraction_after=" << fraction_after);
+    REQUIRE(fraction_before >= 0.5);
+    REQUIRE(fraction_after >= 0.5);
+    const double fraction_tol = tolerance_at_6_sigma(fraction_before, fraction_after, kShots);
+    REQUIRE_THAT(fraction_before, Catch::Matchers::WithinAbs(fraction_after, fraction_tol));
+
+    // Both sides are still i.i.d. samples of the same distribution after
+    // truncating to a shared prefix, so subsampling the larger side down to
+    // the smaller row count costs nothing but a little statistical power.
+    const uint32_t common_rows = std::min(kept_before, kept_after);
+    const std::span<const uint8_t> a(rows_before.data(),
+                                     static_cast<size_t>(common_rows) * num_columns);
+    const std::span<const uint8_t> b(rows_after.data(),
+                                     static_cast<size_t>(common_rows) * num_columns);
+    check_columns_agree(a, b, num_columns, common_rows, "record");
+    check_parities_agree(a, b, num_columns, common_rows, "record");
+}
+
+// ---------------------------------------------------------------------------
+// Registry
+// ---------------------------------------------------------------------------
+
+TEST_CASE("Schedule pass registry entry resolves and the factory produces a working pass",
+          "[schedule_pass]") {
+    bool found = false;
+    for (const auto& info : clifft::kRegisteredPasses) {
+        if (info.name == "ActiveWidthSchedulePass") {
+            found = true;
+            // Off by default: see the pass's own header comment for why its
+            // compile-time cost keeps it opt-in.
+            REQUIRE_FALSE(info.default_enabled);
+            // Record-order breaking keeps it out of clifft::noncomp::sample's
+            // trajectory pipeline regardless of default_enabled: see
+            // trajectory_hir_pass_manager() and the trajectory compatibility
+            // test in test_optimizer.cc.
+            REQUIRE_FALSE(clifft::is_trajectory_compatible(info));
+        }
+    }
+    REQUIRE(found);
+
+    const std::unique_ptr<HirPass> pass = clifft::make_hir_pass("ActiveWidthSchedulePass");
+    REQUIRE(pass != nullptr);
+
+    // Built entirely from named passes -- including the registry's own
+    // factory function for ActiveWidthSchedulePass, rather than constructing
+    // it directly -- through HirPassManager, so this proves the registry
+    // wiring actually schedules, not just that the metadata says a pass by
+    // this name exists, without depending on default_hir_pass_manager().
+    const Circuit circuit =
+        clifft::parse_file(std::string(CLIFFT_FIXTURES_DIR) + "/coherent_d3_r3.stim");
+    HirModule hir = clifft::trace(circuit);
+    HirPassManager passes;
+    passes.add_pass(std::make_unique<PeepholeFusionPass>());
+    passes.add_pass(std::make_unique<StatevectorSqueezePass>());
+    passes.add_pass(clifft::make_hir_pass("ActiveWidthSchedulePass"));
+    passes.run(hir);
+    REQUIRE(analyze_active_width(hir).peak_width == 4);
+}
+
+// ---------------------------------------------------------------------------
+// Beam dedup regression: peak before dense work
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// The pass's own lexicographic objective -- (peak, dense_work) -- the trace
+// would reach if `hir`'s ops executed in `order` (a permutation of op
+// indices), replayed directly against a fresh subspace. Equivalent to
+// running analyze_active_width and estimate_dense_work on a copy of `hir`
+// reordered to `order`, without paying for that copy on every candidate
+// order the brute-force search below tries.
+struct OrderCost {
+    uint32_t peak = 0;
+    double dense_work = 0.0;
+};
+
+OrderCost cost_for_order(const HirModule& hir, const std::vector<uint32_t>& order) {
+    DormantSubspace subspace(hir.num_qubits);
+    OrderCost cost;
+    cost.peak = subspace.active_width();
+    for (uint32_t op : order) {
+        const WidthTransition transition = classify_and_apply(hir, hir.ops[op], subspace);
+        cost.peak = std::max(cost.peak, transition.after);
+        cost.dense_work += clifft::detail::dense_work_contribution(
+            transition.effect, transition.before, transition.after);
+    }
+    return cost;
+}
+
+// Backtracking enumeration of every linear extension of `dep`: at each
+// step, branches on every currently ready op (the same readiness
+// bookkeeping SearchFrontier uses internally), recurses, then restores
+// remaining_preds for every successor of the op just tried -- not only the
+// ones that became newly ready -- so a sibling branch sees the same counts
+// the current one started with. `best` tracks the lexicographically
+// smallest (peak, dense_work) over every completed order visited so far,
+// the same order the pass's own objective ranks by.
+void enumerate_linear_extensions(const ScheduleDependence& dep,
+                                 std::vector<uint32_t>& remaining_preds,
+                                 std::vector<bool>& executed, std::vector<uint32_t>& order,
+                                 const HirModule& hir, OrderCost& best) {
+    if (order.size() == dep.num_ops()) {
+        const OrderCost cost = cost_for_order(hir, order);
+        const bool better =
+            cost.peak < best.peak || (cost.peak == best.peak && cost.dense_work < best.dense_work);
+        if (better) {
+            best = cost;
+        }
+        return;
+    }
+    for (uint32_t op = 0; op < dep.num_ops(); ++op) {
+        if (executed[op] || remaining_preds[op] != 0) {
+            continue;
+        }
+        executed[op] = true;
+        order.push_back(op);
+        for (uint32_t succ : dep.successors(op)) {
+            --remaining_preds[succ];
+        }
+        enumerate_linear_extensions(dep, remaining_preds, executed, order, hir, best);
+        for (uint32_t succ : dep.successors(op)) {
+            ++remaining_preds[succ];
+        }
+        order.pop_back();
+        executed[op] = false;
+    }
+}
+
+// Minimum (peak, dense_work) over every legal reordering of `hir`'s ops
+// (every linear extension of its ScheduleDependence), ordered
+// lexicographically the same way the pass's own objective is, found by
+// exhaustive search rather than the pass's own beam heuristic. Only
+// affordable because every regression circuit in this file is small (at
+// most a dozen ops): the search space is at most num_ops! and smaller in
+// practice once fixed-order and non-commuting edges prune it.
+OrderCost brute_force_optimum(const HirModule& hir) {
+    const ScheduleDependence dep = ScheduleDependence::build(hir);
+    std::vector<uint32_t> remaining_preds(dep.num_ops());
+    for (uint32_t op = 0; op < dep.num_ops(); ++op) {
+        remaining_preds[op] = static_cast<uint32_t>(dep.predecessors(op).size());
+    }
+    std::vector<bool> executed(dep.num_ops(), false);
+    std::vector<uint32_t> order;
+    OrderCost best;
+    best.peak = std::numeric_limits<uint32_t>::max();
+    best.dense_work = std::numeric_limits<double>::infinity();
+    enumerate_linear_extensions(dep, remaining_preds, executed, order, hir, best);
+    return best;
+}
+
+// Peak component alone, for regressions that only certify the primary
+// objective.
+uint32_t brute_force_min_peak(const HirModule& hir) {
+    return brute_force_optimum(hir).peak;
+}
+
+}  // namespace
+
+// Found by a seeded random search over small circuits, run against an
+// instrumented copy of the dedup step that flagged every case where two
+// candidates in the same beam generation converged on the same executed-op
+// set at different peaks. At beam_width 16 this eight-op circuit produces
+// exactly that: the lower-peak duplicate has the higher dense_work.
+// Deduping by dense_work alone (the pre-fix rule) keeps the higher-peak
+// duplicate instead, and the beam search never recovers -- it reports the
+// incumbent's own peak (4) as final, finding no improvement at all.
+// Deduping by (peak, dense_work, first_op) keeps the lower-peak duplicate
+// and the pass reaches the brute-force optimum (3).
+TEST_CASE("Schedule pass reaches the brute-force optimal peak on a beam dedup regression circuit",
+          "[schedule_pass]") {
+    HirModule hir(4, 8);
+    hir.num_measurements = 1;
+    clifft::test::append_tgate(hir, 0x8, 0x8, false);                      // Y3
+    clifft::test::append_phase_rotation(hir, 0x8, 0x8, false, 0.3);        // Y3
+    clifft::test::append_tgate(hir, 0x8, 0x0, false);                      // X3
+    clifft::test::append_phase_rotation(hir, 0x8, 0x0, false, 0.3);        // X3
+    clifft::test::append_tgate(hir, 0x6, 0x2, false);                      // Y1 X2
+    clifft::test::append_tgate(hir, 0x2, 0x2, false);                      // Y1
+    clifft::test::append_phase_rotation(hir, 0x1, 0x3, false, 0.3);        // Y0 Z1
+    clifft::test::append_measure(hir, 0x2, 0x2, false, MeasRecordIdx{0});  // Y1
+
+    ActiveWidthScheduleOptions options;
+    options.beam_width = 16;
+    options.sink_neutral_rotations = false;
+    ActiveWidthSchedulePass pass(options);
+    HirModule scheduled = hir;
+    pass.run(scheduled);
+
+    INFO("incumbent_peak=" << pass.incumbent_peak() << " result_peak=" << pass.result_peak());
+    REQUIRE(pass.result_peak() == brute_force_min_peak(hir));
+}
+
+// Regression for the Pareto-front fix above: found by extending a seed from
+// the same random search with two more ops, chosen by a further small
+// search for an extension where the final answer actually changes.
+// Instrumenting the dedup step showed the mechanism directly. One
+// executed-op set is reached by two candidates, (peak 3, dense_work 54)
+// and (peak 4, dense_work 52) -- neither dominates the other, since one is
+// better on peak and the other on dense_work. Deduping lexicographically by
+// (peak, dense_work, first_op) (the pre-this-fix rule) keeps only the
+// lower-peak (3, 54) candidate and discards (4, 52) outright. Two steps
+// later the shared suffix forces every surviving path to peak 4 anyway: an
+// executed-op set further on is reached by three candidates, (4, 70) and
+// (4, 94) descending from the kept (3, 54) candidate, and (4, 68)
+// descending from the discarded (4, 52) one -- strictly the best of the
+// three, and gone for good under the old rule. So the old rule's beam
+// search reports (4, 70) as final, while keeping the whole Pareto front
+// reaches the brute-force optimum, (4, 68).
+TEST_CASE("Schedule pass reaches the brute-force optimum on a beam dedup Pareto regression circuit",
+          "[schedule_pass]") {
+    HirModule hir(4, 12);
+    hir.num_measurements = 3;
+    clifft::test::append_phase_rotation(hir, 0x2, 0x2, false, 0.875);      // Y1
+    clifft::test::append_tgate(hir, 0x2, 0x0, false);                      // X1
+    clifft::test::append_measure(hir, 0x5, 0x1, false, MeasRecordIdx{0});  // Y0 X2
+    clifft::test::append_tgate(hir, 0x1, 0x0, false);                      // X0
+    clifft::test::append_tgate(hir, 0x0, 0x9, false);                      // Z0 Z3
+    clifft::test::append_tgate(hir, 0x0, 0x2, false);                      // Z1
+    clifft::test::append_tgate(hir, 0x8, 0x9, false);                      // Z0 Y3
+    clifft::test::append_phase_rotation(hir, 0x2, 0x2, false, 0.25);       // Y1
+    clifft::test::append_measure(hir, 0x8, 0x0, false, MeasRecordIdx{1});  // X3
+    clifft::test::append_phase_rotation(hir, 0x8, 0x0, false, 0.875);      // X3
+    clifft::test::append_measure(hir, 0x8, 0x0, false, MeasRecordIdx{2});  // X3
+    clifft::test::append_tgate(hir, 0x8, 0x8, false);                      // Y3
+
+    ActiveWidthScheduleOptions options;
+    options.beam_width = 16;
+    options.sink_neutral_rotations = false;
+    ActiveWidthSchedulePass pass(options);
+    HirModule scheduled = hir;
+    pass.run(scheduled);
+
+    const OrderCost optimum = brute_force_optimum(hir);
+    INFO("incumbent_peak=" << pass.incumbent_peak() << " result_peak=" << pass.result_peak()
+                           << " result_dense_work=" << pass.result_dense_work());
+    REQUIRE(pass.result_peak() == optimum.peak);
+    REQUIRE(pass.result_dense_work() == optimum.dense_work);
+}

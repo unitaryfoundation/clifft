@@ -1,6 +1,9 @@
 #include "clifft/circuit/parser.h"
 #include "clifft/frontend/frontend.h"
+#include "clifft/optimizer/active_width_schedule_pass.h"
 #include "clifft/optimizer/pass_factory.h"
+#include "clifft/optimizer/peephole.h"
+#include "clifft/optimizer/schedule_dependence.h"
 #include "clifft/optimizer/statevector_squeeze_pass.h"
 #include "clifft/sampling/planner.h"
 #include "clifft/sampling/sampler.h"
@@ -113,6 +116,116 @@ void compile_plan_cultivation_d5(benchmark::State& state) {
     }
 }
 
+// Prepares the incumbent ActiveWidthSchedulePass::run() times below: parsed
+// and traced, then PeepholeFusionPass and StatevectorSqueezePass, matching
+// the pipeline the pass is documented to follow and never the full default
+// manager, so a later default-pipeline change cannot fold the scheduling
+// pass into this preparation step and time it twice.
+HirModule prepare_for_schedule_pass(const char* fixture_name) {
+    auto hir = trace(parse_file(fixture(fixture_name)));
+    PeepholeFusionPass{}.run(hir);
+    StatevectorSqueezePass{}.run(hir);
+    return hir;
+}
+
+// End-to-end compile timing through the scheduling pass: each iteration
+// copies a freshly parsed-and-traced HIR, then runs the full
+// Peephole+Squeeze+Schedule+plan_sampling pipeline the pass is documented
+// to follow, protecting the complete compile path a production pipeline
+// with scheduling enabled would pay -- not just the pass's own run() cost
+// schedule_pass_coherent_d5_r5 below isolates.
+void compile_schedule_plan_coherent_d5_r5(benchmark::State& state) {
+    const HirModule source = trace(parse_file(fixture("coherent_d5_r5.stim")));
+    HirModule validation = source;
+    PeepholeFusionPass{}.run(validation);
+    StatevectorSqueezePass{}.run(validation);
+    ActiveWidthSchedulePass{}.run(validation);
+    const sampling::SamplingPlan validation_plan = sampling::plan_sampling(validation);
+    if (validation_plan.peak_active_width != 13) {
+        state.SkipWithError("unexpected coherent d5 r5 scheduled plan peak");
+        return;
+    }
+    for ([[maybe_unused]] auto _ : state) {
+        HirModule hir = source;
+        PeepholeFusionPass{}.run(hir);
+        StatevectorSqueezePass{}.run(hir);
+        ActiveWidthSchedulePass{}.run(hir);
+        auto plan = sampling::plan_sampling(hir);
+        benchmark::DoNotOptimize(plan);
+    }
+}
+
+// coherent_d5_r5 is the corpus's slow fixture for this pass: its beam
+// search branches on tens of simultaneously-ready, mutually independent
+// expanding rotations at many steps, so this benchmark protects the
+// two-phase scoring cost that keeps that branching affordable. Each
+// iteration copies the prepared HIR fresh so it always times a first-time
+// schedule rather than a no-op repeat on an already-scheduled HIR.
+void schedule_pass_coherent_d5_r5(benchmark::State& state) {
+    const HirModule prepared = prepare_for_schedule_pass("coherent_d5_r5.stim");
+    HirModule validation = prepared;
+    ActiveWidthSchedulePass validation_pass;
+    validation_pass.run(validation);
+    if (validation_pass.result_peak() != 13) {
+        state.SkipWithError("unexpected coherent d5 r5 scheduled peak");
+        return;
+    }
+    for ([[maybe_unused]] auto _ : state) {
+        HirModule hir = prepared;
+        benchmark::DoNotOptimize(hir);
+        ActiveWidthSchedulePass{}.run(hir);
+        benchmark::DoNotOptimize(hir.ops.size());
+    }
+}
+
+// cultivation_d5 is far cheaper than coherent_d5_r5 for this pass, so this
+// benchmark protects the pass's typical cost separately from its
+// worst-case cost above.
+void schedule_pass_cultivation_d5(benchmark::State& state) {
+    const HirModule prepared = prepare_for_schedule_pass("cultivation_d5.stim");
+    HirModule validation = prepared;
+    ActiveWidthSchedulePass validation_pass;
+    validation_pass.run(validation);
+    if (validation_pass.result_peak() != 10) {
+        state.SkipWithError("unexpected cultivation d5 scheduled peak");
+        return;
+    }
+    for ([[maybe_unused]] auto _ : state) {
+        HirModule hir = prepared;
+        benchmark::DoNotOptimize(hir);
+        ActiveWidthSchedulePass{}.run(hir);
+        benchmark::DoNotOptimize(hir.ops.size());
+    }
+}
+
+// surface_d7_r7 is pure Clifford (no T_GATE/PHASE_ROTATION), so
+// ActiveWidthSchedulePass::run() early-exits on it before ever building
+// detail::ScheduleDependence -- none of the schedule_pass_* benchmarks
+// above ever pay for this build on this fixture. This benchmark
+// deliberately bypasses that early exit to measure build()'s
+// ancestor-bitset scan in isolation, on the corpus's largest movable-op
+// count: for each op it walks the zero bits of that op's ancestor bitset
+// (the earlier ops not yet implied by a recorded edge) and calls allowed()
+// only on those, so the cost this benchmark times is that word scan plus
+// one allowed() call per pair not already implied, not a full pairwise
+// scan.
+void schedule_dependence_build_surface_d7(benchmark::State& state) {
+    const HirModule prepared = prepare_for_schedule_pass("surface_d7_r7_p001.stim");
+    size_t movable_count = 0;
+    const detail::ScheduleDependence validation = detail::ScheduleDependence::build(prepared);
+    for (size_t i = 0; i < validation.num_ops(); ++i) {
+        movable_count += validation.is_movable(i) ? 1 : 0;
+    }
+    if (prepared.ops.size() != 3925 || movable_count != 482) {
+        state.SkipWithError("unexpected surface d7 r7 op or movable count");
+        return;
+    }
+    for ([[maybe_unused]] auto _ : state) {
+        detail::ScheduleDependence dependence = detail::ScheduleDependence::build(prepared);
+        benchmark::DoNotOptimize(dependence);
+    }
+}
+
 // Dense arbitrary two-qubit layers drive the width-10 coefficient-state path
 // instead of the mostly Clifford and noise-oriented execution paths below.
 void sample_qv10(benchmark::State& state) {
@@ -213,6 +326,10 @@ void sample_exp_val(benchmark::State& state) {
 
 BENCHMARK(squeeze_parallel_t)->Name("squeeze_parallel_t_8192");
 BENCHMARK(compile_plan_cultivation_d5)->Name("compile_plan_cultivation_d5");
+BENCHMARK(compile_schedule_plan_coherent_d5_r5)->Name("compile_schedule_plan_coherent_d5_r5");
+BENCHMARK(schedule_pass_coherent_d5_r5)->Name("schedule_pass_coherent_d5_r5");
+BENCHMARK(schedule_pass_cultivation_d5)->Name("schedule_pass_cultivation_d5");
+BENCHMARK(schedule_dependence_build_surface_d7)->Name("schedule_dependence_build_surface_d7");
 BENCHMARK(sample_qv10)->Name("sample_qv10_100_shots");
 BENCHMARK(sample_cultivation_d5)->Name("sample_cultivation_d5_1000_shots");
 BENCHMARK(sample_coherent_d5)->Name("sample_coherent_d5_r5_100_shots");

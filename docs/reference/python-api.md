@@ -122,6 +122,10 @@ Sampling under a five-level leakage/loss model. See the
 
 ::: clifft.StatevectorSqueezePass
 
+::: clifft.active_width_trace
+
+::: clifft.ActiveWidthSchedulePass
+
 ::: clifft.RemoveNoisePass
 
 ::: clifft.DropNonUnitaryPass
