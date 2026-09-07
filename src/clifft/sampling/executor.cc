@@ -216,13 +216,11 @@ ReplayResult Executor::replay_shot(std::span<const uint8_t> forced_records,
 
 void Executor::reset_shot() noexcept {
     state_.reset_parallel(intra_shot_workers_, intra_shot_min_active_width_);
-    // Validation guarantees that every mutable symbol and output is overwritten
-    // before use on a completed shot. Only nonfiring noise symbols need restoring.
-    for (uint32_t symbol : previous_presampled_ones_) {
-        assert(symbol < symbols_.size() && symbols_[symbol] == 1 &&
-               "tracked presampled symbols must be set");
-        symbols_[symbol] = 0;
-    }
+    // A continuation assigns symbols under its own numbering, so after a
+    // resumed shot a stale true value can sit at an index the root plan never
+    // overwrites before the next resume replays the prefix. Clear every
+    // symbol rather than only the tracked nonfiring noise symbols.
+    std::ranges::fill(symbols_, uint8_t{0});
     previous_presampled_ones_.clear();
     initialize_expression_registers(*plan_, 0);
     std::ranges::fill(forced_record_mask_, uint8_t{0});

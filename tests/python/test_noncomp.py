@@ -9,7 +9,11 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from conftest import noncomp_classifier_matrix_with_column, noncomp_transition_matrix
+from conftest import (
+    binomial_tolerance,
+    noncomp_classifier_matrix_with_column,
+    noncomp_transition_matrix,
+)
 
 import clifft
 from clifft import noncomp
@@ -534,6 +538,34 @@ def test_loss_only_exact_damping_stays_at_stabilizer_cost(noncomp_sampling_api):
     assert (meas[lost] == 1).all()
     assert lost.any() and (~lost).any()
     assert abs(lost.mean() - 0.3) < 4 * (0.3 * 0.7 / 4000) ** 0.5
+
+
+def test_shots_after_a_resumed_continuation_keep_noise_statistics(noncomp_sampling_api):
+    """Every shot of a multi-shot call sees the same noise statistics.
+
+    A shot that traps resumes on a continuation whose symbol numbering
+    differs from the root plan's, so the next shot must start from cleared
+    symbols: a value left behind at an index the root plan treats as a
+    nonfiring noise symbol would otherwise be replayed as a fired error at
+    that shot's own resume. Qubit 2 never touches the lossy Bell pair, so its
+    readout flips exactly when an odd number of its two X_ERROR sites fire.
+    """
+    circuit = (
+        "H 0\nCX 0 1\nLOSS(0.5) 1\nX_ERROR(0.02) 2\nX_ERROR(0.02) 2\nLOSS(0.5) 0\n" "M 0\nM 1\nM 2"
+    )
+    cls = noncomp.Classifier([[1, 0, 1, 0, 1], [0, 1, 0, 1, 0]])  # a lost qubit reads 0
+    model = noncomp.Model(classifier=cls)
+    shots = 8000
+    r = noncomp_sampling_api(circuit, model, shots=shots, seed=23)
+    lost = r.final_status == LOST_KIND
+    assert lost[:, :2].any() and (~lost[:, :2]).any()
+    assert not lost[:, 2].any()
+    p_flip = 2 * 0.02 * 0.98
+    assert abs(r.measurements[:, 2].mean() - p_flip) < binomial_tolerance(p_flip, shots)
+    # Each Bell half reads 1 only when it survives and its partner's loss or
+    # the Bell correlation leaves it uniformly random: probability 1/4.
+    for qubit in (0, 1):
+        assert abs(r.measurements[:, qubit].mean() - 0.25) < binomial_tolerance(0.25, shots)
 
 
 def test_loss_on_many_coherent_qubits_compiles_flat(noncomp_sampling_api):
