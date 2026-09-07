@@ -4,6 +4,7 @@
 #include "clifft/sampling/planner.h"
 #include "clifft/sampling/sampler.h"
 #include "clifft/sampling/state_queries.h"
+#include "clifft/util/fault_sampling.h"
 #include "clifft/util/intra_shot_parallel.h"
 #include "clifft/util/noise_sampling.h"
 #include "clifft/util/numeric.h"
@@ -103,6 +104,28 @@ SamplingPlan dormant_trap_plan() {
 
 SamplingPlan plan_from(std::string_view circuit_text) {
     return clifft::sampling::plan_sampling(clifft::trace(clifft::parse(circuit_text)));
+}
+
+void reseed_for_shot(Executor& executor, uint32_t shot) {
+    const auto words = clifft::derive_state(clifft::seed_root_from_seed(23), shot,
+                                            clifft::kSamplingExecutorDomain);
+    executor.reseed_full(words[0], words[1], words[2], words[3]);
+}
+
+void require_same_completed_shot(const Executor& reused, const Executor& fresh) {
+    REQUIRE_FALSE(reused.pending_trap().has_value());
+    REQUIRE_FALSE(fresh.pending_trap().has_value());
+    REQUIRE_FALSE(reused.discarded());
+    REQUIRE_FALSE(fresh.discarded());
+    REQUIRE(std::ranges::equal(reused.visible_records(), fresh.visible_records()));
+    REQUIRE(std::ranges::equal(reused.hidden_records(), fresh.hidden_records()));
+    REQUIRE(std::ranges::equal(reused.symbols(), fresh.symbols()));
+    REQUIRE(std::ranges::equal(reused.detectors(), fresh.detectors()));
+    REQUIRE(std::ranges::equal(reused.observables(), fresh.observables()));
+    REQUIRE(std::ranges::equal(reused.exp_vals(), fresh.exp_vals()));
+    REQUIRE(reused.state().active_width() == fresh.state().active_width());
+    REQUIRE(std::ranges::equal(reused.state().real(), fresh.state().real()));
+    REQUIRE(std::ranges::equal(reused.state().imag(), fresh.state().imag()));
 }
 
 SamplingPlan categorical_noise_plan() {
@@ -608,6 +631,76 @@ TEST_CASE("Sampling expression registers preserve noisy postselection") {
     REQUIRE(std::ranges::all_of(result.observables, [](uint8_t value) { return value == 0; }));
 }
 
+TEST_CASE("Sampling reused executors match fresh shots after early exits") {
+    const auto hir =
+        clifft::trace(clifft::parse("M 2\nX_ERROR(0.5) 0\nM 0\nDETECTOR rec[-1]\n"
+                                    "H 1\nT 1\nM 1\nOBSERVABLE_INCLUDE(0) rec[-1]\nEXP_VAL Z1"));
+    const std::array<uint8_t, 1> postselection{1};
+    const ExecutablePlan plan(
+        clifft::sampling::plan_sampling(hir, {.postselection_mask = postselection}));
+    const std::array<uint8_t, 1> no_noise{0};
+    const std::array<uint8_t, 1> noise{1};
+    const std::array<double, 1> probabilities{0.5};
+
+    for (const std::string_view history :
+         {"postselection", "unreachable replay", "conditioned postselection"}) {
+        for (uint32_t shot = 0; shot < 16; ++shot) {
+            for (const std::string_view mode : {"sampled", "presampled", "replay", "conditioned"}) {
+                CAPTURE(history, shot, mode);
+                Executor reused(plan);
+                reused.run_shot(no_noise);
+                REQUIRE_FALSE(reused.discarded());
+
+                if (history == "postselection") {
+                    reused.run_shot(noise);
+                    REQUIRE(reused.discarded());
+                    REQUIRE(reused.visible_records()[1] == 1);
+                } else if (history == "unreachable replay") {
+                    const ReplayResult result =
+                        reused.replay_shot(std::array<uint8_t, 3>{1, 0, 0}, noise);
+                    REQUIRE_FALSE(result.reachable);
+                    REQUIRE(reused.visible_records()[0] == 0);
+                } else {
+                    clifft::KFaultSampler faults(probabilities, 1);
+                    reused.run_shot(faults);
+                    REQUIRE(reused.discarded());
+                }
+
+                Executor fresh(plan);
+                reseed_for_shot(reused, shot);
+                reseed_for_shot(fresh, shot);
+                if (mode == "sampled") {
+                    reused.run_shot();
+                    fresh.run_shot();
+                } else if (mode == "presampled") {
+                    reused.run_shot(no_noise);
+                    fresh.run_shot(no_noise);
+                } else if (mode == "replay") {
+                    const std::array<uint8_t, 3> records{0, 0, static_cast<uint8_t>(shot % 2)};
+                    const auto actual = reused.replay_shot(records, no_noise);
+                    const auto expected = fresh.replay_shot(records, no_noise);
+                    REQUIRE(actual.reachable);
+                    REQUIRE(expected.reachable);
+                    REQUIRE(actual.log_probability == expected.log_probability);
+                } else {
+                    clifft::KFaultSampler reused_faults(probabilities, 0);
+                    clifft::KFaultSampler fresh_faults(probabilities, 0);
+                    reused.run_shot(reused_faults);
+                    fresh.run_shot(fresh_faults);
+                }
+                REQUIRE(reused.discarded() == fresh.discarded());
+                if (fresh.discarded()) {
+                    // The suffix of a discarded shot is intentionally not observable.
+                    REQUIRE(std::ranges::equal(reused.visible_records().first(2),
+                                               fresh.visible_records().first(2)));
+                } else {
+                    require_same_completed_shot(reused, fresh);
+                }
+            }
+        }
+    }
+}
+
 TEST_CASE("Sampling replay applies active measurement dust policy") {
     SECTION("dust on the one branch") {
         const ExecutablePlan dusty(active_then_dormant_plan(1e-10));
@@ -1097,6 +1190,141 @@ TEST_CASE("Sampling continuation reconstructs expressions from true prefix symbo
     executor.resume(executable);
     REQUIRE_FALSE(executor.pending_trap().has_value());
     REQUIRE(executor.visible_records()[0] == 1);
+}
+
+TEST_CASE("Sampling reused executors match fresh shots after continuation renumbering") {
+    SamplingPlan root_plan;
+    root_plan.num_qubits = 2;
+    root_plan.num_visible_records = 1;
+    root_plan.symbols = {SymbolKind::Presampled};
+    root_plan.presampled_noise_sites = {PresampledNoiseSite{0.25, {{SymbolId{0}, 0.25}}}};
+    root_plan.instrument_distributions = {InstrumentDistribution{{0.5, 0.5}, {}},
+                                          InstrumentDistribution{{1.0, 1.0}, {}}};
+    root_plan.actions = {
+        PlannedAction{
+            0, 0,
+            ApplyInstrument{
+                InstrumentSiteId{0}, InstrumentMode::DormantTrap, {}, AffineBool{}, std::nullopt}},
+        PlannedAction{0, 0, InstrumentBoundary{InstrumentSiteId{0}, 0, 0}},
+        PlannedAction{
+            0, 0,
+            ApplyInstrument{
+                InstrumentSiteId{1}, InstrumentMode::DormantTrap, {}, AffineBool{}, std::nullopt}},
+        PlannedAction{0, 0, InstrumentBoundary{InstrumentSiteId{1}, 1, 1}},
+        PlannedAction{0, 0, RecordClassical{AffineBool::symbol(SymbolId{0}), RecordSlot{0}}},
+    };
+
+    // Only the suffix changes identity: its noise slot becomes a true derived
+    // symbol. A later shot that skips the first trap must restore the noise baseline.
+    SamplingPlan changed_plan = root_plan;
+    changed_plan.symbols[0] = SymbolKind::Derived;
+    changed_plan.presampled_noise_sites.clear();
+    changed_plan.actions[3] = PlannedAction{0, 0, InstrumentBoundary{InstrumentSiteId{1}, 0, 1}};
+    changed_plan.actions.insert(changed_plan.actions.begin() + 2,
+                                PlannedAction{0, 0, DefineSymbol{SymbolId{0}, AffineBool(true)}});
+    const ExecutablePlan root(root_plan);
+    const ExecutablePlan changed(changed_plan);
+
+    auto finish_shot = [&](Executor& executor) {
+        executor.run_shot();
+        REQUIRE(executor.pending_trap().has_value());
+        const bool renumbered = index(executor.pending_trap()->site) == 0;
+        if (renumbered) {
+            executor.resume(changed);
+            REQUIRE(executor.pending_trap().has_value());
+            REQUIRE(index(executor.pending_trap()->site) == 1);
+        }
+        executor.resume(renumbered ? changed : root);
+        return renumbered;
+    };
+
+    Executor reused(root);
+    bool previous_renumbered = false;
+    bool saw_nonfiring_noise_after_renumbering = false;
+    for (uint32_t shot = 0; shot < 64; ++shot) {
+        CAPTURE(shot);
+        Executor fresh(root);
+        reseed_for_shot(reused, shot);
+        reseed_for_shot(fresh, shot);
+        const bool expected_renumbered = finish_shot(fresh);
+        const bool actual_renumbered = finish_shot(reused);
+        REQUIRE(actual_renumbered == expected_renumbered);
+        saw_nonfiring_noise_after_renumbering |=
+            previous_renumbered && !expected_renumbered && fresh.visible_records()[0] == 0;
+        require_same_completed_shot(reused, fresh);
+        previous_renumbered = actual_renumbered;
+        reused.return_to_root_plan();
+    }
+    REQUIRE(saw_nonfiring_noise_after_renumbering);
+}
+
+TEST_CASE("Sampling reused executors match fresh shots after continuation storage grows") {
+    SamplingPlan root_plan = dormant_trap_plan();
+    root_plan.num_qubits = 4;
+    root_plan.num_visible_records = 1;
+    root_plan.num_exp_vals = 1;
+    root_plan.actions.push_back(PlannedAction{0, 0, RecordClassical{AffineBool{}, RecordSlot{0}}});
+    root_plan.actions.push_back(PlannedAction{
+        0, 0,
+        WriteExpectationValue{ActiveExpectation{ActivePauli{}, AffineBool{}}, ExpValSlot{0}}});
+
+    auto continuation_plan = [&](uint32_t width) {
+        SamplingPlan plan = root_plan;
+        plan.actions.resize(2);
+        plan.peak_active_width = width;
+        plan.num_hidden_records = 1;
+        plan.symbols = {SymbolKind::Unused, SymbolKind::Branch, SymbolKind::Branch};
+        plan.actions.push_back(PlannedAction{
+            0, 0,
+            MeasureDormantRandom{3, SymbolId{1}, AffineBool::symbol(SymbolId{1}), RecordSlot{1}}});
+        for (uint32_t active = 0; active < width; ++active) {
+            plan.actions.push_back(
+                PlannedAction{active, active + 1, PromoteDormantRotation{0.25, AffineBool{}}});
+        }
+        plan.actions.push_back(PlannedAction{
+            width, width - 1,
+            MeasureActivePauli{{1, 0},
+                               0,
+                               SymbolId{2},
+                               AffineBool::symbol(SymbolId{2}) ^ AffineBool::symbol(SymbolId{1}),
+                               RecordSlot{0}}});
+        plan.actions.push_back(PlannedAction{
+            width - 1, width - 1,
+            WriteExpectationValue{
+                ActiveExpectation{ActivePauli{0, width > 1 ? uint64_t{1} : uint64_t{0}},
+                                  AffineBool::symbol(SymbolId{1})},
+                ExpValSlot{0}}});
+        return plan;
+    };
+    const ExecutablePlan root(root_plan);
+    const ExecutablePlan wide(continuation_plan(3));
+    const ExecutablePlan narrow(continuation_plan(1));
+    Executor reused(root);
+    for (uint32_t shot = 0; shot < 12; ++shot) {
+        CAPTURE(shot);
+        Executor fresh(root);
+        reseed_for_shot(reused, shot);
+        reseed_for_shot(fresh, shot);
+        reused.run_shot();
+        fresh.run_shot();
+        REQUIRE(reused.pending_trap().has_value());
+        REQUIRE(fresh.pending_trap().has_value());
+        REQUIRE(reused.state().active_width() == 0);
+        REQUIRE(reused.hidden_records().empty());
+        const ExecutablePlan& continuation = shot % 2 == 0 ? wide : narrow;
+        const auto forced =
+            shot % 3 == 2
+                ? std::nullopt
+                : std::make_optional(ForcedTraceOut{RecordSlot{1}, static_cast<uint8_t>(shot % 3)});
+        reused.resume(continuation, forced);
+        fresh.resume(continuation, forced);
+        require_same_completed_shot(reused, fresh);
+        if (forced.has_value()) {
+            REQUIRE(reused.hidden_records()[0] == forced->source);
+        }
+        REQUIRE(reused.state().capacity() == 8);
+        reused.return_to_root_plan();
+    }
 }
 
 TEST_CASE("Sampling continuation consumes a forced hidden source record") {
