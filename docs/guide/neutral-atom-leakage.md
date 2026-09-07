@@ -1,6 +1,6 @@
 <!--pytest-codeblocks:skipfile-->
 
-# Tutorial: Reproducing a Neutral-Atom Logical Noise Sweep
+# Tutorial: Reproducing the Logical Shor Noise Sweep on Neutral Atoms
 
 This advanced tutorial reconstructs the simulated Shor noise sweep in Figure 9
 of Rines *et al.*, ["Demonstration of a Logical Architecture Uniting Motion and
@@ -67,7 +67,7 @@ at their new sites.
 
 The files record the nominal `alpha=1` probabilities. The runnable script
 rescales the selected terms in memory, so the complete sweep needs only these
-four circuits. The [`README.txt`](circuits/neutral_atom/README.txt) records
+four circuits. The [`README.md`](circuits/neutral_atom/README.md) records
 their public source and license.
 
 ## Map the five-level noise model
@@ -145,7 +145,7 @@ that distinction; `alpha=1` is the nominal model stored in the circuit files.
 
 Color identifies the physical realization and lower TVD is better. Solid
 curves with circles use the rebalanced model; crosses use exact no-jump
-back-action. Each checked-in point uses 2,000 trajectories per model. The
+back-action. Each checked-in point uses 50,000 trajectories per model. The
 rebalanced curves reproduce the published ordering: the encoded schedules
 initially outperform the unencoded circuit, while their advantage disappears
 as the selected noise terms grow.
@@ -173,11 +173,11 @@ fits.
 
 At low noise, the estimated shift grows with the rate asymmetry. The absolute
 difference eventually shrinks because very few trajectories survive either
-model. With 1,000 trajectories per model and point, the bands are deliberately
-wide; increase `--asymmetry-shots` before drawing quantitative conclusions.
-The qualitative lesson is still visible: checking only decoded distributions
-can miss a modeling bias because conditional back-action changes the
-postselected ensemble itself.
+model. The checked-in figure uses 10,000 trajectories per model and point;
+increase `--asymmetry-shots` further before drawing precise quantitative
+conclusions. The qualitative lesson is clear: checking only decoded
+distributions can miss a modeling bias because conditional back-action changes
+the postselected ensemble itself.
 
 The conclusion is not that the published approximation was unusable. Its
 physical asymmetry is mild. The useful result is that Clifft lets us validate
@@ -206,10 +206,11 @@ uv run --with matplotlib python \
   docs/guide/scripts/neutral_atom_leakage_tutorial.py --figures
 ```
 
-That command uses the same fixed seed and sampling budgets as the checked-in
-images: 2,000 trajectories per model and Figure 9 point and 1,000 per model and
-asymmetry point. For smoother curves and narrower acceptance intervals, raise
-`--figure9-shots` and `--asymmetry-shots`.
+That quick command uses 2,000 trajectories per model and Figure 9 point and
+1,000 per model and asymmetry point. To reproduce the smoother checked-in
+figures, add `--figure9-shots 50000 --asymmetry-shots 10000`. Figure generation
+uses Clifft's automatic parallel sampling; seeded results are independent of
+thread count.
 
 The script converts Clifft's measurement and herald arrays to the public
 artifact's three-symbol records, then:

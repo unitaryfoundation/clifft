@@ -31,6 +31,7 @@ import numpy.typing as npt
 from clifft import noncomp
 
 ModelKind = Literal["matched", "exact"]
+ThreadCount: TypeAlias = int | Literal["auto"]
 Counts: TypeAlias = Mapping[str, float | int]
 MutableCounts: TypeAlias = dict[str, float | int]
 MODEL_KINDS: tuple[ModelKind, ...] = ("matched", "exact")
@@ -325,6 +326,7 @@ def run_experiment(
     alpha: float = 1.0,
     cz_asymmetry: float | None = None,
     isolate_cz_asymmetry: bool = False,
+    threads: ThreadCount = 1,
 ) -> ExperimentResult:
     """Sample and decode one checked-in schedule at a selected noise multiplier."""
     if shots <= 0:
@@ -345,6 +347,7 @@ def run_experiment(
         ),
         shots=shots,
         seed=seed,
+        threads=threads,
     )
     raw_counts = Counter("".join(str(symbol) for symbol in row) for row in result.symbols())
     decoded = decode_counts(circuit, raw_counts)
@@ -389,6 +392,7 @@ def figure9_sweep(*, shots: int, seed: int) -> list[ExperimentResult]:
                         shots=shots,
                         seed=seed + 10_000 * model_index + 100 * circuit_index + alpha_index,
                         alpha=alpha,
+                        threads="auto",
                     )
                 )
     return results
@@ -412,6 +416,7 @@ def asymmetry_sweep(*, shots: int, seed: int) -> list[AcceptanceDifference]:
                 alpha=alpha,
                 cz_asymmetry=asymmetry_pp / 100,
                 isolate_cz_asymmetry=True,
+                threads="auto",
             )
             exact = run_experiment(
                 "two_row_ldu",
@@ -421,6 +426,7 @@ def asymmetry_sweep(*, shots: int, seed: int) -> list[AcceptanceDifference]:
                 alpha=alpha,
                 cz_asymmetry=asymmetry_pp / 100,
                 isolate_cz_asymmetry=True,
+                threads="auto",
             )
             standard_error = sqrt(
                 matched.acceptance * (1 - matched.acceptance) / shots
