@@ -61,9 +61,25 @@ struct ThreadLayout {
                                     std::optional<ThreadLayout> thread_layout = std::nullopt,
                                     std::optional<uint32_t> batch_size = std::nullopt);
 
+// Samples only the selected row-major output matrices. Unselected vectors are
+// empty, and selected storage is allocated before hot execution begins.
+[[nodiscard]] SamplingResult sample_selected(
+    const ExecutablePlan& plan, uint32_t shots, SamplingOutputSelection outputs,
+    std::optional<uint64_t> seed = std::nullopt, uint32_t threads = 1,
+    std::optional<ThreadLayout> thread_layout = std::nullopt,
+    std::optional<uint32_t> batch_size = std::nullopt);
+
 [[nodiscard]] SamplingSurvivorResult sample_survivors(
     const ExecutablePlan& plan, uint32_t shots, std::optional<uint64_t> seed = std::nullopt,
     bool keep_records = false, uint32_t threads = 1,
+    std::optional<ThreadLayout> thread_layout = std::nullopt,
+    std::optional<uint32_t> batch_size = std::nullopt);
+
+// Postselects shots while retaining only selected row-major matrices. Survivor
+// counts and observable aggregates are populated independently of selection.
+[[nodiscard]] SamplingSurvivorResult sample_survivors_selected(
+    const ExecutablePlan& plan, uint32_t shots, SamplingOutputSelection outputs,
+    std::optional<uint64_t> seed = std::nullopt, uint32_t threads = 1,
     std::optional<ThreadLayout> thread_layout = std::nullopt,
     std::optional<uint32_t> batch_size = std::nullopt);
 

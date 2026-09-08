@@ -5,6 +5,24 @@
 
 namespace clifft::sampling {
 
+// Selects which row-major output matrices a sampling request materializes.
+// Executors may still retain internal records needed to evaluate requested
+// detector or observable parities.
+struct SamplingOutputSelection {
+    bool measurements = false;
+    bool detectors = false;
+    bool observables = false;
+    bool exp_vals = false;
+
+    [[nodiscard]] constexpr bool any() const noexcept {
+        return measurements || detectors || observables || exp_vals;
+    }
+
+    [[nodiscard]] static constexpr SamplingOutputSelection all() noexcept {
+        return {.measurements = true, .detectors = true, .observables = true, .exp_vals = true};
+    }
+};
+
 // Backend-neutral row-major outputs from ordinary sampling.
 struct SamplingResult {
     std::vector<uint8_t> measurements;
