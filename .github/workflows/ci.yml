@@ -729,6 +729,7 @@ jobs:
       - lint
       - playground-lint
       - hip-offline-build
+      - cuda-offline-build
       - build-and-test
       - release-cpp-smoke
       - gcc-release-cpp

@@ -1,7 +1,9 @@
 // CUDA device interpreter for lowered sampling plans.
 //
-// Three execution tiers share one action semantics with the HIP backend, so
-// conformance results transfer between them:
+// Three execution tiers interpret the same lowered actions as the CPU and HIP
+// backends. Only the action semantics are shared: the HIP backend runs one
+// thread per shot, so the two cooperative tiers below are a new parallel
+// execution model and carry no conformance evidence over from it.
 //   * thread-per-shot: one thread walks a whole shot; sensible only while the
 //     coefficient state is tiny.
 //   * block-per-shot, shared: one block walks a whole shot with the
@@ -88,8 +90,7 @@ __device__ __forceinline__ ComplexValue<Value> phase_at(const Action& action, ui
 
 template <typename Coefficient>
 __device__ __forceinline__ ComplexValue<Coefficient> load(const Coefficient* real,
-                                                          const Coefficient* imag,
-                                                          uint64_t index) {
+                                                          const Coefficient* imag, uint64_t index) {
     return {real[index], imag[index]};
 }
 
@@ -145,9 +146,11 @@ __device__ __forceinline__ bool evaluate_output_value(const ProgramView& program
 }
 
 template <typename Coefficient>
-__device__ __forceinline__ ComplexValue<Coefficient> compact_nondiagonal(
-    const Action& action, const Coefficient* real, const Coefficient* imag, uint64_t packed,
-    bool branch) {
+__device__ __forceinline__ ComplexValue<Coefficient> compact_nondiagonal(const Action& action,
+                                                                         const Coefficient* real,
+                                                                         const Coefficient* imag,
+                                                                         uint64_t packed,
+                                                                         bool branch) {
     const uint64_t source0 = insert_zero_bit(packed, action.index2);
     const uint64_t source1 = source0 ^ action.x;
     const ComplexValue<Coefficient> left = load(real, imag, source0);
@@ -329,8 +332,14 @@ __device__ bool measure_active(const ProgramView& program, const Action& action,
     const double epsilon = clifft::kMeasurementDustEpsilon * total;
     bool branch;
     if constexpr (Replay) {
+        // The lowered outcome is the sign correction XOR this action's branch
+        // symbol, so every lane must read it while the symbol still holds zero.
+        // Lane 0 publishes the symbol below; without this barrier a lagging
+        // lane reads the published value, cancels it out of the correction and
+        // selects the opposite branch, leaving lanes at different barriers.
         const bool correction = evaluate(program, symbols, action.expression);
         branch = (forced_records[action.index1] != 0) != correction;
+        lane.sync();
         if ((probability_one <= epsilon && branch) || (probability_zero <= epsilon && !branch)) {
             return false;
         }
@@ -437,8 +446,10 @@ __device__ __forceinline__ ShotRows shot_rows(const ProgramView& program, uint32
                                               double* exp_val_storage) {
     ShotRows rows;
     const uint64_t index = shot;
-    rows.symbols = program.num_symbols == 0 ? nullptr : symbol_storage + index * program.num_symbols;
-    rows.records = program.num_records == 0 ? nullptr : record_storage + index * program.num_records;
+    rows.symbols =
+        program.num_symbols == 0 ? nullptr : symbol_storage + index * program.num_symbols;
+    rows.records =
+        program.num_records == 0 ? nullptr : record_storage + index * program.num_records;
     rows.detectors =
         program.num_detectors == 0 ? nullptr : detector_storage + index * program.num_detectors;
     rows.observables = program.num_observables == 0
@@ -512,11 +523,16 @@ __device__ void interpret_one_shot(const ProgramView& program, SeedRoot seed_roo
                     rows.records, real, imag, scratch_real, scratch_imag, lane);
                 break;
             case ActionTag::MeasureDormantRandom: {
-                const bool correction = evaluate(program, rows.symbols, action.expression);
-                const bool branch = Replay ? (rows.forced_records[action.index1] != 0) != correction
-                                           : rng.next_double() >= 0.5;
+                bool branch;
                 if constexpr (Replay) {
+                    // Same publication hazard as measure_active: the lowered
+                    // outcome names the branch symbol that lane 0 writes below.
+                    const bool correction = evaluate(program, rows.symbols, action.expression);
+                    branch = (rows.forced_records[action.index1] != 0) != correction;
                     log_probability += kLogHalf;
+                    lane.sync();
+                } else {
+                    branch = rng.next_double() >= 0.5;
                 }
                 if (lane.is_writer()) {
                     rows.symbols[action.index0] = static_cast<uint8_t>(branch);
@@ -571,6 +587,12 @@ __device__ void interpret_one_shot(const ProgramView& program, SeedRoot seed_roo
                 if ((action.flags & kPostselected) != 0 && outcome) {
                     discarded = true;
                 }
+                // Every lane read the record row above, and a later action can
+                // have lane 0 mutate those records -- a readout flip, another
+                // measurement. Without this barrier a lagging lane reads the
+                // mutated record, disagrees about `discarded`, and leaves the
+                // action loop while the rest of the block is still sweeping.
+                lane.sync();
                 break;
             }
             case ActionTag::WriteObservable:
@@ -630,8 +652,8 @@ __global__ void interpret_shots_thread(ProgramView program, SeedRoot seed_root,
     Coefficient* scratch_real = imag + capacity;
     Coefficient* scratch_imag = scratch_real + scratch_capacity;
     const ShotRows rows = shot_rows<Replay>(program, static_cast<uint32_t>(shot), symbol_storage,
-                                            record_storage, forced_record_storage,
-                                            detector_storage, observable_storage, exp_val_storage);
+                                            record_storage, forced_record_storage, detector_storage,
+                                            observable_storage, exp_val_storage);
     interpret_one_shot<Coefficient, Replay>(program, seed_root, shot_offset + shot,
                                             static_cast<uint32_t>(shot), real, imag, scratch_real,
                                             scratch_imag, rows, log_probability_storage,
@@ -643,10 +665,9 @@ __global__ void interpret_shots_thread(ProgramView program, SeedRoot seed_root,
 // strided by the grid, so global slabs are bounded by the grid rather than the
 // shot count.
 template <typename Coefficient, bool Replay, bool UseShared>
-__global__ void interpret_shots_block(ProgramView program, SeedRoot seed_root,
-                                      uint64_t shot_offset, uint32_t shots,
-                                      Coefficient* slab_storage, uint8_t* symbol_storage,
-                                      uint8_t* record_storage,
+__global__ void interpret_shots_block(ProgramView program, SeedRoot seed_root, uint64_t shot_offset,
+                                      uint32_t shots, Coefficient* slab_storage,
+                                      uint8_t* symbol_storage, uint8_t* record_storage,
                                       const uint8_t* forced_record_storage,
                                       uint8_t* detector_storage, uint8_t* observable_storage,
                                       double* exp_val_storage, double* log_probability_storage,
@@ -670,13 +691,12 @@ __global__ void interpret_shots_block(ProgramView program, SeedRoot seed_root,
 
     const Lane lane{threadIdx.x, blockDim.x, reduce};
     for (uint32_t shot = blockIdx.x; shot < shots; shot += gridDim.x) {
-        const ShotRows rows = shot_rows<Replay>(program, shot, symbol_storage, record_storage,
-                                                forced_record_storage, detector_storage,
-                                                observable_storage, exp_val_storage);
-        interpret_one_shot<Coefficient, Replay>(program, seed_root, shot_offset + shot, shot, real,
-                                                imag, scratch_real, scratch_imag, rows,
-                                                log_probability_storage, reachable_storage,
-                                                survived, lane);
+        const ShotRows rows =
+            shot_rows<Replay>(program, shot, symbol_storage, record_storage, forced_record_storage,
+                              detector_storage, observable_storage, exp_val_storage);
+        interpret_one_shot<Coefficient, Replay>(
+            program, seed_root, shot_offset + shot, shot, real, imag, scratch_real, scratch_imag,
+            rows, log_probability_storage, reachable_storage, survived, lane);
     }
 }
 
@@ -876,10 +896,9 @@ DeviceLimits query_device() {
 }
 
 size_t coefficient_bytes(const ExecutablePlan& executable, CoefficientPrecision precision) {
-    const size_t element =
-        precision == CoefficientPrecision::FP32 ? sizeof(float) : sizeof(double);
-    return static_cast<size_t>(detail::coefficient_elements_per_shot(
-               executable.peak_active_width())) *
+    const size_t element = precision == CoefficientPrecision::FP32 ? sizeof(float) : sizeof(double);
+    return static_cast<size_t>(
+               detail::coefficient_elements_per_shot(executable.peak_active_width())) *
            element;
 }
 
@@ -1018,8 +1037,8 @@ class Sampler::Impl {
           host_exp_vals(checked_elements(max_batch, source.num_exp_vals(), "host expectation")),
           host_survived(max_batch) {}
 
-    void run_batch(detail::SeedRoot root, uint64_t shot_offset, uint32_t shots,
-                   uint32_t block_size, DownloadMode download_mode) {
+    void run_batch(detail::SeedRoot root, uint64_t shot_offset, uint32_t shots, uint32_t block_size,
+                   DownloadMode download_mode) {
         if (shots > max_batch) {
             throw std::invalid_argument("CUDA batch exceeds retained workspace capacity");
         }
@@ -1034,8 +1053,7 @@ class Sampler::Impl {
     void run_replay(std::span<const uint8_t> input) {
         forced_records.upload(input);
         const detail::SeedRoot empty_root{};
-        const uint32_t block_size =
-            tier == ExecutionTier::ThreadPerShot ? 1 : kDefaultBlockSize;
+        const uint32_t block_size = tier == ExecutionTier::ThreadPerShot ? 1 : kDefaultBlockSize;
         if (precision == CoefficientPrecision::FP32) {
             launch<float, true>(empty_root, 0, 1, block_size, fp32_coefficients.data());
         } else {
@@ -1100,8 +1118,7 @@ class Sampler::Impl {
                 detail::interpret_shots_thread<Coefficient, Replay><<<blocks, block_size>>>(
                     program.view, root, shot_offset, shots, coefficient_storage, symbols.data(),
                     records.data(), forced_records.data(), detectors.data(), observables.data(),
-                    exp_vals.data(), log_probabilities.data(), reachable.data(),
-                    survived.data());
+                    exp_vals.data(), log_probabilities.data(), reachable.data(), survived.data());
                 break;
             }
             case ExecutionTier::BlockShared: {
@@ -1113,8 +1130,7 @@ class Sampler::Impl {
                 kernel<<<grid, block_size, dynamic_shared_bytes>>>(
                     program.view, root, shot_offset, shots, coefficient_storage, symbols.data(),
                     records.data(), forced_records.data(), detectors.data(), observables.data(),
-                    exp_vals.data(), log_probabilities.data(), reachable.data(),
-                    survived.data());
+                    exp_vals.data(), log_probabilities.data(), reachable.data(), survived.data());
                 break;
             }
             case ExecutionTier::BlockGlobal: {
@@ -1122,8 +1138,7 @@ class Sampler::Impl {
                 detail::interpret_shots_block<Coefficient, Replay, false><<<grid, block_size>>>(
                     program.view, root, shot_offset, shots, coefficient_storage, symbols.data(),
                     records.data(), forced_records.data(), detectors.data(), observables.data(),
-                    exp_vals.data(), log_probabilities.data(), reachable.data(),
-                    survived.data());
+                    exp_vals.data(), log_probabilities.data(), reachable.data(), survived.data());
                 break;
             }
             case ExecutionTier::Auto:
@@ -1141,9 +1156,9 @@ class Sampler::Impl {
             detectors.download_prefix(
                 std::span(host_detectors)
                     .first(checked_elements(shots, program.view.num_detectors, "detector result")));
-            exp_vals.download_prefix(
-                std::span(host_exp_vals)
-                    .first(checked_elements(shots, program.view.num_exp_vals, "expectation result")));
+            exp_vals.download_prefix(std::span(host_exp_vals)
+                                         .first(checked_elements(shots, program.view.num_exp_vals,
+                                                                 "expectation result")));
         }
         observables.download_prefix(
             std::span(host_observables)
@@ -1224,16 +1239,15 @@ SamplingResult Sampler::sample(uint32_t shots, std::optional<uint64_t> seed, uin
                 std::copy_n(impl_->host_records.begin() +
                                 static_cast<size_t>(local_shot) * impl_->num_records(),
                             impl_->num_visible_records(),
-                            result.measurements.begin() +
-                                static_cast<size_t>(offset + local_shot) *
-                                    impl_->num_visible_records());
+                            result.measurements.begin() + static_cast<size_t>(offset + local_shot) *
+                                                              impl_->num_visible_records());
             }
         }
         if (impl_->num_detectors() != 0) {
-            std::copy_n(impl_->host_detectors.begin(),
-                        checked_elements(batch, impl_->num_detectors(), "detector batch"),
-                        result.detectors.begin() +
-                            static_cast<size_t>(offset) * impl_->num_detectors());
+            std::copy_n(
+                impl_->host_detectors.begin(),
+                checked_elements(batch, impl_->num_detectors(), "detector batch"),
+                result.detectors.begin() + static_cast<size_t>(offset) * impl_->num_detectors());
         }
         if (impl_->num_observables() != 0) {
             std::copy_n(impl_->host_observables.begin(),
@@ -1242,10 +1256,10 @@ SamplingResult Sampler::sample(uint32_t shots, std::optional<uint64_t> seed, uin
                             static_cast<size_t>(offset) * impl_->num_observables());
         }
         if (impl_->num_exp_vals() != 0) {
-            std::copy_n(impl_->host_exp_vals.begin(),
-                        checked_elements(batch, impl_->num_exp_vals(), "expectation batch"),
-                        result.exp_vals.begin() +
-                            static_cast<size_t>(offset) * impl_->num_exp_vals());
+            std::copy_n(
+                impl_->host_exp_vals.begin(),
+                checked_elements(batch, impl_->num_exp_vals(), "expectation batch"),
+                result.exp_vals.begin() + static_cast<size_t>(offset) * impl_->num_exp_vals());
         }
         offset += batch;
     }
@@ -1264,8 +1278,8 @@ SamplingSurvivorResult Sampler::sample_survivors(uint32_t shots, bool keep_recor
     }
     result.observable_ones.resize(impl_->num_observables(), 0);
     if (keep_records) {
-        result.measurements.resize(checked_elements(shots, impl_->num_visible_records(),
-                                                    "survivor measurement result"));
+        result.measurements.resize(
+            checked_elements(shots, impl_->num_visible_records(), "survivor measurement result"));
         result.detectors.resize(
             checked_elements(shots, impl_->num_detectors(), "survivor detector result"));
         result.observables.resize(
@@ -1278,9 +1292,9 @@ SamplingSurvivorResult Sampler::sample_survivors(uint32_t shots, bool keep_recor
     const detail::SeedRoot device_root{{root.w[0], root.w[1], root.w[2], root.w[3]}};
     for (uint32_t offset = 0; offset < shots;) {
         const uint32_t batch = std::min(impl_->max_batch, shots - offset);
-        impl_->run_batch(device_root, offset, batch, block_size,
-                         keep_records ? Impl::DownloadMode::FullRows
-                                      : Impl::DownloadMode::SurvivorCounts);
+        impl_->run_batch(
+            device_root, offset, batch, block_size,
+            keep_records ? Impl::DownloadMode::FullRows : Impl::DownloadMode::SurvivorCounts);
         for (uint32_t local_shot = 0; local_shot < batch; ++local_shot) {
             if (impl_->host_survived[local_shot] == 0) {
                 continue;
@@ -1302,8 +1316,8 @@ SamplingSurvivorResult Sampler::sample_survivors(uint32_t shots, bool keep_recor
                 std::copy_n(impl_->host_records.begin() +
                                 static_cast<size_t>(local_shot) * impl_->num_records(),
                             impl_->num_visible_records(),
-                            result.measurements.begin() + static_cast<size_t>(destination) *
-                                                              impl_->num_visible_records());
+                            result.measurements.begin() +
+                                static_cast<size_t>(destination) * impl_->num_visible_records());
             }
             if (impl_->num_detectors() != 0) {
                 std::copy_n(impl_->host_detectors.begin() +
@@ -1332,8 +1346,7 @@ SamplingSurvivorResult Sampler::sample_survivors(uint32_t shots, bool keep_recor
     if (keep_records) {
         result.measurements.resize(static_cast<size_t>(result.passed_shots) *
                                    impl_->num_visible_records());
-        result.detectors.resize(static_cast<size_t>(result.passed_shots) *
-                                impl_->num_detectors());
+        result.detectors.resize(static_cast<size_t>(result.passed_shots) * impl_->num_detectors());
         result.observables.resize(static_cast<size_t>(result.passed_shots) *
                                   impl_->num_observables());
         result.exp_vals.resize(static_cast<size_t>(result.passed_shots) * impl_->num_exp_vals());
@@ -1353,12 +1366,12 @@ ReplayResult Sampler::replay_shot(std::span<const uint8_t> forced_records) {
     if (!result.reachable || !result.survived) {
         return result;
     }
-    result.outputs.measurements.assign(
-        impl_->host_records.begin(), impl_->host_records.begin() + impl_->num_visible_records());
+    result.outputs.measurements.assign(impl_->host_records.begin(),
+                                       impl_->host_records.begin() + impl_->num_visible_records());
     result.outputs.detectors.assign(impl_->host_detectors.begin(),
                                     impl_->host_detectors.begin() + impl_->num_detectors());
-    result.outputs.observables.assign(
-        impl_->host_observables.begin(), impl_->host_observables.begin() + impl_->num_observables());
+    result.outputs.observables.assign(impl_->host_observables.begin(),
+                                      impl_->host_observables.begin() + impl_->num_observables());
     result.outputs.exp_vals.assign(impl_->host_exp_vals.begin(),
                                    impl_->host_exp_vals.begin() + impl_->num_exp_vals());
     return result;

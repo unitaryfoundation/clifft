@@ -49,11 +49,16 @@ In the cooperative tiers every thread of a block evaluates the scalar control
 flow (random draws, branch selection, expressions) redundantly from identical
 inputs, so branch decisions need no broadcast storage. Coefficient sweeps are
 strided across the block, measurement probabilities are tree-reduced through a
-fixed shared-memory scratch, and byte outputs are written by lane 0. The
-per-shot RNG derives from the global shot index, so the tier, block size, and
-concurrency cap cannot change seeded rows within one tier. Different tiers sum
-probabilities in different orders, so compare them statistically or through
-forced replay rather than row for row.
+fixed shared-memory scratch, and byte outputs are written by lane 0.
+
+The per-shot RNG derives from the global shot index alone, so a shot draws the
+same random stream whatever the batch size and concurrency cap. Rows are
+reproducible for a fixed tier, precision, and block size. Rows are *not*
+guaranteed to be bit-identical across tiers or block sizes: coefficient sweeps
+are lane-strided and probabilities tree-reduce across the block, so both the
+tier and the block size change the floating-point summation order, which can
+move a probability across a measurement threshold. Compare different tiers or
+block sizes statistically, or through forced replay, rather than row for row.
 
 The shared-memory budget is the device's opt-in limit minus a 16 KB reduction
 scratch. On an H100 or H200 (227 KB opt-in) FP64 states fit through `k = 13`

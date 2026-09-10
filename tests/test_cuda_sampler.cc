@@ -53,8 +53,10 @@ double standard_error(double probability, double samples) {
     return std::sqrt(probability * (1.0 - probability) / samples);
 }
 
-// Six promoted coordinates keep every cooperative lane busy while the state is
-// still small enough for the thread-per-shot tier to cross-check.
+// Six promoted coordinates give the cooperative tiers 64 coefficients, so a
+// default 256-thread block sweeps them with two warps and leaves the rest
+// idle, while the state stays small enough for the thread-per-shot tier to
+// cross-check.
 constexpr std::string_view kWideCircuit = R"(
     H 0
     H 1
@@ -79,6 +81,59 @@ constexpr std::string_view kWideCircuit = R"(
     EXP_VAL X0*Y3
     EXP_VAL Y4*Z5
     M 0 1 2 3 4 5
+)";
+
+// Two rotations about Y0 compose to a pi rotation, so qubit 0 ends in |1> and
+// the measurement below is numerically deterministic -- but the pair is opaque
+// to the planner's symbolic folding, so it survives as a real
+// MeasureActivePauli instead of collapsing to a classical record. Six magic
+// states widen the active block to seven coordinates, so the cooperative tiers
+// sweep 128 coefficients across several warps.
+constexpr std::string_view kDeterministicBranchCircuit = R"(
+    R_PAULI(0.3) Y0
+    R_PAULI(0.7) Y0
+    H 1
+    H 2
+    H 3
+    H 4
+    H 5
+    H 6
+    T 1
+    T 2
+    T 3
+    T 4
+    T 5
+    T 6
+    CX 1 2
+    CX 3 4
+    CX 5 6
+    CX 2 3
+    CX 4 5
+    M 0
+)";
+
+// A postselected detector reads record 0, and the very next action has lane 0
+// flip that same record. Every shot must survive, because the detector is
+// defined on the pre-flip value.
+constexpr std::string_view kDetectorThenFlipCircuit = R"(
+    H 1
+    H 2
+    H 3
+    H 4
+    H 5
+    H 6
+    T 1
+    T 2
+    T 3
+    T 4
+    T 5
+    T 6
+    CX 1 2
+    CX 3 4
+    CX 5 6
+    M 0
+    DETECTOR rec[-1]
+    READOUT_NOISE(1) rec[-1]
 )";
 
 }  // namespace
@@ -467,6 +522,84 @@ TEST_CASE("CUDA replay matches every CPU measurement branch in every tier") {
                                      Catch::Matchers::WithinAbs(cpu.exp_vals()[index], tolerance));
                     }
                 }
+            }
+        }
+    }
+}
+
+// Regression coverage for the two cooperative publication hazards fixed
+// alongside these cases. Both are races between lanes of one block, so no test
+// can force the interleaving that exposes them; these circuits instead put the
+// exact action sequences on hardware in every tier, across several block sizes,
+// and assert the sequentially correct answer. Before the barriers went in, a
+// lane that observed the published value reached a different control-flow
+// decision from lane 0 and left the block at a different barrier.
+TEST_CASE("CUDA replay resolves a deterministic branch identically in every tier") {
+    const SamplingPlan plan = plan_from(kDeterministicBranchCircuit);
+    const CudaExecutablePlan cuda_executable(plan);
+    const CpuExecutablePlan cpu_executable(plan);
+    REQUIRE(cuda_executable.peak_active_width() == 7);
+    REQUIRE(cuda_executable.num_visible_records() == 1);
+
+    // The forced-zero path is unreachable and the forced-one path is not, so a
+    // lane that mis-resolves the branch symbol disagrees with lane 0 about
+    // whether the shot exists at all.
+    const std::array<uint8_t, 1> forced_zero{0};
+    const std::array<uint8_t, 1> forced_one{1};
+    {
+        clifft::sampling::Executor cpu(cpu_executable);
+        REQUIRE_FALSE(cpu.replay_shot(forced_zero).reachable);
+    }
+    {
+        clifft::sampling::Executor cpu(cpu_executable);
+        REQUIRE(cpu.replay_shot(forced_one).reachable);
+    }
+    require_cuda_device();
+
+    for (const ExecutionTier tier : kExplicitTiers) {
+        for (const CoefficientPrecision precision :
+             {CoefficientPrecision::FP64, CoefficientPrecision::FP32}) {
+            Sampler sampler(cuda_executable, precision, 1, tier);
+            CAPTURE(tier, precision);
+            // Repeat so an unlucky warp interleaving has many chances to show.
+            for (int attempt = 0; attempt < 32; ++attempt) {
+                CAPTURE(attempt);
+                REQUIRE_FALSE(sampler.replay_shot(forced_zero).reachable);
+                const clifft::sampling::cuda::ReplayResult reached =
+                    sampler.replay_shot(forced_one);
+                REQUIRE(reached.reachable);
+                REQUIRE(reached.outputs.measurements == std::vector<uint8_t>{1});
+            }
+        }
+    }
+}
+
+TEST_CASE("CUDA postselected detectors read records before a later flip") {
+    const SamplingPlan plan = plan_from(kDetectorThenFlipCircuit);
+    const CudaExecutablePlan cuda_executable(plan);
+    const CpuExecutablePlan cpu_executable(plan);
+    REQUIRE(cuda_executable.num_detectors() == 1);
+
+    constexpr uint32_t kShots = 512;
+    const SamplingSurvivorResult cpu_survivors =
+        clifft::sampling::sample_survivors(cpu_executable, kShots, 11u);
+    REQUIRE(cpu_survivors.total_shots == kShots);
+    REQUIRE(cpu_survivors.passed_shots == kShots);
+    require_cuda_device();
+
+    for (const ExecutionTier tier : kExplicitTiers) {
+        for (const CoefficientPrecision precision :
+             {CoefficientPrecision::FP64, CoefficientPrecision::FP32}) {
+            // A block far wider than the 64-coefficient sweep leaves most warps
+            // with no coefficient work, which is the shape most likely to let
+            // one warp run ahead of another.
+            for (const uint32_t block_size : {uint32_t{64}, uint32_t{256}, uint32_t{1024}}) {
+                Sampler sampler(cuda_executable, precision, kShots, tier);
+                const SamplingSurvivorResult survivors =
+                    sampler.sample_survivors(kShots, false, 11u, block_size);
+                CAPTURE(tier, precision, block_size);
+                REQUIRE(survivors.total_shots == kShots);
+                REQUIRE(survivors.passed_shots == kShots);
             }
         }
     }
