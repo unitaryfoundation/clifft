@@ -23,8 +23,10 @@ pip install clifft
 All other platforms and CPU families should build from source. See
 [Building from Source](../development/building.md).
 
-Published wheels are CPU-only. The AMD HIP backend remains an explicit,
-source-build-only experiment; see [HIP Backend](../development/hip-backend.md).
+Published wheels are CPU-only. The AMD HIP and NVIDIA CUDA backends remain
+explicit, source-build-only experiments; see
+[HIP Backend](../development/hip-backend.md) and
+[CUDA Backend](../development/cuda-backend.md).
 
 ## From Source
 

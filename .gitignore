@@ -1,6 +1,7 @@
 # C++ / CMake build artifacts
 /build/
 /build-hip/
+/build-cuda/
 /build-python-hip/
 /build-wasm/
 build-coverage/
