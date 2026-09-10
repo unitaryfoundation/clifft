@@ -1,0 +1,16 @@
+# Derived from the public SqaleSim Figure 9 artifact, Zenodo record 17137995.
+# Source code license: Apache-2.0. Noise multiplier: alpha=1.
+# Atom motion, where present, has already been resolved to atom wires.
+X 0 1 2
+TICK
+SQRT_Y_DAG 0 1 2
+Y_ERROR(0.00029753298669049345) 0 1 2
+TICK
+CZ 1 0
+TICK
+CZ 1 2
+TICK
+SQRT_Y_DAG 0 1 2
+Y_ERROR(0.00029753298669049345) 0 1 2
+TICK
+M 0 1 2
