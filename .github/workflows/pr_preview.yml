@@ -10,8 +10,6 @@ on:
       - 'src/python/**'
       - 'mkdocs.yml'
       - 'tools/ci/check_docs_urls.py'
-      - '.github/workflows/docs.yml'
-      - '.github/workflows/release.yml'
       - '.github/workflows/pr_preview.yml'
 
 concurrency:
