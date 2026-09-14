@@ -127,6 +127,8 @@ class Executor {
     void reset_shot() noexcept;
     void assign_presampled_values(std::span<const uint8_t> presampled_values) noexcept;
     void sample_presampled_noise(uint32_t begin, uint32_t end) noexcept;
+    void advance_lazy_noise(uint32_t begin) noexcept;
+    void sample_lazy_noise(uint32_t action) noexcept;
     void activate_noise_site(uint32_t site) noexcept;
     void assign_forced_quantum_faults() noexcept;
     void assign_symbol(uint32_t symbol, bool value) noexcept;
@@ -230,6 +232,8 @@ class Executor {
     // Fixed-fault-count sampling supplies its selected circuit sites here.
     std::span<const uint32_t> forced_fault_sites_;
     uint32_t forced_fault_cursor_ = 0;
+    uint32_t next_noise_site_ = 0;
+    uint32_t next_noise_action_ = 0;
 
     // RNG position deliberately persists across shots.
     Xoshiro256PlusPlus rng_;

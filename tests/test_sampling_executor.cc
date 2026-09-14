@@ -631,6 +631,60 @@ TEST_CASE("Sampling expression registers preserve noisy postselection") {
     REQUIRE(std::ranges::all_of(result.observables, [](uint8_t value) { return value == 0; }));
 }
 
+TEST_CASE("Sampling rejection leaves later noise symbols unassigned") {
+    const auto hir =
+        clifft::trace(clifft::parse("X_ERROR(1) 0\nM 0\nDETECTOR rec[-1]\nX_ERROR(1) 1\nM 1\n"));
+    const std::array<uint8_t, 1> mask{1};
+    const auto plan = clifft::sampling::plan_sampling(hir, {.postselection_mask = mask});
+    REQUIRE(plan.presampled_noise_sites.size() == 2);
+    const auto early = index(plan.presampled_noise_sites[0].outcomes[0].symbol);
+    const auto late = index(plan.presampled_noise_sites[1].outcomes[0].symbol);
+    const ExecutablePlan executable(plan);
+    Executor executor(executable, 92);
+    for (size_t shot = 0; shot < 10; ++shot) {
+        executor.run_shot();
+        REQUIRE(executor.discarded());
+        REQUIRE(executor.symbols()[early] == 1);
+        REQUIRE(executor.symbols()[late] == 0);
+    }
+    executor.run_shot(std::array<uint8_t, 2>{1, 1});
+    REQUIRE(executor.discarded());
+    REQUIRE(executor.symbols()[late] == 1);
+    executor.run_shot();
+    REQUIRE(executor.symbols()[late] == 0);
+}
+
+TEST_CASE("Sampling categorical outcomes stay correlated across rejection checks") {
+    const auto hir =
+        clifft::trace(clifft::parse("CORRELATED_ERROR(0.25) X0 X1\nELSE_CORRELATED_ERROR(0.25) X1\n"
+                                    "M 0\nDETECTOR rec[-1]\nM 1\nOBSERVABLE_INCLUDE(0) rec[-1]\n"));
+    const std::array<uint8_t, 1> mask{1};
+    const ExecutablePlan executable(
+        clifft::sampling::plan_sampling(hir, {.postselection_mask = mask}));
+    const auto result = clifft::sampling::sample_survivors(executable, 20000, 923, true);
+    REQUIRE(result.passed_shots > 14500);
+    REQUIRE(result.passed_shots < 15500);
+    size_t ones = 0;
+    for (uint8_t value : result.observables) {
+        ones += value;
+    }
+    const double conditional_probability = static_cast<double>(ones) / result.passed_shots;
+    REQUIRE(conditional_probability > 0.23);
+    REQUIRE(conditional_probability < 0.27);
+}
+
+TEST_CASE("Sampling noise follows dependencies when later sites are read first") {
+    const auto hir =
+        clifft::trace(clifft::parse("X_ERROR(1) 0\nX_ERROR(1) 1\nM 1\nDETECTOR rec[-1]\nM 0\n"));
+    const std::array<uint8_t, 1> mask{1};
+    const ExecutablePlan executable(
+        clifft::sampling::plan_sampling(hir, {.postselection_mask = mask}));
+    Executor executor(executable, 92);
+    executor.run_shot();
+    REQUIRE(executor.discarded());
+    REQUIRE(executor.visible_records()[0] == 1);
+}
+
 TEST_CASE("Sampling reused executors match fresh shots after early exits") {
     const auto hir =
         clifft::trace(clifft::parse("M 2\nX_ERROR(0.5) 0\nM 0\nDETECTOR rec[-1]\n"

@@ -45,6 +45,7 @@ class ExecutablePlanBuilder {
 
     // Transpose action-order affine terms into symbol-to-register CSR storage.
     void build_expression_dependencies();
+    void prepare_noise_schedule();
 
     // Check construction-only invariants in Debug builds.
     void validate_executable_plan() const;
@@ -68,6 +69,7 @@ class ExecutablePlanBuilder {
     std::vector<uint32_t> expression_term_begins_;
     std::vector<uint32_t> boundary_noise_starts_;
     std::vector<uint8_t> bound_presampled_symbols_;
+    std::vector<uint32_t> symbol_first_actions_;
     batch_detail::BatchWorkEstimate estimated_batch_lane_work_;
     std::vector<batch_detail::BatchLaneWork> action_batch_lane_work_;
 };

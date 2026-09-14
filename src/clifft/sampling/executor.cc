@@ -91,7 +91,11 @@ void Executor::run_shot() noexcept {
     assert(plan_->unbound_presampled_symbols_.empty() &&
            "automatic execution requires every presampled symbol to have a distribution");
     reset_shot();
-    sample_presampled_noise(0, plan_->initial_noise_end_);
+    if (!plan_->noise_action_deadlines_.empty()) {
+        advance_lazy_noise(0);
+    } else {
+        sample_presampled_noise(0, plan_->initial_noise_end_);
+    }
     (void)execute_actions_for_backend<ShotMode::SampleNoise>({});
 }
 
@@ -222,6 +226,8 @@ void Executor::reset_shot() noexcept {
     // symbol rather than only the tracked nonfiring noise symbols.
     std::ranges::fill(symbols_, uint8_t{0});
     previous_presampled_ones_.clear();
+    next_noise_site_ = kNoNoiseSite;
+    next_noise_action_ = std::numeric_limits<uint32_t>::max();
     initialize_expression_registers(*plan_, 0);
     std::ranges::fill(forced_record_mask_, uint8_t{0});
     discarded_ = false;
@@ -293,6 +299,25 @@ void Executor::sample_presampled_noise(uint32_t begin, uint32_t end) noexcept {
         }
         activate_noise_site(site_index);
         first_candidate = site_index + 1;
+    }
+}
+
+void Executor::advance_lazy_noise(uint32_t begin) noexcept {
+    const uint32_t end = static_cast<uint32_t>(plan_->noise_sites_.size());
+    const double hazard = begin == 0 ? 0.0 : plan_->noise_hazards_[begin - 1];
+    next_noise_site_ =
+        begin >= end || hazard >= plan_->noise_hazards_.back()
+            ? kNoNoiseSite
+            : sample_next_noise_site(plan_->noise_hazards_, begin, rng_.next_double());
+    next_noise_action_ = next_noise_site_ == kNoNoiseSite
+                             ? std::numeric_limits<uint32_t>::max()
+                             : plan_->noise_action_deadlines_[next_noise_site_];
+}
+
+void Executor::sample_lazy_noise(uint32_t action) noexcept {
+    while (next_noise_site_ != kNoNoiseSite && next_noise_action_ <= action) {
+        activate_noise_site(next_noise_site_);
+        advance_lazy_noise(next_noise_site_ + 1);
     }
 }
 
@@ -756,42 +781,58 @@ ReplayResult Executor::execute_actions(std::span<const uint8_t> forced_records,
                                        uint32_t begin) noexcept {
     ReplayResult result;
     assert(begin <= plan_->actions_.size() && "execution offset must be inside the action stream");
-    for (size_t action_index = begin; action_index < plan_->actions_.size(); ++action_index) {
-        const ExecutablePlan::Action& action = plan_->actions_[action_index];
-        std::visit(
-            [&](const auto& typed) noexcept {
-                using T = std::decay_t<decltype(typed)>;
-                if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteBoundary> ||
-                              std::is_same_v<T, ExecutablePlan::ExecuteReadoutNoise> ||
-                              std::is_same_v<T, ExecutablePlan::ExecuteDormantMeasurement> ||
-                              std::is_same_v<T, ExecutablePlan::ExecuteClassicalRecord>) {
-                    execute_action<Mode>(typed, forced_records, result);
-                } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteRotation>) {
-                    execute_action<Backend, IntraShot>(typed, forced_records, result);
-                } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteFusedRotation> ||
-                                     std::is_same_v<T,
-                                                    ExecutablePlan::ExecuteDynamicFusedRotation> ||
-                                     std::is_same_v<T, ExecutablePlan::ExecutePromotion>) {
-                    execute_action<IntraShot>(typed, forced_records, result);
-                } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteActiveMeasurement> ||
-                                     std::is_same_v<T, ExecutablePlan::ExecuteInstrument>) {
-                    execute_action<Backend, Mode>(typed, forced_records, result);
-                } else {
-                    execute_action(typed, forced_records, result);
+    size_t action_index = begin;
+    while (action_index < plan_->actions_.size()) {
+        // Reuse the dispatch loop bound so eager execution needs no
+        // per-action test and sparse noise only interrupts at firing sites.
+        size_t end = plan_->actions_.size();
+        if constexpr (Mode == ShotMode::SampleNoise) {
+            sample_lazy_noise(static_cast<uint32_t>(action_index));
+            end = std::min(end, static_cast<size_t>(next_noise_action_));
+        }
+        for (; action_index < end; ++action_index) {
+            const ExecutablePlan::Action& action = plan_->actions_[action_index];
+            std::visit(
+                [&](const auto& typed) noexcept {
+                    using T = std::decay_t<decltype(typed)>;
+                    if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteBoundary> ||
+                                  std::is_same_v<T, ExecutablePlan::ExecuteReadoutNoise> ||
+                                  std::is_same_v<T, ExecutablePlan::ExecuteDormantMeasurement> ||
+                                  std::is_same_v<T, ExecutablePlan::ExecuteClassicalRecord>) {
+                        execute_action<Mode>(typed, forced_records, result);
+                    } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteRotation>) {
+                        execute_action<Backend, IntraShot>(typed, forced_records, result);
+                    } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteFusedRotation> ||
+                                         std::is_same_v<
+                                             T, ExecutablePlan::ExecuteDynamicFusedRotation> ||
+                                         std::is_same_v<T, ExecutablePlan::ExecutePromotion>) {
+                        execute_action<IntraShot>(typed, forced_records, result);
+                    } else if constexpr (std::is_same_v<T,
+                                                        ExecutablePlan::ExecuteActiveMeasurement> ||
+                                         std::is_same_v<T, ExecutablePlan::ExecuteInstrument>) {
+                        execute_action<Backend, Mode>(typed, forced_records, result);
+                    } else {
+                        execute_action(typed, forced_records, result);
+                    }
+                },
+                action);
+            if constexpr (Mode == ShotMode::ReplayRecords) {
+                if (!result.reachable) {
+                    return result;
                 }
-            },
-            action);
-        if constexpr (Mode == ShotMode::ReplayRecords) {
-            if (!result.reachable) {
+            }
+            if (discarded_) {
+                return result;
+            }
+            if (pending_trap_.has_value()) {
                 return result;
             }
         }
-        if (discarded_) {
-            return result;
-        }
-        if (pending_trap_.has_value()) {
-            return result;
-        }
+    }
+    if constexpr (Mode == ShotMode::SampleNoise) {
+        // Preserve the complete symbol assignment for callers inspecting a
+        // finished shot, including sites with no consuming action.
+        sample_lazy_noise(static_cast<uint32_t>(plan_->actions_.size()));
     }
     return result;
 }
