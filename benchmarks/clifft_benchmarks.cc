@@ -5,10 +5,12 @@
 #include "clifft/sampling/planner.h"
 #include "clifft/sampling/sampler.h"
 
+#include <array>
 #include <benchmark/benchmark.h>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -141,6 +143,34 @@ void sample_cultivation_d5(benchmark::State& state) {
     }
 }
 
+// Most shots reject before the noisy suffix. Retained survivor records keep
+// that suffix observable while exposing noise work wasted on rejected shots.
+void sample_early_rejection(benchmark::State& state) {
+    auto hir = trace(parse(R"(
+        X_ERROR(0.99) 0
+        M 0
+        DETECTOR rec[-1]
+        REPEAT 4096 {
+            R 1
+            DEPOLARIZE1(0.005) 1
+            M 1
+        }
+    )"));
+    default_hir_pass_manager().run(hir);
+    const std::array<uint8_t, 1> mask{1};
+    const sampling::ExecutablePlan plan(sampling::plan_sampling(hir, {.postselection_mask = mask}));
+    const auto validation = sampling::sample_survivors(plan, 4096, 0, true, 1, std::nullopt, 1);
+    if (!plan.has_postselection() || plan.num_visible_records() != 4097 ||
+        validation.passed_shots == 0 || validation.passed_shots >= 410) {
+        state.SkipWithError("unexpected early-rejection workload");
+        return;
+    }
+    for ([[maybe_unused]] auto _ : state) {
+        auto result = sampling::sample_survivors(plan, 1000, 0, true, 1, std::nullopt, 1);
+        benchmark::DoNotOptimize(result);
+    }
+}
+
 // Coherent QEC protects production squeeze decisions and coefficient-state
 // execution at width 13, beyond the width-10 workloads above.
 void sample_coherent_d5(benchmark::State& state) {
@@ -215,6 +245,7 @@ BENCHMARK(squeeze_parallel_t)->Name("squeeze_parallel_t_8192");
 BENCHMARK(compile_plan_cultivation_d5)->Name("compile_plan_cultivation_d5");
 BENCHMARK(sample_qv10)->Name("sample_qv10_100_shots");
 BENCHMARK(sample_cultivation_d5)->Name("sample_cultivation_d5_1000_shots");
+BENCHMARK(sample_early_rejection)->Name("sample_early_rejection_1000_shots");
 BENCHMARK(sample_coherent_d5)->Name("sample_coherent_d5_r5_100_shots");
 BENCHMARK(sample_surface_d7)->Name("sample_surface_d7_r7_10000_shots");
 BENCHMARK(sample_surface_d5_high_noise)->Name("sample_surface_d5_r5_high_noise_10000_shots");
