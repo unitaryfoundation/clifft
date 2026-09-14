@@ -87,3 +87,6 @@ The HIP backend is experimental and is never selected automatically. It uses
 the separate `clifft.experimental.hip` API, supports only its documented
 subset, and requires an explicit source build. See the
 [HIP Backend](../development/hip-backend.md) documentation before using it.
+
+An NVIDIA CUDA backend with the same C++ contract is available for source
+builds; see [CUDA Backend](../development/cuda-backend.md).

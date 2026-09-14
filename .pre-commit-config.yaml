@@ -7,7 +7,9 @@ repos:
     rev: v18.1.8
     hooks:
       - id: clang-format
-        types_or: [c++, c]
+        # identify tags .cu as `cuda` and not as `c++`, so without it here the
+        # CUDA device sources are silently skipped by both local runs and CI.
+        types_or: [c++, c, cuda]
         args: [--style=file]
 
   # Python linting and formatting with ruff
