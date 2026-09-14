@@ -34,8 +34,9 @@
       var container = document.querySelector('.md-header__inner');
       if (!container) return;
 
-      // Resolve playground URL from MkDocs base_url (relative, works for PR previews)
-      var url = new URL('playground/', new URL('..', location)).href;
+      // Treat base_url as a directory, including its absolute form on 404 pages.
+      var base = '..';
+      var url = new URL('playground/', new URL(base.endsWith('/') ? base : base + '/', location)).href;
 
       var source = container.querySelector('.md-header__source');
       var btn = document.createElement('div');
