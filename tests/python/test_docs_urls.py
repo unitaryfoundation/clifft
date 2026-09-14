@@ -56,3 +56,15 @@ def test_empty_site_is_not_accepted(tmp_path):
     )
     with pytest.raises(ValueError, match="must contain"):
         checker.check_site(tmp_path, "https://example.com/clifft/")
+
+
+def test_duplicate_asset_prefix_on_error_page_is_rejected(tmp_path):
+    base = "https://example.com/clifft/stable/"
+    write_site(tmp_path, base)
+    (tmp_path / "assets").mkdir()
+    (tmp_path / "assets/site.css").write_text("body {}")
+    (tmp_path / "404.html").write_text(
+        '<link rel="stylesheet" href="/clifft/stable/stable/assets/site.css">'
+    )
+    with pytest.raises(ValueError, match="no built page"):
+        checker.check_site(tmp_path, base)

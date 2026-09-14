@@ -14,14 +14,19 @@ class PageLinks(HTMLParser):
         super().__init__()
         self.canonicals: list[str] = []
         self.links: list[str] = []
+        self.resources: list[str] = []
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         attributes = dict(attrs)
+        if tag in {"img", "script"} and attributes.get("src"):
+            self.resources.append(str(attributes["src"]))
         href = attributes.get("href")
         if not href:
             return
         if tag == "link" and "canonical" in (attributes.get("rel") or "").split():
             self.canonicals.append(href)
+        elif tag == "link" and attributes.get("rel") in {"stylesheet", "icon"}:
+            self.resources.append(href)
         if tag == "a":
             self.links.append(href)
 
@@ -58,6 +63,10 @@ def check_site(site_dir: Path, site_url: str) -> None:
         for canonical in parsed.canonicals:
             check_page_url(urljoin(page_url, canonical), page)
             canonical_count += 1
+        for resource in parsed.resources:
+            resolved_resource = urljoin(page_url, resource)
+            if resolved_resource.startswith(site_url):
+                check_page_url(resolved_resource, page)
         for href in parsed.links:
             resolved = urlsplit(urljoin(page_url, href))
             if resolved.netloc != expected.netloc or not resolved.path.endswith("/playground/"):
