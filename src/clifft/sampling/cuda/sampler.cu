@@ -630,15 +630,19 @@ __device__ void interpret_one_shot(const ProgramView& program, SeedRoot seed_roo
     lane.sync();
 }
 
+// Both kernels accept every block size the host validates, up to
+// kMaxBlockSize. The launch bound makes that a compile-time promise: without
+// it a toolchain that allocates more than 64 registers per thread (nvcc 12.8
+// gives the thread kernel 80) cannot launch a 1024-thread block at all.
 template <typename Coefficient, bool Replay>
-__global__ void interpret_shots_thread(ProgramView program, SeedRoot seed_root,
-                                       uint64_t shot_offset, uint32_t shots,
-                                       Coefficient* coefficient_storage, uint8_t* symbol_storage,
-                                       uint8_t* record_storage,
-                                       const uint8_t* forced_record_storage,
-                                       uint8_t* detector_storage, uint8_t* observable_storage,
-                                       double* exp_val_storage, double* log_probability_storage,
-                                       uint8_t* reachable_storage, uint8_t* survived) {
+__global__ void __launch_bounds__(kMaxBlockSize)
+    interpret_shots_thread(ProgramView program, SeedRoot seed_root, uint64_t shot_offset,
+                           uint32_t shots, Coefficient* coefficient_storage,
+                           uint8_t* symbol_storage, uint8_t* record_storage,
+                           const uint8_t* forced_record_storage, uint8_t* detector_storage,
+                           uint8_t* observable_storage, double* exp_val_storage,
+                           double* log_probability_storage, uint8_t* reachable_storage,
+                           uint8_t* survived) {
     const uint64_t shot =
         static_cast<uint64_t>(blockIdx.x) * static_cast<uint64_t>(blockDim.x) + threadIdx.x;
     if (shot >= shots) {
@@ -665,13 +669,13 @@ __global__ void interpret_shots_thread(ProgramView program, SeedRoot seed_root,
 // strided by the grid, so global slabs are bounded by the grid rather than the
 // shot count.
 template <typename Coefficient, bool Replay, bool UseShared>
-__global__ void interpret_shots_block(ProgramView program, SeedRoot seed_root, uint64_t shot_offset,
-                                      uint32_t shots, Coefficient* slab_storage,
-                                      uint8_t* symbol_storage, uint8_t* record_storage,
-                                      const uint8_t* forced_record_storage,
-                                      uint8_t* detector_storage, uint8_t* observable_storage,
-                                      double* exp_val_storage, double* log_probability_storage,
-                                      uint8_t* reachable_storage, uint8_t* survived) {
+__global__ void __launch_bounds__(kMaxBlockSize)
+    interpret_shots_block(ProgramView program, SeedRoot seed_root, uint64_t shot_offset,
+                          uint32_t shots, Coefficient* slab_storage, uint8_t* symbol_storage,
+                          uint8_t* record_storage, const uint8_t* forced_record_storage,
+                          uint8_t* detector_storage, uint8_t* observable_storage,
+                          double* exp_val_storage, double* log_probability_storage,
+                          uint8_t* reachable_storage, uint8_t* survived) {
     __shared__ double reduce[2 * kMaxBlockSize];
     extern __shared__ __align__(16) unsigned char dynamic_shared[];
 
