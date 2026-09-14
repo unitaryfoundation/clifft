@@ -157,10 +157,11 @@ jobs:
           cmake -S . -B build-cuda -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DCLIFFT_ENABLE_CUDA=ON \
-            -DCMAKE_CUDA_ARCHITECTURES=90
+            -DCMAKE_CUDA_ARCHITECTURES=90 \
+            -DCLIFFT_BUILD_BENCHMARKS=ON
 
-      - name: Compile CUDA backend and conformance tests
-        run: cmake --build build-cuda --target clifft_cuda_tests --parallel 2
+      - name: Compile CUDA backend, conformance tests, and bench
+        run: cmake --build build-cuda --target clifft_cuda_tests clifft_cuda_bench --parallel 2
 
       - name: Run GPU-free CUDA conformance tests
         run: ctest --test-dir build-cuda --output-on-failure --no-tests=error -R CUDA
