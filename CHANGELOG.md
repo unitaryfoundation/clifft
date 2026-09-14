@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.10.1] - 2026-09-14
+
+Clifft 0.10.1 fixes biased noise sampling in multi-shot leakage and loss simulations after a shot resumes through a continuation. The release also adds a worked neutral-atom logical Shor tutorial. Public APIs are unchanged.
+
+### Fixed
+
+- Fixed stale symbolic values carrying over between shots after leakage or loss continuations, which could make nonfiring Pauli noise act as a fired error and bias `noncomp.sample()` results. The executor now clears all symbols between shots, with reset lifecycle regressions and independent Stim comparisons covering noise statistics and seeded serial/parallel agreement, by @bachase in [#484](https://github.com/unitaryfoundation/clifft/pull/484).
+
+### Documentation
+
+- Added a [Logical Shor Noise Sweep on Neutral Atoms](https://unitaryfoundation.github.io/clifft/stable/guide/neutral-atom-leakage/) tutorial with four example circuits and a runnable script, comparing stabilizer-compatible rate rebalancing with exact no-jump back-action and studying postselection bias under asymmetric transition rates, by @bachase in [#481](https://github.com/unitaryfoundation/clifft/pull/481).
+
 ## [0.10.0] - 2026-09-03
 
 Clifft 0.10.0 adds high-throughput packed batch sampling for eligible low-active-width CPU workloads. Automatic, cost-aware lane selection accelerates multi-shot sampling, while the new `batch_size` control lets advanced users trade throughput against memory. Apple Silicon builds also gain NEON active-state kernels, and optimizer changes reduce peak active width in coherent QEC workloads.

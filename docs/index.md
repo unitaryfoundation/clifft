@@ -96,30 +96,23 @@ For QEC workflows, Clifft also supports detector-based post-selection, survivor 
 [Quick Start](getting-started/quickstart.md){ .md-button .md-button--primary }
 [Try the Playground]({{ playground_url }}){ .md-button }
 
-## What's New in 0.10.0
+## What's New in 0.10.1
 
-Clifft 0.10.0 adds automatic packed batch sampling for eligible
-low-active-width CPU workloads and Apple Silicon NEON kernels for active-state
-operations. Advanced callers can use `batch_size` to tune the packed-lane
-capacity, while the default cost-aware policy balances throughput and memory.
+Clifft 0.10.1 fixes biased noise sampling in multi-shot
+[leakage and loss](guide/leakage-and-loss.md) simulations. After a shot resumed
+through a continuation, stale symbolic values could carry into later shots and
+act as extra noise events. Each shot now starts with cleared symbols. Public
+APIs are unchanged.
 
-In single-core benchmarks, v0.10 is faster than v0.9 on all eight measured
-workloads, with a 3.23x median improvement. It also leads SymFT on all eight,
-from 1.05x to 87.7x. See [Performance](guide/performance.md) for the figures,
-absolute throughput, dense Quantum Volume results, and measurement details.
-
-The release also accepts supported unitary OpenQASM 2 circuits without Qiskit
-and moves production builds onto Clifft's native Clifford implementation. Stim
-remains an independent test oracle.
-
-Read [Packed Sampling in Clifft](updates/packed-sampling.md) for the design,
-automatic policy, and v0.9 comparison. See
-[Circuit Inputs](guide/circuit-inputs.md) for OpenQASM, Qiskit, and Cirq options,
-or [CPU Execution and Tuning](guide/cpu-execution.md) for detailed controls.
+The new [Logical Shor Noise Sweep on Neutral Atoms](guide/neutral-atom-leakage.md)
+tutorial includes four example circuits and a runnable script. It compares
+approximate and exact treatment of state-dependent leakage and loss, including
+their effects on postselection.
 
 ### Earlier development updates
 
-Read [Parallel Sampling in Clifft](updates/parallel-sampling.md) for the v0.9.0
+Read [Packed Sampling in Clifft](updates/packed-sampling.md) for the v0.10.0
+batch execution work, [Parallel Sampling in Clifft](updates/parallel-sampling.md) for the v0.9.0
 threading work and [Symbolic Sampling in Clifft](updates/symbolic-sampling.md)
 for the v0.8.0 compiler and sampler redesign.
 
