@@ -158,6 +158,7 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::compile() {
     lower_action_stream();
     prepare_batch_compaction_costs();
     build_expression_dependencies();
+    prepare_noise_schedule();
     output_.batch_presampled_program_ = BatchPresampledProgram::build(
         output_, source_, expression_terms_, expression_term_begins_, bound_presampled_symbols_);
     validate_executable_plan();
@@ -176,6 +177,10 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::initialize_program() {
     const ProgramStorageEstimate storage = estimate_program_storage();
     output_.actions_.reserve(source_.actions.size());
     output_.has_postselection_ = storage.has_postselection;
+    if (storage.has_postselection && source_.instrument_distributions.empty() &&
+        !source_.presampled_noise_sites.empty()) {
+        symbol_first_actions_.assign(source_.symbols.size(), std::numeric_limits<uint32_t>::max());
+    }
     if (output_.has_postselection_) {
         action_batch_lane_work_.reserve(source_.actions.size());
     }
@@ -326,6 +331,10 @@ ExecutablePlanBuilder::prepare_expression(const AffineBool& expression) {
     output_.expression_register_constants_.push_back(static_cast<uint8_t>(expression.constant()));
     for (SymbolId term : expression.terms()) {
         expression_terms_.push_back(index(term));
+        if (!symbol_first_actions_.empty()) {
+            symbol_first_actions_[index(term)] = std::min(
+                symbol_first_actions_[index(term)], static_cast<uint32_t>(output_.actions_.size()));
+        }
     }
     return {register_id};
 }
@@ -344,6 +353,11 @@ ExecutablePlanBuilder::prepare_measurement_correction(const AffineBool& outcome,
     for (SymbolId term : outcome.terms()) {
         if (index(term) != branch) {
             expression_terms_.push_back(index(term));
+            if (!symbol_first_actions_.empty()) {
+                symbol_first_actions_[index(term)] =
+                    std::min(symbol_first_actions_[index(term)],
+                             static_cast<uint32_t>(output_.actions_.size()));
+            }
         }
     }
     assert(expression_terms_.size() == static_cast<size_t>(begin) + outcome.terms().size() - 1 &&
@@ -581,6 +595,27 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::lower_action_stream() {
     }
 }
 
+void ExecutablePlanBuilder::prepare_noise_schedule() {
+    if (symbol_first_actions_.empty() || output_.noise_sites_.empty()) {
+        return;
+    }
+    const uint32_t end = static_cast<uint32_t>(output_.actions_.size());
+    auto& deadlines = output_.noise_action_deadlines_;
+    deadlines.assign(output_.noise_sites_.size(), end);
+    for (size_t site = 0; site < output_.noise_sites_.size(); ++site) {
+        const auto& prepared = output_.noise_sites_[site];
+        for (uint32_t offset = 0; offset < prepared.outcome_count; ++offset) {
+            const uint32_t symbol = output_.noise_outcomes_[prepared.outcome_begin + offset].symbol;
+            deadlines[site] = std::min(deadlines[site], symbol_first_actions_[symbol]);
+        }
+    }
+    // An earlier site cannot remain pending when a later site must be sampled.
+    // Keep categorical outcomes together even when their first uses differ.
+    for (size_t site = deadlines.size() - 1; site > 0; --site) {
+        deadlines[site - 1] = std::min(deadlines[site - 1], deadlines[site]);
+    }
+}
+
 CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::prepare_batch_compaction_costs() {
     output_.estimated_batch_lane_work_ = estimated_batch_lane_work_;
     if (!output_.has_postselection_) {
@@ -623,6 +658,13 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::build_expression_depende
 
 CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::validate_executable_plan() const {
 #ifndef NDEBUG
+    if (!output_.noise_action_deadlines_.empty()) {
+        assert(output_.noise_action_deadlines_.size() == output_.noise_sites_.size() &&
+               "each scheduled noise site must have a deadline");
+        assert(std::ranges::is_sorted(output_.noise_action_deadlines_) &&
+               output_.noise_action_deadlines_.back() <= output_.actions_.size() &&
+               "noise deadlines must follow executable action order");
+    }
     assert(expression_term_begins_.size() == output_.expression_register_constants_.size() &&
            "expression register storage is inconsistent");
     output_.expression_dependencies_.validate(output_.num_symbols_,

@@ -391,6 +391,9 @@ class ExecutablePlan {
     std::vector<PreparedNoiseOutcome> noise_outcomes_;
     std::vector<PreparedNoiseSite> noise_sites_;
     std::vector<double> noise_hazards_;
+    // A site must fire before its first consuming action. Monotone deadlines
+    // let scalar sampling retain one upcoming event in circuit-site order.
+    std::vector<uint32_t> noise_action_deadlines_;
     std::optional<double> uniform_noise_inverse_hazard_;
     std::optional<BatchPresampledProgram> batch_presampled_program_;
 

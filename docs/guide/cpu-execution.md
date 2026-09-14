@@ -138,6 +138,12 @@ capacities can produce different rows. Every supported strategy remains
 statistically equivalent. Keep the complete execution configuration fixed when
 exact seeded replay is required.
 
+Scalar postselected sampling draws quantum noise as its compiled dependencies
+are needed, avoiding noise work after a shot rejects. This changes seeded rows
+from releases that sampled the whole program's noise before execution. Keep the
+Clifft version fixed as well when replaying historical samples. Packed sampling,
+fixed-fault sampling, and instrument continuations retain their noise policies.
+
 ### Memory tradeoffs
 
 Each cross-shot worker owns an executor. Dense coefficient and measurement
