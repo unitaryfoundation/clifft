@@ -1,5 +1,6 @@
 #include "clifft/circuit/parser.h"
 #include "clifft/frontend/frontend.h"
+#include "clifft/sampling/cuda/device_program.h"
 #include "clifft/sampling/cuda/executable_plan.h"
 #include "clifft/sampling/cuda/sampler.h"
 #include "clifft/sampling/executable_plan.h"
@@ -13,7 +14,10 @@
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <cmath>
 #include <cstdint>
+#include <optional>
+#include <sstream>
 #include <stdexcept>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -135,6 +139,100 @@ constexpr std::string_view kDetectorThenFlipCircuit = R"(
     DETECTOR rec[-1]
     READOUT_NOISE(1) rec[-1]
 )";
+
+// Width-k magic-state family used to locate the shared-memory boundary at
+// runtime. k Hadamard/T pairs promote k coordinates; the CX layers and the
+// rotation mix them; the expectation values before the first measurement check
+// the strided kernels exactly; and the measurement of qubit 0 collapses the
+// state, so the rotation and expectation values after it observe the evolved,
+// post-collapse state. The noisy variant adds a Pauli channel, a measurement
+// with a postselected detector, and an observable, so cooperative noise,
+// discard, and survivor compaction run at the same width.
+std::string wide_circuit_text(uint32_t width, bool noisy) {
+    std::ostringstream text;
+    for (uint32_t qubit = 0; qubit < width; ++qubit) {
+        text << "H " << qubit << "\n";
+    }
+    for (uint32_t qubit = 0; qubit < width; ++qubit) {
+        text << "T " << qubit << "\n";
+    }
+    for (uint32_t qubit = 0; qubit + 1 < width; qubit += 2) {
+        text << "CX " << qubit << " " << qubit + 1 << "\n";
+    }
+    for (uint32_t qubit = 1; qubit + 1 < width; qubit += 2) {
+        text << "CX " << qubit << " " << qubit + 1 << "\n";
+    }
+    text << "R_PAULI(0.21) X0*Y1\n"
+            "EXP_VAL X0\n"
+            "EXP_VAL Z1*Z2\n"
+            "M 0\n"
+            "R_PAULI(0.13) Z1*X2\n"
+            "EXP_VAL X1\n"
+            "EXP_VAL Y2\n";
+    if (noisy) {
+        text << "PAULI_CHANNEL_1(0.05, 0.05, 0.05) 1\n"
+                "M 1\n"
+                "DETECTOR rec[-1]\n";
+    } else {
+        text << "M 1\n";
+    }
+    text << "M";
+    for (uint32_t qubit = 2; qubit < width; ++qubit) {
+        text << " " << qubit;
+    }
+    text << "\n";
+    if (noisy) {
+        text << "OBSERVABLE_INCLUDE(0) rec[-1] rec[-2]\n";
+    }
+    return text.str();
+}
+
+SamplingPlan noisy_postselected_plan(uint32_t width) {
+    static constexpr std::array<uint8_t, 1> kPostselectDetector{1};
+    clifft::sampling::SamplingPlanOptions options;
+    options.postselection_mask = kPostselectDetector;
+    return clifft::sampling::plan_sampling(
+        clifft::trace(clifft::parse(wide_circuit_text(width, true))), options);
+}
+
+// The shared-memory boundary depends on the device's opt-in limit, so locate
+// it at runtime: the narrowest width whose per-shot coefficient storage no
+// longer fits. Lowering is host-only, so probing several widths is cheap.
+std::optional<uint32_t> first_block_global_width(CoefficientPrecision precision) {
+    for (uint32_t width = 8; width <= 18; ++width) {
+        const CudaExecutablePlan executable(plan_from(wide_circuit_text(width, false)));
+        if (clifft::sampling::cuda::selected_tier(executable, precision) ==
+            ExecutionTier::BlockGlobal) {
+            return width;
+        }
+    }
+    return std::nullopt;
+}
+
+size_t coefficient_slab_bytes(uint32_t width, CoefficientPrecision precision) {
+    const size_t element = precision == CoefficientPrecision::FP32 ? sizeof(float) : sizeof(double);
+    return clifft::sampling::cuda::detail::coefficient_elements_per_shot(width) * element;
+}
+
+std::vector<std::vector<uint8_t>> forced_record_paths(uint32_t num_records) {
+    std::vector<std::vector<uint8_t>> paths;
+    paths.emplace_back(num_records, uint8_t{0});
+    paths.emplace_back(num_records, uint8_t{1});
+    for (const uint8_t first : {uint8_t{0}, uint8_t{1}}) {
+        std::vector<uint8_t> alternating(num_records);
+        for (uint32_t index = 0; index < num_records; ++index) {
+            alternating[index] = static_cast<uint8_t>((first + index) & 1U);
+        }
+        paths.push_back(std::move(alternating));
+    }
+    return paths;
+}
+
+double two_sample_tolerance(double probability, double left_samples, double right_samples) {
+    return 6.0 * std::sqrt(probability * (1.0 - probability) *
+                           (1.0 / left_samples + 1.0 / right_samples)) +
+           1e-3;
+}
 
 }  // namespace
 
@@ -801,5 +899,213 @@ TEST_CASE("CUDA sampler matches CPU survivor statistics with noise") {
     REQUIRE(cpu.exp_vals.size() == cpu.passed_shots);
     for (double value : gpu.exp_vals) {
         REQUIRE_THAT(value, Catch::Matchers::WithinAbs(cpu.exp_vals[0], 1e-12));
+    }
+}
+
+// The cooperative tiers are chosen by whether one shot fits the device's
+// opt-in shared memory, so these cases run on both sides of that boundary with
+// automatic selection, for both precisions, and compare the collapse and the
+// state after it against the CPU exactly through forced replay, then the
+// sampled rows statistically.
+TEST_CASE("CUDA automatic tier selection at the shared-memory boundary matches the CPU") {
+    require_cuda_device();
+    constexpr uint32_t kShots = 4096;
+
+    for (const auto& [precision, tolerance] : {std::pair{CoefficientPrecision::FP64, 1e-10},
+                                               std::pair{CoefficientPrecision::FP32, 5e-5}}) {
+        const std::optional<uint32_t> boundary = first_block_global_width(precision);
+        CAPTURE(precision);
+        REQUIRE(boundary.has_value());
+        REQUIRE(*boundary > 8);
+
+        for (const uint32_t width : {*boundary - 1, *boundary}) {
+            const ExecutionTier expected_tier =
+                width < *boundary ? ExecutionTier::BlockShared : ExecutionTier::BlockGlobal;
+            const SamplingPlan plan = plan_from(wide_circuit_text(width, false));
+            const CudaExecutablePlan cuda_executable(plan);
+            const CpuExecutablePlan cpu_executable(plan);
+            CAPTURE(width, expected_tier);
+            REQUIRE(cuda_executable.peak_active_width() == width);
+            REQUIRE(cuda_executable.num_records() == width);
+            REQUIRE(cuda_executable.num_exp_vals() == 4);
+
+            Sampler sampler(cuda_executable, precision, kShots);
+            REQUIRE(sampler.execution_tier() == expected_tier);
+            REQUIRE(sampler.max_concurrent_shots() >= 1);
+            REQUIRE(sampler.max_concurrent_shots() <= kShots);
+            const size_t slab_pool =
+                sampler.max_concurrent_shots() * coefficient_slab_bytes(width, precision);
+            if (expected_tier == ExecutionTier::BlockGlobal) {
+                // Every resident block owns a global slab holding the whole shot.
+                REQUIRE(sampler.allocated_device_bytes() >= slab_pool);
+            } else {
+                // The shared tier keeps every coefficient on chip.
+                REQUIRE(sampler.allocated_device_bytes() < slab_pool);
+            }
+
+            // Forced replay pins the collapse: the log-probability of the path
+            // and the expectation values taken after the measurement must
+            // match the CPU executor on the same forced records.
+            uint32_t reachable_paths = 0;
+            for (const std::vector<uint8_t>& forced : forced_record_paths(width)) {
+                clifft::sampling::Executor cpu(cpu_executable);
+                const clifft::sampling::ReplayResult expected = cpu.replay_shot(forced);
+                const clifft::sampling::cuda::ReplayResult actual = sampler.replay_shot(forced);
+                CAPTURE(forced[0], forced[1]);
+                REQUIRE(actual.reachable == expected.reachable);
+                if (!expected.reachable) {
+                    continue;
+                }
+                ++reachable_paths;
+                REQUIRE_THAT(actual.log_probability,
+                             Catch::Matchers::WithinAbs(expected.log_probability, tolerance));
+                REQUIRE(actual.outputs.measurements == forced);
+                REQUIRE(actual.outputs.exp_vals.size() == cpu.exp_vals().size());
+                for (size_t index = 0; index < cpu.exp_vals().size(); ++index) {
+                    CAPTURE(index);
+                    REQUIRE_THAT(actual.outputs.exp_vals[index],
+                                 Catch::Matchers::WithinAbs(cpu.exp_vals()[index], tolerance));
+                }
+            }
+            REQUIRE(reachable_paths > 0);
+
+            const SamplingResult cpu_rows =
+                clifft::sampling::sample(cpu_executable, kShots, uint64_t{23});
+            const SamplingResult gpu_rows = sampler.sample(kShots, uint64_t{23});
+            REQUIRE(gpu_rows.measurements.size() == static_cast<size_t>(width) * kShots);
+            REQUIRE(gpu_rows.exp_vals.size() == static_cast<size_t>(4) * kShots);
+            for (uint32_t bit = 0; bit < width; ++bit) {
+                double cpu_marginal = 0.0;
+                double gpu_marginal = 0.0;
+                for (uint32_t shot = 0; shot < kShots; ++shot) {
+                    cpu_marginal += cpu_rows.measurements[static_cast<size_t>(width) * shot + bit];
+                    gpu_marginal += gpu_rows.measurements[static_cast<size_t>(width) * shot + bit];
+                }
+                cpu_marginal /= kShots;
+                gpu_marginal /= kShots;
+                CAPTURE(bit, cpu_marginal, gpu_marginal);
+                REQUIRE_THAT(gpu_marginal,
+                             Catch::Matchers::WithinAbs(
+                                 cpu_marginal, two_sample_tolerance(cpu_marginal, kShots, kShots)));
+            }
+            // The post-collapse expectation values vary with the sampled
+            // outcome of qubit 0, so compare their means across shots.
+            for (const size_t index : {size_t{2}, size_t{3}}) {
+                double cpu_mean = 0.0;
+                double gpu_mean = 0.0;
+                double cpu_square = 0.0;
+                for (uint32_t shot = 0; shot < kShots; ++shot) {
+                    const double cpu_value = cpu_rows.exp_vals[4 * shot + index];
+                    cpu_mean += cpu_value;
+                    cpu_square += cpu_value * cpu_value;
+                    gpu_mean += gpu_rows.exp_vals[4 * shot + index];
+                }
+                cpu_mean /= kShots;
+                gpu_mean /= kShots;
+                const double cpu_std =
+                    std::sqrt(std::max(cpu_square / kShots - cpu_mean * cpu_mean, 0.0));
+                CAPTURE(index, cpu_mean, gpu_mean, cpu_std);
+                REQUIRE_THAT(gpu_mean,
+                             Catch::Matchers::WithinAbs(
+                                 cpu_mean, 6.0 * cpu_std * std::sqrt(2.0 / kShots) + 1e-3));
+            }
+        }
+    }
+}
+
+TEST_CASE("CUDA cooperative tiers at the shared-memory boundary match CPU survivor statistics") {
+    require_cuda_device();
+    constexpr uint32_t kShots = 4096;
+
+    for (const CoefficientPrecision precision :
+         {CoefficientPrecision::FP64, CoefficientPrecision::FP32}) {
+        const std::optional<uint32_t> boundary = first_block_global_width(precision);
+        CAPTURE(precision);
+        REQUIRE(boundary.has_value());
+
+        for (const uint32_t width : {*boundary - 1, *boundary}) {
+            const ExecutionTier expected_tier =
+                width < *boundary ? ExecutionTier::BlockShared : ExecutionTier::BlockGlobal;
+            const SamplingPlan plan = noisy_postselected_plan(width);
+            const CudaExecutablePlan cuda_executable(plan);
+            const CpuExecutablePlan cpu_executable(plan);
+            CAPTURE(width, expected_tier);
+            REQUIRE(cuda_executable.peak_active_width() == width);
+            REQUIRE(cuda_executable.has_postselection());
+            REQUIRE(cuda_executable.num_visible_records() == width);
+            REQUIRE(cuda_executable.num_detectors() == 1);
+            REQUIRE(cuda_executable.num_observables() == 1);
+
+            const SamplingSurvivorResult expected =
+                clifft::sampling::sample_survivors(cpu_executable, kShots, uint64_t{31}, true);
+            REQUIRE(expected.total_shots == kShots);
+            REQUIRE(expected.passed_shots > 0);
+            REQUIRE(expected.passed_shots < kShots);
+
+            Sampler sampler(cuda_executable, precision, kShots);
+            REQUIRE(sampler.execution_tier() == expected_tier);
+            const SamplingSurvivorResult actual =
+                sampler.sample_survivors(kShots, true, uint64_t{31});
+            REQUIRE(actual.total_shots == kShots);
+            REQUIRE(actual.passed_shots > 0);
+            REQUIRE(actual.passed_shots < kShots);
+
+            const double cpu_pass = static_cast<double>(expected.passed_shots) / kShots;
+            const double gpu_pass = static_cast<double>(actual.passed_shots) / kShots;
+            CAPTURE(cpu_pass, gpu_pass);
+            REQUIRE_THAT(gpu_pass, Catch::Matchers::WithinAbs(
+                                       cpu_pass, two_sample_tolerance(cpu_pass, kShots, kShots)));
+
+            // Every retained row is complete and self-consistent: the
+            // postselected detector reads the measurement of qubit 1, so
+            // that column is zero in every survivor, and the observable is
+            // the parity of the last two records of the same row.
+            const size_t rows = actual.passed_shots;
+            REQUIRE(actual.measurements.size() == rows * width);
+            REQUIRE(actual.detectors.size() == rows);
+            REQUIRE(actual.observables.size() == rows);
+            REQUIRE(actual.exp_vals.size() == rows * 4);
+            REQUIRE(actual.observable_ones.size() == 1);
+            size_t misaligned_rows = 0;
+            uint64_t observable_ones = 0;
+            for (size_t row = 0; row < rows; ++row) {
+                const uint8_t* record = &actual.measurements[row * width];
+                const uint8_t parity = static_cast<uint8_t>(record[width - 1] ^ record[width - 2]);
+                observable_ones += actual.observables[row];
+                if (actual.detectors[row] != 0 || record[1] != 0 ||
+                    actual.observables[row] != parity) {
+                    ++misaligned_rows;
+                }
+            }
+            REQUIRE(misaligned_rows == 0);
+            REQUIRE(actual.observable_ones[0] == observable_ones);
+            REQUIRE(actual.logical_errors == observable_ones);
+
+            const double cpu_rows = expected.passed_shots;
+            const double gpu_rows = actual.passed_shots;
+            const double cpu_ones = static_cast<double>(expected.observable_ones[0]) / cpu_rows;
+            const double gpu_ones = static_cast<double>(actual.observable_ones[0]) / gpu_rows;
+            CAPTURE(cpu_ones, gpu_ones);
+            REQUIRE_THAT(gpu_ones,
+                         Catch::Matchers::WithinAbs(
+                             cpu_ones, two_sample_tolerance(cpu_ones, cpu_rows, gpu_rows)));
+            for (uint32_t bit = 0; bit < width; ++bit) {
+                double cpu_marginal = 0.0;
+                double gpu_marginal = 0.0;
+                for (size_t row = 0; row < expected.passed_shots; ++row) {
+                    cpu_marginal += expected.measurements[row * width + bit];
+                }
+                for (size_t row = 0; row < rows; ++row) {
+                    gpu_marginal += actual.measurements[row * width + bit];
+                }
+                cpu_marginal /= cpu_rows;
+                gpu_marginal /= gpu_rows;
+                CAPTURE(bit, cpu_marginal, gpu_marginal);
+                REQUIRE_THAT(
+                    gpu_marginal,
+                    Catch::Matchers::WithinAbs(
+                        cpu_marginal, two_sample_tolerance(cpu_marginal, cpu_rows, gpu_rows)));
+            }
+        }
     }
 }
