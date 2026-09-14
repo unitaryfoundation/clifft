@@ -216,21 +216,6 @@ the selected Clifft version. The root `/playground/` path is a stable
 compatibility URL for externally shared links. Dev Playground links are
 unreleased and should not be used as permanent public links.
 
-For `mike deploy`, set `SITE_URL` to the base site URL,
-`https://unitaryfoundation.github.io/clifft/`. Mike appends the deployed version;
-including it in `SITE_URL` as well duplicates the path in canonical URLs,
-sitemaps, and generated Playground links. Plain `mkdocs build` does not append a
-version, so PR previews use their full preview URL instead.
-
-The deployment workflows check rendered canonical URLs, sitemap entries, and
-Playground links with `tools/ci/check_docs_urls.py` before pushing the built docs.
-To check a local versioned build, pass the expected publication URL explicitly:
-
-```bash
-uv run --no-sync python tools/ci/check_docs_urls.py site \
-    https://unitaryfoundation.github.io/clifft/0.10.1/
-```
-
 ## Changelog maintenance
 
 The changelog is generated from conventional commit messages using

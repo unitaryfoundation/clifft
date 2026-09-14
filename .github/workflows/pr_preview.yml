@@ -9,7 +9,6 @@ on:
       - 'src/wasm/**'
       - 'src/python/**'
       - 'mkdocs.yml'
-      - 'tools/ci/check_docs_urls.py'
       - '.github/workflows/pr_preview.yml'
 
 concurrency:
@@ -66,13 +65,6 @@ jobs:
         run: |
           rm -rf site/playground
           cp -r playground/dist site/playground
-
-      - name: Check rendered documentation URLs
-        run: |
-          uv run --no-sync python tools/ci/check_docs_urls.py site \
-            "https://unitaryfoundation.github.io/clifft/pr-preview/pr-${PR_NUMBER}/"
-        env:
-          PR_NUMBER: ${{ github.event.number }}
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4

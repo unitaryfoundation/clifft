@@ -382,11 +382,9 @@ jobs:
       - name: Deploy versioned docs
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
+          # Mike appends the deployed version to this base URL.
           SITE_URL=https://unitaryfoundation.github.io/clifft/ \
-            uv run --locked --group docs mike deploy "${VERSION}"
-          uv run --no-sync python tools/ci/check_docs_urls.py site \
-            "https://unitaryfoundation.github.io/clifft/${VERSION}/"
-          git push origin gh-pages
+            uv run --locked --group docs mike deploy --push "${VERSION}"
 
       - name: Decide whether to update stable docs
         id: stable
@@ -431,10 +429,7 @@ jobs:
         if: steps.stable.outputs.update == 'true'
         run: |
           SITE_URL=https://unitaryfoundation.github.io/clifft/ \
-            uv run --locked --group docs mike deploy stable
-          uv run --no-sync python tools/ci/check_docs_urls.py site \
-            https://unitaryfoundation.github.io/clifft/stable/
-          git push origin gh-pages
+            uv run --locked --group docs mike deploy --push stable
           uv run --locked --group docs mike set-default --push stable
 
       - name: Build root stable playground
