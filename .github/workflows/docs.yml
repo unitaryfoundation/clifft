@@ -62,6 +62,11 @@ jobs:
         run: uv sync --locked --group docs
 
       - name: Deploy dev docs
-        run: uv run --locked --group docs mike deploy --push dev
+        run: |
+          uv run --locked --group docs mike deploy dev
+          uv run --no-sync python tools/ci/check_docs_urls.py site \
+            https://unitaryfoundation.github.io/clifft/dev/
+          git push origin gh-pages
         env:
-          SITE_URL: https://unitaryfoundation.github.io/clifft/dev/
+          # Mike appends the deployed version to this base URL.
+          SITE_URL: https://unitaryfoundation.github.io/clifft/
