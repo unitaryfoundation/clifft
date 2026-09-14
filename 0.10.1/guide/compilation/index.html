@@ -1,4 +1,4 @@
-<!doctype html><html lang=en class=no-js> <head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><link href=https://unitaryfoundation.github.io/clifft/0.10.1/0.10.1/guide/compilation/ rel=canonical><link href=../circuit-inputs/ rel=prev><link href=../simulation/ rel=next><link rel=icon href=../../assets/logos/favicon.png><meta name=generator content="mkdocs-1.6.1, mkdocs-material-9.7.4"><title>Compiling Circuits - Clifft</title><link rel=stylesheet href=../../assets/stylesheets/main.484c7ddc.min.css><link rel=stylesheet href=../../assets/stylesheets/palette.ab4e12ef.min.css><style>
+<!doctype html><html lang=en class=no-js> <head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><link href=https://unitaryfoundation.github.io/clifft/0.10.1/guide/compilation/ rel=canonical><link href=../circuit-inputs/ rel=prev><link href=../simulation/ rel=next><link rel=icon href=../../assets/logos/favicon.png><meta name=generator content="mkdocs-1.6.1, mkdocs-material-9.7.4"><title>Compiling Circuits - Clifft</title><link rel=stylesheet href=../../assets/stylesheets/main.484c7ddc.min.css><link rel=stylesheet href=../../assets/stylesheets/palette.ab4e12ef.min.css><style>
     .md-header__playground {
       display: flex;
       align-items: center;
@@ -34,8 +34,9 @@
       var container = document.querySelector('.md-header__inner');
       if (!container) return;
 
-      // Resolve playground URL from MkDocs base_url (relative, works for PR previews)
-      var url = new URL('playground/', new URL('../..', location)).href;
+      // Treat base_url as a directory, including its absolute form on 404 pages.
+      var base = '../..';
+      var url = new URL('playground/', new URL(base.endsWith('/') ? base : base + '/', location)).href;
 
       var source = container.querySelector('.md-header__source');
       var btn = document.createElement('div');
