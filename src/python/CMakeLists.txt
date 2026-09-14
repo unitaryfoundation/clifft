@@ -72,6 +72,24 @@ if(CLIFFT_ENABLE_HIP)
         RUNTIME DESTINATION clifft)
 endif()
 
+if(CLIFFT_ENABLE_CUDA)
+    # Same arrangement as HIP: the CUDA runtime stays out of the ordinary
+    # extension and wheels, and the facade discovers this module when present.
+    nanobind_add_module(
+        _clifft_cuda
+        STABLE_ABI
+        cuda_bindings.cc
+    )
+    target_link_libraries(_clifft_cuda PRIVATE clifft_cuda_backend)
+    if(UNIX AND NOT APPLE)
+        target_link_options(_clifft_cuda PRIVATE
+            "LINKER:--version-script=${CMAKE_CURRENT_SOURCE_DIR}/clifft_cuda.lds")
+    endif()
+    install(TARGETS _clifft_cuda
+        LIBRARY DESTINATION clifft
+        RUNTIME DESTINATION clifft)
+endif()
+
 # Generate type stubs for the C++ extension at install time so that type
 # checkers (mypy, pyright) can see the full API.  INSTALL_TIME runs stubgen
 # after the .so is in its final location, which is required for import.
