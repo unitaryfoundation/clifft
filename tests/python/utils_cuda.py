@@ -31,6 +31,23 @@ def assert_repeatable(sampler: cuda.Sampler, shots: int, seed: int) -> None:
     assert_same_rows(sampler.sample(shots, seed=seed), sampler.sample(shots, seed=seed))
 
 
+def assert_rate_matches(
+    cpu_count: int,
+    cpu_total: int,
+    gpu_count: int,
+    gpu_total: int,
+    *,
+    sigma: float = 6.0,
+    absolute_floor: float = 1e-3,
+) -> None:
+    """Compare two empirical rates under a two-sample binomial tolerance."""
+    cpu_rate = cpu_count / cpu_total
+    gpu_rate = gpu_count / gpu_total
+    pooled = (cpu_count + gpu_count) / (cpu_total + gpu_total)
+    tolerance = sigma * np.sqrt(pooled * (1.0 - pooled) * (1.0 / cpu_total + 1.0 / gpu_total))
+    assert gpu_rate == pytest.approx(cpu_rate, abs=tolerance + absolute_floor)
+
+
 def assert_distribution_matches(
     cpu_rows: npt.NDArray[np.uint8],
     gpu_rows: npt.NDArray[np.uint8],
