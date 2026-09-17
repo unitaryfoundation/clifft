@@ -1,6 +1,23 @@
 # Representation study checkpoint
 
-Latest: [the static original-MSC boundary study](msc_boundaries.md) certifies
+Latest: [weighted original-MSC instruments](msc_instruments.md) now specify
+conditional branch weights and logical amplitudes at all three certified
+boundaries. Fixed parity rows select a commuting input projector, reject
+inconsistent records, and sign the three logical pullbacks. Probability scales
+are 2^-3 for either injection interval and 2^-18 for growth. Growth factors
+into six input code checks on seven data qubits and 34 single-wire projectors.
+
+Validation: all 146 boundary observations from 95 complete histories match
+branch weights and the full logical Bloch vector; 479,800 independent signed
+flows cover 4,982 fault-basis histories. Dense elementary Kraus operators check
+448 small-system cases including impossible records and orthogonal inputs.
+Four new tests bring the MSC suite to 26. Binding is static parity evaluation;
+the coherent input-projector contraction is still an offline CH oracle.
+Next: replace that contraction with small fixed code/ancilla contractions,
+starting with growth, then validate a complete static evaluator before native
+timing. No new throughput claim; f7 remains the large-state target.
+
+[The static original-MSC boundary study](msc_boundaries.md) certifies
 the two injection-to-check intervals and the d3-to-d5 growth/syndrome interval.
 All data and spectator stabilizers leave exactly one logical degree of freedom
 at these entries. Fixed record/fault parity maps produce signed syndromes and
