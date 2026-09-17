@@ -1,5 +1,8 @@
 # Native Profiling Tools
 
+The [representation-study checkpoint](research/checkpoint.md) records the
+current candidates, validated results, and work to resume.
+
 Native C++ harnesses isolate production compile, sampling, and
 strong-simulation costs and expose offline structural diagnostics:
 
