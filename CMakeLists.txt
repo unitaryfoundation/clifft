@@ -258,6 +258,8 @@ else()
     if(CLIFFT_BUILD_PROFILER)
         add_executable(profile_structure tools/profile/profile_structure.cpp)
         target_link_libraries(profile_structure PRIVATE clifft_core)
+        add_executable(profile_fault_specialization tools/profile/profile_fault_specialization.cpp)
+        target_link_libraries(profile_fault_specialization PRIVATE clifft_core)
         add_executable(profile_compile tools/profile/profile_compile.cpp)
         target_link_libraries(profile_compile PRIVATE clifft_core)
         target_include_directories(profile_compile PRIVATE

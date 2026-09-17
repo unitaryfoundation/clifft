@@ -65,6 +65,8 @@ reduces their active widths before a representation change is needed.
 
 The native tool creates validated semantic-plan prefixes at up to sixteen
 evenly spaced dense-action checkpoints, with four sampled states per prefix.
+The subsequent fault-specialization study additionally includes the first
+maximum-width checkpoint when spacing would miss it, for at most seventeen.
 It removes output probes/postselection, preserves feedback and readout noise,
 and fills unneeded suffix record slots with constants. It then uses the
 unchanged production executor. These are **independently sampled unconditional
@@ -237,7 +239,7 @@ OPENBLAS_NUM_THREADS=1 python3 tools/profile/residual_ranks.py \
 python3 -m unittest discover -s tools/profile -p 'test_*.py'
 ```
 
-Snapshot mode declines instruments and peak widths above 14 before allocating
+Snapshot mode declines instruments and peak widths above 16 before allocating
 snapshot executors. It does not sample rare-fault strata or certify exact rank.
 Use separate output directories for different circuits.
 

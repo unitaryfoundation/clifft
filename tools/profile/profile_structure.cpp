@@ -90,7 +90,7 @@ void write_snapshots(const SamplingPlan& plan, const std::filesystem::path& dire
     std::vector<size_t> candidates;
     for (size_t i = 0; i < plan.actions.size(); ++i) {
         const auto& action = plan.actions[i];
-        if (action.active_after > 0 && action.active_after <= 14 &&
+        if (action.active_after > 0 && action.active_after <= 16 &&
             predicted_dense_passes(action.action)) {
             candidates.push_back(i);
         }
@@ -100,6 +100,15 @@ void write_snapshots(const SamplingPlan& plan, const std::filesystem::path& dire
         selected.push_back(
             candidates[j * (candidates.size() - 1) /
                        std::max(size_t{1}, std::min(size_t{16}, candidates.size()) - 1)]);
+    }
+    if (!candidates.empty()) {
+        // A short-lived peak can fall between the evenly spaced checkpoints.
+        selected.push_back(
+            *std::max_element(candidates.begin(), candidates.end(), [&](size_t a, size_t b) {
+                return plan.actions[a].active_after < plan.actions[b].active_after;
+            }));
+        std::sort(selected.begin(), selected.end());
+        selected.erase(std::unique(selected.begin(), selected.end()), selected.end());
     }
     std::ofstream metadata(directory / "snapshots.json");
     metadata.exceptions(std::ios::badbit | std::ios::failbit);
@@ -253,9 +262,9 @@ int main(int argc, char** argv) {
         }
         std::cout << "]}\n";
         if (argc == 6) {
-            if (instruments || plan.peak_active_width > 14) {
+            if (instruments || plan.peak_active_width > 16) {
                 throw std::invalid_argument(
-                    "snapshots require no instruments and peak width <= 14");
+                    "snapshots require no instruments and peak width <= 16");
             }
             write_snapshots(plan, argv[5]);
         }

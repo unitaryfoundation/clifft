@@ -13,6 +13,10 @@ strong-simulation costs and expose offline structural diagnostics:
   and optional bounded residual-state snapshots. See
   [the factored-state study](research/factored_state.md) for its cost model,
   corpus exclusions, reproduction commands, and limitations.
+- `profile_fault_specialization` resolves physical Pauli faults before normal
+  compilation, compares the shared plan conditioned on the same faults, and
+  measures fresh low-shot latency. See the
+  [fault-specialization study](research/fault_specialization.md) for scope and results.
 
 ## Build
 
