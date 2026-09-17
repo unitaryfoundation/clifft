@@ -1,0 +1,3142 @@
+{
+  "planning": {
+    "bytes": 2076587,
+    "fault_bits": 6199,
+    "noise_locations": 2205,
+    "fixtures": 0,
+    "data_width": 85,
+    "offline_seconds": 1.9613252009730786
+  },
+  "fixture_plan": {
+    "bytes": 2287787,
+    "fault_bits": 6199,
+    "noise_locations": 2205,
+    "fixtures": 200,
+    "data_width": 85
+  },
+  "native": {
+    "fixtures": 200,
+    "max_error": 2.220446049250313e-16
+  },
+  "circuit_sha256": "235c42603af0194b83b7b5d355086eba29d2a35ba10d841f3dfaf836dfc3e037",
+  "histories": [
+    {
+      "name": "ideal",
+      "acceptance": 0.9999999999999998,
+      "logical_xyz": [
+        0.7071067811865475,
+        0.7071067811865475,
+        1.1102230246251568e-16
+      ],
+      "contractions": 13,
+      "peak_terms": 4,
+      "reference_acceptance": 0.9999999999999999,
+      "reference_xyz": [
+        0.7071067811865476,
+        0.7071067811865476,
+        -1.1102230246251568e-16
+      ],
+      "probability_error": 1.1102230246251565e-16,
+      "probe_error": 2.2204460492503136e-16
+    },
+    {
+      "name": "natural_1000",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 12,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "natural_1001",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 12,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "natural_1002",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 12,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "natural_1003",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 0,
+      "peak_terms": 0,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "natural_1004",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 12,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "natural_1005",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 4,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "natural_1006",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 0,
+      "peak_terms": 0,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "natural_1007",
+      "acceptance": 0.9999999999999998,
+      "logical_xyz": [
+        0.7071067811865475,
+        0.7071067811865475,
+        1.1102230246251568e-16
+      ],
+      "contractions": 13,
+      "peak_terms": 4,
+      "reference_acceptance": 0.9999999999999999,
+      "reference_xyz": [
+        0.7071067811865476,
+        0.7071067811865476,
+        -1.1102230246251568e-16
+      ],
+      "probability_error": 1.1102230246251565e-16,
+      "probe_error": 2.2204460492503136e-16
+    },
+    {
+      "name": "natural_1008",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 4,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "natural_1009",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 12,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "natural_1010",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 0,
+      "peak_terms": 0,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "natural_1011",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "natural_1012",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "natural_1013",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "natural_1014",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 4,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "natural_1015",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "natural_1016",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "natural_1017",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "natural_1018",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 4,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "natural_1019",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "natural_1020",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 0,
+      "peak_terms": 0,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "natural_1021",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 4,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "natural_1022",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 4,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "natural_1023",
+      "acceptance": 0.9999999999999998,
+      "logical_xyz": [
+        0.7071067811865475,
+        0.7071067811865475,
+        1.1102230246251568e-16
+      ],
+      "contractions": 13,
+      "peak_terms": 4,
+      "reference_acceptance": 0.9999999999999999,
+      "reference_xyz": [
+        0.7071067811865476,
+        0.7071067811865476,
+        -1.1102230246251568e-16
+      ],
+      "probability_error": 1.1102230246251565e-16,
+      "probe_error": 2.2204460492503136e-16
+    },
+    {
+      "name": "natural_1024",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "natural_1025",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 4,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "natural_1026",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 4,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "natural_1027",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "natural_1028",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "natural_1029",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 4,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "natural_1030",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 4,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "natural_1031",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "natural_1032",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 4,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "natural_1033",
+      "acceptance": 0.9999999999999998,
+      "logical_xyz": [
+        0.7071067811865475,
+        0.7071067811865475,
+        1.1102230246251568e-16
+      ],
+      "contractions": 13,
+      "peak_terms": 4,
+      "reference_acceptance": 0.9999999999999999,
+      "reference_xyz": [
+        0.7071067811865476,
+        0.7071067811865476,
+        -1.1102230246251568e-16
+      ],
+      "probability_error": 1.1102230246251565e-16,
+      "probe_error": 2.2204460492503136e-16
+    },
+    {
+      "name": "natural_1034",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "natural_1035",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 0,
+      "peak_terms": 0,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "natural_1036",
+      "acceptance": 0.9999999999999998,
+      "logical_xyz": [
+        0.7071067811865475,
+        0.7071067811865475,
+        1.1102230246251568e-16
+      ],
+      "contractions": 13,
+      "peak_terms": 4,
+      "reference_acceptance": 0.9999999999999999,
+      "reference_xyz": [
+        0.7071067811865476,
+        0.7071067811865476,
+        -1.1102230246251568e-16
+      ],
+      "probability_error": 1.1102230246251565e-16,
+      "probe_error": 2.2204460492503136e-16
+    },
+    {
+      "name": "natural_1037",
+      "acceptance": 0.9999999999999998,
+      "logical_xyz": [
+        0.7071067811865475,
+        0.7071067811865475,
+        1.1102230246251568e-16
+      ],
+      "contractions": 13,
+      "peak_terms": 4,
+      "reference_acceptance": 0.9999999999999999,
+      "reference_xyz": [
+        0.7071067811865476,
+        0.7071067811865476,
+        -1.1102230246251568e-16
+      ],
+      "probability_error": 1.1102230246251565e-16,
+      "probe_error": 2.2204460492503136e-16
+    },
+    {
+      "name": "natural_1038",
+      "acceptance": 0.9999999999999998,
+      "logical_xyz": [
+        0.7071067811865475,
+        0.7071067811865475,
+        1.1102230246251568e-16
+      ],
+      "contractions": 13,
+      "peak_terms": 4,
+      "reference_acceptance": 0.9999999999999999,
+      "reference_xyz": [
+        0.7071067811865476,
+        0.7071067811865476,
+        -1.1102230246251568e-16
+      ],
+      "probability_error": 1.1102230246251565e-16,
+      "probe_error": 2.2204460492503136e-16
+    },
+    {
+      "name": "natural_1039",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 0,
+      "peak_terms": 0,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "natural_1040",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "natural_1041",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "natural_1042",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 0,
+      "peak_terms": 0,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "natural_1043",
+      "acceptance": 0.9999999999999998,
+      "logical_xyz": [
+        0.7071067811865475,
+        0.7071067811865475,
+        1.1102230246251568e-16
+      ],
+      "contractions": 13,
+      "peak_terms": 4,
+      "reference_acceptance": 0.9999999999999999,
+      "reference_xyz": [
+        0.7071067811865476,
+        0.7071067811865476,
+        -1.1102230246251568e-16
+      ],
+      "probability_error": 1.1102230246251565e-16,
+      "probe_error": 2.2204460492503136e-16
+    },
+    {
+      "name": "natural_1044",
+      "acceptance": 0.9999999999999998,
+      "logical_xyz": [
+        0.7071067811865475,
+        0.7071067811865475,
+        1.1102230246251568e-16
+      ],
+      "contractions": 13,
+      "peak_terms": 4,
+      "reference_acceptance": 0.9999999999999999,
+      "reference_xyz": [
+        0.7071067811865476,
+        0.7071067811865476,
+        -1.1102230246251568e-16
+      ],
+      "probability_error": 1.1102230246251565e-16,
+      "probe_error": 2.2204460492503136e-16
+    },
+    {
+      "name": "natural_1045",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 0,
+      "peak_terms": 2,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "natural_1046",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 0,
+      "peak_terms": 0,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "natural_1047",
+      "acceptance": 0.9999999999999998,
+      "logical_xyz": [
+        0.7071067811865475,
+        0.7071067811865475,
+        1.1102230246251568e-16
+      ],
+      "contractions": 13,
+      "peak_terms": 4,
+      "reference_acceptance": 0.9999999999999999,
+      "reference_xyz": [
+        0.7071067811865476,
+        0.7071067811865476,
+        -1.1102230246251568e-16
+      ],
+      "probability_error": 1.1102230246251565e-16,
+      "probe_error": 2.2204460492503136e-16
+    },
+    {
+      "name": "natural_1048",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 12,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "natural_1049",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 12,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "natural_1050",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 4,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "natural_1051",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 0,
+      "peak_terms": 0,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "natural_1052",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 0,
+      "peak_terms": 0,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "natural_1053",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "natural_1054",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 0,
+      "peak_terms": 2,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "natural_1055",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "natural_1056",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 13,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "natural_1057",
+      "acceptance": 0.9999999999999998,
+      "logical_xyz": [
+        0.7071067811865475,
+        0.7071067811865475,
+        1.1102230246251568e-16
+      ],
+      "contractions": 13,
+      "peak_terms": 4,
+      "reference_acceptance": 0.9999999999999999,
+      "reference_xyz": [
+        0.7071067811865476,
+        0.7071067811865476,
+        -1.1102230246251568e-16
+      ],
+      "probability_error": 1.1102230246251565e-16,
+      "probe_error": 2.2204460492503136e-16
+    },
+    {
+      "name": "natural_1058",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "natural_1059",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 4,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "natural_1060",
+      "acceptance": 0.9999999999999998,
+      "logical_xyz": [
+        0.7071067811865475,
+        0.7071067811865475,
+        1.1102230246251568e-16
+      ],
+      "contractions": 13,
+      "peak_terms": 4,
+      "reference_acceptance": 0.9999999999999999,
+      "reference_xyz": [
+        0.7071067811865476,
+        0.7071067811865476,
+        -1.1102230246251568e-16
+      ],
+      "probability_error": 1.1102230246251565e-16,
+      "probe_error": 2.2204460492503136e-16
+    },
+    {
+      "name": "natural_1061",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "natural_1062",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 4,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "natural_1063",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 4,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "stress_2000",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 0,
+      "peak_terms": 0,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "stress_2001",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 4,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "stress_2002",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 0,
+      "peak_terms": 0,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "stress_2003",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 0,
+      "peak_terms": 0,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "stress_2004",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 0,
+      "peak_terms": 0,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "stress_2005",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 0,
+      "peak_terms": 0,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "stress_2006",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 0,
+      "peak_terms": 0,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "stress_2007",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 0,
+      "peak_terms": 0,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "stress_2008",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 0,
+      "peak_terms": 0,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "stress_2009",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 0,
+      "peak_terms": 0,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "stress_2010",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 4,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "stress_2011",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 0,
+      "peak_terms": 0,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "stress_2012",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 0,
+      "peak_terms": 0,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "stress_2013",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 4,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "stress_2014",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 0,
+      "peak_terms": 1,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "stress_2015",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 0,
+      "peak_terms": 0,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "stress_2016",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 0,
+      "peak_terms": 0,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "stress_2017",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 4,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "stress_2018",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 4,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "stress_2019",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 0,
+      "peak_terms": 0,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "stress_2020",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 4,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "stress_2021",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 0,
+      "peak_terms": 0,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "stress_2022",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 0,
+      "peak_terms": 0,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "stress_2023",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 0,
+      "peak_terms": 0,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "stress_2024",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 0,
+      "peak_terms": 0,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "stress_2025",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 4,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "stress_2026",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 0,
+      "peak_terms": 1,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "stress_2027",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 4,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "stress_2028",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 4,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "stress_2029",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 0,
+      "peak_terms": 1,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "stress_2030",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 0,
+      "peak_terms": 2,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "stress_2031",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 4,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "stage21_ccz0_cat88",
+      "acceptance": 0.24999999999999994,
+      "logical_xyz": [
+        0.7071067811865475,
+        0.7071067811865475,
+        1.1102230246251568e-16
+      ],
+      "contractions": 13,
+      "peak_terms": 4,
+      "reference_acceptance": 0.24999999999999997,
+      "reference_xyz": [
+        0.7071067811865476,
+        0.7071067811865476,
+        -1.1102230246251568e-16
+      ],
+      "probability_error": 2.7755575615628914e-17,
+      "probe_error": 2.2204460492503136e-16
+    },
+    {
+      "name": "stage21_ccz9_cat89",
+      "acceptance": 0.24999999999999994,
+      "logical_xyz": [
+        0.7071067811865475,
+        0.7071067811865475,
+        1.1102230246251568e-16
+      ],
+      "contractions": 13,
+      "peak_terms": 4,
+      "reference_acceptance": 0.24999999999999997,
+      "reference_xyz": [
+        0.7071067811865476,
+        0.7071067811865476,
+        -1.1102230246251568e-16
+      ],
+      "probability_error": 2.7755575615628914e-17,
+      "probe_error": 2.2204460492503136e-16
+    },
+    {
+      "name": "stage21_ccz18_cat91",
+      "acceptance": 0.24999999999999994,
+      "logical_xyz": [
+        0.7071067811865475,
+        0.7071067811865475,
+        1.1102230246251568e-16
+      ],
+      "contractions": 13,
+      "peak_terms": 4,
+      "reference_acceptance": 0.24999999999999997,
+      "reference_xyz": [
+        0.7071067811865476,
+        0.7071067811865476,
+        -1.1102230246251568e-16
+      ],
+      "probability_error": 2.7755575615628914e-17,
+      "probe_error": 2.2204460492503136e-16
+    },
+    {
+      "name": "stage21_ccz27_cat90",
+      "acceptance": 0.24999999999999994,
+      "logical_xyz": [
+        0.7071067811865475,
+        0.7071067811865475,
+        1.1102230246251568e-16
+      ],
+      "contractions": 13,
+      "peak_terms": 4,
+      "reference_acceptance": 0.24999999999999997,
+      "reference_xyz": [
+        0.7071067811865476,
+        0.7071067811865476,
+        -1.1102230246251568e-16
+      ],
+      "probability_error": 2.7755575615628914e-17,
+      "probe_error": 2.2204460492503136e-16
+    },
+    {
+      "name": "stage21_ccz35_cat88",
+      "acceptance": 0.24999999999999994,
+      "logical_xyz": [
+        0.7071067811865475,
+        0.7071067811865475,
+        1.1102230246251568e-16
+      ],
+      "contractions": 13,
+      "peak_terms": 4,
+      "reference_acceptance": 0.24999999999999997,
+      "reference_xyz": [
+        0.7071067811865476,
+        0.7071067811865476,
+        -1.1102230246251568e-16
+      ],
+      "probability_error": 2.7755575615628914e-17,
+      "probe_error": 2.2204460492503136e-16
+    },
+    {
+      "name": "stage24_ccz0_cat88",
+      "acceptance": 0.24999999999999994,
+      "logical_xyz": [
+        0.7071067811865475,
+        0.7071067811865475,
+        1.1102230246251568e-16
+      ],
+      "contractions": 13,
+      "peak_terms": 4,
+      "reference_acceptance": 0.24999999999999997,
+      "reference_xyz": [
+        0.7071067811865476,
+        0.7071067811865476,
+        -1.1102230246251568e-16
+      ],
+      "probability_error": 2.7755575615628914e-17,
+      "probe_error": 2.2204460492503136e-16
+    },
+    {
+      "name": "stage24_ccz9_cat89",
+      "acceptance": 0.24999999999999994,
+      "logical_xyz": [
+        0.7071067811865475,
+        0.7071067811865475,
+        1.1102230246251568e-16
+      ],
+      "contractions": 13,
+      "peak_terms": 4,
+      "reference_acceptance": 0.24999999999999997,
+      "reference_xyz": [
+        0.7071067811865476,
+        0.7071067811865476,
+        -1.1102230246251568e-16
+      ],
+      "probability_error": 2.7755575615628914e-17,
+      "probe_error": 2.2204460492503136e-16
+    },
+    {
+      "name": "stage24_ccz18_cat91",
+      "acceptance": 0.24999999999999994,
+      "logical_xyz": [
+        0.7071067811865475,
+        0.7071067811865475,
+        1.1102230246251568e-16
+      ],
+      "contractions": 13,
+      "peak_terms": 4,
+      "reference_acceptance": 0.24999999999999997,
+      "reference_xyz": [
+        0.7071067811865476,
+        0.7071067811865476,
+        -1.1102230246251568e-16
+      ],
+      "probability_error": 2.7755575615628914e-17,
+      "probe_error": 2.2204460492503136e-16
+    },
+    {
+      "name": "stage24_ccz27_cat90",
+      "acceptance": 0.24999999999999994,
+      "logical_xyz": [
+        0.7071067811865475,
+        0.7071067811865475,
+        1.1102230246251568e-16
+      ],
+      "contractions": 13,
+      "peak_terms": 4,
+      "reference_acceptance": 0.24999999999999997,
+      "reference_xyz": [
+        0.7071067811865476,
+        0.7071067811865476,
+        -1.1102230246251568e-16
+      ],
+      "probability_error": 2.7755575615628914e-17,
+      "probe_error": 2.2204460492503136e-16
+    },
+    {
+      "name": "stage24_ccz35_cat88",
+      "acceptance": 0.24999999999999994,
+      "logical_xyz": [
+        0.7071067811865475,
+        0.7071067811865475,
+        1.1102230246251568e-16
+      ],
+      "contractions": 13,
+      "peak_terms": 4,
+      "reference_acceptance": 0.24999999999999997,
+      "reference_xyz": [
+        0.7071067811865476,
+        0.7071067811865476,
+        -1.1102230246251568e-16
+      ],
+      "probability_error": 2.7755575615628914e-17,
+      "probe_error": 2.2204460492503136e-16
+    },
+    {
+      "name": "logical_tail",
+      "acceptance": 0.9999999999999998,
+      "logical_xyz": [
+        -0.7071067811865475,
+        -0.7071067811865475,
+        1.1102230246251568e-16
+      ],
+      "contractions": 13,
+      "peak_terms": 4,
+      "reference_acceptance": 0.9999999999999999,
+      "reference_xyz": [
+        -0.7071067811865476,
+        -0.7071067811865476,
+        -1.1102230246251568e-16
+      ],
+      "probability_error": 1.1102230246251565e-16,
+      "probe_error": 2.2204460492503136e-16
+    },
+    {
+      "name": "growth_sector_16",
+      "acceptance": 0.24999999999999994,
+      "logical_xyz": [
+        0.7071067811865475,
+        0.7071067811865475,
+        1.1102230246251568e-16
+      ],
+      "contractions": 13,
+      "peak_terms": 4,
+      "reference_acceptance": 0.24999999999999997,
+      "reference_xyz": [
+        0.7071067811865476,
+        0.7071067811865476,
+        -1.1102230246251568e-16
+      ],
+      "probability_error": 2.7755575615628914e-17,
+      "probe_error": 2.2204460492503136e-16
+    },
+    {
+      "name": "growth_sector_3",
+      "acceptance": 0.24999999999999994,
+      "logical_xyz": [
+        0.7071067811865475,
+        0.7071067811865475,
+        1.1102230246251568e-16
+      ],
+      "contractions": 13,
+      "peak_terms": 4,
+      "reference_acceptance": 0.24999999999999997,
+      "reference_xyz": [
+        0.7071067811865476,
+        0.7071067811865476,
+        -1.1102230246251568e-16
+      ],
+      "probability_error": 2.7755575615628914e-17,
+      "probe_error": 2.2204460492503136e-16
+    },
+    {
+      "name": "ideal",
+      "acceptance": 0.9999999999999998,
+      "logical_xyz": [
+        0.7071067811865475,
+        0.7071067811865475,
+        1.1102230246251568e-16
+      ],
+      "contractions": 13,
+      "peak_terms": 4,
+      "reference_acceptance": 0.9999999999999999,
+      "reference_xyz": [
+        0.7071067811865476,
+        0.7071067811865476,
+        -1.1102230246251568e-16
+      ],
+      "probability_error": 1.1102230246251565e-16,
+      "probe_error": 2.2204460492503136e-16
+    },
+    {
+      "name": "uniform_flag_flip",
+      "acceptance": 0.9999999999999998,
+      "logical_xyz": [
+        0.7071067811865475,
+        0.7071067811865475,
+        1.1102230246251568e-16
+      ],
+      "contractions": 13,
+      "peak_terms": 4,
+      "reference_acceptance": 0.9999999999999999,
+      "reference_xyz": [
+        0.7071067811865476,
+        0.7071067811865476,
+        -1.1102230246251568e-16
+      ],
+      "probability_error": 1.1102230246251565e-16,
+      "probe_error": 2.2204460492503136e-16
+    },
+    {
+      "name": "nonuniform_flag_flip",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "high_data_tail_X",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 13,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "high_data_tail_Y",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 13,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "high_data_tail_Z",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 13,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_66_q19_X",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_66_q19_Y",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_66_q19_Z",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_66_q18_X",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_66_q18_Y",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_66_q18_Z",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_77_q20_X",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_77_q20_Y",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_77_q20_Z",
+      "acceptance": 0.9999999999999998,
+      "logical_xyz": [
+        0.7071067811865475,
+        0.7071067811865475,
+        1.1102230246251568e-16
+      ],
+      "contractions": 13,
+      "peak_terms": 4,
+      "reference_acceptance": 0.9999999999999999,
+      "reference_xyz": [
+        0.7071067811865476,
+        0.7071067811865476,
+        -1.1102230246251568e-16
+      ],
+      "probability_error": 1.1102230246251565e-16,
+      "probe_error": 2.2204460492503136e-16
+    },
+    {
+      "name": "growth_gate_77_q21_X",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_77_q21_Y",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_77_q21_Z",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_87_q78_X",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_87_q78_Y",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_87_q78_Z",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_87_q72_X",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_87_q72_Y",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_87_q72_Z",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_88_q19_X",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_88_q19_Y",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_88_q19_Z",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_88_q12_X",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_88_q12_Y",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_88_q12_Z",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_99_q67_X",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_99_q67_Y",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_99_q67_Z",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_99_q80_X",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_99_q80_Y",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_99_q80_Z",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_109_q60_X",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_109_q60_Y",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_109_q60_Z",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_109_q73_X",
+      "acceptance": 0.9999999999999998,
+      "logical_xyz": [
+        0.7071067811865475,
+        0.7071067811865475,
+        1.1102230246251568e-16
+      ],
+      "contractions": 13,
+      "peak_terms": 4,
+      "reference_acceptance": 0.9999999999999999,
+      "reference_xyz": [
+        0.7071067811865476,
+        0.7071067811865476,
+        -1.1102230246251568e-16
+      ],
+      "probability_error": 1.1102230246251565e-16,
+      "probe_error": 2.2204460492503136e-16
+    },
+    {
+      "name": "growth_gate_109_q73_Y",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_109_q73_Z",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_110_q11_X",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_110_q11_Y",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_110_q11_Z",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_110_q5_X",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_110_q5_Y",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_110_q5_Z",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_119_q73_X",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_119_q73_Y",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_119_q73_Z",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_119_q79_X",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_119_q79_Y",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_119_q79_Z",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_127_q65_X",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_127_q65_Y",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_127_q65_Z",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_127_q59_X",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_127_q59_Y",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_127_q59_Z",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_128_q12_X",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_128_q12_Y",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_128_q12_Z",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_128_q5_X",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_128_q5_Y",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_128_q5_Z",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_137_q72_X",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_137_q72_Y",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_137_q72_Z",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_137_q79_X",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_137_q79_Y",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_137_q79_Z",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_145_q52_X",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_145_q52_Y",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_145_q52_Z",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_145_q59_X",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_145_q59_Y",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_145_q59_Z",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_0_q6_X",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_22_q39_X",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_43_q78_X",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_44_q6_X",
+      "acceptance": 0.9999999999999998,
+      "logical_xyz": [
+        0.7071067811865475,
+        0.7071067811865475,
+        1.1102230246251568e-16
+      ],
+      "contractions": 13,
+      "peak_terms": 4,
+      "reference_acceptance": 0.9999999999999999,
+      "reference_xyz": [
+        0.7071067811865476,
+        0.7071067811865476,
+        -1.1102230246251568e-16
+      ],
+      "probability_error": 1.1102230246251565e-16,
+      "probe_error": 2.2204460492503136e-16
+    },
+    {
+      "name": "growth_gate_44_q6_Y",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_44_q6_Z",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_55_q9_X",
+      "acceptance": 0.9999999999999998,
+      "logical_xyz": [
+        0.7071067811865475,
+        0.7071067811865475,
+        1.1102230246251568e-16
+      ],
+      "contractions": 13,
+      "peak_terms": 4,
+      "reference_acceptance": 0.9999999999999999,
+      "reference_xyz": [
+        0.7071067811865476,
+        0.7071067811865476,
+        -1.1102230246251568e-16
+      ],
+      "probability_error": 1.1102230246251565e-16,
+      "probe_error": 2.2204460492503136e-16
+    },
+    {
+      "name": "growth_gate_55_q9_Y",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_55_q9_Z",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_65_q78_X",
+      "acceptance": 0.9999999999999998,
+      "logical_xyz": [
+        0.7071067811865475,
+        0.7071067811865475,
+        1.1102230246251568e-16
+      ],
+      "contractions": 13,
+      "peak_terms": 4,
+      "reference_acceptance": 0.9999999999999999,
+      "reference_xyz": [
+        0.7071067811865476,
+        0.7071067811865476,
+        -1.1102230246251568e-16
+      ],
+      "probability_error": 1.1102230246251565e-16,
+      "probe_error": 2.2204460492503136e-16
+    },
+    {
+      "name": "growth_gate_65_q78_Y",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    },
+    {
+      "name": "growth_gate_65_q78_Z",
+      "acceptance": 0,
+      "logical_xyz": null,
+      "contractions": 8,
+      "peak_terms": 4,
+      "reference_acceptance": 0.0,
+      "reference_xyz": null,
+      "probability_error": 0.0,
+      "probe_error": 0
+    }
+  ],
+  "previous_catalog": {
+    "catalog_ms": 2.31934,
+    "parse_ms": 1.456891,
+    "recognize_us": 22.343999999999998,
+    "eligible": 0,
+    "reason": "gate or physical noise location differs from certified family",
+    "source_line": 81
+  },
+  "timings": [
+    {
+      "catalog_ms": 1.54819,
+      "parse_ms": 1.513608,
+      "recognize_us": 455.692,
+      "eligible": 1,
+      "reason": "eligible",
+      "source_line": 0,
+      "distance": 7,
+      "prefix_gates": 0,
+      "suffix_gates": 0,
+      "measurements_per_row": 350,
+      "detectors_per_row": 348,
+      "probes": [
+        [
+          1,
+          1
+        ],
+        [
+          2,
+          1
+        ],
+        [
+          3,
+          1
+        ]
+      ],
+      "sample_ms": 4641.031685,
+      "total_shots": 100000,
+      "passed_shots": 12553,
+      "measurement_values": 4393550,
+      "detector_values": 4368444,
+      "probe_values": 37659,
+      "process_wall_seconds": 4.660756023135036,
+      "resources": {
+        "max_rss_kib": 78636,
+        "elapsed_seconds": 4.65
+      }
+    },
+    {
+      "catalog_ms": 1.555,
+      "parse_ms": 1.472265,
+      "recognize_us": 461.791,
+      "eligible": 1,
+      "reason": "eligible",
+      "source_line": 0,
+      "distance": 7,
+      "prefix_gates": 0,
+      "suffix_gates": 0,
+      "measurements_per_row": 350,
+      "detectors_per_row": 348,
+      "probes": [
+        [
+          1,
+          1
+        ],
+        [
+          2,
+          1
+        ],
+        [
+          3,
+          1
+        ]
+      ],
+      "sample_ms": 4598.679725,
+      "total_shots": 100000,
+      "passed_shots": 12553,
+      "measurement_values": 4393550,
+      "detector_values": 4368444,
+      "probe_values": 37659,
+      "process_wall_seconds": 4.617821638006717,
+      "resources": {
+        "max_rss_kib": 78492,
+        "elapsed_seconds": 4.61
+      }
+    },
+    {
+      "catalog_ms": 4.889972,
+      "parse_ms": 3.292277,
+      "recognize_us": 1131.798,
+      "eligible": 1,
+      "reason": "eligible",
+      "source_line": 0,
+      "distance": 7,
+      "prefix_gates": 0,
+      "suffix_gates": 0,
+      "measurements_per_row": 350,
+      "detectors_per_row": 348,
+      "probes": [
+        [
+          1,
+          1
+        ],
+        [
+          2,
+          1
+        ],
+        [
+          3,
+          1
+        ]
+      ],
+      "sample_ms": 4544.397416,
+      "total_shots": 100000,
+      "passed_shots": 12553,
+      "measurement_values": 4393550,
+      "detector_values": 4368444,
+      "probe_values": 37659,
+      "process_wall_seconds": 4.582818831084296,
+      "resources": {
+        "max_rss_kib": 78436,
+        "elapsed_seconds": 4.58
+      }
+    }
+  ],
+  "source_sha256": {
+    "fold_adapter.py": "b9ccd26336ab328542997da9a271f773be83cd0908973cba2eabcc598c82f6a3",
+    "fold_plan_data.py": "9225bea37a6302cc7e789bac2cf9d81122fedf4bfef3da7826af9d2bdb12c2bb",
+    "fold_plan_worker.cpp": "e9a8efece5de81ce45dc531318390fcc6ae06e2a8a09e5a98da18006da9cfbb3",
+    "fold_blocks.py": "dedf633784e5fc9f1d12ba2276fb5990dc778fec968290d541efb26ef63e7a95",
+    "fold_blocks_native.h": "a347c12ca3a33f663ad9ea3c85cb365b50ec2f98ee2fd6a8bbd2c2d808674aa5",
+    "fold_recognition.h": "075274383e7f618c5d51255ad0610908add4b118d996ec00b92615041369aede",
+    "study_fold_adapter.py": "84f0752ec5da6e82e9ba3f4a872181ec8147ba00684d1b4585db8b5154686cc8",
+    "test_fold_adapter.py": "f2d378e94c2b22b1ae7d205d2742df2d8819bd5ad38476a799abc7d5c2feefe5",
+    "fold_recognition_main.h": "ad703b437a21428a22533789d053e15c9800ffcfd42ad9ebbf005d2aaee573c3"
+  },
+  "comparison_timings": {
+    "original_catalog": [
+      {
+        "catalog_ms": 3.521785,
+        "parse_ms": 2.176804,
+        "recognize_us": 670.0070000000001,
+        "eligible": 1,
+        "reason": "eligible",
+        "source_line": 0,
+        "distance": 7,
+        "prefix_gates": 0,
+        "suffix_gates": 0,
+        "measurements_per_row": 350,
+        "detectors_per_row": 348,
+        "probes": [
+          [
+            1,
+            1
+          ],
+          [
+            2,
+            1
+          ],
+          [
+            3,
+            1
+          ]
+        ],
+        "sample_ms": 4559.142856,
+        "total_shots": 100000,
+        "passed_shots": 12667,
+        "measurement_values": 4433450,
+        "detector_values": 4408116,
+        "probe_values": 38001,
+        "process_wall_seconds": 4.574943569023162,
+        "resources": {
+          "max_rss_kib": 78676,
+          "elapsed_seconds": 4.57
+        }
+      },
+      {
+        "catalog_ms": 5.791591,
+        "parse_ms": 3.45862,
+        "recognize_us": 1144.086,
+        "eligible": 1,
+        "reason": "eligible",
+        "source_line": 0,
+        "distance": 7,
+        "prefix_gates": 0,
+        "suffix_gates": 0,
+        "measurements_per_row": 350,
+        "detectors_per_row": 348,
+        "probes": [
+          [
+            1,
+            1
+          ],
+          [
+            2,
+            1
+          ],
+          [
+            3,
+            1
+          ]
+        ],
+        "sample_ms": 4495.823252,
+        "total_shots": 100000,
+        "passed_shots": 12667,
+        "measurement_values": 4433450,
+        "detector_values": 4408116,
+        "probe_values": 38001,
+        "process_wall_seconds": 4.516232738969848,
+        "resources": {
+          "max_rss_kib": 78488,
+          "elapsed_seconds": 4.51
+        }
+      },
+      {
+        "catalog_ms": 5.65927,
+        "parse_ms": 3.264334,
+        "recognize_us": 1095.764,
+        "eligible": 1,
+        "reason": "eligible",
+        "source_line": 0,
+        "distance": 7,
+        "prefix_gates": 0,
+        "suffix_gates": 0,
+        "measurements_per_row": 350,
+        "detectors_per_row": 348,
+        "probes": [
+          [
+            1,
+            1
+          ],
+          [
+            2,
+            1
+          ],
+          [
+            3,
+            1
+          ]
+        ],
+        "sample_ms": 4509.964946,
+        "total_shots": 100000,
+        "passed_shots": 12667,
+        "measurement_values": 4433450,
+        "detector_values": 4408116,
+        "probe_values": 38001,
+        "process_wall_seconds": 4.53043153998442,
+        "resources": {
+          "max_rss_kib": 78564,
+          "elapsed_seconds": 4.52
+        }
+      }
+    ],
+    "original_loaded": [
+      {
+        "catalog_ms": 3.822462,
+        "parse_ms": 3.403125,
+        "recognize_us": 1113.791,
+        "eligible": 1,
+        "reason": "eligible",
+        "source_line": 0,
+        "distance": 7,
+        "prefix_gates": 0,
+        "suffix_gates": 0,
+        "measurements_per_row": 350,
+        "detectors_per_row": 348,
+        "probes": [
+          [
+            1,
+            1
+          ],
+          [
+            2,
+            1
+          ],
+          [
+            3,
+            1
+          ]
+        ],
+        "sample_ms": 4516.572204,
+        "total_shots": 100000,
+        "passed_shots": 12667,
+        "measurement_values": 4433450,
+        "detector_values": 4408116,
+        "probe_values": 38001,
+        "process_wall_seconds": 4.552455255994573,
+        "resources": {
+          "max_rss_kib": 78412,
+          "elapsed_seconds": 4.55
+        }
+      },
+      {
+        "catalog_ms": 3.673405,
+        "parse_ms": 3.323234,
+        "recognize_us": 1126.6000000000001,
+        "eligible": 1,
+        "reason": "eligible",
+        "source_line": 0,
+        "distance": 7,
+        "prefix_gates": 0,
+        "suffix_gates": 0,
+        "measurements_per_row": 350,
+        "detectors_per_row": 348,
+        "probes": [
+          [
+            1,
+            1
+          ],
+          [
+            2,
+            1
+          ],
+          [
+            3,
+            1
+          ]
+        ],
+        "sample_ms": 4571.759556,
+        "total_shots": 100000,
+        "passed_shots": 12667,
+        "measurement_values": 4433450,
+        "detector_values": 4408116,
+        "probe_values": 38001,
+        "process_wall_seconds": 4.6067116148769855,
+        "resources": {
+          "max_rss_kib": 78444,
+          "elapsed_seconds": 4.6
+        }
+      },
+      {
+        "catalog_ms": 1.582692,
+        "parse_ms": 1.397591,
+        "recognize_us": 473.509,
+        "eligible": 1,
+        "reason": "eligible",
+        "source_line": 0,
+        "distance": 7,
+        "prefix_gates": 0,
+        "suffix_gates": 0,
+        "measurements_per_row": 350,
+        "detectors_per_row": 348,
+        "probes": [
+          [
+            1,
+            1
+          ],
+          [
+            2,
+            1
+          ],
+          [
+            3,
+            1
+          ]
+        ],
+        "sample_ms": 4494.640827,
+        "total_shots": 100000,
+        "passed_shots": 12667,
+        "measurement_values": 4433450,
+        "detector_values": 4408116,
+        "probe_values": 38001,
+        "process_wall_seconds": 4.51381886494346,
+        "resources": {
+          "max_rss_kib": 78380,
+          "elapsed_seconds": 4.51
+        }
+      }
+    ],
+    "held_out_loaded": [
+      {
+        "catalog_ms": 1.54819,
+        "parse_ms": 1.513608,
+        "recognize_us": 455.692,
+        "eligible": 1,
+        "reason": "eligible",
+        "source_line": 0,
+        "distance": 7,
+        "prefix_gates": 0,
+        "suffix_gates": 0,
+        "measurements_per_row": 350,
+        "detectors_per_row": 348,
+        "probes": [
+          [
+            1,
+            1
+          ],
+          [
+            2,
+            1
+          ],
+          [
+            3,
+            1
+          ]
+        ],
+        "sample_ms": 4641.031685,
+        "total_shots": 100000,
+        "passed_shots": 12553,
+        "measurement_values": 4393550,
+        "detector_values": 4368444,
+        "probe_values": 37659,
+        "process_wall_seconds": 4.660756023135036,
+        "resources": {
+          "max_rss_kib": 78636,
+          "elapsed_seconds": 4.65
+        }
+      },
+      {
+        "catalog_ms": 1.555,
+        "parse_ms": 1.472265,
+        "recognize_us": 461.791,
+        "eligible": 1,
+        "reason": "eligible",
+        "source_line": 0,
+        "distance": 7,
+        "prefix_gates": 0,
+        "suffix_gates": 0,
+        "measurements_per_row": 350,
+        "detectors_per_row": 348,
+        "probes": [
+          [
+            1,
+            1
+          ],
+          [
+            2,
+            1
+          ],
+          [
+            3,
+            1
+          ]
+        ],
+        "sample_ms": 4598.679725,
+        "total_shots": 100000,
+        "passed_shots": 12553,
+        "measurement_values": 4393550,
+        "detector_values": 4368444,
+        "probe_values": 37659,
+        "process_wall_seconds": 4.617821638006717,
+        "resources": {
+          "max_rss_kib": 78492,
+          "elapsed_seconds": 4.61
+        }
+      },
+      {
+        "catalog_ms": 4.889972,
+        "parse_ms": 3.292277,
+        "recognize_us": 1131.798,
+        "eligible": 1,
+        "reason": "eligible",
+        "source_line": 0,
+        "distance": 7,
+        "prefix_gates": 0,
+        "suffix_gates": 0,
+        "measurements_per_row": 350,
+        "detectors_per_row": 348,
+        "probes": [
+          [
+            1,
+            1
+          ],
+          [
+            2,
+            1
+          ],
+          [
+            3,
+            1
+          ]
+        ],
+        "sample_ms": 4544.397416,
+        "total_shots": 100000,
+        "passed_shots": 12553,
+        "measurement_values": 4393550,
+        "detector_values": 4368444,
+        "probe_values": 37659,
+        "process_wall_seconds": 4.582818831084296,
+        "resources": {
+          "max_rss_kib": 78436,
+          "elapsed_seconds": 4.58
+        }
+      }
+    ]
+  },
+  "corpus_declines": [
+    {
+      "name": "coherent_d3_r3.stim",
+      "reason": "unsupported physical layout",
+      "adapter_decline_ms": 5.926745943725109,
+      "fallback": {
+        "catalog_ms": 3.766617,
+        "parse_ms": 0.129707,
+        "recognize_us": 11.187000000000001,
+        "eligible": 0,
+        "reason": "gate or physical noise location differs from certified family",
+        "source_line": 19,
+        "fallback_compile_ms": 1.281996,
+        "fallback_peak_width": 5
+      }
+    },
+    {
+      "name": "coherent_d5_r5.stim",
+      "reason": "unsupported physical layout",
+      "adapter_decline_ms": 5.489591974765062,
+      "fallback": {
+        "catalog_ms": 3.737572,
+        "parse_ms": 0.570627,
+        "recognize_us": 15.183,
+        "eligible": 0,
+        "reason": "gate or physical noise location differs from certified family",
+        "source_line": 50,
+        "fallback_compile_ms": 10.773011,
+        "fallback_peak_width": 13
+      }
+    },
+    {
+      "name": "distillation.stim",
+      "reason": "unsupported physical layout",
+      "adapter_decline_ms": 7.299698889255524,
+      "fallback": {
+        "catalog_ms": 4.627874,
+        "parse_ms": 0.279764,
+        "recognize_us": 13.941,
+        "eligible": 0,
+        "reason": "gate or physical noise location differs from certified family",
+        "source_line": 12,
+        "fallback_compile_ms": 5.272092,
+        "fallback_peak_width": 5
+      }
+    },
+    {
+      "name": "msc_d3_inject_cultivate_p1e-3.stim",
+      "reason": "unsupported physical layout",
+      "adapter_decline_ms": 6.222604075446725,
+      "fallback": {
+        "catalog_ms": 4.329532,
+        "parse_ms": 0.248327,
+        "recognize_us": 6.309,
+        "eligible": 0,
+        "reason": "gate or physical noise location differs from certified family",
+        "source_line": 16,
+        "fallback_compile_ms": 4.056677,
+        "fallback_peak_width": 4
+      }
+    },
+    {
+      "name": "msc_d5_inject_cultivate_p1e-3.stim",
+      "reason": "unsupported physical layout",
+      "adapter_decline_ms": 24.605114944279194,
+      "fallback": {
+        "catalog_ms": 4.008104,
+        "parse_ms": 1.41649,
+        "recognize_us": 16.986,
+        "eligible": 0,
+        "reason": "gate or physical noise location differs from certified family",
+        "source_line": 43,
+        "fallback_compile_ms": 31.563937,
+        "fallback_peak_width": 10
+      }
+    },
+    {
+      "name": "pure_surface_d7_r7_p1e-3.stim",
+      "reason": "unsupported physical layout",
+      "adapter_decline_ms": 25.871556950733066,
+      "fallback": {
+        "catalog_ms": 2.499404,
+        "parse_ms": 1.023483,
+        "recognize_us": 16.965,
+        "eligible": 0,
+        "reason": "gate or physical noise location differs from certified family",
+        "source_line": 98,
+        "fallback_compile_ms": 19.444061,
+        "fallback_peak_width": 0
+      }
+    },
+    {
+      "name": "quantum_volume_q10_seed42.stim",
+      "reason": "unsupported physical layout",
+      "adapter_decline_ms": 7.0337660145014524,
+      "fallback": {
+        "catalog_ms": 2.564652,
+        "parse_ms": 0.261407,
+        "recognize_us": 4.146000000000001,
+        "eligible": 0,
+        "reason": "gate or physical noise location differs from certified family",
+        "source_line": 1,
+        "fallback_compile_ms": 7.137763,
+        "fallback_peak_width": 10
+      }
+    },
+    {
+      "name": "quantum_volume_q20_seed42.stim",
+      "reason": "unsupported physical layout",
+      "adapter_decline_ms": 22.284853970631957,
+      "fallback": {
+        "catalog_ms": 3.831836,
+        "parse_ms": 1.801354,
+        "recognize_us": 9.144,
+        "eligible": 0,
+        "reason": "gate or physical noise location differs from certified family",
+        "source_line": 1,
+        "fallback_compile_ms": 38.115641,
+        "fallback_peak_width": 20
+      }
+    }
+  ],
+  "asan": {
+    "fixtures": {
+      "fixtures": 200,
+      "max_error": 2.220446049250313e-16
+    },
+    "sampling": {
+      "catalog_ms": 5.694543,
+      "parse_ms": 5.294696,
+      "recognize_us": 1500.6580000000001,
+      "eligible": 1,
+      "reason": "eligible",
+      "source_line": 0,
+      "distance": 7,
+      "prefix_gates": 0,
+      "suffix_gates": 0,
+      "measurements_per_row": 350,
+      "detectors_per_row": 348,
+      "probes": [
+        [
+          1,
+          1
+        ],
+        [
+          2,
+          1
+        ],
+        [
+          3,
+          1
+        ]
+      ],
+      "sample_ms": 799.643333,
+      "total_shots": 2500,
+      "passed_shots": 327,
+      "measurement_values": 114450,
+      "detector_values": 113796,
+      "probe_values": 981
+    },
+    "leak_detection": false,
+    "core_library_instrumented": false
+  },
+  "tests": {
+    "full_suite": 91,
+    "additional_tests": 2,
+    "asan_adapter_tests_passed": 7,
+    "asan_adapter_tests_skipped": 1
+  },
+  "methodology": {
+    "sampling": "three sequential runs of 100000 attempted shots per path, seed 19331, p=0.001, full survivor outputs",
+    "one_round_excluded": true,
+    "worker_compile": "c++ -std=c++20 -O3 -march=native -Wall -Wextra -Wpedantic -I src -I build-research/generated tools/profile/fold_plan_worker.cpp build-research/src/clifft/libclifft_core.a -o /tmp/clifft-plan-worker",
+    "worker_sha256": "7f37ade36fae54d4ac4ba37b6c5e6e2cb6b12b1c3473ec71897cdd71825558ba",
+    "warm_native_plan": "/tmp/clifft-adapter-study/held.bin",
+    "held_plan_sha256": "3e161d6e7c0f0161904268e669834beff5de55c620f4e01ad6573100b845dc4a"
+  }
+}

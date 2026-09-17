@@ -1,12 +1,23 @@
 # Representation study checkpoint
 
-Latest: [the growth-implementation study](fold_growth.md) adds a local CSS-dual
+Latest: [the parsed-region adapter study](fold_adapter.md) replaces per-schedule
+C++ builds with circuit-derived data plans and one reusable native worker.
+A held-out shuffled-syndrome/changed-growth f7 circuit passes 200 independent
+fixed-history comparisons and sustains 45.99 us/attempt with full survivor
+outputs. There are 93 distinct passing research tests and sanitizer checks.
+The adapter retains canonical wire labels and the fixed fold/stage skeleton;
+all eight non-one-round corpus circuits decline. The schedule-catalog gap is
+closed within that scope, but broader physics coverage remains open. Next return
+to the deferred Clifford-frame/tensor screen on large fold residuals, before
+extending frontend plumbing or proposing production integration.
+
+[The growth-implementation study](fold_growth.md) adds a local CSS-dual
 growth encoder, alone and combined with changed syndrome ordering. Both pass
 199 independent fixed-history comparisons with unchanged native execution.
 The 83-test research suite passes. This variant changes physical fault maps
 but preserves the original syndrome-transfer relation; broader growth maps
-remain untested. Next build an offline parsed-circuit adapter that derives
-eligible region plans without generating a new catalog for every schedule.
+remain untested. The subsequent adapter study derives eligible region plans
+without generating a new catalog for every schedule.
 
 [The syndrome-schedule study](fold_schedule.md) certifies two changed
 full f7 schedules from their gates. Each passes 115 independent fixed-history
@@ -54,11 +65,12 @@ The reproducible checkpoint is commit `ce702482` on
   It lacks final-error-correction decoding and a general residual-state handoff.
   The circuit is paper-guided, not verified equivalent to an authors' artifact.
 
-The subsequent alternatives, eligibility, schedule, and growth reports complete the
+The subsequent alternatives, eligibility, schedule, growth, and adapter reports complete the
 bounded steps from that checkpoint. Do not start a general representation-
 switching framework or optimize SIMD first. Syndrome-region certification now
-supports unseen orderings, but the public-input experiment still uses a whole-
-schedule catalog match. Broader physics and parsed-input coverage remain open.
+supports unseen orderings derived from parsed input. The final whole-body match
+checks a newly derived certificate instead of selecting a schedule catalog.
+Broader physics, wire-layout, and protocol-skeleton coverage remain open.
 
 ## Bounded independent studies
 
