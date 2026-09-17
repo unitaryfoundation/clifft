@@ -1,0 +1,176 @@
+[
+  {
+    "file": "msc_d3_inject_cultivate_p1e-3.stim",
+    "sha256": "90a7d841e003e5ee38137cd9a3eb6529bb552e49c424bc6b0932a27d97cdb41f",
+    "t_count": 29,
+    "certified_region_t_count": 28,
+    "uncovered_t_lines": [
+      58
+    ],
+    "regions": [
+      {
+        "lines": [
+          130,
+          172
+        ],
+        "physical_wires": 13,
+        "data_wires": 7,
+        "ancillas": 6,
+        "t_count": 14,
+        "coherent_terms": 2,
+        "single_pauli_histories_in_test": 1599
+      },
+      {
+        "lines": [
+          186,
+          188
+        ],
+        "physical_wires": 7,
+        "data_wires": 7,
+        "ancillas": 0,
+        "t_count": 14,
+        "coherent_terms": 2,
+        "single_pauli_histories_in_test": 336
+      }
+    ],
+    "terminal_code_rank": 6,
+    "terminal_css_basis_entries_per_logical_state": 8,
+    "terminal_check_logical_matrix": [
+      [
+        [
+          0.0,
+          0.0
+        ],
+        [
+          0.7071067811865477,
+          0.7071067811865475
+        ]
+      ],
+      [
+        [
+          0.7071067811865472,
+          -0.7071067811865478
+        ],
+        [
+          0.0,
+          0.0
+        ]
+      ]
+    ],
+    "terminal_check_code_preservation_error": 2.2610626239330836e-16,
+    "ideal_final_cultivation_boundary": [
+      {
+        "true_root_outcome": 0,
+        "nonzero_ancilla_records": [],
+        "data_z_correction": [],
+        "code_preservation_error": 2.2610626239330836e-16,
+        "logical_projector_error": 0.0
+      },
+      {
+        "true_root_outcome": 1,
+        "nonzero_ancilla_records": [
+          6
+        ],
+        "data_z_correction": [
+          7
+        ],
+        "code_preservation_error": 2.2610626239330836e-16,
+        "logical_projector_error": 1.2412670766236366e-16
+      }
+    ],
+    "full_circuit_sampler_supported": false
+  },
+  {
+    "file": "msc_d5_inject_cultivate_p1e-3.stim",
+    "sha256": "c2b4566917bd9bf27a5705284dac02700ef0dcc7c03c91066670db376d633a6d",
+    "t_count": 91,
+    "certified_region_t_count": 90,
+    "uncovered_t_lines": [
+      85
+    ],
+    "regions": [
+      {
+        "lines": [
+          157,
+          199
+        ],
+        "physical_wires": 13,
+        "data_wires": 7,
+        "ancillas": 6,
+        "t_count": 14,
+        "coherent_terms": 2,
+        "single_pauli_histories_in_test": 1599
+      },
+      {
+        "lines": [
+          435,
+          503
+        ],
+        "physical_wires": 38,
+        "data_wires": 19,
+        "ancillas": 19,
+        "t_count": 38,
+        "coherent_terms": 2,
+        "single_pauli_histories_in_test": 13110
+      },
+      {
+        "lines": [
+          530,
+          534
+        ],
+        "physical_wires": 19,
+        "data_wires": 19,
+        "ancillas": 0,
+        "t_count": 38,
+        "coherent_terms": 2,
+        "single_pauli_histories_in_test": 2280
+      }
+    ],
+    "terminal_code_rank": 18,
+    "terminal_css_basis_entries_per_logical_state": 512,
+    "terminal_check_logical_matrix": [
+      [
+        [
+          0.0,
+          0.0
+        ],
+        [
+          0.707106781186552,
+          0.707106781186552
+        ]
+      ],
+      [
+        [
+          0.707106781186552,
+          -0.707106781186552
+        ],
+        [
+          0.0,
+          0.0
+        ]
+      ]
+    ],
+    "terminal_check_code_preservation_error": 1.2656559012711043e-14,
+    "ideal_final_cultivation_boundary": [
+      {
+        "true_root_outcome": 0,
+        "nonzero_ancilla_records": [],
+        "data_z_correction": [],
+        "code_preservation_error": 1.2656559012711043e-14,
+        "logical_projector_error": 0.0
+      },
+      {
+        "true_root_outcome": 1,
+        "nonzero_ancilla_records": [
+          24
+        ],
+        "data_z_correction": [
+          25
+        ],
+        "code_preservation_error": 1.2656559012711043e-14,
+        "logical_projector_error": 0.0
+      }
+    ],
+    "full_circuit_sampler_supported": false
+  }
+]

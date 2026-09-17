@@ -1,6 +1,22 @@
 # Representation study checkpoint
 
-Latest: [the compiled measurement-bridge study](frame_bridge.md) closes the
+Latest: [the actual MSC gadget coverage study](msc_gadgets.md) certifies a
+different physical family in the original d3/d5 benchmark inputs. Five
+T-conjugated measurement/reset regions reduce to two Clifford monomials,
+covering 28/29 and 90/91 physical T gates. Fixed Pauli faults, both true
+outcomes, ancilla records, wire relabeling, and ideal signed code boundaries
+are independently checked. Seven focused tests pass. The original inputs and
+license are preserved in `../fixtures/msc/` with provenance and hashes.
+
+Next: extend this local instrument result to complete fixed-history evaluation
+of original MSC d3, then d5, including the actual syndrome/growth regions,
+feedforward, detector/observable parity and noisy nonzero sectors. This is
+composition coverage, not a change in focus to small states. Reconstructed
+f7 remains the large-state target. There is no new whole-circuit sampler or
+throughput claim, and both corpus inputs still decline the existing adapter.
+The available original cultivation generator supports only d3/d5, not MSC7.
+
+[The compiled measurement-bridge study](frame_bridge.md) closes the
 fault-frame measurement gap on the supported f7 families. Cat-bit substitution
 produces exactly the existing two weighted monomials. Ten new legal cross-check
 data-hook cases per variant leave cat-data CZ corrections and survive with
