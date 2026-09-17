@@ -193,6 +193,7 @@ class Executor {
         return result;
     }
 
+  public:
     unsigned branches(const Fold& fold, const History& h, std::array<Term, 2>& out) noexcept {
         Mask flags = apply(fold.preparation.records, h);
         if (flags != 0 && flags != fold.equal_flag_mask)
@@ -244,7 +245,6 @@ class Executor {
         return count;
     }
 
-  public:
     std::array<double, 4> evaluate(const Protocol& plan, const History& h) noexcept {
         if (apply(plan.prefix.records, h))
             return {};

@@ -1,6 +1,26 @@
 # Representation study checkpoint
 
-Latest: [the large-fold frame study](fold_frames.md) screens fixed frames on
+Latest: [the compiled Clifford fault-frame study](fault_frames.md) factors
+arbitrary core Pauli faults into one shared Clifford correction with precomputed
+quadratic slots. Across 540 native-operation f7 checkpoints, the corrected bond
+upper bound is at most 34 and the affine-cover union is at most 14 directions.
+All 300 paired/multiple-hook checkpoints return exactly to the ideal states.
+The native descriptor is 576 bytes; its update cost and the existing branch
+evaluator's cost are recorded in the report and raw JSON, not claimed as complete
+sampler speedups. All 110 research tests and 1,054 native frame fixtures pass,
+including sanitizer checks. The sufficient data-only exit rule accepts 307/480
+single Pauli patterns and 239/256 natural core samples. Cat-data corrections
+change measurements and remain the key composition gap.
+
+Keep compiled logical blocks as the leading complete sampler. The next bounded
+test is to compile the fault frame's effect through cat measurement on the small
+input space, then compare complete attempted-shot cost and survivor outputs
+against the existing two-monomial path. Include cases the data-only rule declines.
+Do not implement generic adaptive MPS or runtime basis discovery. If the boundary
+bridge merely reproduces logical blocks without broader coverage or a measured
+throughput benefit, stop the second-executor direction.
+
+[The large-fold frame study](fold_frames.md) screens fixed frames on
 702 f7 checkpoints without a dense large-state allocation. One ideal-trained
 frame bounds ordinary sampled histories at bond 96, but legal multiple-hook
 histories reach upper bound 10,240 and a certified lower bound 1,024. Small
