@@ -1,5 +1,10 @@
 # Representation study checkpoint
 
+Follow-up: [the bounded alternatives study](alternatives.md) records the native
+Pauli-proxy comparison and the five-round Clifford-frame screen. Logical blocks
+remain the leading integration candidate; a frame/tensor study on large fold
+residuals remains open. Production integration has not resumed.
+
 The current candidate is named **compiled logical-block simulation**. Production
 recognition and integration are paused while bounded independent alternatives
 are evaluated. The user prioritizes sustained sampling of large residual states,

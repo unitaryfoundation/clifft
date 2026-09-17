@@ -27,6 +27,9 @@ strong-simulation costs and expose offline structural diagnostics:
   code-boundary plans and emit a standalone native sampler for the reconstructed
   f3/f5/f7 protocols. See the [compiled block study](research/fold_blocks.md)
   and the [full f7 reconstruction](research/fold_f7.md).
+- `pauli_proxy.py`, `export_pauli_proxy.py`, and `frame_screen.py` evaluate
+  independent alternatives. See the [bounded comparison](research/alternatives.md)
+  for the external-Stim baseline, output restrictions, and frame-search scope.
 
 ## Build
 
