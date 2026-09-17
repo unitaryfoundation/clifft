@@ -1,6 +1,25 @@
 # Representation study checkpoint
 
-Latest: [weighted original-MSC instruments](msc_instruments.md) now specify
+Latest: [sparse original-MSC growth contraction](msc_growth_contraction.md)
+replaces the coherent-CH input-projector calculation for growth with fixed
+code lookups, syndrome-dual Paulis and scalar ancilla overlaps. Two coherent
+gadget terms each visit 16 code entries; all 64 input syndromes share a 4 KiB
+decoder. The output is two weighted logical amplitudes, with the prior boundary
+maps retaining the physical syndrome/frame convention.
+
+All 51 complete d5 histories match, including fourteen nonzero input frames;
+maximum relative probability error is 4.78e-15. Independent dense projectors
+check all 64 input syndromes and four logical corrections, with arbitrary
+complex coherent inputs. Five new tests bring the MSC suite to 31. The kernel
+performs no runtime tableau/dependency work, but the harness still obtains its
+input state and fault-bound gadget terms offline. No native timing claim.
+Next: extend the contraction to the nineteen-data-qubit final cultivation and
+terminal measurement together, retaining their coherent terms until the real
+final code projection. Then finish injection and static gadget fault binding
+before complete static sampling/native timing. Reconstructed f7 remains the
+large-state performance target.
+
+[Weighted original-MSC instruments](msc_instruments.md) now specify
 conditional branch weights and logical amplitudes at all three certified
 boundaries. Fixed parity rows select a commuting input projector, reject
 inconsistent records, and sign the three logical pullbacks. Probability scales

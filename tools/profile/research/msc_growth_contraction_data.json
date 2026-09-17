@@ -1,0 +1,1193 @@
+{
+  "data_wires": [
+    0,
+    3,
+    7,
+    9,
+    11,
+    13,
+    17
+  ],
+  "source_entries": 16,
+  "syndrome_sectors": 64,
+  "decoder_bytes": 4096,
+  "ancilla_projectors": 34,
+  "unprojected_spectators": [
+    5
+  ],
+  "cases": [
+    {
+      "name": "ideal",
+      "gadget_and_growth_probability": 9.313225746154785e-10,
+      "probability_relative_error": 3.9968028886505635e-15,
+      "normalized_density_error": 2.1094237467877974e-15,
+      "input_frame": [
+        0,
+        0
+      ],
+      "input_syndrome": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "logical_signs": [
+        0,
+        1,
+        0
+      ]
+    },
+    {
+      "name": "logical_z_tail",
+      "gadget_and_growth_probability": 9.313225746154785e-10,
+      "probability_relative_error": 3.9968028886505635e-15,
+      "normalized_density_error": 2.1094237467877974e-15,
+      "input_frame": [
+        0,
+        0
+      ],
+      "input_syndrome": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "logical_signs": [
+        0,
+        1,
+        0
+      ]
+    },
+    {
+      "name": "reset_erased_X",
+      "gadget_and_growth_probability": 9.313225746154785e-10,
+      "probability_relative_error": 3.9968028886505635e-15,
+      "normalized_density_error": 2.1094237467877974e-15,
+      "input_frame": [
+        0,
+        0
+      ],
+      "input_syndrome": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "logical_signs": [
+        0,
+        1,
+        0
+      ]
+    },
+    {
+      "name": "reset_erased_Y",
+      "gadget_and_growth_probability": 9.313225746154785e-10,
+      "probability_relative_error": 3.9968028886505635e-15,
+      "normalized_density_error": 2.1094237467877974e-15,
+      "input_frame": [
+        0,
+        0
+      ],
+      "input_syndrome": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "logical_signs": [
+        0,
+        1,
+        0
+      ]
+    },
+    {
+      "name": "reset_erased_Z",
+      "gadget_and_growth_probability": 9.313225746154785e-10,
+      "probability_relative_error": 3.9968028886505635e-15,
+      "normalized_density_error": 2.1094237467877974e-15,
+      "input_frame": [
+        0,
+        0
+      ],
+      "input_syndrome": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "logical_signs": [
+        0,
+        1,
+        0
+      ]
+    },
+    {
+      "name": "root_readout_flip",
+      "gadget_and_growth_probability": 9.313225746154785e-10,
+      "probability_relative_error": 3.9968028886505635e-15,
+      "normalized_density_error": 2.1094237467877974e-15,
+      "input_frame": [
+        0,
+        0
+      ],
+      "input_syndrome": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "logical_signs": [
+        0,
+        1,
+        0
+      ]
+    },
+    {
+      "name": "gadget_spectator_Y",
+      "gadget_and_growth_probability": 9.313225746154785e-10,
+      "probability_relative_error": 3.9968028886505635e-15,
+      "normalized_density_error": 2.1094237467877974e-15,
+      "input_frame": [
+        0,
+        0
+      ],
+      "input_syndrome": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "logical_signs": [
+        0,
+        1,
+        0
+      ]
+    },
+    {
+      "name": "gadget_pair_YZ",
+      "gadget_and_growth_probability": 4.656612873077392e-10,
+      "probability_relative_error": 3.996802888650564e-15,
+      "normalized_density_error": 2.2759636343593094e-15,
+      "input_frame": [
+        0,
+        0
+      ],
+      "input_syndrome": [
+        1,
+        0,
+        1,
+        0,
+        0,
+        1
+      ],
+      "logical_signs": [
+        0,
+        0,
+        1
+      ]
+    },
+    {
+      "name": "feedforward_readout_21",
+      "gadget_and_growth_probability": 9.313225746154785e-10,
+      "probability_relative_error": 4.218847493575595e-15,
+      "normalized_density_error": 2.1094237467877974e-15,
+      "input_frame": [
+        0,
+        0
+      ],
+      "input_syndrome": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "logical_signs": [
+        0,
+        0,
+        1
+      ]
+    },
+    {
+      "name": "feedforward_readout_22",
+      "gadget_and_growth_probability": 9.313225746154785e-10,
+      "probability_relative_error": 4.218847493575595e-15,
+      "normalized_density_error": 2.1094237467877974e-15,
+      "input_frame": [
+        0,
+        0
+      ],
+      "input_syndrome": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "logical_signs": [
+        0,
+        0,
+        1
+      ]
+    },
+    {
+      "name": "feedforward_readout_23",
+      "gadget_and_growth_probability": 9.313225746154785e-10,
+      "probability_relative_error": 4.218847493575595e-15,
+      "normalized_density_error": 2.1094237467877974e-15,
+      "input_frame": [
+        0,
+        0
+      ],
+      "input_syndrome": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "logical_signs": [
+        0,
+        0,
+        1
+      ]
+    },
+    {
+      "name": "feedforward_readout_24",
+      "gadget_and_growth_probability": 9.313225746154785e-10,
+      "probability_relative_error": 4.218847493575595e-15,
+      "normalized_density_error": 2.1094237467877974e-15,
+      "input_frame": [
+        0,
+        0
+      ],
+      "input_syndrome": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "logical_signs": [
+        0,
+        0,
+        1
+      ]
+    },
+    {
+      "name": "feedforward_readout_25",
+      "gadget_and_growth_probability": 9.313225746154785e-10,
+      "probability_relative_error": 4.218847493575595e-15,
+      "normalized_density_error": 2.1094237467877974e-15,
+      "input_frame": [
+        0,
+        0
+      ],
+      "input_syndrome": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "logical_signs": [
+        0,
+        0,
+        1
+      ]
+    },
+    {
+      "name": "feedforward_readout_31",
+      "gadget_and_growth_probability": 9.313225746154785e-10,
+      "probability_relative_error": 3.9968028886505635e-15,
+      "normalized_density_error": 2.1094237467877974e-15,
+      "input_frame": [
+        0,
+        0
+      ],
+      "input_syndrome": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "logical_signs": [
+        0,
+        1,
+        0
+      ]
+    },
+    {
+      "name": "feedforward_readout_33",
+      "gadget_and_growth_probability": 9.313225746154785e-10,
+      "probability_relative_error": 3.9968028886505635e-15,
+      "normalized_density_error": 2.1094237467877974e-15,
+      "input_frame": [
+        0,
+        0
+      ],
+      "input_syndrome": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "logical_signs": [
+        0,
+        1,
+        0
+      ]
+    },
+    {
+      "name": "natural_0",
+      "gadget_and_growth_probability": 9.313225746154785e-10,
+      "probability_relative_error": 3.9968028886505635e-15,
+      "normalized_density_error": 2.1094237467877974e-15,
+      "input_frame": [
+        0,
+        0
+      ],
+      "input_syndrome": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "logical_signs": [
+        0,
+        1,
+        0
+      ]
+    },
+    {
+      "name": "natural_1",
+      "gadget_and_growth_probability": 9.313225746154785e-10,
+      "probability_relative_error": 4.218847493575595e-15,
+      "normalized_density_error": 2.1094237467877974e-15,
+      "input_frame": [
+        0,
+        0
+      ],
+      "input_syndrome": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "logical_signs": [
+        0,
+        0,
+        1
+      ]
+    },
+    {
+      "name": "natural_2",
+      "gadget_and_growth_probability": 4.656612873077392e-10,
+      "probability_relative_error": 3.996802888650564e-15,
+      "normalized_density_error": 2.2759636343593094e-15,
+      "input_frame": [
+        0,
+        0
+      ],
+      "input_syndrome": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "logical_signs": [
+        1,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "natural_3",
+      "gadget_and_growth_probability": 9.313225746154785e-10,
+      "probability_relative_error": 3.9968028886505635e-15,
+      "normalized_density_error": 2.1094237467877974e-15,
+      "input_frame": [
+        0,
+        0
+      ],
+      "input_syndrome": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "logical_signs": [
+        0,
+        1,
+        0
+      ]
+    },
+    {
+      "name": "natural_4",
+      "gadget_and_growth_probability": 9.313225746154785e-10,
+      "probability_relative_error": 3.9968028886505635e-15,
+      "normalized_density_error": 2.1094237467877974e-15,
+      "input_frame": [
+        0,
+        0
+      ],
+      "input_syndrome": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "logical_signs": [
+        1,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "natural_5",
+      "gadget_and_growth_probability": 9.313225746154785e-10,
+      "probability_relative_error": 3.9968028886505635e-15,
+      "normalized_density_error": 2.1094237467877974e-15,
+      "input_frame": [
+        0,
+        0
+      ],
+      "input_syndrome": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "logical_signs": [
+        0,
+        1,
+        0
+      ]
+    },
+    {
+      "name": "natural_6",
+      "gadget_and_growth_probability": 9.313225746154785e-10,
+      "probability_relative_error": 3.9968028886505635e-15,
+      "normalized_density_error": 2.1094237467877974e-15,
+      "input_frame": [
+        0,
+        0
+      ],
+      "input_syndrome": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "logical_signs": [
+        0,
+        1,
+        0
+      ]
+    },
+    {
+      "name": "natural_7",
+      "gadget_and_growth_probability": 9.313225746154785e-10,
+      "probability_relative_error": 3.9968028886505635e-15,
+      "normalized_density_error": 2.1094237467877974e-15,
+      "input_frame": [
+        0,
+        0
+      ],
+      "input_syndrome": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "logical_signs": [
+        0,
+        1,
+        0
+      ]
+    },
+    {
+      "name": "natural_8",
+      "gadget_and_growth_probability": 9.313225746154785e-10,
+      "probability_relative_error": 4.218847493575595e-15,
+      "normalized_density_error": 2.1094237467877974e-15,
+      "input_frame": [
+        0,
+        0
+      ],
+      "input_syndrome": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "logical_signs": [
+        0,
+        0,
+        1
+      ]
+    },
+    {
+      "name": "natural_9",
+      "gadget_and_growth_probability": 9.313225746154785e-10,
+      "probability_relative_error": 4.218847493575595e-15,
+      "normalized_density_error": 2.1094237467877974e-15,
+      "input_frame": [
+        0,
+        0
+      ],
+      "input_syndrome": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "logical_signs": [
+        1,
+        1,
+        1
+      ]
+    },
+    {
+      "name": "natural_10",
+      "gadget_and_growth_probability": 9.313225746154785e-10,
+      "probability_relative_error": 4.218847493575595e-15,
+      "normalized_density_error": 2.1094237467877974e-15,
+      "input_frame": [
+        0,
+        0
+      ],
+      "input_syndrome": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "logical_signs": [
+        0,
+        0,
+        1
+      ]
+    },
+    {
+      "name": "natural_11",
+      "gadget_and_growth_probability": 2.3283064365386963e-10,
+      "probability_relative_error": 4.3298697960381105e-15,
+      "normalized_density_error": 2.220446049250313e-15,
+      "input_frame": [
+        40,
+        0
+      ],
+      "input_syndrome": [
+        1,
+        1,
+        1,
+        0,
+        1,
+        0
+      ],
+      "logical_signs": [
+        0,
+        0,
+        1
+      ]
+    },
+    {
+      "name": "natural_12",
+      "gadget_and_growth_probability": 2.3283064365386963e-10,
+      "probability_relative_error": 4.3298697960381105e-15,
+      "normalized_density_error": 2.275957200481571e-15,
+      "input_frame": [
+        34,
+        0
+      ],
+      "input_syndrome": [
+        1,
+        1,
+        0,
+        0,
+        1,
+        1
+      ],
+      "logical_signs": [
+        1,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "natural_13",
+      "gadget_and_growth_probability": 2.3283064365386963e-10,
+      "probability_relative_error": 4.3298697960381105e-15,
+      "normalized_density_error": 2.220446049250313e-15,
+      "input_frame": [
+        106,
+        20
+      ],
+      "input_syndrome": [
+        0,
+        0,
+        1,
+        1,
+        0,
+        1
+      ],
+      "logical_signs": [
+        0,
+        0,
+        1
+      ]
+    },
+    {
+      "name": "natural_14",
+      "gadget_and_growth_probability": 9.313225746154785e-10,
+      "probability_relative_error": 3.9968028886505635e-15,
+      "normalized_density_error": 2.1094237467877974e-15,
+      "input_frame": [
+        0,
+        0
+      ],
+      "input_syndrome": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "logical_signs": [
+        1,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "natural_15",
+      "gadget_and_growth_probability": 2.3283064365386963e-10,
+      "probability_relative_error": 4.218847493575595e-15,
+      "normalized_density_error": 2.275957200481571e-15,
+      "input_frame": [
+        66,
+        0
+      ],
+      "input_syndrome": [
+        0,
+        1,
+        0,
+        1,
+        0,
+        1
+      ],
+      "logical_signs": [
+        0,
+        0,
+        1
+      ]
+    },
+    {
+      "name": "natural_16",
+      "gadget_and_growth_probability": 9.313225746154785e-10,
+      "probability_relative_error": 3.9968028886505635e-15,
+      "normalized_density_error": 2.1094237467877974e-15,
+      "input_frame": [
+        0,
+        0
+      ],
+      "input_syndrome": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "logical_signs": [
+        0,
+        1,
+        0
+      ]
+    },
+    {
+      "name": "natural_17",
+      "gadget_and_growth_probability": 9.313225746154785e-10,
+      "probability_relative_error": 3.9968028886505635e-15,
+      "normalized_density_error": 2.1094237467877974e-15,
+      "input_frame": [
+        0,
+        0
+      ],
+      "input_syndrome": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "logical_signs": [
+        0,
+        1,
+        0
+      ]
+    },
+    {
+      "name": "natural_18",
+      "gadget_and_growth_probability": 9.313225746154785e-10,
+      "probability_relative_error": 4.218847493575595e-15,
+      "normalized_density_error": 2.1094237467877974e-15,
+      "input_frame": [
+        0,
+        106
+      ],
+      "input_syndrome": [
+        0,
+        0,
+        1,
+        0,
+        1,
+        0
+      ],
+      "logical_signs": [
+        1,
+        1,
+        1
+      ]
+    },
+    {
+      "name": "natural_19",
+      "gadget_and_growth_probability": 9.313225746154785e-10,
+      "probability_relative_error": 3.9968028886505635e-15,
+      "normalized_density_error": 2.1094237467877974e-15,
+      "input_frame": [
+        0,
+        0
+      ],
+      "input_syndrome": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "logical_signs": [
+        0,
+        1,
+        0
+      ]
+    },
+    {
+      "name": "natural_20",
+      "gadget_and_growth_probability": 9.313225746154785e-10,
+      "probability_relative_error": 3.9968028886505635e-15,
+      "normalized_density_error": 2.1094237467877974e-15,
+      "input_frame": [
+        0,
+        0
+      ],
+      "input_syndrome": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "logical_signs": [
+        1,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "natural_21",
+      "gadget_and_growth_probability": 9.313225746154785e-10,
+      "probability_relative_error": 3.9968028886505635e-15,
+      "normalized_density_error": 2.1094237467877974e-15,
+      "input_frame": [
+        0,
+        0
+      ],
+      "input_syndrome": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "logical_signs": [
+        1,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "natural_22",
+      "gadget_and_growth_probability": 9.313225746154785e-10,
+      "probability_relative_error": 4.218847493575595e-15,
+      "normalized_density_error": 2.1094237467877974e-15,
+      "input_frame": [
+        0,
+        0
+      ],
+      "input_syndrome": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "logical_signs": [
+        0,
+        0,
+        1
+      ]
+    },
+    {
+      "name": "natural_23",
+      "gadget_and_growth_probability": 9.313225746154785e-10,
+      "probability_relative_error": 3.9968028886505635e-15,
+      "normalized_density_error": 2.1094237467877974e-15,
+      "input_frame": [
+        0,
+        0
+      ],
+      "input_syndrome": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "logical_signs": [
+        1,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "stress_0",
+      "gadget_and_growth_probability": 2.3283064365386963e-10,
+      "probability_relative_error": 4.3298697960381105e-15,
+      "normalized_density_error": 2.220446049250313e-15,
+      "input_frame": [
+        40,
+        0
+      ],
+      "input_syndrome": [
+        1,
+        1,
+        1,
+        0,
+        1,
+        0
+      ],
+      "logical_signs": [
+        0,
+        0,
+        1
+      ]
+    },
+    {
+      "name": "stress_1",
+      "gadget_and_growth_probability": 9.313225746154785e-10,
+      "probability_relative_error": 3.9968028886505635e-15,
+      "normalized_density_error": 2.1094237467877974e-15,
+      "input_frame": [
+        0,
+        20
+      ],
+      "input_syndrome": [
+        0,
+        0,
+        1,
+        0,
+        0,
+        0
+      ],
+      "logical_signs": [
+        1,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "stress_2",
+      "gadget_and_growth_probability": 1.1641532182693479e-10,
+      "probability_relative_error": 3.996802888650564e-15,
+      "normalized_density_error": 2.119624819223097e-15,
+      "input_frame": [
+        0,
+        0
+      ],
+      "input_syndrome": [
+        0,
+        1,
+        0,
+        1,
+        0,
+        1
+      ],
+      "logical_signs": [
+        0,
+        0,
+        1
+      ]
+    },
+    {
+      "name": "stress_3",
+      "gadget_and_growth_probability": 2.3283064365386963e-10,
+      "probability_relative_error": 4.218847493575595e-15,
+      "normalized_density_error": 2.275957200481571e-15,
+      "input_frame": [
+        34,
+        17
+      ],
+      "input_syndrome": [
+        0,
+        1,
+        0,
+        0,
+        1,
+        1
+      ],
+      "logical_signs": [
+        0,
+        0,
+        1
+      ]
+    },
+    {
+      "name": "stress_4",
+      "gadget_and_growth_probability": 1.164153218269348e-10,
+      "probability_relative_error": 4.440892098500627e-15,
+      "normalized_density_error": 2.442520855412543e-15,
+      "input_frame": [
+        40,
+        106
+      ],
+      "input_syndrome": [
+        0,
+        1,
+        0,
+        1,
+        0,
+        1
+      ],
+      "logical_signs": [
+        0,
+        1,
+        0
+      ]
+    },
+    {
+      "name": "stress_5",
+      "gadget_and_growth_probability": 9.313225746154785e-10,
+      "probability_relative_error": 4.218847493575595e-15,
+      "normalized_density_error": 2.1094237467877974e-15,
+      "input_frame": [
+        0,
+        0
+      ],
+      "input_syndrome": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "logical_signs": [
+        0,
+        0,
+        1
+      ]
+    },
+    {
+      "name": "stress_6",
+      "gadget_and_growth_probability": 1.1641532182693479e-10,
+      "probability_relative_error": 4.218847493575596e-15,
+      "normalized_density_error": 2.1981294421572855e-15,
+      "input_frame": [
+        0,
+        126
+      ],
+      "input_syndrome": [
+        1,
+        0,
+        1,
+        1,
+        1,
+        0
+      ],
+      "logical_signs": [
+        1,
+        1,
+        1
+      ]
+    },
+    {
+      "name": "stress_7",
+      "gadget_and_growth_probability": 1.1641532182693479e-10,
+      "probability_relative_error": 4.218847493575596e-15,
+      "normalized_density_error": 2.2204460492503135e-15,
+      "input_frame": [
+        106,
+        126
+      ],
+      "input_syndrome": [
+        1,
+        0,
+        0,
+        1,
+        1,
+        0
+      ],
+      "logical_signs": [
+        0,
+        0,
+        1
+      ]
+    },
+    {
+      "name": "stress_8",
+      "gadget_and_growth_probability": 5.820766091346741e-11,
+      "probability_relative_error": 4.773959005888173e-15,
+      "normalized_density_error": 2.609024107869118e-15,
+      "input_frame": [
+        72,
+        126
+      ],
+      "input_syndrome": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "logical_signs": [
+        1,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "stress_9",
+      "gadget_and_growth_probability": 1.164153218269348e-10,
+      "probability_relative_error": 4.5519144009631426e-15,
+      "normalized_density_error": 2.4424906541753448e-15,
+      "input_frame": [
+        106,
+        0
+      ],
+      "input_syndrome": [
+        0,
+        0,
+        0,
+        0,
+        1,
+        1
+      ],
+      "logical_signs": [
+        1,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "stress_10",
+      "gadget_and_growth_probability": 2.3283064365386963e-10,
+      "probability_relative_error": 4.3298697960381105e-15,
+      "normalized_density_error": 2.220446049250313e-15,
+      "input_frame": [
+        72,
+        106
+      ],
+      "input_syndrome": [
+        0,
+        1,
+        0,
+        1,
+        0,
+        0
+      ],
+      "logical_signs": [
+        1,
+        1,
+        1
+      ]
+    },
+    {
+      "name": "stress_11",
+      "gadget_and_growth_probability": 1.164153218269348e-10,
+      "probability_relative_error": 4.10782519111308e-15,
+      "normalized_density_error": 2.2759636343593094e-15,
+      "input_frame": [
+        0,
+        0
+      ],
+      "input_syndrome": [
+        1,
+        1,
+        0,
+        0,
+        1,
+        1
+      ],
+      "logical_signs": [
+        0,
+        1,
+        0
+      ]
+    }
+  ]
+}
