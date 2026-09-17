@@ -1,0 +1,2624 @@
+[
+  {
+    "distance": 3,
+    "data_wires": [
+      0,
+      3,
+      7,
+      9,
+      10,
+      12,
+      13
+    ],
+    "basis_entries": [
+      8,
+      8
+    ],
+    "syndrome_sectors": 64,
+    "decoder_entries": 16,
+    "cases": [
+      {
+        "name": "ideal",
+        "terminal_probability": 1.0,
+        "probability_relative_error": 5.773159728050814e-15,
+        "normalized_density_error": 3.3306690738754696e-15,
+        "input_frame": [
+          0,
+          0
+        ],
+        "final_syndrome": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "coherent_terms": 4
+      },
+      {
+        "name": "logical_z_tail",
+        "terminal_probability": 1.0,
+        "probability_relative_error": 5.773159728050814e-15,
+        "normalized_density_error": 3.3306690738754696e-15,
+        "input_frame": [
+          0,
+          0
+        ],
+        "final_syndrome": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "coherent_terms": 4
+      },
+      {
+        "name": "reset_erased_X",
+        "terminal_probability": 1.0,
+        "probability_relative_error": 5.773159728050814e-15,
+        "normalized_density_error": 3.3306690738754696e-15,
+        "input_frame": [
+          0,
+          0
+        ],
+        "final_syndrome": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "coherent_terms": 4
+      },
+      {
+        "name": "reset_erased_Y",
+        "terminal_probability": 1.0,
+        "probability_relative_error": 5.773159728050814e-15,
+        "normalized_density_error": 3.3306690738754696e-15,
+        "input_frame": [
+          0,
+          0
+        ],
+        "final_syndrome": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "coherent_terms": 4
+      },
+      {
+        "name": "reset_erased_Z",
+        "terminal_probability": 1.0,
+        "probability_relative_error": 5.773159728050814e-15,
+        "normalized_density_error": 3.3306690738754696e-15,
+        "input_frame": [
+          0,
+          0
+        ],
+        "final_syndrome": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "coherent_terms": 4
+      },
+      {
+        "name": "root_readout_flip",
+        "terminal_probability": 1.0,
+        "probability_relative_error": 5.773159728050814e-15,
+        "normalized_density_error": 3.3306690738754696e-15,
+        "input_frame": [
+          0,
+          0
+        ],
+        "final_syndrome": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "coherent_terms": 4
+      },
+      {
+        "name": "gadget_spectator_Y",
+        "terminal_probability": 1.0,
+        "probability_relative_error": 5.773159728050814e-15,
+        "normalized_density_error": 3.3306690738754696e-15,
+        "input_frame": [
+          0,
+          0
+        ],
+        "final_syndrome": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "coherent_terms": 4
+      },
+      {
+        "name": "gadget_pair_YZ",
+        "terminal_probability": 0.49999999999999994,
+        "probability_relative_error": 5.8841820305133305e-15,
+        "normalized_density_error": 3.2196467714129544e-15,
+        "input_frame": [
+          0,
+          0
+        ],
+        "final_syndrome": [
+          0,
+          1,
+          1,
+          0,
+          1,
+          0
+        ],
+        "coherent_terms": 4
+      },
+      {
+        "name": "natural_0",
+        "terminal_probability": 1.0,
+        "probability_relative_error": 5.773159728050814e-15,
+        "normalized_density_error": 3.3306690738754696e-15,
+        "input_frame": [
+          0,
+          0
+        ],
+        "final_syndrome": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "coherent_terms": 4
+      },
+      {
+        "name": "natural_1",
+        "terminal_probability": 1.0,
+        "probability_relative_error": 5.773159728050814e-15,
+        "normalized_density_error": 3.3306690738754696e-15,
+        "input_frame": [
+          0,
+          0
+        ],
+        "final_syndrome": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "coherent_terms": 4
+      },
+      {
+        "name": "natural_2",
+        "terminal_probability": 1.0,
+        "probability_relative_error": 5.773159728050814e-15,
+        "normalized_density_error": 3.3306690738754696e-15,
+        "input_frame": [
+          0,
+          0
+        ],
+        "final_syndrome": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "coherent_terms": 4
+      },
+      {
+        "name": "natural_3",
+        "terminal_probability": 1.0,
+        "probability_relative_error": 5.773159728050814e-15,
+        "normalized_density_error": 3.3306690738754696e-15,
+        "input_frame": [
+          0,
+          0
+        ],
+        "final_syndrome": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "coherent_terms": 4
+      },
+      {
+        "name": "natural_4",
+        "terminal_probability": 1.0,
+        "probability_relative_error": 5.773159728050814e-15,
+        "normalized_density_error": 3.3306690738754696e-15,
+        "input_frame": [
+          0,
+          0
+        ],
+        "final_syndrome": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "coherent_terms": 4
+      },
+      {
+        "name": "natural_5",
+        "terminal_probability": 1.0,
+        "probability_relative_error": 5.773159728050814e-15,
+        "normalized_density_error": 3.3306690738754696e-15,
+        "input_frame": [
+          0,
+          0
+        ],
+        "final_syndrome": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "coherent_terms": 4
+      },
+      {
+        "name": "natural_6",
+        "terminal_probability": 1.0,
+        "probability_relative_error": 5.773159728050814e-15,
+        "normalized_density_error": 3.3306690738754696e-15,
+        "input_frame": [
+          0,
+          0
+        ],
+        "final_syndrome": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "coherent_terms": 4
+      },
+      {
+        "name": "natural_7",
+        "terminal_probability": 1.0,
+        "probability_relative_error": 5.773159728050814e-15,
+        "normalized_density_error": 3.3306690738754696e-15,
+        "input_frame": [
+          0,
+          0
+        ],
+        "final_syndrome": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "coherent_terms": 4
+      },
+      {
+        "name": "natural_8",
+        "terminal_probability": 1.0,
+        "probability_relative_error": 5.773159728050814e-15,
+        "normalized_density_error": 3.3306690738754696e-15,
+        "input_frame": [
+          0,
+          0
+        ],
+        "final_syndrome": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "coherent_terms": 4
+      },
+      {
+        "name": "natural_9",
+        "terminal_probability": 1.0,
+        "probability_relative_error": 5.773159728050814e-15,
+        "normalized_density_error": 3.3306690738754696e-15,
+        "input_frame": [
+          0,
+          0
+        ],
+        "final_syndrome": [
+          1,
+          0,
+          1,
+          0,
+          1,
+          0
+        ],
+        "coherent_terms": 4
+      },
+      {
+        "name": "natural_10",
+        "terminal_probability": 1.0,
+        "probability_relative_error": 5.773159728050814e-15,
+        "normalized_density_error": 3.3306690738754696e-15,
+        "input_frame": [
+          0,
+          0
+        ],
+        "final_syndrome": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "coherent_terms": 4
+      },
+      {
+        "name": "natural_11",
+        "terminal_probability": 0.49999999999999994,
+        "probability_relative_error": 5.8841820305133305e-15,
+        "normalized_density_error": 3.2196467714129544e-15,
+        "input_frame": [
+          0,
+          0
+        ],
+        "final_syndrome": [
+          0,
+          0,
+          0,
+          0,
+          1,
+          1
+        ],
+        "coherent_terms": 4
+      },
+      {
+        "name": "natural_12",
+        "terminal_probability": 1.0,
+        "probability_relative_error": 5.773159728050814e-15,
+        "normalized_density_error": 3.3306690738754696e-15,
+        "input_frame": [
+          0,
+          0
+        ],
+        "final_syndrome": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "coherent_terms": 4
+      },
+      {
+        "name": "natural_13",
+        "terminal_probability": 1.0,
+        "probability_relative_error": 5.773159728050814e-15,
+        "normalized_density_error": 3.3306690738754696e-15,
+        "input_frame": [
+          0,
+          0
+        ],
+        "final_syndrome": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "coherent_terms": 4
+      },
+      {
+        "name": "natural_14",
+        "terminal_probability": 1.0,
+        "probability_relative_error": 5.773159728050814e-15,
+        "normalized_density_error": 3.3306690738754696e-15,
+        "input_frame": [
+          0,
+          0
+        ],
+        "final_syndrome": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "coherent_terms": 4
+      },
+      {
+        "name": "natural_15",
+        "terminal_probability": 1.0,
+        "probability_relative_error": 5.773159728050814e-15,
+        "normalized_density_error": 3.3306690738754696e-15,
+        "input_frame": [
+          0,
+          0
+        ],
+        "final_syndrome": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "coherent_terms": 4
+      },
+      {
+        "name": "natural_16",
+        "terminal_probability": 1.0,
+        "probability_relative_error": 5.773159728050814e-15,
+        "normalized_density_error": 3.3306690738754696e-15,
+        "input_frame": [
+          0,
+          0
+        ],
+        "final_syndrome": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "coherent_terms": 4
+      },
+      {
+        "name": "natural_17",
+        "terminal_probability": 1.0,
+        "probability_relative_error": 5.773159728050814e-15,
+        "normalized_density_error": 3.3306690738754696e-15,
+        "input_frame": [
+          0,
+          0
+        ],
+        "final_syndrome": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "coherent_terms": 4
+      },
+      {
+        "name": "natural_18",
+        "terminal_probability": 1.0,
+        "probability_relative_error": 5.773159728050814e-15,
+        "normalized_density_error": 3.3306690738754696e-15,
+        "input_frame": [
+          0,
+          0
+        ],
+        "final_syndrome": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "coherent_terms": 4
+      },
+      {
+        "name": "natural_19",
+        "terminal_probability": 1.0,
+        "probability_relative_error": 5.773159728050814e-15,
+        "normalized_density_error": 3.3306690738754696e-15,
+        "input_frame": [
+          0,
+          0
+        ],
+        "final_syndrome": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "coherent_terms": 4
+      },
+      {
+        "name": "natural_20",
+        "terminal_probability": 1.0,
+        "probability_relative_error": 5.773159728050814e-15,
+        "normalized_density_error": 3.3306690738754696e-15,
+        "input_frame": [
+          0,
+          0
+        ],
+        "final_syndrome": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "coherent_terms": 4
+      },
+      {
+        "name": "natural_21",
+        "terminal_probability": 1.0,
+        "probability_relative_error": 5.773159728050814e-15,
+        "normalized_density_error": 3.3306690738754696e-15,
+        "input_frame": [
+          0,
+          0
+        ],
+        "final_syndrome": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "coherent_terms": 4
+      },
+      {
+        "name": "natural_22",
+        "terminal_probability": 1.0,
+        "probability_relative_error": 5.773159728050814e-15,
+        "normalized_density_error": 3.3306690738754696e-15,
+        "input_frame": [
+          0,
+          0
+        ],
+        "final_syndrome": [
+          1,
+          0,
+          1,
+          0,
+          1,
+          0
+        ],
+        "coherent_terms": 4
+      },
+      {
+        "name": "natural_23",
+        "terminal_probability": 1.0,
+        "probability_relative_error": 5.773159728050814e-15,
+        "normalized_density_error": 3.3306690738754696e-15,
+        "input_frame": [
+          0,
+          0
+        ],
+        "final_syndrome": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "coherent_terms": 4
+      },
+      {
+        "name": "stress_0",
+        "terminal_probability": 1.0,
+        "probability_relative_error": 5.773159728050814e-15,
+        "normalized_density_error": 3.3306690738754696e-15,
+        "input_frame": [
+          0,
+          20
+        ],
+        "final_syndrome": [
+          0,
+          0,
+          1,
+          0,
+          0,
+          0
+        ],
+        "coherent_terms": 4
+      },
+      {
+        "name": "stress_1",
+        "terminal_probability": 0.25,
+        "probability_relative_error": 5.88418203051333e-15,
+        "normalized_density_error": 3.1086244689504383e-15,
+        "input_frame": [
+          10,
+          20
+        ],
+        "final_syndrome": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "coherent_terms": 4
+      },
+      {
+        "name": "stress_2",
+        "terminal_probability": 1.0,
+        "probability_relative_error": 5.773159728050814e-15,
+        "normalized_density_error": 3.3306690738754696e-15,
+        "input_frame": [
+          0,
+          0
+        ],
+        "final_syndrome": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "coherent_terms": 4
+      },
+      {
+        "name": "stress_3",
+        "terminal_probability": 0.25,
+        "probability_relative_error": 5.995204332975845e-15,
+        "normalized_density_error": 3.164135620181696e-15,
+        "input_frame": [
+          0,
+          106
+        ],
+        "final_syndrome": [
+          0,
+          0,
+          1,
+          1,
+          1,
+          1
+        ],
+        "coherent_terms": 4
+      },
+      {
+        "name": "stress_4",
+        "terminal_probability": 0.25,
+        "probability_relative_error": 5.88418203051333e-15,
+        "normalized_density_error": 3.164135620181696e-15,
+        "input_frame": [
+          10,
+          20
+        ],
+        "final_syndrome": [
+          0,
+          1,
+          1,
+          0,
+          0,
+          0
+        ],
+        "coherent_terms": 4
+      },
+      {
+        "name": "stress_5",
+        "terminal_probability": 0.12499999999999997,
+        "probability_relative_error": 5.7731597280508156e-15,
+        "normalized_density_error": 2.9976021664879234e-15,
+        "input_frame": [
+          34,
+          126
+        ],
+        "final_syndrome": [
+          0,
+          1,
+          1,
+          0,
+          1,
+          0
+        ],
+        "coherent_terms": 4
+      },
+      {
+        "name": "stress_6",
+        "terminal_probability": 1.0,
+        "probability_relative_error": 5.773159728050814e-15,
+        "normalized_density_error": 3.3306690738754696e-15,
+        "input_frame": [
+          0,
+          0
+        ],
+        "final_syndrome": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "coherent_terms": 4
+      },
+      {
+        "name": "stress_7",
+        "terminal_probability": 0.0625,
+        "probability_relative_error": 5.773159728050814e-15,
+        "normalized_density_error": 2.942091015256665e-15,
+        "input_frame": [
+          0,
+          0
+        ],
+        "final_syndrome": [
+          0,
+          0,
+          1,
+          1,
+          0,
+          0
+        ],
+        "coherent_terms": 4
+      },
+      {
+        "name": "stress_8",
+        "terminal_probability": 1.0,
+        "probability_relative_error": 5.773159728050814e-15,
+        "normalized_density_error": 3.3306690738754696e-15,
+        "input_frame": [
+          0,
+          0
+        ],
+        "final_syndrome": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "coherent_terms": 4
+      },
+      {
+        "name": "stress_9",
+        "terminal_probability": 0.12499999999999999,
+        "probability_relative_error": 6.106226635438362e-15,
+        "normalized_density_error": 3.1086244689504387e-15,
+        "input_frame": [
+          66,
+          0
+        ],
+        "final_syndrome": [
+          0,
+          0,
+          1,
+          0,
+          1,
+          1
+        ],
+        "coherent_terms": 4
+      },
+      {
+        "name": "stress_10",
+        "terminal_probability": 0.25,
+        "probability_relative_error": 5.88418203051333e-15,
+        "normalized_density_error": 3.164135620181696e-15,
+        "input_frame": [
+          40,
+          0
+        ],
+        "final_syndrome": [
+          0,
+          1,
+          1,
+          0,
+          0,
+          0
+        ],
+        "coherent_terms": 4
+      },
+      {
+        "name": "stress_11",
+        "terminal_probability": 1.0,
+        "probability_relative_error": 5.773159728050814e-15,
+        "normalized_density_error": 3.3306690738754696e-15,
+        "input_frame": [
+          0,
+          0
+        ],
+        "final_syndrome": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "coherent_terms": 4
+      }
+    ]
+  },
+  {
+    "distance": 5,
+    "data_wires": [
+      0,
+      3,
+      7,
+      9,
+      11,
+      13,
+      15,
+      17,
+      19,
+      21,
+      23,
+      25,
+      27,
+      29,
+      32,
+      34,
+      36,
+      38,
+      40
+    ],
+    "basis_entries": [
+      512,
+      512
+    ],
+    "syndrome_sectors": 262144,
+    "decoder_entries": 1024,
+    "cases": [
+      {
+        "name": "ideal",
+        "terminal_probability": 1.0,
+        "probability_relative_error": 4.1522341120980855e-14,
+        "normalized_density_error": 4.0745185003743245e-14,
+        "input_frame": [
+          0,
+          0
+        ],
+        "final_syndrome": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "coherent_terms": 4,
+        "chained_probability": 9.313225746154785e-10,
+        "chained_probability_relative_error": 4.163336342344337e-14,
+        "chained_normalized_density_error": 4.0745185003743245e-14
+      },
+      {
+        "name": "logical_z_tail",
+        "terminal_probability": 1.0,
+        "probability_relative_error": 4.1522341120980855e-14,
+        "normalized_density_error": 4.0745185003743245e-14,
+        "input_frame": [
+          0,
+          0
+        ],
+        "final_syndrome": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "coherent_terms": 4,
+        "chained_probability": 9.313225746154785e-10,
+        "chained_probability_relative_error": 4.163336342344337e-14,
+        "chained_normalized_density_error": 4.0745185003743245e-14
+      },
+      {
+        "name": "reset_erased_X",
+        "terminal_probability": 1.0,
+        "probability_relative_error": 4.1522341120980855e-14,
+        "normalized_density_error": 4.0745185003743245e-14,
+        "input_frame": [
+          0,
+          0
+        ],
+        "final_syndrome": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "coherent_terms": 4,
+        "chained_probability": 9.313225746154785e-10,
+        "chained_probability_relative_error": 4.163336342344337e-14,
+        "chained_normalized_density_error": 4.0745185003743245e-14
+      },
+      {
+        "name": "reset_erased_Y",
+        "terminal_probability": 1.0,
+        "probability_relative_error": 4.1522341120980855e-14,
+        "normalized_density_error": 4.0745185003743245e-14,
+        "input_frame": [
+          0,
+          0
+        ],
+        "final_syndrome": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "coherent_terms": 4,
+        "chained_probability": 9.313225746154785e-10,
+        "chained_probability_relative_error": 4.163336342344337e-14,
+        "chained_normalized_density_error": 4.0745185003743245e-14
+      },
+      {
+        "name": "reset_erased_Z",
+        "terminal_probability": 1.0,
+        "probability_relative_error": 4.1522341120980855e-14,
+        "normalized_density_error": 4.0745185003743245e-14,
+        "input_frame": [
+          0,
+          0
+        ],
+        "final_syndrome": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "coherent_terms": 4,
+        "chained_probability": 9.313225746154785e-10,
+        "chained_probability_relative_error": 4.163336342344337e-14,
+        "chained_normalized_density_error": 4.0745185003743245e-14
+      },
+      {
+        "name": "root_readout_flip",
+        "terminal_probability": 1.0,
+        "probability_relative_error": 4.1522341120980855e-14,
+        "normalized_density_error": 4.0745185003743245e-14,
+        "input_frame": [
+          0,
+          0
+        ],
+        "final_syndrome": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "coherent_terms": 4,
+        "chained_probability": 9.313225746154785e-10,
+        "chained_probability_relative_error": 4.163336342344337e-14,
+        "chained_normalized_density_error": 4.0745185003743245e-14
+      },
+      {
+        "name": "gadget_spectator_Y",
+        "terminal_probability": 1.0,
+        "probability_relative_error": 4.1522341120980855e-14,
+        "normalized_density_error": 4.0745185003743245e-14,
+        "input_frame": [
+          0,
+          0
+        ],
+        "final_syndrome": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "coherent_terms": 4,
+        "chained_probability": 9.313225746154785e-10,
+        "chained_probability_relative_error": 4.163336342344337e-14,
+        "chained_normalized_density_error": 4.0745185003743245e-14
+      },
+      {
+        "name": "gadget_pair_YZ",
+        "terminal_probability": 0.25,
+        "probability_relative_error": 3.3306690738754696e-15,
+        "normalized_density_error": 4.551914400963142e-15,
+        "input_frame": [
+          364066,
+          5
+        ],
+        "final_syndrome": [
+          0,
+          0,
+          1,
+          1,
+          0,
+          0,
+          1,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "coherent_terms": 4,
+        "chained_probability": 1.164153218269348e-10,
+        "chained_probability_relative_error": 2.7755575615628917e-15,
+        "chained_normalized_density_error": 4.440907941842275e-15
+      },
+      {
+        "name": "feedforward_readout_21",
+        "terminal_probability": 0.25,
+        "probability_relative_error": 3.1086244689504383e-15,
+        "normalized_density_error": 4.6629367034256575e-15,
+        "input_frame": [
+          431616,
+          0
+        ],
+        "final_syndrome": [
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1,
+          1,
+          1,
+          0,
+          0,
+          1,
+          0
+        ],
+        "coherent_terms": 4,
+        "chained_probability": 2.3283064365386963e-10,
+        "chained_probability_relative_error": 2.6645352591003757e-15,
+        "chained_normalized_density_error": 4.440892098500626e-15
+      },
+      {
+        "name": "feedforward_readout_22",
+        "terminal_probability": 0.25,
+        "probability_relative_error": 3.1086244689504383e-15,
+        "normalized_density_error": 4.6629367034256575e-15,
+        "input_frame": [
+          235008,
+          0
+        ],
+        "final_syndrome": [
+          0,
+          0,
+          1,
+          0,
+          0,
+          1,
+          0,
+          0,
+          1,
+          0,
+          0,
+          1,
+          0,
+          1,
+          0,
+          0,
+          1,
+          0
+        ],
+        "coherent_terms": 4,
+        "chained_probability": 2.3283064365386963e-10,
+        "chained_probability_relative_error": 2.6645352591003757e-15,
+        "chained_normalized_density_error": 4.440892098500626e-15
+      },
+      {
+        "name": "feedforward_readout_23",
+        "terminal_probability": 0.4999999999999999,
+        "probability_relative_error": 4.218847493575596e-15,
+        "normalized_density_error": 4.829514327298795e-15,
+        "input_frame": [
+          0,
+          0
+        ],
+        "final_syndrome": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "coherent_terms": 4,
+        "chained_probability": 4.6566128730773915e-10,
+        "chained_probability_relative_error": 3.774758283725533e-15,
+        "chained_normalized_density_error": 4.551929857883152e-15
+      },
+      {
+        "name": "feedforward_readout_24",
+        "terminal_probability": 0.4999999999999999,
+        "probability_relative_error": 4.218847493575596e-15,
+        "normalized_density_error": 4.829514327298795e-15,
+        "input_frame": [
+          0,
+          0
+        ],
+        "final_syndrome": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "coherent_terms": 4,
+        "chained_probability": 4.6566128730773915e-10,
+        "chained_probability_relative_error": 3.774758283725533e-15,
+        "chained_normalized_density_error": 4.551929857883152e-15
+      },
+      {
+        "name": "feedforward_readout_25",
+        "terminal_probability": 0.4999999999999999,
+        "probability_relative_error": 4.218847493575596e-15,
+        "normalized_density_error": 4.829514327298795e-15,
+        "input_frame": [
+          0,
+          0
+        ],
+        "final_syndrome": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "coherent_terms": 4,
+        "chained_probability": 4.6566128730773915e-10,
+        "chained_probability_relative_error": 3.774758283725533e-15,
+        "chained_normalized_density_error": 4.551929857883152e-15
+      },
+      {
+        "name": "feedforward_readout_31",
+        "terminal_probability": 1.0,
+        "probability_relative_error": 4.1522341120980855e-14,
+        "normalized_density_error": 4.0745185003743245e-14,
+        "input_frame": [
+          0,
+          524142
+        ],
+        "final_syndrome": [
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "coherent_terms": 4,
+        "chained_probability": 9.313225746154785e-10,
+        "chained_probability_relative_error": 4.163336342344337e-14,
+        "chained_normalized_density_error": 4.0745185003743245e-14
+      },
+      {
+        "name": "feedforward_readout_33",
+        "terminal_probability": 1.0,
+        "probability_relative_error": 4.1522341120980855e-14,
+        "normalized_density_error": 4.0745185003743245e-14,
+        "input_frame": [
+          0,
+          524259
+        ],
+        "final_syndrome": [
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "coherent_terms": 4,
+        "chained_probability": 9.313225746154785e-10,
+        "chained_probability_relative_error": 4.163336342344337e-14,
+        "chained_normalized_density_error": 4.0745185003743245e-14
+      },
+      {
+        "name": "natural_0",
+        "terminal_probability": 0.12499999999999997,
+        "probability_relative_error": 1.1102230246251568e-16,
+        "normalized_density_error": 1.4432952493901422e-15,
+        "input_frame": [
+          0,
+          0
+        ],
+        "final_syndrome": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          0,
+          1,
+          0,
+          1,
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0
+        ],
+        "coherent_terms": 4,
+        "chained_probability": 1.1641532182693479e-10,
+        "chained_probability_relative_error": 4.440892098500627e-16,
+        "chained_normalized_density_error": 1.4988010832439617e-15
+      },
+      {
+        "name": "natural_1",
+        "terminal_probability": 0.12499999999999997,
+        "probability_relative_error": 1.1102230246251568e-16,
+        "normalized_density_error": 1.4988062036821805e-15,
+        "input_frame": [
+          38400,
+          0
+        ],
+        "final_syndrome": [
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0
+        ],
+        "coherent_terms": 4,
+        "chained_probability": 1.1641532182693479e-10,
+        "chained_probability_relative_error": 4.440892098500627e-16,
+        "chained_normalized_density_error": 1.4988010832439617e-15
+      },
+      {
+        "name": "natural_2",
+        "terminal_probability": 0.25,
+        "probability_relative_error": 3.1086244689504383e-15,
+        "normalized_density_error": 4.551914400963142e-15,
+        "input_frame": [
+          398850,
+          524283
+        ],
+        "final_syndrome": [
+          1,
+          0,
+          0,
+          1,
+          0,
+          0,
+          1,
+          0,
+          0,
+          1,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "coherent_terms": 4,
+        "chained_probability": 1.164153218269348e-10,
+        "chained_probability_relative_error": 2.7755575615628917e-15,
+        "chained_normalized_density_error": 4.440907941842275e-15
+      },
+      {
+        "name": "natural_3",
+        "terminal_probability": 1.0,
+        "probability_relative_error": 4.1522341120980855e-14,
+        "normalized_density_error": 4.0745185003743245e-14,
+        "input_frame": [
+          0,
+          0
+        ],
+        "final_syndrome": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "coherent_terms": 4,
+        "chained_probability": 9.313225746154785e-10,
+        "chained_probability_relative_error": 4.163336342344337e-14,
+        "chained_normalized_density_error": 4.0745185003743245e-14
+      },
+      {
+        "name": "natural_4",
+        "terminal_probability": 1.0,
+        "probability_relative_error": 4.1522341120980855e-14,
+        "normalized_density_error": 4.0745185003743245e-14,
+        "input_frame": [
+          0,
+          524283
+        ],
+        "final_syndrome": [
+          1,
+          0,
+          1,
+          0,
+          0,
+          0,
+          1,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "coherent_terms": 4,
+        "chained_probability": 9.313225746154785e-10,
+        "chained_probability_relative_error": 4.163336342344337e-14,
+        "chained_normalized_density_error": 4.0745185003743245e-14
+      },
+      {
+        "name": "natural_5",
+        "terminal_probability": 0.25,
+        "probability_relative_error": 3.3306690738754696e-15,
+        "normalized_density_error": 4.6629367034256575e-15,
+        "input_frame": [
+          332834,
+          0
+        ],
+        "final_syndrome": [
+          0,
+          0,
+          0,
+          1,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          1,
+          0,
+          0,
+          0,
+          1,
+          1,
+          0
+        ],
+        "coherent_terms": 4,
+        "chained_probability": 2.3283064365386963e-10,
+        "chained_probability_relative_error": 2.886579864025407e-15,
+        "chained_normalized_density_error": 4.440892098500626e-15
+      },
+      {
+        "name": "natural_6",
+        "terminal_probability": 1.0,
+        "probability_relative_error": 4.1522341120980855e-14,
+        "normalized_density_error": 4.0745185003743245e-14,
+        "input_frame": [
+          0,
+          0
+        ],
+        "final_syndrome": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "coherent_terms": 4,
+        "chained_probability": 9.313225746154785e-10,
+        "chained_probability_relative_error": 4.163336342344337e-14,
+        "chained_normalized_density_error": 4.0745185003743245e-14
+      },
+      {
+        "name": "natural_7",
+        "terminal_probability": 0.25,
+        "probability_relative_error": 3.1086244689504383e-15,
+        "normalized_density_error": 4.6629367034256575e-15,
+        "input_frame": [
+          233472,
+          0
+        ],
+        "final_syndrome": [
+          0,
+          1,
+          0,
+          0,
+          1,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "coherent_terms": 4,
+        "chained_probability": 2.3283064365386963e-10,
+        "chained_probability_relative_error": 2.6645352591003757e-15,
+        "chained_normalized_density_error": 4.440892098500626e-15
+      },
+      {
+        "name": "natural_8",
+        "terminal_probability": 0.25,
+        "probability_relative_error": 3.1086244689504383e-15,
+        "normalized_density_error": 4.6629367034256575e-15,
+        "input_frame": [
+          398850,
+          0
+        ],
+        "final_syndrome": [
+          1,
+          0,
+          1,
+          1,
+          0,
+          0,
+          1,
+          0,
+          1,
+          1,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "coherent_terms": 4,
+        "chained_probability": 2.3283064365386963e-10,
+        "chained_probability_relative_error": 2.6645352591003757e-15,
+        "chained_normalized_density_error": 4.440892098500626e-15
+      },
+      {
+        "name": "natural_9",
+        "terminal_probability": 0.25,
+        "probability_relative_error": 3.1086244689504383e-15,
+        "normalized_density_error": 4.6629367034256575e-15,
+        "input_frame": [
+          198688,
+          524271
+        ],
+        "final_syndrome": [
+          1,
+          1,
+          0,
+          0,
+          1,
+          0,
+          1,
+          0,
+          0,
+          1,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "coherent_terms": 4,
+        "chained_probability": 2.3283064365386963e-10,
+        "chained_probability_relative_error": 2.6645352591003757e-15,
+        "chained_normalized_density_error": 4.440892098500626e-15
+      },
+      {
+        "name": "natural_10",
+        "terminal_probability": 0.25,
+        "probability_relative_error": 3.3306690738754696e-15,
+        "normalized_density_error": 4.6629367034256575e-15,
+        "input_frame": [
+          236544,
+          29
+        ],
+        "final_syndrome": [
+          1,
+          1,
+          1,
+          0,
+          1,
+          0,
+          0,
+          0,
+          1,
+          0,
+          1,
+          0,
+          1,
+          0,
+          0,
+          1,
+          0,
+          0
+        ],
+        "coherent_terms": 4,
+        "chained_probability": 2.3283064365386963e-10,
+        "chained_probability_relative_error": 2.886579864025407e-15,
+        "chained_normalized_density_error": 4.440892098500626e-15
+      },
+      {
+        "name": "natural_11",
+        "terminal_probability": 1.0,
+        "probability_relative_error": 4.1522341120980855e-14,
+        "normalized_density_error": 4.0745185003743245e-14,
+        "input_frame": [
+          0,
+          524266
+        ],
+        "final_syndrome": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "coherent_terms": 4,
+        "chained_probability": 2.3283064365386963e-10,
+        "chained_probability_relative_error": 4.163336342344337e-14,
+        "chained_normalized_density_error": 4.0745185003743245e-14
+      },
+      {
+        "name": "natural_12",
+        "terminal_probability": 0.25,
+        "probability_relative_error": 3.3306690738754696e-15,
+        "normalized_density_error": 4.6629367034256575e-15,
+        "input_frame": [
+          364066,
+          524271
+        ],
+        "final_syndrome": [
+          1,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "coherent_terms": 4,
+        "chained_probability": 5.820766091346741e-11,
+        "chained_probability_relative_error": 2.886579864025407e-15,
+        "chained_normalized_density_error": 4.440892098500626e-15
+      },
+      {
+        "name": "natural_13",
+        "terminal_probability": 0.25,
+        "probability_relative_error": 3.1086244689504383e-15,
+        "normalized_density_error": 4.6629367034256575e-15,
+        "input_frame": [
+          398850,
+          20
+        ],
+        "final_syndrome": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "coherent_terms": 4,
+        "chained_probability": 5.820766091346741e-11,
+        "chained_probability_relative_error": 2.886579864025407e-15,
+        "chained_normalized_density_error": 4.440892098500626e-15
+      },
+      {
+        "name": "natural_14",
+        "terminal_probability": 1.0,
+        "probability_relative_error": 4.1522341120980855e-14,
+        "normalized_density_error": 4.0745185003743245e-14,
+        "input_frame": [
+          0,
+          524266
+        ],
+        "final_syndrome": [
+          1,
+          0,
+          1,
+          0,
+          0,
+          0,
+          1,
+          0,
+          1,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "coherent_terms": 4,
+        "chained_probability": 9.313225746154785e-10,
+        "chained_probability_relative_error": 4.163336342344337e-14,
+        "chained_normalized_density_error": 4.0745185003743245e-14
+      },
+      {
+        "name": "natural_15",
+        "terminal_probability": 0.25,
+        "probability_relative_error": 3.1086244689504383e-15,
+        "normalized_density_error": 4.6629367034256575e-15,
+        "input_frame": [
+          202242,
+          0
+        ],
+        "final_syndrome": [
+          1,
+          0,
+          1,
+          1,
+          0,
+          1,
+          1,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "coherent_terms": 4,
+        "chained_probability": 5.820766091346741e-11,
+        "chained_probability_relative_error": 2.6645352591003757e-15,
+        "chained_normalized_density_error": 4.440892098500626e-15
+      },
+      {
+        "name": "natural_16",
+        "terminal_probability": 1.0,
+        "probability_relative_error": 4.1522341120980855e-14,
+        "normalized_density_error": 4.0745185003743245e-14,
+        "input_frame": [
+          0,
+          0
+        ],
+        "final_syndrome": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "coherent_terms": 4,
+        "chained_probability": 9.313225746154785e-10,
+        "chained_probability_relative_error": 4.163336342344337e-14,
+        "chained_normalized_density_error": 4.0745185003743245e-14
+      },
+      {
+        "name": "natural_17",
+        "terminal_probability": 1.0,
+        "probability_relative_error": 4.1522341120980855e-14,
+        "normalized_density_error": 4.0745185003743245e-14,
+        "input_frame": [
+          0,
+          0
+        ],
+        "final_syndrome": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "coherent_terms": 4,
+        "chained_probability": 9.313225746154785e-10,
+        "chained_probability_relative_error": 4.163336342344337e-14,
+        "chained_normalized_density_error": 4.0745185003743245e-14
+      },
+      {
+        "name": "natural_18",
+        "terminal_probability": 0.12499999999999999,
+        "probability_relative_error": 1.1102230246251568e-16,
+        "normalized_density_error": 1.5543122344752194e-15,
+        "input_frame": [
+          426530,
+          524266
+        ],
+        "final_syndrome": [
+          1,
+          0,
+          1,
+          0,
+          0,
+          0,
+          1,
+          1,
+          1,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0
+        ],
+        "coherent_terms": 4,
+        "chained_probability": 1.164153218269348e-10,
+        "chained_probability_relative_error": 5.551115123125784e-16,
+        "chained_normalized_density_error": 1.7208456881689928e-15
+      },
+      {
+        "name": "natural_19",
+        "terminal_probability": 1.0,
+        "probability_relative_error": 4.1522341120980855e-14,
+        "normalized_density_error": 4.0745185003743245e-14,
+        "input_frame": [
+          0,
+          0
+        ],
+        "final_syndrome": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "coherent_terms": 4,
+        "chained_probability": 9.313225746154785e-10,
+        "chained_probability_relative_error": 4.163336342344337e-14,
+        "chained_normalized_density_error": 4.0745185003743245e-14
+      },
+      {
+        "name": "natural_20",
+        "terminal_probability": 0.12499999999999999,
+        "probability_relative_error": 1.1102230246251568e-16,
+        "normalized_density_error": 1.4432899320127037e-15,
+        "input_frame": [
+          0,
+          524283
+        ],
+        "final_syndrome": [
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          1,
+          1,
+          1,
+          0,
+          1,
+          0,
+          1,
+          1,
+          0,
+          1,
+          1,
+          0
+        ],
+        "coherent_terms": 4,
+        "chained_probability": 1.164153218269348e-10,
+        "chained_probability_relative_error": 5.551115123125784e-16,
+        "chained_normalized_density_error": 1.7208456881689928e-15
+      },
+      {
+        "name": "natural_21",
+        "terminal_probability": 1.0,
+        "probability_relative_error": 4.1522341120980855e-14,
+        "normalized_density_error": 4.0745185003743245e-14,
+        "input_frame": [
+          0,
+          92
+        ],
+        "final_syndrome": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1,
+          1,
+          0,
+          0,
+          0,
+          1,
+          0,
+          1,
+          0,
+          0,
+          0
+        ],
+        "coherent_terms": 4,
+        "chained_probability": 9.313225746154785e-10,
+        "chained_probability_relative_error": 4.163336342344337e-14,
+        "chained_normalized_density_error": 4.0745185003743245e-14
+      },
+      {
+        "name": "natural_22",
+        "terminal_probability": 0.031249999999999997,
+        "probability_relative_error": 8.104628079763644e-15,
+        "normalized_density_error": 5.329074560321883e-15,
+        "input_frame": [
+          0,
+          0
+        ],
+        "final_syndrome": [
+          0,
+          1,
+          1,
+          1,
+          1,
+          0,
+          1,
+          0,
+          0,
+          0,
+          1,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "coherent_terms": 4,
+        "chained_probability": 2.91038304567337e-11,
+        "chained_probability_relative_error": 9.214851104388801e-15,
+        "chained_normalized_density_error": 6.050715863883762e-15
+      },
+      {
+        "name": "natural_23",
+        "terminal_probability": 0.25,
+        "probability_relative_error": 3.1086244689504383e-15,
+        "normalized_density_error": 4.6629367034256575e-15,
+        "input_frame": [
+          329250,
+          524283
+        ],
+        "final_syndrome": [
+          0,
+          0,
+          1,
+          1,
+          0,
+          1,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          1,
+          1,
+          0
+        ],
+        "coherent_terms": 4,
+        "chained_probability": 2.3283064365386963e-10,
+        "chained_probability_relative_error": 2.6645352591003757e-15,
+        "chained_normalized_density_error": 4.440892098500626e-15
+      },
+      {
+        "name": "stress_0",
+        "terminal_probability": 0.031249999999999993,
+        "probability_relative_error": 7.993605777301129e-15,
+        "normalized_density_error": 5.329074560321884e-15,
+        "input_frame": [
+          368130,
+          16604
+        ],
+        "final_syndrome": [
+          0,
+          1,
+          0,
+          1,
+          0,
+          1,
+          1,
+          0,
+          1,
+          1,
+          1,
+          1,
+          1,
+          0,
+          0,
+          0,
+          1,
+          1
+        ],
+        "coherent_terms": 4,
+        "chained_probability": 7.275957614183424e-12,
+        "chained_probability_relative_error": 9.103828801926285e-15,
+        "chained_normalized_density_error": 5.884182420935554e-15
+      },
+      {
+        "name": "stress_1",
+        "terminal_probability": 0.0019531249999999998,
+        "probability_relative_error": 2.05391259555654e-14,
+        "normalized_density_error": 1.1324274851176598e-14,
+        "input_frame": [
+          267776,
+          515903
+        ],
+        "final_syndrome": [
+          1,
+          1,
+          1,
+          1,
+          0,
+          1,
+          0,
+          0,
+          1,
+          0,
+          1,
+          0,
+          0,
+          1,
+          0,
+          0,
+          1,
+          1
+        ],
+        "coherent_terms": 4,
+        "chained_probability": 1.8189894035458563e-12,
+        "chained_probability_relative_error": 2.486899575160351e-14,
+        "chained_normalized_density_error": 1.3156142841808107e-14
+      },
+      {
+        "name": "stress_2",
+        "terminal_probability": 0.007812500000000002,
+        "probability_relative_error": 1.6431300764452314e-14,
+        "normalized_density_error": 1.0713652558865054e-14,
+        "input_frame": [
+          400896,
+          393
+        ],
+        "final_syndrome": [
+          1,
+          1,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          1,
+          1,
+          1,
+          1,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "coherent_terms": 4,
+        "chained_probability": 9.094947017729282e-13,
+        "chained_probability_relative_error": 1.9317880628477724e-14,
+        "chained_normalized_density_error": 1.3211653993039363e-14
+      },
+      {
+        "name": "stress_3",
+        "terminal_probability": 0.007812499999999998,
+        "probability_relative_error": 1.620925615952729e-14,
+        "normalized_density_error": 1.0436096812581967e-14,
+        "input_frame": [
+          427522,
+          515691
+        ],
+        "final_syndrome": [
+          1,
+          1,
+          0,
+          0,
+          1,
+          0,
+          0,
+          1,
+          0,
+          1,
+          0,
+          0,
+          0,
+          1,
+          1,
+          1,
+          0,
+          1
+        ],
+        "coherent_terms": 4,
+        "chained_probability": 1.818989403545856e-12,
+        "chained_probability_relative_error": 1.820765760385257e-14,
+        "chained_normalized_density_error": 1.1712855324393332e-14
+      },
+      {
+        "name": "stress_4",
+        "terminal_probability": 0.03125000000000001,
+        "probability_relative_error": 8.437694987151188e-15,
+        "normalized_density_error": 5.551119003562183e-15,
+        "input_frame": [
+          300066,
+          516090
+        ],
+        "final_syndrome": [
+          0,
+          0,
+          1,
+          1,
+          0,
+          0,
+          1,
+          1,
+          1,
+          0,
+          1,
+          0,
+          0,
+          0,
+          1,
+          1,
+          1,
+          0
+        ],
+        "coherent_terms": 4,
+        "chained_probability": 3.637978807091713e-12,
+        "chained_probability_relative_error": 5.662137425588298e-15,
+        "chained_normalized_density_error": 6.661338147750939e-15
+      },
+      {
+        "name": "stress_5",
+        "terminal_probability": 0.015625,
+        "probability_relative_error": 1.0880185641326534e-14,
+        "normalized_density_error": 5.440092820663267e-15,
+        "input_frame": [
+          400896,
+          507639
+        ],
+        "final_syndrome": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          1,
+          1,
+          1,
+          1,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0
+        ],
+        "coherent_terms": 4,
+        "chained_probability": 1.4551915228366852e-11,
+        "chained_probability_relative_error": 1.27675647831893e-14,
+        "chained_normalized_density_error": 6.661338147750939e-15
+      },
+      {
+        "name": "stress_6",
+        "terminal_probability": 0.015625000000000003,
+        "probability_relative_error": 1.1213252548714078e-14,
+        "normalized_density_error": 5.662137425588297e-15,
+        "input_frame": [
+          366624,
+          92
+        ],
+        "final_syndrome": [
+          0,
+          1,
+          1,
+          0,
+          0,
+          1,
+          0,
+          1,
+          0,
+          1,
+          1,
+          0,
+          1,
+          0,
+          0,
+          1,
+          1,
+          0
+        ],
+        "coherent_terms": 4,
+        "chained_probability": 1.8189894035458563e-12,
+        "chained_probability_relative_error": 1.254552017826427e-14,
+        "chained_normalized_density_error": 6.4948046940571666e-15
+      },
+      {
+        "name": "stress_7",
+        "terminal_probability": 0.06250000000000001,
+        "probability_relative_error": 1.6653345369377344e-15,
+        "normalized_density_error": 2.8310687127941484e-15,
+        "input_frame": [
+          327680,
+          524266
+        ],
+        "final_syndrome": [
+          1,
+          0,
+          0,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          0,
+          1,
+          1,
+          1,
+          0,
+          1,
+          0
+        ],
+        "coherent_terms": 4,
+        "chained_probability": 7.275957614183425e-12,
+        "chained_probability_relative_error": 2.109423746787798e-15,
+        "chained_normalized_density_error": 3.33066907387547e-15
+      },
+      {
+        "name": "stress_8",
+        "terminal_probability": 0.0625,
+        "probability_relative_error": 1.5543122344752192e-15,
+        "normalized_density_error": 2.886579864025407e-15,
+        "input_frame": [
+          236544,
+          24653
+        ],
+        "final_syndrome": [
+          0,
+          0,
+          1,
+          1,
+          1,
+          1,
+          0,
+          0,
+          0,
+          1,
+          1,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0
+        ],
+        "coherent_terms": 4,
+        "chained_probability": 3.637978807091713e-12,
+        "chained_probability_relative_error": 2.4424906541753444e-15,
+        "chained_normalized_density_error": 3.4416913763379853e-15
+      },
+      {
+        "name": "stress_9",
+        "terminal_probability": 0.00390625,
+        "probability_relative_error": 2.1760371282653068e-14,
+        "normalized_density_error": 1.1157741397482823e-14,
+        "input_frame": [
+          37920,
+          8256
+        ],
+        "final_syndrome": [
+          1,
+          0,
+          0,
+          1,
+          0,
+          1,
+          1,
+          1,
+          0,
+          1,
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          1
+        ],
+        "coherent_terms": 4,
+        "chained_probability": 4.5474735088646407e-13,
+        "chained_probability_relative_error": 2.4980018054066025e-14,
+        "chained_normalized_density_error": 1.332267629550188e-14
+      },
+      {
+        "name": "stress_10",
+        "terminal_probability": 0.015625,
+        "probability_relative_error": 1.1213252548714081e-14,
+        "normalized_density_error": 5.773159728050814e-15,
+        "input_frame": [
+          235552,
+          16524
+        ],
+        "final_syndrome": [
+          0,
+          0,
+          1,
+          0,
+          1,
+          1,
+          1,
+          0,
+          0,
+          1,
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          1
+        ],
+        "coherent_terms": 4,
+        "chained_probability": 3.637978807091713e-12,
+        "chained_probability_relative_error": 1.27675647831893e-14,
+        "chained_normalized_density_error": 6.661338147750939e-15
+      },
+      {
+        "name": "stress_11",
+        "terminal_probability": 0.03125000000000001,
+        "probability_relative_error": 8.437694987151188e-15,
+        "normalized_density_error": 5.551119003562183e-15,
+        "input_frame": [
+          36386,
+          524223
+        ],
+        "final_syndrome": [
+          1,
+          0,
+          0,
+          1,
+          1,
+          1,
+          1,
+          0,
+          0,
+          1,
+          1,
+          1,
+          1,
+          0,
+          1,
+          0,
+          0,
+          1
+        ],
+        "coherent_terms": 4,
+        "chained_probability": 3.637978807091713e-12,
+        "chained_probability_relative_error": 5.662137425588298e-15,
+        "chained_normalized_density_error": 6.661338147750939e-15
+      }
+    ]
+  }
+]

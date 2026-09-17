@@ -1,6 +1,24 @@
 # Representation study checkpoint
 
-Latest: [sparse original-MSC growth contraction](msc_growth_contraction.md)
+Latest: [coherent original-MSC terminal contraction](msc_terminal_contraction.md)
+keeps four monomial terms through final cultivation and terminal measurement,
+then contracts at the actual final code projection. The nineteen-data-qubit
+code uses 512 support entries per logical basis state and 1,024 decoder entries;
+eighteen syndrome duals cover all sectors without a table per syndrome.
+
+All 95 complete d3/d5 histories match the isolated terminal block. The study
+also connects growth amplitudes directly into the final block for all 51 d5
+histories, without extracting an intermediate logical state from the reference.
+Independent dense projectors cover all 64 d3 sectors and 51 selected d5 sectors;
+eight Aer statevector evolutions check two nineteen-qubit four-term cases.
+Six new tests bring the MSC suite to 37. No native performance claim.
+Next: compute the injection prefix's weighted logical state directly and
+connect it to these contractions. Offline initial-state extraction, gadget
+fault binding and fixed-history rather than sampled-record execution remain.
+Keep the native topology/allocation invariants; reconstructed f7 remains the
+large-state performance target.
+
+[Sparse original-MSC growth contraction](msc_growth_contraction.md)
 replaces the coherent-CH input-projector calculation for growth with fixed
 code lookups, syndrome-dual Paulis and scalar ancilla overlaps. Two coherent
 gadget terms each visit 16 code entries; all 64 input syndromes share a 4 KiB
