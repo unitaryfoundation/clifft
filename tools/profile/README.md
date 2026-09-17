@@ -22,7 +22,8 @@ strong-simulation costs and expose offline structural diagnostics:
   full-circuit simulator. See the [fold contraction study](research/fold_contraction.md).
 - `fold_blocks.py` and `export_fold_blocks.py` construct and validate reusable
   code-boundary plans and emit a standalone native sampler for the reconstructed
-  f3/f5 protocols. See the [compiled block study](research/fold_blocks.md).
+  f3/f5/f7 protocols. See the [compiled block study](research/fold_blocks.md)
+  and the [full f7 reconstruction](research/fold_f7.md).
 
 ## Build
 

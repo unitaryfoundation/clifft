@@ -348,7 +348,7 @@ def run_history(
             distance = int(stage.name.rsplit("d", 1)[1])
             mapping = reconstruction.check_mapping(distance)
             data = len(mapping)
-            ancillas = 3 if distance == 3 else 5
+            ancillas = {3: 3, 5: 5, 7: 8}[distance]
             mapping += [reconstruction.ancilla + q for q in range(ancillas)]
             inverse = {q: i for i, q in enumerate(mapping)}
             check = Check(
@@ -365,6 +365,12 @@ def run_history(
         else:
             for op in operations:
                 state.operation(op)
+            if stage.equal_records:
+                # The verified flag GHZ is independent of the main cat for any
+                # fixed Pauli history. Its two uniform records have identical
+                # data states up to a history-wide phase. Marginalize both.
+                for term in state.terms:
+                    term.coefficient = multiply(term.coefficient, add(INV_SQRT2, INV_SQRT2))
         state.merge()
         trace.append({"stage": stage.name, "terms": len(state.terms)})
         if not state.terms:
@@ -374,7 +380,7 @@ def run_history(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--distance", type=int, choices=(3, 5), required=True)
+    parser.add_argument("--distance", type=int, choices=(3, 5, 7), required=True)
     parser.add_argument("--histories", type=int, default=32)
     parser.add_argument("--probability", type=float, default=0.001)
     parser.add_argument(

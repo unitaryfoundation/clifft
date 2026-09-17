@@ -1,5 +1,9 @@
 # Compiled blocks for the complete f5 reconstruction
 
+Follow-up: the [full f7 reconstruction](fold_f7.md) now extends this result
+through regular d7 growth and both verified d7 checks. The measurements below
+describe the original f3/f5 experiment and its smaller native capacities.
+
 **The representation now gives a substantial full-protocol result.** A standalone
 native prototype samples the reconstructed noisy f5 circuit in a median of
 17.73 microseconds per attempt, including physical fault generation, all-zero
@@ -12,8 +16,8 @@ best-in-class result.
 This is still the [paper-guided reconstruction](fold_composition.md), not the
 authors' Reg5/f7 artifact. Its noise locations, syndrome CNOT order, and terminal
 ideal syndrome plus expectation probes have the limitations documented there.
-The full f7 protocol remains unimplemented. No production Clifft API or executor
-has changed.
+At the time of this experiment, the full f7 protocol was unimplemented.
+No production Clifft API or executor has changed.
 
 ## What now runs without per-history planning
 

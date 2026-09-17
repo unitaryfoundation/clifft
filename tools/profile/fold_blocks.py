@@ -1,8 +1,8 @@
-"""Offline compile-once block prototype for the reconstructed f3/f5 protocol.
+"""Offline compile-once block prototype for the reconstructed f3/f5/f7 protocol.
 
 Tableau and dependency analysis occur during construction only. Python execution
 still allocates; this is a correctness prototype, not a production executor.
-Every result conditions on a fixed physical fault history and all-zero records.
+Every result conditions on a fixed physical fault history and accepted records.
 """
 
 from __future__ import annotations
@@ -310,8 +310,9 @@ class Fold:
         self.plan = Plan(distance)
         self.mapping = [reconstruction.qubit(p, distance) for p in self.plan.coords]
         self.cats = list(
-            range(reconstruction.ancilla, reconstruction.ancilla + (3 if distance == 3 else 5))
+            range(reconstruction.ancilla, reconstruction.ancilla + {3: 3, 5: 5, 7: 8}[distance])
         )
+        self.equal_flag_mask = 63 if distance == 7 else 0
         self.data_index = {q: j for j, q in enumerate(self.mapping)}
         self.cat_index = {q: j for j, q in enumerate(self.cats)}
         self.actions: list[tuple[str, tuple[int, ...]]] = []
@@ -367,7 +368,7 @@ class Fold:
         ideal = stim.TableauSimulator()
         for op in preparation.operations:
             if op.name == "M":
-                if ideal.peek_z(op.targets[0]) != 1:
+                if distance != 7 and ideal.peek_z(op.targets[0]) != 1:
                     raise ValueError("ideal cat flag is not deterministic")
             else:
                 ideal.do(stim.CircuitInstruction(op.name, op.targets))
@@ -380,12 +381,22 @@ class Fold:
                 p[q] = axis
             if ideal.peek_observable_expectation(p) != 1:
                 raise ValueError("preparation is not the declared GHZ state")
+        if distance == 7:
+            flags = [op.targets[0] for op in preparation.operations if op.name == "M"]
+            if len(flags) != 6:
+                raise ValueError("expected six verification qubits")
+            for supports, axis in [(flags, "X")] + [([flags[0], q], "Z") for q in flags[1:]]:
+                p = stim.PauliString(core.width)
+                for q in supports:
+                    p[q] = axis
+                if ideal.peek_observable_expectation(p) != 1:
+                    raise ValueError("verification register is not an independent GHZ state")
 
     def branches(
         self, preparation_faults: int, core_faults: int, decode_faults: int
     ) -> list[tuple[complex, PhaseMonomial]]:
         x, z, flags = self.preparation.evaluate(preparation_faults)
-        if flags:
+        if flags not in (0, self.equal_flag_mask):
             return []
         _, _, records = self.decode.evaluate(decode_faults)
         x = project_mask(x, self.cats)
@@ -453,7 +464,7 @@ class Protocol:
     def __init__(self, distance: int):
         self.reconstruction = Reconstruction(distance).build()
         r = self.reconstruction
-        self.width = r.ancilla + (3 if distance == 3 else 6)
+        self.width = r.ancilla + {3: 3, 5: 6, 7: 14}[distance]
 
         def layout(indices):
             operations = [op for i in indices for op in r.stages[i].operations]
@@ -547,16 +558,20 @@ def syndrome_sector_histories(protocol: Protocol) -> list[tuple[str, list[list[O
     These high-weight histories exercise nonzero measured sectors and growth;
     they have no natural-noise statistical weight in this diagnostic.
     """
-    if protocol.reconstruction.distance != 5:
-        raise ValueError("sector stress fixtures use the d3-to-d5 growth boundary")
+    if protocol.reconstruction.distance not in (5, 7):
+        raise ValueError("sector stress fixtures require a regular-code growth boundary")
     r = protocol.reconstruction
+    after = r.distance
+    before = after - 2
     boundary = next(
         p
         for _, p, _ in protocol.groups
-        if isinstance(p, Boundary) and p.before.distance != p.after.distance
+        if isinstance(p, Boundary) and p.before.distance == before and p.after.distance == after
     )
-    core_index = next(j for j, stage in enumerate(r.stages) if stage.name == "fold_core_d3")
-    syndrome_index = next(j for j, stage in enumerate(r.stages) if stage.name == "syndrome_d5")
+    core_index = next(j for j, stage in enumerate(r.stages) if stage.name == f"fold_core_d{before}")
+    syndrome_index = next(
+        j for j, stage in enumerate(r.stages) if stage.name == f"syndrome_d{after}"
+    )
     core = r.stages[core_index].operations
     last = next(j for j, op in enumerate(core) if op.name == "CCZ")
     control = core[last].targets[0]
@@ -566,7 +581,7 @@ def syndrome_sector_histories(protocol: Protocol) -> list[tuple[str, list[list[O
         for j, op in enumerate(core)
         for piece in ([op, Operation("X", (control,))] if j in {first, last} else [op])
     ]
-    generators = [pauli(5, a, s) for a, s in stabilizers(5)]
+    generators = [pauli(after, a, s) for a, s in stabilizers(after)]
     histories = []
     sectors = [1 << j for j in range(len(boundary.duals))]
     sectors += [
@@ -611,6 +626,33 @@ def syndrome_sector_histories(protocol: Protocol) -> list[tuple[str, list[list[O
     return histories
 
 
+def f7_diagnostic_histories(protocol: Protocol) -> list[tuple[str, list[list[Operation]]]]:
+    """Exercise equality flags and data coordinates beyond a single machine word."""
+    r = protocol.reconstruction
+    if r.distance != 7:
+        raise ValueError("these diagnostics require f7")
+    base = [list(s.operations) for s in r.stages]
+    cases = [("ideal", base)]
+    index = next(j for j, s in enumerate(r.stages) if s.name == "cat_prepare_d7")
+    root = next(
+        j for j, op in enumerate(base[index]) if op.name == "H" and op.targets == (r.ancilla + 8,)
+    )
+    stages = [list(s) for s in base]
+    stages[index].insert(root + 1, Operation("X", (r.ancilla + 8,)))
+    cases.append(("uniform_flag_flip", stages))
+    measured = next(j for j, op in enumerate(base[index]) if op.name == "M")
+    stages = [list(s) for s in base]
+    stages[index].insert(measured, Operation("X", base[index][measured].targets))
+    cases.append(("nonuniform_flag_flip", stages))
+    index = max(j for j, s in enumerate(r.stages) if s.name == "syndrome_d7")
+    last = max(j for j, op in enumerate(base[index]) if 84 in op.targets)
+    for axis in "XYZ":
+        stages = [list(s) for s in base]
+        stages[index].insert(last + 1, Operation(axis, (84,)))
+        cases.append((f"high_data_tail_{axis}", stages))
+    return cases
+
+
 def main():
     from clifford_branches import (
         logical_tail_history,
@@ -620,7 +662,7 @@ def main():
     )
 
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--distance", type=int, choices=(3, 5), required=True)
+    parser.add_argument("--distance", type=int, choices=(3, 5, 7), required=True)
     parser.add_argument("--histories", type=int, default=64)
     parser.add_argument("--probability", type=float, default=0.001)
     parser.add_argument("--stress-histories", type=int, default=0)
@@ -638,8 +680,10 @@ def main():
         (label, stages, 2) for label, stages in paired_hook_histories(protocol.reconstruction)
     ]
     cases.append(("logical_tail", logical_tail_history(protocol.reconstruction), args.distance))
-    if args.distance == 5:
+    if args.distance in (5, 7):
         cases += [(label, stages, None) for label, stages in syndrome_sector_histories(protocol)]
+    if args.distance == 7:
+        cases += [(label, stages, None) for label, stages in f7_diagnostic_histories(protocol)]
     for seed in range(2000, 2000 + args.stress_histories):
         stages, count = materialize(protocol.reconstruction, 0.01, seed)
         cases.append((f"stress_{seed}", stages, count))

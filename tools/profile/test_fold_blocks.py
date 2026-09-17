@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 import numpy as np
 from export_fold_blocks import Exporter
-from fold_blocks import Protocol, syndrome_sector_histories
+from fold_blocks import Protocol, f7_diagnostic_histories, syndrome_sector_histories
 from fold_cultivation import Operation, logical
 
 HAS_CIRQ = importlib.util.find_spec("cirq") is not None
@@ -40,8 +40,14 @@ class BlockTest(unittest.TestCase):
         return result
 
     def test_complete_protocol_fixed_fault_histories(self):
-        for distance in (3, 5):
+        for distance in (3, 5, 7):
             protocol = Protocol(distance)
+            self.assertAlmostEqual(
+                self.compare(
+                    protocol, [list(s.operations) for s in protocol.reconstruction.stages]
+                ).acceptance,
+                1,
+            )
             for seed in (1000, 1005, 1016, 1020, 1043, 1063):
                 stages, _ = materialize(protocol.reconstruction, 0.001, seed)
                 self.compare(protocol, stages)
@@ -52,12 +58,13 @@ class BlockTest(unittest.TestCase):
             np.testing.assert_allclose(result.logical_xyz, [-(2**-0.5), -(2**-0.5), 0], atol=2e-12)
 
     def test_nonzero_sectors_through_growth_retain_leaked_components(self):
-        protocol = Protocol(5)
-        histories = syndrome_sector_histories(protocol)
-        self.assertEqual(len(histories), 2)
-        for _, stages in histories:
-            result = self.compare(protocol, stages)
-            self.assertAlmostEqual(result.acceptance, 0.25)
+        for distance in (5, 7):
+            protocol = Protocol(distance)
+            histories = syndrome_sector_histories(protocol)
+            self.assertEqual(len(histories), 2)
+            for _, stages in histories:
+                result = self.compare(protocol, stages)
+                self.assertAlmostEqual(result.acceptance, 0.25)
 
     def test_faults_on_both_sides_of_injection(self):
         protocol = Protocol(3)
@@ -94,18 +101,19 @@ class BlockTest(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which("c++"), "native diagnostic requires a C++20 compiler")
     def test_generated_native_plan_preserves_full_protocol_outputs(self):
-        protocol = Protocol(5)
+        protocol = Protocol(7)
         r = protocol.reconstruction
         cases = [
             ("ideal", [list(s.operations) for s in r.stages]),
             ("logical_tail", logical_tail_history(r)),
         ]
-        cases += paired_hook_histories(r)[::4] + syndrome_sector_histories(protocol)
+        cases += paired_hook_histories(r)[::4]
+        cases += syndrome_sector_histories(protocol) + f7_diagnostic_histories(protocol)
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "program.cpp"
             executable = Path(directory) / "program"
             metadata = Exporter(protocol).write(cases, source)
-            self.assertEqual(metadata["noise_locations"], 933)
+            self.assertEqual(metadata["noise_locations"], 2205)
             subprocess.run(
                 ["c++", "-std=c++20", "-O2", str(source), "-o", str(executable)],
                 check=True,
@@ -118,6 +126,22 @@ class BlockTest(unittest.TestCase):
             result = json.loads(run.stdout)
             self.assertEqual(result["fixtures"], len(cases))
             self.assertLess(result["max_error"], 2e-12)
+
+    def test_uniform_flag_flip_accepts_and_nonuniform_flip_rejects(self):
+        protocol = Protocol(7)
+        r = protocol.reconstruction
+        stage_index = next(i for i, s in enumerate(r.stages) if s.name == "cat_prepare_d7")
+        original = r.stages[stage_index].operations
+        root_h = next(
+            i for i, op in enumerate(original) if op.name == "H" and op.targets == (r.ancilla + 8,)
+        )
+        stages = [list(s.operations) for s in r.stages]
+        stages[stage_index].insert(root_h + 1, Operation("X", (r.ancilla + 8,)))
+        self.assertAlmostEqual(self.compare(protocol, stages).acceptance, 1)
+        stages = [list(s.operations) for s in r.stages]
+        first_m = next(i for i, op in enumerate(original) if op.name == "M")
+        stages[stage_index].insert(first_m, Operation("X", original[first_m].targets))
+        self.assertEqual(self.compare(protocol, stages).acceptance, 0)
 
 
 if __name__ == "__main__":

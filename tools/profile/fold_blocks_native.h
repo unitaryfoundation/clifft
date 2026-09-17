@@ -16,13 +16,13 @@
 #include <string>
 
 namespace fold_blocks {
-using Mask = uint64_t;
+using Mask = __uint128_t;
 using Complex = std::complex<double>;
-using History = std::array<Mask, 128>;
+using History = std::array<uint64_t, 128>;
 using Pair = std::array<Mask, 2>;
 struct Word {
     unsigned index;
-    Mask mask;
+    uint64_t mask;
 };
 struct Row {
     unsigned offset, size;
@@ -55,7 +55,7 @@ struct Geometry {
 struct Monomial {
     Mask flips = 0, edges = 0;
     unsigned phase = 0;
-    std::array<unsigned, 41> linear{};
+    std::array<unsigned, 85> linear{};
 };
 struct Term {
     double weight = 0;
@@ -68,6 +68,7 @@ struct Action {
 struct Fold {
     const Geometry* geometry;
     unsigned cats;
+    Mask equal_flag_mask;
     Linear preparation;
     Map records;
     std::span<const Action> actions;
@@ -98,7 +99,9 @@ struct Fixture {
 };
 
 inline unsigned parity(Mask value) noexcept {
-    return std::popcount(value) & 1;
+    return (std::popcount(static_cast<uint64_t>(value)) ^
+            std::popcount(static_cast<uint64_t>(value >> 64))) &
+           1;
 }
 inline bool bit(const History& h, int index) noexcept {
     return index >= 0 && ((h[static_cast<unsigned>(index) / 64] >> (index % 64)) & 1);
@@ -155,7 +158,7 @@ inline Monomial compose(const Monomial& after, const Monomial& before, const Geo
 }
 
 class Executor {
-    std::array<Complex, 603> values;
+    std::array<Complex, 2851> values;
     const std::array<Complex, 8> roots = {Complex(1),     Complex(std::sqrt(.5), std::sqrt(.5)),
                                           Complex(0, 1),  Complex(-std::sqrt(.5), std::sqrt(.5)),
                                           Complex(-1),    Complex(-std::sqrt(.5), -std::sqrt(.5)),
@@ -191,7 +194,8 @@ class Executor {
     }
 
     unsigned branches(const Fold& fold, const History& h, std::array<Term, 2>& out) noexcept {
-        if (apply(fold.preparation.records, h))
+        Mask flags = apply(fold.preparation.records, h);
+        if (flags != 0 && flags != fold.equal_flag_mask)
             return 0;
         Mask x = apply(fold.preparation.x, h), z = apply(fold.preparation.z, h);
         Mask records = apply(fold.records, h);
@@ -305,9 +309,9 @@ inline void sample(const Protocol& plan, History& h, std::mt19937_64& rng,
     for (const auto& site : plan.noise)
         if ((rng() >> 11) * 0x1.0p-53 < probability) {
             if (site.flip)
-                h[site.x[0] / 64] ^= Mask(1) << (site.x[0] % 64);
+                h[site.x[0] / 64] ^= uint64_t(1) << (site.x[0] % 64);
             else {
-                Mask n = (Mask(1) << (2 * site.arity)) - 1, threshold = -n % n, draw;
+                uint64_t n = (uint64_t(1) << (2 * site.arity)) - 1, threshold = -n % n, draw;
                 do {
                     draw = rng();
                 } while (draw < threshold);
@@ -316,9 +320,9 @@ inline void sample(const Protocol& plan, History& h, std::mt19937_64& rng,
                     unsigned p = draw & 3;
                     draw >>= 2;
                     if (p == 1 || p == 2)
-                        h[site.x[q] / 64] ^= Mask(1) << (site.x[q] % 64);
+                        h[site.x[q] / 64] ^= uint64_t(1) << (site.x[q] % 64);
                     if (p == 2 || p == 3)
-                        h[site.z[q] / 64] ^= Mask(1) << (site.z[q] % 64);
+                        h[site.z[q] / 64] ^= uint64_t(1) << (site.z[q] % 64);
                 }
             }
         }

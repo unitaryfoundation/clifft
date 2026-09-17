@@ -6,7 +6,14 @@ import argparse
 import json
 from pathlib import Path
 
-from fold_blocks import Boundary, Fold, Protocol, project_mask, syndrome_sector_histories
+from fold_blocks import (
+    Boundary,
+    Fold,
+    Protocol,
+    f7_diagnostic_histories,
+    project_mask,
+    syndrome_sector_histories,
+)
 from fold_contraction import Plan
 
 
@@ -31,7 +38,9 @@ class Exporter:
         if offset > 128 * 64:
             raise ValueError("native diagnostic fault capacity exceeded")
         self.fault_bits = offset
-        self.geometries = {d: self.geometry(Plan(d)) for d in (3, 5)}
+        self.geometries = {
+            d: self.geometry(Plan(d)) for d in (3, 5, 7) if d <= protocol.reconstruction.distance
+        }
 
     def array(self, kind, values):
         name = f"data_{self.counter}"
@@ -43,8 +52,10 @@ class Exporter:
 
     @staticmethod
     def mask(value):
-        if not 0 <= value < 1 << 64:
-            raise ValueError("native mask exceeds one word")
+        if not 0 <= value < 1 << 128:
+            raise ValueError("native mask exceeds two words")
+        if value >= 1 << 64:
+            return f"((Mask({value >> 64}ULL)<<64)|{value & ((1 << 64) - 1)}ULL)"
         return f"{value}ULL"
 
     def masks(self, values):
@@ -60,8 +71,8 @@ class Exporter:
         offset = self.offsets[id(layout)]
         words: list[str] = []
         spans: list[str] = []
-        if len(rows) > 64:
-            raise ValueError("native map result exceeds one word")
+        if len(rows) > 128:
+            raise ValueError("native map result exceeds two words")
         for row in rows:
             row <<= offset
             start = len(words)
@@ -86,7 +97,7 @@ class Exporter:
         )
 
     def geometry(self, plan):
-        if plan.width > 41 or plan.storage > 603:
+        if plan.width > 85 or plan.storage > 2851:
             raise ValueError("native diagnostic state capacity exceeded")
         leaves = self.array(
             "Leaf", [f"{{{leaf.offset},{len(leaf.multipliers[0])}}}" for leaf in plan.leaves]
@@ -155,6 +166,7 @@ class Exporter:
             [
                 "&" + self.geometries[plan.plan.distance],
                 len(plan.cats),
+                self.mask(plan.equal_flag_mask),
                 self.linear(plan.preparation, plan.cats),
                 self.mapping(plan.decode.records, plan.decode.layout),
                 self.array("Action", actions),
@@ -241,15 +253,17 @@ def main():
     from clifford_branches import logical_tail_history, materialize, paired_hook_histories
 
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--distance", type=int, choices=(3, 5), required=True)
+    parser.add_argument("--distance", type=int, choices=(3, 5, 7), required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     protocol = Protocol(args.distance)
     r = protocol.reconstruction
     cases = [(str(seed), materialize(r, 0.001, seed)[0]) for seed in range(1000, 1064)]
     cases += paired_hook_histories(r) + [("logical_tail", logical_tail_history(r))]
-    if args.distance == 5:
+    if args.distance in (5, 7):
         cases += syndrome_sector_histories(protocol)
+    if args.distance == 7:
+        cases += f7_diagnostic_histories(protocol)
     cases += [(f"stress_{seed}", materialize(r, 0.01, seed)[0]) for seed in range(2000, 2032)]
     print(json.dumps(Exporter(protocol).write(cases, args.output), indent=2))
 
