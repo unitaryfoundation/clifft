@@ -1,15 +1,26 @@
 # Representation study checkpoint
 
-Latest: [the parsed-region adapter study](fold_adapter.md) replaces per-schedule
+Latest: [the large-fold frame study](fold_frames.md) screens fixed frames on
+702 f7 checkpoints without a dense large-state allocation. One ideal-trained
+frame bounds ordinary sampled histories at bond 96, but legal multiple-hook
+histories reach upper bound 10,240 and a certified lower bound 1,024. Small
+per-history affine covers also vary: their conservative union reaches 44
+directions. The full and final focused suites cover 104 passing research tests.
+Keep compiled logical blocks as the leading implementation. A next bounded
+frame experiment should factor out known common Clifford hook corrections
+using offline descriptors, then measure native update costs and any composition
+benefit. Do not start generic adaptive CAMPS or runtime basis discovery.
+
+[The parsed-region adapter study](fold_adapter.md) replaces per-schedule
 C++ builds with circuit-derived data plans and one reusable native worker.
 A held-out shuffled-syndrome/changed-growth f7 circuit passes 200 independent
 fixed-history comparisons and sustains 45.99 us/attempt with full survivor
 outputs. There are 93 distinct passing research tests and sanitizer checks.
 The adapter retains canonical wire labels and the fixed fold/stage skeleton;
 all eight non-one-round corpus circuits decline. The schedule-catalog gap is
-closed within that scope, but broader physics coverage remains open. Next return
-to the deferred Clifford-frame/tensor screen on large fold residuals, before
-extending frontend plumbing or proposing production integration.
+closed within that scope, but broader physics coverage remains open. The
+subsequent frame study tests large fold states before extending frontend
+plumbing or proposing production integration.
 
 [The growth-implementation study](fold_growth.md) adds a local CSS-dual
 growth encoder, alone and combined with changed syndrome ordering. Both pass
@@ -31,8 +42,8 @@ No production dispatcher or live-state handoff has been added.
 
 [The bounded alternatives study](alternatives.md) records the native
 Pauli-proxy comparison and the five-round Clifford-frame screen. Logical blocks
-remain the leading integration candidate; a frame/tensor study on large fold
-residuals remains open.
+remain the leading integration candidate. The large-fold follow-up now tests
+fixed frames; generic adaptive frames and a tensor executor remain unmeasured.
 
 The current candidate is named **compiled logical-block simulation**. Research
 recognition and output composition have passed the bounded integration screen;
@@ -65,7 +76,7 @@ The reproducible checkpoint is commit `ce702482` on
   It lacks final-error-correction decoding and a general residual-state handoff.
   The circuit is paper-guided, not verified equivalent to an authors' artifact.
 
-The subsequent alternatives, eligibility, schedule, growth, and adapter reports complete the
+The subsequent alternatives, eligibility, schedule, growth, adapter, and frame reports complete the
 bounded steps from that checkpoint. Do not start a general representation-
 switching framework or optimize SIMD first. Syndrome-region certification now
 supports unseen orderings derived from parsed input. The final whole-body match
