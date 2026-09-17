@@ -1,5 +1,10 @@
 # Fault-conditioned compilation: a low-reuse opportunity
 
+**Scope update:** the user's target is sustained sampling of large residual
+states, not few-shot latency. The measurements below remain valid, but the
+low-reuse follow-up recommendation is outside the current study. Continue with
+[whole-check representations and the large-circuit corpus](fold_check.md).
+
 The second experiment for [the representation study](https://github.com/unitaryfoundation/clifft/issues/495)
 finds a narrow positive result: **sampling one or a few cultivation shots from
 a fresh circuit can be faster after resolving its physical Pauli faults**.

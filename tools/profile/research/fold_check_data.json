@@ -1,0 +1,48 @@
+{
+  "scope": "isolated product-input fold-check controls; not full cultivation benchmarks",
+  "source": "https://arxiv.org/html/2609.16929v1#A1",
+  "source_equations": "183, 190-194; Table 4",
+  "baseline_commit": "c70b7f65",
+  "checks": [
+    {
+      "distance": 3,
+      "data_qubits": 13,
+      "cat_qubits": 3,
+      "controlled_factors": 9,
+      "t_count": 38,
+      "kraus_clifford_terms_bound": 2,
+      "control_sha256": "6213a3c7783968742a04f8f9e3f98b8082820042eedd797390da7945534238ad",
+      "native_peak_width": 14,
+      "native_executable_actions": 39,
+      "sampled_shots": 64
+    },
+    {
+      "distance": 5,
+      "data_qubits": 41,
+      "cat_qubits": 5,
+      "controlled_factors": 25,
+      "t_count": 130,
+      "kraus_clifford_terms_bound": 2,
+      "control_sha256": "0679e739cd1450b44aaf5903e849e8fe595653a594f8d7b96a53dbaf4d20ee7f",
+      "native_peak_width": 42,
+      "native_executable_actions": 121,
+      "sampled_shots": 0
+    },
+    {
+      "distance": 7,
+      "data_qubits": 85,
+      "cat_qubits": 8,
+      "controlled_factors": 49,
+      "t_count": 278,
+      "kraus_clifford_terms_bound": 2,
+      "control_sha256": "242ed4c5631e44da5795628084ececeb3ef928d248463c37a3ad6463fecab3c9",
+      "native_planner_error": "sampling planner active width would reach 60, but the dense-state limit is 60"
+    }
+  ],
+  "validation": {
+    "reference": "Qiskit Aer 0.17.2",
+    "complete_kraus_cases": 153,
+    "full_d3_dense_input_cases": 2,
+    "absolute_tolerance": 2e-14
+  }
+}
