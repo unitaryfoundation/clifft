@@ -1,6 +1,24 @@
 # Representation study checkpoint
 
-Latest: [the actual MSC gadget coverage study](msc_gadgets.md) certifies a
+Latest: [the full original-MSC composition check](msc_protocol.md) evaluates
+complete fixed histories of the actual d3/d5 benchmark circuits, retaining
+physical noise, true versus reported outcomes, reset trajectories, growth,
+feedforward and every detector/observable parity. Across 95 histories, d3
+matches elementary-gate Aer and d5 matches elementary-gate Clifft; 4,412
+conditional probabilities agree within 4.39e-15 and 51 d5 joint log probabilities
+within 4.27e-14. Stim independently checks every output parity. Legal logical-Z
+tails pass all detectors and retain observable one. Eight new tests pass.
+
+This is an offline coherent-stabilizer composition reference, with observed
+peak eight terms and structural bounds eight/sixteen for d3/d5. It is not a
+native logical-block sampler or a static boundary certificate. Next: derive
+signed code-boundary/fault maps for the actual syndrome and growth intervals,
+including nonzero sectors and feedforward, using the full evaluator as oracle.
+Do not introduce runtime tableau planning. No new throughput claim; f7 remains
+the large-state target. The exploratory full d5 Aer MPS run was interrupted;
+full-d5 external quantum-state validation remains a limitation.
+
+[The actual MSC gadget coverage study](msc_gadgets.md) certifies a
 different physical family in the original d3/d5 benchmark inputs. Five
 T-conjugated measurement/reset regions reduce to two Clifford monomials,
 covering 28/29 and 90/91 physical T gates. Fixed Pauli faults, both true
@@ -8,12 +26,9 @@ outcomes, ancilla records, wire relabeling, and ideal signed code boundaries
 are independently checked. Seven focused tests pass. The original inputs and
 license are preserved in `../fixtures/msc/` with provenance and hashes.
 
-Next: extend this local instrument result to complete fixed-history evaluation
-of original MSC d3, then d5, including the actual syndrome/growth regions,
-feedforward, detector/observable parity and noisy nonzero sectors. This is
-composition coverage, not a change in focus to small states. Reconstructed
-f7 remains the large-state target. There is no new whole-circuit sampler or
-throughput claim, and both corpus inputs still decline the existing adapter.
+The full-protocol study above extends this local result to complete fixed
+histories. These are composition controls; reconstructed f7 remains the
+large-state target. Both corpus inputs still decline the existing fold adapter.
 The available original cultivation generator supports only d3/d5, not MSC7.
 
 [The compiled measurement-bridge study](frame_bridge.md) closes the

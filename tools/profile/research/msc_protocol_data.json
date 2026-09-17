@@ -1,0 +1,4439 @@
+{
+  "schema": 1,
+  "circuits": [
+    {
+      "distance": 3,
+      "physical_qubits": 15,
+      "physical_noise_sites_including_readout": 518,
+      "record_count": 21,
+      "detector_count": 20,
+      "quantum_measurements_including_resets": 48,
+      "feedforward_operations": 0,
+      "cases": [
+        {
+          "faults": [],
+          "outcomes": "011101110000000000100000000001010000000000000000",
+          "records": "000000000000000000000",
+          "detectors": "00000000000000000000",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 4,
+          "gadget_exit_terms": [
+            2,
+            2
+          ],
+          "log_probability": -11.78350206951907,
+          "max_conditional_error": 5.551115123125783e-16,
+          "oracle": "Aer statevector",
+          "name": "ideal",
+          "seed": 25100
+        },
+        {
+          "faults": [
+            [
+              509,
+              "Z"
+            ],
+            [
+              510,
+              "Z"
+            ],
+            [
+              513,
+              "Z"
+            ],
+            [
+              514,
+              "Z"
+            ],
+            [
+              515,
+              "Z"
+            ],
+            [
+              516,
+              "Z"
+            ],
+            [
+              517,
+              "Z"
+            ]
+          ],
+          "outcomes": "100101101000000010000000000101001000000001000000",
+          "records": "000000000000001000000",
+          "detectors": "00000000000000000000",
+          "observables": {
+            "0": 1
+          },
+          "peak_terms": 4,
+          "gadget_exit_terms": [
+            2,
+            2
+          ],
+          "log_probability": -11.78350206951907,
+          "max_conditional_error": 6.661338147750939e-16,
+          "oracle": "Aer statevector",
+          "name": "logical_z_tail",
+          "seed": 25101
+        },
+        {
+          "faults": [
+            [
+              404,
+              "X"
+            ]
+          ],
+          "outcomes": "110010010000000000100000000001011000000000000000",
+          "records": "000000000000000000000",
+          "detectors": "00000000000000000000",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 4,
+          "gadget_exit_terms": [
+            2,
+            2
+          ],
+          "log_probability": -11.78350206951907,
+          "max_conditional_error": 5.551115123125783e-16,
+          "oracle": "Aer statevector",
+          "name": "reset_erased_X",
+          "seed": 25102
+        },
+        {
+          "faults": [
+            [
+              404,
+              "Y"
+            ]
+          ],
+          "outcomes": "000101000000000010000000000001011010000000000000",
+          "records": "000000000000000000000",
+          "detectors": "00000000000000000000",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 4,
+          "gadget_exit_terms": [
+            2,
+            2
+          ],
+          "log_probability": -11.78350206951907,
+          "max_conditional_error": 9.992007221626409e-16,
+          "oracle": "Aer statevector",
+          "name": "reset_erased_Y",
+          "seed": 25103
+        },
+        {
+          "faults": [
+            [
+              404,
+              "Z"
+            ]
+          ],
+          "outcomes": "110111001000000010100000000001000010000000000000",
+          "records": "000000000000000000000",
+          "detectors": "00000000000000000000",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 4,
+          "gadget_exit_terms": [
+            2,
+            2
+          ],
+          "log_probability": -11.78350206951907,
+          "max_conditional_error": 4.440892098500626e-16,
+          "oracle": "Aer statevector",
+          "name": "reset_erased_Z",
+          "seed": 25104
+        },
+        {
+          "faults": [
+            [
+              403,
+              "flip"
+            ]
+          ],
+          "outcomes": "110010101100000000000000000100000000000000000000",
+          "records": "000000010000000000000",
+          "detectors": "00000001001000101010",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 4,
+          "gadget_exit_terms": [
+            2,
+            2
+          ],
+          "log_probability": -11.78350206951907,
+          "max_conditional_error": 5.551115123125783e-16,
+          "oracle": "Aer statevector",
+          "name": "root_readout_flip",
+          "seed": 25105
+        },
+        {
+          "faults": [
+            [
+              349,
+              "Y"
+            ]
+          ],
+          "outcomes": "100101001100000000100000000000001000000000000000",
+          "records": "000000000000000000000",
+          "detectors": "00000000000000000000",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 4,
+          "gadget_exit_terms": [
+            2,
+            2
+          ],
+          "log_probability": -11.78350206951907,
+          "max_conditional_error": 1.1102230246251565e-15,
+          "oracle": "Aer statevector",
+          "name": "gadget_spectator_Y",
+          "seed": 25106
+        },
+        {
+          "faults": [
+            [
+              355,
+              "YZ"
+            ]
+          ],
+          "outcomes": "100011110100000011000000000100010110010000011010",
+          "records": "000000010010000011010",
+          "detectors": "00000001000000110000",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 4,
+          "gadget_exit_terms": [
+            2,
+            2
+          ],
+          "log_probability": -12.476649250079015,
+          "max_conditional_error": 8.881784197001252e-16,
+          "oracle": "Aer statevector",
+          "name": "gadget_pair_YZ",
+          "seed": 25107
+        },
+        {
+          "faults": [],
+          "outcomes": "101001010000000011000000000101000000000000000000",
+          "records": "000000000000000000000",
+          "detectors": "00000000000000000000",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 4,
+          "gadget_exit_terms": [
+            2,
+            2
+          ],
+          "log_probability": -11.78350206951907,
+          "max_conditional_error": 1.2212453270876722e-15,
+          "oracle": "Aer statevector",
+          "name": "natural_0",
+          "seed": 25108
+        },
+        {
+          "faults": [],
+          "outcomes": "110101111100000001100000000101010000000000000000",
+          "records": "000000000000000000000",
+          "detectors": "00000000000000000000",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 4,
+          "gadget_exit_terms": [
+            2,
+            2
+          ],
+          "log_probability": -11.78350206951907,
+          "max_conditional_error": 6.661338147750939e-16,
+          "oracle": "Aer statevector",
+          "name": "natural_1",
+          "seed": 25109
+        },
+        {
+          "faults": [
+            [
+              403,
+              "flip"
+            ]
+          ],
+          "outcomes": "000000111000000001100000000101011000000000000000",
+          "records": "000000010000000000000",
+          "detectors": "00000001001000101010",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 4,
+          "gadget_exit_terms": [
+            2,
+            2
+          ],
+          "log_probability": -11.78350206951907,
+          "max_conditional_error": 4.440892098500626e-16,
+          "oracle": "Aer statevector",
+          "name": "natural_2",
+          "seed": 25110
+        },
+        {
+          "faults": [],
+          "outcomes": "100011111100000001000000000001000000000000000000",
+          "records": "000000000000000000000",
+          "detectors": "00000000000000000000",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 4,
+          "gadget_exit_terms": [
+            2,
+            2
+          ],
+          "log_probability": -11.78350206951907,
+          "max_conditional_error": 4.440892098500626e-16,
+          "oracle": "Aer statevector",
+          "name": "natural_3",
+          "seed": 25111
+        },
+        {
+          "faults": [],
+          "outcomes": "111001011100000011000000000100011000000000000000",
+          "records": "000000000000000000000",
+          "detectors": "00000000000000000000",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 4,
+          "gadget_exit_terms": [
+            2,
+            2
+          ],
+          "log_probability": -11.78350206951907,
+          "max_conditional_error": 1.2212453270876722e-15,
+          "oracle": "Aer statevector",
+          "name": "natural_4",
+          "seed": 25112
+        },
+        {
+          "faults": [],
+          "outcomes": "100110111000000011100000000100000000000000000000",
+          "records": "000000000000000000000",
+          "detectors": "00000000000000000000",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 4,
+          "gadget_exit_terms": [
+            2,
+            2
+          ],
+          "log_probability": -11.78350206951907,
+          "max_conditional_error": 7.771561172376096e-16,
+          "oracle": "Aer statevector",
+          "name": "natural_5",
+          "seed": 25113
+        },
+        {
+          "faults": [],
+          "outcomes": "000000010100000001100000000100011000000000000000",
+          "records": "000000000000000000000",
+          "detectors": "00000000000000000000",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 4,
+          "gadget_exit_terms": [
+            2,
+            2
+          ],
+          "log_probability": -11.78350206951907,
+          "max_conditional_error": 7.771561172376096e-16,
+          "oracle": "Aer statevector",
+          "name": "natural_6",
+          "seed": 25114
+        },
+        {
+          "faults": [],
+          "outcomes": "001100000100000010100000000100011000000000000000",
+          "records": "000000000000000000000",
+          "detectors": "00000000000000000000",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 4,
+          "gadget_exit_terms": [
+            2,
+            2
+          ],
+          "log_probability": -11.78350206951907,
+          "max_conditional_error": 7.771561172376096e-16,
+          "oracle": "Aer statevector",
+          "name": "natural_7",
+          "seed": 25115
+        },
+        {
+          "faults": [],
+          "outcomes": "010111110000000011000000000000001000000000000000",
+          "records": "000000000000000000000",
+          "detectors": "00000000000000000000",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 4,
+          "gadget_exit_terms": [
+            2,
+            2
+          ],
+          "log_probability": -11.78350206951907,
+          "max_conditional_error": 8.881784197001252e-16,
+          "oracle": "Aer statevector",
+          "name": "natural_8",
+          "seed": 25116
+        },
+        {
+          "faults": [
+            [
+              330,
+              "Z"
+            ]
+          ],
+          "outcomes": "000110100100000011100000000101001110010011101010",
+          "records": "000000010010011101010",
+          "detectors": "00000001000001000000",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 4,
+          "gadget_exit_terms": [
+            2,
+            2
+          ],
+          "log_probability": -11.78350206951907,
+          "max_conditional_error": 1.1102230246251565e-15,
+          "oracle": "Aer statevector",
+          "name": "natural_9",
+          "seed": 25117
+        },
+        {
+          "faults": [],
+          "outcomes": "101111110100000000000000000101011000000000000000",
+          "records": "000000000000000000000",
+          "detectors": "00000000000000000000",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 4,
+          "gadget_exit_terms": [
+            2,
+            2
+          ],
+          "log_probability": -11.78350206951907,
+          "max_conditional_error": 4.440892098500626e-16,
+          "oracle": "Aer statevector",
+          "name": "natural_10",
+          "seed": 25118
+        },
+        {
+          "faults": [
+            [
+              139,
+              "Y"
+            ],
+            [
+              418,
+              "Y"
+            ]
+          ],
+          "outcomes": "001001110100000000000000000100000001100000000011",
+          "records": "000000001100000000011",
+          "detectors": "00000000110000000011",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 4,
+          "gadget_exit_terms": [
+            2,
+            2
+          ],
+          "log_probability": -12.476649250079015,
+          "max_conditional_error": 8.881784197001252e-16,
+          "oracle": "Aer statevector",
+          "name": "natural_11",
+          "seed": 25119
+        },
+        {
+          "faults": [],
+          "outcomes": "111100011100000011100000000100011000000000000000",
+          "records": "000000000000000000000",
+          "detectors": "00000000000000000000",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 4,
+          "gadget_exit_terms": [
+            2,
+            2
+          ],
+          "log_probability": -11.78350206951907,
+          "max_conditional_error": 1.2212453270876722e-15,
+          "oracle": "Aer statevector",
+          "name": "natural_12",
+          "seed": 25120
+        },
+        {
+          "faults": [],
+          "outcomes": "101101011000000010100000000001010000000000000000",
+          "records": "000000000000000000000",
+          "detectors": "00000000000000000000",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 4,
+          "gadget_exit_terms": [
+            2,
+            2
+          ],
+          "log_probability": -11.78350206951907,
+          "max_conditional_error": 4.440892098500626e-16,
+          "oracle": "Aer statevector",
+          "name": "natural_13",
+          "seed": 25121
+        },
+        {
+          "faults": [],
+          "outcomes": "110111110100000010000000000101011000000000000000",
+          "records": "000000000000000000000",
+          "detectors": "00000000000000000000",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 4,
+          "gadget_exit_terms": [
+            2,
+            2
+          ],
+          "log_probability": -11.78350206951907,
+          "max_conditional_error": 4.440892098500626e-16,
+          "oracle": "Aer statevector",
+          "name": "natural_14",
+          "seed": 25122
+        },
+        {
+          "faults": [],
+          "outcomes": "001000110100000001000000000000000000000000000000",
+          "records": "000000000000000000000",
+          "detectors": "00000000000000000000",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 4,
+          "gadget_exit_terms": [
+            2,
+            2
+          ],
+          "log_probability": -11.78350206951907,
+          "max_conditional_error": 7.771561172376096e-16,
+          "oracle": "Aer statevector",
+          "name": "natural_15",
+          "seed": 25123
+        },
+        {
+          "faults": [],
+          "outcomes": "100110111000000000000000000101001000000000000000",
+          "records": "000000000000000000000",
+          "detectors": "00000000000000000000",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 4,
+          "gadget_exit_terms": [
+            2,
+            2
+          ],
+          "log_probability": -11.78350206951907,
+          "max_conditional_error": 4.440892098500626e-16,
+          "oracle": "Aer statevector",
+          "name": "natural_16",
+          "seed": 25124
+        },
+        {
+          "faults": [],
+          "outcomes": "100110111100000010000000000000000000000000000000",
+          "records": "000000000000000000000",
+          "detectors": "00000000000000000000",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 4,
+          "gadget_exit_terms": [
+            2,
+            2
+          ],
+          "log_probability": -11.78350206951907,
+          "max_conditional_error": 4.440892098500626e-16,
+          "oracle": "Aer statevector",
+          "name": "natural_17",
+          "seed": 25125
+        },
+        {
+          "faults": [
+            [
+              43,
+              "Z"
+            ]
+          ],
+          "outcomes": "010110101100000011000000000001001000000000000000",
+          "records": "000000000000000000000",
+          "detectors": "00000000000000000000",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 4,
+          "gadget_exit_terms": [
+            2,
+            2
+          ],
+          "log_probability": -11.78350206951907,
+          "max_conditional_error": 5.551115123125783e-16,
+          "oracle": "Aer statevector",
+          "name": "natural_18",
+          "seed": 25126
+        },
+        {
+          "faults": [],
+          "outcomes": "111111011100000000100000000001001000000000000000",
+          "records": "000000000000000000000",
+          "detectors": "00000000000000000000",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 4,
+          "gadget_exit_terms": [
+            2,
+            2
+          ],
+          "log_probability": -11.78350206951907,
+          "max_conditional_error": 1.3322676295501878e-15,
+          "oracle": "Aer statevector",
+          "name": "natural_19",
+          "seed": 25127
+        },
+        {
+          "faults": [],
+          "outcomes": "100010100000000001000000000101011000000000000000",
+          "records": "000000000000000000000",
+          "detectors": "00000000000000000000",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 4,
+          "gadget_exit_terms": [
+            2,
+            2
+          ],
+          "log_probability": -11.78350206951907,
+          "max_conditional_error": 4.440892098500626e-16,
+          "oracle": "Aer statevector",
+          "name": "natural_20",
+          "seed": 25128
+        },
+        {
+          "faults": [],
+          "outcomes": "001010100100000011000000000001001000000000000000",
+          "records": "000000000000000000000",
+          "detectors": "00000000000000000000",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 4,
+          "gadget_exit_terms": [
+            2,
+            2
+          ],
+          "log_probability": -11.78350206951907,
+          "max_conditional_error": 1.3322676295501878e-15,
+          "oracle": "Aer statevector",
+          "name": "natural_21",
+          "seed": 25129
+        },
+        {
+          "faults": [
+            [
+              93,
+              "Y"
+            ],
+            [
+              309,
+              "flip"
+            ],
+            [
+              456,
+              "Z"
+            ]
+          ],
+          "outcomes": "100110011100000011100000000000000000010101101010",
+          "records": "000000100010101101010",
+          "detectors": "00000011001010101010",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 4,
+          "gadget_exit_terms": [
+            2,
+            2
+          ],
+          "log_probability": -11.78350206951907,
+          "max_conditional_error": 6.661338147750939e-16,
+          "oracle": "Aer statevector",
+          "name": "natural_22",
+          "seed": 25130
+        },
+        {
+          "faults": [],
+          "outcomes": "011101110100000010000000000100001000000000000000",
+          "records": "000000000000000000000",
+          "detectors": "00000000000000000000",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 4,
+          "gadget_exit_terms": [
+            2,
+            2
+          ],
+          "log_probability": -11.78350206951907,
+          "max_conditional_error": 9.992007221626409e-16,
+          "oracle": "Aer statevector",
+          "name": "natural_23",
+          "seed": 25131
+        },
+        {
+          "faults": [
+            [
+              58,
+              "Z"
+            ],
+            [
+              497,
+              "flip"
+            ],
+            [
+              504,
+              "Y"
+            ]
+          ],
+          "outcomes": "100000010100000001000000101100100000000000001000",
+          "records": "000010101000000001000",
+          "detectors": "00001011100000001000",
+          "observables": {
+            "0": 1
+          },
+          "peak_terms": 4,
+          "gadget_exit_terms": [
+            2,
+            2
+          ],
+          "log_probability": -11.78350206951907,
+          "max_conditional_error": 8.881784197001252e-16,
+          "oracle": "Aer statevector",
+          "name": "stress_0",
+          "seed": 25132
+        },
+        {
+          "faults": [
+            [
+              61,
+              "Z"
+            ],
+            [
+              65,
+              "ZY"
+            ],
+            [
+              92,
+              "Y"
+            ],
+            [
+              108,
+              "Y"
+            ],
+            [
+              461,
+              "ZX"
+            ]
+          ],
+          "outcomes": "101100110000010010001000101101101000001001000000",
+          "records": "100010100001001000000",
+          "detectors": "10001011000100000000",
+          "observables": {
+            "0": 1
+          },
+          "peak_terms": 8,
+          "gadget_exit_terms": [
+            4,
+            4
+          ],
+          "log_probability": -13.16979643063896,
+          "max_conditional_error": 1.2212453270876722e-15,
+          "oracle": "Aer statevector",
+          "name": "stress_1",
+          "seed": 25133
+        },
+        {
+          "faults": [
+            [
+              245,
+              "Z"
+            ]
+          ],
+          "outcomes": "100100001100000001000000010011001000000000000000",
+          "records": "000001000000000000000",
+          "detectors": "00000101000000000000",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 4,
+          "gadget_exit_terms": [
+            2,
+            2
+          ],
+          "log_probability": -11.78350206951907,
+          "max_conditional_error": 4.440892098500626e-16,
+          "oracle": "Aer statevector",
+          "name": "stress_2",
+          "seed": 25134
+        },
+        {
+          "faults": [
+            [
+              13,
+              "Y"
+            ],
+            [
+              20,
+              "X"
+            ],
+            [
+              45,
+              "X"
+            ],
+            [
+              255,
+              "Y"
+            ],
+            [
+              260,
+              "IZ"
+            ],
+            [
+              306,
+              "flip"
+            ],
+            [
+              400,
+              "Y"
+            ],
+            [
+              422,
+              "X"
+            ],
+            [
+              510,
+              "Y"
+            ]
+          ],
+          "outcomes": "101101011100000010101000110010100000100000001111",
+          "records": "100111000100000001111",
+          "detectors": "10011101010000001111",
+          "observables": {
+            "0": 1
+          },
+          "peak_terms": 4,
+          "gadget_exit_terms": [
+            2,
+            4
+          ],
+          "log_probability": -13.16979643063896,
+          "max_conditional_error": 4.440892098500626e-16,
+          "oracle": "Aer statevector",
+          "name": "stress_3",
+          "seed": 25135
+        },
+        {
+          "faults": [
+            [
+              15,
+              "ZX"
+            ],
+            [
+              53,
+              "IX"
+            ],
+            [
+              193,
+              "Y"
+            ],
+            [
+              245,
+              "X"
+            ],
+            [
+              287,
+              "X"
+            ]
+          ],
+          "outcomes": "000011001000000000001001111010100000000000011000",
+          "records": "100111100000000011000",
+          "detectors": "10011110000000011000",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 8,
+          "gadget_exit_terms": [
+            4,
+            4
+          ],
+          "log_probability": -13.16979643063896,
+          "max_conditional_error": 8.881784197001252e-16,
+          "oracle": "Aer statevector",
+          "name": "stress_4",
+          "seed": 25136
+        },
+        {
+          "faults": [
+            [
+              85,
+              "X"
+            ],
+            [
+              206,
+              "Z"
+            ],
+            [
+              282,
+              "ZY"
+            ],
+            [
+              300,
+              "X"
+            ],
+            [
+              413,
+              "Z"
+            ],
+            [
+              447,
+              "X"
+            ]
+          ],
+          "outcomes": "011111000100000010000010000100010000000101011010",
+          "records": "001000000000101011010",
+          "detectors": "00100000000010011010",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 8,
+          "gadget_exit_terms": [
+            4,
+            4
+          ],
+          "log_probability": -13.862943611198906,
+          "max_conditional_error": 8.881784197001252e-16,
+          "oracle": "Aer statevector",
+          "name": "stress_5",
+          "seed": 25137
+        },
+        {
+          "faults": [
+            [
+              354,
+              "X"
+            ]
+          ],
+          "outcomes": "101101001000000010100000000101001000000000000000",
+          "records": "000000000000000000000",
+          "detectors": "00000000000000000000",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 4,
+          "gadget_exit_terms": [
+            2,
+            2
+          ],
+          "log_probability": -11.78350206951907,
+          "max_conditional_error": 8.881784197001252e-16,
+          "oracle": "Aer statevector",
+          "name": "stress_6",
+          "seed": 25138
+        },
+        {
+          "faults": [
+            [
+              310,
+              "X"
+            ],
+            [
+              325,
+              "Z"
+            ],
+            [
+              387,
+              "Y"
+            ],
+            [
+              414,
+              "Y"
+            ],
+            [
+              510,
+              "Y"
+            ]
+          ],
+          "outcomes": "100000101000000010000000000100000110110001001100",
+          "records": "000000010110001001100",
+          "detectors": "00000001010000100110",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 4,
+          "gadget_exit_terms": [
+            2,
+            4
+          ],
+          "log_probability": -14.556090791758852,
+          "max_conditional_error": 4.440892098500626e-16,
+          "oracle": "Aer statevector",
+          "name": "stress_7",
+          "seed": 25139
+        },
+        {
+          "faults": [
+            [
+              252,
+              "Y"
+            ],
+            [
+              287,
+              "X"
+            ],
+            [
+              314,
+              "Y"
+            ],
+            [
+              466,
+              "Y"
+            ]
+          ],
+          "outcomes": "000010001000000001100001000001100000000000000000",
+          "records": "000100000000000000000",
+          "detectors": "00010000000000000000",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 4,
+          "gadget_exit_terms": [
+            2,
+            2
+          ],
+          "log_probability": -11.78350206951907,
+          "max_conditional_error": 1.3322676295501878e-15,
+          "oracle": "Aer statevector",
+          "name": "stress_8",
+          "seed": 25140
+        },
+        {
+          "faults": [
+            [
+              6,
+              "Z"
+            ],
+            [
+              176,
+              "X"
+            ],
+            [
+              270,
+              "YI"
+            ],
+            [
+              337,
+              "Z"
+            ],
+            [
+              388,
+              "Z"
+            ],
+            [
+              405,
+              "Z"
+            ],
+            [
+              465,
+              "X"
+            ]
+          ],
+          "outcomes": "001110111000000000001000101100111111110011001011",
+          "records": "100010111110011001011",
+          "detectors": "10001010110001100001",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 8,
+          "gadget_exit_terms": [
+            4,
+            4
+          ],
+          "log_probability": -13.862943611198906,
+          "max_conditional_error": 6.661338147750939e-16,
+          "oracle": "Aer statevector",
+          "name": "stress_9",
+          "seed": 25141
+        },
+        {
+          "faults": [
+            [
+              185,
+              "X"
+            ],
+            [
+              215,
+              "XX"
+            ],
+            [
+              370,
+              "X"
+            ],
+            [
+              388,
+              "Y"
+            ],
+            [
+              441,
+              "Z"
+            ],
+            [
+              450,
+              "Y"
+            ],
+            [
+              502,
+              "flip"
+            ]
+          ],
+          "outcomes": "100010010100000001100100000000011111100011011000",
+          "records": "010000011100001011000",
+          "detectors": "01000001111000110010",
+          "observables": {
+            "0": 1
+          },
+          "peak_terms": 8,
+          "gadget_exit_terms": [
+            4,
+            4
+          ],
+          "log_probability": -13.16979643063896,
+          "max_conditional_error": 9.992007221626409e-16,
+          "oracle": "Aer statevector",
+          "name": "stress_10",
+          "seed": 25142
+        },
+        {
+          "faults": [
+            [
+              348,
+              "Y"
+            ]
+          ],
+          "outcomes": "000001000000000011000000000100000000001000000000",
+          "records": "000000000001000000000",
+          "detectors": "00000000000100000000",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 4,
+          "gadget_exit_terms": [
+            2,
+            2
+          ],
+          "log_probability": -11.78350206951907,
+          "max_conditional_error": 6.661338147750939e-16,
+          "oracle": "Aer statevector",
+          "name": "stress_11",
+          "seed": 25143
+        }
+      ],
+      "stim_parity_checks": 44
+    },
+    {
+      "distance": 5,
+      "physical_qubits": 42,
+      "physical_noise_sites_including_readout": 3564,
+      "record_count": 112,
+      "detector_count": 107,
+      "quantum_measurements_including_resets": 230,
+      "feedforward_operations": 17,
+      "cases": [
+        {
+          "faults": [],
+          "outcomes": "10100100000000001100000000000101000000000001010000000000000000000000000000000000100010100000010000000010000000010100000000000000000000000000000000000000000000000000000000000010101100000000100000000000000000000000000000000000000000",
+          "records": "0000000000000000000000101000000100000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "detectors": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 4,
+          "gadget_exit_terms": [
+            2,
+            2,
+            2
+          ],
+          "log_probability": -32.57791748631743,
+          "max_conditional_error": 9.992007221626409e-16,
+          "log_probability_error": 4.263256414560601e-14,
+          "oracle": "Clifft elementary gates",
+          "reference_active_width": 10,
+          "name": "ideal",
+          "seed": 25100
+        },
+        {
+          "faults": [
+            [
+              3541,
+              "Z"
+            ],
+            [
+              3542,
+              "Z"
+            ],
+            [
+              3545,
+              "Z"
+            ],
+            [
+              3546,
+              "Z"
+            ],
+            [
+              3547,
+              "Z"
+            ],
+            [
+              3548,
+              "Z"
+            ],
+            [
+              3549,
+              "Z"
+            ],
+            [
+              3551,
+              "Z"
+            ],
+            [
+              3552,
+              "Z"
+            ],
+            [
+              3553,
+              "Z"
+            ],
+            [
+              3554,
+              "Z"
+            ],
+            [
+              3555,
+              "Z"
+            ],
+            [
+              3556,
+              "Z"
+            ],
+            [
+              3557,
+              "Z"
+            ],
+            [
+              3558,
+              "Z"
+            ],
+            [
+              3559,
+              "Z"
+            ],
+            [
+              3561,
+              "Z"
+            ],
+            [
+              3562,
+              "Z"
+            ],
+            [
+              3563,
+              "Z"
+            ]
+          ],
+          "outcomes": "01101010010000000010000000000100100000000001011000000000000000000001000000000010100000100000010100000010100000000100000000000000000000000000000000000000000000000000000000000000010000101000110000000000000000000001000000000000000000",
+          "records": "0000000000000000000000001000000101000000000000000000000000000000000000000000000000000000000001000000000000000000",
+          "detectors": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "observables": {
+            "0": 1
+          },
+          "peak_terms": 4,
+          "gadget_exit_terms": [
+            2,
+            2,
+            2
+          ],
+          "log_probability": -32.57791748631743,
+          "max_conditional_error": 9.992007221626409e-16,
+          "log_probability_error": 4.263256414560601e-14,
+          "oracle": "Clifft elementary gates",
+          "reference_active_width": 10,
+          "name": "logical_z_tail",
+          "seed": 25101
+        },
+        {
+          "faults": [
+            [
+              1241,
+              "X"
+            ]
+          ],
+          "outcomes": "01000011100000000010000000000001000000000101110000000000000000001000100000000010100010100000000000000000000000010100000000000000000000000000000000000000000000000000000000001010101100000000010000000000000000000000000000000000000000",
+          "records": "0000000000000000000000101000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "detectors": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 4,
+          "gadget_exit_terms": [
+            2,
+            2,
+            2
+          ],
+          "log_probability": -32.57791748631743,
+          "log_probability_error": 4.263256414560601e-14,
+          "oracle": "Clifft elementary gates",
+          "reference_active_width": 10,
+          "name": "reset_erased_X",
+          "seed": 25102
+        },
+        {
+          "faults": [
+            [
+              1241,
+              "Y"
+            ]
+          ],
+          "outcomes": "01000101000000001110000000010000001000000100011000000000000000011100100000000010100000100000000000000000000000000100000000000000000000000000000000000000000000000000000000001011100100000000100000000000000000000000000000000000000000",
+          "records": "0000000000000000000000001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "detectors": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 4,
+          "gadget_exit_terms": [
+            2,
+            2,
+            2
+          ],
+          "log_probability": -32.57791748631743,
+          "log_probability_error": 4.263256414560601e-14,
+          "oracle": "Clifft elementary gates",
+          "reference_active_width": 10,
+          "name": "reset_erased_Y",
+          "seed": 25103
+        },
+        {
+          "faults": [
+            [
+              1241,
+              "Z"
+            ]
+          ],
+          "outcomes": "10001100000000000010000000000100101000000001111000000000000000011111100000000011000010000000010000000010000000010000000000000000000000000000000000000000000000000000000000000000111100101000110000000000000000000000000000000000000000",
+          "records": "0000000000000000000000100000000100000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "detectors": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 4,
+          "gadget_exit_terms": [
+            2,
+            2,
+            2
+          ],
+          "log_probability": -32.57791748631743,
+          "log_probability_error": 4.263256414560601e-14,
+          "oracle": "Clifft elementary gates",
+          "reference_active_width": 10,
+          "name": "reset_erased_Z",
+          "seed": 25104
+        },
+        {
+          "faults": [
+            [
+              1240,
+              "flip"
+            ]
+          ],
+          "outcomes": "01100011110000001100000000000001000000000101100000000000000000000000000000000000000010100000000100000000100000010100000000000000000000000000000000000000000000000000000000000010001100000000100000000000000000000000000000000000000000",
+          "records": "0000000100000000000000101000000001000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "detectors": "00000001001000000001100100000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 4,
+          "gadget_exit_terms": [
+            2,
+            2,
+            2
+          ],
+          "log_probability": -32.57791748631743,
+          "log_probability_error": 4.263256414560601e-14,
+          "oracle": "Clifft elementary gates",
+          "reference_active_width": 10,
+          "name": "root_readout_flip",
+          "seed": 25105
+        },
+        {
+          "faults": [
+            [
+              1051,
+              "Y"
+            ]
+          ],
+          "outcomes": "00110111110000000010000000010000000000000111001000000000000000011111001000000010000000000000010100000010100000000000000000000000000000000000000000000000000000000000000000001001001100001000100000000000000000000000000000000000000000",
+          "records": "0000000000000000000000000000000101000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "detectors": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 4,
+          "gadget_exit_terms": [
+            2,
+            2,
+            2
+          ],
+          "log_probability": -32.57791748631743,
+          "log_probability_error": 4.263256414560601e-14,
+          "oracle": "Clifft elementary gates",
+          "reference_active_width": 10,
+          "name": "gadget_spectator_Y",
+          "seed": 25106
+        },
+        {
+          "faults": [
+            [
+              1084,
+              "YZ"
+            ]
+          ],
+          "outcomes": "01101111000000000000000000000101111001000011000000000000000000000000100000000001000010100100010011000010011000010100100000001100000011000000011000000001100000001000000011001000001001100000001100000010000000000000001100101000000000",
+          "records": "0000000100100000000000101001000100110000000011000000110000000010000000110100000010000000000000001100101000000000",
+          "detectors": "00000001000000000001010000000000000000000000000000000000000000000000010000000000000000000000000000000000000",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 8,
+          "gadget_exit_terms": [
+            2,
+            4,
+            4
+          ],
+          "log_probability": -34.657359027997266,
+          "log_probability_error": 2.842170943040401e-14,
+          "oracle": "Clifft elementary gates",
+          "reference_active_width": 10,
+          "name": "gadget_pair_YZ",
+          "seed": 25107
+        },
+        {
+          "faults": [
+            [
+              2048,
+              "flip"
+            ]
+          ],
+          "outcomes": "11010110000000001100000000010100000000000001001000000000000000001101100000000000000010000000010000000010000000010000000010000000000000000000000000010000000110000000000000000001100000100000011100000010000000000000001000000001110010",
+          "records": "0000000000000000000001100000000100000000100000000000000001100000000000000100000010000000000000001000000001110010",
+          "detectors": "00000000000000000000000000000100000000000000001000000000000000000000010000000000000000000000000000000101000",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 8,
+          "gadget_exit_terms": [
+            2,
+            4,
+            4
+          ],
+          "log_probability": -33.96421184743732,
+          "max_conditional_error": 9.992007221626409e-16,
+          "log_probability_error": 3.552713678800501e-14,
+          "oracle": "Clifft elementary gates",
+          "reference_active_width": 10,
+          "name": "feedforward_readout_21",
+          "seed": 25108
+        },
+        {
+          "faults": [
+            [
+              2049,
+              "flip"
+            ]
+          ],
+          "outcomes": "00111011100000000000000000000100000000000110011000000000000000011001100000000001000010000000000100000000100000010000000110000000000000000000000000110000001100000000000000001001001000001000000000000000000000000000001001001001010010",
+          "records": "0000000000000000000000000000000001000001100000000000000011000000000000000000000000000000000000001001001001010010",
+          "detectors": "00000000000000000000000000000000000000000000001100000000000000000000010000000000000000000000000000010101000",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 8,
+          "gadget_exit_terms": [
+            2,
+            4,
+            4
+          ],
+          "log_probability": -33.96421184743732,
+          "max_conditional_error": 9.992007221626409e-16,
+          "log_probability_error": 3.552713678800501e-14,
+          "oracle": "Clifft elementary gates",
+          "reference_active_width": 10,
+          "name": "feedforward_readout_22",
+          "seed": 25109
+        },
+        {
+          "faults": [
+            [
+              2050,
+              "flip"
+            ]
+          ],
+          "outcomes": "11001110110000000000000000010001100000000001000000000000000000001010000000000000000000100000000000000000000000000100000000100000000000000000000000000100000001010000000000000010100100000000010000000000000000000000000000000000000000",
+          "records": "0000000000000000000000011000000000000000001000000000000000010100000000000000000000000000000000000000000000000000",
+          "detectors": "00000000000000000000000000100000000000000100000000000000000000000000000000000000000000000000000000000000000",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 4,
+          "gadget_exit_terms": [
+            2,
+            2,
+            2
+          ],
+          "log_probability": -33.27106466687737,
+          "max_conditional_error": 9.992007221626409e-16,
+          "log_probability_error": 3.552713678800501e-14,
+          "oracle": "Clifft elementary gates",
+          "reference_active_width": 10,
+          "name": "feedforward_readout_23",
+          "seed": 25110
+        },
+        {
+          "faults": [
+            [
+              2051,
+              "flip"
+            ]
+          ],
+          "outcomes": "00111001000000001000000000010100000000000101111000000000000000010110100000000011000010000000000000000000000000010000000001010000000000000000000000001010000000000000000000001000101100000000100000000000000000000000000000000000000000",
+          "records": "0000000000000000000000101000000000000000010100000000000000000000000000000000000000000000000000000000000000000000",
+          "detectors": "00000000000000000000000000000000000000001010000000000000000000000000000000000000000000000000000000000000000",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 4,
+          "gadget_exit_terms": [
+            2,
+            2,
+            2
+          ],
+          "log_probability": -33.27106466687737,
+          "max_conditional_error": 9.992007221626409e-16,
+          "log_probability_error": 3.552713678800501e-14,
+          "oracle": "Clifft elementary gates",
+          "reference_active_width": 10,
+          "name": "feedforward_readout_24",
+          "seed": 25111
+        },
+        {
+          "faults": [
+            [
+              2052,
+              "flip"
+            ]
+          ],
+          "outcomes": "01001000100000001000000000010001000000000111001000000000000000010011000000000000000000100000010000000010000000000100000000100000000000000000000000000100000001010000000000000001011100101000100000000000000000000000000000000000000000",
+          "records": "0000000000000000000000001100000100000000001000000000000000010100000000000000000000000000000000000000000000000000",
+          "detectors": "00000000000000000000000001000000000000000100000000000000000000000000000000000000000000000000000000000000000",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 4,
+          "gadget_exit_terms": [
+            2,
+            2,
+            2
+          ],
+          "log_probability": -33.27106466687737,
+          "max_conditional_error": 9.992007221626409e-16,
+          "log_probability_error": 3.552713678800501e-14,
+          "oracle": "Clifft elementary gates",
+          "reference_active_width": 10,
+          "name": "feedforward_readout_25",
+          "seed": 25112
+        },
+        {
+          "faults": [
+            [
+              2058,
+              "flip"
+            ]
+          ],
+          "outcomes": "11001011000000001100000000000100000000000110010000000000000000001010100000000011000010100000010000000010000000010100000000000000010000000010000000000000000000000000010000011011100000000000010000000000000000000000001000000000000000",
+          "records": "0000000000000000000000101000000000000000000000000100000000000000000100000000000000000000000000001000000000000000",
+          "detectors": "00000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 4,
+          "gadget_exit_terms": [
+            2,
+            2,
+            2
+          ],
+          "log_probability": -32.57791748631743,
+          "max_conditional_error": 9.992007221626409e-16,
+          "log_probability_error": 4.263256414560601e-14,
+          "oracle": "Clifft elementary gates",
+          "reference_active_width": 10,
+          "name": "feedforward_readout_31",
+          "seed": 25113
+        },
+        {
+          "faults": [
+            [
+              2060,
+              "flip"
+            ]
+          ],
+          "outcomes": "10110101000000001010000000000001100000000010110000000000000000001001100000000001100000000000010100000010100000000000000000000000000100000000100000000000000000000000000100000000111000100100110000000000000000000000010000000000000000",
+          "records": "0000000000000000000000000000000100000000000000000001000000000000000001000000000000000000000000010000000000000000",
+          "detectors": "00000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000000000",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 4,
+          "gadget_exit_terms": [
+            2,
+            2,
+            2
+          ],
+          "log_probability": -32.57791748631743,
+          "max_conditional_error": 9.992007221626409e-16,
+          "log_probability_error": 4.263256414560601e-14,
+          "oracle": "Clifft elementary gates",
+          "reference_active_width": 10,
+          "name": "feedforward_readout_33",
+          "seed": 25114
+        },
+        {
+          "faults": [
+            [
+              632,
+              "Z"
+            ],
+            [
+              684,
+              "Z"
+            ],
+            [
+              2993,
+              "Z"
+            ],
+            [
+              3258,
+              "X"
+            ],
+            [
+              3466,
+              "X"
+            ]
+          ],
+          "outcomes": "00011001010000000000000000010001000000000100001000000000000000001111000000000001000010100000000100000000100000010100000000000000000000000000000000000000000000000000000000000010111100101000000000000001000010000000111110101100001000",
+          "records": "0000000000000000000000101000000001000000000000000000000000000000000000000000000001000010000000111110101100001000",
+          "detectors": "00000000000000000000000000000000000000000000000000000000000000000000000000000100001000000111100110010100010",
+          "observables": {
+            "0": 1
+          },
+          "peak_terms": 4,
+          "gadget_exit_terms": [
+            2,
+            2,
+            4
+          ],
+          "log_probability": -34.657359027997266,
+          "log_probability_error": 3.552713678800501e-14,
+          "oracle": "Clifft elementary gates",
+          "reference_active_width": 10,
+          "name": "natural_0",
+          "seed": 25115
+        },
+        {
+          "faults": [
+            [
+              747,
+              "X"
+            ],
+            [
+              795,
+              "X"
+            ],
+            [
+              1456,
+              "Z"
+            ],
+            [
+              2101,
+              "X"
+            ],
+            [
+              2693,
+              "ZX"
+            ],
+            [
+              2938,
+              "Y"
+            ],
+            [
+              3075,
+              "Z"
+            ],
+            [
+              3481,
+              "Z"
+            ]
+          ],
+          "outcomes": "10101100100000000110000000000100000000000111010000000000100000011110100000000010100010100000000100000000100000010100001100000000000000000000000001100000011110000010000000001001100100011000100000011000100000100001000010000010000010",
+          "records": "0000000000000000000000101000000001000011000000000000000111100000100000000000011000100000100001000010000010000010",
+          "detectors": "00000000000000000000000000000000000000000000000110000000000000000001110001100010000010000000000010100000010",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 8,
+          "gadget_exit_terms": [
+            2,
+            4,
+            4
+          ],
+          "log_probability": -34.657359027997266,
+          "log_probability_error": 3.552713678800501e-14,
+          "oracle": "Clifft elementary gates",
+          "reference_active_width": 10,
+          "name": "natural_1",
+          "seed": 25116
+        },
+        {
+          "faults": [
+            [
+              403,
+              "X"
+            ],
+            [
+              950,
+              "Y"
+            ],
+            [
+              1248,
+              "Y"
+            ],
+            [
+              2789,
+              "Z"
+            ]
+          ],
+          "outcomes": "10011100000000000010000000000101000001000111010000000000000000011110100010000001000010111100010111100010111100010111100000001000000011100000011100000001000000000100000011100110100101000000010000000000000100000001100100100100100000",
+          "records": "0000000000100000000000101111000101111000000010000000111000000001000000111000000000000100000001100100100100100000",
+          "detectors": "00000000001000000001111101000000000000000000000000000000000000000000010000000000010000000000000000000000000",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 8,
+          "gadget_exit_terms": [
+            2,
+            4,
+            4
+          ],
+          "log_probability": -34.657359027997266,
+          "log_probability_error": 3.552713678800501e-14,
+          "oracle": "Clifft elementary gates",
+          "reference_active_width": 10,
+          "name": "natural_2",
+          "seed": 25117
+        },
+        {
+          "faults": [
+            [
+              667,
+              "Y"
+            ],
+            [
+              1090,
+              "Y"
+            ],
+            [
+              2567,
+              "Y"
+            ]
+          ],
+          "outcomes": "10010000100000000010000000010100000000000001111000000000000000010000101000000000000010000000010100000010100000010000000000000000000000000000000000000000000000000000000000000000110100100000110000000000000000000000000000000000000000",
+          "records": "0000000000000000000000100000000101000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "detectors": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 4,
+          "gadget_exit_terms": [
+            2,
+            2,
+            2
+          ],
+          "log_probability": -32.57791748631743,
+          "log_probability_error": 4.263256414560601e-14,
+          "oracle": "Clifft elementary gates",
+          "reference_active_width": 10,
+          "name": "natural_3",
+          "seed": 25118
+        },
+        {
+          "faults": [
+            [
+              1626,
+              "Z"
+            ]
+          ],
+          "outcomes": "00100111110000000000000000000100000000000100010000000000000000010100100000000011100000100000000111100000111100000100000000000000000011100000011100000000000000000000000011100100100001001000001100000010000000000000101000101000000000",
+          "records": "0000000000000000000000001000000001111000000000000000111000000000000000111100000010000000000000101000101000000000",
+          "detectors": "00000000000000000001100100000000000000000000000000000000000000000000010000000000000000000000000000000000000",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 4,
+          "gadget_exit_terms": [
+            2,
+            2,
+            2
+          ],
+          "log_probability": -32.57791748631743,
+          "log_probability_error": 4.263256414560601e-14,
+          "oracle": "Clifft elementary gates",
+          "reference_active_width": 10,
+          "name": "natural_4",
+          "seed": 25119
+        },
+        {
+          "faults": [
+            [
+              1542,
+              "X"
+            ],
+            [
+              2138,
+              "X"
+            ],
+            [
+              2163,
+              "X"
+            ]
+          ],
+          "outcomes": "00101111010000001100000000010101100000000110011000000000000000011001000000000011100010010100000000000000000000010010100110011100000000000000000000110011101100101000000000000011111100000000010000000000000000000000000101000011000110",
+          "records": "0000000000000000000000100101000000000001100111000000000011001010000000000000000000000000000000000101000011000110",
+          "detectors": "00000000000000000000010001000000000000001000001100000000000000000000000000000000000000000000000000000000000",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 8,
+          "gadget_exit_terms": [
+            2,
+            4,
+            4
+          ],
+          "log_probability": -33.96421184743732,
+          "log_probability_error": 3.552713678800501e-14,
+          "oracle": "Clifft elementary gates",
+          "reference_active_width": 10,
+          "name": "natural_5",
+          "seed": 25120
+        },
+        {
+          "faults": [
+            [
+              1218,
+              "X"
+            ]
+          ],
+          "outcomes": "10011010110000001010000000010100000000000101100000000000000000000111100000000111100000100000000100000000100000000100000000000000000000000000000000000000000000000000000000001010010100001000000000000000000000000000000000000000000000",
+          "records": "0000000000000000000000001000000001000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "detectors": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 4,
+          "gadget_exit_terms": [
+            2,
+            2,
+            2
+          ],
+          "log_probability": -32.57791748631743,
+          "log_probability_error": 4.263256414560601e-14,
+          "oracle": "Clifft elementary gates",
+          "reference_active_width": 10,
+          "name": "natural_6",
+          "seed": 25121
+        },
+        {
+          "faults": [
+            [
+              2503,
+              "X"
+            ]
+          ],
+          "outcomes": "01011011110000000000000000010000100000000100011000000000000000011011000000000010100000100000010100000010100000000100000000000000000000000000000000000000000010010000000000001000100000001000011100000010000000000000010011000001100000",
+          "records": "0000000000000000000000001000000101000000000000000000000000100100000000000100000010000000000000010011000001100000",
+          "detectors": "00000000000000000000000000000000000000000000000000000000001000001000000000000000000000000000000100010100000",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 8,
+          "gadget_exit_terms": [
+            2,
+            4,
+            4
+          ],
+          "log_probability": -33.96421184743732,
+          "log_probability_error": 3.552713678800501e-14,
+          "oracle": "Clifft elementary gates",
+          "reference_active_width": 10,
+          "name": "natural_7",
+          "seed": 25122
+        },
+        {
+          "faults": [
+            [
+              1261,
+              "Y"
+            ],
+            [
+              2293,
+              "YX"
+            ],
+            [
+              2406,
+              "X"
+            ],
+            [
+              2450,
+              "X"
+            ],
+            [
+              3506,
+              "flip"
+            ]
+          ],
+          "outcomes": "00000010110000001110000000000101100000000100000000000000000000000000100000000101000010100000010100000010100000010100000000000100000000100000000100000010100000001100000000000011111000101000111100000010000000000000101100101100100000",
+          "records": "0000000000000000000000101000000101000000000001000000001000000011000000000100010010000000000000101100101100100000",
+          "detectors": "00000000000000000000000000000000010100000000000000010000000000000000000001000000000000000111000000000000000",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 8,
+          "gadget_exit_terms": [
+            2,
+            4,
+            4
+          ],
+          "log_probability": -33.96421184743732,
+          "log_probability_error": 3.552713678800501e-14,
+          "oracle": "Clifft elementary gates",
+          "reference_active_width": 10,
+          "name": "natural_8",
+          "seed": 25123
+        },
+        {
+          "faults": [
+            [
+              330,
+              "Y"
+            ],
+            [
+              944,
+              "Z"
+            ],
+            [
+              2240,
+              "YY"
+            ],
+            [
+              2625,
+              "X"
+            ]
+          ],
+          "outcomes": "11000000100000100100000000000101100000000011100000000000000000011001000000000010000010000000010000000010000000010000000000000100000010000000010000000000100000011100000010100100001001101000000000000000000000000000110010100100100000",
+          "records": "0000000000000000000000100000000100000000000001000000100000000111000000101000000000000000000000110010100100100000",
+          "detectors": "00000000000000000000000000000000000101000000000000010000001000000000000000000000000000000001000100000000000",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 8,
+          "gadget_exit_terms": [
+            2,
+            4,
+            4
+          ],
+          "log_probability": -33.96421184743732,
+          "log_probability_error": 3.552713678800501e-14,
+          "oracle": "Clifft elementary gates",
+          "reference_active_width": 10,
+          "name": "natural_9",
+          "seed": 25124
+        },
+        {
+          "faults": [
+            [
+              2183,
+              "IY"
+            ],
+            [
+              2716,
+              "X"
+            ]
+          ],
+          "outcomes": "01101100010000001100000000010100100000000000010000000000000000011100100000000010100010100000010100000010100000010100000000010000000110100000110100000010000000110000000100101110011100101100111100000010000000000000111010001010100100",
+          "records": "0000000000000000000000101000000101000000000100000001101000001100000001001100000010000000000000111010001010100100",
+          "detectors": "00000000000000000000000000000000010001101000000000000001001000000000000000000000000000000000000000000000000",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 8,
+          "gadget_exit_terms": [
+            2,
+            4,
+            4
+          ],
+          "log_probability": -33.96421184743732,
+          "log_probability_error": 3.552713678800501e-14,
+          "oracle": "Clifft elementary gates",
+          "reference_active_width": 10,
+          "name": "natural_10",
+          "seed": 25125
+        },
+        {
+          "faults": [
+            [
+              139,
+              "Y"
+            ],
+            [
+              418,
+              "Y"
+            ],
+            [
+              1487,
+              "Z"
+            ],
+            [
+              3545,
+              "Z"
+            ]
+          ],
+          "outcomes": "10110110100000000100010001001001111001000000110000000000000000001100100000000111100000110000010101100010101100000110000000000000000001100000001100000000000000000000000001101101111100001000110000000000000000000001000000000000100000",
+          "records": "0100010100100000000000001100000101011000000000000000011000000000000000011000000000000000000001000000000000100000",
+          "detectors": "01000100000000000000000101000000000000000000000000000000000000000000010000000000000000000101010000000000000",
+          "observables": {
+            "0": 1
+          },
+          "peak_terms": 4,
+          "gadget_exit_terms": [
+            4,
+            2,
+            2
+          ],
+          "log_probability": -33.96421184743732,
+          "log_probability_error": 2.842170943040401e-14,
+          "oracle": "Clifft elementary gates",
+          "reference_active_width": 10,
+          "name": "natural_11",
+          "seed": 25126
+        },
+        {
+          "faults": [
+            [
+              883,
+              "X"
+            ],
+            [
+              1061,
+              "X"
+            ],
+            [
+              1672,
+              "Z"
+            ]
+          ],
+          "outcomes": "01011011000000000010000000000100000000000011010100000000000000011111000000000000100010110100010010100010010100010110100000001100000010100000010100000001100000001000000010100111000101100000000000000000000000000000100100000000100000",
+          "records": "0000000000000000000000101101000100101000000011000000101000000010000000101000000000000000000000100100000000100000",
+          "detectors": "00000000000000000001010101000000000000000000000000000000000000000000010000000000000000000000000000000000000",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 8,
+          "gadget_exit_terms": [
+            4,
+            4,
+            4
+          ],
+          "log_probability": -35.35050620855721,
+          "log_probability_error": 3.552713678800501e-14,
+          "oracle": "Clifft elementary gates",
+          "reference_active_width": 10,
+          "name": "natural_12",
+          "seed": 25127
+        },
+        {
+          "faults": [
+            [
+              722,
+              "YX"
+            ],
+            [
+              3041,
+              "Z"
+            ],
+            [
+              3112,
+              "Y"
+            ],
+            [
+              3542,
+              "X"
+            ]
+          ],
+          "outcomes": "00000011010000000000001010010010000000000000000000000000000000010001100000000010000010001100010101000010101000010001100000001000000001000000001000000001000000000100000001001011100000000000100000001000010000000000000000100000000000",
+          "records": "0010100000000000000000100011000101010000000010000000010000000001000000010000001000010000000000000000100000000000",
+          "detectors": "00101000000000000000111000000000000000000000000000000000000000000000000000100001000000000010100000000000000",
+          "observables": {
+            "0": 1
+          },
+          "peak_terms": 8,
+          "gadget_exit_terms": [
+            4,
+            4,
+            2
+          ],
+          "log_probability": -35.35050620855721,
+          "log_probability_error": 3.552713678800501e-14,
+          "oracle": "Clifft elementary gates",
+          "reference_active_width": 10,
+          "name": "natural_13",
+          "seed": 25128
+        },
+        {
+          "faults": [
+            [
+              1823,
+              "Z"
+            ]
+          ],
+          "outcomes": "11001010010000000000000000010101100000000000111000000000000000010101100000000001000000100000000101100000101100000100000000000000000001100000001100000000000000000000000001101111110100001000011100000010000000000000101000101000100000",
+          "records": "0000000000000000000000001000000001011000000000000000011000000000000000011100000010000000000000101000101000100000",
+          "detectors": "00000000000000000001100000000000000000000000000000000000000000000000010000000000000000000000000000000000000",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 4,
+          "gadget_exit_terms": [
+            2,
+            2,
+            2
+          ],
+          "log_probability": -32.57791748631743,
+          "log_probability_error": 4.263256414560601e-14,
+          "oracle": "Clifft elementary gates",
+          "reference_active_width": 10,
+          "name": "natural_14",
+          "seed": 25129
+        },
+        {
+          "faults": [
+            [
+              570,
+              "X"
+            ],
+            [
+              1579,
+              "X"
+            ]
+          ],
+          "outcomes": "00010111000000001100111000000100011001000111111000000000000000011000100000000011101011011100010100000010100001011011100100001000000000000000000000100001001010000100000000001011011100100000100000000000000000000000101101100100000000",
+          "records": "1110000100100000000010110111000101000001000010000000000010100001000000000000000000000000000000101101100100000000",
+          "detectors": "11100001000000000001111101100010000000000000000000000000000000000000010000000000000000000101000000010000000",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 8,
+          "gadget_exit_terms": [
+            4,
+            4,
+            4
+          ],
+          "log_probability": -35.35050620855721,
+          "log_probability_error": 3.552713678800501e-14,
+          "oracle": "Clifft elementary gates",
+          "reference_active_width": 10,
+          "name": "natural_15",
+          "seed": 25130
+        },
+        {
+          "faults": [],
+          "outcomes": "11000011110000000000000000000001100000000110101000000000000000010011100000000001100000100000010000000010000000000100000000000000000000000000000000000000000000000000000000001011000000000000100000000000000000000000000000000000000000",
+          "records": "0000000000000000000000001000000100000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "detectors": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 4,
+          "gadget_exit_terms": [
+            2,
+            2,
+            2
+          ],
+          "log_probability": -32.57791748631743,
+          "log_probability_error": 4.263256414560601e-14,
+          "oracle": "Clifft elementary gates",
+          "reference_active_width": 10,
+          "name": "natural_16",
+          "seed": 25131
+        },
+        {
+          "faults": [
+            [
+              518,
+              "Z"
+            ],
+            [
+              1611,
+              "Z"
+            ],
+            [
+              1727,
+              "flip"
+            ],
+            [
+              2967,
+              "Z"
+            ]
+          ],
+          "outcomes": "00011010100000001110000000000100100000000010111000000000000000000000000000000000100000000000010000000010000000000000000000000000000000000000000000000000000000000000000000000011000000001000010000000000000000000000000000000000000000",
+          "records": "0000000000000000001000000000000100000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "detectors": "00000000000000000010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 4,
+          "gadget_exit_terms": [
+            2,
+            2,
+            2
+          ],
+          "log_probability": -32.57791748631743,
+          "log_probability_error": 4.263256414560601e-14,
+          "oracle": "Clifft elementary gates",
+          "reference_active_width": 10,
+          "name": "natural_17",
+          "seed": 25132
+        },
+        {
+          "faults": [
+            [
+              43,
+              "ZI"
+            ],
+            [
+              706,
+              "Y"
+            ],
+            [
+              2026,
+              "X"
+            ],
+            [
+              2270,
+              "ZI"
+            ],
+            [
+              3328,
+              "Y"
+            ]
+          ],
+          "outcomes": "10100001010000001110000011011111100000000110011000000000000000000101100000000001100010000000000101100000101100010000000000011100000011100000011100000011100000101000000001101101100000101000111100000010010000000001101000111010000100",
+          "records": "0000110000000000000000100000000001011000000111000000111000001010000000011100000010010000000001101000111010000100",
+          "detectors": "00001101000000000001100000000000000111001000000000000001000000000000010000000001000000000010010001000000000",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 8,
+          "gadget_exit_terms": [
+            2,
+            4,
+            4
+          ],
+          "log_probability": -34.657359027997266,
+          "log_probability_error": 3.552713678800501e-14,
+          "oracle": "Clifft elementary gates",
+          "reference_active_width": 10,
+          "name": "natural_18",
+          "seed": 25133
+        },
+        {
+          "faults": [
+            [
+              2591,
+              "X"
+            ],
+            [
+              2697,
+              "Z"
+            ]
+          ],
+          "outcomes": "00010001010000000100000000000001100000000011101000000000000000000000100000000010100010000000000000000000000000010000000000000000000000000000000000000000000000000000000000001010001100000000000000000000000000000000000000000000000000",
+          "records": "0000000000000000000000100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "detectors": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 4,
+          "gadget_exit_terms": [
+            2,
+            2,
+            2
+          ],
+          "log_probability": -32.57791748631743,
+          "log_probability_error": 4.263256414560601e-14,
+          "oracle": "Clifft elementary gates",
+          "reference_active_width": 10,
+          "name": "natural_19",
+          "seed": 25134
+        },
+        {
+          "faults": [
+            [
+              993,
+              "Y"
+            ],
+            [
+              2727,
+              "flip"
+            ],
+            [
+              2758,
+              "Z"
+            ],
+            [
+              3344,
+              "X"
+            ],
+            [
+              3557,
+              "Y"
+            ]
+          ],
+          "outcomes": "00000110010000001100000000010100000000000011110000000000000000001110100001000001000000000000000100000000100000000000000000000000000000000000000000000000000000000000000000001010000000101000111100000010000000000001100001111010110110",
+          "records": "0000000000000000000000000000000001000000000000000000000000000000100000000100000010000000000001100001111010110110",
+          "detectors": "00000000000000000000000000000000000000000000000000000000000000000001010000000000000000000101001001111001110",
+          "observables": {
+            "0": 1
+          },
+          "peak_terms": 4,
+          "gadget_exit_terms": [
+            2,
+            2,
+            4
+          ],
+          "log_probability": -34.657359027997266,
+          "log_probability_error": 3.552713678800501e-14,
+          "oracle": "Clifft elementary gates",
+          "reference_active_width": 10,
+          "name": "natural_20",
+          "seed": 25135
+        },
+        {
+          "faults": [
+            [
+              1649,
+              "XZ"
+            ],
+            [
+              3113,
+              "Z"
+            ]
+          ],
+          "outcomes": "01011011100000000010000000010101000000000111110000000000000000111101100000000001000000100000001100000001100000000100000000000000001000000001000000000000000000000000001000000000100100001000001100000010000010000001000000011000101000",
+          "records": "0000000000000000001000001000000011000000000000000010000000000000000010000100000010000010000001000000011000101000",
+          "detectors": "00000000000000000010000010000000000000000000000000000000000000000000010000000000001000000000000000010000010",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 4,
+          "gadget_exit_terms": [
+            2,
+            2,
+            2
+          ],
+          "log_probability": -32.57791748631743,
+          "log_probability_error": 4.263256414560601e-14,
+          "oracle": "Clifft elementary gates",
+          "reference_active_width": 10,
+          "name": "natural_21",
+          "seed": 25136
+        },
+        {
+          "faults": [
+            [
+              93,
+              "Y"
+            ],
+            [
+              309,
+              "X"
+            ],
+            [
+              456,
+              "Z"
+            ],
+            [
+              1425,
+              "X"
+            ],
+            [
+              1542,
+              "X"
+            ],
+            [
+              1648,
+              "X"
+            ],
+            [
+              1691,
+              "X"
+            ],
+            [
+              3105,
+              "Y"
+            ],
+            [
+              3370,
+              "Y"
+            ]
+          ],
+          "outcomes": "10111100110000000110000000010000000000000111100001000010000000011001100010000011000000010000010000000010000000000010000000000000000000000000000000000000000000000000000000000011111100100000101110001010010000001000011110100010100000",
+          "records": "0000000000000000000000000100000100000000000000000000000000000000000000000110001010010000001000011110100010100000",
+          "detectors": "00000000000000000000000001000000000000000000000000000000000000000000001000100001000000100011000110100100000",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 4,
+          "gadget_exit_terms": [
+            2,
+            2,
+            2
+          ],
+          "log_probability": -36.04365338911715,
+          "log_probability_error": 2.842170943040401e-14,
+          "oracle": "Clifft elementary gates",
+          "reference_active_width": 10,
+          "name": "natural_22",
+          "seed": 25137
+        },
+        {
+          "faults": [
+            [
+              753,
+              "X"
+            ],
+            [
+              1371,
+              "X"
+            ],
+            [
+              1571,
+              "X"
+            ],
+            [
+              2630,
+              "XZ"
+            ]
+          ],
+          "outcomes": "01111011010000001100000000010101100000000110111000000000000000011100000001000010000100110000000100000000100000100110001000000000000000000000000001000000000100000100000010000011100001100000010000000000000000000000001101100000010110",
+          "records": "0000000000000000000001001100000001000010000000000000000001000001000000100000000000000000000000001101100000010110",
+          "detectors": "00000000000000000000000001000100000000000000000010000101000000000000000000000000000000000001111000010001000",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 8,
+          "gadget_exit_terms": [
+            2,
+            4,
+            4
+          ],
+          "log_probability": -33.96421184743732,
+          "log_probability_error": 3.552713678800501e-14,
+          "oracle": "Clifft elementary gates",
+          "reference_active_width": 10,
+          "name": "natural_23",
+          "seed": 25138
+        },
+        {
+          "faults": [
+            [
+              58,
+              "Z"
+            ],
+            [
+              497,
+              "X"
+            ],
+            [
+              504,
+              "Y"
+            ],
+            [
+              527,
+              "Y"
+            ],
+            [
+              645,
+              "Z"
+            ],
+            [
+              711,
+              "Z"
+            ],
+            [
+              736,
+              "X"
+            ],
+            [
+              852,
+              "X"
+            ],
+            [
+              871,
+              "X"
+            ],
+            [
+              1305,
+              "Z"
+            ],
+            [
+              1312,
+              "X"
+            ],
+            [
+              1439,
+              "Z"
+            ],
+            [
+              1596,
+              "Z"
+            ],
+            [
+              1806,
+              "Y"
+            ],
+            [
+              1873,
+              "XZ"
+            ],
+            [
+              1976,
+              "Z"
+            ],
+            [
+              2089,
+              "X"
+            ],
+            [
+              2125,
+              "Z"
+            ],
+            [
+              2238,
+              "ZZ"
+            ],
+            [
+              2509,
+              "X"
+            ],
+            [
+              2553,
+              "XX"
+            ],
+            [
+              2616,
+              "X"
+            ],
+            [
+              2738,
+              "Y"
+            ],
+            [
+              2810,
+              "Y"
+            ],
+            [
+              2837,
+              "X"
+            ],
+            [
+              2858,
+              "Z"
+            ],
+            [
+              2884,
+              "Z"
+            ],
+            [
+              2934,
+              "Z"
+            ],
+            [
+              2995,
+              "Z"
+            ],
+            [
+              3158,
+              "Z"
+            ],
+            [
+              3227,
+              "X"
+            ],
+            [
+              3387,
+              "Z"
+            ],
+            [
+              3390,
+              "Y"
+            ],
+            [
+              3479,
+              "Z"
+            ],
+            [
+              3527,
+              "X"
+            ]
+          ],
+          "outcomes": "00001011100000000000000000010001011001000010101000000001100000001001000000000101110100110010110111010110111010100110001000011010100000010100000001000011001111110110100010001010000011111010001101000000000001100000010101101111100011",
+          "records": "0000000100100000000101001100101101110010000110101000000011111101101000100101000000000001100000010101101111100011",
+          "detectors": "00000001000000000001000001010101101011001000000010000001001010001010000100001000000110000001011100011110011",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 8,
+          "gadget_exit_terms": [
+            4,
+            4,
+            4
+          ],
+          "log_probability": -37.42994775023705,
+          "max_conditional_error": 4.385380947269368e-15,
+          "log_probability_error": 2.1316282072803006e-14,
+          "oracle": "Clifft elementary gates",
+          "reference_active_width": 10,
+          "name": "stress_0",
+          "seed": 25139
+        },
+        {
+          "faults": [
+            [
+              61,
+              "Z"
+            ],
+            [
+              65,
+              "X"
+            ],
+            [
+              91,
+              "Y"
+            ],
+            [
+              107,
+              "Y"
+            ],
+            [
+              460,
+              "X"
+            ],
+            [
+              549,
+              "Y"
+            ],
+            [
+              637,
+              "X"
+            ],
+            [
+              713,
+              "X"
+            ],
+            [
+              768,
+              "Z"
+            ],
+            [
+              773,
+              "X"
+            ],
+            [
+              867,
+              "X"
+            ],
+            [
+              960,
+              "X"
+            ],
+            [
+              977,
+              "Z"
+            ],
+            [
+              1501,
+              "Z"
+            ],
+            [
+              1502,
+              "Y"
+            ],
+            [
+              1593,
+              "Z"
+            ],
+            [
+              1665,
+              "Y"
+            ],
+            [
+              1866,
+              "Y"
+            ],
+            [
+              2028,
+              "X"
+            ],
+            [
+              2045,
+              "Y"
+            ],
+            [
+              2197,
+              "Y"
+            ],
+            [
+              2382,
+              "flip"
+            ],
+            [
+              2493,
+              "Z"
+            ],
+            [
+              2526,
+              "ZY"
+            ],
+            [
+              2611,
+              "XZ"
+            ],
+            [
+              2703,
+              "Z"
+            ],
+            [
+              2721,
+              "flip"
+            ],
+            [
+              2745,
+              "Z"
+            ],
+            [
+              2820,
+              "X"
+            ],
+            [
+              2955,
+              "Y"
+            ],
+            [
+              3011,
+              "Y"
+            ],
+            [
+              3071,
+              "Z"
+            ],
+            [
+              3112,
+              "X"
+            ],
+            [
+              3185,
+              "Z"
+            ],
+            [
+              3216,
+              "Z"
+            ],
+            [
+              3269,
+              "X"
+            ],
+            [
+              3305,
+              "X"
+            ],
+            [
+              3456,
+              "YY"
+            ],
+            [
+              3482,
+              "Z"
+            ],
+            [
+              3512,
+              "flip"
+            ],
+            [
+              3520,
+              "flip"
+            ]
+          ],
+          "outcomes": "11101101010000000110000010000110100000000110111001000101000000010001100001000000000001010100001111100001111100001010110000001010001010010001010010000001001100000000111010010010000001011010000001100000100001000010111101001010010011",
+          "records": "0000100000000000000000010101000011111000000010100010100011100000001110100001100000110001000110111101001010010011",
+          "detectors": "00001000000000000001110111100000011100000000000001000100000001101111010110000011000100011110010101101001001",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 8,
+          "gadget_exit_terms": [
+            2,
+            4,
+            4
+          ],
+          "log_probability": -38.816242111356935,
+          "log_probability_error": 2.1316282072803006e-14,
+          "oracle": "Clifft elementary gates",
+          "reference_active_width": 10,
+          "name": "stress_1",
+          "seed": 25140
+        },
+        {
+          "faults": [
+            [
+              245,
+              "Z"
+            ],
+            [
+              542,
+              "X"
+            ],
+            [
+              1023,
+              "Y"
+            ],
+            [
+              1119,
+              "Y"
+            ],
+            [
+              1327,
+              "Z"
+            ],
+            [
+              1361,
+              "X"
+            ],
+            [
+              1367,
+              "YY"
+            ],
+            [
+              1410,
+              "Z"
+            ],
+            [
+              1498,
+              "X"
+            ],
+            [
+              1657,
+              "Y"
+            ],
+            [
+              1834,
+              "Y"
+            ],
+            [
+              1846,
+              "IX"
+            ],
+            [
+              1927,
+              "X"
+            ],
+            [
+              1988,
+              "XY"
+            ],
+            [
+              2055,
+              "flip"
+            ],
+            [
+              2154,
+              "YY"
+            ],
+            [
+              2164,
+              "Y"
+            ],
+            [
+              2223,
+              "X"
+            ],
+            [
+              2497,
+              "Z"
+            ],
+            [
+              2538,
+              "Z"
+            ],
+            [
+              2559,
+              "Z"
+            ],
+            [
+              2637,
+              "IY"
+            ],
+            [
+              3177,
+              "X"
+            ],
+            [
+              3263,
+              "X"
+            ],
+            [
+              3394,
+              "Y"
+            ],
+            [
+              3422,
+              "X"
+            ]
+          ],
+          "outcomes": "00110001010000000010000000000000100010001110101100001000000000011111110010000010000011001000011001100011001100011001010000100000001000100001000110000100000001010000000001100101000010100000001100000010000001000001110010001111100000",
+          "records": "0000000001000100000000110010100110011100001000000010001000010100000000011100000010000001000001110010001111100000",
+          "detectors": "00000000010001000001101010100001001100000100000001101000010000000000010000000000000100000001100110110010000",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 8,
+          "gadget_exit_terms": [
+            2,
+            4,
+            4
+          ],
+          "log_probability": -39.50938929191688,
+          "log_probability_error": 2.1316282072803006e-14,
+          "oracle": "Clifft elementary gates",
+          "reference_active_width": 10,
+          "name": "stress_2",
+          "seed": 25141
+        },
+        {
+          "faults": [
+            [
+              13,
+              "Y"
+            ],
+            [
+              20,
+              "X"
+            ],
+            [
+              45,
+              "X"
+            ],
+            [
+              255,
+              "Y"
+            ],
+            [
+              260,
+              "X"
+            ],
+            [
+              306,
+              "X"
+            ],
+            [
+              400,
+              "Y"
+            ],
+            [
+              422,
+              "X"
+            ],
+            [
+              510,
+              "Y"
+            ],
+            [
+              720,
+              "Z"
+            ],
+            [
+              762,
+              "XY"
+            ],
+            [
+              764,
+              "Z"
+            ],
+            [
+              783,
+              "X"
+            ],
+            [
+              921,
+              "Y"
+            ],
+            [
+              1051,
+              "X"
+            ],
+            [
+              1189,
+              "Z"
+            ],
+            [
+              1297,
+              "Z"
+            ],
+            [
+              1395,
+              "Y"
+            ],
+            [
+              1547,
+              "Z"
+            ],
+            [
+              1570,
+              "Z"
+            ],
+            [
+              1621,
+              "Y"
+            ],
+            [
+              1633,
+              "Y"
+            ],
+            [
+              2089,
+              "X"
+            ],
+            [
+              2162,
+              "Y"
+            ],
+            [
+              2247,
+              "ZX"
+            ],
+            [
+              2301,
+              "IZ"
+            ],
+            [
+              2418,
+              "Y"
+            ],
+            [
+              2741,
+              "Y"
+            ],
+            [
+              2871,
+              "XI"
+            ],
+            [
+              2927,
+              "Z"
+            ],
+            [
+              2930,
+              "Z"
+            ],
+            [
+              2984,
+              "X"
+            ],
+            [
+              3020,
+              "X"
+            ],
+            [
+              3044,
+              "X"
+            ],
+            [
+              3052,
+              "Y"
+            ],
+            [
+              3188,
+              "Y"
+            ],
+            [
+              3269,
+              "Y"
+            ],
+            [
+              3395,
+              "Y"
+            ],
+            [
+              3416,
+              "Y"
+            ]
+          ],
+          "outcomes": "00111011110000000010100000010001000000000111010000001001100000011110100110010100100010010100010010100010010100010010100001110001001101101001101100001110000000010101111101010001000100000111000000100000010000010001110010010100011101",
+          "records": "1000000000000000000000100101000100101000011100010011011000000101011111010000100000010000010001110010010100011101",
+          "detectors": "10000000000000000001010101000000001111111110010000010100000011100000010010000001000001000111001000010100011",
+          "observables": {
+            "0": 1
+          },
+          "peak_terms": 8,
+          "gadget_exit_terms": [
+            4,
+            4,
+            4
+          ],
+          "log_probability": -38.816242111356935,
+          "log_probability_error": 2.1316282072803006e-14,
+          "oracle": "Clifft elementary gates",
+          "reference_active_width": 10,
+          "name": "stress_3",
+          "seed": 25142
+        },
+        {
+          "faults": [
+            [
+              15,
+              "Z"
+            ],
+            [
+              52,
+              "X"
+            ],
+            [
+              192,
+              "Y"
+            ],
+            [
+              244,
+              "X"
+            ],
+            [
+              286,
+              "X"
+            ],
+            [
+              540,
+              "X"
+            ],
+            [
+              615,
+              "Z"
+            ],
+            [
+              622,
+              "X"
+            ],
+            [
+              654,
+              "Y"
+            ],
+            [
+              672,
+              "X"
+            ],
+            [
+              784,
+              "X"
+            ],
+            [
+              889,
+              "X"
+            ],
+            [
+              897,
+              "Z"
+            ],
+            [
+              1069,
+              "Z"
+            ],
+            [
+              1136,
+              "X"
+            ],
+            [
+              1175,
+              "Z"
+            ],
+            [
+              1179,
+              "Z"
+            ],
+            [
+              1238,
+              "Y"
+            ],
+            [
+              1239,
+              "Z"
+            ],
+            [
+              1446,
+              "ZY"
+            ],
+            [
+              1462,
+              "Y"
+            ],
+            [
+              1609,
+              "Z"
+            ],
+            [
+              1620,
+              "Z"
+            ],
+            [
+              1672,
+              "Y"
+            ],
+            [
+              1848,
+              "YX"
+            ],
+            [
+              1927,
+              "Y"
+            ],
+            [
+              2120,
+              "Z"
+            ],
+            [
+              2187,
+              "ZZ"
+            ],
+            [
+              2272,
+              "YX"
+            ],
+            [
+              2442,
+              "X"
+            ],
+            [
+              2606,
+              "XI"
+            ],
+            [
+              2642,
+              "XX"
+            ],
+            [
+              2664,
+              "XZ"
+            ],
+            [
+              2725,
+              "flip"
+            ],
+            [
+              2819,
+              "Z"
+            ],
+            [
+              3031,
+              "X"
+            ],
+            [
+              3118,
+              "Y"
+            ],
+            [
+              3352,
+              "X"
+            ],
+            [
+              3371,
+              "Z"
+            ],
+            [
+              3506,
+              "flip"
+            ]
+          ],
+          "outcomes": "10110010100000000100010011001111100110100000111000011000110000011101010100000101000000100110000111010000111000000100110001001110001011010001011010001001100000111010000011001011010111111000101100001010000010000010001100111010001110",
+          "records": "0100110011010000000000001001100001110100010011100010110000001100100000110100011010000010000010001100111010001110",
+          "detectors": "01001101110100000000110100000001000000010010000000100010011000000000000001100000001000001010000011000000100",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 8,
+          "gadget_exit_terms": [
+            4,
+            4,
+            4
+          ],
+          "log_probability": -38.123094930796995,
+          "log_probability_error": 2.1316282072803006e-14,
+          "oracle": "Clifft elementary gates",
+          "reference_active_width": 10,
+          "name": "stress_4",
+          "seed": 25143
+        },
+        {
+          "faults": [
+            [
+              85,
+              "X"
+            ],
+            [
+              206,
+              "X"
+            ],
+            [
+              282,
+              "Z"
+            ],
+            [
+              413,
+              "Z"
+            ],
+            [
+              447,
+              "X"
+            ],
+            [
+              584,
+              "Y"
+            ],
+            [
+              712,
+              "Y"
+            ],
+            [
+              780,
+              "Y"
+            ],
+            [
+              788,
+              "Z"
+            ],
+            [
+              988,
+              "Y"
+            ],
+            [
+              1002,
+              "Z"
+            ],
+            [
+              1395,
+              "Y"
+            ],
+            [
+              1630,
+              "Z"
+            ],
+            [
+              1761,
+              "X"
+            ],
+            [
+              1799,
+              "Y"
+            ],
+            [
+              1898,
+              "Y"
+            ],
+            [
+              1917,
+              "X"
+            ],
+            [
+              1955,
+              "Z"
+            ],
+            [
+              1973,
+              "X"
+            ],
+            [
+              2222,
+              "YY"
+            ],
+            [
+              2247,
+              "XY"
+            ],
+            [
+              2393,
+              "flip"
+            ],
+            [
+              2497,
+              "X"
+            ],
+            [
+              2524,
+              "XX"
+            ],
+            [
+              2563,
+              "Z"
+            ],
+            [
+              2574,
+              "YX"
+            ],
+            [
+              2607,
+              "IX"
+            ],
+            [
+              2738,
+              "Y"
+            ],
+            [
+              2792,
+              "Z"
+            ],
+            [
+              2828,
+              "Z"
+            ],
+            [
+              2896,
+              "Z"
+            ],
+            [
+              2948,
+              "Z"
+            ],
+            [
+              3133,
+              "Y"
+            ],
+            [
+              3291,
+              "X"
+            ],
+            [
+              3306,
+              "Z"
+            ],
+            [
+              3347,
+              "Y"
+            ],
+            [
+              3478,
+              "Z"
+            ]
+          ],
+          "outcomes": "10110000010000100010000000010001100001000001100001000001000000001011100000010010010010010010000100110000100110010010010101001100011000100011000110101001101011000110010011010001111001011000110000100010001100100000000001111001000010",
+          "records": "0000000000100000000100100100100001001101010011001110001010110001100100110000100010001100100000000001111001000010",
+          "detectors": "00000000001000000001000001000001100110010011100101111111010110100001000010001000110010000010110011010110110",
+          "observables": {
+            "0": 1
+          },
+          "peak_terms": 8,
+          "gadget_exit_terms": [
+            2,
+            4,
+            4
+          ],
+          "log_probability": -36.7368005696771,
+          "log_probability_error": 2.842170943040401e-14,
+          "oracle": "Clifft elementary gates",
+          "reference_active_width": 10,
+          "name": "stress_5",
+          "seed": 25144
+        },
+        {
+          "faults": [
+            [
+              354,
+              "X"
+            ],
+            [
+              576,
+              "Z"
+            ],
+            [
+              675,
+              "Y"
+            ],
+            [
+              748,
+              "Y"
+            ],
+            [
+              856,
+              "Z"
+            ],
+            [
+              1200,
+              "Y"
+            ],
+            [
+              1282,
+              "Z"
+            ],
+            [
+              1300,
+              "Y"
+            ],
+            [
+              1322,
+              "Y"
+            ],
+            [
+              1349,
+              "Z"
+            ],
+            [
+              1373,
+              "X"
+            ],
+            [
+              1447,
+              "YZ"
+            ],
+            [
+              1554,
+              "Y"
+            ],
+            [
+              1929,
+              "IX"
+            ],
+            [
+              2064,
+              "X"
+            ],
+            [
+              2287,
+              "Z"
+            ],
+            [
+              2295,
+              "ZZ"
+            ],
+            [
+              2297,
+              "IX"
+            ],
+            [
+              2323,
+              "YX"
+            ],
+            [
+              2413,
+              "Y"
+            ],
+            [
+              2458,
+              "Z"
+            ],
+            [
+              2577,
+              "ZZ"
+            ],
+            [
+              2612,
+              "ZX"
+            ],
+            [
+              2636,
+              "YY"
+            ],
+            [
+              2679,
+              "Y"
+            ],
+            [
+              2747,
+              "X"
+            ],
+            [
+              2829,
+              "Z"
+            ],
+            [
+              2915,
+              "Y"
+            ],
+            [
+              3006,
+              "X"
+            ],
+            [
+              3016,
+              "Y"
+            ],
+            [
+              3211,
+              "Y"
+            ],
+            [
+              3244,
+              "Z"
+            ],
+            [
+              3257,
+              "Z"
+            ],
+            [
+              3319,
+              "X"
+            ],
+            [
+              3424,
+              "X"
+            ],
+            [
+              3483,
+              "X"
+            ]
+          ],
+          "outcomes": "00110001010000001100000001101100011100001011111011000000000000010011101000000010100000101000000111100000111110000101000000000000010111100011111100000000000000011101001000001010011110100001010000010101000110000011011001010110100110",
+          "records": "0000011110000100000000001010000001111000000000000101111000000111010010000000010101000110000011011001010110100110",
+          "detectors": "00000111101001000000001000000000000100100001000000011111111001010000010001010100011000001000011110111001100",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 8,
+          "gadget_exit_terms": [
+            2,
+            4,
+            4
+          ],
+          "log_probability": -38.816242111356935,
+          "log_probability_error": 2.1316282072803006e-14,
+          "oracle": "Clifft elementary gates",
+          "reference_active_width": 10,
+          "name": "stress_6",
+          "seed": 25145
+        },
+        {
+          "faults": [
+            [
+              310,
+              "X"
+            ],
+            [
+              325,
+              "Z"
+            ],
+            [
+              389,
+              "Y"
+            ],
+            [
+              416,
+              "Y"
+            ],
+            [
+              512,
+              "Y"
+            ],
+            [
+              822,
+              "Z"
+            ],
+            [
+              892,
+              "Z"
+            ],
+            [
+              1007,
+              "Y"
+            ],
+            [
+              1242,
+              "X"
+            ],
+            [
+              1486,
+              "Y"
+            ],
+            [
+              1579,
+              "X"
+            ],
+            [
+              2088,
+              "Z"
+            ],
+            [
+              2127,
+              "X"
+            ],
+            [
+              2499,
+              "Z"
+            ],
+            [
+              2722,
+              "flip"
+            ],
+            [
+              2828,
+              "Z"
+            ],
+            [
+              2832,
+              "Y"
+            ],
+            [
+              2848,
+              "Z"
+            ],
+            [
+              2887,
+              "YI"
+            ],
+            [
+              3017,
+              "Z"
+            ],
+            [
+              3165,
+              "X"
+            ],
+            [
+              3230,
+              "Y"
+            ],
+            [
+              3263,
+              "X"
+            ],
+            [
+              3319,
+              "Z"
+            ],
+            [
+              3419,
+              "X"
+            ],
+            [
+              3453,
+              "ZI"
+            ]
+          ],
+          "outcomes": "11111010110000001000000011111010111001000011001000000100100000010001001000000011101011110000010101100010101101011110000100000000000001100000001100100000001010000000000001100111101100001000011111000010000011000001100111111110111010",
+          "records": "0000111100100000000010111100000101011001000000000000011010110000000000011111000010000011000001100111111110111010",
+          "detectors": "00001111000000000000000101100010000000000000000000000000000010000000011100000000001100000010100001110001110",
+          "observables": {
+            "0": 1
+          },
+          "peak_terms": 8,
+          "gadget_exit_terms": [
+            4,
+            4,
+            4
+          ],
+          "log_probability": -37.42994775023705,
+          "log_probability_error": 1.4210854715202004e-14,
+          "oracle": "Clifft elementary gates",
+          "reference_active_width": 10,
+          "name": "stress_7",
+          "seed": 25146
+        },
+        {
+          "faults": [
+            [
+              252,
+              "Y"
+            ],
+            [
+              287,
+              "X"
+            ],
+            [
+              314,
+              "Y"
+            ],
+            [
+              466,
+              "Y"
+            ],
+            [
+              793,
+              "Y"
+            ],
+            [
+              1148,
+              "Z"
+            ],
+            [
+              1351,
+              "Z"
+            ],
+            [
+              1367,
+              "XI"
+            ],
+            [
+              1455,
+              "Y"
+            ],
+            [
+              1622,
+              "X"
+            ],
+            [
+              1648,
+              "Y"
+            ],
+            [
+              1698,
+              "Z"
+            ],
+            [
+              1729,
+              "Y"
+            ],
+            [
+              1791,
+              "Y"
+            ],
+            [
+              1917,
+              "Z"
+            ],
+            [
+              2032,
+              "Z"
+            ],
+            [
+              2075,
+              "Z"
+            ],
+            [
+              2112,
+              "X"
+            ],
+            [
+              2235,
+              "Y"
+            ],
+            [
+              2236,
+              "X"
+            ],
+            [
+              2377,
+              "Z"
+            ],
+            [
+              2593,
+              "Z"
+            ],
+            [
+              2719,
+              "flip"
+            ],
+            [
+              2848,
+              "Z"
+            ],
+            [
+              2991,
+              "Y"
+            ],
+            [
+              3002,
+              "Y"
+            ],
+            [
+              3015,
+              "Y"
+            ],
+            [
+              3119,
+              "flip"
+            ],
+            [
+              3370,
+              "Z"
+            ],
+            [
+              3423,
+              "Z"
+            ]
+          ],
+          "outcomes": "11011110000000000000011001101001000000000101010000000000000000010101001010100011100000010000010001000110001000000010010000010010010010010010010010000010000000110011111010011001010101011011001100000010010100001001001111000110001000",
+          "records": "0110011000000000000000000100000100010100000100100100100010001100111110100000000010010100001001001111000110001000",
+          "detectors": "01100110000000000000100001000000001001001001000001100000011000110010000000001001010000100010111001001111000",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 8,
+          "gadget_exit_terms": [
+            4,
+            4,
+            4
+          ],
+          "log_probability": -38.123094930796995,
+          "log_probability_error": 2.842170943040401e-14,
+          "oracle": "Clifft elementary gates",
+          "reference_active_width": 10,
+          "name": "stress_8",
+          "seed": 25147
+        },
+        {
+          "faults": [
+            [
+              6,
+              "Z"
+            ],
+            [
+              176,
+              "X"
+            ],
+            [
+              270,
+              "Y"
+            ],
+            [
+              337,
+              "Z"
+            ],
+            [
+              388,
+              "Z"
+            ],
+            [
+              405,
+              "Z"
+            ],
+            [
+              465,
+              "X"
+            ],
+            [
+              551,
+              "Y"
+            ],
+            [
+              558,
+              "X"
+            ],
+            [
+              630,
+              "Z"
+            ],
+            [
+              685,
+              "YZ"
+            ],
+            [
+              779,
+              "Z"
+            ],
+            [
+              946,
+              "Z"
+            ],
+            [
+              1055,
+              "X"
+            ],
+            [
+              1374,
+              "X"
+            ],
+            [
+              1548,
+              "X"
+            ],
+            [
+              1609,
+              "X"
+            ],
+            [
+              1692,
+              "Y"
+            ],
+            [
+              1731,
+              "X"
+            ],
+            [
+              1809,
+              "Z"
+            ],
+            [
+              1899,
+              "Z"
+            ],
+            [
+              1943,
+              "Z"
+            ],
+            [
+              1987,
+              "YX"
+            ],
+            [
+              2009,
+              "Z"
+            ],
+            [
+              2158,
+              "X"
+            ],
+            [
+              2172,
+              "Z"
+            ],
+            [
+              2403,
+              "Y"
+            ],
+            [
+              2652,
+              "Y"
+            ],
+            [
+              2751,
+              "Z"
+            ],
+            [
+              3023,
+              "Y"
+            ],
+            [
+              3041,
+              "Z"
+            ],
+            [
+              3212,
+              "X"
+            ],
+            [
+              3251,
+              "Z"
+            ],
+            [
+              3470,
+              "Z"
+            ]
+          ],
+          "outcomes": "11001100100000001010001000010100100000000011110100001000000000001101100000001010100010001101110001001110001000010001100000110101000100001000100000010110101001111100000100000000000011000100111100001000010000000000100101110110000101",
+          "records": "0010000000000000000000100011011100010000001101010001000010011111000001000100001000010000000000100101110110000101",
+          "detectors": "00100000000000000000111000011000001110101100100000000000000000010010010000101001000000000111010101011110001",
+          "observables": {
+            "0": 1
+          },
+          "peak_terms": 8,
+          "gadget_exit_terms": [
+            4,
+            4,
+            4
+          ],
+          "log_probability": -40.20253647247683,
+          "log_probability_error": 7.105427357601002e-15,
+          "oracle": "Clifft elementary gates",
+          "reference_active_width": 10,
+          "name": "stress_9",
+          "seed": 25148
+        },
+        {
+          "faults": [
+            [
+              185,
+              "X"
+            ],
+            [
+              215,
+              "Y"
+            ],
+            [
+              370,
+              "X"
+            ],
+            [
+              388,
+              "Y"
+            ],
+            [
+              441,
+              "Z"
+            ],
+            [
+              450,
+              "Y"
+            ],
+            [
+              502,
+              "X"
+            ],
+            [
+              551,
+              "X"
+            ],
+            [
+              635,
+              "Y"
+            ],
+            [
+              666,
+              "Z"
+            ],
+            [
+              702,
+              "Z"
+            ],
+            [
+              728,
+              "X"
+            ],
+            [
+              799,
+              "ZY"
+            ],
+            [
+              891,
+              "Y"
+            ],
+            [
+              944,
+              "Z"
+            ],
+            [
+              950,
+              "Z"
+            ],
+            [
+              1106,
+              "X"
+            ],
+            [
+              1138,
+              "Y"
+            ],
+            [
+              1243,
+              "Z"
+            ],
+            [
+              1515,
+              "Y"
+            ],
+            [
+              1518,
+              "X"
+            ],
+            [
+              1594,
+              "Y"
+            ],
+            [
+              1665,
+              "Z"
+            ],
+            [
+              2150,
+              "ZI"
+            ],
+            [
+              2424,
+              "Z"
+            ],
+            [
+              2451,
+              "Z"
+            ],
+            [
+              2553,
+              "ZZ"
+            ],
+            [
+              2578,
+              "IZ"
+            ],
+            [
+              2748,
+              "Z"
+            ],
+            [
+              2830,
+              "Y"
+            ],
+            [
+              2909,
+              "X"
+            ],
+            [
+              3011,
+              "X"
+            ],
+            [
+              3156,
+              "X"
+            ],
+            [
+              3414,
+              "Z"
+            ],
+            [
+              3437,
+              "Z"
+            ],
+            [
+              3507,
+              "flip"
+            ],
+            [
+              3547,
+              "Z"
+            ]
+          ],
+          "outcomes": "01010000110000001000011001111001100000101000001100000000110000000100001100000000000000111000000110100000110100000111000000000100000110100000110100000000100000001100100100110110010010101110001100010010000000000010001011100110000101",
+          "records": "0110011000010100000000001110000001101000000001000001101000000011001001001100011010000000000010001011100110000101",
+          "detectors": "01100110000101000001001101000000000000100000000000000001000000100000010001100000000000001101011110101000001",
+          "observables": {
+            "0": 1
+          },
+          "peak_terms": 8,
+          "gadget_exit_terms": [
+            4,
+            4,
+            4
+          ],
+          "log_probability": -38.123094930796995,
+          "log_probability_error": 2.1316282072803006e-14,
+          "oracle": "Clifft elementary gates",
+          "reference_active_width": 10,
+          "name": "stress_10",
+          "seed": 25149
+        },
+        {
+          "faults": [
+            [
+              348,
+              "Y"
+            ],
+            [
+              589,
+              "X"
+            ],
+            [
+              732,
+              "Y"
+            ],
+            [
+              828,
+              "Y"
+            ],
+            [
+              1075,
+              "Z"
+            ],
+            [
+              1099,
+              "Y"
+            ],
+            [
+              1157,
+              "Y"
+            ],
+            [
+              1170,
+              "Z"
+            ],
+            [
+              1295,
+              "X"
+            ],
+            [
+              1307,
+              "Y"
+            ],
+            [
+              1334,
+              "X"
+            ],
+            [
+              1491,
+              "Y"
+            ],
+            [
+              1706,
+              "X"
+            ],
+            [
+              1717,
+              "Z"
+            ],
+            [
+              1780,
+              "Z"
+            ],
+            [
+              1814,
+              "XY"
+            ],
+            [
+              1920,
+              "Z"
+            ],
+            [
+              1929,
+              "ZY"
+            ],
+            [
+              2242,
+              "ZZ"
+            ],
+            [
+              2276,
+              "YX"
+            ],
+            [
+              2278,
+              "IY"
+            ],
+            [
+              2474,
+              "X"
+            ],
+            [
+              2533,
+              "Z"
+            ],
+            [
+              2581,
+              "ZX"
+            ],
+            [
+              2610,
+              "XZ"
+            ],
+            [
+              2643,
+              "Z"
+            ],
+            [
+              2649,
+              "Z"
+            ],
+            [
+              2659,
+              "XY"
+            ],
+            [
+              2666,
+              "ZZ"
+            ],
+            [
+              2696,
+              "Y"
+            ],
+            [
+              2918,
+              "X"
+            ],
+            [
+              3008,
+              "Y"
+            ],
+            [
+              3233,
+              "X"
+            ],
+            [
+              3426,
+              "Z"
+            ],
+            [
+              3455,
+              "XX"
+            ]
+          ],
+          "outcomes": "00100100100000000010000000010000000010000111100000010001010000011010010000000011000000000110111011010111011000000000101000000010101011010101011001000000010010001001000100001001010100101101001100000000000000100001100111100111101001",
+          "records": "0000000001000000000000000001101110110010000000101010110100100010010001000100000000000000100001100111100111101001",
+          "detectors": "00000000010000000000110110010001000110000000000010001011110000111101110000001000000010000101100110110101011",
+          "observables": {
+            "0": 0
+          },
+          "peak_terms": 8,
+          "gadget_exit_terms": [
+            2,
+            4,
+            4
+          ],
+          "log_probability": -38.123094930796995,
+          "log_probability_error": 2.1316282072803006e-14,
+          "oracle": "Clifft elementary gates",
+          "reference_active_width": 10,
+          "name": "stress_11",
+          "seed": 25150
+        }
+      ],
+      "stim_parity_checks": 51
+    }
+  ]
+}
