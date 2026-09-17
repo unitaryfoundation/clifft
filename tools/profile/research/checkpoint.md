@@ -1,11 +1,17 @@
 # Representation study checkpoint
 
-Latest: [the syndrome-schedule study](fold_schedule.md) certifies two changed
+Latest: [the growth-implementation study](fold_growth.md) adds a local CSS-dual
+growth encoder, alone and combined with changed syndrome ordering. Both pass
+199 independent fixed-history comparisons with unchanged native execution.
+The 83-test research suite passes. This variant changes physical fault maps
+but preserves the original syndrome-transfer relation; broader growth maps
+remain untested. Next build an offline parsed-circuit adapter that derives
+eligible region plans without generating a new catalog for every schedule.
+
+[The syndrome-schedule study](fold_schedule.md) certifies two changed
 full f7 schedules from their gates. Each passes 115 independent fixed-history
 comparisons with unchanged native execution and contraction capacity. A held-out
-shuffled schedule also passes. The 76-test research suite passes. Next build an
-offline adapter for those syndrome regions in parsed circuits, and separately
-test a changed growth encoder. Whole-circuit catalog matching is still narrow.
+shuffled schedule also passes. Whole-circuit catalog matching is still narrow.
 
 [The eligibility/composition study](fold_eligibility.md) provides
 a parsed-circuit recognizer and full survivor-result adapter for the three
@@ -48,7 +54,7 @@ The reproducible checkpoint is commit `ce702482` on
   It lacks final-error-correction decoding and a general residual-state handoff.
   The circuit is paper-guided, not verified equivalent to an authors' artifact.
 
-The subsequent alternatives, eligibility, and schedule reports complete the
+The subsequent alternatives, eligibility, schedule, and growth reports complete the
 bounded steps from that checkpoint. Do not start a general representation-
 switching framework or optimize SIMD first. Syndrome-region certification now
 supports unseen orderings, but the public-input experiment still uses a whole-

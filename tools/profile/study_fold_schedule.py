@@ -12,12 +12,14 @@ from clifford_branches import logical_tail_history, materialize, paired_hook_his
 from export_fold_blocks import Exporter
 from fold_blocks import Boundary, Protocol, f7_diagnostic_histories, syndrome_sector_histories
 from fold_cultivation import logical
-from fold_schedule import SCHEDULES, reconstruction_with_schedule
+from fold_growth import GROWTH_ENCODERS, growth_fault_histories, reconstruction_with_growth
+from fold_schedule import SCHEDULES
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--schedule", choices=SCHEDULES, required=True)
+    parser.add_argument("--growth", choices=GROWTH_ENCODERS, default="original")
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--histories", default=64, type=int)
     parser.add_argument("--stress-histories", default=32, type=int)
@@ -26,7 +28,7 @@ def main():
         parser.error("history counts must be nonnegative")
     args.output.mkdir(parents=True, exist_ok=True)
     start = time.perf_counter()
-    reconstruction = reconstruction_with_schedule(7, args.schedule)
+    reconstruction = reconstruction_with_growth(7, args.growth, args.schedule)
     protocol = Protocol(7, reconstruction=reconstruction)
     construction = time.perf_counter() - start
     text = reconstruction.text(0.001)
@@ -42,6 +44,8 @@ def main():
     cases += paired_hook_histories(reconstruction)
     cases += [("logical_tail", logical_tail_history(reconstruction))]
     cases += syndrome_sector_histories(protocol) + f7_diagnostic_histories(protocol)
+    if args.growth != "original":
+        cases += growth_fault_histories(reconstruction)
     rows = []
     for name, stages in cases:
         result = protocol.evaluate(protocol.encode(stages))
@@ -88,6 +92,7 @@ def main():
         json.dumps(
             {
                 "schedule": args.schedule,
+                "growth": args.growth,
                 "construction_seconds": construction,
                 "circuit_sha256": hashlib.sha256(text.encode()).hexdigest(),
                 "native_export": metadata,

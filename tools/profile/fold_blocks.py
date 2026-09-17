@@ -206,6 +206,11 @@ class Boundary:
                     raise ValueError("growth resets a live qubit")
                 reset.add(op.targets[0])
             elif op.name in {"H", "CX"}:
+                if any(
+                    q not in self.output_mapping or (q in fresh and q not in reset)
+                    for q in op.targets
+                ):
+                    raise ValueError("growth uses an unrelated or uninitialized qubit")
                 unitary.append(op.name, op.targets)
             else:
                 raise ValueError("growth is not a supported Clifford isometry")
