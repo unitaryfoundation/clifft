@@ -1,0 +1,189 @@
+{
+  "scope": "Two logical-input phase sums of one fold-family monomial between ideal regular-code boundaries; not full shots.",
+  "baseline_commit": "206ce4cd",
+  "compiler": "GCC 13.3.0, C++20, Release O3, native CPU, fno-fast-math",
+  "host": "AMD EPYC 9554P VM, scalar, unpinned",
+  "validation": {
+    "research_suite_tests": 38,
+    "independent_ch_cases_per_distance": 97,
+    "absolute_tolerance": 2e-12,
+    "native_d7_asan_ubsan": "97 cases validated and executed; no reported errors; leak detection disabled",
+    "invalid_plan_rejections": {
+      "noncontiguous_leaf": "invalid leaf range",
+      "forward_gather": "invalid plan integer",
+      "nonfinite_reference": "invalid expected amplitude"
+    }
+  },
+  "plans": [
+    {
+      "distance": 3,
+      "physical_data": 13,
+      "gauge_variables": 6,
+      "leaf_factors": 17,
+      "max_joint_entries": 16,
+      "joint_assignments": 46,
+      "complex_multiplications_per_input": 192,
+      "coefficient_slots": 99,
+      "gather_entries": 192,
+      "elimination_order": [
+        0,
+        5,
+        1,
+        2,
+        3,
+        4
+      ],
+      "cases": 97,
+      "plan_sha256": "dde66a9c92b25b3544f2555861a7567ce4d23bb8be0eadcabff863de40df64f7",
+      "native": {
+        "cases": 97,
+        "repetitions": 300,
+        "max_amplitude_error": 1.5700924586837752e-16,
+        "coefficient_bytes": 1584,
+        "gather_bytes": 1536,
+        "median_us_per_two_input_phase_sums": 0.5229580068728522,
+        "trial_us": [
+          1.4849821305841926,
+          0.719193676975945,
+          0.5059538487972508,
+          0.5229580068728522,
+          0.508366116838488
+        ],
+        "checksum": [
+          70163.08165642268,
+          2346.5097423303005
+        ]
+      }
+    },
+    {
+      "distance": 5,
+      "physical_data": 41,
+      "gauge_variables": 20,
+      "leaf_factors": 57,
+      "max_joint_entries": 64,
+      "joint_assignments": 526,
+      "complex_multiplications_per_input": 2146,
+      "coefficient_slots": 603,
+      "gather_entries": 2146,
+      "elimination_order": [
+        0,
+        19,
+        4,
+        15,
+        1,
+        18,
+        5,
+        8,
+        14,
+        11,
+        2,
+        16,
+        3,
+        10,
+        6,
+        7,
+        9,
+        12,
+        13,
+        17
+      ],
+      "cases": 97,
+      "plan_sha256": "c5ecccca1bba6770f71367c2331878543f6d96d9135048b71d23d06f81306189",
+      "native": {
+        "cases": 97,
+        "repetitions": 300,
+        "max_amplitude_error": 1.5700924586837752e-16,
+        "coefficient_bytes": 9648,
+        "gather_bytes": 17168,
+        "median_us_per_two_input_phase_sums": 4.868035189003436,
+        "trial_us": [
+          4.896760274914089,
+          4.745854226804124,
+          4.766084570446735,
+          4.8963837113402064,
+          4.868035189003436
+        ],
+        "checksum": [
+          9011.257203126981,
+          -434.2270371926529
+        ]
+      }
+    },
+    {
+      "distance": 7,
+      "physical_data": 85,
+      "gauge_variables": 42,
+      "leaf_factors": 121,
+      "max_joint_entries": 512,
+      "joint_assignments": 4110,
+      "complex_multiplications_per_input": 15314,
+      "coefficient_slots": 2851,
+      "gather_entries": 15314,
+      "elimination_order": [
+        0,
+        41,
+        6,
+        35,
+        1,
+        40,
+        7,
+        12,
+        34,
+        29,
+        2,
+        5,
+        36,
+        39,
+        13,
+        8,
+        18,
+        3,
+        28,
+        33,
+        23,
+        38,
+        20,
+        11,
+        30,
+        27,
+        22,
+        32,
+        9,
+        14,
+        19,
+        15,
+        25,
+        4,
+        10,
+        16,
+        17,
+        21,
+        24,
+        26,
+        31,
+        37
+      ],
+      "cases": 97,
+      "plan_sha256": "ca08f6bc901a8264d5a7332ff6846f0244f907bd93486a1902eee3ab5fad2c64",
+      "native": {
+        "cases": 97,
+        "repetitions": 300,
+        "max_amplitude_error": 1.5700924586837752e-16,
+        "coefficient_bytes": 45616,
+        "gather_bytes": 122512,
+        "median_us_per_two_input_phase_sums": 30.61643175257732,
+        "trial_us": [
+          31.13649261168385,
+          30.465532989690722,
+          30.446877491408934,
+          31.821954639175257,
+          30.61643175257732
+        ],
+        "checksum": [
+          15582.248212601145,
+          0.0014305114746094773
+        ]
+      }
+    }
+  ]
+}

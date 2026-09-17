@@ -1,5 +1,9 @@
 # Whole-check composition on a 22-active-qubit cultivation reconstruction
 
+Follow-up: [fixed contraction plans](fold_contraction.md) replace the overlap
+calculation at ideal code boundaries with a small reusable native kernel,
+including d7 core diagnostics. Full noisy-boundary integration remains open.
+
 **Continue this approach.** We now have a complete encoded f5 reconstruction
 that reaches 22 active qubits in current Clifft. On the sampled fault histories,
 an offline coherent-stabilizer reference needs at most eight terms, reducing to

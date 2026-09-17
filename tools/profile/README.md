@@ -17,6 +17,9 @@ strong-simulation costs and expose offline structural diagnostics:
   compilation, compares the shared plan conditioned on the same faults, and
   measures fresh low-shot latency. See the
   [fault-specialization study](research/fault_specialization.md) for scope and results.
+- `profile_fold_contraction` evaluates fixed tensor-contraction plans for
+  code-boundary fold overlaps. This is a standalone research kernel, not a
+  full-circuit simulator. See the [fold contraction study](research/fold_contraction.md).
 
 ## Build
 
