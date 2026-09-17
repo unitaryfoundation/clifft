@@ -20,6 +20,9 @@ strong-simulation costs and expose offline structural diagnostics:
 - `profile_fold_contraction` evaluates fixed tensor-contraction plans for
   code-boundary fold overlaps. This is a standalone research kernel, not a
   full-circuit simulator. See the [fold contraction study](research/fold_contraction.md).
+- `fold_blocks.py` and `export_fold_blocks.py` construct and validate reusable
+  code-boundary plans and emit a standalone native sampler for the reconstructed
+  f3/f5 protocols. See the [compiled block study](research/fold_blocks.md).
 
 ## Build
 

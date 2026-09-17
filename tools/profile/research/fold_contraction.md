@@ -1,5 +1,8 @@
 # Fixed contraction plans for fold-check overlaps
 
+Follow-up: [compiled full-protocol blocks](fold_blocks.md) connect these kernels
+through noisy boundaries and growth and measure complete f5 sampling throughput.
+
 **Continue toward a compiled code-boundary prototype.** The expensive overlap
 operation in the coherent-branch reference can be replaced, for this fold
 family, by a small tensor contraction with a fixed schedule. At d7 the largest
