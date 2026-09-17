@@ -255,11 +255,13 @@ def apply_instrument(state, region, outcome, faults):
     state.merge()
 
 
-def evaluate(program, history, outcomes):
+def evaluate(program, history, outcomes, *, before_instruction=None):
     """Evaluate all conditional Born probabilities of one specified trajectory.
 
     Outcomes include hidden reset measurements. They are not readout-flipped.
     Classical controls use the separately derived reported measurement record.
+    An optional observer may inspect, but must not mutate, the offline state
+    before each executed source instruction; gadget interiors are skipped.
     """
     if len(outcomes) != len(program.measurements) or any(b not in (0, 1) for b in outcomes):
         raise ValueError("one true bit is required for every measurement and reset")
@@ -273,6 +275,8 @@ def evaluate(program, history, outcomes):
     for op in program.instructions:
         if op.line <= skip_until:
             continue
+        if before_instruction is not None:
+            before_instruction(op, state, norm)
         if op.line in program.regions:
             region = program.regions[op.line]
             measured = next(g for g in region.gates if g.name in {"MX", "MPP_Y"})

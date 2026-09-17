@@ -1,6 +1,23 @@
 # Representation study checkpoint
 
-Latest: [the full original-MSC composition check](msc_protocol.md) evaluates
+Latest: [the static original-MSC boundary study](msc_boundaries.md) certifies
+the two injection-to-check intervals and the d3-to-d5 growth/syndrome interval.
+All data and spectator stabilizers leave exactly one logical degree of freedom
+at these entries. Fixed record/fault parity maps produce signed syndromes and
+Pauli corrections without runtime tableau work. Growth also certifies all six
+input syndrome flows and both logical axes. Spectator preparation/measurement
+dependencies before the interval are retained explicitly.
+
+Validation: 177,460 signed-flow checks across 4,982 ideal/fault-basis histories,
+and 146 boundary observations from the existing 95 full histories, including
+55 nonzero data sectors and 9,596 exact term/stabilizer comparisons. Seven new
+tests and the combined 22-test MSC suite pass. Next: derive the weighted
+two-amplitude contractions, reachability constraints and normalization at these
+boundaries, then compare complete static execution with the full-history
+oracle. Membership/sign maps alone are not a complete sampler. No new native
+throughput claim; f7 remains the large-state target.
+
+[The full original-MSC composition check](msc_protocol.md) evaluates
 complete fixed histories of the actual d3/d5 benchmark circuits, retaining
 physical noise, true versus reported outcomes, reset trajectories, growth,
 feedforward and every detector/observable parity. Across 95 histories, d3
