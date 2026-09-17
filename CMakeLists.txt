@@ -256,6 +256,8 @@ else()
     # Profiling tool (opt-in, not part of default or coverage builds)
     option(CLIFFT_BUILD_PROFILER "Build profiling harnesses" OFF)
     if(CLIFFT_BUILD_PROFILER)
+        add_executable(profile_structure tools/profile/profile_structure.cpp)
+        target_link_libraries(profile_structure PRIVATE clifft_core)
         add_executable(profile_compile tools/profile/profile_compile.cpp)
         target_link_libraries(profile_compile PRIVATE clifft_core)
         target_include_directories(profile_compile PRIVATE

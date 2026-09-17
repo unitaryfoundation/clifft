@@ -5,6 +5,7 @@
 /build-wasm/
 build-coverage/
 build-profile/
+build-research/
 cmake-build-*/
 CMakeCache.txt
 CMakeFiles/

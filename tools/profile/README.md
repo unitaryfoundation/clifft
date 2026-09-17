@@ -1,7 +1,7 @@
 # Native Profiling Tools
 
-Three native C++ harnesses isolate production compile, sampling, and
-strong-simulation costs for `perf` or another sampling profiler:
+Native C++ harnesses isolate production compile, sampling, and
+strong-simulation costs and expose offline structural diagnostics:
 
 - `profile_compile` repeatedly runs parse, trace and HIR optimization,
   coordinate planning, and executable-plan preparation.
@@ -9,6 +9,10 @@ strong-simulation costs for `perf` or another sampling profiler:
   `clifft::basis_probabilities()` over a batch of bitstrings.
 - `profile_sample` compiles a circuit once and repeatedly samples it through
   the public C++ path.
+- `profile_structure` exports typed semantic actions, compile/shot timing,
+  and optional bounded residual-state snapshots. See
+  [the factored-state study](research/factored_state.md) for its cost model,
+  corpus exclusions, reproduction commands, and limitations.
 
 ## Build
 
