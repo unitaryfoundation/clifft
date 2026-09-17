@@ -1,6 +1,31 @@
 # Representation study checkpoint
 
-Latest: [the compiled Clifford fault-frame study](fault_frames.md) factors
+Latest: [the compiled measurement-bridge study](frame_bridge.md) closes the
+fault-frame measurement gap on the supported f7 families. Cat-bit substitution
+produces exactly the existing two weighted monomials. Ten new legal cross-check
+data-hook cases per variant leave cat-data CZ corrections and survive with
+probability 1/4; 68 new full-history independent checks agree within 5.56e-17.
+All 115 research tests and native sanitizer checks pass. Each of two variants
+passes 3,792 fault-history branch checks, 768 incoming-Pauli checks, and 96
+full-circuit fixtures, including a mixed preplanned fallback.
+
+Full sampling does not show a practical advantage: bridge versus original
+medians are 46.15 versus 45.40 us/attempt on original f7, and 46.11 versus
+45.70 us on changed growth/syndrome f7. All survivor outputs agree across
+600,000 paired attempted histories, retaining 350 measurements, 348 detectors,
+and five probes per survivor. Stop the bridge as a separate execution direction;
+keep compiled logical blocks as the preferred complete evaluator. Retain the
+frame algebra and regression cases, not a new generic adaptive MPS framework.
+
+Next: return to actual MSC benchmark coverage. Identify and certify boundaries
+in a genuinely different existing MSC schedule/gadget family, with an explicit
+applicability/fallback contract, before more production plumbing. The current
+paper-guided f7 reconstruction remains the large-state target and d5 a control;
+another rearrangement of its syndrome schedule is not broader physics coverage.
+Do not claim the existing corpus is covered or that authors' artifacts have
+been obtained. Production integration remains a separate decision.
+
+[The compiled Clifford fault-frame study](fault_frames.md) factors
 arbitrary core Pauli faults into one shared Clifford correction with precomputed
 quadratic slots. Across 540 native-operation f7 checkpoints, the corrected bond
 upper bound is at most 34 and the affine-cover union is at most 14 directions.
@@ -12,13 +37,9 @@ including sanitizer checks. The sufficient data-only exit rule accepts 307/480
 single Pauli patterns and 239/256 natural core samples. Cat-data corrections
 change measurements and remain the key composition gap.
 
-Keep compiled logical blocks as the leading complete sampler. The next bounded
-test is to compile the fault frame's effect through cat measurement on the small
-input space, then compare complete attempted-shot cost and survivor outputs
-against the existing two-monomial path. Include cases the data-only rule declines.
-Do not implement generic adaptive MPS or runtime basis discovery. If the boundary
-bridge merely reproduces logical blocks without broader coverage or a measured
-throughput benefit, stop the second-executor direction.
+The subsequent bridge study above completes the bounded measurement and
+throughput comparison. No generic adaptive MPS or runtime basis discovery was
+implemented.
 
 [The large-fold frame study](fold_frames.md) screens fixed frames on
 702 f7 checkpoints without a dense large-state allocation. One ideal-trained

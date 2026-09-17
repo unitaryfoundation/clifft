@@ -1,0 +1,467 @@
+{
+  "decision": "Retain the original logical-block evaluator; no demonstrated throughput or coverage gain from a separate frame-bridge executor.",
+  "variants": [
+    {
+      "variant": "original",
+      "fault_bits": 6199,
+      "noise_locations": 2205,
+      "fixtures": 96,
+      "boundary_cases": 34,
+      "independent_reference": [
+        {
+          "case": "boundary_21_1_0_Y",
+          "acceptance": 0,
+          "max_error": 0.0
+        },
+        {
+          "case": "boundary_21_8_87_Z",
+          "acceptance": 0,
+          "max_error": 0.0
+        },
+        {
+          "case": "boundary_21_17_90_Y",
+          "acceptance": 0,
+          "max_error": 0.0
+        },
+        {
+          "case": "boundary_21_26_85_Y",
+          "acceptance": 0,
+          "max_error": 0.0
+        },
+        {
+          "case": "boundary_21_35_88_X",
+          "acceptance": 0,
+          "max_error": 0.0
+        },
+        {
+          "case": "boundary_21_42_90_Y",
+          "acceptance": 0,
+          "max_error": 0.0
+        },
+        {
+          "case": "boundary_21_47_87_X",
+          "acceptance": 0,
+          "max_error": 0.0
+        },
+        {
+          "case": "boundary_21_51_92_Z",
+          "acceptance": 0,
+          "max_error": 0.0
+        },
+        {
+          "case": "boundary_21_56_89_Z",
+          "acceptance": 0,
+          "max_error": 0.0
+        },
+        {
+          "case": "boundary_21_61_88_Y",
+          "acceptance": 0,
+          "max_error": 0.0
+        },
+        {
+          "case": "boundary_21_66_85_Y",
+          "acceptance": 0,
+          "max_error": 0.0
+        },
+        {
+          "case": "boundary_21_71_86_X",
+          "acceptance": 0,
+          "max_error": 0.0
+        },
+        {
+          "case": "boundary_24_1_0_Y",
+          "acceptance": 0,
+          "max_error": 0.0
+        },
+        {
+          "case": "boundary_24_8_87_Z",
+          "acceptance": 0,
+          "max_error": 0.0
+        },
+        {
+          "case": "boundary_24_17_90_Y",
+          "acceptance": 0,
+          "max_error": 0.0
+        },
+        {
+          "case": "boundary_24_26_85_Y",
+          "acceptance": 0,
+          "max_error": 0.0
+        },
+        {
+          "case": "boundary_24_35_88_X",
+          "acceptance": 0,
+          "max_error": 0.0
+        },
+        {
+          "case": "boundary_24_42_90_Y",
+          "acceptance": 0,
+          "max_error": 0.0
+        },
+        {
+          "case": "boundary_24_47_87_X",
+          "acceptance": 0,
+          "max_error": 0.0
+        },
+        {
+          "case": "boundary_24_51_92_Z",
+          "acceptance": 0,
+          "max_error": 0.0
+        },
+        {
+          "case": "boundary_24_56_89_Z",
+          "acceptance": 0,
+          "max_error": 0.0
+        },
+        {
+          "case": "boundary_24_61_88_Y",
+          "acceptance": 0,
+          "max_error": 0.0
+        },
+        {
+          "case": "boundary_24_66_85_Y",
+          "acceptance": 0,
+          "max_error": 0.0
+        },
+        {
+          "case": "boundary_24_71_86_X",
+          "acceptance": 0,
+          "max_error": 0.0
+        },
+        {
+          "case": "carried_data_hook_0_13",
+          "acceptance": 0.24999999999999994,
+          "max_error": 5.551115123125783e-17
+        },
+        {
+          "case": "carried_data_hook_0_1",
+          "acceptance": 0.24999999999999994,
+          "max_error": 5.551115123125783e-17
+        },
+        {
+          "case": "carried_data_hook_9_76",
+          "acceptance": 0.24999999999999994,
+          "max_error": 5.551115123125783e-17
+        },
+        {
+          "case": "carried_data_hook_9_64",
+          "acceptance": 0.24999999999999994,
+          "max_error": 5.551115123125783e-17
+        },
+        {
+          "case": "carried_data_hook_18_75",
+          "acceptance": 0.24999999999999994,
+          "max_error": 5.551115123125783e-17
+        },
+        {
+          "case": "carried_data_hook_18_51",
+          "acceptance": 0.24999999999999994,
+          "max_error": 5.551115123125783e-17
+        },
+        {
+          "case": "carried_data_hook_27_52",
+          "acceptance": 0.24999999999999994,
+          "max_error": 5.551115123125783e-17
+        },
+        {
+          "case": "carried_data_hook_27_4",
+          "acceptance": 0.24999999999999994,
+          "max_error": 5.551115123125783e-17
+        },
+        {
+          "case": "carried_data_hook_35_78",
+          "acceptance": 0.24999999999999994,
+          "max_error": 5.551115123125783e-17
+        },
+        {
+          "case": "carried_data_hook_35_6",
+          "acceptance": 0.24999999999999994,
+          "max_error": 5.551115123125783e-17
+        }
+      ],
+      "native_sampling": {
+        "base_us_per_attempt": [
+          47.46458767,
+          45.39674085,
+          45.35314773
+        ],
+        "bridge_us_per_attempt": [
+          46.00909781,
+          46.15165033,
+          46.50627313
+        ],
+        "passed": [
+          12667,
+          12580,
+          12586
+        ],
+        "shots_per_trial": 100000,
+        "fixtures": 96,
+        "branch_histories": 3792,
+        "incoming_pauli_histories": 768,
+        "max_fixture_error": 2.22044604925e-16,
+        "max_output_error": 1.11022302463e-16,
+        "measurement_values": 13241550,
+        "detector_values": 13165884,
+        "probe_values": 189165
+      },
+      "median_us": {
+        "base_us_per_attempt": 45.39674085,
+        "bridge_us_per_attempt": 46.15165033
+      },
+      "generated_cpp_sha256": "0afb8cb6b0a870f14fa9190439ab85d34798f66875edaaa0b58a3ead8612bcb3"
+    },
+    {
+      "variant": "held_out",
+      "fault_bits": 6199,
+      "noise_locations": 2205,
+      "fixtures": 96,
+      "boundary_cases": 34,
+      "independent_reference": [
+        {
+          "case": "boundary_21_1_0_Y",
+          "acceptance": 0,
+          "max_error": 0.0
+        },
+        {
+          "case": "boundary_21_8_87_Z",
+          "acceptance": 0,
+          "max_error": 0.0
+        },
+        {
+          "case": "boundary_21_17_90_Y",
+          "acceptance": 0,
+          "max_error": 0.0
+        },
+        {
+          "case": "boundary_21_26_85_Y",
+          "acceptance": 0,
+          "max_error": 0.0
+        },
+        {
+          "case": "boundary_21_35_88_X",
+          "acceptance": 0,
+          "max_error": 0.0
+        },
+        {
+          "case": "boundary_21_42_90_Y",
+          "acceptance": 0,
+          "max_error": 0.0
+        },
+        {
+          "case": "boundary_21_47_87_X",
+          "acceptance": 0,
+          "max_error": 0.0
+        },
+        {
+          "case": "boundary_21_51_92_Z",
+          "acceptance": 0,
+          "max_error": 0.0
+        },
+        {
+          "case": "boundary_21_56_89_Z",
+          "acceptance": 0,
+          "max_error": 0.0
+        },
+        {
+          "case": "boundary_21_61_88_Y",
+          "acceptance": 0,
+          "max_error": 0.0
+        },
+        {
+          "case": "boundary_21_66_85_Y",
+          "acceptance": 0,
+          "max_error": 0.0
+        },
+        {
+          "case": "boundary_21_71_86_X",
+          "acceptance": 0,
+          "max_error": 0.0
+        },
+        {
+          "case": "boundary_24_1_0_Y",
+          "acceptance": 0,
+          "max_error": 0.0
+        },
+        {
+          "case": "boundary_24_8_87_Z",
+          "acceptance": 0,
+          "max_error": 0.0
+        },
+        {
+          "case": "boundary_24_17_90_Y",
+          "acceptance": 0,
+          "max_error": 0.0
+        },
+        {
+          "case": "boundary_24_26_85_Y",
+          "acceptance": 0,
+          "max_error": 0.0
+        },
+        {
+          "case": "boundary_24_35_88_X",
+          "acceptance": 0,
+          "max_error": 0.0
+        },
+        {
+          "case": "boundary_24_42_90_Y",
+          "acceptance": 0,
+          "max_error": 0.0
+        },
+        {
+          "case": "boundary_24_47_87_X",
+          "acceptance": 0,
+          "max_error": 0.0
+        },
+        {
+          "case": "boundary_24_51_92_Z",
+          "acceptance": 0,
+          "max_error": 0.0
+        },
+        {
+          "case": "boundary_24_56_89_Z",
+          "acceptance": 0,
+          "max_error": 0.0
+        },
+        {
+          "case": "boundary_24_61_88_Y",
+          "acceptance": 0,
+          "max_error": 0.0
+        },
+        {
+          "case": "boundary_24_66_85_Y",
+          "acceptance": 0,
+          "max_error": 0.0
+        },
+        {
+          "case": "boundary_24_71_86_X",
+          "acceptance": 0,
+          "max_error": 0.0
+        },
+        {
+          "case": "carried_data_hook_0_13",
+          "acceptance": 0.24999999999999994,
+          "max_error": 5.551115123125783e-17
+        },
+        {
+          "case": "carried_data_hook_0_1",
+          "acceptance": 0.24999999999999994,
+          "max_error": 5.551115123125783e-17
+        },
+        {
+          "case": "carried_data_hook_9_76",
+          "acceptance": 0.24999999999999994,
+          "max_error": 5.551115123125783e-17
+        },
+        {
+          "case": "carried_data_hook_9_64",
+          "acceptance": 0.24999999999999994,
+          "max_error": 5.551115123125783e-17
+        },
+        {
+          "case": "carried_data_hook_18_75",
+          "acceptance": 0.24999999999999994,
+          "max_error": 5.551115123125783e-17
+        },
+        {
+          "case": "carried_data_hook_18_51",
+          "acceptance": 0.24999999999999994,
+          "max_error": 5.551115123125783e-17
+        },
+        {
+          "case": "carried_data_hook_27_52",
+          "acceptance": 0.24999999999999994,
+          "max_error": 5.551115123125783e-17
+        },
+        {
+          "case": "carried_data_hook_27_4",
+          "acceptance": 0.24999999999999994,
+          "max_error": 5.551115123125783e-17
+        },
+        {
+          "case": "carried_data_hook_35_78",
+          "acceptance": 0.24999999999999994,
+          "max_error": 5.551115123125783e-17
+        },
+        {
+          "case": "carried_data_hook_35_6",
+          "acceptance": 0.24999999999999994,
+          "max_error": 5.551115123125783e-17
+        }
+      ],
+      "native_sampling": {
+        "base_us_per_attempt": [
+          45.2363593,
+          46.0192826,
+          45.69528118
+        ],
+        "bridge_us_per_attempt": [
+          46.10740035,
+          45.6788944,
+          46.13277096
+        ],
+        "passed": [
+          12553,
+          12604,
+          12599
+        ],
+        "shots_per_trial": 100000,
+        "fixtures": 96,
+        "branch_histories": 3792,
+        "incoming_pauli_histories": 768,
+        "max_fixture_error": 2.22044604925e-16,
+        "max_output_error": 1.11022302463e-16,
+        "measurement_values": 13214600,
+        "detector_values": 13139088,
+        "probe_values": 188780
+      },
+      "median_us": {
+        "base_us_per_attempt": 45.69528118,
+        "bridge_us_per_attempt": 46.10740035
+      },
+      "generated_cpp_sha256": "5773740d8b695dd99c8c81964b3501a2d5c26622215276c6d2e1f1406586d353"
+    }
+  ],
+  "validation": {
+    "research_tests": 115,
+    "test_seconds": 211.984,
+    "independent_boundary_histories": 68,
+    "asan_ubsan_leaks": "passed",
+    "sanitizer_probe": {
+      "base_us_per_attempt": [
+        272.92017
+      ],
+      "bridge_us_per_attempt": [
+        288.10863
+      ],
+      "passed": [
+        11
+      ],
+      "shots_per_trial": 100,
+      "fixtures": 96,
+      "branch_histories": 3792,
+      "incoming_pauli_histories": 768,
+      "max_fixture_error": 2.22044604925e-16,
+      "max_output_error": 0,
+      "measurement_values": 3850,
+      "detector_values": 3828,
+      "probe_values": 55
+    }
+  },
+  "benchmark": {
+    "flags": "-std=c++20 -O3 -march=native -Wall -Wextra -Wpedantic",
+    "environment": "Unpinned exe.dev VM; sequential variants after correctness checks and builds; alternating evaluator order across three trials.",
+    "scope": "Complete attempted-shot sampling with fault generation, acceptance, contractions, and retained survivor outputs; one-time planning excluded."
+  },
+  "source_sha256": {
+    "fold_frame_bridge.py": "73ce4194a49373dc63d511732a4b857bababa34989d887998c6aca930ec009fe",
+    "fold_frame_bridge_native.h": "bb6f3490f9aab1a76fd0c9f78d1b4937169223f5c546a0080505dc826c51c2dc",
+    "benchmark_frame_bridge.h": "647a46ec99929a548594e551208b4f643d99f82e35bb8ea55a50e84eeeb77b7f",
+    "study_frame_bridge.py": "6c9285247ea132a150cc6660d740c258e6a16b75f778d84f316410b31b2ee5d6",
+    "test_fold_frame_bridge.py": "57d00cf1d1d5c84d75c4bcc652de4ae242afcc513b50390f2d415323a861bf29",
+    "fold_blocks_native.h": "b8476b5404a5857db6b37783d56cd2b03b185dd088bda25abc51da7f5b7bee35",
+    "fold_recognition.h": "41cb68f3b997746f1e6c6065710b720ee2f695f876357cc9c43f8858b24aae5e",
+    "fold_fault_frame.py": "71e44011f40148a39d590b8325208f55152f03b9f209a88adc655fdb36285a0d",
+    "fold_fault_frame_native.h": "0dc761bea8e0a0a7890e678dd56f2bbf31940842f508dbe2fba3a1b1d00328d8"
+  }
+}

@@ -245,17 +245,20 @@ class Executor {
         return count;
     }
 
-    std::array<double, 4> evaluate(const Protocol& plan, const History& h) noexcept {
+    template <class Branches>
+    std::array<double, 4> evaluate_with(const Protocol& plan, const History& h,
+                                        Branches&& branch_evaluator) noexcept {
         if (apply(plan.prefix.records, h))
             return {};
         std::array<Complex, 2> state{std::sqrt(.5), Complex(.5, .5)};
         std::array<Term, 4> terms{}, next{};
         terms[0] = {1, pauli(apply(plan.prefix.x, h), apply(plan.prefix.z, h))};
         unsigned count = 1;
-        for (const auto& stage : plan.stages) {
+        for (size_t stage_index = 0; stage_index < plan.stages.size(); ++stage_index) {
+            const auto& stage = plan.stages[stage_index];
             if (stage.fold) {
                 std::array<Term, 2> additions{};
-                unsigned added = branches(*stage.fold, h, additions), n = 0;
+                unsigned added = branch_evaluator(stage_index, *stage.fold, h, additions), n = 0;
                 assert(count * added <= next.size());
                 for (unsigned j = 0; j < count; ++j)
                     for (unsigned k = 0; k < added; ++k)
@@ -300,6 +303,14 @@ class Executor {
         Complex cross = std::conj(state[0]) * state[1];
         return {std::norm(state[0]) + std::norm(state[1]), 2 * cross.real(), 2 * cross.imag(),
                 std::norm(state[0]) - std::norm(state[1])};
+    }
+
+    std::array<double, 4> evaluate(const Protocol& plan, const History& h) noexcept {
+        return evaluate_with(
+            plan, h,
+            [this](size_t, const Fold& fold, const History& history, std::array<Term, 2>& out) {
+                return branches(fold, history, out);
+            });
     }
 };
 

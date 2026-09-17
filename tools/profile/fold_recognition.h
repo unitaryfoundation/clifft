@@ -278,9 +278,11 @@ inline Decision recognize(const Circuit& circuit, const Request& request,
     return best;
 }
 
-inline clifft::sampling::SamplingSurvivorResult sample(const Certificate& certificate,
-                                                       unsigned shots, uint64_t seed,
-                                                       bool keep_records) {
+template <class Evaluator>
+inline clifft::sampling::SamplingSurvivorResult sample_with_executor(const Certificate& certificate,
+                                                                     unsigned shots, uint64_t seed,
+                                                                     bool keep_records,
+                                                                     Evaluator& executor) {
     const auto& family = *certificate.family;
     const auto& kernel = *family.source.kernel;
     clifft::sampling::SamplingSurvivorResult result;
@@ -292,7 +294,6 @@ inline clifft::sampling::SamplingSurvivorResult sample(const Certificate& certif
         result.detectors.resize(size_t(shots) * detectors);
         result.exp_vals.resize(size_t(shots) * probes);
     }
-    fold_blocks::Executor executor;
     fold_blocks::History history;
     std::mt19937_64 rng(seed);
     std::mt19937_64 record_rng(seed ^ 0x94d049bb133111ebULL);
@@ -323,5 +324,12 @@ inline clifft::sampling::SamplingSurvivorResult sample(const Certificate& certif
         result.exp_vals.resize(size_t(result.passed_shots) * probes);
     }
     return result;
+}
+
+inline clifft::sampling::SamplingSurvivorResult sample(const Certificate& certificate,
+                                                       unsigned shots, uint64_t seed,
+                                                       bool keep_records) {
+    fold_blocks::Executor executor;
+    return sample_with_executor(certificate, shots, seed, keep_records, executor);
 }
 }  // namespace fold_recognition
