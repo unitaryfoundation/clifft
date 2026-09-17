@@ -174,7 +174,7 @@ class Exporter:
             ],
         )
 
-    def write(self, cases, path):
+    def write(self, cases, path, entrypoint=None):
         stage_initializers = []
         live = 1
         for _, plan, _ in self.protocol.groups:
@@ -237,9 +237,13 @@ class Exporter:
             )
         data = self.array("Fixture", fixtures)
         self.lines.append(
-            "int main(int argc, char** argv) {\n"
-            f"    return benchmark({protocol}, {data}, argc, argv);\n"
-            "}"
+            entrypoint(protocol, data)
+            if entrypoint is not None
+            else (
+                "int main(int argc, char** argv) {\n"
+                f"    return benchmark({protocol}, {data}, argc, argv);\n"
+                "}"
+            )
         )
         path.write_text("\n".join(self.lines) + "\n")
         return {

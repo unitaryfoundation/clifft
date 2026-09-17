@@ -1,13 +1,21 @@
 # Representation study checkpoint
 
-Follow-up: [the bounded alternatives study](alternatives.md) records the native
+Follow-up: [the eligibility/composition study](fold_eligibility.md) now provides
+a parsed-circuit recognizer and full survivor-result adapter for the three
+certified reconstructions, plus measured fallback through ordinary Clifft.
+The 69-test research suite passes. No production dispatcher or live-state
+handoff has been added. Next establish coverage on a second independently
+varied f7 syndrome/growth schedule before proposing production architecture.
+
+[The bounded alternatives study](alternatives.md) records the native
 Pauli-proxy comparison and the five-round Clifford-frame screen. Logical blocks
 remain the leading integration candidate; a frame/tensor study on large fold
-residuals remains open. Production integration has not resumed.
+residuals remains open.
 
-The current candidate is named **compiled logical-block simulation**. Production
-recognition and integration are paused while bounded independent alternatives
-are evaluated. The user prioritizes sustained sampling of large residual states,
+The current candidate is named **compiled logical-block simulation**. Research
+recognition and output composition have passed the bounded integration screen;
+production integration remains pending coverage and architecture review.
+The user prioritizes sustained sampling of large residual states,
 simple invariants, and cheap eligibility/fallback. Few-shot startup and one-round
 memory are outside this study.
 
@@ -35,9 +43,11 @@ The reproducible checkpoint is commit `ce702482` on
   It lacks final-error-correction decoding and a general residual-state handoff.
   The circuit is paper-guided, not verified equivalent to an authors' artifact.
 
-The next logical-block work would be an output-matched competing benchmark,
-then a minimal sound eligibility certificate and explicit fallback. Do not
-start a general representation-switching framework or optimize SIMD first.
+The subsequent alternatives and eligibility reports complete the next two
+bounded steps from that checkpoint. Do not start a general representation-
+switching framework or optimize SIMD first. The certificate is currently a
+whole-schedule match with limited boundary composition, so coverage beyond
+the reconstruction generator is the next uncertainty to resolve.
 
 ## Bounded independent studies
 

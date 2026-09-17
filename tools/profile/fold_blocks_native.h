@@ -303,11 +303,13 @@ class Executor {
     }
 };
 
-inline void sample(const Protocol& plan, History& h, std::mt19937_64& rng,
-                   double probability) noexcept {
+template <class Probability>
+inline void sample_with(const Protocol& plan, History& h, std::mt19937_64& rng,
+                        Probability probability) noexcept {
     h.fill(0);
+    size_t index = 0;
     for (const auto& site : plan.noise)
-        if ((rng() >> 11) * 0x1.0p-53 < probability) {
+        if ((rng() >> 11) * 0x1.0p-53 < probability(index++)) {
             if (site.flip)
                 h[site.x[0] / 64] ^= uint64_t(1) << (site.x[0] % 64);
             else {
@@ -326,6 +328,17 @@ inline void sample(const Protocol& plan, History& h, std::mt19937_64& rng,
                 }
             }
         }
+}
+
+inline void sample(const Protocol& plan, History& h, std::mt19937_64& rng,
+                   double probability) noexcept {
+    sample_with(plan, h, rng, [probability](size_t) { return probability; });
+}
+
+inline void sample_sites(const Protocol& plan, History& h, std::mt19937_64& rng,
+                         std::span<const double> probabilities) noexcept {
+    assert(probabilities.size() == plan.noise.size());
+    sample_with(plan, h, rng, [probabilities](size_t k) { return probabilities[k]; });
 }
 
 inline int benchmark(const Protocol& plan, std::span<const Fixture> fixtures, int argc,

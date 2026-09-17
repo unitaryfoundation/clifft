@@ -1,0 +1,581 @@
+{
+  "description": "Standalone whole-circuit eligibility and survivor-output experiment; no production dispatcher change",
+  "platform": "Linux-6.12.93-x86_64-with-glibc2.39",
+  "compiler": "c++ (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0",
+  "flags": "-std=c++20 -O3 -march=native (no fast-math); existing Release scalar clifft_core",
+  "seed": 19331,
+  "shots_per_trial": 100000,
+  "recognition_repeats": 100,
+  "sources": {
+    "tools/profile/export_fold_recognizer.py": "04334a905b2754147233ea4d1990e63849dff02b916d647a9834cfcd3f2e8909",
+    "tools/profile/fold_recognition.h": "075274383e7f618c5d51255ad0610908add4b118d996ec00b92615041369aede",
+    "tools/profile/test_fold_recognition.py": "223a8776529ae499f11500439a23e87685c4ddbad412ec37b263f22185162329",
+    "tools/profile/fold_recognition_main.h": "ad703b437a21428a22533789d053e15c9800ffcfd42ad9ebbf005d2aaee573c3",
+    "tools/profile/fold_blocks_native.h": "a347c12ca3a33f663ad9ea3c85cb365b50ec2f98ee2fd6a8bbd2c2d808674aa5",
+    "tools/profile/export_fold_blocks.py": "fd96950e3c82e728f6548e69fa78e430792f4dc94a82d04352f2a9136947a408",
+    "tools/profile/fold_blocks.py": "cf378ece19e3f985d79233c3974bcdf1328a4ddbdbcc2dd98e247e2e68ae71c4",
+    "tools/profile/fold_cultivation.py": "1fcf105f6e8b10f6d8f327f4815b9983004cafdcc07e8d108df16856ea93e437"
+  },
+  "sampling": [
+    {
+      "catalog_ms": 3.71602,
+      "parse_ms": 0.998195,
+      "recognize_us": 182.41665,
+      "eligible": 1,
+      "reason": "eligible",
+      "source_line": 0,
+      "distance": 5,
+      "prefix_gates": 0,
+      "suffix_gates": 0,
+      "measurements_per_row": 150,
+      "detectors_per_row": 150,
+      "probes": [
+        [
+          1,
+          1
+        ],
+        [
+          2,
+          1
+        ],
+        [
+          3,
+          1
+        ]
+      ],
+      "sample_ms": 1970.691873,
+      "total_shots": 100000,
+      "passed_shots": 41606,
+      "measurement_values": 0,
+      "detector_values": 0,
+      "probe_values": 0,
+      "keep_records": false,
+      "trial": 0,
+      "max_rss_kib": 6612,
+      "circuit_sha256": "8136a5aa85a35758203ef5d2c4262a5f22fcd6023a2831c22b191e2474fd6d73"
+    },
+    {
+      "catalog_ms": 5.690246,
+      "parse_ms": 1.613529,
+      "recognize_us": 322.34993000000003,
+      "eligible": 1,
+      "reason": "eligible",
+      "source_line": 0,
+      "distance": 5,
+      "prefix_gates": 0,
+      "suffix_gates": 0,
+      "measurements_per_row": 150,
+      "detectors_per_row": 150,
+      "probes": [
+        [
+          1,
+          1
+        ],
+        [
+          2,
+          1
+        ],
+        [
+          3,
+          1
+        ]
+      ],
+      "sample_ms": 2005.227097,
+      "total_shots": 100000,
+      "passed_shots": 41606,
+      "measurement_values": 0,
+      "detector_values": 0,
+      "probe_values": 0,
+      "keep_records": false,
+      "trial": 1,
+      "max_rss_kib": 6632,
+      "circuit_sha256": "8136a5aa85a35758203ef5d2c4262a5f22fcd6023a2831c22b191e2474fd6d73"
+    },
+    {
+      "catalog_ms": 5.878622,
+      "parse_ms": 1.468549,
+      "recognize_us": 305.18198,
+      "eligible": 1,
+      "reason": "eligible",
+      "source_line": 0,
+      "distance": 5,
+      "prefix_gates": 0,
+      "suffix_gates": 0,
+      "measurements_per_row": 150,
+      "detectors_per_row": 150,
+      "probes": [
+        [
+          1,
+          1
+        ],
+        [
+          2,
+          1
+        ],
+        [
+          3,
+          1
+        ]
+      ],
+      "sample_ms": 1973.509008,
+      "total_shots": 100000,
+      "passed_shots": 41606,
+      "measurement_values": 0,
+      "detector_values": 0,
+      "probe_values": 0,
+      "keep_records": false,
+      "trial": 2,
+      "max_rss_kib": 6564,
+      "circuit_sha256": "8136a5aa85a35758203ef5d2c4262a5f22fcd6023a2831c22b191e2474fd6d73"
+    },
+    {
+      "catalog_ms": 2.845218,
+      "parse_ms": 0.748856,
+      "recognize_us": 142.45009,
+      "eligible": 1,
+      "reason": "eligible",
+      "source_line": 0,
+      "distance": 5,
+      "prefix_gates": 0,
+      "suffix_gates": 0,
+      "measurements_per_row": 150,
+      "detectors_per_row": 150,
+      "probes": [
+        [
+          1,
+          1
+        ],
+        [
+          2,
+          1
+        ],
+        [
+          3,
+          1
+        ]
+      ],
+      "sample_ms": 1964.732579,
+      "total_shots": 100000,
+      "passed_shots": 41606,
+      "measurement_values": 6240900,
+      "detector_values": 6240900,
+      "probe_values": 124818,
+      "keep_records": true,
+      "trial": 0,
+      "max_rss_kib": 38176,
+      "circuit_sha256": "8136a5aa85a35758203ef5d2c4262a5f22fcd6023a2831c22b191e2474fd6d73"
+    },
+    {
+      "catalog_ms": 3.82154,
+      "parse_ms": 1.010344,
+      "recognize_us": 195.05353,
+      "eligible": 1,
+      "reason": "eligible",
+      "source_line": 0,
+      "distance": 5,
+      "prefix_gates": 0,
+      "suffix_gates": 0,
+      "measurements_per_row": 150,
+      "detectors_per_row": 150,
+      "probes": [
+        [
+          1,
+          1
+        ],
+        [
+          2,
+          1
+        ],
+        [
+          3,
+          1
+        ]
+      ],
+      "sample_ms": 1937.03375,
+      "total_shots": 100000,
+      "passed_shots": 41606,
+      "measurement_values": 6240900,
+      "detector_values": 6240900,
+      "probe_values": 124818,
+      "keep_records": true,
+      "trial": 1,
+      "max_rss_kib": 38372,
+      "circuit_sha256": "8136a5aa85a35758203ef5d2c4262a5f22fcd6023a2831c22b191e2474fd6d73"
+    },
+    {
+      "catalog_ms": 5.760773,
+      "parse_ms": 1.687361,
+      "recognize_us": 323.01723999999996,
+      "eligible": 1,
+      "reason": "eligible",
+      "source_line": 0,
+      "distance": 5,
+      "prefix_gates": 0,
+      "suffix_gates": 0,
+      "measurements_per_row": 150,
+      "detectors_per_row": 150,
+      "probes": [
+        [
+          1,
+          1
+        ],
+        [
+          2,
+          1
+        ],
+        [
+          3,
+          1
+        ]
+      ],
+      "sample_ms": 2000.991028,
+      "total_shots": 100000,
+      "passed_shots": 41606,
+      "measurement_values": 6240900,
+      "detector_values": 6240900,
+      "probe_values": 124818,
+      "keep_records": true,
+      "trial": 2,
+      "max_rss_kib": 38156,
+      "circuit_sha256": "8136a5aa85a35758203ef5d2c4262a5f22fcd6023a2831c22b191e2474fd6d73"
+    },
+    {
+      "catalog_ms": 2.288493,
+      "parse_ms": 1.39011,
+      "recognize_us": 425.43197999999995,
+      "eligible": 1,
+      "reason": "eligible",
+      "source_line": 0,
+      "distance": 7,
+      "prefix_gates": 0,
+      "suffix_gates": 0,
+      "measurements_per_row": 350,
+      "detectors_per_row": 348,
+      "probes": [
+        [
+          1,
+          1
+        ],
+        [
+          2,
+          1
+        ],
+        [
+          3,
+          1
+        ]
+      ],
+      "sample_ms": 4539.442161,
+      "total_shots": 100000,
+      "passed_shots": 12667,
+      "measurement_values": 0,
+      "detector_values": 0,
+      "probe_values": 0,
+      "keep_records": false,
+      "trial": 0,
+      "max_rss_kib": 8104,
+      "circuit_sha256": "0b68e550af8dc7eefad4862df4a328bc6f6b56bbcc6ce3cf45a621eb02bd9dad"
+    },
+    {
+      "catalog_ms": 2.259298,
+      "parse_ms": 1.327224,
+      "recognize_us": 413.28934999999996,
+      "eligible": 1,
+      "reason": "eligible",
+      "source_line": 0,
+      "distance": 7,
+      "prefix_gates": 0,
+      "suffix_gates": 0,
+      "measurements_per_row": 350,
+      "detectors_per_row": 348,
+      "probes": [
+        [
+          1,
+          1
+        ],
+        [
+          2,
+          1
+        ],
+        [
+          3,
+          1
+        ]
+      ],
+      "sample_ms": 4662.921978,
+      "total_shots": 100000,
+      "passed_shots": 12667,
+      "measurement_values": 0,
+      "detector_values": 0,
+      "probe_values": 0,
+      "keep_records": false,
+      "trial": 1,
+      "max_rss_kib": 8144,
+      "circuit_sha256": "0b68e550af8dc7eefad4862df4a328bc6f6b56bbcc6ce3cf45a621eb02bd9dad"
+    },
+    {
+      "catalog_ms": 3.983326,
+      "parse_ms": 2.334994,
+      "recognize_us": 570.1379099999999,
+      "eligible": 1,
+      "reason": "eligible",
+      "source_line": 0,
+      "distance": 7,
+      "prefix_gates": 0,
+      "suffix_gates": 0,
+      "measurements_per_row": 350,
+      "detectors_per_row": 348,
+      "probes": [
+        [
+          1,
+          1
+        ],
+        [
+          2,
+          1
+        ],
+        [
+          3,
+          1
+        ]
+      ],
+      "sample_ms": 4562.357231,
+      "total_shots": 100000,
+      "passed_shots": 12667,
+      "measurement_values": 0,
+      "detector_values": 0,
+      "probe_values": 0,
+      "keep_records": false,
+      "trial": 2,
+      "max_rss_kib": 8076,
+      "circuit_sha256": "0b68e550af8dc7eefad4862df4a328bc6f6b56bbcc6ce3cf45a621eb02bd9dad"
+    },
+    {
+      "catalog_ms": 8.771031,
+      "parse_ms": 3.744243,
+      "recognize_us": 529.57564,
+      "eligible": 1,
+      "reason": "eligible",
+      "source_line": 0,
+      "distance": 7,
+      "prefix_gates": 0,
+      "suffix_gates": 0,
+      "measurements_per_row": 350,
+      "detectors_per_row": 348,
+      "probes": [
+        [
+          1,
+          1
+        ],
+        [
+          2,
+          1
+        ],
+        [
+          3,
+          1
+        ]
+      ],
+      "sample_ms": 4680.160021,
+      "total_shots": 100000,
+      "passed_shots": 12667,
+      "measurement_values": 4433450,
+      "detector_values": 4408116,
+      "probe_values": 38001,
+      "keep_records": true,
+      "trial": 0,
+      "max_rss_kib": 78500,
+      "circuit_sha256": "0b68e550af8dc7eefad4862df4a328bc6f6b56bbcc6ce3cf45a621eb02bd9dad"
+    },
+    {
+      "catalog_ms": 5.747644,
+      "parse_ms": 3.452049,
+      "recognize_us": 714.33104,
+      "eligible": 1,
+      "reason": "eligible",
+      "source_line": 0,
+      "distance": 7,
+      "prefix_gates": 0,
+      "suffix_gates": 0,
+      "measurements_per_row": 350,
+      "detectors_per_row": 348,
+      "probes": [
+        [
+          1,
+          1
+        ],
+        [
+          2,
+          1
+        ],
+        [
+          3,
+          1
+        ]
+      ],
+      "sample_ms": 4615.258831,
+      "total_shots": 100000,
+      "passed_shots": 12667,
+      "measurement_values": 4433450,
+      "detector_values": 4408116,
+      "probe_values": 38001,
+      "keep_records": true,
+      "trial": 1,
+      "max_rss_kib": 78580,
+      "circuit_sha256": "0b68e550af8dc7eefad4862df4a328bc6f6b56bbcc6ce3cf45a621eb02bd9dad"
+    },
+    {
+      "catalog_ms": 5.602783,
+      "parse_ms": 2.288002,
+      "recognize_us": 613.16399,
+      "eligible": 1,
+      "reason": "eligible",
+      "source_line": 0,
+      "distance": 7,
+      "prefix_gates": 0,
+      "suffix_gates": 0,
+      "measurements_per_row": 350,
+      "detectors_per_row": 348,
+      "probes": [
+        [
+          1,
+          1
+        ],
+        [
+          2,
+          1
+        ],
+        [
+          3,
+          1
+        ]
+      ],
+      "sample_ms": 4613.100176,
+      "total_shots": 100000,
+      "passed_shots": 12667,
+      "measurement_values": 4433450,
+      "detector_values": 4408116,
+      "probe_values": 38001,
+      "keep_records": true,
+      "trial": 2,
+      "max_rss_kib": 78704,
+      "circuit_sha256": "0b68e550af8dc7eefad4862df4a328bc6f6b56bbcc6ce3cf45a621eb02bd9dad"
+    }
+  ],
+  "fallback": [
+    {
+      "catalog_ms": 2.395105,
+      "parse_ms": 0.078059,
+      "recognize_us": 1.7212100000000001,
+      "eligible": 0,
+      "reason": "gate or physical noise location differs from certified family",
+      "source_line": 19,
+      "fallback_compile_ms": 0.761756,
+      "fallback_peak_width": 5,
+      "circuit": "coherent_d3_r3.stim",
+      "sha256": "87d1308c83894e87c60aeb2dc31b74be89b3460a951929951f2c3ac92606827d"
+    },
+    {
+      "catalog_ms": 2.885811,
+      "parse_ms": 0.417854,
+      "recognize_us": 3.23982,
+      "eligible": 0,
+      "reason": "gate or physical noise location differs from certified family",
+      "source_line": 50,
+      "fallback_compile_ms": 4.994449,
+      "fallback_peak_width": 13,
+      "circuit": "coherent_d5_r5.stim",
+      "sha256": "54088bbd5f06b441596e414f9fa99d8eeaff8a4a1a862b911e0ad40092c5e549"
+    },
+    {
+      "catalog_ms": 5.982249,
+      "parse_ms": 0.485106,
+      "recognize_us": 7.089060000000001,
+      "eligible": 0,
+      "reason": "gate or physical noise location differs from certified family",
+      "source_line": 12,
+      "fallback_compile_ms": 2.12154,
+      "fallback_peak_width": 5,
+      "circuit": "distillation.stim",
+      "sha256": "188bd53c48dbc21f840fb297df6f41c61f5bad6a856bba621f00ff42078921c1"
+    },
+    {
+      "catalog_ms": 3.07034,
+      "parse_ms": 0.175116,
+      "recognize_us": 1.1260100000000002,
+      "eligible": 0,
+      "reason": "gate or physical noise location differs from certified family",
+      "source_line": 16,
+      "fallback_compile_ms": 1.991964,
+      "fallback_peak_width": 4,
+      "circuit": "msc_d3_inject_cultivate_p1e-3.stim",
+      "sha256": "90a7d841e003e5ee38137cd9a3eb6529bb552e49c424bc6b0932a27d97cdb41f"
+    },
+    {
+      "catalog_ms": 2.715271,
+      "parse_ms": 0.907227,
+      "recognize_us": 6.842080000000001,
+      "eligible": 0,
+      "reason": "gate or physical noise location differs from certified family",
+      "source_line": 43,
+      "fallback_compile_ms": 17.321289,
+      "fallback_peak_width": 10,
+      "circuit": "msc_d5_inject_cultivate_p1e-3.stim",
+      "sha256": "c2b4566917bd9bf27a5705284dac02700ef0dcc7c03c91066670db376d633a6d"
+    },
+    {
+      "catalog_ms": 3.522095,
+      "parse_ms": 1.314224,
+      "recognize_us": 10.35261,
+      "eligible": 0,
+      "reason": "gate or physical noise location differs from certified family",
+      "source_line": 98,
+      "fallback_compile_ms": 20.523048,
+      "fallback_peak_width": 0,
+      "circuit": "pure_surface_d7_r7_p1e-3.stim",
+      "sha256": "30d1940101d70e05a63f0d2f877756ffaeaba7e8e17e94cd2ea40fce04b99583"
+    },
+    {
+      "catalog_ms": 3.549226,
+      "parse_ms": 0.298894,
+      "recognize_us": 1.10087,
+      "eligible": 0,
+      "reason": "gate or physical noise location differs from certified family",
+      "source_line": 1,
+      "fallback_compile_ms": 6.437841,
+      "fallback_peak_width": 10,
+      "circuit": "quantum_volume_q10_seed42.stim",
+      "sha256": "faf7fbf3bf4048c1c7a0f9954cc14160e74d48ebc8972b41cf3c6bc07c697f6a"
+    },
+    {
+      "catalog_ms": 4.514772,
+      "parse_ms": 0.847286,
+      "recognize_us": 3.0126799999999996,
+      "eligible": 0,
+      "reason": "gate or physical noise location differs from certified family",
+      "source_line": 1,
+      "fallback_compile_ms": 23.62773,
+      "fallback_peak_width": 20,
+      "circuit": "quantum_volume_q20_seed42.stim",
+      "sha256": "b9bbbe939ce4c1754b6bac936c04b2c4ce572657831fef6a7bc5c3054f81ce53"
+    },
+    {
+      "catalog_ms": 4.811923,
+      "parse_ms": 2.429567,
+      "recognize_us": 547.29022,
+      "eligible": 0,
+      "reason": "suffix needs live state execution or unsupported outputs",
+      "source_line": 5355,
+      "fallback_compile_ms": 129.728209,
+      "fallback_peak_width": 44,
+      "circuit": "f7 with unsupported terminal T"
+    }
+  ],
+  "generated_source_sha256": "612386980e4d5d7758a59e1e2a1e73c35f39b6d6edf3ad85774960f7cd56037d",
+  "validation": {
+    "research_tests": 69,
+    "recognizer_tests": 12,
+    "sanitizers": "ASAN/UBSAN, leak detection disabled, new research code instrumented; linked Clifft core Release",
+    "corpus_fallbacks": 8
+  }
+}
