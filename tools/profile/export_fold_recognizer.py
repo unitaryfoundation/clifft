@@ -10,14 +10,17 @@ from pathlib import Path
 from export_fold_blocks import Exporter
 from fold_blocks import Protocol
 from fold_cultivation import coordinates, logical, pauli, stabilizers
+from fold_schedule import SCHEDULES, reconstruction_with_schedule
 
 
-def export(output: Path) -> list[dict[str, int]]:
+def export(output: Path, schedule: str = "original") -> list[dict[str, int]]:
     header = Path(__file__).with_name("fold_recognition_main.h").resolve()
     pieces = [f'#include "{header}"']
     metadata = []
     for distance in (3, 5, 7):
-        protocol = Protocol(distance)
+        protocol = Protocol(
+            distance, reconstruction=reconstruction_with_schedule(distance, schedule)
+        )
         reconstruction = protocol.reconstruction
         exporter = Exporter(protocol)
         exporter.lines[:2] = [f"namespace family_{distance} {{", "using namespace fold_blocks;"]
@@ -68,4 +71,6 @@ def export(output: Path) -> list[dict[str, int]]:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", required=True, type=Path)
-    print(json.dumps(export(parser.parse_args().output), indent=2))
+    parser.add_argument("--schedule", choices=SCHEDULES, default="original")
+    args = parser.parse_args()
+    print(json.dumps(export(args.output, args.schedule), indent=2))

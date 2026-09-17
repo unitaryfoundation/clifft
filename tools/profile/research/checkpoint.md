@@ -1,11 +1,16 @@
 # Representation study checkpoint
 
-Follow-up: [the eligibility/composition study](fold_eligibility.md) now provides
+Latest: [the syndrome-schedule study](fold_schedule.md) certifies two changed
+full f7 schedules from their gates. Each passes 115 independent fixed-history
+comparisons with unchanged native execution and contraction capacity. A held-out
+shuffled schedule also passes. The 76-test research suite passes. Next build an
+offline adapter for those syndrome regions in parsed circuits, and separately
+test a changed growth encoder. Whole-circuit catalog matching is still narrow.
+
+[The eligibility/composition study](fold_eligibility.md) provides
 a parsed-circuit recognizer and full survivor-result adapter for the three
 certified reconstructions, plus measured fallback through ordinary Clifft.
-The 69-test research suite passes. No production dispatcher or live-state
-handoff has been added. Next establish coverage on a second independently
-varied f7 syndrome/growth schedule before proposing production architecture.
+No production dispatcher or live-state handoff has been added.
 
 [The bounded alternatives study](alternatives.md) records the native
 Pauli-proxy comparison and the five-round Clifford-frame screen. Logical blocks
@@ -43,11 +48,11 @@ The reproducible checkpoint is commit `ce702482` on
   It lacks final-error-correction decoding and a general residual-state handoff.
   The circuit is paper-guided, not verified equivalent to an authors' artifact.
 
-The subsequent alternatives and eligibility reports complete the next two
+The subsequent alternatives, eligibility, and schedule reports complete the
 bounded steps from that checkpoint. Do not start a general representation-
-switching framework or optimize SIMD first. The certificate is currently a
-whole-schedule match with limited boundary composition, so coverage beyond
-the reconstruction generator is the next uncertainty to resolve.
+switching framework or optimize SIMD first. Syndrome-region certification now
+supports unseen orderings, but the public-input experiment still uses a whole-
+schedule catalog match. Broader physics and parsed-input coverage remain open.
 
 ## Bounded independent studies
 

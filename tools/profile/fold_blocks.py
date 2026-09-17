@@ -19,6 +19,7 @@ import stim
 from fold_check import PhaseMonomial
 from fold_contraction import Plan, compose
 from fold_cultivation import Operation, Reconstruction, coordinates, logical, pauli, stabilizers
+from fold_schedule import certify_syndrome
 
 
 def parity_map(rows: list[int], bits: int) -> int:
@@ -191,6 +192,11 @@ class Boundary:
         self.input_mapping = [reconstruction.qubit(p, before) for p in coordinates(before)]
         self.output_mapping = [reconstruction.qubit(p, after) for p in coordinates(after)]
         width = layout.width
+        if layout.operations[: len(growth)] != growth:
+            raise ValueError("boundary growth prefix differs from its declared operations")
+        self.measured_stabilizers = certify_syndrome(
+            layout.operations[len(growth) :], self.output_mapping, after, width
+        )
         unitary = stim.Circuit()
         fresh = set(self.output_mapping) - set(self.input_mapping)
         reset = set()
@@ -236,10 +242,8 @@ class Boundary:
             return tag
 
         rows = []
-        for axis, support in stabilizers(after):
-            pulled = embed(pauli(after, axis, support), self.output_mapping).after(
-                unitary.inverse()
-            )
+        for measured in self.measured_stabilizers:
+            pulled = embed(measured, self.output_mapping).after(unitary.inverse())
             rows.append(coordinates_of(pulled, basis) & ((1 << len(input_generators)) - 1))
         for axis in "XZ":
             pulled = embed(logical(after, axis), self.output_mapping).after(unitary.inverse())
@@ -461,9 +465,19 @@ class Result:
 
 
 class Protocol:
-    def __init__(self, distance: int):
-        self.reconstruction = Reconstruction(distance).build()
+    def __init__(self, distance: int, *, reconstruction: Reconstruction | None = None):
+        original = Reconstruction(distance).build()
+        self.reconstruction = original if reconstruction is None else reconstruction
         r = self.reconstruction
+        if r.distance != distance or len(r.stages) != len(original.stages):
+            raise ValueError("unsupported protocol structure")
+        if any(
+            a.name != b.name or a.noisy != b.noisy or a.equal_records != b.equal_records
+            for a, b in zip(r.stages, original.stages, strict=True)
+        ):
+            raise ValueError("unsupported protocol stage contract")
+        if any(r.stages[j].operations != original.stages[j].operations for j in (0, 1)):
+            raise ValueError("injection and initial morph must match the certified prefix")
         self.width = r.ancilla + {3: 3, 5: 6, 7: 14}[distance]
 
         def layout(indices):
@@ -471,9 +485,10 @@ class Protocol:
             noisy = [r.stages[i].noisy for i in indices for _ in r.stages[i].operations]
             return NoiseLayout(operations, noisy, self.width)
 
+        self.input_mapping = [r.qubit(p, 3) for p in coordinates(3)]
+        certify_syndrome(r.stages[2].operations, self.input_mapping, 3, self.width)
         self.prefix = LinearPlan(layout(range(3)), injection=True)
         self.groups: list[tuple[str, Fold | Boundary, list[list[int]]]] = []
-        self.input_mapping = [r.qubit(p, 3) for p in coordinates(3)]
         current = 3
         i = 3
         while i < len(r.stages):
@@ -581,7 +596,7 @@ def syndrome_sector_histories(protocol: Protocol) -> list[tuple[str, list[list[O
         for j, op in enumerate(core)
         for piece in ([op, Operation("X", (control,))] if j in {first, last} else [op])
     ]
-    generators = [pauli(after, a, s) for a, s in stabilizers(after)]
+    generators = boundary.measured_stabilizers
     histories = []
     sectors = [1 << j for j in range(len(boundary.duals))]
     sectors += [
