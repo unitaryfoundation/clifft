@@ -140,6 +140,43 @@ def fold_check(distance: int) -> Check:
     return result
 
 
+def branch_operator(
+    check: Check, initial_cat: tuple[int, ...]
+) -> tuple[PhaseMonomial, tuple[int, ...]]:
+    """Compile one computational cat branch, preserving internal fault phases."""
+    check.validate()
+    if len(initial_cat) != check.ancillas or any(bit not in (0, 1) for bit in initial_cat):
+        raise ValueError("invalid initial cat string")
+    cat = list(initial_cat)
+    term = PhaseMonomial(check.data)
+    for event in check.events:
+        q = event.targets[0]
+        if event.kind in {"X", "Y", "Z"}:
+            if q < check.data:
+                term.append(event.kind, event.targets)
+            else:
+                a = q - check.data
+                if event.kind in {"Y", "Z"}:
+                    term.global_phase += 4 * cat[a] + (2 if event.kind == "Y" else 0)
+                if event.kind in {"X", "Y"}:
+                    cat[a] ^= 1
+        elif event.kind in {"T", "T_DAG"}:
+            term.append(event.kind, event.targets)
+        elif cat[q - check.data]:
+            targets = event.targets[1:]
+            if event.kind in {"CZ", "CX"}:
+                term.append("CZ" if event.kind == "CZ" else "X", targets)
+            else:
+                positive = event.kind == "HXY"
+                term.append("X", targets)
+                term.append("S" if positive else "S_DAG", targets)
+                term.global_phase += -1 if positive else 1
+    if any(c % 2 for c in term.linear):
+        raise ValueError("check branch is not Clifford: unpaired non-Clifford phase")
+    term.global_phase %= 8
+    return term, tuple(cat)
+
+
 def kraus_terms(check: Check, outcome: int) -> list[PhaseMonomial]:
     """Return K_outcome = (C_0 + C_1)/2, or zero for impossible cat syndromes.
 
@@ -152,32 +189,7 @@ def kraus_terms(check: Check, outcome: int) -> list[PhaseMonomial]:
         raise ValueError("outcome does not fit the cat register")
     terms = []
     for branch in (0, 1):
-        cat = [branch] * check.ancillas
-        term = PhaseMonomial(check.data)
-        for event in check.events:
-            q = event.targets[0]
-            if event.kind in {"X", "Y", "Z"}:
-                if q < check.data:
-                    term.append(event.kind, event.targets)
-                else:
-                    a = q - check.data
-                    if event.kind in {"Y", "Z"}:
-                        term.global_phase += 4 * cat[a] + (2 if event.kind == "Y" else 0)
-                    if event.kind in {"X", "Y"}:
-                        cat[a] ^= 1
-            elif event.kind in {"T", "T_DAG"}:
-                term.append(event.kind, event.targets)
-            elif cat[q - check.data]:
-                targets = event.targets[1:]
-                if event.kind in {"CZ", "CX"}:
-                    term.append("CZ" if event.kind == "CZ" else "X", targets)
-                else:
-                    positive = event.kind == "HXY"
-                    term.append("X", targets)
-                    term.append("S" if positive else "S_DAG", targets)
-                    term.global_phase += -1 if positive else 1
-        if any(c % 2 for c in term.linear):
-            raise ValueError("check branch is not Clifford: unpaired non-Clifford phase")
+        term, cat = branch_operator(check, (branch,) * check.ancillas)
         if any(((outcome >> a) & 1) != (cat[a] ^ cat[0]) for a in range(1, check.ancillas)):
             continue
         term.global_phase = (term.global_phase + 4 * cat[0] * (outcome & 1)) % 8

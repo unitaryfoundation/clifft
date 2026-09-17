@@ -1,5 +1,9 @@
 # Whole-check Clifford branches: an exact mechanism test
 
+Follow-up: [full encoded f5 reconstruction and composition study](fold_composition.md)
+now reaches active width 22 and tests noisy preparation, flags, growth, and
+syndrome extraction around these cores.
+
 The study now targets sustained sampling of **large residual states**, especially
 full Reg5 cultivation and fault-distance-7 fold cultivation. Few-shot startup
 latency is outside this target. The earlier negative product-factor and

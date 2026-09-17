@@ -249,6 +249,23 @@ int main(int argc, char** argv) {
             std::cout << ",\"executor_init_ms\":" << milliseconds(init, initialized)
                       << ",\"shot_ms\":" << milliseconds(sampled, end) / shots
                       << ",\"shots\":" << shots << ",\"discarded\":" << discarded;
+            // A diagnostic probe outside timing verifies reconstructed ideal inputs.
+            // Values from an early-discarded shot are not meaningful.
+            std::cout << ",\"last_shot_exp_vals\":";
+            if (executor.discarded()) {
+                std::cout << "null";
+            } else {
+                std::cout << '[';
+                bool first = true;
+                for (double expectation : executor.exp_vals()) {
+                    if (!first) {
+                        std::cout << ',';
+                    }
+                    first = false;
+                    std::cout << expectation;
+                }
+                std::cout << ']';
+            }
         } else {
             std::cout << ",\"shot_ms\":null,\"skip_sampling\":\""
                       << (instruments ? "instrument" : "width_limit") << '"';
