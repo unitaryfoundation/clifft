@@ -47,7 +47,7 @@ class InstrumentPlan:
     incoming coherent terms must be retained during projector contraction.
     """
 
-    def __init__(self, boundary):
+    def __init__(self, boundary, *, logical_outputs=None):
         program = self.program = boundary.program
         self.bits = FaultBits(program)
         self.events: list[int] = []
@@ -145,7 +145,9 @@ class InstrumentPlan:
             raise ValueError("invalid instrument normalization rank")
         lx = pauli(program.width, "X", boundary.data)
         lz = pauli(program.width, "Z", boundary.data)
-        self.output_paulis = [lx, 1j * lx * lz, lz]
+        self.output_paulis = (
+            [lx, 1j * lx * lz, lz] if logical_outputs is None else list(logical_outputs)
+        )
         self.logical_paulis = []
         self.logical_rows = []
         self.logical_flows = []

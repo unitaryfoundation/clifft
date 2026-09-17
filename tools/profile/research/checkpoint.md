@@ -1,6 +1,23 @@
 # Representation study checkpoint
 
-Latest: [coherent original-MSC terminal contraction](msc_terminal_contraction.md)
+Latest: [direct injection and complete MSC fixed-history coefficients](msc_injection.md)
+removes the final CH state-extraction bridge. The single-T prefix compiles to
+four weighted 2-by-2 logical maps, sixteen record constraints, and fixed fault
+parities. Each reachable prefix trajectory, including hidden resets, has weight
+2^-17. Its amplitudes feed growth and the coherent final block directly.
+
+All 95 complete d3/d5 histories match joint weights and final logical states;
+maximum relative probability error is 4.22e-14. Twenty original-gate Aer prefix
+comparisons cover T/T-dagger and physical faults. Another 158,034 signed-flow
+checks cover 2,928 prefix fault-basis histories. Five new tests bring the MSC
+suite to 42. No initial/intermediate reference state enters the coefficient
+path, but gadget payload binding still uses the offline topology diagnostic.
+Next: compile fixed gadget fault maps, preserving relative phases and root/reset
+constraints; then validate complete record sampling before native timing. This
+is complete fixed-history coefficient composition, not yet a fully static
+sampler. No new throughput claim; reconstructed f7 remains the large-state target.
+
+[Coherent original-MSC terminal contraction](msc_terminal_contraction.md)
 keeps four monomial terms through final cultivation and terminal measurement,
 then contracts at the actual final code projection. The nineteen-data-qubit
 code uses 512 support entries per logical basis state and 1,024 decoder entries;

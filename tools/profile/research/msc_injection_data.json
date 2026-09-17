@@ -1,0 +1,1267 @@
+[
+  {
+    "distance": 3,
+    "injection_events": 33,
+    "record_constraints": 16,
+    "free_outcomes": 17,
+    "choi_random_power": 18,
+    "choi_stabilizers": [
+      "+XX",
+      "+YY"
+    ],
+    "fault_basis_histories": 762,
+    "signed_flows_per_history": 34,
+    "cases": [
+      {
+        "name": "ideal",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 5.773159728050814e-15,
+          "normalized_density_error": 3.3306690738754696e-15
+        }
+      },
+      {
+        "name": "logical_z_tail",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 5.773159728050814e-15,
+          "normalized_density_error": 3.3306690738754696e-15
+        }
+      },
+      {
+        "name": "reset_erased_X",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 5.773159728050814e-15,
+          "normalized_density_error": 3.3306690738754696e-15
+        }
+      },
+      {
+        "name": "reset_erased_Y",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 5.773159728050814e-15,
+          "normalized_density_error": 3.3306690738754696e-15
+        }
+      },
+      {
+        "name": "reset_erased_Z",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 5.773159728050814e-15,
+          "normalized_density_error": 3.3306690738754696e-15
+        }
+      },
+      {
+        "name": "root_readout_flip",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 5.773159728050814e-15,
+          "normalized_density_error": 3.3306690738754696e-15
+        }
+      },
+      {
+        "name": "gadget_spectator_Y",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 5.773159728050814e-15,
+          "normalized_density_error": 3.3306690738754696e-15
+        }
+      },
+      {
+        "name": "gadget_pair_YZ",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 3.8146972656249996e-06,
+          "probability_relative_error": 5.440092820663268e-15,
+          "normalized_density_error": 3.1086244689504387e-15
+        }
+      },
+      {
+        "name": "natural_0",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 5.773159728050814e-15,
+          "normalized_density_error": 3.3306690738754696e-15
+        }
+      },
+      {
+        "name": "natural_1",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 5.773159728050814e-15,
+          "normalized_density_error": 3.3306690738754696e-15
+        }
+      },
+      {
+        "name": "natural_2",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 5.773159728050814e-15,
+          "normalized_density_error": 3.3306690738754696e-15
+        }
+      },
+      {
+        "name": "natural_3",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 5.773159728050814e-15,
+          "normalized_density_error": 3.3306690738754696e-15
+        }
+      },
+      {
+        "name": "natural_4",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 5.773159728050814e-15,
+          "normalized_density_error": 3.3306690738754696e-15
+        }
+      },
+      {
+        "name": "natural_5",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 5.773159728050814e-15,
+          "normalized_density_error": 3.3306690738754696e-15
+        }
+      },
+      {
+        "name": "natural_6",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 5.773159728050814e-15,
+          "normalized_density_error": 3.3306690738754696e-15
+        }
+      },
+      {
+        "name": "natural_7",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 5.773159728050814e-15,
+          "normalized_density_error": 3.3306690738754696e-15
+        }
+      },
+      {
+        "name": "natural_8",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 5.773159728050814e-15,
+          "normalized_density_error": 3.3306690738754696e-15
+        }
+      },
+      {
+        "name": "natural_9",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 5.773159728050814e-15,
+          "normalized_density_error": 3.3306690738754696e-15
+        }
+      },
+      {
+        "name": "natural_10",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 5.773159728050814e-15,
+          "normalized_density_error": 3.3306690738754696e-15
+        }
+      },
+      {
+        "name": "natural_11",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 3.8146972656249996e-06,
+          "probability_relative_error": 5.440092820663268e-15,
+          "normalized_density_error": 3.1086244689504387e-15
+        }
+      },
+      {
+        "name": "natural_12",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 5.773159728050814e-15,
+          "normalized_density_error": 3.3306690738754696e-15
+        }
+      },
+      {
+        "name": "natural_13",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 5.773159728050814e-15,
+          "normalized_density_error": 3.3306690738754696e-15
+        }
+      },
+      {
+        "name": "natural_14",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 5.773159728050814e-15,
+          "normalized_density_error": 3.3306690738754696e-15
+        }
+      },
+      {
+        "name": "natural_15",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 5.773159728050814e-15,
+          "normalized_density_error": 3.3306690738754696e-15
+        }
+      },
+      {
+        "name": "natural_16",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 5.773159728050814e-15,
+          "normalized_density_error": 3.3306690738754696e-15
+        }
+      },
+      {
+        "name": "natural_17",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 5.773159728050814e-15,
+          "normalized_density_error": 3.3306690738754696e-15
+        }
+      },
+      {
+        "name": "natural_18",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 5.773159728050814e-15,
+          "normalized_density_error": 3.3306690738754696e-15
+        }
+      },
+      {
+        "name": "natural_19",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 5.773159728050814e-15,
+          "normalized_density_error": 3.3306690738754696e-15
+        }
+      },
+      {
+        "name": "natural_20",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 5.773159728050814e-15,
+          "normalized_density_error": 3.3306690738754696e-15
+        }
+      },
+      {
+        "name": "natural_21",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 5.773159728050814e-15,
+          "normalized_density_error": 3.3306690738754696e-15
+        }
+      },
+      {
+        "name": "natural_22",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 5.773159728050814e-15,
+          "normalized_density_error": 3.3306690738754696e-15
+        }
+      },
+      {
+        "name": "natural_23",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 5.773159728050814e-15,
+          "normalized_density_error": 3.3306690738754696e-15
+        }
+      },
+      {
+        "name": "stress_0",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 5.773159728050814e-15,
+          "normalized_density_error": 3.3306690738754696e-15
+        }
+      },
+      {
+        "name": "stress_1",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 1.9073486328125e-06,
+          "probability_relative_error": 5.773159728050814e-15,
+          "normalized_density_error": 3.1086244689504383e-15
+        }
+      },
+      {
+        "name": "stress_2",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 5.773159728050814e-15,
+          "normalized_density_error": 3.3306690738754696e-15
+        }
+      },
+      {
+        "name": "stress_3",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 1.9073486328125e-06,
+          "probability_relative_error": 5.773159728050814e-15,
+          "normalized_density_error": 3.1086244689504383e-15
+        }
+      },
+      {
+        "name": "stress_4",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 1.9073486328125e-06,
+          "probability_relative_error": 5.773159728050814e-15,
+          "normalized_density_error": 3.1086244689504383e-15
+        }
+      },
+      {
+        "name": "stress_5",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 9.536743164062498e-07,
+          "probability_relative_error": 5.329070518200753e-15,
+          "normalized_density_error": 2.7487830685268724e-15
+        }
+      },
+      {
+        "name": "stress_6",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 5.773159728050814e-15,
+          "normalized_density_error": 3.3306690738754696e-15
+        }
+      },
+      {
+        "name": "stress_7",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 4.76837158203125e-07,
+          "probability_relative_error": 5.88418203051333e-15,
+          "normalized_density_error": 3.053127655327745e-15
+        }
+      },
+      {
+        "name": "stress_8",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 5.773159728050814e-15,
+          "normalized_density_error": 3.3306690738754696e-15
+        }
+      },
+      {
+        "name": "stress_9",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 9.536743164062499e-07,
+          "probability_relative_error": 5.440092820663268e-15,
+          "normalized_density_error": 2.7755575615628917e-15
+        }
+      },
+      {
+        "name": "stress_10",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 1.9073486328125e-06,
+          "probability_relative_error": 5.773159728050814e-15,
+          "normalized_density_error": 3.1086244689504383e-15
+        }
+      },
+      {
+        "name": "stress_11",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 5.773159728050814e-15,
+          "normalized_density_error": 3.3306690738754696e-15
+        }
+      }
+    ]
+  },
+  {
+    "distance": 5,
+    "injection_events": 33,
+    "record_constraints": 16,
+    "free_outcomes": 17,
+    "choi_random_power": 18,
+    "choi_stabilizers": [
+      "+XX",
+      "+YY"
+    ],
+    "fault_basis_histories": 2166,
+    "signed_flows_per_history": 61,
+    "cases": [
+      {
+        "name": "ideal",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 7.105427357601002e-15,
+          "probability_relative_error": 4.1744385725905886e-14,
+          "normalized_density_error": 4.0745185244613434e-14
+        }
+      },
+      {
+        "name": "logical_z_tail",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 7.105427357601002e-15,
+          "probability_relative_error": 4.1744385725905886e-14,
+          "normalized_density_error": 4.0745185244613434e-14
+        }
+      },
+      {
+        "name": "reset_erased_X",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 7.105427357601002e-15,
+          "probability_relative_error": 4.1744385725905886e-14,
+          "normalized_density_error": 4.0745185244613434e-14
+        }
+      },
+      {
+        "name": "reset_erased_Y",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 7.105427357601002e-15,
+          "probability_relative_error": 4.1744385725905886e-14,
+          "normalized_density_error": 4.0745185244613434e-14
+        }
+      },
+      {
+        "name": "reset_erased_Z",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 7.105427357601002e-15,
+          "probability_relative_error": 4.1744385725905886e-14,
+          "normalized_density_error": 4.0745185244613434e-14
+        }
+      },
+      {
+        "name": "root_readout_flip",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 7.105427357601002e-15,
+          "probability_relative_error": 4.1744385725905886e-14,
+          "normalized_density_error": 4.0745185244613434e-14
+        }
+      },
+      {
+        "name": "gadget_spectator_Y",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 7.105427357601002e-15,
+          "probability_relative_error": 4.1744385725905886e-14,
+          "normalized_density_error": 4.0745185244613434e-14
+        }
+      },
+      {
+        "name": "gadget_pair_YZ",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 8.881784197001251e-16,
+          "probability_relative_error": 2.997602166487923e-15,
+          "normalized_density_error": 4.5519144009631426e-15
+        }
+      },
+      {
+        "name": "feedforward_readout_21",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 1.7763568394002505e-15,
+          "probability_relative_error": 2.6645352591003757e-15,
+          "normalized_density_error": 4.440907941842274e-15
+        }
+      },
+      {
+        "name": "feedforward_readout_22",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 1.7763568394002505e-15,
+          "probability_relative_error": 2.6645352591003757e-15,
+          "normalized_density_error": 4.440907941842274e-15
+        }
+      },
+      {
+        "name": "feedforward_readout_23",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 3.5527136788005e-15,
+          "probability_relative_error": 4.2188474935755955e-14,
+          "normalized_density_error": 4.057865155004948e-14
+        }
+      },
+      {
+        "name": "feedforward_readout_24",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 3.5527136788005e-15,
+          "probability_relative_error": 4.2188474935755955e-14,
+          "normalized_density_error": 4.057865155004948e-14
+        }
+      },
+      {
+        "name": "feedforward_readout_25",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 3.5527136788005e-15,
+          "probability_relative_error": 4.2188474935755955e-14,
+          "normalized_density_error": 4.057865155004948e-14
+        }
+      },
+      {
+        "name": "feedforward_readout_31",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 7.105427357601002e-15,
+          "probability_relative_error": 4.1744385725905886e-14,
+          "normalized_density_error": 4.0745185244613434e-14
+        }
+      },
+      {
+        "name": "feedforward_readout_33",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 7.105427357601002e-15,
+          "probability_relative_error": 4.1744385725905886e-14,
+          "normalized_density_error": 4.0745185244613434e-14
+        }
+      },
+      {
+        "name": "natural_0",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 8.88178419700125e-16,
+          "probability_relative_error": 1.3322676295501882e-15,
+          "normalized_density_error": 4.6074255521944004e-15
+        }
+      },
+      {
+        "name": "natural_1",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 8.88178419700125e-16,
+          "probability_relative_error": 1.3322676295501882e-15,
+          "normalized_density_error": 4.6074255521944004e-15
+        }
+      },
+      {
+        "name": "natural_2",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 8.881784197001251e-16,
+          "probability_relative_error": 2.997602166487923e-15,
+          "normalized_density_error": 4.5519144009631426e-15
+        }
+      },
+      {
+        "name": "natural_3",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 7.105427357601002e-15,
+          "probability_relative_error": 4.1744385725905886e-14,
+          "normalized_density_error": 4.0745185244613434e-14
+        }
+      },
+      {
+        "name": "natural_4",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 7.105427357601002e-15,
+          "probability_relative_error": 4.1744385725905886e-14,
+          "normalized_density_error": 4.0745185244613434e-14
+        }
+      },
+      {
+        "name": "natural_5",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 1.7763568394002505e-15,
+          "probability_relative_error": 2.6645352591003757e-15,
+          "normalized_density_error": 4.440907941842274e-15
+        }
+      },
+      {
+        "name": "natural_6",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 7.105427357601002e-15,
+          "probability_relative_error": 4.1744385725905886e-14,
+          "normalized_density_error": 4.0745185244613434e-14
+        }
+      },
+      {
+        "name": "natural_7",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 1.7763568394002505e-15,
+          "probability_relative_error": 2.6645352591003757e-15,
+          "normalized_density_error": 4.440907941842274e-15
+        }
+      },
+      {
+        "name": "natural_8",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 1.7763568394002505e-15,
+          "probability_relative_error": 2.6645352591003757e-15,
+          "normalized_density_error": 4.440907941842274e-15
+        }
+      },
+      {
+        "name": "natural_9",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 1.7763568394002505e-15,
+          "probability_relative_error": 2.6645352591003757e-15,
+          "normalized_density_error": 4.440907941842274e-15
+        }
+      },
+      {
+        "name": "natural_10",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 1.7763568394002505e-15,
+          "probability_relative_error": 2.6645352591003757e-15,
+          "normalized_density_error": 4.440907941842274e-15
+        }
+      },
+      {
+        "name": "natural_11",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 1.7763568394002505e-15,
+          "probability_relative_error": 4.1744385725905886e-14,
+          "normalized_density_error": 4.0745185244613434e-14
+        }
+      },
+      {
+        "name": "natural_12",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 4.440892098500626e-16,
+          "probability_relative_error": 2.6645352591003757e-15,
+          "normalized_density_error": 4.440907941842274e-15
+        }
+      },
+      {
+        "name": "natural_13",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 4.440892098500626e-16,
+          "probability_relative_error": 2.6645352591003757e-15,
+          "normalized_density_error": 4.440907941842274e-15
+        }
+      },
+      {
+        "name": "natural_14",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 7.105427357601002e-15,
+          "probability_relative_error": 4.1744385725905886e-14,
+          "normalized_density_error": 4.0745185244613434e-14
+        }
+      },
+      {
+        "name": "natural_15",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 4.440892098500626e-16,
+          "probability_relative_error": 2.6645352591003757e-15,
+          "normalized_density_error": 4.440907941842274e-15
+        }
+      },
+      {
+        "name": "natural_16",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 7.105427357601002e-15,
+          "probability_relative_error": 4.1744385725905886e-14,
+          "normalized_density_error": 4.0745185244613434e-14
+        }
+      },
+      {
+        "name": "natural_17",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 7.105427357601002e-15,
+          "probability_relative_error": 4.1744385725905886e-14,
+          "normalized_density_error": 4.0745185244613434e-14
+        }
+      },
+      {
+        "name": "natural_18",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 8.881784197001251e-16,
+          "probability_relative_error": 1.2212453270876724e-15,
+          "normalized_density_error": 4.5519144009631426e-15
+        }
+      },
+      {
+        "name": "natural_19",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 7.105427357601002e-15,
+          "probability_relative_error": 4.1744385725905886e-14,
+          "normalized_density_error": 4.0745185244613434e-14
+        }
+      },
+      {
+        "name": "natural_20",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 8.881784197001251e-16,
+          "probability_relative_error": 1.2212453270876724e-15,
+          "normalized_density_error": 4.5519144009631426e-15
+        }
+      },
+      {
+        "name": "natural_21",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 7.105427357601002e-15,
+          "probability_relative_error": 4.1744385725905886e-14,
+          "normalized_density_error": 4.0745185244613434e-14
+        }
+      },
+      {
+        "name": "natural_22",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 2.2204460492503128e-16,
+          "probability_relative_error": 5.5511151231257835e-15,
+          "normalized_density_error": 6.66133814775094e-15
+        }
+      },
+      {
+        "name": "natural_23",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 1.7763568394002505e-15,
+          "probability_relative_error": 2.6645352591003757e-15,
+          "normalized_density_error": 4.440907941842274e-15
+        }
+      },
+      {
+        "name": "stress_0",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 5.5511151231257815e-17,
+          "probability_relative_error": 5.440092820663269e-15,
+          "normalized_density_error": 6.550315845288425e-15
+        }
+      },
+      {
+        "name": "stress_1",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 1.3877787807814455e-17,
+          "probability_relative_error": 2.4202861936828416e-14,
+          "normalized_density_error": 1.2434497875801755e-14
+        }
+      },
+      {
+        "name": "stress_2",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 6.938893903907228e-18,
+          "probability_relative_error": 1.84297022087776e-14,
+          "normalized_density_error": 1.1879388744237608e-14
+        }
+      },
+      {
+        "name": "stress_3",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 1.3877787807814454e-17,
+          "probability_relative_error": 1.9095836023552696e-14,
+          "normalized_density_error": 1.310063169057685e-14
+        }
+      },
+      {
+        "name": "stress_4",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 2.7755575615628914e-17,
+          "probability_relative_error": 9.325873406851315e-15,
+          "normalized_density_error": 6.050715863883761e-15
+        }
+      },
+      {
+        "name": "stress_5",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 1.1102230246251565e-16,
+          "probability_relative_error": 1.2656542480726785e-14,
+          "normalized_density_error": 6.661338147750939e-15
+        }
+      },
+      {
+        "name": "stress_6",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 1.3877787807814455e-17,
+          "probability_relative_error": 1.254552017826427e-14,
+          "normalized_density_error": 6.66133814775094e-15
+        }
+      },
+      {
+        "name": "stress_7",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 5.551115123125782e-17,
+          "probability_relative_error": 2.2204460492503135e-15,
+          "normalized_density_error": 3.33066907387547e-15
+        }
+      },
+      {
+        "name": "stress_8",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 2.7755575615628914e-17,
+          "probability_relative_error": 2.220446049250313e-15,
+          "normalized_density_error": 3.3306690738754696e-15
+        }
+      },
+      {
+        "name": "stress_9",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 3.4694469519536138e-18,
+          "probability_relative_error": 2.4980018054066025e-14,
+          "normalized_density_error": 1.332267629550188e-14
+        }
+      },
+      {
+        "name": "stress_10",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 2.7755575615628914e-17,
+          "probability_relative_error": 1.2656542480726785e-14,
+          "normalized_density_error": 6.661338147750939e-15
+        }
+      },
+      {
+        "name": "stress_11",
+        "injection": {
+          "probability": 7.62939453125e-06,
+          "probability_relative_error": 0.0,
+          "normalized_density_error": 7.850462293418876e-17
+        },
+        "complete": {
+          "probability": 2.7755575615628914e-17,
+          "probability_relative_error": 9.325873406851315e-15,
+          "normalized_density_error": 6.050715863883761e-15
+        }
+      }
+    ]
+  }
+]
