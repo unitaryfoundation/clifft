@@ -171,12 +171,14 @@ class MscInjectionTest(unittest.TestCase):
                 changed[inverse_events[(mask & -mask).bit_length() - 1]] ^= 1
                 np.testing.assert_array_equal(plan.evaluate(changed, {}), np.zeros(2))
         with (
-            patch(
-                "study_msc_injection.gadget_payload",
+            patch.object(
+                whole.growth_payload,
+                "bind",
                 side_effect=AssertionError("unreachable suffix binding"),
             ),
-            patch(
-                "study_msc_injection.terminal_payload",
+            patch.object(
+                whole.terminal_payload,
+                "bind",
                 side_effect=AssertionError("unreachable suffix binding"),
             ),
         ):

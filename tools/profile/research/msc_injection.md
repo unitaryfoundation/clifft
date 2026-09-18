@@ -1,5 +1,9 @@
 # Direct injection and complete MSC fixed-history coefficients
 
+Follow-up: [complete static sampling](msc_sampling.md) replaces the offline
+gadget binder and adds full Python/native record sampling. That later study
+also records a negative native performance result on these small controls.
+
 The injection prefix now computes its weighted logical state from fixed parity
 rows and four precomputed 2-by-2 matrices. This removes the last initial-state
 extraction from the coherent reference. Injection feeds the previously validated

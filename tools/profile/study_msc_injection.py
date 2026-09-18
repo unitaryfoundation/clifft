@@ -1,6 +1,6 @@
 """Validate direct injection and complete fixed-history logical-block weights.
 
-Gadget payload binding is still the existing offline reference transformation.
+Gadget payload binding uses compiled parity polynomials and fixed schedules.
 The coefficient path never obtains an initial or intermediate CH state.
 """
 
@@ -17,11 +17,11 @@ from msc_injection import InjectionPlan
 from msc_instruments import InstrumentPlan
 from msc_protocol import evaluate
 from msc_reference import materialize
+from msc_static_gadgets import PayloadPlan
 from msc_terminal_contraction import TerminalContraction
 from study_msc_boundaries import fault_basis_histories
-from study_msc_growth_contraction import gadget_payload, logical_bloch
+from study_msc_growth_contraction import logical_bloch
 from study_msc_protocol import load
-from study_msc_terminal_contraction import terminal_payload
 
 
 class FixedHistoryPlan:
@@ -34,6 +34,12 @@ class FixedHistoryPlan:
         if len(self.boundaries) == 2:
             self.instrument = InstrumentPlan(self.boundaries[-1])
             self.growth = GrowthContraction(self.boundaries[0], self.instrument)
+            self.growth_payload = PayloadPlan(
+                program, self.boundaries[0], self.growth, terminal=False
+            )
+        self.terminal_payload = PayloadPlan(
+            program, self.boundaries[-1], self.terminal, terminal=True
+        )
 
     def coefficients(self, history, outcomes):
         initial = self.injection.evaluate(outcomes, history)
@@ -41,15 +47,11 @@ class FixedHistoryPlan:
         if not np.any(initial):
             return initial, initial.copy()
         if self.growth is not None:
-            frame, payload = gadget_payload(
-                self.program, self.boundaries[0], self.growth, history, outcomes
-            )
+            frame, payload = self.growth_payload.bind(history, outcomes)
             logical = self.growth.contract(
                 logical, frame, payload, self.instrument.bind(outcomes, history)
             )
-        frame, payload = terminal_payload(
-            self.program, self.boundaries[-1], self.terminal, history, outcomes
-        )
+        frame, payload = self.terminal_payload.bind(history, outcomes)
         syndrome = [outcomes[k] for k in self.terminal.events]
         return initial, self.terminal.contract(logical, frame, payload, syndrome)
 

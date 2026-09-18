@@ -1,6 +1,39 @@
 # Representation study checkpoint
 
-Latest: [direct injection and complete MSC fixed-history coefficients](msc_injection.md)
+Latest: [complete static MSC sampling and native controls](msc_sampling.md)
+closes the record-sampling and offline gadget-binding gaps. Gadget faults now
+select parity-polynomial monomials; Clifford input projections plus compiled
+affine equations sample full records. A sparse CSS Fourier transform samples
+the final syndrome without enumerating all sectors. Python and native workers
+cover original d3/d5 injection, growth, feedback, spectators, readout flips,
+hidden resets, detectors, observables, and final logical amplitudes.
+
+The native study validates 64 fresh nominal/stress trajectories; sixteen also
+replay original elementary gates in Clifft. Maximum joint-probability error is
+1.12e-15 against the coherent reference and 4.27e-14 against elementary Clifft;
+maximum logical-density error is 1.99e-14. Native allocation instrumentation and
+ASAN/UBSAN pass; all 48 MSC regression tests pass.
+
+The performance result is negative for these controls. Three 10,000-attempt
+runs give median d3 times 31.60 us versus 1.02 us and d5 times 1,088.79 us versus
+17.46 us for current Clifft. Clifft's peak active widths are only 4 and 10.
+Physical circuit size is not sufficient to establish the hard-state regime.
+Keep ordinary Clifft for these controls; do not optimize this small-state worker
+or claim a new large-state speedup. The earlier reconstructed f7 result remains
+separate and its authors-artifact/final-output limitations remain unchanged.
+
+Next authorized bounded work: use actual planned active width and block
+support/term counts to test a cheap eligibility/cost screen against both these
+negative controls and the existing large f7 reconstruction. The physics follow-up
+is fixed factor contraction for CSS syndrome sampling, to avoid enumerating the
+full X-generator support as code size grows. Reuse the f7 contraction approach,
+validate against this sparse Fourier reference, and keep all topology planning
+at compilation. Larger code-block tests must not be labeled full MSC7 circuits.
+Then extend large-state output/eligibility coverage before production dispatch.
+No new approval is needed for this research batch. Only a substantive scope or
+architectural-invariant change should interrupt it for a user decision.
+
+Previous: [direct injection and complete MSC fixed-history coefficients](msc_injection.md)
 removes the final CH state-extraction bridge. The single-T prefix compiles to
 four weighted 2-by-2 logical maps, sixteen record constraints, and fixed fault
 parities. Each reachable prefix trajectory, including hidden resets, has weight

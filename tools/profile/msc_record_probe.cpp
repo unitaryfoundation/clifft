@@ -33,10 +33,13 @@ double prefix_log_probability(const std::string& text, std::span<const uint8_t> 
 
 int main(int argc, char** argv) {
     try {
-        if (argc != 3 && argc != 4)
-            throw std::invalid_argument("usage: msc_record_probe CIRCUIT SEED [--prefixes]");
+        if (argc != 3 && argc != 4 && argc != 5)
+            throw std::invalid_argument(
+                "usage: msc_record_probe CIRCUIT SEED [--prefixes | --replay BITS]");
         if (argc == 4 && std::string(argv[3]) != "--prefixes")
             throw std::invalid_argument("unknown option");
+        if (argc == 5 && std::string(argv[3]) != "--replay")
+            throw std::invalid_argument("unknown replay option");
         std::ifstream input(argv[1]);
         if (!input)
             throw std::invalid_argument("cannot open input");
@@ -50,9 +53,21 @@ int main(int argc, char** argv) {
             throw std::invalid_argument("oracle capacity or exposed-record contract exceeded");
         clifft::sampling::ExecutablePlan executable(plan);
         clifft::sampling::Executor executor(executable, std::stoull(argv[2]));
-        executor.run_shot();
-        auto visible = executor.visible_records();
-        std::vector<uint8_t> records(visible.begin(), visible.end());
+        std::vector<uint8_t> records;
+        if (argc == 5) {
+            const std::string bits(argv[4]);
+            if (bits.size() != plan.num_visible_records)
+                throw std::invalid_argument("replay record count differs");
+            for (char b : bits) {
+                if (b != '0' && b != '1')
+                    throw std::invalid_argument("nonbinary replay record");
+                records.push_back(b - '0');
+            }
+        } else {
+            executor.run_shot();
+            auto visible = executor.visible_records();
+            records.assign(visible.begin(), visible.end());
+        }
         auto replay = executor.replay_shot(records);
         if (!replay.reachable)
             throw std::runtime_error("sampled trajectory is unreachable");
