@@ -1,5 +1,10 @@
 # Native Profiling Tools
 
+The [physical cultivation study](research/cultivation_corpus.md) adds a pinned
+author circuit corpus, independent reference checks, source-mapped active-width
+diagnostics, and public-API throughput measurements. Its optional
+`profile_cultivation` target is built with `CLIFFT_BUILD_PROFILER=ON`.
+
 Three native C++ harnesses isolate production compile, sampling, and
 strong-simulation costs for `perf` or another sampling profiler:
 

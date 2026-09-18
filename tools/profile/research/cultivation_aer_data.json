@@ -1,0 +1,42 @@
+{
+  "qiskit": "2.3.0",
+  "aer": "0.17.2",
+  "cases": [
+    {
+      "circuit": "d3a6_inject+cultivate_p1e-3.stim",
+      "probability": 0,
+      "shots": 128,
+      "max_output_marginal_difference": 0.0,
+      "aer_accepted": 128,
+      "clifft_accepted": 128,
+      "aer_accepted_errors": 0
+    },
+    {
+      "circuit": "d3a6_inject+cultivate_p1e-3.stim",
+      "probability": 0.001,
+      "shots": 2048,
+      "max_output_marginal_difference": 0.01953125,
+      "aer_accepted": 1367,
+      "clifft_accepted": 1397,
+      "aer_accepted_errors": 0
+    },
+    {
+      "circuit": "d3a6f2_inject+cultivate_p1e-3.stim",
+      "probability": 0,
+      "shots": 128,
+      "max_output_marginal_difference": 0.0,
+      "aer_accepted": 128,
+      "clifft_accepted": 128,
+      "aer_accepted_errors": 0
+    },
+    {
+      "circuit": "d3a6f2_inject+cultivate_p1e-3.stim",
+      "probability": 0.001,
+      "shots": 2048,
+      "max_output_marginal_difference": 0.02783203125,
+      "aer_accepted": 1273,
+      "clifft_accepted": 1330,
+      "aer_accepted_errors": 0
+    }
+  ]
+}

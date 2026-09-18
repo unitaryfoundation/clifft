@@ -1,0 +1,31 @@
+{
+  "repository": "https://github.com/timchan0/cliffordea",
+  "revision": "a62a353e77468a2ff54c24e83133ad65a63e2294",
+  "files": [
+    {
+      "path": "LICENSE",
+      "file": "LICENSE",
+      "sha256": "276ce8c4b74f1bee8e42eec2e6a8fca70b220edc15936f41d6b97a6d2256bcaa"
+    },
+    {
+      "path": "cliffordea/sim/stim_files/d3a6_inject+cultivate_p1e-3.stim",
+      "file": "d3a6_inject+cultivate_p1e-3.stim",
+      "sha256": "5003995c48830329a84e50560c49c1433b9dd8d23c06266a74272b6fce2d5afa"
+    },
+    {
+      "path": "cliffordea/sim/stim_files/d3a6f2_inject+cultivate_p1e-3.stim",
+      "file": "d3a6f2_inject+cultivate_p1e-3.stim",
+      "sha256": "d9dc26be494547c21a71eb24ca0c53e45e85ab6a0c762fea6c8cf72a16cc01a9"
+    },
+    {
+      "path": "cliffordea/sim/stim_files/d5a19_inject+cultivate_p1e-3.stim",
+      "file": "d5a19_inject+cultivate_p1e-3.stim",
+      "sha256": "00759f0270f267a20e05cdfe483d5bc4f0b0dd4fcf4843122eaa8c987d001180"
+    },
+    {
+      "path": "cliffordea/sim/stim_files/d5a19f13_inject+cultivate_p1e-3.stim",
+      "file": "d5a19f13_inject+cultivate_p1e-3.stim",
+      "sha256": "a0187f92a8cfc2fcd294836abb47e7b199e8f9efcaae004448adeba0840c09f8"
+    }
+  ]
+}
