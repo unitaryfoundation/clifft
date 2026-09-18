@@ -76,6 +76,9 @@ class BatchExecutor {
     void execute_action(const ExecutablePlan::ExecuteExpectation& action) noexcept;
     void execute_action(const ExecutablePlan::ExecuteInstrument& action) noexcept;
     void execute_action(const ExecutablePlan::ExecuteBoundary& action) noexcept;
+    void execute_action(const ExecutablePlan::ExecuteCssBlock&) noexcept {
+        assert(false && "CSS blocks require scalar shots");
+    }
 
     [[nodiscard]] std::span<const uint64_t> evaluate(
         ExecutablePlan::PreparedExpression expression) const noexcept;

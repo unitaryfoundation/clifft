@@ -1,5 +1,10 @@
 # Proposed production boundary for compiled logical blocks
 
+Historical proposal: the user authorized productionization on a fresh branch.
+See [the implementation report](compiled_css_blocks.md) for the implemented
+subset, validation, and public-sampler benchmarks. The proposal below records
+the architectural decision before that authorization.
+
 This is a design for review, not a change to the production architecture. The
 [complete five-check study](msc_factor_sequence.md) supports a narrow exact
 block action on large certified CSS states. It does not justify replacing the

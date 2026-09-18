@@ -41,6 +41,8 @@ enum class MeasurementBranchKind : uint8_t {
 }
 
 [[nodiscard]] const ExecutablePlan* validate_batch_plan(const ExecutablePlan& plan) {
+    if (plan.num_css_blocks())
+        throw std::invalid_argument("packed sampling does not support CSS blocks");
     if (plan.has_instruments()) {
         throw std::invalid_argument("packed sampling does not support instrument continuations");
     }

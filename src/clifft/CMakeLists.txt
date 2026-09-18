@@ -14,6 +14,8 @@ add_library(clifft_core STATIC
     optimizer/pass_factory.cc
     optimizer/remove_noise_pass.cc
     optimizer/statevector_squeeze_pass.cc
+    sampling/css/factor.cc
+    sampling/css/planner.cc
     sampling/plan.cc
     sampling/plan_inspection.cc
     sampling/inspection_format.cc
@@ -129,4 +131,9 @@ endif()
 if(CLIFFT_COVERAGE)
     target_compile_options(clifft_core PRIVATE --coverage -fprofile-arcs -ftest-coverage)
     target_link_options(clifft_core PRIVATE --coverage)
+endif()
+
+# Factor probabilities retain coherent cancellations and must not reassociate.
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    set_source_files_properties(sampling/css/factor.cc PROPERTIES COMPILE_OPTIONS "-fno-fast-math")
 endif()

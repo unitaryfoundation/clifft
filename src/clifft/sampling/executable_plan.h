@@ -68,6 +68,7 @@ class ExecutablePlan {
 
     explicit ExecutablePlan(const SamplingPlan& plan);
 
+    [[nodiscard]] uint32_t num_css_blocks() const { return num_css_blocks_; }
     [[nodiscard]] uint32_t num_qubits() const { return num_qubits_; }
     [[nodiscard]] uint32_t peak_active_width() const { return peak_active_width_; }
     [[nodiscard]] uint32_t initial_active_width() const { return initial_active_width_; }
@@ -353,15 +354,23 @@ class ExecutablePlan {
         double conditioned_probability = 0.0;
     };
 
+    struct ExecuteCssBlock {
+        std::shared_ptr<const css::Code> code;
+        std::vector<PreparedExpression> inputs;
+        std::vector<uint32_t> branches, records;
+    };
+
     using Action =
         std::variant<ExecuteRotation, ExecuteFusedRotation, ExecuteDynamicFusedRotation,
                      ExecutePromotion, ExecuteActiveMeasurement, ExecuteDormantMeasurement,
                      ExecuteClassicalRecord, ExecuteSymbolDefinition, ExecuteReadoutNoise,
                      ExecuteDetector, ExecuteObservable, ExecuteExpectation, ExecuteInstrument,
-                     ExecuteBoundary>;
+                     ExecuteBoundary, ExecuteCssBlock>;
 
     // Immutable plan metadata and externally visible dimensions.
     uint32_t num_qubits_ = 0;
+    size_t css_scratch_size_ = 0;
+    uint32_t num_css_blocks_ = 0;
     uint32_t initial_active_width_ = 0;
     uint32_t peak_active_width_ = 0;
     uint32_t num_visible_records_ = 0;

@@ -142,6 +142,10 @@ class Executor {
     template <ExecutorBackend Backend, ShotMode Mode, IntraShotMode IntraShot>
     [[nodiscard]] ReplayResult execute_actions(std::span<const uint8_t> forced_records,
                                                uint32_t begin = 0) noexcept;
+    template <ShotMode Mode>
+    void execute_action(const ExecutablePlan::ExecuteCssBlock& action,
+                        std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
+
     template <ExecutorBackend Backend, IntraShotMode IntraShot>
     void execute_action(const ExecutablePlan::ExecuteRotation& action,
                         std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
@@ -215,6 +219,7 @@ class Executor {
 
     // Capacity is allocated before ordinary dispatch and reused across shots.
     State state_;
+    std::unique_ptr<css::Workspace> css_workspace_;
     std::vector<uint8_t> symbols_;
     std::vector<uint8_t> expression_registers_;
     std::vector<uint8_t> records_;

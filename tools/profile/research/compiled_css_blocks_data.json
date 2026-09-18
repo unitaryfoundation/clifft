@@ -1,0 +1,108 @@
+{
+  "version": "0.10.2.dev30+g77c2e16c6.d20260918",
+  "platform": "Linux-6.12.93-x86_64-with-glibc2.39",
+  "shots": 2048,
+  "repeats": 3,
+  "threads": 1,
+  "batch_size": 1,
+  "rows": [
+    {
+      "circuit": "css_five_check_d3.stim",
+      "sha256": "d81034147b31bb15bfbba426c646c9716cb7240a0968fbeb91bdeb552dd50e61",
+      "logical_blocks": false,
+      "blocks": 0,
+      "peak_active_width": 4,
+      "compile_seconds": 0.0008478269446641207,
+      "sample_seconds": [
+        0.003605691948905587,
+        0.0037421691231429577,
+        0.0034734720829874277
+      ],
+      "median_seconds_per_shot": 1.7605917719265562e-06
+    },
+    {
+      "circuit": "css_five_check_d3.stim",
+      "sha256": "d81034147b31bb15bfbba426c646c9716cb7240a0968fbeb91bdeb552dd50e61",
+      "logical_blocks": true,
+      "blocks": 0,
+      "peak_active_width": 4,
+      "compile_seconds": 0.0007244599983096123,
+      "sample_seconds": [
+        0.003501713974401355,
+        0.003501172875985503,
+        0.0035532929468899965
+      ],
+      "median_seconds_per_shot": 1.7098212765631615e-06
+    },
+    {
+      "circuit": "css_five_check_d5.stim",
+      "sha256": "bae0323777eee38e48152188d4ca564d87f85a696b77d0ba38621a19951787de",
+      "logical_blocks": false,
+      "blocks": 0,
+      "peak_active_width": 10,
+      "compile_seconds": 0.0023335409350693226,
+      "sample_seconds": [
+        0.06545780110172927,
+        0.06486781616695225,
+        0.06551831308752298
+      ],
+      "median_seconds_per_shot": 3.196181694420375e-05
+    },
+    {
+      "circuit": "css_five_check_d5.stim",
+      "sha256": "bae0323777eee38e48152188d4ca564d87f85a696b77d0ba38621a19951787de",
+      "logical_blocks": true,
+      "blocks": 0,
+      "peak_active_width": 10,
+      "compile_seconds": 0.002305559115484357,
+      "sample_seconds": [
+        0.048245558980852365,
+        0.047956909984350204,
+        0.04832981713116169
+      ],
+      "median_seconds_per_shot": 2.355740184611932e-05
+    },
+    {
+      "circuit": "css_five_check_d7.stim",
+      "sha256": "9525f050bda0848224c46e35ab667a1316135204e2807872143ccbbfc96970b2",
+      "logical_blocks": false,
+      "blocks": 0,
+      "peak_active_width": 19,
+      "compile_seconds": 0.0049219399224966764,
+      "sample_seconds": [
+        30.70257887011394,
+        30.696524407947436,
+        30.713579830015078
+      ],
+      "median_seconds_per_shot": 0.014991493588922822
+    },
+    {
+      "circuit": "css_five_check_d7.stim",
+      "sha256": "9525f050bda0848224c46e35ab667a1316135204e2807872143ccbbfc96970b2",
+      "logical_blocks": true,
+      "blocks": 5,
+      "peak_active_width": 1,
+      "compile_seconds": 0.004005709895864129,
+      "sample_seconds": [
+        2.4861847860738635,
+        2.477680069860071,
+        2.4313993328250945
+      ],
+      "median_seconds_per_shot": 0.0012098047216113628
+    },
+    {
+      "circuit": "css_five_check_d9.stim",
+      "sha256": "0c8e3f4523cdf02a71297528c393f6331d38bdd870b202d1f8d8584c13e89e13",
+      "logical_blocks": true,
+      "blocks": 5,
+      "peak_active_width": 1,
+      "compile_seconds": 0.008925355970859528,
+      "sample_seconds": [
+        8.790344218024984,
+        8.776827544905245,
+        8.765749130863696
+      ],
+      "median_seconds_per_shot": 0.004285560324660764
+    }
+  ]
+}

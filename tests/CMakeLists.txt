@@ -23,6 +23,7 @@ add_executable(clifft_tests
     test_sampling_planner.cc
     test_sampling_planner_frame.cc
     test_sampling_executor.cc
+    test_sampling_css.cc
     test_fused_rotation.cc
     test_sampling_kernels.cc
     test_interleaved_batch_kernels.cc
@@ -81,6 +82,12 @@ if(CLIFFT_COVERAGE)
 endif()
 
 catch_discover_tests(clifft_tests)
+
+add_executable(clifft_css_allocation_test test_css_allocation.cc)
+target_link_libraries(clifft_css_allocation_test PRIVATE clifft_core)
+target_compile_definitions(clifft_css_allocation_test PRIVATE
+    CLIFFT_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
+add_test(NAME clifft_css_allocation_test COMMAND clifft_css_allocation_test)
 
 if(CLIFFT_ENABLE_HIP)
     # Keep hardware-dependent skips scoped to the HIP executable so exit code

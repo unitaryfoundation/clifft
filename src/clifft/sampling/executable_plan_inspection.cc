@@ -230,6 +230,10 @@ std::string ExecutablePlan::inspect_action(size_t action) const {
                     },
                     typed.form);
             },
+            [&](const ExecuteCssBlock& typed) {
+                out << "CSS_BLOCK data=" << typed.code->width()
+                    << " records=" << typed.records.size();
+            },
             [&](const ExecuteBoundary& typed) {
                 out << "INSTRUMENT_BOUNDARY site=" << typed.site
                     << " active_width=" << typed.active_width << " noise=[" << typed.noise_begin

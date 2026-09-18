@@ -159,8 +159,10 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::compile() {
     prepare_batch_compaction_costs();
     build_expression_dependencies();
     prepare_noise_schedule();
-    output_.batch_presampled_program_ = BatchPresampledProgram::build(
-        output_, source_, expression_terms_, expression_term_begins_, bound_presampled_symbols_);
+    if (output_.num_css_blocks_ == 0)
+        output_.batch_presampled_program_ =
+            BatchPresampledProgram::build(output_, source_, expression_terms_,
+                                          expression_term_begins_, bound_presampled_symbols_);
     validate_executable_plan();
 }
 
@@ -204,8 +206,11 @@ ExecutablePlanBuilder::estimate_program_storage() const {
         std::visit(
             [&](const auto& typed) {
                 using T = std::decay_t<decltype(typed)>;
-                if constexpr (std::is_same_v<T, RotateActivePauli> ||
-                              std::is_same_v<T, PromoteDormantRotation>) {
+                if constexpr (std::is_same_v<T, ApplyCssBlock>) {
+                    for (const auto& input : typed.inputs)
+                        num_terms += input.terms().size();
+                } else if constexpr (std::is_same_v<T, RotateActivePauli> ||
+                                     std::is_same_v<T, PromoteDormantRotation>) {
                     num_terms += typed.sign.terms().size();
                 } else if constexpr (std::is_same_v<T, MeasureActivePauli> ||
                                      std::is_same_v<T, MeasureDormantRandom>) {
@@ -391,7 +396,20 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::lower_action(const Plann
     std::visit(
         [&](const auto& typed) {
             using T = std::decay_t<decltype(typed)>;
-            if constexpr (std::is_same_v<T, RotateActivePauli>) {
+            if constexpr (std::is_same_v<T, ApplyCssBlock>) {
+                ExecutablePlan::ExecuteCssBlock block;
+                block.code = typed.code;
+                for (const auto& input : typed.inputs)
+                    block.inputs.push_back(prepare_expression(input));
+                for (auto branch : typed.branches)
+                    block.branches.push_back(index(branch));
+                for (auto record : typed.records)
+                    block.records.push_back(index(record));
+                output_.css_scratch_size_ =
+                    std::max(output_.css_scratch_size_, typed.code->scratch_size());
+                ++output_.num_css_blocks_;
+                output_.actions_.emplace_back(std::move(block));
+            } else if constexpr (std::is_same_v<T, RotateActivePauli>) {
                 PreparedRotation rotation =
                     prepare_rotation(typed.pauli, planned.active_before, typed.half_turns);
                 const DirectRotationKernel kernel =
@@ -761,6 +779,14 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::validate_executable_plan
                             }
                         },
                         typed.form);
+                } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteCssBlock>) {
+                    for (const auto& input : typed.inputs)
+                        validate_expression(input);
+                    assert(typed.branches.size() == typed.records.size());
+                    for (auto branch : typed.branches)
+                        assert(branch < output_.num_symbols_);
+                    for (auto record : typed.records)
+                        assert(record < num_records);
                 } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteBoundary>) {
                     assert(typed.site < output_.instrument_resume_offsets_.size() &&
                            "instrument boundary site is out of range");

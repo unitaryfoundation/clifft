@@ -46,6 +46,7 @@ from clifft._clifft_core import (
     StatevectorSqueezePass,
     Target,
     _basis_probabilities_from_bitmasks,
+    _compile_css_blocks,
     _record_probabilities_from_records,
     compute_reference_syndrome,
     default_hir_pass_manager,
@@ -100,7 +101,7 @@ def _basis_masks_from_bitstrings(
     def fill_string_mask(masks: npt.NDArray[np.uint64], bitstring: str, row: int) -> None:
         if len(bitstring) != num_qubits:
             raise ValueError(
-                f"bitstring at index {row} has length {len(bitstring)}, " f"expected {num_qubits}"
+                f"bitstring at index {row} has length {len(bitstring)}, expected {num_qubits}"
             )
         for col, char in enumerate(bitstring):
             if char == "1":
@@ -302,6 +303,8 @@ def compile(
     normalize_syndromes: bool = False,
     hir_passes: HirPassManager | None | _DefaultPasses = _DEFAULT_PASSES,
     input_format: Literal["stim", "qasm2"] = "stim",
+    *,
+    logical_blocks: bool = False,
 ) -> Program:
     """Compile a quantum circuit string to an executable sampling program.
 
@@ -326,7 +329,25 @@ def compile(
             Defaults to ``default_hir_pass_manager()``. Pass ``None`` to skip.
         input_format: ``"stim"`` for Clifft's Stim-compatible syntax or
             ``"qasm2"`` for the supported unitary OpenQASM 2 subset.
+        logical_blocks: Opt into certified CSS logical-block contractions for
+            supported large-state circuits. Unsupported or small circuits use
+            ordinary compilation. Currently requires Stim input, default passes
+            or ``None``, and no automatic syndrome normalization. Inspect
+            ``Program.num_css_blocks`` to see whether contractions were selected.
     """
+    if (
+        logical_blocks
+        and input_format == "stim"
+        and not normalize_syndromes
+        and (isinstance(hir_passes, _DefaultPasses) or hir_passes is None)
+    ):
+        return _compile_css_blocks(
+            stim_text,
+            postselection_mask if postselection_mask is not None else [],
+            expected_detectors if expected_detectors is not None else [],
+            expected_observables if expected_observables is not None else [],
+            hir_passes is not None,
+        )
     if isinstance(hir_passes, _DefaultPasses):
         hir_passes = default_hir_pass_manager()
     if input_format == "stim":

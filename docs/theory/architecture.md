@@ -59,6 +59,47 @@ Keeping this boundary semantic matters. The CPU executor and experimental HIP
 backend share the same coordinate choices and output contract without sharing
 action layouts, kernel selectors, or fusion policy.
 
+#### Opt-in CSS logical blocks
+
+`clifft.compile(text, logical_blocks=True)` also considers a conservative
+source-circuit certificate when the ordinary plan exceeds ten active coordinates.
+If certification succeeds, it produces the same `SamplingPlan` interface with
+`CSS_BLOCK` actions. A conservative work estimate also compares the compiled
+factor gathers against ordinary dense-state traversals before selecting them.
+`Program.num_css_blocks` reports how many were selected.
+Otherwise compilation uses the ordinary plan. The source recognizer currently
+requires default HIR passes or `None`; custom passes, QASM input, and automatic
+syndrome normalization retain ordinary compilation.
+
+Each block is a full-data T layer, an all-Y measurement, a full-data T-dagger
+layer, and a complete independent positive CSS projection. Four surrounding
+layers of single-qubit Pauli channels are allowed. The certificate proves one
+encoded qubit, balanced X/Z check ranks, all-data logical X/Z, a known pure
+encoded initial state, and consistent checks across blocks. The initial state
+must come from ideal Cliffords and at most one T. This first recognizer accepts
+only an entire sequence followed by an all-data logical X, Y, or Z measurement;
+it does not infer arbitrary encoded intervals inside a general circuit.
+
+The action keeps two logical coefficients plus an affine syndrome frame.
+Compilation prepares parity-factor elimination, syndrome duals, phases, and
+all symbol dependencies. Execution binds physical fault bits, contracts branch
+probabilities, samples the complete projection, and updates the logical pair.
+Readout noise changes reported records, not the syndrome frame. Ordinary
+executor machinery owns noise, RNG, records, detectors, observables, and
+postselection. No tableau evolution or factor planning happens per shot.
+
+This implementation is limited to 63 data wires and 31 generators per CSS
+family, with bounded factor storage. Those are implementation and planning
+budget limits, not a guarantee that every code below them contracts cheaply.
+The benefit depends on the elimination width of the code's factors.
+
+CPU shot parallelism and fixed-fault sampling are supported. Packed execution
+and HIP reject these actions; automatic CPU batching selects scalar workers.
+The recognizer declines feedback, ancilla circuits, code growth, intermediate
+expectation probes, non-Pauli instruments, and unsupported suffixes. Instrument
+continuations cannot carry these plans. This is a narrow fast path for verified
+physical circuits, not a logical-noise approximation or a general QEC frontend.
+
 ### Executable Preparation
 
 The current executable-plan builder lowers a validated `SamplingPlan` for the

@@ -252,6 +252,8 @@ detail::Action ExecutablePlan::lower_action(const PlannedAction& planned) {
                     flatten_pauli(action,
                                   prepare_pauli(typed.active->projection, planned.active_before));
                 }
+            } else if constexpr (std::is_same_v<T, ApplyCssBlock>) {
+                throw std::invalid_argument("HIP execution does not support CSS logical blocks");
             } else if constexpr (std::is_same_v<T, ApplyInstrument> ||
                                  std::is_same_v<T, InstrumentBoundary>) {
                 throw std::invalid_argument(

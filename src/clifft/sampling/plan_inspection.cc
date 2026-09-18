@@ -179,6 +179,9 @@ void write_action_body(std::ostream& out, const SamplingAction& action,
                 if (typed.destination_flip.has_value()) {
                     out << " flip=s" << index(*typed.destination_flip);
                 }
+            } else if constexpr (std::is_same_v<T, ApplyCssBlock>) {
+                out << "CSS_BLOCK data=" << typed.code->width()
+                    << " records=" << typed.records.size();
             } else if constexpr (std::is_same_v<T, InstrumentBoundary>) {
                 out << "INSTRUMENT_BOUNDARY site=" << index(typed.site)
                     << " next_noise_site=" << typed.next_noise_site

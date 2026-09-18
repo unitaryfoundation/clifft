@@ -70,6 +70,8 @@ Executor::Executor(const ExecutablePlan& plan, uint64_t seed, uint32_t intra_sho
       state_(plan.peak_active_width_, plan.initial_active_width_,
              resolve_intra_shot_workers(plan, intra_shot_workers, intra_shot_min_active_width),
              intra_shot_min_active_width),
+      css_workspace_(plan.num_css_blocks_ ? std::make_unique<css::Workspace>(plan.css_scratch_size_)
+                                          : nullptr),
       symbols_(plan.num_symbols_, 0),
       expression_registers_(plan.expression_register_constants_),
       records_(static_cast<size_t>(plan.num_visible_records_) + plan.num_hidden_records_, 0),
@@ -122,6 +124,9 @@ void Executor::run_shot(KFaultSampler& fault_sampler) noexcept {
 
 void Executor::resume(const ExecutablePlan& continuation,
                       std::optional<ForcedTraceOut> forced_trace_out) {
+    if (continuation.num_css_blocks() || root_plan_->num_css_blocks())
+        throw std::invalid_argument("CSS blocks do not support instrument continuations");
+
     if (!pending_trap_.has_value()) {
         throw std::invalid_argument("sampling executor resume requires a pending instrument trap");
     }
@@ -439,6 +444,38 @@ void Executor::execute_action(const ExecutablePlan::ExecutePromotion& action,
                                  intra_shot_workers_, intra_shot_min_active_width_);
     } else {
         apply_promotion(state_, action.promotion, evaluate(action.sign));
+    }
+}
+
+template <Executor::ShotMode Mode>
+void Executor::execute_action(const ExecutablePlan::ExecuteCssBlock& action,
+                              std::span<const uint8_t> forced_records,
+                              ReplayResult& result) noexcept {
+    assert(css_workspace_ && state_.active_width() == 1);
+    auto& work = *css_workspace_;
+    for (size_t k = 0; k < action.inputs.size(); ++k)
+        work.inputs[k] = evaluate(action.inputs[k]);
+    if constexpr (Mode == ShotMode::ReplayRecords)
+        for (size_t k = 0; k < action.records.size(); ++k)
+            work.outcomes[k] = forced_records[action.records[k]];
+    std::array<css::Complex, 2> logical{
+        {{state_.real()[0], state_.imag()[0]}, {state_.real()[1], state_.imag()[1]}}};
+    const double probability =
+        css::apply(*action.code, logical, work, rng_, Mode == ShotMode::ReplayRecords);
+    if constexpr (Mode == ShotMode::ReplayRecords) {
+        if (probability == 0) {
+            result.reachable = false;
+            return;
+        }
+        result.log_probability += std::log(probability);
+    }
+    for (unsigned k = 0; k < 2; ++k) {
+        state_.real()[k] = logical[k].real();
+        state_.imag()[k] = logical[k].imag();
+    }
+    for (size_t k = 0; k < action.records.size(); ++k) {
+        assign_symbol(action.branches[k], work.outcomes[k] != 0);
+        records_[action.records[k]] = work.outcomes[k];
     }
 }
 
@@ -795,7 +832,8 @@ ReplayResult Executor::execute_actions(std::span<const uint8_t> forced_records,
             std::visit(
                 [&](const auto& typed) noexcept {
                     using T = std::decay_t<decltype(typed)>;
-                    if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteBoundary> ||
+                    if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteCssBlock> ||
+                                  std::is_same_v<T, ExecutablePlan::ExecuteBoundary> ||
                                   std::is_same_v<T, ExecutablePlan::ExecuteReadoutNoise> ||
                                   std::is_same_v<T, ExecutablePlan::ExecuteDormantMeasurement> ||
                                   std::is_same_v<T, ExecutablePlan::ExecuteClassicalRecord>) {

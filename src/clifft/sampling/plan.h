@@ -19,12 +19,14 @@
 // SymFT: Universal Fault-Tolerant Quantum Circuit Simulation via Symbolic
 // Clifford--Pauli Frames and Stabilizer Coordinates, arXiv:2607.28600.
 
+#include "clifft/sampling/css/factor.h"
 #include "clifft/tableau/tableau.h"
 #include "clifft/util/numeric.h"
 
 #include <array>
 #include <cstdint>
 #include <limits>
+#include <memory>
 #include <optional>
 #include <span>
 #include <string>
@@ -294,10 +296,21 @@ struct InstrumentBoundary {
     uint32_t symbol_prefix_size = 0;
 };
 
-using SamplingAction = std::variant<RotateActivePauli, PromoteDormantRotation, MeasureActivePauli,
-                                    MeasureDormantRandom, RecordClassical, DefineSymbol,
-                                    ApplyReadoutNoise, WriteDetector, WriteObservable,
-                                    WriteExpectationValue, ApplyInstrument, InstrumentBoundary>;
+// A certified T-conjugated all-Y instrument followed by the actual CSS
+// projection. Inputs bind the physical frame and fault layers; each output
+// defines a true measurement symbol before ordinary readout noise is applied.
+struct ApplyCssBlock {
+    std::shared_ptr<const css::Code> code;
+    std::vector<AffineBool> inputs;
+    std::vector<SymbolId> branches;
+    std::vector<RecordSlot> records;
+};
+
+using SamplingAction =
+    std::variant<RotateActivePauli, PromoteDormantRotation, MeasureActivePauli,
+                 MeasureDormantRandom, RecordClassical, DefineSymbol, ApplyReadoutNoise,
+                 WriteDetector, WriteObservable, WriteExpectationValue, ApplyInstrument,
+                 InstrumentBoundary, ApplyCssBlock>;
 
 struct PlannedAction {
     // Dense active-coordinate widths immediately before and after this action.

@@ -84,6 +84,12 @@
     }
   },
   "plan_actions": {
+    "CSS_BLOCK": {
+      "category": "Logical block",
+      "summary": "Contract a certified CSS check while retaining one logical qubit.",
+      "detail": "Precompiled factors bind physical Pauli faults and the incoming syndrome frame, sample the gadget and complete CSS projection, and update two logical coefficients. Defines a branch symbol and visible record for every measurement. Selected only by opt-in source-circuit compilation.",
+      "operands": "data, records"
+    },
     "ROTATE_ACTIVE": {
       "category": "Rotation",
       "summary": "Rotation about a Pauli product on the active coordinates.",

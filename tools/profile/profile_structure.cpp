@@ -161,7 +161,8 @@ void write_action(const PlannedAction& action) {
                 std::cout << ",\"kind\":\"expectation\",\"support\":"
                           << (op.active ? op.active->projection.x | op.active->projection.z : 0);
             } else if constexpr (std::is_same_v<T, ApplyInstrument> ||
-                                 std::is_same_v<T, InstrumentBoundary>) {
+                                 std::is_same_v<T, InstrumentBoundary> ||
+                                 std::is_same_v<T, ApplyCssBlock>) {
                 std::cout << ",\"kind\":\"unsupported_instrument\"";
             } else {
                 static_assert(

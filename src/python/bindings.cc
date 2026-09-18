@@ -13,6 +13,7 @@
 #include "clifft/optimizer/peephole.h"
 #include "clifft/optimizer/remove_noise_pass.h"
 #include "clifft/optimizer/statevector_squeeze_pass.h"
+#include "clifft/sampling/css/planner.h"
 #include "clifft/sampling/planner.h"
 #include "clifft/sampling/sampler.h"
 #include "clifft/sampling/state_queries.h"
@@ -753,6 +754,8 @@ NB_MODULE(_clifft_core, m) {
                                                  "A reusable compiled sampling program")
         .def_prop_ro("peak_active_width", &clifft::sampling::ExecutablePlan::peak_active_width,
                      "Largest active width reached by the compiled program.")
+        .def_prop_ro("num_css_blocks", &clifft::sampling::ExecutablePlan::num_css_blocks,
+                     "Number of compiled CSS logical-block contractions.")
         .def_prop_ro(
             "peak_rank",
             [](const clifft::sampling::ExecutablePlan& p) {
@@ -870,6 +873,30 @@ NB_MODULE(_clifft_core, m) {
         "    normalize_syndromes: If True, auto-compute reference parities from a\n"
         "        noiseless reference shot (mutually exclusive with explicit parities).\n"
         "    hir_passes: Optional HirPassManager to run on the HIR before lowering.\n");
+
+    m.def(
+        "_compile_css_blocks",
+        [](const std::string& text, std::vector<uint8_t> postselection,
+           std::vector<uint8_t> detectors, std::vector<uint8_t> observables, bool optimize) {
+            nb::gil_scoped_release release;
+            auto circuit = clifft::parse(text);
+            auto hir = clifft::trace(circuit);
+            if (optimize) {
+                auto passes = clifft::default_hir_pass_manager();
+                passes.run(hir);
+            }
+            clifft::sampling::SamplingPlanOptions options{postselection, detectors, observables};
+            auto plan = clifft::sampling::plan_sampling(hir, options);
+            // Small active states outperform contractions in the five-check controls.
+            if (plan.peak_active_width > 10) {
+                auto candidate = clifft::sampling::try_plan_css_blocks(circuit, options);
+                if (candidate.plan && clifft::sampling::prefer_css_blocks(plan, *candidate.plan))
+                    plan = std::move(*candidate.plan);
+            }
+            return clifft::sampling::ExecutablePlan(plan);
+        },
+        nb::arg("text"), nb::arg("postselection"), nb::arg("detectors"), nb::arg("observables"),
+        nb::arg("optimize"));
 
     m.def(
         "_compile_qasm2",

@@ -1,6 +1,13 @@
 # Representation study checkpoint
 
-Latest: [complete noisy five-check factor sequences](msc_factor_sequence.md)
+Latest: the user authorized the narrow action extension and a fresh production
+branch. `codex/compiled-logical-blocks` adds opt-in source certification,
+precompiled contractions, and ordinary executor integration. See
+[the production report](compiled_css_blocks.md) for coverage and many-shot
+public API measurements. The durable structured-input idea remains deferred.
+The earlier research branch and its findings remain available separately.
+
+Research baseline: [complete noisy five-check factor sequences](msc_factor_sequence.md)
 close the native fault-binding, final-amplitude, logical-handoff and full-output
 coverage gaps on a synthetic large-state control. The 37-data-qubit sequence
 executes all five checks in median 1,234 us/attempt versus 15,199 us for ordinary
@@ -21,16 +28,16 @@ ancilla extraction. No authors' large artifact or fault-distance proof has
 been obtained. A bounded direct Aer MPS probe timed out before completing its
 initial attempt; it is not a throughput comparison or best-in-class evidence.
 
-The remaining implementation step is architectural. A
+At the research checkpoint, the remaining implementation step was architectural. A
 [concrete production proposal](logical_block_integration.md) recommends an
 opt-in fused logical-block action, preserving the existing dense logical
 state at certified boundaries and using compiler-owned fixed factor plans.
 Noise/RNG/record ownership remains with the ordinary executor; unsupported
 feature mixes decline before execution. Compile once per circuit remains
-appropriate for this tested family. No production source or public API has
-changed. Seek the architectural confirmation required by AGENTS.md before
-adding the new planner/action/lowering contract; do not silently repurpose
-instrument continuations or introduce runtime topology planning.
+appropriate for this tested family. That confirmation is now provided by the
+user's instruction to productionize in a fresh branch. The implementation
+does not repurpose instrument continuations or introduce runtime topology
+planning.
 
 Previous: [fixed factor CSS syndrome sampling](msc_factor_sampling.md) avoids
 X-support enumeration using precompiled prefix contractions. Measuring checks

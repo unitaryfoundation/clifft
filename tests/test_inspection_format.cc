@@ -231,7 +231,7 @@ TEST_CASE("Compact inspection mnemonics cover every SamplingAction and its docs 
     // Adding, removing, or renaming a SamplingAction alternative changes this
     // count. Extend the action list below and the plan_actions table in
     // docs/compiler_ir.json together, then update this assertion.
-    static_assert(std::variant_size_v<SamplingAction> == 12);
+    static_assert(std::variant_size_v<SamplingAction> == 13);
 
     const SymbolId s0{0};
     const AffineBool empty{};
@@ -255,6 +255,13 @@ TEST_CASE("Compact inspection mnemonics cover every SamplingAction and its docs 
                       ApplyInstrument{InstrumentSiteId{0}, InstrumentMode::Classical, ActivePauli{},
                                       empty, s0}},
         PlannedAction{0, 0, InstrumentBoundary{InstrumentSiteId{0}, 0, 0}},
+        PlannedAction{1, 1,
+                      clifft::sampling::ApplyCssBlock{
+                          std::make_shared<clifft::sampling::css::Code>(
+                              3, std::vector<clifft::sampling::css::Check>{{true, 3}, {false, 3}}),
+                          {},
+                          {},
+                          {}}},
     };
 
     std::set<std::string> mnemonics;
@@ -272,6 +279,7 @@ TEST_CASE("Compact inspection mnemonics cover every SamplingAction and its docs 
         "ROTATE_ACTIVE",    "PROMOTE_DORMANT",   "MEASURE_ACTIVE",   "MEASURE_DORMANT",
         "RECORD_CLASSICAL", "DEFINE_SYMBOL",     "READOUT_NOISE",    "WRITE_DETECTOR",
         "WRITE_OBSERVABLE", "WRITE_EXPECTATION", "APPLY_INSTRUMENT", "INSTRUMENT_BOUNDARY",
+        "CSS_BLOCK",
     };
     REQUIRE(mnemonics == expected);
 

@@ -126,7 +126,8 @@ std::optional<SymbolId> defined_symbol(const SamplingAction& action) {
                                  std::is_same_v<T, WriteDetector> ||
                                  std::is_same_v<T, WriteObservable> ||
                                  std::is_same_v<T, WriteExpectationValue> ||
-                                 std::is_same_v<T, InstrumentBoundary>) {
+                                 std::is_same_v<T, InstrumentBoundary> ||
+                                 std::is_same_v<T, ApplyCssBlock>) {
                 return std::nullopt;
             } else {
                 static_assert(kAlwaysFalse<T>, "Unhandled SamplingAction alternative");
@@ -388,7 +389,8 @@ uint32_t predicted_dense_passes(const SamplingAction& action) {
                                  std::is_same_v<T, ApplyReadoutNoise> ||
                                  std::is_same_v<T, WriteDetector> ||
                                  std::is_same_v<T, WriteObservable> ||
-                                 std::is_same_v<T, InstrumentBoundary>) {
+                                 std::is_same_v<T, InstrumentBoundary> ||
+                                 std::is_same_v<T, ApplyCssBlock>) {
                 return 0;
             } else {
                 static_assert(kAlwaysFalse<T>, "Unhandled SamplingAction alternative");
@@ -486,19 +488,18 @@ void SamplingPlan::validate() const {
 
     std::vector<std::optional<uint32_t>> actual_definitions(symbols.size());
     for (uint32_t action_index = 0; action_index < actions.size(); ++action_index) {
-        const auto symbol = defined_symbol(actions[action_index].action);
-        if (!symbol.has_value()) {
-            continue;
+        auto define = [&](SymbolId symbol) {
+            const uint32_t symbol_index = index(symbol);
+            if (symbol_index >= symbols.size() || actual_definitions[symbol_index].has_value())
+                invalid_plan("invalid or duplicate symbol definition");
+            actual_definitions[symbol_index] = action_index;
+        };
+        if (const auto* block = std::get_if<ApplyCssBlock>(&actions[action_index].action)) {
+            for (auto symbol : block->branches)
+                define(symbol);
+        } else if (auto symbol = defined_symbol(actions[action_index].action)) {
+            define(*symbol);
         }
-        const uint32_t symbol_index = index(*symbol);
-        if (symbol_index >= symbols.size()) {
-            invalid_plan("action " + std::to_string(action_index) + " defines symbol s" +
-                         std::to_string(symbol_index) + " out of range");
-        }
-        if (actual_definitions[symbol_index].has_value()) {
-            invalid_plan("symbol s" + std::to_string(symbol_index) + " is defined more than once");
-        }
-        actual_definitions[symbol_index] = action_index;
     }
 
     for (uint32_t symbol_index = 0; symbol_index < symbols.size(); ++symbol_index) {
@@ -525,7 +526,8 @@ void SamplingPlan::validate() const {
         }
         const SamplingAction& action = actions[*actual_definitions[symbol_index]].action;
         if (kind == SymbolKind::Branch && !std::holds_alternative<MeasureActivePauli>(action) &&
-            !std::holds_alternative<MeasureDormantRandom>(action)) {
+            !std::holds_alternative<MeasureDormantRandom>(action) &&
+            !std::holds_alternative<ApplyCssBlock>(action)) {
             invalid_plan("branch symbol s" + std::to_string(symbol_index) +
                          " must be defined by a measurement");
         }
@@ -582,7 +584,25 @@ void SamplingPlan::validate() const {
         std::visit(
             [&](const auto& typed) {
                 using T = std::decay_t<decltype(typed)>;
-                if constexpr (std::is_same_v<T, RotateActivePauli>) {
+                if constexpr (std::is_same_v<T, ApplyCssBlock>) {
+                    if (!typed.code || planned.active_before != 1 || planned.active_after != 1 ||
+                        typed.code->width() > num_qubits ||
+                        typed.inputs.size() != 10 * typed.code->width() ||
+                        typed.branches.size() != typed.code->width() ||
+                        typed.records.size() != typed.branches.size())
+                        invalid_plan("invalid CSS block dimensions");
+                    for (const auto& input : typed.inputs)
+                        validate_expression(*this, actual_definitions, input, action_index,
+                                            std::nullopt, false);
+                    for (size_t k = 0; k < typed.branches.size(); ++k) {
+                        if (symbols[index(typed.branches[k])] != SymbolKind::Branch)
+                            invalid_plan("CSS block must define branch symbols");
+                        validate_record(*this, typed.records[k], action_index, written_records);
+                        auto slot = index(typed.records[k]);
+                        readout_record_values[slot] = AffineBool::symbol(typed.branches[k]);
+                        record_values[slot] = &*readout_record_values[slot];
+                    }
+                } else if constexpr (std::is_same_v<T, RotateActivePauli>) {
                     if (planned.active_after != planned.active_before) {
                         invalid_plan("active rotation changes active width");
                     }

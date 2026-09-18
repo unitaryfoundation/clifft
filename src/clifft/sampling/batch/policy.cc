@@ -104,6 +104,11 @@ BatchExecutionPolicy resolve_batch_execution_policy(
     if (requested_batch_size.has_value() && *requested_batch_size == 0) {
         throw std::invalid_argument("batch_size must be a positive integer or 'auto'");
     }
+    if (plan.num_css_blocks() != 0) {
+        if (requested_batch_size.value_or(1) > 1)
+            throw std::invalid_argument("packed batches are not supported for CSS blocks");
+        return {};
+    }
     if (shots == 0 || plan.has_instruments()) {
         return {};
     }
