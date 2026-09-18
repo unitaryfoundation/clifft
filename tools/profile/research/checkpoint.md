@@ -1,6 +1,45 @@
 # Representation study checkpoint
 
-Latest: [complete static MSC sampling and native controls](msc_sampling.md)
+Latest: [fixed factor CSS syndrome sampling](msc_factor_sampling.md) avoids
+X-support enumeration using precompiled prefix contractions. Measuring checks
+in the single-copy elimination order allows each measured coordinate to split
+into bra/ket copies without increasing the certified contraction width. The
+same representation computes norms, complete syndromes, and final logical
+amplitudes with coherent cross terms and physical frames retained.
+
+On generated 7/19/37/61-data-qubit CSS blocks, maximum joint tables contain
+8/8/32/64 entries. The native 37-qubit conditional syndrome kernel takes median
+506 us versus 80,394 us for the sparse/Fourier kernel, about 159x faster, with
+11,936 coefficient bytes. The 61-qubit kernel takes 1,745 us with 23,968
+coefficient bytes. Compiled plans/gathers are additional storage. These timings
+exclude physical fault binding, injection/growth, and final amplitude recovery;
+they are not full-circuit speedups against Clifft or authors' MSC7 results.
+
+Coverage includes all 95 original terminal histories, complete d3/d5 sampling
+with factor replacements, independent Aer checks, 48 large/small CH prefix
+comparisons, 48 native sampled-syndrome checks, and eight independent CH checks
+of native-selected syndromes. All 55 MSC tests pass. Native allocation checks
+and ASAN/UBSAN pass. The larger geometry comes from Stim-generated code blocks,
+not a complete cultivation artifact.
+
+The [research selection screen](msc_factor_screen_data.json) uses actual
+Clifft active widths and certified contraction costs. It retains ordinary
+Clifft for the measured width-4/10 controls, requests full comparisons for
+intermediate sizes, and flags dense allocations above a 1 GiB study budget for
+bounded factor trials. The synthetic 37/61-qubit planning controls have active
+widths 19/31; reconstructed f7 remains width 44 under its existing fold engine.
+The screen is not a general speed predictor or production routing policy.
+
+Next authorized work: lower factor sampling and final amplitudes into the
+complete native worker, then test a fully specified noisy five-check sequence
+on 37 data qubits against the original elementary-gate circuit. Include dynamic
+fault binding, code/logical-state handoff, and every output in the timing and
+validation. Preserve the original controls and the separate f7 limitations.
+Label the new sequence synthetic; do not claim authors' MSC7 equivalence or
+fault-distance certification. No new user approval is needed for this bounded
+research unless an architectural invariant or substantive scope must change.
+
+Previous: [complete static MSC sampling and native controls](msc_sampling.md)
 closes the record-sampling and offline gadget-binding gaps. Gadget faults now
 select parity-polynomial monomials; Clifford input projections plus compiled
 affine equations sample full records. A sparse CSS Fourier transform samples

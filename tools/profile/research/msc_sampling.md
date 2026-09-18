@@ -1,5 +1,9 @@
 # Complete static MSC sampling and the native control result
 
+Follow-up: [fixed factor sampling](msc_factor_sampling.md) removes exponential
+X-support enumeration from the bounded CSS sampler and records a positive
+large-block kernel result. The full-circuit control timings below remain valid.
+
 Compiled logical blocks now sample complete original MSC d3/d5 trajectories.
 There is no per-shot CH state extraction, gadget topology discovery, tableau
 update, or record-equation elimination. This closes the static sampling gap

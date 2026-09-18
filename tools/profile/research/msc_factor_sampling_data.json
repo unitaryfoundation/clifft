@@ -1,0 +1,1943 @@
+[
+  {
+    "distance_label": 3,
+    "scope": "synthetic CSS blocks",
+    "data_width": 7,
+    "x_rank": 3,
+    "sampling_order": [
+      0,
+      1,
+      2
+    ],
+    "single": {
+      "coefficient_slots": 39,
+      "max_joint_entries": 8,
+      "joint_entries": 14,
+      "gather_entries": 62
+    },
+    "prefixes": [
+      {
+        "coefficient_slots": 59,
+        "max_joint_entries": 8,
+        "joint_entries": 14,
+        "gather_entries": 90
+      },
+      {
+        "coefficient_slots": 67,
+        "max_joint_entries": 8,
+        "joint_entries": 22,
+        "gather_entries": 110
+      },
+      {
+        "coefficient_slots": 73,
+        "max_joint_entries": 8,
+        "joint_entries": 26,
+        "gather_entries": 120
+      },
+      {
+        "coefficient_slots": 78,
+        "max_joint_entries": 8,
+        "joint_entries": 28,
+        "gather_entries": 124
+      }
+    ],
+    "sparse_amplitudes_per_term": 16,
+    "validation": [
+      {
+        "case": 0,
+        "syndrome": [
+          0,
+          1,
+          1,
+          0,
+          0,
+          0
+        ],
+        "probability": 0.18138289940561805,
+        "prefixes": [
+          {
+            "prefix": 0,
+            "probability": 0.6341168104106513,
+            "relative_error": 1.750817840495635e-16
+          },
+          {
+            "prefix": 1,
+            "probability": 0.355166449907778,
+            "relative_error": 1.5629615704318857e-16
+          },
+          {
+            "prefix": 3,
+            "probability": 0.18138289940561814,
+            "relative_error": 0.0
+          }
+        ]
+      },
+      {
+        "case": 1,
+        "syndrome": [
+          0,
+          0,
+          0,
+          1,
+          0,
+          0
+        ],
+        "probability": 0.24871218282037424,
+        "prefixes": [
+          {
+            "prefix": 0,
+            "probability": 1.0,
+            "relative_error": 2.2204460492503126e-16
+          },
+          {
+            "prefix": 1,
+            "probability": 0.5314880232036572,
+            "relative_error": 4.177791318543927e-16
+          },
+          {
+            "prefix": 3,
+            "probability": 0.24871218282037424,
+            "relative_error": 1.1159716947068345e-16
+          }
+        ]
+      },
+      {
+        "case": 2,
+        "syndrome": [
+          1,
+          1,
+          0,
+          0,
+          0,
+          1
+        ],
+        "probability": 0.46845563630167425,
+        "prefixes": [
+          {
+            "prefix": 0,
+            "probability": 1.0000000000000002,
+            "relative_error": 2.220446049250312e-16
+          },
+          {
+            "prefix": 1,
+            "probability": 0.9098798008276803,
+            "relative_error": 1.2201864725595975e-16
+          },
+          {
+            "prefix": 3,
+            "probability": 0.46845563630167436,
+            "relative_error": 1.1849820330800748e-16
+          }
+        ]
+      },
+      {
+        "case": 3,
+        "syndrome": [
+          0,
+          1,
+          0,
+          0,
+          0,
+          1
+        ],
+        "probability": 0.16963488704418095,
+        "prefixes": [
+          {
+            "prefix": 0,
+            "probability": 1.0,
+            "relative_error": 2.2204460492503126e-16
+          },
+          {
+            "prefix": 1,
+            "probability": 0.45186569465923426,
+            "relative_error": 1.2284878424577128e-16
+          },
+          {
+            "prefix": 3,
+            "probability": 0.16963488704418095,
+            "relative_error": 3.272390025337187e-16
+          }
+        ]
+      }
+    ],
+    "timings": [
+      {
+        "mode": "factor",
+        "shots": 1000,
+        "seconds": 0.027411838,
+        "microseconds_per_sample": 27.411838,
+        "coefficient_scratch_bytes": 1248,
+        "probability_scratch_bytes": 0,
+        "checksum": 7014.068252949562
+      },
+      {
+        "mode": "factor",
+        "shots": 1000,
+        "seconds": 0.02740673,
+        "microseconds_per_sample": 27.40673,
+        "coefficient_scratch_bytes": 1248,
+        "probability_scratch_bytes": 0,
+        "checksum": 6979.445122512982
+      },
+      {
+        "mode": "factor",
+        "shots": 1000,
+        "seconds": 0.017904025,
+        "microseconds_per_sample": 17.904025,
+        "coefficient_scratch_bytes": 1248,
+        "probability_scratch_bytes": 0,
+        "checksum": 7008.40241289965
+      },
+      {
+        "mode": "fourier",
+        "shots": 1000,
+        "seconds": 0.001767072,
+        "microseconds_per_sample": 1.767072,
+        "coefficient_scratch_bytes": 2272,
+        "probability_scratch_bytes": 256,
+        "checksum": 6926.172158779505
+      },
+      {
+        "mode": "fourier",
+        "shots": 1000,
+        "seconds": 0.001520718,
+        "microseconds_per_sample": 1.5207179999999998,
+        "coefficient_scratch_bytes": 2272,
+        "probability_scratch_bytes": 256,
+        "checksum": 7021.024600516119
+      },
+      {
+        "mode": "fourier",
+        "shots": 1000,
+        "seconds": 0.001497543,
+        "microseconds_per_sample": 1.497543,
+        "coefficient_scratch_bytes": 2272,
+        "probability_scratch_bytes": 256,
+        "checksum": 7171.6385735697
+      }
+    ],
+    "cpu": 0,
+    "serialized_plan_bytes": 6525,
+    "native_samples": [
+      {
+        "case": 0,
+        "xs": 6,
+        "zs": 1,
+        "probability": 0.15951905951900222,
+        "probability_relative_error": 0.0,
+        "ch_probability_relative_error": 5.551115123125783e-16
+      },
+      {
+        "case": 1,
+        "xs": 1,
+        "zs": 2,
+        "probability": 0.13646190583831552,
+        "probability_relative_error": 0.0,
+        "ch_probability_relative_error": 0.0
+      },
+      {
+        "case": 2,
+        "xs": 5,
+        "zs": 5,
+        "probability": 0.4070656669603349,
+        "probability_relative_error": 2.220446049250313e-16
+      },
+      {
+        "case": 3,
+        "xs": 4,
+        "zs": 5,
+        "probability": 0.17157943036368278,
+        "probability_relative_error": 3.3306690738754696e-16
+      },
+      {
+        "case": 0,
+        "xs": 2,
+        "zs": 3,
+        "probability": 0.0517387384122325,
+        "probability_relative_error": 0.0
+      },
+      {
+        "case": 1,
+        "xs": 3,
+        "zs": 2,
+        "probability": 0.1039523334716852,
+        "probability_relative_error": 0.0
+      },
+      {
+        "case": 2,
+        "xs": 5,
+        "zs": 5,
+        "probability": 0.4070656669603349,
+        "probability_relative_error": 2.220446049250313e-16
+      },
+      {
+        "case": 3,
+        "xs": 1,
+        "zs": 5,
+        "probability": 0.08018914656753301,
+        "probability_relative_error": 0.0
+      },
+      {
+        "case": 0,
+        "xs": 2,
+        "zs": 1,
+        "probability": 0.18138289940561805,
+        "probability_relative_error": 0.0
+      },
+      {
+        "case": 1,
+        "xs": 5,
+        "zs": 2,
+        "probability": 0.1570271310728787,
+        "probability_relative_error": 2.220446049250313e-16
+      },
+      {
+        "case": 2,
+        "xs": 0,
+        "zs": 5,
+        "probability": 0.015401084742927156,
+        "probability_relative_error": 0.0
+      },
+      {
+        "case": 3,
+        "xs": 6,
+        "zs": 5,
+        "probability": 0.049058541385227444,
+        "probability_relative_error": 1.3322676295501878e-15
+      }
+    ],
+    "original_gate_plan": {
+      "peak_active_width": 4,
+      "dense_coefficient_bytes": 256
+    }
+  },
+  {
+    "distance_label": 5,
+    "scope": "synthetic CSS blocks",
+    "data_width": 19,
+    "x_rank": 9,
+    "sampling_order": [
+      0,
+      1,
+      6,
+      7,
+      3,
+      2,
+      4,
+      5,
+      8
+    ],
+    "single": {
+      "coefficient_slots": 147,
+      "max_joint_entries": 8,
+      "joint_entries": 62,
+      "gather_entries": 264
+    },
+    "prefixes": [
+      {
+        "coefficient_slots": 227,
+        "max_joint_entries": 8,
+        "joint_entries": 62,
+        "gather_entries": 350
+      },
+      {
+        "coefficient_slots": 235,
+        "max_joint_entries": 8,
+        "joint_entries": 70,
+        "gather_entries": 374
+      },
+      {
+        "coefficient_slots": 243,
+        "max_joint_entries": 8,
+        "joint_entries": 78,
+        "gather_entries": 398
+      },
+      {
+        "coefficient_slots": 251,
+        "max_joint_entries": 8,
+        "joint_entries": 86,
+        "gather_entries": 422
+      },
+      {
+        "coefficient_slots": 259,
+        "max_joint_entries": 8,
+        "joint_entries": 94,
+        "gather_entries": 446
+      },
+      {
+        "coefficient_slots": 267,
+        "max_joint_entries": 8,
+        "joint_entries": 102,
+        "gather_entries": 470
+      },
+      {
+        "coefficient_slots": 275,
+        "max_joint_entries": 8,
+        "joint_entries": 110,
+        "gather_entries": 494
+      },
+      {
+        "coefficient_slots": 283,
+        "max_joint_entries": 8,
+        "joint_entries": 118,
+        "gather_entries": 514
+      },
+      {
+        "coefficient_slots": 289,
+        "max_joint_entries": 8,
+        "joint_entries": 122,
+        "gather_entries": 524
+      },
+      {
+        "coefficient_slots": 294,
+        "max_joint_entries": 8,
+        "joint_entries": 124,
+        "gather_entries": 528
+      }
+    ],
+    "sparse_amplitudes_per_term": 1024,
+    "validation": [
+      {
+        "case": 0,
+        "syndrome": [
+          0,
+          1,
+          0,
+          0,
+          0,
+          1,
+          0,
+          1,
+          1,
+          0,
+          0,
+          1,
+          0,
+          1,
+          1,
+          0,
+          0,
+          0
+        ],
+        "probability": 0.0007678629920605333,
+        "prefixes": [
+          {
+            "prefix": 0,
+            "probability": 0.23563734486857382,
+            "relative_error": 0.0
+          },
+          {
+            "prefix": 4,
+            "probability": 0.024571615745937067,
+            "relative_error": 2.823946937658986e-16
+          },
+          {
+            "prefix": 9,
+            "probability": 0.0007678629920605333,
+            "relative_error": 1.411973468829493e-16
+          }
+        ]
+      },
+      {
+        "case": 1,
+        "syndrome": [
+          0,
+          0,
+          0,
+          1,
+          1,
+          1,
+          0,
+          0,
+          1,
+          1,
+          1,
+          0,
+          0,
+          1,
+          0,
+          0,
+          1,
+          0
+        ],
+        "probability": 0.0021775682235323918,
+        "prefixes": [
+          {
+            "prefix": 0,
+            "probability": 1.0000000000000002,
+            "relative_error": 0.0
+          },
+          {
+            "prefix": 4,
+            "probability": 0.0692711972329201,
+            "relative_error": 0.0
+          },
+          {
+            "prefix": 9,
+            "probability": 0.002177568223532392,
+            "relative_error": 1.9915833832783265e-16
+          }
+        ]
+      },
+      {
+        "case": 2,
+        "syndrome": [
+          0,
+          0,
+          1,
+          1,
+          0,
+          0,
+          0,
+          1,
+          1,
+          1,
+          1,
+          0,
+          0,
+          0,
+          1,
+          1,
+          1,
+          1
+        ],
+        "probability": 0.002576194562867791,
+        "prefixes": [
+          {
+            "prefix": 0,
+            "probability": 0.9035374844353491,
+            "relative_error": 1.2287514837516364e-16
+          },
+          {
+            "prefix": 4,
+            "probability": 0.08740162869889831,
+            "relative_error": 4.763453958835453e-16
+          },
+          {
+            "prefix": 9,
+            "probability": 0.002576194562867791,
+            "relative_error": 1.6834165992161438e-16
+          }
+        ]
+      },
+      {
+        "case": 3,
+        "syndrome": [
+          0,
+          1,
+          0,
+          1,
+          0,
+          0,
+          0,
+          1,
+          1,
+          1,
+          0,
+          1,
+          0,
+          1,
+          0,
+          1,
+          1,
+          0
+        ],
+        "probability": 0.011854493445205876,
+        "prefixes": [
+          {
+            "prefix": 0,
+            "probability": 1.0,
+            "relative_error": 4.440892098500624e-16
+          },
+          {
+            "prefix": 4,
+            "probability": 0.05580367608746935,
+            "relative_error": 3.730342366530229e-16
+          },
+          {
+            "prefix": 9,
+            "probability": 0.011854493445205875,
+            "relative_error": 4.3900403268897666e-16
+          }
+        ]
+      }
+    ],
+    "timings": [
+      {
+        "mode": "factor",
+        "shots": 1000,
+        "seconds": 0.131326366,
+        "microseconds_per_sample": 131.326366,
+        "coefficient_scratch_bytes": 4704,
+        "probability_scratch_bytes": 0,
+        "checksum": 519208.1522783875
+      },
+      {
+        "mode": "factor",
+        "shots": 1000,
+        "seconds": 0.093333258,
+        "microseconds_per_sample": 93.333258,
+        "coefficient_scratch_bytes": 4704,
+        "probability_scratch_bytes": 0,
+        "checksum": 522606.30941847304
+      },
+      {
+        "mode": "factor",
+        "shots": 1000,
+        "seconds": 0.095738458,
+        "microseconds_per_sample": 95.738458,
+        "coefficient_scratch_bytes": 4704,
+        "probability_scratch_bytes": 0,
+        "checksum": 523199.2915810015
+      },
+      {
+        "mode": "fourier",
+        "shots": 1000,
+        "seconds": 0.112073663,
+        "microseconds_per_sample": 112.073663,
+        "coefficient_scratch_bytes": 70240,
+        "probability_scratch_bytes": 16384,
+        "checksum": 518822.2256258413
+      },
+      {
+        "mode": "fourier",
+        "shots": 1000,
+        "seconds": 0.108697157,
+        "microseconds_per_sample": 108.697157,
+        "coefficient_scratch_bytes": 70240,
+        "probability_scratch_bytes": 16384,
+        "checksum": 526831.23370219
+      },
+      {
+        "mode": "fourier",
+        "shots": 1000,
+        "seconds": 0.109979463,
+        "microseconds_per_sample": 109.97946300000001,
+        "coefficient_scratch_bytes": 70240,
+        "probability_scratch_bytes": 16384,
+        "checksum": 534724.4532346979
+      }
+    ],
+    "cpu": 0,
+    "serialized_plan_bytes": 30711,
+    "native_samples": [
+      {
+        "case": 0,
+        "xs": 72,
+        "zs": 109,
+        "probability": 0.0007678629920605333,
+        "probability_relative_error": 0.0,
+        "ch_probability_relative_error": 2.220446049250313e-16
+      },
+      {
+        "case": 1,
+        "xs": 175,
+        "zs": 86,
+        "probability": 0.0015688156632881547,
+        "probability_relative_error": 1.1102230246251565e-16,
+        "ch_probability_relative_error": 2.220446049250313e-16
+      },
+      {
+        "case": 2,
+        "xs": 347,
+        "zs": 410,
+        "probability": 0.00257619456286779,
+        "probability_relative_error": 5.551115123125783e-16
+      },
+      {
+        "case": 3,
+        "xs": 278,
+        "zs": 251,
+        "probability": 0.012140840855946813,
+        "probability_relative_error": 0.0
+      },
+      {
+        "case": 0,
+        "xs": 436,
+        "zs": 241,
+        "probability": 0.0011212906831660765,
+        "probability_relative_error": 2.220446049250313e-16
+      },
+      {
+        "case": 1,
+        "xs": 507,
+        "zs": 86,
+        "probability": 0.0005523518508819186,
+        "probability_relative_error": 1.7763568394002505e-15
+      },
+      {
+        "case": 2,
+        "xs": 191,
+        "zs": 410,
+        "probability": 0.00217147067903251,
+        "probability_relative_error": 2.220446049250313e-16
+      },
+      {
+        "case": 3,
+        "xs": 365,
+        "zs": 251,
+        "probability": 0.011854493445205875,
+        "probability_relative_error": 0.0
+      },
+      {
+        "case": 0,
+        "xs": 185,
+        "zs": 109,
+        "probability": 0.0007678629920605333,
+        "probability_relative_error": 0.0
+      },
+      {
+        "case": 1,
+        "xs": 503,
+        "zs": 86,
+        "probability": 0.0015688156632881547,
+        "probability_relative_error": 1.1102230246251565e-16
+      },
+      {
+        "case": 2,
+        "xs": 204,
+        "zs": 490,
+        "probability": 0.000367089209079764,
+        "probability_relative_error": 1.1102230246251565e-16
+      },
+      {
+        "case": 3,
+        "xs": 477,
+        "zs": 251,
+        "probability": 0.012344996150174549,
+        "probability_relative_error": 0.0
+      }
+    ],
+    "original_gate_plan": {
+      "peak_active_width": 10,
+      "dense_coefficient_bytes": 16384
+    }
+  },
+  {
+    "distance_label": 7,
+    "scope": "synthetic CSS blocks",
+    "data_width": 37,
+    "x_rank": 18,
+    "sampling_order": [
+      0,
+      1,
+      14,
+      15,
+      7,
+      17,
+      2,
+      3,
+      8,
+      11,
+      12,
+      16,
+      4,
+      5,
+      6,
+      9,
+      10,
+      13
+    ],
+    "single": {
+      "coefficient_slots": 373,
+      "max_joint_entries": 32,
+      "joint_entries": 238,
+      "gather_entries": 988
+    },
+    "prefixes": [
+      {
+        "coefficient_slots": 555,
+        "max_joint_entries": 32,
+        "joint_entries": 238,
+        "gather_entries": 1238
+      },
+      {
+        "coefficient_slots": 563,
+        "max_joint_entries": 32,
+        "joint_entries": 246,
+        "gather_entries": 1262
+      },
+      {
+        "coefficient_slots": 571,
+        "max_joint_entries": 32,
+        "joint_entries": 254,
+        "gather_entries": 1294
+      },
+      {
+        "coefficient_slots": 579,
+        "max_joint_entries": 32,
+        "joint_entries": 262,
+        "gather_entries": 1318
+      },
+      {
+        "coefficient_slots": 587,
+        "max_joint_entries": 32,
+        "joint_entries": 270,
+        "gather_entries": 1342
+      },
+      {
+        "coefficient_slots": 595,
+        "max_joint_entries": 32,
+        "joint_entries": 278,
+        "gather_entries": 1374
+      },
+      {
+        "coefficient_slots": 603,
+        "max_joint_entries": 32,
+        "joint_entries": 286,
+        "gather_entries": 1406
+      },
+      {
+        "coefficient_slots": 615,
+        "max_joint_entries": 32,
+        "joint_entries": 302,
+        "gather_entries": 1454
+      },
+      {
+        "coefficient_slots": 627,
+        "max_joint_entries": 32,
+        "joint_entries": 318,
+        "gather_entries": 1518
+      },
+      {
+        "coefficient_slots": 639,
+        "max_joint_entries": 32,
+        "joint_entries": 334,
+        "gather_entries": 1566
+      },
+      {
+        "coefficient_slots": 651,
+        "max_joint_entries": 32,
+        "joint_entries": 350,
+        "gather_entries": 1614
+      },
+      {
+        "coefficient_slots": 663,
+        "max_joint_entries": 32,
+        "joint_entries": 366,
+        "gather_entries": 1678
+      },
+      {
+        "coefficient_slots": 675,
+        "max_joint_entries": 32,
+        "joint_entries": 382,
+        "gather_entries": 1726
+      },
+      {
+        "coefficient_slots": 695,
+        "max_joint_entries": 32,
+        "joint_entries": 414,
+        "gather_entries": 1822
+      },
+      {
+        "coefficient_slots": 715,
+        "max_joint_entries": 32,
+        "joint_entries": 446,
+        "gather_entries": 1902
+      },
+      {
+        "coefficient_slots": 727,
+        "max_joint_entries": 32,
+        "joint_entries": 462,
+        "gather_entries": 1942
+      },
+      {
+        "coefficient_slots": 735,
+        "max_joint_entries": 32,
+        "joint_entries": 470,
+        "gather_entries": 1962
+      },
+      {
+        "coefficient_slots": 741,
+        "max_joint_entries": 32,
+        "joint_entries": 474,
+        "gather_entries": 1972
+      },
+      {
+        "coefficient_slots": 746,
+        "max_joint_entries": 32,
+        "joint_entries": 476,
+        "gather_entries": 1976
+      }
+    ],
+    "sparse_amplitudes_per_term": 524288,
+    "validation": [
+      {
+        "case": 0,
+        "syndrome": [
+          0,
+          1,
+          1,
+          1,
+          1,
+          0,
+          0,
+          1,
+          1,
+          0,
+          1,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          1,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "probability": 7.1270295256410176e-06,
+        "prefixes": [
+          {
+            "prefix": 0,
+            "probability": 0.6706668024384377,
+            "relative_error": 3.310803578136156e-16
+          },
+          {
+            "prefix": 9,
+            "probability": 0.0009122597792820502,
+            "relative_error": 2.3769592765314575e-16
+          },
+          {
+            "prefix": 18,
+            "probability": 7.1270295256410176e-06,
+            "relative_error": 2.3769592765314575e-16
+          }
+        ]
+      },
+      {
+        "case": 1,
+        "syndrome": [
+          0,
+          1,
+          0,
+          0,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          1,
+          0,
+          1,
+          1,
+          1,
+          1,
+          1,
+          0,
+          0,
+          0,
+          1,
+          1,
+          1,
+          0
+        ],
+        "probability": 1.4195271015995728e-05,
+        "prefixes": [
+          {
+            "prefix": 0,
+            "probability": 1.0,
+            "relative_error": 2.2204460492503126e-16
+          },
+          {
+            "prefix": 9,
+            "probability": 0.0027972916635302346,
+            "relative_error": 0.0
+          },
+          {
+            "prefix": 18,
+            "probability": 1.4195271015995726e-05,
+            "relative_error": 0.0
+          }
+        ]
+      },
+      {
+        "case": 2,
+        "syndrome": [
+          0,
+          0,
+          0,
+          0,
+          1,
+          1,
+          1,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1,
+          1,
+          0,
+          1,
+          0,
+          0,
+          1,
+          1,
+          1,
+          0,
+          0,
+          0,
+          1,
+          1,
+          1,
+          0,
+          1,
+          1,
+          0,
+          0,
+          0,
+          1,
+          1
+        ],
+        "probability": 9.767458417434045e-06,
+        "prefixes": [
+          {
+            "prefix": 0,
+            "probability": 0.6483238387421527,
+            "relative_error": 3.424902674500319e-16
+          },
+          {
+            "prefix": 9,
+            "probability": 0.0025238378258105928,
+            "relative_error": 0.0
+          },
+          {
+            "prefix": 18,
+            "probability": 9.767458417434045e-06,
+            "relative_error": 3.468795713498699e-16
+          }
+        ]
+      },
+      {
+        "case": 3,
+        "syndrome": [
+          0,
+          1,
+          0,
+          1,
+          1,
+          1,
+          1,
+          0,
+          1,
+          0,
+          0,
+          1,
+          0,
+          1,
+          0,
+          1,
+          0,
+          1,
+          0,
+          1,
+          0,
+          1,
+          1,
+          1,
+          0,
+          1,
+          0,
+          1,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0
+        ],
+        "probability": 3.7217051541640584e-05,
+        "prefixes": [
+          {
+            "prefix": 0,
+            "probability": 0.9999999999999999,
+            "relative_error": 1.1102230246251565e-16
+          },
+          {
+            "prefix": 9,
+            "probability": 0.0032537294153052215,
+            "relative_error": 1.3328731853183912e-16
+          },
+          {
+            "prefix": 18,
+            "probability": 3.721705154164058e-05,
+            "relative_error": 0.0
+          }
+        ]
+      }
+    ],
+    "timings": [
+      {
+        "mode": "factor",
+        "shots": 1000,
+        "seconds": 0.514560372,
+        "microseconds_per_sample": 514.560372,
+        "coefficient_scratch_bytes": 11936,
+        "probability_scratch_bytes": 0,
+        "checksum": 206442363.02286983
+      },
+      {
+        "mode": "factor",
+        "shots": 1000,
+        "seconds": 0.481064491,
+        "microseconds_per_sample": 481.064491,
+        "coefficient_scratch_bytes": 11936,
+        "probability_scratch_bytes": 0,
+        "checksum": 206681662.0210362
+      },
+      {
+        "mode": "factor",
+        "shots": 1000,
+        "seconds": 0.50605312,
+        "microseconds_per_sample": 506.05312,
+        "coefficient_scratch_bytes": 11936,
+        "probability_scratch_bytes": 0,
+        "checksum": 210450112.0219967
+      },
+      {
+        "mode": "fourier",
+        "shots": 100,
+        "seconds": 8.039388327,
+        "microseconds_per_sample": 80393.88326999999,
+        "coefficient_scratch_bytes": 33566368,
+        "probability_scratch_bytes": 8388608,
+        "checksum": 20698824.001793306
+      },
+      {
+        "mode": "fourier",
+        "shots": 100,
+        "seconds": 8.096803731,
+        "microseconds_per_sample": 80968.03731,
+        "coefficient_scratch_bytes": 33566368,
+        "probability_scratch_bytes": 8388608,
+        "checksum": 21812537.00237623
+      },
+      {
+        "mode": "fourier",
+        "shots": 100,
+        "seconds": 7.918113028,
+        "microseconds_per_sample": 79181.13028,
+        "coefficient_scratch_bytes": 33566368,
+        "probability_scratch_bytes": 8388608,
+        "checksum": 21558994.002331205
+      }
+    ],
+    "cpu": 0,
+    "serialized_plan_bytes": 160865,
+    "native_samples": [
+      {
+        "case": 0,
+        "xs": 96992,
+        "zs": 267,
+        "probability": 7.1270295256410176e-06,
+        "probability_relative_error": 0.0,
+        "ch_probability_relative_error": 2.220446049250313e-16
+      },
+      {
+        "case": 1,
+        "xs": 187419,
+        "zs": 78365,
+        "probability": 2.063943434458645e-05,
+        "probability_relative_error": 0.0,
+        "ch_probability_relative_error": 0.0
+      },
+      {
+        "case": 2,
+        "xs": 204603,
+        "zs": 161356,
+        "probability": 9.767458417434045e-06,
+        "probability_relative_error": 0.0
+      },
+      {
+        "case": 3,
+        "xs": 127919,
+        "zs": 49127,
+        "probability": 1.8371279346922615e-06,
+        "probability_relative_error": 0.0
+      },
+      {
+        "case": 0,
+        "xs": 161224,
+        "zs": 62081,
+        "probability": 2.4190990546714328e-05,
+        "probability_relative_error": 3.3306690738754696e-16
+      },
+      {
+        "case": 1,
+        "xs": 64331,
+        "zs": 78365,
+        "probability": 9.66739376533359e-07,
+        "probability_relative_error": 0.0
+      },
+      {
+        "case": 2,
+        "xs": 126155,
+        "zs": 161356,
+        "probability": 9.767458417434045e-06,
+        "probability_relative_error": 0.0
+      },
+      {
+        "case": 3,
+        "xs": 24663,
+        "zs": 49127,
+        "probability": 3.6109397266111916e-05,
+        "probability_relative_error": 2.220446049250313e-16
+      },
+      {
+        "case": 0,
+        "xs": 219592,
+        "zs": 62081,
+        "probability": 3.5253027274684196e-05,
+        "probability_relative_error": 0.0
+      },
+      {
+        "case": 1,
+        "xs": 233126,
+        "zs": 78365,
+        "probability": 1.8542096429803038e-06,
+        "probability_relative_error": 0.0
+      },
+      {
+        "case": 2,
+        "xs": 128900,
+        "zs": 161356,
+        "probability": 9.767458417434041e-06,
+        "probability_relative_error": 3.3306690738754696e-16
+      },
+      {
+        "case": 3,
+        "xs": 104519,
+        "zs": 49127,
+        "probability": 0.00010889026502856365,
+        "probability_relative_error": 0.0
+      }
+    ],
+    "original_gate_plan": {
+      "peak_active_width": 19,
+      "dense_coefficient_bytes": 8388608
+    }
+  },
+  {
+    "distance_label": 9,
+    "scope": "synthetic CSS blocks",
+    "data_width": 61,
+    "x_rank": 30,
+    "sampling_order": [
+      0,
+      1,
+      25,
+      26,
+      13,
+      29,
+      2,
+      3,
+      7,
+      8,
+      18,
+      19,
+      23,
+      27,
+      28,
+      5,
+      4,
+      9,
+      17,
+      12,
+      11,
+      20,
+      24,
+      21,
+      6,
+      10,
+      14,
+      15,
+      16,
+      22
+    ],
+    "single": {
+      "coefficient_slots": 749,
+      "max_joint_entries": 64,
+      "joint_entries": 606,
+      "gather_entries": 2404
+    },
+    "prefixes": [
+      {
+        "coefficient_slots": 1075,
+        "max_joint_entries": 64,
+        "joint_entries": 606,
+        "gather_entries": 2886
+      },
+      {
+        "coefficient_slots": 1083,
+        "max_joint_entries": 64,
+        "joint_entries": 614,
+        "gather_entries": 2910
+      },
+      {
+        "coefficient_slots": 1091,
+        "max_joint_entries": 64,
+        "joint_entries": 622,
+        "gather_entries": 2942
+      },
+      {
+        "coefficient_slots": 1099,
+        "max_joint_entries": 64,
+        "joint_entries": 630,
+        "gather_entries": 2966
+      },
+      {
+        "coefficient_slots": 1107,
+        "max_joint_entries": 64,
+        "joint_entries": 638,
+        "gather_entries": 2990
+      },
+      {
+        "coefficient_slots": 1115,
+        "max_joint_entries": 64,
+        "joint_entries": 646,
+        "gather_entries": 3022
+      },
+      {
+        "coefficient_slots": 1123,
+        "max_joint_entries": 64,
+        "joint_entries": 654,
+        "gather_entries": 3054
+      },
+      {
+        "coefficient_slots": 1135,
+        "max_joint_entries": 64,
+        "joint_entries": 670,
+        "gather_entries": 3102
+      },
+      {
+        "coefficient_slots": 1147,
+        "max_joint_entries": 64,
+        "joint_entries": 686,
+        "gather_entries": 3166
+      },
+      {
+        "coefficient_slots": 1159,
+        "max_joint_entries": 64,
+        "joint_entries": 702,
+        "gather_entries": 3230
+      },
+      {
+        "coefficient_slots": 1171,
+        "max_joint_entries": 64,
+        "joint_entries": 718,
+        "gather_entries": 3294
+      },
+      {
+        "coefficient_slots": 1183,
+        "max_joint_entries": 64,
+        "joint_entries": 734,
+        "gather_entries": 3342
+      },
+      {
+        "coefficient_slots": 1195,
+        "max_joint_entries": 64,
+        "joint_entries": 750,
+        "gather_entries": 3390
+      },
+      {
+        "coefficient_slots": 1207,
+        "max_joint_entries": 64,
+        "joint_entries": 766,
+        "gather_entries": 3454
+      },
+      {
+        "coefficient_slots": 1219,
+        "max_joint_entries": 64,
+        "joint_entries": 782,
+        "gather_entries": 3518
+      },
+      {
+        "coefficient_slots": 1231,
+        "max_joint_entries": 64,
+        "joint_entries": 798,
+        "gather_entries": 3582
+      },
+      {
+        "coefficient_slots": 1251,
+        "max_joint_entries": 64,
+        "joint_entries": 830,
+        "gather_entries": 3678
+      },
+      {
+        "coefficient_slots": 1271,
+        "max_joint_entries": 64,
+        "joint_entries": 862,
+        "gather_entries": 3774
+      },
+      {
+        "coefficient_slots": 1291,
+        "max_joint_entries": 64,
+        "joint_entries": 894,
+        "gather_entries": 3902
+      },
+      {
+        "coefficient_slots": 1311,
+        "max_joint_entries": 64,
+        "joint_entries": 926,
+        "gather_entries": 3998
+      },
+      {
+        "coefficient_slots": 1331,
+        "max_joint_entries": 64,
+        "joint_entries": 958,
+        "gather_entries": 4094
+      },
+      {
+        "coefficient_slots": 1351,
+        "max_joint_entries": 64,
+        "joint_entries": 990,
+        "gather_entries": 4222
+      },
+      {
+        "coefficient_slots": 1371,
+        "max_joint_entries": 64,
+        "joint_entries": 1022,
+        "gather_entries": 4318
+      },
+      {
+        "coefficient_slots": 1391,
+        "max_joint_entries": 64,
+        "joint_entries": 1054,
+        "gather_entries": 4414
+      },
+      {
+        "coefficient_slots": 1411,
+        "max_joint_entries": 64,
+        "joint_entries": 1086,
+        "gather_entries": 4494
+      },
+      {
+        "coefficient_slots": 1447,
+        "max_joint_entries": 64,
+        "joint_entries": 1150,
+        "gather_entries": 4654
+      },
+      {
+        "coefficient_slots": 1467,
+        "max_joint_entries": 64,
+        "joint_entries": 1182,
+        "gather_entries": 4734
+      },
+      {
+        "coefficient_slots": 1479,
+        "max_joint_entries": 64,
+        "joint_entries": 1198,
+        "gather_entries": 4774
+      },
+      {
+        "coefficient_slots": 1487,
+        "max_joint_entries": 64,
+        "joint_entries": 1206,
+        "gather_entries": 4794
+      },
+      {
+        "coefficient_slots": 1493,
+        "max_joint_entries": 64,
+        "joint_entries": 1210,
+        "gather_entries": 4804
+      },
+      {
+        "coefficient_slots": 1498,
+        "max_joint_entries": 64,
+        "joint_entries": 1212,
+        "gather_entries": 4808
+      }
+    ],
+    "sparse_amplitudes_per_term": 2147483648,
+    "validation": [
+      {
+        "case": 0,
+        "syndrome": [
+          0,
+          0,
+          1,
+          0,
+          1,
+          1,
+          0,
+          1,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          1,
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          1,
+          0,
+          0,
+          1,
+          0,
+          1,
+          0,
+          0,
+          1,
+          0,
+          1,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          1,
+          1,
+          1,
+          0,
+          0,
+          1,
+          1,
+          0,
+          0,
+          0,
+          1,
+          0,
+          1,
+          0
+        ],
+        "probability": 5.68175507147039e-07,
+        "prefixes": [
+          {
+            "prefix": 0,
+            "probability": 0.6298561893716615,
+            "relative_error": 0.0
+          },
+          {
+            "prefix": 15,
+            "probability": 0.0005818117193185679,
+            "relative_error": 0.0
+          },
+          {
+            "prefix": 30,
+            "probability": 5.68175507147039e-07,
+            "relative_error": 0.0
+          }
+        ]
+      },
+      {
+        "case": 1,
+        "syndrome": [
+          0,
+          1,
+          0,
+          1,
+          1,
+          1,
+          1,
+          1,
+          0,
+          1,
+          0,
+          0,
+          1,
+          1,
+          0,
+          1,
+          1,
+          0,
+          0,
+          1,
+          1,
+          1,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          1,
+          1,
+          0,
+          1,
+          1,
+          0,
+          0,
+          0,
+          1,
+          1,
+          1,
+          0,
+          0,
+          1,
+          1,
+          1,
+          1,
+          0,
+          0,
+          0,
+          1,
+          1,
+          0,
+          0,
+          0,
+          1,
+          1,
+          0,
+          1,
+          1
+        ],
+        "probability": 1.8226340956050343e-09,
+        "prefixes": [
+          {
+            "prefix": 0,
+            "probability": 0.9999999999999998,
+            "relative_error": 1.1102230246251568e-16
+          },
+          {
+            "prefix": 15,
+            "probability": 2.9862037022392875e-05,
+            "relative_error": 2.2691899996483937e-16
+          },
+          {
+            "prefix": 30,
+            "probability": 1.822634095605034e-09,
+            "relative_error": 0.0
+          }
+        ]
+      },
+      {
+        "case": 2,
+        "syndrome": [
+          0,
+          1,
+          0,
+          1,
+          1,
+          1,
+          1,
+          0,
+          1,
+          0,
+          0,
+          1,
+          1,
+          0,
+          1,
+          0,
+          1,
+          0,
+          0,
+          1,
+          0,
+          1,
+          0,
+          1,
+          0,
+          1,
+          1,
+          0,
+          0,
+          0,
+          1,
+          0,
+          1,
+          0,
+          1,
+          1,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          1,
+          1,
+          0,
+          0,
+          0,
+          1,
+          1,
+          1,
+          0,
+          0,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          0
+        ],
+        "probability": 6.819168639549179e-09,
+        "prefixes": [
+          {
+            "prefix": 0,
+            "probability": 0.5319656069091283,
+            "relative_error": 2.0870203077147577e-16
+          },
+          {
+            "prefix": 15,
+            "probability": 5.34170899980198e-05,
+            "relative_error": 0.0
+          },
+          {
+            "prefix": 30,
+            "probability": 6.819168639549179e-09,
+            "relative_error": 2.4260453327275775e-16
+          }
+        ]
+      },
+      {
+        "case": 3,
+        "syndrome": [
+          0,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          0,
+          0,
+          0,
+          1,
+          1,
+          1,
+          0,
+          0,
+          1,
+          0,
+          0,
+          1,
+          0,
+          0,
+          1,
+          1,
+          1,
+          1,
+          0,
+          1,
+          1,
+          1,
+          0,
+          0,
+          1,
+          1,
+          1,
+          1,
+          0,
+          1,
+          0,
+          0,
+          1,
+          0,
+          0,
+          1,
+          0,
+          1,
+          1,
+          0,
+          1,
+          0,
+          0,
+          1,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0
+        ],
+        "probability": 1.7039200956572723e-07,
+        "prefixes": [
+          {
+            "prefix": 0,
+            "probability": 1.0,
+            "relative_error": 2.2204460492503126e-16
+          },
+          {
+            "prefix": 15,
+            "probability": 0.0014235060682619683,
+            "relative_error": 1.523284229914471e-16
+          },
+          {
+            "prefix": 30,
+            "probability": 1.7039200956572723e-07,
+            "relative_error": 0.0
+          }
+        ]
+      }
+    ],
+    "timings": [
+      {
+        "mode": "factor",
+        "shots": 1000,
+        "seconds": 1.74479073,
+        "microseconds_per_sample": 1744.79073,
+        "coefficient_scratch_bytes": 23968,
+        "probability_scratch_bytes": 0,
+        "checksum": 917646041968
+      },
+      {
+        "mode": "factor",
+        "shots": 1000,
+        "seconds": 1.729047774,
+        "microseconds_per_sample": 1729.0477740000001,
+        "coefficient_scratch_bytes": 23968,
+        "probability_scratch_bytes": 0,
+        "checksum": 911907427062
+      },
+      {
+        "mode": "factor",
+        "shots": 1000,
+        "seconds": 1.746824386,
+        "microseconds_per_sample": 1746.824386,
+        "coefficient_scratch_bytes": 23968,
+        "probability_scratch_bytes": 0,
+        "checksum": 903529713626
+      }
+    ],
+    "cpu": 0,
+    "serialized_plan_bytes": 590520,
+    "native_samples": [
+      {
+        "case": 0,
+        "xs": 320658274,
+        "zs": 41992876,
+        "probability": 5.68175507147039e-07,
+        "probability_relative_error": 0.0,
+        "ch_probability_relative_error": 0.0
+      },
+      {
+        "case": 1,
+        "xs": 770965177,
+        "zs": 711558879,
+        "probability": 1.9462508614986877e-08,
+        "probability_relative_error": 0.0,
+        "ch_probability_relative_error": 2.220446049250313e-16
+      },
+      {
+        "case": 2,
+        "xs": 802563538,
+        "zs": 497688103,
+        "probability": 1.2444226196497246e-08,
+        "probability_relative_error": 1.1102230246251565e-16
+      },
+      {
+        "case": 3,
+        "xs": 633149265,
+        "zs": 107444847,
+        "probability": 1.7039200956572723e-07,
+        "probability_relative_error": 0.0
+      },
+      {
+        "case": 0,
+        "xs": 150519919,
+        "zs": 328635069,
+        "probability": 3.1016065623691563e-08,
+        "probability_relative_error": 0.0
+      },
+      {
+        "case": 1,
+        "xs": 601407116,
+        "zs": 711558879,
+        "probability": 4.751196154301594e-09,
+        "probability_relative_error": 2.220446049250313e-16
+      },
+      {
+        "case": 2,
+        "xs": 301358255,
+        "zs": 310088417,
+        "probability": 6.561926695941049e-09,
+        "probability_relative_error": 0.0
+      },
+      {
+        "case": 3,
+        "xs": 940692550,
+        "zs": 107444847,
+        "probability": 1.7039200956572723e-07,
+        "probability_relative_error": 0.0
+      },
+      {
+        "case": 0,
+        "xs": 830769254,
+        "zs": 41992876,
+        "probability": 5.68175507147039e-07,
+        "probability_relative_error": 0.0
+      },
+      {
+        "case": 1,
+        "xs": 784477079,
+        "zs": 711558879,
+        "probability": 1.9462508614986877e-08,
+        "probability_relative_error": 0.0
+      },
+      {
+        "case": 2,
+        "xs": 683436970,
+        "zs": 497688103,
+        "probability": 1.2444226196497246e-08,
+        "probability_relative_error": 1.1102230246251565e-16
+      },
+      {
+        "case": 3,
+        "xs": 872937939,
+        "zs": 107444847,
+        "probability": 1.8506673173765713e-09,
+        "probability_relative_error": 0.0
+      }
+    ],
+    "original_gate_plan": {
+      "peak_active_width": 31,
+      "dense_coefficient_bytes": 34359738368
+    }
+  }
+]

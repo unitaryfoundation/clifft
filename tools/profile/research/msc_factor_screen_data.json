@@ -1,0 +1,80 @@
+[
+  {
+    "name": "original MSC d3",
+    "peak_active_width": 4,
+    "dense_coefficient_bytes": 256,
+    "factor_coefficient_bytes": 1248,
+    "factor_complex_products": 8880,
+    "dense_budget_bytes": 1073741824,
+    "certified_family": "diagonal monomial CSS blocks",
+    "decision": "keep ordinary Clifft based on measured small controls",
+    "limitations": "Research triage only; no general speed prediction or production routing."
+  },
+  {
+    "name": "original MSC d5",
+    "peak_active_width": 10,
+    "dense_coefficient_bytes": 16384,
+    "factor_coefficient_bytes": 4704,
+    "factor_complex_products": 88000,
+    "dense_budget_bytes": 1073741824,
+    "certified_family": "diagonal monomial CSS blocks",
+    "decision": "keep ordinary Clifft based on measured small controls",
+    "limitations": "Research triage only; no general speed prediction or production routing."
+  },
+  {
+    "name": "reconstructed f7",
+    "scope": "Existing fold contraction, not the CSS factor sampler",
+    "peak_active_width": 44,
+    "dense_coefficient_bytes": 281474976710656,
+    "factor_coefficient_bytes": 45616,
+    "factor_complex_products": 15314,
+    "dense_budget_bytes": 1073741824,
+    "certified_family": "existing fold blocks",
+    "decision": "bounded factor trial because dense allocation exceeds budget",
+    "limitations": "Research triage only; no general speed prediction or production routing."
+  },
+  {
+    "name": "synthetic 7-data-qubit planning block",
+    "peak_active_width": 4,
+    "dense_coefficient_bytes": 256,
+    "factor_coefficient_bytes": 1248,
+    "factor_complex_products": 8880,
+    "dense_budget_bytes": 1073741824,
+    "certified_family": "diagonal monomial CSS blocks",
+    "decision": "keep ordinary Clifft based on measured small controls",
+    "limitations": "Research triage only; no general speed prediction or production routing."
+  },
+  {
+    "name": "synthetic 19-data-qubit planning block",
+    "peak_active_width": 10,
+    "dense_coefficient_bytes": 16384,
+    "factor_coefficient_bytes": 4704,
+    "factor_complex_products": 90400,
+    "dense_budget_bytes": 1073741824,
+    "certified_family": "diagonal monomial CSS blocks",
+    "decision": "keep ordinary Clifft based on measured small controls",
+    "limitations": "Research triage only; no general speed prediction or production routing."
+  },
+  {
+    "name": "synthetic 37-data-qubit planning block",
+    "peak_active_width": 19,
+    "dense_coefficient_bytes": 8388608,
+    "factor_coefficient_bytes": 11936,
+    "factor_complex_products": 607320,
+    "dense_budget_bytes": 1073741824,
+    "certified_family": "diagonal monomial CSS blocks",
+    "decision": "benchmark both complete implementations",
+    "limitations": "Research triage only; no general speed prediction or production routing."
+  },
+  {
+    "name": "synthetic 61-data-qubit planning block",
+    "peak_active_width": 31,
+    "dense_coefficient_bytes": 34359738368,
+    "factor_coefficient_bytes": 23968,
+    "factor_complex_products": 2326200,
+    "dense_budget_bytes": 1073741824,
+    "certified_family": "diagonal monomial CSS blocks",
+    "decision": "bounded factor trial because dense allocation exceeds budget",
+    "limitations": "Research triage only; no general speed prediction or production routing."
+  }
+]

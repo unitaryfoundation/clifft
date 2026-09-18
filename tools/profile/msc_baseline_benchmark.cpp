@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
@@ -18,7 +19,7 @@
 int main(int argc, char** argv) {
     try {
         if (argc != 4)
-            throw std::invalid_argument("usage: msc_baseline_benchmark CIRCUIT SEED SHOTS");
+            throw std::invalid_argument("usage: msc_baseline_benchmark CIRCUIT SEED SHOTS_OR_plan");
         std::ifstream file(argv[1]);
         if (!file)
             throw std::invalid_argument("cannot read circuit");
@@ -28,6 +29,13 @@ int main(int argc, char** argv) {
         auto passes = clifft::default_hir_pass_manager();
         passes.run(hir);
         auto plan = clifft::sampling::plan_sampling(hir);
+        if (std::string(argv[3]) == "plan") {
+            std::cout << std::setprecision(17)
+                      << "{\"peak_active_width\":" << plan.peak_active_width
+                      << ",\"dense_coefficient_bytes\":" << std::ldexp(16., plan.peak_active_width)
+                      << "}\n";
+            return 0;
+        }
         if (plan.peak_active_width > 20)
             throw std::invalid_argument("baseline exceeds memory bound");
         clifft::sampling::ExecutablePlan executable(plan);
