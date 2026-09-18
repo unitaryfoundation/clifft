@@ -1,6 +1,38 @@
 # Representation study checkpoint
 
-Latest: [fixed factor CSS syndrome sampling](msc_factor_sampling.md) avoids
+Latest: [complete noisy five-check factor sequences](msc_factor_sequence.md)
+close the native fault-binding, final-amplitude, logical-handoff and full-output
+coverage gaps on a synthetic large-state control. The 37-data-qubit sequence
+executes all five checks in median 1,234 us/attempt versus 15,199 us for ordinary
+Clifft (about 12.3x), over three many-shot runs. The 61-wire sequence takes
+4,401 us; its width-31 dense Clifft plan requires 32 GiB for coefficients alone
+and was not allocated. Width-4/10 controls still favor ordinary Clifft.
+
+The study covers 72 full native trajectories, 54 elementary Clifft replays,
+12 full CH replays including 61 wires, six original-gate Aer trajectories,
+all reported output parities checked by Stim, and 512 local fault-map matrix
+comparisons. Shared factor arithmetic and the complete native sequence pass
+allocation checks and ASAN/UBSAN. The combined MSC regression run passes 59
+tests; the additional MPS translation test brings distinct coverage to 60.
+
+This is not full authors' MSC7: preparation and CSS measurements are ideal
+operations with explicitly placed Pauli/readout noise, without growth or
+ancilla extraction. No authors' large artifact or fault-distance proof has
+been obtained. A bounded direct Aer MPS probe timed out before completing its
+initial attempt; it is not a throughput comparison or best-in-class evidence.
+
+The remaining implementation step is architectural. A
+[concrete production proposal](logical_block_integration.md) recommends an
+opt-in fused logical-block action, preserving the existing dense logical
+state at certified boundaries and using compiler-owned fixed factor plans.
+Noise/RNG/record ownership remains with the ordinary executor; unsupported
+feature mixes decline before execution. Compile once per circuit remains
+appropriate for this tested family. No production source or public API has
+changed. Seek the architectural confirmation required by AGENTS.md before
+adding the new planner/action/lowering contract; do not silently repurpose
+instrument continuations or introduce runtime topology planning.
+
+Previous: [fixed factor CSS syndrome sampling](msc_factor_sampling.md) avoids
 X-support enumeration using precompiled prefix contractions. Measuring checks
 in the single-copy elimination order allows each measured coordinate to split
 into bra/ket copies without increasing the certified contraction width. The

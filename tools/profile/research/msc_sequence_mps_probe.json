@@ -1,0 +1,17 @@
+{
+  "scope": "bounded feasibility probe, not a throughput benchmark",
+  "distance_label": 7,
+  "data_width": 37,
+  "rounds": 5,
+  "noise": 0.001,
+  "shots_requested": 1,
+  "method": "Qiskit Aer matrix_product_state",
+  "truncation_threshold": 0.0,
+  "max_parallel_threads": 1,
+  "wire_order": "natural generated data order",
+  "address_space_limit_gib": 8,
+  "wall_limit_seconds": 60,
+  "exit_code": 124,
+  "status": "timeout before a result; no throughput or speed ratio inferred",
+  "command": "MPLCONFIGDIR=/tmp/clifft-mpl OPENBLAS_NUM_THREADS=1 timeout 60s taskset -c 2 /tmp/clifft-fold-env/bin/python tools/profile/study_msc_sequence_mps.py --distance 7 --shots 1 --output /tmp/msc-sequence-mps-probe.json"
+}

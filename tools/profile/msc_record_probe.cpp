@@ -20,7 +20,7 @@ double prefix_log_probability(const std::string& text, std::span<const uint8_t> 
     auto passes = clifft::default_hir_pass_manager();
     passes.run(hir);
     auto plan = clifft::sampling::plan_sampling(hir);
-    if (plan.peak_active_width > 16 || plan.num_hidden_records ||
+    if (plan.peak_active_width > 20 || plan.num_hidden_records ||
         plan.num_visible_records != records.size())
         throw std::invalid_argument("prefix exceeds oracle contract");
     clifft::sampling::ExecutablePlan executable(plan);
@@ -49,7 +49,7 @@ int main(int argc, char** argv) {
         auto passes = clifft::default_hir_pass_manager();
         passes.run(hir);
         auto plan = clifft::sampling::plan_sampling(hir);
-        if (plan.peak_active_width > 16 || plan.num_hidden_records)
+        if (plan.peak_active_width > 20 || plan.num_hidden_records)
             throw std::invalid_argument("oracle capacity or exposed-record contract exceeded");
         clifft::sampling::ExecutablePlan executable(plan);
         clifft::sampling::Executor executor(executable, std::stoull(argv[2]));

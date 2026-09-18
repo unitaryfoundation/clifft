@@ -135,6 +135,20 @@ def clifford_reference(checks, logical, frame, terms, syndrome, count, order):
     return float(result.real)
 
 
+def write_factor_plan(w, plan):
+    w.put(plan.storage, len(plan.leaves))
+    for leaf in plan.leaves:
+        w.put(leaf.parameter, leaf.offset)
+        w.vector(leaf.parity.tolist())
+    w.put(len(plan.steps))
+    for step in plan.steps:
+        w.put(step.offset, step.size, len(step.gathers))
+        for row in step.gathers:
+            for index in row:
+                w.put(int(index))
+    w.vector(plan.outputs)
+
+
 def export_native(code, cases, path):
     if code.rank != len(code.zchecks) or code.rank >= 32 or code.width > 128:
         raise ValueError("native worker requires a bounded balanced CSS code")
@@ -143,17 +157,7 @@ def export_native(code, cases, path):
     w.vector(code.sampling_order)
     w.vector([sum(1 << k for k in scope) for scope in code.supports])
     for plan in code.prefixes:
-        w.put(plan.storage, len(plan.leaves))
-        for leaf in plan.leaves:
-            w.put(leaf.parameter, leaf.offset)
-            w.vector(leaf.parity.tolist())
-        w.put(len(plan.steps))
-        for step in plan.steps:
-            w.put(step.offset, step.size, len(step.gathers))
-            for row in step.gathers:
-                for index in row:
-                    w.put(int(index))
-        w.vector(plan.outputs)
+        write_factor_plan(w, plan)
     for logical, frame, terms in cases:
         prepared = code.prepare(logical, frame, terms)
         w.put(len(terms))
