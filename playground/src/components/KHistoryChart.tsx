@@ -22,7 +22,8 @@ interface Props {
 }
 
 const MEMORY_LIMIT_K = 24;
-const CHART_MARGIN = { top: 8, right: 16, bottom: 24, left: 8 };
+const MEMORY_WARNING_K = 18;
+const CHART_MARGIN = { top: 24, right: 16, bottom: 24, left: 8 };
 
 type ChartDatum = { action: number; k?: number; baseline?: number };
 
@@ -59,6 +60,7 @@ const HighlightLine = memo(function HighlightLine() {
 interface BaseChartProps {
   data: ChartDatum[];
   maxK: number;
+  showMemoryLimit: boolean;
   hasBaseline: boolean;
   colors: ChartColors;
 }
@@ -69,9 +71,25 @@ interface BaseChartProps {
 // HighlightLine, which subscribes to HighlightedActionContext and lives inside
 // AreaChart so it can pull the chart's plot area + x scale from the
 // recharts hooks.
-const BaseChart = memo(function BaseChart({ data, maxK, hasBaseline, colors }: BaseChartProps) {
+const BaseChart = memo(function BaseChart({
+  data,
+  maxK,
+  showMemoryLimit,
+  hasBaseline,
+  colors,
+}: BaseChartProps) {
   return (
     <AreaChart data={data} margin={CHART_MARGIN}>
+      <text
+        x="100%"
+        y={12}
+        dx={-CHART_MARGIN.right}
+        textAnchor="end"
+        fill={colors.axis}
+        fontSize={10}
+      >
+        Browser limit: k ~ {MEMORY_LIMIT_K}
+      </text>
       <CartesianGrid strokeDasharray="3 3" stroke={colors.grid} />
       <XAxis
         dataKey="action"
@@ -87,6 +105,7 @@ const BaseChart = memo(function BaseChart({ data, maxK, hasBaseline, colors }: B
       />
       <YAxis
         domain={[0, maxK]}
+        allowDecimals={false}
         stroke={colors.axis}
         fontSize={11}
         label={{
@@ -131,17 +150,19 @@ const BaseChart = memo(function BaseChart({ data, maxK, hasBaseline, colors }: B
         isAnimationActive={false}
         name="Optimized k"
       />
-      <ReferenceLine
-        y={MEMORY_LIMIT_K}
-        stroke={colors.error}
-        strokeDasharray="6 3"
-        label={{
-          value: "Browser Memory Limit (~256 MB)",
-          position: "right",
-          fill: colors.error,
-          fontSize: 10,
-        }}
-      />
+      {showMemoryLimit && (
+        <ReferenceLine
+          y={MEMORY_LIMIT_K}
+          stroke={colors.error}
+          strokeDasharray="6 3"
+          label={{
+            value: "Browser Memory Limit (~256 MB)",
+            position: "insideTopRight",
+            fill: colors.error,
+            fontSize: 10,
+          }}
+        />
+      )}
       <HighlightLine />
     </AreaChart>
   );
@@ -155,7 +176,7 @@ export function KHistoryChart({ history, baselineHistory, highlightedAction, col
   // on multi-tens-of-thousands of entries.
   const chartData = useMemo(() => {
     const maxLen = Math.max(history.length, baselineHistory?.length ?? 0);
-    let maxVal = MEMORY_LIMIT_K + 2;
+    let maxVal = 0;
     const data: ChartDatum[] = new Array(maxLen);
     for (let i = 0; i < maxLen; i++) {
       const k = i < history.length ? history[i] : undefined;
@@ -165,7 +186,10 @@ export function KHistoryChart({ history, baselineHistory, highlightedAction, col
       if (baseline !== undefined && baseline > maxVal) maxVal = baseline;
       data[i] = { action: i, k, baseline };
     }
-    return { data, maxK: maxVal };
+    const showMemoryLimit = maxVal >= MEMORY_WARNING_K;
+    // Keep the warning visible near the limit without flattening small-k curves.
+    const maxK = Math.max(maxVal, showMemoryLimit ? MEMORY_LIMIT_K : 0) + 2;
+    return { data, maxK, showMemoryLimit };
   }, [history, baselineHistory]);
 
   if (history.length === 0) {
@@ -180,6 +204,7 @@ export function KHistoryChart({ history, baselineHistory, highlightedAction, col
         <BaseChart
           data={chartData.data}
           maxK={chartData.maxK}
+          showMemoryLimit={chartData.showMemoryLimit}
           hasBaseline={hasBaseline}
           colors={colors}
         />
