@@ -1,0 +1,197 @@
+{
+  "compile_seconds": 1.6157774950843304,
+  "total_seconds": 1.8207170751411468,
+  "bridge_sha256": "506b57bc9f71650501b1b08377f2c250f06bd68ebfb4b7c6a1765c39120405d2",
+  "input_css_generators": 40,
+  "prepared_qubits": 44,
+  "output_css_generators": 84,
+  "classical_input_bits": 54,
+  "record_bits": 212,
+  "noise_sites": 694,
+  "pauli_channels": 6170,
+  "packed_transfer_bytes": 249344,
+  "logical_action": "input-syndrome-dependent Pauli frame",
+  "checks": [
+    {
+      "probability": 0,
+      "axis": "X",
+      "faults": 0
+    },
+    {
+      "probability": 0,
+      "axis": "X",
+      "faults": 0
+    },
+    {
+      "probability": 0,
+      "axis": "X",
+      "faults": 0
+    },
+    {
+      "probability": 0,
+      "axis": "X",
+      "faults": 0
+    },
+    {
+      "probability": 0,
+      "axis": "Y",
+      "faults": 0
+    },
+    {
+      "probability": 0,
+      "axis": "Y",
+      "faults": 0
+    },
+    {
+      "probability": 0,
+      "axis": "Y",
+      "faults": 0
+    },
+    {
+      "probability": 0,
+      "axis": "Y",
+      "faults": 0
+    },
+    {
+      "probability": 0,
+      "axis": "Z",
+      "faults": 0
+    },
+    {
+      "probability": 0,
+      "axis": "Z",
+      "faults": 0
+    },
+    {
+      "probability": 0,
+      "axis": "Z",
+      "faults": 0
+    },
+    {
+      "probability": 0,
+      "axis": "Z",
+      "faults": 0
+    },
+    {
+      "probability": 0.001,
+      "axis": "X",
+      "faults": 0
+    },
+    {
+      "probability": 0.001,
+      "axis": "X",
+      "faults": 0
+    },
+    {
+      "probability": 0.001,
+      "axis": "X",
+      "faults": 0
+    },
+    {
+      "probability": 0.001,
+      "axis": "X",
+      "faults": 1
+    },
+    {
+      "probability": 0.001,
+      "axis": "Y",
+      "faults": 1
+    },
+    {
+      "probability": 0.001,
+      "axis": "Y",
+      "faults": 2
+    },
+    {
+      "probability": 0.001,
+      "axis": "Y",
+      "faults": 3
+    },
+    {
+      "probability": 0.001,
+      "axis": "Y",
+      "faults": 0
+    },
+    {
+      "probability": 0.001,
+      "axis": "Z",
+      "faults": 1
+    },
+    {
+      "probability": 0.001,
+      "axis": "Z",
+      "faults": 1
+    },
+    {
+      "probability": 0.001,
+      "axis": "Z",
+      "faults": 1
+    },
+    {
+      "probability": 0.001,
+      "axis": "Z",
+      "faults": 0
+    },
+    {
+      "probability": 0.03,
+      "axis": "X",
+      "faults": 20
+    },
+    {
+      "probability": 0.03,
+      "axis": "X",
+      "faults": 27
+    },
+    {
+      "probability": 0.03,
+      "axis": "X",
+      "faults": 31
+    },
+    {
+      "probability": 0.03,
+      "axis": "X",
+      "faults": 16
+    },
+    {
+      "probability": 0.03,
+      "axis": "Y",
+      "faults": 23
+    },
+    {
+      "probability": 0.03,
+      "axis": "Y",
+      "faults": 22
+    },
+    {
+      "probability": 0.03,
+      "axis": "Y",
+      "faults": 28
+    },
+    {
+      "probability": 0.03,
+      "axis": "Y",
+      "faults": 20
+    },
+    {
+      "probability": 0.03,
+      "axis": "Z",
+      "faults": 19
+    },
+    {
+      "probability": 0.03,
+      "axis": "Z",
+      "faults": 27
+    },
+    {
+      "probability": 0.03,
+      "axis": "Z",
+      "faults": 21
+    },
+    {
+      "probability": 0.03,
+      "axis": "Z",
+      "faults": 18
+    }
+  ],
+  "integrated_native_sampler": false
+}

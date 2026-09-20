@@ -1,0 +1,1306 @@
+{
+  "base_revision": "41a18d455e855650f3c5dffa75db301f67ff2ded",
+  "merged_revision": "8f69b3c305303483e5dd33dcf4d13dbbebae1fa9",
+  "build_tree_diff_sha256": "92af3e24b34a35ebea6b822537e2539e9feecd872407f367f18d7e6a052f853e",
+  "python": "3.13.11",
+  "extension": "/tmp/clifft-pr471-package/clifft/_clifft_core.abi3.so",
+  "extension_sha256": "ed8513257795a915f1c29b5f8eeac5a6e25c673d4585e4c1b1338355741df854",
+  "sampler_sha256": null,
+  "driver_sha256": "d395f5f390bfc821c791c713ebc39e75c9bd48b57935d112a52d8b36b73ff21d",
+  "affinity": 0,
+  "threads": 1,
+  "cpu": "AMD EPYC 9554P 64-Core Processor",
+  "schedule_options": {
+    "beam_width": 8,
+    "noise_transparent": true,
+    "sink_neutral_rotations": true,
+    "budgeted_search_budget": 16
+  },
+  "memory_scope": "coefficient array per lane; excludes scratch, plans and output storage",
+  "cases": [
+    {
+      "family": "folded_msc",
+      "distance": 3,
+      "probability": 0,
+      "circuit_sha256": "030c8eab8723f6cbaf81bd3603eb621e7c298a3d630e37f31548675867d08c42",
+      "early_rejection": false,
+      "mode": "off",
+      "compile_seconds": 0.001927016070112586,
+      "scheduler": null,
+      "peak_active_width": 8,
+      "coefficient_bytes": 4096,
+      "shots_per_batch": 262144,
+      "batches": [
+        {
+          "seconds": 2.070221221074462,
+          "accepted": 262144,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 2.0539557770825922,
+          "accepted": 262144,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 2.098236055113375,
+          "accepted": 262144,
+          "logical_failures": 0
+        }
+      ],
+      "median_seconds_per_attempt": 7.897267231271599e-06
+    },
+    {
+      "family": "folded_msc",
+      "distance": 3,
+      "probability": 0,
+      "circuit_sha256": "030c8eab8723f6cbaf81bd3603eb621e7c298a3d630e37f31548675867d08c42",
+      "early_rejection": false,
+      "mode": "budgeted",
+      "compile_seconds": 0.003627446945756674,
+      "scheduler": {
+        "incumbent_peak": 8,
+        "result_peak": 8,
+        "incumbent_dense_work": 21894.0,
+        "result_dense_work": 13704.0,
+        "applied": true,
+        "swept_ops": 9409
+      },
+      "peak_active_width": 8,
+      "coefficient_bytes": 4096,
+      "shots_per_batch": 262144,
+      "batches": [
+        {
+          "seconds": 1.1875782399438322,
+          "accepted": 262144,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 1.1785201779566705,
+          "accepted": 262144,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 1.192773424088955,
+          "accepted": 262144,
+          "logical_failures": 0
+        }
+      ],
+      "median_seconds_per_attempt": 4.530251464629487e-06
+    },
+    {
+      "family": "folded_msc",
+      "distance": 3,
+      "probability": 0,
+      "circuit_sha256": "030c8eab8723f6cbaf81bd3603eb621e7c298a3d630e37f31548675867d08c42",
+      "early_rejection": false,
+      "mode": "unbounded",
+      "compile_seconds": 0.00693929404951632,
+      "scheduler": {
+        "incumbent_peak": 8,
+        "result_peak": 8,
+        "incumbent_dense_work": 21894.0,
+        "result_dense_work": 12928.0,
+        "applied": true,
+        "swept_ops": 25021
+      },
+      "peak_active_width": 8,
+      "coefficient_bytes": 4096,
+      "shots_per_batch": 262144,
+      "batches": [
+        {
+          "seconds": 1.107218188000843,
+          "accepted": 262144,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 1.106467667967081,
+          "accepted": 262144,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 1.0965486499480903,
+          "accepted": 262144,
+          "logical_failures": 0
+        }
+      ],
+      "median_seconds_per_attempt": 4.2208391874964946e-06
+    },
+    {
+      "family": "folded_msc",
+      "distance": 3,
+      "probability": 0,
+      "circuit_sha256": "030c8eab8723f6cbaf81bd3603eb621e7c298a3d630e37f31548675867d08c42",
+      "early_rejection": true,
+      "mode": "off",
+      "compile_seconds": 0.0008112918585538864,
+      "scheduler": null,
+      "peak_active_width": 8,
+      "coefficient_bytes": 4096,
+      "shots_per_batch": 262144,
+      "batches": [
+        {
+          "seconds": 2.1154824669938534,
+          "accepted": 262144,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 2.123549880925566,
+          "accepted": 262144,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 2.1278451001271605,
+          "accepted": 262144,
+          "logical_failures": 0
+        }
+      ],
+      "median_seconds_per_attempt": 8.10069992418505e-06
+    },
+    {
+      "family": "folded_msc",
+      "distance": 3,
+      "probability": 0,
+      "circuit_sha256": "030c8eab8723f6cbaf81bd3603eb621e7c298a3d630e37f31548675867d08c42",
+      "early_rejection": true,
+      "mode": "budgeted",
+      "compile_seconds": 0.0036977529525756836,
+      "scheduler": {
+        "incumbent_peak": 8,
+        "result_peak": 8,
+        "incumbent_dense_work": 21894.0,
+        "result_dense_work": 13704.0,
+        "applied": true,
+        "swept_ops": 9409
+      },
+      "peak_active_width": 8,
+      "coefficient_bytes": 4096,
+      "shots_per_batch": 262144,
+      "batches": [
+        {
+          "seconds": 1.1051152700092643,
+          "accepted": 262144,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 1.1129484320990741,
+          "accepted": 262144,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 1.1100268550217152,
+          "accepted": 262144,
+          "logical_failures": 0
+        }
+      ],
+      "median_seconds_per_attempt": 4.234416408621655e-06
+    },
+    {
+      "family": "folded_msc",
+      "distance": 3,
+      "probability": 0,
+      "circuit_sha256": "030c8eab8723f6cbaf81bd3603eb621e7c298a3d630e37f31548675867d08c42",
+      "early_rejection": true,
+      "mode": "unbounded",
+      "compile_seconds": 0.00681786984205246,
+      "scheduler": {
+        "incumbent_peak": 8,
+        "result_peak": 8,
+        "incumbent_dense_work": 21894.0,
+        "result_dense_work": 12928.0,
+        "applied": true,
+        "swept_ops": 25021
+      },
+      "peak_active_width": 8,
+      "coefficient_bytes": 4096,
+      "shots_per_batch": 262144,
+      "batches": [
+        {
+          "seconds": 1.2035139710642397,
+          "accepted": 262144,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 1.1858440469950438,
+          "accepted": 262144,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 1.1754134730435908,
+          "accepted": 262144,
+          "logical_failures": 0
+        }
+      ],
+      "median_seconds_per_attempt": 4.523636043529677e-06
+    },
+    {
+      "family": "folded_msc",
+      "distance": 3,
+      "probability": 0.001,
+      "circuit_sha256": "8254687fbff582b466ad1f037fd5128046e2415b23b765d2f66f989eadd0be73",
+      "early_rejection": false,
+      "mode": "off",
+      "compile_seconds": 0.0024186118971556425,
+      "scheduler": null,
+      "peak_active_width": 8,
+      "coefficient_bytes": 4096,
+      "shots_per_batch": 262144,
+      "batches": [
+        {
+          "seconds": 1.7587251861114055,
+          "accepted": 206986,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 1.7493547601625323,
+          "accepted": 207137,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 1.7683077401015908,
+          "accepted": 206701,
+          "logical_failures": 0
+        }
+      ],
+      "median_seconds_per_attempt": 6.709004158444998e-06
+    },
+    {
+      "family": "folded_msc",
+      "distance": 3,
+      "probability": 0.001,
+      "circuit_sha256": "8254687fbff582b466ad1f037fd5128046e2415b23b765d2f66f989eadd0be73",
+      "early_rejection": false,
+      "mode": "budgeted",
+      "compile_seconds": 0.005529382964596152,
+      "scheduler": {
+        "incumbent_peak": 8,
+        "result_peak": 8,
+        "incumbent_dense_work": 21894.0,
+        "result_dense_work": 13704.0,
+        "applied": true,
+        "swept_ops": 9409
+      },
+      "peak_active_width": 8,
+      "coefficient_bytes": 4096,
+      "shots_per_batch": 262144,
+      "batches": [
+        {
+          "seconds": 1.252672109985724,
+          "accepted": 206986,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 1.2291250240523368,
+          "accepted": 207137,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 1.226266142912209,
+          "accepted": 206701,
+          "logical_failures": 0
+        }
+      ],
+      "median_seconds_per_attempt": 4.688739868363712e-06
+    },
+    {
+      "family": "folded_msc",
+      "distance": 3,
+      "probability": 0.001,
+      "circuit_sha256": "8254687fbff582b466ad1f037fd5128046e2415b23b765d2f66f989eadd0be73",
+      "early_rejection": false,
+      "mode": "unbounded",
+      "compile_seconds": 0.008824945893138647,
+      "scheduler": {
+        "incumbent_peak": 8,
+        "result_peak": 8,
+        "incumbent_dense_work": 21894.0,
+        "result_dense_work": 12928.0,
+        "applied": true,
+        "swept_ops": 25021
+      },
+      "peak_active_width": 8,
+      "coefficient_bytes": 4096,
+      "shots_per_batch": 262144,
+      "batches": [
+        {
+          "seconds": 1.080131266033277,
+          "accepted": 206986,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 1.0960803171619773,
+          "accepted": 207137,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 1.095890057971701,
+          "accepted": 206701,
+          "logical_failures": 0
+        }
+      ],
+      "median_seconds_per_attempt": 4.180488807570271e-06
+    },
+    {
+      "family": "folded_msc",
+      "distance": 3,
+      "probability": 0.001,
+      "circuit_sha256": "8254687fbff582b466ad1f037fd5128046e2415b23b765d2f66f989eadd0be73",
+      "early_rejection": true,
+      "mode": "off",
+      "compile_seconds": 0.0025065848603844643,
+      "scheduler": null,
+      "peak_active_width": 8,
+      "coefficient_bytes": 4096,
+      "shots_per_batch": 262144,
+      "batches": [
+        {
+          "seconds": 1.4958500061184168,
+          "accepted": 206986,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 1.4989410671405494,
+          "accepted": 207135,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 1.4886248758994043,
+          "accepted": 206700,
+          "logical_failures": 0
+        }
+      ],
+      "median_seconds_per_attempt": 5.706214928125064e-06
+    },
+    {
+      "family": "folded_msc",
+      "distance": 3,
+      "probability": 0.001,
+      "circuit_sha256": "8254687fbff582b466ad1f037fd5128046e2415b23b765d2f66f989eadd0be73",
+      "early_rejection": true,
+      "mode": "budgeted",
+      "compile_seconds": 0.005562473088502884,
+      "scheduler": {
+        "incumbent_peak": 8,
+        "result_peak": 8,
+        "incumbent_dense_work": 21894.0,
+        "result_dense_work": 13704.0,
+        "applied": true,
+        "swept_ops": 9409
+      },
+      "peak_active_width": 8,
+      "coefficient_bytes": 4096,
+      "shots_per_batch": 262144,
+      "batches": [
+        {
+          "seconds": 0.9553270481992513,
+          "accepted": 206986,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 0.9449458990711719,
+          "accepted": 207134,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 0.9468824181240052,
+          "accepted": 206700,
+          "logical_failures": 0
+        }
+      ],
+      "median_seconds_per_attempt": 3.6120697712860306e-06
+    },
+    {
+      "family": "folded_msc",
+      "distance": 3,
+      "probability": 0.001,
+      "circuit_sha256": "8254687fbff582b466ad1f037fd5128046e2415b23b765d2f66f989eadd0be73",
+      "early_rejection": true,
+      "mode": "unbounded",
+      "compile_seconds": 0.008947101887315512,
+      "scheduler": {
+        "incumbent_peak": 8,
+        "result_peak": 8,
+        "incumbent_dense_work": 21894.0,
+        "result_dense_work": 12928.0,
+        "applied": true,
+        "swept_ops": 25021
+      },
+      "peak_active_width": 8,
+      "coefficient_bytes": 4096,
+      "shots_per_batch": 262144,
+      "batches": [
+        {
+          "seconds": 0.9680835600011051,
+          "accepted": 206986,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 0.9378844480961561,
+          "accepted": 207134,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 0.9190043769776821,
+          "accepted": 206700,
+          "logical_failures": 0
+        }
+      ],
+      "median_seconds_per_attempt": 3.577745239624619e-06
+    },
+    {
+      "family": "folded_msc",
+      "distance": 3,
+      "probability": 0.003,
+      "circuit_sha256": "f54bdefad1830f8fcb549f14084b4e414778a4a1e250b104d725263141dab4fe",
+      "early_rejection": false,
+      "mode": "off",
+      "compile_seconds": 0.002496579894796014,
+      "scheduler": null,
+      "peak_active_width": 8,
+      "coefficient_bytes": 4096,
+      "shots_per_batch": 262144,
+      "batches": [
+        {
+          "seconds": 1.7126180469058454,
+          "accepted": 129144,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 1.7389840411487967,
+          "accepted": 129345,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 1.7455474419984967,
+          "accepted": 128617,
+          "logical_failures": 0
+        }
+      ],
+      "median_seconds_per_attempt": 6.633697666735827e-06
+    },
+    {
+      "family": "folded_msc",
+      "distance": 3,
+      "probability": 0.003,
+      "circuit_sha256": "f54bdefad1830f8fcb549f14084b4e414778a4a1e250b104d725263141dab4fe",
+      "early_rejection": false,
+      "mode": "budgeted",
+      "compile_seconds": 0.005553039954975247,
+      "scheduler": {
+        "incumbent_peak": 8,
+        "result_peak": 8,
+        "incumbent_dense_work": 21894.0,
+        "result_dense_work": 13704.0,
+        "applied": true,
+        "swept_ops": 9409
+      },
+      "peak_active_width": 8,
+      "coefficient_bytes": 4096,
+      "shots_per_batch": 262144,
+      "batches": [
+        {
+          "seconds": 1.1171297619584948,
+          "accepted": 129144,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 1.1107620659749955,
+          "accepted": 129345,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 1.1103655118495226,
+          "accepted": 128616,
+          "logical_failures": 0
+        }
+      ],
+      "median_seconds_per_attempt": 4.237221015834791e-06
+    },
+    {
+      "family": "folded_msc",
+      "distance": 3,
+      "probability": 0.003,
+      "circuit_sha256": "f54bdefad1830f8fcb549f14084b4e414778a4a1e250b104d725263141dab4fe",
+      "early_rejection": false,
+      "mode": "unbounded",
+      "compile_seconds": 0.008747878950089216,
+      "scheduler": {
+        "incumbent_peak": 8,
+        "result_peak": 8,
+        "incumbent_dense_work": 21894.0,
+        "result_dense_work": 12928.0,
+        "applied": true,
+        "swept_ops": 25021
+      },
+      "peak_active_width": 8,
+      "coefficient_bytes": 4096,
+      "shots_per_batch": 262144,
+      "batches": [
+        {
+          "seconds": 1.185131758917123,
+          "accepted": 129143,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 1.193658011034131,
+          "accepted": 129345,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 1.2122853170149028,
+          "accepted": 128617,
+          "logical_failures": 0
+        }
+      ],
+      "median_seconds_per_attempt": 4.553443950783276e-06
+    },
+    {
+      "family": "folded_msc",
+      "distance": 3,
+      "probability": 0.003,
+      "circuit_sha256": "f54bdefad1830f8fcb549f14084b4e414778a4a1e250b104d725263141dab4fe",
+      "early_rejection": true,
+      "mode": "off",
+      "compile_seconds": 0.002547526964917779,
+      "scheduler": null,
+      "peak_active_width": 8,
+      "coefficient_bytes": 4096,
+      "shots_per_batch": 262144,
+      "batches": [
+        {
+          "seconds": 1.3325297189876437,
+          "accepted": 129140,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 1.2985490651335567,
+          "accepted": 129346,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 1.3403430180624127,
+          "accepted": 128618,
+          "logical_failures": 0
+        }
+      ],
+      "median_seconds_per_attempt": 5.083197475386214e-06
+    },
+    {
+      "family": "folded_msc",
+      "distance": 3,
+      "probability": 0.003,
+      "circuit_sha256": "f54bdefad1830f8fcb549f14084b4e414778a4a1e250b104d725263141dab4fe",
+      "early_rejection": true,
+      "mode": "budgeted",
+      "compile_seconds": 0.0068440791219472885,
+      "scheduler": {
+        "incumbent_peak": 8,
+        "result_peak": 8,
+        "incumbent_dense_work": 21894.0,
+        "result_dense_work": 13704.0,
+        "applied": true,
+        "swept_ops": 9409
+      },
+      "peak_active_width": 8,
+      "coefficient_bytes": 4096,
+      "shots_per_batch": 262144,
+      "batches": [
+        {
+          "seconds": 0.787130253855139,
+          "accepted": 129141,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 0.7742332860361785,
+          "accepted": 129346,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 0.7717488729394972,
+          "accepted": 128617,
+          "logical_failures": 0
+        }
+      ],
+      "median_seconds_per_attempt": 2.9534655991980685e-06
+    },
+    {
+      "family": "folded_msc",
+      "distance": 3,
+      "probability": 0.003,
+      "circuit_sha256": "f54bdefad1830f8fcb549f14084b4e414778a4a1e250b104d725263141dab4fe",
+      "early_rejection": true,
+      "mode": "unbounded",
+      "compile_seconds": 0.008744304068386555,
+      "scheduler": {
+        "incumbent_peak": 8,
+        "result_peak": 8,
+        "incumbent_dense_work": 21894.0,
+        "result_dense_work": 12928.0,
+        "applied": true,
+        "swept_ops": 25021
+      },
+      "peak_active_width": 8,
+      "coefficient_bytes": 4096,
+      "shots_per_batch": 262144,
+      "batches": [
+        {
+          "seconds": 0.7203996051102877,
+          "accepted": 129140,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 0.7206573758739978,
+          "accepted": 129346,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 0.7201613429933786,
+          "accepted": 128618,
+          "logical_failures": 0
+        }
+      ],
+      "median_seconds_per_attempt": 2.748106403771544e-06
+    },
+    {
+      "family": "folded_msc",
+      "distance": 3,
+      "probability": 0.01,
+      "circuit_sha256": "1dccfaf65ae0b8342305e59f553818656cf29db26bffb61cfc431d912658bf76",
+      "early_rejection": false,
+      "mode": "off",
+      "compile_seconds": 0.002461415948346257,
+      "scheduler": null,
+      "peak_active_width": 8,
+      "coefficient_bytes": 4096,
+      "shots_per_batch": 262144,
+      "batches": [
+        {
+          "seconds": 1.810153451981023,
+          "accepted": 24987,
+          "logical_failures": 1
+        },
+        {
+          "seconds": 1.7826062848325819,
+          "accepted": 24776,
+          "logical_failures": 2
+        },
+        {
+          "seconds": 1.7901029831264168,
+          "accepted": 24862,
+          "logical_failures": 2
+        }
+      ],
+      "median_seconds_per_attempt": 6.828700954919498e-06
+    },
+    {
+      "family": "folded_msc",
+      "distance": 3,
+      "probability": 0.01,
+      "circuit_sha256": "1dccfaf65ae0b8342305e59f553818656cf29db26bffb61cfc431d912658bf76",
+      "early_rejection": false,
+      "mode": "budgeted",
+      "compile_seconds": 0.005554472096264362,
+      "scheduler": {
+        "incumbent_peak": 8,
+        "result_peak": 8,
+        "incumbent_dense_work": 21894.0,
+        "result_dense_work": 13704.0,
+        "applied": true,
+        "swept_ops": 9409
+      },
+      "peak_active_width": 8,
+      "coefficient_bytes": 4096,
+      "shots_per_batch": 262144,
+      "batches": [
+        {
+          "seconds": 1.228468735003844,
+          "accepted": 24988,
+          "logical_failures": 1
+        },
+        {
+          "seconds": 1.1985984819475561,
+          "accepted": 24779,
+          "logical_failures": 2
+        },
+        {
+          "seconds": 1.1999587169848382,
+          "accepted": 24862,
+          "logical_failures": 2
+        }
+      ],
+      "median_seconds_per_attempt": 4.577479236544946e-06
+    },
+    {
+      "family": "folded_msc",
+      "distance": 3,
+      "probability": 0.01,
+      "circuit_sha256": "1dccfaf65ae0b8342305e59f553818656cf29db26bffb61cfc431d912658bf76",
+      "early_rejection": false,
+      "mode": "unbounded",
+      "compile_seconds": 0.008713336894288659,
+      "scheduler": {
+        "incumbent_peak": 8,
+        "result_peak": 8,
+        "incumbent_dense_work": 21894.0,
+        "result_dense_work": 12928.0,
+        "applied": true,
+        "swept_ops": 25021
+      },
+      "peak_active_width": 8,
+      "coefficient_bytes": 4096,
+      "shots_per_batch": 262144,
+      "batches": [
+        {
+          "seconds": 1.163214477011934,
+          "accepted": 24987,
+          "logical_failures": 1
+        },
+        {
+          "seconds": 1.1755634639412165,
+          "accepted": 24776,
+          "logical_failures": 2
+        },
+        {
+          "seconds": 1.1736376590561122,
+          "accepted": 24862,
+          "logical_failures": 2
+        }
+      ],
+      "median_seconds_per_attempt": 4.477072368835877e-06
+    },
+    {
+      "family": "folded_msc",
+      "distance": 3,
+      "probability": 0.01,
+      "circuit_sha256": "1dccfaf65ae0b8342305e59f553818656cf29db26bffb61cfc431d912658bf76",
+      "early_rejection": true,
+      "mode": "off",
+      "compile_seconds": 0.0025074861478060484,
+      "scheduler": null,
+      "peak_active_width": 8,
+      "coefficient_bytes": 4096,
+      "shots_per_batch": 262144,
+      "batches": [
+        {
+          "seconds": 0.5408378958236426,
+          "accepted": 24987,
+          "logical_failures": 1
+        },
+        {
+          "seconds": 0.540687827160582,
+          "accepted": 24782,
+          "logical_failures": 2
+        },
+        {
+          "seconds": 0.530752575956285,
+          "accepted": 24871,
+          "logical_failures": 4
+        }
+      ],
+      "median_seconds_per_attempt": 2.0625603758261946e-06
+    },
+    {
+      "family": "folded_msc",
+      "distance": 3,
+      "probability": 0.01,
+      "circuit_sha256": "1dccfaf65ae0b8342305e59f553818656cf29db26bffb61cfc431d912658bf76",
+      "early_rejection": true,
+      "mode": "budgeted",
+      "compile_seconds": 0.005579730030149221,
+      "scheduler": {
+        "incumbent_peak": 8,
+        "result_peak": 8,
+        "incumbent_dense_work": 21894.0,
+        "result_dense_work": 13704.0,
+        "applied": true,
+        "swept_ops": 9409
+      },
+      "peak_active_width": 8,
+      "coefficient_bytes": 4096,
+      "shots_per_batch": 262144,
+      "batches": [
+        {
+          "seconds": 0.382490272866562,
+          "accepted": 24987,
+          "logical_failures": 1
+        },
+        {
+          "seconds": 0.38195691304281354,
+          "accepted": 24782,
+          "logical_failures": 2
+        },
+        {
+          "seconds": 0.3817004431039095,
+          "accepted": 24869,
+          "logical_failures": 2
+        }
+      ],
+      "median_seconds_per_attempt": 1.4570499917709867e-06
+    },
+    {
+      "family": "folded_msc",
+      "distance": 3,
+      "probability": 0.01,
+      "circuit_sha256": "1dccfaf65ae0b8342305e59f553818656cf29db26bffb61cfc431d912658bf76",
+      "early_rejection": true,
+      "mode": "unbounded",
+      "compile_seconds": 0.008756782859563828,
+      "scheduler": {
+        "incumbent_peak": 8,
+        "result_peak": 8,
+        "incumbent_dense_work": 21894.0,
+        "result_dense_work": 12928.0,
+        "applied": true,
+        "swept_ops": 25021
+      },
+      "peak_active_width": 8,
+      "coefficient_bytes": 4096,
+      "shots_per_batch": 262144,
+      "batches": [
+        {
+          "seconds": 0.3543025229591876,
+          "accepted": 24988,
+          "logical_failures": 1
+        },
+        {
+          "seconds": 0.3543319080490619,
+          "accepted": 24781,
+          "logical_failures": 2
+        },
+        {
+          "seconds": 0.35875018406659365,
+          "accepted": 24870,
+          "logical_failures": 3
+        }
+      ],
+      "median_seconds_per_attempt": 1.3516689607584453e-06
+    },
+    {
+      "family": "folded_msc",
+      "distance": 5,
+      "probability": 0,
+      "circuit_sha256": "055b9dc67bfd10efc58352a5c3bf106151aceb84a19edfd0393cf515a21d85d7",
+      "early_rejection": false,
+      "mode": "off",
+      "compile_seconds": 0.0036144969053566456,
+      "scheduler": null,
+      "peak_active_width": 22,
+      "coefficient_bytes": 67108864,
+      "shots_per_batch": 8,
+      "batches": [
+        {
+          "seconds": 5.4651851980015635,
+          "accepted": 8,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 6.151178024010733,
+          "accepted": 8,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 6.116775264963508,
+          "accepted": 8,
+          "logical_failures": 0
+        }
+      ],
+      "median_seconds_per_attempt": 0.7645969081204385
+    },
+    {
+      "family": "folded_msc",
+      "distance": 5,
+      "probability": 0,
+      "circuit_sha256": "055b9dc67bfd10efc58352a5c3bf106151aceb84a19edfd0393cf515a21d85d7",
+      "early_rejection": false,
+      "mode": "budgeted",
+      "compile_seconds": 0.019758244045078754,
+      "scheduler": {
+        "incumbent_peak": 22,
+        "result_peak": 22,
+        "incumbent_dense_work": 851405646.0,
+        "result_dense_work": 464967224.0,
+        "applied": true,
+        "swept_ops": 35154
+      },
+      "peak_active_width": 22,
+      "coefficient_bytes": 67108864,
+      "shots_per_batch": 8,
+      "batches": [
+        {
+          "seconds": 3.349154605064541,
+          "accepted": 8,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 3.2427648410666734,
+          "accepted": 8,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 3.176199050853029,
+          "accepted": 8,
+          "logical_failures": 0
+        }
+      ],
+      "median_seconds_per_attempt": 0.4053456051333342
+    },
+    {
+      "family": "folded_msc",
+      "distance": 5,
+      "probability": 0,
+      "circuit_sha256": "055b9dc67bfd10efc58352a5c3bf106151aceb84a19edfd0393cf515a21d85d7",
+      "early_rejection": false,
+      "mode": "unbounded",
+      "compile_seconds": 0.19423849298618734,
+      "scheduler": {
+        "incumbent_peak": 22,
+        "result_peak": 22,
+        "incumbent_dense_work": 851405646.0,
+        "result_dense_work": 425250888.0,
+        "applied": true,
+        "swept_ops": 204222
+      },
+      "peak_active_width": 22,
+      "coefficient_bytes": 67108864,
+      "shots_per_batch": 8,
+      "batches": [
+        {
+          "seconds": 2.8383370260708034,
+          "accepted": 8,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 3.0553926499560475,
+          "accepted": 8,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 2.917463210877031,
+          "accepted": 8,
+          "logical_failures": 0
+        }
+      ],
+      "median_seconds_per_attempt": 0.3646829013596289
+    },
+    {
+      "family": "folded_msc",
+      "distance": 5,
+      "probability": 0,
+      "circuit_sha256": "055b9dc67bfd10efc58352a5c3bf106151aceb84a19edfd0393cf515a21d85d7",
+      "early_rejection": true,
+      "mode": "off",
+      "compile_seconds": 0.0038011500146239996,
+      "scheduler": null,
+      "peak_active_width": 22,
+      "coefficient_bytes": 67108864,
+      "shots_per_batch": 8,
+      "batches": [
+        {
+          "seconds": 5.721433993196115,
+          "accepted": 8,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 5.717172279953957,
+          "accepted": 8,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 5.645894730929285,
+          "accepted": 8,
+          "logical_failures": 0
+        }
+      ],
+      "median_seconds_per_attempt": 0.7146465349942446
+    },
+    {
+      "family": "folded_msc",
+      "distance": 5,
+      "probability": 0,
+      "circuit_sha256": "055b9dc67bfd10efc58352a5c3bf106151aceb84a19edfd0393cf515a21d85d7",
+      "early_rejection": true,
+      "mode": "budgeted",
+      "compile_seconds": 0.019762849900871515,
+      "scheduler": {
+        "incumbent_peak": 22,
+        "result_peak": 22,
+        "incumbent_dense_work": 851405646.0,
+        "result_dense_work": 464967224.0,
+        "applied": true,
+        "swept_ops": 35154
+      },
+      "peak_active_width": 22,
+      "coefficient_bytes": 67108864,
+      "shots_per_batch": 8,
+      "batches": [
+        {
+          "seconds": 3.075468708993867,
+          "accepted": 8,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 3.1058491619769484,
+          "accepted": 8,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 3.0019245438743383,
+          "accepted": 8,
+          "logical_failures": 0
+        }
+      ],
+      "median_seconds_per_attempt": 0.3844335886242334
+    },
+    {
+      "family": "folded_msc",
+      "distance": 5,
+      "probability": 0,
+      "circuit_sha256": "055b9dc67bfd10efc58352a5c3bf106151aceb84a19edfd0393cf515a21d85d7",
+      "early_rejection": true,
+      "mode": "unbounded",
+      "compile_seconds": 0.19872612203471363,
+      "scheduler": {
+        "incumbent_peak": 22,
+        "result_peak": 22,
+        "incumbent_dense_work": 851405646.0,
+        "result_dense_work": 425250888.0,
+        "applied": true,
+        "swept_ops": 204222
+      },
+      "peak_active_width": 22,
+      "coefficient_bytes": 67108864,
+      "shots_per_batch": 8,
+      "batches": [
+        {
+          "seconds": 2.695018112892285,
+          "accepted": 8,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 2.767743236152455,
+          "accepted": 8,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 2.800917600048706,
+          "accepted": 8,
+          "logical_failures": 0
+        }
+      ],
+      "median_seconds_per_attempt": 0.3459679045190569
+    },
+    {
+      "family": "folded_msc",
+      "distance": 5,
+      "probability": 0.001,
+      "circuit_sha256": "b9e261d861fc691c1586822d4d334a2e3d3888cc2733df641e0cbd17279cc40c",
+      "early_rejection": false,
+      "mode": "off",
+      "compile_seconds": 0.019858945859596133,
+      "scheduler": null,
+      "peak_active_width": 22,
+      "coefficient_bytes": 67108864,
+      "shots_per_batch": 8,
+      "batches": [
+        {
+          "seconds": 6.199258674867451,
+          "accepted": 3,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 6.147969326004386,
+          "accepted": 2,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 6.164029391016811,
+          "accepted": 2,
+          "logical_failures": 0
+        }
+      ],
+      "median_seconds_per_attempt": 0.7705036738771014
+    },
+    {
+      "family": "folded_msc",
+      "distance": 5,
+      "probability": 0.001,
+      "circuit_sha256": "b9e261d861fc691c1586822d4d334a2e3d3888cc2733df641e0cbd17279cc40c",
+      "early_rejection": false,
+      "mode": "budgeted",
+      "compile_seconds": 0.03713943716138601,
+      "scheduler": {
+        "incumbent_peak": 22,
+        "result_peak": 22,
+        "incumbent_dense_work": 851405646.0,
+        "result_dense_work": 464967224.0,
+        "applied": true,
+        "swept_ops": 35154
+      },
+      "peak_active_width": 22,
+      "coefficient_bytes": 67108864,
+      "shots_per_batch": 8,
+      "batches": [
+        {
+          "seconds": 3.219545193016529,
+          "accepted": 3,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 3.1661060608457774,
+          "accepted": 2,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 3.1738797179423273,
+          "accepted": 2,
+          "logical_failures": 0
+        }
+      ],
+      "median_seconds_per_attempt": 0.3967349647427909
+    },
+    {
+      "family": "folded_msc",
+      "distance": 5,
+      "probability": 0.001,
+      "circuit_sha256": "b9e261d861fc691c1586822d4d334a2e3d3888cc2733df641e0cbd17279cc40c",
+      "early_rejection": false,
+      "mode": "unbounded",
+      "compile_seconds": 0.21215825900435448,
+      "scheduler": {
+        "incumbent_peak": 22,
+        "result_peak": 22,
+        "incumbent_dense_work": 851405646.0,
+        "result_dense_work": 425250888.0,
+        "applied": true,
+        "swept_ops": 204222
+      },
+      "peak_active_width": 22,
+      "coefficient_bytes": 67108864,
+      "shots_per_batch": 8,
+      "batches": [
+        {
+          "seconds": 2.7537217079661787,
+          "accepted": 3,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 2.7179469109978527,
+          "accepted": 2,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 2.724945581983775,
+          "accepted": 2,
+          "logical_failures": 0
+        }
+      ],
+      "median_seconds_per_attempt": 0.34061819774797186
+    },
+    {
+      "family": "folded_msc",
+      "distance": 5,
+      "probability": 0.001,
+      "circuit_sha256": "b9e261d861fc691c1586822d4d334a2e3d3888cc2733df641e0cbd17279cc40c",
+      "early_rejection": true,
+      "mode": "off",
+      "compile_seconds": 0.020557955838739872,
+      "scheduler": null,
+      "peak_active_width": 22,
+      "coefficient_bytes": 67108864,
+      "shots_per_batch": 8,
+      "batches": [
+        {
+          "seconds": 2.8438725960440934,
+          "accepted": 3,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 3.561556841013953,
+          "accepted": 2,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 4.750726700993255,
+          "accepted": 2,
+          "logical_failures": 0
+        }
+      ],
+      "median_seconds_per_attempt": 0.44519460512674414
+    },
+    {
+      "family": "folded_msc",
+      "distance": 5,
+      "probability": 0.001,
+      "circuit_sha256": "b9e261d861fc691c1586822d4d334a2e3d3888cc2733df641e0cbd17279cc40c",
+      "early_rejection": true,
+      "mode": "budgeted",
+      "compile_seconds": 0.03856421890668571,
+      "scheduler": {
+        "incumbent_peak": 22,
+        "result_peak": 22,
+        "incumbent_dense_work": 851405646.0,
+        "result_dense_work": 464967224.0,
+        "applied": true,
+        "swept_ops": 35154
+      },
+      "peak_active_width": 22,
+      "coefficient_bytes": 67108864,
+      "shots_per_batch": 8,
+      "batches": [
+        {
+          "seconds": 1.5582030210644007,
+          "accepted": 3,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 1.8404675559140742,
+          "accepted": 2,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 2.454842290841043,
+          "accepted": 2,
+          "logical_failures": 0
+        }
+      ],
+      "median_seconds_per_attempt": 0.23005844448925927
+    },
+    {
+      "family": "folded_msc",
+      "distance": 5,
+      "probability": 0.001,
+      "circuit_sha256": "b9e261d861fc691c1586822d4d334a2e3d3888cc2733df641e0cbd17279cc40c",
+      "early_rejection": true,
+      "mode": "unbounded",
+      "compile_seconds": 0.22282916610129178,
+      "scheduler": {
+        "incumbent_peak": 22,
+        "result_peak": 22,
+        "incumbent_dense_work": 851405646.0,
+        "result_dense_work": 425250888.0,
+        "applied": true,
+        "swept_ops": 204222
+      },
+      "peak_active_width": 22,
+      "coefficient_bytes": 67108864,
+      "shots_per_batch": 8,
+      "batches": [
+        {
+          "seconds": 1.3775453958660364,
+          "accepted": 3,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 1.6629292380530387,
+          "accepted": 2,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 2.298502369085327,
+          "accepted": 2,
+          "logical_failures": 0
+        }
+      ],
+      "median_seconds_per_attempt": 0.20786615475662984
+    }
+  ]
+}

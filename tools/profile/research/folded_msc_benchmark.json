@@ -1,0 +1,296 @@
+{
+  "source_sha256": "8254687fbff582b466ad1f037fd5128046e2415b23b765d2f66f989eadd0be73",
+  "source_files_sha256": {
+    "folded_msc.py": "9b6ce4ea5f663a7cc6056a0fc8987bc81258af97f4ffce4950534f01568d2125",
+    "benchmark_folded_msc.py": "945ad7e3362a08d859c5df6df18b10e71c806fc37194cca109ee64e7245bbcf1"
+  },
+  "profiler_sha256": "95d3af0de56556886bd03244c389a0680cba03bee4aeb59ff4a2bfcbd7a5e1ab",
+  "git_head": "41a18d455e855650f3c5dffa75db301f67ff2ded",
+  "working_tree": "uncommitted research generator; source hashes recorded",
+  "python": "3.13.11",
+  "affinity": 0,
+  "threads": 1,
+  "cpu": "AMD EPYC 9554P 64-Core Processor",
+  "peak_active_width": 8,
+  "expensive_source_lines": [
+    {
+      "line": 303,
+      "predicted_visits": 1792.0,
+      "source": "CCZ 15 11 7"
+    },
+    {
+      "line": 305,
+      "predicted_visits": 1792.0,
+      "source": "CCZ 15 10 2"
+    },
+    {
+      "line": 364,
+      "predicted_visits": 1792.0,
+      "source": "CCZ 13 5 1"
+    },
+    {
+      "line": 366,
+      "predicted_visits": 1792.0,
+      "source": "CCZ 14 8 4"
+    },
+    {
+      "line": 368,
+      "predicted_visits": 1792.0,
+      "source": "CCZ 15 11 7"
+    },
+    {
+      "line": 370,
+      "predicted_visits": 1792.0,
+      "source": "CCZ 15 10 2"
+    },
+    {
+      "line": 301,
+      "predicted_visits": 1536.0,
+      "source": "CCZ 14 8 4"
+    },
+    {
+      "line": 658,
+      "predicted_visits": 1152.0,
+      "source": "CCZ 13 11 7"
+    },
+    {
+      "line": 659,
+      "predicted_visits": 1152.0,
+      "source": "CCZ 13 10 2"
+    },
+    {
+      "line": 657,
+      "predicted_visits": 1024.0,
+      "source": "CCZ 13 8 4"
+    },
+    {
+      "line": 299,
+      "predicted_visits": 704.0,
+      "source": "CCZ 13 5 1"
+    },
+    {
+      "line": 656,
+      "predicted_visits": 608.0,
+      "source": "CCZ 13 5 1"
+    }
+  ],
+  "cases": [
+    {
+      "probability": 0,
+      "early_rejection": false,
+      "shots_per_batch": 262144,
+      "compile_seconds": 0.001001100055873394,
+      "batches": [
+        {
+          "seconds": 2.0820012639742345,
+          "accepted": 262144,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 2.055524754105136,
+          "accepted": 262144,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 2.043381569907069,
+          "accepted": 262144,
+          "logical_failures": 0
+        }
+      ],
+      "median_seconds_per_attempt": 7.841204658909362e-06
+    },
+    {
+      "probability": 0,
+      "early_rejection": true,
+      "shots_per_batch": 262144,
+      "compile_seconds": 0.0010046751704066992,
+      "batches": [
+        {
+          "seconds": 2.1099441631231457,
+          "accepted": 262144,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 2.1274208289105445,
+          "accepted": 262144,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 2.116236882051453,
+          "accepted": 262144,
+          "logical_failures": 0
+        }
+      ],
+      "median_seconds_per_attempt": 8.072803047376453e-06
+    },
+    {
+      "probability": 0.001,
+      "early_rejection": false,
+      "shots_per_batch": 262144,
+      "compile_seconds": 0.002628420013934374,
+      "batches": [
+        {
+          "seconds": 1.7896438029129058,
+          "accepted": 206986,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 1.8309099290054291,
+          "accepted": 207137,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 1.7924753988627344,
+          "accepted": 206701,
+          "logical_failures": 0
+        }
+      ],
+      "median_seconds_per_attempt": 6.837751002741754e-06
+    },
+    {
+      "probability": 0.001,
+      "early_rejection": true,
+      "shots_per_batch": 262144,
+      "compile_seconds": 0.002860140986740589,
+      "batches": [
+        {
+          "seconds": 1.5263136280700564,
+          "accepted": 206986,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 1.5265661801677197,
+          "accepted": 207135,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 1.5346916229464114,
+          "accepted": 206700,
+          "logical_failures": 0
+        }
+      ],
+      "median_seconds_per_attempt": 5.8233878332814015e-06
+    },
+    {
+      "probability": 0.003,
+      "early_rejection": false,
+      "shots_per_batch": 262144,
+      "compile_seconds": 0.0027290729340165854,
+      "batches": [
+        {
+          "seconds": 1.7246881229802966,
+          "accepted": 129144,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 1.7453188768122345,
+          "accepted": 129345,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 1.7436838638968766,
+          "accepted": 128617,
+          "logical_failures": 0
+        }
+      ],
+      "median_seconds_per_attempt": 6.65162606772185e-06
+    },
+    {
+      "probability": 0.003,
+      "early_rejection": true,
+      "shots_per_batch": 262144,
+      "compile_seconds": 0.0028341819997876883,
+      "batches": [
+        {
+          "seconds": 1.1994325811974704,
+          "accepted": 129140,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 1.2103902229573578,
+          "accepted": 129346,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 1.2352960959542543,
+          "accepted": 128618,
+          "logical_failures": 0
+        }
+      ],
+      "median_seconds_per_attempt": 4.617272273854667e-06
+    },
+    {
+      "probability": 0.01,
+      "early_rejection": false,
+      "shots_per_batch": 262144,
+      "compile_seconds": 0.0027576559223234653,
+      "batches": [
+        {
+          "seconds": 2.057336393976584,
+          "accepted": 24987,
+          "logical_failures": 1
+        },
+        {
+          "seconds": 2.0652087219059467,
+          "accepted": 24776,
+          "logical_failures": 2
+        },
+        {
+          "seconds": 2.0481660508085042,
+          "accepted": 24862,
+          "logical_failures": 2
+        }
+      ],
+      "median_seconds_per_attempt": 7.848115516573273e-06
+    },
+    {
+      "probability": 0.01,
+      "early_rejection": true,
+      "shots_per_batch": 262144,
+      "compile_seconds": 0.0028716279193758965,
+      "batches": [
+        {
+          "seconds": 0.5564967468380928,
+          "accepted": 24987,
+          "logical_failures": 1
+        },
+        {
+          "seconds": 0.547203591093421,
+          "accepted": 24782,
+          "logical_failures": 2
+        },
+        {
+          "seconds": 0.5567989759147167,
+          "accepted": 24871,
+          "logical_failures": 4
+        }
+      ],
+      "median_seconds_per_attempt": 2.1228666184924805e-06
+    }
+  ],
+  "fixed_fault_cases": [
+    {
+      "k": 1,
+      "shots": 1000000,
+      "seconds": 2.8600596140604466,
+      "accepted": 68700,
+      "logical_failures": 0
+    },
+    {
+      "k": 2,
+      "shots": 1000000,
+      "seconds": 1.737315668957308,
+      "accepted": 9228,
+      "logical_failures": 0
+    },
+    {
+      "k": 3,
+      "shots": 1000000,
+      "seconds": 1.2002996820956469,
+      "accepted": 1351,
+      "logical_failures": 31
+    }
+  ],
+  "source_metadata_correction": "Generator growth reference corrected from Fig. 9 to Fig. 7 after timing. Circuit text is unchanged.",
+  "generator_sha256_after_metadata_correction": "50db657b4436d651b5de2212d9eac832f5039ae593f0937620a8be8297e9ee6e"
+}

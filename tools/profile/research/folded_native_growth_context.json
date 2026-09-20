@@ -1,0 +1,41 @@
+{
+  "study_base": "41a18d455e855650f3c5dffa75db301f67ff2ded",
+  "pr471_head": "8f69b3c305303483e5dd33dcf4d13dbbebae1fa9",
+  "schedule": "unbounded after default passes",
+  "circuit_sha256": "fff72e8f48a0509a00d52133d8cb334a1743fc7c74ce1f40eeeccc9785909545",
+  "source_sha256": {
+    "compile_folded_protocol.py": "76b21c886d1a63ef9c3b2b47ebe954ba840da7701c16c9b124074a8538164fac",
+    "compile_folded_growth.py": "a507f5a94c6a26816fcf3226ee32f77f03f0b9969e42ad64e01485490b106359",
+    "audit_folded_growth_handoff.py": "fa5aeb38a0e4634589ccd852c22d234c581e460865bc8bd2f4474e99defc8b49",
+    "sample_folded_protocol.cpp": "ca858633e228f3837d5b1a487e7fc039af14628f5e2f2eed6d6f8d810bd42fcf",
+    "folded_sampling_kernel.h": "ec913c234a298e1888ff294cf1f60eac92ea285360ce78c30eacb7ddad24b914",
+    "gadget_contraction_kernel.h": "afa2f714edc3335b51b9032e9ebed595b9f99a15ed6988c162b01c22d18e2284",
+    "audit_folded_protocol.py": "3b6142e9b127ce505af85ffd16de09f5b80797ae2c3494f96378c97137ab18a1",
+    "test_folded_protocol.py": "082610c2b5b9a3c6bb5622942efd12e47b6586b16f67e4e168e83ae57cd8b3e4",
+    "benchmark_folded_protocol.py": "a889aaad17b4bc37d5ae2047a6127d10d3f88ff21a1130d347f5b27d2b460d95",
+    "study_schedule.h": "e666cdc9863cfc2ab23b8b3d5d4f3f842965dea7cb6d59845ae6a9e9616ba488"
+  },
+  "native_binary_sha256": "d3f2df75049dca54ff89c5d961c0b7036b8c7c55970018f706a094d2de64b631",
+  "previous_binary_sha256": "d37abb983ab6c28ab174e552218b79d0b2b43957a099bc2e7a78ceaa089f22b8",
+  "fault_site_partition": {
+    "prefix_sites": 535,
+    "earlier_sites": 134,
+    "growth_sites": 694,
+    "sites": 826
+  },
+  "prefix_visible": 58,
+  "prefix_hidden": 99,
+  "full_visible": 351,
+  "full_hidden": 436,
+  "validated_histories": 24,
+  "max_log_probability_error": 7.105427357601002e-15,
+  "max_faults": 73,
+  "regression_tests_passed": 25,
+  "regression_seconds": 233.69,
+  "test_files": [
+    "test_folded_protocol.py",
+    "test_native_terminal.py",
+    "test_folded_check_contraction.py",
+    "test_contraction_workspace.py"
+  ]
+}

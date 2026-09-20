@@ -1,0 +1,178 @@
+{
+  "distance": 5,
+  "source_sha256": "b9e261d861fc691c1586822d4d334a2e3d3888cc2733df641e0cbd17279cc40c",
+  "source_files_sha256": {
+    "folded_msc.py": "d2b3995bdf2556b97211325f76af2d0ff9ccb2d6417071cc77bb284c60b26bf1",
+    "folded_msc_family.py": "b5a74f38b6faf6c8fb1702defe7724a3b7c7c36868d751042cf3356ec6a30642",
+    "benchmark_folded_msc.py": "4f76f7dc136fa1f812a88c39313f8e38b8115f6eb75ccff3161c903be57c38f7"
+  },
+  "profiler_sha256": "95d3af0de56556886bd03244c389a0680cba03bee4aeb59ff4a2bfcbd7a5e1ab",
+  "git_head": "41a18d455e855650f3c5dffa75db301f67ff2ded",
+  "working_tree": "uncommitted research generator; source hashes recorded",
+  "python": "3.13.11",
+  "affinity": 0,
+  "threads": 1,
+  "cpu": "AMD EPYC 9554P 64-Core Processor",
+  "peak_active_width": 22,
+  "expensive_source_lines": [
+    {
+      "line": 1282,
+      "predicted_visits": 29360128.0,
+      "source": "CCZ 44 37 13"
+    },
+    {
+      "line": 1284,
+      "predicted_visits": 29360128.0,
+      "source": "CCZ 43 36 4"
+    },
+    {
+      "line": 1394,
+      "predicted_visits": 29360128.0,
+      "source": "CCZ 44 9 1"
+    },
+    {
+      "line": 1396,
+      "predicted_visits": 29360128.0,
+      "source": "CCZ 45 14 6"
+    },
+    {
+      "line": 1398,
+      "predicted_visits": 29360128.0,
+      "source": "CCZ 41 19 11"
+    },
+    {
+      "line": 1400,
+      "predicted_visits": 29360128.0,
+      "source": "CCZ 42 24 16"
+    },
+    {
+      "line": 1402,
+      "predicted_visits": 29360128.0,
+      "source": "CCZ 43 29 21"
+    },
+    {
+      "line": 1404,
+      "predicted_visits": 29360128.0,
+      "source": "CCZ 44 34 26"
+    },
+    {
+      "line": 1406,
+      "predicted_visits": 29360128.0,
+      "source": "CCZ 45 39 31"
+    },
+    {
+      "line": 1408,
+      "predicted_visits": 29360128.0,
+      "source": "CCZ 41 18 2"
+    },
+    {
+      "line": 1410,
+      "predicted_visits": 29360128.0,
+      "source": "CCZ 42 23 7"
+    },
+    {
+      "line": 1412,
+      "predicted_visits": 29360128.0,
+      "source": "CCZ 43 28 12"
+    }
+  ],
+  "cases": [
+    {
+      "probability": 0.0,
+      "early_rejection": false,
+      "shots_per_batch": 8,
+      "compile_seconds": 0.0046130220871418715,
+      "batches": [
+        {
+          "seconds": 5.510642007924616,
+          "accepted": 8,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 5.488081455929205,
+          "accepted": 8,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 5.361564883962274,
+          "accepted": 8,
+          "logical_failures": 0
+        }
+      ],
+      "median_seconds_per_attempt": 0.6860101819911506
+    },
+    {
+      "probability": 0.0,
+      "early_rejection": true,
+      "shots_per_batch": 8,
+      "compile_seconds": 0.010163184953853488,
+      "batches": [
+        {
+          "seconds": 5.3912345541175455,
+          "accepted": 8,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 5.369894615141675,
+          "accepted": 8,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 5.477927322965115,
+          "accepted": 8,
+          "logical_failures": 0
+        }
+      ],
+      "median_seconds_per_attempt": 0.6739043192646932
+    },
+    {
+      "probability": 0.001,
+      "early_rejection": false,
+      "shots_per_batch": 8,
+      "compile_seconds": 0.02317331195808947,
+      "batches": [
+        {
+          "seconds": 6.063803113996983,
+          "accepted": 3,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 6.112800428876653,
+          "accepted": 2,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 5.862187217222527,
+          "accepted": 2,
+          "logical_failures": 0
+        }
+      ],
+      "median_seconds_per_attempt": 0.7579753892496228
+    },
+    {
+      "probability": 0.001,
+      "early_rejection": true,
+      "shots_per_batch": 8,
+      "compile_seconds": 0.02776245796121657,
+      "batches": [
+        {
+          "seconds": 2.8402729041408747,
+          "accepted": 3,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 3.3260433888062835,
+          "accepted": 2,
+          "logical_failures": 0
+        },
+        {
+          "seconds": 4.499883751152083,
+          "accepted": 2,
+          "logical_failures": 0
+        }
+      ],
+      "median_seconds_per_attempt": 0.41575542360078543
+    }
+  ],
+  "fixed_fault_cases": []
+}

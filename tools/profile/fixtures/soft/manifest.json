@@ -1,0 +1,24 @@
+{
+  "repository": "https://github.com/haoliri0/SOFT",
+  "revision": "686051afe06e28c433fffec1c61686458728ca2e",
+  "introduced_revision": "77f1f388f4c2c5d6412c52259a8c9388677b8f9f",
+  "license": "Apache-2.0 as distributed by SOFT; circuit generator and earlier provenance not supplied",
+  "validation_status": "Unverified physical T workload; noiseless T outputs are not deterministic",
+  "files": [
+    {
+      "path": "benchmark/circuit/MSC_circuit_d7_p0.0005.stim",
+      "file": "MSC_circuit_d7_p0.0005.stim",
+      "sha256": "83760fdb1e71be32c1e1eb83bbbf4176e9d32adb48384b14b818b294e7bf25f5"
+    },
+    {
+      "path": "LICENSE",
+      "file": "LICENSE",
+      "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+    },
+    {
+      "path": "benchmark/config.json",
+      "file": "upstream_config.json",
+      "sha256": "2a525ce37fc980fd0ce906db88fc82596a0c041b0e68f44284e2b93a417b3ce8"
+    }
+  ]
+}

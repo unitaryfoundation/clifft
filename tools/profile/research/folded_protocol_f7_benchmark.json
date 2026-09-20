@@ -1,0 +1,237 @@
+{
+  "platform": "Linux-6.12.93-x86_64-with-glibc2.39",
+  "cpu_affinity": 0,
+  "probability": 0.001,
+  "sampler": "/tmp/clifft-pr471-baseline/build-study/sample_folded_protocol",
+  "sampler_sha256": "baedf650280c96fbe12628bc80e766d2190b96729e9a1848ba01b1fa834c25fd",
+  "source_sha256": {
+    "compile_folded_protocol.py": "819ef7ecae9d3ef8b7d5bdf6810f736360c0b685d2037757f6032ba74a277807",
+    "folded_check_contraction.py": "762cf5499e1ed75454e81cd31f2a8068882db9b0be0767b1164090dc9fa93e81",
+    "sample_folded_protocol.cpp": "8f4694dc8bfe8dfbe8dd8745507ba758031487b09671f07e7ef5e2d609c19d91",
+    "folded_sampling_kernel.h": "792b43a8043b18d9b1ba9c777a4eae049fc50c51815955a0440ac5003718e035",
+    "gadget_contraction_kernel.h": "17533315113e62760280f7f70e41b270890a68b68cf25f819986774c42b04c1b",
+    "study_schedule.h": "e666cdc9863cfc2ab23b8b3d5d4f3f842965dea7cb6d59845ae6a9e9616ba488",
+    "folded_msc.py": "75f6b6a78b159a3689b2a0c588903a045376cad24f1ace4b6a4cfe7ae8354373",
+    "folded_msc_family.py": "ed1e88cb10d8d7575090b0406a1b521f74d608d37df409042c2350ef68b89d19",
+    "folded_msc_f7.py": "78fe6c2067147baf56feb0d7da8197e87b09d3778d726adcce3bfef32d913bec",
+    "benchmark_folded_protocol.py": "261427210222af2e114d3a3baf5c1517c9a32b03dc3d4adb93b36ba29b92605d"
+  },
+  "cases": [
+    {
+      "kind": "benchmark",
+      "setup_seconds": 0.322963345,
+      "baseline_setup_seconds": 0.154611669,
+      "shots_per_batch": 16,
+      "baseline_shots_per_batch": 0,
+      "prefix_peak_width": 22,
+      "ordinary_peak_width": 44,
+      "native_peak_rss_kib": 317364,
+      "normalization_error": 6.661338147750939e-16,
+      "continuation_error": 4.440892098500626e-16,
+      "seconds": [
+        7.194517589,
+        7.183060957,
+        7.201886806
+      ],
+      "baseline_seconds": [
+        3.0000000000000004e-08,
+        2e-08,
+        2e-08
+      ],
+      "accepted": [
+        1,
+        2,
+        3
+      ],
+      "logical_failures": [
+        0,
+        0,
+        0
+      ],
+      "baseline_accepted": [
+        0,
+        0,
+        0
+      ],
+      "baseline_logical_failures": [
+        0,
+        0,
+        0
+      ],
+      "distance": 7,
+      "probability": 0.001,
+      "schedule": "budgeted",
+      "early_rejection": false,
+      "circuit_sha256": "fff72e8f48a0509a00d52133d8cb334a1743fc7c74ce1f40eeeccc9785909545",
+      "compiler_seconds": 30.21669651987031,
+      "native_seconds_per_attempt": 0.4496573493125,
+      "baseline_seconds_per_attempt": null,
+      "speedup": null,
+      "ordinary_coefficient_bytes": 281474976710656,
+      "baseline_skip_reason": "dense allocation limit",
+      "bundle_bytes": 37848106
+    },
+    {
+      "kind": "benchmark",
+      "setup_seconds": 0.32935045100000004,
+      "baseline_setup_seconds": 0.14694363800000002,
+      "shots_per_batch": 16,
+      "baseline_shots_per_batch": 0,
+      "prefix_peak_width": 22,
+      "ordinary_peak_width": 44,
+      "native_peak_rss_kib": 317364,
+      "normalization_error": 6.661338147750939e-16,
+      "continuation_error": 1.1102230246251565e-16,
+      "seconds": [
+        2.8273602120000003,
+        3.0163017460000003,
+        2.657226731
+      ],
+      "baseline_seconds": [
+        3.0000000000000004e-08,
+        2e-08,
+        3.0000000000000004e-08
+      ],
+      "accepted": [
+        2,
+        1,
+        0
+      ],
+      "logical_failures": [
+        0,
+        0,
+        0
+      ],
+      "baseline_accepted": [
+        0,
+        0,
+        0
+      ],
+      "baseline_logical_failures": [
+        0,
+        0,
+        0
+      ],
+      "distance": 7,
+      "probability": 0.001,
+      "schedule": "budgeted",
+      "early_rejection": true,
+      "circuit_sha256": "fff72e8f48a0509a00d52133d8cb334a1743fc7c74ce1f40eeeccc9785909545",
+      "compiler_seconds": 30.21669651987031,
+      "native_seconds_per_attempt": 0.17671001325000002,
+      "baseline_seconds_per_attempt": null,
+      "speedup": null,
+      "ordinary_coefficient_bytes": 281474976710656,
+      "baseline_skip_reason": "dense allocation limit",
+      "bundle_bytes": 37848106
+    },
+    {
+      "kind": "benchmark",
+      "setup_seconds": 0.5728463610000001,
+      "baseline_setup_seconds": 3.8539552780000004,
+      "shots_per_batch": 16,
+      "baseline_shots_per_batch": 0,
+      "prefix_peak_width": 22,
+      "ordinary_peak_width": 44,
+      "native_peak_rss_kib": 317364,
+      "normalization_error": 8.881784197001252e-16,
+      "continuation_error": 2.220446049250313e-16,
+      "seconds": [
+        7.202644566,
+        7.27822435,
+        7.177368908
+      ],
+      "baseline_seconds": [
+        3.0000000000000004e-08,
+        3.0000000000000004e-08,
+        3.0000000000000004e-08
+      ],
+      "accepted": [
+        1,
+        2,
+        3
+      ],
+      "logical_failures": [
+        0,
+        0,
+        0
+      ],
+      "baseline_accepted": [
+        0,
+        0,
+        0
+      ],
+      "baseline_logical_failures": [
+        0,
+        0,
+        0
+      ],
+      "distance": 7,
+      "probability": 0.001,
+      "schedule": "unbounded",
+      "early_rejection": false,
+      "circuit_sha256": "fff72e8f48a0509a00d52133d8cb334a1743fc7c74ce1f40eeeccc9785909545",
+      "compiler_seconds": 30.21669651987031,
+      "native_seconds_per_attempt": 0.450165285375,
+      "baseline_seconds_per_attempt": null,
+      "speedup": null,
+      "ordinary_coefficient_bytes": 281474976710656,
+      "baseline_skip_reason": "dense allocation limit",
+      "bundle_bytes": 37848106
+    },
+    {
+      "kind": "benchmark",
+      "setup_seconds": 0.5747630410000001,
+      "baseline_setup_seconds": 3.837684047,
+      "shots_per_batch": 16,
+      "baseline_shots_per_batch": 0,
+      "prefix_peak_width": 22,
+      "ordinary_peak_width": 44,
+      "native_peak_rss_kib": 317364,
+      "normalization_error": 8.881784197001252e-16,
+      "continuation_error": 0,
+      "seconds": [
+        2.743470734,
+        3.018270244,
+        2.589351102
+      ],
+      "baseline_seconds": [
+        2e-08,
+        2e-08,
+        2.1000000000000003e-08
+      ],
+      "accepted": [
+        2,
+        1,
+        0
+      ],
+      "logical_failures": [
+        0,
+        0,
+        0
+      ],
+      "baseline_accepted": [
+        0,
+        0,
+        0
+      ],
+      "baseline_logical_failures": [
+        0,
+        0,
+        0
+      ],
+      "distance": 7,
+      "probability": 0.001,
+      "schedule": "unbounded",
+      "early_rejection": true,
+      "circuit_sha256": "fff72e8f48a0509a00d52133d8cb334a1743fc7c74ce1f40eeeccc9785909545",
+      "compiler_seconds": 30.21669651987031,
+      "native_seconds_per_attempt": 0.171466920875,
+      "baseline_seconds_per_attempt": null,
+      "speedup": null,
+      "ordinary_coefficient_bytes": 281474976710656,
+      "baseline_skip_reason": "dense allocation limit",
+      "bundle_bytes": 37848106
+    }
+  ]
+}

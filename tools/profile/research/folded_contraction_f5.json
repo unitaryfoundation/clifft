@@ -1,0 +1,1112 @@
+{
+  "distance": 5,
+  "scope": "native contraction sampling with offline-bound faults and incoming states; not full-attempt throughput",
+  "sampler_sha256": "d16b4c879413cbe7474a0d2f49feb1a74a408abef53b443801944c27f7a60f0f",
+  "reference_sha256": "9a2be4724f066e8ee1a28a6c0f565edea693afa21a7a4095ca8d16d5acde13fe",
+  "source_sha256": {
+    "folded_check_contraction.py": "762cf5499e1ed75454e81cd31f2a8068882db9b0be0767b1164090dc9fa93e81",
+    "audit_folded_contraction.py": "58384fc631f9c6e96009be8b632acba541f7792d823dc4fb266f3f396b1f5f8a",
+    "sample_folded_checks.cpp": "e069dc72df4e6e4154988c7e9898a8974b29a5975ab88cd106c5d8f59d9483e8",
+    "gadget_contraction_kernel.h": "17533315113e62760280f7f70e41b270890a68b68cf25f819986774c42b04c1b"
+  },
+  "rank": 20,
+  "peak_scope": 8,
+  "marginal_sum_work": 23792,
+  "plan_payload_bytes": 1858584,
+  "histories": [
+    {
+      "case": 0,
+      "absolute_log_error": 3.3306690738754696e-16,
+      "binding_seconds": 0.0048119788989424706,
+      "block_probability": 0.9999999999999993,
+      "final_probability": 0.9999999999999998
+    },
+    {
+      "case": 1,
+      "absolute_log_error": 4.440892098500626e-16,
+      "binding_seconds": 0.0052672699093818665,
+      "block_probability": 0.2499999999999998,
+      "final_probability": 0.4999999999999999
+    },
+    {
+      "case": 2,
+      "absolute_log_error": 8.881784197001252e-16,
+      "binding_seconds": 0.004758036928251386,
+      "block_probability": 0.12499999999999989,
+      "final_probability": 0.4999999999999998
+    },
+    {
+      "case": 3,
+      "absolute_log_error": 8.881784197001252e-16,
+      "binding_seconds": 0.0051698931492865086,
+      "block_probability": 0.06249999999999996,
+      "final_probability": 0.4999999999999999
+    },
+    {
+      "case": 4,
+      "absolute_log_error": 3.3306690738754696e-16,
+      "binding_seconds": 0.004699548007920384,
+      "block_probability": 0.9999999999999993,
+      "final_probability": 0.9999999999999998
+    },
+    {
+      "case": 5,
+      "absolute_log_error": 4.440892098500626e-16,
+      "binding_seconds": 0.00506650609895587,
+      "block_probability": 0.24999999999999983,
+      "final_probability": 0.4999999999999999
+    },
+    {
+      "case": 6,
+      "absolute_log_error": 8.881784197001252e-16,
+      "binding_seconds": 0.005076069850474596,
+      "block_probability": 0.015624999999999991,
+      "final_probability": 0.5
+    },
+    {
+      "case": 7,
+      "absolute_log_error": 3.3306690738754696e-16,
+      "binding_seconds": 0.004963668994605541,
+      "block_probability": 0.9999999999999993,
+      "final_probability": 0.9999999999999998
+    },
+    {
+      "case": 8,
+      "absolute_log_error": 4.440892098500626e-16,
+      "binding_seconds": 0.005050281062722206,
+      "block_probability": 0.2499999999999999,
+      "final_probability": 0.4999999999999997
+    },
+    {
+      "case": 9,
+      "absolute_log_error": 0.0,
+      "binding_seconds": 0.005338018061593175,
+      "block_probability": 0.2499999999999999,
+      "final_probability": 0.4999999999999998
+    },
+    {
+      "case": 10,
+      "absolute_log_error": 3.3306690738754696e-16,
+      "binding_seconds": 0.004961605882272124,
+      "block_probability": 0.9999999999999993,
+      "final_probability": 0.9999999999999998
+    },
+    {
+      "case": 11,
+      "absolute_log_error": 0.0,
+      "binding_seconds": 0.004970560083165765,
+      "block_probability": 0.00012207031249999989,
+      "final_probability": 0.4999999999999998
+    },
+    {
+      "case": 12,
+      "absolute_log_error": 1.7763568394002505e-15,
+      "binding_seconds": 0.00499939383007586,
+      "block_probability": 0.00012207031249999989,
+      "final_probability": 0.49999999999999967
+    },
+    {
+      "case": 13,
+      "absolute_log_error": 3.3306690738754696e-16,
+      "binding_seconds": 0.004809315083548427,
+      "block_probability": 0.9999999999999993,
+      "final_probability": 0.9999999999999998
+    },
+    {
+      "case": 14,
+      "absolute_log_error": 8.881784197001252e-16,
+      "binding_seconds": 0.0048503580037504435,
+      "block_probability": 0.007812499999999993,
+      "final_probability": 0.4999999999999998
+    },
+    {
+      "case": 15,
+      "absolute_log_error": 0.0,
+      "binding_seconds": 0.004891340155154467,
+      "block_probability": 0.12499999999999994,
+      "final_probability": 0.4999999999999999
+    },
+    {
+      "case": 16,
+      "absolute_log_error": 3.3306690738754696e-16,
+      "binding_seconds": 0.004738076822832227,
+      "block_probability": 0.9999999999999993,
+      "final_probability": 0.9999999999999998
+    },
+    {
+      "case": 17,
+      "absolute_log_error": 0.0,
+      "binding_seconds": 0.004842525813728571,
+      "block_probability": 0.0009765624999999997,
+      "final_probability": 0.4999999999999998
+    },
+    {
+      "case": 18,
+      "absolute_log_error": 0.0,
+      "binding_seconds": 0.004862705944105983,
+      "block_probability": 0.003906249999999997,
+      "final_probability": 0.4999999999999999
+    },
+    {
+      "case": 19,
+      "absolute_log_error": 3.3306690738754696e-16,
+      "binding_seconds": 0.0047658090479671955,
+      "block_probability": 0.9999999999999993,
+      "final_probability": 0.9999999999999998
+    },
+    {
+      "case": 20,
+      "absolute_log_error": 0.0,
+      "binding_seconds": 0.004782685078680515,
+      "block_probability": 0.4999999999999997,
+      "final_probability": 0.4999999999999998
+    },
+    {
+      "case": 21,
+      "absolute_log_error": 0.0,
+      "binding_seconds": 0.004922536900267005,
+      "block_probability": 3.814697265624998e-06,
+      "final_probability": 0.5
+    },
+    {
+      "case": 22,
+      "absolute_log_error": 3.3306690738754696e-16,
+      "binding_seconds": 0.004747982136905193,
+      "block_probability": 0.9999999999999993,
+      "final_probability": 0.9999999999999998
+    },
+    {
+      "case": 23,
+      "absolute_log_error": 8.881784197001252e-16,
+      "binding_seconds": 0.005290094995871186,
+      "block_probability": 0.1249999999999999,
+      "final_probability": 0.4999999999999997
+    }
+  ],
+  "native_traces": [
+    {
+      "shot": 0,
+      "root_outcomes": 0,
+      "syndrome": 0,
+      "log_probability": -6.661338147750941e-16,
+      "logical": [
+        [
+          0.7071067811865475,
+          -5.074904731855984e-17
+        ],
+        [
+          0.5000000000000001,
+          0.49999999999999994
+        ]
+      ],
+      "case": 0,
+      "absolute_log_error": 6.661338147750941e-16,
+      "logical_bloch_error": 2.220446049250313e-16
+    },
+    {
+      "shot": 1,
+      "root_outcomes": 2,
+      "syndrome": 8,
+      "log_probability": -1.3862943611198912,
+      "logical": [
+        [
+          0.7071067811865475,
+          -1.4955800136159234e-16
+        ],
+        [
+          0.5000000000000001,
+          0.4999999999999999
+        ]
+      ],
+      "case": 1,
+      "absolute_log_error": 6.661338147750939e-16,
+      "logical_bloch_error": 2.220446049250313e-16
+    },
+    {
+      "shot": 2,
+      "root_outcomes": 0,
+      "syndrome": 547872,
+      "log_probability": -2.0794415416798366,
+      "logical": [
+        [
+          -0.7071067811865475,
+          -1.1775693440128314e-16
+        ],
+        [
+          -0.5,
+          0.5
+        ]
+      ],
+      "case": 2,
+      "absolute_log_error": 1.3322676295501878e-15,
+      "logical_bloch_error": 4.440892098500626e-16
+    },
+    {
+      "shot": 3,
+      "root_outcomes": 3,
+      "syndrome": 1011011,
+      "log_probability": -2.772588722239782,
+      "logical": [
+        [
+          0.7071067811865475,
+          -3.818434266800375e-16
+        ],
+        [
+          0.5000000000000003,
+          0.4999999999999999
+        ]
+      ],
+      "case": 3,
+      "absolute_log_error": 8.881784197001252e-16,
+      "logical_bloch_error": 3.2975116037396915e-16
+    },
+    {
+      "shot": 4,
+      "root_outcomes": 0,
+      "syndrome": 0,
+      "log_probability": -6.661338147750941e-16,
+      "logical": [
+        [
+          0.7071067811865475,
+          -5.074904731855984e-17
+        ],
+        [
+          0.5000000000000001,
+          0.49999999999999994
+        ]
+      ],
+      "case": 4,
+      "absolute_log_error": 6.661338147750941e-16,
+      "logical_bloch_error": 2.220446049250313e-16
+    },
+    {
+      "shot": 5,
+      "root_outcomes": 3,
+      "syndrome": 313408,
+      "log_probability": -1.386294361119891,
+      "logical": [
+        [
+          0.7071067811865475,
+          -7.850462293418875e-17
+        ],
+        [
+          0.5000000000000001,
+          0.49999999999999983
+        ]
+      ],
+      "case": 5,
+      "absolute_log_error": 2.220446049250313e-16,
+      "logical_bloch_error": 1.1102230246251565e-16
+    },
+    {
+      "shot": 6,
+      "root_outcomes": 1,
+      "syndrome": 336776,
+      "log_probability": -4.158883083359673,
+      "logical": [
+        [
+          -0.7071067811865475,
+          1.5700924586837754e-16
+        ],
+        [
+          0.49999999999999994,
+          -0.5000000000000001
+        ]
+      ],
+      "case": 6,
+      "absolute_log_error": 8.881784197001252e-16,
+      "logical_bloch_error": 3.3306690738754696e-16
+    },
+    {
+      "shot": 7,
+      "root_outcomes": 0,
+      "syndrome": 0,
+      "log_probability": -6.661338147750941e-16,
+      "logical": [
+        [
+          0.7071067811865475,
+          -5.074904731855984e-17
+        ],
+        [
+          0.5000000000000001,
+          0.49999999999999994
+        ]
+      ],
+      "case": 7,
+      "absolute_log_error": 6.661338147750941e-16,
+      "logical_bloch_error": 2.220446049250313e-16
+    },
+    {
+      "shot": 8,
+      "root_outcomes": 3,
+      "syndrome": 139270,
+      "log_probability": -1.3862943611198917,
+      "logical": [
+        [
+          -0.7071067811865476,
+          1.014980946371197e-16
+        ],
+        [
+          -0.5000000000000001,
+          -0.5000000000000001
+        ]
+      ],
+      "case": 8,
+      "absolute_log_error": 8.881784197001252e-16,
+      "logical_bloch_error": 2.220446049250313e-16
+    },
+    {
+      "shot": 9,
+      "root_outcomes": 3,
+      "syndrome": 160447,
+      "log_probability": -1.386294361119891,
+      "logical": [
+        [
+          0.7071067811865475,
+          -7.850462293418875e-17
+        ],
+        [
+          -0.5,
+          0.49999999999999994
+        ]
+      ],
+      "case": 9,
+      "absolute_log_error": 6.661338147750939e-16,
+      "logical_bloch_error": 1.1102230246251565e-16
+    },
+    {
+      "shot": 10,
+      "root_outcomes": 0,
+      "syndrome": 0,
+      "log_probability": -6.661338147750941e-16,
+      "logical": [
+        [
+          0.7071067811865475,
+          -5.074904731855984e-17
+        ],
+        [
+          0.5000000000000001,
+          0.49999999999999994
+        ]
+      ],
+      "case": 10,
+      "absolute_log_error": 6.661338147750941e-16,
+      "logical_bloch_error": 2.220446049250313e-16
+    },
+    {
+      "shot": 11,
+      "root_outcomes": 3,
+      "syndrome": 229266,
+      "log_probability": -9.01091334727929,
+      "logical": [
+        [
+          0.7071067811865475,
+          -1.1775693440128317e-16
+        ],
+        [
+          0.5,
+          0.5
+        ]
+      ],
+      "case": 11,
+      "absolute_log_error": 0.0,
+      "logical_bloch_error": 1.1102230246251565e-16
+    },
+    {
+      "shot": 12,
+      "root_outcomes": 0,
+      "syndrome": 65653,
+      "log_probability": -9.01091334727929,
+      "logical": [
+        [
+          0.7071067811865475,
+          -2.551400245361135e-16
+        ],
+        [
+          0.5000000000000002,
+          0.4999999999999998
+        ]
+      ],
+      "case": 12,
+      "absolute_log_error": 0.0,
+      "logical_bloch_error": 1.1102230246251565e-16
+    },
+    {
+      "shot": 13,
+      "root_outcomes": 2,
+      "syndrome": 0,
+      "log_probability": -6.661338147750941e-16,
+      "logical": [
+        [
+          0.7071067811865475,
+          -5.074904731855984e-17
+        ],
+        [
+          0.5000000000000001,
+          0.49999999999999994
+        ]
+      ],
+      "case": 13,
+      "absolute_log_error": 6.661338147750941e-16,
+      "logical_bloch_error": 2.220446049250313e-16
+    },
+    {
+      "shot": 14,
+      "root_outcomes": 0,
+      "syndrome": 30304,
+      "log_probability": -4.852030263919618,
+      "logical": [
+        [
+          -1.1775693440128317e-16,
+          0.7071067811865475
+        ],
+        [
+          -0.5,
+          -0.5
+        ]
+      ],
+      "case": 14,
+      "absolute_log_error": 8.881784197001252e-16,
+      "logical_bloch_error": 1.1102230246251565e-16
+    },
+    {
+      "shot": 15,
+      "root_outcomes": 3,
+      "syndrome": 101584,
+      "log_probability": -2.0794415416798366,
+      "logical": [
+        [
+          0.7071067811865475,
+          -3.1401849173675513e-16
+        ],
+        [
+          0.5000000000000001,
+          0.49999999999999983
+        ]
+      ],
+      "case": 15,
+      "absolute_log_error": 4.440892098500626e-16,
+      "logical_bloch_error": 1.1102230246251565e-16
+    },
+    {
+      "shot": 16,
+      "root_outcomes": 0,
+      "syndrome": 0,
+      "log_probability": -6.661338147750941e-16,
+      "logical": [
+        [
+          0.7071067811865475,
+          -5.074904731855984e-17
+        ],
+        [
+          0.5000000000000001,
+          0.49999999999999994
+        ]
+      ],
+      "case": 16,
+      "absolute_log_error": 6.661338147750941e-16,
+      "logical_bloch_error": 2.220446049250313e-16
+    },
+    {
+      "shot": 17,
+      "root_outcomes": 3,
+      "syndrome": 152915,
+      "log_probability": -6.931471805599454,
+      "logical": [
+        [
+          0.7071067811865476,
+          -1.4719616800160392e-16
+        ],
+        [
+          -0.5,
+          0.49999999999999994
+        ]
+      ],
+      "case": 17,
+      "absolute_log_error": 1.7763568394002505e-15,
+      "logical_bloch_error": 3.3306690738754696e-16
+    },
+    {
+      "shot": 18,
+      "root_outcomes": 2,
+      "syndrome": 1011138,
+      "log_probability": -5.545177444479563,
+      "logical": [
+        [
+          0.7071067811865476,
+          -8.466151479020101e-17
+        ],
+        [
+          0.4999999999999999,
+          -0.5000000000000001
+        ]
+      ],
+      "case": 18,
+      "absolute_log_error": 8.881784197001252e-16,
+      "logical_bloch_error": 2.220446049250313e-16
+    },
+    {
+      "shot": 19,
+      "root_outcomes": 0,
+      "syndrome": 0,
+      "log_probability": -6.661338147750941e-16,
+      "logical": [
+        [
+          0.7071067811865475,
+          -5.074904731855984e-17
+        ],
+        [
+          0.5000000000000001,
+          0.49999999999999994
+        ]
+      ],
+      "case": 19,
+      "absolute_log_error": 6.661338147750941e-16,
+      "logical_bloch_error": 2.220446049250313e-16
+    },
+    {
+      "shot": 20,
+      "root_outcomes": 3,
+      "syndrome": 4160,
+      "log_probability": -0.6931471805599458,
+      "logical": [
+        [
+          0.7071067811865476,
+          -5.887846720064156e-17
+        ],
+        [
+          0.5,
+          0.49999999999999994
+        ]
+      ],
+      "case": 20,
+      "absolute_log_error": 5.551115123125783e-16,
+      "logical_bloch_error": 2.220446049250313e-16
+    },
+    {
+      "shot": 21,
+      "root_outcomes": 1,
+      "syndrome": 655156,
+      "log_probability": -12.476649250079015,
+      "logical": [
+        [
+          -3.829549071174002e-16,
+          -0.7071067811865474
+        ],
+        [
+          -0.49999999999999983,
+          0.5000000000000003
+        ]
+      ],
+      "case": 21,
+      "absolute_log_error": 0.0,
+      "logical_bloch_error": 4.440892098500626e-16
+    },
+    {
+      "shot": 22,
+      "root_outcomes": 0,
+      "syndrome": 0,
+      "log_probability": -6.661338147750941e-16,
+      "logical": [
+        [
+          0.7071067811865475,
+          -5.074904731855984e-17
+        ],
+        [
+          0.5000000000000001,
+          0.49999999999999994
+        ]
+      ],
+      "case": 22,
+      "absolute_log_error": 6.661338147750941e-16,
+      "logical_bloch_error": 2.220446049250313e-16
+    },
+    {
+      "shot": 23,
+      "root_outcomes": 0,
+      "syndrome": 65652,
+      "log_probability": -2.0794415416798366,
+      "logical": [
+        [
+          -0.7071067811865475,
+          2.517342713740086e-16
+        ],
+        [
+          0.5000000000000001,
+          0.49999999999999983
+        ]
+      ],
+      "case": 23,
+      "absolute_log_error": 8.881784197001252e-16,
+      "logical_bloch_error": 2.220446049250313e-16
+    },
+    {
+      "shot": 24,
+      "root_outcomes": 0,
+      "syndrome": 0,
+      "log_probability": -6.661338147750941e-16,
+      "logical": [
+        [
+          0.7071067811865475,
+          -5.074904731855984e-17
+        ],
+        [
+          0.5000000000000001,
+          0.49999999999999994
+        ]
+      ],
+      "case": 0,
+      "absolute_log_error": 6.661338147750941e-16,
+      "logical_bloch_error": 2.220446049250313e-16
+    },
+    {
+      "shot": 25,
+      "root_outcomes": 3,
+      "syndrome": 8,
+      "log_probability": -1.3862943611198915,
+      "logical": [
+        [
+          -0.7071067811865476,
+          2.361536069851417e-16
+        ],
+        [
+          -0.5000000000000002,
+          -0.49999999999999983
+        ]
+      ],
+      "case": 1,
+      "absolute_log_error": 8.881784197001252e-16,
+      "logical_bloch_error": 1.1102230246251565e-16
+    },
+    {
+      "shot": 26,
+      "root_outcomes": 3,
+      "syndrome": 23040,
+      "log_probability": -2.0794415416798366,
+      "logical": [
+        [
+          -9.43188262954197e-50,
+          0.7071067811865476
+        ],
+        [
+          -0.49999999999999994,
+          -0.5000000000000001
+        ]
+      ],
+      "case": 2,
+      "absolute_log_error": 4.440892098500626e-16,
+      "logical_bloch_error": 0.0
+    },
+    {
+      "shot": 27,
+      "root_outcomes": 2,
+      "syndrome": 1014851,
+      "log_probability": -2.772588722239782,
+      "logical": [
+        [
+          -0.7071067811865475,
+          5.71370352076742e-16
+        ],
+        [
+          -0.5000000000000004,
+          -0.4999999999999998
+        ]
+      ],
+      "case": 3,
+      "absolute_log_error": 0.0,
+      "logical_bloch_error": 3.6852431764835006e-16
+    },
+    {
+      "shot": 28,
+      "root_outcomes": 0,
+      "syndrome": 0,
+      "log_probability": -6.661338147750941e-16,
+      "logical": [
+        [
+          0.7071067811865475,
+          -5.074904731855984e-17
+        ],
+        [
+          0.5000000000000001,
+          0.49999999999999994
+        ]
+      ],
+      "case": 4,
+      "absolute_log_error": 6.661338147750941e-16,
+      "logical_bloch_error": 2.220446049250313e-16
+    },
+    {
+      "shot": 29,
+      "root_outcomes": 0,
+      "syndrome": 321632,
+      "log_probability": -1.3862943611198912,
+      "logical": [
+        [
+          2.3830344468919484e-16,
+          0.7071067811865475
+        ],
+        [
+          -0.49999999999999994,
+          0.5000000000000001
+        ]
+      ],
+      "case": 5,
+      "absolute_log_error": 4.440892098500626e-16,
+      "logical_bloch_error": 3.3306690738754696e-16
+    },
+    {
+      "shot": 30,
+      "root_outcomes": 1,
+      "syndrome": 406272,
+      "log_probability": -4.158883083359673,
+      "logical": [
+        [
+          -0.7071067811865475,
+          1.5700924586837754e-16
+        ],
+        [
+          -0.49999999999999994,
+          0.5000000000000001
+        ]
+      ],
+      "case": 6,
+      "absolute_log_error": 8.881784197001252e-16,
+      "logical_bloch_error": 3.3306690738754696e-16
+    },
+    {
+      "shot": 31,
+      "root_outcomes": 0,
+      "syndrome": 0,
+      "log_probability": -6.661338147750941e-16,
+      "logical": [
+        [
+          0.7071067811865475,
+          -5.074904731855984e-17
+        ],
+        [
+          0.5000000000000001,
+          0.49999999999999994
+        ]
+      ],
+      "case": 7,
+      "absolute_log_error": 6.661338147750941e-16,
+      "logical_bloch_error": 2.220446049250313e-16
+    },
+    {
+      "shot": 32,
+      "root_outcomes": 3,
+      "syndrome": 6,
+      "log_probability": -1.386294361119891,
+      "logical": [
+        [
+          0.7071067811865475,
+          0
+        ],
+        [
+          0.5000000000000001,
+          0.4999999999999999
+        ]
+      ],
+      "case": 8,
+      "absolute_log_error": 4.440892098500626e-16,
+      "logical_bloch_error": 2.220446049250313e-16
+    },
+    {
+      "shot": 33,
+      "root_outcomes": 3,
+      "syndrome": 350187,
+      "log_probability": -1.3862943611198912,
+      "logical": [
+        [
+          1.6258839764163466e-17,
+          -0.7071067811865475
+        ],
+        [
+          -0.5000000000000001,
+          -0.49999999999999994
+        ]
+      ],
+      "case": 9,
+      "absolute_log_error": 8.881784197001252e-16,
+      "logical_bloch_error": 3.3306690738754696e-16
+    },
+    {
+      "shot": 34,
+      "root_outcomes": 0,
+      "syndrome": 0,
+      "log_probability": -6.661338147750941e-16,
+      "logical": [
+        [
+          0.7071067811865475,
+          -5.074904731855984e-17
+        ],
+        [
+          0.5000000000000001,
+          0.49999999999999994
+        ]
+      ],
+      "case": 10,
+      "absolute_log_error": 6.661338147750941e-16,
+      "logical_bloch_error": 2.220446049250313e-16
+    },
+    {
+      "shot": 35,
+      "root_outcomes": 2,
+      "syndrome": 148370,
+      "log_probability": -9.01091334727929,
+      "logical": [
+        [
+          -0.7071067811865475,
+          1.1775693440128317e-16
+        ],
+        [
+          0.5,
+          0.5
+        ]
+      ],
+      "case": 11,
+      "absolute_log_error": 0.0,
+      "logical_bloch_error": 1.1995373661469631e-16
+    },
+    {
+      "shot": 36,
+      "root_outcomes": 3,
+      "syndrome": 90686,
+      "log_probability": -9.01091334727929,
+      "logical": [
+        [
+          0.7071067811865476,
+          -2.933484162010914e-16
+        ],
+        [
+          -0.5000000000000001,
+          -0.4999999999999998
+        ]
+      ],
+      "case": 12,
+      "absolute_log_error": 0.0,
+      "logical_bloch_error": 4.440892098500626e-16
+    },
+    {
+      "shot": 37,
+      "root_outcomes": 2,
+      "syndrome": 0,
+      "log_probability": -6.661338147750941e-16,
+      "logical": [
+        [
+          0.7071067811865475,
+          -5.074904731855984e-17
+        ],
+        [
+          0.5000000000000001,
+          0.49999999999999994
+        ]
+      ],
+      "case": 13,
+      "absolute_log_error": 6.661338147750941e-16,
+      "logical_bloch_error": 2.220446049250313e-16
+    },
+    {
+      "shot": 38,
+      "root_outcomes": 3,
+      "syndrome": 30208,
+      "log_probability": -4.852030263919618,
+      "logical": [
+        [
+          -1.1775693440128317e-16,
+          0.7071067811865475
+        ],
+        [
+          -0.5,
+          -0.5
+        ]
+      ],
+      "case": 14,
+      "absolute_log_error": 0.0,
+      "logical_bloch_error": 1.1102230246251565e-16
+    },
+    {
+      "shot": 39,
+      "root_outcomes": 0,
+      "syndrome": 730352,
+      "log_probability": -2.079441541679836,
+      "logical": [
+        [
+          2.0839803136951275e-16,
+          0.7071067811865476
+        ],
+        [
+          -0.4999999999999998,
+          0.5000000000000002
+        ]
+      ],
+      "case": 15,
+      "absolute_log_error": 4.440892098500626e-16,
+      "logical_bloch_error": 1.1102230246251565e-16
+    },
+    {
+      "shot": 40,
+      "root_outcomes": 0,
+      "syndrome": 0,
+      "log_probability": -6.661338147750941e-16,
+      "logical": [
+        [
+          0.7071067811865475,
+          -5.074904731855984e-17
+        ],
+        [
+          0.5000000000000001,
+          0.49999999999999994
+        ]
+      ],
+      "case": 16,
+      "absolute_log_error": 6.661338147750941e-16,
+      "logical_bloch_error": 2.220446049250313e-16
+    },
+    {
+      "shot": 41,
+      "root_outcomes": 1,
+      "syndrome": 153395,
+      "log_probability": -6.931471805599454,
+      "logical": [
+        [
+          -0.7071067811865475,
+          1.113111725038933e-16
+        ],
+        [
+          -0.5,
+          0.5000000000000001
+        ]
+      ],
+      "case": 17,
+      "absolute_log_error": 0.0,
+      "logical_bloch_error": 3.3306690738754696e-16
+    },
+    {
+      "shot": 42,
+      "root_outcomes": 1,
+      "syndrome": 527330,
+      "log_probability": -5.545177444479563,
+      "logical": [
+        [
+          0.7071067811865476,
+          -1.651002285577381e-16
+        ],
+        [
+          0.49999999999999994,
+          -0.5000000000000001
+        ]
+      ],
+      "case": 18,
+      "absolute_log_error": 0.0,
+      "logical_bloch_error": 2.220446049250313e-16
+    },
+    {
+      "shot": 43,
+      "root_outcomes": 0,
+      "syndrome": 0,
+      "log_probability": -6.661338147750941e-16,
+      "logical": [
+        [
+          0.7071067811865475,
+          -5.074904731855984e-17
+        ],
+        [
+          0.5000000000000001,
+          0.49999999999999994
+        ]
+      ],
+      "case": 19,
+      "absolute_log_error": 6.661338147750941e-16,
+      "logical_bloch_error": 2.220446049250313e-16
+    },
+    {
+      "shot": 44,
+      "root_outcomes": 3,
+      "syndrome": 4160,
+      "log_probability": -0.6931471805599458,
+      "logical": [
+        [
+          0.7071067811865476,
+          -5.887846720064156e-17
+        ],
+        [
+          0.5,
+          0.49999999999999994
+        ]
+      ],
+      "case": 20,
+      "absolute_log_error": 5.551115123125783e-16,
+      "logical_bloch_error": 2.220446049250313e-16
+    },
+    {
+      "shot": 45,
+      "root_outcomes": 2,
+      "syndrome": 121147,
+      "log_probability": -12.476649250079015,
+      "logical": [
+        [
+          0.7071067811865476,
+          -6.823926545392576e-16
+        ],
+        [
+          -0.5000000000000001,
+          -0.4999999999999999
+        ]
+      ],
+      "case": 21,
+      "absolute_log_error": 1.7763568394002505e-15,
+      "logical_bloch_error": 1.1102230246251565e-15
+    },
+    {
+      "shot": 46,
+      "root_outcomes": 0,
+      "syndrome": 0,
+      "log_probability": -6.661338147750941e-16,
+      "logical": [
+        [
+          0.7071067811865475,
+          -5.074904731855984e-17
+        ],
+        [
+          0.5000000000000001,
+          0.49999999999999994
+        ]
+      ],
+      "case": 22,
+      "absolute_log_error": 6.661338147750941e-16,
+      "logical_bloch_error": 2.220446049250313e-16
+    },
+    {
+      "shot": 47,
+      "root_outcomes": 0,
+      "syndrome": 65650,
+      "log_probability": -2.0794415416798366,
+      "logical": [
+        [
+          -0.7071067811865475,
+          2.517342713740086e-16
+        ],
+        [
+          0.5000000000000001,
+          0.49999999999999983
+        ]
+      ],
+      "case": 23,
+      "absolute_log_error": 8.881784197001252e-16,
+      "logical_bloch_error": 1.1102230246251565e-16
+    }
+  ],
+  "benchmark": {
+    "seconds": [
+      0.8769348730000001,
+      0.873518232,
+      0.8778330350000001
+    ],
+    "shots_per_batch": 256,
+    "max_normalization_error": 5.551115123125783e-16,
+    "max_continuation_error": 2.220446049250313e-16,
+    "checksum": 129241237
+  },
+  "kernel_seconds_per_sample": 0.0034255268476562502
+}

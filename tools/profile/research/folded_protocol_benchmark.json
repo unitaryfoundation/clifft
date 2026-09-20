@@ -1,0 +1,436 @@
+{
+  "platform": "Linux-6.12.93-x86_64-with-glibc2.39",
+  "cpu_affinity": 0,
+  "probability": 0.001,
+  "sampler": "/tmp/clifft-pr471-baseline/build-study/sample_folded_protocol",
+  "sampler_sha256": "5338aca3df6eff424a2cc618a76605bd9d1c546a12876929b9a99406eac0bfce",
+  "source_sha256": {
+    "compile_folded_protocol.py": "ceb61bac62e3670cebc6c19b1c2b48cf65238d822c9f49f304ed434565b64657",
+    "folded_check_contraction.py": "762cf5499e1ed75454e81cd31f2a8068882db9b0be0767b1164090dc9fa93e81",
+    "sample_folded_protocol.cpp": "652809bfc8677f8acf86b829adb66340e4f4f7d73124dae639845237f11336ec",
+    "folded_sampling_kernel.h": "792b43a8043b18d9b1ba9c777a4eae049fc50c51815955a0440ac5003718e035",
+    "gadget_contraction_kernel.h": "17533315113e62760280f7f70e41b270890a68b68cf25f819986774c42b04c1b",
+    "study_schedule.h": "e666cdc9863cfc2ab23b8b3d5d4f3f842965dea7cb6d59845ae6a9e9616ba488",
+    "folded_msc.py": "3cc53fc038dc28d50ee3b79e8a9bd6f3643d71dfdd6fbd6db609d0a827dbec5f",
+    "folded_msc_family.py": "b317e8f34d52923f4047f70cfbf0ec259f4f1fb3dd5b542ebb8f92bcdca15b7e",
+    "benchmark_folded_protocol.py": "df31578d1b41eb12dc1c3089d5c33c1d372698220a33292abc2015d3989a158e"
+  },
+  "cases": [
+    {
+      "kind": "benchmark",
+      "setup_seconds": 0.0015189860000000002,
+      "baseline_setup_seconds": 0.005724170000000001,
+      "shots_per_batch": 4096,
+      "baseline_shots_per_batch": 65536,
+      "prefix_peak_width": 1,
+      "ordinary_peak_width": 8,
+      "native_peak_rss_kib": 201720,
+      "normalization_error": 8.881784197001252e-16,
+      "continuation_error": 4.440892098500626e-16,
+      "seconds": [
+        0.7950486910000001,
+        0.769745199,
+        0.773288237
+      ],
+      "baseline_seconds": [
+        0.280881742,
+        0.2790495,
+        0.280349815
+      ],
+      "accepted": [
+        3265,
+        3294,
+        3279
+      ],
+      "logical_failures": [
+        0,
+        0,
+        0
+      ],
+      "baseline_accepted": [
+        51784,
+        51929,
+        51682
+      ],
+      "baseline_logical_failures": [
+        0,
+        0,
+        0
+      ],
+      "distance": 3,
+      "probability": 0.001,
+      "schedule": "budgeted",
+      "early_rejection": false,
+      "circuit_sha256": "8254687fbff582b466ad1f037fd5128046e2415b23b765d2f66f989eadd0be73",
+      "compiler_seconds": 0.45830154116265476,
+      "native_seconds_per_attempt": 0.00018879107348632814,
+      "baseline_seconds_per_attempt": 4.2777986907958985e-06,
+      "speedup": 0.0226589033676197,
+      "bundle_bytes": 240122
+    },
+    {
+      "kind": "benchmark",
+      "setup_seconds": 0.0015073080000000002,
+      "baseline_setup_seconds": 0.005934179,
+      "shots_per_batch": 4096,
+      "baseline_shots_per_batch": 65536,
+      "prefix_peak_width": 1,
+      "ordinary_peak_width": 8,
+      "native_peak_rss_kib": 201720,
+      "normalization_error": 4.440892098500626e-16,
+      "continuation_error": 4.440892098500626e-16,
+      "seconds": [
+        0.669835888,
+        0.666048849,
+        0.6680167060000001
+      ],
+      "baseline_seconds": [
+        0.23558314500000002,
+        0.235694905,
+        0.23682998800000002
+      ],
+      "accepted": [
+        3263,
+        3281,
+        3281
+      ],
+      "logical_failures": [
+        0,
+        0,
+        0
+      ],
+      "baseline_accepted": [
+        51812,
+        51768,
+        51939
+      ],
+      "baseline_logical_failures": [
+        0,
+        0,
+        0
+      ],
+      "distance": 3,
+      "probability": 0.001,
+      "schedule": "budgeted",
+      "early_rejection": true,
+      "circuit_sha256": "8254687fbff582b466ad1f037fd5128046e2415b23b765d2f66f989eadd0be73",
+      "compiler_seconds": 0.45830154116265476,
+      "native_seconds_per_attempt": 0.00016309001611328127,
+      "baseline_seconds_per_attempt": 3.5964188385009767e-06,
+      "speedup": 0.022051741266632334,
+      "bundle_bytes": 240122
+    },
+    {
+      "kind": "benchmark",
+      "setup_seconds": 0.0014557600000000002,
+      "baseline_setup_seconds": 0.008902816000000001,
+      "shots_per_batch": 4096,
+      "baseline_shots_per_batch": 65536,
+      "prefix_peak_width": 1,
+      "ordinary_peak_width": 8,
+      "native_peak_rss_kib": 201720,
+      "normalization_error": 8.881784197001252e-16,
+      "continuation_error": 4.440892098500626e-16,
+      "seconds": [
+        0.76149274,
+        0.762855609,
+        0.7717076970000001
+      ],
+      "baseline_seconds": [
+        0.267595442,
+        0.27439625700000003,
+        0.277406397
+      ],
+      "accepted": [
+        3265,
+        3294,
+        3279
+      ],
+      "logical_failures": [
+        0,
+        0,
+        0
+      ],
+      "baseline_accepted": [
+        51784,
+        51929,
+        51682
+      ],
+      "baseline_logical_failures": [
+        0,
+        0,
+        0
+      ],
+      "distance": 3,
+      "probability": 0.001,
+      "schedule": "unbounded",
+      "early_rejection": false,
+      "circuit_sha256": "8254687fbff582b466ad1f037fd5128046e2415b23b765d2f66f989eadd0be73",
+      "compiler_seconds": 0.45830154116265476,
+      "native_seconds_per_attempt": 0.00018624404516601564,
+      "baseline_seconds_per_attempt": 4.1869546051025396e-06,
+      "speedup": 0.022481011950585265,
+      "bundle_bytes": 240122
+    },
+    {
+      "kind": "benchmark",
+      "setup_seconds": 0.0015034030000000002,
+      "baseline_setup_seconds": 0.009045692000000001,
+      "shots_per_batch": 4096,
+      "baseline_shots_per_batch": 65536,
+      "prefix_peak_width": 1,
+      "ordinary_peak_width": 8,
+      "native_peak_rss_kib": 201720,
+      "normalization_error": 4.440892098500626e-16,
+      "continuation_error": 4.440892098500626e-16,
+      "seconds": [
+        0.688306728,
+        0.673687464,
+        0.666812316
+      ],
+      "baseline_seconds": [
+        0.23027081000000002,
+        0.23152792900000002,
+        0.24338735200000003
+      ],
+      "accepted": [
+        3263,
+        3281,
+        3281
+      ],
+      "logical_failures": [
+        0,
+        0,
+        0
+      ],
+      "baseline_accepted": [
+        51812,
+        51768,
+        51939
+      ],
+      "baseline_logical_failures": [
+        0,
+        0,
+        0
+      ],
+      "distance": 3,
+      "probability": 0.001,
+      "schedule": "unbounded",
+      "early_rejection": true,
+      "circuit_sha256": "8254687fbff582b466ad1f037fd5128046e2415b23b765d2f66f989eadd0be73",
+      "compiler_seconds": 0.45830154116265476,
+      "native_seconds_per_attempt": 0.000164474478515625,
+      "baseline_seconds_per_attempt": 3.532835830688477e-06,
+      "speedup": 0.02147953811784154,
+      "bundle_bytes": 240122
+    },
+    {
+      "kind": "benchmark",
+      "setup_seconds": 0.018201611,
+      "baseline_setup_seconds": 0.038564013,
+      "shots_per_batch": 256,
+      "baseline_shots_per_batch": 64,
+      "prefix_peak_width": 8,
+      "ordinary_peak_width": 22,
+      "native_peak_rss_kib": 207736,
+      "normalization_error": 8.881784197001252e-16,
+      "continuation_error": 3.3306690738754696e-16,
+      "seconds": [
+        0.9428059190000001,
+        0.950482071,
+        0.9605291210000001
+      ],
+      "baseline_seconds": [
+        23.452669218,
+        24.826633693,
+        24.589849580000003
+      ],
+      "accepted": [
+        118,
+        105,
+        111
+      ],
+      "logical_failures": [
+        0,
+        0,
+        0
+      ],
+      "baseline_accepted": [
+        24,
+        23,
+        28
+      ],
+      "baseline_logical_failures": [
+        0,
+        0,
+        0
+      ],
+      "distance": 5,
+      "probability": 0.001,
+      "schedule": "budgeted",
+      "early_rejection": false,
+      "circuit_sha256": "b9e261d861fc691c1586822d4d334a2e3d3888cc2733df641e0cbd17279cc40c",
+      "compiler_seconds": 5.54541438492015,
+      "native_seconds_per_attempt": 0.00371282058984375,
+      "baseline_seconds_per_attempt": 0.38421639968750004,
+      "speedup": 103.4836966640689,
+      "bundle_bytes": 1552976
+    },
+    {
+      "kind": "benchmark",
+      "setup_seconds": 0.018190244,
+      "baseline_setup_seconds": 0.040691703,
+      "shots_per_batch": 256,
+      "baseline_shots_per_batch": 64,
+      "prefix_peak_width": 8,
+      "ordinary_peak_width": 22,
+      "native_peak_rss_kib": 207736,
+      "normalization_error": 4.440892098500626e-16,
+      "continuation_error": 3.3306690738754696e-16,
+      "seconds": [
+        0.527614871,
+        0.542207974,
+        0.5334977000000001
+      ],
+      "baseline_seconds": [
+        14.362509144,
+        13.307196776000001,
+        11.907899486000002
+      ],
+      "accepted": [
+        107,
+        116,
+        109
+      ],
+      "logical_failures": [
+        0,
+        0,
+        0
+      ],
+      "baseline_accepted": [
+        25,
+        27,
+        20
+      ],
+      "baseline_logical_failures": [
+        0,
+        0,
+        0
+      ],
+      "distance": 5,
+      "probability": 0.001,
+      "schedule": "budgeted",
+      "early_rejection": true,
+      "circuit_sha256": "b9e261d861fc691c1586822d4d334a2e3d3888cc2733df641e0cbd17279cc40c",
+      "compiler_seconds": 5.54541438492015,
+      "native_seconds_per_attempt": 0.0020839753906250003,
+      "baseline_seconds_per_attempt": 0.20792494962500002,
+      "speedup": 99.77322695861669,
+      "bundle_bytes": 1552976
+    },
+    {
+      "kind": "benchmark",
+      "setup_seconds": 0.019493894,
+      "baseline_setup_seconds": 0.210578494,
+      "shots_per_batch": 256,
+      "baseline_shots_per_batch": 64,
+      "prefix_peak_width": 8,
+      "ordinary_peak_width": 22,
+      "native_peak_rss_kib": 207736,
+      "normalization_error": 6.661338147750939e-16,
+      "continuation_error": 4.440892098500626e-16,
+      "seconds": [
+        0.9453264490000001,
+        0.9605540340000001,
+        0.9515681920000001
+      ],
+      "baseline_seconds": [
+        21.597866869,
+        21.513714257,
+        21.050276121
+      ],
+      "accepted": [
+        118,
+        105,
+        111
+      ],
+      "logical_failures": [
+        0,
+        0,
+        0
+      ],
+      "baseline_accepted": [
+        24,
+        23,
+        28
+      ],
+      "baseline_logical_failures": [
+        0,
+        0,
+        0
+      ],
+      "distance": 5,
+      "probability": 0.001,
+      "schedule": "unbounded",
+      "early_rejection": false,
+      "circuit_sha256": "b9e261d861fc691c1586822d4d334a2e3d3888cc2733df641e0cbd17279cc40c",
+      "compiler_seconds": 5.54541438492015,
+      "native_seconds_per_attempt": 0.0037170632500000004,
+      "baseline_seconds_per_attempt": 0.336151785265625,
+      "speedup": 90.4347767732026,
+      "bundle_bytes": 1552976
+    },
+    {
+      "kind": "benchmark",
+      "setup_seconds": 0.020083759,
+      "baseline_setup_seconds": 0.21122474500000002,
+      "shots_per_batch": 256,
+      "baseline_shots_per_batch": 64,
+      "prefix_peak_width": 8,
+      "ordinary_peak_width": 22,
+      "native_peak_rss_kib": 207736,
+      "normalization_error": 4.440892098500626e-16,
+      "continuation_error": 2.220446049250313e-16,
+      "seconds": [
+        0.522510249,
+        0.5547486890000001,
+        0.532535517
+      ],
+      "baseline_seconds": [
+        13.386172619000002,
+        12.514048033,
+        10.954459067
+      ],
+      "accepted": [
+        107,
+        116,
+        109
+      ],
+      "logical_failures": [
+        0,
+        0,
+        0
+      ],
+      "baseline_accepted": [
+        25,
+        27,
+        20
+      ],
+      "baseline_logical_failures": [
+        0,
+        0,
+        0
+      ],
+      "distance": 5,
+      "probability": 0.001,
+      "schedule": "unbounded",
+      "early_rejection": true,
+      "circuit_sha256": "b9e261d861fc691c1586822d4d334a2e3d3888cc2733df641e0cbd17279cc40c",
+      "compiler_seconds": 5.54541438492015,
+      "native_seconds_per_attempt": 0.00208021686328125,
+      "baseline_seconds_per_attempt": 0.195532000515625,
+      "speedup": 93.99596934677317,
+      "bundle_bytes": 1552976
+    }
+  ]
+}

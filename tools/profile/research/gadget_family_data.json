@@ -1,0 +1,2261 @@
+{
+  "geometry_source": "https://github.com/Strilanc/magic-state-cultivation/blob/871e68ff6df2f75190b1bfd6351459d1b5a037e3/src/cultiv/_construction/_color_code.py",
+  "construction": "ideal logical input; geometric unflagged tree; raw Y/CSS output",
+  "python": "3.13.11",
+  "stim": "1.15.0",
+  "affinity": 0,
+  "threads": 1,
+  "cpu": "AMD EPYC 9554P 64-Core Processor",
+  "native_binary_sha256": "7ba1f3d83f14aa215065cc14908f295a26a1d0b624a483a59ec3021a024107e6",
+  "reference_binary_sha256": "579c89a9429a34111ae081e2acf8b0bcbd0fce9c12565f1b2adf386f4c86858a",
+  "git_revision": "41a18d455e855650f3c5dffa75db301f67ff2ded",
+  "compiler": "c++ (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0",
+  "generator_sha256": "580a130d48528966a71ef9648de94ee086981bae5ce85cdec160aeeffaa128ae",
+  "cases": [
+    {
+      "distance": 3,
+      "data_qubits": 7,
+      "probability": 0,
+      "circuit_sha256": "53179041f441ffd8fbda433879f3cf649f217025eacdbcdfdf117728e5238731",
+      "python_compile_seconds": 0.018504854990169406,
+      "bundle_bytes": 17202,
+      "max_contraction_scope": 3,
+      "contraction_numeric_payload_bytes": 11624,
+      "ordinary_coefficient_bytes": 256,
+      "benchmark": {
+        "kind": "benchmark",
+        "compile_seconds": 0.000351584,
+        "ordinary_compile_seconds": 0.00010715300000000001,
+        "shots_per_repeat": 65536,
+        "compiled_seconds": [
+          1.052270032,
+          1.041823176,
+          1.014281315
+        ],
+        "ordinary_seconds": [
+          0.022433117000000002,
+          0.023273423,
+          0.022415811
+        ],
+        "prefix_peak_width": 1,
+        "ordinary_peak_width": 4,
+        "baseline_enabled": true,
+        "baseline_width_limit": 24,
+        "max_normalization_error": 2.220446049250313e-16,
+        "checksum": 335747
+      },
+      "compiled_seconds_per_attempt": 1.5896960083007814e-05,
+      "ordinary_seconds_per_attempt": 3.4230220031738285e-07,
+      "speedup": 0.021532557075693237,
+      "validation_method": "ordinary full physical replay",
+      "samples": [
+        {
+          "kind": "sample",
+          "shot": 0,
+          "records": "010000000",
+          "detectors": "000000",
+          "observables": "1",
+          "conditional_log_probability": -0.8514943643803207,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [],
+          "validation": {
+            "absolute_log_error": 4.440892098500626e-16,
+            "full_log_probability": -0.8514943643803202,
+            "prefix_log_probability": 0
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 1,
+          "records": "111000001",
+          "detectors": "000001",
+          "observables": "1",
+          "conditional_log_probability": -0.8514943643803207,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [],
+          "validation": {
+            "absolute_log_error": 4.440892098500626e-16,
+            "full_log_probability": -0.8514943643803202,
+            "prefix_log_probability": 0
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 2,
+          "records": "010000000",
+          "detectors": "000000",
+          "observables": "1",
+          "conditional_log_probability": -0.8514943643803207,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [],
+          "validation": {
+            "absolute_log_error": 4.440892098500626e-16,
+            "full_log_probability": -0.8514943643803202,
+            "prefix_log_probability": 0
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 3,
+          "records": "010000000",
+          "detectors": "000000",
+          "observables": "1",
+          "conditional_log_probability": -0.8514943643803207,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [],
+          "validation": {
+            "absolute_log_error": 4.440892098500626e-16,
+            "full_log_probability": -0.8514943643803202,
+            "prefix_log_probability": 0
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 4,
+          "records": "111000001",
+          "detectors": "000001",
+          "observables": "1",
+          "conditional_log_probability": -0.8514943643803207,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [],
+          "validation": {
+            "absolute_log_error": 4.440892098500626e-16,
+            "full_log_probability": -0.8514943643803202,
+            "prefix_log_probability": 0
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 5,
+          "records": "111000001",
+          "detectors": "000001",
+          "observables": "1",
+          "conditional_log_probability": -0.8514943643803207,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [],
+          "validation": {
+            "absolute_log_error": 4.440892098500626e-16,
+            "full_log_probability": -0.8514943643803202,
+            "prefix_log_probability": 0
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 6,
+          "records": "010000000",
+          "detectors": "000000",
+          "observables": "1",
+          "conditional_log_probability": -0.8514943643803207,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [],
+          "validation": {
+            "absolute_log_error": 4.440892098500626e-16,
+            "full_log_probability": -0.8514943643803202,
+            "prefix_log_probability": 0
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 7,
+          "records": "010000000",
+          "detectors": "000000",
+          "observables": "1",
+          "conditional_log_probability": -0.8514943643803207,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [],
+          "validation": {
+            "absolute_log_error": 4.440892098500626e-16,
+            "full_log_probability": -0.8514943643803202,
+            "prefix_log_probability": 0
+          }
+        }
+      ]
+    },
+    {
+      "distance": 3,
+      "data_qubits": 7,
+      "probability": 0.001,
+      "circuit_sha256": "4862c770b4781c3b2367639eaa6f5aeb043416e091bdaa82e8d7b052984735a4",
+      "python_compile_seconds": 0.007703861920163035,
+      "bundle_bytes": 17348,
+      "max_contraction_scope": 3,
+      "contraction_numeric_payload_bytes": 11624,
+      "ordinary_coefficient_bytes": 256,
+      "benchmark": {
+        "kind": "benchmark",
+        "compile_seconds": 0.000319335,
+        "ordinary_compile_seconds": 0.00024360900000000002,
+        "shots_per_repeat": 65536,
+        "compiled_seconds": [
+          1.0072015300000001,
+          1.007184094,
+          1.006827693
+        ],
+        "ordinary_seconds": [
+          0.027360636,
+          0.027349929000000002,
+          0.027275417000000003
+        ],
+        "prefix_peak_width": 1,
+        "ordinary_peak_width": 4,
+        "baseline_enabled": true,
+        "baseline_width_limit": 24,
+        "max_normalization_error": 2.220446049250313e-16,
+        "checksum": 331103
+      },
+      "compiled_seconds_per_attempt": 1.5368409637451173e-05,
+      "ordinary_seconds_per_attempt": 4.173267974853516e-07,
+      "speedup": 0.027154846033539525,
+      "validation_method": "ordinary full physical replay",
+      "samples": [
+        {
+          "kind": "sample",
+          "shot": 0,
+          "records": "010000000",
+          "detectors": "000000",
+          "observables": "1",
+          "conditional_log_probability": -0.8514943643803207,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [],
+          "validation": {
+            "absolute_log_error": 4.440892098500626e-16,
+            "full_log_probability": -0.8514943643803202,
+            "prefix_log_probability": 0
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 1,
+          "records": "111000001",
+          "detectors": "000001",
+          "observables": "1",
+          "conditional_log_probability": -0.8514943643803207,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [],
+          "validation": {
+            "absolute_log_error": 4.440892098500626e-16,
+            "full_log_probability": -0.8514943643803202,
+            "prefix_log_probability": 0
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 2,
+          "records": "010000000",
+          "detectors": "000000",
+          "observables": "1",
+          "conditional_log_probability": -0.8514943643803207,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [],
+          "validation": {
+            "absolute_log_error": 4.440892098500626e-16,
+            "full_log_probability": -0.8514943643803202,
+            "prefix_log_probability": 0
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 3,
+          "records": "011111110",
+          "detectors": "111111",
+          "observables": "1",
+          "conditional_log_probability": -1.544641544940266,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [
+            [
+              2,
+              1
+            ]
+          ],
+          "validation": {
+            "absolute_log_error": 6.661338147750939e-16,
+            "full_log_probability": -1.5446415449402653,
+            "prefix_log_probability": 0
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 4,
+          "records": "111000001",
+          "detectors": "000001",
+          "observables": "1",
+          "conditional_log_probability": -0.8514943643803207,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [],
+          "validation": {
+            "absolute_log_error": 4.440892098500626e-16,
+            "full_log_probability": -0.8514943643803202,
+            "prefix_log_probability": 0
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 5,
+          "records": "111000001",
+          "detectors": "000001",
+          "observables": "1",
+          "conditional_log_probability": -0.8514943643803207,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [],
+          "validation": {
+            "absolute_log_error": 4.440892098500626e-16,
+            "full_log_probability": -0.8514943643803202,
+            "prefix_log_probability": 0
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 6,
+          "records": "010000000",
+          "detectors": "000000",
+          "observables": "1",
+          "conditional_log_probability": -0.8514943643803207,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [],
+          "validation": {
+            "absolute_log_error": 4.440892098500626e-16,
+            "full_log_probability": -0.8514943643803202,
+            "prefix_log_probability": 0
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 7,
+          "records": "010000000",
+          "detectors": "000000",
+          "observables": "1",
+          "conditional_log_probability": -0.8514943643803207,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [],
+          "validation": {
+            "absolute_log_error": 4.440892098500626e-16,
+            "full_log_probability": -0.8514943643803202,
+            "prefix_log_probability": 0
+          }
+        }
+      ]
+    },
+    {
+      "distance": 3,
+      "data_qubits": 7,
+      "probability": 0.01,
+      "circuit_sha256": "02ae1704bbe7e0c6216afec7a83957111f6662287a148ad290373405229c9100",
+      "python_compile_seconds": 0.007817263947799802,
+      "bundle_bytes": 17294,
+      "max_contraction_scope": 3,
+      "contraction_numeric_payload_bytes": 11624,
+      "ordinary_coefficient_bytes": 256,
+      "benchmark": {
+        "kind": "benchmark",
+        "compile_seconds": 0.000367608,
+        "ordinary_compile_seconds": 0.00023207200000000002,
+        "shots_per_repeat": 65536,
+        "compiled_seconds": [
+          1.016701188,
+          1.038402233,
+          1.022694604
+        ],
+        "ordinary_seconds": [
+          0.030202018,
+          0.029958229000000003,
+          0.030240817000000003
+        ],
+        "prefix_peak_width": 1,
+        "ordinary_peak_width": 4,
+        "baseline_enabled": true,
+        "baseline_width_limit": 24,
+        "max_normalization_error": 2.220446049250313e-16,
+        "checksum": 296127
+      },
+      "compiled_seconds_per_attempt": 1.560508123779297e-05,
+      "ordinary_seconds_per_attempt": 4.6084622192382813e-07,
+      "speedup": 0.029531805371684546,
+      "validation_method": "ordinary full physical replay",
+      "samples": [
+        {
+          "kind": "sample",
+          "shot": 0,
+          "records": "010000000",
+          "detectors": "000000",
+          "observables": "1",
+          "conditional_log_probability": -0.8514943643803207,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [],
+          "validation": {
+            "absolute_log_error": 4.440892098500626e-16,
+            "full_log_probability": -0.8514943643803202,
+            "prefix_log_probability": 0
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 1,
+          "records": "111000001",
+          "detectors": "000001",
+          "observables": "1",
+          "conditional_log_probability": -0.8514943643803207,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [],
+          "validation": {
+            "absolute_log_error": 4.440892098500626e-16,
+            "full_log_probability": -0.8514943643803202,
+            "prefix_log_probability": 0
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 2,
+          "records": "010000000",
+          "detectors": "000000",
+          "observables": "1",
+          "conditional_log_probability": -0.8514943643803207,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [],
+          "validation": {
+            "absolute_log_error": 4.440892098500626e-16,
+            "full_log_probability": -0.8514943643803202,
+            "prefix_log_probability": 0
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 3,
+          "records": "011111110",
+          "detectors": "111111",
+          "observables": "1",
+          "conditional_log_probability": -1.544641544940266,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [
+            [
+              2,
+              1
+            ]
+          ],
+          "validation": {
+            "absolute_log_error": 6.661338147750939e-16,
+            "full_log_probability": -1.5446415449402653,
+            "prefix_log_probability": 0
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 4,
+          "records": "111010001",
+          "detectors": "000101",
+          "observables": "1",
+          "conditional_log_probability": -0.8514943643803207,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [
+            [
+              6,
+              3
+            ]
+          ],
+          "validation": {
+            "absolute_log_error": 4.440892098500626e-16,
+            "full_log_probability": -0.8514943643803202,
+            "prefix_log_probability": 0
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 5,
+          "records": "101000011",
+          "detectors": "100001",
+          "observables": "0",
+          "conditional_log_probability": -2.237788725500211,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [
+            [
+              9,
+              14
+            ]
+          ],
+          "validation": {
+            "absolute_log_error": 4.440892098500626e-16,
+            "full_log_probability": -2.2377887255002107,
+            "prefix_log_probability": 0
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 6,
+          "records": "010000000",
+          "detectors": "000000",
+          "observables": "1",
+          "conditional_log_probability": -0.8514943643803207,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [],
+          "validation": {
+            "absolute_log_error": 4.440892098500626e-16,
+            "full_log_probability": -0.8514943643803202,
+            "prefix_log_probability": 0
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 7,
+          "records": "010000000",
+          "detectors": "000000",
+          "observables": "1",
+          "conditional_log_probability": -0.8514943643803207,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [],
+          "validation": {
+            "absolute_log_error": 4.440892098500626e-16,
+            "full_log_probability": -0.8514943643803202,
+            "prefix_log_probability": 0
+          }
+        }
+      ]
+    },
+    {
+      "distance": 5,
+      "data_qubits": 19,
+      "probability": 0,
+      "circuit_sha256": "64e31202be0cf37466a73445a353f72a033d2eb94f669e3f3f58948fac17f395",
+      "python_compile_seconds": 0.03490454494021833,
+      "bundle_bytes": 75555,
+      "max_contraction_scope": 4,
+      "contraction_numeric_payload_bytes": 116424,
+      "ordinary_coefficient_bytes": 16384,
+      "benchmark": {
+        "kind": "benchmark",
+        "compile_seconds": 0.0008825100000000001,
+        "ordinary_compile_seconds": 0.000292424,
+        "shots_per_repeat": 8192,
+        "compiled_seconds": [
+          0.8636072640000001,
+          0.853979201,
+          0.854647566
+        ],
+        "ordinary_seconds": [
+          0.040944912,
+          0.040696245000000006,
+          0.042216703
+        ],
+        "prefix_peak_width": 1,
+        "ordinary_peak_width": 10,
+        "baseline_enabled": true,
+        "baseline_width_limit": 24,
+        "max_normalization_error": 2.220446049250313e-16,
+        "checksum": 42002
+      },
+      "compiled_seconds_per_attempt": 0.00010432709545898438,
+      "ordinary_seconds_per_attempt": 4.998158203125e-06,
+      "speedup": 0.04790853403073987,
+      "validation_method": "ordinary full physical replay",
+      "samples": [
+        {
+          "kind": "sample",
+          "shot": 0,
+          "records": "010000000000000000000",
+          "detectors": "000000000000000000",
+          "observables": "1",
+          "conditional_log_probability": -0.8514943643803207,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [],
+          "validation": {
+            "absolute_log_error": 5.551115123125783e-16,
+            "full_log_probability": -0.8514943643803201,
+            "prefix_log_probability": 0
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 1,
+          "records": "111000000000000000001",
+          "detectors": "000000000000000001",
+          "observables": "1",
+          "conditional_log_probability": -0.8514943643803207,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [],
+          "validation": {
+            "absolute_log_error": 6.661338147750939e-16,
+            "full_log_probability": -0.85149436438032,
+            "prefix_log_probability": 0
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 2,
+          "records": "000000000000000000000",
+          "detectors": "000000000000000000",
+          "observables": "0",
+          "conditional_log_probability": -2.614241538419406,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [],
+          "validation": {
+            "absolute_log_error": 4.440892098500626e-16,
+            "full_log_probability": -2.6142415384194067,
+            "prefix_log_probability": 0
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 3,
+          "records": "010000000000000000000",
+          "detectors": "000000000000000000",
+          "observables": "1",
+          "conditional_log_probability": -0.8514943643803207,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [],
+          "validation": {
+            "absolute_log_error": 5.551115123125783e-16,
+            "full_log_probability": -0.8514943643803201,
+            "prefix_log_probability": 0
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 4,
+          "records": "010000000000000000000",
+          "detectors": "000000000000000000",
+          "observables": "1",
+          "conditional_log_probability": -0.8514943643803207,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [],
+          "validation": {
+            "absolute_log_error": 5.551115123125783e-16,
+            "full_log_probability": -0.8514943643803201,
+            "prefix_log_probability": 0
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 5,
+          "records": "101000000000000000001",
+          "detectors": "000000000000000001",
+          "observables": "0",
+          "conditional_log_probability": -2.6142415384194067,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [],
+          "validation": {
+            "absolute_log_error": 4.440892098500626e-16,
+            "full_log_probability": -2.614241538419406,
+            "prefix_log_probability": 0
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 6,
+          "records": "101000000000000000001",
+          "detectors": "000000000000000001",
+          "observables": "0",
+          "conditional_log_probability": -2.6142415384194067,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [],
+          "validation": {
+            "absolute_log_error": 4.440892098500626e-16,
+            "full_log_probability": -2.614241538419406,
+            "prefix_log_probability": 0
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 7,
+          "records": "010000000000000000000",
+          "detectors": "000000000000000000",
+          "observables": "1",
+          "conditional_log_probability": -0.8514943643803207,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [],
+          "validation": {
+            "absolute_log_error": 5.551115123125783e-16,
+            "full_log_probability": -0.8514943643803201,
+            "prefix_log_probability": 0
+          }
+        }
+      ]
+    },
+    {
+      "distance": 5,
+      "data_qubits": 19,
+      "probability": 0.001,
+      "circuit_sha256": "ceff81a6e323c7c5167a554d0f7f4c9d37c9408d7cbad004db4e2d06e5fec8eb",
+      "python_compile_seconds": 0.034888920839875937,
+      "bundle_bytes": 75917,
+      "max_contraction_scope": 4,
+      "contraction_numeric_payload_bytes": 116424,
+      "ordinary_coefficient_bytes": 16384,
+      "benchmark": {
+        "kind": "benchmark",
+        "compile_seconds": 0.000892435,
+        "ordinary_compile_seconds": 0.000654243,
+        "shots_per_repeat": 8192,
+        "compiled_seconds": [
+          0.873901758,
+          0.8642345760000001,
+          0.863665773
+        ],
+        "ordinary_seconds": [
+          0.041382637,
+          0.043159053,
+          0.041407095000000005
+        ],
+        "prefix_peak_width": 1,
+        "ordinary_peak_width": 10,
+        "baseline_enabled": true,
+        "baseline_width_limit": 24,
+        "max_normalization_error": 2.220446049250313e-16,
+        "checksum": 40537
+      },
+      "compiled_seconds_per_attempt": 0.00010549738476562501,
+      "ordinary_seconds_per_attempt": 5.054577026367188e-06,
+      "speedup": 0.047911870399408786,
+      "validation_method": "ordinary full physical replay",
+      "samples": [
+        {
+          "kind": "sample",
+          "shot": 0,
+          "records": "010000000000000000000",
+          "detectors": "000000000000000000",
+          "observables": "1",
+          "conditional_log_probability": -0.8514943643803207,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [],
+          "validation": {
+            "absolute_log_error": 5.551115123125783e-16,
+            "full_log_probability": -0.8514943643803201,
+            "prefix_log_probability": 0
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 1,
+          "records": "101000000000000010011",
+          "detectors": "100100000000000001",
+          "observables": "0",
+          "conditional_log_probability": -1.544641544940266,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [
+            [
+              16,
+              1
+            ]
+          ],
+          "validation": {
+            "absolute_log_error": 6.661338147750939e-16,
+            "full_log_probability": -1.5446415449402653,
+            "prefix_log_probability": 0
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 2,
+          "records": "000000000000000000000",
+          "detectors": "000000000000000000",
+          "observables": "0",
+          "conditional_log_probability": -2.614241538419406,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [],
+          "validation": {
+            "absolute_log_error": 4.440892098500626e-16,
+            "full_log_probability": -2.6142415384194067,
+            "prefix_log_probability": 0
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 3,
+          "records": "010000000000000000000",
+          "detectors": "000000000000000000",
+          "observables": "1",
+          "conditional_log_probability": -0.8514943643803207,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [],
+          "validation": {
+            "absolute_log_error": 5.551115123125783e-16,
+            "full_log_probability": -0.8514943643803201,
+            "prefix_log_probability": 0
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 4,
+          "records": "010000000000000000000",
+          "detectors": "000000000000000000",
+          "observables": "1",
+          "conditional_log_probability": -0.8514943643803207,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [],
+          "validation": {
+            "absolute_log_error": 5.551115123125783e-16,
+            "full_log_probability": -0.8514943643803201,
+            "prefix_log_probability": 0
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 5,
+          "records": "101001000000000000001",
+          "detectors": "000000000000001001",
+          "observables": "0",
+          "conditional_log_probability": -2.6142415384194067,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [
+            [
+              80,
+              1
+            ]
+          ],
+          "validation": {
+            "absolute_log_error": 4.440892098500626e-16,
+            "full_log_probability": -2.614241538419406,
+            "prefix_log_probability": 0
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 6,
+          "records": "101000000000000000001",
+          "detectors": "000000000000000001",
+          "observables": "0",
+          "conditional_log_probability": -2.6142415384194067,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [],
+          "validation": {
+            "absolute_log_error": 4.440892098500626e-16,
+            "full_log_probability": -2.614241538419406,
+            "prefix_log_probability": 0
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 7,
+          "records": "010000000000000000000",
+          "detectors": "000000000000000000",
+          "observables": "1",
+          "conditional_log_probability": -0.8514943643803207,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [],
+          "validation": {
+            "absolute_log_error": 5.551115123125783e-16,
+            "full_log_probability": -0.8514943643803201,
+            "prefix_log_probability": 0
+          }
+        }
+      ]
+    },
+    {
+      "distance": 5,
+      "data_qubits": 19,
+      "probability": 0.01,
+      "circuit_sha256": "0f269b8d5a898bef5989c0827e720d3271a5630f188df9172ee9b37c4a4eb7b0",
+      "python_compile_seconds": 0.034536547027528286,
+      "bundle_bytes": 75779,
+      "max_contraction_scope": 4,
+      "contraction_numeric_payload_bytes": 116424,
+      "ordinary_coefficient_bytes": 16384,
+      "benchmark": {
+        "kind": "benchmark",
+        "compile_seconds": 0.0010908460000000001,
+        "ordinary_compile_seconds": 0.000663177,
+        "shots_per_repeat": 8192,
+        "compiled_seconds": [
+          0.8619030980000001,
+          0.858497869,
+          0.8661264870000001
+        ],
+        "ordinary_seconds": [
+          0.045064315,
+          0.044998576000000005,
+          0.045170056
+        ],
+        "prefix_peak_width": 1,
+        "ordinary_peak_width": 10,
+        "baseline_enabled": true,
+        "baseline_width_limit": 24,
+        "max_normalization_error": 4.440892098500626e-16,
+        "checksum": 31634
+      },
+      "compiled_seconds_per_attempt": 0.00010521278051757814,
+      "ordinary_seconds_per_attempt": 5.5010150146484376e-06,
+      "speedup": 0.05228466530004281,
+      "validation_method": "ordinary full physical replay",
+      "samples": [
+        {
+          "kind": "sample",
+          "shot": 0,
+          "records": "010010000000000000000",
+          "detectors": "000000000000000100",
+          "observables": "1",
+          "conditional_log_probability": -0.8514943643803207,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [
+            [
+              79,
+              1
+            ]
+          ],
+          "validation": {
+            "absolute_log_error": 5.551115123125783e-16,
+            "full_log_probability": -0.8514943643803201,
+            "prefix_log_probability": 0
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 1,
+          "records": "101101010010000010011",
+          "detectors": "100100000100101011",
+          "observables": "0",
+          "conditional_log_probability": -1.5446415449402662,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [
+            [
+              16,
+              1
+            ],
+            [
+              60,
+              3
+            ]
+          ],
+          "validation": {
+            "absolute_log_error": 8.881784197001252e-16,
+            "full_log_probability": -1.5446415449402653,
+            "prefix_log_probability": 0
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 2,
+          "records": "000000000000000000000",
+          "detectors": "000000000000000000",
+          "observables": "0",
+          "conditional_log_probability": -2.614241538419406,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [],
+          "validation": {
+            "absolute_log_error": 4.440892098500626e-16,
+            "full_log_probability": -2.6142415384194067,
+            "prefix_log_probability": 0
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 3,
+          "records": "000000000001110000000",
+          "detectors": "000000111000000000",
+          "observables": "0",
+          "conditional_log_probability": -0.8514943643803207,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [
+            [
+              59,
+              1
+            ]
+          ],
+          "validation": {
+            "absolute_log_error": 5.551115123125783e-16,
+            "full_log_probability": -0.8514943643803201,
+            "prefix_log_probability": 0
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 4,
+          "records": "010000000000000000000",
+          "detectors": "000000000000000000",
+          "observables": "1",
+          "conditional_log_probability": -0.8514943643803207,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [],
+          "validation": {
+            "absolute_log_error": 5.551115123125783e-16,
+            "full_log_probability": -0.8514943643803201,
+            "prefix_log_probability": 0
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 5,
+          "records": "101001000000000000001",
+          "detectors": "000000000000001001",
+          "observables": "0",
+          "conditional_log_probability": -2.6142415384194067,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [
+            [
+              80,
+              1
+            ]
+          ],
+          "validation": {
+            "absolute_log_error": 4.440892098500626e-16,
+            "full_log_probability": -2.614241538419406,
+            "prefix_log_probability": 0
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 6,
+          "records": "101000000000000000001",
+          "detectors": "000000000000000001",
+          "observables": "0",
+          "conditional_log_probability": -2.6142415384194067,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [],
+          "validation": {
+            "absolute_log_error": 4.440892098500626e-16,
+            "full_log_probability": -2.614241538419406,
+            "prefix_log_probability": 0
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 7,
+          "records": "010000000000000000000",
+          "detectors": "000000000000000000",
+          "observables": "1",
+          "conditional_log_probability": -0.8514943643803207,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [],
+          "validation": {
+            "absolute_log_error": 5.551115123125783e-16,
+            "full_log_probability": -0.8514943643803201,
+            "prefix_log_probability": 0
+          }
+        }
+      ]
+    },
+    {
+      "distance": 7,
+      "data_qubits": 37,
+      "probability": 0,
+      "circuit_sha256": "42b69368ea8f89d5ce8e12f22e9f43d2432bcef707881b9180fd80fe3ec36f0c",
+      "python_compile_seconds": 0.13553515495732427,
+      "bundle_bytes": 286956,
+      "max_contraction_scope": 6,
+      "contraction_numeric_payload_bytes": 628896,
+      "ordinary_coefficient_bytes": 8388608,
+      "benchmark": {
+        "kind": "benchmark",
+        "compile_seconds": 0.002831858,
+        "ordinary_compile_seconds": 0.000650678,
+        "shots_per_repeat": 256,
+        "compiled_seconds": [
+          0.136403052,
+          0.13904581300000002,
+          0.138448636
+        ],
+        "ordinary_seconds": [
+          0.7046590850000001,
+          0.731210122,
+          0.707312642
+        ],
+        "prefix_peak_width": 1,
+        "ordinary_peak_width": 19,
+        "baseline_enabled": true,
+        "baseline_width_limit": 24,
+        "max_normalization_error": 2.220446049250313e-16,
+        "checksum": 224
+      },
+      "compiled_seconds_per_attempt": 0.000540814984375,
+      "ordinary_seconds_per_attempt": 0.0027629400078125,
+      "speedup": 5.108845146007794,
+      "validation_method": "ordinary full physical replay",
+      "samples": [
+        {
+          "kind": "sample",
+          "shot": 0,
+          "records": "000000000000000000000000000000000000000",
+          "detectors": "000000000000000000000000000000000000",
+          "observables": "0",
+          "conditional_log_probability": -0.8514943643803209,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [],
+          "validation": {
+            "absolute_log_error": 5.551115123125783e-16,
+            "full_log_probability": -0.8514943643803203,
+            "prefix_log_probability": 0
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 1,
+          "records": "000000000000000000000000000000000000000",
+          "detectors": "000000000000000000000000000000000000",
+          "observables": "0",
+          "conditional_log_probability": -0.8514943643803209,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [],
+          "validation": {
+            "absolute_log_error": 5.551115123125783e-16,
+            "full_log_probability": -0.8514943643803203,
+            "prefix_log_probability": 0
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 2,
+          "records": "101000000000000000000000000000000000001",
+          "detectors": "000000000000000000000000000000000001",
+          "observables": "0",
+          "conditional_log_probability": -0.8514943643803207,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [],
+          "validation": {
+            "absolute_log_error": 5.551115123125783e-16,
+            "full_log_probability": -0.8514943643803201,
+            "prefix_log_probability": 0
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 3,
+          "records": "101000000000000000000000000000000000001",
+          "detectors": "000000000000000000000000000000000001",
+          "observables": "0",
+          "conditional_log_probability": -0.8514943643803207,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [],
+          "validation": {
+            "absolute_log_error": 5.551115123125783e-16,
+            "full_log_probability": -0.8514943643803201,
+            "prefix_log_probability": 0
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 4,
+          "records": "101000000000000000000000000000000000001",
+          "detectors": "000000000000000000000000000000000001",
+          "observables": "0",
+          "conditional_log_probability": -0.8514943643803207,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [],
+          "validation": {
+            "absolute_log_error": 5.551115123125783e-16,
+            "full_log_probability": -0.8514943643803201,
+            "prefix_log_probability": 0
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 5,
+          "records": "101000000000000000000000000000000000001",
+          "detectors": "000000000000000000000000000000000001",
+          "observables": "0",
+          "conditional_log_probability": -0.8514943643803207,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [],
+          "validation": {
+            "absolute_log_error": 5.551115123125783e-16,
+            "full_log_probability": -0.8514943643803201,
+            "prefix_log_probability": 0
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 6,
+          "records": "000000000000000000000000000000000000000",
+          "detectors": "000000000000000000000000000000000000",
+          "observables": "0",
+          "conditional_log_probability": -0.8514943643803209,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [],
+          "validation": {
+            "absolute_log_error": 5.551115123125783e-16,
+            "full_log_probability": -0.8514943643803203,
+            "prefix_log_probability": 0
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 7,
+          "records": "010000000000000000000000000000000000000",
+          "detectors": "000000000000000000000000000000000000",
+          "observables": "1",
+          "conditional_log_probability": -2.614241538419406,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [],
+          "validation": {
+            "absolute_log_error": 8.881784197001252e-16,
+            "full_log_probability": -2.6142415384194053,
+            "prefix_log_probability": 0
+          }
+        }
+      ]
+    },
+    {
+      "distance": 7,
+      "data_qubits": 37,
+      "probability": 0.001,
+      "circuit_sha256": "11a744a9921ccf438f55dc1a1c0e09888b71b40fe99badff6491dd57f611010c",
+      "python_compile_seconds": 0.13701493106782436,
+      "bundle_bytes": 287642,
+      "max_contraction_scope": 6,
+      "contraction_numeric_payload_bytes": 628896,
+      "ordinary_coefficient_bytes": 8388608,
+      "benchmark": {
+        "kind": "benchmark",
+        "compile_seconds": 0.002963508,
+        "ordinary_compile_seconds": 0.001473387,
+        "shots_per_repeat": 256,
+        "compiled_seconds": [
+          0.13794425100000002,
+          0.138097784,
+          0.140712642
+        ],
+        "ordinary_seconds": [
+          0.7149177050000001,
+          0.71853858,
+          0.712980845
+        ],
+        "prefix_peak_width": 1,
+        "ordinary_peak_width": 19,
+        "baseline_enabled": true,
+        "baseline_width_limit": 24,
+        "max_normalization_error": 2.220446049250313e-16,
+        "checksum": 279
+      },
+      "compiled_seconds_per_attempt": 0.00053944446875,
+      "ordinary_seconds_per_attempt": 0.0027926472851562503,
+      "speedup": 5.176894837067046,
+      "validation_method": "ordinary full physical replay",
+      "samples": [
+        {
+          "kind": "sample",
+          "shot": 0,
+          "records": "010000000000000000000010011000000000000",
+          "detectors": "000000000001100100000000000000000000",
+          "observables": "1",
+          "conditional_log_probability": -0.8514943643803209,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [
+            [
+              122,
+              1
+            ]
+          ],
+          "validation": {
+            "absolute_log_error": 5.551115123125783e-16,
+            "full_log_probability": -0.8514943643803203,
+            "prefix_log_probability": 0
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 1,
+          "records": "000000000000000000000000000000000000000",
+          "detectors": "000000000000000000000000000000000000",
+          "observables": "0",
+          "conditional_log_probability": -0.8514943643803209,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [],
+          "validation": {
+            "absolute_log_error": 5.551115123125783e-16,
+            "full_log_probability": -0.8514943643803203,
+            "prefix_log_probability": 0
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 2,
+          "records": "101000000000000000000000000000000000001",
+          "detectors": "000000000000000000000000000000000001",
+          "observables": "0",
+          "conditional_log_probability": -0.8514943643803207,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [],
+          "validation": {
+            "absolute_log_error": 5.551115123125783e-16,
+            "full_log_probability": -0.8514943643803201,
+            "prefix_log_probability": 0
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 3,
+          "records": "101000000000000000000000000000000000001",
+          "detectors": "000000000000000000000000000000000001",
+          "observables": "0",
+          "conditional_log_probability": -0.8514943643803207,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [],
+          "validation": {
+            "absolute_log_error": 5.551115123125783e-16,
+            "full_log_probability": -0.8514943643803201,
+            "prefix_log_probability": 0
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 4,
+          "records": "101000000000000000000000000000000000001",
+          "detectors": "000000000000000000000000000000000001",
+          "observables": "0",
+          "conditional_log_probability": -0.8514943643803207,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [],
+          "validation": {
+            "absolute_log_error": 5.551115123125783e-16,
+            "full_log_probability": -0.8514943643803201,
+            "prefix_log_probability": 0
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 5,
+          "records": "101000000000000000000000000000000000001",
+          "detectors": "000000000000000000000000000000000001",
+          "observables": "0",
+          "conditional_log_probability": -0.8514943643803207,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [],
+          "validation": {
+            "absolute_log_error": 5.551115123125783e-16,
+            "full_log_probability": -0.8514943643803201,
+            "prefix_log_probability": 0
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 6,
+          "records": "001110000000000000001110000000000000000",
+          "detectors": "000000000000000111000000000000000111",
+          "observables": "0",
+          "conditional_log_probability": -0.8514943643803209,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [
+            [
+              113,
+              2
+            ]
+          ],
+          "validation": {
+            "absolute_log_error": 5.551115123125783e-16,
+            "full_log_probability": -0.8514943643803203,
+            "prefix_log_probability": 0
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 7,
+          "records": "010000000000000000000000000000000000000",
+          "detectors": "000000000000000000000000000000000000",
+          "observables": "1",
+          "conditional_log_probability": -2.614241538419406,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [],
+          "validation": {
+            "absolute_log_error": 8.881784197001252e-16,
+            "full_log_probability": -2.6142415384194053,
+            "prefix_log_probability": 0
+          }
+        }
+      ]
+    },
+    {
+      "distance": 7,
+      "data_qubits": 37,
+      "probability": 0.01,
+      "circuit_sha256": "296d53af64965bed3c1222559da43650631379d1f34796a3efa6b4c6026d0203",
+      "python_compile_seconds": 0.13515616906806827,
+      "bundle_bytes": 287378,
+      "max_contraction_scope": 6,
+      "contraction_numeric_payload_bytes": 628896,
+      "ordinary_coefficient_bytes": 8388608,
+      "benchmark": {
+        "kind": "benchmark",
+        "compile_seconds": 0.002923216,
+        "ordinary_compile_seconds": 0.001461838,
+        "shots_per_repeat": 256,
+        "compiled_seconds": [
+          0.137366544,
+          0.13730392900000002,
+          0.138007177
+        ],
+        "ordinary_seconds": [
+          0.705170952,
+          0.7038197810000001,
+          0.693851662
+        ],
+        "prefix_peak_width": 1,
+        "ordinary_peak_width": 19,
+        "baseline_enabled": true,
+        "baseline_width_limit": 24,
+        "max_normalization_error": 4.440892098500626e-16,
+        "checksum": 671
+      },
+      "compiled_seconds_per_attempt": 0.0005365880625,
+      "ordinary_seconds_per_attempt": 0.0027492960195312503,
+      "speedup": 5.123662287084984,
+      "validation_method": "ordinary full physical replay",
+      "samples": [
+        {
+          "kind": "sample",
+          "shot": 0,
+          "records": "001000010000010000111000010000010000000",
+          "detectors": "000000100000100001110000100000100001",
+          "observables": "0",
+          "conditional_log_probability": -6.079977441219133,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [
+            [
+              79,
+              10
+            ],
+            [
+              122,
+              1
+            ],
+            [
+              166,
+              1
+            ]
+          ],
+          "validation": {
+            "absolute_log_error": 7.993605777301127e-15,
+            "full_log_probability": -6.079977441219125,
+            "prefix_log_probability": 0
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 1,
+          "records": "001010000000000000000000010000000000000",
+          "detectors": "000000000000100000000000000000000101",
+          "observables": "0",
+          "conditional_log_probability": -0.8514943643803207,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [
+            [
+              4,
+              3
+            ],
+            [
+              172,
+              1
+            ]
+          ],
+          "validation": {
+            "absolute_log_error": 5.551115123125783e-16,
+            "full_log_probability": -0.8514943643803201,
+            "prefix_log_probability": 0
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 2,
+          "records": "101000000000000000000000000000000000001",
+          "detectors": "000000000000000000000000000000000001",
+          "observables": "0",
+          "conditional_log_probability": -0.8514943643803207,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [],
+          "validation": {
+            "absolute_log_error": 5.551115123125783e-16,
+            "full_log_probability": -0.8514943643803201,
+            "prefix_log_probability": 0
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 3,
+          "records": "101000000000000000000000000000000000001",
+          "detectors": "000000000000000000000000000000000001",
+          "observables": "0",
+          "conditional_log_probability": -0.8514943643803207,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [],
+          "validation": {
+            "absolute_log_error": 5.551115123125783e-16,
+            "full_log_probability": -0.8514943643803201,
+            "prefix_log_probability": 0
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 4,
+          "records": "101000000100011000000000000100011000001",
+          "detectors": "000001100010000000000001100010000001",
+          "observables": "0",
+          "conditional_log_probability": -1.5446415449402662,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [
+            [
+              96,
+              4
+            ]
+          ],
+          "validation": {
+            "absolute_log_error": 4.440892098500626e-16,
+            "full_log_probability": -1.5446415449402657,
+            "prefix_log_probability": 0
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 5,
+          "records": "001000000000000000000000100000000000001",
+          "detectors": "000000000000010000000000000000000001",
+          "observables": "0",
+          "conditional_log_probability": -0.8514943643803207,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [
+            [
+              73,
+              1
+            ],
+            [
+              171,
+              1
+            ]
+          ],
+          "validation": {
+            "absolute_log_error": 5.551115123125783e-16,
+            "full_log_probability": -0.8514943643803201,
+            "prefix_log_probability": 0
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 6,
+          "records": "010000000000000000001110000000000000000",
+          "detectors": "000000000000000111000000000000000000",
+          "observables": "1",
+          "conditional_log_probability": -0.8514943643803209,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [
+            [
+              113,
+              1
+            ]
+          ],
+          "validation": {
+            "absolute_log_error": 5.551115123125783e-16,
+            "full_log_probability": -0.8514943643803203,
+            "prefix_log_probability": 0
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 7,
+          "records": "011001110000001000001010000100000110000",
+          "detectors": "000110000010000101000001000000111001",
+          "observables": "1",
+          "conditional_log_probability": -5.703524628299938,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [
+            [
+              42,
+              14
+            ],
+            [
+              64,
+              14
+            ],
+            [
+              65,
+              4
+            ],
+            [
+              68,
+              7
+            ],
+            [
+              109,
+              5
+            ]
+          ],
+          "validation": {
+            "absolute_log_error": 1.7763568394002505e-15,
+            "full_log_probability": -5.703524628299936,
+            "prefix_log_probability": 0
+          }
+        }
+      ]
+    },
+    {
+      "distance": 9,
+      "data_qubits": 61,
+      "probability": 0,
+      "circuit_sha256": "3f09471c14b2d3a3366f8b39c0fc5eb2a74b5139a27c38229c27265cd4dbc908",
+      "python_compile_seconds": 0.48148506018333137,
+      "bundle_bytes": 1101532,
+      "max_contraction_scope": 9,
+      "contraction_numeric_payload_bytes": 2660496,
+      "ordinary_coefficient_bytes": 34359738368,
+      "benchmark": {
+        "kind": "benchmark",
+        "compile_seconds": 0.009597456,
+        "ordinary_compile_seconds": 0.00131729,
+        "shots_per_repeat": 256,
+        "compiled_seconds": [
+          0.578287098,
+          0.5800533480000001,
+          0.5599796220000001
+        ],
+        "ordinary_seconds": [],
+        "prefix_peak_width": 1,
+        "ordinary_peak_width": 31,
+        "baseline_enabled": false,
+        "baseline_width_limit": 24,
+        "max_normalization_error": 2.220446049250313e-16,
+        "checksum": 111
+      },
+      "compiled_seconds_per_attempt": 0.0022589339765625,
+      "ordinary_seconds_per_attempt": null,
+      "speedup": null,
+      "validation_method": "coherent stabilizer overlaps",
+      "samples": [
+        {
+          "kind": "sample",
+          "shot": 0,
+          "records": "101000000000000000000000000000000000000000000000000000000000001",
+          "detectors": "000000000000000000000000000000000000000000000000000000000001",
+          "observables": "0",
+          "conditional_log_probability": -0.8514943643803208,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [],
+          "validation": {
+            "absolute_log_error": 2.220446049250313e-16,
+            "peak_reference_terms": 4
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 1,
+          "records": "000000000000000000000000000000000000000000000000000000000000000",
+          "detectors": "000000000000000000000000000000000000000000000000000000000000",
+          "observables": "0",
+          "conditional_log_probability": -0.8514943643803211,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [],
+          "validation": {
+            "absolute_log_error": 9.992007221626409e-16,
+            "peak_reference_terms": 4
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 2,
+          "records": "111000000000000000000000000000000000000000000000000000000000001",
+          "detectors": "000000000000000000000000000000000000000000000000000000000001",
+          "observables": "1",
+          "conditional_log_probability": -2.6142415384194075,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [],
+          "validation": {
+            "absolute_log_error": 1.3322676295501878e-15,
+            "peak_reference_terms": 4
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 3,
+          "records": "101000000000000000000000000000000000000000000000000000000000001",
+          "detectors": "000000000000000000000000000000000000000000000000000000000001",
+          "observables": "0",
+          "conditional_log_probability": -0.8514943643803208,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [],
+          "validation": {
+            "absolute_log_error": 2.220446049250313e-16,
+            "peak_reference_terms": 4
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 4,
+          "records": "101000000000000000000000000000000000000000000000000000000000001",
+          "detectors": "000000000000000000000000000000000000000000000000000000000001",
+          "observables": "0",
+          "conditional_log_probability": -0.8514943643803208,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [],
+          "validation": {
+            "absolute_log_error": 2.220446049250313e-16,
+            "peak_reference_terms": 4
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 5,
+          "records": "000000000000000000000000000000000000000000000000000000000000000",
+          "detectors": "000000000000000000000000000000000000000000000000000000000000",
+          "observables": "0",
+          "conditional_log_probability": -0.8514943643803211,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [],
+          "validation": {
+            "absolute_log_error": 9.992007221626409e-16,
+            "peak_reference_terms": 4
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 6,
+          "records": "101000000000000000000000000000000000000000000000000000000000001",
+          "detectors": "000000000000000000000000000000000000000000000000000000000001",
+          "observables": "0",
+          "conditional_log_probability": -0.8514943643803208,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [],
+          "validation": {
+            "absolute_log_error": 2.220446049250313e-16,
+            "peak_reference_terms": 4
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 7,
+          "records": "000000000000000000000000000000000000000000000000000000000000000",
+          "detectors": "000000000000000000000000000000000000000000000000000000000000",
+          "observables": "0",
+          "conditional_log_probability": -0.8514943643803211,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [],
+          "validation": {
+            "absolute_log_error": 9.992007221626409e-16,
+            "peak_reference_terms": 4
+          }
+        }
+      ]
+    },
+    {
+      "distance": 9,
+      "data_qubits": 61,
+      "probability": 0.001,
+      "circuit_sha256": "00ad5b380bf91706352224f00655e2e32b62d6d023a5674af95ccc53628e3ee7",
+      "python_compile_seconds": 0.4840808289591223,
+      "bundle_bytes": 1102650,
+      "max_contraction_scope": 9,
+      "contraction_numeric_payload_bytes": 2660496,
+      "ordinary_coefficient_bytes": 34359738368,
+      "benchmark": {
+        "kind": "benchmark",
+        "compile_seconds": 0.010709013,
+        "ordinary_compile_seconds": 0.001893043,
+        "shots_per_repeat": 256,
+        "compiled_seconds": [
+          0.5720258850000001,
+          0.5720318640000001,
+          0.561573671
+        ],
+        "ordinary_seconds": [],
+        "prefix_peak_width": 1,
+        "ordinary_peak_width": 31,
+        "baseline_enabled": false,
+        "baseline_width_limit": 24,
+        "max_normalization_error": 3.3306690738754696e-16,
+        "checksum": 169
+      },
+      "compiled_seconds_per_attempt": 0.0022344761132812503,
+      "ordinary_seconds_per_attempt": null,
+      "speedup": null,
+      "validation_method": "coherent stabilizer overlaps",
+      "samples": [
+        {
+          "kind": "sample",
+          "shot": 0,
+          "records": "110000000000000000000000000000000000000000000000000000000000001",
+          "detectors": "000000000000000000000000000000000000000000000000000000000000",
+          "observables": "1",
+          "conditional_log_probability": -0.8514943643803208,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [
+            [
+              122,
+              1
+            ]
+          ],
+          "validation": {
+            "absolute_log_error": 2.220446049250313e-16,
+            "peak_reference_terms": 4
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 1,
+          "records": "000000000000000000000000000000100000000000000000000000000000000",
+          "detectors": "000000000000000000000000000000010000000000000000000000000000",
+          "observables": "0",
+          "conditional_log_probability": -0.8514943643803211,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [
+            [
+              273,
+              1
+            ]
+          ],
+          "validation": {
+            "absolute_log_error": 9.992007221626409e-16,
+            "peak_reference_terms": 4
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 2,
+          "records": "111000000000000000000000000000000000000000000000000000000000001",
+          "detectors": "000000000000000000000000000000000000000000000000000000000001",
+          "observables": "1",
+          "conditional_log_probability": -2.6142415384194075,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [],
+          "validation": {
+            "absolute_log_error": 1.3322676295501878e-15,
+            "peak_reference_terms": 4
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 3,
+          "records": "101000000000000000000000000000000000000000000000000000000000001",
+          "detectors": "000000000000000000000000000000000000000000000000000000000001",
+          "observables": "0",
+          "conditional_log_probability": -0.8514943643803208,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [],
+          "validation": {
+            "absolute_log_error": 2.220446049250313e-16,
+            "peak_reference_terms": 4
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 4,
+          "records": "101000000000000000000000000000000000000000000000000000000000001",
+          "detectors": "000000000000000000000000000000000000000000000000000000000001",
+          "observables": "0",
+          "conditional_log_probability": -0.8514943643803208,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [],
+          "validation": {
+            "absolute_log_error": 2.220446049250313e-16,
+            "peak_reference_terms": 4
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 5,
+          "records": "000000000000000000000000000000000000000000000000000000000000000",
+          "detectors": "000000000000000000000000000000000000000000000000000000000000",
+          "observables": "0",
+          "conditional_log_probability": -0.8514943643803211,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [],
+          "validation": {
+            "absolute_log_error": 9.992007221626409e-16,
+            "peak_reference_terms": 4
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 6,
+          "records": "101000000000000000000000000000000000000000000000000000000000001",
+          "detectors": "000000000000000000000000000000000000000000000000000000000001",
+          "observables": "0",
+          "conditional_log_probability": -0.8514943643803208,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [],
+          "validation": {
+            "absolute_log_error": 2.220446049250313e-16,
+            "peak_reference_terms": 4
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 7,
+          "records": "000000000000000000000000000000000000000000000000000000000000000",
+          "detectors": "000000000000000000000000000000000000000000000000000000000000",
+          "observables": "0",
+          "conditional_log_probability": -0.8514943643803211,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [],
+          "validation": {
+            "absolute_log_error": 9.992007221626409e-16,
+            "peak_reference_terms": 4
+          }
+        }
+      ]
+    },
+    {
+      "distance": 9,
+      "data_qubits": 61,
+      "probability": 0.01,
+      "circuit_sha256": "f66056d44ea6d75b8ea32f3d05d072432f96f03f8a90f6aa95161bf6e11ccbf6",
+      "python_compile_seconds": 0.483867245959118,
+      "bundle_bytes": 1102218,
+      "max_contraction_scope": 9,
+      "contraction_numeric_payload_bytes": 2660496,
+      "ordinary_coefficient_bytes": 34359738368,
+      "benchmark": {
+        "kind": "benchmark",
+        "compile_seconds": 0.009710959,
+        "ordinary_compile_seconds": 0.0017726310000000002,
+        "shots_per_repeat": 256,
+        "compiled_seconds": [
+          0.571720091,
+          0.5903198000000001,
+          0.5825245990000001
+        ],
+        "ordinary_seconds": [],
+        "prefix_peak_width": 1,
+        "ordinary_peak_width": 31,
+        "baseline_enabled": false,
+        "baseline_width_limit": 24,
+        "max_normalization_error": 3.3306690738754696e-16,
+        "checksum": 366
+      },
+      "compiled_seconds_per_attempt": 0.0022754867148437503,
+      "ordinary_seconds_per_attempt": null,
+      "speedup": null,
+      "validation_method": "coherent stabilizer overlaps",
+      "samples": [
+        {
+          "kind": "sample",
+          "shot": 0,
+          "records": "100000000000100000110011110100000000000001000010000110000000001",
+          "detectors": "000000000110000100001000000000000010111100110000010000000000",
+          "observables": "0",
+          "conditional_log_probability": -5.010377447739993,
+          "prefix_faults": [
+            [
+              45,
+              3
+            ]
+          ],
+          "prefix_readout": [],
+          "suffix_faults": [
+            [
+              79,
+              10
+            ],
+            [
+              122,
+              1
+            ],
+            [
+              166,
+              13
+            ],
+            [
+              209,
+              3
+            ]
+          ],
+          "validation": {
+            "absolute_log_error": 8.881784197001252e-16,
+            "peak_reference_terms": 4
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 1,
+          "records": "000000000000000000000000001000000000000000000000011000011000100",
+          "detectors": "010001100001100000000000000000000001000000000000000000000000",
+          "observables": "0",
+          "conditional_log_probability": -2.367123614131617,
+          "prefix_faults": [
+            [
+              55,
+              2
+            ]
+          ],
+          "prefix_readout": [],
+          "suffix_faults": [
+            [
+              40,
+              1
+            ],
+            [
+              273,
+              1
+            ]
+          ],
+          "validation": {
+            "absolute_log_error": 0.0,
+            "peak_reference_terms": 4
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 2,
+          "records": "111000000000000000000000000000000000000000000000000000000001011",
+          "detectors": "101000000000000000000000000000000000000000000000000000000001",
+          "observables": "1",
+          "conditional_log_probability": -0.8514943643803208,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [
+            [
+              242,
+              1
+            ]
+          ],
+          "validation": {
+            "absolute_log_error": 2.220446049250313e-16,
+            "peak_reference_terms": 4
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 3,
+          "records": "110110000000000110110010100000000000000000000110000010000000001",
+          "detectors": "000000000100000110000000000000000000010100110110000000000110",
+          "observables": "1",
+          "conditional_log_probability": -0.8514943643803211,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [
+            [
+              87,
+              12
+            ],
+            [
+              185,
+              3
+            ],
+            [
+              213,
+              2
+            ]
+          ],
+          "validation": {
+            "absolute_log_error": 9.992007221626409e-16,
+            "peak_reference_terms": 4
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 4,
+          "records": "111101000110011010000010110001000010101010010110111110100001001",
+          "detectors": "001000010111110110100101010100001000110100000101100110001011",
+          "observables": "1",
+          "conditional_log_probability": -14.556090791758852,
+          "prefix_faults": [
+            [
+              23,
+              1
+            ]
+          ],
+          "prefix_readout": [],
+          "suffix_faults": [
+            [
+              79,
+              9
+            ],
+            [
+              129,
+              14
+            ],
+            [
+              151,
+              14
+            ],
+            [
+              152,
+              4
+            ],
+            [
+              155,
+              7
+            ],
+            [
+              196,
+              1
+            ]
+          ],
+          "validation": {
+            "absolute_log_error": 0.0,
+            "peak_reference_terms": 4
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 5,
+          "records": "000000000000110000011000000000100000000000100000011000011000000",
+          "detectors": "000001100001100000010000000000010000000001100000110000000000",
+          "observables": "0",
+          "conditional_log_probability": -6.773124621779078,
+          "prefix_faults": [],
+          "prefix_readout": [],
+          "suffix_faults": [
+            [
+              97,
+              7
+            ]
+          ],
+          "validation": {
+            "absolute_log_error": 8.881784197001252e-16,
+            "peak_reference_terms": 4
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 6,
+          "records": "111010011000000000000000100010000010000011000101010000110000001",
+          "detectors": "000000110000101010001100000100000100010000000000000001100101",
+          "observables": "1",
+          "conditional_log_probability": -3.0602707946915624,
+          "prefix_faults": [
+            [
+              32,
+              1
+            ]
+          ],
+          "prefix_readout": [],
+          "suffix_faults": [
+            [
+              18,
+              2
+            ],
+            [
+              45,
+              1
+            ],
+            [
+              82,
+              15
+            ],
+            [
+              194,
+              3
+            ],
+            [
+              277,
+              1
+            ]
+          ],
+          "validation": {
+            "absolute_log_error": 4.440892098500626e-16,
+            "peak_reference_terms": 4
+          }
+        },
+        {
+          "kind": "sample",
+          "shot": 7,
+          "records": "011011001011000110010000010000101000000000010011001000011001010",
+          "detectors": "101001100001001100100000000001010000100000100110001101001101",
+          "observables": "1",
+          "conditional_log_probability": -7.91230105861118,
+          "prefix_faults": [
+            [
+              0,
+              2
+            ]
+          ],
+          "prefix_readout": [],
+          "suffix_faults": [
+            [
+              59,
+              2
+            ],
+            [
+              92,
+              8
+            ],
+            [
+              152,
+              3
+            ],
+            [
+              176,
+              2
+            ],
+            [
+              191,
+              3
+            ]
+          ],
+          "validation": {
+            "absolute_log_error": 8.881784197001252e-16,
+            "peak_reference_terms": 4
+          }
+        }
+      ]
+    }
+  ]
+}

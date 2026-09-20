@@ -1,0 +1,278 @@
+[
+  {
+    "variant": "native_growth",
+    "early_rejection": false,
+    "probability": 0.001,
+    "command": [
+      "/usr/bin/time",
+      "-f",
+      "%M",
+      "-o",
+      "/tmp/native-growth-rss.txt",
+      "taskset",
+      "-c",
+      "0",
+      "/tmp/clifft-pr471-baseline/build-study/sample_folded_protocol",
+      "/tmp/folded-staged-f7-p001",
+      "32",
+      "0",
+      "9134",
+      "0",
+      "unbounded",
+      "0"
+    ],
+    "benchmark": {
+      "kind": "benchmark",
+      "setup_seconds": 0.259248757,
+      "baseline_setup_seconds": 4.335696791,
+      "shots_per_batch": 32,
+      "baseline_shots_per_batch": 0,
+      "prefix_peak_width": 8,
+      "ordinary_peak_width": 44,
+      "native_peak_rss_kib": 23228,
+      "contraction_lookup_bytes": 9023524,
+      "contraction_workspace_bytes": 2570720,
+      "normalization_error": 8.881784197001252e-16,
+      "continuation_error": 2.220446049250313e-16,
+      "seconds": [
+        6.156284365,
+        6.257758442,
+        6.217317276
+      ],
+      "baseline_seconds": [
+        3.0000000000000004e-08,
+        3.0000000000000004e-08,
+        3.0000000000000004e-08
+      ],
+      "accepted": [
+        4,
+        8,
+        1
+      ],
+      "logical_failures": [
+        0,
+        0,
+        0
+      ],
+      "baseline_accepted": [
+        0,
+        0,
+        0
+      ],
+      "baseline_logical_failures": [
+        0,
+        0,
+        0
+      ]
+    },
+    "peak_rss_kib": 40956,
+    "binary_sha256": "d3f2df75049dca54ff89c5d961c0b7036b8c7c55970018f706a094d2de64b631"
+  },
+  {
+    "variant": "dense_prefix",
+    "early_rejection": false,
+    "probability": 0.001,
+    "command": [
+      "/usr/bin/time",
+      "-f",
+      "%M",
+      "-o",
+      "/tmp/native-growth-rss.txt",
+      "taskset",
+      "-c",
+      "0",
+      "/tmp/sample-folded-protocol-before-handoff",
+      "/tmp/folded-f7-bench/f7-p0.001",
+      "32",
+      "0",
+      "9134",
+      "0",
+      "unbounded",
+      "0"
+    ],
+    "benchmark": {
+      "kind": "benchmark",
+      "setup_seconds": 0.5624847540000001,
+      "baseline_setup_seconds": 3.838111055,
+      "shots_per_batch": 32,
+      "baseline_shots_per_batch": 0,
+      "prefix_peak_width": 22,
+      "ordinary_peak_width": 44,
+      "native_peak_rss_kib": 26560,
+      "contraction_lookup_bytes": 8392748,
+      "contraction_workspace_bytes": 2539440,
+      "normalization_error": 8.881784197001252e-16,
+      "continuation_error": 2.220446049250313e-16,
+      "seconds": [
+        15.295080277,
+        15.188460214000001,
+        15.251501715000002
+      ],
+      "baseline_seconds": [
+        1.2000000000000002e-07,
+        1.0000000000000001e-07,
+        9.000000000000001e-08
+      ],
+      "accepted": [
+        3,
+        3,
+        4
+      ],
+      "logical_failures": [
+        0,
+        0,
+        0
+      ],
+      "baseline_accepted": [
+        0,
+        0,
+        0
+      ],
+      "baseline_logical_failures": [
+        0,
+        0,
+        0
+      ]
+    },
+    "peak_rss_kib": 107704,
+    "binary_sha256": "d37abb983ab6c28ab174e552218b79d0b2b43957a099bc2e7a78ceaa089f22b8"
+  },
+  {
+    "variant": "native_growth",
+    "early_rejection": true,
+    "probability": 0.001,
+    "command": [
+      "/usr/bin/time",
+      "-f",
+      "%M",
+      "-o",
+      "/tmp/native-growth-rss.txt",
+      "taskset",
+      "-c",
+      "0",
+      "/tmp/clifft-pr471-baseline/build-study/sample_folded_protocol",
+      "/tmp/folded-staged-f7-p001",
+      "128",
+      "0",
+      "9134",
+      "1",
+      "unbounded",
+      "0"
+    ],
+    "benchmark": {
+      "kind": "benchmark",
+      "setup_seconds": 0.259239604,
+      "baseline_setup_seconds": 4.321697759,
+      "shots_per_batch": 128,
+      "baseline_shots_per_batch": 0,
+      "prefix_peak_width": 8,
+      "ordinary_peak_width": 44,
+      "native_peak_rss_kib": 23236,
+      "contraction_lookup_bytes": 9023524,
+      "contraction_workspace_bytes": 2570720,
+      "normalization_error": 4.440892098500626e-16,
+      "continuation_error": 4.440892098500626e-16,
+      "seconds": [
+        5.60009212,
+        4.433931256,
+        6.9587482110000005
+      ],
+      "baseline_seconds": [
+        3.1e-08,
+        3.0000000000000004e-08,
+        3.0000000000000004e-08
+      ],
+      "accepted": [
+        16,
+        10,
+        19
+      ],
+      "logical_failures": [
+        0,
+        0,
+        0
+      ],
+      "baseline_accepted": [
+        0,
+        0,
+        0
+      ],
+      "baseline_logical_failures": [
+        0,
+        0,
+        0
+      ]
+    },
+    "peak_rss_kib": 40968,
+    "binary_sha256": "d3f2df75049dca54ff89c5d961c0b7036b8c7c55970018f706a094d2de64b631"
+  },
+  {
+    "variant": "dense_prefix",
+    "early_rejection": true,
+    "probability": 0.001,
+    "command": [
+      "/usr/bin/time",
+      "-f",
+      "%M",
+      "-o",
+      "/tmp/native-growth-rss.txt",
+      "taskset",
+      "-c",
+      "0",
+      "/tmp/sample-folded-protocol-before-handoff",
+      "/tmp/folded-f7-bench/f7-p0.001",
+      "128",
+      "0",
+      "9134",
+      "1",
+      "unbounded",
+      "0"
+    ],
+    "benchmark": {
+      "kind": "benchmark",
+      "setup_seconds": 0.560645503,
+      "baseline_setup_seconds": 3.8426445910000004,
+      "shots_per_batch": 128,
+      "baseline_shots_per_batch": 0,
+      "prefix_peak_width": 22,
+      "ordinary_peak_width": 44,
+      "native_peak_rss_kib": 26860,
+      "contraction_lookup_bytes": 8392748,
+      "contraction_workspace_bytes": 2539440,
+      "normalization_error": 8.881784197001252e-16,
+      "continuation_error": 2.220446049250313e-16,
+      "seconds": [
+        27.981191206000002,
+        33.738874979,
+        28.966705830000002
+      ],
+      "baseline_seconds": [
+        2e-08,
+        3.0000000000000004e-08,
+        3.0000000000000004e-08
+      ],
+      "accepted": [
+        18,
+        17,
+        12
+      ],
+      "logical_failures": [
+        0,
+        0,
+        0
+      ],
+      "baseline_accepted": [
+        0,
+        0,
+        0
+      ],
+      "baseline_logical_failures": [
+        0,
+        0,
+        0
+      ]
+    },
+    "peak_rss_kib": 107752,
+    "binary_sha256": "d37abb983ab6c28ab174e552218b79d0b2b43957a099bc2e7a78ceaa089f22b8"
+  }
+]

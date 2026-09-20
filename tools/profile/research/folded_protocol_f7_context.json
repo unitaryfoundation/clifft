@@ -1,0 +1,88 @@
+{
+  "distance": 7,
+  "data_qubits": 85,
+  "total_qubits": 99,
+  "measurements": 351,
+  "detectors": 348,
+  "noise_sites": 2189,
+  "gate_counts": {
+    "R": 436,
+    "X_ERROR": 617,
+    "H": 363,
+    "DEPOLARIZE1": 386,
+    "T": 68,
+    "CX": 1399,
+    "DEPOLARIZE2": 1074,
+    "M": 351,
+    "T_DAG": 67,
+    "CCZ": 148,
+    "DEPOLARIZE3": 112
+  },
+  "source_sha256": "fff72e8f48a0509a00d52133d8cb334a1743fc7c74ce1f40eeeccc9785909545",
+  "rank": 42,
+  "peak_scope": 16,
+  "plan_count": 44,
+  "plan_payload_bytes": 82901752,
+  "bound_input_bytes": 334336,
+  "marginal_sum_work": 1596316,
+  "base_commit": "41a18d455e855650f3c5dffa75db301f67ff2ded",
+  "pr471_head": "8f69b3c305303483e5dd33dcf4d13dbbebae1fa9",
+  "build": "GCC 13.3 native Release; PR 471 enabled explicitly; PR 472 docs only",
+  "sources": [
+    "https://arxiv.org/html/2609.16929v1#A1",
+    "https://quantum-journal.org/papers/q-2021-08-05-517/"
+  ],
+  "scope": "Complete reconstructed f7 cultivation through FED and final logical measurement; no decoder FEC or escape/storage, no claimed author-identical stabilizer gate ordering",
+  "memory_method": "Fresh shell-launched native process, /usr/bin/time -f %M; includes plan loading, ordinary prefix execution, full-plan compilation but no full ordinary executor, 16 warmups and three samples; p=0; native_peak_rss_kib checkpoint precedes warmups so is not total footprint",
+  "memory": {
+    "kind": "benchmark",
+    "setup_seconds": 0.6483546370000001,
+    "baseline_setup_seconds": 3.8694137960000003,
+    "shots_per_batch": 1,
+    "baseline_shots_per_batch": 0,
+    "prefix_peak_width": 22,
+    "ordinary_peak_width": 44,
+    "native_peak_rss_kib": 91856,
+    "normalization_error": 4.440892098500626e-16,
+    "continuation_error": 2.220446049250313e-16,
+    "seconds": [
+      0.427526247,
+      0.41050330500000004,
+      0.422511685
+    ],
+    "baseline_seconds": [
+      2e-08,
+      3.0000000000000004e-08,
+      3.0000000000000004e-08
+    ],
+    "accepted": [
+      1,
+      1,
+      1
+    ],
+    "logical_failures": [
+      0,
+      0,
+      0
+    ],
+    "baseline_accepted": [
+      0,
+      0,
+      0
+    ],
+    "baseline_logical_failures": [
+      0,
+      0,
+      0
+    ],
+    "process_peak_rss_kib": 161264
+  },
+  "sampler_sha256": "baedf650280c96fbe12628bc80e766d2190b96729e9a1848ba01b1fa834c25fd",
+  "reference_sha256": "e098444a5c1f35fda4b2699fc511089ecfafdd047de9a11b33b66e9134a11dbd",
+  "audit_source_sha256": {
+    "audit_folded_protocol.py": "8aea82818e9c412d6a7a6606071f2b9a9b83270c7dc0a7694c58063e8fbc7202",
+    "folded_msc_oracle.py": "85e6a087986adbd22e44bd2c56258c3c2cc6f31418f160958895234f9177348c",
+    "test_folded_msc_f7.py": "73c24711d04fad4cfb30a9de9eb3b3e388cf36c75f3072e4d38036994cdb792d",
+    "test_folded_protocol.py": "92567920eb4707075bff3031392fdec69e213e46835bd69243a32a486b86caf8"
+  }
+}

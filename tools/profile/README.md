@@ -5,6 +5,95 @@ author circuit corpus, independent reference checks, source-mapped active-width
 diagnostics, and public-API throughput measurements. Its optional
 `profile_cultivation` target is built with `CLIFFT_BUILD_PROFILER=ON`.
 
+The [SOFT d7 investigation](research/soft_cultivation.md) adds a pinned physical
+T workload, an exact noiseless detector witness, and offline trajectory-state
+diagnostics using the optional `snapshot_cultivation` target. Its cultivation
+contract remains unverified; the report separates that limitation from timing.
+
+The [coherent Clifford gadget experiment](research/clifford_gadget.md) reduces
+the physical parity gadgets to two coherent Clifford terms and checks complete
+fault-conditioned histories. Its offline reference demonstrates the reduction
+but is slower than ordinary Clifft; Cirq remains an optional research dependency.
+
+The [fixed-contraction follow-up](research/gadget_contraction.md) compiles the
+terminal interference and sampling marginals into small reusable schedules.
+It adds the optional `profile_gadget_contraction` arithmetic benchmark and
+validates generated records against native full-circuit replay. Those kernel
+timings exclude the prefix and compiler handoff.
+
+The [native handoff and sampler](research/native_terminal.md) connects ordinary
+Clifft prefix execution to the terminal schedules with compiler-certified
+boundary expressions and precompiled fault maps. Its optional
+`sample_terminal_gadget` target measures complete attempts with fresh noise;
+it is an experimental profiling path, not a public sampling mode.
+
+The [author-corpus coverage audit](research/terminal_coverage.md) finds that
+the terminal prototype currently declines all four validated author inputs.
+It identifies the missing logical measurement, feedback, and flag support,
+and separates a distance-scaling benchmark from rare-error estimation.
+
+The [geometric gadget sweep](research/gadget_family.md) constructs a reproducible
+d3/d5/d7/d9 family with ideal encoded inputs and noisy physical parity trees.
+It measures the crossover against ordinary Clifft, validates small cases
+against dense physical projectors, and bounds dense baseline allocation.
+
+The [complete-protocol source audit](research/protocol_sources.md) preserves
+the proposed Takada f3/f5/f7 reconstruction, exact source revisions, noise
+and acceptance conventions, and known export traps. The geometric sweep is
+not a complete cultivation protocol.
+
+The [reconstructed fold-transversal f3 protocol](research/folded_msc.md)
+now includes physical injection, growth, noisy logical checks and terminal
+error detection. It adds an independent Aer trajectory audit, exhaustive
+single-fault checks, and an ordinary-Clifft baseline.
+
+The [complete f5 extension](research/folded_msc_f5.md) adds validated unitary
+growth and flagged folded checks. Ordinary Clifft reaches active width 22;
+an offline coherent-Clifford oracle agrees on complete physical histories.
+Production compilation of this reduction, f7 growth, and decoder-based
+final error correction remain future work.
+
+The [scheduled-baseline refresh](research/scheduled_baseline.md) compares
+identical folded and synthetic inputs with PR 471 explicitly enabled, using
+both bounded and unbounded search. It records compilation, complete-attempt
+throughput, isolated-process memory and physical replay checks, superseding
+the earlier default-pipeline-only performance comparisons.
+
+The [folded-check contraction prototype](research/folded_contraction.md)
+samples two coherent folded checks and returns a logical-state continuation
+using fixed native arithmetic. Complete physical histories and continued
+logical phases are checked for f3/f5. Fault binding is still offline, so its
+kernel timings are not complete-attempt speedups.
+
+The [complete native folded sampler](research/folded_protocol.md) now includes
+the Clifft prefix, fresh physical noise, native table binding, noisy syndrome
+continuation and final logical evaluation. It validates 144 fresh complete
+histories and compares both full and early-rejected attempts against PR 471.
+The f5 gain survives that comparison; f3 still needs the ordinary path.
+
+The [complete f7 cultivation extension](research/folded_protocol_f7.md)
+tests the larger circuit before fallback or production consolidation. It
+includes d5-to-d7 growth, the eight-qubit verified cat, and the complete
+physical cultivation prefix. Fresh f7 attempts pass independent history
+checks while avoiding an ordinary width-44 coefficient array.
+
+The [other non-Clifford candidate audit](research/non_clifford_candidates.md)
+compares available distillation and Clifford-measurement families, identifies
+Clifford surrogate exports, and records an ordinary-Clifft active-width check
+of the existing 85-qubit distillation baseline.
+
+The [folded sampler memory experiment](research/folded_memory.md) shares
+execution workspaces and compacts fixed lookup tables. It reduces the f7
+numeric payload from 79.06 MiB to 10.43 MiB, preserves independently checked
+physical histories, and records the runtime tradeoff against the same
+PR-471-enabled sampler before compression.
+
+The [native f5-to-f7 integration](research/folded_native_growth.md) connects
+both folded kernels through a compiler-certified noisy growth transfer.
+Complete f7 histories pass independent replay, the dense prefix allocation
+is removed, and full attempts improve to about 194 ms at about 40 MiB RSS.
+Use `--native-growth` when compiling an f7 research bundle.
+
 Three native C++ harnesses isolate production compile, sampling, and
 strong-simulation costs for `perf` or another sampling profiler:
 

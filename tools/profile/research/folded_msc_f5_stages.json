@@ -1,0 +1,58 @@
+{
+  "circuit_sha256": "b9e261d861fc691c1586822d4d334a2e3d3888cc2733df641e0cbd17279cc40c",
+  "interpretation": "Static unfused diagnostic estimates, not measured stage timings. Actions with multiple source stages can contribute to each.",
+  "stages": {
+    "d5_logical_check_1": {
+      "peak": 22,
+      "visits": 115446254
+    },
+    "grow_rotated5_to_regular5": {
+      "peak": 0,
+      "visits": 0
+    },
+    "grow_regular3_to_rotated5": {
+      "peak": 0,
+      "visits": 0
+    },
+    "logical_check_1": {
+      "peak": 8,
+      "visits": 6126
+    },
+    "pre_checks": {
+      "peak": 1,
+      "visits": 0
+    },
+    "growth": {
+      "peak": 0,
+      "visits": 0
+    },
+    "injection": {
+      "peak": 1,
+      "visits": 1
+    },
+    "logical_check_2": {
+      "peak": 8,
+      "visits": 9984
+    },
+    "d5_pre_checks": {
+      "peak": 8,
+      "visits": 504
+    },
+    "d5_logical_check_2": {
+      "peak": 22,
+      "visits": 557842432
+    },
+    "d5_post_checks": {
+      "peak": 22,
+      "visits": 8388600
+    },
+    "final_syndrome": {
+      "peak": 1,
+      "visits": 0
+    },
+    "final_logical": {
+      "peak": 22,
+      "visits": 176003582
+    }
+  }
+}

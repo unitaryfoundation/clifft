@@ -1,0 +1,1741 @@
+{
+  "source_files_sha256": {
+    "folded_msc.py": "3cc53fc038dc28d50ee3b79e8a9bd6f3643d71dfdd6fbd6db609d0a827dbec5f",
+    "folded_msc_family.py": "b5a74f38b6faf6c8fb1702defe7724a3b7c7c36868d751042cf3356ec6a30642",
+    "folded_msc_oracle.py": "7dafb38a299522ae5dea3c8ed2778d9a6c9f9c87699b93f7bee20ca925689b28",
+    "clifford_gadget.py": "cb8feffe8f71dbe59fc43f3a78ed2757cb5e4c2f96f8650ca4f768a2dbca9dec",
+    "validate_folded_msc.py": "d9e2dbef02e0cbcf913a2faaca16e579d7f407a47bde05c5beb76bc2e53ccfe6"
+  },
+  "native_sha256": "579c89a9429a34111ae081e2acf8b0bcbd0fce9c12565f1b2adf386f4c86858a",
+  "f5_circuit_sha256": "b9e261d861fc691c1586822d4d334a2e3d3888cc2733df641e0cbd17279cc40c",
+  "small_aer_crosschecks": [
+    {
+      "faults": {},
+      "records": "000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "oracle": {
+        "probability": 0.9999999999999997,
+        "log_probability": -3.33066907387547e-16,
+        "peak_terms": 8,
+        "stage_terms": {
+          "injection": 2,
+          "growth": 2,
+          "pre_checks": 2,
+          "logical_check_1": 4,
+          "logical_check_2": 8,
+          "post_checks": 4,
+          "final_syndrome": 4,
+          "final_logical": 8
+        }
+      },
+      "absolute_log_error": 5.551115123125783e-16
+    },
+    {
+      "faults": {
+        "59": "X",
+        "143": "YY",
+        "177": "X",
+        "239": "XI",
+        "317": "Y",
+        "335": "YYI"
+      },
+      "records": "000010010000001100011010110000011010110000000000000000000000010010000000011011010110000011010110000",
+      "oracle": {
+        "probability": 0.031249999999999993,
+        "log_probability": -3.465735902799727,
+        "peak_terms": 8,
+        "stage_terms": {
+          "injection": 2,
+          "growth": 2,
+          "pre_checks": 2,
+          "logical_check_1": 4,
+          "logical_check_2": 8,
+          "post_checks": 4,
+          "final_syndrome": 4,
+          "final_logical": 8
+        }
+      },
+      "absolute_log_error": 4.440892098500626e-16
+    },
+    {
+      "faults": {
+        "153": "X",
+        "348": "X",
+        "355": "X",
+        "503": "IX"
+      },
+      "records": "000001000000000100100000000001000000000000000000000000000000001000000000001100000000001000000000000",
+      "oracle": {
+        "probability": 0.9999999999999997,
+        "log_probability": -3.33066907387547e-16,
+        "peak_terms": 8,
+        "stage_terms": {
+          "injection": 2,
+          "growth": 2,
+          "pre_checks": 2,
+          "logical_check_1": 4,
+          "logical_check_2": 8,
+          "post_checks": 4,
+          "final_syndrome": 4,
+          "final_logical": 8
+        }
+      },
+      "absolute_log_error": 3.330669073875469e-16
+    },
+    {
+      "faults": {
+        "11": "X",
+        "81": "Y",
+        "83": "ZY",
+        "113": "YX",
+        "141": "X",
+        "375": "YZ",
+        "491": "ZY"
+      },
+      "records": "001001001000010010111001000000101001000010000000000000000001001001000000100111001000000101001000010",
+      "oracle": {
+        "probability": 0.125,
+        "log_probability": -2.0794415416798357,
+        "peak_terms": 8,
+        "stage_terms": {
+          "injection": 2,
+          "growth": 2,
+          "pre_checks": 2,
+          "logical_check_1": 4,
+          "logical_check_2": 8,
+          "post_checks": 4,
+          "final_syndrome": 2,
+          "final_logical": 4
+        }
+      },
+      "absolute_log_error": 2.220446049250313e-15
+    },
+    {
+      "faults": {
+        "3": "X",
+        "301": "XI",
+        "405": "YZ",
+        "465": "XZ"
+      },
+      "records": "000000000110000001001010001100110010000100100000000000000000000000110000000001010001100110010000100",
+      "oracle": {
+        "probability": 0.015624999999999998,
+        "log_probability": -4.158883083359672,
+        "peak_terms": 8,
+        "stage_terms": {
+          "injection": 2,
+          "growth": 2,
+          "pre_checks": 2,
+          "logical_check_1": 4,
+          "logical_check_2": 8,
+          "post_checks": 4,
+          "final_syndrome": 4,
+          "final_logical": 8
+        }
+      },
+      "absolute_log_error": 8.881784197001252e-16
+    },
+    {
+      "faults": {
+        "189": "ZY",
+        "277": "XXZ",
+        "352": "X",
+        "366": "X",
+        "472": "X"
+      },
+      "records": "000000001000001011100110001100000110000100100000000000000000000001000000010100110001100000110000100",
+      "oracle": {
+        "probability": 0.03124999999999999,
+        "log_probability": -3.465735902799727,
+        "peak_terms": 8,
+        "stage_terms": {
+          "injection": 2,
+          "growth": 2,
+          "pre_checks": 2,
+          "logical_check_1": 4,
+          "logical_check_2": 8,
+          "post_checks": 8,
+          "final_syndrome": 4,
+          "final_logical": 8
+        }
+      },
+      "absolute_log_error": 8.881784197001252e-16
+    },
+    {
+      "faults": {
+        "73": "YZ",
+        "143": "YX",
+        "193": "IY",
+        "429": "X"
+      },
+      "records": "011010000100010010010101001100010100001100000000000000000011010000100000100010101001100010100001100",
+      "oracle": {
+        "probability": 0.12499999999999999,
+        "log_probability": -2.079441541679836,
+        "peak_terms": 8,
+        "stage_terms": {
+          "injection": 2,
+          "growth": 2,
+          "pre_checks": 2,
+          "logical_check_1": 4,
+          "logical_check_2": 8,
+          "post_checks": 4,
+          "final_syndrome": 2,
+          "final_logical": 4
+        }
+      },
+      "absolute_log_error": 3.552713678800501e-15
+    },
+    {
+      "faults": {
+        "95": "Z",
+        "173": "YX",
+        "195": "IZ",
+        "228": "X",
+        "241": "YY",
+        "259": "Z",
+        "447": "ZY",
+        "501": "ZZ"
+      },
+      "records": "010000110001011000101110011100001010111100000000000000000010000110001000110101110011100001010111100",
+      "oracle": {
+        "probability": 0.00390625,
+        "log_probability": -5.545177444479562,
+        "peak_terms": 8,
+        "stage_terms": {
+          "injection": 2,
+          "growth": 2,
+          "pre_checks": 2,
+          "logical_check_1": 4,
+          "logical_check_2": 8,
+          "post_checks": 4,
+          "final_syndrome": 2,
+          "final_logical": 4
+        }
+      },
+      "absolute_log_error": 2.6645352591003757e-15
+    },
+    {
+      "faults": {
+        "61": "Y",
+        "251": "ZZ",
+        "259": "Z",
+        "379": "Y",
+        "380": "X"
+      },
+      "records": "000101000000000010100001000000100001000000100000000000000000101000000000000100001000000100001000000",
+      "oracle": {
+        "probability": 0.9999999999999997,
+        "log_probability": -3.33066907387547e-16,
+        "peak_terms": 8,
+        "stage_terms": {
+          "injection": 2,
+          "growth": 2,
+          "pre_checks": 2,
+          "logical_check_1": 4,
+          "logical_check_2": 8,
+          "post_checks": 4,
+          "final_syndrome": 4,
+          "final_logical": 8
+        }
+      },
+      "absolute_log_error": 3.330669073875469e-16
+    },
+    {
+      "faults": {
+        "3": "X",
+        "33": "IZ",
+        "290": "X",
+        "299": "X",
+        "339": "YIX",
+        "379": "Y",
+        "426": "X"
+      },
+      "records": "000001000110001011000101000101010111000101000000000000000000001000110000010000101000101010111000101",
+      "oracle": {
+        "probability": 0.03125,
+        "log_probability": -3.4657359027997265,
+        "peak_terms": 8,
+        "stage_terms": {
+          "injection": 2,
+          "growth": 2,
+          "pre_checks": 2,
+          "logical_check_1": 4,
+          "logical_check_2": 8,
+          "post_checks": 4,
+          "final_syndrome": 2,
+          "final_logical": 4
+        }
+      },
+      "absolute_log_error": 2.220446049250313e-15
+    },
+    {
+      "faults": {
+        "41": "IZ",
+        "90": "X",
+        "293": "X",
+        "313": "ZZ",
+        "475": "X"
+      },
+      "records": "100010000000010100101111100001101111100101000000000000000100010000000000101101111100001101111100101",
+      "oracle": {
+        "probability": 0.031249999999999962,
+        "log_probability": -3.465735902799728,
+        "peak_terms": 8,
+        "stage_terms": {
+          "injection": 2,
+          "growth": 2,
+          "pre_checks": 2,
+          "logical_check_1": 4,
+          "logical_check_2": 8,
+          "post_checks": 4,
+          "final_syndrome": 4,
+          "final_logical": 8
+        }
+      },
+      "absolute_log_error": 4.440892098500626e-16
+    },
+    {
+      "faults": {
+        "35": "ZZ",
+        "201": "XI",
+        "277": "ZXX"
+      },
+      "records": "000000000000010010000000001011000000001011000000000000000000000000000000100000000001011000000001011",
+      "oracle": {
+        "probability": 0.031249999999999997,
+        "log_probability": -3.4657359027997265,
+        "peak_terms": 8,
+        "stage_terms": {
+          "injection": 2,
+          "growth": 2,
+          "pre_checks": 2,
+          "logical_check_1": 4,
+          "logical_check_2": 8,
+          "post_checks": 8,
+          "final_syndrome": 2,
+          "final_logical": 4
+        }
+      },
+      "absolute_log_error": 8.881784197001252e-16
+    },
+    {
+      "faults": {
+        "21": "Y",
+        "31": "XY",
+        "286": "X",
+        "299": "Y",
+        "425": "Y",
+        "426": "X"
+      },
+      "records": "011000000000100010011000000000011000000000000000000000000011000000000001000011000000000011000000000",
+      "oracle": {
+        "probability": 0.9999999999999997,
+        "log_probability": -3.33066907387547e-16,
+        "peak_terms": 8,
+        "stage_terms": {
+          "injection": 2,
+          "growth": 2,
+          "pre_checks": 2,
+          "logical_check_1": 4,
+          "logical_check_2": 8,
+          "post_checks": 4,
+          "final_syndrome": 4,
+          "final_logical": 8
+        }
+      },
+      "absolute_log_error": 4.773959005888172e-15
+    },
+    {
+      "faults": {
+        "27": "X",
+        "179": "YX",
+        "218": "X",
+        "279": "YXI",
+        "281": "YY",
+        "293": "X",
+        "455": "YI"
+      },
+      "records": "000000010010100100111101000101110101110101100000000000000000000010010001001111101000101110101110101",
+      "oracle": {
+        "probability": 0.015624999999999981,
+        "log_probability": -4.158883083359673,
+        "peak_terms": 8,
+        "stage_terms": {
+          "injection": 2,
+          "growth": 2,
+          "pre_checks": 2,
+          "logical_check_1": 4,
+          "logical_check_2": 8,
+          "post_checks": 8,
+          "final_syndrome": 4,
+          "final_logical": 8
+        }
+      },
+      "absolute_log_error": 0.0
+    },
+    {
+      "faults": {
+        "17": "X",
+        "205": "IZ",
+        "325": "YZ",
+        "329": "Z"
+      },
+      "records": "000000000001010110111111000001111111000001100000000000000000000000001000101111111000001111111000001",
+      "oracle": {
+        "probability": 0.031249999999999997,
+        "log_probability": -3.4657359027997265,
+        "peak_terms": 8,
+        "stage_terms": {
+          "injection": 2,
+          "growth": 2,
+          "pre_checks": 2,
+          "logical_check_1": 4,
+          "logical_check_2": 8,
+          "post_checks": 4,
+          "final_syndrome": 2,
+          "final_logical": 4
+        }
+      },
+      "absolute_log_error": 2.220446049250313e-15
+    },
+    {
+      "faults": {
+        "109": "X",
+        "217": "ZZ",
+        "303": "ZX",
+        "396": "X",
+        "484": "X"
+      },
+      "records": "000000000000000110011100100001010100100101000000000000000000000000000000001011100100001010100100101",
+      "oracle": {
+        "probability": 0.031249999999999962,
+        "log_probability": -3.465735902799728,
+        "peak_terms": 8,
+        "stage_terms": {
+          "injection": 2,
+          "growth": 2,
+          "pre_checks": 2,
+          "logical_check_1": 4,
+          "logical_check_2": 8,
+          "post_checks": 4,
+          "final_syndrome": 4,
+          "final_logical": 8
+        }
+      },
+      "absolute_log_error": 3.9968028886505635e-15
+    },
+    {
+      "faults": {
+        "288": "X",
+        "347": "X",
+        "366": "X",
+        "396": "X"
+      },
+      "records": "000000000000010010101000000000000000000000000000000000000000000000000000100101000000000000000000000",
+      "oracle": {
+        "probability": 0.9999999999999997,
+        "log_probability": -3.33066907387547e-16,
+        "peak_terms": 8,
+        "stage_terms": {
+          "injection": 2,
+          "growth": 2,
+          "pre_checks": 2,
+          "logical_check_1": 4,
+          "logical_check_2": 8,
+          "post_checks": 4,
+          "final_syndrome": 4,
+          "final_logical": 8
+        }
+      },
+      "absolute_log_error": 5.551115123125783e-16
+    },
+    {
+      "faults": {
+        "9": "X",
+        "125": "X",
+        "196": "X",
+        "348": "X"
+      },
+      "records": "000000001000010110000000000000000000000000100000000000000000000001000000101000000000000000000000000",
+      "oracle": {
+        "probability": 0.9999999999999997,
+        "log_probability": -3.33066907387547e-16,
+        "peak_terms": 8,
+        "stage_terms": {
+          "injection": 2,
+          "growth": 2,
+          "pre_checks": 2,
+          "logical_check_1": 4,
+          "logical_check_2": 8,
+          "post_checks": 4,
+          "final_syndrome": 4,
+          "final_logical": 8
+        }
+      },
+      "absolute_log_error": 6.661338147750939e-16
+    },
+    {
+      "faults": {
+        "481": "ZX"
+      },
+      "records": "000000000000000000000000000100000101000000100000000000000000000000000000000000000000100000101000000",
+      "oracle": {
+        "probability": 0.9999999999999997,
+        "log_probability": -3.33066907387547e-16,
+        "peak_terms": 8,
+        "stage_terms": {
+          "injection": 2,
+          "growth": 2,
+          "pre_checks": 2,
+          "logical_check_1": 4,
+          "logical_check_2": 8,
+          "post_checks": 4,
+          "final_syndrome": 4,
+          "final_logical": 8
+        }
+      },
+      "absolute_log_error": 5.551115123125783e-16
+    },
+    {
+      "faults": {
+        "171": "XY"
+      },
+      "records": "000000101000000000100000101000100000101000100000000000000000000101000000000100000101000100000101000",
+      "oracle": {
+        "probability": 0.125,
+        "log_probability": -2.0794415416798357,
+        "peak_terms": 8,
+        "stage_terms": {
+          "injection": 2,
+          "growth": 2,
+          "pre_checks": 2,
+          "logical_check_1": 4,
+          "logical_check_2": 8,
+          "post_checks": 4,
+          "final_syndrome": 2,
+          "final_logical": 4
+        }
+      },
+      "absolute_log_error": 4.440892098500626e-15
+    },
+    {
+      "faults": {
+        "21": "Y",
+        "29": "Z",
+        "136": "X",
+        "171": "YY",
+        "177": "X",
+        "181": "YY",
+        "217": "IZ",
+        "243": "Z",
+        "273": "YYY",
+        "447": "IZ"
+      },
+      "records": "010100101100110000100100000100101100000100100000000000000010100101100001100100100000100101100000100",
+      "oracle": {
+        "probability": 0.031249999999999997,
+        "log_probability": -3.4657359027997265,
+        "peak_terms": 8,
+        "stage_terms": {
+          "injection": 2,
+          "growth": 2,
+          "pre_checks": 2,
+          "logical_check_1": 4,
+          "logical_check_2": 8,
+          "post_checks": 8,
+          "final_syndrome": 2,
+          "final_logical": 4
+        }
+      },
+      "absolute_log_error": 1.3322676295501878e-15
+    },
+    {
+      "faults": {
+        "109": "X",
+        "143": "ZX",
+        "215": "YI",
+        "259": "Y"
+      },
+      "records": "000010010100000000000110010010000110010010000000000000000000010010100000000000110010010000110010010",
+      "oracle": {
+        "probability": 0.03125,
+        "log_probability": -3.4657359027997265,
+        "peak_terms": 8,
+        "stage_terms": {
+          "injection": 2,
+          "growth": 2,
+          "pre_checks": 2,
+          "logical_check_1": 4,
+          "logical_check_2": 8,
+          "post_checks": 8,
+          "final_syndrome": 2,
+          "final_logical": 4
+        }
+      },
+      "absolute_log_error": 8.881784197001252e-16
+    },
+    {
+      "faults": {},
+      "records": "000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "oracle": {
+        "probability": 0.9999999999999997,
+        "log_probability": -3.33066907387547e-16,
+        "peak_terms": 8,
+        "stage_terms": {
+          "injection": 2,
+          "growth": 2,
+          "pre_checks": 2,
+          "logical_check_1": 4,
+          "logical_check_2": 8,
+          "post_checks": 4,
+          "final_syndrome": 4,
+          "final_logical": 8
+        }
+      },
+      "absolute_log_error": 5.551115123125783e-16
+    },
+    {
+      "faults": {
+        "17": "X",
+        "51": "X",
+        "231": "X",
+        "245": "IZ",
+        "281": "XZ",
+        "288": "X",
+        "450": "X"
+      },
+      "records": "101000000001111010111001000100111001100100100000000000000101000000001001110111001000100111001100100",
+      "oracle": {
+        "probability": 0.0078125,
+        "log_probability": -4.852030263919617,
+        "peak_terms": 8,
+        "stage_terms": {
+          "injection": 2,
+          "growth": 2,
+          "pre_checks": 2,
+          "logical_check_1": 4,
+          "logical_check_2": 8,
+          "post_checks": 4,
+          "final_syndrome": 2,
+          "final_logical": 4
+        }
+      },
+      "absolute_log_error": 2.6645352591003757e-15
+    }
+  ],
+  "f5_histories": [
+    {
+      "case": 0,
+      "probability": 0,
+      "faults": {},
+      "native": {
+        "reachable": true,
+        "log_probability": 0,
+        "visible": 151,
+        "hidden": 192,
+        "peak_active_width": 22,
+        "records": "0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "oracle": {
+        "probability": 0.9999999999999994,
+        "log_probability": -5.551115123125785e-16,
+        "peak_terms": 8,
+        "stage_terms": {
+          "injection": 2,
+          "growth": 2,
+          "pre_checks": 2,
+          "logical_check_1": 4,
+          "logical_check_2": 8,
+          "grow_regular3_to_rotated5": 4,
+          "grow_rotated5_to_regular5": 4,
+          "d5_pre_checks": 4,
+          "d5_logical_check_1": 8,
+          "d5_logical_check_2": 8,
+          "d5_post_checks": 4,
+          "final_syndrome": 4,
+          "final_logical": 8
+        }
+      },
+      "oracle_seconds": 0.440718678990379,
+      "absolute_log_error": 5.551115123125785e-16
+    },
+    {
+      "case": 1,
+      "probability": 0.001,
+      "faults": {
+        "1183": "YZY"
+      },
+      "native": {
+        "reachable": true,
+        "log_probability": -2.0794415416798357,
+        "visible": 151,
+        "hidden": 192,
+        "peak_active_width": 22,
+        "records": "0000000000000000000000000000000000000000000000000000000000001110000000000100000000000010000000000000000000100000010000000000001000000000000000000010001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000011100000010000000000001000000000000000000010000001000000000000100000000000000000001000"
+      },
+      "oracle": {
+        "probability": 0.1249999999999999,
+        "log_probability": -2.0794415416798366,
+        "peak_terms": 8,
+        "stage_terms": {
+          "injection": 2,
+          "growth": 2,
+          "pre_checks": 2,
+          "logical_check_1": 4,
+          "logical_check_2": 8,
+          "grow_regular3_to_rotated5": 4,
+          "grow_rotated5_to_regular5": 4,
+          "d5_pre_checks": 4,
+          "d5_logical_check_1": 8,
+          "d5_logical_check_2": 8,
+          "d5_post_checks": 8,
+          "final_syndrome": 4,
+          "final_logical": 8
+        }
+      },
+      "oracle_seconds": 0.5998837521765381,
+      "absolute_log_error": 8.881784197001252e-16
+    },
+    {
+      "case": 2,
+      "probability": 0.01,
+      "faults": {
+        "79": "X",
+        "97": "ZX",
+        "415": "XZ",
+        "439": "X",
+        "443": "X",
+        "477": "Y",
+        "633": "Y",
+        "669": "XX",
+        "844": "X",
+        "1055": "ZX",
+        "1281": "X",
+        "1539": "X",
+        "1547": "IZ",
+        "1639": "Y",
+        "1797": "YX",
+        "1824": "X"
+      },
+      "native": {
+        "reachable": true,
+        "log_probability": -4.1588830833596715,
+        "visible": 151,
+        "hidden": 192,
+        "peak_active_width": 22,
+        "records": "1100000010000000000000001001001011000000000100011000000010000100000100000001000011110000000000010001100101010100000101001011000001000001000110010001011000000000000001100000010000000000000000000000000000000000000000000100100101100000000010001100000001000000001000000000100001111000000000001000110010101010000010100101100000100000100011001000101"
+      },
+      "oracle": {
+        "probability": 0.015625000000000003,
+        "log_probability": -4.1588830833596715,
+        "peak_terms": 8,
+        "stage_terms": {
+          "injection": 2,
+          "growth": 2,
+          "pre_checks": 2,
+          "logical_check_1": 4,
+          "logical_check_2": 8,
+          "grow_regular3_to_rotated5": 4,
+          "grow_rotated5_to_regular5": 4,
+          "d5_pre_checks": 4,
+          "d5_logical_check_1": 4,
+          "d5_logical_check_2": 8,
+          "d5_post_checks": 4,
+          "final_syndrome": 2,
+          "final_logical": 4
+        }
+      },
+      "oracle_seconds": 0.26242607086896896,
+      "absolute_log_error": 0.0
+    },
+    {
+      "case": 3,
+      "probability": 0.03,
+      "faults": {
+        "269": "XY",
+        "417": "IX",
+        "461": "X",
+        "533": "IY",
+        "582": "X",
+        "669": "XI",
+        "699": "XI",
+        "781": "XX",
+        "853": "XI",
+        "1079": "X",
+        "1125": "XY",
+        "1147": "Y",
+        "1149": "ZX",
+        "1169": "ZIY",
+        "1243": "X",
+        "1291": "IXZ",
+        "1345": "YZ",
+        "1359": "IX",
+        "1381": "X",
+        "1395": "X",
+        "1397": "X",
+        "1413": "Y",
+        "1447": "ZY",
+        "1545": "XI",
+        "1591": "YY",
+        "1821": "XX",
+        "1827": "X"
+      },
+      "native": {
+        "reachable": true,
+        "log_probability": -5.545177444479562,
+        "visible": 151,
+        "hidden": 192,
+        "peak_active_width": 22,
+        "records": "0000000000001010100010001000011010100101100100010001000111100100000000111110111111001000001110001101100101011011110111111110100000111000110110010111101000000000000000000000000000010100000000000000000000000000000001000100001101010010110010001000100011110000001001011111011111100100000111000110110010101101111011111111010000011100011011001011110"
+      },
+      "oracle": {
+        "probability": 0.0039062499999999952,
+        "log_probability": -5.545177444479564,
+        "peak_terms": 16,
+        "stage_terms": {
+          "injection": 2,
+          "growth": 2,
+          "pre_checks": 2,
+          "logical_check_1": 4,
+          "logical_check_2": 8,
+          "grow_regular3_to_rotated5": 4,
+          "grow_rotated5_to_regular5": 4,
+          "d5_pre_checks": 4,
+          "d5_logical_check_1": 8,
+          "d5_logical_check_2": 16,
+          "d5_post_checks": 16,
+          "final_syndrome": 4,
+          "final_logical": 8
+        }
+      },
+      "oracle_seconds": 0.7145897089503706,
+      "absolute_log_error": 1.7763568394002505e-15
+    },
+    {
+      "case": 4,
+      "probability": 0.001,
+      "faults": {},
+      "native": {
+        "reachable": true,
+        "log_probability": 0,
+        "visible": 151,
+        "hidden": 192,
+        "peak_active_width": 22,
+        "records": "0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "oracle": {
+        "probability": 0.9999999999999994,
+        "log_probability": -5.551115123125785e-16,
+        "peak_terms": 8,
+        "stage_terms": {
+          "injection": 2,
+          "growth": 2,
+          "pre_checks": 2,
+          "logical_check_1": 4,
+          "logical_check_2": 8,
+          "grow_regular3_to_rotated5": 4,
+          "grow_rotated5_to_regular5": 4,
+          "d5_pre_checks": 4,
+          "d5_logical_check_1": 8,
+          "d5_logical_check_2": 8,
+          "d5_post_checks": 4,
+          "final_syndrome": 4,
+          "final_logical": 8
+        }
+      },
+      "oracle_seconds": 0.41737368516623974,
+      "absolute_log_error": 5.551115123125785e-16
+    },
+    {
+      "case": 5,
+      "probability": 0.01,
+      "faults": {
+        "5": "X",
+        "85": "XI",
+        "161": "IZ",
+        "573": "Y",
+        "719": "IZ",
+        "775": "X",
+        "1031": "X",
+        "1135": "Z",
+        "1843": "YX"
+      },
+      "native": {
+        "reachable": true,
+        "log_probability": -3.4657359027997265,
+        "visible": 151,
+        "hidden": 192,
+        "peak_active_width": 22,
+        "records": "0100001010000000000010001000000001001000000100000001001000000000000000000001100001011100100000010000000100011000000110000001110010000001000000010001101000000000000000100001010000000000000000000000000000000000000001000100000000100100000010000000100100000000000000000000110000101110010000001000000010001100000011000000111001000000100000001000110"
+      },
+      "oracle": {
+        "probability": 0.031249999999999997,
+        "log_probability": -3.4657359027997265,
+        "peak_terms": 8,
+        "stage_terms": {
+          "injection": 2,
+          "growth": 2,
+          "pre_checks": 2,
+          "logical_check_1": 4,
+          "logical_check_2": 8,
+          "grow_regular3_to_rotated5": 4,
+          "grow_rotated5_to_regular5": 4,
+          "d5_pre_checks": 4,
+          "d5_logical_check_1": 4,
+          "d5_logical_check_2": 8,
+          "d5_post_checks": 4,
+          "final_syndrome": 2,
+          "final_logical": 4
+        }
+      },
+      "oracle_seconds": 0.2394512069877237,
+      "absolute_log_error": 0.0
+    },
+    {
+      "case": 6,
+      "probability": 0.03,
+      "faults": {
+        "17": "X",
+        "245": "ZY",
+        "257": "ZZ",
+        "283": "ZX",
+        "373": "X",
+        "523": "XI",
+        "692": "X",
+        "715": "XX",
+        "731": "IZ",
+        "772": "X",
+        "781": "YX",
+        "863": "IY",
+        "877": "X",
+        "919": "YI",
+        "943": "ZI",
+        "999": "IZ",
+        "1179": "XZX",
+        "1181": "IXY",
+        "1198": "X",
+        "1215": "X",
+        "1367": "X",
+        "1371": "XI",
+        "1439": "Z",
+        "1617": "Y",
+        "1692": "X",
+        "1707": "X",
+        "1809": "IZ",
+        "1824": "X"
+      },
+      "native": {
+        "reachable": true,
+        "log_probability": -6.931471805599454,
+        "visible": 151,
+        "hidden": 192,
+        "peak_active_width": 22,
+        "records": "0000000000010010100000000001001001001001010101011000100000001010100100001101101010011000000000110011101011010000010110101001010010000001101110101001001000000000000000000000000010000100000000000000000000000000000000000000100100100100101010101100010000010000010100000110110101001100000000011001110101101000001011010100101001000000110111010100100"
+      },
+      "oracle": {
+        "probability": 0.0009765624999999998,
+        "log_probability": -6.931471805599453,
+        "peak_terms": 8,
+        "stage_terms": {
+          "injection": 2,
+          "growth": 2,
+          "pre_checks": 2,
+          "logical_check_1": 4,
+          "logical_check_2": 8,
+          "grow_regular3_to_rotated5": 4,
+          "grow_rotated5_to_regular5": 4,
+          "d5_pre_checks": 4,
+          "d5_logical_check_1": 4,
+          "d5_logical_check_2": 8,
+          "d5_post_checks": 8,
+          "final_syndrome": 2,
+          "final_logical": 4
+        }
+      },
+      "oracle_seconds": 0.29429457196965814,
+      "absolute_log_error": 8.881784197001252e-16
+    },
+    {
+      "case": 7,
+      "probability": 0.001,
+      "faults": {
+        "347": "Z"
+      },
+      "native": {
+        "reachable": true,
+        "log_probability": 0,
+        "visible": 151,
+        "hidden": 192,
+        "peak_active_width": 22,
+        "records": "0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "oracle": {
+        "probability": 0.9999999999999994,
+        "log_probability": -5.551115123125785e-16,
+        "peak_terms": 8,
+        "stage_terms": {
+          "injection": 2,
+          "growth": 2,
+          "pre_checks": 2,
+          "logical_check_1": 4,
+          "logical_check_2": 8,
+          "grow_regular3_to_rotated5": 4,
+          "grow_rotated5_to_regular5": 4,
+          "d5_pre_checks": 4,
+          "d5_logical_check_1": 8,
+          "d5_logical_check_2": 8,
+          "d5_post_checks": 4,
+          "final_syndrome": 4,
+          "final_logical": 8
+        }
+      },
+      "oracle_seconds": 0.4106860370375216,
+      "absolute_log_error": 5.551115123125785e-16
+    },
+    {
+      "case": 8,
+      "probability": 0.01,
+      "faults": {
+        "136": "X",
+        "575": "ZZ",
+        "717": "YX",
+        "935": "X"
+      },
+      "native": {
+        "reachable": true,
+        "log_probability": -2.0794415416798357,
+        "visible": 151,
+        "hidden": 192,
+        "peak_active_width": 22,
+        "records": "0001000000000000000010000000010000000000000000100001000100000000000000011000000000000000000000000000000100010001100000000000000000000000000000010001000000000000000000001000000000000000000000000000000000000000000001000000001000000000000000010000100010000000000000001100000000000000000000000000000010001000110000000000000000000000000000001000100"
+      },
+      "oracle": {
+        "probability": 0.12499999999999993,
+        "log_probability": -2.0794415416798366,
+        "peak_terms": 16,
+        "stage_terms": {
+          "injection": 2,
+          "growth": 2,
+          "pre_checks": 2,
+          "logical_check_1": 4,
+          "logical_check_2": 8,
+          "grow_regular3_to_rotated5": 4,
+          "grow_rotated5_to_regular5": 4,
+          "d5_pre_checks": 4,
+          "d5_logical_check_1": 8,
+          "d5_logical_check_2": 16,
+          "d5_post_checks": 8,
+          "final_syndrome": 4,
+          "final_logical": 8
+        }
+      },
+      "oracle_seconds": 0.6129614398814738,
+      "absolute_log_error": 8.881784197001252e-16
+    },
+    {
+      "case": 9,
+      "probability": 0.03,
+      "faults": {
+        "81": "X",
+        "93": "X",
+        "184": "X",
+        "225": "ZY",
+        "243": "Z",
+        "247": "Z",
+        "335": "YXY",
+        "347": "X",
+        "355": "X",
+        "441": "X",
+        "537": "YX",
+        "635": "XZ",
+        "651": "ZY",
+        "673": "XY",
+        "761": "Z",
+        "805": "X",
+        "857": "X",
+        "869": "ZI",
+        "895": "XX",
+        "1047": "XY",
+        "1081": "X",
+        "1105": "Z",
+        "1267": "X",
+        "1439": "X",
+        "1456": "X",
+        "1533": "ZY",
+        "1583": "Y",
+        "1615": "X",
+        "1775": "YI",
+        "1779": "X",
+        "1807": "YI",
+        "1809": "IY",
+        "1827": "X",
+        "1837": "X",
+        "1863": "ZI"
+      },
+      "native": {
+        "reachable": true,
+        "log_probability": -2.0794415416798357,
+        "visible": 151,
+        "hidden": 192,
+        "peak_active_width": 22,
+        "records": "0100000100010101000100011101001100000001101010101001001110100100000100111111100100011111100011101110001100001011111101011001111011001110111011010011100000000000000000100000100010001000000000000000000000000000001010001110100110000000110101010100100111000000001001011111110010001111110001110111000110000101111110101100111101100111011101101001110"
+      },
+      "oracle": {
+        "probability": 0.12499999999999993,
+        "log_probability": -2.0794415416798366,
+        "peak_terms": 16,
+        "stage_terms": {
+          "injection": 2,
+          "growth": 2,
+          "pre_checks": 2,
+          "logical_check_1": 4,
+          "logical_check_2": 8,
+          "grow_regular3_to_rotated5": 4,
+          "grow_rotated5_to_regular5": 4,
+          "d5_pre_checks": 4,
+          "d5_logical_check_1": 8,
+          "d5_logical_check_2": 16,
+          "d5_post_checks": 8,
+          "final_syndrome": 4,
+          "final_logical": 8
+        }
+      },
+      "oracle_seconds": 0.6888372821267694,
+      "absolute_log_error": 8.881784197001252e-16
+    },
+    {
+      "case": 10,
+      "probability": 0.001,
+      "faults": {},
+      "native": {
+        "reachable": true,
+        "log_probability": 0,
+        "visible": 151,
+        "hidden": 192,
+        "peak_active_width": 22,
+        "records": "0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "oracle": {
+        "probability": 0.9999999999999994,
+        "log_probability": -5.551115123125785e-16,
+        "peak_terms": 8,
+        "stage_terms": {
+          "injection": 2,
+          "growth": 2,
+          "pre_checks": 2,
+          "logical_check_1": 4,
+          "logical_check_2": 8,
+          "grow_regular3_to_rotated5": 4,
+          "grow_rotated5_to_regular5": 4,
+          "d5_pre_checks": 4,
+          "d5_logical_check_1": 8,
+          "d5_logical_check_2": 8,
+          "d5_post_checks": 4,
+          "final_syndrome": 4,
+          "final_logical": 8
+        }
+      },
+      "oracle_seconds": 0.41138463793322444,
+      "absolute_log_error": 5.551115123125785e-16
+    },
+    {
+      "case": 11,
+      "probability": 0.01,
+      "faults": {
+        "9": "X",
+        "403": "ZX",
+        "537": "ZX",
+        "1143": "XX",
+        "1155": "IIY",
+        "1579": "ZI",
+        "1699": "IY",
+        "1723": "ZX",
+        "1727": "YX"
+      },
+      "native": {
+        "reachable": true,
+        "log_probability": -9.704060527839234,
+        "visible": 151,
+        "hidden": 192,
+        "peak_active_width": 22,
+        "records": "0000000000000100100000000001001100010000000100001101000000001110000000010100100100100011010000100010110101000101010110110000011001000011011011010100010000000000000000000000000000001000000000000000000000000000000000000000100110001000000010000110100000010000011100001010010010010001101000010001011010100010101011011000001100100001101101101010001"
+      },
+      "oracle": {
+        "probability": 6.103515624999996e-05,
+        "log_probability": -9.704060527839236,
+        "peak_terms": 16,
+        "stage_terms": {
+          "injection": 2,
+          "growth": 2,
+          "pre_checks": 2,
+          "logical_check_1": 4,
+          "logical_check_2": 8,
+          "grow_regular3_to_rotated5": 4,
+          "grow_rotated5_to_regular5": 4,
+          "d5_pre_checks": 4,
+          "d5_logical_check_1": 8,
+          "d5_logical_check_2": 16,
+          "d5_post_checks": 16,
+          "final_syndrome": 4,
+          "final_logical": 8
+        }
+      },
+      "oracle_seconds": 0.6811539840418845,
+      "absolute_log_error": 1.7763568394002505e-15
+    },
+    {
+      "case": 12,
+      "probability": 0.03,
+      "faults": {
+        "9": "X",
+        "35": "XZ",
+        "99": "YY",
+        "297": "X",
+        "343": "IX",
+        "423": "YZ",
+        "435": "X",
+        "575": "XX",
+        "605": "ZY",
+        "628": "X",
+        "644": "X",
+        "911": "X",
+        "920": "X",
+        "941": "XY",
+        "977": "ZZ",
+        "1073": "X",
+        "1083": "Z",
+        "1139": "Z",
+        "1187": "ZX",
+        "1205": "X",
+        "1235": "XZ",
+        "1309": "YZI",
+        "1427": "X",
+        "1523": "X",
+        "1731": "X",
+        "1752": "X"
+      },
+      "native": {
+        "reachable": true,
+        "log_probability": -13.862943611198908,
+        "visible": 151,
+        "hidden": 192,
+        "peak_active_width": 22,
+        "records": "0100100011000101110010011000001010101011000100000010000000100000100001011001000010011110000100110011101001000001100110001011111000010011000010100100001000000000000000100100011000001000000000000000000000000000001001001100000101010101100010000001000000011000000001001100100001001111000010011001110100100000110011000101111100001001100001010010000"
+      },
+      "oracle": {
+        "probability": 9.536743164062502e-07,
+        "log_probability": -13.862943611198906,
+        "peak_terms": 16,
+        "stage_terms": {
+          "injection": 2,
+          "growth": 2,
+          "pre_checks": 2,
+          "logical_check_1": 4,
+          "logical_check_2": 8,
+          "grow_regular3_to_rotated5": 4,
+          "grow_rotated5_to_regular5": 4,
+          "d5_pre_checks": 4,
+          "d5_logical_check_1": 8,
+          "d5_logical_check_2": 16,
+          "d5_post_checks": 8,
+          "final_syndrome": 4,
+          "final_logical": 8
+        }
+      },
+      "oracle_seconds": 0.7624227099586278,
+      "absolute_log_error": 1.7763568394002505e-15
+    },
+    {
+      "case": 13,
+      "probability": 0.001,
+      "faults": {
+        "707": "X",
+        "1075": "X",
+        "1323": "XX"
+      },
+      "native": {
+        "reachable": true,
+        "log_probability": 0,
+        "visible": 151,
+        "hidden": 192,
+        "peak_active_width": 22,
+        "records": "0000000000000000000000000000100000000000000000000000000000000100000011000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "oracle": {
+        "probability": 0.9999999999999994,
+        "log_probability": -5.551115123125785e-16,
+        "peak_terms": 8,
+        "stage_terms": {
+          "injection": 2,
+          "growth": 2,
+          "pre_checks": 2,
+          "logical_check_1": 4,
+          "logical_check_2": 8,
+          "grow_regular3_to_rotated5": 4,
+          "grow_rotated5_to_regular5": 4,
+          "d5_pre_checks": 4,
+          "d5_logical_check_1": 8,
+          "d5_logical_check_2": 8,
+          "d5_post_checks": 4,
+          "final_syndrome": 4,
+          "final_logical": 8
+        }
+      },
+      "oracle_seconds": 0.41415554308332503,
+      "absolute_log_error": 5.551115123125785e-16
+    },
+    {
+      "case": 14,
+      "probability": 0.01,
+      "faults": {
+        "259": "Z",
+        "415": "ZX",
+        "577": "ZX",
+        "830": "X",
+        "1101": "XI",
+        "1427": "X",
+        "1541": "Y"
+      },
+      "native": {
+        "reachable": true,
+        "log_probability": -5.545177444479562,
+        "visible": 151,
+        "hidden": 192,
+        "peak_active_width": 22,
+        "records": "0000000000000000100010000001000010001000000000001011000000010000000000011000100100100000000000000000001110000001100000010011000000000000000000111000000000000000000000000000000000000000000000000000000000000000000001000000100001000100000000000101100000010000100000001100010010010000000000000000000111000000110000001001100000000000000000011100000"
+      },
+      "oracle": {
+        "probability": 0.0039062499999999944,
+        "log_probability": -5.545177444479564,
+        "peak_terms": 16,
+        "stage_terms": {
+          "injection": 2,
+          "growth": 2,
+          "pre_checks": 2,
+          "logical_check_1": 4,
+          "logical_check_2": 8,
+          "grow_regular3_to_rotated5": 4,
+          "grow_rotated5_to_regular5": 4,
+          "d5_pre_checks": 4,
+          "d5_logical_check_1": 8,
+          "d5_logical_check_2": 16,
+          "d5_post_checks": 8,
+          "final_syndrome": 4,
+          "final_logical": 8
+        }
+      },
+      "oracle_seconds": 0.7044408130459487,
+      "absolute_log_error": 1.7763568394002505e-15
+    },
+    {
+      "case": 15,
+      "probability": 0.03,
+      "faults": {
+        "7": "X",
+        "119": "X",
+        "125": "Z",
+        "131": "XZ",
+        "153": "X",
+        "233": "X",
+        "247": "Z",
+        "283": "IX",
+        "305": "Z",
+        "405": "ZY",
+        "407": "YX",
+        "459": "X",
+        "895": "XZ",
+        "911": "X",
+        "991": "ZZ",
+        "1027": "ZY",
+        "1111": "X",
+        "1121": "Z",
+        "1293": "ZZY",
+        "1501": "XY",
+        "1781": "XI"
+      },
+      "native": {
+        "reachable": true,
+        "log_probability": -4.158883083359672,
+        "visible": 151,
+        "hidden": 192,
+        "peak_active_width": 22,
+        "records": "0011011000010110000000101000000000111000000010000101000101000100000100000011110010011011010000010001110011010100001111000001101101000001000111101101011000000000000000011011000010001100000000000000000000000000000000010100000000011100000001000010100010100000001000000001111001001101101000001000111001101010000111100000110110100000100011110110101"
+      },
+      "oracle": {
+        "probability": 0.015624999999999997,
+        "log_probability": -4.158883083359672,
+        "peak_terms": 8,
+        "stage_terms": {
+          "injection": 2,
+          "growth": 2,
+          "pre_checks": 2,
+          "logical_check_1": 4,
+          "logical_check_2": 8,
+          "grow_regular3_to_rotated5": 4,
+          "grow_rotated5_to_regular5": 4,
+          "d5_pre_checks": 4,
+          "d5_logical_check_1": 4,
+          "d5_logical_check_2": 8,
+          "d5_post_checks": 4,
+          "final_syndrome": 2,
+          "final_logical": 4
+        }
+      },
+      "oracle_seconds": 0.23483994090929627,
+      "absolute_log_error": 0.0
+    },
+    {
+      "case": 16,
+      "probability": 0.001,
+      "faults": {},
+      "native": {
+        "reachable": true,
+        "log_probability": 0,
+        "visible": 151,
+        "hidden": 192,
+        "peak_active_width": 22,
+        "records": "0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "oracle": {
+        "probability": 0.9999999999999994,
+        "log_probability": -5.551115123125785e-16,
+        "peak_terms": 8,
+        "stage_terms": {
+          "injection": 2,
+          "growth": 2,
+          "pre_checks": 2,
+          "logical_check_1": 4,
+          "logical_check_2": 8,
+          "grow_regular3_to_rotated5": 4,
+          "grow_rotated5_to_regular5": 4,
+          "d5_pre_checks": 4,
+          "d5_logical_check_1": 8,
+          "d5_logical_check_2": 8,
+          "d5_post_checks": 4,
+          "final_syndrome": 4,
+          "final_logical": 8
+        }
+      },
+      "oracle_seconds": 0.4537740449886769,
+      "absolute_log_error": 5.551115123125785e-16
+    },
+    {
+      "case": 17,
+      "probability": 0.01,
+      "faults": {
+        "43": "IX",
+        "163": "Z",
+        "315": "Z",
+        "669": "XZ",
+        "1115": "Y",
+        "1235": "XX",
+        "1397": "Z",
+        "1527": "XZ"
+      },
+      "native": {
+        "reachable": true,
+        "log_probability": -9.010913347279288,
+        "visible": 151,
+        "hidden": 192,
+        "peak_active_width": 22,
+        "records": "0000000000100100100000100000001000000000100100000000000100000000010100100010100110101000001000101000100010010010000010111000100000100010100010001001001000000000000000000000000100001000000000000000000000000000000000010000000100000000010010000000000010010000000000110001010011010100000100010100010001001001000001011100010000010001010001000100100"
+      },
+      "oracle": {
+        "probability": 0.00012207031249999999,
+        "log_probability": -9.010913347279288,
+        "peak_terms": 8,
+        "stage_terms": {
+          "injection": 2,
+          "growth": 2,
+          "pre_checks": 2,
+          "logical_check_1": 4,
+          "logical_check_2": 8,
+          "grow_regular3_to_rotated5": 4,
+          "grow_rotated5_to_regular5": 4,
+          "d5_pre_checks": 4,
+          "d5_logical_check_1": 4,
+          "d5_logical_check_2": 8,
+          "d5_post_checks": 8,
+          "final_syndrome": 2,
+          "final_logical": 4
+        }
+      },
+      "oracle_seconds": 0.24198279110714793,
+      "absolute_log_error": 0.0
+    },
+    {
+      "case": 18,
+      "probability": 0.03,
+      "faults": {
+        "23": "Y",
+        "25": "Y",
+        "285": "Y",
+        "443": "X",
+        "445": "X",
+        "591": "ZX",
+        "623": "YX",
+        "763": "XZ",
+        "939": "IZ",
+        "953": "ZZ",
+        "1129": "Y",
+        "1205": "X",
+        "1230": "X",
+        "1235": "IX",
+        "1299": "YZI",
+        "1527": "YX",
+        "1547": "IX",
+        "1615": "X",
+        "1633": "IZ",
+        "1663": "X",
+        "1719": "X",
+        "1764": "X",
+        "1787": "YX",
+        "1788": "X",
+        "1833": "IY"
+      },
+      "native": {
+        "reachable": true,
+        "log_probability": -6.238324625039508,
+        "visible": 151,
+        "hidden": 192,
+        "peak_active_width": 22,
+        "records": "0000010000000100000001010100010000001000000100111001101000000100010001001000110111111010110010010111110010000000100000011101111000000001001101101010001000000000000000000010000000001000000000000000000000000000000000101010001000000100000010011100110100000000001000100100011011111101011001001011111001000000010000001110111100000000100110110101000"
+      },
+      "oracle": {
+        "probability": 0.0019531249999999985,
+        "log_probability": -6.238324625039509,
+        "peak_terms": 16,
+        "stage_terms": {
+          "injection": 2,
+          "growth": 2,
+          "pre_checks": 2,
+          "logical_check_1": 4,
+          "logical_check_2": 8,
+          "grow_regular3_to_rotated5": 4,
+          "grow_rotated5_to_regular5": 4,
+          "d5_pre_checks": 4,
+          "d5_logical_check_1": 8,
+          "d5_logical_check_2": 16,
+          "d5_post_checks": 8,
+          "final_syndrome": 4,
+          "final_logical": 8
+        }
+      },
+      "oracle_seconds": 0.7564138639718294,
+      "absolute_log_error": 8.881784197001252e-16
+    },
+    {
+      "case": 19,
+      "probability": 0.001,
+      "faults": {},
+      "native": {
+        "reachable": true,
+        "log_probability": 0,
+        "visible": 151,
+        "hidden": 192,
+        "peak_active_width": 22,
+        "records": "0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "oracle": {
+        "probability": 0.9999999999999994,
+        "log_probability": -5.551115123125785e-16,
+        "peak_terms": 8,
+        "stage_terms": {
+          "injection": 2,
+          "growth": 2,
+          "pre_checks": 2,
+          "logical_check_1": 4,
+          "logical_check_2": 8,
+          "grow_regular3_to_rotated5": 4,
+          "grow_rotated5_to_regular5": 4,
+          "d5_pre_checks": 4,
+          "d5_logical_check_1": 8,
+          "d5_logical_check_2": 8,
+          "d5_post_checks": 4,
+          "final_syndrome": 4,
+          "final_logical": 8
+        }
+      },
+      "oracle_seconds": 0.40740509098395705,
+      "absolute_log_error": 5.551115123125785e-16
+    },
+    {
+      "case": 20,
+      "probability": 0.01,
+      "faults": {
+        "65": "IZ",
+        "1117": "X",
+        "1373": "XZ",
+        "1563": "IY"
+      },
+      "native": {
+        "reachable": true,
+        "log_probability": -1.3862943611198908,
+        "visible": 151,
+        "hidden": 192,
+        "peak_active_width": 22,
+        "records": "0110000000000100100000001000001000000000000000000000000000000100000100000100100000100100000000010011001011000000110010000010110000000001001100101100001000000000000000110000000000001000000000000000000000000000000000000100000100000000000000000000000000010000001000000010010000010010000000001001100101100000011001000001011000000000100110010110000"
+      },
+      "oracle": {
+        "probability": 0.24999999999999975,
+        "log_probability": -1.3862943611198917,
+        "peak_terms": 8,
+        "stage_terms": {
+          "injection": 2,
+          "growth": 2,
+          "pre_checks": 2,
+          "logical_check_1": 4,
+          "logical_check_2": 8,
+          "grow_regular3_to_rotated5": 4,
+          "grow_rotated5_to_regular5": 4,
+          "d5_pre_checks": 4,
+          "d5_logical_check_1": 8,
+          "d5_logical_check_2": 8,
+          "d5_post_checks": 4,
+          "final_syndrome": 4,
+          "final_logical": 8
+        }
+      },
+      "oracle_seconds": 0.606164168799296,
+      "absolute_log_error": 8.881784197001252e-16
+    },
+    {
+      "case": 21,
+      "probability": 0.03,
+      "faults": {
+        "3": "X",
+        "71": "YZ",
+        "143": "ZX",
+        "288": "X",
+        "303": "ZI",
+        "399": "XZ",
+        "547": "ZY",
+        "568": "X",
+        "653": "ZX",
+        "715": "ZY",
+        "907": "ZY",
+        "1038": "X",
+        "1061": "X",
+        "1067": "ZI",
+        "1101": "XZ",
+        "1135": "Y",
+        "1163": "IIZ",
+        "1198": "X",
+        "1221": "XI",
+        "1263": "X",
+        "1265": "IX",
+        "1289": "IZZ",
+        "1415": "XX",
+        "1660": "X",
+        "1829": "XY"
+      },
+      "native": {
+        "reachable": true,
+        "log_probability": -14.556090791758853,
+        "visible": 151,
+        "hidden": 192,
+        "peak_active_width": 22,
+        "records": "0110101110100100101100100100011010100010000001001010001001010100001110001011010110011100001100100100001000100100111101011001110000100010010000100010011000000000000000110101110100001000000000000000000000000000000110010010001101010001000000100101000100110000101000000101101011001110000110010010000100010010011110101100111000010001001000010001001"
+      },
+      "oracle": {
+        "probability": 4.76837158203125e-07,
+        "log_probability": -14.556090791758852,
+        "peak_terms": 8,
+        "stage_terms": {
+          "injection": 2,
+          "growth": 2,
+          "pre_checks": 2,
+          "logical_check_1": 4,
+          "logical_check_2": 8,
+          "grow_regular3_to_rotated5": 4,
+          "grow_rotated5_to_regular5": 4,
+          "d5_pre_checks": 4,
+          "d5_logical_check_1": 4,
+          "d5_logical_check_2": 8,
+          "d5_post_checks": 4,
+          "final_syndrome": 2,
+          "final_logical": 4
+        }
+      },
+      "oracle_seconds": 0.2576906280592084,
+      "absolute_log_error": 1.7763568394002505e-15
+    },
+    {
+      "case": 22,
+      "probability": 0.001,
+      "faults": {},
+      "native": {
+        "reachable": true,
+        "log_probability": 0,
+        "visible": 151,
+        "hidden": 192,
+        "peak_active_width": 22,
+        "records": "0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "oracle": {
+        "probability": 0.9999999999999994,
+        "log_probability": -5.551115123125785e-16,
+        "peak_terms": 8,
+        "stage_terms": {
+          "injection": 2,
+          "growth": 2,
+          "pre_checks": 2,
+          "logical_check_1": 4,
+          "logical_check_2": 8,
+          "grow_regular3_to_rotated5": 4,
+          "grow_rotated5_to_regular5": 4,
+          "d5_pre_checks": 4,
+          "d5_logical_check_1": 8,
+          "d5_logical_check_2": 8,
+          "d5_post_checks": 4,
+          "final_syndrome": 4,
+          "final_logical": 8
+        }
+      },
+      "oracle_seconds": 0.4348101180512458,
+      "absolute_log_error": 5.551115123125785e-16
+    },
+    {
+      "case": 23,
+      "probability": 0.01,
+      "faults": {
+        "411": "YX",
+        "1183": "ZZI",
+        "1271": "ZY",
+        "1291": "XIZ",
+        "1364": "X",
+        "1603": "X"
+      },
+      "native": {
+        "reachable": true,
+        "log_probability": -2.7725887222397816,
+        "visible": 151,
+        "hidden": 192,
+        "peak_active_width": 22,
+        "records": "0000000000000000000100100000000000000000000000000000000000000000010000011011101000001110000000000000000011000000101110100000111000000000000000001100001000000000000000000000000000000000000000000000000000000000000010010000000000000000000000000000000000000000000000101101110100000111000000000000000001100000010111010000011100000000000000000110000"
+      },
+      "oracle": {
+        "probability": 0.062499999999999965,
+        "log_probability": -2.7725887222397816,
+        "peak_terms": 8,
+        "stage_terms": {
+          "injection": 2,
+          "growth": 2,
+          "pre_checks": 2,
+          "logical_check_1": 4,
+          "logical_check_2": 8,
+          "grow_regular3_to_rotated5": 4,
+          "grow_rotated5_to_regular5": 4,
+          "d5_pre_checks": 4,
+          "d5_logical_check_1": 8,
+          "d5_logical_check_2": 8,
+          "d5_post_checks": 4,
+          "final_syndrome": 4,
+          "final_logical": 8
+        }
+      },
+      "oracle_seconds": 0.5883126209955662,
+      "absolute_log_error": 0.0
+    }
+  ]
+}

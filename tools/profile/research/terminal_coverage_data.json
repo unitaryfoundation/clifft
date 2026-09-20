@@ -1,0 +1,179 @@
+{
+  "repository": "https://github.com/timchan0/cliffordea",
+  "revision": "a62a353e77468a2ff54c24e83133ad65a63e2294",
+  "results": [
+    {
+      "file": "d3a6_inject+cultivate_p1e-3.stim",
+      "sha256": "5003995c48830329a84e50560c49c1433b9dd8d23c06266a74272b6fce2d5afa",
+      "physical_variant": "author S/S_DAG replaced with T/T_DAG",
+      "noise_probability": 0.001,
+      "qubits": 15,
+      "complete_circuit_recognition": {
+        "accepted": false,
+        "reason": "unsupported parity gadget middle"
+      },
+      "feedback_instruction_count": 0,
+      "penultimate_t_pair": {
+        "recognized": true,
+        "data_qubits": 7,
+        "middle_operations": {
+          "DEPOLARIZE1": 11,
+          "TICK": 11,
+          "CX": 8,
+          "DEPOLARIZE2": 8,
+          "MX": 1,
+          "RX": 1,
+          "Z_ERROR": 1
+        }
+      },
+      "final_t_pair": {
+        "recognized": false,
+        "reason": "unsupported parity gadget middle",
+        "data_qubits": 7,
+        "middle_operations": {
+          "MPP": 1
+        }
+      },
+      "ordinary_clifft_validation": {
+        "noiseless_t_shots": 256,
+        "stim_shots": 8192,
+        "stim_max_output_marginal_difference": 0.0067138671875,
+        "stim_parities_match": true
+      }
+    },
+    {
+      "file": "d3a6f2_inject+cultivate_p1e-3.stim",
+      "sha256": "d9dc26be494547c21a71eb24ca0c53e45e85ab6a0c762fea6c8cf72a16cc01a9",
+      "physical_variant": "author S/S_DAG replaced with T/T_DAG",
+      "noise_probability": 0.001,
+      "qubits": 17,
+      "complete_circuit_recognition": {
+        "accepted": false,
+        "reason": "unsupported parity gadget middle"
+      },
+      "feedback_instruction_count": 0,
+      "penultimate_t_pair": {
+        "recognized": false,
+        "reason": "unsupported parity gadget middle",
+        "data_qubits": 7,
+        "middle_operations": {
+          "DEPOLARIZE1": 16,
+          "TICK": 15,
+          "CX": 12,
+          "R": 1,
+          "DEPOLARIZE2": 12,
+          "X_ERROR": 1,
+          "MX": 1,
+          "DETECTOR": 3,
+          "RX": 1,
+          "Z_ERROR": 1,
+          "M": 1
+        }
+      },
+      "final_t_pair": {
+        "recognized": false,
+        "reason": "unsupported parity gadget middle",
+        "data_qubits": 7,
+        "middle_operations": {
+          "TICK": 2,
+          "MPP": 1,
+          "OBSERVABLE_INCLUDE": 1
+        }
+      },
+      "ordinary_clifft_validation": {
+        "noiseless_t_shots": 256,
+        "stim_shots": 8192,
+        "stim_max_output_marginal_difference": 0.017333984375,
+        "stim_parities_match": true
+      }
+    },
+    {
+      "file": "d5a19_inject+cultivate_p1e-3.stim",
+      "sha256": "00759f0270f267a20e05cdfe483d5bc4f0b0dd4fcf4843122eaa8c987d001180",
+      "physical_variant": "author S/S_DAG replaced with T/T_DAG",
+      "noise_probability": 0.001,
+      "qubits": 42,
+      "complete_circuit_recognition": {
+        "accepted": false,
+        "reason": "feedback is outside this reference"
+      },
+      "feedback_instruction_count": 2,
+      "penultimate_t_pair": {
+        "recognized": true,
+        "data_qubits": 19,
+        "middle_operations": {
+          "DEPOLARIZE1": 17,
+          "TICK": 17,
+          "CX": 14,
+          "DEPOLARIZE2": 14,
+          "MX": 1,
+          "DETECTOR": 1,
+          "RX": 1,
+          "Z_ERROR": 1
+        }
+      },
+      "final_t_pair": {
+        "recognized": false,
+        "reason": "unsupported parity gadget middle",
+        "data_qubits": 19,
+        "middle_operations": {
+          "TICK": 2,
+          "MPP": 1,
+          "OBSERVABLE_INCLUDE": 1
+        }
+      },
+      "ordinary_clifft_validation": {
+        "noiseless_t_shots": 256,
+        "stim_shots": 8192,
+        "stim_max_output_marginal_difference": 0.0078125,
+        "stim_parities_match": true
+      }
+    },
+    {
+      "file": "d5a19f13_inject+cultivate_p1e-3.stim",
+      "sha256": "a0187f92a8cfc2fcd294836abb47e7b199e8f9efcaae004448adeba0840c09f8",
+      "physical_variant": "author S/S_DAG replaced with T/T_DAG",
+      "noise_probability": 0.001,
+      "qubits": 55,
+      "complete_circuit_recognition": {
+        "accepted": false,
+        "reason": "feedback is outside this reference"
+      },
+      "feedback_instruction_count": 2,
+      "penultimate_t_pair": {
+        "recognized": false,
+        "reason": "unsupported parity gadget middle",
+        "data_qubits": 19,
+        "middle_operations": {
+          "DEPOLARIZE1": 22,
+          "TICK": 19,
+          "CX": 16,
+          "R": 3,
+          "DEPOLARIZE2": 16,
+          "X_ERROR": 3,
+          "MX": 1,
+          "DETECTOR": 14,
+          "RX": 1,
+          "Z_ERROR": 1,
+          "M": 3
+        }
+      },
+      "final_t_pair": {
+        "recognized": false,
+        "reason": "unsupported parity gadget middle",
+        "data_qubits": 19,
+        "middle_operations": {
+          "TICK": 2,
+          "MPP": 1,
+          "OBSERVABLE_INCLUDE": 1
+        }
+      },
+      "ordinary_clifft_validation": {
+        "noiseless_t_shots": 256,
+        "stim_shots": 8192,
+        "stim_max_output_marginal_difference": 0.0157470703125,
+        "stim_parities_match": true
+      }
+    }
+  ]
+}

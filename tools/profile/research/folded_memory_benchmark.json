@@ -1,0 +1,2762 @@
+[
+  {
+    "variant": "before",
+    "distance": 7,
+    "probability": 0.001,
+    "early_rejection": false,
+    "command": [
+      "/usr/bin/time",
+      "-f",
+      "%M",
+      "-o",
+      "/tmp/folded-memory-rss.txt",
+      "taskset",
+      "-c",
+      "0",
+      "/tmp/sample-folded-protocol-before-memory",
+      "/tmp/folded-f7-bench/f7-p0.001",
+      "16",
+      "0",
+      "9134",
+      "0",
+      "unbounded",
+      "0"
+    ],
+    "binary_sha256": "baedf650280c96fbe12628bc80e766d2190b96729e9a1848ba01b1fa834c25fd",
+    "peak_rss_kib": 177632,
+    "benchmark": {
+      "kind": "benchmark",
+      "setup_seconds": 0.588791971,
+      "baseline_setup_seconds": 3.886764857,
+      "shots_per_batch": 16,
+      "baseline_shots_per_batch": 0,
+      "prefix_peak_width": 22,
+      "ordinary_peak_width": 44,
+      "native_peak_rss_kib": 96552,
+      "normalization_error": 8.881784197001252e-16,
+      "continuation_error": 2.220446049250313e-16,
+      "seconds": [
+        7.14780777,
+        7.0503012940000005,
+        7.304467842
+      ],
+      "baseline_seconds": [
+        3.0000000000000004e-08,
+        2e-08,
+        2e-08
+      ],
+      "accepted": [
+        2,
+        1,
+        0
+      ],
+      "logical_failures": [
+        0,
+        0,
+        0
+      ],
+      "baseline_accepted": [
+        0,
+        0,
+        0
+      ],
+      "baseline_logical_failures": [
+        0,
+        0,
+        0
+      ]
+    }
+  },
+  {
+    "variant": "narrow",
+    "distance": 7,
+    "probability": 0.001,
+    "early_rejection": false,
+    "command": [
+      "/usr/bin/time",
+      "-f",
+      "%M",
+      "-o",
+      "/tmp/folded-memory-rss.txt",
+      "taskset",
+      "-c",
+      "0",
+      "/tmp/sample-folded-protocol-narrow-memory",
+      "/tmp/folded-f7-bench/f7-p0.001",
+      "16",
+      "0",
+      "9134",
+      "0",
+      "unbounded",
+      "0"
+    ],
+    "binary_sha256": "907c78ca67c46aad050c17de43297b1971737fc5e158d454abbae36eb3c53bd2",
+    "peak_rss_kib": 129520,
+    "benchmark": {
+      "kind": "benchmark",
+      "setup_seconds": 0.5626620560000001,
+      "baseline_setup_seconds": 3.8467245200000004,
+      "shots_per_batch": 16,
+      "baseline_shots_per_batch": 0,
+      "prefix_peak_width": 22,
+      "ordinary_peak_width": 44,
+      "native_peak_rss_kib": 48412,
+      "normalization_error": 8.881784197001252e-16,
+      "continuation_error": 2.220446049250313e-16,
+      "seconds": [
+        7.298268859,
+        7.085170802,
+        7.050267982
+      ],
+      "baseline_seconds": [
+        3.0000000000000004e-08,
+        2e-08,
+        3.0000000000000004e-08
+      ],
+      "accepted": [
+        2,
+        1,
+        0
+      ],
+      "logical_failures": [
+        0,
+        0,
+        0
+      ],
+      "baseline_accepted": [
+        0,
+        0,
+        0
+      ],
+      "baseline_logical_failures": [
+        0,
+        0,
+        0
+      ]
+    }
+  },
+  {
+    "variant": "before",
+    "distance": 7,
+    "probability": 0.001,
+    "early_rejection": true,
+    "command": [
+      "/usr/bin/time",
+      "-f",
+      "%M",
+      "-o",
+      "/tmp/folded-memory-rss.txt",
+      "taskset",
+      "-c",
+      "0",
+      "/tmp/sample-folded-protocol-before-memory",
+      "/tmp/folded-f7-bench/f7-p0.001",
+      "16",
+      "0",
+      "9134",
+      "1",
+      "unbounded",
+      "0"
+    ],
+    "binary_sha256": "baedf650280c96fbe12628bc80e766d2190b96729e9a1848ba01b1fa834c25fd",
+    "peak_rss_kib": 177704,
+    "benchmark": {
+      "kind": "benchmark",
+      "setup_seconds": 0.583747753,
+      "baseline_setup_seconds": 3.8500541960000003,
+      "shots_per_batch": 16,
+      "baseline_shots_per_batch": 0,
+      "prefix_peak_width": 22,
+      "ordinary_peak_width": 44,
+      "native_peak_rss_kib": 96652,
+      "normalization_error": 8.881784197001252e-16,
+      "continuation_error": 0,
+      "seconds": [
+        3.78718812,
+        2.806256025,
+        3.8114736860000002
+      ],
+      "baseline_seconds": [
+        3.0000000000000004e-08,
+        2e-08,
+        3.0000000000000004e-08
+      ],
+      "accepted": [
+        3,
+        1,
+        3
+      ],
+      "logical_failures": [
+        0,
+        0,
+        0
+      ],
+      "baseline_accepted": [
+        0,
+        0,
+        0
+      ],
+      "baseline_logical_failures": [
+        0,
+        0,
+        0
+      ]
+    }
+  },
+  {
+    "variant": "narrow",
+    "distance": 7,
+    "probability": 0.001,
+    "early_rejection": true,
+    "command": [
+      "/usr/bin/time",
+      "-f",
+      "%M",
+      "-o",
+      "/tmp/folded-memory-rss.txt",
+      "taskset",
+      "-c",
+      "0",
+      "/tmp/sample-folded-protocol-narrow-memory",
+      "/tmp/folded-f7-bench/f7-p0.001",
+      "16",
+      "0",
+      "9134",
+      "1",
+      "unbounded",
+      "0"
+    ],
+    "binary_sha256": "907c78ca67c46aad050c17de43297b1971737fc5e158d454abbae36eb3c53bd2",
+    "peak_rss_kib": 129588,
+    "benchmark": {
+      "kind": "benchmark",
+      "setup_seconds": 0.5701247380000001,
+      "baseline_setup_seconds": 3.828420974,
+      "shots_per_batch": 16,
+      "baseline_shots_per_batch": 0,
+      "prefix_peak_width": 22,
+      "ordinary_peak_width": 44,
+      "native_peak_rss_kib": 48500,
+      "normalization_error": 8.881784197001252e-16,
+      "continuation_error": 0,
+      "seconds": [
+        3.75415052,
+        2.7269012420000003,
+        3.651566303
+      ],
+      "baseline_seconds": [
+        1.11e-07,
+        3.0000000000000004e-08,
+        3.0000000000000004e-08
+      ],
+      "accepted": [
+        3,
+        1,
+        3
+      ],
+      "logical_failures": [
+        0,
+        0,
+        0
+      ],
+      "baseline_accepted": [
+        0,
+        0,
+        0
+      ],
+      "baseline_logical_failures": [
+        0,
+        0,
+        0
+      ]
+    }
+  },
+  {
+    "variant": "compact",
+    "distance": 7,
+    "probability": 0.001,
+    "early_rejection": false,
+    "command": [
+      "/usr/bin/time",
+      "-f",
+      "%M",
+      "-o",
+      "/tmp/folded-memory-rss.txt",
+      "taskset",
+      "-c",
+      "0",
+      "/tmp/sample-folded-protocol-compact-memory",
+      "/tmp/folded-f7-bench/f7-p0.001",
+      "16",
+      "0",
+      "9134",
+      "0",
+      "unbounded",
+      "0"
+    ],
+    "binary_sha256": "d37abb983ab6c28ab174e552218b79d0b2b43957a099bc2e7a78ceaa089f22b8",
+    "peak_rss_kib": 107752,
+    "benchmark": {
+      "kind": "benchmark",
+      "setup_seconds": 0.582068111,
+      "baseline_setup_seconds": 3.9780973580000003,
+      "shots_per_batch": 16,
+      "baseline_shots_per_batch": 0,
+      "prefix_peak_width": 22,
+      "ordinary_peak_width": 44,
+      "native_peak_rss_kib": 26736,
+      "contraction_lookup_bytes": 8392748,
+      "contraction_workspace_bytes": 2539440,
+      "normalization_error": 8.881784197001252e-16,
+      "continuation_error": 2.220446049250313e-16,
+      "seconds": [
+        7.445679662000001,
+        7.427260478000001,
+        7.587166538000001
+      ],
+      "baseline_seconds": [
+        3.0000000000000004e-08,
+        3.0000000000000004e-08,
+        3.0000000000000004e-08
+      ],
+      "accepted": [
+        2,
+        1,
+        0
+      ],
+      "logical_failures": [
+        0,
+        0,
+        0
+      ],
+      "baseline_accepted": [
+        0,
+        0,
+        0
+      ],
+      "baseline_logical_failures": [
+        0,
+        0,
+        0
+      ]
+    }
+  },
+  {
+    "variant": "compact",
+    "distance": 7,
+    "probability": 0.001,
+    "early_rejection": true,
+    "command": [
+      "/usr/bin/time",
+      "-f",
+      "%M",
+      "-o",
+      "/tmp/folded-memory-rss.txt",
+      "taskset",
+      "-c",
+      "0",
+      "/tmp/sample-folded-protocol-compact-memory",
+      "/tmp/folded-f7-bench/f7-p0.001",
+      "16",
+      "0",
+      "9134",
+      "1",
+      "unbounded",
+      "0"
+    ],
+    "binary_sha256": "d37abb983ab6c28ab174e552218b79d0b2b43957a099bc2e7a78ceaa089f22b8",
+    "peak_rss_kib": 107640,
+    "benchmark": {
+      "kind": "benchmark",
+      "setup_seconds": 0.565363191,
+      "baseline_setup_seconds": 3.909600584,
+      "shots_per_batch": 16,
+      "baseline_shots_per_batch": 0,
+      "prefix_peak_width": 22,
+      "ordinary_peak_width": 44,
+      "native_peak_rss_kib": 26620,
+      "contraction_lookup_bytes": 8392748,
+      "contraction_workspace_bytes": 2539440,
+      "normalization_error": 8.881784197001252e-16,
+      "continuation_error": 0,
+      "seconds": [
+        4.044113036000001,
+        2.925130154,
+        3.9434721190000004
+      ],
+      "baseline_seconds": [
+        3.0000000000000004e-08,
+        3.0000000000000004e-08,
+        2e-08
+      ],
+      "accepted": [
+        3,
+        1,
+        3
+      ],
+      "logical_failures": [
+        0,
+        0,
+        0
+      ],
+      "baseline_accepted": [
+        0,
+        0,
+        0
+      ],
+      "baseline_logical_failures": [
+        0,
+        0,
+        0
+      ]
+    }
+  },
+  {
+    "variant": "compact32",
+    "distance": 7,
+    "probability": 0.001,
+    "early_rejection": false,
+    "command": [
+      "/usr/bin/time",
+      "-f",
+      "%M",
+      "-o",
+      "/tmp/folded-memory-rss.txt",
+      "taskset",
+      "-c",
+      "0",
+      "/tmp/sample-folded-protocol-compact32-memory",
+      "/tmp/folded-f7-bench/f7-p0.001",
+      "16",
+      "0",
+      "9134",
+      "0",
+      "unbounded",
+      "0"
+    ],
+    "binary_sha256": "e0d7481188de959ece45249812196065d43002257ebd2a462bda4a329dfd1897",
+    "peak_rss_kib": 102648,
+    "benchmark": {
+      "kind": "benchmark",
+      "setup_seconds": 0.632753415,
+      "baseline_setup_seconds": 4.500045257,
+      "shots_per_batch": 16,
+      "baseline_shots_per_batch": 0,
+      "prefix_peak_width": 22,
+      "ordinary_peak_width": 44,
+      "native_peak_rss_kib": 21544,
+      "contraction_lookup_bytes": 2959444,
+      "contraction_workspace_bytes": 2539440,
+      "normalization_error": 8.881784197001252e-16,
+      "continuation_error": 2.220446049250313e-16,
+      "seconds": [
+        7.5338676940000004,
+        7.4629268380000005,
+        7.605872553
+      ],
+      "baseline_seconds": [
+        2e-08,
+        3.0000000000000004e-08,
+        3.0000000000000004e-08
+      ],
+      "accepted": [
+        2,
+        1,
+        0
+      ],
+      "logical_failures": [
+        0,
+        0,
+        0
+      ],
+      "baseline_accepted": [
+        0,
+        0,
+        0
+      ],
+      "baseline_logical_failures": [
+        0,
+        0,
+        0
+      ]
+    }
+  },
+  {
+    "variant": "compact32",
+    "distance": 7,
+    "probability": 0.001,
+    "early_rejection": true,
+    "command": [
+      "/usr/bin/time",
+      "-f",
+      "%M",
+      "-o",
+      "/tmp/folded-memory-rss.txt",
+      "taskset",
+      "-c",
+      "0",
+      "/tmp/sample-folded-protocol-compact32-memory",
+      "/tmp/folded-f7-bench/f7-p0.001",
+      "16",
+      "0",
+      "9134",
+      "1",
+      "unbounded",
+      "0"
+    ],
+    "binary_sha256": "e0d7481188de959ece45249812196065d43002257ebd2a462bda4a329dfd1897",
+    "peak_rss_kib": 102732,
+    "benchmark": {
+      "kind": "benchmark",
+      "setup_seconds": 0.585751464,
+      "baseline_setup_seconds": 4.317312445000001,
+      "shots_per_batch": 16,
+      "baseline_shots_per_batch": 0,
+      "prefix_peak_width": 22,
+      "ordinary_peak_width": 44,
+      "native_peak_rss_kib": 21636,
+      "contraction_lookup_bytes": 2959444,
+      "contraction_workspace_bytes": 2539440,
+      "normalization_error": 8.881784197001252e-16,
+      "continuation_error": 0,
+      "seconds": [
+        4.013409738,
+        3.053323283,
+        3.8687042980000004
+      ],
+      "baseline_seconds": [
+        3.0000000000000004e-08,
+        3.0000000000000004e-08,
+        3.0000000000000004e-08
+      ],
+      "accepted": [
+        3,
+        1,
+        3
+      ],
+      "logical_failures": [
+        0,
+        0,
+        0
+      ],
+      "baseline_accepted": [
+        0,
+        0,
+        0
+      ],
+      "baseline_logical_failures": [
+        0,
+        0,
+        0
+      ]
+    }
+  },
+  {
+    "variant": "before",
+    "distance": 5,
+    "probability": 0.001,
+    "early_rejection": false,
+    "command": [
+      "/usr/bin/time",
+      "-f",
+      "%M",
+      "-o",
+      "/tmp/folded-memory-rss.txt",
+      "taskset",
+      "-c",
+      "0",
+      "/tmp/sample-folded-protocol-before-memory",
+      "/tmp/folded-protocol-bench/f5-p0.001",
+      "256",
+      "0",
+      "9134",
+      "0",
+      "unbounded",
+      "0"
+    ],
+    "binary_sha256": "baedf650280c96fbe12628bc80e766d2190b96729e9a1848ba01b1fa834c25fd",
+    "peak_rss_kib": 13212,
+    "benchmark": {
+      "kind": "benchmark",
+      "setup_seconds": 0.02022987,
+      "baseline_setup_seconds": 0.21493809000000003,
+      "shots_per_batch": 256,
+      "baseline_shots_per_batch": 0,
+      "prefix_peak_width": 8,
+      "ordinary_peak_width": 22,
+      "native_peak_rss_kib": 9860,
+      "normalization_error": 8.881784197001252e-16,
+      "continuation_error": 4.440892098500626e-16,
+      "seconds": [
+        0.978687971,
+        0.9648595750000001,
+        0.9987096040000001
+      ],
+      "baseline_seconds": [
+        3.0000000000000004e-08,
+        3.0000000000000004e-08,
+        2e-08
+      ],
+      "accepted": [
+        113,
+        118,
+        113
+      ],
+      "logical_failures": [
+        0,
+        0,
+        0
+      ],
+      "baseline_accepted": [
+        0,
+        0,
+        0
+      ],
+      "baseline_logical_failures": [
+        0,
+        0,
+        0
+      ]
+    }
+  },
+  {
+    "variant": "compact32",
+    "distance": 5,
+    "probability": 0.001,
+    "early_rejection": false,
+    "command": [
+      "/usr/bin/time",
+      "-f",
+      "%M",
+      "-o",
+      "/tmp/folded-memory-rss.txt",
+      "taskset",
+      "-c",
+      "0",
+      "/tmp/sample-folded-protocol-compact32-memory",
+      "/tmp/folded-protocol-bench/f5-p0.001",
+      "256",
+      "0",
+      "9134",
+      "0",
+      "unbounded",
+      "0"
+    ],
+    "binary_sha256": "e0d7481188de959ece45249812196065d43002257ebd2a462bda4a329dfd1897",
+    "peak_rss_kib": 11884,
+    "benchmark": {
+      "kind": "benchmark",
+      "setup_seconds": 0.020985637,
+      "baseline_setup_seconds": 0.234038987,
+      "shots_per_batch": 256,
+      "baseline_shots_per_batch": 0,
+      "prefix_peak_width": 8,
+      "ordinary_peak_width": 22,
+      "native_peak_rss_kib": 8504,
+      "contraction_lookup_bytes": 414072,
+      "contraction_workspace_bytes": 31280,
+      "normalization_error": 8.881784197001252e-16,
+      "continuation_error": 4.440892098500626e-16,
+      "seconds": [
+        1.1051779670000001,
+        1.122593447,
+        1.153662204
+      ],
+      "baseline_seconds": [
+        3.0000000000000004e-08,
+        3.0000000000000004e-08,
+        3.0000000000000004e-08
+      ],
+      "accepted": [
+        113,
+        118,
+        113
+      ],
+      "logical_failures": [
+        0,
+        0,
+        0
+      ],
+      "baseline_accepted": [
+        0,
+        0,
+        0
+      ],
+      "baseline_logical_failures": [
+        0,
+        0,
+        0
+      ]
+    }
+  },
+  {
+    "variant": "before",
+    "distance": 5,
+    "probability": 0.001,
+    "early_rejection": true,
+    "command": [
+      "/usr/bin/time",
+      "-f",
+      "%M",
+      "-o",
+      "/tmp/folded-memory-rss.txt",
+      "taskset",
+      "-c",
+      "0",
+      "/tmp/sample-folded-protocol-before-memory",
+      "/tmp/folded-protocol-bench/f5-p0.001",
+      "256",
+      "0",
+      "9134",
+      "1",
+      "unbounded",
+      "0"
+    ],
+    "binary_sha256": "baedf650280c96fbe12628bc80e766d2190b96729e9a1848ba01b1fa834c25fd",
+    "peak_rss_kib": 13136,
+    "benchmark": {
+      "kind": "benchmark",
+      "setup_seconds": 0.020058189,
+      "baseline_setup_seconds": 0.24346673400000002,
+      "shots_per_batch": 256,
+      "baseline_shots_per_batch": 0,
+      "prefix_peak_width": 8,
+      "ordinary_peak_width": 22,
+      "native_peak_rss_kib": 9968,
+      "normalization_error": 4.440892098500626e-16,
+      "continuation_error": 4.440892098500626e-16,
+      "seconds": [
+        0.5452121590000001,
+        0.608978619,
+        0.5473821520000001
+      ],
+      "baseline_seconds": [
+        3.0000000000000004e-08,
+        3.0000000000000004e-08,
+        3.0000000000000004e-08
+      ],
+      "accepted": [
+        103,
+        119,
+        111
+      ],
+      "logical_failures": [
+        0,
+        0,
+        0
+      ],
+      "baseline_accepted": [
+        0,
+        0,
+        0
+      ],
+      "baseline_logical_failures": [
+        0,
+        0,
+        0
+      ]
+    }
+  },
+  {
+    "variant": "compact32",
+    "distance": 5,
+    "probability": 0.001,
+    "early_rejection": true,
+    "command": [
+      "/usr/bin/time",
+      "-f",
+      "%M",
+      "-o",
+      "/tmp/folded-memory-rss.txt",
+      "taskset",
+      "-c",
+      "0",
+      "/tmp/sample-folded-protocol-compact32-memory",
+      "/tmp/folded-protocol-bench/f5-p0.001",
+      "256",
+      "0",
+      "9134",
+      "1",
+      "unbounded",
+      "0"
+    ],
+    "binary_sha256": "e0d7481188de959ece45249812196065d43002257ebd2a462bda4a329dfd1897",
+    "peak_rss_kib": 11952,
+    "benchmark": {
+      "kind": "benchmark",
+      "setup_seconds": 0.020702528,
+      "baseline_setup_seconds": 0.23554859800000003,
+      "shots_per_batch": 256,
+      "baseline_shots_per_batch": 0,
+      "prefix_peak_width": 8,
+      "ordinary_peak_width": 22,
+      "native_peak_rss_kib": 8584,
+      "contraction_lookup_bytes": 414072,
+      "contraction_workspace_bytes": 31280,
+      "normalization_error": 4.440892098500626e-16,
+      "continuation_error": 4.440892098500626e-16,
+      "seconds": [
+        0.564564387,
+        0.687779083,
+        0.622304662
+      ],
+      "baseline_seconds": [
+        2e-08,
+        3.0000000000000004e-08,
+        3.0000000000000004e-08
+      ],
+      "accepted": [
+        103,
+        119,
+        111
+      ],
+      "logical_failures": [
+        0,
+        0,
+        0
+      ],
+      "baseline_accepted": [
+        0,
+        0,
+        0
+      ],
+      "baseline_logical_failures": [
+        0,
+        0,
+        0
+      ]
+    }
+  },
+  {
+    "variant": "before",
+    "distance": 3,
+    "probability": 0.001,
+    "early_rejection": false,
+    "command": [
+      "/usr/bin/time",
+      "-f",
+      "%M",
+      "-o",
+      "/tmp/folded-memory-rss.txt",
+      "taskset",
+      "-c",
+      "0",
+      "/tmp/sample-folded-protocol-before-memory",
+      "/tmp/folded-protocol-bench/f3-p0.001",
+      "256",
+      "0",
+      "9134",
+      "0",
+      "unbounded",
+      "0"
+    ],
+    "binary_sha256": "baedf650280c96fbe12628bc80e766d2190b96729e9a1848ba01b1fa834c25fd",
+    "peak_rss_kib": 6580,
+    "benchmark": {
+      "kind": "benchmark",
+      "setup_seconds": 0.001566598,
+      "baseline_setup_seconds": 0.007481333000000001,
+      "shots_per_batch": 256,
+      "baseline_shots_per_batch": 0,
+      "prefix_peak_width": 1,
+      "ordinary_peak_width": 8,
+      "native_peak_rss_kib": 5812,
+      "normalization_error": 6.661338147750939e-16,
+      "continuation_error": 4.440892098500626e-16,
+      "seconds": [
+        0.049886635000000006,
+        0.050163556000000005,
+        0.050025497
+      ],
+      "baseline_seconds": [
+        3.1e-08,
+        2e-08,
+        3.0000000000000004e-08
+      ],
+      "accepted": [
+        190,
+        205,
+        203
+      ],
+      "logical_failures": [
+        0,
+        0,
+        0
+      ],
+      "baseline_accepted": [
+        0,
+        0,
+        0
+      ],
+      "baseline_logical_failures": [
+        0,
+        0,
+        0
+      ]
+    }
+  },
+  {
+    "variant": "compact32",
+    "distance": 3,
+    "probability": 0.001,
+    "early_rejection": false,
+    "command": [
+      "/usr/bin/time",
+      "-f",
+      "%M",
+      "-o",
+      "/tmp/folded-memory-rss.txt",
+      "taskset",
+      "-c",
+      "0",
+      "/tmp/sample-folded-protocol-compact32-memory",
+      "/tmp/folded-protocol-bench/f3-p0.001",
+      "256",
+      "0",
+      "9134",
+      "0",
+      "unbounded",
+      "0"
+    ],
+    "binary_sha256": "e0d7481188de959ece45249812196065d43002257ebd2a462bda4a329dfd1897",
+    "peak_rss_kib": 6572,
+    "benchmark": {
+      "kind": "benchmark",
+      "setup_seconds": 0.001499686,
+      "baseline_setup_seconds": 0.0077872570000000006,
+      "shots_per_batch": 256,
+      "baseline_shots_per_batch": 0,
+      "prefix_peak_width": 1,
+      "ordinary_peak_width": 8,
+      "native_peak_rss_kib": 5804,
+      "contraction_lookup_bytes": 16004,
+      "contraction_workspace_bytes": 3808,
+      "normalization_error": 6.661338147750939e-16,
+      "continuation_error": 4.440892098500626e-16,
+      "seconds": [
+        0.048928863,
+        0.048385518,
+        0.048568656
+      ],
+      "baseline_seconds": [
+        2e-08,
+        2e-08,
+        3.0000000000000004e-08
+      ],
+      "accepted": [
+        190,
+        205,
+        203
+      ],
+      "logical_failures": [
+        0,
+        0,
+        0
+      ],
+      "baseline_accepted": [
+        0,
+        0,
+        0
+      ],
+      "baseline_logical_failures": [
+        0,
+        0,
+        0
+      ]
+    }
+  },
+  {
+    "variant": "before",
+    "distance": 3,
+    "probability": 0.001,
+    "early_rejection": true,
+    "command": [
+      "/usr/bin/time",
+      "-f",
+      "%M",
+      "-o",
+      "/tmp/folded-memory-rss.txt",
+      "taskset",
+      "-c",
+      "0",
+      "/tmp/sample-folded-protocol-before-memory",
+      "/tmp/folded-protocol-bench/f3-p0.001",
+      "256",
+      "0",
+      "9134",
+      "1",
+      "unbounded",
+      "0"
+    ],
+    "binary_sha256": "baedf650280c96fbe12628bc80e766d2190b96729e9a1848ba01b1fa834c25fd",
+    "peak_rss_kib": 6664,
+    "benchmark": {
+      "kind": "benchmark",
+      "setup_seconds": 0.0016012300000000001,
+      "baseline_setup_seconds": 0.008207245,
+      "shots_per_batch": 256,
+      "baseline_shots_per_batch": 0,
+      "prefix_peak_width": 1,
+      "ordinary_peak_width": 8,
+      "native_peak_rss_kib": 6024,
+      "normalization_error": 4.440892098500626e-16,
+      "continuation_error": 2.220446049250313e-16,
+      "seconds": [
+        0.04264152,
+        0.044017398000000006,
+        0.044033934000000004
+      ],
+      "baseline_seconds": [
+        3.0000000000000004e-08,
+        2e-08,
+        3.0000000000000004e-08
+      ],
+      "accepted": [
+        194,
+        201,
+        204
+      ],
+      "logical_failures": [
+        0,
+        0,
+        0
+      ],
+      "baseline_accepted": [
+        0,
+        0,
+        0
+      ],
+      "baseline_logical_failures": [
+        0,
+        0,
+        0
+      ]
+    }
+  },
+  {
+    "variant": "compact32",
+    "distance": 3,
+    "probability": 0.001,
+    "early_rejection": true,
+    "command": [
+      "/usr/bin/time",
+      "-f",
+      "%M",
+      "-o",
+      "/tmp/folded-memory-rss.txt",
+      "taskset",
+      "-c",
+      "0",
+      "/tmp/sample-folded-protocol-compact32-memory",
+      "/tmp/folded-protocol-bench/f3-p0.001",
+      "256",
+      "0",
+      "9134",
+      "1",
+      "unbounded",
+      "0"
+    ],
+    "binary_sha256": "e0d7481188de959ece45249812196065d43002257ebd2a462bda4a329dfd1897",
+    "peak_rss_kib": 6584,
+    "benchmark": {
+      "kind": "benchmark",
+      "setup_seconds": 0.00150927,
+      "baseline_setup_seconds": 0.007609207000000001,
+      "shots_per_batch": 256,
+      "baseline_shots_per_batch": 0,
+      "prefix_peak_width": 1,
+      "ordinary_peak_width": 8,
+      "native_peak_rss_kib": 5916,
+      "contraction_lookup_bytes": 16004,
+      "contraction_workspace_bytes": 3808,
+      "normalization_error": 4.440892098500626e-16,
+      "continuation_error": 2.220446049250313e-16,
+      "seconds": [
+        0.040595667,
+        0.041802367,
+        0.041610877000000004
+      ],
+      "baseline_seconds": [
+        3.0000000000000004e-08,
+        2e-08,
+        3.0000000000000004e-08
+      ],
+      "accepted": [
+        194,
+        201,
+        204
+      ],
+      "logical_failures": [
+        0,
+        0,
+        0
+      ],
+      "baseline_accepted": [
+        0,
+        0,
+        0
+      ],
+      "baseline_logical_failures": [
+        0,
+        0,
+        0
+      ]
+    }
+  },
+  {
+    "variant": "before_large_only_comparison",
+    "distance": 7,
+    "probability": 0.001,
+    "early_rejection": false,
+    "command": [
+      "/usr/bin/time",
+      "-f",
+      "%M",
+      "-o",
+      "/tmp/folded-memory-rss.txt",
+      "taskset",
+      "-c",
+      "0",
+      "/tmp/sample-folded-protocol-before-memory",
+      "/tmp/folded-f7-bench/f7-p0.001",
+      "32",
+      "0",
+      "9134",
+      "0",
+      "unbounded",
+      "0"
+    ],
+    "binary_sha256": "baedf650280c96fbe12628bc80e766d2190b96729e9a1848ba01b1fa834c25fd",
+    "peak_rss_kib": 177812,
+    "benchmark": {
+      "kind": "benchmark",
+      "setup_seconds": 0.6004137260000001,
+      "baseline_setup_seconds": 3.841007493,
+      "shots_per_batch": 32,
+      "baseline_shots_per_batch": 0,
+      "prefix_peak_width": 22,
+      "ordinary_peak_width": 44,
+      "native_peak_rss_kib": 96860,
+      "normalization_error": 8.881784197001252e-16,
+      "continuation_error": 2.220446049250313e-16,
+      "seconds": [
+        14.821009467000001,
+        13.618728019,
+        13.447504365
+      ],
+      "baseline_seconds": [
+        3.0000000000000004e-08,
+        1.0000000000000001e-07,
+        1.0000000000000001e-07
+      ],
+      "accepted": [
+        3,
+        3,
+        4
+      ],
+      "logical_failures": [
+        0,
+        0,
+        0
+      ],
+      "baseline_accepted": [
+        0,
+        0,
+        0
+      ],
+      "baseline_logical_failures": [
+        0,
+        0,
+        0
+      ]
+    }
+  },
+  {
+    "variant": "compact32_large_only",
+    "distance": 7,
+    "probability": 0.001,
+    "early_rejection": false,
+    "command": [
+      "/usr/bin/time",
+      "-f",
+      "%M",
+      "-o",
+      "/tmp/folded-memory-rss.txt",
+      "taskset",
+      "-c",
+      "0",
+      "/tmp/sample-folded-protocol-final-memory",
+      "/tmp/folded-f7-bench/f7-p0.001",
+      "32",
+      "0",
+      "9134",
+      "0",
+      "unbounded",
+      "0"
+    ],
+    "binary_sha256": "5a7b208880d06ccd88b3e7e19e034ae64fbf3373e8f0eb8093f3f07b89889595",
+    "peak_rss_kib": 105356,
+    "benchmark": {
+      "kind": "benchmark",
+      "setup_seconds": 0.5534879,
+      "baseline_setup_seconds": 3.8636018630000004,
+      "shots_per_batch": 32,
+      "baseline_shots_per_batch": 0,
+      "prefix_peak_width": 22,
+      "ordinary_peak_width": 44,
+      "native_peak_rss_kib": 24260,
+      "contraction_lookup_bytes": 5961956,
+      "contraction_workspace_bytes": 2539440,
+      "normalization_error": 8.881784197001252e-16,
+      "continuation_error": 2.220446049250313e-16,
+      "seconds": [
+        15.915373855,
+        15.763775645,
+        15.643824351000001
+      ],
+      "baseline_seconds": [
+        3.0000000000000004e-08,
+        3.0000000000000004e-08,
+        3.0000000000000004e-08
+      ],
+      "accepted": [
+        3,
+        3,
+        4
+      ],
+      "logical_failures": [
+        0,
+        0,
+        0
+      ],
+      "baseline_accepted": [
+        0,
+        0,
+        0
+      ],
+      "baseline_logical_failures": [
+        0,
+        0,
+        0
+      ]
+    }
+  },
+  {
+    "variant": "before_large_only_comparison",
+    "distance": 7,
+    "probability": 0.001,
+    "early_rejection": true,
+    "command": [
+      "/usr/bin/time",
+      "-f",
+      "%M",
+      "-o",
+      "/tmp/folded-memory-rss.txt",
+      "taskset",
+      "-c",
+      "0",
+      "/tmp/sample-folded-protocol-before-memory",
+      "/tmp/folded-f7-bench/f7-p0.001",
+      "32",
+      "0",
+      "9134",
+      "1",
+      "unbounded",
+      "0"
+    ],
+    "binary_sha256": "baedf650280c96fbe12628bc80e766d2190b96729e9a1848ba01b1fa834c25fd",
+    "peak_rss_kib": 177712,
+    "benchmark": {
+      "kind": "benchmark",
+      "setup_seconds": 0.578048341,
+      "baseline_setup_seconds": 3.8033958040000004,
+      "shots_per_batch": 32,
+      "baseline_shots_per_batch": 0,
+      "prefix_peak_width": 22,
+      "ordinary_peak_width": 44,
+      "native_peak_rss_kib": 96788,
+      "normalization_error": 8.881784197001252e-16,
+      "continuation_error": 0,
+      "seconds": [
+        6.819853286000001,
+        7.335165821,
+        5.0077245150000005
+      ],
+      "baseline_seconds": [
+        2e-08,
+        3.0000000000000004e-08,
+        3.1e-08
+      ],
+      "accepted": [
+        4,
+        4,
+        4
+      ],
+      "logical_failures": [
+        0,
+        0,
+        0
+      ],
+      "baseline_accepted": [
+        0,
+        0,
+        0
+      ],
+      "baseline_logical_failures": [
+        0,
+        0,
+        0
+      ]
+    }
+  },
+  {
+    "variant": "compact32_large_only",
+    "distance": 7,
+    "probability": 0.001,
+    "early_rejection": true,
+    "command": [
+      "/usr/bin/time",
+      "-f",
+      "%M",
+      "-o",
+      "/tmp/folded-memory-rss.txt",
+      "taskset",
+      "-c",
+      "0",
+      "/tmp/sample-folded-protocol-final-memory",
+      "/tmp/folded-f7-bench/f7-p0.001",
+      "32",
+      "0",
+      "9134",
+      "1",
+      "unbounded",
+      "0"
+    ],
+    "binary_sha256": "5a7b208880d06ccd88b3e7e19e034ae64fbf3373e8f0eb8093f3f07b89889595",
+    "peak_rss_kib": 105412,
+    "benchmark": {
+      "kind": "benchmark",
+      "setup_seconds": 0.5575633050000001,
+      "baseline_setup_seconds": 3.8144305110000003,
+      "shots_per_batch": 32,
+      "baseline_shots_per_batch": 0,
+      "prefix_peak_width": 22,
+      "ordinary_peak_width": 44,
+      "native_peak_rss_kib": 24384,
+      "contraction_lookup_bytes": 5961956,
+      "contraction_workspace_bytes": 2539440,
+      "normalization_error": 8.881784197001252e-16,
+      "continuation_error": 0,
+      "seconds": [
+        7.366693406,
+        7.7446156880000006,
+        5.288244405
+      ],
+      "baseline_seconds": [
+        3.0000000000000004e-08,
+        6.000000000000001e-08,
+        1.1e-07
+      ],
+      "accepted": [
+        4,
+        4,
+        4
+      ],
+      "logical_failures": [
+        0,
+        0,
+        0
+      ],
+      "baseline_accepted": [
+        0,
+        0,
+        0
+      ],
+      "baseline_logical_failures": [
+        0,
+        0,
+        0
+      ]
+    }
+  },
+  {
+    "variant": "before_large_only_comparison",
+    "distance": 5,
+    "probability": 0.001,
+    "early_rejection": false,
+    "command": [
+      "/usr/bin/time",
+      "-f",
+      "%M",
+      "-o",
+      "/tmp/folded-memory-rss.txt",
+      "taskset",
+      "-c",
+      "0",
+      "/tmp/sample-folded-protocol-before-memory",
+      "/tmp/folded-protocol-bench/f5-p0.001",
+      "1024",
+      "0",
+      "9134",
+      "0",
+      "unbounded",
+      "0"
+    ],
+    "binary_sha256": "baedf650280c96fbe12628bc80e766d2190b96729e9a1848ba01b1fa834c25fd",
+    "peak_rss_kib": 13288,
+    "benchmark": {
+      "kind": "benchmark",
+      "setup_seconds": 0.021103719,
+      "baseline_setup_seconds": 0.21823946400000002,
+      "shots_per_batch": 1024,
+      "baseline_shots_per_batch": 0,
+      "prefix_peak_width": 8,
+      "ordinary_peak_width": 22,
+      "native_peak_rss_kib": 9860,
+      "normalization_error": 8.881784197001252e-16,
+      "continuation_error": 4.440892098500626e-16,
+      "seconds": [
+        3.910563155,
+        4.0429637110000005,
+        3.8628888980000005
+      ],
+      "baseline_seconds": [
+        3.0000000000000004e-08,
+        3.0000000000000004e-08,
+        3.0000000000000004e-08
+      ],
+      "accepted": [
+        455,
+        456,
+        447
+      ],
+      "logical_failures": [
+        0,
+        0,
+        0
+      ],
+      "baseline_accepted": [
+        0,
+        0,
+        0
+      ],
+      "baseline_logical_failures": [
+        0,
+        0,
+        0
+      ]
+    }
+  },
+  {
+    "variant": "compact32_large_only",
+    "distance": 5,
+    "probability": 0.001,
+    "early_rejection": false,
+    "command": [
+      "/usr/bin/time",
+      "-f",
+      "%M",
+      "-o",
+      "/tmp/folded-memory-rss.txt",
+      "taskset",
+      "-c",
+      "0",
+      "/tmp/sample-folded-protocol-final-memory",
+      "/tmp/folded-protocol-bench/f5-p0.001",
+      "1024",
+      "0",
+      "9134",
+      "0",
+      "unbounded",
+      "0"
+    ],
+    "binary_sha256": "5a7b208880d06ccd88b3e7e19e034ae64fbf3373e8f0eb8093f3f07b89889595",
+    "peak_rss_kib": 12208,
+    "benchmark": {
+      "kind": "benchmark",
+      "setup_seconds": 0.019950377000000002,
+      "baseline_setup_seconds": 0.22227832400000003,
+      "shots_per_batch": 1024,
+      "baseline_shots_per_batch": 0,
+      "prefix_peak_width": 8,
+      "ordinary_peak_width": 22,
+      "native_peak_rss_kib": 8784,
+      "contraction_lookup_bytes": 630776,
+      "contraction_workspace_bytes": 31280,
+      "normalization_error": 8.881784197001252e-16,
+      "continuation_error": 4.440892098500626e-16,
+      "seconds": [
+        3.776420796,
+        3.819166971,
+        3.8408203750000003
+      ],
+      "baseline_seconds": [
+        2e-08,
+        3.0000000000000004e-08,
+        2e-08
+      ],
+      "accepted": [
+        455,
+        456,
+        447
+      ],
+      "logical_failures": [
+        0,
+        0,
+        0
+      ],
+      "baseline_accepted": [
+        0,
+        0,
+        0
+      ],
+      "baseline_logical_failures": [
+        0,
+        0,
+        0
+      ]
+    }
+  },
+  {
+    "variant": "before_large_only_comparison",
+    "distance": 5,
+    "probability": 0.001,
+    "early_rejection": true,
+    "command": [
+      "/usr/bin/time",
+      "-f",
+      "%M",
+      "-o",
+      "/tmp/folded-memory-rss.txt",
+      "taskset",
+      "-c",
+      "0",
+      "/tmp/sample-folded-protocol-before-memory",
+      "/tmp/folded-protocol-bench/f5-p0.001",
+      "1024",
+      "0",
+      "9134",
+      "1",
+      "unbounded",
+      "0"
+    ],
+    "binary_sha256": "baedf650280c96fbe12628bc80e766d2190b96729e9a1848ba01b1fa834c25fd",
+    "peak_rss_kib": 13032,
+    "benchmark": {
+      "kind": "benchmark",
+      "setup_seconds": 0.020375973000000002,
+      "baseline_setup_seconds": 0.215868477,
+      "shots_per_batch": 1024,
+      "baseline_shots_per_batch": 0,
+      "prefix_peak_width": 8,
+      "ordinary_peak_width": 22,
+      "native_peak_rss_kib": 9864,
+      "normalization_error": 4.440892098500626e-16,
+      "continuation_error": 4.440892098500626e-16,
+      "seconds": [
+        2.181993834,
+        2.116390424,
+        2.2999905210000002
+      ],
+      "baseline_seconds": [
+        3.0000000000000004e-08,
+        3.0000000000000004e-08,
+        2e-08
+      ],
+      "accepted": [
+        440,
+        418,
+        478
+      ],
+      "logical_failures": [
+        0,
+        0,
+        0
+      ],
+      "baseline_accepted": [
+        0,
+        0,
+        0
+      ],
+      "baseline_logical_failures": [
+        0,
+        0,
+        0
+      ]
+    }
+  },
+  {
+    "variant": "compact32_large_only",
+    "distance": 5,
+    "probability": 0.001,
+    "early_rejection": true,
+    "command": [
+      "/usr/bin/time",
+      "-f",
+      "%M",
+      "-o",
+      "/tmp/folded-memory-rss.txt",
+      "taskset",
+      "-c",
+      "0",
+      "/tmp/sample-folded-protocol-final-memory",
+      "/tmp/folded-protocol-bench/f5-p0.001",
+      "1024",
+      "0",
+      "9134",
+      "1",
+      "unbounded",
+      "0"
+    ],
+    "binary_sha256": "5a7b208880d06ccd88b3e7e19e034ae64fbf3373e8f0eb8093f3f07b89889595",
+    "peak_rss_kib": 12084,
+    "benchmark": {
+      "kind": "benchmark",
+      "setup_seconds": 0.022359685,
+      "baseline_setup_seconds": 0.21823898500000002,
+      "shots_per_batch": 1024,
+      "baseline_shots_per_batch": 0,
+      "prefix_peak_width": 8,
+      "ordinary_peak_width": 22,
+      "native_peak_rss_kib": 8760,
+      "contraction_lookup_bytes": 630776,
+      "contraction_workspace_bytes": 31280,
+      "normalization_error": 4.440892098500626e-16,
+      "continuation_error": 4.440892098500626e-16,
+      "seconds": [
+        2.193041032,
+        2.104366068,
+        2.2742798740000003
+      ],
+      "baseline_seconds": [
+        3.1e-08,
+        3.0000000000000004e-08,
+        3.0000000000000004e-08
+      ],
+      "accepted": [
+        440,
+        418,
+        478
+      ],
+      "logical_failures": [
+        0,
+        0,
+        0
+      ],
+      "baseline_accepted": [
+        0,
+        0,
+        0
+      ],
+      "baseline_logical_failures": [
+        0,
+        0,
+        0
+      ]
+    }
+  },
+  {
+    "variant": "before_large_only_comparison",
+    "distance": 3,
+    "probability": 0.001,
+    "early_rejection": false,
+    "command": [
+      "/usr/bin/time",
+      "-f",
+      "%M",
+      "-o",
+      "/tmp/folded-memory-rss.txt",
+      "taskset",
+      "-c",
+      "0",
+      "/tmp/sample-folded-protocol-before-memory",
+      "/tmp/folded-protocol-bench/f3-p0.001",
+      "1024",
+      "0",
+      "9134",
+      "0",
+      "unbounded",
+      "0"
+    ],
+    "binary_sha256": "baedf650280c96fbe12628bc80e766d2190b96729e9a1848ba01b1fa834c25fd",
+    "peak_rss_kib": 6628,
+    "benchmark": {
+      "kind": "benchmark",
+      "setup_seconds": 0.0017366450000000002,
+      "baseline_setup_seconds": 0.007950365000000001,
+      "shots_per_batch": 1024,
+      "baseline_shots_per_batch": 0,
+      "prefix_peak_width": 1,
+      "ordinary_peak_width": 8,
+      "native_peak_rss_kib": 5988,
+      "normalization_error": 6.661338147750939e-16,
+      "continuation_error": 4.440892098500626e-16,
+      "seconds": [
+        0.209102169,
+        0.203993385,
+        0.205040835
+      ],
+      "baseline_seconds": [
+        5.0000000000000004e-08,
+        3.0000000000000004e-08,
+        3.1e-08
+      ],
+      "accepted": [
+        801,
+        796,
+        802
+      ],
+      "logical_failures": [
+        0,
+        0,
+        0
+      ],
+      "baseline_accepted": [
+        0,
+        0,
+        0
+      ],
+      "baseline_logical_failures": [
+        0,
+        0,
+        0
+      ]
+    }
+  },
+  {
+    "variant": "compact32_large_only",
+    "distance": 3,
+    "probability": 0.001,
+    "early_rejection": false,
+    "command": [
+      "/usr/bin/time",
+      "-f",
+      "%M",
+      "-o",
+      "/tmp/folded-memory-rss.txt",
+      "taskset",
+      "-c",
+      "0",
+      "/tmp/sample-folded-protocol-final-memory",
+      "/tmp/folded-protocol-bench/f3-p0.001",
+      "1024",
+      "0",
+      "9134",
+      "0",
+      "unbounded",
+      "0"
+    ],
+    "binary_sha256": "5a7b208880d06ccd88b3e7e19e034ae64fbf3373e8f0eb8093f3f07b89889595",
+    "peak_rss_kib": 6656,
+    "benchmark": {
+      "kind": "benchmark",
+      "setup_seconds": 0.001664426,
+      "baseline_setup_seconds": 0.007970666000000001,
+      "shots_per_batch": 1024,
+      "baseline_shots_per_batch": 0,
+      "prefix_peak_width": 1,
+      "ordinary_peak_width": 8,
+      "native_peak_rss_kib": 5748,
+      "contraction_lookup_bytes": 16004,
+      "contraction_workspace_bytes": 3808,
+      "normalization_error": 6.661338147750939e-16,
+      "continuation_error": 4.440892098500626e-16,
+      "seconds": [
+        0.19734797,
+        0.194886725,
+        0.19467835900000002
+      ],
+      "baseline_seconds": [
+        2e-08,
+        3.0000000000000004e-08,
+        2e-08
+      ],
+      "accepted": [
+        801,
+        796,
+        802
+      ],
+      "logical_failures": [
+        0,
+        0,
+        0
+      ],
+      "baseline_accepted": [
+        0,
+        0,
+        0
+      ],
+      "baseline_logical_failures": [
+        0,
+        0,
+        0
+      ]
+    }
+  },
+  {
+    "variant": "before_large_only_comparison",
+    "distance": 3,
+    "probability": 0.001,
+    "early_rejection": true,
+    "command": [
+      "/usr/bin/time",
+      "-f",
+      "%M",
+      "-o",
+      "/tmp/folded-memory-rss.txt",
+      "taskset",
+      "-c",
+      "0",
+      "/tmp/sample-folded-protocol-before-memory",
+      "/tmp/folded-protocol-bench/f3-p0.001",
+      "1024",
+      "0",
+      "9134",
+      "1",
+      "unbounded",
+      "0"
+    ],
+    "binary_sha256": "baedf650280c96fbe12628bc80e766d2190b96729e9a1848ba01b1fa834c25fd",
+    "peak_rss_kib": 6716,
+    "benchmark": {
+      "kind": "benchmark",
+      "setup_seconds": 0.0015716950000000001,
+      "baseline_setup_seconds": 0.007604991,
+      "shots_per_batch": 1024,
+      "baseline_shots_per_batch": 0,
+      "prefix_peak_width": 1,
+      "ordinary_peak_width": 8,
+      "native_peak_rss_kib": 5916,
+      "normalization_error": 4.440892098500626e-16,
+      "continuation_error": 4.440892098500626e-16,
+      "seconds": [
+        0.173298152,
+        0.174290899,
+        0.17194109200000002
+      ],
+      "baseline_seconds": [
+        3.0000000000000004e-08,
+        3.0000000000000004e-08,
+        3.0000000000000004e-08
+      ],
+      "accepted": [
+        801,
+        796,
+        800
+      ],
+      "logical_failures": [
+        0,
+        0,
+        0
+      ],
+      "baseline_accepted": [
+        0,
+        0,
+        0
+      ],
+      "baseline_logical_failures": [
+        0,
+        0,
+        0
+      ]
+    }
+  },
+  {
+    "variant": "compact32_large_only",
+    "distance": 3,
+    "probability": 0.001,
+    "early_rejection": true,
+    "command": [
+      "/usr/bin/time",
+      "-f",
+      "%M",
+      "-o",
+      "/tmp/folded-memory-rss.txt",
+      "taskset",
+      "-c",
+      "0",
+      "/tmp/sample-folded-protocol-final-memory",
+      "/tmp/folded-protocol-bench/f3-p0.001",
+      "1024",
+      "0",
+      "9134",
+      "1",
+      "unbounded",
+      "0"
+    ],
+    "binary_sha256": "5a7b208880d06ccd88b3e7e19e034ae64fbf3373e8f0eb8093f3f07b89889595",
+    "peak_rss_kib": 6576,
+    "benchmark": {
+      "kind": "benchmark",
+      "setup_seconds": 0.002076281,
+      "baseline_setup_seconds": 0.008024118,
+      "shots_per_batch": 1024,
+      "baseline_shots_per_batch": 0,
+      "prefix_peak_width": 1,
+      "ordinary_peak_width": 8,
+      "native_peak_rss_kib": 5808,
+      "contraction_lookup_bytes": 16004,
+      "contraction_workspace_bytes": 3808,
+      "normalization_error": 4.440892098500626e-16,
+      "continuation_error": 4.440892098500626e-16,
+      "seconds": [
+        0.18955711600000003,
+        0.16831437800000001,
+        0.165362048
+      ],
+      "baseline_seconds": [
+        3.0000000000000004e-08,
+        3.0000000000000004e-08,
+        2e-08
+      ],
+      "accepted": [
+        801,
+        796,
+        800
+      ],
+      "logical_failures": [
+        0,
+        0,
+        0
+      ],
+      "baseline_accepted": [
+        0,
+        0,
+        0
+      ],
+      "baseline_logical_failures": [
+        0,
+        0,
+        0
+      ]
+    }
+  },
+  {
+    "variant": "selected",
+    "distance": 7,
+    "probability": 0.001,
+    "early_rejection": false,
+    "command": [
+      "/usr/bin/time",
+      "-f",
+      "%M",
+      "-o",
+      "/tmp/folded-memory-rss.txt",
+      "taskset",
+      "-c",
+      "0",
+      "/tmp/sample-folded-protocol-compact-memory",
+      "/tmp/folded-f7-bench/f7-p0.001",
+      "32",
+      "0",
+      "9134",
+      "0",
+      "unbounded",
+      "0"
+    ],
+    "binary_sha256": "d37abb983ab6c28ab174e552218b79d0b2b43957a099bc2e7a78ceaa089f22b8",
+    "peak_rss_kib": 107792,
+    "benchmark": {
+      "kind": "benchmark",
+      "setup_seconds": 0.593034477,
+      "baseline_setup_seconds": 3.937172453,
+      "shots_per_batch": 32,
+      "baseline_shots_per_batch": 0,
+      "prefix_peak_width": 22,
+      "ordinary_peak_width": 44,
+      "native_peak_rss_kib": 26612,
+      "contraction_lookup_bytes": 8392748,
+      "contraction_workspace_bytes": 2539440,
+      "normalization_error": 8.881784197001252e-16,
+      "continuation_error": 2.220446049250313e-16,
+      "seconds": [
+        15.661163808000001,
+        15.726222853000001,
+        16.143501848
+      ],
+      "baseline_seconds": [
+        2e-08,
+        3.0000000000000004e-08,
+        2e-08
+      ],
+      "accepted": [
+        3,
+        3,
+        4
+      ],
+      "logical_failures": [
+        0,
+        0,
+        0
+      ],
+      "baseline_accepted": [
+        0,
+        0,
+        0
+      ],
+      "baseline_logical_failures": [
+        0,
+        0,
+        0
+      ]
+    }
+  },
+  {
+    "variant": "before_selected",
+    "distance": 7,
+    "probability": 0.001,
+    "early_rejection": false,
+    "command": [
+      "/usr/bin/time",
+      "-f",
+      "%M",
+      "-o",
+      "/tmp/folded-memory-rss.txt",
+      "taskset",
+      "-c",
+      "0",
+      "/tmp/sample-folded-protocol-before-memory",
+      "/tmp/folded-f7-bench/f7-p0.001",
+      "32",
+      "0",
+      "9134",
+      "0",
+      "unbounded",
+      "0"
+    ],
+    "binary_sha256": "baedf650280c96fbe12628bc80e766d2190b96729e9a1848ba01b1fa834c25fd",
+    "peak_rss_kib": 177704,
+    "benchmark": {
+      "kind": "benchmark",
+      "setup_seconds": 0.6051302900000001,
+      "baseline_setup_seconds": 3.790541677,
+      "shots_per_batch": 32,
+      "baseline_shots_per_batch": 0,
+      "prefix_peak_width": 22,
+      "ordinary_peak_width": 44,
+      "native_peak_rss_kib": 96620,
+      "normalization_error": 8.881784197001252e-16,
+      "continuation_error": 2.220446049250313e-16,
+      "seconds": [
+        14.442583656,
+        14.173760577000001,
+        14.265353259000001
+      ],
+      "baseline_seconds": [
+        3.0000000000000004e-08,
+        3.0000000000000004e-08,
+        2e-08
+      ],
+      "accepted": [
+        3,
+        3,
+        4
+      ],
+      "logical_failures": [
+        0,
+        0,
+        0
+      ],
+      "baseline_accepted": [
+        0,
+        0,
+        0
+      ],
+      "baseline_logical_failures": [
+        0,
+        0,
+        0
+      ]
+    }
+  },
+  {
+    "variant": "selected",
+    "distance": 7,
+    "probability": 0.001,
+    "early_rejection": true,
+    "command": [
+      "/usr/bin/time",
+      "-f",
+      "%M",
+      "-o",
+      "/tmp/folded-memory-rss.txt",
+      "taskset",
+      "-c",
+      "0",
+      "/tmp/sample-folded-protocol-compact-memory",
+      "/tmp/folded-f7-bench/f7-p0.001",
+      "32",
+      "0",
+      "9134",
+      "1",
+      "unbounded",
+      "0"
+    ],
+    "binary_sha256": "d37abb983ab6c28ab174e552218b79d0b2b43957a099bc2e7a78ceaa089f22b8",
+    "peak_rss_kib": 107652,
+    "benchmark": {
+      "kind": "benchmark",
+      "setup_seconds": 0.5556292190000001,
+      "baseline_setup_seconds": 3.8419650990000003,
+      "shots_per_batch": 32,
+      "baseline_shots_per_batch": 0,
+      "prefix_peak_width": 22,
+      "ordinary_peak_width": 44,
+      "native_peak_rss_kib": 26632,
+      "contraction_lookup_bytes": 8392748,
+      "contraction_workspace_bytes": 2539440,
+      "normalization_error": 8.881784197001252e-16,
+      "continuation_error": 0,
+      "seconds": [
+        7.461068200000001,
+        8.322371544000001,
+        5.2806164010000005
+      ],
+      "baseline_seconds": [
+        2e-08,
+        3.0000000000000004e-08,
+        3.0000000000000004e-08
+      ],
+      "accepted": [
+        4,
+        4,
+        4
+      ],
+      "logical_failures": [
+        0,
+        0,
+        0
+      ],
+      "baseline_accepted": [
+        0,
+        0,
+        0
+      ],
+      "baseline_logical_failures": [
+        0,
+        0,
+        0
+      ]
+    }
+  },
+  {
+    "variant": "before_selected",
+    "distance": 7,
+    "probability": 0.001,
+    "early_rejection": true,
+    "command": [
+      "/usr/bin/time",
+      "-f",
+      "%M",
+      "-o",
+      "/tmp/folded-memory-rss.txt",
+      "taskset",
+      "-c",
+      "0",
+      "/tmp/sample-folded-protocol-before-memory",
+      "/tmp/folded-f7-bench/f7-p0.001",
+      "32",
+      "0",
+      "9134",
+      "1",
+      "unbounded",
+      "0"
+    ],
+    "binary_sha256": "baedf650280c96fbe12628bc80e766d2190b96729e9a1848ba01b1fa834c25fd",
+    "peak_rss_kib": 177840,
+    "benchmark": {
+      "kind": "benchmark",
+      "setup_seconds": 0.627752689,
+      "baseline_setup_seconds": 3.8927376170000003,
+      "shots_per_batch": 32,
+      "baseline_shots_per_batch": 0,
+      "prefix_peak_width": 22,
+      "ordinary_peak_width": 44,
+      "native_peak_rss_kib": 96788,
+      "normalization_error": 8.881784197001252e-16,
+      "continuation_error": 0,
+      "seconds": [
+        6.7861655,
+        7.912023767000001,
+        5.456015614
+      ],
+      "baseline_seconds": [
+        3.0000000000000004e-08,
+        3.0000000000000004e-08,
+        3.0000000000000004e-08
+      ],
+      "accepted": [
+        4,
+        4,
+        4
+      ],
+      "logical_failures": [
+        0,
+        0,
+        0
+      ],
+      "baseline_accepted": [
+        0,
+        0,
+        0
+      ],
+      "baseline_logical_failures": [
+        0,
+        0,
+        0
+      ]
+    }
+  },
+  {
+    "variant": "selected",
+    "distance": 5,
+    "probability": 0.001,
+    "early_rejection": false,
+    "command": [
+      "/usr/bin/time",
+      "-f",
+      "%M",
+      "-o",
+      "/tmp/folded-memory-rss.txt",
+      "taskset",
+      "-c",
+      "0",
+      "/tmp/sample-folded-protocol-compact-memory",
+      "/tmp/folded-protocol-bench/f5-p0.001",
+      "1024",
+      "0",
+      "9134",
+      "0",
+      "unbounded",
+      "0"
+    ],
+    "binary_sha256": "d37abb983ab6c28ab174e552218b79d0b2b43957a099bc2e7a78ceaa089f22b8",
+    "peak_rss_kib": 12184,
+    "benchmark": {
+      "kind": "benchmark",
+      "setup_seconds": 0.020415294,
+      "baseline_setup_seconds": 0.214631126,
+      "shots_per_batch": 1024,
+      "baseline_shots_per_batch": 0,
+      "prefix_peak_width": 8,
+      "ordinary_peak_width": 22,
+      "native_peak_rss_kib": 8660,
+      "contraction_lookup_bytes": 630776,
+      "contraction_workspace_bytes": 31280,
+      "normalization_error": 8.881784197001252e-16,
+      "continuation_error": 4.440892098500626e-16,
+      "seconds": [
+        4.08054641,
+        4.066993793,
+        4.031251951000001
+      ],
+      "baseline_seconds": [
+        3.0000000000000004e-08,
+        3.1e-08,
+        3.0000000000000004e-08
+      ],
+      "accepted": [
+        455,
+        456,
+        447
+      ],
+      "logical_failures": [
+        0,
+        0,
+        0
+      ],
+      "baseline_accepted": [
+        0,
+        0,
+        0
+      ],
+      "baseline_logical_failures": [
+        0,
+        0,
+        0
+      ]
+    }
+  },
+  {
+    "variant": "before_selected",
+    "distance": 5,
+    "probability": 0.001,
+    "early_rejection": false,
+    "command": [
+      "/usr/bin/time",
+      "-f",
+      "%M",
+      "-o",
+      "/tmp/folded-memory-rss.txt",
+      "taskset",
+      "-c",
+      "0",
+      "/tmp/sample-folded-protocol-before-memory",
+      "/tmp/folded-protocol-bench/f5-p0.001",
+      "1024",
+      "0",
+      "9134",
+      "0",
+      "unbounded",
+      "0"
+    ],
+    "binary_sha256": "baedf650280c96fbe12628bc80e766d2190b96729e9a1848ba01b1fa834c25fd",
+    "peak_rss_kib": 13212,
+    "benchmark": {
+      "kind": "benchmark",
+      "setup_seconds": 0.020023128,
+      "baseline_setup_seconds": 0.213892776,
+      "shots_per_batch": 1024,
+      "baseline_shots_per_batch": 0,
+      "prefix_peak_width": 8,
+      "ordinary_peak_width": 22,
+      "native_peak_rss_kib": 9940,
+      "normalization_error": 8.881784197001252e-16,
+      "continuation_error": 4.440892098500626e-16,
+      "seconds": [
+        3.9785325240000002,
+        3.95960582,
+        3.9220850290000002
+      ],
+      "baseline_seconds": [
+        2e-08,
+        2e-08,
+        3.0000000000000004e-08
+      ],
+      "accepted": [
+        455,
+        456,
+        447
+      ],
+      "logical_failures": [
+        0,
+        0,
+        0
+      ],
+      "baseline_accepted": [
+        0,
+        0,
+        0
+      ],
+      "baseline_logical_failures": [
+        0,
+        0,
+        0
+      ]
+    }
+  },
+  {
+    "variant": "selected",
+    "distance": 5,
+    "probability": 0.001,
+    "early_rejection": true,
+    "command": [
+      "/usr/bin/time",
+      "-f",
+      "%M",
+      "-o",
+      "/tmp/folded-memory-rss.txt",
+      "taskset",
+      "-c",
+      "0",
+      "/tmp/sample-folded-protocol-compact-memory",
+      "/tmp/folded-protocol-bench/f5-p0.001",
+      "1024",
+      "0",
+      "9134",
+      "1",
+      "unbounded",
+      "0"
+    ],
+    "binary_sha256": "d37abb983ab6c28ab174e552218b79d0b2b43957a099bc2e7a78ceaa089f22b8",
+    "peak_rss_kib": 12072,
+    "benchmark": {
+      "kind": "benchmark",
+      "setup_seconds": 0.021515713000000002,
+      "baseline_setup_seconds": 0.21760553000000002,
+      "shots_per_batch": 1024,
+      "baseline_shots_per_batch": 0,
+      "prefix_peak_width": 8,
+      "ordinary_peak_width": 22,
+      "native_peak_rss_kib": 8920,
+      "contraction_lookup_bytes": 630776,
+      "contraction_workspace_bytes": 31280,
+      "normalization_error": 4.440892098500626e-16,
+      "continuation_error": 4.440892098500626e-16,
+      "seconds": [
+        2.301908828,
+        2.126261937,
+        2.3415455140000003
+      ],
+      "baseline_seconds": [
+        3.1e-08,
+        3.1e-08,
+        3.0000000000000004e-08
+      ],
+      "accepted": [
+        440,
+        418,
+        478
+      ],
+      "logical_failures": [
+        0,
+        0,
+        0
+      ],
+      "baseline_accepted": [
+        0,
+        0,
+        0
+      ],
+      "baseline_logical_failures": [
+        0,
+        0,
+        0
+      ]
+    }
+  },
+  {
+    "variant": "before_selected",
+    "distance": 5,
+    "probability": 0.001,
+    "early_rejection": true,
+    "command": [
+      "/usr/bin/time",
+      "-f",
+      "%M",
+      "-o",
+      "/tmp/folded-memory-rss.txt",
+      "taskset",
+      "-c",
+      "0",
+      "/tmp/sample-folded-protocol-before-memory",
+      "/tmp/folded-protocol-bench/f5-p0.001",
+      "1024",
+      "0",
+      "9134",
+      "1",
+      "unbounded",
+      "0"
+    ],
+    "binary_sha256": "baedf650280c96fbe12628bc80e766d2190b96729e9a1848ba01b1fa834c25fd",
+    "peak_rss_kib": 13156,
+    "benchmark": {
+      "kind": "benchmark",
+      "setup_seconds": 0.021117129000000002,
+      "baseline_setup_seconds": 0.21698034200000002,
+      "shots_per_batch": 1024,
+      "baseline_shots_per_batch": 0,
+      "prefix_peak_width": 8,
+      "ordinary_peak_width": 22,
+      "native_peak_rss_kib": 9988,
+      "normalization_error": 4.440892098500626e-16,
+      "continuation_error": 4.440892098500626e-16,
+      "seconds": [
+        2.198753426,
+        2.1046208060000002,
+        2.263751752
+      ],
+      "baseline_seconds": [
+        3.0000000000000004e-08,
+        3.0000000000000004e-08,
+        3.0000000000000004e-08
+      ],
+      "accepted": [
+        440,
+        418,
+        478
+      ],
+      "logical_failures": [
+        0,
+        0,
+        0
+      ],
+      "baseline_accepted": [
+        0,
+        0,
+        0
+      ],
+      "baseline_logical_failures": [
+        0,
+        0,
+        0
+      ]
+    }
+  },
+  {
+    "variant": "selected",
+    "distance": 3,
+    "probability": 0.001,
+    "early_rejection": false,
+    "command": [
+      "/usr/bin/time",
+      "-f",
+      "%M",
+      "-o",
+      "/tmp/folded-memory-rss.txt",
+      "taskset",
+      "-c",
+      "0",
+      "/tmp/sample-folded-protocol-compact-memory",
+      "/tmp/folded-protocol-bench/f3-p0.001",
+      "1024",
+      "0",
+      "9134",
+      "0",
+      "unbounded",
+      "0"
+    ],
+    "binary_sha256": "d37abb983ab6c28ab174e552218b79d0b2b43957a099bc2e7a78ceaa089f22b8",
+    "peak_rss_kib": 6504,
+    "benchmark": {
+      "kind": "benchmark",
+      "setup_seconds": 0.0016020110000000002,
+      "baseline_setup_seconds": 0.0075515,
+      "shots_per_batch": 1024,
+      "baseline_shots_per_batch": 0,
+      "prefix_peak_width": 1,
+      "ordinary_peak_width": 8,
+      "native_peak_rss_kib": 5828,
+      "contraction_lookup_bytes": 16004,
+      "contraction_workspace_bytes": 3808,
+      "normalization_error": 6.661338147750939e-16,
+      "continuation_error": 4.440892098500626e-16,
+      "seconds": [
+        0.206751879,
+        0.206523261,
+        0.206629523
+      ],
+      "baseline_seconds": [
+        2e-08,
+        3.1e-08,
+        2e-08
+      ],
+      "accepted": [
+        801,
+        796,
+        802
+      ],
+      "logical_failures": [
+        0,
+        0,
+        0
+      ],
+      "baseline_accepted": [
+        0,
+        0,
+        0
+      ],
+      "baseline_logical_failures": [
+        0,
+        0,
+        0
+      ]
+    }
+  },
+  {
+    "variant": "before_selected",
+    "distance": 3,
+    "probability": 0.001,
+    "early_rejection": false,
+    "command": [
+      "/usr/bin/time",
+      "-f",
+      "%M",
+      "-o",
+      "/tmp/folded-memory-rss.txt",
+      "taskset",
+      "-c",
+      "0",
+      "/tmp/sample-folded-protocol-before-memory",
+      "/tmp/folded-protocol-bench/f3-p0.001",
+      "1024",
+      "0",
+      "9134",
+      "0",
+      "unbounded",
+      "0"
+    ],
+    "binary_sha256": "baedf650280c96fbe12628bc80e766d2190b96729e9a1848ba01b1fa834c25fd",
+    "peak_rss_kib": 6584,
+    "benchmark": {
+      "kind": "benchmark",
+      "setup_seconds": 0.0015608080000000001,
+      "baseline_setup_seconds": 0.007515326,
+      "shots_per_batch": 1024,
+      "baseline_shots_per_batch": 0,
+      "prefix_peak_width": 1,
+      "ordinary_peak_width": 8,
+      "native_peak_rss_kib": 5816,
+      "normalization_error": 6.661338147750939e-16,
+      "continuation_error": 4.440892098500626e-16,
+      "seconds": [
+        0.20229884,
+        0.21658418100000001,
+        0.209494862
+      ],
+      "baseline_seconds": [
+        3.0000000000000004e-08,
+        4e-08,
+        3.0000000000000004e-08
+      ],
+      "accepted": [
+        801,
+        796,
+        802
+      ],
+      "logical_failures": [
+        0,
+        0,
+        0
+      ],
+      "baseline_accepted": [
+        0,
+        0,
+        0
+      ],
+      "baseline_logical_failures": [
+        0,
+        0,
+        0
+      ]
+    }
+  },
+  {
+    "variant": "selected",
+    "distance": 3,
+    "probability": 0.001,
+    "early_rejection": true,
+    "command": [
+      "/usr/bin/time",
+      "-f",
+      "%M",
+      "-o",
+      "/tmp/folded-memory-rss.txt",
+      "taskset",
+      "-c",
+      "0",
+      "/tmp/sample-folded-protocol-compact-memory",
+      "/tmp/folded-protocol-bench/f3-p0.001",
+      "1024",
+      "0",
+      "9134",
+      "1",
+      "unbounded",
+      "0"
+    ],
+    "binary_sha256": "d37abb983ab6c28ab174e552218b79d0b2b43957a099bc2e7a78ceaa089f22b8",
+    "peak_rss_kib": 6616,
+    "benchmark": {
+      "kind": "benchmark",
+      "setup_seconds": 0.001581631,
+      "baseline_setup_seconds": 0.011090231,
+      "shots_per_batch": 1024,
+      "baseline_shots_per_batch": 0,
+      "prefix_peak_width": 1,
+      "ordinary_peak_width": 8,
+      "native_peak_rss_kib": 5976,
+      "contraction_lookup_bytes": 16004,
+      "contraction_workspace_bytes": 3808,
+      "normalization_error": 4.440892098500626e-16,
+      "continuation_error": 4.440892098500626e-16,
+      "seconds": [
+        0.195220828,
+        0.18276576600000002,
+        0.1774967
+      ],
+      "baseline_seconds": [
+        3.1e-08,
+        2e-08,
+        2e-08
+      ],
+      "accepted": [
+        801,
+        796,
+        800
+      ],
+      "logical_failures": [
+        0,
+        0,
+        0
+      ],
+      "baseline_accepted": [
+        0,
+        0,
+        0
+      ],
+      "baseline_logical_failures": [
+        0,
+        0,
+        0
+      ]
+    }
+  },
+  {
+    "variant": "before_selected",
+    "distance": 3,
+    "probability": 0.001,
+    "early_rejection": true,
+    "command": [
+      "/usr/bin/time",
+      "-f",
+      "%M",
+      "-o",
+      "/tmp/folded-memory-rss.txt",
+      "taskset",
+      "-c",
+      "0",
+      "/tmp/sample-folded-protocol-before-memory",
+      "/tmp/folded-protocol-bench/f3-p0.001",
+      "1024",
+      "0",
+      "9134",
+      "1",
+      "unbounded",
+      "0"
+    ],
+    "binary_sha256": "baedf650280c96fbe12628bc80e766d2190b96729e9a1848ba01b1fa834c25fd",
+    "peak_rss_kib": 6548,
+    "benchmark": {
+      "kind": "benchmark",
+      "setup_seconds": 0.0016019510000000001,
+      "baseline_setup_seconds": 0.007777934,
+      "shots_per_batch": 1024,
+      "baseline_shots_per_batch": 0,
+      "prefix_peak_width": 1,
+      "ordinary_peak_width": 8,
+      "native_peak_rss_kib": 5872,
+      "normalization_error": 4.440892098500626e-16,
+      "continuation_error": 4.440892098500626e-16,
+      "seconds": [
+        0.17760757800000002,
+        0.179036886,
+        0.17947522200000002
+      ],
+      "baseline_seconds": [
+        3.0000000000000004e-08,
+        2e-08,
+        3.0000000000000004e-08
+      ],
+      "accepted": [
+        801,
+        796,
+        800
+      ],
+      "logical_failures": [
+        0,
+        0,
+        0
+      ],
+      "baseline_accepted": [
+        0,
+        0,
+        0
+      ],
+      "baseline_logical_failures": [
+        0,
+        0,
+        0
+      ]
+    }
+  }
+]

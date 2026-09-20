@@ -1,0 +1,155 @@
+{
+  "run": {
+    "cpu": 0,
+    "sample_seconds": 60,
+    "repeats": 2,
+    "compile_timeout_seconds": 300,
+    "seed": 20260723,
+    "circuit_dir": "circuit",
+    "report": "performance.md"
+  },
+  "shots": {
+    "stim_batch": {
+      "surface_d7_r7": 200000,
+      "surface_d9_r9": 200000
+    },
+    "tsim_call": {
+      "msc_d3": 1024,
+      "msc_d5": 1024,
+      "coherent_d3_r1": 1048576,
+      "coherent_d3_r3": 1024,
+      "coherent_d5_r1": 524288,
+      "coherent_d5_r5": 1024,
+      "distillation": 2048,
+      "surface_d7_r7": 262144,
+      "surface_d9_r9": 2097152
+    },
+    "clifft_call": {
+      "msc_d3": 100000,
+      "msc_d5": 20000,
+      "msc_d7": 1000,
+      "msc_proxy_d7": 1000,
+      "coherent_d3_r1": 5000000,
+      "coherent_d3_r3": 1000000,
+      "coherent_d5_r1": 1000,
+      "coherent_d5_r5": 10,
+      "distillation": 1000000,
+      "surface_d7_r7": 100000,
+      "surface_d9_r9": 100000
+    },
+    "symft_call": {
+      "msc_d3": 5000000,
+      "msc_d5": 1000000,
+      "msc_d7": 1000,
+      "msc_proxy_d7": 1000,
+      "coherent_d3_r1": 5000000,
+      "coherent_d3_r3": 1000000,
+      "coherent_d5_r1": 1000,
+      "coherent_d5_r5": 10,
+      "distillation": 1000000,
+      "surface_d7_r7": 10000000,
+      "surface_d9_r9": 10000000
+    },
+    "ticit_call": {
+      "msc_d3": 5000000,
+      "msc_d5": 1000000,
+      "msc_d7": 1000,
+      "msc_proxy_d7": 1000,
+      "coherent_d3_r1": 5000000,
+      "coherent_d3_r3": 1000000,
+      "coherent_d5_r1": 1000,
+      "coherent_d5_r5": 10,
+      "distillation": 1000000,
+      "surface_d7_r7": 10000000,
+      "surface_d9_r9": 10000000
+    }
+  },
+  "circuits": [
+    {
+      "id": "msc_d3",
+      "group": "near-clifford",
+      "file": "msc_d3_inject_cultivate_p1e-3.stim",
+      "postselect": true,
+      "tools": ["tsim", "clifft", "symft", "ticit"],
+      "tsim_strategy": "cutting"
+    },
+    {
+      "id": "msc_d5",
+      "group": "near-clifford",
+      "file": "msc_d5_inject_cultivate_p1e-3.stim",
+      "postselect": true,
+      "tools": ["tsim", "clifft", "symft", "ticit"],
+      "tsim_strategy": "cutting"
+    },
+    {
+      "id": "msc_d7",
+      "group": "near-clifford",
+      "file": "MSC_circuit_d7_p0.0005.stim",
+      "postselect": false,
+      "tools": ["clifft", "symft", "ticit"]
+    },
+    {
+      "id": "msc_proxy_d7",
+      "group": "near-clifford-proxy",
+      "file": "msc_proxy_d7_unverified_p1e-3.stim",
+      "postselect": false,
+      "tools": ["clifft", "symft", "ticit"]
+    },
+    {
+      "id": "coherent_d3_r1",
+      "group": "near-clifford",
+      "file": "coherent_surface_d3_r1_p1e-3_rz0p02.stim",
+      "postselect": false,
+      "tools": ["tsim", "clifft", "symft", "ticit"],
+      "tsim_strategy": "cutting"
+    },
+    {
+      "id": "coherent_d3_r3",
+      "group": "near-clifford",
+      "file": "coherent_surface_d3_r3_p1e-3_rz0p02.stim",
+      "postselect": false,
+      "tools": ["tsim", "clifft", "symft", "ticit"],
+      "tsim_strategy": "cutting"
+    },
+    {
+      "id": "coherent_d5_r1",
+      "group": "near-clifford",
+      "file": "coherent_surface_d5_r1_p1e-3_rz0p02.stim",
+      "postselect": false,
+      "tools": ["tsim", "clifft", "symft", "ticit"],
+      "tsim_strategy": "cutting"
+    },
+    {
+      "id": "coherent_d5_r5",
+      "group": "near-clifford",
+      "file": "coherent_surface_d5_r5_p1e-3_rz0p02.stim",
+      "postselect": false,
+      "tools": ["tsim", "clifft", "symft", "ticit"],
+      "tsim_strategy": "cutting"
+    },
+    {
+      "id": "distillation",
+      "group": "near-clifford",
+      "file": "distillation.stim",
+      "postselect": false,
+      "tools": ["tsim", "clifft", "symft", "ticit"],
+      "tsim_strategy": "cat5"
+    },
+    {
+      "id": "surface_d7_r7",
+      "group": "pure-clifford",
+      "file": "pure_surface_d7_r7_p1e-3.stim",
+      "postselect": false,
+      "tools": ["stim", "clifft", "tsim", "symft", "ticit"],
+      "tsim_strategy": "cat5"
+    },
+    {
+      "id": "surface_d9_r9",
+      "group": "pure-clifford",
+      "file": "pure_surface_d9_r9_p1e-3.stim",
+      "postselect": false,
+      "tools": ["stim", "clifft", "tsim", "symft", "ticit"],
+      "tsim_strategy": "cat5"
+    }
+  ]
+}

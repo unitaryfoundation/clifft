@@ -1,0 +1,7005 @@
+{
+  "circuit": {
+    "source": "https://arxiv.org/html/2609.16929v1#A1",
+    "status": "independent reconstruction; sequential check ordering is explicit",
+    "evaluation": "FED",
+    "num_qubits": 16,
+    "num_measurements": 43,
+    "num_detectors": 42,
+    "sha256": "aa73bc6de28205647593e162bc41da9fb1235d8d9faedd9e8d49eacda095e5f5",
+    "gate_counts": {
+      "R": 56,
+      "X_ERROR": 73,
+      "H": 49,
+      "DEPOLARIZE1": 56,
+      "T": 16,
+      "CX": 161,
+      "DEPOLARIZE2": 116,
+      "M": 43,
+      "T_DAG": 15,
+      "CCZ": 12,
+      "DEPOLARIZE3": 8
+    },
+    "operations": [
+      {
+        "index": 0,
+        "name": "R",
+        "qubits": [
+          0
+        ],
+        "stage": "injection",
+        "source": "Fig. 18",
+        "probability": null
+      },
+      {
+        "index": 1,
+        "name": "X_ERROR",
+        "qubits": [
+          0
+        ],
+        "stage": "injection",
+        "source": "Fig. 18",
+        "probability": 0.02
+      },
+      {
+        "index": 2,
+        "name": "R",
+        "qubits": [
+          1
+        ],
+        "stage": "injection",
+        "source": "Fig. 18",
+        "probability": null
+      },
+      {
+        "index": 3,
+        "name": "X_ERROR",
+        "qubits": [
+          1
+        ],
+        "stage": "injection",
+        "source": "Fig. 18",
+        "probability": 0.02
+      },
+      {
+        "index": 4,
+        "name": "R",
+        "qubits": [
+          2
+        ],
+        "stage": "injection",
+        "source": "Fig. 18",
+        "probability": null
+      },
+      {
+        "index": 5,
+        "name": "X_ERROR",
+        "qubits": [
+          2
+        ],
+        "stage": "injection",
+        "source": "Fig. 18",
+        "probability": 0.02
+      },
+      {
+        "index": 6,
+        "name": "R",
+        "qubits": [
+          5
+        ],
+        "stage": "injection",
+        "source": "Fig. 18",
+        "probability": null
+      },
+      {
+        "index": 7,
+        "name": "X_ERROR",
+        "qubits": [
+          5
+        ],
+        "stage": "injection",
+        "source": "Fig. 18",
+        "probability": 0.02
+      },
+      {
+        "index": 8,
+        "name": "R",
+        "qubits": [
+          6
+        ],
+        "stage": "injection",
+        "source": "Fig. 18",
+        "probability": null
+      },
+      {
+        "index": 9,
+        "name": "X_ERROR",
+        "qubits": [
+          6
+        ],
+        "stage": "injection",
+        "source": "Fig. 18",
+        "probability": 0.02
+      },
+      {
+        "index": 10,
+        "name": "R",
+        "qubits": [
+          7
+        ],
+        "stage": "injection",
+        "source": "Fig. 18",
+        "probability": null
+      },
+      {
+        "index": 11,
+        "name": "X_ERROR",
+        "qubits": [
+          7
+        ],
+        "stage": "injection",
+        "source": "Fig. 18",
+        "probability": 0.02
+      },
+      {
+        "index": 12,
+        "name": "R",
+        "qubits": [
+          10
+        ],
+        "stage": "injection",
+        "source": "Fig. 18",
+        "probability": null
+      },
+      {
+        "index": 13,
+        "name": "X_ERROR",
+        "qubits": [
+          10
+        ],
+        "stage": "injection",
+        "source": "Fig. 18",
+        "probability": 0.02
+      },
+      {
+        "index": 14,
+        "name": "R",
+        "qubits": [
+          11
+        ],
+        "stage": "injection",
+        "source": "Fig. 18",
+        "probability": null
+      },
+      {
+        "index": 15,
+        "name": "X_ERROR",
+        "qubits": [
+          11
+        ],
+        "stage": "injection",
+        "source": "Fig. 18",
+        "probability": 0.02
+      },
+      {
+        "index": 16,
+        "name": "R",
+        "qubits": [
+          12
+        ],
+        "stage": "injection",
+        "source": "Fig. 18",
+        "probability": null
+      },
+      {
+        "index": 17,
+        "name": "X_ERROR",
+        "qubits": [
+          12
+        ],
+        "stage": "injection",
+        "source": "Fig. 18",
+        "probability": 0.02
+      },
+      {
+        "index": 18,
+        "name": "H",
+        "qubits": [
+          0
+        ],
+        "stage": "injection",
+        "source": "Fig. 18",
+        "probability": null
+      },
+      {
+        "index": 19,
+        "name": "DEPOLARIZE1",
+        "qubits": [
+          0
+        ],
+        "stage": "injection",
+        "source": "Fig. 18",
+        "probability": 0.02
+      },
+      {
+        "index": 20,
+        "name": "H",
+        "qubits": [
+          2
+        ],
+        "stage": "injection",
+        "source": "Fig. 18",
+        "probability": null
+      },
+      {
+        "index": 21,
+        "name": "DEPOLARIZE1",
+        "qubits": [
+          2
+        ],
+        "stage": "injection",
+        "source": "Fig. 18",
+        "probability": 0.02
+      },
+      {
+        "index": 22,
+        "name": "H",
+        "qubits": [
+          6
+        ],
+        "stage": "injection",
+        "source": "Fig. 18",
+        "probability": null
+      },
+      {
+        "index": 23,
+        "name": "DEPOLARIZE1",
+        "qubits": [
+          6
+        ],
+        "stage": "injection",
+        "source": "Fig. 18",
+        "probability": 0.02
+      },
+      {
+        "index": 24,
+        "name": "H",
+        "qubits": [
+          7
+        ],
+        "stage": "injection",
+        "source": "Fig. 18",
+        "probability": null
+      },
+      {
+        "index": 25,
+        "name": "DEPOLARIZE1",
+        "qubits": [
+          7
+        ],
+        "stage": "injection",
+        "source": "Fig. 18",
+        "probability": 0.02
+      },
+      {
+        "index": 26,
+        "name": "H",
+        "qubits": [
+          10
+        ],
+        "stage": "injection",
+        "source": "Fig. 18",
+        "probability": null
+      },
+      {
+        "index": 27,
+        "name": "DEPOLARIZE1",
+        "qubits": [
+          10
+        ],
+        "stage": "injection",
+        "source": "Fig. 18",
+        "probability": 0.02
+      },
+      {
+        "index": 28,
+        "name": "T",
+        "qubits": [
+          6
+        ],
+        "stage": "injection",
+        "source": "Fig. 18",
+        "probability": null
+      },
+      {
+        "index": 29,
+        "name": "DEPOLARIZE1",
+        "qubits": [
+          6
+        ],
+        "stage": "injection",
+        "source": "Fig. 18",
+        "probability": 0.02
+      },
+      {
+        "index": 30,
+        "name": "CX",
+        "qubits": [
+          0,
+          5
+        ],
+        "stage": "injection",
+        "source": "Fig. 18",
+        "probability": null
+      },
+      {
+        "index": 31,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          0,
+          5
+        ],
+        "stage": "injection",
+        "source": "Fig. 18",
+        "probability": 0.02
+      },
+      {
+        "index": 32,
+        "name": "CX",
+        "qubits": [
+          7,
+          12
+        ],
+        "stage": "injection",
+        "source": "Fig. 18",
+        "probability": null
+      },
+      {
+        "index": 33,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          7,
+          12
+        ],
+        "stage": "injection",
+        "source": "Fig. 18",
+        "probability": 0.02
+      },
+      {
+        "index": 34,
+        "name": "CX",
+        "qubits": [
+          10,
+          11
+        ],
+        "stage": "injection",
+        "source": "Fig. 18",
+        "probability": null
+      },
+      {
+        "index": 35,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          10,
+          11
+        ],
+        "stage": "injection",
+        "source": "Fig. 18",
+        "probability": 0.02
+      },
+      {
+        "index": 36,
+        "name": "CX",
+        "qubits": [
+          6,
+          1
+        ],
+        "stage": "injection",
+        "source": "Fig. 18",
+        "probability": null
+      },
+      {
+        "index": 37,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          6,
+          1
+        ],
+        "stage": "injection",
+        "source": "Fig. 18",
+        "probability": 0.02
+      },
+      {
+        "index": 38,
+        "name": "CX",
+        "qubits": [
+          7,
+          6
+        ],
+        "stage": "injection",
+        "source": "Fig. 18",
+        "probability": null
+      },
+      {
+        "index": 39,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          7,
+          6
+        ],
+        "stage": "injection",
+        "source": "Fig. 18",
+        "probability": 0.02
+      },
+      {
+        "index": 40,
+        "name": "CX",
+        "qubits": [
+          1,
+          11
+        ],
+        "stage": "injection",
+        "source": "Fig. 18",
+        "probability": null
+      },
+      {
+        "index": 41,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          1,
+          11
+        ],
+        "stage": "injection",
+        "source": "Fig. 18",
+        "probability": 0.02
+      },
+      {
+        "index": 42,
+        "name": "CX",
+        "qubits": [
+          2,
+          1
+        ],
+        "stage": "injection",
+        "source": "Fig. 18",
+        "probability": null
+      },
+      {
+        "index": 43,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          2,
+          1
+        ],
+        "stage": "injection",
+        "source": "Fig. 18",
+        "probability": 0.02
+      },
+      {
+        "index": 44,
+        "name": "CX",
+        "qubits": [
+          7,
+          11
+        ],
+        "stage": "injection",
+        "source": "Fig. 18",
+        "probability": null
+      },
+      {
+        "index": 45,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          7,
+          11
+        ],
+        "stage": "injection",
+        "source": "Fig. 18",
+        "probability": 0.02
+      },
+      {
+        "index": 46,
+        "name": "CX",
+        "qubits": [
+          0,
+          6
+        ],
+        "stage": "injection",
+        "source": "Fig. 18",
+        "probability": null
+      },
+      {
+        "index": 47,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          0,
+          6
+        ],
+        "stage": "injection",
+        "source": "Fig. 18",
+        "probability": 0.02
+      },
+      {
+        "index": 48,
+        "name": "CX",
+        "qubits": [
+          0,
+          1
+        ],
+        "stage": "injection",
+        "source": "Fig. 18",
+        "probability": null
+      },
+      {
+        "index": 49,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          0,
+          1
+        ],
+        "stage": "injection",
+        "source": "Fig. 18",
+        "probability": 0.02
+      },
+      {
+        "index": 50,
+        "name": "R",
+        "qubits": [
+          3
+        ],
+        "stage": "growth",
+        "source": "Fig. 7 half-cycle; Appendix A.1",
+        "probability": null
+      },
+      {
+        "index": 51,
+        "name": "X_ERROR",
+        "qubits": [
+          3
+        ],
+        "stage": "growth",
+        "source": "Fig. 7 half-cycle; Appendix A.1",
+        "probability": 0.02
+      },
+      {
+        "index": 52,
+        "name": "R",
+        "qubits": [
+          4
+        ],
+        "stage": "growth",
+        "source": "Fig. 7 half-cycle; Appendix A.1",
+        "probability": null
+      },
+      {
+        "index": 53,
+        "name": "X_ERROR",
+        "qubits": [
+          4
+        ],
+        "stage": "growth",
+        "source": "Fig. 7 half-cycle; Appendix A.1",
+        "probability": 0.02
+      },
+      {
+        "index": 54,
+        "name": "R",
+        "qubits": [
+          8
+        ],
+        "stage": "growth",
+        "source": "Fig. 7 half-cycle; Appendix A.1",
+        "probability": null
+      },
+      {
+        "index": 55,
+        "name": "X_ERROR",
+        "qubits": [
+          8
+        ],
+        "stage": "growth",
+        "source": "Fig. 7 half-cycle; Appendix A.1",
+        "probability": 0.02
+      },
+      {
+        "index": 56,
+        "name": "R",
+        "qubits": [
+          9
+        ],
+        "stage": "growth",
+        "source": "Fig. 7 half-cycle; Appendix A.1",
+        "probability": null
+      },
+      {
+        "index": 57,
+        "name": "X_ERROR",
+        "qubits": [
+          9
+        ],
+        "stage": "growth",
+        "source": "Fig. 7 half-cycle; Appendix A.1",
+        "probability": 0.02
+      },
+      {
+        "index": 58,
+        "name": "H",
+        "qubits": [
+          3
+        ],
+        "stage": "growth",
+        "source": "Fig. 7 half-cycle; Appendix A.1",
+        "probability": null
+      },
+      {
+        "index": 59,
+        "name": "DEPOLARIZE1",
+        "qubits": [
+          3
+        ],
+        "stage": "growth",
+        "source": "Fig. 7 half-cycle; Appendix A.1",
+        "probability": 0.02
+      },
+      {
+        "index": 60,
+        "name": "H",
+        "qubits": [
+          9
+        ],
+        "stage": "growth",
+        "source": "Fig. 7 half-cycle; Appendix A.1",
+        "probability": null
+      },
+      {
+        "index": 61,
+        "name": "DEPOLARIZE1",
+        "qubits": [
+          9
+        ],
+        "stage": "growth",
+        "source": "Fig. 7 half-cycle; Appendix A.1",
+        "probability": 0.02
+      },
+      {
+        "index": 62,
+        "name": "CX",
+        "qubits": [
+          3,
+          0
+        ],
+        "stage": "growth",
+        "source": "Fig. 7 half-cycle; Appendix A.1",
+        "probability": null
+      },
+      {
+        "index": 63,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          3,
+          0
+        ],
+        "stage": "growth",
+        "source": "Fig. 7 half-cycle; Appendix A.1",
+        "probability": 0.02
+      },
+      {
+        "index": 64,
+        "name": "CX",
+        "qubits": [
+          1,
+          4
+        ],
+        "stage": "growth",
+        "source": "Fig. 7 half-cycle; Appendix A.1",
+        "probability": null
+      },
+      {
+        "index": 65,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          1,
+          4
+        ],
+        "stage": "growth",
+        "source": "Fig. 7 half-cycle; Appendix A.1",
+        "probability": 0.02
+      },
+      {
+        "index": 66,
+        "name": "CX",
+        "qubits": [
+          5,
+          8
+        ],
+        "stage": "growth",
+        "source": "Fig. 7 half-cycle; Appendix A.1",
+        "probability": null
+      },
+      {
+        "index": 67,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          5,
+          8
+        ],
+        "stage": "growth",
+        "source": "Fig. 7 half-cycle; Appendix A.1",
+        "probability": 0.02
+      },
+      {
+        "index": 68,
+        "name": "CX",
+        "qubits": [
+          9,
+          6
+        ],
+        "stage": "growth",
+        "source": "Fig. 7 half-cycle; Appendix A.1",
+        "probability": null
+      },
+      {
+        "index": 69,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          9,
+          6
+        ],
+        "stage": "growth",
+        "source": "Fig. 7 half-cycle; Appendix A.1",
+        "probability": 0.02
+      },
+      {
+        "index": 70,
+        "name": "CX",
+        "qubits": [
+          3,
+          1
+        ],
+        "stage": "growth",
+        "source": "Fig. 7 half-cycle; Appendix A.1",
+        "probability": null
+      },
+      {
+        "index": 71,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          3,
+          1
+        ],
+        "stage": "growth",
+        "source": "Fig. 7 half-cycle; Appendix A.1",
+        "probability": 0.02
+      },
+      {
+        "index": 72,
+        "name": "CX",
+        "qubits": [
+          6,
+          4
+        ],
+        "stage": "growth",
+        "source": "Fig. 7 half-cycle; Appendix A.1",
+        "probability": null
+      },
+      {
+        "index": 73,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          6,
+          4
+        ],
+        "stage": "growth",
+        "source": "Fig. 7 half-cycle; Appendix A.1",
+        "probability": 0.02
+      },
+      {
+        "index": 74,
+        "name": "CX",
+        "qubits": [
+          10,
+          8
+        ],
+        "stage": "growth",
+        "source": "Fig. 7 half-cycle; Appendix A.1",
+        "probability": null
+      },
+      {
+        "index": 75,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          10,
+          8
+        ],
+        "stage": "growth",
+        "source": "Fig. 7 half-cycle; Appendix A.1",
+        "probability": 0.02
+      },
+      {
+        "index": 76,
+        "name": "CX",
+        "qubits": [
+          9,
+          7
+        ],
+        "stage": "growth",
+        "source": "Fig. 7 half-cycle; Appendix A.1",
+        "probability": null
+      },
+      {
+        "index": 77,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          9,
+          7
+        ],
+        "stage": "growth",
+        "source": "Fig. 7 half-cycle; Appendix A.1",
+        "probability": 0.02
+      },
+      {
+        "index": 78,
+        "name": "R",
+        "qubits": [
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 79,
+        "name": "X_ERROR",
+        "qubits": [
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 80,
+        "name": "H",
+        "qubits": [
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 81,
+        "name": "DEPOLARIZE1",
+        "qubits": [
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 82,
+        "name": "CX",
+        "qubits": [
+          13,
+          0
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 83,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          13,
+          0
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 84,
+        "name": "CX",
+        "qubits": [
+          13,
+          1
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 85,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          13,
+          1
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 86,
+        "name": "CX",
+        "qubits": [
+          13,
+          3
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 87,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          13,
+          3
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 88,
+        "name": "H",
+        "qubits": [
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 89,
+        "name": "DEPOLARIZE1",
+        "qubits": [
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 90,
+        "name": "X_ERROR",
+        "qubits": [
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 91,
+        "name": "M",
+        "qubits": [
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 92,
+        "name": "R",
+        "qubits": [
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 93,
+        "name": "X_ERROR",
+        "qubits": [
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 94,
+        "name": "H",
+        "qubits": [
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 95,
+        "name": "DEPOLARIZE1",
+        "qubits": [
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 96,
+        "name": "CX",
+        "qubits": [
+          13,
+          1
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 97,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          13,
+          1
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 98,
+        "name": "CX",
+        "qubits": [
+          13,
+          2
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 99,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          13,
+          2
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 100,
+        "name": "CX",
+        "qubits": [
+          13,
+          4
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 101,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          13,
+          4
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 102,
+        "name": "H",
+        "qubits": [
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 103,
+        "name": "DEPOLARIZE1",
+        "qubits": [
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 104,
+        "name": "X_ERROR",
+        "qubits": [
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 105,
+        "name": "M",
+        "qubits": [
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 106,
+        "name": "R",
+        "qubits": [
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 107,
+        "name": "X_ERROR",
+        "qubits": [
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 108,
+        "name": "H",
+        "qubits": [
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 109,
+        "name": "DEPOLARIZE1",
+        "qubits": [
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 110,
+        "name": "CX",
+        "qubits": [
+          13,
+          3
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 111,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          13,
+          3
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 112,
+        "name": "CX",
+        "qubits": [
+          13,
+          5
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 113,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          13,
+          5
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 114,
+        "name": "CX",
+        "qubits": [
+          13,
+          6
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 115,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          13,
+          6
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 116,
+        "name": "CX",
+        "qubits": [
+          13,
+          8
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 117,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          13,
+          8
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 118,
+        "name": "H",
+        "qubits": [
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 119,
+        "name": "DEPOLARIZE1",
+        "qubits": [
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 120,
+        "name": "X_ERROR",
+        "qubits": [
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 121,
+        "name": "M",
+        "qubits": [
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 122,
+        "name": "R",
+        "qubits": [
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 123,
+        "name": "X_ERROR",
+        "qubits": [
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 124,
+        "name": "H",
+        "qubits": [
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 125,
+        "name": "DEPOLARIZE1",
+        "qubits": [
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 126,
+        "name": "CX",
+        "qubits": [
+          13,
+          4
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 127,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          13,
+          4
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 128,
+        "name": "CX",
+        "qubits": [
+          13,
+          6
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 129,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          13,
+          6
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 130,
+        "name": "CX",
+        "qubits": [
+          13,
+          7
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 131,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          13,
+          7
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 132,
+        "name": "CX",
+        "qubits": [
+          13,
+          9
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 133,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          13,
+          9
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 134,
+        "name": "H",
+        "qubits": [
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 135,
+        "name": "DEPOLARIZE1",
+        "qubits": [
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 136,
+        "name": "X_ERROR",
+        "qubits": [
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 137,
+        "name": "M",
+        "qubits": [
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 138,
+        "name": "R",
+        "qubits": [
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 139,
+        "name": "X_ERROR",
+        "qubits": [
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 140,
+        "name": "H",
+        "qubits": [
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 141,
+        "name": "DEPOLARIZE1",
+        "qubits": [
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 142,
+        "name": "CX",
+        "qubits": [
+          13,
+          8
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 143,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          13,
+          8
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 144,
+        "name": "CX",
+        "qubits": [
+          13,
+          10
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 145,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          13,
+          10
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 146,
+        "name": "CX",
+        "qubits": [
+          13,
+          11
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 147,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          13,
+          11
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 148,
+        "name": "H",
+        "qubits": [
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 149,
+        "name": "DEPOLARIZE1",
+        "qubits": [
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 150,
+        "name": "X_ERROR",
+        "qubits": [
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 151,
+        "name": "M",
+        "qubits": [
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 152,
+        "name": "R",
+        "qubits": [
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 153,
+        "name": "X_ERROR",
+        "qubits": [
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 154,
+        "name": "H",
+        "qubits": [
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 155,
+        "name": "DEPOLARIZE1",
+        "qubits": [
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 156,
+        "name": "CX",
+        "qubits": [
+          13,
+          9
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 157,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          13,
+          9
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 158,
+        "name": "CX",
+        "qubits": [
+          13,
+          11
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 159,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          13,
+          11
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 160,
+        "name": "CX",
+        "qubits": [
+          13,
+          12
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 161,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          13,
+          12
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 162,
+        "name": "H",
+        "qubits": [
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 163,
+        "name": "DEPOLARIZE1",
+        "qubits": [
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 164,
+        "name": "X_ERROR",
+        "qubits": [
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 165,
+        "name": "M",
+        "qubits": [
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 166,
+        "name": "R",
+        "qubits": [
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 167,
+        "name": "X_ERROR",
+        "qubits": [
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 168,
+        "name": "CX",
+        "qubits": [
+          0,
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 169,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          0,
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 170,
+        "name": "CX",
+        "qubits": [
+          3,
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 171,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          3,
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 172,
+        "name": "CX",
+        "qubits": [
+          5,
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 173,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          5,
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 174,
+        "name": "X_ERROR",
+        "qubits": [
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 175,
+        "name": "M",
+        "qubits": [
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 176,
+        "name": "R",
+        "qubits": [
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 177,
+        "name": "X_ERROR",
+        "qubits": [
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 178,
+        "name": "CX",
+        "qubits": [
+          5,
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 179,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          5,
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 180,
+        "name": "CX",
+        "qubits": [
+          8,
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 181,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          8,
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 182,
+        "name": "CX",
+        "qubits": [
+          10,
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 183,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          10,
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 184,
+        "name": "X_ERROR",
+        "qubits": [
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 185,
+        "name": "M",
+        "qubits": [
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 186,
+        "name": "R",
+        "qubits": [
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 187,
+        "name": "X_ERROR",
+        "qubits": [
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 188,
+        "name": "CX",
+        "qubits": [
+          1,
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 189,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          1,
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 190,
+        "name": "CX",
+        "qubits": [
+          3,
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 191,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          3,
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 192,
+        "name": "CX",
+        "qubits": [
+          4,
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 193,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          4,
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 194,
+        "name": "CX",
+        "qubits": [
+          6,
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 195,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          6,
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 196,
+        "name": "X_ERROR",
+        "qubits": [
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 197,
+        "name": "M",
+        "qubits": [
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 198,
+        "name": "R",
+        "qubits": [
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 199,
+        "name": "X_ERROR",
+        "qubits": [
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 200,
+        "name": "CX",
+        "qubits": [
+          6,
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 201,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          6,
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 202,
+        "name": "CX",
+        "qubits": [
+          8,
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 203,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          8,
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 204,
+        "name": "CX",
+        "qubits": [
+          9,
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 205,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          9,
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 206,
+        "name": "CX",
+        "qubits": [
+          11,
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 207,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          11,
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 208,
+        "name": "X_ERROR",
+        "qubits": [
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 209,
+        "name": "M",
+        "qubits": [
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 210,
+        "name": "R",
+        "qubits": [
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 211,
+        "name": "X_ERROR",
+        "qubits": [
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 212,
+        "name": "CX",
+        "qubits": [
+          2,
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 213,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          2,
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 214,
+        "name": "CX",
+        "qubits": [
+          4,
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 215,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          4,
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 216,
+        "name": "CX",
+        "qubits": [
+          7,
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 217,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          7,
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 218,
+        "name": "X_ERROR",
+        "qubits": [
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 219,
+        "name": "M",
+        "qubits": [
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 220,
+        "name": "R",
+        "qubits": [
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 221,
+        "name": "X_ERROR",
+        "qubits": [
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 222,
+        "name": "CX",
+        "qubits": [
+          7,
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 223,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          7,
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 224,
+        "name": "CX",
+        "qubits": [
+          9,
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 225,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          9,
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 226,
+        "name": "CX",
+        "qubits": [
+          12,
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 227,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          12,
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 228,
+        "name": "X_ERROR",
+        "qubits": [
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 229,
+        "name": "M",
+        "qubits": [
+          13
+        ],
+        "stage": "pre_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 230,
+        "name": "R",
+        "qubits": [
+          13
+        ],
+        "stage": "logical_check_1",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 231,
+        "name": "X_ERROR",
+        "qubits": [
+          13
+        ],
+        "stage": "logical_check_1",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": 0.02
+      },
+      {
+        "index": 232,
+        "name": "R",
+        "qubits": [
+          14
+        ],
+        "stage": "logical_check_1",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 233,
+        "name": "X_ERROR",
+        "qubits": [
+          14
+        ],
+        "stage": "logical_check_1",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": 0.02
+      },
+      {
+        "index": 234,
+        "name": "R",
+        "qubits": [
+          15
+        ],
+        "stage": "logical_check_1",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 235,
+        "name": "X_ERROR",
+        "qubits": [
+          15
+        ],
+        "stage": "logical_check_1",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": 0.02
+      },
+      {
+        "index": 236,
+        "name": "H",
+        "qubits": [
+          14
+        ],
+        "stage": "logical_check_1",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 237,
+        "name": "DEPOLARIZE1",
+        "qubits": [
+          14
+        ],
+        "stage": "logical_check_1",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": 0.02
+      },
+      {
+        "index": 238,
+        "name": "CX",
+        "qubits": [
+          14,
+          15
+        ],
+        "stage": "logical_check_1",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 239,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          14,
+          15
+        ],
+        "stage": "logical_check_1",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": 0.02
+      },
+      {
+        "index": 240,
+        "name": "CX",
+        "qubits": [
+          14,
+          13
+        ],
+        "stage": "logical_check_1",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 241,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          14,
+          13
+        ],
+        "stage": "logical_check_1",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": 0.02
+      },
+      {
+        "index": 242,
+        "name": "T_DAG",
+        "qubits": [
+          0
+        ],
+        "stage": "logical_check_1",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 243,
+        "name": "DEPOLARIZE1",
+        "qubits": [
+          0
+        ],
+        "stage": "logical_check_1",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": 0.02
+      },
+      {
+        "index": 244,
+        "name": "CX",
+        "qubits": [
+          13,
+          0
+        ],
+        "stage": "logical_check_1",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 245,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          13,
+          0
+        ],
+        "stage": "logical_check_1",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": 0.02
+      },
+      {
+        "index": 246,
+        "name": "T",
+        "qubits": [
+          0
+        ],
+        "stage": "logical_check_1",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 247,
+        "name": "DEPOLARIZE1",
+        "qubits": [
+          0
+        ],
+        "stage": "logical_check_1",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": 0.02
+      },
+      {
+        "index": 248,
+        "name": "T",
+        "qubits": [
+          3
+        ],
+        "stage": "logical_check_1",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 249,
+        "name": "DEPOLARIZE1",
+        "qubits": [
+          3
+        ],
+        "stage": "logical_check_1",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": 0.02
+      },
+      {
+        "index": 250,
+        "name": "CX",
+        "qubits": [
+          14,
+          3
+        ],
+        "stage": "logical_check_1",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 251,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          14,
+          3
+        ],
+        "stage": "logical_check_1",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": 0.02
+      },
+      {
+        "index": 252,
+        "name": "T_DAG",
+        "qubits": [
+          3
+        ],
+        "stage": "logical_check_1",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 253,
+        "name": "DEPOLARIZE1",
+        "qubits": [
+          3
+        ],
+        "stage": "logical_check_1",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": 0.02
+      },
+      {
+        "index": 254,
+        "name": "T_DAG",
+        "qubits": [
+          6
+        ],
+        "stage": "logical_check_1",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 255,
+        "name": "DEPOLARIZE1",
+        "qubits": [
+          6
+        ],
+        "stage": "logical_check_1",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": 0.02
+      },
+      {
+        "index": 256,
+        "name": "CX",
+        "qubits": [
+          15,
+          6
+        ],
+        "stage": "logical_check_1",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 257,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          15,
+          6
+        ],
+        "stage": "logical_check_1",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": 0.02
+      },
+      {
+        "index": 258,
+        "name": "T",
+        "qubits": [
+          6
+        ],
+        "stage": "logical_check_1",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 259,
+        "name": "DEPOLARIZE1",
+        "qubits": [
+          6
+        ],
+        "stage": "logical_check_1",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": 0.02
+      },
+      {
+        "index": 260,
+        "name": "T",
+        "qubits": [
+          9
+        ],
+        "stage": "logical_check_1",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 261,
+        "name": "DEPOLARIZE1",
+        "qubits": [
+          9
+        ],
+        "stage": "logical_check_1",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": 0.02
+      },
+      {
+        "index": 262,
+        "name": "CX",
+        "qubits": [
+          13,
+          9
+        ],
+        "stage": "logical_check_1",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 263,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          13,
+          9
+        ],
+        "stage": "logical_check_1",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": 0.02
+      },
+      {
+        "index": 264,
+        "name": "T_DAG",
+        "qubits": [
+          9
+        ],
+        "stage": "logical_check_1",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 265,
+        "name": "DEPOLARIZE1",
+        "qubits": [
+          9
+        ],
+        "stage": "logical_check_1",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": 0.02
+      },
+      {
+        "index": 266,
+        "name": "T_DAG",
+        "qubits": [
+          12
+        ],
+        "stage": "logical_check_1",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 267,
+        "name": "DEPOLARIZE1",
+        "qubits": [
+          12
+        ],
+        "stage": "logical_check_1",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": 0.02
+      },
+      {
+        "index": 268,
+        "name": "CX",
+        "qubits": [
+          14,
+          12
+        ],
+        "stage": "logical_check_1",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 269,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          14,
+          12
+        ],
+        "stage": "logical_check_1",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": 0.02
+      },
+      {
+        "index": 270,
+        "name": "T",
+        "qubits": [
+          12
+        ],
+        "stage": "logical_check_1",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 271,
+        "name": "DEPOLARIZE1",
+        "qubits": [
+          12
+        ],
+        "stage": "logical_check_1",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": 0.02
+      },
+      {
+        "index": 272,
+        "name": "CCZ",
+        "qubits": [
+          13,
+          5,
+          1
+        ],
+        "stage": "logical_check_1",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 273,
+        "name": "DEPOLARIZE3",
+        "qubits": [
+          13,
+          5,
+          1
+        ],
+        "stage": "logical_check_1",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": 0.02
+      },
+      {
+        "index": 274,
+        "name": "CCZ",
+        "qubits": [
+          14,
+          8,
+          4
+        ],
+        "stage": "logical_check_1",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 275,
+        "name": "DEPOLARIZE3",
+        "qubits": [
+          14,
+          8,
+          4
+        ],
+        "stage": "logical_check_1",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": 0.02
+      },
+      {
+        "index": 276,
+        "name": "CCZ",
+        "qubits": [
+          15,
+          11,
+          7
+        ],
+        "stage": "logical_check_1",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 277,
+        "name": "DEPOLARIZE3",
+        "qubits": [
+          15,
+          11,
+          7
+        ],
+        "stage": "logical_check_1",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": 0.02
+      },
+      {
+        "index": 278,
+        "name": "CCZ",
+        "qubits": [
+          15,
+          10,
+          2
+        ],
+        "stage": "logical_check_1",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 279,
+        "name": "DEPOLARIZE3",
+        "qubits": [
+          15,
+          10,
+          2
+        ],
+        "stage": "logical_check_1",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": 0.02
+      },
+      {
+        "index": 280,
+        "name": "CX",
+        "qubits": [
+          14,
+          13
+        ],
+        "stage": "logical_check_1",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 281,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          14,
+          13
+        ],
+        "stage": "logical_check_1",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": 0.02
+      },
+      {
+        "index": 282,
+        "name": "CX",
+        "qubits": [
+          14,
+          15
+        ],
+        "stage": "logical_check_1",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 283,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          14,
+          15
+        ],
+        "stage": "logical_check_1",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": 0.02
+      },
+      {
+        "index": 284,
+        "name": "H",
+        "qubits": [
+          14
+        ],
+        "stage": "logical_check_1",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 285,
+        "name": "DEPOLARIZE1",
+        "qubits": [
+          14
+        ],
+        "stage": "logical_check_1",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": 0.02
+      },
+      {
+        "index": 286,
+        "name": "X_ERROR",
+        "qubits": [
+          13
+        ],
+        "stage": "logical_check_1",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": 0.02
+      },
+      {
+        "index": 287,
+        "name": "M",
+        "qubits": [
+          13
+        ],
+        "stage": "logical_check_1",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 288,
+        "name": "X_ERROR",
+        "qubits": [
+          14
+        ],
+        "stage": "logical_check_1",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": 0.02
+      },
+      {
+        "index": 289,
+        "name": "M",
+        "qubits": [
+          14
+        ],
+        "stage": "logical_check_1",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 290,
+        "name": "X_ERROR",
+        "qubits": [
+          15
+        ],
+        "stage": "logical_check_1",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": 0.02
+      },
+      {
+        "index": 291,
+        "name": "M",
+        "qubits": [
+          15
+        ],
+        "stage": "logical_check_1",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 292,
+        "name": "R",
+        "qubits": [
+          13
+        ],
+        "stage": "logical_check_2",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 293,
+        "name": "X_ERROR",
+        "qubits": [
+          13
+        ],
+        "stage": "logical_check_2",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": 0.02
+      },
+      {
+        "index": 294,
+        "name": "R",
+        "qubits": [
+          14
+        ],
+        "stage": "logical_check_2",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 295,
+        "name": "X_ERROR",
+        "qubits": [
+          14
+        ],
+        "stage": "logical_check_2",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": 0.02
+      },
+      {
+        "index": 296,
+        "name": "R",
+        "qubits": [
+          15
+        ],
+        "stage": "logical_check_2",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 297,
+        "name": "X_ERROR",
+        "qubits": [
+          15
+        ],
+        "stage": "logical_check_2",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": 0.02
+      },
+      {
+        "index": 298,
+        "name": "H",
+        "qubits": [
+          14
+        ],
+        "stage": "logical_check_2",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 299,
+        "name": "DEPOLARIZE1",
+        "qubits": [
+          14
+        ],
+        "stage": "logical_check_2",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": 0.02
+      },
+      {
+        "index": 300,
+        "name": "CX",
+        "qubits": [
+          14,
+          15
+        ],
+        "stage": "logical_check_2",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 301,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          14,
+          15
+        ],
+        "stage": "logical_check_2",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": 0.02
+      },
+      {
+        "index": 302,
+        "name": "CX",
+        "qubits": [
+          14,
+          13
+        ],
+        "stage": "logical_check_2",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 303,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          14,
+          13
+        ],
+        "stage": "logical_check_2",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": 0.02
+      },
+      {
+        "index": 304,
+        "name": "T_DAG",
+        "qubits": [
+          0
+        ],
+        "stage": "logical_check_2",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 305,
+        "name": "DEPOLARIZE1",
+        "qubits": [
+          0
+        ],
+        "stage": "logical_check_2",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": 0.02
+      },
+      {
+        "index": 306,
+        "name": "CX",
+        "qubits": [
+          13,
+          0
+        ],
+        "stage": "logical_check_2",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 307,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          13,
+          0
+        ],
+        "stage": "logical_check_2",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": 0.02
+      },
+      {
+        "index": 308,
+        "name": "T",
+        "qubits": [
+          0
+        ],
+        "stage": "logical_check_2",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 309,
+        "name": "DEPOLARIZE1",
+        "qubits": [
+          0
+        ],
+        "stage": "logical_check_2",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": 0.02
+      },
+      {
+        "index": 310,
+        "name": "T",
+        "qubits": [
+          3
+        ],
+        "stage": "logical_check_2",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 311,
+        "name": "DEPOLARIZE1",
+        "qubits": [
+          3
+        ],
+        "stage": "logical_check_2",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": 0.02
+      },
+      {
+        "index": 312,
+        "name": "CX",
+        "qubits": [
+          14,
+          3
+        ],
+        "stage": "logical_check_2",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 313,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          14,
+          3
+        ],
+        "stage": "logical_check_2",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": 0.02
+      },
+      {
+        "index": 314,
+        "name": "T_DAG",
+        "qubits": [
+          3
+        ],
+        "stage": "logical_check_2",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 315,
+        "name": "DEPOLARIZE1",
+        "qubits": [
+          3
+        ],
+        "stage": "logical_check_2",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": 0.02
+      },
+      {
+        "index": 316,
+        "name": "T_DAG",
+        "qubits": [
+          6
+        ],
+        "stage": "logical_check_2",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 317,
+        "name": "DEPOLARIZE1",
+        "qubits": [
+          6
+        ],
+        "stage": "logical_check_2",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": 0.02
+      },
+      {
+        "index": 318,
+        "name": "CX",
+        "qubits": [
+          15,
+          6
+        ],
+        "stage": "logical_check_2",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 319,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          15,
+          6
+        ],
+        "stage": "logical_check_2",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": 0.02
+      },
+      {
+        "index": 320,
+        "name": "T",
+        "qubits": [
+          6
+        ],
+        "stage": "logical_check_2",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 321,
+        "name": "DEPOLARIZE1",
+        "qubits": [
+          6
+        ],
+        "stage": "logical_check_2",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": 0.02
+      },
+      {
+        "index": 322,
+        "name": "T",
+        "qubits": [
+          9
+        ],
+        "stage": "logical_check_2",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 323,
+        "name": "DEPOLARIZE1",
+        "qubits": [
+          9
+        ],
+        "stage": "logical_check_2",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": 0.02
+      },
+      {
+        "index": 324,
+        "name": "CX",
+        "qubits": [
+          13,
+          9
+        ],
+        "stage": "logical_check_2",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 325,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          13,
+          9
+        ],
+        "stage": "logical_check_2",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": 0.02
+      },
+      {
+        "index": 326,
+        "name": "T_DAG",
+        "qubits": [
+          9
+        ],
+        "stage": "logical_check_2",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 327,
+        "name": "DEPOLARIZE1",
+        "qubits": [
+          9
+        ],
+        "stage": "logical_check_2",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": 0.02
+      },
+      {
+        "index": 328,
+        "name": "T_DAG",
+        "qubits": [
+          12
+        ],
+        "stage": "logical_check_2",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 329,
+        "name": "DEPOLARIZE1",
+        "qubits": [
+          12
+        ],
+        "stage": "logical_check_2",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": 0.02
+      },
+      {
+        "index": 330,
+        "name": "CX",
+        "qubits": [
+          14,
+          12
+        ],
+        "stage": "logical_check_2",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 331,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          14,
+          12
+        ],
+        "stage": "logical_check_2",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": 0.02
+      },
+      {
+        "index": 332,
+        "name": "T",
+        "qubits": [
+          12
+        ],
+        "stage": "logical_check_2",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 333,
+        "name": "DEPOLARIZE1",
+        "qubits": [
+          12
+        ],
+        "stage": "logical_check_2",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": 0.02
+      },
+      {
+        "index": 334,
+        "name": "CCZ",
+        "qubits": [
+          13,
+          5,
+          1
+        ],
+        "stage": "logical_check_2",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 335,
+        "name": "DEPOLARIZE3",
+        "qubits": [
+          13,
+          5,
+          1
+        ],
+        "stage": "logical_check_2",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": 0.02
+      },
+      {
+        "index": 336,
+        "name": "CCZ",
+        "qubits": [
+          14,
+          8,
+          4
+        ],
+        "stage": "logical_check_2",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 337,
+        "name": "DEPOLARIZE3",
+        "qubits": [
+          14,
+          8,
+          4
+        ],
+        "stage": "logical_check_2",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": 0.02
+      },
+      {
+        "index": 338,
+        "name": "CCZ",
+        "qubits": [
+          15,
+          11,
+          7
+        ],
+        "stage": "logical_check_2",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 339,
+        "name": "DEPOLARIZE3",
+        "qubits": [
+          15,
+          11,
+          7
+        ],
+        "stage": "logical_check_2",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": 0.02
+      },
+      {
+        "index": 340,
+        "name": "CCZ",
+        "qubits": [
+          15,
+          10,
+          2
+        ],
+        "stage": "logical_check_2",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 341,
+        "name": "DEPOLARIZE3",
+        "qubits": [
+          15,
+          10,
+          2
+        ],
+        "stage": "logical_check_2",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": 0.02
+      },
+      {
+        "index": 342,
+        "name": "CX",
+        "qubits": [
+          14,
+          13
+        ],
+        "stage": "logical_check_2",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 343,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          14,
+          13
+        ],
+        "stage": "logical_check_2",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": 0.02
+      },
+      {
+        "index": 344,
+        "name": "CX",
+        "qubits": [
+          14,
+          15
+        ],
+        "stage": "logical_check_2",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 345,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          14,
+          15
+        ],
+        "stage": "logical_check_2",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": 0.02
+      },
+      {
+        "index": 346,
+        "name": "H",
+        "qubits": [
+          14
+        ],
+        "stage": "logical_check_2",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 347,
+        "name": "DEPOLARIZE1",
+        "qubits": [
+          14
+        ],
+        "stage": "logical_check_2",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": 0.02
+      },
+      {
+        "index": 348,
+        "name": "X_ERROR",
+        "qubits": [
+          13
+        ],
+        "stage": "logical_check_2",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": 0.02
+      },
+      {
+        "index": 349,
+        "name": "M",
+        "qubits": [
+          13
+        ],
+        "stage": "logical_check_2",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 350,
+        "name": "X_ERROR",
+        "qubits": [
+          14
+        ],
+        "stage": "logical_check_2",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": 0.02
+      },
+      {
+        "index": 351,
+        "name": "M",
+        "qubits": [
+          14
+        ],
+        "stage": "logical_check_2",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 352,
+        "name": "X_ERROR",
+        "qubits": [
+          15
+        ],
+        "stage": "logical_check_2",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": 0.02
+      },
+      {
+        "index": 353,
+        "name": "M",
+        "qubits": [
+          15
+        ],
+        "stage": "logical_check_2",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 354,
+        "name": "R",
+        "qubits": [
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 355,
+        "name": "X_ERROR",
+        "qubits": [
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 356,
+        "name": "H",
+        "qubits": [
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 357,
+        "name": "DEPOLARIZE1",
+        "qubits": [
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 358,
+        "name": "CX",
+        "qubits": [
+          13,
+          0
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 359,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          13,
+          0
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 360,
+        "name": "CX",
+        "qubits": [
+          13,
+          1
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 361,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          13,
+          1
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 362,
+        "name": "CX",
+        "qubits": [
+          13,
+          3
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 363,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          13,
+          3
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 364,
+        "name": "H",
+        "qubits": [
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 365,
+        "name": "DEPOLARIZE1",
+        "qubits": [
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 366,
+        "name": "X_ERROR",
+        "qubits": [
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 367,
+        "name": "M",
+        "qubits": [
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 368,
+        "name": "R",
+        "qubits": [
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 369,
+        "name": "X_ERROR",
+        "qubits": [
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 370,
+        "name": "H",
+        "qubits": [
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 371,
+        "name": "DEPOLARIZE1",
+        "qubits": [
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 372,
+        "name": "CX",
+        "qubits": [
+          13,
+          1
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 373,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          13,
+          1
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 374,
+        "name": "CX",
+        "qubits": [
+          13,
+          2
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 375,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          13,
+          2
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 376,
+        "name": "CX",
+        "qubits": [
+          13,
+          4
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 377,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          13,
+          4
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 378,
+        "name": "H",
+        "qubits": [
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 379,
+        "name": "DEPOLARIZE1",
+        "qubits": [
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 380,
+        "name": "X_ERROR",
+        "qubits": [
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 381,
+        "name": "M",
+        "qubits": [
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 382,
+        "name": "R",
+        "qubits": [
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 383,
+        "name": "X_ERROR",
+        "qubits": [
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 384,
+        "name": "H",
+        "qubits": [
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 385,
+        "name": "DEPOLARIZE1",
+        "qubits": [
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 386,
+        "name": "CX",
+        "qubits": [
+          13,
+          3
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 387,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          13,
+          3
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 388,
+        "name": "CX",
+        "qubits": [
+          13,
+          5
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 389,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          13,
+          5
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 390,
+        "name": "CX",
+        "qubits": [
+          13,
+          6
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 391,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          13,
+          6
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 392,
+        "name": "CX",
+        "qubits": [
+          13,
+          8
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 393,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          13,
+          8
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 394,
+        "name": "H",
+        "qubits": [
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 395,
+        "name": "DEPOLARIZE1",
+        "qubits": [
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 396,
+        "name": "X_ERROR",
+        "qubits": [
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 397,
+        "name": "M",
+        "qubits": [
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 398,
+        "name": "R",
+        "qubits": [
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 399,
+        "name": "X_ERROR",
+        "qubits": [
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 400,
+        "name": "H",
+        "qubits": [
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 401,
+        "name": "DEPOLARIZE1",
+        "qubits": [
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 402,
+        "name": "CX",
+        "qubits": [
+          13,
+          4
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 403,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          13,
+          4
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 404,
+        "name": "CX",
+        "qubits": [
+          13,
+          6
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 405,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          13,
+          6
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 406,
+        "name": "CX",
+        "qubits": [
+          13,
+          7
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 407,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          13,
+          7
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 408,
+        "name": "CX",
+        "qubits": [
+          13,
+          9
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 409,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          13,
+          9
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 410,
+        "name": "H",
+        "qubits": [
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 411,
+        "name": "DEPOLARIZE1",
+        "qubits": [
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 412,
+        "name": "X_ERROR",
+        "qubits": [
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 413,
+        "name": "M",
+        "qubits": [
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 414,
+        "name": "R",
+        "qubits": [
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 415,
+        "name": "X_ERROR",
+        "qubits": [
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 416,
+        "name": "H",
+        "qubits": [
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 417,
+        "name": "DEPOLARIZE1",
+        "qubits": [
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 418,
+        "name": "CX",
+        "qubits": [
+          13,
+          8
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 419,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          13,
+          8
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 420,
+        "name": "CX",
+        "qubits": [
+          13,
+          10
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 421,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          13,
+          10
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 422,
+        "name": "CX",
+        "qubits": [
+          13,
+          11
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 423,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          13,
+          11
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 424,
+        "name": "H",
+        "qubits": [
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 425,
+        "name": "DEPOLARIZE1",
+        "qubits": [
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 426,
+        "name": "X_ERROR",
+        "qubits": [
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 427,
+        "name": "M",
+        "qubits": [
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 428,
+        "name": "R",
+        "qubits": [
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 429,
+        "name": "X_ERROR",
+        "qubits": [
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 430,
+        "name": "H",
+        "qubits": [
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 431,
+        "name": "DEPOLARIZE1",
+        "qubits": [
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 432,
+        "name": "CX",
+        "qubits": [
+          13,
+          9
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 433,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          13,
+          9
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 434,
+        "name": "CX",
+        "qubits": [
+          13,
+          11
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 435,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          13,
+          11
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 436,
+        "name": "CX",
+        "qubits": [
+          13,
+          12
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 437,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          13,
+          12
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 438,
+        "name": "H",
+        "qubits": [
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 439,
+        "name": "DEPOLARIZE1",
+        "qubits": [
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 440,
+        "name": "X_ERROR",
+        "qubits": [
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 441,
+        "name": "M",
+        "qubits": [
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 442,
+        "name": "R",
+        "qubits": [
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 443,
+        "name": "X_ERROR",
+        "qubits": [
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 444,
+        "name": "CX",
+        "qubits": [
+          0,
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 445,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          0,
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 446,
+        "name": "CX",
+        "qubits": [
+          3,
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 447,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          3,
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 448,
+        "name": "CX",
+        "qubits": [
+          5,
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 449,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          5,
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 450,
+        "name": "X_ERROR",
+        "qubits": [
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 451,
+        "name": "M",
+        "qubits": [
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 452,
+        "name": "R",
+        "qubits": [
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 453,
+        "name": "X_ERROR",
+        "qubits": [
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 454,
+        "name": "CX",
+        "qubits": [
+          5,
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 455,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          5,
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 456,
+        "name": "CX",
+        "qubits": [
+          8,
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 457,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          8,
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 458,
+        "name": "CX",
+        "qubits": [
+          10,
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 459,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          10,
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 460,
+        "name": "X_ERROR",
+        "qubits": [
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 461,
+        "name": "M",
+        "qubits": [
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 462,
+        "name": "R",
+        "qubits": [
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 463,
+        "name": "X_ERROR",
+        "qubits": [
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 464,
+        "name": "CX",
+        "qubits": [
+          1,
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 465,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          1,
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 466,
+        "name": "CX",
+        "qubits": [
+          3,
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 467,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          3,
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 468,
+        "name": "CX",
+        "qubits": [
+          4,
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 469,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          4,
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 470,
+        "name": "CX",
+        "qubits": [
+          6,
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 471,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          6,
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 472,
+        "name": "X_ERROR",
+        "qubits": [
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 473,
+        "name": "M",
+        "qubits": [
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 474,
+        "name": "R",
+        "qubits": [
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 475,
+        "name": "X_ERROR",
+        "qubits": [
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 476,
+        "name": "CX",
+        "qubits": [
+          6,
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 477,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          6,
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 478,
+        "name": "CX",
+        "qubits": [
+          8,
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 479,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          8,
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 480,
+        "name": "CX",
+        "qubits": [
+          9,
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 481,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          9,
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 482,
+        "name": "CX",
+        "qubits": [
+          11,
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 483,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          11,
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 484,
+        "name": "X_ERROR",
+        "qubits": [
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 485,
+        "name": "M",
+        "qubits": [
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 486,
+        "name": "R",
+        "qubits": [
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 487,
+        "name": "X_ERROR",
+        "qubits": [
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 488,
+        "name": "CX",
+        "qubits": [
+          2,
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 489,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          2,
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 490,
+        "name": "CX",
+        "qubits": [
+          4,
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 491,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          4,
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 492,
+        "name": "CX",
+        "qubits": [
+          7,
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 493,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          7,
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 494,
+        "name": "X_ERROR",
+        "qubits": [
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 495,
+        "name": "M",
+        "qubits": [
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 496,
+        "name": "R",
+        "qubits": [
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 497,
+        "name": "X_ERROR",
+        "qubits": [
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 498,
+        "name": "CX",
+        "qubits": [
+          7,
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 499,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          7,
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 500,
+        "name": "CX",
+        "qubits": [
+          9,
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 501,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          9,
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 502,
+        "name": "CX",
+        "qubits": [
+          12,
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 503,
+        "name": "DEPOLARIZE2",
+        "qubits": [
+          12,
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 504,
+        "name": "X_ERROR",
+        "qubits": [
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": 0.02
+      },
+      {
+        "index": 505,
+        "name": "M",
+        "qubits": [
+          13
+        ],
+        "stage": "post_checks",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 506,
+        "name": "R",
+        "qubits": [
+          13
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 507,
+        "name": "H",
+        "qubits": [
+          13
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 508,
+        "name": "CX",
+        "qubits": [
+          13,
+          0
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 509,
+        "name": "CX",
+        "qubits": [
+          13,
+          1
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 510,
+        "name": "CX",
+        "qubits": [
+          13,
+          3
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 511,
+        "name": "H",
+        "qubits": [
+          13
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 512,
+        "name": "M",
+        "qubits": [
+          13
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 513,
+        "name": "R",
+        "qubits": [
+          13
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 514,
+        "name": "H",
+        "qubits": [
+          13
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 515,
+        "name": "CX",
+        "qubits": [
+          13,
+          1
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 516,
+        "name": "CX",
+        "qubits": [
+          13,
+          2
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 517,
+        "name": "CX",
+        "qubits": [
+          13,
+          4
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 518,
+        "name": "H",
+        "qubits": [
+          13
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 519,
+        "name": "M",
+        "qubits": [
+          13
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 520,
+        "name": "R",
+        "qubits": [
+          13
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 521,
+        "name": "H",
+        "qubits": [
+          13
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 522,
+        "name": "CX",
+        "qubits": [
+          13,
+          3
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 523,
+        "name": "CX",
+        "qubits": [
+          13,
+          5
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 524,
+        "name": "CX",
+        "qubits": [
+          13,
+          6
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 525,
+        "name": "CX",
+        "qubits": [
+          13,
+          8
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 526,
+        "name": "H",
+        "qubits": [
+          13
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 527,
+        "name": "M",
+        "qubits": [
+          13
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 528,
+        "name": "R",
+        "qubits": [
+          13
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 529,
+        "name": "H",
+        "qubits": [
+          13
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 530,
+        "name": "CX",
+        "qubits": [
+          13,
+          4
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 531,
+        "name": "CX",
+        "qubits": [
+          13,
+          6
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 532,
+        "name": "CX",
+        "qubits": [
+          13,
+          7
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 533,
+        "name": "CX",
+        "qubits": [
+          13,
+          9
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 534,
+        "name": "H",
+        "qubits": [
+          13
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 535,
+        "name": "M",
+        "qubits": [
+          13
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 536,
+        "name": "R",
+        "qubits": [
+          13
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 537,
+        "name": "H",
+        "qubits": [
+          13
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 538,
+        "name": "CX",
+        "qubits": [
+          13,
+          8
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 539,
+        "name": "CX",
+        "qubits": [
+          13,
+          10
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 540,
+        "name": "CX",
+        "qubits": [
+          13,
+          11
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 541,
+        "name": "H",
+        "qubits": [
+          13
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 542,
+        "name": "M",
+        "qubits": [
+          13
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 543,
+        "name": "R",
+        "qubits": [
+          13
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 544,
+        "name": "H",
+        "qubits": [
+          13
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 545,
+        "name": "CX",
+        "qubits": [
+          13,
+          9
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 546,
+        "name": "CX",
+        "qubits": [
+          13,
+          11
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 547,
+        "name": "CX",
+        "qubits": [
+          13,
+          12
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 548,
+        "name": "H",
+        "qubits": [
+          13
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 549,
+        "name": "M",
+        "qubits": [
+          13
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 550,
+        "name": "R",
+        "qubits": [
+          13
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 551,
+        "name": "CX",
+        "qubits": [
+          0,
+          13
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 552,
+        "name": "CX",
+        "qubits": [
+          3,
+          13
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 553,
+        "name": "CX",
+        "qubits": [
+          5,
+          13
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 554,
+        "name": "M",
+        "qubits": [
+          13
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 555,
+        "name": "R",
+        "qubits": [
+          13
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 556,
+        "name": "CX",
+        "qubits": [
+          5,
+          13
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 557,
+        "name": "CX",
+        "qubits": [
+          8,
+          13
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 558,
+        "name": "CX",
+        "qubits": [
+          10,
+          13
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 559,
+        "name": "M",
+        "qubits": [
+          13
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 560,
+        "name": "R",
+        "qubits": [
+          13
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 561,
+        "name": "CX",
+        "qubits": [
+          1,
+          13
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 562,
+        "name": "CX",
+        "qubits": [
+          3,
+          13
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 563,
+        "name": "CX",
+        "qubits": [
+          4,
+          13
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 564,
+        "name": "CX",
+        "qubits": [
+          6,
+          13
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 565,
+        "name": "M",
+        "qubits": [
+          13
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 566,
+        "name": "R",
+        "qubits": [
+          13
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 567,
+        "name": "CX",
+        "qubits": [
+          6,
+          13
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 568,
+        "name": "CX",
+        "qubits": [
+          8,
+          13
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 569,
+        "name": "CX",
+        "qubits": [
+          9,
+          13
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 570,
+        "name": "CX",
+        "qubits": [
+          11,
+          13
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 571,
+        "name": "M",
+        "qubits": [
+          13
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 572,
+        "name": "R",
+        "qubits": [
+          13
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 573,
+        "name": "CX",
+        "qubits": [
+          2,
+          13
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 574,
+        "name": "CX",
+        "qubits": [
+          4,
+          13
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 575,
+        "name": "CX",
+        "qubits": [
+          7,
+          13
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 576,
+        "name": "M",
+        "qubits": [
+          13
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 577,
+        "name": "R",
+        "qubits": [
+          13
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 578,
+        "name": "CX",
+        "qubits": [
+          7,
+          13
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 579,
+        "name": "CX",
+        "qubits": [
+          9,
+          13
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 580,
+        "name": "CX",
+        "qubits": [
+          12,
+          13
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 581,
+        "name": "M",
+        "qubits": [
+          13
+        ],
+        "stage": "final_syndrome",
+        "source": "Sec. III.A checks; Appendix A.2 sequential extraction",
+        "probability": null
+      },
+      {
+        "index": 582,
+        "name": "R",
+        "qubits": [
+          13
+        ],
+        "stage": "final_logical",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 583,
+        "name": "H",
+        "qubits": [
+          13
+        ],
+        "stage": "final_logical",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 584,
+        "name": "T_DAG",
+        "qubits": [
+          0
+        ],
+        "stage": "final_logical",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 585,
+        "name": "CX",
+        "qubits": [
+          13,
+          0
+        ],
+        "stage": "final_logical",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 586,
+        "name": "T",
+        "qubits": [
+          0
+        ],
+        "stage": "final_logical",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 587,
+        "name": "T",
+        "qubits": [
+          3
+        ],
+        "stage": "final_logical",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 588,
+        "name": "CX",
+        "qubits": [
+          13,
+          3
+        ],
+        "stage": "final_logical",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 589,
+        "name": "T_DAG",
+        "qubits": [
+          3
+        ],
+        "stage": "final_logical",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 590,
+        "name": "T_DAG",
+        "qubits": [
+          6
+        ],
+        "stage": "final_logical",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 591,
+        "name": "CX",
+        "qubits": [
+          13,
+          6
+        ],
+        "stage": "final_logical",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 592,
+        "name": "T",
+        "qubits": [
+          6
+        ],
+        "stage": "final_logical",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 593,
+        "name": "T",
+        "qubits": [
+          9
+        ],
+        "stage": "final_logical",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 594,
+        "name": "CX",
+        "qubits": [
+          13,
+          9
+        ],
+        "stage": "final_logical",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 595,
+        "name": "T_DAG",
+        "qubits": [
+          9
+        ],
+        "stage": "final_logical",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 596,
+        "name": "T_DAG",
+        "qubits": [
+          12
+        ],
+        "stage": "final_logical",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 597,
+        "name": "CX",
+        "qubits": [
+          13,
+          12
+        ],
+        "stage": "final_logical",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 598,
+        "name": "T",
+        "qubits": [
+          12
+        ],
+        "stage": "final_logical",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 599,
+        "name": "CCZ",
+        "qubits": [
+          13,
+          5,
+          1
+        ],
+        "stage": "final_logical",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 600,
+        "name": "CCZ",
+        "qubits": [
+          13,
+          8,
+          4
+        ],
+        "stage": "final_logical",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 601,
+        "name": "CCZ",
+        "qubits": [
+          13,
+          11,
+          7
+        ],
+        "stage": "final_logical",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 602,
+        "name": "CCZ",
+        "qubits": [
+          13,
+          10,
+          2
+        ],
+        "stage": "final_logical",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 603,
+        "name": "H",
+        "qubits": [
+          13
+        ],
+        "stage": "final_logical",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      },
+      {
+        "index": 604,
+        "name": "M",
+        "qubits": [
+          13
+        ],
+        "stage": "final_logical",
+        "source": "Appendix A.1 Hermitian factors; Table 4; Fig. 19a",
+        "probability": null
+      }
+    ],
+    "measurements": [
+      {
+        "index": 0,
+        "stage": "pre_checks",
+        "label": "X1",
+        "postselect": true,
+        "logical": false
+      },
+      {
+        "index": 1,
+        "stage": "pre_checks",
+        "label": "X2",
+        "postselect": true,
+        "logical": false
+      },
+      {
+        "index": 2,
+        "stage": "pre_checks",
+        "label": "X3",
+        "postselect": true,
+        "logical": false
+      },
+      {
+        "index": 3,
+        "stage": "pre_checks",
+        "label": "X4",
+        "postselect": true,
+        "logical": false
+      },
+      {
+        "index": 4,
+        "stage": "pre_checks",
+        "label": "X5",
+        "postselect": true,
+        "logical": false
+      },
+      {
+        "index": 5,
+        "stage": "pre_checks",
+        "label": "X6",
+        "postselect": true,
+        "logical": false
+      },
+      {
+        "index": 6,
+        "stage": "pre_checks",
+        "label": "Z1",
+        "postselect": true,
+        "logical": false
+      },
+      {
+        "index": 7,
+        "stage": "pre_checks",
+        "label": "Z2",
+        "postselect": true,
+        "logical": false
+      },
+      {
+        "index": 8,
+        "stage": "pre_checks",
+        "label": "Z3",
+        "postselect": true,
+        "logical": false
+      },
+      {
+        "index": 9,
+        "stage": "pre_checks",
+        "label": "Z4",
+        "postselect": true,
+        "logical": false
+      },
+      {
+        "index": 10,
+        "stage": "pre_checks",
+        "label": "Z5",
+        "postselect": true,
+        "logical": false
+      },
+      {
+        "index": 11,
+        "stage": "pre_checks",
+        "label": "Z6",
+        "postselect": true,
+        "logical": false
+      },
+      {
+        "index": 12,
+        "stage": "logical_check_1",
+        "label": "cat_13",
+        "postselect": true,
+        "logical": false
+      },
+      {
+        "index": 13,
+        "stage": "logical_check_1",
+        "label": "logical",
+        "postselect": true,
+        "logical": false
+      },
+      {
+        "index": 14,
+        "stage": "logical_check_1",
+        "label": "cat_15",
+        "postselect": true,
+        "logical": false
+      },
+      {
+        "index": 15,
+        "stage": "logical_check_2",
+        "label": "cat_13",
+        "postselect": true,
+        "logical": false
+      },
+      {
+        "index": 16,
+        "stage": "logical_check_2",
+        "label": "logical",
+        "postselect": true,
+        "logical": false
+      },
+      {
+        "index": 17,
+        "stage": "logical_check_2",
+        "label": "cat_15",
+        "postselect": true,
+        "logical": false
+      },
+      {
+        "index": 18,
+        "stage": "post_checks",
+        "label": "X1",
+        "postselect": true,
+        "logical": false
+      },
+      {
+        "index": 19,
+        "stage": "post_checks",
+        "label": "X2",
+        "postselect": true,
+        "logical": false
+      },
+      {
+        "index": 20,
+        "stage": "post_checks",
+        "label": "X3",
+        "postselect": true,
+        "logical": false
+      },
+      {
+        "index": 21,
+        "stage": "post_checks",
+        "label": "X4",
+        "postselect": true,
+        "logical": false
+      },
+      {
+        "index": 22,
+        "stage": "post_checks",
+        "label": "X5",
+        "postselect": true,
+        "logical": false
+      },
+      {
+        "index": 23,
+        "stage": "post_checks",
+        "label": "X6",
+        "postselect": true,
+        "logical": false
+      },
+      {
+        "index": 24,
+        "stage": "post_checks",
+        "label": "Z1",
+        "postselect": true,
+        "logical": false
+      },
+      {
+        "index": 25,
+        "stage": "post_checks",
+        "label": "Z2",
+        "postselect": true,
+        "logical": false
+      },
+      {
+        "index": 26,
+        "stage": "post_checks",
+        "label": "Z3",
+        "postselect": true,
+        "logical": false
+      },
+      {
+        "index": 27,
+        "stage": "post_checks",
+        "label": "Z4",
+        "postselect": true,
+        "logical": false
+      },
+      {
+        "index": 28,
+        "stage": "post_checks",
+        "label": "Z5",
+        "postselect": true,
+        "logical": false
+      },
+      {
+        "index": 29,
+        "stage": "post_checks",
+        "label": "Z6",
+        "postselect": true,
+        "logical": false
+      },
+      {
+        "index": 30,
+        "stage": "final_syndrome",
+        "label": "X1",
+        "postselect": true,
+        "logical": false
+      },
+      {
+        "index": 31,
+        "stage": "final_syndrome",
+        "label": "X2",
+        "postselect": true,
+        "logical": false
+      },
+      {
+        "index": 32,
+        "stage": "final_syndrome",
+        "label": "X3",
+        "postselect": true,
+        "logical": false
+      },
+      {
+        "index": 33,
+        "stage": "final_syndrome",
+        "label": "X4",
+        "postselect": true,
+        "logical": false
+      },
+      {
+        "index": 34,
+        "stage": "final_syndrome",
+        "label": "X5",
+        "postselect": true,
+        "logical": false
+      },
+      {
+        "index": 35,
+        "stage": "final_syndrome",
+        "label": "X6",
+        "postselect": true,
+        "logical": false
+      },
+      {
+        "index": 36,
+        "stage": "final_syndrome",
+        "label": "Z1",
+        "postselect": true,
+        "logical": false
+      },
+      {
+        "index": 37,
+        "stage": "final_syndrome",
+        "label": "Z2",
+        "postselect": true,
+        "logical": false
+      },
+      {
+        "index": 38,
+        "stage": "final_syndrome",
+        "label": "Z3",
+        "postselect": true,
+        "logical": false
+      },
+      {
+        "index": 39,
+        "stage": "final_syndrome",
+        "label": "Z4",
+        "postselect": true,
+        "logical": false
+      },
+      {
+        "index": 40,
+        "stage": "final_syndrome",
+        "label": "Z5",
+        "postselect": true,
+        "logical": false
+      },
+      {
+        "index": 41,
+        "stage": "final_syndrome",
+        "label": "Z6",
+        "postselect": true,
+        "logical": false
+      },
+      {
+        "index": 42,
+        "stage": "final_logical",
+        "label": "logical",
+        "postselect": false,
+        "logical": true
+      }
+    ]
+  },
+  "native_sha256": "579c89a9429a34111ae081e2acf8b0bcbd0fce9c12565f1b2adf386f4c86858a",
+  "trajectories": [
+    {
+      "faults": {},
+      "records": "000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "aer_log_probability": -8.881784197001252e-16,
+      "native_log_probability": 0,
+      "absolute_log_error": 8.881784197001252e-16
+    },
+    {
+      "faults": {
+        "59": "X",
+        "143": "YY",
+        "177": "X",
+        "239": "XI",
+        "317": "Y",
+        "335": "YYI"
+      },
+      "records": "000010010000001100011010110000011010110000000000000000000000010010000000011011010110000011010110000",
+      "aer_log_probability": -3.4657359027997274,
+      "native_log_probability": -3.465735902799727,
+      "absolute_log_error": 4.440892098500626e-16
+    },
+    {
+      "faults": {
+        "153": "X",
+        "348": "X",
+        "355": "X",
+        "503": "IX"
+      },
+      "records": "000001000000000100100000000001000000000000000000000000000000001000000000001100000000001000000000000",
+      "aer_log_probability": -6.661338147750939e-16,
+      "native_log_probability": 0,
+      "absolute_log_error": 6.661338147750939e-16
+    },
+    {
+      "faults": {
+        "11": "X",
+        "81": "Y",
+        "83": "ZY",
+        "113": "YX",
+        "141": "X",
+        "375": "YZ",
+        "491": "ZY"
+      },
+      "records": "001001001000010010111001000000101001000010000000000000000001001001000000100111001000000101001000010",
+      "aer_log_probability": -2.0794415416798335,
+      "native_log_probability": -2.0794415416798353,
+      "absolute_log_error": 1.7763568394002505e-15
+    },
+    {
+      "faults": {
+        "3": "X",
+        "301": "XI",
+        "405": "YZ",
+        "465": "XZ"
+      },
+      "records": "000000000110000001001010001100110010000100100000000000000000000000110000000001010001100110010000100",
+      "aer_log_probability": -4.158883083359673,
+      "native_log_probability": -4.158883083359672,
+      "absolute_log_error": 8.881784197001252e-16
+    },
+    {
+      "faults": {
+        "189": "ZY",
+        "277": "XXZ",
+        "352": "X",
+        "366": "X",
+        "472": "X"
+      },
+      "records": "000000001000001011100110001100000110000100100000000000000000000001000000010100110001100000110000100",
+      "aer_log_probability": -3.465735902799728,
+      "native_log_probability": -3.465735902799726,
+      "absolute_log_error": 1.7763568394002505e-15
+    },
+    {
+      "faults": {
+        "73": "YZ",
+        "143": "YX",
+        "193": "IY",
+        "429": "X"
+      },
+      "records": "011010000100010010010101001100010100001100000000000000000011010000100000100010101001100010100001100",
+      "aer_log_probability": -2.0794415416798326,
+      "native_log_probability": -2.0794415416798357,
+      "absolute_log_error": 3.1086244689504383e-15
+    },
+    {
+      "faults": {
+        "95": "Z",
+        "173": "YX",
+        "195": "IZ",
+        "228": "X",
+        "241": "YY",
+        "259": "Z",
+        "447": "ZY",
+        "501": "ZZ"
+      },
+      "records": "010000110001011000101110011100001010111100000000000000000010000110001000110101110011100001010111100",
+      "aer_log_probability": -5.54517744447956,
+      "native_log_probability": -5.5451774444795605,
+      "absolute_log_error": 8.881784197001252e-16
+    },
+    {
+      "faults": {
+        "61": "Y",
+        "251": "ZZ",
+        "259": "Z",
+        "379": "Y",
+        "380": "X"
+      },
+      "records": "000101000000000010100001000000100001000000100000000000000000101000000000000100001000000100001000000",
+      "aer_log_probability": -6.661338147750939e-16,
+      "native_log_probability": 0,
+      "absolute_log_error": 6.661338147750939e-16
+    },
+    {
+      "faults": {
+        "3": "X",
+        "33": "IZ",
+        "290": "X",
+        "299": "X",
+        "339": "YIX",
+        "379": "Y",
+        "426": "X"
+      },
+      "records": "000001000110001011000101000101010111000101000000000000000000001000110000010000101000101010111000101",
+      "aer_log_probability": -3.4657359027997243,
+      "native_log_probability": -3.465735902799726,
+      "absolute_log_error": 1.7763568394002505e-15
+    },
+    {
+      "faults": {
+        "41": "IZ",
+        "90": "X",
+        "293": "X",
+        "313": "ZZ",
+        "475": "X"
+      },
+      "records": "100010000000010100101111100001101111100101000000000000000100010000000000101101111100001101111100101",
+      "aer_log_probability": -3.4657359027997274,
+      "native_log_probability": -3.465735902799726,
+      "absolute_log_error": 1.3322676295501878e-15
+    },
+    {
+      "faults": {
+        "35": "ZZ",
+        "201": "XI",
+        "277": "ZXX"
+      },
+      "records": "000000000000010010000000001011000000001011000000000000000000000000000000100000000001011000000001011",
+      "aer_log_probability": -3.4657359027997274,
+      "native_log_probability": -3.465735902799726,
+      "absolute_log_error": 1.3322676295501878e-15
+    },
+    {
+      "faults": {
+        "21": "Y",
+        "31": "XY",
+        "286": "X",
+        "299": "Y",
+        "425": "Y",
+        "426": "X"
+      },
+      "records": "011000000000100010011000000000011000000000000000000000000011000000000001000011000000000011000000000",
+      "aer_log_probability": 4.440892098500625e-15,
+      "native_log_probability": 0,
+      "absolute_log_error": 4.440892098500625e-15
+    },
+    {
+      "faults": {
+        "27": "X",
+        "179": "YX",
+        "218": "X",
+        "279": "YXI",
+        "281": "YY",
+        "293": "X",
+        "455": "YI"
+      },
+      "records": "000000010010100100111101000101110101110101100000000000000000000010010001001111101000101110101110101",
+      "aer_log_probability": -4.158883083359673,
+      "native_log_probability": -4.1588830833596715,
+      "absolute_log_error": 1.7763568394002505e-15
+    },
+    {
+      "faults": {
+        "17": "X",
+        "205": "IZ",
+        "325": "YZ",
+        "329": "Z"
+      },
+      "records": "000000000001010110111111000001111111000001100000000000000000000000001000101111111000001111111000001",
+      "aer_log_probability": -3.4657359027997243,
+      "native_log_probability": -3.465735902799726,
+      "absolute_log_error": 1.7763568394002505e-15
+    },
+    {
+      "faults": {
+        "109": "X",
+        "217": "ZZ",
+        "303": "ZX",
+        "396": "X",
+        "484": "X"
+      },
+      "records": "000000000000000110011100100001010100100101000000000000000000000000000000001011100100001010100100101",
+      "aer_log_probability": -3.465735902799724,
+      "native_log_probability": -3.465735902799727,
+      "absolute_log_error": 3.1086244689504383e-15
+    },
+    {
+      "faults": {
+        "288": "X",
+        "347": "X",
+        "366": "X",
+        "396": "X"
+      },
+      "records": "000000000000010010101000000000000000000000000000000000000000000000000000100101000000000000000000000",
+      "aer_log_probability": -8.881784197001252e-16,
+      "native_log_probability": 0,
+      "absolute_log_error": 8.881784197001252e-16
+    },
+    {
+      "faults": {
+        "9": "X",
+        "125": "X",
+        "196": "X",
+        "348": "X"
+      },
+      "records": "000000001000010110000000000000000000000000100000000000000000000001000000101000000000000000000000000",
+      "aer_log_probability": -9.992007221626409e-16,
+      "native_log_probability": 0,
+      "absolute_log_error": 9.992007221626409e-16
+    },
+    {
+      "faults": {
+        "481": "ZX"
+      },
+      "records": "000000000000000000000000000100000101000000100000000000000000000000000000000000000000100000101000000",
+      "aer_log_probability": -8.881784197001252e-16,
+      "native_log_probability": 0,
+      "absolute_log_error": 8.881784197001252e-16
+    },
+    {
+      "faults": {
+        "171": "XY"
+      },
+      "records": "000000101000000000100000101000100000101000100000000000000000000101000000000100000101000100000101000",
+      "aer_log_probability": -2.0794415416798313,
+      "native_log_probability": -2.079441541679836,
+      "absolute_log_error": 4.884981308350689e-15
+    },
+    {
+      "faults": {
+        "21": "Y",
+        "29": "Z",
+        "136": "X",
+        "171": "YY",
+        "177": "X",
+        "181": "YY",
+        "217": "IZ",
+        "243": "Z",
+        "273": "YYY",
+        "447": "IZ"
+      },
+      "records": "010100101100110000100100000100101100000100100000000000000010100101100001100100100000100101100000100",
+      "aer_log_probability": -3.465735902799728,
+      "native_log_probability": -3.465735902799726,
+      "absolute_log_error": 1.7763568394002505e-15
+    },
+    {
+      "faults": {
+        "109": "X",
+        "143": "ZX",
+        "215": "YI",
+        "259": "Y"
+      },
+      "records": "000010010100000000000110010010000110010010000000000000000000010010100000000000110010010000110010010",
+      "aer_log_probability": -3.4657359027997274,
+      "native_log_probability": -3.4657359027997265,
+      "absolute_log_error": 8.881784197001252e-16
+    },
+    {
+      "faults": {},
+      "records": "000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "aer_log_probability": -8.881784197001252e-16,
+      "native_log_probability": 0,
+      "absolute_log_error": 8.881784197001252e-16
+    },
+    {
+      "faults": {
+        "17": "X",
+        "51": "X",
+        "231": "X",
+        "245": "IZ",
+        "281": "XZ",
+        "288": "X",
+        "450": "X"
+      },
+      "records": "101000000001111010111001000100111001100100100000000000000101000000001001110111001000100111001100100",
+      "aer_log_probability": -4.852030263919614,
+      "native_log_probability": -4.852030263919617,
+      "absolute_log_error": 2.6645352591003757e-15
+    }
+  ],
+  "single_fault_check": {
+    "faults_checked": 2485,
+    "accepted_failure_witnesses": []
+  },
+  "provenance_note": "Figure reference corrected after validation; emitted physical circuit SHA-256 is unchanged."
+}

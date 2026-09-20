@@ -1,0 +1,11 @@
+{
+  "rational_numerator": 1,
+  "sqrt2_numerator": 0,
+  "denominator_power": 2,
+  "expectation": 0.25,
+  "peak_terms": 524288,
+  "source_sha256": "83760fdb1e71be32c1e1eb83bbbf4176e9d32adb48384b14b818b294e7bf25f5",
+  "detector": 69,
+  "probability_one": 0.375,
+  "arithmetic": "integer pairs in Q(sqrt(2)); no coefficient truncation"
+}

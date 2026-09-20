@@ -1,0 +1,43 @@
+{
+  "study_base": "41a18d455e855650f3c5dffa75db301f67ff2ded",
+  "pr471_head": "8f69b3c305303483e5dd33dcf4d13dbbebae1fa9",
+  "scheduler": "unbounded after default passes",
+  "lookup_block_size": 256,
+  "compress_gathers_larger_than": 256,
+  "arithmetic": "complex<double>",
+  "serialized_plan_format": "unchanged expanded text",
+  "source_sha256": {
+    "gadget_contraction_kernel.h": "afa2f714edc3335b51b9032e9ebed595b9f99a15ed6988c162b01c22d18e2284",
+    "folded_sampling_kernel.h": "ec913c234a298e1888ff294cf1f60eac92ea285360ce78c30eacb7ddad24b914",
+    "sample_folded_protocol.cpp": "90a0c91ebd6aa10dcbf3a2f92afe2f48a7818a05a0f166140dd259c410e940b9",
+    "sample_terminal_gadget.cpp": "2e3574ec51f6ee7f546ee1ff1d7a27c95d9e47fd6a4636eaacc44e45a3c8ecc6",
+    "test_contraction_workspace.py": "255d7b3c97007c2ac99a18aa83503bf1f8bbcb0da8c74be699338a325b8cdc78"
+  },
+  "sanitizer_checks": {
+    "address": true,
+    "undefined_behavior": true,
+    "leak_detection": false,
+    "leak_detection_note": "LeakSanitizer cannot run under the sandbox ptrace environment.",
+    "ranks": [
+      3,
+      9,
+      12
+    ],
+    "irregular_fallback": true,
+    "wide_invalid_leaf_label": 256,
+    "cases_per_plan": 5
+  },
+  "selected_binary_sha256": "d37abb983ab6c28ab174e552218b79d0b2b43957a099bc2e7a78ceaa089f22b8",
+  "selected_validation_artifact": "folded_memory_validation.json",
+  "histories_exactly_equal_before_after": true,
+  "validated_histories": 24,
+  "max_log_probability_error": 7.105427357601002e-15,
+  "final_pytest_passed": 23,
+  "final_pytest_seconds": 139.02,
+  "test_files": [
+    "test_contraction_workspace.py",
+    "test_folded_protocol.py",
+    "test_native_terminal.py",
+    "test_folded_check_contraction.py"
+  ]
+}

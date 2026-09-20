@@ -1,0 +1,150 @@
+{
+  "base_commit": "41a18d455e855650f3c5dffa75db301f67ff2ded",
+  "pr471_head": "8f69b3c305303483e5dd33dcf4d13dbbebae1fa9",
+  "pr472": "Documentation only; no additional runtime optimization beyond PR 471",
+  "build": "GCC 13.3.0 Release, CLIFFT_CPU_BASELINE=native, same binary for both paths",
+  "sampler_sha256": "5338aca3df6eff424a2cc618a76605bd9d1c546a12876929b9a99406eac0bfce",
+  "audit_sha256": "3a544b7ba0f6491a9cf0a7b71ac7ad2246e7189b646dc654a1d050e0ee80a876",
+  "scope": "Reconstructed physical f3/f5 through fictitious error detection and final folded logical measurement; no decoder/escape or complete f7",
+  "memory_method": "Fresh shell-launched native process via /usr/bin/time -f %M; one process with baseline_shots=0 and one with baseline_shots=1; both still compile the full ordinary plan. The second holds both executors, so it is not baseline-only RSS. Python-launched benchmark native_peak_rss_kib inherits the parent high-water mark and must not be used as sampler RSS.",
+  "memory": [
+    {
+      "kind": "benchmark",
+      "setup_seconds": 0.032707042,
+      "baseline_setup_seconds": 0.20774730700000002,
+      "shots_per_batch": 4,
+      "baseline_shots_per_batch": 0,
+      "prefix_peak_width": 8,
+      "ordinary_peak_width": 22,
+      "native_peak_rss_kib": 9840,
+      "normalization_error": 6.661338147750939e-16,
+      "continuation_error": 2.220446049250313e-16,
+      "seconds": [
+        0.015037228000000001,
+        0.015226415,
+        0.015303492
+      ],
+      "baseline_seconds": [
+        2e-08,
+        2e-08,
+        3.0000000000000004e-08
+      ],
+      "accepted": [
+        2,
+        0,
+        4
+      ],
+      "logical_failures": [
+        0,
+        0,
+        0
+      ],
+      "baseline_accepted": [
+        0,
+        0,
+        0
+      ],
+      "baseline_logical_failures": [
+        0,
+        0,
+        0
+      ],
+      "process_peak_rss_kib": 13228,
+      "mode": "native"
+    },
+    {
+      "kind": "benchmark",
+      "setup_seconds": 0.044821513,
+      "baseline_setup_seconds": 0.240327425,
+      "shots_per_batch": 4,
+      "baseline_shots_per_batch": 1,
+      "prefix_peak_width": 8,
+      "ordinary_peak_width": 22,
+      "native_peak_rss_kib": 9832,
+      "normalization_error": 6.661338147750939e-16,
+      "continuation_error": 2.220446049250313e-16,
+      "seconds": [
+        0.015424426000000001,
+        0.015649237,
+        0.015714025
+      ],
+      "baseline_seconds": [
+        0.36478398900000003,
+        0.37968518,
+        0.35120874100000005
+      ],
+      "accepted": [
+        2,
+        0,
+        4
+      ],
+      "logical_failures": [
+        0,
+        0,
+        0
+      ],
+      "baseline_accepted": [
+        0,
+        1,
+        1
+      ],
+      "baseline_logical_failures": [
+        0,
+        0,
+        0
+      ],
+      "process_peak_rss_kib": 82832,
+      "mode": "both"
+    }
+  ],
+  "frequency_check": {
+    "kind": "benchmark",
+    "setup_seconds": 0.0037976950000000002,
+    "baseline_setup_seconds": 0.023525113,
+    "shots_per_batch": 65536,
+    "baseline_shots_per_batch": 65536,
+    "prefix_peak_width": 1,
+    "ordinary_peak_width": 8,
+    "native_peak_rss_kib": 5844,
+    "normalization_error": 8.881784197001252e-16,
+    "continuation_error": 4.440892098500626e-16,
+    "seconds": [
+      12.542415005,
+      12.415823333,
+      12.616820726
+    ],
+    "baseline_seconds": [
+      0.266913785,
+      0.265497996,
+      0.26850554000000004
+    ],
+    "accepted": [
+      51831,
+      51809,
+      51956
+    ],
+    "logical_failures": [
+      0,
+      0,
+      0
+    ],
+    "baseline_accepted": [
+      51852,
+      51904,
+      51966
+    ],
+    "baseline_logical_failures": [
+      0,
+      0,
+      0
+    ],
+    "distance": 3,
+    "probability": 0.001,
+    "early_rejection": false,
+    "schedule": "unbounded",
+    "seed": 48231,
+    "native_acceptance": 0.7914021809895834,
+    "baseline_acceptance": 0.7920430501302084,
+    "acceptance_difference_standard_errors": -0.4948201443871399
+  }
+}

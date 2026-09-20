@@ -2,6 +2,11 @@
 
 ## Decision
 
+Follow-up: the [SOFT d7 investigation](soft_cultivation.md) found a public large
+physical T input, but its noiseless outputs fail the expected cultivation
+sanity checks. That report adds a baseline and an exact failure witness; it
+does not replace the validated small-circuit corpus below.
+
 The released Chan et al. circuits provide a useful physical correctness corpus,
 including flags, noisy ancilla extraction and corrected Bell growth. They do
 not supply the missing large-state performance target for compiled logical
