@@ -7,9 +7,8 @@ from dataclasses import replace
 from pathlib import Path
 
 import stim
-from audit_folded_contraction import pauli, pauli_text
-from compiled_gadget_contraction import write_native_plan
-from folded_check_contraction import FoldedChecks
+from compiled_gadget_contraction import write_kernel_plan
+from folded_check_contraction import FoldedChecks, pauli, pauli_text
 from folded_msc_family import make_circuit
 from validate_folded_msc import noise_labels
 
@@ -160,12 +159,9 @@ def css_effect(operations, position, targets, label, kernel, slots, width):
     return x, z, anc, flipped
 
 
-def compile_protocol(circuit, distance, directory, *, native_growth=False, body_only=False):
-    if native_growth and (distance != 7 or body_only):
-        raise ValueError("native growth requires the complete f7 protocol")
-    if body_only and distance != 5:
-        raise ValueError("only the f5 intermediate block is supported")
-    kernel = FoldedChecks(distance)
+def compile_block(circuit, kernel, directory, *, terminal):
+    """Compile one folded block and its optional terminal continuation."""
+    distance = kernel.surface.distance
     if kernel.n > 127:
         raise ValueError("native physical masks currently support at most 127 data qubits")
     body_stages = (
@@ -226,10 +222,10 @@ def compile_protocol(circuit, distance, directory, *, native_growth=False, body_
     body_events, body_shifts = monomial_plan(
         body, kernel, slots, noise_indices, 2, verification_rules
     )
-    if body_only:
+    if not terminal:
         if post or final:
             raise ValueError("intermediate folded block has a terminal continuation")
-        final_events, final_shifts = [], [0, 0]
+        final_events, final_shifts = [], []
     else:
         final_events, final_shifts = monomial_plan(
             final, kernel, slots, noise_indices, 1, verification_rules
@@ -252,7 +248,7 @@ def compile_protocol(circuit, distance, directory, *, native_growth=False, body_
                 kind, value = (0, j) if j < kernel.rank else (1, kernel.z_rows[j - kernel.rank])
                 check += 1
             post_events.append((kind, op.qubits[0] - kernel.n, slots[i], value))
-    if check != (0 if body_only else 4 * kernel.rank):
+    if check != (4 * kernel.rank if terminal else 0):
         raise ValueError("expected noisy and final CSS extraction")
     # Verify the noiseless extraction supports and order against the code.
     for stage in post_stages:
@@ -277,8 +273,6 @@ def compile_protocol(circuit, distance, directory, *, native_growth=False, body_
             if [(op.name, op.qubits) for op in group] != expected:
                 raise ValueError("unrecognized sequential CSS extraction")
     directory.mkdir(parents=True, exist_ok=True)
-    if not native_growth:
-        (directory / "growth.txt").unlink(missing_ok=True)
     (directory / "full.stim").write_text(circuit.text())
     (directory / "prefix.stim").write_text(
         prefix.text() + "".join(f"EXP_VAL {pauli_text(p)}\n" for p in probes)
@@ -286,19 +280,20 @@ def compile_protocol(circuit, distance, directory, *, native_growth=False, body_
     (directory / "dimensions.txt").write_text(
         f"{kernel.rank} {len(kernel.masks)} {kernel.characters}\n"
     )
-    write_native_plan(directory / "amplitude.txt", kernel.amplitude_plan, [], marginal=True)
+    write_kernel_plan(directory / "amplitude.txt", kernel.amplitude_plan)
     for i, plan in enumerate(kernel.marginals):
-        write_native_plan(directory / f"marginal_{i}.txt", plan, [], marginal=True)
+        write_kernel_plan(directory / f"marginal_{i}.txt", plan)
     prefix_sites = [
         dict(operation=i, labels=list(noise_labels(op)))
         for i, op in ops[:start]
         if op.probability is not None
     ]
-    with (directory / "protocol.txt").open("w") as output:
+    with (directory / "block.txt").open("w") as output:
 
         def put(*values):
             output.write(" ".join(map(str, values)) + "\n")
 
+        put(1, int(terminal))
         put(
             kernel.n,
             width - kernel.n,
@@ -324,10 +319,10 @@ def compile_protocol(circuit, distance, directory, *, native_growth=False, body_
             put(len(effects))
             for x, z, anc, flipped in effects:
                 put(x, z, anc, len(flipped), *flipped)
-        for events, shifts in (
-            (body_events, body_shifts),
-            (final_events, final_shifts),
-        ):
+        blocks = [(body_events, body_shifts)]
+        if terminal:
+            blocks.append((final_events, final_shifts))
+        for events, shifts in blocks:
             put(len(shifts), *shifts, len(events))
             for event in events:
                 put(*event)
@@ -336,11 +331,11 @@ def compile_protocol(circuit, distance, directory, *, native_growth=False, body_
             put(*event)
         postselect = [m["index"] for m in circuit.measurements if m["postselect"]]
         logical_slots = [m["index"] for m in circuit.measurements if m["logical"]]
-        if body_only and not logical_slots:
-            logical_slots = [0]
-        if len(logical_slots) != 1:
-            raise ValueError("expected one final logical output")
-        put(len(postselect), *postselect, logical_slots[0])
+        if len(logical_slots) != int(terminal):
+            raise ValueError("logical output does not match the block continuation")
+        put(len(postselect), *postselect)
+        if terminal:
+            put(logical_slots[0])
         put(len(verification_rules))
         for rule in verification_rules:
             put(rule["branch_bit"], len(rule["noise"]))
@@ -360,13 +355,25 @@ def compile_protocol(circuit, distance, directory, *, native_growth=False, body_
         postselect=postselect,
         detector_partners=partners,
         verification_rules=verification_rules,
-        logical_slot=logical_slots[0],
+        logical_slot=logical_slots[0] if terminal else None,
         peak_scope=max(p.peak_scope for p in kernel.marginals),
     )
+    (directory / "metadata.json").write_text(json.dumps(metadata, indent=2) + "\n")
+    return metadata
+
+
+def compile_protocol(circuit, distance, directory, *, native_growth=False):
+    if native_growth and distance != 7:
+        raise ValueError("native growth requires the complete f7 protocol")
+    kernel = FoldedChecks(distance)
+    metadata = compile_block(circuit, kernel, directory, terminal=True)
     if native_growth:
         from compile_folded_growth import add_native_growth
 
         add_native_growth(circuit, directory, metadata, kernel)
+    # An explicit sequence prevents stale optional files from changing execution.
+    sequence = ["folded f5", "growth growth.txt", "folded ."] if native_growth else ["folded ."]
+    (directory / "sequence.txt").write_text("1\n" + "\n".join(sequence) + "\n")
     (directory / "metadata.json").write_text(json.dumps(metadata, indent=2) + "\n")
     return metadata
 

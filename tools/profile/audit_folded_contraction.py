@@ -15,24 +15,10 @@ from pathlib import Path
 
 import numpy as np
 import stim
-from compiled_gadget_contraction import write_native_plan
-from folded_check_contraction import CodeBoundary, FoldedChecks
+from compiled_gadget_contraction import write_kernel_plan
+from folded_check_contraction import CodeBoundary, FoldedChecks, pauli, pauli_text
 from folded_msc_family import make_circuit
 from validate_folded_msc import bind_faults
-
-
-def pauli(axis, row, width):
-    p = stim.PauliString(width)
-    for q in range(width):
-        if row >> q & 1:
-            p[q] = axis
-    return p
-
-
-def pauli_text(p):
-    if p.sign != 1:
-        raise ValueError("probe requires a positive physical Pauli")
-    return "*".join(f"{'IXYZ'[axis]}{q}" for q, axis in enumerate(p) if axis)
 
 
 def replay(text, records, binary, directory):
@@ -172,9 +158,9 @@ def export_bundle(directory, kernel, cases):
     (directory / "dimensions.txt").write_text(
         f"{kernel.rank} {len(kernel.masks)} {kernel.characters}\n"
     )
-    write_native_plan(directory / "amplitude.txt", kernel.amplitude_plan, [], marginal=True)
+    write_kernel_plan(directory / "amplitude.txt", kernel.amplitude_plan)
     for i, plan in enumerate(kernel.marginals):
-        write_native_plan(directory / f"marginal_{i}.txt", plan, [], marginal=True)
+        write_kernel_plan(directory / f"marginal_{i}.txt", plan)
     with (directory / "inputs.txt").open("w") as f:
         f.write(f"{len(cases)}\n")
         for choices in cases:

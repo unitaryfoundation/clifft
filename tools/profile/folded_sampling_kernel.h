@@ -24,7 +24,6 @@ using Case = std::array<Choice, 4>;
 
 class FoldedSampler {
     size_t rank_, leaves_, characters_;
-    std::vector<Case> cases_;
     std::vector<Contraction> marginals_;
     Contraction amplitude_;
     ContractionWorkspace workspace_;
@@ -79,7 +78,7 @@ class FoldedSampler {
     double max_continuation_error = 0;
 
     FoldedSampler(const std::filesystem::path& directory, uint64_t seed, size_t rank, size_t leaves,
-                  size_t characters, bool load_inputs = true)
+                  size_t characters)
         : rank_(rank),
           leaves_(leaves),
           characters_(characters),
@@ -87,30 +86,6 @@ class FoldedSampler {
           rng_(seed) {
         if (!rank_ || rank_ > 63 || leaves_ > 512 || characters_ + rank_ != leaves_)
             throw std::invalid_argument("invalid folded contraction dimensions");
-        std::ifstream input(directory / "inputs.txt");
-        Reader reader{input};
-        const auto count = load_inputs ? reader.size() : 1;
-        if (!count || count > 128)
-            throw std::invalid_argument("invalid folded input case count");
-        cases_.resize(count);
-        for (auto& instance : cases_)
-            for (auto& choice : instance)
-                for (auto& terms : choice)
-                    for (auto& term : terms) {
-                        const double re = load_inputs ? reader.number() : 0;
-                        const double im = load_inputs ? reader.number() : 0;
-                        term.coefficient = {re, im};
-                        if (std::abs(term.coefficient) > 1)
-                            throw std::invalid_argument("invalid folded path coefficient");
-                        term.local.resize(4 * leaves_);
-                        for (auto& value : term.local) {
-                            const double x = load_inputs ? reader.number() : 1;
-                            const double y = load_inputs ? reader.number() : 0;
-                            value = {x, y};
-                            if (std::abs(std::norm(value) - 1) > 1e-9)
-                                throw std::invalid_argument("folded local factor is not a phase");
-                        }
-                    }
         for (size_t m = 0; m <= rank_; ++m)
             marginals_.push_back(read_plan(directory / ("marginal_" + std::to_string(m) + ".txt"),
                                            rank_ + m, 2 * leaves_));
@@ -122,17 +97,8 @@ class FoldedSampler {
         }
         workspace_.prepare(scratch_size, product_size);
         paired_.resize(8 * leaves_);
-        if (load_inputs)
-            for (const auto& instance : cases_) {
-                double norm = 0;
-                for (const auto& choice : instance)
-                    norm += marginal(choice, 0, 0);
-                if (std::abs(norm - 1) > 1e-9)
-                    throw std::invalid_argument("folded input is not normalized");
-            }
     }
 
-    Case& input() noexcept { return cases_[0]; }
     size_t lookup_bytes() const noexcept {
         size_t result = amplitude_.lookup_bytes();
         for (const auto& plan : marginals_)
@@ -187,8 +153,7 @@ class FoldedSampler {
         log_probability = std::log(norm);
     }
 
-    void run(size_t shot) noexcept {
-        const auto& instance = cases_[shot % cases_.size()];
+    void run(const Case& instance) noexcept {
         sample_roots(instance);
         finish(instance[root_outcomes]);
     }

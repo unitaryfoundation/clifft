@@ -9,8 +9,23 @@ import math
 from dataclasses import dataclass
 
 import numpy as np
+import stim
 from compiled_gadget_contraction import binary_duals
 from folded_msc_family import Surface
+
+
+def pauli(axis, row, width):
+    p = stim.PauliString(width)
+    for q in range(width):
+        if row >> q & 1:
+            p[q] = axis
+    return p
+
+
+def pauli_text(p):
+    if p.sign != 1:
+        raise ValueError("probe requires a positive physical Pauli")
+    return "*".join(f"{'IXYZ'[axis]}{q}" for q, axis in enumerate(p) if axis)
 
 
 class FactorPlan:

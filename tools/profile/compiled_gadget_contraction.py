@@ -469,3 +469,27 @@ def write_native_plan(path, plan, cases, marginal=False):
             for value in [scalar, *local.flatten()]:
                 tokens.extend([repr(float(value.real)), repr(float(value.imag))])
     path.write_text("\n".join(tokens) + "\n")
+
+
+def write_kernel_plan(path, plan):
+    """Serialize an unbound kernel plan with compiler-selected gather storage.
+
+    The expanded NumPy plan remains the arithmetic reference. Native loaders
+    only validate and load the chosen representation; they do not optimize it.
+    """
+    tokens = [2, plan.rank, plan.storage, len(plan.leaves)]
+    for offset, parity in plan.leaves:
+        tokens.extend([offset, len(parity), *parity])
+    tokens.append(len(plan.steps))
+    for offset, size, gathers in plan.steps:
+        tokens.extend([offset, size, len(gathers)])
+        for gather in gathers:
+            low, high = gather, []
+            if len(gather) > 256 and len(gather) % 256 == 0:
+                blocks = gather.reshape(-1, 256)
+                offsets = blocks[:, 0] - gather[0]
+                if np.all(offsets >= 0) and np.array_equal(blocks, gather[:256] + offsets[:, None]):
+                    low, high = gather[:256], offsets
+            tokens.extend([len(low), len(high), *low, *high])
+    tokens.extend([len(plan.outputs), *plan.outputs])
+    path.write_text("\n".join(map(str, tokens)) + "\n")

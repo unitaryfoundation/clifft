@@ -11,7 +11,7 @@ from pathlib import Path
 
 import stim
 from clifford_gadget import Gadget, atoms_from_text, bind_faults, compile_gadgets, require_t_dialect
-from compiled_gadget_contraction import TerminalCode, TerminalMarginals, write_native_plan
+from compiled_gadget_contraction import TerminalCode, TerminalMarginals, write_kernel_plan
 from soft_cultivation_study import clifford_proxy
 
 
@@ -205,7 +205,7 @@ def compile_bundle(source, directory):
     (directory / "full.stim").write_text(source)
     marginals = TerminalMarginals(code)
     for i, plan in enumerate(marginals.plans):
-        write_native_plan(directory / f"marginal_{i}.txt", plan, [], marginal=True)
+        write_kernel_plan(directory / f"marginal_{i}.txt", plan)
     words: list[str] = []
 
     def emit(*values):

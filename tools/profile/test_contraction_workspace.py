@@ -75,7 +75,7 @@ int main(int argc, char** argv) {
 @pytest.mark.parametrize("irregular", [False, True])
 def test_native_workspace_matches_expanded_contractions(probe, tmp_path, rank, irregular):
     pytest.importorskip("cirq")
-    from compiled_gadget_contraction import write_native_plan
+    from compiled_gadget_contraction import write_kernel_plan
     from folded_check_contraction import FactorPlan
 
     rng = np.random.default_rng(8176)
@@ -85,7 +85,7 @@ def test_native_workspace_matches_expanded_contractions(probe, tmp_path, rank, i
         # Arbitrary valid gathers must retain an expanded fallback.
         rng.shuffle(plan.steps[0][2][0])
     path = tmp_path / "plan.txt"
-    write_native_plan(path, plan, [], marginal=True)
+    write_kernel_plan(path, plan)
     cases = [np.exp(1j * rng.uniform(-np.pi, np.pi, size=(len(masks), 4))) for _ in range(5)]
     with path.open("a") as f:
         f.write(str(len(cases)) + "\n")
@@ -107,3 +107,18 @@ def test_native_workspace_matches_expanded_contractions(probe, tmp_path, rank, i
     bad = subprocess.run(command, text=True, capture_output=True)
     assert bad.returncode == 2
     assert "invalid marginal parity" in bad.stderr
+
+    tokens[6] = str(int(plan.leaves[0][1][0]))
+    gather = 4 + sum(2 + len(labels) for _, labels in plan.leaves) + 1 + 3
+    valid_tokens = tokens.copy()
+    tokens[gather + 2] = str(plan.storage)
+    path.write_text("\n".join(tokens) + "\n")
+    bad = subprocess.run(command, text=True, capture_output=True)
+    assert bad.returncode == 2
+    assert "gather reads uninitialized storage" in bad.stderr
+
+    valid_tokens[gather] = "0"
+    path.write_text("\n".join(valid_tokens) + "\n")
+    bad = subprocess.run(command, text=True, capture_output=True)
+    assert bad.returncode == 2
+    assert "invalid marginal gather dimensions" in bad.stderr

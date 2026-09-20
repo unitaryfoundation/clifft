@@ -30,6 +30,9 @@ def test_native_complete_attempt_matches_physical_replay(
     circuit = make_circuit(probability, distance=distance)
     bundle = tmp_path / "bundle"
     metadata = compile_protocol(circuit, distance, bundle, native_growth=native_growth)
+    if not native_growth:
+        # Reusing a directory must not let obsolete files select another execution mode.
+        (bundle / "growth.txt").write_text("stale optional transfer\n")
     output = subprocess.check_output(
         [str(sampler), str(bundle), "1", "4", "651", "0", "off", "0"], text=True
     )

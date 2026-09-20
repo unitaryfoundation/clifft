@@ -2,12 +2,13 @@
 
 from dataclasses import replace
 
-from audit_folded_growth_handoff import GrowthHandoff
+from folded_check_contraction import FoldedChecks
+from folded_growth import GrowthHandoff
 from folded_msc_family import Surface
 
 
 def add_native_growth(circuit, directory, metadata, large_kernel):
-    from compile_folded_protocol import compile_protocol
+    from compile_folded_protocol import compile_block
 
     bridge = GrowthHandoff()
     start = next(
@@ -35,7 +36,7 @@ def add_native_growth(circuit, directory, metadata, large_kernel):
         protocol="f5_intermediate",
     )
     small_directory = directory / "f5"
-    small_metadata = compile_protocol(small, 5, small_directory, body_only=True)
+    small_metadata = compile_block(small, FoldedChecks(5), small_directory, terminal=False)
     (directory / "prefix.stim").write_text((small_directory / "prefix.stim").read_text())
     visible, hidden = metadata["visible"], metadata["hidden"]
     slots = {}
@@ -49,17 +50,27 @@ def add_native_growth(circuit, directory, metadata, large_kernel):
     bridge_sites = []
     small_surface = Surface(5)
     source_z = [sum(1 << q for q in row) for row in small_surface.checks("Z")]
-    source_logical_z = sum(1 << small_surface.index[x, 0] for x in range(0, 9, 2))
     with (directory / "growth.txt").open("w") as output:
 
         def put(*values):
             output.write(" ".join(map(str, values)) + "\n")
 
         def packed(value):
-            return [(value >> (64 * i)) & ((1 << 64) - 1) for i in range(5)]
+            return [
+                (value >> (64 * i)) & ((1 << 64) - 1)
+                for i in range((len(bridge.relations) + 63) // 64)
+            ]
 
-        put(1, visible, hidden, len(records), *records)
-        put(*source_z, source_logical_z)
+        put(2, visible, hidden)
+        put(
+            len(small_surface.points),
+            large_kernel.n,
+            len(source_z),
+            large_kernel.rank,
+            len(bridge.ancillas),
+        )
+        put(len(records), *records)
+        put(*source_z)
         put(*large_kernel.z_duals[:-1])
         put(len(bridge.relations))
         for mask, sign in bridge.relations:

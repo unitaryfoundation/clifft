@@ -82,21 +82,21 @@ struct Block {
 struct Boundary {
     Mask offset = 0;
     uint64_t syndrome = 0, ancillas = 0;
+    // Amplitudes use the physical logical X and Z axes at every block boundary.
     std::array<Complex, 2> logical{};
 };
 
 class GrowthBridge {
-    using Packed = std::array<uint64_t, 5>;
+    using Packed = std::vector<uint64_t>;
     struct Site {
         double probability;
         std::vector<Packed> effects;
     };
     std::vector<size_t> record_slots_;
-    std::array<uint64_t, 20> source_z_{};
-    uint64_t source_logical_z_;
-    std::array<Mask, 42> target_duals_{};
-    std::array<uint64_t, 313> masks_{};
-    Packed constants_{};
+    size_t source_width_, target_width_, ancillas_, logical_begin_, ancilla_begin_;
+    std::vector<Mask> source_z_, target_duals_;
+    std::vector<uint64_t> masks_;
+    Packed constants_, values_;
     std::vector<Site> sites_;
     Xoshiro256PlusPlus rng_;
 
@@ -111,10 +111,24 @@ class GrowthBridge {
         : rng_(seed ^ 0x47726f777468ULL) {
         std::ifstream input(path);
         Reader reader{input};
-        if (reader.size() != 1 || reader.size() != visible || reader.size() != hidden ||
-            reader.size() != 212)
+        if (reader.size() != 2 || reader.size() != visible || reader.size() != hidden)
             throw std::invalid_argument("invalid growth dimensions");
-        record_slots_.resize(212);
+        source_width_ = reader.size();
+        target_width_ = reader.size();
+        const auto source_rank = reader.size(), target_rank = reader.size();
+        ancillas_ = reader.size();
+        if (!source_rank || !target_rank || source_width_ != 2 * source_rank + 1 ||
+            target_width_ != 2 * target_rank + 1 || source_width_ > 127 || target_width_ > 127 ||
+            !ancillas_ || 2 * source_rank + ancillas_ > 64)
+            throw std::invalid_argument("unsupported growth boundary dimensions");
+        source_z_.resize(source_rank);
+        target_duals_.resize(target_rank);
+        record_slots_.resize(reader.size());
+        logical_begin_ = record_slots_.size() + 2 * target_rank;
+        ancilla_begin_ = logical_begin_ + 3;
+        masks_.resize(ancilla_begin_ + ancillas_);
+        constants_.resize((masks_.size() + 63) / 64);
+        values_.resize(constants_.size());
         std::vector<bool> seen(visible + hidden);
         for (auto& slot : record_slots_) {
             slot = reader.size();
@@ -123,16 +137,13 @@ class GrowthBridge {
             seen[slot] = true;
         }
         for (auto& row : source_z_) {
-            row = reader.word();
-            if (row >> 41)
+            row = read_mask(reader);
+            if (row >> source_width_)
                 throw std::invalid_argument("invalid growth source check");
         }
-        source_logical_z_ = reader.word();
-        if (source_logical_z_ >> 41)
-            throw std::invalid_argument("invalid growth source logical");
         for (auto& row : target_duals_) {
             row = read_mask(reader);
-            if (row >> 85)
+            if (row >> target_width_)
                 throw std::invalid_argument("invalid growth output dual");
         }
         if (reader.size() != masks_.size())
@@ -140,14 +151,17 @@ class GrowthBridge {
         for (size_t i = 0; i < masks_.size(); ++i) {
             masks_[i] = reader.word();
             const auto sign = reader.size();
-            if ((masks_[i] >> 54) || sign > 1)
+            if ((2 * source_rank + ancillas_ < 64 && masks_[i] >> (2 * source_rank + ancillas_)) ||
+                sign > 1)
                 throw std::invalid_argument("invalid growth relation");
             constants_[i / 64] |= uint64_t(sign) << (i % 64);
         }
-        const auto logical_frame = [](const Packed& value) {
-            return bit(value, 297) == (bit(value, 296) ^ bit(value, 298));
+        const auto logical_frame = [&](const Packed& value) {
+            return bit(value, logical_begin_ + 1) ==
+                   (bit(value, logical_begin_) ^ bit(value, logical_begin_ + 2));
         };
-        if (masks_[297] != (masks_[296] ^ masks_[298]) || !logical_frame(constants_))
+        if (masks_[logical_begin_ + 1] != (masks_[logical_begin_] ^ masks_[logical_begin_ + 2]) ||
+            !logical_frame(constants_))
             throw std::invalid_argument("growth logical relation is not a Pauli frame");
         sites_.resize(reader.size());
         for (auto& site : sites_) {
@@ -157,24 +171,35 @@ class GrowthBridge {
                 site.effects.size() > 15)
                 throw std::invalid_argument("invalid growth noise site");
             for (auto& effect : site.effects) {
+                effect.resize(constants_.size());
                 for (auto& word : effect)
                     word = reader.word();
-                if ((effect.back() >> 57) || !logical_frame(effect))
+                if ((masks_.size() % 64 && effect.back() >> (masks_.size() % 64)) ||
+                    !logical_frame(effect))
                     throw std::invalid_argument("invalid growth noise effect");
             }
         }
         fault_choices.resize(sites_.size());
     }
 
+    void validate_boundaries(size_t source_width, size_t target_width, size_t source_ancillas,
+                             size_t target_ancillas) const {
+        if (source_width != source_width_ || target_width != target_width_ ||
+            source_ancillas > ancillas_ || target_ancillas != ancillas_)
+            throw std::invalid_argument("growth and folded block boundaries disagree");
+    }
+
     void clear() noexcept { std::fill(fault_choices.begin(), fault_choices.end(), 0); }
 
     void run(Boundary& boundary, std::vector<uint8_t>& records) noexcept {
-        assert(!(boundary.syndrome >> 20) && !(boundary.ancillas >> 14) &&
-               !(boundary.offset >> 41));
-        uint64_t inputs = boundary.syndrome | (boundary.ancillas << 40);
+        const auto source_rank = source_z_.size(), target_rank = target_duals_.size();
+        assert(!(boundary.syndrome >> source_rank) && !(boundary.ancillas >> ancillas_) &&
+               !(boundary.offset >> source_width_));
+        uint64_t inputs = boundary.syndrome | (boundary.ancillas << (2 * source_rank));
         for (size_t i = 0; i < source_z_.size(); ++i)
-            inputs |= uint64_t(parity(boundary.offset & source_z_[i])) << (20 + i);
-        auto values = constants_;
+            inputs |= uint64_t(parity(boundary.offset & source_z_[i])) << (source_rank + i);
+        std::copy(constants_.begin(), constants_.end(), values_.begin());
+        auto& values = values_;
         for (size_t i = 0; i < masks_.size(); ++i)
             values[i / 64] ^= uint64_t(std::popcount(inputs & masks_[i]) & 1) << (i % 64);
         for (size_t i = 0; i < sites_.size(); ++i) {
@@ -191,30 +216,27 @@ class GrowthBridge {
         }
         for (size_t i = 0; i < record_slots_.size(); ++i)
             records[record_slots_[i]] = bit(values, i);
-        // Convert the contraction's computational coset to physical logical axes.
-        if (parity(boundary.offset & source_logical_z_))
-            std::swap(boundary.logical[0], boundary.logical[1]);
-        const bool flip_x = bit(values, 212 + 84), flip_z = bit(values, 212 + 86);
-        assert(bit(values, 212 + 85) == (flip_x ^ flip_z));
+        const bool flip_x = bit(values, logical_begin_), flip_z = bit(values, logical_begin_ + 2);
+        assert(bit(values, logical_begin_ + 1) == (flip_x ^ flip_z));
         if (flip_z)
             std::swap(boundary.logical[0], boundary.logical[1]);
         if (flip_x)
             boundary.logical[1] *= -1;
         boundary.syndrome = boundary.ancillas = 0;
         boundary.offset = 0;
-        for (size_t i = 0; i < 42; ++i) {
-            boundary.syndrome |= uint64_t(bit(values, 212 + i)) << i;
-            if (bit(values, 212 + 42 + i))
+        for (size_t i = 0; i < target_rank; ++i) {
+            boundary.syndrome |= uint64_t(bit(values, record_slots_.size() + i)) << i;
+            if (bit(values, record_slots_.size() + target_rank + i))
                 boundary.offset ^= target_duals_[i];
         }
-        for (size_t i = 0; i < 14; ++i)
-            boundary.ancillas |= uint64_t(bit(values, 212 + 87 + i)) << i;
+        for (size_t i = 0; i < ancillas_; ++i)
+            boundary.ancillas |= uint64_t(bit(values, ancilla_begin_ + i)) << i;
     }
 };
 
-class Protocol {
-    std::unique_ptr<Protocol> earlier_;
-    std::unique_ptr<GrowthBridge> growth_;
+class FoldedBlock {
+    bool terminal_;
+    Case inputs_;
     size_t n_, ancilla_count_, visible_, hidden_, prefix_visible_, prefix_hidden_,
         prefix_detectors_;
     size_t rank_, leaves_, characters_, logical_slot_;
@@ -238,6 +260,7 @@ class Protocol {
     Mask post_x_ = 0, post_z_ = 0;
     uint64_t post_ancillas_ = 0;
 
+  public:
     void certify(const SamplingPlan& plan) {
         if (plan.num_visible_records != prefix_visible_ ||
             plan.num_hidden_records != prefix_hidden_)
@@ -271,6 +294,7 @@ class Protocol {
         }
     }
 
+  private:
     Boundary handoff(const Executor& prefix) noexcept {
         Boundary result;
         const auto values = prefix.exp_vals();
@@ -317,7 +341,7 @@ class Protocol {
     }
 
     void bind(const Block& block, const Boundary& incoming) noexcept {
-        auto& inputs = kernel_.input();
+        auto& inputs = inputs_;
         for (auto& choice : inputs)
             for (auto& terms : choice)
                 for (auto& term : terms) {
@@ -431,7 +455,10 @@ class Protocol {
                 for (size_t l = 0; l < 2; ++l) {
                     const auto base = choice_offsets_[outcome] ^ flips ^ (l ? logical_x_ : 0);
                     auto& term = inputs[outcome][l][branch];
-                    term.coefficient = scalar * incoming.logical[l ^ (shift >> rank_)];
+                    term.coefficient =
+                        scalar *
+                        incoming
+                            .logical[l ^ (shift >> rank_) ^ parity(incoming.offset & logical_z_)];
                     if (parity(incoming.syndrome & shift))
                         term.coefficient *= -1;
                     for (size_t q = 0; q < n_; ++q) {
@@ -454,6 +481,7 @@ class Protocol {
         }
     }
 
+  public:
     bool output_bits() noexcept {
         bool accepted = true;
         for (size_t i = 0; i < postselect_.size(); ++i) {
@@ -461,7 +489,7 @@ class Protocol {
                            (detector_partners_[i] < visible_ ? records[detector_partners_[i]] : 0);
             accepted &= !detectors[i];
         }
-        observable = records[logical_slot_];
+        observable = terminal_ ? records[logical_slot_] : 0;
         return accepted;
     }
 
@@ -472,15 +500,21 @@ class Protocol {
     bool accepted = false;
     double conditional_log_probability = 0;
 
-    Protocol(const std::filesystem::path& directory, uint64_t seed, size_t rank, size_t leaves,
-             size_t characters)
+    FoldedBlock(const std::filesystem::path& directory, uint64_t seed, size_t rank, size_t leaves,
+                size_t characters)
         : rank_(rank),
           leaves_(leaves),
           characters_(characters),
-          kernel_(directory, seed ^ 0x476164676574ULL, rank, leaves, characters, false),
+          kernel_(directory, seed ^ 0x476164676574ULL, rank, leaves, characters),
           noise_rng_(seed ^ 0x4e6f697365ULL) {
-        std::ifstream input(directory / "protocol.txt");
+        std::ifstream input(directory / "block.txt");
         Reader reader{input};
+        if (reader.size() != 1)
+            throw std::invalid_argument("unsupported folded block version");
+        const auto terminal = reader.size();
+        if (terminal > 1)
+            throw std::invalid_argument("invalid folded continuation kind");
+        terminal_ = terminal;
         n_ = reader.size();
         ancilla_count_ = reader.size();
         visible_ = reader.size();
@@ -552,6 +586,8 @@ class Protocol {
             }
         }
         for (auto* block : {&body_, &final_}) {
+            if (block == &final_ && !terminal_)
+                break;
             const size_t count = block == &body_ ? 4 : 2;
             if (reader.size() != count)
                 throw std::invalid_argument("invalid branch count");
@@ -601,12 +637,11 @@ class Protocol {
             if (slot >= visible_)
                 throw std::invalid_argument("invalid acceptance slot");
         }
-        logical_slot_ = reader.size();
-        if (logical_slot_ >= visible_)
+        logical_slot_ = terminal_ ? reader.size() : 0;
+        if (terminal_ && logical_slot_ >= visible_)
             throw std::invalid_argument("invalid logical slot");
         detector_partners_.resize(postselect_.size(), visible_);
-        input >> std::ws;
-        if (input.peek() != std::char_traits<char>::eof()) {
+        {
             const auto count = reader.size();
             if (count > 2)
                 throw std::invalid_argument("too many cat verification groups");
@@ -641,55 +676,24 @@ class Protocol {
         local_.resize(4 * characters_);
         for (size_t i = 0; i < roots_.size(); ++i)
             roots_[i] = std::polar(1.0, std::numbers::pi * double(i) / 4);
-        if (std::filesystem::exists(directory / "growth.txt")) {
-            if (n_ != 85)
-                throw std::invalid_argument("growth requires an f7 destination");
-            std::ifstream dimensions(directory / "f5" / "dimensions.txt");
-            Reader sizes{dimensions};
-            const auto rank = sizes.size(), leaves = sizes.size(), characters = sizes.size();
-            earlier_ = std::make_unique<Protocol>(directory / "f5", seed ^ 0x4635ULL, rank, leaves,
-                                                  characters);
-            if (earlier_->n_ != 41 || earlier_->earlier_ || !earlier_->post_.empty() ||
-                !earlier_->final_.events.empty() || earlier_->visible_ > visible_ ||
-                earlier_->hidden_ > hidden_)
-                throw std::invalid_argument("invalid intermediate folded block");
-            growth_ =
-                std::make_unique<GrowthBridge>(directory / "growth.txt", seed, visible_, hidden_);
-        }
+        if (!terminal_ && !post_.empty())
+            throw std::invalid_argument("intermediate block has a terminal continuation");
+        for (auto& choice : inputs_)
+            for (auto& terms : choice)
+                for (auto& term : terms)
+                    term.local.resize(4 * leaves_);
     }
 
-    size_t prefix_detectors() const {
-        return earlier_ ? earlier_->prefix_detectors() : prefix_detectors_;
-    }
-    size_t detectors_count() const { return detectors.size(); }
-    void certify_prefix(const SamplingPlan& prefix) {
-        if (earlier_)
-            earlier_->certify_prefix(prefix);
-        else
-            certify(prefix);
-    }
-    double normalization_error() const {
-        return std::max(kernel_.max_normalization_error,
-                        earlier_ ? earlier_->normalization_error() : 0);
-    }
-    double continuation_error() const {
-        return std::max(kernel_.max_continuation_error,
-                        earlier_ ? earlier_->continuation_error() : 0);
-    }
-    size_t lookup_bytes() const {
-        return kernel_.lookup_bytes() + (earlier_ ? earlier_->lookup_bytes() : 0);
-    }
-    size_t workspace_bytes() const {
-        return kernel_.workspace_bytes() + (earlier_ ? earlier_->workspace_bytes() : 0);
-    }
-    std::span<const size_t> earlier_faults() const noexcept {
-        return earlier_ ? std::span<const size_t>(earlier_->fault_choices)
-                        : std::span<const size_t>();
-    }
-    std::span<const size_t> growth_faults() const noexcept {
-        return growth_ ? std::span<const size_t>(growth_->fault_choices)
-                       : std::span<const size_t>();
-    }
+    size_t width() const noexcept { return n_; }
+    size_t ancillas() const noexcept { return ancilla_count_; }
+    bool terminal() const noexcept { return terminal_; }
+    size_t prefix_detectors() const noexcept { return prefix_detectors_; }
+    size_t visible() const noexcept { return visible_; }
+    size_t hidden() const noexcept { return hidden_; }
+    double normalization_error() const noexcept { return kernel_.max_normalization_error; }
+    double continuation_error() const noexcept { return kernel_.max_continuation_error; }
+    size_t lookup_bytes() const noexcept { return kernel_.lookup_bytes(); }
+    size_t workspace_bytes() const noexcept { return kernel_.workspace_bytes(); }
 
     void reset() noexcept {
         accepted = false;
@@ -698,8 +702,6 @@ class Protocol {
         std::fill(records.begin(), records.end(), 0);
         std::fill(detectors.begin(), detectors.end(), 0);
         std::fill(fault_choices.begin(), fault_choices.end(), 0);
-        if (growth_)
-            growth_->clear();
     }
 
     bool run_body_from_prefix(Executor& prefix, bool early, Boundary& boundary) noexcept {
@@ -729,42 +731,27 @@ class Protocol {
             verification_values_[i] = value;
         }
         bind(body_, boundary);
-        kernel_.sample_roots(kernel_.input());
+        kernel_.sample_roots(inputs_);
         const auto choice = kernel_.root_outcomes;
         for (const auto& event : body_.events)
             if (event.kind == 0 || event.kind == 3)
                 records[event.b] = choice_records_[choice][event.b];
         if (early && !output_bits())
             return false;
-        kernel_.finish(kernel_.input()[choice]);
+        kernel_.finish(inputs_[choice]);
         conditional_log_probability +=
             kernel_.log_probability - verification_rules_.size() * std::log(2.0);
         boundary.offset = choice_offsets_[choice];
         boundary.ancillas = choice_ancillas_[choice];
         boundary.syndrome = kernel_.syndrome;
         boundary.logical = kernel_.logical;
+        if (parity(boundary.offset & logical_z_))
+            std::swap(boundary.logical[0], boundary.logical[1]);
         return true;
     }
 
-    void run(Executor& prefix, bool early) noexcept {
-        Boundary boundary;
-        if (earlier_) {
-            reset();
-            const bool ready = earlier_->run_body_from_prefix(prefix, early, boundary);
-            std::copy_n(earlier_->records.begin(), earlier_->visible_, records.begin());
-            std::copy_n(earlier_->records.begin() + earlier_->visible_, earlier_->hidden_,
-                        records.begin() + visible_);
-            if (!ready)
-                return;
-            conditional_log_probability = earlier_->conditional_log_probability;
-            growth_->run(boundary, records);
-            if (early && !output_bits())
-                return;
-            if (!sample_body(boundary, early))
-                return;
-        } else if (!run_body_from_prefix(prefix, early, boundary)) {
-            return;
-        }
+    void finish(Boundary& boundary, bool early) noexcept {
+        assert(terminal_);
         for (const auto& event : post_) {
             bool value;
             if (event.kind == 2) {
@@ -782,13 +769,15 @@ class Protocol {
         boundary.ancillas ^= post_ancillas_;
         for (size_t i = 0; i < rank_; ++i)
             boundary.syndrome ^= uint64_t(parity(post_z_ & x_rows_[i])) << i;
+        if (parity(post_x_ & logical_z_))
+            std::swap(boundary.logical[0], boundary.logical[1]);
         if (parity(post_z_ & logical_x_))
             boundary.logical[1] *= -1;
         if (early && !output_bits())
             return;
         bind(final_, boundary);
-        const double zero = kernel_.probability(kernel_.input()[0]);
-        const double one = kernel_.probability(kernel_.input()[1]);
+        const double zero = kernel_.probability(inputs_[0]);
+        const double one = kernel_.probability(inputs_[1]);
         kernel_.max_normalization_error =
             std::max(kernel_.max_normalization_error, std::abs(zero + one - 1));
         assert(std::abs(zero + one - 1) < 1e-8);
@@ -798,6 +787,88 @@ class Protocol {
                 records[event.b] = choice_records_[ending][event.b];
         conditional_log_probability += std::log(ending ? one : zero);
         accepted = output_bits();
+    }
+};
+
+class Protocol {
+    static std::unique_ptr<FoldedBlock> read_block(const std::filesystem::path& path,
+                                                   uint64_t seed) {
+        std::ifstream dimensions(path / "dimensions.txt");
+        Reader sizes{dimensions};
+        const auto rank = sizes.size(), leaves = sizes.size(), characters = sizes.size();
+        return std::make_unique<FoldedBlock>(path, seed, rank, leaves, characters);
+    }
+    std::unique_ptr<FoldedBlock> last_, first_;
+    std::unique_ptr<GrowthBridge> growth_;
+
+    const FoldedBlock& prefix_block() const noexcept { return first_ ? *first_ : *last_; }
+
+  public:
+    Protocol(const std::filesystem::path& directory, uint64_t seed) {
+        const auto sequence = read_text(directory / "sequence.txt");
+        const bool growth = sequence == "1\nfolded f5\ngrowth growth.txt\nfolded .\n";
+        if (!growth && sequence != "1\nfolded .\n")
+            throw std::invalid_argument("unsupported folded protocol sequence");
+        last_ = read_block(directory, seed);
+        if (!last_->terminal())
+            throw std::invalid_argument("protocol must end with a terminal block");
+        if (growth) {
+            first_ = read_block(directory / "f5", seed ^ 0x4635ULL);
+            if (first_->terminal() || first_->visible() > last_->visible() ||
+                first_->hidden() > last_->hidden())
+                throw std::invalid_argument("invalid intermediate folded block");
+            growth_ = std::make_unique<GrowthBridge>(directory / "growth.txt", seed,
+                                                     last_->visible(), last_->hidden());
+            growth_->validate_boundaries(first_->width(), last_->width(), first_->ancillas(),
+                                         last_->ancillas());
+        }
+    }
+
+    const FoldedBlock& result() const noexcept { return *last_; }
+    size_t prefix_detectors() const noexcept { return prefix_block().prefix_detectors(); }
+    size_t detectors_count() const noexcept { return last_->detectors.size(); }
+    void certify_prefix(const SamplingPlan& plan) { (first_ ? first_ : last_)->certify(plan); }
+    double normalization_error() const noexcept {
+        return std::max(last_->normalization_error(), first_ ? first_->normalization_error() : 0);
+    }
+    double continuation_error() const noexcept {
+        return std::max(last_->continuation_error(), first_ ? first_->continuation_error() : 0);
+    }
+    size_t lookup_bytes() const noexcept {
+        return last_->lookup_bytes() + (first_ ? first_->lookup_bytes() : 0);
+    }
+    size_t workspace_bytes() const noexcept {
+        return last_->workspace_bytes() + (first_ ? first_->workspace_bytes() : 0);
+    }
+    std::span<const size_t> earlier_faults() const noexcept {
+        return first_ ? std::span<const size_t>(first_->fault_choices) : std::span<const size_t>();
+    }
+    std::span<const size_t> growth_faults() const noexcept {
+        return growth_ ? std::span<const size_t>(growth_->fault_choices)
+                       : std::span<const size_t>();
+    }
+    void run(Executor& prefix, bool early) noexcept {
+        Boundary boundary;
+        auto& last = *last_;
+        if (first_) {
+            last.reset();
+            growth_->clear();
+            const bool ready = first_->run_body_from_prefix(prefix, early, boundary);
+            std::copy_n(first_->records.begin(), first_->visible(), last.records.begin());
+            std::copy_n(first_->records.begin() + first_->visible(), first_->hidden(),
+                        last.records.begin() + last.visible());
+            if (!ready)
+                return;
+            last.conditional_log_probability = first_->conditional_log_probability;
+            growth_->run(boundary, last.records);
+            if (early && !last.output_bits())
+                return;
+            if (!last.sample_body(boundary, early))
+                return;
+        } else if (!last.run_body_from_prefix(prefix, early, boundary)) {
+            return;
+        }
+        last.finish(boundary, early);
     }
 };
 
@@ -822,10 +893,7 @@ int main(int argc, char** argv) {
     if (!shots || (early && traces))
         throw std::invalid_argument("use full attempts for validation traces");
     const auto setup_start = std::chrono::steady_clock::now();
-    std::ifstream dimensions(directory / "dimensions.txt");
-    Reader reader{dimensions};
-    const auto rank = reader.size(), leaves = reader.size(), characters = reader.size();
-    Protocol sampler(directory, seed, rank, leaves, characters);
+    Protocol sampler(directory, seed);
     const auto prefix_plan =
         compile(read_text(directory / "prefix.stim"), schedule, sampler.prefix_detectors(), early);
     sampler.certify_prefix(prefix_plan);
@@ -837,12 +905,12 @@ int main(int argc, char** argv) {
     for (size_t shot = 0; shot < traces; ++shot) {
         sampler.run(prefix, false);
         std::cout << "{\"kind\":\"sample\",\"records\":";
-        print_bits(sampler.records);
+        print_bits(sampler.result().records);
         std::cout << ",\"detectors\":";
-        print_bits(sampler.detectors);
-        std::cout << ",\"observable\":" << unsigned(sampler.observable)
-                  << ",\"conditional_log_probability\":" << sampler.conditional_log_probability
-                  << ",\"prefix_faults\":[";
+        print_bits(sampler.result().detectors);
+        std::cout << ",\"observable\":" << unsigned(sampler.result().observable)
+                  << ",\"conditional_log_probability\":"
+                  << sampler.result().conditional_log_probability << ",\"prefix_faults\":[";
         bool first = true;
         for (size_t i = 0; i < prefix_plan.presampled_noise_sites.size(); ++i)
             for (size_t j = 0; j < prefix_plan.presampled_noise_sites[i].outcomes.size(); ++j)
@@ -853,10 +921,10 @@ int main(int argc, char** argv) {
                 }
         std::cout << "],\"suffix_faults\":[";
         first = true;
-        for (size_t i = 0; i < sampler.fault_choices.size(); ++i)
-            if (sampler.fault_choices[i]) {
-                std::cout << (first ? "" : ",") << '[' << i << ',' << sampler.fault_choices[i]
-                          << ']';
+        for (size_t i = 0; i < sampler.result().fault_choices.size(); ++i)
+            if (sampler.result().fault_choices[i]) {
+                std::cout << (first ? "" : ",") << '[' << i << ','
+                          << sampler.result().fault_choices[i] << ']';
                 first = false;
             }
         std::cout << ']';
@@ -899,8 +967,8 @@ int main(int argc, char** argv) {
         auto start = std::chrono::steady_clock::now();
         for (size_t shot = 0; shot < shots; ++shot) {
             sampler.run(prefix, early);
-            accepted[repeat] += sampler.accepted;
-            failures[repeat] += sampler.accepted && sampler.observable;
+            accepted[repeat] += sampler.result().accepted;
+            failures[repeat] += sampler.result().accepted && sampler.result().observable;
         }
         seconds[repeat] =
             std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();

@@ -94,6 +94,11 @@ Complete f7 histories pass independent replay, the dense prefix allocation
 is removed, and full attempts improve to about 194 ms at about 40 MiB RSS.
 Use `--native-growth` when compiling an f7 research bundle.
 
+The [folded block cleanup](research/folded_cleanup.md) separates blocks from
+protocol orchestration, emits compact plans directly, and documents the
+remaining work for a transparent Clifft specialization pass. Regenerate research
+bundles with the current compiler; the cleanup uses explicit versioned formats.
+
 Three native C++ harnesses isolate production compile, sampling, and
 strong-simulation costs for `perf` or another sampling profiler:
 

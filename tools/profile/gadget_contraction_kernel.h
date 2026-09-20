@@ -50,25 +50,6 @@ class Contraction {
     struct Gather {
         static constexpr size_t block_size = 256;
         std::vector<uint32_t> low, high;
-
-        void compact() {
-            // Small gathers do not repay the extra block-loop overhead.
-            if (low.size() <= 256 || low.size() % block_size)
-                return;
-            std::vector<uint32_t> offsets(low.size() / block_size);
-            for (size_t block = 0; block < offsets.size(); ++block) {
-                if (low[block * block_size] < low[0])
-                    return;
-                offsets[block] = low[block * block_size] - low[0];
-                for (size_t j = 0; j < block_size; ++j)
-                    if (uint64_t(offsets[block]) + low[j] != low[block * block_size + j])
-                        return;
-            }
-            // Bit projections separate into low-bit addresses and high-bit offsets.
-            // Retain the expanded form if an external plan does not have this property.
-            std::vector<uint32_t>(low.begin(), low.begin() + block_size).swap(low);
-            high = std::move(offsets);
-        }
     };
     struct Leaf {
         size_t offset;
@@ -91,7 +72,7 @@ class Contraction {
         : leaf_values_(leaf_values) {
         if (leaf_values_ != 2 && leaf_values_ != 4)
             throw std::invalid_argument("invalid local table size");
-        if (reader.size() != 1 || reader.size() != expected_rank)
+        if (reader.size() != 2 || reader.size() != expected_rank)
             throw std::invalid_argument("incorrect marginal plan rank or mode");
         const auto storage = reader.size();
         leaves_.resize(reader.size());
@@ -121,13 +102,22 @@ class Contraction {
                 throw std::invalid_argument("invalid marginal step storage");
             step.gathers.resize(reader.size());
             for (auto& gather : step.gathers) {
-                gather.low.resize(2 * step.size);
-                for (auto& address : gather.low) {
-                    address = reader.size();
-                    if (address >= initialized)
-                        throw std::invalid_argument("marginal gather reads uninitialized storage");
-                }
-                gather.compact();
+                const auto low_size = reader.size(), high_size = reader.size();
+                if ((high_size == 0 && low_size != 2 * step.size) ||
+                    (high_size != 0 &&
+                     (low_size != Gather::block_size || high_size * low_size != 2 * step.size)))
+                    throw std::invalid_argument("invalid marginal gather dimensions");
+                gather.low.resize(low_size);
+                gather.high.resize(high_size);
+                for (auto* addresses : {&gather.low, &gather.high})
+                    for (auto& address : *addresses)
+                        address = reader.size();
+                const auto max_low = *std::max_element(gather.low.begin(), gather.low.end());
+                const auto max_high =
+                    gather.high.empty() ? 0
+                                        : *std::max_element(gather.high.begin(), gather.high.end());
+                if (uint64_t(max_low) + max_high >= initialized)
+                    throw std::invalid_argument("marginal gather reads uninitialized storage");
             }
             initialized += step.size;
             max_product = std::max(max_product, 2 * step.size);
@@ -140,8 +130,6 @@ class Contraction {
             if (output >= initialized)
                 throw std::invalid_argument("invalid marginal output");
         }
-        if (reader.size() != 0)
-            throw std::invalid_argument("native sampler expects an unbound contraction plan");
         scratch_size_ = storage;
         product_size_ = max_product;
         normalization_ = std::ldexp(1.0, -int(expected_rank));
