@@ -84,6 +84,10 @@ Executor::Executor(const ExecutablePlan& plan, uint64_t seed, uint32_t intra_sho
           resolve_intra_shot_workers(plan, intra_shot_workers, intra_shot_min_active_width)),
       intra_shot_min_active_width_(intra_shot_min_active_width) {
     previous_presampled_ones_.reserve(plan.presampled_symbols_.size());
+    for (const auto& region : plan.folded_regions_) {
+        folded_workspaces_.push_back(std::make_unique<folded::Workspace>(*region.plan));
+        folded_probes_.resize(std::max(folded_probes_.size(), region.boundary.size()));
+    }
 }
 
 void Executor::run_shot() noexcept {
@@ -107,6 +111,7 @@ void Executor::run_shot(std::span<const uint8_t> presampled_values) noexcept {
 }
 
 void Executor::run_shot(KFaultSampler& fault_sampler) noexcept {
+    assert(!plan_->has_folded_regions() && "folded fixed-fault sampling is unsupported");
     plan_ = root_plan_;
     assert(fault_sampler.num_sites() ==
                plan_->noise_sites_.size() + plan_->num_readout_noise_sites_ &&
@@ -208,6 +213,7 @@ void Executor::return_to_root_plan() noexcept {
 ReplayResult Executor::replay_shot(std::span<const uint8_t> forced_records,
                                    std::span<const uint8_t> presampled_values) noexcept {
     plan_ = root_plan_;
+    assert(!plan_->has_folded_regions() && "folded replay is unsupported");
     assert(forced_records.size() ==
                static_cast<size_t>(plan_->num_visible_records_) + plan_->num_hidden_records_ &&
            "one forced value is required for every plan record");
@@ -599,6 +605,22 @@ void Executor::execute_action(const ExecutablePlan::ExecuteExpectation& action,
     }
     const double value = expectation_value(state_, action.active->projection);
     exp_vals_[action.exp_val] = evaluate(action.active->sign) ? -value : value;
+}
+
+void Executor::execute_action(const ExecutablePlan::ExecuteFoldedRegion& action,
+                              std::span<const uint8_t>, ReplayResult&) noexcept {
+    const auto& region = plan_->folded_regions_[action.region];
+    for (size_t i = 0; i < region.boundary.size(); ++i) {
+        const auto& probe = region.boundary[i];
+        const double value = expectation_value(state_, probe.projection);
+        folded_probes_[i] = evaluate(probe.sign) ? -value : value;
+    }
+    folded_workspaces_[action.region]->run(
+        std::span<const double>(folded_probes_).first(region.boundary.size()), symbols_,
+        region.faults, records_, rng_);
+    state_.set_active_width(0);
+    state_.real_data()[0] = 1;
+    state_.imag_data()[0] = 0;
 }
 
 void Executor::trap_instrument(uint32_t site, uint8_t source, bool destination_pending) noexcept {

@@ -256,6 +256,8 @@ detail::Action ExecutablePlan::lower_action(const PlannedAction& planned) {
                                  std::is_same_v<T, InstrumentBoundary>) {
                 throw std::invalid_argument(
                     "HIP execution does not support transition instruments");
+            } else if constexpr (std::is_same_v<T, SampleFoldedRegion>) {
+                throw std::invalid_argument("folded specialization does not support HIP execution");
             } else {
                 static_assert(kAlwaysFalse<T>, "Unhandled SamplingAction alternative");
             }

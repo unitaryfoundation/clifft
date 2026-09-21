@@ -526,6 +526,9 @@ SamplingResult sample_k(const ExecutablePlan& plan, uint32_t shots, uint32_t k,
                         std::optional<uint64_t> seed, uint32_t threads,
                         std::optional<ThreadLayout> thread_layout,
                         std::optional<uint32_t> batch_size) {
+    if (plan.has_folded_regions())
+        throw std::invalid_argument(
+            "fixed-fault sampling is unavailable with folded specialization");
     if (plan.has_instruments()) {
         throw std::invalid_argument(
             "forced-fault sampling does not support instrument traps or trajectory drivers");
@@ -588,6 +591,9 @@ SamplingSurvivorResult sample_k_survivors(const ExecutablePlan& plan, uint32_t s
                                           uint32_t threads,
                                           std::optional<ThreadLayout> thread_layout,
                                           std::optional<uint32_t> batch_size) {
+    if (plan.has_folded_regions())
+        throw std::invalid_argument(
+            "fixed-fault sampling is unavailable with folded specialization");
     if (plan.has_instruments()) {
         throw std::invalid_argument(
             "forced-fault survivor sampling does not support instrument traps or trajectory "
@@ -647,6 +653,8 @@ SamplingSurvivorResult sample_k_survivors(const ExecutablePlan& plan, uint32_t s
 std::vector<double> record_log_probabilities(const ExecutablePlan& plan,
                                              std::span<const uint8_t> forced_records,
                                              size_t num_records) {
+    if (plan.has_folded_regions())
+        throw std::invalid_argument("record replay is unavailable with folded specialization");
     if (plan.num_hidden_records() != 0) {
         throw std::invalid_argument(
             "record_probabilities() does not yet support programs with hidden measurement "

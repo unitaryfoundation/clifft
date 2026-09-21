@@ -230,6 +230,9 @@ ExecutablePlanBuilder::estimate_program_storage() const {
                     }
                 } else if constexpr (std::is_same_v<T, ApplyInstrument>) {
                     num_terms += typed.sign.terms().size();
+                } else if constexpr (std::is_same_v<T, SampleFoldedRegion>) {
+                    for (const auto& probe : typed.boundary)
+                        num_terms += probe.sign.terms().size();
                 } else if constexpr (std::is_same_v<T, InstrumentBoundary>) {
                     // Boundaries have no affine payload.
                 } else {
@@ -453,6 +456,26 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::lower_action(const Plann
                 }
                 output_.actions_.emplace_back(
                     ExecutablePlan::ExecuteExpectation{std::move(active), index(typed.exp_val)});
+            } else if constexpr (std::is_same_v<T, SampleFoldedRegion>) {
+                ExecutablePlan::PreparedFoldedRegion region;
+                region.plan = typed.plan;
+                for (const auto& probe : typed.boundary)
+                    region.boundary.push_back(
+                        {prepare_pauli(probe.projection, planned.active_before),
+                         prepare_expression(probe.sign)});
+                for (const auto& site : typed.faults) {
+                    auto& target = region.faults.emplace_back();
+                    for (auto symbol : site) {
+                        target.push_back(index(symbol));
+                        if (!symbol_first_actions_.empty())
+                            symbol_first_actions_[index(symbol)] =
+                                std::min(symbol_first_actions_[index(symbol)],
+                                         static_cast<uint32_t>(output_.actions_.size()));
+                    }
+                }
+                output_.actions_.emplace_back(ExecutablePlan::ExecuteFoldedRegion{
+                    static_cast<uint32_t>(output_.folded_regions_.size())});
+                output_.folded_regions_.push_back(std::move(region));
             } else if constexpr (std::is_same_v<T, ApplyInstrument>) {
                 output_.has_instruments_ = true;
                 const uint32_t site = index(typed.site);
@@ -761,6 +784,10 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::validate_executable_plan
                             }
                         },
                         typed.form);
+                } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteFoldedRegion>) {
+                    assert(typed.region < output_.folded_regions_.size());
+                    for (const auto& probe : output_.folded_regions_[typed.region].boundary)
+                        validate_expression(probe.sign);
                 } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteBoundary>) {
                     assert(typed.site < output_.instrument_resume_offsets_.size() &&
                            "instrument boundary site is out of range");

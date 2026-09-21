@@ -25,6 +25,7 @@
 #include <array>
 #include <cstdint>
 #include <limits>
+#include <memory>
 #include <optional>
 #include <span>
 #include <string>
@@ -294,10 +295,23 @@ struct InstrumentBoundary {
     uint32_t symbol_prefix_size = 0;
 };
 
-using SamplingAction = std::variant<RotateActivePauli, PromoteDormantRotation, MeasureActivePauli,
-                                    MeasureDormantRandom, RecordClassical, DefineSymbol,
-                                    ApplyReadoutNoise, WriteDetector, WriteObservable,
-                                    WriteExpectationValue, ApplyInstrument, InstrumentBoundary>;
+namespace folded {
+struct RegionPlan;
+}
+
+// A certified terminal region consumes one logical coordinate and writes physical
+// records. Only classical detector and observable actions may follow it.
+struct SampleFoldedRegion {
+    std::shared_ptr<const folded::RegionPlan> plan;
+    std::vector<ActiveExpectation> boundary;
+    std::vector<std::vector<SymbolId>> faults;
+};
+
+using SamplingAction =
+    std::variant<RotateActivePauli, PromoteDormantRotation, MeasureActivePauli,
+                 MeasureDormantRandom, RecordClassical, DefineSymbol, ApplyReadoutNoise,
+                 WriteDetector, WriteObservable, WriteExpectationValue, ApplyInstrument,
+                 InstrumentBoundary, SampleFoldedRegion>;
 
 struct PlannedAction {
     // Dense active-coordinate widths immediately before and after this action.
@@ -347,6 +361,7 @@ class PlanSourceMap {
 
 struct SamplingPlan {
     uint32_t num_qubits = 0;
+    std::string specialization_note;
 
     // Active width is the number of stabilizer coordinates represented in the
     // dense coefficient state, which contains 2^active_width entries. The

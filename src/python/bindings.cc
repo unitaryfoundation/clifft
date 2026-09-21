@@ -13,6 +13,7 @@
 #include "clifft/optimizer/peephole.h"
 #include "clifft/optimizer/remove_noise_pass.h"
 #include "clifft/optimizer/statevector_squeeze_pass.h"
+#include "clifft/sampling/folded/compile.h"
 #include "clifft/sampling/planner.h"
 #include "clifft/sampling/sampler.h"
 #include "clifft/sampling/state_queries.h"
@@ -770,6 +771,7 @@ NB_MODULE(_clifft_core, m) {
         .def_prop_ro("num_detectors", &clifft::sampling::ExecutablePlan::num_detectors)
         .def_prop_ro("num_observables", &clifft::sampling::ExecutablePlan::num_observables)
         .def_prop_ro("num_exp_vals", &clifft::sampling::ExecutablePlan::num_exp_vals)
+        .def_prop_ro("has_folded_regions", &clifft::sampling::ExecutablePlan::has_folded_regions)
         .def_prop_ro("has_postselection", &clifft::sampling::ExecutablePlan::has_postselection)
         .def_prop_ro("num_actions", &clifft::sampling::ExecutablePlan::num_actions)
         .def_prop_ro(
@@ -839,19 +841,23 @@ NB_MODULE(_clifft_core, m) {
         "compile",
         [](const std::string& stim_text, std::vector<uint8_t> postselection_mask,
            std::vector<uint8_t> expected_detectors, std::vector<uint8_t> expected_observables,
-           bool normalize_syndromes, clifft::HirPassManager* hir_passes) {
+           bool normalize_syndromes, clifft::HirPassManager* hir_passes,
+           const std::string& specialization_note) {
             nb::gil_scoped_release release;
             clifft::HirModule hir =
                 prepare_hir_for_lowering(stim_text, normalize_syndromes, hir_passes,
                                          expected_detectors, expected_observables);
 
-            return clifft::sampling::ExecutablePlan(clifft::sampling::plan_sampling(
-                hir, {postselection_mask, expected_detectors, expected_observables}));
+            auto plan = clifft::sampling::plan_sampling(
+                hir, {postselection_mask, expected_detectors, expected_observables});
+            plan.specialization_note = specialization_note;
+            return clifft::sampling::ExecutablePlan(plan);
         },
         nb::arg("stim_text"), nb::arg("postselection_mask") = std::vector<uint8_t>{},
         nb::arg("expected_detectors") = std::vector<uint8_t>{},
         nb::arg("expected_observables") = std::vector<uint8_t>{},
         nb::arg("normalize_syndromes") = false, nb::arg("hir_passes") = nb::none(),
+        nb::arg("specialization_note") = "",
         "Compile a quantum circuit string to an executable program.\n\n"
         "Compilation plans optimized HIR and prepares it for Clifft's sampler.\n"
         "\n"
@@ -870,6 +876,21 @@ NB_MODULE(_clifft_core, m) {
         "    normalize_syndromes: If True, auto-compute reference parities from a\n"
         "        noiseless reference shot (mutually exclusive with explicit parities).\n"
         "    hir_passes: Optional HirPassManager to run on the HIR before lowering.\n");
+
+    m.def(
+        "_compile_folded",
+        [](const std::string& source, const std::string& prefix, const std::string& block,
+           const std::vector<std::string>& tables, const std::vector<size_t>& dimensions,
+           std::vector<uint8_t> postselection, std::vector<uint8_t> detectors,
+           std::vector<uint8_t> observables, bool normalize, clifft::HirPassManager* passes) {
+            nb::gil_scoped_release release;
+            return clifft::sampling::folded::compile_region(
+                source, prefix, block, tables, dimensions, {postselection, detectors, observables},
+                normalize, passes);
+        },
+        nb::arg("source"), nb::arg("prefix"), nb::arg("block"), nb::arg("tables"),
+        nb::arg("dimensions"), nb::arg("postselection"), nb::arg("detectors"),
+        nb::arg("observables"), nb::arg("normalize"), nb::arg("passes") = nb::none());
 
     m.def(
         "_compile_qasm2",

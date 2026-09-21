@@ -155,6 +155,12 @@
       "summary": "Marks where a continuation may resume after an instrument traps.",
       "detail": "Divides the plan into ahead-of-time execution segments. A continuation resumes at this marker with the live coefficients, active-coordinate meaning and order, symbol and record values, and RNG position preserved, then samples only the replacement suffix's remaining presampled noise.",
       "operands": "site, next_noise_site, symbol_prefix_size"
+    },
+    "SAMPLE_FOLDED_REGION": {
+      "category": "Specialization",
+      "summary": "Samples a certified terminal folded MSC region.",
+      "detail": "The optional folded specialization replaces a recognized terminal region with precomputed contractions. Boundary probes recover one logical qubit and signed CSS checks; presampled noise symbols select physical faults. The scalar kernel writes the original visible and hidden records, then ordinary detector and observable actions consume them. No physical quantum state remains available after this terminal action.",
+      "operands": "boundary_probes, noise_sites"
     }
   }
 }

@@ -78,6 +78,8 @@ class ExecutablePlan {
     [[nodiscard]] uint32_t num_exp_vals() const { return num_exp_vals_; }
     [[nodiscard]] bool has_postselection() const { return has_postselection_; }
     [[nodiscard]] bool has_readout_noise() const { return has_readout_noise_; }
+    [[nodiscard]] bool has_folded_regions() const { return !folded_regions_.empty(); }
+    [[nodiscard]] const std::string& specialization_note() const { return specialization_note_; }
     [[nodiscard]] bool has_instruments() const { return has_instruments_; }
     [[nodiscard]] bool supports_final_state_queries() const { return final_tableau_.has_value(); }
     // Exact final-state queries need the coordinate-to-physical map, but
@@ -330,6 +332,15 @@ class ExecutablePlan {
     static_assert(sizeof(ExecuteInstrument) <= 96,
                   "instrument specialization must preserve the compact descriptor");
 
+    struct PreparedFoldedRegion {
+        std::shared_ptr<const folded::RegionPlan> plan;
+        std::vector<PreparedExpectation> boundary;
+        std::vector<std::vector<uint32_t>> faults;
+    };
+    struct ExecuteFoldedRegion {
+        uint32_t region = 0;
+    };
+
     struct ExecuteBoundary {
         uint32_t site = 0;
         uint32_t active_width = 0;
@@ -358,7 +369,10 @@ class ExecutablePlan {
                      ExecutePromotion, ExecuteActiveMeasurement, ExecuteDormantMeasurement,
                      ExecuteClassicalRecord, ExecuteSymbolDefinition, ExecuteReadoutNoise,
                      ExecuteDetector, ExecuteObservable, ExecuteExpectation, ExecuteInstrument,
-                     ExecuteBoundary>;
+                     ExecuteBoundary, ExecuteFoldedRegion>;
+
+    std::vector<PreparedFoldedRegion> folded_regions_;
+    std::string specialization_note_;
 
     // Immutable plan metadata and externally visible dimensions.
     uint32_t num_qubits_ = 0;

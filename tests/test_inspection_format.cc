@@ -40,6 +40,7 @@ using clifft::sampling::RecordClassical;
 using clifft::sampling::RecordParity;
 using clifft::sampling::RecordSlot;
 using clifft::sampling::RotateActivePauli;
+using clifft::sampling::SampleFoldedRegion;
 using clifft::sampling::SamplingAction;
 using clifft::sampling::SamplingPlan;
 using clifft::sampling::SymbolId;
@@ -231,7 +232,7 @@ TEST_CASE("Compact inspection mnemonics cover every SamplingAction and its docs 
     // Adding, removing, or renaming a SamplingAction alternative changes this
     // count. Extend the action list below and the plan_actions table in
     // docs/compiler_ir.json together, then update this assertion.
-    static_assert(std::variant_size_v<SamplingAction> == 12);
+    static_assert(std::variant_size_v<SamplingAction> == 13);
 
     const SymbolId s0{0};
     const AffineBool empty{};
@@ -255,6 +256,7 @@ TEST_CASE("Compact inspection mnemonics cover every SamplingAction and its docs 
                       ApplyInstrument{InstrumentSiteId{0}, InstrumentMode::Classical, ActivePauli{},
                                       empty, s0}},
         PlannedAction{0, 0, InstrumentBoundary{InstrumentSiteId{0}, 0, 0}},
+        PlannedAction{1, 0, SampleFoldedRegion{}},
     };
 
     std::set<std::string> mnemonics;
@@ -269,9 +271,10 @@ TEST_CASE("Compact inspection mnemonics cover every SamplingAction and its docs 
     }
 
     const std::set<std::string> expected = {
-        "ROTATE_ACTIVE",    "PROMOTE_DORMANT",   "MEASURE_ACTIVE",   "MEASURE_DORMANT",
-        "RECORD_CLASSICAL", "DEFINE_SYMBOL",     "READOUT_NOISE",    "WRITE_DETECTOR",
-        "WRITE_OBSERVABLE", "WRITE_EXPECTATION", "APPLY_INSTRUMENT", "INSTRUMENT_BOUNDARY",
+        "ROTATE_ACTIVE",        "PROMOTE_DORMANT",   "MEASURE_ACTIVE",   "MEASURE_DORMANT",
+        "RECORD_CLASSICAL",     "DEFINE_SYMBOL",     "READOUT_NOISE",    "WRITE_DETECTOR",
+        "WRITE_OBSERVABLE",     "WRITE_EXPECTATION", "APPLY_INSTRUMENT", "INSTRUMENT_BOUNDARY",
+        "SAMPLE_FOLDED_REGION",
     };
     REQUIRE(mnemonics == expected);
 

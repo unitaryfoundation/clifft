@@ -96,6 +96,8 @@ std::string ExecutablePlan::inspect() const {
         }
         out << ' ' << inspect_action(i) << '\n';
     }
+    if (!specialization_note_.empty())
+        out << "folded_specialization: " << specialization_note_ << "\n";
     return out.str();
 }
 
@@ -229,6 +231,9 @@ std::string ExecutablePlan::inspect_action(size_t action) const {
                         },
                     },
                     typed.form);
+            },
+            [&](const ExecuteFoldedRegion& typed) {
+                out << "SAMPLE_FOLDED_REGION descriptor=" << typed.region;
             },
             [&](const ExecuteBoundary& typed) {
                 out << "INSTRUMENT_BOUNDARY site=" << typed.site

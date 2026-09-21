@@ -179,6 +179,9 @@ void write_action_body(std::ostream& out, const SamplingAction& action,
                 if (typed.destination_flip.has_value()) {
                     out << " flip=s" << index(*typed.destination_flip);
                 }
+            } else if constexpr (std::is_same_v<T, SampleFoldedRegion>) {
+                out << "SAMPLE_FOLDED_REGION boundary=" << typed.boundary.size()
+                    << " noise_sites=" << typed.faults.size();
             } else if constexpr (std::is_same_v<T, InstrumentBoundary>) {
                 out << "INSTRUMENT_BOUNDARY site=" << index(typed.site)
                     << " next_noise_site=" << typed.next_noise_site

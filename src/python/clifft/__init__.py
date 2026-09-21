@@ -100,7 +100,7 @@ def _basis_masks_from_bitstrings(
     def fill_string_mask(masks: npt.NDArray[np.uint64], bitstring: str, row: int) -> None:
         if len(bitstring) != num_qubits:
             raise ValueError(
-                f"bitstring at index {row} has length {len(bitstring)}, " f"expected {num_qubits}"
+                f"bitstring at index {row} has length {len(bitstring)}, expected {num_qubits}"
             )
         for col, char in enumerate(bitstring):
             if char == "1":
@@ -302,6 +302,8 @@ def compile(
     normalize_syndromes: bool = False,
     hir_passes: HirPassManager | None | _DefaultPasses = _DEFAULT_PASSES,
     input_format: Literal["stim", "qasm2"] = "stim",
+    *,
+    specialize_folded: bool = False,
 ) -> Program:
     """Compile a quantum circuit string to an executable sampling program.
 
@@ -326,7 +328,12 @@ def compile(
             Defaults to ``default_hir_pass_manager()``. Pass ``None`` to skip.
         input_format: ``"stim"`` for Clifft's Stim-compatible syntax or
             ``"qasm2"`` for the supported unitary OpenQASM 2 subset.
+        specialize_folded: Experimentally recognize certified terminal folded MSC
+            regions for scalar sampling and postselection. Unmatched circuits use
+            ordinary compilation. Fixed-fault sampling and replay are unsupported
+            for specialized programs.
     """
+    folded_passes_supported = isinstance(hir_passes, _DefaultPasses) or hir_passes is None
     if isinstance(hir_passes, _DefaultPasses):
         hir_passes = default_hir_pass_manager()
     if input_format == "stim":
@@ -335,6 +342,40 @@ def compile(
         compile_core = _compile_qasm2_core
     else:
         raise ValueError("input_format must be 'stim' or 'qasm2'")
+    if specialize_folded and input_format == "stim":
+        from clifft._clifft_core import _compile_folded
+
+        from ._folded import recognize
+
+        if folded_passes_supported:
+            candidate, note = recognize(stim_text, parse)
+        else:
+            candidate, note = None, "custom HIR passes require ordinary compilation"
+        if candidate is not None:
+            program = _compile_folded(
+                stim_text,
+                candidate["prefix"],
+                candidate["block"],
+                candidate["contractions"],
+                candidate["dimensions"],
+                postselection_mask if postselection_mask is not None else [],
+                expected_detectors if expected_detectors is not None else [],
+                expected_observables if expected_observables is not None else [],
+                normalize_syndromes,
+                hir_passes,
+            )
+            if program is not None:
+                return program
+            note = "matched folded gates but the input code boundary could not be certified"
+        return _compile_core(
+            stim_text,
+            postselection_mask if postselection_mask is not None else [],
+            expected_detectors if expected_detectors is not None else [],
+            expected_observables if expected_observables is not None else [],
+            normalize_syndromes,
+            hir_passes,
+            note,
+        )
     return compile_core(
         stim_text,
         postselection_mask if postselection_mask is not None else [],

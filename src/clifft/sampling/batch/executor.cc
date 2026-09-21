@@ -41,6 +41,8 @@ enum class MeasurementBranchKind : uint8_t {
 }
 
 [[nodiscard]] const ExecutablePlan* validate_batch_plan(const ExecutablePlan& plan) {
+    if (plan.has_folded_regions())
+        throw std::invalid_argument("folded specialization does not support packed execution");
     if (plan.has_instruments()) {
         throw std::invalid_argument("packed sampling does not support instrument continuations");
     }

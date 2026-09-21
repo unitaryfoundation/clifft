@@ -1,5 +1,6 @@
 #include "clifft/sampling/plan.h"
 
+#include "clifft/sampling/folded/region.h"
 #include "clifft/util/numeric.h"
 
 #include <algorithm>
@@ -126,7 +127,8 @@ std::optional<SymbolId> defined_symbol(const SamplingAction& action) {
                                  std::is_same_v<T, WriteDetector> ||
                                  std::is_same_v<T, WriteObservable> ||
                                  std::is_same_v<T, WriteExpectationValue> ||
-                                 std::is_same_v<T, InstrumentBoundary>) {
+                                 std::is_same_v<T, InstrumentBoundary> ||
+                                 std::is_same_v<T, SampleFoldedRegion>) {
                 return std::nullopt;
             } else {
                 static_assert(kAlwaysFalse<T>, "Unhandled SamplingAction alternative");
@@ -388,7 +390,8 @@ uint32_t predicted_dense_passes(const SamplingAction& action) {
                                  std::is_same_v<T, ApplyReadoutNoise> ||
                                  std::is_same_v<T, WriteDetector> ||
                                  std::is_same_v<T, WriteObservable> ||
-                                 std::is_same_v<T, InstrumentBoundary>) {
+                                 std::is_same_v<T, InstrumentBoundary> ||
+                                 std::is_same_v<T, SampleFoldedRegion>) {
                 return 0;
             } else {
                 static_assert(kAlwaysFalse<T>, "Unhandled SamplingAction alternative");
@@ -557,6 +560,7 @@ void SamplingPlan::validate() const {
     uint32_t previous_symbol_boundary = 0;
     written_records.reserve(std::min<size_t>(
         actions.size(), static_cast<uint64_t>(num_visible_records) + num_hidden_records));
+    bool folded_seen = false;
     for (uint32_t action_index = 0; action_index < actions.size(); ++action_index) {
         const PlannedAction& planned = actions[action_index];
         if (planned.active_before != active_width || planned.active_before > num_qubits ||
@@ -579,6 +583,10 @@ void SamplingPlan::validate() const {
             !std::holds_alternative<WriteExpectationValue>(planned.action)) {
             invalid_plan("final tableau is retained for a nonunitary action stream");
         }
+        if (folded_seen && !std::holds_alternative<WriteDetector>(planned.action) &&
+            !std::holds_alternative<WriteObservable>(planned.action))
+            invalid_plan("only classical outputs may follow a terminal folded region");
+        folded_seen |= std::holds_alternative<SampleFoldedRegion>(planned.action);
         std::visit(
             [&](const auto& typed) {
                 using T = std::decay_t<decltype(typed)>;
@@ -730,6 +738,44 @@ void SamplingPlan::validate() const {
                     validate_expression(*this, actual_definitions, typed.sign, action_index,
                                         definition, false);
                     ++observed_instruments;
+                } else if constexpr (std::is_same_v<T, SampleFoldedRegion>) {
+                    if (!typed.plan || planned.active_before != 1 || planned.active_after != 0 ||
+                        typed.plan->visible_ != num_visible_records ||
+                        typed.plan->hidden_ != num_hidden_records)
+                        invalid_plan("invalid terminal folded boundary dimensions");
+                    typed.plan->certify(typed.boundary);
+                    for (const auto& probe : typed.boundary) {
+                        validate_pauli(probe.projection, planned.active_before, action_index);
+                        validate_expression(*this, actual_definitions, probe.sign, action_index,
+                                            definition, false);
+                    }
+                    if (typed.faults.size() != typed.plan->sites_.size() ||
+                        typed.faults.size() > presampled_noise_sites.size())
+                        invalid_plan("incorrect folded noise site count");
+                    for (size_t i = 0; i < typed.faults.size(); ++i) {
+                        const auto& distribution =
+                            presampled_noise_sites[presampled_noise_sites.size() -
+                                                   typed.faults.size() + i];
+                        if (distribution.total_probability != typed.plan->sites_[i].probability ||
+                            distribution.outcomes.size() != typed.faults[i].size())
+                            invalid_plan("folded noise disagrees with its bound distribution");
+                        for (size_t j = 0; j < typed.faults[i].size(); ++j)
+                            if (distribution.outcomes[j].symbol != typed.faults[i][j] ||
+                                distribution.outcomes[j].probability !=
+                                    distribution.total_probability / typed.faults[i].size())
+                                invalid_plan(
+                                    "folded noise channel disagrees with its distribution");
+                        if (typed.faults[i].size() != (typed.plan->sites_[i].probability == 0
+                                                           ? 0
+                                                           : typed.plan->sites_[i].channels.size()))
+                            invalid_plan("incorrect folded noise channel count");
+                        for (auto symbol : typed.faults[i])
+                            if (index(symbol) >= symbols.size() ||
+                                symbols[index(symbol)] != SymbolKind::Presampled)
+                                invalid_plan("invalid folded noise symbol");
+                    }
+                    for (auto record : typed.plan->output_records())
+                        validate_record(*this, record, action_index, written_records);
                 } else if constexpr (std::is_same_v<T, InstrumentBoundary>) {
                     if (planned.active_after != planned.active_before ||
                         index(typed.site) >= num_instrument_sites ||

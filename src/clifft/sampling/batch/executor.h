@@ -75,6 +75,7 @@ class BatchExecutor {
     void execute_action(const ExecutablePlan::ExecuteObservable& action) noexcept;
     void execute_action(const ExecutablePlan::ExecuteExpectation& action) noexcept;
     void execute_action(const ExecutablePlan::ExecuteInstrument& action) noexcept;
+    void execute_action(const ExecutablePlan::ExecuteFoldedRegion&) noexcept { assert(false); }
     void execute_action(const ExecutablePlan::ExecuteBoundary& action) noexcept;
 
     [[nodiscard]] std::span<const uint64_t> evaluate(

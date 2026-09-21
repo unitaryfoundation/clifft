@@ -39,7 +39,8 @@ PreparedFusedRotationExecution::PreparedFusedRotationExecution(PreparedFusedRota
 }
 
 ExecutablePlan::ExecutablePlan(const SamplingPlan& plan)
-    : num_qubits_(plan.num_qubits),
+    : specialization_note_(plan.specialization_note),
+      num_qubits_(plan.num_qubits),
       initial_active_width_(plan.initial_active_width),
       peak_active_width_(plan.peak_active_width),
       num_visible_records_(plan.num_visible_records),

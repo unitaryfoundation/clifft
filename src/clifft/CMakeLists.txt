@@ -14,6 +14,8 @@ add_library(clifft_core STATIC
     optimizer/pass_factory.cc
     optimizer/remove_noise_pass.cc
     optimizer/statevector_squeeze_pass.cc
+    sampling/folded/region.cc
+    sampling/folded/compile.cc
     sampling/plan.cc
     sampling/plan_inspection.cc
     sampling/inspection_format.cc

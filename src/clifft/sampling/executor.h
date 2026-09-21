@@ -1,6 +1,7 @@
 #pragma once
 
 #include "clifft/sampling/executable_plan.h"
+#include "clifft/sampling/folded/region.h"
 #include "clifft/sampling/state.h"
 #include "clifft/util/config.h"
 #include "clifft/util/xoshiro.h"
@@ -124,6 +125,10 @@ class Executor {
         OpenMP,
     };
 
+    std::vector<std::unique_ptr<folded::Workspace>> folded_workspaces_;
+    std::vector<double> folded_probes_;
+    void execute_action(const ExecutablePlan::ExecuteFoldedRegion& action, std::span<const uint8_t>,
+                        ReplayResult&) noexcept;
     void reset_shot() noexcept;
     void assign_presampled_values(std::span<const uint8_t> presampled_values) noexcept;
     void sample_presampled_noise(uint32_t begin, uint32_t end) noexcept;

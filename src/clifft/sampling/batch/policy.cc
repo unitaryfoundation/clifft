@@ -104,6 +104,12 @@ BatchExecutionPolicy resolve_batch_execution_policy(
     if (requested_batch_size.has_value() && *requested_batch_size == 0) {
         throw std::invalid_argument("batch_size must be a positive integer or 'auto'");
     }
+    if (plan.has_folded_regions()) {
+        if (requested_batch_size.value_or(1) > 1)
+            throw std::invalid_argument(
+                "folded specialization currently requires scalar shots; use batch_size=1 or auto");
+        return {};
+    }
     if (shots == 0 || plan.has_instruments()) {
         return {};
     }

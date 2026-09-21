@@ -111,6 +111,7 @@ nav:
       - Compiling Circuits: guide/compilation.md
     - Workflows:
       - Sampling and Results: guide/simulation.md
+      - Experimental Folded MSC: guide/folded-specialization.md
       - Importance Sampling: guide/importance-sampling.md
       - Leakage and Loss: guide/leakage-and-loss.md
       - Exact Probabilities: guide/strong-simulation.md

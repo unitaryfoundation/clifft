@@ -67,7 +67,7 @@ std::optional<BatchPresampledProgram> BatchPresampledProgram::build(
     (void)bound_presampled_symbols;
     return std::nullopt;
 #else
-    if (executable.has_instruments_) {
+    if (executable.has_instruments_ || executable.has_folded_regions()) {
         return std::nullopt;
     }
 
