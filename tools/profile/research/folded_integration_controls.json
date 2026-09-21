@@ -1,0 +1,134 @@
+[
+  {
+    "mode": "ordinary",
+    "distance": 3,
+    "early": false,
+    "shots": 131072,
+    "circuit_sha256": "8254687fbff582b466ad1f037fd5128046e2415b23b765d2f66f989eadd0be73",
+    "cpu": 0,
+    "package": "/tmp/folded-bench-parent",
+    "extension_sha256": "9c2f872ddae5b5beb6b6b4ce01bec5b0d9bd2cad29b9e1d7cca24cbfaf2b61fb",
+    "python": "3.13.11",
+    "compile_seconds": 0.007067237049341202,
+    "peak_active_width": 8,
+    "specialized": false,
+    "import_peak_rss_kib": 36712,
+    "compile_peak_rss_kib": 38760,
+    "process_peak_rss_kib": 55576,
+    "batches": [
+      {
+        "seconds": 1.0014978090766817,
+        "accepted": 103674
+      },
+      {
+        "seconds": 0.9938593141268939,
+        "accepted": 103693
+      },
+      {
+        "seconds": 0.9877654351294041,
+        "accepted": 103630
+      }
+    ],
+    "median_seconds_per_attempt": 7.5825448160316e-06,
+    "skipped_dense_allocation": false
+  },
+  {
+    "mode": "disabled",
+    "distance": 3,
+    "early": false,
+    "shots": 131072,
+    "circuit_sha256": "8254687fbff582b466ad1f037fd5128046e2415b23b765d2f66f989eadd0be73",
+    "cpu": 0,
+    "package": "/tmp/folded-bench-current",
+    "extension_sha256": "9d1118e4e30b06f5ffd957a7761738496a9c4d5f21ab7f92546633df6d1f2e57",
+    "python": "3.13.11",
+    "compile_seconds": 0.002880602842196822,
+    "peak_active_width": 8,
+    "specialized": false,
+    "import_peak_rss_kib": 36288,
+    "compile_peak_rss_kib": 38464,
+    "process_peak_rss_kib": 55224,
+    "batches": [
+      {
+        "seconds": 0.890891000861302,
+        "accepted": 103674
+      },
+      {
+        "seconds": 0.8923948439769447,
+        "accepted": 103693
+      },
+      {
+        "seconds": 0.9106241129338741,
+        "accepted": 103630
+      }
+    ],
+    "median_seconds_per_attempt": 6.808432342353399e-06,
+    "skipped_dense_allocation": false
+  },
+  {
+    "mode": "disabled",
+    "distance": 3,
+    "early": false,
+    "shots": 131072,
+    "circuit_sha256": "8254687fbff582b466ad1f037fd5128046e2415b23b765d2f66f989eadd0be73",
+    "cpu": 0,
+    "package": "/tmp/folded-bench-current",
+    "extension_sha256": "9d1118e4e30b06f5ffd957a7761738496a9c4d5f21ab7f92546633df6d1f2e57",
+    "python": "3.13.11",
+    "compile_seconds": 0.0039727499242872,
+    "peak_active_width": 8,
+    "specialized": false,
+    "import_peak_rss_kib": 36604,
+    "compile_peak_rss_kib": 38780,
+    "process_peak_rss_kib": 55452,
+    "batches": [
+      {
+        "seconds": 0.8723147951532155,
+        "accepted": 103674
+      },
+      {
+        "seconds": 0.8517675958573818,
+        "accepted": 103693
+      },
+      {
+        "seconds": 0.8719923649914563,
+        "accepted": 103630
+      }
+    ],
+    "median_seconds_per_attempt": 6.65277378075757e-06,
+    "skipped_dense_allocation": false
+  },
+  {
+    "mode": "ordinary",
+    "distance": 3,
+    "early": false,
+    "shots": 131072,
+    "circuit_sha256": "8254687fbff582b466ad1f037fd5128046e2415b23b765d2f66f989eadd0be73",
+    "cpu": 0,
+    "package": "/tmp/folded-bench-parent",
+    "extension_sha256": "9c2f872ddae5b5beb6b6b4ce01bec5b0d9bd2cad29b9e1d7cca24cbfaf2b61fb",
+    "python": "3.13.11",
+    "compile_seconds": 0.006551353959366679,
+    "peak_active_width": 8,
+    "specialized": false,
+    "import_peak_rss_kib": 36276,
+    "compile_peak_rss_kib": 38324,
+    "process_peak_rss_kib": 55012,
+    "batches": [
+      {
+        "seconds": 0.9428283451125026,
+        "accepted": 103674
+      },
+      {
+        "seconds": 0.85023631202057,
+        "accepted": 103693
+      },
+      {
+        "seconds": 0.9092198819853365,
+        "accepted": 103630
+      }
+    ],
+    "median_seconds_per_attempt": 6.936797195322697e-06,
+    "skipped_dense_allocation": false
+  }
+]

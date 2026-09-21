@@ -1,0 +1,438 @@
+[
+  {
+    "mode": "scheduled",
+    "distance": 3,
+    "early": false,
+    "shots": 131072,
+    "circuit_sha256": "8254687fbff582b466ad1f037fd5128046e2415b23b765d2f66f989eadd0be73",
+    "cpu": 0,
+    "package": "/tmp/clifft-pr471-package",
+    "extension_sha256": "ed8513257795a915f1c29b5f8eeac5a6e25c673d4585e4c1b1338355741df854",
+    "python": "3.13.11",
+    "compile_seconds": 0.00910675316117704,
+    "peak_active_width": 8,
+    "specialized": false,
+    "import_peak_rss_kib": 36716,
+    "compile_peak_rss_kib": 38764,
+    "process_peak_rss_kib": 55440,
+    "batches": [
+      {
+        "seconds": 0.5577119819354266,
+        "accepted": 103674
+      },
+      {
+        "seconds": 0.5504383819643408,
+        "accepted": 103693
+      },
+      {
+        "seconds": 0.5481205631513149,
+        "accepted": 103630
+      }
+    ],
+    "median_seconds_per_attempt": 4.19951158114884e-06,
+    "skipped_dense_allocation": false
+  },
+  {
+    "mode": "specialized",
+    "distance": 3,
+    "early": false,
+    "shots": 2048,
+    "circuit_sha256": "8254687fbff582b466ad1f037fd5128046e2415b23b765d2f66f989eadd0be73",
+    "cpu": 0,
+    "package": "/tmp/folded-bench-current",
+    "extension_sha256": "9d1118e4e30b06f5ffd957a7761738496a9c4d5f21ab7f92546633df6d1f2e57",
+    "python": "3.13.11",
+    "compile_seconds": 0.049920614110305905,
+    "peak_active_width": 1,
+    "specialized": true,
+    "import_peak_rss_kib": 36444,
+    "compile_peak_rss_kib": 40028,
+    "process_peak_rss_kib": 41948,
+    "batches": [
+      {
+        "seconds": 0.4623384771402925,
+        "accepted": 1630
+      },
+      {
+        "seconds": 0.4563430359121412,
+        "accepted": 1623
+      },
+      {
+        "seconds": 0.46696925489231944,
+        "accepted": 1639
+      }
+    ],
+    "median_seconds_per_attempt": 0.00022575120954115846,
+    "skipped_dense_allocation": false
+  },
+  {
+    "mode": "scheduled",
+    "distance": 3,
+    "early": true,
+    "shots": 131072,
+    "circuit_sha256": "8254687fbff582b466ad1f037fd5128046e2415b23b765d2f66f989eadd0be73",
+    "cpu": 0,
+    "package": "/tmp/clifft-pr471-package",
+    "extension_sha256": "ed8513257795a915f1c29b5f8eeac5a6e25c673d4585e4c1b1338355741df854",
+    "python": "3.13.11",
+    "compile_seconds": 0.010643495945259929,
+    "peak_active_width": 8,
+    "specialized": false,
+    "import_peak_rss_kib": 36788,
+    "compile_peak_rss_kib": 38708,
+    "process_peak_rss_kib": 54384,
+    "batches": [
+      {
+        "seconds": 0.5033807530999184,
+        "accepted": 103674
+      },
+      {
+        "seconds": 0.5158811989240348,
+        "accepted": 103694
+      },
+      {
+        "seconds": 0.4852572539821267,
+        "accepted": 103630
+      }
+    ],
+    "median_seconds_per_attempt": 3.840490364837024e-06,
+    "skipped_dense_allocation": false
+  },
+  {
+    "mode": "specialized",
+    "distance": 3,
+    "early": true,
+    "shots": 2048,
+    "circuit_sha256": "8254687fbff582b466ad1f037fd5128046e2415b23b765d2f66f989eadd0be73",
+    "cpu": 0,
+    "package": "/tmp/folded-bench-current",
+    "extension_sha256": "9d1118e4e30b06f5ffd957a7761738496a9c4d5f21ab7f92546633df6d1f2e57",
+    "python": "3.13.11",
+    "compile_seconds": 0.04523327900096774,
+    "peak_active_width": 1,
+    "specialized": true,
+    "import_peak_rss_kib": 36940,
+    "compile_peak_rss_kib": 40268,
+    "process_peak_rss_kib": 42188,
+    "batches": [
+      {
+        "seconds": 0.3824038340244442,
+        "accepted": 1630
+      },
+      {
+        "seconds": 0.3821883068885654,
+        "accepted": 1623
+      },
+      {
+        "seconds": 0.38150446908548474,
+        "accepted": 1639
+      }
+    ],
+    "median_seconds_per_attempt": 0.00018661538422293233,
+    "skipped_dense_allocation": false
+  },
+  {
+    "mode": "scheduled",
+    "distance": 5,
+    "early": false,
+    "shots": 16,
+    "circuit_sha256": "b9e261d861fc691c1586822d4d334a2e3d3888cc2733df641e0cbd17279cc40c",
+    "cpu": 0,
+    "package": "/tmp/clifft-pr471-package",
+    "extension_sha256": "ed8513257795a915f1c29b5f8eeac5a6e25c673d4585e4c1b1338355741df854",
+    "python": "3.13.11",
+    "compile_seconds": 0.23924142005853355,
+    "peak_active_width": 22,
+    "specialized": false,
+    "import_peak_rss_kib": 36428,
+    "compile_peak_rss_kib": 47688,
+    "process_peak_rss_kib": 111592,
+    "batches": [
+      {
+        "seconds": 5.439445673953742,
+        "accepted": 3
+      },
+      {
+        "seconds": 5.421304465038702,
+        "accepted": 7
+      },
+      {
+        "seconds": 5.479672989109531,
+        "accepted": 9
+      }
+    ],
+    "median_seconds_per_attempt": 0.33996535462210886,
+    "skipped_dense_allocation": false
+  },
+  {
+    "mode": "specialized",
+    "distance": 5,
+    "early": false,
+    "shots": 128,
+    "circuit_sha256": "b9e261d861fc691c1586822d4d334a2e3d3888cc2733df641e0cbd17279cc40c",
+    "cpu": 0,
+    "package": "/tmp/folded-bench-current",
+    "extension_sha256": "9d1118e4e30b06f5ffd957a7761738496a9c4d5f21ab7f92546633df6d1f2e57",
+    "python": "3.13.11",
+    "compile_seconds": 0.38594190403819084,
+    "peak_active_width": 8,
+    "specialized": true,
+    "import_peak_rss_kib": 36368,
+    "compile_peak_rss_kib": 51396,
+    "process_peak_rss_kib": 51524,
+    "batches": [
+      {
+        "seconds": 0.5064495808910578,
+        "accepted": 42
+      },
+      {
+        "seconds": 0.5087862371001393,
+        "accepted": 57
+      },
+      {
+        "seconds": 0.4980869269929826,
+        "accepted": 58
+      }
+    ],
+    "median_seconds_per_attempt": 0.0039566373507113894,
+    "skipped_dense_allocation": false
+  },
+  {
+    "mode": "scheduled",
+    "distance": 5,
+    "early": true,
+    "shots": 16,
+    "circuit_sha256": "b9e261d861fc691c1586822d4d334a2e3d3888cc2733df641e0cbd17279cc40c",
+    "cpu": 0,
+    "package": "/tmp/clifft-pr471-package",
+    "extension_sha256": "ed8513257795a915f1c29b5f8eeac5a6e25c673d4585e4c1b1338355741df854",
+    "python": "3.13.11",
+    "compile_seconds": 0.23165004700422287,
+    "peak_active_width": 22,
+    "specialized": false,
+    "import_peak_rss_kib": 37684,
+    "compile_peak_rss_kib": 48300,
+    "process_peak_rss_kib": 112424,
+    "batches": [
+      {
+        "seconds": 2.5248319879174232,
+        "accepted": 3
+      },
+      {
+        "seconds": 3.0135021910537034,
+        "accepted": 7
+      },
+      {
+        "seconds": 3.8114867659751326,
+        "accepted": 9
+      }
+    ],
+    "median_seconds_per_attempt": 0.18834388694085646,
+    "skipped_dense_allocation": false
+  },
+  {
+    "mode": "specialized",
+    "distance": 5,
+    "early": true,
+    "shots": 128,
+    "circuit_sha256": "b9e261d861fc691c1586822d4d334a2e3d3888cc2733df641e0cbd17279cc40c",
+    "cpu": 0,
+    "package": "/tmp/folded-bench-current",
+    "extension_sha256": "9d1118e4e30b06f5ffd957a7761738496a9c4d5f21ab7f92546633df6d1f2e57",
+    "python": "3.13.11",
+    "compile_seconds": 0.3807858780492097,
+    "peak_active_width": 8,
+    "specialized": true,
+    "import_peak_rss_kib": 37808,
+    "compile_peak_rss_kib": 51664,
+    "process_peak_rss_kib": 51792,
+    "batches": [
+      {
+        "seconds": 0.3389001509640366,
+        "accepted": 42
+      },
+      {
+        "seconds": 0.3033641311340034,
+        "accepted": 57
+      },
+      {
+        "seconds": 0.32623928296379745,
+        "accepted": 58
+      }
+    ],
+    "median_seconds_per_attempt": 0.0025487443981546676,
+    "skipped_dense_allocation": false
+  },
+  {
+    "mode": "scheduled",
+    "distance": 7,
+    "early": false,
+    "shots": 16,
+    "circuit_sha256": "fff72e8f48a0509a00d52133d8cb334a1743fc7c74ce1f40eeeccc9785909545",
+    "cpu": 0,
+    "package": "/tmp/clifft-pr471-package",
+    "extension_sha256": "ed8513257795a915f1c29b5f8eeac5a6e25c673d4585e4c1b1338355741df854",
+    "python": "3.13.11",
+    "compile_seconds": 4.1788857420906425,
+    "peak_active_width": 44,
+    "specialized": false,
+    "import_peak_rss_kib": 36768,
+    "compile_peak_rss_kib": 93828,
+    "process_peak_rss_kib": 93828,
+    "batches": [],
+    "median_seconds_per_attempt": null,
+    "skipped_dense_allocation": true
+  },
+  {
+    "mode": "specialized",
+    "distance": 7,
+    "early": false,
+    "shots": 8,
+    "circuit_sha256": "fff72e8f48a0509a00d52133d8cb334a1743fc7c74ce1f40eeeccc9785909545",
+    "cpu": 0,
+    "package": "/tmp/folded-bench-current",
+    "extension_sha256": "9d1118e4e30b06f5ffd957a7761738496a9c4d5f21ab7f92546633df6d1f2e57",
+    "python": "3.13.11",
+    "compile_seconds": 5.804114424157888,
+    "peak_active_width": 22,
+    "specialized": true,
+    "import_peak_rss_kib": 36484,
+    "compile_peak_rss_kib": 136904,
+    "process_peak_rss_kib": 193292,
+    "batches": [
+      {
+        "seconds": 6.676286932779476,
+        "accepted": 0
+      },
+      {
+        "seconds": 6.636344073107466,
+        "accepted": 1
+      },
+      {
+        "seconds": 6.783745187101886,
+        "accepted": 1
+      }
+    ],
+    "median_seconds_per_attempt": 0.8345358665974345,
+    "skipped_dense_allocation": false
+  },
+  {
+    "mode": "scheduled",
+    "distance": 7,
+    "early": true,
+    "shots": 16,
+    "circuit_sha256": "fff72e8f48a0509a00d52133d8cb334a1743fc7c74ce1f40eeeccc9785909545",
+    "cpu": 0,
+    "package": "/tmp/clifft-pr471-package",
+    "extension_sha256": "ed8513257795a915f1c29b5f8eeac5a6e25c673d4585e4c1b1338355741df854",
+    "python": "3.13.11",
+    "compile_seconds": 4.018997081089765,
+    "peak_active_width": 44,
+    "specialized": false,
+    "import_peak_rss_kib": 38788,
+    "compile_peak_rss_kib": 94956,
+    "process_peak_rss_kib": 94956,
+    "batches": [],
+    "median_seconds_per_attempt": null,
+    "skipped_dense_allocation": true
+  },
+  {
+    "mode": "specialized",
+    "distance": 7,
+    "early": true,
+    "shots": 8,
+    "circuit_sha256": "fff72e8f48a0509a00d52133d8cb334a1743fc7c74ce1f40eeeccc9785909545",
+    "cpu": 0,
+    "package": "/tmp/folded-bench-current",
+    "extension_sha256": "9d1118e4e30b06f5ffd957a7761738496a9c4d5f21ab7f92546633df6d1f2e57",
+    "python": "3.13.11",
+    "compile_seconds": 5.790908976923674,
+    "peak_active_width": 22,
+    "specialized": true,
+    "import_peak_rss_kib": 38912,
+    "compile_peak_rss_kib": 136872,
+    "process_peak_rss_kib": 197436,
+    "batches": [
+      {
+        "seconds": 4.6407022010535,
+        "accepted": 0
+      },
+      {
+        "seconds": 5.057831230107695,
+        "accepted": 1
+      },
+      {
+        "seconds": 5.37854162696749,
+        "accepted": 1
+      }
+    ],
+    "median_seconds_per_attempt": 0.6322289037634619,
+    "skipped_dense_allocation": false
+  },
+  {
+    "mode": "ordinary",
+    "distance": 3,
+    "early": false,
+    "shots": 131072,
+    "circuit_sha256": "8254687fbff582b466ad1f037fd5128046e2415b23b765d2f66f989eadd0be73",
+    "cpu": 0,
+    "package": "/tmp/folded-bench-parent",
+    "extension_sha256": "9c2f872ddae5b5beb6b6b4ce01bec5b0d9bd2cad29b9e1d7cca24cbfaf2b61fb",
+    "python": "3.13.11",
+    "compile_seconds": 0.003005972132086754,
+    "peak_active_width": 8,
+    "specialized": false,
+    "import_peak_rss_kib": 36996,
+    "compile_peak_rss_kib": 38788,
+    "process_peak_rss_kib": 55512,
+    "batches": [
+      {
+        "seconds": 0.89211455010809,
+        "accepted": 103674
+      },
+      {
+        "seconds": 0.8686844559852034,
+        "accepted": 103693
+      },
+      {
+        "seconds": 0.8638448799028993,
+        "accepted": 103630
+      }
+    ],
+    "median_seconds_per_attempt": 6.627536437875392e-06,
+    "skipped_dense_allocation": false
+  },
+  {
+    "mode": "disabled",
+    "distance": 3,
+    "early": false,
+    "shots": 131072,
+    "circuit_sha256": "8254687fbff582b466ad1f037fd5128046e2415b23b765d2f66f989eadd0be73",
+    "cpu": 0,
+    "package": "/tmp/folded-bench-current",
+    "extension_sha256": "9d1118e4e30b06f5ffd957a7761738496a9c4d5f21ab7f92546633df6d1f2e57",
+    "python": "3.13.11",
+    "compile_seconds": 0.004936432931572199,
+    "peak_active_width": 8,
+    "specialized": false,
+    "import_peak_rss_kib": 36464,
+    "compile_peak_rss_kib": 38640,
+    "process_peak_rss_kib": 55316,
+    "batches": [
+      {
+        "seconds": 0.9126979229040444,
+        "accepted": 103674
+      },
+      {
+        "seconds": 0.8994601198937744,
+        "accepted": 103693
+      },
+      {
+        "seconds": 0.887396999169141,
+        "accepted": 103630
+      }
+    ],
+    "median_seconds_per_attempt": 6.862336119795032e-06,
+    "skipped_dense_allocation": false
+  }
+]
