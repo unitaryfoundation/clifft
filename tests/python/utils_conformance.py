@@ -7,7 +7,6 @@ from typing import Any
 
 import numpy as np
 import numpy.typing as npt
-from utils_qiskit import qiskit_statevector, stim_to_qiskit_noiseless
 
 import clifft
 
@@ -63,6 +62,10 @@ CPU_SAMPLING_MODES = (
 @lru_cache(maxsize=256)
 def unitary_reference(source: str) -> npt.NDArray[np.complex128]:
     """Calculate once per source per worker, independently of compiler profiles."""
+    # Loading Aer before Clifft can change OpenMP initialization on macOS.
+    # CPU sampling fixtures need no reference simulator at import time.
+    from utils_qiskit import qiskit_statevector, stim_to_qiskit_noiseless
+
     state = qiskit_statevector(stim_to_qiskit_noiseless(source))
     state.setflags(write=False)
     return state
