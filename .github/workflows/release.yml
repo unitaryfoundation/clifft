@@ -119,13 +119,13 @@ jobs:
             python {project}/.github/scripts/artifact_smoke.py --exercise-intra-shot
             &&
             python {project}/tools/ci/audit_python_exports.py
-          # Test the repaired wheel's bundled runtime, not the source build.
+          # Test the wheel's private static runtime, not the source build.
           CIBW_TEST_COMMAND_MACOS: >-
             python {project}/.github/scripts/artifact_smoke.py --exercise-intra-shot
             &&
             python {project}/tools/ci/audit_python_exports.py
 
-      - name: Audit bundled macOS OpenMP runtime
+      - name: Audit private macOS OpenMP runtime
         if: matrix.os == 'macos-14'
         run: python3 tools/ci/audit_macos_wheel.py wheelhouse/*.whl
 

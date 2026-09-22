@@ -73,6 +73,13 @@ SKBUILD_CMAKE_ARGS="-DCLIFFT_OPENMP=ON -DOpenMP_ROOT=$(brew --prefix libomp)" \
   uv pip install -e .
 ```
 
+macOS Python builds link `libomp.a` from the selected runtime's library
+directory and keep its symbols private to the extension. Homebrew `libomp`
+includes this archive. This prevents macOS from mixing internal functions
+from different OpenMP versions when another package, such as Qiskit Aer,
+loads its own runtime. Standalone C++ builds retain the toolchain's normal
+OpenMP linkage.
+
 ### Runtime kernel dispatch
 
 On supported x86 GNU/Clang builds, the scalar, AVX2, and AVX-512 executor

@@ -138,6 +138,27 @@ if(NOT CLIFFT_OPENMP STREQUAL "OFF")
         endif()
         find_package(OpenMP QUIET)
         if(OpenMP_CXX_FOUND)
+            if(APPLE AND SKBUILD)
+                # dyld coalesces weak C++ symbols across distinct libomp dylibs,
+                # mixing incompatible runtime internals with packages such as Aer.
+                # The extension's export list keeps a static runtime private.
+                set(_CLIFFT_OPENMP_PYTHON_LIBRARIES "")
+                foreach(_CLIFFT_OPENMP_LIBRARY IN LISTS OpenMP_CXX_LIBRARIES)
+                    if(_CLIFFT_OPENMP_LIBRARY MATCHES "/libomp\\.(dylib|a)$")
+                        get_filename_component(_CLIFFT_OPENMP_DIRECTORY
+                            "${_CLIFFT_OPENMP_LIBRARY}" DIRECTORY)
+                        set(_CLIFFT_OPENMP_LIBRARY "${_CLIFFT_OPENMP_DIRECTORY}/libomp.a")
+                        if(NOT EXISTS "${_CLIFFT_OPENMP_LIBRARY}")
+                            message(FATAL_ERROR
+                                "macOS Python builds require libomp.a beside the OpenMP runtime. "
+                                "Install Homebrew libomp or configure CLIFFT_OPENMP=OFF.")
+                        endif()
+                    endif()
+                    list(APPEND _CLIFFT_OPENMP_PYTHON_LIBRARIES "${_CLIFFT_OPENMP_LIBRARY}")
+                endforeach()
+                set_property(TARGET OpenMP::OpenMP_CXX PROPERTY INTERFACE_LINK_LIBRARIES
+                    "${_CLIFFT_OPENMP_PYTHON_LIBRARIES}")
+            endif()
             set(CLIFFT_OPENMP_ENABLED ON)
         elseif(CLIFFT_OPENMP STREQUAL "ON")
             message(FATAL_ERROR "CLIFFT_OPENMP=ON requested, but OpenMP C++ support was not found")
