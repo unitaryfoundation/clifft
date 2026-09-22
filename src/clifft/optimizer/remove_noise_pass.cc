@@ -31,6 +31,9 @@ void RemoveNoisePass::run(HirModule& hir) {
     // be dropped without dropping the arena itself. Replace with an empty
     // arena so the slots don't sit around as dead weight after removal.
     hir.noise_channel_masks = PauliMaskArena{};
+    // With every noise site gone there is nothing left for a logical
+    // position to correct for.
+    hir.logical_noise_prefix.clear();
 }
 
 }  // namespace clifft
