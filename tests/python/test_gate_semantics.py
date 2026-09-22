@@ -1,7 +1,10 @@
 """End-to-end semantics for Stim gates absorbed by the Clifford frontend."""
 
 import numpy as np
+import pytest
+import stim
 from conftest import assert_statevectors_equiv
+from utils_conformance import CpuSamplingMode
 
 import clifft
 
@@ -10,8 +13,10 @@ def _statevector(circuit: str) -> np.ndarray:
     return np.asarray(clifft.get_statevector(clifft.compile(circuit)))
 
 
-def _measurements(circuit: str, *, seed: int = 1) -> np.ndarray:
-    return np.asarray(clifft.sample(clifft.compile(circuit), 1, seed=seed).measurements[0])
+def _measurements(sampling_mode: CpuSamplingMode, circuit: str, *, seed: int = 1) -> np.ndarray:
+    return np.asarray(
+        sampling_mode.sample(sampling_mode.compile(circuit), 65, seed=seed).measurements
+    )
 
 
 def _assert_statevectors_equivalent(actual_circuit: str, expected_circuit: str) -> None:
@@ -152,26 +157,58 @@ def test_exact_clifford_rotations_match_named_gates() -> None:
     _assert_statevectors_equivalent("H 0\nR_Z(1.5) 0", "H 0\nS_DAG 0")
 
 
-def test_mpad_and_inverted_measurements() -> None:
-    np.testing.assert_array_equal(_measurements("MPAD 1 0 1 0"), [1, 0, 1, 0])
-    np.testing.assert_array_equal(_measurements("MPAD !0 !1"), [1, 0])
-    np.testing.assert_array_equal(_measurements("M !0"), [1])
+def test_mpad_and_inverted_measurements(sampling_mode: CpuSamplingMode) -> None:
+    np.testing.assert_array_equal(
+        _measurements(sampling_mode, "MPAD 1 0 1 0"), np.tile([1, 0, 1, 0], (65, 1))
+    )
+    np.testing.assert_array_equal(
+        _measurements(sampling_mode, "MPAD !0 !1"), np.tile([1, 0], (65, 1))
+    )
+    np.testing.assert_array_equal(_measurements(sampling_mode, "M !0"), np.ones((65, 1)))
 
 
-def test_pair_measurement_aliases_match_mpp() -> None:
+def test_pair_measurement_aliases_match_mpp(sampling_mode: CpuSamplingMode) -> None:
     preparations = {
         "XX": "H 0\nCX 0 1",
         "YY": "H 0\nCX 0 1",
         "ZZ": "H 0\nCX 0 1",
     }
     for basis, preparation in preparations.items():
-        pair = _measurements(f"{preparation}\nM{basis} 0 1")
-        product = _measurements(f"{preparation}\nMPP {basis[0]}0*{basis[1]}1")
+        pair = _measurements(sampling_mode, f"{preparation}\nM{basis} 0 1")
+        product = _measurements(sampling_mode, f"{preparation}\nMPP {basis[0]}0*{basis[1]}1")
         np.testing.assert_array_equal(pair, product)
 
 
-def test_y_reset_uses_a_z_correction() -> None:
+def test_y_reset_uses_a_z_correction(sampling_mode: CpuSamplingMode) -> None:
     for seed in range(20):
-        assert _measurements("S 0\nH 0\nRY 0\nMY 0", seed=seed)[0] == 0
-        assert _measurements("S 0\nH 0\nMRY 0\nMY 0", seed=seed)[1] == 0
-        assert _measurements("H 0\nCX 0 1\nRY 0\nMY 0\nM 1", seed=seed)[0] == 0
+        assert np.all(_measurements(sampling_mode, "S 0\nH 0\nRY 0\nMY 0", seed=seed)[:, 0] == 0)
+        assert np.all(_measurements(sampling_mode, "S 0\nH 0\nMRY 0\nMY 0", seed=seed)[:, 1] == 0)
+        assert np.all(
+            _measurements(sampling_mode, "H 0\nCX 0 1\nRY 0\nMY 0\nM 1", seed=seed)[:, 0] == 0
+        )
+
+
+@pytest.mark.parametrize(
+    "axis,preparation,flip",
+    [("", "I 0", "X 0"), ("X", "H 0", "Z 0"), ("Y", "H 0\nS 0", "Z 0")],
+    ids=["z", "x", "y"],
+)
+def test_readout_noise_and_resets_preserve_measurement_records(
+    sampling_mode: CpuSamplingMode, axis: str, preparation: str, flip: str
+) -> None:
+    circuit = f"""
+        {preparation}
+        M{axis}(1) 0
+        MR{axis} 0
+        M{axis} 0
+        {flip}
+        R{axis} 0
+        M{axis} 0
+    """
+    actual = _measurements(sampling_mode, circuit)
+    reference = stim.Circuit(circuit).compile_sampler(seed=1).sample(65)
+
+    # Readout noise changes the record without changing the measured eigenstate;
+    # the hidden measurement in R must not appear in the visible record.
+    np.testing.assert_array_equal(actual, np.tile([1, 0, 0, 0], (65, 1)))
+    np.testing.assert_array_equal(actual, reference)

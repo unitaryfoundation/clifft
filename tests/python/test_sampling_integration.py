@@ -136,12 +136,14 @@ def test_compile_returns_public_program() -> None:
     assert program.num_actions > 0
 
 
-def test_expectation_probes_are_available_through_public_api() -> None:
-    program = clifft.compile("EXP_VAL X0 Z0")
-    result = clifft.sample(program, 3, seed=1)
+def test_expectation_probes_are_available_through_public_api(
+    sampling_mode: CpuSamplingMode,
+) -> None:
+    program = sampling_mode.compile("EXP_VAL X0 Z0")
+    result = sampling_mode.sample(program, 65, seed=1)
 
     assert program.num_exp_vals == 2
-    np.testing.assert_allclose(result.exp_vals, [[0.0, 1.0]] * 3, atol=1e-12)
+    np.testing.assert_allclose(result.exp_vals, [[0.0, 1.0]] * 65, atol=1e-12)
 
 
 def test_noise_readout_feedback_and_syndrome_share_one_symbolic_record(
@@ -238,15 +240,17 @@ def test_representative_qec_fixtures_execute(fixture: str) -> None:
     assert result.observables.shape == (1, program.num_observables)
 
 
-def test_generated_surface_code_executes_with_reference_normalization() -> None:
+def test_generated_surface_code_executes_with_reference_normalization(
+    sampling_mode: CpuSamplingMode,
+) -> None:
     circuit = stim.Circuit.generated(
         "surface_code:rotated_memory_x",
         distance=3,
         rounds=3,
         after_clifford_depolarization=0.001,
     )
-    program = clifft.compile(str(circuit), normalize_syndromes=True)
-    result = clifft.sample(program, shots=2, seed=5)
+    program = sampling_mode.compile(str(circuit), normalize_syndromes=True)
+    result = sampling_mode.sample(program, shots=65, seed=5)
 
-    assert result.detectors.shape == (2, circuit.num_detectors)
-    assert result.observables.shape == (2, circuit.num_observables)
+    assert result.detectors.shape == (65, circuit.num_detectors)
+    assert result.observables.shape == (65, circuit.num_observables)

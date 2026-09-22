@@ -1,14 +1,11 @@
 """Independent reference checks for noise around postselection."""
 
 import numpy as np
-import pytest
 import stim
+from utils_conformance import CpuSamplingMode
 
-import clifft
 
-
-@pytest.mark.parametrize("batch_size", [1, 2048])
-def test_noise_preserves_conditioned_joint_distribution(batch_size):
+def test_noise_preserves_conditioned_joint_distribution(sampling_mode: CpuSamplingMode) -> None:
     text = """
         CORRELATED_ERROR(0.25) X0 X1
         ELSE_CORRELATED_ERROR(0.25) X1
@@ -29,13 +26,9 @@ def test_noise_preserves_conditioned_joint_distribution(batch_size):
     shots = 100000
     reference = stim.Circuit(text).compile_sampler(seed=23).sample(shots)
     reference = reference[~np.any(reference[:, :2], axis=1)]
-    program = clifft.compile(text, postselection_mask=[1, 1])
-    result = clifft.sample_survivors(
-        program, shots=shots, seed=25, keep_records=True, batch_size=batch_size
-    )
-    repeated = clifft.sample_survivors(
-        program, shots=shots, seed=25, keep_records=True, batch_size=batch_size
-    )
+    program = sampling_mode.compile(text, postselection_mask=[1, 1])
+    result = sampling_mode.sample_survivors(program, shots=shots, seed=25, keep_records=True)
+    repeated = sampling_mode.sample_survivors(program, shots=shots, seed=25, keep_records=True)
     assert np.array_equal(result.measurements, repeated.measurements)
     assert not np.any(result.detectors)
     assert abs(result.passed_shots - len(reference)) < 6 * np.sqrt(shots * 0.25)
@@ -48,7 +41,7 @@ def test_noise_preserves_conditioned_joint_distribution(batch_size):
     assert np.all(np.abs(actual - expected) <= 6 * np.sqrt(variance) + 0.001)
 
 
-def test_noise_preserves_noisy_nonclifford_interference():
+def test_noise_preserves_noisy_nonclifford_interference(sampling_mode: CpuSamplingMode) -> None:
     from qiskit import QuantumCircuit
     from qiskit_aer import AerSimulator
 
@@ -64,10 +57,8 @@ def test_noise_preserves_noisy_nonclifford_interference():
         H 1
         M 1
     """
-    program = clifft.compile(text, postselection_mask=[1])
-    result = clifft.sample_survivors(
-        program, shots=100000, seed=26, keep_records=True, batch_size=1
-    )
+    program = sampling_mode.compile(text, postselection_mask=[1])
+    result = sampling_mode.sample_survivors(program, shots=100000, seed=26, keep_records=True)
     probabilities = []
     for error in [False, True]:
         circuit = QuantumCircuit(1)
