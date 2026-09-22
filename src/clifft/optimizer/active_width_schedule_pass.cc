@@ -44,6 +44,19 @@ namespace {
 // does not re-run is_expanding on an op whose verdict cannot have changed.
 // ---------------------------------------------------------------------------
 
+// Only executions control beam narrowing. Count closure probes separately:
+// an expansion can be queried repeatedly without executing.
+struct SearchWork {
+    std::optional<double> limit;
+    size_t swept_ops = 0;
+    size_t probes = 0;
+
+    [[nodiscard]] bool greedy() const { return limit && static_cast<double>(swept_ops) > *limit; }
+    [[nodiscard]] bool narrow() const {
+        return limit && static_cast<double>(swept_ops) > 0.5 * *limit;
+    }
+};
+
 // True when executing `op` against `subspace` would raise the active width:
 // a T_GATE/PHASE_ROTATION whose axis does not commute with every generator
 // of S, or an INSTRUMENT that takes the Activate branch (see
@@ -150,6 +163,8 @@ class SearchFrontier {
     // above for why a const method may cache this and why the cache never
     // changes which op a scan returns.
     [[nodiscard]] uint32_t lowest_ready() const;
+
+    [[nodiscard]] bool has_single_ready() const;
 
     // Expanding memo for the closure sweep in progress; see the class
     // comment for why a hit is exact and when it must be reset.
@@ -260,6 +275,20 @@ uint32_t SearchFrontier::lowest_ready() const {
     return lowest_ready_hint_;
 }
 
+bool SearchFrontier::has_single_ready() const {
+    const uint32_t first = lowest_ready();
+    if (first == num_ops() || !std::has_single_bit(ready_bits_[first / 64])) {
+        return false;
+    }
+    // Stop on a second nonempty word instead of allocating a ready-op snapshot.
+    for (size_t word = first / 64 + 1; word < ready_bits_.size(); ++word) {
+        if (ready_bits_[word] != 0) {
+            return false;
+        }
+    }
+    return true;
+}
+
 void SearchFrontier::reset_expanding_memo() {
     // O(n/64) words, not the O(n) walk a per-op reset would cost; this runs
     // once per closure sweep entry and once per MeasureDormantRandom step
@@ -347,9 +376,10 @@ void undo_all(SearchFrontier& frontier, const std::vector<UndoStep>& log,
 }
 
 // Lowest-index ready op that is not expanding, or nullopt when every
-// currently ready op (if any) is expanding.
+// currently ready op is expanding.
 std::optional<uint32_t> find_ready_non_expanding(const HirModule& hir, SearchFrontier& frontier,
-                                                 const DormantSubspace& subspace) {
+                                                 const DormantSubspace& subspace,
+                                                 SearchWork& work) {
     // first_candidate() scans ready_bits_ & ~known_expanding_bits_ a word at
     // a time (see SearchFrontier), so it already excludes every op the memo
     // has found expanding; the op it returns is the same lowest-index
@@ -359,6 +389,7 @@ std::optional<uint32_t> find_ready_non_expanding(const HirModule& hir, SearchFro
     // one is_expanding has not yet classified this sweep, so it always runs
     // fresh.
     while (const std::optional<uint32_t> op = frontier.first_candidate()) {
+        ++work.probes;
         if (is_expanding(hir, hir.ops[*op], subspace)) {
             frontier.note_expanding(*op);
             continue;
@@ -368,49 +399,43 @@ std::optional<uint32_t> find_ready_non_expanding(const HirModule& hir, SearchFro
     return std::nullopt;
 }
 
-// Executes every ready non-expanding op, lowest index first, until none is
-// ready: the closure step the closure invariant above justifies. Appends
-// each executed op, in execution order, to `order` and logs it in `log`
-// (backed by `newly_ready_log`, which every logged step's execute() call
-// appends to) for the caller to undo later if needed. When `transitions` is
-// non-null, each executed op's classification (before/after width and
-// effect) is appended to it in the same order, so a caller that needs
-// per-op dense-work contributions (the scheduling pass) can accumulate them
-// without a second pass over the same ops; a caller that only needs width
-// leaves this null.
-//
-// The frontier's expanding memo is reset on entry, since the caller may
-// have just executed an expanding op (which shrinks the subspace) or be
-// sweeping a different subspace than the frontier's last sweep saw, and
-// again after every MeasureDormantRandom step, the only shrinking effect a
-// sweep can execute; see SearchFrontier for why every other effect keeps a
-// memoized verdict valid.
-//
-// `swept_ops` accumulates one count per op this sweep executes: the budget
-// ActiveWidthScheduleOptions::search_budget bounds is measured in exactly
-// this quantity, summed across every closure sweep and candidate replay in
-// a run_beam_search call (see run_beam_search), so that the search's cost
-// limit is reproducible across machines instead of depending on wall-clock
-// speed.
+// Closure has just proved that this rotation commutes with S. Applying it
+// cannot change S, so only the stabilizer-versus-active membership test remains.
+WidthTransition apply_non_expanding(const HirModule& hir, const HeisenbergOp& op,
+                                    DormantSubspace& subspace) {
+    if (op.op_type() == OpType::T_GATE || op.op_type() == OpType::PHASE_ROTATION) {
+        const uint32_t width = subspace.active_width();
+        const bool stabilizer = subspace.contains(hir.destab_mask(op), hir.stab_mask(op));
+        return {width, width,
+                stabilizer ? WidthEffect::RotationStabilizer : WidthEffect::RotationNeutral};
+    }
+    return classify_and_apply(hir, op, subspace);
+}
+
+// Close the state. Log executions for speculative
+// undo and accumulate cost directly, avoiding an intermediate transition list.
+// Reset the expanding memo on entry and after MeasureDormantRandom: these are
+// the only points where S can shrink and invalidate a cached expansion verdict.
 void run_closure(const HirModule& hir, SearchFrontier& frontier, DormantSubspace& subspace,
                  std::vector<uint32_t>& order, std::vector<UndoStep>& log,
-                 std::vector<uint32_t>& newly_ready_log, size_t& swept_ops,
-                 std::vector<WidthTransition>* transitions = nullptr) {
+                 std::vector<uint32_t>& newly_ready_log, SearchWork& work, uint32_t& peak,
+                 double& dense_work) {
     frontier.reset_expanding_memo();
-    while (const std::optional<uint32_t> op = find_ready_non_expanding(hir, frontier, subspace)) {
+    while (const std::optional<uint32_t> op =
+               find_ready_non_expanding(hir, frontier, subspace, work)) {
         const uint32_t newly_ready_count = frontier.execute(*op, newly_ready_log);
         log.push_back(UndoStep{*op, newly_ready_count});
         order.push_back(*op);
-        ++swept_ops;
-        const WidthTransition transition = classify_and_apply(hir, hir.ops[*op], subspace);
+        ++work.swept_ops;
+        const WidthTransition transition = apply_non_expanding(hir, hir.ops[*op], subspace);
         assert(!is_expanding_effect(transition.effect) &&
                "find_ready_non_expanding chose an op classify_and_apply treats as expanding");
         if (transition.effect == WidthEffect::MeasureDormantRandom) {
             frontier.reset_expanding_memo();
         }
-        if (transitions != nullptr) {
-            transitions->push_back(transition);
-        }
+        peak = std::max(peak, transition.after);
+        dense_work +=
+            detail::dense_work_contribution(transition.effect, transition.before, transition.after);
     }
 }
 
@@ -431,24 +456,13 @@ struct BeamState {
     std::vector<uint32_t> order;
 };
 
-void absorb_transitions(uint32_t& peak, double& dense_work,
-                        const std::vector<WidthTransition>& transitions) {
-    for (const WidthTransition& transition : transitions) {
-        peak = std::max(peak, transition.after);
-        dense_work +=
-            detail::dense_work_contribution(transition.effect, transition.before, transition.after);
-    }
-}
-
 BeamState make_initial_beam_state(const HirModule& hir,
-                                  const detail::ScheduleDependence& dependence, size_t& swept_ops) {
+                                  const detail::ScheduleDependence& dependence, SearchWork& work) {
     BeamState state(SearchFrontier(dependence), DormantSubspace(hir.num_qubits));
     std::vector<UndoStep> discarded_log;
     std::vector<uint32_t> discarded_newly_ready;
-    std::vector<WidthTransition> transitions;
     run_closure(hir, state.frontier, state.subspace, state.order, discarded_log,
-                discarded_newly_ready, swept_ops, &transitions);
-    absorb_transitions(state.peak, state.dense_work, transitions);
+                discarded_newly_ready, work, state.peak, state.dense_work);
     return state;
 }
 
@@ -514,48 +528,20 @@ struct ScoredCandidate {
     uint32_t first_op = 0;
 };
 
-// Scores every ready expanding op of `parent` without materializing a full
-// child BeamState for each: `parent.frontier` is mutated and restored via
-// paired execute()/undo() calls, and only `subspace` (which has no cheap
-// undo) is cloned, once per candidate. This is the expensive
-// step's cost reduction: on a fixture with many simultaneously-ready
-// independent expanding ops, most candidates are discarded after scoring,
-// so paying only for a DormantSubspace clone and a small ops list here --
-// not a SearchFrontier clone and a full copy of the (potentially
-// near-complete) order vector -- is what keeps this affordable. `swept_ops`
-// counts each candidate's first op plus its closure sweep, including
-// candidates later discarded here or in run_beam_search's dedup/rank step:
-// the work search_budget bounds is the work this function actually spends
-// finding out a candidate is worth discarding, not just the work spent on
-// eventual survivors. `parent` is
-// left exactly as found on return.
-//
-// `candidate_budget_ops`, when set, is the second, higher threshold
-// run_beam_search computes (the full *search_budget * hir.ops.size(), where
-// the beam-narrowing threshold it checks between parents is only half of
-// that -- see run_beam_search's comment for why the two differ). Once a
-// scored candidate pushes swept_ops past it, the remaining ready expanding
-// ops of this parent are left unscored: ready_ops_snapshot visits ops in
-// ascending index, so the candidate that crosses the threshold is always
-// the lowest-index one still unscored, and every later step of a search
-// this far over budget scores only that one candidate too, since the
-// count only grows from here.
+// A closed parent has only expanding ready ops; no second classification is
+// needed. Clone its subspace, but mutate and undo its frontier so candidates
+// later discarded do not each need a full frontier and prefix copy.
+// Stop comparing alternatives at the swept-op threshold.
 std::vector<ScoredCandidate> score_candidates(const HirModule& hir, BeamState& parent,
-                                              uint32_t parent_index,
-                                              std::optional<double> candidate_budget_ops,
-                                              size_t& swept_ops) {
+                                              uint32_t parent_index, SearchWork& work) {
     std::vector<ScoredCandidate> scored;
     for (uint32_t op : ready_ops_snapshot(parent.frontier)) {
-        if (!is_expanding(hir, hir.ops[op], parent.subspace)) {
-            continue;
-        }
-
         DormantSubspace scratch(parent.subspace);
         std::vector<UndoStep> log;
         std::vector<uint32_t> newly_ready_log;
 
         log.push_back(UndoStep{op, parent.frontier.execute(op, newly_ready_log)});
-        ++swept_ops;
+        ++work.swept_ops;
         ScoredCandidate candidate;
         candidate.parent_index = parent_index;
         candidate.first_op = op;
@@ -570,10 +556,8 @@ std::vector<ScoredCandidate> score_candidates(const HirModule& hir, BeamState& p
                                                                 first_transition.before,
                                                                 first_transition.after);
 
-        std::vector<WidthTransition> swept;
-        run_closure(hir, parent.frontier, scratch, candidate.ops, log, newly_ready_log, swept_ops,
-                    &swept);
-        absorb_transitions(candidate.peak, candidate.dense_work, swept);
+        run_closure(hir, parent.frontier, scratch, candidate.ops, log, newly_ready_log, work,
+                    candidate.peak, candidate.dense_work);
 
         candidate.width_after_closure = scratch.active_width();
         candidate.executed_bits = parent.frontier.executed_bits();
@@ -581,26 +565,18 @@ std::vector<ScoredCandidate> score_candidates(const HirModule& hir, BeamState& p
         undo_all(parent.frontier, log, newly_ready_log);
         scored.push_back(std::move(candidate));
 
-        if (candidate_budget_ops && static_cast<double>(swept_ops) > *candidate_budget_ops) {
+        if (work.greedy()) {
             break;
         }
     }
     return scored;
 }
 
-// Materializes a beam_width survivor: clones its parent once (the only
-// clone this candidate ever needed) and replays `candidate.ops` -- already
-// known from scoring, so this is a deterministic replay rather than a new
-// search -- through the clone's own frontier and subspace. The assertions
-// cross-check that this replay reaches exactly what score_candidates
-// predicted, since the two are computed by independent code paths that
-// must agree bit-for-bit (dense_work accumulates the same transitions in
-// the same order in both places, so the floating-point sums match exactly,
-// not just numerically). `swept_ops` counts this replay's ops too: it
-// redoes real work (score_candidates' own execute()/undo() bracket left no
-// trace behind to reuse), so it counts against the same budget.
+// Replay only surviving candidates. Scoring and replay accumulate identical
+// transitions in identical order, so even floating-point costs agree exactly.
+// Charge replay to the swept-op budget as well as speculative execution.
 BeamState materialize_candidate(const HirModule& hir, const std::vector<BeamState>& beam,
-                                const ScoredCandidate& candidate, size_t& swept_ops) {
+                                const ScoredCandidate& candidate, SearchWork& work) {
     const BeamState& parent = beam[candidate.parent_index];
     BeamState state(parent.frontier, parent.subspace);
     state.peak = parent.peak;
@@ -619,7 +595,7 @@ BeamState materialize_candidate(const HirModule& hir, const std::vector<BeamStat
         state.dense_work +=
             detail::dense_work_contribution(transition.effect, transition.before, transition.after);
         state.order.push_back(op);
-        ++swept_ops;
+        ++work.swept_ops;
     }
 
     assert(state.subspace.active_width() == candidate.width_after_closure &&
@@ -736,90 +712,43 @@ void append_pareto_front(const std::vector<BeamState>& beam,
     }
 }
 
-// Beam search over the closure/readiness machinery above. beam_width == 1
-// degenerates to the greedy closure scheduler: at every step, take
-// whichever single ready expanding op's own closure sweep scores best. The
-// constructor rejects beam_width == 0, so at least one beam member always
-// survives to complete a schedule.
-//
-// Two-phase per step: score_candidates ranks every ready expanding op of
-// every current beam state cheaply (see its own comment), then only the
-// surviving beam_width candidates -- picked by the same dedup-then-rank
-// rule the single-phase version used -- pay to materialize a full BeamState
-// via materialize_candidate. A wide, mostly-discarded generation is common
-// on fixtures with many independent expanding rotations, so this ordering
-// (score everything, materialize only the winners) is what makes the beam
-// width affordable to scale.
-//
-// search_budget bounds the beam-search cost as a multiple of hir.ops.size(),
-// counted in swept_ops (see run_closure, score_candidates, and
-// materialize_candidate) rather than wall-clock time, so the point at which
-// the search narrows is the same on every machine and a compiled plan is
-// reproducible. It backs two graduated, independently-triggered responses,
-// both checked against the same running swept_ops count:
-//
-//   1. Beam narrowing, at half the budget (swept_ops exceeds
-//      parent_budget_ops == 0.5 * *search_budget * hir.ops.size()). Inside
-//      the scoring loop below, the remaining lower-ranked parents are
-//      dropped unscored as soon as the count is over this threshold (beam
-//      is always in ranked order, since next_beam is filled from the
-//      ranked deduped list, so the parents dropped are the weakest), and
-//      the cut after the generation keeps a single survivor from then on.
-//   2. Candidate narrowing, at the full budget (swept_ops exceeds
-//      candidate_budget_ops == *search_budget * hir.ops.size(), twice the
-//      first threshold). Inside score_candidates itself, the remaining
-//      ready expanding ops of whichever parent is being scored when the
-//      count crosses this threshold are left unscored, so every later step
-//      of an already-narrowed, already-over-this-threshold search scores
-//      only its one surviving parent's lowest-index ready candidate.
-//
-// Splitting the single search_budget into two thresholds this way lets the
-// beam narrow to its cheapest useful shape (one parent) well before that
-// surviving parent's own candidates stop being compared to each other, so
-// a circuit whose ready-candidate count per step stays small keeps
-// exploring properly-ranked choices for the second half of the budget too
-// -- which is what keeps this search's schedule quality close to an
-// unbounded search's on such circuits. Candidate narrowing is the
-// backstop for circuits where that count does not stay small: without it,
-// a single surviving parent with many simultaneously ready, mutually
-// independent expanding rotations would still re-score all of them at
-// every remaining step, making the remaining cost grow with the square of
-// that count instead of staying linear in it. Checking before each parent
-// and before each candidate, rather than only between steps or only once a
-// whole generation finishes, also bounds the worst-case overshoot past
-// either threshold to one parent's or one candidate's own sweep, instead
-// of an entire generation's cost. Altogether, total cost stays near the
-// full budget itself plus about four traces of the circuit: one for the
-// unconditional initial closure before the loop starts, one for the
-// candidate whose scoring first crosses candidate_budget_ops (its own
-// sweep still runs to completion before either check can fire), and one
-// more each for the sweep and the replay every remaining single-beam step
-// performs. Narrowing rather than aborting outright keeps every guarantee
-// this function already gives: every order the search can still produce
-// is a legal linear extension of `dependence`, and
-// ActiveWidthSchedulePass::run's incumbent comparison still applies to
-// whatever this returns, so a narrowed search can only give up some of the
-// wide beam's improvement over the incumbent, never regress past it.
+// Narrow the beam at half the swept-op budget and choose the lowest ready
+// expansion after the full swept-op budget. Closure still runs to completion:
+// the budget bounds executions, not classification probes or wall time.
 std::vector<uint32_t> run_beam_search(const HirModule& hir,
                                       const detail::ScheduleDependence& dependence,
-                                      uint32_t beam_width, std::optional<double> search_budget,
-                                      size_t& swept_ops) {
-    swept_ops = 0;
-    const std::optional<double> candidate_budget_ops =
-        search_budget ? std::optional<double>(*search_budget * static_cast<double>(hir.ops.size()))
-                      : std::nullopt;
-    const std::optional<double> parent_budget_ops =
-        candidate_budget_ops ? std::optional<double>(0.5 * *candidate_budget_ops) : std::nullopt;
-
+                                      uint32_t beam_width, SearchWork& work) {
     std::vector<BeamState> beam;
-    beam.push_back(make_initial_beam_state(hir, dependence, swept_ops));
+    beam.push_back(make_initial_beam_state(hir, dependence, work));
 
     std::optional<BeamState> best;
     while (!beam.empty()) {
+        // A forced or budget-selected choice needs no speculative clone,
+        // undo, or replay. Advance the surviving parent in place.
+        // Before a finite budget is exhausted, retain replay accounting so
+        // this shortcut cannot change when later choices narrow the beam.
+        if (beam.size() == 1 && beam.front().frontier.lowest_ready() < dependence.num_ops() &&
+            (work.greedy() || (!work.limit && beam.front().frontier.has_single_ready()))) {
+            BeamState& state = beam.front();
+            const uint32_t op = state.frontier.lowest_ready();
+            std::vector<uint32_t> newly_ready;
+            state.frontier.execute(op, newly_ready);
+            state.order.push_back(op);
+            ++work.swept_ops;
+            const WidthTransition transition = classify_and_apply(hir, hir.ops[op], state.subspace);
+            state.peak = std::max(state.peak, transition.after);
+            state.dense_work += detail::dense_work_contribution(
+                transition.effect, transition.before, transition.after);
+            std::vector<UndoStep> log;
+            run_closure(hir, state.frontier, state.subspace, state.order, log, newly_ready, work,
+                        state.peak, state.dense_work);
+            continue;
+        }
+
         std::vector<ScoredCandidate> generation;
         std::vector<bool> parent_has_candidates(beam.size(), false);
         for (uint32_t i = 0; i < beam.size(); ++i) {
-            if (i > 0 && parent_budget_ops && static_cast<double>(swept_ops) > *parent_budget_ops) {
+            if (i > 0 && work.narrow()) {
                 // Over the beam-narrowing threshold: drop the remaining
                 // parents unscored, so the loop below does not mistake them
                 // for completed states. erase(), not resize(): BeamState
@@ -828,8 +757,7 @@ std::vector<uint32_t> run_beam_search(const HirModule& hir,
                 parent_has_candidates.resize(beam.size());
                 break;
             }
-            std::vector<ScoredCandidate> scored =
-                score_candidates(hir, beam[i], i, candidate_budget_ops, swept_ops);
+            std::vector<ScoredCandidate> scored = score_candidates(hir, beam[i], i, work);
             if (!scored.empty()) {
                 parent_has_candidates[i] = true;
                 for (ScoredCandidate& candidate : scored) {
@@ -907,12 +835,10 @@ std::vector<uint32_t> run_beam_search(const HirModule& hir,
         });
 
         std::vector<BeamState> next_beam;
-        const size_t width =
-            parent_budget_ops && static_cast<double>(swept_ops) > *parent_budget_ops ? 1
-                                                                                     : beam_width;
+        const size_t width = work.narrow() ? 1 : beam_width;
         next_beam.reserve(std::min<size_t>(deduped.size(), width));
         for (size_t i = 0; i < deduped.size() && i < width; ++i) {
-            next_beam.push_back(materialize_candidate(hir, beam, deduped[i], swept_ops));
+            next_beam.push_back(materialize_candidate(hir, beam, deduped[i], work));
         }
         beam = std::move(next_beam);
     }
@@ -1029,15 +955,14 @@ ActiveWidthSchedulePass::ActiveWidthSchedulePass(ActiveWidthScheduleOptions opti
 void ActiveWidthSchedulePass::run(HirModule& hir) {
     built_dependence_ = false;
     swept_ops_ = 0;
+    classification_probes_ = 0;
 
     const ActiveWidthTrace incumbent_trace = analyze_active_width(hir);
     incumbent_peak_ = incumbent_trace.peak_width;
     incumbent_dense_work_ = estimate_dense_work(incumbent_trace);
 
-    // See the header comment's "Early exit": with nothing for a scheduler to
-    // choose among, report the incumbent unchanged rather than pay to build
-    // a ScheduleDependence at all. swept_ops_ stays zero: the beam search
-    // that would have spent budget never runs.
+    // Avoid graph construction when no rotation could benefit. The incumbent
+    // statistics still describe the input.
     if (incumbent_peak_ == 0 || !has_rotation_op(hir)) {
         result_peak_ = incumbent_peak_;
         result_dense_work_ = incumbent_dense_work_;
@@ -1051,8 +976,12 @@ void ActiveWidthSchedulePass::run(HirModule& hir) {
         detail::ScheduleDependence::build(hir, dependence_options);
     built_dependence_ = true;
 
-    std::vector<uint32_t> order =
-        run_beam_search(hir, dependence, options_.beam_width, options_.search_budget, swept_ops_);
+    SearchWork work{options_.search_budget
+                        ? std::optional<double>(*options_.search_budget * hir.ops.size())
+                        : std::nullopt};
+    std::vector<uint32_t> order = run_beam_search(hir, dependence, options_.beam_width, work);
+    swept_ops_ = work.swept_ops;
+    classification_probes_ = work.probes;
 
     if (options_.sink_neutral_rotations) {
         sink_neutral_rotations(hir, dependence, order);

@@ -218,23 +218,24 @@ work. By default, the pass also moves width-neutral rotations rightward past
 independent non-expanding operations to improve executable-plan rotation
 fusion.
 
-The search is bounded by `search_budget`, measured in operations executed
-through closure sweeps and candidate replays as a multiple of the HIR's
-operation count, with two graduated responses. Once the running count exceeds
-half the budget, the remaining lower-ranked schedules in the current
-generation are dropped unscored and the next cut keeps a single survivor.
-Once it exceeds the full budget, each step also scores only the lowest-index
-ready expanding operation. The worst case therefore costs the budget plus a
-few traces regardless of circuit shape, including circuits with many
-simultaneously ready rotations. Counting operations rather than time keeps
-the schedule, and therefore the plan, reproducible across machines. The
-default of 16 comes from measuring peak and dense work across the corpus
-below and larger circuits: narrowing the beam at any point from four traces
-on reached the unbounded search's peak everywhere, eight traces was the
-smallest point that also kept every dense-work gain, and a full budget of
-twice that leaves the greedy remainder enough room to keep scoring
-candidates on the circuits that cross it. The pass reports the count as
-`swept_ops`.
+`search_budget` counts operations executed during closure sweeps and candidate
+replays, as a multiple of the HIR's operation count. The default is 16. After
+half the budget, the beam narrows to one parent; after the full budget, each
+step chooses the lowest-index ready expansion without comparing alternatives.
+Closure still runs to completion.
+
+The budget bounds executions, with additive overshoot from finishing sweeps
+and replays; it does not bound classification probes or wall time. Many ready
+expansions can be queried repeatedly without executing, so closure probes can
+grow quadratically. The pass reports executions as `swept_ops` and closure
+queries as `classification_probes`. Graph construction, neutral sinking, and
+final analysis are outside these counters; subspace operation costs also
+depend on qubit count.
+
+A zero budget requests greedy continuation after the initial closure.
+`None` in Python (`std::nullopt` in C++) disables budget-driven narrowing.
+Negative and non-finite budgets are rejected. Counting executions instead of
+time keeps scheduling reproducible across machines.
 
 The dense-work estimate sums $2^w$ over actions that touch the active array,
 using the width $w$ at which each action runs. The pass replaces the input HIR
@@ -242,9 +243,8 @@ only if the candidate has a lower peak, or the same peak and lower estimated
 dense work. Otherwise it leaves the HIR untouched. This does not guarantee an
 optimal schedule or improved sampling throughput.
 
-The pass is opt-in. Its search cost is bounded by `search_budget`, but the
-dependence build and the traces it needs still add a few passes over the
-HIR. Run it last in the HIR pipeline, after `PeepholeFusionPass` and
+The pass is opt-in and adds compilation work. Run it last in the HIR pipeline,
+after `PeepholeFusionPass` and
 `StatevectorSqueezePass`. A noise-transparent reorder can prevent later
 peephole fusion. See [Optimization Passes](../reference/passes.md) for pipeline
 configuration and the measurements below for compile-time costs.

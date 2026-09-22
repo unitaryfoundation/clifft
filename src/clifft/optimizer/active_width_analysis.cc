@@ -3,6 +3,7 @@
 #include "clifft/optimizer/commutation.h"
 
 #include <algorithm>
+#include <bit>
 #include <cassert>
 #include <cmath>
 #include <optional>
@@ -76,6 +77,16 @@ DormantSubspace::DormantSubspace(uint32_t num_qubits)
 bool DormantSubspace::commutes_with_all(MaskView x, MaskView z) const {
     assert(x.num_words() == words_per_row_ && z.num_words() == words_per_row_ &&
            "Pauli body must share the subspace's word width");
+    // Hoist the single-word case out of the row scan to avoid rebuilding
+    // mask views and entering a generic word loop for every row.
+    if (words_per_row_ == 1) {
+        for (uint32_t i = 0; i < dimension_; ++i) {
+            if ((std::popcount((rows_x_[i] & z.words[0]) ^ (rows_z_[i] & x.words[0])) & 1) != 0) {
+                return false;
+            }
+        }
+        return true;
+    }
     for (uint32_t i = 0; i < dimension_; ++i) {
         if (anti_commute(row_x(i), row_z(i), x, z)) {
             return false;
@@ -104,11 +115,23 @@ void DormantSubspace::reduce_into_scratch(MaskView x, MaskView z) const {
 
 bool DormantSubspace::intersect(MaskView x, MaskView z) {
     std::optional<uint32_t> pivot_row;
-    for (uint32_t i = 0; i < dimension_; ++i) {
-        const bool anticommutes = anti_commute(row_x(i), row_z(i), x, z);
-        anticommute_flags_[i] = anticommutes ? 1 : 0;
-        if (anticommutes && (!pivot_row.has_value() || pivot_[i] > pivot_[*pivot_row])) {
-            pivot_row = i;
+    // Separate scans keep the word-width branch out of the per-row loop.
+    if (words_per_row_ == 1) {
+        for (uint32_t i = 0; i < dimension_; ++i) {
+            const bool anticommutes =
+                (std::popcount((rows_x_[i] & z.words[0]) ^ (rows_z_[i] & x.words[0])) & 1) != 0;
+            anticommute_flags_[i] = anticommutes ? 1 : 0;
+            if (anticommutes && (!pivot_row.has_value() || pivot_[i] > pivot_[*pivot_row])) {
+                pivot_row = i;
+            }
+        }
+    } else {
+        for (uint32_t i = 0; i < dimension_; ++i) {
+            const bool anticommutes = anti_commute(row_x(i), row_z(i), x, z);
+            anticommute_flags_[i] = anticommutes ? 1 : 0;
+            if (anticommutes && (!pivot_row.has_value() || pivot_[i] > pivot_[*pivot_row])) {
+                pivot_row = i;
+            }
         }
     }
     if (!pivot_row.has_value()) {

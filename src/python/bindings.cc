@@ -760,6 +760,8 @@ NB_MODULE(_clifft_core, m) {
         .def_prop_ro("result_dense_work", &clifft::ActiveWidthSchedulePass::result_dense_work)
         .def_prop_ro("applied", &clifft::ActiveWidthSchedulePass::applied)
         .def_prop_ro("swept_ops", &clifft::ActiveWidthSchedulePass::swept_ops)
+        .def_prop_ro("classification_probes",
+                     &clifft::ActiveWidthSchedulePass::classification_probes)
         .def("__repr__", [](const clifft::ActiveWidthSchedulePass& p) {
             return "ActiveWidthSchedulePass(incumbent_peak=" + std::to_string(p.incumbent_peak()) +
                    ", result_peak=" + std::to_string(p.result_peak()) +

@@ -30,12 +30,10 @@
 // ties the incumbent -- leaves the HIR completely untouched: not even
 // reordered to a same-cost permutation.
 //
-// Early exit: with a 0 incumbent peak, or no T_GATE or PHASE_ROTATION op in
-// the HIR, there is no ready expanding rotation for a scheduler to choose
-// among -- an expanding INSTRUMENT is always the only ready op when it
-// fires (detail::ScheduleDependence treats it as a positional barrier), so
-// it offers no scheduling freedom either -- and run() reports the incumbent
-// unchanged without paying to build a detail::ScheduleDependence at all.
+// Early exit: with a 0 incumbent peak or no rotation op in the HIR, there
+// is no useful choice to search:
+// an expanding INSTRUMENT is a positional barrier and always the only ready
+// op when it fires. Report the incumbent without building the dependence graph.
 
 #include "clifft/frontend/hir.h"
 #include "clifft/optimizer/hir_pass.h"
@@ -88,50 +86,19 @@ struct ActiveWidthScheduleOptions {
     // beam to keep, so the constructor rejects it.
     uint32_t beam_width = 8;
 
-    // Work the beam search may spend, in units of ops executed through
-    // closure sweeps per op in the HIR (so 16 means about sixteen full
-    // replays of the circuit). Counted in swept ops rather than wall-clock
-    // time so a compiled plan does not depend on the machine that compiled
-    // it: the beam-search cost is circuit-shape dependent, and a
-    // wall-clock cutoff would make the schedule (and therefore the plan)
-    // vary run to run.
+    // Deterministic work budget per HIR operation. The beam narrows to one
+    // parent after half this many swept ops, and selects the lowest-index
+    // ready expansion after the full amount. Sweeps and survivor replays
+    // can cross these thresholds by a circuit-length additive term.
     //
-    // This one budget backs two graduated responses, both measured against
-    // the same running swept-op count and both implemented in
-    // run_beam_search (see its own comment for the exact mechanics). Once
-    // the count exceeds half of *search_budget * hir.ops.size(), the beam
-    // narrows to a single surviving parent for every remaining step. Once
-    // it exceeds the full *search_budget * hir.ops.size(), that surviving
-    // parent also stops comparing its own ready expanding rotations and
-    // simply takes the lowest-index one at every further step. Narrowing
-    // the beam first, while still letting the single survivor's candidates
-    // compete fairly for a while longer, keeps the search's quality close
-    // to an unbounded one on circuits where a handful of ready rotations
-    // recur at every step, while the second, blunter response bounds the
-    // cost even on circuits where that count itself grows with the circuit
-    // size. The result is still a legal schedule, and the never-worse
-    // guard in run() still applies, so narrowing can only give up some of
-    // the beam search's improvement over the incumbent, never regress past
-    // it. No bound is expressed by leaving this empty (std::nullopt),
-    // never by an infinite double: this project builds with -ffast-math,
-    // under which a non-finite sentinel like infinity is not reliably
-    // comparable (see detail::is_finite_non_negative above), so an empty
-    // optional is the only value that reliably means "unbounded" here. An
-    // empty budget leaves this pass's behavior unchanged: the search
-    // always runs to completion at the full beam_width.
+    // This bounds executions, not closure classification probes: expansions
+    // that remain ready can be queried repeatedly without executing. It is
+    // not a wall-time bound; graph construction, neutral sinking, and the
+    // qubit-dependent cost of subspace operations also contribute.
     //
-    // The default, 16, comes from measuring the unbounded search against
-    // narrower budgets over a varied circuit corpus: every budget of 8 or
-    // more (a beam-narrowing threshold of 4 traces or more) reached the
-    // unbounded search's own peak on every circuit measured, and 16 (a
-    // beam-narrowing threshold of 8 traces) was the smallest that also
-    // kept every dense-work gain the unbounded search found. The unbounded
-    // search's own cost varied enormously by circuit shape, while a budget
-    // of 16 kept every measured circuit to a small, comparable multiple of
-    // that cost. Revisit this default if a production circuit's shape
-    // falls outside what was measured.
-    //
-    // The constructor rejects a negative or non-finite value.
+    // Zero requests greedy continuation after the initial closure.
+    // nullopt disables beam narrowing. Negative and non-finite values are
+    // rejected; use nullopt, not infinity, with this project's -ffast-math.
     std::optional<double> search_budget = 16.0;
 
     // Whether to bubble width-neutral rotations rightward past independent
@@ -160,13 +127,14 @@ class ActiveWidthSchedulePass : public HirPass {
     // otherwise have to infer it from a timing side-channel.
     [[nodiscard]] bool built_dependence() const { return built_dependence_; }
 
-    // Ops executed through closure sweeps and candidate replays during the
-    // last run() call: the initial closure, every scoring sweep in
-    // score_candidates (including candidates later discarded), and every
-    // materialize_candidate replay. This is the quantity search_budget
-    // bounds. Reset to zero at the start of each run(), and left at zero
-    // when the early exit fires.
+    // Executions during search, including discarded candidates and survivor
+    // replays. Excludes dependence construction, sinking, and final traces.
     [[nodiscard]] size_t swept_ops() const { return swept_ops_; }
+
+    // Closure classification probes, including queries that found an
+    // expansion and executed nothing. Both counters reset on run()
+    // and remain zero on early exit.
+    [[nodiscard]] size_t classification_probes() const { return classification_probes_; }
 
   private:
     ActiveWidthScheduleOptions options_;
@@ -177,6 +145,7 @@ class ActiveWidthSchedulePass : public HirPass {
     bool applied_ = false;
     bool built_dependence_ = false;
     size_t swept_ops_ = 0;
+    size_t classification_probes_ = 0;
 };
 
 }  // namespace clifft

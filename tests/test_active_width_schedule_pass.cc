@@ -25,6 +25,7 @@
 #include <algorithm>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
+#include <cmath>
 #include <cstdint>
 #include <limits>
 #include <memory>
@@ -346,26 +347,20 @@ TEST_CASE("Schedule pass rejects a non-finite search budget", "[schedule_pass]")
 // Search budget
 // ---------------------------------------------------------------------------
 
-// A budget of 0 crosses both parent_budget_ops and candidate_budget_ops
-// (each 0) the moment the first op is swept, so every step for the rest of
-// the search takes only its single surviving parent's lowest-index ready
-// expanding op, with no comparison against any other ready candidate. The
-// cost is then just the unconditional initial closure plus one closure
-// sweep and one materialize_candidate replay per remaining step, which
-// sums to about three traces of the circuit.
-TEST_CASE("A zero search budget sweeps at most three traces on coherent_d3_r3", "[schedule_pass]") {
-    const Circuit circuit =
-        clifft::parse_file(std::string(CLIFFT_FIXTURES_DIR) + "/coherent_d3_r3.stim");
-    const HirModule raw = clifft::trace(circuit);
+TEST_CASE("A zero search budget preserves greedy scheduling", "[schedule_pass]") {
+    const HirModule raw = clifft::trace(
+        clifft::parse_file(std::string(CLIFFT_FIXTURES_DIR) + "/coherent_d3_r3.stim"));
+    ActiveWidthScheduleOptions options;
+    options.search_budget = 0.0;
+    ActiveWidthSchedulePass pass(options);
+    const HirModule scheduled = run_peephole_squeeze_schedule(raw, pass);
 
-    ActiveWidthScheduleOptions budget_options;
-    budget_options.search_budget = 0.0;
-    ActiveWidthSchedulePass budget_pass(budget_options);
-    const HirModule budget_hir = run_peephole_squeeze_schedule(raw, budget_pass);
-
-    INFO("swept_ops=" << budget_pass.swept_ops() << " ops=" << budget_hir.ops.size());
-    REQUIRE(budget_pass.swept_ops() <= 3 * budget_hir.ops.size());
-    REQUIRE(budget_pass.result_peak() <= budget_pass.incumbent_peak());
+    REQUIRE(pass.built_dependence());
+    REQUIRE(pass.applied());
+    REQUIRE(pass.swept_ops() > 0);
+    REQUIRE(pass.swept_ops() <= 3 * scheduled.ops.size());
+    REQUIRE(pass.result_peak() == 5);
+    REQUIRE(pass.result_dense_work() == 598);
 }
 
 // The default budget is small enough to narrow the beam on this fixture,
@@ -439,35 +434,71 @@ TEST_CASE("Schedule pass reports swept ops through the search", "[schedule_pass]
     }
 }
 
-// score_candidates used to keep scoring every ready expanding op of a
-// parent regardless of the running swept-op count, so once the beam
-// narrowed to a single surviving parent, a fixture with many mutually
-// independent expanding rotations paid for rescoring nearly all of them at
-// every remaining step: quadratic in the count of such rotations. Doubling
-// k from 128 to 256 exercises that directly: block_circuit_source's blocks
-// share no dependence edges, so all k rotations become ready together, and
-// a quadratic cost would roughly quadruple between those two points instead
-// of at most tripling.
-TEST_CASE("Search budget bounds cost linearly across many independent expanding rotations",
+// The execution budget does not bound probes of rotations that stay ready.
+TEST_CASE("Search statistics distinguish executions from classification probes",
           "[schedule_pass]") {
-    std::vector<size_t> swept_by_k;
-    for (uint32_t k : {64u, 128u, 256u}) {
-        const HirModule raw = clifft::trace(clifft::parse(block_circuit_source(k)));
-        ActiveWidthSchedulePass pass;  // default options, including the default search budget.
-        const HirModule scheduled = run_peephole_squeeze_schedule(raw, pass);
+    const HirModule raw = clifft::trace(clifft::parse(block_circuit_source(128)));
+    ActiveWidthSchedulePass pass;
+    const HirModule scheduled = run_peephole_squeeze_schedule(raw, pass);
+    REQUIRE(pass.swept_ops() <= 20 * scheduled.ops.size());
+    REQUIRE(pass.classification_probes() > pass.swept_ops());
+    REQUIRE(pass.result_peak() == 1);
+}
 
-        INFO("k=" << k << " ops=" << scheduled.ops.size() << " swept_ops=" << pass.swept_ops());
-        // 20x, not the budget's own 16x: about four traces of slack for
-        // the unconditional initial closure, the candidate whose scoring
-        // first crosses candidate_budget_ops, and the sweep-and-replay pair
-        // every remaining single-beam step performs (see run_beam_search's
-        // budget comment).
-        REQUIRE(pass.swept_ops() <= 20 * scheduled.ops.size());
-        REQUIRE(pass.result_peak() <= pass.incumbent_peak());
-        swept_by_k.push_back(pass.swept_ops());
+TEST_CASE("Greedy schedules preserve noisy circuit sampling", "[schedule_pass]") {
+    const HirModule original = clifft::trace(
+        clifft::parse_file(std::string(CLIFFT_FIXTURES_DIR) + "/coherent_d3_r3.stim"));
+    for (double budget : {0.0, 0.001, 0.1}) {
+        ActiveWidthScheduleOptions options;
+        options.search_budget = budget;
+        ActiveWidthSchedulePass pass(options);
+        const HirModule scheduled = run_peephole_squeeze_schedule(original, pass);
+        CAPTURE(budget);
+        REQUIRE(pass.swept_ops() > 0);
+        check_sampling_equivalent(original, scheduled, 20000, 0x5C4E1, 0x5C4E2);
     }
+}
 
-    REQUIRE(swept_by_k[2] <= 3 * swept_by_k[1]);
+TEST_CASE("Default scheduling retains wide coherent circuit improvements", "[schedule_pass]") {
+    for (uint32_t distance : {7u, 9u}) {
+        const HirModule raw =
+            clifft::trace(clifft::parse_file(std::string(CLIFFT_FIXTURES_DIR) + "/coherent_d" +
+                                             std::to_string(distance) + "_r3.stim"));
+        ActiveWidthSchedulePass pass;
+        run_peephole_squeeze_schedule(raw, pass);
+        CAPTURE(distance);
+        // These structural checks need no dense array at the circuit's peak width.
+        REQUIRE(pass.applied());
+        REQUIRE(pass.incumbent_peak() == (distance * distance + 1) / 2);
+        REQUIRE(pass.result_peak() == pass.incumbent_peak() - 1);
+        REQUIRE(pass.result_dense_work() < pass.incumbent_dense_work() / 50);
+    }
+}
+
+TEST_CASE("A single ready expansion completes without survivor replay", "[schedule_pass]") {
+    HirModule hir(1, 100);
+    for (uint32_t i = 0; i < 100; ++i) {
+        append_phase_rotation(hir, i % 2 == 0 ? X(0) : 0, i % 2 == 0 ? 0 : Z(0), false, 0.3);
+    }
+    ActiveWidthScheduleOptions options;
+    options.search_budget = std::nullopt;
+    ActiveWidthSchedulePass pass(options);
+    pass.run(hir);
+    REQUIRE(pass.swept_ops() == hir.ops.size());
+}
+
+TEST_CASE("Search counters reset when a reused pass exits early", "[schedule_pass]") {
+    HirModule hir = clifft::trace(clifft::parse(block_circuit_source(64)));
+    ActiveWidthSchedulePass pass;
+    pass.run(hir);
+    REQUIRE(pass.classification_probes() > 0);
+    REQUIRE(pass.swept_ops() > 0);
+
+    HirModule clifford = clifft::trace(clifft::parse("H 0\nM 0"));
+    pass.run(clifford);
+    REQUIRE(pass.swept_ops() == 0);
+    REQUIRE(pass.classification_probes() == 0);
+    REQUIRE_FALSE(pass.built_dependence());
 }
 
 // ---------------------------------------------------------------------------

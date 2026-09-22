@@ -48,6 +48,22 @@ CLIFFT_COMPILE_ITERATIONS=200 \
 | `CLIFFT_CLIFFORD_DEPTH` | 5000 | Clifford gates in the generated circuit |
 | `CLIFFT_T_GATES` | 0 | T gates appended to the generated circuit |
 | `CLIFFT_POSTSELECT_ALL` | unset | Mark every detector for postselection |
+| `CLIFFT_ACTIVE_WIDTH_SCHEDULE` | unset | Run the opt-in scheduler after production HIR passes and report its time and work counters separately |
+
+For active-width compilation profiles, enable the scheduler explicitly:
+
+```bash
+CLIFFT_ACTIVE_WIDTH_SCHEDULE=1 CLIFFT_COMPILE_ITERATIONS=100 \
+  CLIFFT_CIRCUIT_FILE=tests/fixtures/coherent_d5_r5.stim \
+  taskset -c 0 perf record -e cycles:u -F 499 -g --call-graph dwarf \
+  -o perf-width.data ./build-profile/profile_compile
+perf report --stdio --no-children -i perf-width.data
+```
+
+The scheduler reports `swept_ops` and `classification_probes` separately. The
+execution budget does not bound classification probes, which can grow
+quadratically for wide ready sets. The total compile time also includes
+parsing, production passes, planning, and executable preparation.
 
 ## Sampling
 
