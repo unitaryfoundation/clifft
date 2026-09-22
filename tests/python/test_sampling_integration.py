@@ -6,11 +6,11 @@ import platform
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any
 
 import numpy as np
 import pytest
 import stim
+from utils_conformance import CpuSamplingMode
 
 import clifft
 
@@ -133,8 +133,9 @@ def test_expectation_probes_are_available_through_public_api() -> None:
     np.testing.assert_allclose(result.exp_vals, [[0.0, 1.0]] * 3, atol=1e-12)
 
 
-@pytest.mark.sampling_conformance("readout-noise", "record-feedback")
-def test_noise_readout_feedback_and_syndrome_share_one_symbolic_record(sampling_api: Any) -> None:
+def test_noise_readout_feedback_and_syndrome_share_one_symbolic_record(
+    sampling_mode: CpuSamplingMode,
+) -> None:
     circuit = """
         X_ERROR(1) 0
         M 0
@@ -145,30 +146,28 @@ def test_noise_readout_feedback_and_syndrome_share_one_symbolic_record(sampling_
         OBSERVABLE_INCLUDE(0) rec[-1]
     """
     shots = 65
-    result = sampling_api.sample(sampling_api.compile(circuit), shots=shots, seed=7)
+    result = sampling_mode.sample(sampling_mode.compile(circuit), shots=shots, seed=7)
 
     np.testing.assert_array_equal(result.measurements, np.zeros((shots, 2), dtype=np.uint8))
     np.testing.assert_array_equal(result.detectors, np.zeros((shots, 1), dtype=np.uint8))
     np.testing.assert_array_equal(result.observables, np.zeros((shots, 1), dtype=np.uint8))
 
 
-@pytest.mark.sampling_conformance("readout-noise")
-def test_asymmetric_readout_noise_uses_the_pre_flip_record(sampling_api: Any) -> None:
+def test_asymmetric_readout_noise_uses_the_pre_flip_record(sampling_mode: CpuSamplingMode) -> None:
     shots = 65
-    zero = sampling_api.sample(
-        sampling_api.compile("M 0\nREADOUT_NOISE(1, 0) rec[-1]"), shots, seed=1
+    zero = sampling_mode.sample(
+        sampling_mode.compile("M 0\nREADOUT_NOISE(1, 0) rec[-1]"), shots, seed=1
     )
-    one = sampling_api.sample(
-        sampling_api.compile("X 0\nM 0\nREADOUT_NOISE(0, 1) rec[-1]"), shots, seed=1
+    one = sampling_mode.sample(
+        sampling_mode.compile("X 0\nM 0\nREADOUT_NOISE(0, 1) rec[-1]"), shots, seed=1
     )
 
     assert np.all(zero.measurements == 1)
     assert np.all(one.measurements == 0)
 
 
-@pytest.mark.sampling_conformance("syndrome-snapshots", "readout-noise")
-def test_syndrome_outputs_preserve_record_snapshots(sampling_api: Any) -> None:
-    program = sampling_api.compile(
+def test_syndrome_outputs_preserve_record_snapshots(sampling_mode: CpuSamplingMode) -> None:
+    program = sampling_mode.compile(
         "X 0\nM 0\nDETECTOR rec[-1]\n"
         "OBSERVABLE_INCLUDE(0) rec[-1]\nOBSERVABLE_INCLUDE(2) rec[-1]\n"
         "READOUT_NOISE(1) rec[-1]\nDETECTOR rec[-1]\n"
@@ -177,7 +176,7 @@ def test_syndrome_outputs_preserve_record_snapshots(sampling_api: Any) -> None:
         expected_observables=[1, 1, 1],
     )
     shots = 257
-    result = sampling_api.sample(program, shots, seed=918321)
+    result = sampling_mode.sample(program, shots, seed=918321)
     np.testing.assert_array_equal(result.measurements, np.zeros((shots, 1), dtype=np.uint8))
     np.testing.assert_array_equal(result.detectors, np.broadcast_to([0, 1], (shots, 2)))
     # The first observable captures the record before readout noise; the
@@ -185,16 +184,15 @@ def test_syndrome_outputs_preserve_record_snapshots(sampling_api: Any) -> None:
     np.testing.assert_array_equal(result.observables, np.broadcast_to([0, 1, 0], (shots, 3)))
 
 
-@pytest.mark.sampling_conformance("survivor-accounting", "survivor-records", "expectation-values")
-def test_postselection_survivor_metadata_and_records(sampling_api: Any) -> None:
-    program = sampling_api.compile(
+def test_postselection_survivor_metadata_and_records(sampling_mode: CpuSamplingMode) -> None:
+    program = sampling_mode.compile(
         "H 0\nEXP_VAL X0\nM 0\nDETECTOR rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]",
         postselection_mask=[1],
     )
     with pytest.raises(ValueError, match="sample_survivors"):
-        sampling_api.sample(program, 10, seed=1)
+        sampling_mode.sample(program, 10, seed=1)
 
-    result = sampling_api.sample_survivors(program, 1000, seed=1, keep_records=True)
+    result = sampling_mode.sample_survivors(program, 1000, seed=1, keep_records=True)
     assert result.passed_shots is not None
     assert result.total_shots is not None
     assert result.discards is not None

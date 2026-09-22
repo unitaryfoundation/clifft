@@ -6,10 +6,21 @@ from typing import Any, cast
 import numpy as np
 import numpy.typing as npt
 import pytest
+from utils_conformance import CPU_SAMPLING_MODES, CpuSamplingMode
 
 import clifft
 
-pytest_plugins = ("sampling_conformance",)
+
+@pytest.fixture(params=[clifft], ids=["symbolic-coordinate"])
+def sampling_api(request: pytest.FixtureRequest) -> Any:
+    """Run public sampling conformance tests against the production backend."""
+    return cast(Any, request.param)
+
+
+@pytest.fixture(params=CPU_SAMPLING_MODES, ids=lambda mode: mode.name)
+def sampling_mode(request: pytest.FixtureRequest) -> CpuSamplingMode:
+    """Run shared behavioral assertions through each CPU sampling configuration."""
+    return cast(CpuSamplingMode, request.param)
 
 
 @pytest.fixture(params=[clifft], ids=["symbolic-coordinate"])

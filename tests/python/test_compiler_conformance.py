@@ -325,6 +325,10 @@ def test_default_profile_uses_fresh_production_factory(monkeypatch: pytest.Monke
     assert received == managers
 
 
+def test_cpu_sampling_modes_include_scalar_packed_and_automatic() -> None:
+    assert {1, 65, "auto"} <= {mode.batch_size for mode in CPU_SAMPLING_MODES}
+
+
 @pytest.mark.parametrize("mode", CPU_SAMPLING_MODES, ids=lambda mode: mode.name)
 def test_sampling_mode_forwards_its_configuration(
     mode: CpuSamplingMode, monkeypatch: pytest.MonkeyPatch
@@ -334,3 +338,21 @@ def test_sampling_mode_forwards_its_configuration(
     monkeypatch.setattr(clifft, "sample", lambda *args, **kwargs: calls.append((args, kwargs)))
     mode.sample(program, 8193, 1907)
     assert calls == [((program, 8193), {"seed": 1907, "threads": 1, "batch_size": mode.batch_size})]
+
+    monkeypatch.setattr(
+        clifft, "sample_survivors", lambda *args, **kwargs: calls.append((args, kwargs))
+    )
+    for keep_records in (False, True):
+        calls.clear()
+        mode.sample_survivors(program, 257, seed=41, keep_records=keep_records)
+        assert calls == [
+            (
+                (program, 257),
+                {
+                    "seed": 41,
+                    "keep_records": keep_records,
+                    "threads": 1,
+                    "batch_size": mode.batch_size,
+                },
+            )
+        ]

@@ -11,6 +11,7 @@ from conftest import (
     binomial_tolerance,
     random_clifford_circuit,
 )
+from utils_conformance import CpuSamplingMode
 
 import clifft
 
@@ -66,18 +67,16 @@ class TestCompile:
 class TestSample:
     """Tests for clifft.sample()."""
 
-    @pytest.mark.sampling_conformance("terminal-measurements")
-    def test_sample_deterministic_zero(self, sampling_api: Any) -> None:
+    def test_sample_deterministic_zero(self, sampling_mode: CpuSamplingMode) -> None:
         """Measurement of |0> always gives 0."""
-        prog = sampling_api.compile("M 0")
-        result = sampling_api.sample(prog, 100, seed=42)
+        prog = sampling_mode.compile("M 0")
+        result = sampling_mode.sample(prog, 100, seed=42)
         assert np.all(result.measurements[:, 0] == 0)
 
-    @pytest.mark.sampling_conformance("terminal-measurements")
-    def test_sample_deterministic_one(self, sampling_api: Any) -> None:
+    def test_sample_deterministic_one(self, sampling_mode: CpuSamplingMode) -> None:
         """Measurement of |1> always gives 1."""
-        prog = sampling_api.compile("X 0\nM 0")
-        result = sampling_api.sample(prog, 100, seed=42)
+        prog = sampling_mode.compile("X 0\nM 0")
+        result = sampling_mode.sample(prog, 100, seed=42)
         assert np.all(result.measurements[:, 0] == 1)
 
     def test_sample_superposition(self, sampling_api: Any) -> None:
@@ -91,28 +90,26 @@ class TestSample:
         assert abs(p0 - 0.5) < tolerance, f"p(0)={p0} outside {tolerance:.3f} tolerance"
         assert abs(p1 - 0.5) < tolerance, f"p(1)={p1} outside {tolerance:.3f} tolerance"
 
-    @pytest.mark.sampling_conformance("bell-correlations")
-    def test_sample_bell_state_correlated(self, sampling_api: Any) -> None:
+    def test_sample_bell_state_correlated(self, sampling_mode: CpuSamplingMode) -> None:
         """Bell state measurements are always correlated."""
-        prog = sampling_api.compile("""
+        prog = sampling_mode.compile("""
             H 0
             CX 0 1
             M 0
             M 1
         """)
-        result = sampling_api.sample(prog, 500, seed=99)
+        result = sampling_mode.sample(prog, 500, seed=99)
         assert np.all(
             result.measurements[:, 0] == result.measurements[:, 1]
         ), "Bell state not correlated"
 
-    @pytest.mark.sampling_conformance("bell-correlations", "nonclifford-probabilities")
     def test_biased_entangled_measurements_match_analytic_distribution(
-        self, sampling_api: Any
+        self, sampling_mode: CpuSamplingMode
     ) -> None:
         """A coherent T rotation biases both members of an entangled pair."""
-        program = sampling_api.compile("H 0\nT 0\nH 0\nCX 0 1\nM 0 1")
+        program = sampling_mode.compile("H 0\nT 0\nH 0\nCX 0 1\nM 0 1")
         shots = 50_000
-        result = sampling_api.sample(program, shots, seed=42)
+        result = sampling_mode.sample(program, shots, seed=42)
 
         expected_p0 = (1.0 + np.cos(np.pi / 4.0)) / 2.0
         tolerance = binomial_tolerance(expected_p0, shots)
@@ -137,12 +134,11 @@ class TestSample:
         assert result.measurements.shape == (64, rounds + 1)
         assert np.all((result.measurements == 0) | (result.measurements == 1))
 
-    @pytest.mark.sampling_conformance("terminal-measurements")
-    def test_sample_reproducible(self, sampling_api: Any) -> None:
+    def test_sample_reproducible(self, sampling_mode: CpuSamplingMode) -> None:
         """Same seed produces same results."""
-        prog = sampling_api.compile("H 0\nM 0")
-        result1 = sampling_api.sample(prog, 100, seed=12345)
-        result2 = sampling_api.sample(prog, 100, seed=12345)
+        prog = sampling_mode.compile("H 0\nM 0")
+        result1 = sampling_mode.sample(prog, 100, seed=12345)
+        result2 = sampling_mode.sample(prog, 100, seed=12345)
         assert np.array_equal(result1.measurements, result2.measurements)
 
     @pytest.mark.parametrize("batch_size", ["auto", 1, 2, 65])
@@ -299,15 +295,14 @@ class TestSample:
         assert result.detectors.shape == (50, 0)
         assert result.observables.shape == (50, 0)
 
-    @pytest.mark.sampling_conformance("measurement-reset")
-    def test_sample_reset_works(self, sampling_api: Any) -> None:
+    def test_sample_reset_works(self, sampling_mode: CpuSamplingMode) -> None:
         """Reset correctly resets to |0>."""
-        prog = sampling_api.compile("""
+        prog = sampling_mode.compile("""
             X 0
             R 0
             M 0
         """)
-        result = sampling_api.sample(prog, 100, seed=42)
+        result = sampling_mode.sample(prog, 100, seed=42)
         # Only one visible measurement (from M 0, after reset)
         # R's internal measurement is hidden, matching Stim behavior
         assert result.measurements.shape == (
@@ -317,24 +312,23 @@ class TestSample:
         # Measurement after reset should always be 0
         assert np.all(result.measurements[:, 0] == 0), "Reset failed"
 
-    @pytest.mark.sampling_conformance("measurement-reset")
-    def test_sample_mr_visible(self, sampling_api: Any) -> None:
+    def test_sample_mr_visible(self, sampling_mode: CpuSamplingMode) -> None:
         """MR (measure-and-reset) produces visible measurement unlike R."""
         # R produces 0 visible measurements, MR produces 1
-        prog_r = sampling_api.compile("R 0")
-        prog_mr = sampling_api.compile("MR 0")
+        prog_r = sampling_mode.compile("R 0")
+        prog_mr = sampling_mode.compile("MR 0")
 
         assert prog_r.num_measurements == 0, "R should have 0 visible measurements"
         assert prog_mr.num_measurements == 1, "MR should have 1 visible measurement"
 
         # MR on |0> should always measure 0
-        result = sampling_api.sample(prog_mr, 100, seed=42)
+        result = sampling_mode.sample(prog_mr, 100, seed=42)
         assert result.measurements.shape == (100, 1)
         assert np.all(result.measurements == 0), "MR on |0> should always measure 0"
 
         # MR after X should measure 1
-        prog = sampling_api.compile("X 0\nMR 0")
-        result = sampling_api.sample(prog, 100, seed=42)
+        prog = sampling_mode.compile("X 0\nMR 0")
+        result = sampling_mode.sample(prog, 100, seed=42)
         assert np.all(result.measurements == 1), "MR after X should measure 1"
 
     def test_gap_sampling_sparse_errors(self) -> None:
@@ -727,11 +721,10 @@ class TestNoiseAndQEC:
         result = sampling_api.sample(prog, 100, seed=42)
         assert np.all(result.measurements == 1)
 
-    @pytest.mark.sampling_conformance("readout-noise")
-    def test_readout_noise_probabilistic(self, sampling_api: Any) -> None:
+    def test_readout_noise_probabilistic(self, sampling_mode: CpuSamplingMode) -> None:
         """M(0.5) readout noise gives ~50% flip rate."""
-        prog = sampling_api.compile("M(0.5) 0")
-        result = sampling_api.sample(prog, 1000, seed=42)
+        prog = sampling_mode.compile("M(0.5) 0")
+        result = sampling_mode.sample(prog, 1000, seed=42)
         flip_rate = float(np.mean(result.measurements))
         # Should be ~50% (measuring |0> with 50% flip = 50% ones)
         tolerance = binomial_tolerance(0.5, 1000)
@@ -758,16 +751,15 @@ class TestNoiseAndQEC:
         assert np.all(result.measurements[:, 0] == 0)
         assert np.all(result.measurements[:, 1] == 1)
 
-    @pytest.mark.sampling_conformance("correlated-noise")
-    def test_correlated_error_chain_probabilistic(self, sampling_api: Any) -> None:
+    def test_correlated_error_chain_probabilistic(self, sampling_mode: CpuSamplingMode) -> None:
         """Correlated-error chains convert conditional probabilities correctly."""
-        prog = sampling_api.compile("""
+        prog = sampling_mode.compile("""
             E(0.5) X0
             ELSE_CORRELATED_ERROR(0.5) X1
             M 0 1
         """)
         shots = 5000
-        result = sampling_api.sample(prog, shots, seed=42)
+        result = sampling_mode.sample(prog, shots, seed=42)
         q0 = result.measurements[:, 0]
         q1 = result.measurements[:, 1]
 
@@ -933,8 +925,7 @@ class TestSampleSurvivors:
         assert result.detectors.shape == (0, 0)
         assert result.observables.shape == (0, 1)
 
-    @pytest.mark.sampling_conformance("survivor-accounting")
-    def test_counting_only_fast_path(self, sampling_api: Any) -> None:
+    def test_counting_only_fast_path(self, sampling_mode: CpuSamplingMode) -> None:
         """keep_records=False returns survivor metadata with empty arrays."""
         circuit = """
             H 0
@@ -942,8 +933,8 @@ class TestSampleSurvivors:
             DETECTOR rec[-1]
             OBSERVABLE_INCLUDE(0) rec[-1]
         """
-        prog = sampling_api.compile(circuit, postselection_mask=[1])
-        result = sampling_api.sample_survivors(prog, 1000, seed=42)
+        prog = sampling_mode.compile(circuit, postselection_mask=[1])
+        result = sampling_mode.sample_survivors(prog, 1000, seed=42)
 
         assert result.total_shots == 1000
         assert 0 < result.passed_shots < 1000
@@ -956,8 +947,7 @@ class TestSampleSurvivors:
         assert result.detectors.shape == (0, prog.num_detectors)
         assert result.observables.shape == (0, prog.num_observables)
 
-    @pytest.mark.sampling_conformance("survivor-accounting", "survivor-records")
-    def test_keep_records_returns_arrays(self, sampling_api: Any) -> None:
+    def test_keep_records_returns_arrays(self, sampling_mode: CpuSamplingMode) -> None:
         """keep_records=True populates survivor measurement and syndrome arrays."""
         circuit = """
             H 0
@@ -965,8 +955,8 @@ class TestSampleSurvivors:
             DETECTOR rec[-1]
             OBSERVABLE_INCLUDE(0) rec[-1]
         """
-        prog = sampling_api.compile(circuit, postselection_mask=[1])
-        result = sampling_api.sample_survivors(prog, 200, seed=42, keep_records=True)
+        prog = sampling_mode.compile(circuit, postselection_mask=[1])
+        result = sampling_mode.sample_survivors(prog, 200, seed=42, keep_records=True)
 
         passed = result.passed_shots
         assert passed > 0
@@ -1036,28 +1026,26 @@ class TestSampleSurvivors:
         np.testing.assert_array_equal(threaded.detectors, serial.detectors)
         np.testing.assert_array_equal(threaded.observables, serial.observables)
 
-    @pytest.mark.sampling_conformance("survivor-accounting")
-    def test_no_postselection_all_pass(self, sampling_api: Any) -> None:
+    def test_no_postselection_all_pass(self, sampling_mode: CpuSamplingMode) -> None:
         """Without postselection, all shots pass."""
         circuit = """
             H 0
             M 0
             DETECTOR rec[-1]
         """
-        prog = sampling_api.compile(circuit)  # no mask
-        result = sampling_api.sample_survivors(prog, 100, seed=42)
+        prog = sampling_mode.compile(circuit)  # no mask
+        result = sampling_mode.sample_survivors(prog, 100, seed=42)
 
         assert result.total_shots == 100
         assert result.passed_shots == 100
         assert result.discards == 0
 
-    @pytest.mark.sampling_conformance("survivor-accounting", "survivor-records")
-    def test_no_postselection_retains_all_records(self, sampling_api: Any) -> None:
-        program = sampling_api.compile(
+    def test_no_postselection_retains_all_records(self, sampling_mode: CpuSamplingMode) -> None:
+        program = sampling_mode.compile(
             "X 1\nM 0 1\nDETECTOR rec[-2]\nOBSERVABLE_INCLUDE(0) rec[-1]"
         )
         shots = 257
-        result = sampling_api.sample_survivors(program, shots, seed=42, keep_records=True)
+        result = sampling_mode.sample_survivors(program, shots, seed=42, keep_records=True)
 
         assert result.total_shots == shots
         assert result.passed_shots == shots
@@ -1112,8 +1100,7 @@ class TestSampleSurvivors:
         assert result.discards > 0
         assert len(result.observable_ones) == 1
 
-    @pytest.mark.sampling_conformance("survivor-accounting", "survivor-records")
-    def test_keep_records_100_percent_discard(self, sampling_api: Any) -> None:
+    def test_keep_records_100_percent_discard(self, sampling_mode: CpuSamplingMode) -> None:
         """keep_records=True with all shots discarded returns empty arrays."""
         # Circuit: deterministic meas=1, postselect -> always discards
         circuit = """
@@ -1122,8 +1109,8 @@ class TestSampleSurvivors:
             DETECTOR rec[-1]
             OBSERVABLE_INCLUDE(0) rec[-1]
         """
-        prog = sampling_api.compile(circuit, postselection_mask=[1])
-        result = sampling_api.sample_survivors(prog, 100, seed=42, keep_records=True)
+        prog = sampling_mode.compile(circuit, postselection_mask=[1])
+        result = sampling_mode.sample_survivors(prog, 100, seed=42, keep_records=True)
 
         assert result.total_shots == 100
         assert result.passed_shots == 0
@@ -1307,12 +1294,11 @@ class TestSyndromeNormalization:
 class TestExpVal:
     """Tests for EXP_VAL expectation value probes via Python bindings."""
 
-    @pytest.mark.sampling_conformance("expectation-values")
-    def test_sample_returns_exp_vals(self, sampling_api: Any) -> None:
+    def test_sample_returns_exp_vals(self, sampling_mode: CpuSamplingMode) -> None:
         """sample() populates exp_vals for circuits with EXP_VAL."""
-        prog = sampling_api.compile("EXP_VAL Z0")
+        prog = sampling_mode.compile("EXP_VAL Z0")
         shots = 65
-        result = sampling_api.sample(prog, shots, seed=42)
+        result = sampling_mode.sample(prog, shots, seed=42)
         assert result.exp_vals.shape == (shots, 1)
         assert result.exp_vals.dtype == np.float64
         np.testing.assert_allclose(result.exp_vals[:, 0], 1.0, atol=1e-12)
@@ -1342,11 +1328,10 @@ class TestExpVal:
         np.testing.assert_allclose(result.exp_vals[:, 0], 1.0, atol=1e-12)  # <X> on |+>
         np.testing.assert_allclose(result.exp_vals[:, 1], 0.0, atol=1e-12)  # <Z> on |+>
 
-    @pytest.mark.sampling_conformance("expectation-values", "terminal-measurements")
-    def test_exp_val_does_not_disturb_measurement(self, sampling_api: Any) -> None:
+    def test_exp_val_does_not_disturb_measurement(self, sampling_mode: CpuSamplingMode) -> None:
         """EXP_VAL is non-destructive: measurements after it are unaffected."""
-        prog = sampling_api.compile("EXP_VAL Z0\nM 0")
-        result = sampling_api.sample(prog, 100, seed=0)
+        prog = sampling_mode.compile("EXP_VAL Z0\nM 0")
+        result = sampling_mode.sample(prog, 100, seed=0)
         # |0> state: all measurements should be 0
         assert np.all(result.measurements == 0)
         np.testing.assert_allclose(result.exp_vals[:, 0], 1.0, atol=1e-12)
