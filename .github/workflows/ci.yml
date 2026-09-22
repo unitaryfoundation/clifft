@@ -653,6 +653,50 @@ jobs:
             --requirements /tmp/dev-requirements.txt
           .abi3-venv/bin/python -m pytest tests/python/ -n logical --maxprocesses 4 -v
 
+  macos-release-wheel-smoke:
+    name: macOS 14 release wheel smoke
+    runs-on: macos-14
+    timeout-minutes: 60
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup uv and Python
+        uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+
+      - name: Export locked test dependencies
+        run: |
+          uv export --frozen --only-group dev --no-emit-project \
+            --output-file .wheel-test-requirements.txt
+
+      # Static archives no longer pass through delocate's dylib compatibility
+      # checks. Run the repaired release artifact on the minimum supported OS.
+      - name: Build and test macOS release wheel
+        uses: pypa/cibuildwheel@v4.2
+        env:
+          CIBW_BUILD: "cp312-*"
+          CIBW_ARCHS: arm64
+          CIBW_ENVIRONMENT: >-
+            MACOSX_DEPLOYMENT_TARGET=14.0
+            CLIFFT_CPU_BASELINE=generic
+            CLIFFT_OPENMP=ON
+          CIBW_BEFORE_ALL_MACOS: brew install libomp
+          CIBW_BEFORE_BUILD: pip install setuptools-scm
+          CIBW_BEFORE_TEST: pip install -r {project}/.wheel-test-requirements.txt
+          CIBW_TEST_COMMAND: >-
+            python {project}/.github/scripts/artifact_smoke.py --exercise-intra-shot
+            &&
+            python {project}/tools/ci/audit_python_exports.py
+            &&
+            python -m pytest {project}/tests/python/test_openmp_coexistence.py -v
+
+      - name: Audit private macOS OpenMP runtime
+        run: python3 tools/ci/audit_macos_wheel.py wheelhouse/*.whl
+
   cross-platform:
     name: cross-platform (${{ matrix.label }})
     strategy:
@@ -763,6 +807,7 @@ jobs:
       - release-cpp-smoke
       - gcc-release-cpp
       - linux-release-wheel-smoke
+      - macos-release-wheel-smoke
       - package-smoke
       - cross-platform
     runs-on: ubuntu-24.04

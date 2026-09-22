@@ -77,7 +77,9 @@ macOS Python builds link `libomp.a` from the selected runtime's library
 directory and keep its symbols private to the extension. Homebrew `libomp`
 includes this archive. This prevents macOS from mixing internal functions
 from different OpenMP versions when another package, such as Qiskit Aer,
-loads its own runtime. Standalone C++ builds retain the toolchain's normal
+loads its own runtime. If the selected installation has no static archive,
+`AUTO` warns and disables OpenMP, preserving serial and cross-shot sampling;
+`ON` fails configuration. Standalone C++ builds retain the toolchain's normal
 OpenMP linkage.
 
 ### Runtime kernel dispatch
