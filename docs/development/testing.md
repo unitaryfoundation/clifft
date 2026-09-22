@@ -53,41 +53,6 @@ All procedural generators are centralized in [`utils_fuzzing.py`](https://github
 
 ## External Cross-Validation Oracles
 
-### Shared compiler conformance
-
-`test_qiskit_aer.py` runs its statevector corpus with HIR optimization disabled
-and with the production-default pass manager. `test_compiler_conformance.py`
-also checks a small unitary corpus against Aer record probabilities under
-both profiles and three CPU sampling modes: single-shot, packed capacity 65,
-and automatic, each with one worker. It checks joint record distributions,
-detector/observable mappings, and exact outputs at word and batch boundaries.
-Separate witnesses verify that peephole and squeeze transformations occur.
-
-This shared sampling corpus covers unitary circuits with terminal
-measurements. Other feature suites retain their own configurations; noisy,
-mid-circuit, postselection, and GPU coverage are not supplied by this matrix.
-Existing C++ tests in `tests/test_batch_executor.cc` check execution policy
-and directly exercise the packed executor.
-
-```bash
-uv run --no-sync pytest tests/python/test_compiler_conformance.py tests/python/test_qiskit_aer.py -q
-```
-
-#### Extending the corpus
-
-- Add a `UnitaryCase` to `CASES` with a descriptive name, unitary source, and
-  qubit count. Terminal measurements are appended automatically, and Aer
-  expectations are shared across profiles and sampling modes. The translator
-  rejects unsupported operations; use the appropriate reference suite for them.
-- Add compiler profiles or CPU sampling modes in `utils_conformance.py` to run
-  the existing cases under another compatible configuration.
-- For a new default pass, set `witness_for` on a case and extend the
-  missing-pass control. An opt-in pass needs its own profile, witness checks,
-  and inventory decision. Passes that change the reference semantics need
-  separate tests and a documented entry in `EXCLUDED_PASSES`.
-
-### Existing reference suites
-
 End-to-end Python tests compare Clifft against independent references whenever
 practical. These tests validate the full symbolic sampling pipeline rather
 than isolated implementation details.
@@ -99,7 +64,14 @@ than isolated implementation details.
   ([`test_qiskit_aer.py`](https://github.com/unitaryfoundation/clifft/blob/main/tests/python/test_qiskit_aer.py)).
   This checks that Clifft's non-Clifford phase handling and coordinate
   reconstruction agree with an independent dense-state simulator up to global
-  phase.
+  phase. The same circuits are checked with and without compiler optimization.
+
+* **Compiler and sampling conformance:** Small unitary circuits are checked
+  against Qiskit Aer across compiler optimizations and CPU sampling modes
+  ([`test_compiler_conformance.py`](https://github.com/unitaryfoundation/clifft/blob/main/tests/python/test_compiler_conformance.py)).
+  Comparing complete measurement outcomes checks correlations that individual
+  measurement averages can miss. Exact checks also catch missing or incorrect
+  output rows.
 
 * **Clifford statevector equivalence with Stim:** Every named Clifford accepted
   by the frontend, plus representative arbitrary Pauli-product Cliffords, is
