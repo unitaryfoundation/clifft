@@ -10,15 +10,19 @@
 
 #include <algorithm>
 #include <array>
+#include <barrier>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <cmath>
 #include <cstdint>
+#include <cuda_runtime_api.h>
+#include <exception>
 #include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 using clifft::sampling::SamplingPlan;
@@ -434,6 +438,79 @@ TEST_CASE("CUDA cooperative concurrency cap preserves seeded rows") {
         const SamplingResult batched = capped.sample(kShots, uint64_t{77}, 32);
         const SamplingResult single = open.sample(kShots, uint64_t{77}, 32);
         require_same_rows(batched, single);
+    }
+}
+
+TEST_CASE("CUDA shared samplers with different widths can run from concurrent callers") {
+    require_cuda_device();
+    int device = 0;
+    REQUIRE(cudaGetDevice(&device) == cudaSuccess);
+    constexpr uint32_t kShots = 8;
+    constexpr size_t kAttempts = 64;
+
+    for (const CoefficientPrecision precision :
+         {CoefficientPrecision::FP64, CoefficientPrecision::FP32}) {
+        const auto boundary = first_block_global_width(precision);
+        REQUIRE(boundary.has_value());
+        const std::array<CudaExecutablePlan, 2> programs{
+            CudaExecutablePlan(plan_from(wide_circuit_text(*boundary - 1, false))),
+            CudaExecutablePlan(plan_from(wide_circuit_text(*boundary - 2, false)))};
+        std::array<SamplingResult, 2> expected;
+        std::array<clifft::sampling::cuda::ReplayResult, 2> expected_replay;
+        std::array<std::vector<uint8_t>, 2> forced;
+        for (size_t caller = 0; caller < programs.size(); ++caller) {
+            Sampler sampler(programs[caller], precision, kShots, ExecutionTier::BlockShared);
+            expected[caller] = sampler.sample(kShots, uint64_t{73});
+            forced[caller].assign(
+                expected[caller].measurements.begin(),
+                expected[caller].measurements.begin() + programs[caller].num_records());
+            expected_replay[caller] = sampler.replay_shot(forced[caller]);
+            REQUIRE(expected_replay[caller].reachable);
+        }
+
+        std::barrier rendezvous(2);
+        std::array<std::exception_ptr, 2> errors;
+        std::array<std::vector<SamplingResult>, 2> actual;
+        std::array<std::vector<clifft::sampling::cuda::ReplayResult>, 2> replay;
+        auto run = [&](size_t caller) {
+            try {
+                // CUDA device selection belongs to the calling host thread.
+                if (cudaSetDevice(device) != cudaSuccess) {
+                    throw std::runtime_error("could not select the test device");
+                }
+                Sampler sampler(programs[caller], precision, kShots, ExecutionTier::BlockShared);
+                for (size_t attempt = 0; attempt < kAttempts; ++attempt) {
+                    rendezvous.arrive_and_wait();
+                    actual[caller].push_back(sampler.sample(kShots, uint64_t{73}));
+                    rendezvous.arrive_and_wait();
+                    replay[caller].push_back(sampler.replay_shot(forced[caller]));
+                }
+            } catch (...) {
+                errors[caller] = std::current_exception();
+                rendezvous.arrive_and_drop();
+            }
+        };
+        std::jthread first(run, 0);
+        std::jthread second(run, 1);
+        first.join();
+        second.join();
+
+        for (size_t caller = 0; caller < programs.size(); ++caller) {
+            CAPTURE(precision, caller);
+            if (errors[caller]) {
+                std::rethrow_exception(errors[caller]);
+            }
+            REQUIRE(actual[caller].size() == kAttempts);
+            REQUIRE(replay[caller].size() == kAttempts);
+            for (size_t attempt = 0; attempt < kAttempts; ++attempt) {
+                require_same_rows(actual[caller][attempt], expected[caller]);
+                REQUIRE(replay[caller][attempt].reachable == expected_replay[caller].reachable);
+                REQUIRE(replay[caller][attempt].survived == expected_replay[caller].survived);
+                REQUIRE(replay[caller][attempt].log_probability ==
+                        expected_replay[caller].log_probability);
+                require_same_rows(replay[caller][attempt].outputs, expected_replay[caller].outputs);
+            }
+        }
     }
 }
 

@@ -715,6 +715,7 @@ __global__ void __launch_bounds__(kMaxBlockSize)
 #include <algorithm>
 #include <atomic>
 #include <limits>
+#include <mutex>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -899,6 +900,25 @@ DeviceLimits query_device() {
     return limits;
 }
 
+template <typename Coefficient, bool Replay>
+void configure_shared_kernel(const DeviceLimits& limits) {
+    // Function attributes are shared across samplers. A fixed device maximum
+    // prevents a smaller program from lowering another caller's launch limit.
+    static std::mutex mutex;
+    static std::vector<int> configured_devices;
+    const std::lock_guard lock(mutex);
+    if (std::find(configured_devices.begin(), configured_devices.end(), limits.device) !=
+        configured_devices.end()) {
+        return;
+    }
+    auto* kernel = detail::interpret_shots_block<Coefficient, Replay, true>;
+    const size_t dynamic_limit = limits.shared_optin - detail::kReductionScratchBytes;
+    check_cuda(cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize,
+                                    static_cast<int>(dynamic_limit)),
+               "shared memory opt-in");
+    configured_devices.push_back(limits.device);
+}
+
 size_t coefficient_bytes(const ExecutablePlan& executable, CoefficientPrecision precision) {
     const size_t element = precision == CoefficientPrecision::FP32 ? sizeof(float) : sizeof(double);
     return static_cast<size_t>(
@@ -1039,7 +1059,17 @@ class Sampler::Impl {
           host_observables(
               checked_elements(max_batch, source.num_observables(), "host observable")),
           host_exp_vals(checked_elements(max_batch, source.num_exp_vals(), "host expectation")),
-          host_survived(max_batch) {}
+          host_survived(max_batch) {
+        if (tier == ExecutionTier::BlockShared) {
+            if (precision == CoefficientPrecision::FP32) {
+                configure_shared_kernel<float, false>(limits);
+                configure_shared_kernel<float, true>(limits);
+            } else {
+                configure_shared_kernel<double, false>(limits);
+                configure_shared_kernel<double, true>(limits);
+            }
+        }
+    }
 
     void run_batch(detail::SeedRoot root, uint64_t shot_offset, uint32_t shots, uint32_t block_size,
                    DownloadMode download_mode) {
@@ -1127,9 +1157,6 @@ class Sampler::Impl {
             }
             case ExecutionTier::BlockShared: {
                 auto* kernel = detail::interpret_shots_block<Coefficient, Replay, true>;
-                check_cuda(cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize,
-                                                static_cast<int>(dynamic_shared_bytes)),
-                           "shared memory opt-in");
                 const uint32_t grid = std::min(concurrency, shots);
                 kernel<<<grid, block_size, dynamic_shared_bytes>>>(
                     program.view, root, shot_offset, shots, coefficient_storage, symbols.data(),
