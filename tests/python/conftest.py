@@ -9,11 +9,7 @@ import pytest
 
 import clifft
 
-
-@pytest.fixture(params=[clifft], ids=["symbolic-coordinate"])
-def sampling_api(request: pytest.FixtureRequest) -> Any:
-    """Run public sampling conformance tests against the production backend."""
-    return cast(Any, request.param)
+pytest_plugins = ("sampling_conformance",)
 
 
 @pytest.fixture(params=[clifft], ids=["symbolic-coordinate"])

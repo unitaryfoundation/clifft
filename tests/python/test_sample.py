@@ -66,12 +66,14 @@ class TestCompile:
 class TestSample:
     """Tests for clifft.sample()."""
 
+    @pytest.mark.sampling_conformance("terminal-measurements")
     def test_sample_deterministic_zero(self, sampling_api: Any) -> None:
         """Measurement of |0> always gives 0."""
         prog = sampling_api.compile("M 0")
         result = sampling_api.sample(prog, 100, seed=42)
         assert np.all(result.measurements[:, 0] == 0)
 
+    @pytest.mark.sampling_conformance("terminal-measurements")
     def test_sample_deterministic_one(self, sampling_api: Any) -> None:
         """Measurement of |1> always gives 1."""
         prog = sampling_api.compile("X 0\nM 0")
@@ -89,6 +91,7 @@ class TestSample:
         assert abs(p0 - 0.5) < tolerance, f"p(0)={p0} outside {tolerance:.3f} tolerance"
         assert abs(p1 - 0.5) < tolerance, f"p(1)={p1} outside {tolerance:.3f} tolerance"
 
+    @pytest.mark.sampling_conformance("bell-correlations")
     def test_sample_bell_state_correlated(self, sampling_api: Any) -> None:
         """Bell state measurements are always correlated."""
         prog = sampling_api.compile("""
@@ -102,6 +105,7 @@ class TestSample:
             result.measurements[:, 0] == result.measurements[:, 1]
         ), "Bell state not correlated"
 
+    @pytest.mark.sampling_conformance("bell-correlations", "nonclifford-probabilities")
     def test_biased_entangled_measurements_match_analytic_distribution(
         self, sampling_api: Any
     ) -> None:
@@ -133,6 +137,7 @@ class TestSample:
         assert result.measurements.shape == (64, rounds + 1)
         assert np.all((result.measurements == 0) | (result.measurements == 1))
 
+    @pytest.mark.sampling_conformance("terminal-measurements")
     def test_sample_reproducible(self, sampling_api: Any) -> None:
         """Same seed produces same results."""
         prog = sampling_api.compile("H 0\nM 0")
@@ -294,6 +299,7 @@ class TestSample:
         assert result.detectors.shape == (50, 0)
         assert result.observables.shape == (50, 0)
 
+    @pytest.mark.sampling_conformance("measurement-reset")
     def test_sample_reset_works(self, sampling_api: Any) -> None:
         """Reset correctly resets to |0>."""
         prog = sampling_api.compile("""
@@ -311,6 +317,7 @@ class TestSample:
         # Measurement after reset should always be 0
         assert np.all(result.measurements[:, 0] == 0), "Reset failed"
 
+    @pytest.mark.sampling_conformance("measurement-reset")
     def test_sample_mr_visible(self, sampling_api: Any) -> None:
         """MR (measure-and-reset) produces visible measurement unlike R."""
         # R produces 0 visible measurements, MR produces 1
@@ -720,6 +727,7 @@ class TestNoiseAndQEC:
         result = sampling_api.sample(prog, 100, seed=42)
         assert np.all(result.measurements == 1)
 
+    @pytest.mark.sampling_conformance("readout-noise")
     def test_readout_noise_probabilistic(self, sampling_api: Any) -> None:
         """M(0.5) readout noise gives ~50% flip rate."""
         prog = sampling_api.compile("M(0.5) 0")
@@ -750,6 +758,7 @@ class TestNoiseAndQEC:
         assert np.all(result.measurements[:, 0] == 0)
         assert np.all(result.measurements[:, 1] == 1)
 
+    @pytest.mark.sampling_conformance("correlated-noise")
     def test_correlated_error_chain_probabilistic(self, sampling_api: Any) -> None:
         """Correlated-error chains convert conditional probabilities correctly."""
         prog = sampling_api.compile("""
@@ -924,6 +933,7 @@ class TestSampleSurvivors:
         assert result.detectors.shape == (0, 0)
         assert result.observables.shape == (0, 1)
 
+    @pytest.mark.sampling_conformance("survivor-accounting")
     def test_counting_only_fast_path(self, sampling_api: Any) -> None:
         """keep_records=False returns survivor metadata with empty arrays."""
         circuit = """
@@ -946,6 +956,7 @@ class TestSampleSurvivors:
         assert result.detectors.shape == (0, prog.num_detectors)
         assert result.observables.shape == (0, prog.num_observables)
 
+    @pytest.mark.sampling_conformance("survivor-accounting", "survivor-records")
     def test_keep_records_returns_arrays(self, sampling_api: Any) -> None:
         """keep_records=True populates survivor measurement and syndrome arrays."""
         circuit = """
@@ -1025,6 +1036,7 @@ class TestSampleSurvivors:
         np.testing.assert_array_equal(threaded.detectors, serial.detectors)
         np.testing.assert_array_equal(threaded.observables, serial.observables)
 
+    @pytest.mark.sampling_conformance("survivor-accounting")
     def test_no_postselection_all_pass(self, sampling_api: Any) -> None:
         """Without postselection, all shots pass."""
         circuit = """
@@ -1083,6 +1095,7 @@ class TestSampleSurvivors:
         assert result.discards > 0
         assert len(result.observable_ones) == 1
 
+    @pytest.mark.sampling_conformance("survivor-accounting", "survivor-records")
     def test_keep_records_100_percent_discard(self, sampling_api: Any) -> None:
         """keep_records=True with all shots discarded returns empty arrays."""
         # Circuit: deterministic meas=1, postselect -> always discards
@@ -1277,10 +1290,11 @@ class TestSyndromeNormalization:
 class TestExpVal:
     """Tests for EXP_VAL expectation value probes via Python bindings."""
 
-    def test_sample_returns_exp_vals(self) -> None:
+    @pytest.mark.sampling_conformance("expectation-values")
+    def test_sample_returns_exp_vals(self, sampling_api: Any) -> None:
         """sample() populates exp_vals for circuits with EXP_VAL."""
-        prog = clifft.compile("EXP_VAL Z0")
-        result = clifft.sample(prog, 10, seed=42)
+        prog = sampling_api.compile("EXP_VAL Z0")
+        result = sampling_api.sample(prog, 10, seed=42)
         assert result.exp_vals.shape == (10, 1)
         assert result.exp_vals.dtype == np.float64
         np.testing.assert_allclose(result.exp_vals[:, 0], 1.0, atol=1e-12)
@@ -1310,10 +1324,11 @@ class TestExpVal:
         np.testing.assert_allclose(result.exp_vals[:, 0], 1.0, atol=1e-12)  # <X> on |+>
         np.testing.assert_allclose(result.exp_vals[:, 1], 0.0, atol=1e-12)  # <Z> on |+>
 
-    def test_exp_val_does_not_disturb_measurement(self) -> None:
+    @pytest.mark.sampling_conformance("expectation-values", "terminal-measurements")
+    def test_exp_val_does_not_disturb_measurement(self, sampling_api: Any) -> None:
         """EXP_VAL is non-destructive: measurements after it are unaffected."""
-        prog = clifft.compile("EXP_VAL Z0\nM 0")
-        result = clifft.sample(prog, 100, seed=0)
+        prog = sampling_api.compile("EXP_VAL Z0\nM 0")
+        result = sampling_api.sample(prog, 100, seed=0)
         # |0> state: all measurements should be 0
         assert np.all(result.measurements == 0)
         np.testing.assert_allclose(result.exp_vals[:, 0], 1.0, atol=1e-12)
