@@ -144,18 +144,22 @@ def test_noise_readout_feedback_and_syndrome_share_one_symbolic_record(sampling_
         DETECTOR rec[-1] rec[-2]
         OBSERVABLE_INCLUDE(0) rec[-1]
     """
-    result = sampling_api.sample(sampling_api.compile(circuit), shots=32, seed=7)
+    shots = 65
+    result = sampling_api.sample(sampling_api.compile(circuit), shots=shots, seed=7)
 
-    np.testing.assert_array_equal(result.measurements, np.zeros((32, 2), dtype=np.uint8))
-    np.testing.assert_array_equal(result.detectors, np.zeros((32, 1), dtype=np.uint8))
-    np.testing.assert_array_equal(result.observables, np.zeros((32, 1), dtype=np.uint8))
+    np.testing.assert_array_equal(result.measurements, np.zeros((shots, 2), dtype=np.uint8))
+    np.testing.assert_array_equal(result.detectors, np.zeros((shots, 1), dtype=np.uint8))
+    np.testing.assert_array_equal(result.observables, np.zeros((shots, 1), dtype=np.uint8))
 
 
 @pytest.mark.sampling_conformance("readout-noise")
 def test_asymmetric_readout_noise_uses_the_pre_flip_record(sampling_api: Any) -> None:
-    zero = sampling_api.sample(sampling_api.compile("M 0\nREADOUT_NOISE(1, 0) rec[-1]"), 16, seed=1)
+    shots = 65
+    zero = sampling_api.sample(
+        sampling_api.compile("M 0\nREADOUT_NOISE(1, 0) rec[-1]"), shots, seed=1
+    )
     one = sampling_api.sample(
-        sampling_api.compile("X 0\nM 0\nREADOUT_NOISE(0, 1) rec[-1]"), 16, seed=1
+        sampling_api.compile("X 0\nM 0\nREADOUT_NOISE(0, 1) rec[-1]"), shots, seed=1
     )
 
     assert np.all(zero.measurements == 1)

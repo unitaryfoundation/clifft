@@ -80,7 +80,7 @@ jobs:
 
       - name: Run Python tests
         run: |
-          uv run --locked pytest tests/python/ -v \
+          uv run --locked pytest tests/python/ --sampling-coverage -v \
             --cov=clifft \
             --cov-report=xml:build/python-coverage.xml
 

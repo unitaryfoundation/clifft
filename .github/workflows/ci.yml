@@ -276,6 +276,11 @@ jobs:
       - name: Audit Python extension exports
         run: uv run python tools/ci/audit_python_exports.py
 
+      # Serial collection keeps audit errors and the coverage map visible;
+      # xdist workers do not reliably forward collection-hook UsageErrors.
+      - name: Audit shared sampling coverage
+        run: uv run --locked pytest tests/python/ --sampling-coverage --collect-only -q
+
       - name: Run Python tests (default ISA)
         run: uv run --locked pytest tests/python/ --sampling-coverage -n logical --maxprocesses 4 -v
 
@@ -390,6 +395,9 @@ jobs:
 
       - name: Audit Python extension exports
         run: .smoke-venv/bin/python tools/ci/audit_python_exports.py
+
+      - name: Audit shared sampling coverage
+        run: .smoke-venv/bin/python -m pytest tests/python/ --sampling-coverage --collect-only -q
 
       - name: Run Python tests (optimized extension)
         run: .smoke-venv/bin/python -m pytest tests/python/ --sampling-coverage -n logical --maxprocesses 4 -v
@@ -598,6 +606,7 @@ jobs:
             --output-file /tmp/dev-requirements.txt
           uv pip install --python .abi3-venv/bin/python \
             --requirements /tmp/dev-requirements.txt
+          .abi3-venv/bin/python -m pytest tests/python/ --sampling-coverage --collect-only -q
           .abi3-venv/bin/python -m pytest tests/python/ --sampling-coverage -n logical --maxprocesses 4 -v
 
   cross-platform:
@@ -689,6 +698,9 @@ jobs:
 
       - name: Audit Python extension exports
         run: uv run python tools/ci/audit_python_exports.py
+
+      - name: Audit shared sampling coverage
+        run: uv run --locked pytest tests/python/ --sampling-coverage --collect-only -q
 
       - name: Run Python tests
         run: uv run --locked pytest tests/python/ --sampling-coverage -n logical --maxprocesses 4 -v

@@ -1051,6 +1051,23 @@ class TestSampleSurvivors:
         assert result.passed_shots == 100
         assert result.discards == 0
 
+    @pytest.mark.sampling_conformance("survivor-accounting", "survivor-records")
+    def test_no_postselection_retains_all_records(self, sampling_api: Any) -> None:
+        program = sampling_api.compile(
+            "X 1\nM 0 1\nDETECTOR rec[-2]\nOBSERVABLE_INCLUDE(0) rec[-1]"
+        )
+        shots = 257
+        result = sampling_api.sample_survivors(program, shots, seed=42, keep_records=True)
+
+        assert result.total_shots == shots
+        assert result.passed_shots == shots
+        assert result.discards == 0
+        assert result.logical_errors == shots
+        np.testing.assert_array_equal(result.observable_ones, [shots])
+        np.testing.assert_array_equal(result.measurements, np.broadcast_to([0, 1], (shots, 2)))
+        np.testing.assert_array_equal(result.detectors, np.zeros((shots, 1), dtype=np.uint8))
+        np.testing.assert_array_equal(result.observables, np.ones((shots, 1), dtype=np.uint8))
+
     def test_observable_ones_counts_errors(self, sampling_api: Any) -> None:
         """observable_ones correctly counts logical errors in survivors."""
         # No postselection, random observable. ~50% should be 1.
@@ -1294,8 +1311,9 @@ class TestExpVal:
     def test_sample_returns_exp_vals(self, sampling_api: Any) -> None:
         """sample() populates exp_vals for circuits with EXP_VAL."""
         prog = sampling_api.compile("EXP_VAL Z0")
-        result = sampling_api.sample(prog, 10, seed=42)
-        assert result.exp_vals.shape == (10, 1)
+        shots = 65
+        result = sampling_api.sample(prog, shots, seed=42)
+        assert result.exp_vals.shape == (shots, 1)
         assert result.exp_vals.dtype == np.float64
         np.testing.assert_allclose(result.exp_vals[:, 0], 1.0, atol=1e-12)
 

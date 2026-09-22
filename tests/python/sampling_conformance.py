@@ -7,7 +7,7 @@ collected matrix; add --collect-only to list its test IDs without execution.
 """
 
 from collections import defaultdict
-from collections.abc import Iterator
+from collections.abc import Generator, Iterator
 from dataclasses import dataclass
 from typing import Any, cast
 
@@ -62,6 +62,7 @@ class SamplingConfiguration:
 CONFIGURATIONS = tuple(SamplingConfiguration(mode, CPU_SUPPORT) for mode in CPU_SAMPLING_MODES)
 REQUIRED_CPU_MODES = {"single-shot": 1, "packed-65": 65, "automatic": "auto"}
 _REPORT = pytest.StashKey[dict[tuple[str, str], list[str]]]()
+_TEST_FAILED = pytest.StashKey[bool]()
 
 
 def validate_inventory() -> None:
@@ -144,6 +145,16 @@ class _SamplingApi:
         return sample
 
 
+@pytest.hookimpl(wrapper=True, tryfirst=True)
+def pytest_runtest_makereport(
+    item: pytest.Item,
+) -> Generator[None, pytest.TestReport, pytest.TestReport]:
+    report = yield
+    if report.when in {"setup", "call"} and report.failed:
+        item.stash[_TEST_FAILED] = True
+    return report
+
+
 @pytest.fixture
 def sampling_api(request: pytest.FixtureRequest) -> Iterator[Any]:
     if request.param is clifft:
@@ -151,8 +162,11 @@ def sampling_api(request: pytest.FixtureRequest) -> Iterator[Any]:
     else:
         api = _SamplingApi(request.param)
         yield api
+        # Preserve the original failure without a secondary coverage error.
+        if request.node.stash.get(_TEST_FAILED, False):
+            return
         # A marker must not claim mode coverage when the test bypasses the
-        # adapter and calls the default sampler directly.
+        # adapter or only checks rejected calls without successfully sampling.
         assert (
             api.sampled
         ), f"Shared test did not sample through its selected mode: {request.node.nodeid}"

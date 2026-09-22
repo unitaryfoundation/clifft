@@ -128,6 +128,26 @@ Separate jobs cover Linux arm64, macOS, Windows, and WebAssembly. Nightly
 sanitizer jobs check for memory errors, undefined behavior, and data races,
 while a weekly job records combined C++ and Python coverage.
 
+## Shared Sampling Behavior
+
+Selected behavioral tests use `sampling_api` and the `sampling_conformance`
+marker to run their assertions through single-shot, packed, and automatic CPU
+sampling. The behavior and support inventory lives in
+[`sampling_conformance.py`](https://github.com/unitaryfoundation/clifft/blob/main/tests/python/sampling_conformance.py).
+Audit the registered coverage and list each behavior's tests by configuration:
+
+```bash
+uv run pytest tests/python/ --sampling-coverage --collect-only -q
+```
+
+CI runs this audit serially before parallel execution so omissions have readable
+diagnostics. Focused test runs can omit `--sampling-coverage`. Automatic coverage
+validates the selection policy's result: it currently selects scalar execution
+for postselected programs and requests below 64 shots. Explicit packed cases and
+eligible automatic cases exercise packed execution; the report counts requested
+configurations, not distinct underlying executors. Shared execution coverage
+requires successful sampling; rejection-only tests remain separate.
+
 ## Running the Tests
 
 We use `pytest` for the Python oracles and `CTest` for the C++ units. You can run the test suites locally using the provided `just` shortcuts.

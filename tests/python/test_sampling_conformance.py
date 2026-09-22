@@ -141,6 +141,59 @@ def test_shared_test_cannot_bypass_its_selected_mode(matrix: pytest.Pytester) ->
     assert "Shared test did not sample through its selected mode" in result.stdout.str()
 
 
+@pytest.mark.parametrize("failure_site", ["setup", "body", "sampling"])
+def test_original_failures_do_not_add_a_coverage_error(
+    matrix: pytest.Pytester, failure_site: str
+) -> None:
+    if failure_site == "setup":
+        source = _MEASUREMENT_TEST.replace(
+            "def test_measurement(sampling_api):",
+            "def test_measurement(sampling_api, broken_setup):",
+        )
+        source += """
+@pytest.fixture
+def broken_setup(sampling_api):
+    raise RuntimeError("failure before sampling")
+"""
+    elif failure_site == "body":
+        source = _MEASUREMENT_TEST.replace(
+            "    result =", '    raise RuntimeError("failure before sampling")\n    result ='
+        )
+    else:
+        source = """
+import pytest
+
+@pytest.mark.sampling_conformance("terminal-measurements")
+def test_measurement(sampling_api):
+    program = sampling_api.compile("M 0\\nDETECTOR rec[-1]", postselection_mask=[1])
+    sampling_api.sample(program, 65, seed=1)
+"""
+    matrix.makepyfile(test_behaviors=source)
+    result = matrix.runpytest("--sampling-coverage", "-q")
+    result.assert_outcomes(
+        errors=3 if failure_site == "setup" else 0,
+        failed=0 if failure_site == "setup" else 3,
+    )
+    assert "Shared test did not sample through its selected mode" not in result.stdout.str()
+
+
+def test_rejected_calls_do_not_establish_execution_coverage(matrix: pytest.Pytester) -> None:
+    matrix.makepyfile(
+        test_behaviors="""
+import pytest
+
+@pytest.mark.sampling_conformance("terminal-measurements")
+def test_measurement(sampling_api):
+    program = sampling_api.compile("M 0\\nDETECTOR rec[-1]", postselection_mask=[1])
+    with pytest.raises(ValueError, match="sample_survivors"):
+        sampling_api.sample(program, 65, seed=1)
+"""
+    )
+    result = matrix.runpytest("--sampling-coverage", "-q")
+    result.assert_outcomes(passed=3, errors=3)
+    assert "Shared test did not sample through its selected mode" in result.stdout.str()
+
+
 def test_explicit_exclusion_is_reported_without_claiming_coverage(
     matrix: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
 ) -> None:
