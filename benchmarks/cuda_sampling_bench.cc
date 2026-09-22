@@ -1,30 +1,5 @@
-// CPU-versus-CUDA evidence for the experimental CUDA sampling backend.
-//
-// Each workload is compiled through the production pipeline (parse -> trace
-// -> default HIR passes -> plan_sampling; --postselect marks every detector
-// as postselected so survivor sampling runs). The CPU sampler is timed at the
-// requested thread budgets, then every CUDA execution tier is timed twice:
-// construction (program upload plus workspace allocation) and retained
-// sampling of the same shot count after one warm-up call.
-//
-// Correctness is checked, not assumed: per-record marginals (and, for
-// survivor sampling, the pass rate and observable-one rates) of every CUDA
-// run are compared with the first CPU run under a two-sample binomial
-// tolerance, and the largest |z| is reported per row. Exact row equality is
-// not expected: CPU and CUDA draw from separate random-stream domains.
-//
-//   --width-sweep LO..HI   replace fixtures with a synthetic width-k family
-//                          (k Hadamard/T pairs, CX layers, rotations,
-//                          expectation values, measurements) to show where
-//                          ThreadPerShot stops paying against BlockShared.
-//   --concurrency-sweep a,b,...
-//                          rerun the automatic tier of each workload with
-//                          these max_concurrent_shots caps.
-//
-// Output is CSV on stdout:
-//   workload,width,backend,variant,precision,shots,construct_s,seconds,
-//   shots_per_s,device_bytes,max_z,passed
-// with diagnostics on stderr.
+// Retained sampling and sampler construction benchmarks for the CUDA backend.
+// See benchmarks/README.md for timing boundaries and workload controls.
 
 #include "clifft/circuit/parser.h"
 #include "clifft/frontend/frontend.h"
@@ -36,10 +11,10 @@
 #include "clifft/sampling/sampler.h"
 
 #include <algorithm>
-#include <chrono>
-#include <cmath>
+#include <benchmark/benchmark.h>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <exception>
 #include <filesystem>
 #include <optional>
@@ -76,18 +51,6 @@ struct Workload {
     bool survivors = false;
 };
 
-// Statistics of one run in a backend-independent shape.
-struct Summary {
-    double rows = 0;   // shots, or survivors when postselecting
-    double total = 0;  // shots requested
-    std::vector<double> marginals;
-    std::vector<double> observable_rates;
-};
-
-double seconds_since(std::chrono::steady_clock::time_point start) {
-    return std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
-}
-
 std::vector<uint32_t> parse_list(const std::string& text) {
     std::vector<uint32_t> values;
     std::stringstream stream(text);
@@ -103,7 +66,7 @@ std::vector<uint32_t> parse_list(const std::string& text) {
                  "usage: clifft_cuda_bench [--shots N] [--seed S] [--threads a,b,...]\n"
                  "       [--block-size N] [--precision fp64|fp32|both] [--postselect]\n"
                  "       [--width-sweep LO..HI] [--concurrency-sweep a,b,...]\n"
-                 "       fixture.stim ...\n");
+                 "       [Google Benchmark flags] fixture.stim ...\n");
     std::exit(2);
 }
 
@@ -154,6 +117,12 @@ Options parse_options(int argc, char** argv) {
         } else {
             options.fixtures.push_back(value);
         }
+    }
+    if (options.shots == 0 || options.cpu_threads.empty() ||
+        (options.width_sweep &&
+         (options.width_sweep->first == 0 || options.width_sweep->second > 30 ||
+          options.width_sweep->first > options.width_sweep->second))) {
+        usage();
     }
     if (options.fixtures.empty() && !options.width_sweep) {
         usage();
@@ -228,88 +197,6 @@ std::vector<Workload> build_workloads(const Options& options) {
     return workloads;
 }
 
-Summary summarize(const SamplingResult& result, uint32_t shots, uint32_t records,
-                  uint32_t observables) {
-    Summary summary;
-    summary.rows = shots;
-    summary.total = shots;
-    summary.marginals.assign(records, 0.0);
-    summary.observable_rates.assign(observables, 0.0);
-    for (uint32_t shot = 0; shot < shots; ++shot) {
-        for (uint32_t bit = 0; bit < records; ++bit) {
-            summary.marginals[bit] +=
-                result.measurements[static_cast<size_t>(shot) * records + bit];
-        }
-        for (uint32_t bit = 0; bit < observables; ++bit) {
-            summary.observable_rates[bit] +=
-                result.observables[static_cast<size_t>(shot) * observables + bit];
-        }
-    }
-    for (double& value : summary.marginals) {
-        value /= std::max(summary.rows, 1.0);
-    }
-    for (double& value : summary.observable_rates) {
-        value /= std::max(summary.rows, 1.0);
-    }
-    return summary;
-}
-
-Summary summarize(const SamplingSurvivorResult& result, uint32_t records) {
-    Summary summary;
-    summary.rows = result.passed_shots;
-    summary.total = result.total_shots;
-    summary.marginals.assign(records, 0.0);
-    for (uint32_t row = 0; row < result.passed_shots; ++row) {
-        for (uint32_t bit = 0; bit < records; ++bit) {
-            summary.marginals[bit] += result.measurements[static_cast<size_t>(row) * records + bit];
-        }
-    }
-    for (double& value : summary.marginals) {
-        value /= std::max(summary.rows, 1.0);
-    }
-    for (const uint64_t ones : result.observable_ones) {
-        summary.observable_rates.push_back(static_cast<double>(ones) / std::max(summary.rows, 1.0));
-    }
-    return summary;
-}
-
-double z_score(double left, double left_n, double right, double right_n) {
-    const double pooled = (left * left_n + right * right_n) / (left_n + right_n);
-    const double variance = pooled * (1.0 - pooled) * (1.0 / left_n + 1.0 / right_n);
-    if (variance <= 0.0) {
-        return left == right ? 0.0 : INFINITY;
-    }
-    return std::fabs(left - right) / std::sqrt(variance);
-}
-
-// Largest |z| over the pass rate (survivor sampling only), every record
-// marginal, and every observable rate.
-double max_z(const Summary& reference, const Summary& candidate, bool survivors) {
-    double worst = 0.0;
-    if (survivors) {
-        worst = z_score(reference.rows / reference.total, reference.total,
-                        candidate.rows / candidate.total, candidate.total);
-    }
-    for (size_t bit = 0; bit < reference.marginals.size(); ++bit) {
-        worst = std::max(worst, z_score(reference.marginals[bit], reference.rows,
-                                        candidate.marginals[bit], candidate.rows));
-    }
-    for (size_t bit = 0; bit < reference.observable_rates.size(); ++bit) {
-        worst = std::max(worst, z_score(reference.observable_rates[bit], reference.rows,
-                                        candidate.observable_rates[bit], candidate.rows));
-    }
-    return worst;
-}
-
-void emit(const Workload& workload, uint32_t width, const char* backend, const std::string& variant,
-          const char* precision, uint32_t shots, double construct_s, double seconds,
-          size_t device_bytes, double z) {
-    std::printf("%s,%u,%s,%s,%s,%u,%.6f,%.6f,%.1f,%zu,%.2f,%s\n", workload.name.c_str(), width,
-                backend, variant.c_str(), precision, shots, construct_s, seconds,
-                seconds > 0.0 ? shots / seconds : 0.0, device_bytes, z, z <= 5.0 ? "yes" : "no");
-    std::fflush(stdout);
-}
-
 const char* tier_name(ExecutionTier tier) {
     switch (tier) {
         case ExecutionTier::Auto:
@@ -333,45 +220,127 @@ struct GpuRun {
     uint32_t max_concurrent_shots = 0;
 };
 
-void run_workload(const Workload& workload, const Options& options) {
-    const CpuExecutablePlan cpu_executable(workload.plan);
-    const CudaExecutablePlan cuda_executable(workload.plan);
-    const uint32_t width = cuda_executable.peak_active_width();
-    const uint32_t records = cuda_executable.num_visible_records();
-    const uint32_t observables = cuda_executable.num_observables();
-    const uint32_t warmup = std::max<uint32_t>(options.shots / 10, 1);
-    std::fprintf(stderr, "[%s] width=%u records=%u actions=%u survivors=%s\n",
-                 workload.name.c_str(), width, records, cuda_executable.num_actions(),
-                 workload.survivors ? "yes" : "no");
+template <typename Result>
+bool valid_rows(const Result& result, const SamplingPlan& plan, size_t rows) {
+    return result.measurements.size() == rows * plan.num_visible_records &&
+           result.detectors.size() == rows * plan.num_detectors &&
+           result.observables.size() == rows * plan.num_observables &&
+           result.exp_vals.size() == rows * plan.num_exp_vals;
+}
 
-    std::optional<Summary> reference;
-    for (const uint32_t threads : options.cpu_threads) {
-        Summary summary;
-        double seconds = 0.0;
-        if (workload.survivors) {
-            (void)clifft::sampling::sample_survivors(cpu_executable, warmup, options.seed, false,
-                                                     threads);
-            const auto start = std::chrono::steady_clock::now();
-            const SamplingSurvivorResult result = clifft::sampling::sample_survivors(
-                cpu_executable, options.shots, options.seed, true, threads);
-            seconds = seconds_since(start);
-            summary = summarize(result, records);
-        } else {
-            (void)clifft::sampling::sample(cpu_executable, warmup, options.seed, threads);
-            const auto start = std::chrono::steady_clock::now();
-            const SamplingResult result =
-                clifft::sampling::sample(cpu_executable, options.shots, options.seed, threads);
-            seconds = seconds_since(start);
-            summary = summarize(result, options.shots, records, observables);
-        }
-        const double z = reference ? max_z(*reference, summary, workload.survivors) : 0.0;
-        if (!reference) {
-            reference = summary;
-        }
-        emit(workload, width, "cpu", "threads=" + std::to_string(threads), "fp64", options.shots,
-             0.0, seconds, 0, z);
+bool valid_output(const SamplingResult& result, const SamplingPlan& plan, uint32_t shots) {
+    return valid_rows(result, plan, shots);
+}
+
+bool valid_output(const SamplingSurvivorResult& result, const SamplingPlan& plan, uint32_t shots) {
+    return result.total_shots == shots && result.passed_shots <= shots &&
+           result.logical_errors <= result.passed_shots &&
+           result.observable_ones.size() == plan.num_observables &&
+           std::all_of(result.observable_ones.begin(), result.observable_ones.end(),
+                       [&](uint64_t ones) { return ones <= result.passed_shots; }) &&
+           valid_rows(result, plan, result.passed_shots);
+}
+
+template <typename Sample>
+void measure_sampling(benchmark::State& state, const Workload& workload, const Options& options,
+                      Sample sample) {
+    // Google Benchmark starts timing at the iteration loop. Keep a small
+    // output-shape check here; statistical conformance belongs in the tests.
+    const uint32_t warmup = std::min(options.shots, uint32_t{64});
+    if (!valid_output(sample(warmup), workload.plan, warmup)) {
+        state.SkipWithError("warmup returned inconsistent output shapes or counts");
+        return;
     }
+    for (auto _ : state) {
+        auto result = sample(options.shots);
+        benchmark::DoNotOptimize(result);
+    }
+    state.SetItemsProcessed(state.iterations() * options.shots);
+}
 
+void run_cpu(benchmark::State& state, const Workload& workload, const Options& options,
+             uint32_t threads) {
+    try {
+        const CpuExecutablePlan executable(workload.plan);
+        state.counters["active_width"] = executable.peak_active_width();
+        if (workload.survivors) {
+            measure_sampling(state, workload, options, [&](uint32_t shots) {
+                return clifft::sampling::sample_survivors(executable, shots, options.seed, true,
+                                                          threads);
+            });
+        } else {
+            measure_sampling(state, workload, options, [&](uint32_t shots) {
+                return clifft::sampling::sample(executable, shots, options.seed, threads);
+            });
+        }
+    } catch (const std::exception& error) {
+        state.SkipWithError(error.what());
+    }
+}
+
+void describe_sampler(benchmark::State& state, const clifft::sampling::cuda::Sampler& sampler) {
+    state.SetLabel(tier_name(sampler.execution_tier()));
+    state.counters["device_bytes"] = static_cast<double>(sampler.allocated_device_bytes());
+    state.counters["max_concurrent_shots"] = sampler.max_concurrent_shots();
+}
+
+void run_cuda(benchmark::State& state, const Workload& workload, const Options& options,
+              CoefficientPrecision precision, GpuRun run, bool construct_only) {
+    if (!clifft::sampling::cuda::is_available()) {
+        state.SkipWithError("no CUDA device available");
+        return;
+    }
+    try {
+        const CudaExecutablePlan executable(workload.plan);
+        state.counters["active_width"] = executable.peak_active_width();
+        const uint32_t max_batch =
+            std::min(options.shots, clifft::sampling::cuda::kDefaultMaxBatchShots);
+        auto make_sampler = [&] {
+            return clifft::sampling::cuda::Sampler(executable, precision, max_batch, run.requested,
+                                                   run.max_concurrent_shots);
+        };
+        if (construct_only) {
+            // Exclude context initialization and one-time kernel setup, and
+            // release the probe so it does not reduce the measured memory budget.
+            {
+                const auto probe = make_sampler();
+                describe_sampler(state, probe);
+            }
+            for (auto _ : state) {
+                auto sampler = make_sampler();
+                benchmark::DoNotOptimize(sampler);
+            }
+        } else {
+            auto sampler = make_sampler();
+            describe_sampler(state, sampler);
+            if (workload.survivors) {
+                measure_sampling(state, workload, options, [&](uint32_t shots) {
+                    return sampler.sample_survivors(shots, true, options.seed, options.block_size);
+                });
+            } else {
+                measure_sampling(state, workload, options, [&](uint32_t shots) {
+                    return sampler.sample(shots, options.seed, options.block_size);
+                });
+            }
+        }
+    } catch (const std::exception& error) {
+        state.SkipWithError(error.what());
+    }
+}
+
+void register_workload(const Workload& workload, const Options& options) {
+    const std::string operation = workload.survivors ? "sample_survivors" : "sample";
+    const std::string shot_label = "/shots:" + std::to_string(options.shots);
+    for (const uint32_t threads : options.cpu_threads) {
+        const std::string name = workload.name + "/cpu/" + operation +
+                                 "/threads:" + std::to_string(threads) + shot_label;
+        benchmark::RegisterBenchmark(name.c_str(),
+                                     [&workload, &options, threads](auto& state) {
+                                         run_cpu(state, workload, options, threads);
+                                     })
+            ->UseRealTime()
+            ->Unit(benchmark::kMillisecond);
+    }
     std::vector<GpuRun> runs = {{ExecutionTier::Auto},
                                 {ExecutionTier::ThreadPerShot},
                                 {ExecutionTier::BlockShared},
@@ -379,45 +348,21 @@ void run_workload(const Workload& workload, const Options& options) {
     for (const uint32_t cap : options.concurrency_sweep) {
         runs.push_back({ExecutionTier::Auto, cap});
     }
-    const uint32_t max_batch =
-        std::min(options.shots, clifft::sampling::cuda::kDefaultMaxBatchShots);
     for (const CoefficientPrecision precision : options.precisions) {
-        for (const GpuRun& run : runs) {
-            std::string variant = tier_name(run.requested);
-            try {
-                const auto construct_start = std::chrono::steady_clock::now();
-                clifft::sampling::cuda::Sampler sampler(cuda_executable, precision, max_batch,
-                                                        run.requested, run.max_concurrent_shots);
-                const double construct_s = seconds_since(construct_start);
-                if (run.requested == ExecutionTier::Auto) {
-                    variant += std::string("=") + tier_name(sampler.execution_tier());
-                }
-                if (run.max_concurrent_shots != 0) {
-                    variant += "(cap=" + std::to_string(sampler.max_concurrent_shots()) + ")";
-                }
-                Summary summary;
-                double seconds = 0.0;
-                if (workload.survivors) {
-                    (void)sampler.sample_survivors(warmup, false, options.seed, options.block_size);
-                    const auto start = std::chrono::steady_clock::now();
-                    const SamplingSurvivorResult result = sampler.sample_survivors(
-                        options.shots, true, options.seed, options.block_size);
-                    seconds = seconds_since(start);
-                    summary = summarize(result, records);
-                } else {
-                    (void)sampler.sample(warmup, options.seed, options.block_size);
-                    const auto start = std::chrono::steady_clock::now();
-                    const SamplingResult result =
-                        sampler.sample(options.shots, options.seed, options.block_size);
-                    seconds = seconds_since(start);
-                    summary = summarize(result, options.shots, records, observables);
-                }
-                emit(workload, width, "cuda", variant, precision_name(precision), options.shots,
-                     construct_s, seconds, sampler.allocated_device_bytes(),
-                     max_z(*reference, summary, workload.survivors));
-            } catch (const std::exception& error) {
-                std::fprintf(stderr, "[%s] %s %s skipped: %s\n", workload.name.c_str(),
-                             variant.c_str(), precision_name(precision), error.what());
+        for (const GpuRun run : runs) {
+            for (const bool construct_only : {false, true}) {
+                const std::string name =
+                    workload.name + "/cuda/" + (construct_only ? "construct_destroy" : operation) +
+                    "/" + tier_name(run.requested) + "/" + precision_name(precision) + shot_label +
+                    "/block:" + std::to_string(options.block_size) +
+                    "/cap:" + std::to_string(run.max_concurrent_shots);
+                benchmark::RegisterBenchmark(
+                    name.c_str(),
+                    [&workload, &options, precision, run, construct_only](auto& state) {
+                        run_cuda(state, workload, options, precision, run, construct_only);
+                    })
+                    ->UseRealTime()
+                    ->Unit(benchmark::kMillisecond);
             }
         }
     }
@@ -426,18 +371,19 @@ void run_workload(const Workload& workload, const Options& options) {
 }  // namespace
 
 int main(int argc, char** argv) {
-    const Options options = parse_options(argc, argv);
-    if (!clifft::sampling::cuda::is_available()) {
-        std::fprintf(stderr, "no CUDA device: %s\n",
-                     clifft::sampling::cuda::backend_info().c_str());
+    benchmark::Initialize(&argc, argv);
+    try {
+        const Options options = parse_options(argc, argv);
+        const auto workloads = build_workloads(options);
+        for (const Workload& workload : workloads) {
+            register_workload(workload, options);
+        }
+        benchmark::RunSpecifiedBenchmarks();
+        benchmark::Shutdown();
+    } catch (const std::exception& error) {
+        std::fprintf(stderr, "%s\n", error.what());
+        benchmark::Shutdown();
         return 1;
-    }
-    std::fprintf(stderr, "%s\n", clifft::sampling::cuda::backend_info().c_str());
-    std::printf(
-        "workload,width,backend,variant,precision,shots,construct_s,seconds,"
-        "shots_per_s,device_bytes,max_z,passed\n");
-    for (const Workload& workload : build_workloads(options)) {
-        run_workload(workload, options);
     }
     return 0;
 }

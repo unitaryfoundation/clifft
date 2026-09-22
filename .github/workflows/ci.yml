@@ -166,6 +166,13 @@ jobs:
       - name: Run GPU-free CUDA conformance tests
         run: ctest --test-dir build-cuda --output-on-failure --no-tests=error -R CUDA
 
+      - name: Smoke test benchmark registration and CPU sampling
+        run: |
+          ./build-cuda/benchmarks/clifft_cuda_bench --shots 64 --width-sweep 4..6 \
+            --precision both --benchmark_list_tests=true
+          ./build-cuda/benchmarks/clifft_cuda_bench --shots 64 --width-sweep 4..4 \
+            --threads 1 --benchmark_filter='/cpu/' --benchmark_min_time=0.01s
+
   build-and-test:
     timeout-minutes: 45
     runs-on: ubuntu-24.04
