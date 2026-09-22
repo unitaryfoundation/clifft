@@ -1,4 +1,12 @@
-"""Small independent-oracle corpus shared across compiler and sampling modes."""
+"""Small unitary corpus shared across compiler profiles and CPU sampling modes.
+
+Each CASES entry runs exact record checks under every compiler profile, and
+sampled record and annotation checks under every profile and sampling mode.
+Profiles select no HIR passes or the production-default pipeline; modes select
+single-shot, packed-65, or automatic execution with one worker. Passes are not
+independently toggled in this matrix: separate witnesses check their effects.
+The boundary circuit runs under every profile, mode, and designated shot count.
+"""
 
 from dataclasses import dataclass
 from typing import Any, cast
@@ -210,6 +218,16 @@ def test_coverage_guard_rejects_an_unaccounted_pass() -> None:
         _assert_pass_inventory(registry)
 
 
+def test_joint_check_detects_reversed_record_bit_order() -> None:
+    # Unequal probabilities for 01 and 10 expose reversed bit significance.
+    records = np.array([[0, 0], [1, 0], [0, 1], [1, 1]], dtype=np.uint8)
+    measurements = np.repeat(records, [1024, 2048, 3072, 4096], axis=0)
+    expected = [0.1, 0.2, 0.3, 0.4]
+    assert_joint_distribution(measurements, expected)
+    with pytest.raises(AssertionError, match="Joint distribution differs"):
+        assert_joint_distribution(measurements[:, ::-1], expected)
+
+
 def test_joint_check_detects_wrong_correlations_with_correct_marginals() -> None:
     correlated = np.tile(np.array([[0, 0], [1, 1]], dtype=np.uint8), (4096, 1))
     anticorrelated = correlated.copy()
@@ -218,6 +236,18 @@ def test_joint_check_detects_wrong_correlations_with_correct_marginals() -> None
     assert_joint_distribution(correlated, [0.5, 0, 0, 0.5])
     with pytest.raises(AssertionError):
         assert_joint_distribution(anticorrelated, [0.5, 0, 0, 0.5])
+
+
+def test_joint_check_detects_wrong_correlations_with_all_outcomes_legal() -> None:
+    records = np.array([[0, 0], [1, 0], [0, 1], [1, 1]], dtype=np.uint8)
+    independent = np.repeat(records, 2048, axis=0)
+    correlated = np.repeat(records, [3072, 1024, 1024, 3072], axis=0)
+    np.testing.assert_array_equal(independent.mean(axis=0), correlated.mean(axis=0))
+    assert_joint_distribution(independent, [0.25, 0.25, 0.25, 0.25])
+    # Every bin has positive reference probability, so only the statistical
+    # check can reject the changed correlations.
+    with pytest.raises(AssertionError, match="Joint distribution differs"):
+        assert_joint_distribution(correlated, [0.25, 0.25, 0.25, 0.25])
 
 
 def test_joint_check_detects_bias_without_impossible_outcomes() -> None:
