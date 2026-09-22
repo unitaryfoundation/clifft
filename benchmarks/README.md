@@ -68,10 +68,3 @@ and survivor-count consistency. Statistical conformance belongs in
 `tests/test_cuda_sampler.cc`; benchmark timings are not correctness evidence.
 Use Google Benchmark's repetition, filtering, and JSON output controls for
 performance comparisons.
-
-## Historical measurements
-
-The [September 2026 H100 report](reports/cuda-h100-2026-09.md) preserves the
-original PR measurements, hardware details, and commands against their source
-revision. That study used the earlier CSV driver; its results have not been
-rerun with the current Google Benchmark driver.

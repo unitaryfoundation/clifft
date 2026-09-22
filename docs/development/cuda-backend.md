@@ -176,10 +176,8 @@ so it does not account for discard depth. Measure the relevant workload and
 consider forcing `ExecutionTier::ThreadPerShot` for discard-heavy programs.
 GPU speedups are workload-dependent.
 
-The [historical H100 report](https://github.com/unitaryfoundation/clifft/blob/main/benchmarks/reports/cuda-h100-2026-09.md)
-records the measurements behind these choices, including slower workloads.
 See the [benchmark instructions](https://github.com/unitaryfoundation/clifft/blob/main/benchmarks/README.md)
-for reproducing measurements with the maintained harness.
+for measuring workloads with the maintained harness.
 
 ## Architecture
 
