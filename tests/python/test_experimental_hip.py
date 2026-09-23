@@ -7,6 +7,7 @@ from typing import cast
 import numpy as np
 import pytest
 from utils_conformance import assert_joint_distribution
+from utils_gpu import NARROW_NOISY_CIRCUIT
 from utils_gpu_replay import REPLAY_CASES, ReplayCase
 from utils_hip import (
     assert_distribution_matches,
@@ -17,17 +18,6 @@ from utils_hip import (
 
 import clifft
 from clifft.experimental import hip
-
-_NOISY_CIRCUIT = """\
-H 0
-T 0
-H 0
-CX 0 1
-PAULI_CHANNEL_1(0.1, 0.2, 0.05) 1
-M 0 1
-DETECTOR rec[-1] rec[-2]
-OBSERVABLE_INCLUDE(0) rec[-1]
-"""
 
 
 def test_hip_facade_explains_when_native_extension_is_absent() -> None:
@@ -86,7 +76,7 @@ def test_hip_python_matches_cpu_joint_distribution(
     precision: hip.Precision, hip_cpu_distribution: clifft.SampleResult
 ) -> None:
     require_hip_device()
-    circuit = _NOISY_CIRCUIT
+    circuit = NARROW_NOISY_CIRCUIT
     shots = 20_000
     cpu = hip_cpu_distribution
     gpu = hip.Sampler(hip.compile(circuit), precision=precision).sample(shots, seed=42)
@@ -98,7 +88,9 @@ def test_hip_python_matches_cpu_joint_distribution(
 
 @pytest.fixture(scope="module")
 def hip_cpu_distribution() -> clifft.SampleResult:
-    return cast(clifft.SampleResult, clifft.sample(clifft.compile(_NOISY_CIRCUIT), 20_000, seed=41))
+    return cast(
+        clifft.SampleResult, clifft.sample(clifft.compile(NARROW_NOISY_CIRCUIT), 20_000, seed=41)
+    )
 
 
 def test_hip_cpu_distribution_reference(hip_cpu_distribution: clifft.SampleResult) -> None:

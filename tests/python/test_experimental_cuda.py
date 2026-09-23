@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import cast
 
 import numpy as np
@@ -15,6 +16,7 @@ from utils_cuda import (
     assert_same_rows,
     require_cuda_device,
 )
+from utils_gpu import NARROW_NOISY_CIRCUIT
 from utils_gpu_replay import PAULI_REPLAY_CIRCUIT, REPLAY_CASES, ReplayCase
 
 import clifft
@@ -48,20 +50,6 @@ M 0 1 2 3 4 5
 """
 
 _EXPLICIT_TIERS: list[cuda.Tier] = ["thread_per_shot", "block_shared", "block_global"]
-
-# Narrow enough for automatic selection to pick thread-per-shot, so forcing
-# the cooperative tiers on it runs their noise and output paths on the same
-# distribution.
-_NARROW_NOISY_CIRCUIT = """\
-H 0
-T 0
-H 0
-CX 0 1
-PAULI_CHANNEL_1(0.1, 0.2, 0.05) 1
-M 0 1
-DETECTOR rec[-1] rec[-2]
-OBSERVABLE_INCLUDE(0) rec[-1]
-"""
 
 # Six promoted coordinates with noise, so the cooperative tiers run lane-strided
 # sweeps between the noise draws; eight output bits keep the complete-row
@@ -120,6 +108,13 @@ DETECTOR rec[-5]
 OBSERVABLE_INCLUDE(0) rec[-1] rec[-2]
 EXP_VAL Z0
 """
+
+
+@dataclass(frozen=True)
+class _NoisyCase:
+    circuit: str
+    bit_flips: tuple[tuple[int, float], ...]
+    observable_column: int
 
 
 def test_cuda_facade_explains_when_native_extension_is_absent() -> None:
@@ -252,12 +247,12 @@ def test_cuda_python_tiers_agree_on_a_wide_program(
 def test_cuda_python_matches_cpu_joint_distribution(
     tier: cuda.Tier,
     precision: cuda.Precision,
-    cuda_cpu_distribution: tuple[str, clifft.SampleResult],
+    cuda_cpu_distribution: tuple[_NoisyCase, clifft.SampleResult],
 ) -> None:
     require_cuda_device()
     shots = 20_000
-    circuit, cpu = cuda_cpu_distribution
-    sampler = cuda.Sampler(cuda.compile(circuit), precision=precision, tier=tier)
+    case, cpu = cuda_cpu_distribution
+    sampler = cuda.Sampler(cuda.compile(case.circuit), precision=precision, tier=tier)
     assert sampler.tier == tier
     gpu = sampler.sample(shots, seed=42)
     cpu_rows = np.concatenate((cpu.measurements, cpu.detectors, cpu.observables), axis=1)
@@ -334,11 +329,21 @@ def cuda_cpu_wide() -> clifft.SampleResult:
 
 
 @pytest.fixture(
-    scope="module", params=[_NARROW_NOISY_CIRCUIT, _WIDE_NOISY_CIRCUIT], ids=["narrow", "wide"]
+    scope="module",
+    params=[
+        pytest.param(
+            _NoisyCase(NARROW_NOISY_CIRCUIT, bit_flips=((1, 0.3),), observable_column=1),
+            id="narrow",
+        ),
+        pytest.param(
+            _NoisyCase(_WIDE_NOISY_CIRCUIT, bit_flips=((1, 0.3), (3, 0.1)), observable_column=3),
+            id="wide",
+        ),
+    ],
 )
-def cuda_cpu_distribution(request: pytest.FixtureRequest) -> tuple[str, clifft.SampleResult]:
-    circuit = str(request.param)
-    return circuit, clifft.sample(clifft.compile(circuit), 20_000, seed=41)
+def cuda_cpu_distribution(request: pytest.FixtureRequest) -> tuple[_NoisyCase, clifft.SampleResult]:
+    case = cast(_NoisyCase, request.param)
+    return case, clifft.sample(clifft.compile(case.circuit), 20_000, seed=41)
 
 
 @pytest.fixture(scope="module")
@@ -374,23 +379,25 @@ def test_cuda_wide_cpu_reference(cuda_cpu_wide: clifft.SampleResult) -> None:
 
 
 def test_cuda_cpu_distribution_reference(
-    cuda_cpu_distribution: tuple[str, clifft.SampleResult],
+    cuda_cpu_distribution: tuple[_NoisyCase, clifft.SampleResult],
 ) -> None:
-    circuit, cpu = cuda_cpu_distribution
-    probabilities = np.abs(unitary_reference(_unitary_prefix(circuit))) ** 2
+    case, cpu = cuda_cpu_distribution
+    probabilities = np.abs(unitary_reference(_unitary_prefix(case.circuit))) ** 2
     indices = np.arange(len(probabilities))
     # Noise follows all unitaries, so X/Y faults permute final Z-basis outcomes.
-    probabilities = 0.7 * probabilities + 0.3 * probabilities[indices ^ (1 << 1)]
-    if circuit == _WIDE_NOISY_CIRCUIT:
-        probabilities = 0.9 * probabilities + 0.1 * probabilities[indices ^ (1 << 3)]
+    for qubit, probability in case.bit_flips:
+        probabilities = (1 - probability) * probabilities + probability * probabilities[
+            indices ^ (1 << qubit)
+        ]
     assert_joint_distribution(cpu.measurements, probabilities)
     assert cpu.detectors.shape == (20_000, 1)
     assert cpu.observables.shape == (20_000, 1)
     np.testing.assert_array_equal(
         cpu.detectors[:, 0], cpu.measurements[:, -1] ^ cpu.measurements[:, -2]
     )
-    observable_column = -3 if circuit == _WIDE_NOISY_CIRCUIT else -1
-    np.testing.assert_array_equal(cpu.observables[:, 0], cpu.measurements[:, observable_column])
+    np.testing.assert_array_equal(
+        cpu.observables[:, 0], cpu.measurements[:, case.observable_column]
+    )
 
 
 def test_cuda_cpu_survivor_reference(cuda_cpu_survivors: clifft.SampleResult) -> None:
