@@ -291,13 +291,6 @@ The Python suite provides quick developer probes with the same helpers:
 uv run pytest tests/python/test_gpu_replay_reference.py tests/python/test_experimental_cuda.py -v
 ```
 
-The CPU replay reference and forced-record comparison are shared with HIP and
-tested without a device. Replay covers visible and hidden reset records, using
-a private binding rather than the visible-only `record_probabilities()` API.
-The CPU references for noisy distributions, expectations, and survivor rows
-also run independently of GPU availability; the unitary distributions and
-expectations are checked against Qiskit Aer.
-
 Kernel-launch tests are skipped without a visible NVIDIA GPU, so this coverage
 does not establish runtime correctness on hardware. The hardware suite
 exercises FP64 and FP32 repeatability, every tier against the CPU executor on
