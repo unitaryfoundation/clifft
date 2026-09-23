@@ -152,17 +152,8 @@ or a scalar capacity when memory is more constrained than CPU availability.
 ### OpenMP and process runtimes
 
 Intra-shot execution requires an OpenMP-enabled build. Apple Clang users may
-need Homebrew `libomp`. macOS Python builds keep their OpenMP runtime private
-to the extension to prevent internal symbol collisions. Both import and
-execution orders are regression-tested with Qiskit Aer. This does not guarantee
-coexistence with every OpenMP build: duplicate-runtime registration is separate
-from symbol visibility, and another statically linked runtime can still trigger
-a duplicate-runtime error. Process isolation avoids such conflicts.
-
-The private macOS runtime is not controlled by `threadpoolctl`. Use Clifft's
-`threads` and `thread_layout` options to control sampling parallelism. OpenMP
-environment settings must be supplied before runtime initialization; explicit
-Clifft team sizes take precedence over `OMP_NUM_THREADS`.
+need Homebrew `libomp` when building from source. If OpenMP runtimes from
+different scientific packages conflict, use separate processes.
 
 On POSIX systems, create process workers before threaded Clifft sampling, or
 use the `spawn` or `forkserver` start method. Forking after a threaded sample
