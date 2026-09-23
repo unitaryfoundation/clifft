@@ -14,6 +14,7 @@ from typing import Any
 import numpy as np
 import pytest
 from conftest import random_clifford_t_circuit
+from utils_conformance import CpuSamplingMode
 from utils_qiskit import qiskit_statevector, stim_to_qiskit_noiseless
 
 import clifft
@@ -75,75 +76,79 @@ def random_pauli_product(num_qubits: int, rng: np.random.Generator) -> str:
 class TestExactOracle:
     """Compare EXP_VAL results to numpy statevector Pauli expectations."""
 
-    def test_single_qubit_x_on_plus(self, sampling_api: Any) -> None:
+    def test_single_qubit_x_on_plus(self, sampling_mode: CpuSamplingMode) -> None:
         """<X> on |+> = +1."""
         circuit = "H 0"
         sv = clifft_statevector(circuit)
         expected = pauli_expectation(sv, "X0", 1)
 
-        result = sampling_api.sample(sampling_api.compile(f"{circuit}\nEXP_VAL X0"), 1, seed=0)
-        np.testing.assert_allclose(result.exp_vals[0, 0], expected, atol=1e-12)
+        result = sampling_mode.sample(sampling_mode.compile(f"{circuit}\nEXP_VAL X0"), 65, seed=0)
+        np.testing.assert_allclose(result.exp_vals[:, 0], expected, atol=1e-12)
 
-    def test_single_qubit_z_on_plus(self, sampling_api: Any) -> None:
+    def test_single_qubit_z_on_plus(self, sampling_mode: CpuSamplingMode) -> None:
         """<Z> on |+> = 0."""
         circuit = "H 0"
         sv = clifft_statevector(circuit)
         expected = pauli_expectation(sv, "Z0", 1)
 
-        result = sampling_api.sample(sampling_api.compile(f"{circuit}\nEXP_VAL Z0"), 1, seed=0)
-        np.testing.assert_allclose(result.exp_vals[0, 0], expected, atol=1e-12)
+        result = sampling_mode.sample(sampling_mode.compile(f"{circuit}\nEXP_VAL Z0"), 65, seed=0)
+        np.testing.assert_allclose(result.exp_vals[:, 0], expected, atol=1e-12)
 
-    def test_bell_zz(self, sampling_api: Any) -> None:
+    def test_bell_zz(self, sampling_mode: CpuSamplingMode) -> None:
         """<Z0*Z1> on Bell state = +1."""
         circuit = "H 0\nCX 0 1"
         sv = clifft_statevector(circuit)
         expected = pauli_expectation(sv, "Z0*Z1", 2)
 
-        result = sampling_api.sample(sampling_api.compile(f"{circuit}\nEXP_VAL Z0*Z1"), 1, seed=0)
-        np.testing.assert_allclose(result.exp_vals[0, 0], expected, atol=1e-12)
+        result = sampling_mode.sample(
+            sampling_mode.compile(f"{circuit}\nEXP_VAL Z0*Z1"), 65, seed=0
+        )
+        np.testing.assert_allclose(result.exp_vals[:, 0], expected, atol=1e-12)
 
-    def test_bell_xx(self, sampling_api: Any) -> None:
+    def test_bell_xx(self, sampling_mode: CpuSamplingMode) -> None:
         """<X0*X1> on Bell state = +1."""
         circuit = "H 0\nCX 0 1"
         sv = clifft_statevector(circuit)
         expected = pauli_expectation(sv, "X0*X1", 2)
 
-        result = sampling_api.sample(sampling_api.compile(f"{circuit}\nEXP_VAL X0*X1"), 1, seed=0)
-        np.testing.assert_allclose(result.exp_vals[0, 0], expected, atol=1e-12)
+        result = sampling_mode.sample(
+            sampling_mode.compile(f"{circuit}\nEXP_VAL X0*X1"), 65, seed=0
+        )
+        np.testing.assert_allclose(result.exp_vals[:, 0], expected, atol=1e-12)
 
-    def test_t_gate_expectation(self, sampling_api: Any) -> None:
+    def test_t_gate_expectation(self, sampling_mode: CpuSamplingMode) -> None:
         """<X> after H-T on |0> = cos(pi/4) = 1/sqrt(2)."""
         circuit = "H 0\nT 0"
         sv = clifft_statevector(circuit)
         expected = pauli_expectation(sv, "X0", 1)
 
-        result = sampling_api.sample(sampling_api.compile(f"{circuit}\nEXP_VAL X0"), 1, seed=0)
-        np.testing.assert_allclose(result.exp_vals[0, 0], expected, atol=1e-10)
+        result = sampling_mode.sample(sampling_mode.compile(f"{circuit}\nEXP_VAL X0"), 65, seed=0)
+        np.testing.assert_allclose(result.exp_vals[:, 0], expected, atol=1e-10)
 
-    def test_multi_qubit_product(self, sampling_api: Any) -> None:
+    def test_multi_qubit_product(self, sampling_mode: CpuSamplingMode) -> None:
         """<X0*Y1*Z2> on a 3-qubit state matches numpy oracle."""
         circuit = "H 0\nCX 0 1\nS 1\nH 2"
         sv = clifft_statevector(circuit)
         expected = pauli_expectation(sv, "X0*Y1*Z2", 3)
 
-        result = sampling_api.sample(
-            sampling_api.compile(f"{circuit}\nEXP_VAL X0*Y1*Z2"), 1, seed=0
+        result = sampling_mode.sample(
+            sampling_mode.compile(f"{circuit}\nEXP_VAL X0*Y1*Z2"), 65, seed=0
         )
-        np.testing.assert_allclose(result.exp_vals[0, 0], expected, atol=1e-10)
+        np.testing.assert_allclose(result.exp_vals[:, 0], expected, atol=1e-10)
 
-    def test_high_dormant_support_with_active_factor(self, sampling_api: Any) -> None:
+    def test_high_dormant_support_with_active_factor(self, sampling_mode: CpuSamplingMode) -> None:
         """Dormant masks beyond one word retain X/Y-zero and Z-identity semantics."""
-        program = sampling_api.compile("H 0\nT 0\nEXP_VAL X0*Z128 X0*X128 Z128")
-        result = sampling_api.sample(program, 1, seed=0)
+        program = sampling_mode.compile("H 0\nT 0\nEXP_VAL X0*Z128 X0*X128 Z128")
+        result = sampling_mode.sample(program, 65, seed=0)
 
         np.testing.assert_allclose(
-            result.exp_vals[0],
-            [1.0 / np.sqrt(2.0), 0.0, 1.0],
+            result.exp_vals,
+            np.tile([1.0 / np.sqrt(2.0), 0.0, 1.0], (65, 1)),
             atol=1e-10,
         )
 
     @pytest.mark.parametrize("seed", range(8))
-    def test_random_clifford_t_oracle(self, seed: int, sampling_api: Any) -> None:
+    def test_random_clifford_t_oracle(self, seed: int, sampling_mode: CpuSamplingMode) -> None:
         """Random Clifford+T circuit with random Pauli product matches oracle."""
         rng = np.random.default_rng(seed + 1000)
         num_qubits = int(rng.integers(3, 6))
@@ -155,16 +160,16 @@ class TestExactOracle:
         pauli = random_pauli_product(num_qubits, rng)
         expected = pauli_expectation(sv, pauli, num_qubits)
 
-        prog = sampling_api.compile(f"{circuit}\nEXP_VAL {pauli}")
-        result = sampling_api.sample(prog, 1, seed=0)
+        prog = sampling_mode.compile(f"{circuit}\nEXP_VAL {pauli}")
+        result = sampling_mode.sample(prog, 65, seed=0)
         np.testing.assert_allclose(
-            result.exp_vals[0, 0],
+            result.exp_vals[:, 0],
             expected,
             atol=1e-8,
             err_msg=f"Pauli={pauli}, circuit seed={seed}, nq={num_qubits}, depth={depth}",
         )
 
-    def test_packed_fused_rotations_match_qiskit(self, sampling_api: Any) -> None:
+    def test_fused_rotations_match_qiskit(self, sampling_mode: CpuSamplingMode) -> None:
         """Optimized fused execution matches an independent statevector oracle."""
         circuit = """
             R_X(0.1) 0
@@ -175,7 +180,7 @@ class TestExactOracle:
             R_X(0.4) 0
         """
         paulis = ["X0", "Z0", "Z1", "Z2"]
-        program = sampling_api.compile(
+        program = sampling_mode.compile(
             circuit + "\n" + "\n".join(f"EXP_VAL {pauli}" for pauli in paulis)
         )
         assert any(
@@ -187,7 +192,7 @@ class TestExactOracle:
         expected = np.array(
             [pauli_expectation(qiskit_sv, pauli, program.num_qubits) for pauli in paulis]
         )
-        result = sampling_api.sample(program, 65, seed=0, batch_size=65)
+        result = sampling_mode.sample(program, 65, seed=0)
 
         np.testing.assert_allclose(
             result.exp_vals,
@@ -215,18 +220,20 @@ class TestStatisticalEquivalence:
             ("H 0\nCX 0 1\nT 0", "X0"),
         ],
     )
-    def test_exp_val_matches_mpp_mean(self, circuit: str, pauli: str, sampling_api: Any) -> None:
+    def test_exp_val_matches_mpp_mean(
+        self, circuit: str, pauli: str, sampling_mode: CpuSamplingMode
+    ) -> None:
         """mean(exp_vals) ≈ mean(1 - 2*mpp_bits) over many shots."""
         shots = 5000
 
         # EXP_VAL path
-        ev_prog = sampling_api.compile(f"{circuit}\nEXP_VAL {pauli}")
-        ev_result = sampling_api.sample(ev_prog, shots, seed=42)
+        ev_prog = sampling_mode.compile(f"{circuit}\nEXP_VAL {pauli}")
+        ev_result = sampling_mode.sample(ev_prog, shots, seed=42)
         ev_mean = float(np.mean(ev_result.exp_vals[:, 0]))
 
         # MPP path (destructive measurement of same Pauli)
-        mpp_prog = sampling_api.compile(f"{circuit}\nMPP {pauli}")
-        mpp_result = sampling_api.sample(mpp_prog, shots, seed=42)
+        mpp_prog = sampling_mode.compile(f"{circuit}\nMPP {pauli}")
+        mpp_result = sampling_mode.sample(mpp_prog, shots, seed=42)
         mpp_mean = float(np.mean(1.0 - 2.0 * mpp_result.measurements[:, -1].astype(np.float64)))
 
         # For deterministic states, both should be exact
@@ -248,50 +255,50 @@ class TestStatisticalEquivalence:
 class TestPauliFrameInteraction:
     """Verify EXP_VAL correctly reads the Pauli frame."""
 
-    def test_z_error_flips_x_expectation(self, sampling_api: Any) -> None:
+    def test_z_error_flips_x_expectation(self, sampling_mode: CpuSamplingMode) -> None:
         """Z_ERROR(1.0) anti-commutes with X, flipping <X> from +1 to -1."""
-        prog = sampling_api.compile("H 0\nZ_ERROR(1.0) 0\nEXP_VAL X0")
-        result = sampling_api.sample(prog, 10, seed=0)
+        prog = sampling_mode.compile("H 0\nZ_ERROR(1.0) 0\nEXP_VAL X0")
+        result = sampling_mode.sample(prog, 65, seed=0)
         np.testing.assert_allclose(result.exp_vals[:, 0], -1.0, atol=1e-12)
 
-    def test_x_error_flips_z_expectation(self, sampling_api: Any) -> None:
+    def test_x_error_flips_z_expectation(self, sampling_mode: CpuSamplingMode) -> None:
         """X_ERROR(1.0) anti-commutes with Z, flipping <Z> from +1 to -1."""
-        prog = sampling_api.compile("X_ERROR(1.0) 0\nEXP_VAL Z0")
-        result = sampling_api.sample(prog, 10, seed=0)
+        prog = sampling_mode.compile("X_ERROR(1.0) 0\nEXP_VAL Z0")
+        result = sampling_mode.sample(prog, 65, seed=0)
         np.testing.assert_allclose(result.exp_vals[:, 0], -1.0, atol=1e-12)
 
-    def test_z_error_commutes_with_z(self, sampling_api: Any) -> None:
+    def test_z_error_commutes_with_z(self, sampling_mode: CpuSamplingMode) -> None:
         """Z_ERROR(1.0) commutes with Z, so <Z> on |0> stays +1."""
-        prog = sampling_api.compile("Z_ERROR(1.0) 0\nEXP_VAL Z0")
-        result = sampling_api.sample(prog, 10, seed=0)
+        prog = sampling_mode.compile("Z_ERROR(1.0) 0\nEXP_VAL Z0")
+        result = sampling_mode.sample(prog, 65, seed=0)
         np.testing.assert_allclose(result.exp_vals[:, 0], 1.0, atol=1e-12)
 
-    def test_measurement_feedback_cx(self, sampling_api: Any) -> None:
+    def test_measurement_feedback_cx(self, sampling_mode: CpuSamplingMode) -> None:
         """EXP_VAL reads post-measurement Pauli frame via CX feedback.
 
         Circuit: H 0 / M 0 / CX rec[-1] 1 / EXP_VAL Z1
         Per shot: exp[0] == 1 - 2*meas[0]
         """
-        prog = sampling_api.compile("H 0\nM 0\nCX rec[-1] 1\nEXP_VAL Z1")
-        result = sampling_api.sample(prog, 100, seed=42)
+        prog = sampling_mode.compile("H 0\nM 0\nCX rec[-1] 1\nEXP_VAL Z1")
+        result = sampling_mode.sample(prog, 100, seed=42)
         expected = 1.0 - 2.0 * result.measurements[:, 0].astype(np.float64)
         np.testing.assert_allclose(result.exp_vals[:, 0], expected, atol=1e-12)
 
-    def test_measurement_feedback_cz(self, sampling_api: Any) -> None:
+    def test_measurement_feedback_cz(self, sampling_mode: CpuSamplingMode) -> None:
         """EXP_VAL reads post-measurement Pauli frame via CZ feedback.
 
         Circuit: H 1 / H 0 / M 0 / CZ rec[-1] 1 / EXP_VAL X1
         Per shot: exp[0] == 1 - 2*meas[0]
         """
-        prog = sampling_api.compile("H 1\nH 0\nM 0\nCZ rec[-1] 1\nEXP_VAL X1")
-        result = sampling_api.sample(prog, 100, seed=42)
+        prog = sampling_mode.compile("H 1\nH 0\nM 0\nCZ rec[-1] 1\nEXP_VAL X1")
+        result = sampling_mode.sample(prog, 100, seed=42)
         expected = 1.0 - 2.0 * result.measurements[:, 0].astype(np.float64)
         np.testing.assert_allclose(result.exp_vals[:, 0], expected, atol=1e-12)
 
-    def test_depolarize_reduces_expectation(self, sampling_api: Any) -> None:
+    def test_depolarize_reduces_expectation(self, sampling_mode: CpuSamplingMode) -> None:
         """DEPOLARIZE1(1.0) on |0> applies X/Y/Z uniformly, <Z> averages to -1/3."""
-        prog = sampling_api.compile("DEPOLARIZE1(1.0) 0\nEXP_VAL Z0")
-        result = sampling_api.sample(prog, 10000, seed=0)
+        prog = sampling_mode.compile("DEPOLARIZE1(1.0) 0\nEXP_VAL Z0")
+        result = sampling_mode.sample(prog, 10000, seed=0)
         mean_z = float(np.mean(result.exp_vals[:, 0]))
         # DEPOLARIZE1(1.0) applies one of {X, Y, Z} with equal probability.
         # X|0>=|1>: <Z>=-1, Y|0>=i|1>: <Z>=-1, Z|0>=|0>: <Z>=+1.
@@ -309,27 +316,27 @@ class TestPauliFrameInteraction:
 class TestNoExpValRegression:
     """Circuits without EXP_VAL should behave identically to before."""
 
-    def test_exp_vals_shape_empty(self, sampling_api: Any) -> None:
+    def test_exp_vals_shape_empty(self, sampling_mode: CpuSamplingMode) -> None:
         """exp_vals has shape (shots, 0) when no EXP_VAL in circuit."""
-        prog = sampling_api.compile("H 0\nM 0")
-        result = sampling_api.sample(prog, 10, seed=0)
-        assert result.exp_vals.shape == (10, 0)
+        prog = sampling_mode.compile("H 0\nM 0")
+        result = sampling_mode.sample(prog, 65, seed=0)
+        assert result.exp_vals.shape == (65, 0)
 
     def test_num_exp_vals_zero(self, sampling_api: Any) -> None:
         """Program reports num_exp_vals == 0."""
         prog = sampling_api.compile("H 0\nM 0")
         assert prog.num_exp_vals == 0
 
-    def test_measurements_unchanged(self, sampling_api: Any) -> None:
+    def test_measurements_unchanged(self, sampling_mode: CpuSamplingMode) -> None:
         """Measurement outcomes match with and without EXP_VAL in circuit."""
         base_circuit = "H 0\nM 0"
         shots = 200
 
-        prog_no_ev = sampling_api.compile(base_circuit)
-        result_no_ev = sampling_api.sample(prog_no_ev, shots, seed=42)
+        prog_no_ev = sampling_mode.compile(base_circuit)
+        result_no_ev = sampling_mode.sample(prog_no_ev, shots, seed=42)
 
-        prog_with_ev = sampling_api.compile("H 0\nEXP_VAL Z0\nM 0")
-        result_with_ev = sampling_api.sample(prog_with_ev, shots, seed=42)
+        prog_with_ev = sampling_mode.compile("H 0\nEXP_VAL Z0\nM 0")
+        result_with_ev = sampling_mode.sample(prog_with_ev, shots, seed=42)
 
         np.testing.assert_array_equal(
             result_no_ev.measurements,
@@ -337,18 +344,18 @@ class TestNoExpValRegression:
             err_msg="EXP_VAL changed measurement outcomes",
         )
 
-    def test_detectors_observables_unchanged(self, sampling_api: Any) -> None:
+    def test_detectors_observables_unchanged(self, sampling_mode: CpuSamplingMode) -> None:
         """Detector and observable records are unaffected by EXP_VAL."""
         base = "H 0\nM 0\nDETECTOR rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]"
         shots = 100
 
-        prog_no_ev = sampling_api.compile(base)
-        result_no_ev = sampling_api.sample(prog_no_ev, shots, seed=42)
+        prog_no_ev = sampling_mode.compile(base)
+        result_no_ev = sampling_mode.sample(prog_no_ev, shots, seed=42)
 
-        prog_with_ev = sampling_api.compile(
+        prog_with_ev = sampling_mode.compile(
             "H 0\nEXP_VAL X0\nM 0\nDETECTOR rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]"
         )
-        result_with_ev = sampling_api.sample(prog_with_ev, shots, seed=42)
+        result_with_ev = sampling_mode.sample(prog_with_ev, shots, seed=42)
 
         np.testing.assert_array_equal(result_no_ev.detectors, result_with_ev.detectors)
         np.testing.assert_array_equal(result_no_ev.observables, result_with_ev.observables)

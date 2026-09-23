@@ -15,6 +15,7 @@ import numpy as np
 import pytest
 import stim
 from conftest import cross_binomial_tolerance
+from utils_conformance import CpuSamplingMode
 
 import clifft
 
@@ -54,7 +55,7 @@ class TestTargetQECCircuit:
         """Compile Clifft program."""
         return clifft.compile(circuit_text)
 
-    @pytest.fixture(scope="class")
+    @pytest.fixture
     def stim_sampler(self, circuit_text: str) -> stim.CompiledDetectorSampler:
         """Compile Stim detector sampler with fixed seed."""
         circuit = stim.Circuit(circuit_text)
@@ -70,7 +71,10 @@ class TestTargetQECCircuit:
         assert clifft_program.num_observables == stim_circuit.num_observables
 
     def test_marginal_probabilities_within_bounds(
-        self, clifft_program: clifft.Program, stim_sampler: stim.CompiledDetectorSampler
+        self,
+        circuit_text: str,
+        stim_sampler: stim.CompiledDetectorSampler,
+        sampling_mode: CpuSamplingMode,
     ) -> None:
         """All detector and observable marginals match within 5-sigma bounds.
 
@@ -82,8 +86,10 @@ class TestTargetQECCircuit:
         shots = 100_000
         seed = 12345
 
+        clifft_program = sampling_mode.compile(circuit_text)
+
         # Sample from both engines
-        result = clifft.sample(clifft_program, shots, seed=seed)
+        result = sampling_mode.sample(clifft_program, shots, seed=seed)
         stim_det, stim_obs = stim_sampler.sample(shots, separate_observables=True)
 
         # Compute marginal probabilities
@@ -118,7 +124,7 @@ class TestTargetQECCircuit:
 class TestSimpleCircuitEquivalence:
     """Quick statistical checks on simpler circuits."""
 
-    def test_bell_state_with_noise(self) -> None:
+    def test_bell_state_with_noise(self, sampling_mode: CpuSamplingMode) -> None:
         """Bell state with depolarizing noise matches Stim."""
         circuit = """
             H 0
@@ -130,11 +136,11 @@ class TestSimpleCircuitEquivalence:
         """
         shots = 10_000
 
-        prog = clifft.compile(circuit)
+        prog = sampling_mode.compile(circuit)
         stim_circuit = stim.Circuit(circuit)
         stim_sampler = stim_circuit.compile_detector_sampler(seed=99)
 
-        result = clifft.sample(prog, shots, seed=99)
+        result = sampling_mode.sample(prog, shots, seed=99)
         stim_det, _ = stim_sampler.sample(shots, separate_observables=True)
 
         clifft_rate = float(result.detectors.mean(dtype=float))
@@ -143,7 +149,7 @@ class TestSimpleCircuitEquivalence:
         tol = cross_binomial_tolerance((clifft_rate + stim_rate) / 2, shots)
         assert abs(clifft_rate - stim_rate) < tol
 
-    def test_repeated_measurements_with_readout_noise(self) -> None:
+    def test_repeated_measurements_with_readout_noise(self, sampling_mode: CpuSamplingMode) -> None:
         """Repeated measurements with readout noise match Stim."""
         circuit = """
             M(0.05) 0
@@ -152,11 +158,11 @@ class TestSimpleCircuitEquivalence:
         """
         shots = 10_000
 
-        prog = clifft.compile(circuit)
+        prog = sampling_mode.compile(circuit)
         stim_circuit = stim.Circuit(circuit)
         stim_sampler = stim_circuit.compile_detector_sampler(seed=123)
 
-        result = clifft.sample(prog, shots, seed=123)
+        result = sampling_mode.sample(prog, shots, seed=123)
         stim_det, _ = stim_sampler.sample(shots, separate_observables=True)
 
         # Detector fires when readout noise causes disagreement
@@ -167,7 +173,7 @@ class TestSimpleCircuitEquivalence:
         tol = cross_binomial_tolerance((clifft_rate + stim_rate) / 2, shots)
         assert abs(clifft_rate - stim_rate) < tol
 
-    def test_stabilizer_round_with_reset(self) -> None:
+    def test_stabilizer_round_with_reset(self, sampling_mode: CpuSamplingMode) -> None:
         """Circuit with resets has correct detector behavior."""
         circuit = """
             R 0
@@ -178,11 +184,11 @@ class TestSimpleCircuitEquivalence:
         """
         shots = 1_000
 
-        prog = clifft.compile(circuit)
+        prog = sampling_mode.compile(circuit)
         stim_circuit = stim.Circuit(circuit)
         stim_sampler = stim_circuit.compile_detector_sampler(seed=42)
 
-        result = clifft.sample(prog, shots, seed=42)
+        result = sampling_mode.sample(prog, shots, seed=42)
         stim_det, _ = stim_sampler.sample(shots, separate_observables=True)
 
         # Clean Bell state: detector should always be 0
@@ -205,7 +211,9 @@ class TestTopologicalQECCodes:
             # "color_code:memory_xyz" - uses unsupported C_XYZ gate
         ],
     )
-    def test_qec_code_statistical_equivalence(self, code_task: str) -> None:
+    def test_qec_code_statistical_equivalence(
+        self, code_task: str, sampling_mode: CpuSamplingMode
+    ) -> None:
         """Generated QEC circuit matches Stim within statistical bounds.
 
         Uses distance=3, rounds=2, and after_clifford_depolarization=0.01.
@@ -224,7 +232,7 @@ class TestTopologicalQECCodes:
         circuit_str = str(stim_circuit)
 
         # Compile both
-        clifft_prog = clifft.compile(circuit_str)
+        clifft_prog = sampling_mode.compile(circuit_str)
         stim_sampler = stim_circuit.compile_detector_sampler(seed=seed)
 
         # Verify metadata matches
@@ -232,7 +240,7 @@ class TestTopologicalQECCodes:
         assert clifft_prog.num_observables == stim_circuit.num_observables
 
         # Sample from both
-        result = clifft.sample(clifft_prog, shots, seed=seed)
+        result = sampling_mode.sample(clifft_prog, shots, seed=seed)
         stim_det, stim_obs = stim_sampler.sample(shots, separate_observables=True)
 
         # Check detector marginals
@@ -330,7 +338,9 @@ class TestUnstructuredNoiseFuzzing:
 
     @pytest.mark.parametrize("num_qubits", [2, 4, 6])
     @pytest.mark.parametrize("seed", [42, 123, 456, 789, 1337])
-    def test_random_noisy_circuit(self, num_qubits: int, seed: int) -> None:
+    def test_random_noisy_circuit(
+        self, num_qubits: int, seed: int, sampling_mode: CpuSamplingMode
+    ) -> None:
         """Random noisy circuit marginals match Stim.
 
         Compares both 1-body marginals (per-measurement probabilities)
@@ -344,7 +354,7 @@ class TestUnstructuredNoiseFuzzing:
 
         # Compile both
         try:
-            clifft_prog = clifft.compile(circuit_str)
+            clifft_prog = sampling_mode.compile(circuit_str)
         except Exception as e:
             pytest.fail(f"Clifft compilation failed: {e}\nCircuit:\n{circuit_str}")
 
@@ -352,7 +362,7 @@ class TestUnstructuredNoiseFuzzing:
         stim_sampler = stim_circuit.compile_sampler(seed=seed)
 
         # Sample from both
-        result = clifft.sample(clifft_prog, shots, seed=seed)
+        result = sampling_mode.sample(clifft_prog, shots, seed=seed)
         stim_meas = stim_sampler.sample(shots)
 
         # Skip if no measurements were generated
@@ -455,16 +465,18 @@ class TestMidCircuitMeasurementEvolution:
 
     @pytest.mark.parametrize("num_qubits", [2, 3, 4])
     @pytest.mark.parametrize("seed", [10, 20, 30])
-    def test_midcircuit_marginals(self, num_qubits: int, seed: int) -> None:
+    def test_midcircuit_marginals(
+        self, num_qubits: int, seed: int, sampling_mode: CpuSamplingMode
+    ) -> None:
         """Mid-circuit measurement circuits match Stim on 1-body marginals."""
         shots = 50_000
         circuit_str = _generate_midcircuit_clifford_circuit(num_qubits, depth=30, seed=seed)
 
-        clifft_prog = clifft.compile(circuit_str)
+        clifft_prog = sampling_mode.compile(circuit_str)
         stim_circuit = stim.Circuit(circuit_str)
         stim_sampler = stim_circuit.compile_sampler(seed=seed)
 
-        result = clifft.sample(clifft_prog, shots, seed=seed)
+        result = sampling_mode.sample(clifft_prog, shots, seed=seed)
         stim_meas = stim_sampler.sample(shots)
 
         if result.measurements.shape[1] == 0:
@@ -485,7 +497,9 @@ class TestMidCircuitMeasurementEvolution:
 
     @pytest.mark.parametrize("num_qubits", [3, 4])
     @pytest.mark.parametrize("seed", [10, 20, 30])
-    def test_midcircuit_3body_parity(self, num_qubits: int, seed: int) -> None:
+    def test_midcircuit_3body_parity(
+        self, num_qubits: int, seed: int, sampling_mode: CpuSamplingMode
+    ) -> None:
         """3-body parity checks on mid-circuit measurement circuits.
 
         Validates triple-measurement XOR correlations to catch phase
@@ -494,11 +508,11 @@ class TestMidCircuitMeasurementEvolution:
         shots = 50_000
         circuit_str = _generate_midcircuit_clifford_circuit(num_qubits, depth=30, seed=seed)
 
-        clifft_prog = clifft.compile(circuit_str)
+        clifft_prog = sampling_mode.compile(circuit_str)
         stim_circuit = stim.Circuit(circuit_str)
         stim_sampler = stim_circuit.compile_sampler(seed=seed)
 
-        result = clifft.sample(clifft_prog, shots, seed=seed)
+        result = sampling_mode.sample(clifft_prog, shots, seed=seed)
         stim_meas = stim_sampler.sample(shots)
 
         n_meas = result.measurements.shape[1]
@@ -604,18 +618,20 @@ class TestTVDSmallMeasurementSpace:
 
     @pytest.mark.parametrize("n_measurements", [4, 6, 8])
     @pytest.mark.parametrize("seed", [42, 123, 456])
-    def test_tvd_small_circuits(self, n_measurements: int, seed: int) -> None:
+    def test_tvd_small_circuits(
+        self, n_measurements: int, seed: int, sampling_mode: CpuSamplingMode
+    ) -> None:
         """TVD of full distribution is below statistical threshold."""
         num_qubits = 3
         shots = 100_000
 
         circuit_str = self._generate_small_measurement_circuit(num_qubits, n_measurements, seed)
 
-        clifft_prog = clifft.compile(circuit_str)
+        clifft_prog = sampling_mode.compile(circuit_str)
         stim_circuit = stim.Circuit(circuit_str)
         stim_sampler = stim_circuit.compile_sampler(seed=seed)
 
-        result = clifft.sample(clifft_prog, shots, seed=seed)
+        result = sampling_mode.sample(clifft_prog, shots, seed=seed)
         stim_meas = stim_sampler.sample(shots)
 
         assert (
