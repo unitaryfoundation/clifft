@@ -24,6 +24,7 @@ class ReplayCase:
     visible: int
     hidden: int
     probabilities: tuple[float, ...]
+    min_active_width: int = 0
 
 
 # These probabilities are analytic, independent of either executor. The reset
@@ -43,6 +44,14 @@ REPLAY_CASES = (
         2,
         1,
         (0.5, 0, 0, 0, 0, 0.5, 0, 0),
+    ),
+    ReplayCase(
+        "active-reset",
+        "H 0\nT 0\nH 0\nCX 0 1\nR 0\nH 1\nT 1\nH 1\nM 1",
+        1,
+        1,
+        (math.cos(math.pi / 8) ** 4, math.sin(math.pi / 8) ** 4, 0.125, 0.125),
+        min_active_width=1,
     ),
     ReplayCase(
         "active-measurement",

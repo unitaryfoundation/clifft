@@ -188,14 +188,17 @@ def test_cuda_python_forced_replay_probes_each_branch(
     tolerance: float,
     tier: cuda.Tier,
 ) -> None:
-    require_cuda_device()
+    if not cuda.is_built():
+        pytest.skip("requires the CUDA extension")
     circuit = case.circuit
     cpu_program = clifft.compile(circuit)
     cuda_program = cuda.compile(circuit)
-    sampler = cuda.Sampler(cuda_program, precision=precision, max_batch_shots=1, tier=tier)
-
     assert cuda_program.num_measurements == case.visible
     assert cuda_program.num_records == case.visible + case.hidden
+    assert cuda_program.peak_active_width >= case.min_active_width
+
+    require_cuda_device()
+    sampler = cuda.Sampler(cuda_program, precision=precision, max_batch_shots=1, tier=tier)
     assert sampler.tier == tier
 
     assert_forced_record_probabilities(
@@ -210,11 +213,15 @@ def test_cuda_python_forced_replay_probes_each_branch(
 def test_cuda_python_replay_with_multiple_pauli_measurements(
     tier: cuda.Tier, precision: cuda.Precision, tolerance: float
 ) -> None:
-    require_cuda_device()
+    if not cuda.is_built():
+        pytest.skip("requires the CUDA extension")
     cpu_program = clifft.compile(PAULI_REPLAY_CIRCUIT)
-    sampler = cuda.Sampler(
-        cuda.compile(PAULI_REPLAY_CIRCUIT), precision=precision, max_batch_shots=1, tier=tier
-    )
+    cuda_program = cuda.compile(PAULI_REPLAY_CIRCUIT)
+    assert cuda_program.num_measurements == cpu_program.num_measurements == 2
+    assert cuda_program.num_records == 2
+
+    require_cuda_device()
+    sampler = cuda.Sampler(cuda_program, precision=precision, max_batch_shots=1, tier=tier)
     assert_forced_record_probabilities(cpu_program, sampler, absolute_tolerance=tolerance)
 
 

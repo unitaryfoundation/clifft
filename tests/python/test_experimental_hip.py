@@ -55,14 +55,17 @@ def test_hip_python_forced_replay_probes_each_branch(
     precision: hip.Precision,
     tolerance: float,
 ) -> None:
-    require_hip_device()
+    if not hip.is_built():
+        pytest.skip("requires the HIP extension")
     circuit = case.circuit
     cpu_program = clifft.compile(circuit)
     hip_program = hip.compile(circuit)
-    sampler = hip.Sampler(hip_program, precision=precision, max_batch_shots=1)
-
     assert hip_program.num_measurements == case.visible
     assert hip_program.num_records == case.visible + case.hidden
+    assert hip_program.peak_active_width >= case.min_active_width
+
+    require_hip_device()
+    sampler = hip.Sampler(hip_program, precision=precision, max_batch_shots=1)
 
     assert_forced_record_probabilities(
         cpu_program,

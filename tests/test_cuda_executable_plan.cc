@@ -5,6 +5,9 @@
 #include "clifft/sampling/planner.h"
 #include "clifft/util/shot_seed_domains.h"
 
+#include "gpu_replay_cases.h"
+
+#include <algorithm>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 #include <string>
@@ -203,4 +206,24 @@ TEST_CASE("CUDA executable accepts cultivation cooperative width") {
     const ExecutablePlan executable(plan);
     REQUIRE(executable.peak_active_width() == 10);
     REQUIRE(executable.num_actions() == plan.actions.size());
+}
+
+TEST_CASE("CUDA replay circuits preserve visible and hidden record layout") {
+    for (const auto& test_case : clifft::test::kGpuReplayCases) {
+        CAPTURE(test_case.name);
+        const ExecutablePlan executable(plan_from(test_case.circuit));
+        REQUIRE(executable.num_visible_records() == test_case.visible);
+        REQUIRE(executable.num_records() == test_case.visible + test_case.hidden);
+        REQUIRE(executable.peak_active_width() >= test_case.min_active_width);
+        if (test_case.hidden != 0 && test_case.min_active_width != 0) {
+            REQUIRE(std::ranges::any_of(executable.actions(), [&](const auto& action) {
+                return action.tag == ActionTag::MeasureActivePauli &&
+                       action.index1 >= test_case.visible;
+            }));
+        }
+    }
+    const ExecutablePlan batched(plan_from(clifft::test::kResetBatchCircuit));
+    REQUIRE(batched.num_visible_records() == 2);
+    REQUIRE(batched.num_records() == 3);
+    REQUIRE(batched.peak_active_width() >= 1);
 }

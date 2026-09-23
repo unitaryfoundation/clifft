@@ -25,6 +25,7 @@ def test_cpu_replay_reference_matches_analytic_branches(case: ReplayCase) -> Non
     program = clifft.compile(case.circuit)
     assert program.num_measurements == case.visible
     assert program.num_hidden_measurements == case.hidden
+    assert program.peak_active_width >= case.min_active_width
     branches = cpu_replay_branches(program)
     assert len(branches) == len(case.probabilities)
     for branch, probability in zip(branches, case.probabilities, strict=True):
@@ -34,8 +35,7 @@ def test_cpu_replay_reference_matches_analytic_branches(case: ReplayCase) -> Non
     assert sum(math.exp(b.log_probability) for b in branches if b.reachable) == pytest.approx(1)
 
 
-@pytest.mark.parametrize("case", REPLAY_CASES, ids=lambda case: case.name)
-def test_forced_record_comparison_accepts_analytic_backend_results(case: ReplayCase) -> None:
+def _analytic_sampler(case: ReplayCase) -> SimpleNamespace:
     # A known distribution exercises the actual GPU comparison helper on CPU
     # CI, including impossible branches and visible-only output arrays.
     probabilities = dict(
@@ -57,15 +57,42 @@ def test_forced_record_comparison_accepts_analytic_backend_results(case: ReplayC
             ),
         )
 
-    sampler = SimpleNamespace(
+    return SimpleNamespace(
         program=SimpleNamespace(
             num_measurements=case.visible, num_records=case.visible + case.hidden
         ),
         replay_shot=replay_shot,
     )
+
+
+@pytest.mark.parametrize("case", REPLAY_CASES, ids=lambda case: case.name)
+def test_forced_record_comparison_accepts_analytic_backend_results(case: ReplayCase) -> None:
     assert_forced_record_probabilities(
-        clifft.compile(case.circuit), cast(Any, sampler), absolute_tolerance=1e-12
+        clifft.compile(case.circuit), cast(Any, _analytic_sampler(case)), absolute_tolerance=1e-12
     )
+
+
+@pytest.mark.parametrize("fault", ["probability", "reachability", "hidden-measurements"])
+def test_forced_record_comparison_rejects_incorrect_backend_results(fault: str) -> None:
+    case = next(case for case in REPLAY_CASES if case.name == "deterministic-reset")
+    sampler = _analytic_sampler(case)
+    original_replay = sampler.replay_shot
+
+    def replay_shot(record: list[int]) -> SimpleNamespace:
+        result = original_replay(record)
+        if fault == "probability":
+            result.log_probability += 1e-3
+        elif fault == "reachability":
+            result.reachable = not result.reachable
+        else:
+            result.outputs.measurements = np.asarray([record], dtype=np.uint8)
+        return cast(SimpleNamespace, result)
+
+    sampler.replay_shot = replay_shot
+    with pytest.raises(AssertionError):
+        assert_forced_record_probabilities(
+            clifft.compile(case.circuit), cast(Any, sampler), absolute_tolerance=1e-12
+        )
 
 
 @pytest.mark.parametrize("preparation", ["H", "X"])

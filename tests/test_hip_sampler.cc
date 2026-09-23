@@ -7,9 +7,12 @@
 #include "clifft/sampling/planner.h"
 #include "clifft/sampling/sampler.h"
 
+#include "gpu_replay_cases.h"
+
 #include <algorithm>
 #include <array>
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/generators/catch_generators_range.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <cmath>
 #include <cstdint>
@@ -273,54 +276,74 @@ TEST_CASE("HIP sampler computes expectation values with FP64 accumulation") {
 }
 
 TEST_CASE("HIP replay matches every CPU measurement branch") {
-    const SamplingPlan plan = plan_from(R"(
-        H 0
-        H 1
-        T 0
-        T 1
-        CX 0 1
-        MPP Y0*Z1
-        R_PAULI(0.17) X0*Y1
-        M 0
-        CX rec[-1] 2
-        EXP_VAL Z2
-        DETECTOR rec[-1] rec[-2]
-        OBSERVABLE_INCLUDE(0) rec[-1]
-    )");
-    const HipExecutablePlan hip_executable(plan);
+    const auto test_case = GENERATE(Catch::Generators::from_range(clifft::test::kGpuReplayCases));
+    CAPTURE(test_case.name);
+    const SamplingPlan plan = plan_from(test_case.circuit);
+    const HipExecutablePlan executable(plan);
     const CpuExecutablePlan cpu_executable(plan);
-    REQUIRE(hip_executable.num_visible_records() == 2);
+    const uint32_t records = test_case.visible + test_case.hidden;
+    REQUIRE(executable.num_visible_records() == test_case.visible);
+    REQUIRE(executable.num_records() == records);
+    REQUIRE(executable.peak_active_width() >= test_case.min_active_width);
+    REQUIRE(cpu_executable.num_visible_records() == test_case.visible);
+    REQUIRE(cpu_executable.num_hidden_records() == test_case.hidden);
     require_hip_device();
 
     for (const auto& [precision, tolerance] : {std::pair{CoefficientPrecision::FP64, 1e-12},
                                                std::pair{CoefficientPrecision::FP32, 2e-5}}) {
-        for (uint8_t first : {uint8_t{0}, uint8_t{1}}) {
-            for (uint8_t second : {uint8_t{0}, uint8_t{1}}) {
-                const std::array<uint8_t, 2> forced{first, second};
-                clifft::sampling::Executor cpu(cpu_executable);
-                const clifft::sampling::ReplayResult expected = cpu.replay_shot(forced);
-                const clifft::sampling::hip::ReplayResult actual =
-                    clifft::sampling::hip::replay_shot(hip_executable, forced, precision);
-                CAPTURE(precision, first, second);
-                REQUIRE(actual.reachable == expected.reachable);
-                if (!expected.reachable) {
-                    continue;
-                }
-                REQUIRE_THAT(actual.log_probability,
-                             Catch::Matchers::WithinAbs(expected.log_probability, tolerance));
-                REQUIRE(actual.outputs.measurements ==
-                        std::vector<uint8_t>(forced.begin(), forced.end()));
-                REQUIRE(actual.outputs.detectors ==
-                        std::vector<uint8_t>(cpu.detectors().begin(), cpu.detectors().end()));
-                REQUIRE(actual.outputs.observables ==
-                        std::vector<uint8_t>(cpu.observables().begin(), cpu.observables().end()));
-                REQUIRE(actual.outputs.exp_vals.size() == cpu.exp_vals().size());
-                for (size_t index = 0; index < cpu.exp_vals().size(); ++index) {
-                    REQUIRE_THAT(actual.outputs.exp_vals[index],
-                                 Catch::Matchers::WithinAbs(cpu.exp_vals()[index], tolerance));
-                }
+        Sampler sampler(executable, precision, 1);
+        for (uint32_t bits = 0; bits < (uint32_t{1} << records); ++bits) {
+            std::vector<uint8_t> forced(records);
+            for (uint32_t index = 0; index < records; ++index) {
+                forced[index] = (bits >> (records - index - 1)) & 1U;
+            }
+            clifft::sampling::Executor cpu(cpu_executable);
+            const clifft::sampling::ReplayResult expected = cpu.replay_shot(forced);
+            const auto actual = sampler.replay_shot(forced);
+            CAPTURE(precision, forced);
+            REQUIRE(actual.reachable == expected.reachable);
+            if (!expected.reachable) {
+                continue;
+            }
+            REQUIRE(actual.survived);
+            REQUIRE_THAT(actual.log_probability,
+                         Catch::Matchers::WithinAbs(expected.log_probability, tolerance));
+            REQUIRE(actual.outputs.measurements ==
+                    std::vector<uint8_t>(forced.begin(), forced.begin() + test_case.visible));
+            REQUIRE(actual.outputs.detectors ==
+                    std::vector<uint8_t>(cpu.detectors().begin(), cpu.detectors().end()));
+            REQUIRE(actual.outputs.observables ==
+                    std::vector<uint8_t>(cpu.observables().begin(), cpu.observables().end()));
+            REQUIRE(actual.outputs.exp_vals.size() == cpu.exp_vals().size());
+            for (size_t index = 0; index < cpu.exp_vals().size(); ++index) {
+                REQUIRE_THAT(actual.outputs.exp_vals[index],
+                             Catch::Matchers::WithinAbs(cpu.exp_vals()[index], tolerance));
             }
         }
+    }
+}
+
+TEST_CASE("HIP reset sampling preserves visible rows across batch boundaries") {
+    const SamplingPlan plan = plan_from(clifft::test::kResetBatchCircuit);
+    const HipExecutablePlan executable(plan);
+    REQUIRE(executable.num_visible_records() == 2);
+    REQUIRE(executable.num_records() == 3);
+    REQUIRE(executable.peak_active_width() >= 1);
+
+    constexpr uint32_t kShots = 257;
+    const CpuExecutablePlan cpu_executable(plan);
+    clifft::test::require_reset_batch_rows(
+        clifft::sampling::sample(cpu_executable, kShots, uint64_t{1234}), kShots);
+    require_hip_device();
+
+    for (const CoefficientPrecision precision :
+         {CoefficientPrecision::FP64, CoefficientPrecision::FP32}) {
+        CAPTURE(precision);
+        Sampler batched(executable, precision, 7);
+        Sampler single_batch(executable, precision, kShots);
+        const SamplingResult rows = batched.sample(kShots, uint64_t{1234}, 64);
+        require_same_rows(rows, single_batch.sample(kShots, uint64_t{1234}, 64));
+        clifft::test::require_reset_batch_rows(rows, kShots);
     }
 }
 
