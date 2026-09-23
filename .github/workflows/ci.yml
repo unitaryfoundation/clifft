@@ -697,6 +697,23 @@ jobs:
       - name: Audit private macOS OpenMP runtime
         run: python3 tools/ci/audit_macos_wheel.py wheelhouse/*.whl
 
+      - name: Check source builds with a dylib-only OpenMP installation
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/dylib-only"
+          ln -s "$(brew --prefix libomp)/lib/libomp.dylib" "$RUNNER_TEMP/dylib-only/libomp.dylib"
+          build_args=(--wheel --out-dir "$RUNNER_TEMP/fallback-wheels"
+            "-Cbuild-dir=$RUNNER_TEMP/openmp-fallback-build"
+            "-Ccmake.define.OpenMP_libomp_LIBRARY=$RUNNER_TEMP/dylib-only/libomp.dylib")
+          if uv build "${build_args[@]}" -Ccmake.define.CLIFFT_OPENMP=ON > "$RUNNER_TEMP/openmp-on.log" 2>&1; then
+            echo "Expected explicit OpenMP to reject the missing static archive"
+            exit 1
+          fi
+          cat "$RUNNER_TEMP/openmp-on.log"
+          grep -F "macOS Python OpenMP support requires" "$RUNNER_TEMP/openmp-on.log"
+          uv build "${build_args[@]}" -Ccmake.define.CLIFFT_OPENMP=AUTO 2>&1 | tee "$RUNNER_TEMP/openmp-auto.log"
+          grep -F "CLIFFT_OPENMP = AUTO (enabled: OFF)" "$RUNNER_TEMP/openmp-auto.log"
+
   cross-platform:
     name: cross-platform (${{ matrix.label }})
     strategy:

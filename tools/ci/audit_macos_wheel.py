@@ -4,23 +4,10 @@
 from __future__ import annotations
 
 import argparse
-import re
 import subprocess
 import tempfile
 import zipfile
 from pathlib import Path
-
-
-def _is_openmp_symbol(symbol: str) -> bool:
-    # Mach-O adds an underscore. LLVM also exposes Itanium-mangled template
-    # functions and classes, including the weak definitions that dyld coalesces.
-    return (
-        re.match(
-            r"^(?:(?:omp|kmpc?|GOMP)_|Z(?:N[KVr]*|T[ISV])?\d+_*kmp_)",
-            symbol.lstrip("_"),
-        )
-        is not None
-    )
 
 
 def _wheel_members(wheel: Path) -> str:
@@ -63,16 +50,12 @@ def audit(wheel: Path) -> None:
             extension = Path(archive.extract(extension_member, root))
         dependencies = _dependencies(extension)
         symbols = subprocess.run(
-            ["nm", "-g", str(extension)], check=True, capture_output=True, text=True
+            ["nm", "-gUj", str(extension)], check=True, capture_output=True, text=True
         ).stdout.splitlines()
 
-    # Neither undefined imports nor exported definitions may expose runtime
-    # internals to another extension. Execution is checked by artifact_smoke.py.
-    runtime_symbols = [
-        line for line in symbols if line.split() and _is_openmp_symbol(line.split()[-1])
-    ]
-    if runtime_symbols:
-        raise RuntimeError(f"extension exposes OpenMP runtime symbols: {runtime_symbols}")
+    # Match the extension's export list exactly, including weak C++ definitions.
+    if set(symbols) != {"_PyInit__clifft_core"}:
+        raise RuntimeError(f"unexpected extension exports: {symbols}")
 
     libomp_dependencies = [
         dependency for dependency in dependencies if "libomp" in Path(dependency).name.lower()
