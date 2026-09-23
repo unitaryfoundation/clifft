@@ -35,6 +35,20 @@ inline constexpr std::array kGpuReplayCases{
         OBSERVABLE_INCLUDE(0) rec[-1]
     )",
                   2, 0, 2},
+    // Unequal branch probabilities and post-measurement expectations expose
+    // incorrect branch selection and collapse in both measurement paths.
+    GpuReplayCase{"biased active and dormant measurements", R"(
+        H 0 1 2
+        T 0 1 2
+        CX 0 1
+        H 0
+        M 0
+        EXP_VAL X1*X2
+        H 3
+        M 3
+        EXP_VAL Z3
+    )",
+                  2, 0, 3},
     GpuReplayCase{"uniform reset", R"(
         H 0
         R 0
