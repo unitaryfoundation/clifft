@@ -15,7 +15,7 @@ def _statevector(circuit: str) -> np.ndarray:
 
 def _measurements(sampling_mode: CpuSamplingMode, circuit: str, *, seed: int = 1) -> np.ndarray:
     return np.asarray(
-        sampling_mode.sample(sampling_mode.compile(circuit), 65, seed=seed).measurements
+        sampling_mode.sample(sampling_mode.compile(circuit), 131, seed=seed).measurements
     )
 
 
@@ -159,12 +159,12 @@ def test_exact_clifford_rotations_match_named_gates() -> None:
 
 def test_mpad_and_inverted_measurements(sampling_mode: CpuSamplingMode) -> None:
     np.testing.assert_array_equal(
-        _measurements(sampling_mode, "MPAD 1 0 1 0"), np.tile([1, 0, 1, 0], (65, 1))
+        _measurements(sampling_mode, "MPAD 1 0 1 0"), np.tile([1, 0, 1, 0], (131, 1))
     )
     np.testing.assert_array_equal(
-        _measurements(sampling_mode, "MPAD !0 !1"), np.tile([1, 0], (65, 1))
+        _measurements(sampling_mode, "MPAD !0 !1"), np.tile([1, 0], (131, 1))
     )
-    np.testing.assert_array_equal(_measurements(sampling_mode, "M !0"), np.ones((65, 1)))
+    np.testing.assert_array_equal(_measurements(sampling_mode, "M !0"), np.ones((131, 1)))
 
 
 def test_pair_measurement_aliases_match_mpp(sampling_mode: CpuSamplingMode) -> None:
@@ -206,9 +206,9 @@ def test_readout_noise_and_resets_preserve_measurement_records(
         M{axis} 0
     """
     actual = _measurements(sampling_mode, circuit)
-    reference = stim.Circuit(circuit).compile_sampler(seed=1).sample(65)
+    reference = stim.Circuit(circuit).compile_sampler(seed=1).sample(131)
 
     # Readout noise changes the record without changing the measured eigenstate;
     # the hidden measurement in R must not appear in the visible record.
-    np.testing.assert_array_equal(actual, np.tile([1, 0, 0, 0], (65, 1)))
+    np.testing.assert_array_equal(actual, np.tile([1, 0, 0, 0], (131, 1)))
     np.testing.assert_array_equal(actual, reference)

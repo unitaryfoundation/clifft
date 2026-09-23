@@ -346,6 +346,19 @@ TEST_CASE("Packed capacity policy bounds worker state footprint") {
                 .lane_capacity == 1);
 }
 
+TEST_CASE("Packed capacity policy limits workers to available batches") {
+    const ExecutablePlan plan = compile_batch_test_plan();
+    for (const auto output_mode : {BatchOutputMode::Rows, BatchOutputMode::AggregateSurvivors}) {
+        for (const uint32_t shots : {65, 66, 130, 131, 257}) {
+            CAPTURE(output_mode, shots);
+            const auto policy =
+                resolve_batch_execution_policy(plan, shots, 2, 1, output_mode, uint32_t{65});
+            REQUIRE(policy.lane_capacity == 65);
+            REQUIRE(policy.worker_count == (shots == 65 ? 1 : 2));
+        }
+    }
+}
+
 TEST_CASE("Packed capacity policy accounts for lane-scaled sidecars") {
     constexpr uint32_t shots = 100'000;
     const ExecutablePlan d7 = compile_batch_fixture("surface_d7_r7_p001.stim");

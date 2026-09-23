@@ -3,8 +3,9 @@
 Each CASES entry runs exact record checks under every compiler profile, and
 sampled record and annotation checks under every profile and sampling mode.
 Profiles select no HIR passes or the production-default pipeline; modes select
-single-shot, packed-65, or automatic execution with one worker. Passes are not
-independently toggled in this matrix: separate witnesses check their effects.
+scalar or packed-65 execution with one or two workers, or automatic batching
+with one worker. Passes are not independently toggled in this matrix: separate
+witnesses check their effects.
 The boundary circuit runs under every profile, mode, and designated shot count.
 """
 
@@ -326,7 +327,9 @@ def test_default_profile_uses_fresh_production_factory(monkeypatch: pytest.Monke
 
 
 def test_cpu_sampling_modes_include_scalar_packed_and_automatic() -> None:
-    assert {1, 65, "auto"} <= {mode.batch_size for mode in CPU_SAMPLING_MODES}
+    assert {(1, 1), (65, 1), ("auto", 1), (1, 2), (65, 2)} <= {
+        (mode.batch_size, mode.threads) for mode in CPU_SAMPLING_MODES
+    }
 
 
 @pytest.mark.parametrize("mode", CPU_SAMPLING_MODES, ids=lambda mode: mode.name)
@@ -337,7 +340,9 @@ def test_sampling_mode_forwards_its_configuration(
     program = object()
     monkeypatch.setattr(clifft, "sample", lambda *args, **kwargs: calls.append((args, kwargs)))
     mode.sample(program, 8193, 1907)
-    assert calls == [((program, 8193), {"seed": 1907, "threads": 1, "batch_size": mode.batch_size})]
+    assert calls == [
+        ((program, 8193), {"seed": 1907, "threads": mode.threads, "batch_size": mode.batch_size})
+    ]
 
     monkeypatch.setattr(
         clifft, "sample_survivors", lambda *args, **kwargs: calls.append((args, kwargs))
@@ -351,7 +356,7 @@ def test_sampling_mode_forwards_its_configuration(
                 {
                     "seed": 41,
                     "keep_records": keep_records,
-                    "threads": 1,
+                    "threads": mode.threads,
                     "batch_size": mode.batch_size,
                 },
             )
