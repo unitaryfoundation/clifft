@@ -55,7 +55,7 @@ class TestTargetQECCircuit:
         """Compile Clifft program."""
         return clifft.compile(circuit_text)
 
-    @pytest.fixture(scope="class")
+    @pytest.fixture
     def stim_sampler(self, circuit_text: str) -> stim.CompiledDetectorSampler:
         """Compile Stim detector sampler with fixed seed."""
         circuit = stim.Circuit(circuit_text)
