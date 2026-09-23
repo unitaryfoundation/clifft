@@ -176,3 +176,16 @@ likelihood. Use joint-distribution comparisons for noise and other stochastic
 behavior, with both precision modes parameterized. Add later measurements,
 detectors, observables, and expectation values after non-diagonal operations so
 tests observe the evolved state rather than only the first sampled outcome.
+
+HIP and CUDA share the private CPU replay reference in
+`tests/python/utils_gpu_replay.py`. It forces visible records followed by hidden
+reset records; `record_probabilities()` cannot serve as this full-branch
+reference. The reference rejects noise, instruments, and postselection.
+`tests/python/test_gpu_replay_reference.py` checks analytic branch probabilities,
+record ordering, and the comparison helper without requiring a GPU. The
+experimental backend test modules also validate their CPU sampling references
+without a device. Run these checks before the hardware comparisons:
+
+```bash
+uv run pytest tests/python/test_gpu_replay_reference.py tests/python/test_experimental_hip.py -v
+```

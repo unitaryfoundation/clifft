@@ -13,6 +13,7 @@
 #include "clifft/optimizer/peephole.h"
 #include "clifft/optimizer/remove_noise_pass.h"
 #include "clifft/optimizer/statevector_squeeze_pass.h"
+#include "clifft/sampling/executor.h"
 #include "clifft/sampling/planner.h"
 #include "clifft/sampling/sampler.h"
 #include "clifft/sampling/state_queries.h"
@@ -1190,4 +1191,44 @@ NB_MODULE(_clifft_core, m) {
         nb::arg("program"), nb::arg("records"),
         "Internal helper for clifft.record_probabilities(). Returns log-probabilities; "
         "the Python wrapper exponentiates to linear unless return_log=True.");
+
+    m.def(
+        "_replay_record",
+        [](const clifft::sampling::ExecutablePlan& program, std::vector<uint8_t> forced_records) {
+            // Replay is conditional on presampled symbols and can stop at a
+            // postselection boundary. Neither is a complete record oracle.
+            if (program.num_presampled_symbols() != 0 || program.has_readout_noise() ||
+                program.has_instruments() || program.has_postselection()) {
+                throw std::invalid_argument(
+                    "CPU reference replay requires a noiseless program without instruments "
+                    "or postselection");
+            }
+            const size_t expected =
+                static_cast<size_t>(program.num_visible_records()) + program.num_hidden_records();
+            if (forced_records.size() != expected) {
+                throw std::invalid_argument(
+                    "forced_records must supply one value per record, visible followed by "
+                    "hidden; expected " +
+                    std::to_string(expected) + ", got " + std::to_string(forced_records.size()));
+            }
+            for (uint8_t value : forced_records) {
+                if (value > 1) {
+                    throw std::invalid_argument("forced_records entries must be 0 or 1");
+                }
+            }
+            clifft::sampling::ReplayResult result;
+            {
+                nb::gil_scoped_release release;
+                clifft::sampling::Executor executor(program);
+                result = executor.replay_shot(forced_records);
+            }
+            nb::dict output;
+            output["reachable"] = result.reachable;
+            output["log_probability"] = result.log_probability;
+            return output;
+        },
+        nb::arg("program"), nb::arg("forced_records"),
+        "Private CPU reference for GPU conformance tests. Forces visible then hidden records; "
+        "log_probability is meaningful only when reachable. Noise, instruments and "
+        "postselection are unsupported.");
 }

@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 import numpy as np
 import pytest
+from utils_conformance import assert_joint_distribution
+from utils_gpu_replay import REPLAY_CASES, ReplayCase
 from utils_hip import (
     assert_distribution_matches,
     assert_forced_record_probabilities,
@@ -13,6 +17,17 @@ from utils_hip import (
 
 import clifft
 from clifft.experimental import hip
+
+_NOISY_CIRCUIT = """\
+H 0
+T 0
+H 0
+CX 0 1
+PAULI_CHANNEL_1(0.1, 0.2, 0.05) 1
+M 0 1
+DETECTOR rec[-1] rec[-2]
+OBSERVABLE_INCLUDE(0) rec[-1]
+"""
 
 
 def test_hip_facade_explains_when_native_extension_is_absent() -> None:
@@ -44,18 +59,20 @@ def test_hip_python_sampler_reuses_bounded_workspace(precision: hip.Precision) -
     ("precision", "tolerance"),
     [("fp64", 1e-12), ("fp32", 2e-5)],
 )
+@pytest.mark.parametrize("case", REPLAY_CASES, ids=lambda case: case.name)
 def test_hip_python_forced_replay_probes_each_branch(
+    case: ReplayCase,
     precision: hip.Precision,
     tolerance: float,
 ) -> None:
     require_hip_device()
-    circuit = "H 0\nR 0\nH 0\nT 0\nM 0\nEXP_VAL Z0\nOBSERVABLE_INCLUDE(0) rec[-1]"
+    circuit = case.circuit
     cpu_program = clifft.compile(circuit)
     hip_program = hip.compile(circuit)
     sampler = hip.Sampler(hip_program, precision=precision, max_batch_shots=1)
 
-    assert hip_program.num_measurements == 1
-    assert hip_program.num_records == 2
+    assert hip_program.num_measurements == case.visible
+    assert hip_program.num_records == case.visible + case.hidden
 
     assert_forced_record_probabilities(
         cpu_program,
@@ -65,22 +82,35 @@ def test_hip_python_forced_replay_probes_each_branch(
 
 
 @pytest.mark.parametrize("precision", ["fp64", "fp32"])
-def test_hip_python_matches_cpu_joint_distribution(precision: hip.Precision) -> None:
+def test_hip_python_matches_cpu_joint_distribution(
+    precision: hip.Precision, hip_cpu_distribution: clifft.SampleResult
+) -> None:
     require_hip_device()
-    circuit = """\
-H 0
-T 0
-H 0
-CX 0 1
-PAULI_CHANNEL_1(0.1, 0.2, 0.05) 1
-M 0 1
-DETECTOR rec[-1] rec[-2]
-OBSERVABLE_INCLUDE(0) rec[-1]
-"""
+    circuit = _NOISY_CIRCUIT
     shots = 20_000
-    cpu = clifft.sample(clifft.compile(circuit), shots, seed=41)
+    cpu = hip_cpu_distribution
     gpu = hip.Sampler(hip.compile(circuit), precision=precision).sample(shots, seed=42)
     cpu_rows = np.concatenate((cpu.measurements, cpu.detectors, cpu.observables), axis=1)
     gpu_rows = np.concatenate((gpu.measurements, gpu.detectors, gpu.observables), axis=1)
 
     assert_distribution_matches(cpu_rows, gpu_rows)
+
+
+@pytest.fixture(scope="module")
+def hip_cpu_distribution() -> clifft.SampleResult:
+    return cast(clifft.SampleResult, clifft.sample(clifft.compile(_NOISY_CIRCUIT), 20_000, seed=41))
+
+
+def test_hip_cpu_distribution_reference(hip_cpu_distribution: clifft.SampleResult) -> None:
+    cpu = hip_cpu_distribution
+    p0 = (2 + np.sqrt(2)) / 4
+    # X and Y faults flip the second measurement with total probability 0.3.
+    assert_joint_distribution(
+        cpu.measurements, [0.7 * p0, 0.3 * (1 - p0), 0.3 * p0, 0.7 * (1 - p0)]
+    )
+    assert cpu.detectors.shape == (20_000, 1)
+    assert cpu.observables.shape == (20_000, 1)
+    np.testing.assert_array_equal(
+        cpu.detectors[:, 0], cpu.measurements[:, 0] ^ cpu.measurements[:, 1]
+    )
+    np.testing.assert_array_equal(cpu.observables[:, 0], cpu.measurements[:, 1])

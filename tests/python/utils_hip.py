@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-import itertools
-
 import numpy as np
 import numpy.typing as npt
 import pytest
+from utils_gpu_replay import (
+    assert_forced_record_probabilities as assert_forced_record_probabilities,
+)
 
 import clifft
 from clifft.experimental import hip
@@ -60,22 +61,3 @@ def assert_distribution_matches(
         )
         tolerance = sigma * np.sqrt(variance) + absolute_floor
         assert hip_probability == pytest.approx(cpu_probability, abs=tolerance)
-
-
-def assert_forced_record_probabilities(
-    cpu_program: clifft.Program,
-    hip_sampler: hip.Sampler,
-    *,
-    absolute_tolerance: float,
-) -> None:
-    """Enumerate every small record branch and compare reachability and probability."""
-    num_records = hip_sampler.program.num_records
-    assert num_records == cpu_program.num_measurements + cpu_program.num_hidden_measurements
-    records = np.asarray(list(itertools.product((0, 1), repeat=num_records)), dtype=np.uint8)
-    cpu_log_probabilities = clifft.record_probabilities(cpu_program, records, return_log=True)
-    for record, log_probability in zip(records, cpu_log_probabilities, strict=True):
-        replay = hip_sampler.replay_shot(record.tolist())
-        assert replay.reachable == np.isfinite(log_probability)
-        if replay.reachable:
-            assert replay.log_probability == pytest.approx(log_probability, abs=absolute_tolerance)
-            np.testing.assert_array_equal(replay.outputs.measurements, record[np.newaxis, :])
