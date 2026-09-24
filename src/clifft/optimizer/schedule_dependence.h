@@ -40,7 +40,7 @@ class ScheduleDependence {
     [[nodiscard]] static ScheduleDependence build(const HirModule& hir,
                                                   ScheduleDependenceOptions options = {});
 
-    [[nodiscard]] size_t num_ops() const { return movable_.size(); }
+    [[nodiscard]] size_t num_ops() const { return num_ops_; }
 
     // Direct predecessors, sorted by original op index.
     [[nodiscard]] std::span<const uint32_t> predecessors(size_t op) const;
@@ -57,7 +57,7 @@ class ScheduleDependence {
     ScheduleDependence() = default;
 
     bool noise_transparent_ = false;
-    std::vector<bool> movable_;
+    size_t num_ops_ = 0;
 
     // CSR offsets have num_ops() + 1 entries; op i's neighbors occupy
     // [offsets[i], offsets[i + 1]) in the corresponding indices vector.

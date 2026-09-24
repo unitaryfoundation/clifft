@@ -59,9 +59,10 @@ ScheduleDependence ScheduleDependence::build(const HirModule& hir,
     const size_t n = hir.ops.size();
     ScheduleDependence dep;
     dep.noise_transparent_ = options.noise_transparent;
-    dep.movable_.resize(n);
+    dep.num_ops_ = n;
+    std::vector<bool> movable(n);
     for (size_t i = 0; i < n; ++i) {
-        dep.movable_[i] = is_movable_op(hir.ops[i].op_type());
+        movable[i] = is_movable_op(hir.ops[i].op_type());
     }
 
     std::vector<std::pair<uint32_t, uint32_t>> edges;
@@ -100,7 +101,7 @@ ScheduleDependence ScheduleDependence::build(const HirModule& hir,
 
             // Fixed ops retain their relative order even when they commute.
             // Keep consecutive fixed ops directly linked for adjacency queries.
-            if (!dep.movable_[j]) {
+            if (!movable[j]) {
                 if (previous_fixed.has_value()) {
                     link(*previous_fixed);
                 }
@@ -126,7 +127,7 @@ ScheduleDependence ScheduleDependence::build(const HirModule& hir,
                     const int bit = 63 - std::countl_zero(mask);
                     mask &= ~(uint64_t{1} << bit);
                     const auto i = static_cast<uint32_t>(w * 64 + static_cast<size_t>(bit));
-                    if (!dep.movable_[i] && !dep.movable_[j]) {
+                    if (!movable[i] && !movable[j]) {
                         continue;  // both fixed: already ordered by the chain above
                     }
                     if (!allowed(hir, hir.ops[i], hir.ops[j], dep.noise_transparent_)) {
