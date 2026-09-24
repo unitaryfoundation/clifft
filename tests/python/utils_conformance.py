@@ -48,6 +48,8 @@ class CpuSamplingMode:
     name: str
     batch_size: int | str
     threads: int = 1
+    thread_layout: tuple[int, int] | None = None
+    intra_shot_min_active_width: int | None = None
 
     @staticmethod
     def compile(source: str, **kwargs: Any) -> Any:
@@ -55,7 +57,13 @@ class CpuSamplingMode:
 
     def sample(self, program: Any, shots: int, seed: int | None = None) -> Any:
         return clifft.sample(
-            program, shots, seed=seed, threads=self.threads, batch_size=self.batch_size
+            program,
+            shots,
+            seed=seed,
+            threads=self.threads,
+            batch_size=self.batch_size,
+            thread_layout=self.thread_layout,
+            intra_shot_min_active_width=self.intra_shot_min_active_width,
         )
 
     def sample_survivors(
@@ -68,6 +76,8 @@ class CpuSamplingMode:
             keep_records=keep_records,
             threads=self.threads,
             batch_size=self.batch_size,
+            thread_layout=self.thread_layout,
+            intra_shot_min_active_width=self.intra_shot_min_active_width,
         )
 
 
@@ -77,6 +87,7 @@ CPU_SAMPLING_MODES = (
     CpuSamplingMode("automatic", "auto"),
     CpuSamplingMode("scalar-2-workers", 1, threads=2),
     CpuSamplingMode("packed-65-2-workers", 65, threads=2),
+    CpuSamplingMode("intra-shot-2-workers", 1, thread_layout=(1, 2), intra_shot_min_active_width=3),
 )
 
 # Two full packed-65 batches plus a tail allow both workers to receive work.
