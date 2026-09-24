@@ -1,5 +1,6 @@
 #include "clifft/circuit/parser.h"
 #include "clifft/frontend/frontend.h"
+#include "clifft/sampling/batch/policy.h"
 #include "clifft/sampling/executor.h"
 #include "clifft/sampling/planner.h"
 #include "clifft/sampling/sampler.h"
@@ -1614,22 +1615,31 @@ TEST_CASE("Threaded fixed-row sampling preserves seeded shot order") {
     const ExecutablePlan executable(clifft::sampling::plan_sampling(clifft::trace(clifft::parse(R"(
         H 0 1
         T 0
+        EXP_VAL X0
         M 0 1
         DETECTOR rec[-2] rec[-1]
         OBSERVABLE_INCLUDE(0) rec[-1]
         EXP_VAL Z0
     )"))));
-    const clifft::sampling::SamplingResult serial =
-        clifft::sampling::sample(executable, 257, uint64_t{9183}, 1);
+    for (uint32_t capacity : {1U, 65U}) {
+        const clifft::sampling::SamplingResult serial =
+            clifft::sampling::sample(executable, 257, uint64_t{9183}, 1, std::nullopt, capacity);
 
-    for (uint32_t threads : std::array<uint32_t, 2>{2, 0}) {
-        const clifft::sampling::SamplingResult threaded =
-            clifft::sampling::sample(executable, 257, uint64_t{9183}, threads);
-        CAPTURE(threads);
-        REQUIRE(threaded.measurements == serial.measurements);
-        REQUIRE(threaded.detectors == serial.detectors);
-        REQUIRE(threaded.observables == serial.observables);
-        REQUIRE(threaded.exp_vals == serial.exp_vals);
+        for (uint32_t threads : {2U, 3U}) {
+            CAPTURE(capacity, threads);
+            const auto policy = clifft::sampling::resolve_batch_execution_policy(
+                executable, 257, threads, 1, clifft::sampling::BatchOutputMode::Rows, capacity);
+            REQUIRE(policy.lane_capacity == capacity);
+            if (capacity > 1) {
+                REQUIRE(policy.worker_count == threads);
+            }
+            const clifft::sampling::SamplingResult threaded = clifft::sampling::sample(
+                executable, 257, uint64_t{9183}, threads, std::nullopt, capacity);
+            REQUIRE(threaded.measurements == serial.measurements);
+            REQUIRE(threaded.detectors == serial.detectors);
+            REQUIRE(threaded.observables == serial.observables);
+            REQUIRE(threaded.exp_vals == serial.exp_vals);
+        }
     }
 }
 

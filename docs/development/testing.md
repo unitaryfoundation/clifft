@@ -134,6 +134,12 @@ Shared sampling tests run the same behavioral assertions across supported
 execution modes. This helps new features receive coverage across modes and
 makes new modes inherit existing behavioral and regression tests.
 
+The CPU corpus covers explicit scalar and packed execution and automatic
+selection. Dedicated tests check seeded repeatability across worker counts
+and behavior at batch and output boundaries. Short dynamically scheduled
+calls may finish on one worker. See [Writing Tests](contributing.md#writing-tests)
+for contribution guidance.
+
 ## Running the Tests
 
 We use `pytest` for the Python oracles and `CTest` for the C++ units. You can run the test suites locally using the provided `just` shortcuts.

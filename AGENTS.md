@@ -52,6 +52,8 @@ architecture cannot support it:
   and `,`.
 - Validate Python-facing unitaries against Qiskit Aer and stochastic Clifford
   behavior against Stim when those independent references apply.
+- For test changes, follow
+  [Writing Tests](docs/development/contributing.md#writing-tests).
 
 ## Git and AI-Assisted Contribution Rules
 

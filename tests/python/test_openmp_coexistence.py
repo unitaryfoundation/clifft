@@ -34,13 +34,18 @@ def run_aer():
 def run_clifft(threaded):
     import clifft
 
-    program = clifft.compile("H 0 1\nT 0\nM 0 1")
+    # The probes retain four active qubits: two rotation chunks even with AVX-512.
+    program = clifft.compile(
+        "H 0 1 2 3\nT 0 1 2 3\nEXP_VAL X0*X1*X2*X3\n"
+        "R_X(0.125) 0\nEXP_VAL Z0\nM 0 1 2 3"
+    )
+    assert program.peak_active_width == 4
     serial = clifft.sample(program, 31, seed=12347, threads=1)
     options = {"threads": 1}
     if threaded:
         options = {
             "thread_layout": (1, 2),
-            "intra_shot_min_active_width": 0,
+            "intra_shot_min_active_width": 3,
         }
     try:
         result = clifft.sample(
@@ -54,6 +59,7 @@ def run_clifft(threaded):
             raise SystemExit(77) from exc
         raise
     np.testing.assert_array_equal(result.measurements, serial.measurements)
+    np.testing.assert_allclose(result.exp_vals, serial.exp_vals, atol=1e-12, rtol=0)
 
 
 threaded = sys.argv[2] == "threaded"

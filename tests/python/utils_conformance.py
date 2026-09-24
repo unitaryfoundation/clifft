@@ -30,14 +30,16 @@ COMPILER_PROFILES = (UNOPTIMIZED, DEFAULT)
 class CpuSamplingMode:
     name: str
     batch_size: int | str
+    threads: int = 1
 
     @staticmethod
     def compile(source: str, **kwargs: Any) -> Any:
         return clifft.compile(source, **kwargs)
 
     def sample(self, program: Any, shots: int, seed: int | None = None) -> Any:
-        # Host-dependent worker counts can change automatic batch selection.
-        return clifft.sample(program, shots, seed=seed, threads=1, batch_size=self.batch_size)
+        return clifft.sample(
+            program, shots, seed=seed, threads=self.threads, batch_size=self.batch_size
+        )
 
     def sample_survivors(
         self, program: Any, shots: int, *, seed: int | None = None, keep_records: bool = False
@@ -47,7 +49,7 @@ class CpuSamplingMode:
             shots,
             seed=seed,
             keep_records=keep_records,
-            threads=1,
+            threads=self.threads,
             batch_size=self.batch_size,
         )
 
@@ -56,7 +58,12 @@ CPU_SAMPLING_MODES = (
     CpuSamplingMode("single-shot", 1),
     CpuSamplingMode("packed-65", 65),
     CpuSamplingMode("automatic", "auto"),
+    CpuSamplingMode("scalar-2-workers", 1, threads=2),
+    CpuSamplingMode("packed-65-2-workers", 65, threads=2),
 )
+
+# Two full packed-65 batches plus a tail allow both workers to receive work.
+SMALL_CIRCUIT_SHOTS = 2 * 65 + 1
 
 
 @lru_cache(maxsize=256)

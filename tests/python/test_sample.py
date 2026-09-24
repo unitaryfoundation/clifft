@@ -1,7 +1,6 @@
 """Python integration tests for clifft.compile and clifft.sample."""
 
 import warnings
-from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -11,7 +10,7 @@ from conftest import (
     binomial_tolerance,
     random_clifford_circuit,
 )
-from utils_conformance import CpuSamplingMode
+from utils_conformance import SMALL_CIRCUIT_SHOTS, CpuSamplingMode
 
 import clifft
 
@@ -132,8 +131,8 @@ class TestSample:
         program = sampling_mode.compile("\n".join(lines), hir_passes=None)
         assert program.peak_active_width == 2
 
-        result = sampling_mode.sample(program, shots=65, seed=7)
-        assert result.measurements.shape == (65, rounds + 1)
+        result = sampling_mode.sample(program, shots=SMALL_CIRCUIT_SHOTS, seed=7)
+        assert result.measurements.shape == (SMALL_CIRCUIT_SHOTS, rounds + 1)
         assert np.all((result.measurements == 0) | (result.measurements == 1))
 
     def test_sample_reproducible(self, sampling_mode: CpuSamplingMode) -> None:
@@ -190,32 +189,42 @@ class TestSample:
         with pytest.raises(ValueError, match="64 MiB packed-state limit"):
             sampling_api.sample(prog, 4096, batch_size=2048)
 
-    @pytest.mark.parametrize("threads", [2, "auto"])
-    def test_sample_threads_preserve_seeded_rows(self, sampling_api: Any, threads: Any) -> None:
+    @pytest.mark.parametrize("threads", [2, 3])
+    @pytest.mark.parametrize("batch_size", [1, 65])
+    def test_sample_threads_preserve_seeded_rows(
+        self, sampling_api: Any, threads: int, batch_size: int
+    ) -> None:
         """Worker count and dynamic scheduling do not change seeded rows."""
         prog = sampling_api.compile(
-            "H 0 1\nT 0\nM 0 1\nDETECTOR rec[-2] rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]"
+            "H 0 1\nT 0\nEXP_VAL X0\nM 0 1\nEXP_VAL Z0\n"
+            "DETECTOR rec[-2] rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]"
         )
-        serial = sampling_api.sample(prog, 257, seed=12345, threads=1)
-        threaded = sampling_api.sample(prog, 257, seed=12345, threads=threads)
+        # Explicit capacities exercise multiple batches without changing RNG boundaries.
+        serial = sampling_api.sample(prog, 257, seed=12345, threads=1, batch_size=batch_size)
+        threaded = sampling_api.sample(
+            prog, 257, seed=12345, threads=threads, batch_size=batch_size
+        )
         np.testing.assert_array_equal(threaded.measurements, serial.measurements)
         np.testing.assert_array_equal(threaded.detectors, serial.detectors)
         np.testing.assert_array_equal(threaded.observables, serial.observables)
+        np.testing.assert_array_equal(threaded.exp_vals, serial.exp_vals)
 
-    def test_auto_batch_boundaries_ignore_worker_budget(self, sampling_api: Any) -> None:
-        """Memory-limited worker counts do not change automatic batch RNG boundaries."""
-        circuit = (
-            Path(__file__).parent.parent / "fixtures" / "surface_d7_r7_p001.stim"
-        ).read_text()
-        prog = sampling_api.compile(circuit)
-        shots = 32_768
+    def test_auto_batch_boundaries_ignore_worker_count(self, sampling_api: Any) -> None:
+        """Changing worker count preserves automatic batch RNG boundaries."""
+        prog = sampling_api.compile(
+            "X_ERROR(0.125) 0\nH 1\nT 1\nEXP_VAL X1\nM 0 1\n"
+            "DETECTOR rec[-2] rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]"
+        )
+        # Two full automatic batches and a tail leave work for both workers.
+        shots = 2 * 2048 + 1
 
         serial = sampling_api.sample(prog, shots, seed=42, threads=1)
-        threaded = sampling_api.sample(prog, shots, seed=42, threads=16)
+        threaded = sampling_api.sample(prog, shots, seed=42, threads=2)
 
         np.testing.assert_array_equal(threaded.measurements, serial.measurements)
         np.testing.assert_array_equal(threaded.detectors, serial.detectors)
         np.testing.assert_array_equal(threaded.observables, serial.observables)
+        np.testing.assert_array_equal(threaded.exp_vals, serial.exp_vals)
 
     @pytest.mark.parametrize("threads", [0, -1, "all", 1.5])
     def test_sample_rejects_invalid_threads(self, sampling_api: Any, threads: Any) -> None:
@@ -224,13 +233,18 @@ class TestSample:
         with pytest.raises((TypeError, ValueError), match="threads|incompatible"):
             sampling_api.sample(prog, 1, threads=threads)
 
-    def test_sample_thread_layout_preserves_seeded_rows(self, sampling_api: Any) -> None:
+    @pytest.mark.parametrize("batch_size", [1, 65])
+    def test_sample_thread_layout_preserves_seeded_rows(
+        self, sampling_api: Any, batch_size: int
+    ) -> None:
         """An explicit layout is a thin override of automatic worker selection."""
         prog = sampling_api.compile(
             "H 0 1\nT 0\nM 0 1\nDETECTOR rec[-2] rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]"
         )
-        serial = sampling_api.sample(prog, 257, seed=12346, threads=1)
-        threaded = sampling_api.sample(prog, 257, seed=12346, threads="auto", thread_layout=(2, 1))
+        serial = sampling_api.sample(prog, 257, seed=12346, threads=1, batch_size=batch_size)
+        threaded = sampling_api.sample(
+            prog, 257, seed=12346, threads="auto", thread_layout=(2, 1), batch_size=batch_size
+        )
         np.testing.assert_array_equal(threaded.measurements, serial.measurements)
         np.testing.assert_array_equal(threaded.detectors, serial.detectors)
         np.testing.assert_array_equal(threaded.observables, serial.observables)
@@ -239,16 +253,21 @@ class TestSample:
         self, sampling_api: Any
     ) -> None:
         """Expert layouts can lower the kernel crossover without rebuilding."""
-        prog = sampling_api.compile("H 0 1\nT 0\nM 0 1")
+        # The probes retain four active qubits: two rotation chunks even with AVX-512.
+        prog = sampling_api.compile(
+            "H 0 1 2 3\nT 0 1 2 3\nEXP_VAL X0*X1*X2*X3\nR_X(0.125) 0\nEXP_VAL Z0\nM 0 1 2 3"
+        )
+        assert prog.peak_active_width == 4
         serial = sampling_api.sample(prog, 31, seed=12347, threads=1)
         threaded = sampling_api.sample(
             prog,
             31,
             seed=12347,
             thread_layout=(1, 2),
-            intra_shot_min_active_width=0,
+            intra_shot_min_active_width=3,
         )
         np.testing.assert_array_equal(threaded.measurements, serial.measurements)
+        np.testing.assert_allclose(threaded.exp_vals, serial.exp_vals, atol=1e-12, rtol=0)
 
     @pytest.mark.parametrize(
         ("thread_layout", "min_active_width"),
@@ -289,13 +308,13 @@ class TestSample:
     def test_sample_shape(self, sampling_mode: CpuSamplingMode) -> None:
         """Results have correct shape and type."""
         prog = sampling_mode.compile("H 0\nM 0\nH 1\nM 1")
-        result = sampling_mode.sample(prog, 65, seed=0)
+        result = sampling_mode.sample(prog, shots=SMALL_CIRCUIT_SHOTS, seed=0)
         assert isinstance(result.measurements, np.ndarray)
         assert result.measurements.dtype == np.uint8
-        assert result.measurements.shape == (65, 2)
+        assert result.measurements.shape == (SMALL_CIRCUIT_SHOTS, 2)
         # No detectors/observables in this circuit
-        assert result.detectors.shape == (65, 0)
-        assert result.observables.shape == (65, 0)
+        assert result.detectors.shape == (SMALL_CIRCUIT_SHOTS, 0)
+        assert result.observables.shape == (SMALL_CIRCUIT_SHOTS, 0)
 
     def test_sample_reset_works(self, sampling_mode: CpuSamplingMode) -> None:
         """Reset correctly resets to |0>."""
@@ -652,17 +671,17 @@ class TestNoiseAndQEC:
     def test_sample_returns_sample_result(self, sampling_mode: CpuSamplingMode) -> None:
         """sample() returns a SampleResult with attribute access and unpacking."""
         prog = sampling_mode.compile("H 0\nM 0")
-        result = sampling_mode.sample(prog, 65, seed=0)
+        result = sampling_mode.sample(prog, shots=SMALL_CIRCUIT_SHOTS, seed=0)
         assert isinstance(result, clifft.SampleResult)
         # Attribute access
-        assert result.measurements.shape == (65, 1)
-        assert result.detectors.shape == (65, 0)
-        assert result.observables.shape == (65, 0)
+        assert result.measurements.shape == (SMALL_CIRCUIT_SHOTS, 1)
+        assert result.detectors.shape == (SMALL_CIRCUIT_SHOTS, 0)
+        assert result.observables.shape == (SMALL_CIRCUIT_SHOTS, 0)
         # Tuple unpacking still works
         meas, det, obs = result
-        assert meas.shape == (65, 1)
-        assert det.shape == (65, 0)
-        assert obs.shape == (65, 0)
+        assert meas.shape == (SMALL_CIRCUIT_SHOTS, 1)
+        assert det.shape == (SMALL_CIRCUIT_SHOTS, 0)
+        assert obs.shape == (SMALL_CIRCUIT_SHOTS, 0)
 
     def test_program_detector_observable_counts(self, sampling_api: Any) -> None:
         """Program reports correct detector and observable counts."""
@@ -799,8 +818,10 @@ class TestNoiseAndQEC:
         self, sampling_mode: CpuSamplingMode, circuit: str, expected: list[int]
     ) -> None:
         """Explicit one-, two-, and three-qubit Pauli channels execute."""
-        result = sampling_mode.sample(sampling_mode.compile(circuit), 65, seed=42)
-        expected_rows = np.tile(expected, (65, 1))
+        result = sampling_mode.sample(
+            sampling_mode.compile(circuit), shots=SMALL_CIRCUIT_SHOTS, seed=42
+        )
+        expected_rows = np.tile(expected, (SMALL_CIRCUIT_SHOTS, 1))
         np.testing.assert_array_equal(result.measurements, expected_rows)
 
     def test_depolarize1_probabilistic(self, sampling_mode: CpuSamplingMode) -> None:
@@ -827,7 +848,7 @@ class TestNoiseAndQEC:
             M 0
             DETECTOR rec[-1] rec[-2]
         """)
-        result = sampling_mode.sample(prog, 65, seed=0)
+        result = sampling_mode.sample(prog, shots=SMALL_CIRCUIT_SHOTS, seed=0)
         # First meas = 0, second meas = 1, detector = 1
         assert np.all(result.measurements[:, 0] == 0)
         assert np.all(result.measurements[:, 1] == 1)
@@ -845,8 +866,8 @@ class TestNoiseAndQEC:
             OBSERVABLE_INCLUDE(0) rec[-1]
             OBSERVABLE_INCLUDE(1) rec[-2]
         """)
-        shots = 65
-        result = sampling_mode.sample(prog, shots, seed=0)
+        shots = SMALL_CIRCUIT_SHOTS
+        result = sampling_mode.sample(prog, shots=shots, seed=0)
         assert result.measurements.shape == (shots, 2)
         assert result.detectors.shape == (shots, 3)
         assert result.observables.shape == (shots, 2)
@@ -903,8 +924,8 @@ class TestPostselection:
         """sample() works fine when program has no postselection."""
         circuit = "M 0\nDETECTOR rec[-1]\n"
         prog = sampling_mode.compile(circuit)
-        result = sampling_mode.sample(prog, 65, seed=42)
-        assert result.detectors.shape == (65, 1)
+        result = sampling_mode.sample(prog, shots=SMALL_CIRCUIT_SHOTS, seed=42)
+        assert result.detectors.shape == (SMALL_CIRCUIT_SHOTS, 1)
 
     def test_empty_mask_is_default(self, sampling_api: Any) -> None:
         """Empty postselection_mask produces same result as no mask."""
@@ -1008,23 +1029,40 @@ class TestSampleSurvivors:
         np.testing.assert_array_equal(first.measurements, replay.measurements)
         np.testing.assert_array_equal(first.observables, replay.observables)
 
-    @pytest.mark.parametrize("threads", [3, "auto"])
-    def test_threads_preserve_survivor_rows(self, sampling_api: Any, threads: Any) -> None:
-        """Survivor compaction remains ordered across worker schedules."""
+    @pytest.mark.parametrize("threads", [2, 3])
+    @pytest.mark.parametrize("batch_size", [1, 65, "auto"])
+    @pytest.mark.parametrize("keep_records", [False, True])
+    def test_threads_preserve_survivor_results(
+        self, sampling_api: Any, threads: int, batch_size: int | str, keep_records: bool
+    ) -> None:
+        """Survivor counts and retained row order are independent of worker schedules."""
         prog = sampling_api.compile(
-            "H 0\nM 0\nDETECTOR rec[-1]\nH 1\nM 1\nOBSERVABLE_INCLUDE(0) rec[-1]",
+            "H 0\nM 0\nDETECTOR rec[-1]\nH 1\nM 1\nEXP_VAL Z1\nOBSERVABLE_INCLUDE(0) rec[-1]",
             postselection_mask=[1],
         )
-        serial = sampling_api.sample_survivors(prog, 257, seed=54321, keep_records=True, threads=1)
-        threaded = sampling_api.sample_survivors(
-            prog, 257, seed=54321, keep_records=True, threads=threads
+        # More packed batches give fast aggregate workers time to share the work.
+        shots = 32 * 65 + 1 if batch_size == 65 else 257
+        serial = sampling_api.sample_survivors(
+            prog, shots, seed=54321, keep_records=keep_records, threads=1, batch_size=batch_size
         )
+        threaded = sampling_api.sample_survivors(
+            prog,
+            shots,
+            seed=54321,
+            keep_records=keep_records,
+            threads=threads,
+            batch_size=batch_size,
+        )
+        assert 0 < serial.passed_shots < serial.total_shots
+        assert threaded.total_shots == serial.total_shots
         assert threaded.passed_shots == serial.passed_shots
+        assert threaded.discards == serial.discards
         assert threaded.logical_errors == serial.logical_errors
         np.testing.assert_array_equal(threaded.observable_ones, serial.observable_ones)
         np.testing.assert_array_equal(threaded.measurements, serial.measurements)
         np.testing.assert_array_equal(threaded.detectors, serial.detectors)
         np.testing.assert_array_equal(threaded.observables, serial.observables)
+        np.testing.assert_array_equal(threaded.exp_vals, serial.exp_vals)
 
     def test_no_postselection_all_pass(self, sampling_mode: CpuSamplingMode) -> None:
         """Without postselection, all shots pass."""
@@ -1168,7 +1206,7 @@ class TestSyndromeNormalization:
 
         # 1. Baseline: Without normalization, physical parities match the math above
         prog_raw = sampling_mode.compile(circuit, normalize_syndromes=False)
-        result_raw = sampling_mode.sample(prog_raw, shots=65, seed=0)
+        result_raw = sampling_mode.sample(prog_raw, shots=SMALL_CIRCUIT_SHOTS, seed=0)
 
         assert np.all(result_raw.detectors[:, 0] == 1)
         assert np.all(result_raw.detectors[:, 1] == 0)
@@ -1184,9 +1222,11 @@ class TestSyndromeNormalization:
             postselection_mask=[1, 0],
         )
 
-        res = sampling_mode.sample_survivors(prog_norm, shots=65, seed=0, keep_records=True)
+        res = sampling_mode.sample_survivors(
+            prog_norm, shots=SMALL_CIRCUIT_SHOTS, seed=0, keep_records=True
+        )
 
-        assert res.passed_shots == 65  # Normalized 1^1=0, so shots survive!
+        assert res.passed_shots == SMALL_CIRCUIT_SHOTS  # Normalized 1^1=0, so shots survive!
         assert np.all(res.detectors == 0)
         assert np.all(res.observables == 0)
         assert res.logical_errors == 0
@@ -1214,7 +1254,7 @@ class TestSyndromeNormalization:
             OBSERVABLE_INCLUDE(0) rec[-1]
         """
         prog = sampling_mode.compile(circuit, normalize_syndromes=True)
-        result = sampling_mode.sample(prog, shots=65, seed=0)
+        result = sampling_mode.sample(prog, shots=SMALL_CIRCUIT_SHOTS, seed=0)
 
         assert np.all(result.detectors == 0)
         assert np.all(result.observables == 0)
@@ -1232,7 +1272,7 @@ class TestSyndromeNormalization:
             DETECTOR rec[-1]
         """
         prog = sampling_mode.compile(circuit, normalize_syndromes=True)
-        result = sampling_mode.sample(prog, shots=65, seed=0)
+        result = sampling_mode.sample(prog, shots=SMALL_CIRCUIT_SHOTS, seed=0)
 
         # With 100% X error, measurement flips from 0 to 1.
         # Reference (noiseless) detector parity = 0.
@@ -1250,7 +1290,7 @@ class TestSyndromeNormalization:
         """
         # Raw detector parity = 1. With expected_detectors=[1], normalized = 0.
         prog = sampling_mode.compile(circuit, expected_detectors=[1])
-        result = sampling_mode.sample(prog, shots=65, seed=0)
+        result = sampling_mode.sample(prog, shots=SMALL_CIRCUIT_SHOTS, seed=0)
 
         assert np.all(result.detectors[:, 0] == 0)
 
@@ -1265,7 +1305,7 @@ class TestSyndromeNormalization:
         """
         # Raw obs = 1. With expected_observables=[1], normalized = 0.
         prog = sampling_mode.compile(circuit, expected_observables=[1])
-        result = sampling_mode.sample(prog, shots=65, seed=0)
+        result = sampling_mode.sample(prog, shots=SMALL_CIRCUIT_SHOTS, seed=0)
 
         assert np.all(result.observables[:, 0] == 0)
 
@@ -1301,8 +1341,8 @@ class TestExpVal:
     def test_sample_returns_exp_vals(self, sampling_mode: CpuSamplingMode) -> None:
         """sample() populates exp_vals for circuits with EXP_VAL."""
         prog = sampling_mode.compile("EXP_VAL Z0")
-        shots = 65
-        result = sampling_mode.sample(prog, shots, seed=42)
+        shots = SMALL_CIRCUIT_SHOTS
+        result = sampling_mode.sample(prog, shots=shots, seed=42)
         assert result.exp_vals.shape == (shots, 1)
         assert result.exp_vals.dtype == np.float64
         np.testing.assert_allclose(result.exp_vals[:, 0], 1.0, atol=1e-12)
@@ -1310,8 +1350,8 @@ class TestExpVal:
     def test_no_exp_val_gives_empty(self, sampling_mode: CpuSamplingMode) -> None:
         """Circuits without EXP_VAL have shape (shots, 0) exp_vals."""
         prog = sampling_mode.compile("H 0\nM 0")
-        result = sampling_mode.sample(prog, 65, seed=0)
-        assert result.exp_vals.shape == (65, 0)
+        result = sampling_mode.sample(prog, shots=SMALL_CIRCUIT_SHOTS, seed=0)
+        assert result.exp_vals.shape == (SMALL_CIRCUIT_SHOTS, 0)
         assert prog.num_exp_vals == 0
 
     def test_program_num_exp_vals(self) -> None:
@@ -1327,8 +1367,8 @@ class TestExpVal:
     def test_exp_val_multiple_probes(self, sampling_mode: CpuSamplingMode) -> None:
         """Multiple EXP_VAL probes return consecutive columns."""
         prog = sampling_mode.compile("H 0\nEXP_VAL X0\nEXP_VAL Z0")
-        result = sampling_mode.sample(prog, 65, seed=0)
-        assert result.exp_vals.shape == (65, 2)
+        result = sampling_mode.sample(prog, shots=SMALL_CIRCUIT_SHOTS, seed=0)
+        assert result.exp_vals.shape == (SMALL_CIRCUIT_SHOTS, 2)
         np.testing.assert_allclose(result.exp_vals[:, 0], 1.0, atol=1e-12)  # <X> on |+>
         np.testing.assert_allclose(result.exp_vals[:, 1], 0.0, atol=1e-12)  # <Z> on |+>
 

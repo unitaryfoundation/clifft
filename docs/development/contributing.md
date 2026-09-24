@@ -71,6 +71,20 @@ uv run --frozen --only-group dev pre-commit run --all-files --show-diff-on-failu
 - **Type checker:** mypy (strict mode)
 - **Python version:** 3.12+
 
+## Writing Tests
+
+Choose tests that validate the behavior affected by your change. Reuse existing
+shared tests where applicable. For sampling behavior, use `sampling_mode` to
+test features across supported modes and let new modes inherit applicable tests.
+
+Check that each test exercises the behavior it claims to cover. Configuration
+alone may not establish this: optimization can remove relevant work, and
+execution policies can select a different path.
+
+When testing parallel execution, provide enough work for multiple workers to
+contribute without asserting a particular scheduling outcome. Keep resource use
+bounded.
+
 ## Running Tests
 
 === "Python"

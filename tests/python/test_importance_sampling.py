@@ -160,11 +160,22 @@ class TestSampleK(_ImportanceBackendMixin):
         np.testing.assert_array_equal(auto1.detectors, auto2.detectors)
         np.testing.assert_array_equal(auto1.observables, auto2.observables)
 
-    def test_threads_preserve_seeded_rows(self) -> None:
-        prog = self.compile("X_ERROR(0.1) 0 1 2\nM 0 1 2")
-        serial = self.sampling_api.sample_k(prog, shots=257, k=1, seed=99, threads=1)
-        threaded = self.sampling_api.sample_k(prog, shots=257, k=1, seed=99, threads="auto")
+    @pytest.mark.parametrize("batch_size", [1, 65])
+    def test_threads_preserve_seeded_rows(self, batch_size: int) -> None:
+        prog = self.compile(
+            "X_ERROR(0.1) 0 1 2\nM 0 1 2\nDETECTOR rec[-3]\n"
+            "OBSERVABLE_INCLUDE(0) rec[-1]\nEXP_VAL Z2"
+        )
+        serial = self.sampling_api.sample_k(
+            prog, shots=257, k=1, seed=99, threads=1, batch_size=batch_size
+        )
+        threaded = self.sampling_api.sample_k(
+            prog, shots=257, k=1, seed=99, threads=2, batch_size=batch_size
+        )
         np.testing.assert_array_equal(threaded.measurements, serial.measurements)
+        np.testing.assert_array_equal(threaded.detectors, serial.detectors)
+        np.testing.assert_array_equal(threaded.observables, serial.observables)
+        np.testing.assert_array_equal(threaded.exp_vals, serial.exp_vals)
 
     def test_readout_noise_forcing(self) -> None:
         """k=1 with only readout noise should flip every shot."""
