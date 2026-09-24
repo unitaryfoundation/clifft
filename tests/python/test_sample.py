@@ -249,8 +249,9 @@ class TestSample:
         np.testing.assert_array_equal(threaded.detectors, serial.detectors)
         np.testing.assert_array_equal(threaded.observables, serial.observables)
 
+    @pytest.mark.parametrize("layout", [(1, 2), (2, 2)])
     def test_sample_runtime_intra_shot_threshold_preserves_seeded_rows(
-        self, sampling_api: Any
+        self, sampling_api: Any, layout: tuple[int, int]
     ) -> None:
         """Expert layouts can lower the kernel crossover without rebuilding."""
         # The probes retain four active qubits: two rotation chunks even with AVX-512.
@@ -258,17 +259,18 @@ class TestSample:
             "H 0 1 2 3\nT 0 1 2 3\nEXP_VAL X0*X1*X2*X3\nR_X(0.125) 0\nEXP_VAL Z0\nM 0 1 2 3"
         )
         assert prog.peak_active_width == 4
-        serial = sampling_api.sample(prog, 31, seed=12347, threads=1)
+        serial = sampling_api.sample(prog, 31, seed=12347, threads=1, batch_size=1)
         try:
             threaded = sampling_api.sample(
                 prog,
                 31,
                 seed=12347,
-                thread_layout=(1, 2),
+                thread_layout=layout,
                 intra_shot_min_active_width=3,
+                batch_size=1,
             )
         except ValueError as error:
-            skip_unavailable_thread_layout(error, (1, 2))
+            skip_unavailable_thread_layout(error, layout)
         np.testing.assert_array_equal(threaded.measurements, serial.measurements)
         np.testing.assert_allclose(threaded.exp_vals, serial.exp_vals, atol=1e-12, rtol=0)
 
@@ -963,6 +965,35 @@ class TestPostselection:
 
 class TestSampleSurvivors:
     """Tests for sample_survivors() API."""
+
+    @pytest.mark.parametrize("layout", [(1, 2), (2, 2)])
+    @pytest.mark.parametrize("keep_records", [False, True])
+    def test_active_thread_layout_preserves_seeded_survivors(
+        self, layout: tuple[int, int], keep_records: bool
+    ) -> None:
+        """Active-state threading preserves survivor counts and retained row order."""
+        program = clifft.compile(
+            "H 0 1 2 3 4\nT 0 1 2 3 4\nEXP_VAL X0*X1*X2*X3*X4\n"
+            "R_X(0.125) 4\nEXP_VAL Z4\nM 0\nDETECTOR rec[-1]\n"
+            "H 1\nM 1\nOBSERVABLE_INCLUDE(0) rec[-1]\nEXP_VAL Z1",
+            postselection_mask=[1],
+        )
+        assert program.peak_active_width == 5
+        mode = CpuSamplingMode("threaded", 1, thread_layout=layout, intra_shot_min_active_width=3)
+        serial = clifft.sample_survivors(
+            program, 257, seed=1913, keep_records=keep_records, threads=1, batch_size=1
+        )
+        threaded = mode.sample_survivors(program, 257, seed=1913, keep_records=keep_records)
+        assert 0 < serial.passed_shots < serial.total_shots
+        assert threaded.total_shots == serial.total_shots
+        assert threaded.passed_shots == serial.passed_shots
+        assert threaded.discards == serial.discards
+        assert threaded.logical_errors == serial.logical_errors
+        np.testing.assert_array_equal(threaded.observable_ones, serial.observable_ones)
+        np.testing.assert_array_equal(threaded.measurements, serial.measurements)
+        np.testing.assert_array_equal(threaded.detectors, serial.detectors)
+        np.testing.assert_array_equal(threaded.observables, serial.observables)
+        np.testing.assert_allclose(threaded.exp_vals, serial.exp_vals, atol=1e-12, rtol=0)
 
     @pytest.mark.parametrize("keep_records", [False, True])
     def test_active_postselection_preserves_survivor_outputs(
