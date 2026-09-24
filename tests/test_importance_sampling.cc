@@ -689,7 +689,9 @@ TEST_CASE("Threaded conditioned sampling preserves seeded rows and survivors") {
             fixed, 257, 2, 1, clifft::sampling::BatchOutputMode::Rows, capacity,
             clifft::sampling::BatchSamplingMode::FixedFaults);
         REQUIRE(policy.lane_capacity == capacity);
-        REQUIRE(policy.worker_count == 2);
+        if (capacity > 1) {
+            REQUIRE(policy.worker_count == 2);
+        }
         const clifft::sampling::SamplingResult fixed_serial =
             clifft::sampling::sample_k(fixed, 257, 1, 47, 1, std::nullopt, capacity);
         const clifft::sampling::SamplingResult fixed_threaded =

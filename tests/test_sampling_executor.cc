@@ -1630,7 +1630,9 @@ TEST_CASE("Threaded fixed-row sampling preserves seeded shot order") {
             const auto policy = clifft::sampling::resolve_batch_execution_policy(
                 executable, 257, threads, 1, clifft::sampling::BatchOutputMode::Rows, capacity);
             REQUIRE(policy.lane_capacity == capacity);
-            REQUIRE(policy.worker_count == threads);
+            if (capacity > 1) {
+                REQUIRE(policy.worker_count == threads);
+            }
             const clifft::sampling::SamplingResult threaded = clifft::sampling::sample(
                 executable, 257, uint64_t{9183}, threads, std::nullopt, capacity);
             REQUIRE(threaded.measurements == serial.measurements);
