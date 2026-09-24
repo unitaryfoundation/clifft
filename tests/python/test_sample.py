@@ -398,11 +398,11 @@ class TestSample:
         ), f"Adjacency correlation off: {adjacent_both_1}"
 
     def test_active_measurement_feedback_and_reset(self, sampling_mode: CpuSamplingMode) -> None:
+        """A measured bit changes a later rotation on a still-active qubit."""
         program = sampling_mode.compile(
             "H 0 1 2 3 4\nT 0 1 2 3 4\nEXP_VAL X0*X1*X2*X3*X4\n"
-            "H 0\nM 0\nCX rec[-1] 0\nEXP_VAL Z0\nM 0\n"
-            "R_X(0.125) 4\nEXP_VAL Z4\nR 1\nM 1\n"
-            "DETECTOR rec[-2]\nOBSERVABLE_INCLUDE(0) rec[-3]"
+            "H 0\nM 0\nCX rec[-1] 1\nR_Z(0.125) 1\nEXP_VAL X1\nR 2\nM 2\n"
+            "DETECTOR rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-2]"
         )
         # Measurement removes one coordinate before the remaining active rotation.
         assert program.peak_active_width == 5
@@ -412,14 +412,13 @@ class TestSample:
         probability = (1 - np.sqrt(0.5)) / 2
         assert 0 < first.sum() < shots
         assert abs(first.mean() - probability) < binomial_tolerance(probability, shots)
-        np.testing.assert_array_equal(result.measurements[:, 1:], np.zeros((shots, 2)))
+        np.testing.assert_array_equal(result.measurements[:, 1], np.zeros(shots))
         np.testing.assert_array_equal(result.detectors, np.zeros((shots, 1)))
         np.testing.assert_array_equal(result.observables[:, 0], first)
-        # T|+> has X=Y=1/sqrt(2); Rx transfers its Y component into Z.
-        expected = [2**-2.5, 1, np.sin(np.pi / 8) / np.sqrt(2)]
-        np.testing.assert_allclose(
-            result.exp_vals, np.broadcast_to(expected, (shots, 3)), atol=1e-12, rtol=0
-        )
+        # Conditional X reverses the T|+> azimuth before Rz adds pi/8.
+        azimuth = np.where(first == 0, np.pi / 4, -np.pi / 4)
+        expected = np.column_stack((np.full(shots, 2**-2.5), np.cos(azimuth + np.pi / 8)))
+        np.testing.assert_allclose(result.exp_vals, expected, atol=1e-12, rtol=0)
 
 
 class TestStatevector:
