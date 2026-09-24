@@ -5,7 +5,10 @@ on top of it."""
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pytest
+from conftest import assert_statevectors_equiv
+from utils_conformance import CpuSamplingMode, assert_joint_distribution, unitary_reference
 from utils_conformance import active_width_passes as _schedule_pass_manager
 
 import clifft
@@ -132,3 +135,72 @@ def test_non_finite_search_budget_is_rejected() -> None:
     for budget in (float("inf"), float("-inf"), float("nan")):
         with pytest.raises(ValueError, match="search_budget"):
             clifft.ActiveWidthSchedulePass(search_budget=budget)
+
+
+def test_applied_unitary_schedule_matches_aer() -> None:
+    text = """
+        H 0 1 2
+        CX 0 1
+        CX 1 2
+        T 0 1
+        T_DAG 2
+        CX 2 0
+        T 0
+    """
+    pass_ = clifft.ActiveWidthSchedulePass()
+    program = clifft.compile(text, hir_passes=_schedule_pass_manager(pass_))
+
+    # Keep this oracle check sensitive to an actual scheduling transformation.
+    assert pass_.applied
+    assert pass_.result_dense_work < pass_.incumbent_dense_work
+    assert_statevectors_equiv(clifft.get_statevector(program), unitary_reference(text))
+
+
+def test_applied_schedule_crossing_noise_matches_aer(sampling_mode: CpuSamplingMode) -> None:
+    from qiskit import QuantumCircuit
+    from qiskit_aer import AerSimulator
+
+    text = """
+        R_PAULI(0.3) X0*X1
+        Z_ERROR(0.3) 0
+        R_PAULI(0.3) Z0*Y1
+        MPP Y0*Y1
+        MPP Y0
+    """
+    opaque = clifft.ActiveWidthSchedulePass(noise_transparent=False)
+    clifft.compile(text, hir_passes=_schedule_pass_manager(opaque))
+    pass_ = clifft.ActiveWidthSchedulePass()
+    program = clifft.compile(text, hir_passes=_schedule_pass_manager(pass_))
+
+    # The improvement must require crossing noise, not just reordering the
+    # noiseless suffix. A no-op scheduler cannot satisfy this witness.
+    assert not opaque.applied
+    assert pass_.applied
+    assert pass_.result_peak < opaque.result_peak
+
+    probabilities = []
+    for error in (False, True):
+        circuit = QuantumCircuit(4)
+        circuit.rxx(0.3 * np.pi, 0, 1)
+        if error:
+            circuit.z(0)
+        # Change the second rotation axis from Z1 to Y1.
+        circuit.sdg(1)
+        circuit.h(1)
+        circuit.rzz(0.3 * np.pi, 0, 1)
+        circuit.h(1)
+        circuit.s(1)
+        # The commuting Y0*Y1 and Y0 measurements can be read out together
+        # using two ancillas after rotating the data into the Y basis.
+        circuit.sdg([0, 1])
+        circuit.h([0, 1])
+        circuit.cx(0, 2)
+        circuit.cx(1, 2)
+        circuit.cx(0, 3)
+        circuit.save_probabilities([2, 3])
+        probabilities.append(
+            AerSimulator(method="statevector").run(circuit).result().data(0)["probabilities"]
+        )
+    expected = 0.7 * probabilities[0] + 0.3 * probabilities[1]
+    result = sampling_mode.sample(program, shots=32768, seed=27)
+    assert_joint_distribution(result.measurements, expected)

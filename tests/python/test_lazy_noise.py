@@ -1,15 +1,11 @@
 """Independent reference checks for noise around postselection."""
 
 import numpy as np
-import pytest
 import stim
-from utils_conformance import COMPILER_PROFILES, CompilerProfile, CpuSamplingMode
+from utils_conformance import CpuSamplingMode
 
 
-@pytest.mark.parametrize("compiler", COMPILER_PROFILES, ids=lambda profile: profile.name)
-def test_noise_preserves_conditioned_joint_distribution(
-    sampling_mode: CpuSamplingMode, compiler: CompilerProfile
-) -> None:
+def test_noise_preserves_conditioned_joint_distribution(sampling_mode: CpuSamplingMode) -> None:
     text = """
         CORRELATED_ERROR(0.25) X0 X1
         ELSE_CORRELATED_ERROR(0.25) X1
@@ -30,9 +26,7 @@ def test_noise_preserves_conditioned_joint_distribution(
     shots = 100000
     reference = stim.Circuit(text).compile_sampler(seed=23).sample(shots)
     reference = reference[~np.any(reference[:, :2], axis=1)]
-    program = sampling_mode.compile(
-        text, hir_passes=compiler.make_passes(), postselection_mask=[1, 1]
-    )
+    program = sampling_mode.compile(text, postselection_mask=[1, 1])
     result = sampling_mode.sample_survivors(program, shots=shots, seed=25, keep_records=True)
     repeated = sampling_mode.sample_survivors(program, shots=shots, seed=25, keep_records=True)
     assert np.array_equal(result.measurements, repeated.measurements)
@@ -47,10 +41,7 @@ def test_noise_preserves_conditioned_joint_distribution(
     assert np.all(np.abs(actual - expected) <= 6 * np.sqrt(variance) + 0.001)
 
 
-@pytest.mark.parametrize("compiler", COMPILER_PROFILES, ids=lambda profile: profile.name)
-def test_noise_preserves_noisy_nonclifford_interference(
-    sampling_mode: CpuSamplingMode, compiler: CompilerProfile
-) -> None:
+def test_noise_preserves_noisy_nonclifford_interference(sampling_mode: CpuSamplingMode) -> None:
     from qiskit import QuantumCircuit
     from qiskit_aer import AerSimulator
 
@@ -66,7 +57,7 @@ def test_noise_preserves_noisy_nonclifford_interference(
         H 1
         M 1
     """
-    program = sampling_mode.compile(text, hir_passes=compiler.make_passes(), postselection_mask=[1])
+    program = sampling_mode.compile(text, postselection_mask=[1])
     result = sampling_mode.sample_survivors(program, shots=100000, seed=26, keep_records=True)
     probabilities = []
     for error in [False, True]:
