@@ -73,19 +73,17 @@ uv run --frozen --only-group dev pre-commit run --all-files --show-diff-on-failu
 
 ## Writing Tests
 
-Use `sampling_mode` for behavior shared across CPU sampling modes. New features
-should be tested in the modes that support them, and new modes should inherit
-the applicable existing tests.
+Choose tests that validate the behavior affected by your change. Reuse existing
+shared tests where applicable. For sampling behavior, use `sampling_mode` to
+test features across supported modes and let new modes inherit applicable tests.
 
-Check that a test reaches the implementation it claims to test: batching can
-reduce worker counts, and optimization can remove active-state work. Keep
-focused assertions for these prerequisites.
+Check that each test exercises the behavior it claims to cover. Configuration
+alone may not establish this: optimization can remove relevant work, and
+execution policies can select a different path.
 
-Use focused parallel tests with enough work for multiple workers to contribute.
-Breakpoints can confirm a code path, but change scheduling; use measurements
-that do not pause execution when checking work sharing. Avoid assertions about
-a particular work split. Keep worker counts and states small, and test resource
-limits through policy or validation checks with bounded allocations.
+When testing parallel execution, provide enough work for multiple workers to
+contribute without asserting a particular scheduling outcome. Keep resource use
+bounded.
 
 ## Running Tests
 
