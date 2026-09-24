@@ -21,7 +21,9 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <stdexcept>
+#include <utility>
 #include <vector>
 
 namespace clifft {
@@ -534,6 +536,42 @@ struct HirModule {
             if (op.op_type() == OpType::NOISE) {
                 ++schedule_count;
             }
+        }
+    }
+
+    // Move parallel metadata with its operation. Callers establish legality and
+    // materialize logical noise positions before any noise-crossing reorder.
+    // Requires a permutation of all operation indices, in the desired order.
+    void permute_ops(std::span<const uint32_t> order) {
+        assert(order.size() == ops.size());
+        const bool has_source_map = source_map.size() == ops.size();
+        const bool has_prefix = has_logical_noise_prefix();
+        std::vector<HeisenbergOp> new_ops;
+        new_ops.reserve(ops.size());
+        std::vector<std::vector<uint32_t>> new_source_map;
+        std::vector<uint32_t> new_prefix;
+        if (has_source_map) {
+            new_source_map.reserve(ops.size());
+        }
+        if (has_prefix) {
+            new_prefix.reserve(ops.size());
+        }
+        for (uint32_t index : order) {
+            assert(index < ops.size());
+            new_ops.push_back(ops[index]);
+            if (has_source_map) {
+                new_source_map.push_back(std::move(source_map[index]));
+            }
+            if (has_prefix) {
+                new_prefix.push_back(logical_noise_prefix[index]);
+            }
+        }
+        ops = std::move(new_ops);
+        if (has_source_map) {
+            source_map = std::move(new_source_map);
+        }
+        if (has_prefix) {
+            logical_noise_prefix = std::move(new_prefix);
         }
     }
 
