@@ -10,7 +10,7 @@ from conftest import (
     binomial_tolerance,
     random_clifford_circuit,
 )
-from utils_conformance import SMALL_CIRCUIT_SHOTS, CpuSamplingMode
+from utils_conformance import SMALL_CIRCUIT_SHOTS, CpuSamplingMode, skip_unavailable_intra_shot
 
 import clifft
 
@@ -259,13 +259,16 @@ class TestSample:
         )
         assert prog.peak_active_width == 4
         serial = sampling_api.sample(prog, 31, seed=12347, threads=1)
-        threaded = sampling_api.sample(
-            prog,
-            31,
-            seed=12347,
-            thread_layout=(1, 2),
-            intra_shot_min_active_width=3,
-        )
+        try:
+            threaded = sampling_api.sample(
+                prog,
+                31,
+                seed=12347,
+                thread_layout=(1, 2),
+                intra_shot_min_active_width=3,
+            )
+        except ValueError as error:
+            skip_unavailable_intra_shot(error)
         np.testing.assert_array_equal(threaded.measurements, serial.measurements)
         np.testing.assert_allclose(threaded.exp_vals, serial.exp_vals, atol=1e-12, rtol=0)
 

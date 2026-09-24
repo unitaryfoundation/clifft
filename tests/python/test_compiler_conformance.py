@@ -402,3 +402,28 @@ def test_sampling_mode_forwards_its_configuration(
                 },
             )
         ]
+
+
+@pytest.mark.parametrize("sampler", ["sample", "sample_survivors"])
+def test_sampling_mode_only_skips_missing_openmp(
+    sampler: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def reject(*args: Any, **kwargs: Any) -> None:
+        raise error
+
+    monkeypatch.setattr(clifft, sampler, reject)
+    mode = CpuSamplingMode("intra-shot", 1, thread_layout=(1, 2))
+    unavailable = ValueError("thread_layout intra-shot workers require an OpenMP-enabled build")
+    for error in (ValueError("invalid program"), ValueError(f"unexpected error: {unavailable}")):
+        with pytest.raises(ValueError) as raised:
+            getattr(mode, sampler)(object(), 1)
+        assert raised.value is error
+
+    error = unavailable
+    with pytest.raises(pytest.skip.Exception, match="Clifft was built without OpenMP"):
+        getattr(mode, sampler)(object(), 1)
+
+    serial = CpuSamplingMode("single-shot", 1)
+    with pytest.raises(ValueError) as raised:
+        getattr(serial, sampler)(object(), 1)
+    assert raised.value is unavailable
