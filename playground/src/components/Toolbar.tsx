@@ -273,7 +273,14 @@ export function Toolbar({
                         checked={passConfig.hir.includes(p.name)}
                         onChange={() => togglePass(p.name)}
                       />
-                      <span>{p.name}</span>
+                      <span>
+                        {p.name}
+                        {p.name === "ActiveWidthSchedulePass" && (
+                          <small className="passes-description">
+                            May speed up repeated sampling; adds compilation time.
+                          </small>
+                        )}
+                      </span>
                     </label>
                   ))}
                 </>

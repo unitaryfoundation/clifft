@@ -53,6 +53,37 @@ trajectory-specific path. Pass the circuit and model to
 `clifft.noncomp.sample()` rather than compiling one fixed program first; see
 [Leakage and Loss](leakage-and-loss.md).
 
+## Active-width scheduling
+
+For repeated sampling, try the opt-in `ActiveWidthSchedulePass`. It searches
+for an operation order with lower peak active width, or less estimated dense
+work at the same peak. A smaller active state can save sampling time and memory,
+but the search adds compilation time and may find no improvement.
+
+Add it after the default fusion and squeezing passes:
+
+```python
+import clifft
+
+pm = clifft.default_hir_pass_manager()
+pm.add(clifft.ActiveWidthSchedulePass())
+program = clifft.compile("H 0 1 2\nT 0 1 2\nM 0 1 2", hir_passes=pm)
+```
+
+In the playground, open **Passes** and enable **ActiveWidthSchedulePass**.
+Ordinary compilation keeps this extra search disabled.
+
+Compare compilation plus sampling time at the shot counts your application
+uses. Compilation is paid once per program, so savings across many shots can
+repay the search cost. A lower width or work estimate does not guarantee faster
+execution; omitting the pass can be faster for short runs. Reordering preserves
+sampling distributions but can change samples for a given random seed.
+
+See [Optimization Passes](../reference/passes.md#activewidthschedulepass) for
+options, result statistics, and search-budget limits, and the
+[theoretical overview](../theory/overview.md#hir-optimization) for why ordering
+affects active width.
+
 ## Inspect or customize the pipeline
 
 The following APIs are intended for power users working on compiler behavior,

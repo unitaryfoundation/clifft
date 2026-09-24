@@ -460,6 +460,12 @@ struct HirModule {
     /// invalidated the map for that op.
     std::vector<std::vector<uint32_t>> source_map;
 
+    // Number of NOISE ops originally preceding each operation.
+    // Empty means use the current operation order. Otherwise, entries must
+    // stay aligned with ops through reordering and deletion. Removing all
+    // noise clears this mapping; NOISE ops retain their relative order.
+    std::vector<uint32_t> logical_noise_prefix;
+
     std::optional<Tableau> final_tableau;
 
     // Hidden measurement slot trace() assigned to the requested node's
@@ -480,6 +486,55 @@ struct HirModule {
             }
         }
         return true;
+    }
+
+    /// Whether noise positions are recorded. A partial mapping is invalid.
+    [[nodiscard]] bool has_logical_noise_prefix() const {
+        if (logical_noise_prefix.empty()) {
+            return false;
+        }
+        if (logical_noise_prefix.size() != ops.size()) {
+            throw std::invalid_argument(
+                "HIR logical noise prefix size does not match the operation count");
+        }
+        return true;
+    }
+
+    /// True if the mapping is redundant with the current operation order.
+    /// Malformed mappings do not match and must not be discarded.
+    [[nodiscard]] bool logical_noise_prefix_matches_schedule() const {
+        if (logical_noise_prefix.empty()) {
+            return true;
+        }
+        if (logical_noise_prefix.size() != ops.size()) {
+            return false;
+        }
+        uint32_t noise_count = 0;
+        for (size_t i = 0; i < ops.size(); ++i) {
+            if (logical_noise_prefix[i] != noise_count) {
+                return false;
+            }
+            if (ops[i].op_type() == OpType::NOISE) {
+                ++noise_count;
+            }
+        }
+        return true;
+    }
+
+    /// Record current noise positions before operations can cross noise.
+    /// Preserve an existing mapping, since its positions may already differ.
+    void materialize_logical_noise_prefix() {
+        if (has_logical_noise_prefix()) {
+            return;
+        }
+        logical_noise_prefix.reserve(ops.size());
+        uint32_t schedule_count = 0;
+        for (const HeisenbergOp& op : ops) {
+            logical_noise_prefix.push_back(schedule_count);
+            if (op.op_type() == OpType::NOISE) {
+                ++schedule_count;
+            }
+        }
     }
 
     // --- Mask accessors ---

@@ -348,7 +348,15 @@ void PeepholeFusionPass::run(HirModule& hir) {
     cancellations_ = 0;
     fusions_ = 0;
 
+    // Fusion changes the Pauli frame. After a noise crossing, that would
+    // invalidate the masks used to correct the operation's noise sign.
+    if (!hir.logical_noise_prefix_matches_schedule()) {
+        return;
+    }
+
     bool has_source_map = hir.source_map.size() == hir.ops.size();
+    // The current order already contains the same noise-position information.
+    hir.logical_noise_prefix.clear();
 
     bool changed = true;
     while (changed) {

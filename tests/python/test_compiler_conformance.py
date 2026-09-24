@@ -2,10 +2,10 @@
 
 Each CASES entry runs exact record checks under every compiler profile, and
 sampled record and annotation checks under every profile and sampling mode.
-Profiles select no HIR passes or the production-default pipeline; modes select
-scalar or packed-65 execution with one or two workers, or automatic batching
-with one worker. Passes are not independently toggled in this matrix: separate
-witnesses check their effects.
+Profiles select no HIR passes, production defaults, or explicit active-width
+scheduling; modes select scalar or packed-65 execution with one or two workers,
+or automatic batching with one worker. Passes are not independently toggled
+in this matrix: separate witnesses check their effects.
 The boundary circuit runs under every profile, mode, and designated shot count.
 """
 
@@ -14,14 +14,18 @@ from typing import Any, cast
 
 import numpy as np
 import pytest
+import utils_conformance
 from utils_conformance import (
+    ACTIVE_WIDTH,
     COMPILER_PROFILES,
     CPU_SAMPLING_MODES,
     DEFAULT,
+    FUSION_SQUEEZE,
     UNOPTIMIZED,
     CompilerProfile,
     CpuSamplingMode,
     assert_joint_distribution,
+    fusion_squeeze_passes,
     unitary_reference,
 )
 from utils_pass_registry import registered_hir_passes
@@ -196,16 +200,34 @@ def test_pass_witness_rejects_a_missing_transformation(
         test_default_pipeline_really_transforms_witness(witness)
 
 
+def test_active_width_profile_really_transforms_witness() -> None:
+    source = "R_PAULI(0.3) X0*X1\nR_PAULI(0.3) Z0*Y1\nMPP Y0*Y1\nMPP Y0"
+    baseline = FUSION_SQUEEZE.compile(source)
+    scheduled = ACTIVE_WIDTH.compile(source)
+    assert scheduled.peak_active_width < baseline.peak_active_width, "ActiveWidthSchedulePass"
+
+
+def test_active_width_witness_rejects_a_missing_transformation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(utils_conformance, "active_width_passes", lambda: fusion_squeeze_passes())
+    with pytest.raises(AssertionError, match="ActiveWidthSchedulePass"):
+        test_active_width_profile_really_transforms_witness()
+
+
 def _assert_pass_inventory(registry: dict[str, dict[str, object]]) -> None:
-    witnesses = {case.witness_for for case in CASES if case.witness_for}
+    witnesses = {case.witness_for for case in CASES if case.witness_for} | {
+        "ActiveWidthSchedulePass"
+    }
     declared = witnesses | EXCLUDED_PASSES.keys()
     assert set(registry) == declared, (
         f"Pass coverage decision required: missing={set(registry) - declared}, "
         f"stale={declared - set(registry)}"
     )
     assert all(EXCLUDED_PASSES.values())
-    for name in witnesses:
+    for name in witnesses - {"ActiveWidthSchedulePass"}:
         assert registry[name]["default_enabled"], f"{name} needs an explicit opt-in profile"
+    assert not registry["ActiveWidthSchedulePass"]["default_enabled"]
 
 
 def test_every_registered_pass_has_a_coverage_decision() -> None:

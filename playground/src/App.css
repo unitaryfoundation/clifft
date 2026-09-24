@@ -746,6 +746,15 @@ html, body, #root {
   background: var(--bg-hover);
 }
 
+.passes-description {
+  display: block;
+  max-width: 240px;
+  margin-top: 4px;
+  color: var(--text-dim);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
 .passes-item input {
   cursor: pointer;
 }

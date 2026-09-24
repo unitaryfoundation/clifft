@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 import stim
 from conftest import cross_binomial_tolerance
+from utils_conformance import ACTIVE_WIDTH, FUSION_SQUEEZE
 
 import clifft
 
@@ -34,29 +35,37 @@ class _PipelinePrograms:
     circuit: str
     unoptimized: Any
     peephole_only: Any
-    production: Any
+    squeezed: Any
+    scheduled: Any | None
 
 
-def _compile_pipeline_variants(name: str) -> _PipelinePrograms:
+def _compile_pipeline_variants(name: str, *, schedule: bool) -> _PipelinePrograms:
     circuit = (_FIXTURES / name).read_text()
     peephole = clifft.HirPassManager()
     peephole.add(clifft.PeepholeFusionPass())
+
+    scheduled = None
+    if schedule:
+        scheduled = ACTIVE_WIDTH.compile(circuit)
+
     return _PipelinePrograms(
         circuit=circuit,
         unoptimized=clifft.compile(circuit, hir_passes=None),
         peephole_only=clifft.compile(circuit, hir_passes=peephole),
-        production=clifft.compile(circuit),
+        squeezed=FUSION_SQUEEZE.compile(circuit),
+        scheduled=scheduled,
     )
 
 
 @pytest.fixture(scope="module")
 def coherent_d3_programs() -> _PipelinePrograms:
-    return _compile_pipeline_variants("coherent_d3_r3.stim")
+    return _compile_pipeline_variants("coherent_d3_r3.stim", schedule=True)
 
 
 @pytest.fixture(scope="module")
 def coherent_d5_programs() -> _PipelinePrograms:
-    return _compile_pipeline_variants("coherent_d5_r5.stim")
+    # These d5 tests isolate squeezing; scheduling has separate coverage.
+    return _compile_pipeline_variants("coherent_d5_r5.stim", schedule=False)
 
 
 def _record_converter(circuit: str) -> Any:
@@ -121,14 +130,14 @@ def _assert_d3_semantics_match(reference: Any, candidate: Any, *, label: str) ->
     )
 
 
-def test_coherent_d5_production_exercises_convoy_bypass(
+def test_coherent_d5_squeezed_exercises_convoy_bypass(
     coherent_d5_programs: _PipelinePrograms,
 ) -> None:
     programs = coherent_d5_programs
     assert programs.unoptimized.peak_active_width == 24
     assert programs.peephole_only.peak_active_width == 24
-    assert programs.production.peak_active_width == 13
-    assert programs.production.peak_active_width < programs.peephole_only.peak_active_width
+    assert programs.squeezed.peak_active_width == 13
+    assert programs.squeezed.peak_active_width < programs.peephole_only.peak_active_width
 
 
 def test_coherent_d5_sampling_modes_preserve_annotations(
@@ -142,9 +151,9 @@ def test_coherent_d5_sampling_modes_preserve_annotations(
     # explicit packed capacity without building the expensive full matrix.
     results = (
         clifft.sample(programs.peephole_only, 1, seed=51_001, batch_size="auto"),
-        clifft.sample(programs.production, 5, seed=51_002, batch_size=1),
-        clifft.sample(programs.production, 65, seed=51_003, batch_size="auto"),
-        clifft.sample(programs.production, 65, seed=51_004, batch_size=65),
+        clifft.sample(programs.squeezed, 5, seed=51_002, batch_size=1),
+        clifft.sample(programs.squeezed, 65, seed=51_003, batch_size="auto"),
+        clifft.sample(programs.squeezed, 65, seed=51_004, batch_size=65),
     )
     for result in results:
         assert result.measurements.shape[1] == 145
@@ -153,14 +162,17 @@ def test_coherent_d5_sampling_modes_preserve_annotations(
         _assert_annotations_match_records(converter, result)
 
 
-def test_coherent_d3_three_way_semantic_oracle(
+def test_coherent_d3_four_way_semantic_oracle(
     coherent_d3_programs: _PipelinePrograms,
 ) -> None:
     programs = coherent_d3_programs
     assert programs.unoptimized.peak_active_width == 8
     assert programs.peephole_only.peak_active_width == 8
-    assert programs.production.peak_active_width == 5
-    assert programs.production.peak_active_width < programs.peephole_only.peak_active_width
+    assert programs.squeezed.peak_active_width == 5
+    assert programs.squeezed.peak_active_width < programs.peephole_only.peak_active_width
+    assert programs.scheduled is not None
+    assert programs.scheduled.peak_active_width == 4
+    assert programs.scheduled.peak_active_width < programs.squeezed.peak_active_width
 
     samples = {
         "unoptimized packed": clifft.sample(
@@ -169,14 +181,13 @@ def test_coherent_d3_three_way_semantic_oracle(
         "peephole-only packed": clifft.sample(
             programs.peephole_only, _D3_SHOTS, seed=53_002, batch_size=257
         ),
-        "production packed": clifft.sample(
-            programs.production, _D3_SHOTS, seed=53_003, batch_size=257
+        "squeezed packed": clifft.sample(programs.squeezed, _D3_SHOTS, seed=53_003, batch_size=257),
+        "squeezed scalar": clifft.sample(programs.squeezed, _D3_SHOTS, seed=53_004, batch_size=1),
+        "squeezed automatic": clifft.sample(
+            programs.squeezed, _D3_SHOTS, seed=53_005, batch_size="auto"
         ),
-        "production scalar": clifft.sample(
-            programs.production, _D3_SHOTS, seed=53_004, batch_size=1
-        ),
-        "production automatic": clifft.sample(
-            programs.production, _D3_SHOTS, seed=53_005, batch_size="auto"
+        "scheduled packed": clifft.sample(
+            programs.scheduled, _D3_SHOTS, seed=53_006, batch_size=257
         ),
     }
     converter = _record_converter(programs.circuit)

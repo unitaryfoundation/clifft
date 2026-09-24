@@ -7,8 +7,10 @@
 
 #include "clifft/circuit/parser.h"
 #include "clifft/frontend/frontend.h"
+#include "clifft/optimizer/active_width_schedule_pass.h"
 #include "clifft/optimizer/hir_pass_manager.h"
-#include "clifft/optimizer/pass_factory.h"
+#include "clifft/optimizer/peephole.h"
+#include "clifft/optimizer/statevector_squeeze_pass.h"
 #include "clifft/sampling/executable_plan.h"
 #include "clifft/sampling/planner.h"
 #include "clifft/sampling/planner_frame.h"
@@ -67,9 +69,9 @@ int get_env_int(const char* name, int default_val) {
     return val ? std::stoi(val) : default_val;
 }
 
-bool get_env_bool(const char* name) {
+bool get_env_bool(const char* name, bool fallback = false) {
     const char* val = std::getenv(name);
-    return val != nullptr && std::string(val) != "0" && std::string(val) != "";
+    return val == nullptr ? fallback : std::string(val) != "0" && std::string(val) != "";
 }
 
 std::string read_file(const std::string& path) {
@@ -86,12 +88,13 @@ std::string read_file(const std::string& path) {
 struct StageTimings {
     double parse_ms = 0.0;
     double trace_ms = 0.0;  // includes HirPassManager
+    double schedule_ms = 0.0;
     double plan_ms = 0.0;
     double prepare_ms = 0.0;
 };
 
 double total_ms(const StageTimings& t) {
-    return t.parse_ms + t.trace_ms + t.plan_ms + t.prepare_ms;
+    return t.parse_ms + t.trace_ms + t.schedule_ms + t.plan_ms + t.prepare_ms;
 }
 
 void summarize(const std::string& label, std::vector<double> samples) {
@@ -121,6 +124,7 @@ int main() {
     int t_gates = get_env_int("CLIFFT_T_GATES", kDefaultTGates);
     const char* circuit_file = std::getenv("CLIFFT_CIRCUIT_FILE");
     bool postselect_all = get_env_bool("CLIFFT_POSTSELECT_ALL");
+    bool schedule = get_env_bool("CLIFFT_ACTIVE_WIDTH_SCHEDULE", false);
 
     std::cout << "Clifft Compile Profiler\n";
     std::cout << "================\n";
@@ -142,9 +146,11 @@ int main() {
         circuit_text = generate_circuit(num_qubits, clifford_depth, t_gates, kSeed);
     }
     std::cout << "Iterations:     " << iterations << "\n";
+    std::cout << "Width schedule: " << (schedule ? "yes" : "no") << "\n";
     std::cout << "Postselect all: " << (postselect_all ? "yes" : "no") << "\n";
     std::cout << "(Set CLIFFT_COMPILE_ITERATIONS, CLIFFT_CIRCUIT_FILE, CLIFFT_NUM_QUBITS, "
-                 "CLIFFT_CLIFFORD_DEPTH, CLIFFT_T_GATES, CLIFFT_POSTSELECT_ALL)\n\n";
+                 "CLIFFT_CLIFFORD_DEPTH, CLIFFT_T_GATES, CLIFFT_POSTSELECT_ALL, "
+                 "CLIFFT_ACTIVE_WIDTH_SCHEDULE)\n\n";
 
     std::vector<StageTimings> samples;
     samples.reserve(iterations);
@@ -170,13 +176,30 @@ int main() {
         if (iter == 0)
             parsed_ops = circuit.nodes.size();
 
-        // Frontend (trace + default HIR passes)
+        // Time scheduling separately from the preceding HIR passes.
         t0 = std::chrono::high_resolution_clock::now();
         clifft::HirModule hir = clifft::trace(circuit);
-        auto pm = clifft::default_hir_pass_manager();
+        clifft::HirPassManager pm;
+        pm.add_pass(std::make_unique<clifft::PeepholeFusionPass>());
+        pm.add_pass(std::make_unique<clifft::StatevectorSqueezePass>());
         pm.run(hir);
         t1 = std::chrono::high_resolution_clock::now();
         t.trace_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
+
+        if (schedule) {
+            clifft::ActiveWidthSchedulePass pass;
+            t0 = std::chrono::high_resolution_clock::now();
+            pass.run(hir);
+            t1 = std::chrono::high_resolution_clock::now();
+            t.schedule_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
+            if (iter == 0) {
+                std::cout << "Schedule: peak " << pass.incumbent_peak() << " -> "
+                          << pass.result_peak() << ", dense work " << pass.incumbent_dense_work()
+                          << " -> " << pass.result_dense_work() << ", swept ops "
+                          << pass.swept_ops() << ", classification probes "
+                          << pass.classification_probes() << "\n";
+            }
+        }
 
         // Build postselection mask if requested.
         std::vector<uint8_t> postselection_mask;
@@ -220,6 +243,7 @@ int main() {
             std::cout << "First-iteration timings (warmup):\n";
             std::cout << "  parse:  " << t.parse_ms << " ms\n";
             std::cout << "  trace:  " << t.trace_ms << " ms\n";
+            std::cout << "  schedule: " << t.schedule_ms << " ms\n";
             std::cout << "  plan:   " << t.plan_ms << " ms\n";
             std::cout << "  prepare: " << t.prepare_ms << " ms\n";
             std::cout << "  total:  " << total_ms(t) << " ms\n";
@@ -235,10 +259,11 @@ int main() {
     auto outer_end = std::chrono::high_resolution_clock::now();
     double outer_ms = std::chrono::duration<double, std::milli>(outer_end - outer_start).count();
 
-    std::vector<double> parse_v, trace_v, plan_v, prepare_v, total_v;
+    std::vector<double> parse_v, trace_v, schedule_v, plan_v, prepare_v, total_v;
     for (const auto& s : samples) {
         parse_v.push_back(s.parse_ms);
         trace_v.push_back(s.trace_ms);
+        schedule_v.push_back(s.schedule_ms);
         plan_v.push_back(s.plan_ms);
         prepare_v.push_back(s.prepare_ms);
         total_v.push_back(total_ms(s));
@@ -247,6 +272,7 @@ int main() {
     std::cout << "Per-stage distribution across " << iterations << " iterations:\n";
     summarize("parse  ", parse_v);
     summarize("trace  ", trace_v);
+    summarize("schedule", schedule_v);
     summarize("plan   ", plan_v);
     summarize("prepare", prepare_v);
     summarize("total  ", total_v);

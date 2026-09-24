@@ -162,6 +162,10 @@ We use `pytest` for the Python oracles and `CTest` for the C++ units. You can ru
     just test
     ```
 
+CTest runs the distance-nine scheduling regression in optimized builds. Debug
+builds retain the distance-seven case and omit the `[large-schedule]` test to
+avoid repeating its expensive unoptimized search across CI configurations.
+
 To generate HTML coverage reports for both layers of the application to ensure new features are thoroughly exercised:
 
 ```bash

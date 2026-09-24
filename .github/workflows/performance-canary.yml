@@ -196,7 +196,9 @@ jobs:
           run_benchmarks \
             canary-bin/head canary-results/warmup-head.json '.*' 1 0.1 0.1
 
-          ./canary-bin/head --benchmark_list_tests=true > canary-results/benchmarks.txt
+          ./canary-bin/base --benchmark_list_tests=true > canary-results/base-benchmarks.txt
+          ./canary-bin/head --benchmark_list_tests=true > canary-results/head-benchmarks.txt
+          LC_ALL=C sort -u canary-results/{base,head}-benchmarks.txt > canary-results/benchmarks.txt
           mapfile -t benchmarks < canary-results/benchmarks.txt
           if (( ${#benchmarks[@]} == 0 )); then
             echo "No benchmarks were registered" >&2
@@ -213,18 +215,16 @@ jobs:
               exit 1
             fi
             filter="^${benchmark}$"
-            run_benchmarks \
-              canary-bin/base "canary-results/base-first/${benchmark}.json" \
-              "$filter" "$BENCHMARK_REPETITIONS" "$BENCHMARK_MIN_TIME" "$BENCHMARK_WARMUP_TIME"
-            run_benchmarks \
-              canary-bin/head "canary-results/head-first/${benchmark}.json" \
-              "$filter" "$BENCHMARK_REPETITIONS" "$BENCHMARK_MIN_TIME" "$BENCHMARK_WARMUP_TIME"
-            run_benchmarks \
-              canary-bin/head "canary-results/head-second/${benchmark}.json" \
-              "$filter" "$BENCHMARK_REPETITIONS" "$BENCHMARK_MIN_TIME" "$BENCHMARK_WARMUP_TIME"
-            run_benchmarks \
-              canary-bin/base "canary-results/base-second/${benchmark}.json" \
-              "$filter" "$BENCHMARK_REPETITIONS" "$BENCHMARK_MIN_TIME" "$BENCHMARK_WARMUP_TIME"
+            # New or removed features can register workloads on only one revision.
+            # Preserve paired ordering for common workloads and report the others separately.
+            for leg in base-first head-first head-second base-second; do
+              revision="${leg%-*}"
+              if grep -Fxq -- "$benchmark" "canary-results/${revision}-benchmarks.txt"; then
+                run_benchmarks \
+                  "canary-bin/${revision}" "canary-results/${leg}/${benchmark}.json" \
+                  "$filter" "$BENCHMARK_REPETITIONS" "$BENCHMARK_MIN_TIME" "$BENCHMARK_WARMUP_TIME"
+              fi
+            done
           done
 
       - name: Render comparison

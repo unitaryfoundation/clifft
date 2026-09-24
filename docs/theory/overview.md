@@ -212,6 +212,22 @@ HIR passes use Pauli algebra and dataflow to fuse or cancel operations and,
 when safe, shorten how long coordinates must remain active. This reduces the
 work handed to the planner without fixing a runtime representation.
 
+For an $n$-qubit circuit, the dormant stabilizer subspace $S$ determines the
+structural active width $k = n - \dim S$. A non-Clifford rotation can increase
+$k$; a measurement can return an active coordinate to the dormant state.
+Moving a measurement earlier or delaying a commuting rotation can therefore
+reduce the size of the active array between them. This model predicts width
+without simulating amplitudes, but does not discover extra stabilizers arising
+from particular amplitudes or rotation angles.
+
+Reordering must preserve classical dependencies and instrument boundaries.
+Moving operations across Pauli noise also requires correcting their symbolic
+signs from their original positions relative to the noise. These corrections
+preserve the sampling distribution for each fixed noise realization.
+
+See [Active-width scheduling](../guide/compilation.md#active-width-scheduling)
+for the optional search pass and its compilation tradeoff.
+
 ### Coordinate Planning
 
 The symbolic-coordinate planner decides which coordinates are active at each
