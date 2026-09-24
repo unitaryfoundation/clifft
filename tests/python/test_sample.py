@@ -1040,11 +1040,18 @@ class TestSampleSurvivors:
             "H 0\nM 0\nDETECTOR rec[-1]\nH 1\nM 1\nEXP_VAL Z1\nOBSERVABLE_INCLUDE(0) rec[-1]",
             postselection_mask=[1],
         )
+        # More packed batches give fast aggregate workers time to share the work.
+        shots = 32 * 65 + 1 if batch_size == 65 else 257
         serial = sampling_api.sample_survivors(
-            prog, 257, seed=54321, keep_records=keep_records, threads=1, batch_size=batch_size
+            prog, shots, seed=54321, keep_records=keep_records, threads=1, batch_size=batch_size
         )
         threaded = sampling_api.sample_survivors(
-            prog, 257, seed=54321, keep_records=keep_records, threads=threads, batch_size=batch_size
+            prog,
+            shots,
+            seed=54321,
+            keep_records=keep_records,
+            threads=threads,
+            batch_size=batch_size,
         )
         assert 0 < serial.passed_shots < serial.total_shots
         assert threaded.total_shots == serial.total_shots
