@@ -356,6 +356,13 @@ TEST_CASE("Packed capacity policy limits workers to available batches") {
             REQUIRE(policy.lane_capacity == 65);
             REQUIRE(policy.worker_count == (shots == 65 ? 1 : 2));
         }
+        for (const uint32_t shots : {257, 4097}) {
+            CAPTURE(output_mode, shots);
+            const auto policy =
+                resolve_batch_execution_policy(plan, shots, 2, 1, output_mode, std::nullopt);
+            REQUIRE(policy.lane_capacity == (shots == 257 ? 257 : 2048));
+            REQUIRE(policy.worker_count == (shots == 257 ? 1 : 2));
+        }
     }
 }
 

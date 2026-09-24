@@ -1,7 +1,6 @@
 """Python integration tests for clifft.compile and clifft.sample."""
 
 import warnings
-from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -210,20 +209,22 @@ class TestSample:
         np.testing.assert_array_equal(threaded.observables, serial.observables)
         np.testing.assert_array_equal(threaded.exp_vals, serial.exp_vals)
 
-    def test_auto_batch_boundaries_ignore_worker_budget(self, sampling_api: Any) -> None:
-        """Memory-limited worker counts do not change automatic batch RNG boundaries."""
-        circuit = (
-            Path(__file__).parent.parent / "fixtures" / "surface_d7_r7_p001.stim"
-        ).read_text()
-        prog = sampling_api.compile(circuit)
-        shots = 32_768
+    def test_auto_batch_boundaries_ignore_worker_count(self, sampling_api: Any) -> None:
+        """Changing worker count preserves automatic batch RNG boundaries."""
+        prog = sampling_api.compile(
+            "X_ERROR(0.125) 0\nH 1\nT 1\nEXP_VAL X1\nM 0 1\n"
+            "DETECTOR rec[-2] rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]"
+        )
+        # Two full automatic batches and a tail leave work for both workers.
+        shots = 2 * 2048 + 1
 
         serial = sampling_api.sample(prog, shots, seed=42, threads=1)
-        threaded = sampling_api.sample(prog, shots, seed=42, threads=16)
+        threaded = sampling_api.sample(prog, shots, seed=42, threads=2)
 
         np.testing.assert_array_equal(threaded.measurements, serial.measurements)
         np.testing.assert_array_equal(threaded.detectors, serial.detectors)
         np.testing.assert_array_equal(threaded.observables, serial.observables)
+        np.testing.assert_array_equal(threaded.exp_vals, serial.exp_vals)
 
     @pytest.mark.parametrize("threads", [0, -1, "all", 1.5])
     def test_sample_rejects_invalid_threads(self, sampling_api: Any, threads: Any) -> None:
