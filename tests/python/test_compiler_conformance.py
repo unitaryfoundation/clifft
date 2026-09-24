@@ -3,11 +3,8 @@
 Each CASES entry runs exact record checks under every compiler profile, and
 sampled record and annotation checks under every profile and sampling mode.
 Profiles select no HIR passes, production defaults, or explicit active-width
-scheduling; modes select scalar or packed-65 execution with one or two shot
-workers, automatic batching with one worker, or scalar execution with two
-intra-shot workers.
-Passes are not independently toggled in this matrix: separate
-witnesses check their effects.
+scheduling. Execution configurations come from CPU_SAMPLING_MODES. Passes are not
+independently toggled in this matrix: separate witnesses check their effects.
 The boundary circuit runs under every profile, mode, and designated shot count.
 """
 

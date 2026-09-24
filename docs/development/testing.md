@@ -134,12 +134,12 @@ Shared sampling tests run the same behavioral assertions across supported
 execution modes. This helps new features receive coverage across modes and
 makes new modes inherit existing behavioral and regression tests.
 
-The CPU corpus covers scalar and packed execution with one or two shot workers,
-automatic batching, and scalar execution with two intra-shot workers. The
-intra-shot configuration lowers the active-width threshold to three so small
-circuits can exercise parallel kernels. Narrower circuits retain serial
-execution. Shared active-state cases preserve four or five active qubits through
-compilation and check rotations, measurement/feedback, and postselected outputs.
+The CPU corpus shares assertions across batching and threading configurations.
+Intra-shot tests lower the active-width threshold so small circuits can exercise
+parallel kernels; narrower circuits retain serial execution. Active-state cases
+check evolution and its interactions with measurement, feedback, and postselection
+against independent expectations. Intra-shot execution is skipped on builds
+without OpenMP.
 
 Dedicated tests check seeded repeatability across worker counts and behavior
 at batch and output boundaries. Short dynamically scheduled cross-shot calls

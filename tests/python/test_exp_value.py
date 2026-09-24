@@ -207,16 +207,14 @@ class TestExactOracle:
             rtol=0.0,
         )
 
-    def test_active_rotations_preserve_pauli_expectations(
-        self, sampling_mode: CpuSamplingMode
-    ) -> None:
+    def test_active_rotations_match_qiskit(self, sampling_mode: CpuSamplingMode) -> None:
+        """Probes retain active coordinates that terminal measurements could eliminate."""
         prefix = "H 0 1 2 3\nT 0 1 2 3"
         rotations = "R_X(0.125) 0\nR_Y(0.375) 1"
         paulis = ["X0*X1*X2*X3", "Z0", "Z1"]
         program = sampling_mode.compile(
             prefix + "\nEXP_VAL X0*X1*X2*X3\n" + rotations + "\nEXP_VAL " + " ".join(paulis)
         )
-        # The first probe retains four active qubits through optimization.
         assert program.peak_active_width == 4
         before = qiskit_statevector(stim_to_qiskit_noiseless(prefix))
         after = qiskit_statevector(stim_to_qiskit_noiseless(prefix + "\n" + rotations))

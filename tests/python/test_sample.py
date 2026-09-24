@@ -968,6 +968,7 @@ class TestSampleSurvivors:
     def test_active_postselection_preserves_survivor_outputs(
         self, sampling_mode: CpuSamplingMode, keep_records: bool
     ) -> None:
+        """Survivor accounting and retained probes agree with independent expectations."""
         program = sampling_mode.compile(
             "H 0 1 2 3 4\nT 0 1 2 3 4\nEXP_VAL X0*X1*X2*X3*X4\n"
             "R_X(0.125) 4\nEXP_VAL Z4\nM 0\nDETECTOR rec[-1]\n"
