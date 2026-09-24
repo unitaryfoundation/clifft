@@ -52,6 +52,14 @@ architecture cannot support it:
   and `,`.
 - Validate Python-facing unitaries against Qiskit Aer and stochastic Clifford
   behavior against Stim when those independent references apply.
+- When adding features or execution modes, reuse applicable shared sampling
+  tests and verify that representative cases enter the intended executors and
+  kernels. Requested options and collected case counts are not execution
+  evidence. Preserve focused policy and active-width assertions; account for
+  compiler optimization, batching, and SIMD work granularity. See
+  `docs/development/testing.md` for the shared-test workflow.
+- Keep resource tests bounded. Prefer policy or validation checks over large
+  allocations and use small explicit worker counts for execution tests.
 
 ## Git and AI-Assisted Contribution Rules
 
