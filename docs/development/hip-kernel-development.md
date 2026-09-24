@@ -2,11 +2,11 @@
 
 # HIP Kernel Development
 
-This guide is the handoff point for extending the experimental AMD backend.
-The backend is intentionally private below `SamplingPlan`: changes to its
-packed actions, workspace, and kernels do not define a cross-backend ABI.
+This guide covers changes to the HIP backend. CPU and HIP share
+`SamplingPlan`; HIP's packed actions, workspace, and kernels are private to
+the backend.
 
-For the experimental user contract and minimal Python workflow, start with
+For build instructions and API usage, see
 [HIP Backend](hip-backend.md).
 
 ## Build a Developer Installation
@@ -63,13 +63,11 @@ result = sampler.sample(100_000, seed=1234, block_size=256)
 branch = sampler.replay_shot([0])
 ```
 
-`Program` is an immutable host lowering and can be inspected without a GPU.
+`Program` can be inspected without a GPU.
 `Sampler` selects FP32 or FP64 coefficient evolution, uploads the program, and
 allocates its bounded workspace on the device current at construction. It is
 synchronous and should be reused for repeated calls. Overlapping calls on one
-sampler are rejected; use a separate sampler per caller. Its
-`allocated_device_bytes` and `max_batch_shots` properties make memory experiments
-visible without exposing raw buffers.
+sampler are rejected; use a separate sampler per caller.
 
 ## Source Map
 
@@ -97,7 +95,8 @@ device pass.
 2. Put only execution-ready fields in `detail::Action`. Pauli geometry,
    coordinate changes, and symbolic dependencies belong in planning or
    lowering, not in the kernel.
-3. Implement the tag in the interpreter switch for both coefficient types.
+3. Implement the tag in both `interpret_shots` and `interpret_shots_cooperative`,
+   for FP32 and FP64.
 4. Add host-only packing assertions to `test_hip_executable_plan.cc`.
 5. Add forced-replay or deterministic hardware coverage before relying on a
    statistical comparison.
@@ -107,20 +106,17 @@ private serialization for the HIP interpreter, not another semantic IR.
 
 ## Change the Workspace or Add an Execution Tier
 
-`Sampler` owns one uploaded program, scalar result-layout metadata, and one
-precision-specific workspace. It does not retain a duplicate host executable.
-Allocation is complete before a batch enters the kernel. A request larger than
-`max_batch_shots` reuses that workspace, and each launch receives both its local
-row count and global shot offset. Aggregate-only survivor requests skip unused
-record, detector, and expectation-value downloads; device-side survivor
-aggregation remains a separate execution-path extension.
+`Sampler` allocates the program and workspace before launching a kernel.
+Requests larger than `max_batch_shots` reuse the workspace across launches.
+Each launch receives a row count and global shot offset. Survivor sampling
+with `keep_records=False` skips unused record, detector, and expectation-value
+downloads.
 
-A cooperative path should add a separate kernel and typed launcher, then
-dispatch by peak active width. It should not add topology work to the device:
-the packed executable already carries pairings, Pauli phases, expressions, and
-active-width transitions. Keep the current thread-per-shot path as the small
-width reference while the cooperative path uses on-chip shared memory through
-approximately `k = 10`.
+The block tiers use `interpret_shots_cooperative`, with one block per shot.
+Threads share the shot's symbols, records, and outputs. Use
+`CooperativeLane::is_writer()` for these writes and synchronize before
+overwriting a value that other threads may still be reading. Pairings, Pauli
+phases, and active-width transitions must be prepared before execution.
 
 When changing batching or launch geometry, preserve these invariants:
 
@@ -129,12 +125,11 @@ When changing batching or launch geometry, preserve these invariants:
 - coefficient arithmetic follows the selected precision;
 - reductions, normalization, statistics, replay likelihoods, and expectation
   values remain FP64; and
-- the CPU `ExecutablePlan` remains the semantic oracle.
+- results agree with the CPU `ExecutablePlan`.
 
 ## Add Another AMD Architecture
 
-The interpreter has no `gfx942` semantic branch. Select another target at
-build time:
+Select another GPU target at build time:
 
 ```bash
 cmake -S . -B build-hip -G Ninja \
@@ -150,20 +145,19 @@ cmake -S . -B build-hip -G Ninja \
     -DCMAKE_HIP_ARCHITECTURES="gfx942;gfx950"
 ```
 
-Add architecture-specific launch traits only after measurement shows a real
-difference, such as block size, shared-memory capacity, or wavefront tuning.
-Do not duplicate the action format or interpreter solely to name another GPU.
+Measure performance before adding device-specific launch settings. Keep the
+action format and interpreter shared across GPU targets.
 
 ## Conformance Workflow
 
-The C++ suite is the canonical backend conformance layer:
+Run the C++ backend tests:
 
 ```bash
 cmake --build build-hip --target clifft_tests clifft_hip_tests -j
 ctest --test-dir build-hip --output-on-failure -R HIP
 ```
 
-The Python suite provides quick developer probes:
+For Python API and replay tests:
 
 ```bash
 uv run pytest tests/python/test_gpu_replay_reference.py tests/python/test_experimental_hip.py -v

@@ -43,6 +43,15 @@ inline constexpr uint64_t coefficient_elements_per_shot(uint32_t peak_active_wid
            2 * coefficient_scratch_capacity(peak_active_width);
 }
 
+inline constexpr uint32_t kWavefrontSize = 64;
+
+// Upper bound for block size and static reduction storage.
+inline constexpr uint32_t kCooperativeBlockSize = 256;
+
+// Reduction scratch uses FP64 even with FP32 coefficients.
+inline constexpr uint64_t kCooperativeReductionBytes =
+    2ULL * kCooperativeBlockSize * sizeof(double);
+
 struct Expression {
     // Detector and observable actions interpret terms as record slots when
     // kRecordParity is set; every other action interprets them as symbol ids.

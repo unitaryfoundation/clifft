@@ -172,6 +172,38 @@ class ReplayResult:
     outputs: SampleResult
 
 
+Tier = Literal["auto", "thread_per_shot", "block_shared", "block_global"]
+
+_TIER_NAMES: dict[str, str] = {
+    "auto": "Auto",
+    "thread_per_shot": "ThreadPerShot",
+    "block_shared": "BlockShared",
+    "block_global": "BlockGlobal",
+}
+
+
+def _tier_value(tier: Tier) -> object:
+    native = _require_native()
+    try:
+        return getattr(native.ExecutionTier, _TIER_NAMES[tier])
+    except KeyError:
+        raise ValueError(f"tier must be one of {sorted(_TIER_NAMES)}; got {tier!r}") from None
+
+
+def _tier_name(value: object) -> Tier:
+    native = _require_native()
+    for name, attribute in _TIER_NAMES.items():
+        if value == getattr(native.ExecutionTier, attribute):
+            return cast(Tier, name)
+    raise ValueError(f"unrecognised execution tier {value!r}")
+
+
+def selected_tier(program: Program, precision: Precision = "fp64") -> Tier:
+    """Return the automatic tier for the current device and precision."""
+    native = _require_native()
+    return _tier_name(native.selected_tier(program._native, _precision_value(precision)))
+
+
 class Sampler:
     """A synchronous sampler with one uploaded program and retained workspace.
 
@@ -186,14 +218,18 @@ class Sampler:
         *,
         precision: Precision = "fp64",
         max_batch_shots: int | None = None,
+        tier: Tier = "auto",
     ) -> None:
         native = _require_native()
         self.program = program
         native_precision = _precision_value(precision)
+        native_tier = _tier_value(tier)
         if max_batch_shots is None:
-            self._native = native.Sampler(program._native, native_precision)
+            self._native = native.Sampler(program._native, native_precision, tier=native_tier)
         else:
-            self._native = native.Sampler(program._native, native_precision, max_batch_shots)
+            self._native = native.Sampler(
+                program._native, native_precision, max_batch_shots, native_tier
+            )
 
     @property
     def precision(self) -> Precision:
@@ -201,6 +237,11 @@ class Sampler:
         if self._native.coefficient_precision == native.CoefficientPrecision.FP32:
             return "fp32"
         return "fp64"
+
+    @property
+    def tier(self) -> Tier:
+        """Return the resolved execution tier; never ``"auto"``."""
+        return _tier_name(self._native.execution_tier)
 
     @property
     def max_batch_shots(self) -> int:
@@ -257,9 +298,11 @@ __all__ = [
     "Program",
     "ReplayResult",
     "Sampler",
+    "Tier",
     "backend_info",
     "compile",
     "is_available",
     "is_built",
     "lower",
+    "selected_tier",
 ]

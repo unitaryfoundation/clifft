@@ -322,8 +322,9 @@ __device__ double expectation_value(const Action& action, const Coefficient* rea
     return result;
 }
 
+// All lanes must advance the RNG together, even though only one writes symbols.
 __device__ __forceinline__ void sample_noise(const ProgramView& program, Xoshiro256PlusPlus& rng,
-                                             uint8_t* symbols) {
+                                             uint8_t* symbols, bool is_writer) {
     for (uint32_t site_index = 0; site_index < program.noise_site_count; ++site_index) {
         const NoiseSite site = program.noise_sites[site_index];
         if (site.outcome_count == 0 || site.execution_probability <= 0.0) {
@@ -339,7 +340,9 @@ __device__ __forceinline__ void sample_noise(const ProgramView& program, Xoshiro
                draw >= program.noise_outcomes[outcome].cumulative_probability) {
             ++outcome;
         }
-        symbols[program.noise_outcomes[outcome].symbol] = 1;
+        if (is_writer) {
+            symbols[program.noise_outcomes[outcome].symbol] = 1;
+        }
     }
 }
 
@@ -412,7 +415,7 @@ __global__ void interpret_shots(ProgramView program, SeedRoot seed_root, uint64_
 
     Xoshiro256PlusPlus rng = shot_rng(seed_root, shot_offset + shot);
     if constexpr (!Replay) {
-        sample_noise(program, rng, symbols);
+        sample_noise(program, rng, symbols, true);
     }
     double log_probability = 0.0;
     bool reachable = true;
@@ -503,9 +506,447 @@ __global__ void interpret_shots(ProgramView program, SeedRoot seed_root, uint64_
     survived[shot] = static_cast<uint8_t>(reachable && !discarded);
 }
 
+// All lanes share symbols, records, and outputs. Serialize writes and
+// synchronize before overwriting values that other lanes may still read.
+struct CooperativeLane {
+    [[nodiscard]] __device__ __forceinline__ bool is_writer() const { return threadIdx.x == 0; }
+    __device__ __forceinline__ void sync() const { __syncthreads(); }
+};
+
+// Every lane receives both sums. blockDim.x must be a power of two.
+__device__ __forceinline__ void reduce_two_sums(double* shared, double& first, double& second) {
+    const uint32_t lane = threadIdx.x;
+    const uint32_t width = blockDim.x;
+    shared[lane] = first;
+    shared[width + lane] = second;
+    __syncthreads();
+    for (uint32_t stride = width >> 1; stride > 0; stride >>= 1) {
+        if (lane < stride) {
+            shared[lane] += shared[lane + stride];
+            shared[width + lane] += shared[width + lane + stride];
+        }
+        __syncthreads();
+    }
+    first = shared[0];
+    second = shared[width];
+    __syncthreads();
+}
+
+__device__ __forceinline__ double reduce_one_sum(double* shared, double value) {
+    const uint32_t lane = threadIdx.x;
+    const uint32_t width = blockDim.x;
+    shared[lane] = value;
+    __syncthreads();
+    for (uint32_t stride = width >> 1; stride > 0; stride >>= 1) {
+        if (lane < stride) {
+            shared[lane] += shared[lane + stride];
+        }
+        __syncthreads();
+    }
+    const double total = shared[0];
+    __syncthreads();
+    return total;
+}
+
+template <typename Coefficient>
+__device__ void apply_rotation_coop(const Action& action, bool sign, Coefficient* real,
+                                    Coefficient* imag) {
+    const uint64_t size = uint64_t{1} << action.active_before;
+    const Coefficient cosine = static_cast<Coefficient>(action.value0);
+    const Coefficient sine =
+        sign ? -static_cast<Coefficient>(action.value1) : static_cast<Coefficient>(action.value1);
+
+    if (action.x == 0) {
+        for (uint64_t basis = threadIdx.x; basis < size; basis += blockDim.x) {
+            const Coefficient eigenvalue =
+                parity(basis & action.z) ? Coefficient{-1} : Coefficient{1};
+            const Coefficient signed_sine = sine * eigenvalue;
+            const Coefficient input_real = real[basis];
+            const Coefficient input_imag = imag[basis];
+            real[basis] = cosine * input_real + signed_sine * input_imag;
+            imag[basis] = cosine * input_imag - signed_sine * input_real;
+        }
+        return;
+    }
+
+    const bool real_phase = action.phase_real != 0;
+    const Coefficient base_phase =
+        static_cast<Coefficient>(real_phase ? action.phase_real : action.phase_imag);
+    const Coefficient even_left_sine = sine * base_phase;
+    // Each XOR pair has one index with the pairing bit clear. insert_zero_bit
+    // maps consecutive pair IDs to those indices.
+    const uint32_t pair_bit =
+        static_cast<uint32_t>(__ffsll(static_cast<unsigned long long>(action.pair_stride)) - 1);
+    const uint64_t pairs = size >> 1;
+    for (uint64_t pair = threadIdx.x; pair < pairs; pair += blockDim.x) {
+        const uint64_t left = insert_zero_bit(pair, pair_bit);
+        const uint64_t right = left ^ action.x;
+        const Coefficient left_real = real[left];
+        const Coefficient left_imag = imag[left];
+        const Coefficient right_real = real[right];
+        const Coefficient right_imag = imag[right];
+        const Coefficient left_sine = parity(left & action.z) ? -even_left_sine : even_left_sine;
+        const Coefficient right_sine = real_phase ? left_sine : -left_sine;
+        if (real_phase) {
+            real[left] = cosine * left_real + right_sine * right_imag;
+            imag[left] = cosine * left_imag - right_sine * right_real;
+            real[right] = cosine * right_real + left_sine * left_imag;
+            imag[right] = cosine * right_imag - left_sine * left_real;
+        } else {
+            real[left] = cosine * left_real + right_sine * right_real;
+            imag[left] = cosine * left_imag + right_sine * right_imag;
+            real[right] = cosine * right_real + left_sine * left_real;
+            imag[right] = cosine * right_imag + left_sine * left_imag;
+        }
+    }
+}
+
+template <typename Coefficient>
+__device__ void apply_promotion_coop(const Action& action, bool sign, Coefficient* real,
+                                     Coefficient* imag) {
+    const uint64_t old_size = uint64_t{1} << action.active_before;
+    const Coefficient cosine = static_cast<Coefficient>(action.value0);
+    const Coefficient sine =
+        sign ? -static_cast<Coefficient>(action.value1) : static_cast<Coefficient>(action.value1);
+    for (uint64_t basis = threadIdx.x; basis < old_size; basis += blockDim.x) {
+        const Coefficient input_real = real[basis];
+        const Coefficient input_imag = imag[basis];
+        real[basis] = cosine * input_real;
+        imag[basis] = cosine * input_imag;
+        real[old_size + basis] = sine * input_imag;
+        imag[old_size + basis] = -sine * input_real;
+    }
+}
+
+template <typename Coefficient>
+__device__ double expectation_value_coop(const Action& action, const Coefficient* real,
+                                         const Coefficient* imag, double* reduction) {
+    if (action.x == 0 && action.z == 0) {
+        return 1.0;
+    }
+    const uint64_t size = uint64_t{1} << action.active_before;
+    double result = 0.0;
+    if (action.x == 0) {
+        for (uint64_t basis = threadIdx.x; basis < size; basis += blockDim.x) {
+            const double eigenvalue = parity(basis & action.z) ? -1.0 : 1.0;
+            result += eigenvalue * norm(load(real, imag, basis));
+        }
+    } else {
+        for (uint64_t basis = threadIdx.x; basis < size; basis += blockDim.x) {
+            const ComplexValue<Coefficient> paired_coefficient = load(real, imag, basis ^ action.x);
+            const ComplexValue<Coefficient> basis_coefficient = load(real, imag, basis);
+            const ComplexValue<double> paired{static_cast<double>(paired_coefficient.real),
+                                              static_cast<double>(paired_coefficient.imag)};
+            const ComplexValue<double> basis_value{static_cast<double>(basis_coefficient.real),
+                                                   static_cast<double>(basis_coefficient.imag)};
+            const ComplexValue<double> phased =
+                multiply(phase_at<double>(action, basis), basis_value);
+            result += paired.real * phased.real + paired.imag * phased.imag;
+        }
+    }
+    return reduce_one_sum(reduction, result);
+}
+
+template <typename Coefficient, bool Replay>
+__device__ bool measure_active_coop(const ProgramView& program, const Action& action,
+                                    Xoshiro256PlusPlus& rng, const uint8_t* forced_records,
+                                    double* log_probability, uint8_t* symbols, uint8_t* records,
+                                    Coefficient* real, Coefficient* imag,
+                                    Coefficient* scratch_real, Coefficient* scratch_imag,
+                                    double* reduction) {
+    const uint64_t size = uint64_t{1} << action.active_before;
+    const uint64_t output_size = size >> 1;
+
+    double probability_zero = 0.0;
+    double probability_one = 0.0;
+    if (action.x == 0) {
+        for (uint64_t basis = threadIdx.x; basis < size; basis += blockDim.x) {
+            const double probability = norm(load(real, imag, basis));
+            if (parity(basis & action.z)) {
+                probability_one += probability;
+            } else {
+                probability_zero += probability;
+            }
+        }
+    } else {
+        for (uint64_t packed = threadIdx.x; packed < output_size; packed += blockDim.x) {
+            probability_zero += norm(compact_nondiagonal(action, real, imag, packed, false));
+            probability_one += norm(compact_nondiagonal(action, real, imag, packed, true));
+        }
+    }
+    reduce_two_sums(reduction, probability_zero, probability_one);
+
+    const double total = probability_zero + probability_one;
+    const double epsilon = clifft::kMeasurementDustEpsilonFor<Coefficient> * total;
+    const CooperativeLane lane;
+    bool branch;
+    if constexpr (Replay) {
+        // The expression includes this action's branch symbol. All lanes must
+        // read its old value before lane 0 writes it, or they may choose
+        // different branches and diverge at a barrier.
+        const bool correction = evaluate(program, symbols, action.expression);
+        branch = (forced_records[action.index1] != 0) != correction;
+        lane.sync();
+        if ((probability_one <= epsilon && branch) || (probability_zero <= epsilon && !branch)) {
+            return false;
+        }
+        if (probability_zero > epsilon && probability_one > epsilon) {
+            const double selected_probability = branch ? probability_one : probability_zero;
+            *log_probability += log(selected_probability / total);
+        }
+    } else {
+        if (probability_one <= epsilon) {
+            branch = false;
+        } else if (probability_zero <= epsilon) {
+            branch = true;
+        } else {
+            branch = rng.next_double() * total >= probability_zero;
+        }
+    }
+    const double selected_probability = branch ? probability_one : probability_zero;
+    const double inverse_norm = 1.0 / sqrt(selected_probability);
+    if (lane.is_writer()) {
+        symbols[action.index0] = static_cast<uint8_t>(branch);
+        records[action.index1] =
+            static_cast<uint8_t>(evaluate(program, symbols, action.expression));
+    }
+
+    // In-place compaction can overwrite another lane's unread source.
+    // Gather into scratch before copying back.
+    if (action.x == 0) {
+        for (uint64_t packed = threadIdx.x; packed < output_size; packed += blockDim.x) {
+            const uint64_t without_pivot = insert_zero_bit(packed, action.index2);
+            const bool other_parity = parity(without_pivot & action.z);
+            const bool pivot_value = branch != other_parity;
+            const uint64_t source =
+                without_pivot | (static_cast<uint64_t>(pivot_value) << action.index2);
+            const ComplexValue<Coefficient> value = load(real, imag, source);
+            store(scratch_real, scratch_imag, packed, normalize(value, inverse_norm));
+        }
+    } else {
+        for (uint64_t packed = threadIdx.x; packed < output_size; packed += blockDim.x) {
+            const ComplexValue<Coefficient> value =
+                compact_nondiagonal(action, real, imag, packed, branch);
+            store(scratch_real, scratch_imag, packed, normalize(value, inverse_norm));
+        }
+    }
+    __syncthreads();
+    for (uint64_t packed = threadIdx.x; packed < output_size; packed += blockDim.x) {
+        real[packed] = scratch_real[packed];
+        imag[packed] = scratch_imag[packed];
+    }
+    __syncthreads();
+    return true;
+}
+
+template <typename Coefficient, bool Replay>
+__global__ void interpret_shots_cooperative(ProgramView program, SeedRoot seed_root,
+                                            uint64_t shot_offset, uint32_t shots,
+                                            Coefficient* coefficient_storage, uint32_t use_lds,
+                                            uint8_t* symbol_storage, uint8_t* record_storage,
+                                            const uint8_t* forced_record_storage,
+                                            uint8_t* detector_storage, uint8_t* observable_storage,
+                                            double* exp_val_storage,
+                                            double* log_probability_storage,
+                                            uint8_t* reachable_storage, uint8_t* survived) {
+    extern __shared__ char cooperative_state[];
+    __shared__ double reduction[2 * kCooperativeBlockSize];
+
+    const uint64_t shot = blockIdx.x;
+    if (shot >= shots) {
+        return;
+    }
+
+    const uint64_t capacity = coefficient_state_capacity(program.peak_active_width);
+    const uint64_t scratch_capacity = coefficient_scratch_capacity(program.peak_active_width);
+    const uint64_t coefficient_stride = coefficient_elements_per_shot(program.peak_active_width);
+
+    Coefficient* real = use_lds != 0
+                            ? reinterpret_cast<Coefficient*>(cooperative_state)
+                            : coefficient_storage + shot * coefficient_stride;
+    Coefficient* imag = real + capacity;
+    Coefficient* scratch_real = imag + capacity;
+    Coefficient* scratch_imag = scratch_real + scratch_capacity;
+
+    uint8_t* symbols = program.num_symbols == 0 ? nullptr : symbol_storage + shot * program.num_symbols;
+    uint8_t* records = program.num_records == 0 ? nullptr : record_storage + shot * program.num_records;
+    uint8_t* detectors =
+        program.num_detectors == 0 ? nullptr : detector_storage + shot * program.num_detectors;
+    uint8_t* observables =
+        program.num_observables == 0 ? nullptr : observable_storage + shot * program.num_observables;
+    double* exp_vals =
+        program.num_exp_vals == 0 ? nullptr : exp_val_storage + shot * program.num_exp_vals;
+    const uint8_t* forced_records = nullptr;
+    if constexpr (Replay) {
+        if (program.num_records != 0) {
+            forced_records = forced_record_storage + shot * program.num_records;
+        }
+    }
+
+    for (uint64_t basis = threadIdx.x; basis < (uint64_t{1} << program.initial_active_width);
+         basis += blockDim.x) {
+        real[basis] = 0;
+        imag[basis] = 0;
+    }
+    for (uint32_t symbol = threadIdx.x; symbol < program.num_symbols; symbol += blockDim.x) {
+        symbols[symbol] = 0;
+    }
+    for (uint32_t record = threadIdx.x; record < program.num_records; record += blockDim.x) {
+        records[record] = 0;
+    }
+    for (uint32_t detector = threadIdx.x; detector < program.num_detectors; detector += blockDim.x) {
+        detectors[detector] = 0;
+    }
+    for (uint32_t observable = threadIdx.x; observable < program.num_observables;
+         observable += blockDim.x) {
+        observables[observable] = 0;
+    }
+    for (uint32_t exp_val = threadIdx.x; exp_val < program.num_exp_vals; exp_val += blockDim.x) {
+        exp_vals[exp_val] = 0.0;
+    }
+    __syncthreads();
+    if (threadIdx.x == 0) {
+        real[0] = static_cast<Coefficient>(1);
+    }
+    __syncthreads();
+
+    // Each lane uses the same random stream. Branches must agree across the
+    // block so no lane skips a barrier.
+    const CooperativeLane lane;
+    Xoshiro256PlusPlus rng = shot_rng(seed_root, shot_offset + shot);
+    if constexpr (!Replay) {
+        sample_noise(program, rng, symbols, lane.is_writer());
+    }
+    __syncthreads();
+
+    double log_probability = 0.0;
+    bool reachable = true;
+    bool discarded = false;
+    for (uint32_t action_index = 0; action_index < program.action_count; ++action_index) {
+        const Action action = program.actions[action_index];
+        switch (action.tag) {
+            case ActionTag::RotateActivePauli:
+                apply_rotation_coop(action, evaluate(program, symbols, action.expression), real,
+                                    imag);
+                break;
+            case ActionTag::PromoteDormantRotation:
+                apply_promotion_coop(action, evaluate(program, symbols, action.expression), real,
+                                     imag);
+                break;
+            case ActionTag::MeasureActivePauli:
+                reachable = measure_active_coop<Coefficient, Replay>(
+                    program, action, rng, forced_records, &log_probability, symbols, records, real,
+                    imag, scratch_real, scratch_imag, reduction);
+                break;
+            case ActionTag::MeasureDormantRandom: {
+                const bool correction = evaluate(program, symbols, action.expression);
+                const bool branch = Replay ? (forced_records[action.index1] != 0) != correction
+                                           : rng.next_double() >= 0.5;
+                if constexpr (Replay) {
+                    log_probability += kLogHalf;
+                }
+                lane.sync();
+                if (lane.is_writer()) {
+                    symbols[action.index0] = static_cast<uint8_t>(branch);
+                    records[action.index1] =
+                        static_cast<uint8_t>(evaluate(program, symbols, action.expression));
+                }
+                break;
+            }
+            case ActionTag::RecordClassical:
+                if (lane.is_writer()) {
+                    records[action.index0] =
+                        static_cast<uint8_t>(evaluate(program, symbols, action.expression));
+                }
+                lane.sync();
+                if constexpr (Replay) {
+                    reachable = records[action.index0] == forced_records[action.index0];
+                }
+                break;
+            case ActionTag::DefineSymbol:
+                if (lane.is_writer()) {
+                    symbols[action.index0] =
+                        static_cast<uint8_t>(evaluate(program, symbols, action.expression));
+                }
+                break;
+            case ActionTag::ApplyReadoutNoise: {
+                if constexpr (Replay) {
+                    reachable = false;
+                } else {
+                    const bool source = evaluate(program, symbols, action.expression);
+                    const double probability = source ? action.value1 : action.value0;
+                    const bool flip = probability >= 1.0 ||
+                                      (probability > 0.0 && rng.next_double() < probability);
+                    if (lane.is_writer()) {
+                        symbols[action.index0] = static_cast<uint8_t>(flip);
+                        records[action.index1] ^= static_cast<uint8_t>(flip);
+                    }
+                }
+                break;
+            }
+            case ActionTag::WriteDetector: {
+                const bool outcome = evaluate_output_value(program, symbols, records, action);
+                if (lane.is_writer()) {
+                    detectors[action.index0] = static_cast<uint8_t>(outcome);
+                }
+                if ((action.flags & kPostselected) != 0 && outcome) {
+                    discarded = true;
+                }
+                break;
+            }
+            case ActionTag::WriteObservable:
+                if (lane.is_writer()) {
+                    observables[action.index0] = static_cast<uint8_t>(
+                        evaluate_output_value(program, symbols, records, action));
+                }
+                break;
+            case ActionTag::WriteExpectationValue: {
+                if ((action.flags & kAbsentActiveProjection) != 0) {
+                    if (lane.is_writer()) {
+                        exp_vals[action.index0] = 0.0;
+                    }
+                    break;
+                }
+                const double value = expectation_value_coop(action, real, imag, reduction);
+                if (lane.is_writer()) {
+                    exp_vals[action.index0] =
+                        evaluate(program, symbols, action.expression) ? -value : value;
+                }
+                break;
+            }
+        }
+        // The next action may assign coefficients to different lanes.
+        // Finish all writes before it starts.
+        __syncthreads();
+        if (!reachable || discarded) {
+            break;
+        }
+    }
+
+    if (threadIdx.x == 0) {
+        if constexpr (Replay) {
+            log_probability_storage[shot] = log_probability;
+            reachable_storage[shot] = static_cast<uint8_t>(reachable);
+        }
+        survived[shot] = static_cast<uint8_t>(reachable && !discarded);
+    }
+}
+
 // The host launcher is intentionally hidden from the HIP device pass below.
 // Keep explicit device-visible instantiations here so the offload bundle owns
 // kernels instead of only host registration stubs.
+template __global__ void interpret_shots_cooperative<float, false>(
+    ProgramView, SeedRoot, uint64_t, uint32_t, float*, uint32_t, uint8_t*, uint8_t*,
+    const uint8_t*, uint8_t*, uint8_t*, double*, double*, uint8_t*, uint8_t*);
+template __global__ void interpret_shots_cooperative<double, false>(
+    ProgramView, SeedRoot, uint64_t, uint32_t, double*, uint32_t, uint8_t*, uint8_t*,
+    const uint8_t*, uint8_t*, uint8_t*, double*, double*, uint8_t*, uint8_t*);
+template __global__ void interpret_shots_cooperative<float, true>(
+    ProgramView, SeedRoot, uint64_t, uint32_t, float*, uint32_t, uint8_t*, uint8_t*,
+    const uint8_t*, uint8_t*, uint8_t*, double*, double*, uint8_t*, uint8_t*);
+template __global__ void interpret_shots_cooperative<double, true>(
+    ProgramView, SeedRoot, uint64_t, uint32_t, double*, uint32_t, uint8_t*, uint8_t*,
+    const uint8_t*, uint8_t*, uint8_t*, double*, double*, uint8_t*, uint8_t*);
 template __global__ void interpret_shots<float, false>(ProgramView, SeedRoot, uint64_t, uint32_t,
                                                        float*, uint8_t*, uint8_t*, const uint8_t*,
                                                        uint8_t*, uint8_t*, double*, double*,
@@ -698,8 +1139,46 @@ struct UploadedProgram {
     }
 };
 
+ExecutionTier resolve_execution_tier(uint32_t peak_active_width, CoefficientPrecision precision,
+                                     ExecutionTier requested = ExecutionTier::Auto) {
+    const uint64_t element_bytes =
+        precision == CoefficientPrecision::FP32 ? sizeof(float) : sizeof(double);
+    int device = 0;
+    hipDeviceProp_t properties{};
+    check_hip(hipGetDevice(&device), "device query");
+    check_hip(hipGetDeviceProperties(&properties, device), "device property query");
+    if (requested == ExecutionTier::Auto) {
+        return select_execution_tier(peak_active_width, element_bytes,
+                                     properties.sharedMemPerBlock);
+    }
+    if (!tier_supports(requested, peak_active_width, element_bytes,
+                       properties.sharedMemPerBlock)) {
+        throw std::invalid_argument(
+            std::string("HIP tier ") + tier_name(requested) + " cannot hold a plan of width " +
+            std::to_string(peak_active_width) + " at this precision on this device");
+    }
+    return requested;
+}
+
+void validate_launch_block_size(uint32_t block_size, ExecutionTier tier) {
+    if (tier == ExecutionTier::ThreadPerShot || block_size == kAutoBlockSize) {
+        return;
+    }
+    const bool power_of_two = (block_size & (block_size - 1)) == 0;
+    if (!power_of_two || block_size < detail::kWavefrontSize ||
+        block_size > detail::kCooperativeBlockSize) {
+        throw std::invalid_argument(
+            "HIP block size on the " + std::string(tier_name(tier)) +
+            " tier must be a power of two between " + std::to_string(detail::kWavefrontSize) + " and " +
+            std::to_string(detail::kCooperativeBlockSize) + "; got " + std::to_string(block_size));
+    }
+}
+
 void validate_block_size(uint32_t block_size) {
-    if (block_size == 0 || block_size > 1024) {
+    if (block_size == kAutoBlockSize) {
+        return;
+    }
+    if (block_size > 1024) {
         throw std::invalid_argument("HIP block size must be between 1 and 1024");
     }
 }
@@ -742,15 +1221,19 @@ class Sampler::Impl {
     };
 
     Impl(const ExecutablePlan& source, CoefficientPrecision selected_precision,
-         uint32_t selected_max_batch_shots)
+         uint32_t selected_max_batch_shots, ExecutionTier requested_tier)
         : program(source),
           precision(selected_precision),
-          max_batch(selected_max_batch_shots),
+          tier(resolve_execution_tier(source.peak_active_width(), selected_precision,
+                                      requested_tier)),
+          max_batch(effective_max_batch(source, selected_precision, tier, selected_max_batch_shots)),
           coefficient_stride(detail::coefficient_elements_per_shot(source.peak_active_width())),
-          fp32_coefficients(selected_precision == CoefficientPrecision::FP32
+          fp32_coefficients(selected_precision == CoefficientPrecision::FP32 &&
+                                    needs_global_coefficients(tier)
                                 ? checked_elements(max_batch, coefficient_stride, "coefficient")
                                 : 0),
-          fp64_coefficients(selected_precision == CoefficientPrecision::FP64
+          fp64_coefficients(selected_precision == CoefficientPrecision::FP64 &&
+                                    needs_global_coefficients(tier)
                                 ? checked_elements(max_batch, coefficient_stride, "coefficient")
                                 : 0),
           symbols(checked_elements(max_batch, source.num_symbols(), "symbol")),
@@ -769,6 +1252,38 @@ class Sampler::Impl {
           host_exp_vals(checked_elements(max_batch, source.num_exp_vals(), "host expectation")),
           host_survived(max_batch) {}
 
+    static bool needs_global_coefficients(ExecutionTier resolved) {
+        return resolved != ExecutionTier::BlockShared;
+    }
+
+    static uint32_t effective_max_batch(const ExecutablePlan& source,
+                                        CoefficientPrecision selected_precision,
+                                        ExecutionTier resolved, uint32_t requested) {
+        if (!needs_global_coefficients(resolved) || requested == 0) {
+            return requested;
+        }
+        const uint64_t element_bytes =
+            selected_precision == CoefficientPrecision::FP32 ? sizeof(float) : sizeof(double);
+        const uint64_t per_shot =
+            detail::coefficient_elements_per_shot(source.peak_active_width()) * element_bytes +
+            source.num_symbols() + source.num_records() + source.num_records() +
+            source.num_detectors() + source.num_observables() +
+            uint64_t{source.num_exp_vals()} * sizeof(double) + sizeof(uint8_t);
+        if (per_shot == 0) {
+            return requested;
+        }
+        size_t free_bytes = 0;
+        size_t total_bytes = 0;
+        check_hip(hipMemGetInfo(&free_bytes, &total_bytes), "device memory query");
+        // Leave room for driver allocations and fragmentation.
+        const uint64_t budget = static_cast<uint64_t>(static_cast<double>(free_bytes) * 0.6);
+        uint64_t affordable = budget / per_shot;
+        if (affordable == 0) {
+            affordable = 1;
+        }
+        return static_cast<uint32_t>(std::min<uint64_t>(requested, affordable));
+    }
+
     void run_batch(detail::SeedRoot root, uint64_t shot_offset, uint32_t shots,
                    uint32_t block_size, DownloadMode download_mode) {
         if (shots > max_batch) {
@@ -785,10 +1300,13 @@ class Sampler::Impl {
     void run_replay(std::span<const uint8_t> input) {
         forced_records.upload(input);
         const detail::SeedRoot empty_root{};
+        // Cooperative replay still needs a full block for its single shot.
+        const uint32_t replay_block =
+            tier == ExecutionTier::ThreadPerShot ? 1U : kAutoBlockSize;
         if (precision == CoefficientPrecision::FP32) {
-            launch<float, true>(empty_root, 0, 1, 1, fp32_coefficients.data());
+            launch<float, true>(empty_root, 0, 1, replay_block, fp32_coefficients.data());
         } else {
-            launch<double, true>(empty_root, 0, 1, 1, fp64_coefficients.data());
+            launch<double, true>(empty_root, 0, 1, replay_block, fp64_coefficients.data());
         }
         download_rows(1, DownloadMode::Replay);
     }
@@ -808,6 +1326,7 @@ class Sampler::Impl {
 
     UploadedProgram program;
     CoefficientPrecision precision;
+    ExecutionTier tier = ExecutionTier::ThreadPerShot;
     uint32_t max_batch;
     uint64_t coefficient_stride;
     DeviceBuffer<float> fp32_coefficients;
@@ -834,16 +1353,49 @@ class Sampler::Impl {
     template <typename Coefficient, bool Replay>
     void launch(detail::SeedRoot root, uint64_t shot_offset, uint32_t shots, uint32_t block_size,
                 Coefficient* coefficient_storage) {
-        const uint32_t blocks =
-            static_cast<uint32_t>((static_cast<uint64_t>(shots) + block_size - 1) / block_size);
-        hipLaunchKernelGGL(HIP_KERNEL_NAME(detail::interpret_shots<Coefficient, Replay>),
-                           dim3(blocks), dim3(block_size), 0, 0, program.view, root, shot_offset,
-                           shots, coefficient_storage, symbols.data(), records.data(),
-                           forced_records.data(), detectors.data(), observables.data(),
-                           exp_vals.data(), log_probabilities.data(), reachable.data(),
-                           survived.data());
+        if (tier == ExecutionTier::ThreadPerShot) {
+            const uint32_t threads =
+                block_size == kAutoBlockSize ? kThreadPerShotBlockSize : block_size;
+            const uint32_t blocks =
+                static_cast<uint32_t>((static_cast<uint64_t>(shots) + threads - 1) / threads);
+            hipLaunchKernelGGL(HIP_KERNEL_NAME(detail::interpret_shots<Coefficient, Replay>),
+                               dim3(blocks), dim3(threads), 0, 0, program.view, root,
+                               shot_offset, shots, coefficient_storage, symbols.data(),
+                               records.data(), forced_records.data(), detectors.data(),
+                               observables.data(), exp_vals.data(), log_probabilities.data(),
+                               reachable.data(), survived.data());
+        } else {
+            const uint32_t lanes =
+                cooperative_block_size(block_size, program.view.peak_active_width);
+            const bool in_lds = tier == ExecutionTier::BlockShared;
+            const size_t dynamic_lds =
+                in_lds ? static_cast<size_t>(detail::coefficient_elements_per_shot(
+                             program.view.peak_active_width)) *
+                             sizeof(Coefficient)
+                       : 0;
+            hipLaunchKernelGGL(
+                HIP_KERNEL_NAME(detail::interpret_shots_cooperative<Coefficient, Replay>),
+                dim3(shots), dim3(lanes), dynamic_lds, 0, program.view, root, shot_offset, shots,
+                coefficient_storage, in_lds ? 1u : 0u, symbols.data(), records.data(),
+                forced_records.data(), detectors.data(), observables.data(), exp_vals.data(),
+                log_probabilities.data(), reachable.data(), survived.data());
+        }
         check_hip(hipGetLastError(), "kernel launch");
         check_hip(hipDeviceSynchronize(), "kernel execution");
+    }
+
+    // Extra lanes add reduction steps without adding coefficient work.
+    static uint32_t cooperative_block_size(uint32_t requested, uint32_t peak_active_width) {
+        if (requested != kAutoBlockSize) {
+            return requested;
+        }
+        const uint64_t pairs =
+            peak_active_width == 0 ? 1 : (uint64_t{1} << (peak_active_width - 1));
+        uint32_t lanes = detail::kWavefrontSize;
+        while (lanes < detail::kCooperativeBlockSize && lanes < pairs) {
+            lanes <<= 1;
+        }
+        return lanes;
     }
 
     void download_rows(uint32_t shots, DownloadMode mode) {
@@ -869,6 +1421,11 @@ class Sampler::Impl {
     }
 };
 
+ExecutionTier selected_tier(const ExecutablePlan& executable,
+                            CoefficientPrecision coefficient_precision) {
+    return resolve_execution_tier(executable.peak_active_width(), coefficient_precision);
+}
+
 bool is_available() noexcept {
     int device_count = 0;
     return hipGetDeviceCount(&device_count) == hipSuccess && device_count > 0;
@@ -892,9 +1449,9 @@ std::string backend_info() {
 }
 
 Sampler::Sampler(const ExecutablePlan& executable, CoefficientPrecision coefficient_precision,
-                 uint32_t max_batch_shots) {
+                 uint32_t max_batch_shots, ExecutionTier tier) {
     validate_max_batch_shots(max_batch_shots);
-    impl_ = std::make_unique<Impl>(executable, coefficient_precision, max_batch_shots);
+    impl_ = std::make_unique<Impl>(executable, coefficient_precision, max_batch_shots, tier);
 }
 
 Sampler::~Sampler() = default;
@@ -904,6 +1461,7 @@ Sampler& Sampler::operator=(Sampler&&) noexcept = default;
 SamplingResult Sampler::sample(uint32_t shots, std::optional<uint64_t> seed, uint32_t block_size) {
     BusyGuard guard(impl_->busy);
     validate_block_size(block_size);
+    validate_launch_block_size(block_size, impl_->tier);
     if (impl_->program.has_postselection) {
         throw std::invalid_argument(
             "HIP fixed-row sampling does not support postselection; use sample_survivors");
@@ -968,6 +1526,7 @@ SamplingSurvivorResult Sampler::sample_survivors(uint32_t shots, bool keep_recor
                                                  uint32_t block_size) {
     BusyGuard guard(impl_->busy);
     validate_block_size(block_size);
+    validate_launch_block_size(block_size, impl_->tier);
     SamplingSurvivorResult result;
     result.total_shots = shots;
     if (shots == 0) {
@@ -1085,6 +1644,10 @@ CoefficientPrecision Sampler::coefficient_precision() const {
     return impl_->precision;
 }
 
+ExecutionTier Sampler::execution_tier() const {
+    return impl_->tier;
+}
+
 uint32_t Sampler::max_batch_shots() const {
     return impl_->max_batch;
 }
@@ -1125,7 +1688,7 @@ SamplingResult sample(const ExecutablePlan& executable, uint32_t shots,
         return {};
     }
     Sampler sampler(executable, options.coefficient_precision,
-                    std::min(shots, options.max_batch_shots));
+                    std::min(shots, options.max_batch_shots), options.tier);
     return sampler.sample(shots, options.seed, options.block_size);
 }
 
@@ -1137,15 +1700,15 @@ SamplingSurvivorResult sample_survivors(const ExecutablePlan& executable, uint32
         return {.total_shots = 0};
     }
     Sampler sampler(executable, options.coefficient_precision,
-                    std::min(shots, options.max_batch_shots));
+                    std::min(shots, options.max_batch_shots), options.tier);
     return sampler.sample_survivors(shots, keep_records, options.seed, options.block_size);
 }
 
 ReplayResult replay_shot(const ExecutablePlan& executable,
                          std::span<const uint8_t> forced_records,
-                         CoefficientPrecision coefficient_precision) {
+                         CoefficientPrecision coefficient_precision, ExecutionTier tier) {
     validate_replay_input(executable, forced_records);
-    Sampler sampler(executable, coefficient_precision, 1);
+    Sampler sampler(executable, coefficient_precision, 1, tier);
     return sampler.replay_shot(forced_records);
 }
 

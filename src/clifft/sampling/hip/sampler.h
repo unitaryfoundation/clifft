@@ -17,12 +17,16 @@ enum class CoefficientPrecision : uint8_t {
     FP32,
 };
 
-inline constexpr uint32_t kDefaultBlockSize = 256;
+// Zero selects 256 threads for ThreadPerShot, or 64, 128, or 256 for block tiers.
+inline constexpr uint32_t kAutoBlockSize = 0;
+inline constexpr uint32_t kThreadPerShotBlockSize = 256;
+inline constexpr uint32_t kDefaultBlockSize = kAutoBlockSize;
 inline constexpr uint32_t kDefaultMaxBatchShots = 65536;
 
 struct SamplingOptions {
     std::optional<uint64_t> seed = std::nullopt;
     CoefficientPrecision coefficient_precision = CoefficientPrecision::FP64;
+    ExecutionTier tier = ExecutionTier::Auto;
     uint32_t block_size = kDefaultBlockSize;
     uint32_t max_batch_shots = kDefaultMaxBatchShots;
 };
@@ -37,6 +41,11 @@ struct ReplayResult {
 [[nodiscard]] bool is_available() noexcept;
 [[nodiscard]] std::string backend_info();
 
+// Reports the automatic tier for the current device without uploading the plan.
+[[nodiscard]] ExecutionTier selected_tier(
+    const ExecutablePlan& executable,
+    CoefficientPrecision coefficient_precision = CoefficientPrecision::FP64);
+
 // Owns one uploaded executable and a precision-specific reusable workspace.
 // The object is synchronous and bound to the device current at construction.
 // Overlapping calls are rejected; use a separate Sampler per caller.
@@ -44,7 +53,8 @@ class Sampler {
   public:
     explicit Sampler(const ExecutablePlan& executable,
                      CoefficientPrecision coefficient_precision = CoefficientPrecision::FP64,
-                     uint32_t max_batch_shots = kDefaultMaxBatchShots);
+                     uint32_t max_batch_shots = kDefaultMaxBatchShots,
+                     ExecutionTier tier = ExecutionTier::Auto);
     ~Sampler();
 
     Sampler(const Sampler&) = delete;
@@ -60,6 +70,7 @@ class Sampler {
     [[nodiscard]] ReplayResult replay_shot(std::span<const uint8_t> forced_records);
 
     [[nodiscard]] CoefficientPrecision coefficient_precision() const;
+    [[nodiscard]] ExecutionTier execution_tier() const;
     [[nodiscard]] uint32_t max_batch_shots() const;
     [[nodiscard]] size_t allocated_device_bytes() const;
     [[nodiscard]] uint32_t num_visible_records() const;
@@ -80,6 +91,7 @@ class Sampler {
                                                       const SamplingOptions& options = {});
 [[nodiscard]] ReplayResult replay_shot(
     const ExecutablePlan& executable, std::span<const uint8_t> forced_records,
-    CoefficientPrecision coefficient_precision = CoefficientPrecision::FP64);
+    CoefficientPrecision coefficient_precision = CoefficientPrecision::FP64,
+    ExecutionTier tier = ExecutionTier::Auto);
 
 }  // namespace clifft::sampling::hip

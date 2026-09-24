@@ -63,6 +63,7 @@ nb::object survivors_to_python(clifft::sampling::SamplingSurvivorResult result,
 NB_MODULE(_clifft_hip, module) {
     using clifft::sampling::hip::CoefficientPrecision;
     using clifft::sampling::hip::ExecutablePlan;
+    using clifft::sampling::hip::ExecutionTier;
     using clifft::sampling::hip::Sampler;
 
     module.doc() = "Experimental Clifft HIP backend";
@@ -70,6 +71,12 @@ NB_MODULE(_clifft_hip, module) {
     nb::enum_<CoefficientPrecision>(module, "CoefficientPrecision")
         .value("FP64", CoefficientPrecision::FP64)
         .value("FP32", CoefficientPrecision::FP32);
+
+    nb::enum_<ExecutionTier>(module, "ExecutionTier")
+        .value("Auto", ExecutionTier::Auto)
+        .value("ThreadPerShot", ExecutionTier::ThreadPerShot)
+        .value("BlockShared", ExecutionTier::BlockShared)
+        .value("BlockGlobal", ExecutionTier::BlockGlobal);
 
     nb::class_<ExecutablePlan>(module, "Program")
         .def_prop_ro("peak_active_width", &ExecutablePlan::peak_active_width)
@@ -101,15 +108,18 @@ NB_MODULE(_clifft_hip, module) {
         nb::arg("expected_observables") = std::vector<uint8_t>{});
 
     nb::class_<Sampler>(module, "Sampler")
-        .def(nb::init<const ExecutablePlan&, CoefficientPrecision, uint32_t>(), nb::arg("program"),
-             nb::arg("coefficient_precision") = CoefficientPrecision::FP64,
-             nb::arg("max_batch_shots") = clifft::sampling::hip::kDefaultMaxBatchShots)
+        .def(nb::init<const ExecutablePlan&, CoefficientPrecision, uint32_t, ExecutionTier>(),
+             nb::arg("program"), nb::arg("coefficient_precision") = CoefficientPrecision::FP64,
+             nb::arg("max_batch_shots") = clifft::sampling::hip::kDefaultMaxBatchShots,
+             nb::arg("tier") = ExecutionTier::Auto)
         .def_prop_ro("coefficient_precision",
                      [](const Sampler& sampler) { return sampler.coefficient_precision(); })
         .def_prop_ro("max_batch_shots",
                      [](const Sampler& sampler) { return sampler.max_batch_shots(); })
         .def_prop_ro("allocated_device_bytes",
                      [](const Sampler& sampler) { return sampler.allocated_device_bytes(); })
+        .def_prop_ro("execution_tier",
+                     [](const Sampler& sampler) { return sampler.execution_tier(); })
         .def(
             "sample",
             [](Sampler& sampler, uint32_t shots, std::optional<uint64_t> seed,
@@ -154,6 +164,14 @@ NB_MODULE(_clifft_hip, module) {
                 return output;
             },
             nb::arg("forced_records"));
+
+    module.def(
+        "selected_tier",
+        [](const ExecutablePlan& program, CoefficientPrecision precision) {
+            return clifft::sampling::hip::selected_tier(program, precision);
+        },
+        nb::arg("program"), nb::arg("coefficient_precision") = CoefficientPrecision::FP64,
+        "Tier this program would run on for the current device and precision.");
 
     module.def("is_available", &clifft::sampling::hip::is_available);
     module.def("backend_info", &clifft::sampling::hip::backend_info);

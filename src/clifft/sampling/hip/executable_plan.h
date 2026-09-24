@@ -11,10 +11,68 @@
 
 namespace clifft::sampling::hip {
 
-// The first device tier assigns a complete shot to one thread. Wider plans
-// will be accepted when cooperative thread blocks keep their state in on-chip
-// shared memory.
+// Auto selects from the active width, precision, and device memory limits.
+// Explicit tiers are rejected if the plan does not fit.
+enum class ExecutionTier : uint8_t {
+    Auto,
+    ThreadPerShot,  // one thread per shot, global coefficients
+    BlockShared,    // one block per shot, shared coefficients
+    BlockGlobal,    // one block per shot, global coefficients
+};
+
+[[nodiscard]] constexpr const char* tier_name(ExecutionTier tier) {
+    switch (tier) {
+        case ExecutionTier::Auto:
+            return "auto";
+        case ExecutionTier::ThreadPerShot:
+            return "thread_per_shot";
+        case ExecutionTier::BlockShared:
+            return "block_shared";
+        case ExecutionTier::BlockGlobal:
+            return "block_global";
+    }
+    return "unknown";
+}
+
 inline constexpr uint32_t kThreadPerShotMaxActiveWidth = 4;
+
+// Device memory can impose a lower limit.
+inline constexpr uint32_t kMaxSupportedActiveWidth = 30;
+
+[[nodiscard]] constexpr uint64_t coefficient_bytes_per_shot(uint32_t peak_active_width,
+                                                            uint64_t element_bytes) {
+    return detail::coefficient_elements_per_shot(peak_active_width) * element_bytes;
+}
+
+[[nodiscard]] constexpr ExecutionTier select_execution_tier(uint32_t peak_active_width,
+                                                            uint64_t element_bytes,
+                                                            uint64_t lds_bytes_per_workgroup) {
+    if (peak_active_width <= kThreadPerShotMaxActiveWidth) {
+        return ExecutionTier::ThreadPerShot;
+    }
+    // Coefficients share LDS with the kernel's static reduction scratch.
+    const uint64_t usable = lds_bytes_per_workgroup > detail::kCooperativeReductionBytes
+                                ? lds_bytes_per_workgroup - detail::kCooperativeReductionBytes
+                                : 0;
+    if (coefficient_bytes_per_shot(peak_active_width, element_bytes) <= usable) {
+        return ExecutionTier::BlockShared;
+    }
+    return ExecutionTier::BlockGlobal;
+}
+
+// The automatic thread-per-shot cutoff does not restrict forced tiers.
+// Only BlockShared requires the state to fit per-block shared memory.
+[[nodiscard]] constexpr bool tier_supports(ExecutionTier tier, uint32_t peak_active_width,
+                                           uint64_t element_bytes,
+                                           uint64_t lds_bytes_per_workgroup) {
+    if (tier != ExecutionTier::BlockShared) {
+        return true;
+    }
+    const uint64_t usable = lds_bytes_per_workgroup > detail::kCooperativeReductionBytes
+                                ? lds_bytes_per_workgroup - detail::kCooperativeReductionBytes
+                                : 0;
+    return coefficient_bytes_per_shot(peak_active_width, element_bytes) <= usable;
+}
 
 class ExecutablePlan {
   public:

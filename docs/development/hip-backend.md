@@ -8,11 +8,9 @@
     source build, and may change without compatibility guarantees. It is never
     selected automatically.
 
-Clifft's CPU implementation is the stable reference. The experimental HIP
-backend shares circuit parsing, compilation, and symbolic planning with it,
-then lowers the prepared plan into a private GPU executable. It uses separate
-`Program` and `Sampler` types so backend-specific precision, workspace, and
-launch controls stay outside the stable API.
+Use `clifft.experimental.hip` to sample circuits on AMD GPUs. It shares the
+CPU backend's compiler and planner and provides separate `Program` and
+`Sampler` types.
 
 ## Current capabilities
 
@@ -22,16 +20,39 @@ launch controls stay outside the stable API.
 | Post-selected survivor sampling | Supported for eligible programs |
 | Measurements, detectors, observables, and `EXP_VAL` | Supported |
 | Pauli and readout noise | Supported |
-| Peak active width | `k <= 4` |
+| Peak active width | `k <= 30`, subject to available device memory |
 | Coefficient precision | FP64 default; FP32 experimental |
 | Fixed-fault importance sampling | Not supported |
 | Leakage, loss, and transition instruments | Not supported |
 | Exact-probability and state-vector queries | Not supported |
 | Asynchronous or multi-GPU execution | Not supported |
 
-The current tier uses one GPU thread per shot and targets circuits with small
-active states. Unsupported programs are rejected during lowering; there is no
-automatic CPU fallback.
+Unsupported programs are rejected during lowering; there is no automatic CPU
+fallback.
+
+### Execution tiers
+
+The backend selects a tier from the program's peak active width, coefficient
+precision, and the device's shared-memory limit:
+
+| Tier | Threads per shot | Coefficient storage | Auto selection |
+|---|---|---|---|
+| `thread_per_shot` | 1 | global memory | `k <= 4` |
+| `block_shared` | one block | shared memory | wider states that fit shared memory |
+| `block_global` | one block | global memory | otherwise |
+
+In Python, `hip.Sampler(program)` defaults to `tier="auto"`. Pass a tier name
+from the table to select it explicitly. `hip.selected_tier(program, precision)`
+reports the automatic choice without allocating a workspace; `sampler.tier`
+reports the tier in use.
+
+C++ defaults to `ExecutionTier::Auto`. Set `SamplingOptions::tier` or pass a
+tier to the `Sampler` constructor or `replay_shot`. Inspect the choice with
+`selected_tier(executable, precision)` or `Sampler::execution_tier()`.
+
+An explicit `block_shared` request fails if the program needs too much shared
+memory. Explicit `thread_per_shot` requests can run widths above four, subject
+to available device memory.
 
 ## Hardware and source build
 
@@ -136,54 +157,36 @@ result = sampler.sample(100_000, seed=42, block_size=256)
 print(sampler.allocated_device_bytes)
 ```
 
-Probability reductions, normalization factors, aggregate statistics, replay
-log-probabilities, and `EXP_VAL` outputs remain FP64 in both modes.
+Probability calculations, replay log-probabilities, and `EXP_VAL` outputs
+remain FP64 in both modes.
 
 - `max_batch_shots` bounds retained device workspace. Larger requests are
-  split into synchronous launches that reuse it.
-- `block_size` controls launch geometry and must be between 1 and 1024.
+  split into batches. The sampler may reduce this limit to fit available
+  memory; `sampler.max_batch_shots` reports the retained capacity.
+- `block_size` sets the number of threads per block. The default, 0, selects
+  256 for `thread_per_shot` or 64, 128, or 256 for the block tiers. Explicit
+  values must be in `1..1024` for `thread_per_shot`, or one of 64, 128, and 256
+  for the block tiers.
 - `allocated_device_bytes` exposes retained workspace size for experiments.
 
-These controls are not equivalents of CPU `batch_size`, `threads`, or
-`thread_layout`. A fixed seed repeats within the same HIP precision and
-configuration, including across workspace batch sizes. CPU and HIP use
-separate random-stream domains, so compare deterministic branches directly and
-stochastic results statistically.
+These controls differ from CPU `batch_size`, `threads`, and `thread_layout`.
+A fixed seed reproduces rows for the same HIP precision, tier, and block size,
+regardless of workspace batch size. Changing tiers or block sizes can change
+rounding and sampled rows. CPU and HIP also use different random streams;
+compare their stochastic results statistically.
 
-## Architecture
+## Testing
 
-The compiler/runtime boundary is `sampling::SamplingPlan`:
+Ordinary CPU builds test HIP plan lowering and validation. HIP-enabled CI
+also compiles `gfx942` device code and runs tests that do not need a GPU.
 
-```text
-HIR -> SamplingPlan -> CPU ExecutablePlan -> trusted CPU sampling oracle
-                    -> private HIP executable -> device interpreter
-```
-
-The HIP executable is a backend-specific packing of prepared `SamplingAction`
-alternatives. It stores host-computed Pauli phases, pairings, active-width
-transitions, expressions, and noise distributions. The device executes the
-plan without topology planning or allocation in its dispatch loop.
-
-CPU and HIP lowering share execution-ready Pauli preparation and result
-containers. Their executable layouts, mutable state, dispatch order, and
-workspace ownership remain backend-specific.
-
-## Testing and contribution boundary
-
-Ordinary CPU builds compile host-side HIP lowering tests. They check packed
-actions, expressions, noise tables, prepared Pauli data, supported-width
-validation, and rejection of unsupported plans. Adding a `SamplingAction`
-without HIP lowering support fails during this build.
-
-HIP-enabled CI additionally compiles `gfx942` device code and runs GPU-free
-conformance cases. Kernel-launch tests are skipped without a visible AMD GPU;
-therefore this coverage does not establish runtime correctness on hardware.
+Kernel tests are skipped without a visible AMD GPU, so hardware testing is
+still required.
 
 Manual MI300X tests exercise FP64 and FP32 repeatability, forced branches and
 expectation values against the CPU executor, noisy distributions,
 post-selection, and retained output rows. A supported backend will require
 regular hardware testing and a declared ROCm/driver matrix.
 
-For the experimental Python workflow, source map, kernel invariants, and
-extension checklist, continue to
-[HIP Kernel Development](hip-kernel-development.md).
+See [HIP Kernel Development](hip-kernel-development.md) for implementation
+details and contribution instructions.

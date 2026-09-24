@@ -69,11 +69,12 @@ ExecutablePlan::ExecutablePlan(const SamplingPlan& plan)
     plan.validate();
     require_uint32_size(plan.symbols.size(), "symbol storage");
     require_uint32_size(plan.actions.size(), "action storage");
-    if (plan.peak_active_width > kThreadPerShotMaxActiveWidth) {
-        throw std::invalid_argument(
-            "HIP thread-per-shot execution supports peak active width at "
-            "most " +
-            std::to_string(kThreadPerShotMaxActiveWidth));
+    // Tier selection needs a device and precision; lowering only enforces
+    // the backend's width limit.
+    if (plan.peak_active_width > kMaxSupportedActiveWidth) {
+        throw std::invalid_argument("HIP execution supports peak active width at most " +
+                                    std::to_string(kMaxSupportedActiveWidth) + "; plan needs " +
+                                    std::to_string(plan.peak_active_width));
     }
     if (!plan.instrument_distributions.empty()) {
         throw std::invalid_argument("HIP execution does not support transition instruments");
