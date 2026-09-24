@@ -71,6 +71,22 @@ uv run --frozen --only-group dev pre-commit run --all-files --show-diff-on-failu
 - **Type checker:** mypy (strict mode)
 - **Python version:** 3.12+
 
+## Writing Tests
+
+Use `sampling_mode` for behavior shared across CPU sampling modes. New features
+should be tested in the modes that support them, and new modes should inherit
+the applicable existing tests.
+
+Check that a test reaches the implementation it claims to test: batching can
+reduce worker counts, and optimization can remove active-state work. Keep
+focused assertions for these prerequisites.
+
+Use focused parallel tests with enough work for multiple workers to contribute.
+Breakpoints can confirm a code path, but change scheduling; use measurements
+that do not pause execution when checking work sharing. Avoid assertions about
+a particular work split. Keep worker counts and states small, and test resource
+limits through policy or validation checks with bounded allocations.
+
 ## Running Tests
 
 === "Python"

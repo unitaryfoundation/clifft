@@ -134,30 +134,11 @@ Shared sampling tests run the same behavioral assertions across supported
 execution modes. This helps new features receive coverage across modes and
 makes new modes inherit existing behavioral and regression tests.
 
-Opt applicable feature tests into `sampling_mode`, and add supported CPU
-configurations to `CPU_SAMPLING_MODES` in `tests/python/utils_conformance.py`.
-Implementors and reviewers decide which tests apply and supply meaningful
-circuits and assertions.
-
-Check the execution path as well as the requested options. Automatic batching
-can turn a multithreaded request into one batch and one worker. Use explicit
-capacities and enough batches in focused cross-shot tests. For intra-shot
-tests, retain active work after compilation, assert the required active width,
-and allow enough SIMD chunks for multiple workers. A circuit containing a
-non-Clifford gate can still compile to no active-state work.
-
-Keep focused policy and circuit-shape assertions near the tests they protect.
-When adding or changing a mode, verify representative executor or kernel
-activity and record the evidence in the PR. A targeted local debugger trace
-can establish this without adding runtime instrumentation. Dynamic scheduling
-does not guarantee a particular work split in short tests, so avoid asserting
-an exact split. Automatic fallbacks, zero-shot calls, rejection checks, and
-single-batch boundaries remain useful contract tests; they do not establish
-parallel execution.
-
-Use small explicit worker counts and bounded states. Check resource limits
-through policy calculations or validation without allocating the requested
-large workspace or exhausting the host.
+The CPU corpus covers explicit scalar and packed execution and automatic
+selection. Dedicated tests check seeded repeatability across worker counts
+and behavior at batch and output boundaries. Short dynamically scheduled
+calls may finish on one worker. See [Writing Tests](contributing.md#writing-tests)
+for contribution guidance.
 
 ## Running the Tests
 
