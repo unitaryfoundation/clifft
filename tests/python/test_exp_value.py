@@ -207,6 +207,29 @@ class TestExactOracle:
             rtol=0.0,
         )
 
+    def test_active_rotations_match_qiskit(self, sampling_mode: CpuSamplingMode) -> None:
+        """Probes retain active coordinates that terminal measurements could eliminate."""
+        prefix = "H 0 1 2 3\nT 0 1 2 3"
+        rotations = "R_X(0.125) 0\nR_Y(0.375) 1"
+        paulis = ["X0*X1*X2*X3", "Z0", "Z1"]
+        program = sampling_mode.compile(
+            prefix + "\nEXP_VAL X0*X1*X2*X3\n" + rotations + "\nEXP_VAL " + " ".join(paulis)
+        )
+        assert program.peak_active_width == 4
+        before = qiskit_statevector(stim_to_qiskit_noiseless(prefix))
+        after = qiskit_statevector(stim_to_qiskit_noiseless(prefix + "\n" + rotations))
+        expected = np.array(
+            [pauli_expectation(before, paulis[0], 4)]
+            + [pauli_expectation(after, pauli, 4) for pauli in paulis]
+        )
+        result = sampling_mode.sample(program, SMALL_CIRCUIT_SHOTS, seed=1911)
+        np.testing.assert_allclose(
+            result.exp_vals,
+            np.broadcast_to(expected, (SMALL_CIRCUIT_SHOTS, len(expected))),
+            atol=1e-12,
+            rtol=0,
+        )
+
 
 # =============================================================================
 # Statistical equivalence to destructive measurement

@@ -10,7 +10,7 @@ from conftest import (
     binomial_tolerance,
     random_clifford_circuit,
 )
-from utils_conformance import SMALL_CIRCUIT_SHOTS, CpuSamplingMode
+from utils_conformance import SMALL_CIRCUIT_SHOTS, CpuSamplingMode, skip_unavailable_intra_shot
 
 import clifft
 
@@ -259,13 +259,16 @@ class TestSample:
         )
         assert prog.peak_active_width == 4
         serial = sampling_api.sample(prog, 31, seed=12347, threads=1)
-        threaded = sampling_api.sample(
-            prog,
-            31,
-            seed=12347,
-            thread_layout=(1, 2),
-            intra_shot_min_active_width=3,
-        )
+        try:
+            threaded = sampling_api.sample(
+                prog,
+                31,
+                seed=12347,
+                thread_layout=(1, 2),
+                intra_shot_min_active_width=3,
+            )
+        except ValueError as error:
+            skip_unavailable_intra_shot(error)
         np.testing.assert_array_equal(threaded.measurements, serial.measurements)
         np.testing.assert_allclose(threaded.exp_vals, serial.exp_vals, atol=1e-12, rtol=0)
 
@@ -393,6 +396,29 @@ class TestSample:
         assert (
             abs(adjacent_both_1 - expected_adj) < adj_tol
         ), f"Adjacency correlation off: {adjacent_both_1}"
+
+    def test_active_measurement_feedback_and_reset(self, sampling_mode: CpuSamplingMode) -> None:
+        """A measured bit changes a later rotation on a still-active qubit."""
+        program = sampling_mode.compile(
+            "H 0 1 2 3 4\nT 0 1 2 3 4\nEXP_VAL X0*X1*X2*X3*X4\n"
+            "H 0\nM 0\nCX rec[-1] 1\nR_Z(0.125) 1\nEXP_VAL X1\nR 2\nM 2\n"
+            "DETECTOR rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-2]"
+        )
+        # Measurement removes one coordinate before the remaining active rotation.
+        assert program.peak_active_width == 5
+        shots = 257
+        result = sampling_mode.sample(program, shots, seed=1912)
+        first = result.measurements[:, 0]
+        probability = (1 - np.sqrt(0.5)) / 2
+        assert 0 < first.sum() < shots
+        assert abs(first.mean() - probability) < binomial_tolerance(probability, shots)
+        np.testing.assert_array_equal(result.measurements[:, 1], np.zeros(shots))
+        np.testing.assert_array_equal(result.detectors, np.zeros((shots, 1)))
+        np.testing.assert_array_equal(result.observables[:, 0], first)
+        # Conditional X reverses the T|+> azimuth before Rz adds pi/8.
+        azimuth = np.where(first == 0, np.pi / 4, -np.pi / 4)
+        expected = np.column_stack((np.full(shots, 2**-2.5), np.cos(azimuth + np.pi / 8)))
+        np.testing.assert_allclose(result.exp_vals, expected, atol=1e-12, rtol=0)
 
 
 class TestStatevector:
@@ -937,6 +963,55 @@ class TestPostselection:
 
 class TestSampleSurvivors:
     """Tests for sample_survivors() API."""
+
+    @pytest.mark.parametrize("keep_records", [False, True])
+    def test_active_postselection_preserves_survivor_outputs(
+        self, sampling_mode: CpuSamplingMode, keep_records: bool
+    ) -> None:
+        """Survivor accounting and retained probes agree with independent expectations."""
+        program = sampling_mode.compile(
+            "H 0 1 2 3 4\nT 0 1 2 3 4\nEXP_VAL X0*X1*X2*X3*X4\n"
+            "R_X(0.125) 4\nEXP_VAL Z4\nM 0\nDETECTOR rec[-1]\n"
+            "H 1\nM 1\nOBSERVABLE_INCLUDE(0) rec[-1]\nEXP_VAL Z1",
+            postselection_mask=[1],
+        )
+        assert program.peak_active_width == 5
+        shots = 257
+        result = sampling_mode.sample_survivors(
+            program, shots, seed=1913, keep_records=keep_records
+        )
+        passed = result.passed_shots
+        assert result.total_shots == shots
+        assert result.discards == shots - passed
+        assert 0 < passed < shots
+        assert abs(passed / shots - 0.5) < binomial_tolerance(0.5, shots)
+        # Qubit 1 is independent of the postselected qubit and measures H T |+>.
+        probability = (1 - np.sqrt(0.5)) / 2
+        assert 0 < result.logical_errors < passed
+        assert abs(result.logical_errors / passed - probability) < binomial_tolerance(
+            probability, passed
+        )
+        np.testing.assert_array_equal(result.observable_ones, [result.logical_errors])
+        rows = passed if keep_records else 0
+        assert result.measurements.shape == (rows, 2)
+        assert result.detectors.shape == (rows, 1)
+        assert result.observables.shape == (rows, 1)
+        assert result.exp_vals.shape == (rows, 3)
+        if keep_records:
+            np.testing.assert_array_equal(result.measurements[:, 0], np.zeros(passed))
+            np.testing.assert_array_equal(result.detectors, np.zeros((passed, 1)))
+            np.testing.assert_array_equal(result.observables[:, 0], result.measurements[:, 1])
+            assert result.observables.sum() == result.logical_errors
+            expected = [2**-2.5, np.sin(np.pi / 8) / np.sqrt(2)]
+            np.testing.assert_allclose(
+                result.exp_vals[:, :2], np.broadcast_to(expected, (passed, 2)), atol=1e-12, rtol=0
+            )
+            np.testing.assert_allclose(
+                result.exp_vals[:, 2],
+                1 - 2 * result.measurements[:, 1].astype(int),
+                atol=1e-12,
+                rtol=0,
+            )
 
     def test_zero_shots_returns_empty_result(self, sampling_mode: CpuSamplingMode) -> None:
         """Zero shots preserves the existing empty-result contract."""

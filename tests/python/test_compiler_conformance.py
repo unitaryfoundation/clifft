@@ -3,9 +3,8 @@
 Each CASES entry runs exact record checks under every compiler profile, and
 sampled record and annotation checks under every profile and sampling mode.
 Profiles select no HIR passes, production defaults, or explicit active-width
-scheduling; modes select scalar or packed-65 execution with one or two workers,
-or automatic batching with one worker. Passes are not independently toggled
-in this matrix: separate witnesses check their effects.
+scheduling. Execution configurations come from CPU_SAMPLING_MODES. Passes are not
+independently toggled in this matrix: separate witnesses check their effects.
 The boundary circuit runs under every profile, mode, and designated shot count.
 """
 
@@ -352,6 +351,12 @@ def test_cpu_sampling_modes_include_batch_and_worker_configurations() -> None:
     assert {(1, 1), (65, 1), ("auto", 1), (1, 2), (65, 2)} <= {
         (mode.batch_size, mode.threads) for mode in CPU_SAMPLING_MODES
     }
+    assert any(
+        mode.batch_size == 1
+        and mode.thread_layout == (1, 2)
+        and mode.intra_shot_min_active_width == 3
+        for mode in CPU_SAMPLING_MODES
+    )
 
 
 @pytest.mark.parametrize("mode", CPU_SAMPLING_MODES, ids=lambda mode: mode.name)
@@ -363,7 +368,16 @@ def test_sampling_mode_forwards_its_configuration(
     monkeypatch.setattr(clifft, "sample", lambda *args, **kwargs: calls.append((args, kwargs)))
     mode.sample(program, 8193, 1907)
     assert calls == [
-        ((program, 8193), {"seed": 1907, "threads": mode.threads, "batch_size": mode.batch_size})
+        (
+            (program, 8193),
+            {
+                "seed": 1907,
+                "threads": mode.threads,
+                "batch_size": mode.batch_size,
+                "thread_layout": mode.thread_layout,
+                "intra_shot_min_active_width": mode.intra_shot_min_active_width,
+            },
+        )
     ]
 
     monkeypatch.setattr(
@@ -380,6 +394,33 @@ def test_sampling_mode_forwards_its_configuration(
                     "keep_records": keep_records,
                     "threads": mode.threads,
                     "batch_size": mode.batch_size,
+                    "thread_layout": mode.thread_layout,
+                    "intra_shot_min_active_width": mode.intra_shot_min_active_width,
                 },
             )
         ]
+
+
+@pytest.mark.parametrize("sampler", ["sample", "sample_survivors"])
+def test_sampling_mode_only_skips_missing_openmp(
+    sampler: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def reject(*args: Any, **kwargs: Any) -> None:
+        raise error
+
+    monkeypatch.setattr(clifft, sampler, reject)
+    mode = CpuSamplingMode("intra-shot", 1, thread_layout=(1, 2))
+    unavailable = ValueError("thread_layout intra-shot workers require an OpenMP-enabled build")
+    for error in (ValueError("invalid program"), ValueError(f"unexpected error: {unavailable}")):
+        with pytest.raises(ValueError) as raised:
+            getattr(mode, sampler)(object(), 1)
+        assert raised.value is error
+
+    error = unavailable
+    with pytest.raises(pytest.skip.Exception, match="Clifft was built without OpenMP"):
+        getattr(mode, sampler)(object(), 1)
+
+    serial = CpuSamplingMode("single-shot", 1)
+    with pytest.raises(ValueError) as raised:
+        getattr(serial, sampler)(object(), 1)
+    assert raised.value is unavailable

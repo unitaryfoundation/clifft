@@ -3,10 +3,11 @@
 from collections.abc import Callable
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import Any
+from typing import Any, NoReturn
 
 import numpy as np
 import numpy.typing as npt
+import pytest
 
 import clifft
 
@@ -43,32 +44,58 @@ ACTIVE_WIDTH = CompilerProfile("active-width", lambda: active_width_passes())
 COMPILER_PROFILES = (UNOPTIMIZED, DEFAULT, ACTIVE_WIDTH)
 
 
+def skip_unavailable_intra_shot(error: ValueError) -> NoReturn:
+    if str(error) == "thread_layout intra-shot workers require an OpenMP-enabled build":
+        pytest.skip("Clifft was built without OpenMP")
+    raise error
+
+
 @dataclass(frozen=True)
 class CpuSamplingMode:
     name: str
     batch_size: int | str
     threads: int = 1
+    thread_layout: tuple[int, int] | None = None
+    intra_shot_min_active_width: int | None = None
 
     @staticmethod
     def compile(source: str, **kwargs: Any) -> Any:
         return clifft.compile(source, **kwargs)
 
     def sample(self, program: Any, shots: int, seed: int | None = None) -> Any:
-        return clifft.sample(
-            program, shots, seed=seed, threads=self.threads, batch_size=self.batch_size
-        )
+        try:
+            return clifft.sample(
+                program,
+                shots,
+                seed=seed,
+                threads=self.threads,
+                batch_size=self.batch_size,
+                thread_layout=self.thread_layout,
+                intra_shot_min_active_width=self.intra_shot_min_active_width,
+            )
+        except ValueError as error:
+            if self.thread_layout is not None and self.thread_layout[1] > 1:
+                skip_unavailable_intra_shot(error)
+            raise
 
     def sample_survivors(
         self, program: Any, shots: int, *, seed: int | None = None, keep_records: bool = False
     ) -> Any:
-        return clifft.sample_survivors(
-            program,
-            shots,
-            seed=seed,
-            keep_records=keep_records,
-            threads=self.threads,
-            batch_size=self.batch_size,
-        )
+        try:
+            return clifft.sample_survivors(
+                program,
+                shots,
+                seed=seed,
+                keep_records=keep_records,
+                threads=self.threads,
+                batch_size=self.batch_size,
+                thread_layout=self.thread_layout,
+                intra_shot_min_active_width=self.intra_shot_min_active_width,
+            )
+        except ValueError as error:
+            if self.thread_layout is not None and self.thread_layout[1] > 1:
+                skip_unavailable_intra_shot(error)
+            raise
 
 
 CPU_SAMPLING_MODES = (
@@ -77,6 +104,7 @@ CPU_SAMPLING_MODES = (
     CpuSamplingMode("automatic", "auto"),
     CpuSamplingMode("scalar-2-workers", 1, threads=2),
     CpuSamplingMode("packed-65-2-workers", 65, threads=2),
+    CpuSamplingMode("intra-shot-2-workers", 1, thread_layout=(1, 2), intra_shot_min_active_width=3),
 )
 
 # Two full packed-65 batches plus a tail allow both workers to receive work.
