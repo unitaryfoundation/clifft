@@ -44,31 +44,6 @@ struct SearchWork {
     }
 };
 
-// Classify expansion without changing the subspace.
-bool is_expanding(const HirModule& hir, const HeisenbergOp& op, const DormantSubspace& subspace,
-                  uint32_t& anticommuting_row) {
-    switch (op.op_type()) {
-        case OpType::T_GATE:
-        case OpType::PHASE_ROTATION:
-            return !subspace.commutes_with_all(hir.destab_mask(op), hir.stab_mask(op),
-                                               &anticommuting_row);
-        case OpType::INSTRUMENT: {
-            const MaskView x = hir.destab_mask(op);
-            const MaskView z = hir.stab_mask(op);
-            if (subspace.commutes_with_all(x, z, &anticommuting_row)) {
-                return false;  // Classical or Active: non-expanding.
-            }
-            const InstrumentSite& site =
-                hir.instrument_sites.at(static_cast<uint32_t>(op.instrument_site_idx()));
-            const bool traps = hir.neglect_instrument_damping ||
-                               site.probabilities.p_fire[0] == site.probabilities.p_fire[1];
-            return !traps;  // Activate iff it does not trap.
-        }
-        default:
-            return false;
-    }
-}
-
 // Offsets into a shared undo log avoid allocating a successor list per step.
 struct UndoStep {
     uint32_t op = 0;
@@ -291,26 +266,13 @@ std::optional<uint32_t> find_ready_non_expanding(const HirModule& hir, SearchFro
     // The bitset scan skips ops whose expansion verdict is still valid.
     while (const std::optional<uint32_t> op = frontier.first_candidate()) {
         ++work.probes;
-        if (is_expanding(hir, hir.ops[*op], subspace, work.anticommuting_rows[*op])) {
+        if (detail::is_expanding(hir, hir.ops[*op], subspace, work.anticommuting_rows[*op])) {
             frontier.note_expanding(*op);
             continue;
         }
         return op;
     }
     return std::nullopt;
-}
-
-// Closure has just proved that this rotation commutes with S. Applying it
-// cannot change S, so only the stabilizer-versus-active membership test remains.
-WidthTransition apply_non_expanding(const HirModule& hir, const HeisenbergOp& op,
-                                    DormantSubspace& subspace) {
-    if (op.op_type() == OpType::T_GATE || op.op_type() == OpType::PHASE_ROTATION) {
-        const uint32_t width = subspace.active_width();
-        const bool stabilizer = subspace.contains(hir.destab_mask(op), hir.stab_mask(op));
-        return {width, width,
-                stabilizer ? WidthEffect::RotationStabilizer : WidthEffect::RotationNeutral};
-    }
-    return classify_and_apply(hir, op, subspace);
 }
 
 // Log executions for speculative undo. Reset the expansion memo on entry
@@ -326,7 +288,7 @@ void run_closure(const HirModule& hir, SearchFrontier& frontier, DormantSubspace
         log.push_back(UndoStep{*op, newly_ready_count});
         order.push_back(*op);
         ++work.swept_ops;
-        const WidthTransition transition = apply_non_expanding(hir, hir.ops[*op], subspace);
+        const WidthTransition transition = detail::apply_non_expanding(hir, hir.ops[*op], subspace);
         assert(!is_expanding_effect(transition.effect) &&
                "find_ready_non_expanding chose an op classify_and_apply treats as expanding");
         if (transition.effect == WidthEffect::MeasureDormantRandom) {

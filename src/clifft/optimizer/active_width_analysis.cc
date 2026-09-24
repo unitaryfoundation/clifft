@@ -1,6 +1,6 @@
 #include "clifft/optimizer/active_width_analysis.h"
 
-#include "clifft/optimizer/commutation.h"
+#include "clifft/util/symplectic.h"
 
 #include <algorithm>
 #include <bit>
@@ -256,12 +256,9 @@ WidthTransition classify_and_apply(const HirModule& hir, const HeisenbergOp& op,
         case OpType::INSTRUMENT: {
             const MaskView x = hir.destab_mask(op);
             const MaskView z = hir.stab_mask(op);
-            const InstrumentSite& site =
-                hir.instrument_sites.at(static_cast<uint32_t>(op.instrument_site_idx()));
+            const bool traps = detail::instrument_damping_neglected(hir, op);
 
             if (!subspace.commutes_with_all(x, z)) {
-                const bool traps = hir.neglect_instrument_damping ||
-                                   site.probabilities.p_fire[0] == site.probabilities.p_fire[1];
                 if (traps) {
                     return WidthTransition{before, before, WidthEffect::InstrumentDormantTrap};
                 }

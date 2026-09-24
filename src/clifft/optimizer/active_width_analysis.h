@@ -151,17 +151,58 @@ struct ActiveWidthTrace {
     std::vector<WidthTransition> transitions;
 };
 
+// Shared transition logic for full traces and incremental scheduler scoring.
+[[nodiscard]] WidthTransition classify_and_apply(const HirModule& hir, const HeisenbergOp& op,
+                                                 DormantSubspace& subspace);
+
 namespace detail {
+
+inline bool instrument_damping_neglected(const HirModule& hir, const HeisenbergOp& op) {
+    const InstrumentSite& site =
+        hir.instrument_sites.at(static_cast<uint32_t>(op.instrument_site_idx()));
+    return hir.neglect_instrument_damping ||
+           site.probabilities.p_fire[0] == site.probabilities.p_fire[1];
+}
+
+// Classify expansion without changing the subspace. The row is a rechecked hint.
+inline bool is_expanding(const HirModule& hir, const HeisenbergOp& op,
+                         const DormantSubspace& subspace, uint32_t& anticommuting_row) {
+    switch (op.op_type()) {
+        case OpType::T_GATE:
+        case OpType::PHASE_ROTATION:
+            return !subspace.commutes_with_all(hir.destab_mask(op), hir.stab_mask(op),
+                                               &anticommuting_row);
+        case OpType::INSTRUMENT: {
+            const MaskView x = hir.destab_mask(op);
+            const MaskView z = hir.stab_mask(op);
+            if (subspace.commutes_with_all(x, z, &anticommuting_row)) {
+                return false;  // Classical or Active: non-expanding.
+            }
+            return !instrument_damping_neglected(hir, op);
+        }
+        default:
+            return false;
+    }
+}
+
+// Requires a non-expanding verdict for this op and the current subspace.
+// For rotations, only the stabilizer-versus-active membership test remains.
+inline WidthTransition apply_non_expanding(const HirModule& hir, const HeisenbergOp& op,
+                                           DormantSubspace& subspace) {
+    if (op.op_type() == OpType::T_GATE || op.op_type() == OpType::PHASE_ROTATION) {
+        const uint32_t width = subspace.active_width();
+        const bool stabilizer = subspace.contains(hir.destab_mask(op), hir.stab_mask(op));
+        return {width, width,
+                stabilizer ? WidthEffect::RotationStabilizer : WidthEffect::RotationNeutral};
+    }
+    return classify_and_apply(hir, op, subspace);
+}
 
 // Per-operation contribution to estimate_dense_work, for scoring a
 // candidate schedule incrementally.
 [[nodiscard]] double dense_work_contribution(WidthEffect effect, uint32_t before, uint32_t after);
 
 }  // namespace detail
-
-// Shared transition logic for full traces and incremental scheduler scoring.
-[[nodiscard]] WidthTransition classify_and_apply(const HirModule& hir, const HeisenbergOp& op,
-                                                 DormantSubspace& subspace);
 
 // Returns one structural transition per HIR op without modifying hir.
 // Unlike plan_sampling, this does not enforce the dense active-width limit:
