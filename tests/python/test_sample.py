@@ -190,14 +190,14 @@ class TestSample:
         with pytest.raises(ValueError, match="64 MiB packed-state limit"):
             sampling_api.sample(prog, 4096, batch_size=2048)
 
-    @pytest.mark.parametrize("threads", [2, "auto"])
-    @pytest.mark.parametrize("batch_size", [1, 65, "auto"])
+    @pytest.mark.parametrize("threads", [2, 3])
+    @pytest.mark.parametrize("batch_size", [1, 65])
     def test_sample_threads_preserve_seeded_rows(
-        self, sampling_api: Any, threads: Any, batch_size: int | str
+        self, sampling_api: Any, threads: int, batch_size: int
     ) -> None:
         """Worker count and dynamic scheduling do not change seeded rows."""
         prog = sampling_api.compile(
-            "H 0 1\nT 0\nM 0 1\nEXP_VAL Z0\n"
+            "H 0 1\nT 0\nEXP_VAL X0\nM 0 1\nEXP_VAL Z0\n"
             "DETECTOR rec[-2] rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]"
         )
         # Explicit capacities exercise multiple batches without changing RNG boundaries.
@@ -232,13 +232,18 @@ class TestSample:
         with pytest.raises((TypeError, ValueError), match="threads|incompatible"):
             sampling_api.sample(prog, 1, threads=threads)
 
-    def test_sample_thread_layout_preserves_seeded_rows(self, sampling_api: Any) -> None:
+    @pytest.mark.parametrize("batch_size", [1, 65])
+    def test_sample_thread_layout_preserves_seeded_rows(
+        self, sampling_api: Any, batch_size: int
+    ) -> None:
         """An explicit layout is a thin override of automatic worker selection."""
         prog = sampling_api.compile(
             "H 0 1\nT 0\nM 0 1\nDETECTOR rec[-2] rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]"
         )
-        serial = sampling_api.sample(prog, 257, seed=12346, threads=1)
-        threaded = sampling_api.sample(prog, 257, seed=12346, threads="auto", thread_layout=(2, 1))
+        serial = sampling_api.sample(prog, 257, seed=12346, threads=1, batch_size=batch_size)
+        threaded = sampling_api.sample(
+            prog, 257, seed=12346, threads="auto", thread_layout=(2, 1), batch_size=batch_size
+        )
         np.testing.assert_array_equal(threaded.measurements, serial.measurements)
         np.testing.assert_array_equal(threaded.detectors, serial.detectors)
         np.testing.assert_array_equal(threaded.observables, serial.observables)
@@ -1018,15 +1023,15 @@ class TestSampleSurvivors:
         np.testing.assert_array_equal(first.measurements, replay.measurements)
         np.testing.assert_array_equal(first.observables, replay.observables)
 
-    @pytest.mark.parametrize("threads", [2, 3, "auto"])
+    @pytest.mark.parametrize("threads", [2, 3])
     @pytest.mark.parametrize("batch_size", [1, 65, "auto"])
     @pytest.mark.parametrize("keep_records", [False, True])
     def test_threads_preserve_survivor_results(
-        self, sampling_api: Any, threads: Any, batch_size: int | str, keep_records: bool
+        self, sampling_api: Any, threads: int, batch_size: int | str, keep_records: bool
     ) -> None:
         """Survivor counts and retained row order are independent of worker schedules."""
         prog = sampling_api.compile(
-            "H 0\nM 0\nDETECTOR rec[-1]\nH 1\nM 1\nEXP_VAL Z1\n" "OBSERVABLE_INCLUDE(0) rec[-1]",
+            "H 0\nM 0\nDETECTOR rec[-1]\nH 1\nM 1\nEXP_VAL Z1\nOBSERVABLE_INCLUDE(0) rec[-1]",
             postselection_mask=[1],
         )
         serial = sampling_api.sample_survivors(

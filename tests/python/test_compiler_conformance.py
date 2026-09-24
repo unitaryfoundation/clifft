@@ -326,7 +326,7 @@ def test_default_profile_uses_fresh_production_factory(monkeypatch: pytest.Monke
     assert received == managers
 
 
-def test_cpu_sampling_modes_include_scalar_packed_and_automatic() -> None:
+def test_cpu_sampling_modes_include_batch_and_worker_configurations() -> None:
     assert {(1, 1), (65, 1), ("auto", 1), (1, 2), (65, 2)} <= {
         (mode.batch_size, mode.threads) for mode in CPU_SAMPLING_MODES
     }
