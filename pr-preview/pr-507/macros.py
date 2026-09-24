@@ -136,7 +136,6 @@ def define_env(env: Any) -> None:
                 "A deterministic work budget limits search executions, but does not bound "
                 "classification probes or wall time. "
                 "Opt in to reduce sampling work at extra compilation cost. "
-                "Skips search below min_peak_width, which defaults to 3. "
                 "Run it last, after "
                 "PeepholeFusionPass and StatevectorSqueezePass: reordering across noise "
                 "can prevent subsequent peephole fusion."
