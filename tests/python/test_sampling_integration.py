@@ -10,7 +10,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 import stim
-from utils_conformance import CpuSamplingMode
+from utils_conformance import SMALL_CIRCUIT_SHOTS, CpuSamplingMode
 
 import clifft
 
@@ -140,10 +140,10 @@ def test_expectation_probes_are_available_through_public_api(
     sampling_mode: CpuSamplingMode,
 ) -> None:
     program = sampling_mode.compile("EXP_VAL X0 Z0")
-    result = sampling_mode.sample(program, 131, seed=1)
+    result = sampling_mode.sample(program, shots=SMALL_CIRCUIT_SHOTS, seed=1)
 
     assert program.num_exp_vals == 2
-    np.testing.assert_allclose(result.exp_vals, [[0.0, 1.0]] * 131, atol=1e-12)
+    np.testing.assert_allclose(result.exp_vals, [[0.0, 1.0]] * SMALL_CIRCUIT_SHOTS, atol=1e-12)
 
 
 def test_noise_readout_feedback_and_syndrome_share_one_symbolic_record(
@@ -158,7 +158,7 @@ def test_noise_readout_feedback_and_syndrome_share_one_symbolic_record(
         DETECTOR rec[-1] rec[-2]
         OBSERVABLE_INCLUDE(0) rec[-1]
     """
-    shots = 131
+    shots = SMALL_CIRCUIT_SHOTS
     result = sampling_mode.sample(sampling_mode.compile(circuit), shots=shots, seed=7)
 
     np.testing.assert_array_equal(result.measurements, np.zeros((shots, 2), dtype=np.uint8))
@@ -167,12 +167,12 @@ def test_noise_readout_feedback_and_syndrome_share_one_symbolic_record(
 
 
 def test_asymmetric_readout_noise_uses_the_pre_flip_record(sampling_mode: CpuSamplingMode) -> None:
-    shots = 131
+    shots = SMALL_CIRCUIT_SHOTS
     zero = sampling_mode.sample(
-        sampling_mode.compile("M 0\nREADOUT_NOISE(1, 0) rec[-1]"), shots, seed=1
+        sampling_mode.compile("M 0\nREADOUT_NOISE(1, 0) rec[-1]"), shots=shots, seed=1
     )
     one = sampling_mode.sample(
-        sampling_mode.compile("X 0\nM 0\nREADOUT_NOISE(0, 1) rec[-1]"), shots, seed=1
+        sampling_mode.compile("X 0\nM 0\nREADOUT_NOISE(0, 1) rec[-1]"), shots=shots, seed=1
     )
 
     assert np.all(zero.measurements == 1)
@@ -250,7 +250,7 @@ def test_generated_surface_code_executes_with_reference_normalization(
         after_clifford_depolarization=0.001,
     )
     program = sampling_mode.compile(str(circuit), normalize_syndromes=True)
-    result = sampling_mode.sample(program, shots=131, seed=5)
+    result = sampling_mode.sample(program, shots=SMALL_CIRCUIT_SHOTS, seed=5)
 
-    assert result.detectors.shape == (131, circuit.num_detectors)
-    assert result.observables.shape == (131, circuit.num_observables)
+    assert result.detectors.shape == (SMALL_CIRCUIT_SHOTS, circuit.num_detectors)
+    assert result.observables.shape == (SMALL_CIRCUIT_SHOTS, circuit.num_observables)

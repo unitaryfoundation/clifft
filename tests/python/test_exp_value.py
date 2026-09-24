@@ -14,7 +14,7 @@ from typing import Any
 import numpy as np
 import pytest
 from conftest import random_clifford_t_circuit
-from utils_conformance import CpuSamplingMode
+from utils_conformance import SMALL_CIRCUIT_SHOTS, CpuSamplingMode
 from utils_qiskit import qiskit_statevector, stim_to_qiskit_noiseless
 
 import clifft
@@ -82,7 +82,9 @@ class TestExactOracle:
         sv = clifft_statevector(circuit)
         expected = pauli_expectation(sv, "X0", 1)
 
-        result = sampling_mode.sample(sampling_mode.compile(f"{circuit}\nEXP_VAL X0"), 131, seed=0)
+        result = sampling_mode.sample(
+            sampling_mode.compile(f"{circuit}\nEXP_VAL X0"), shots=SMALL_CIRCUIT_SHOTS, seed=0
+        )
         np.testing.assert_allclose(result.exp_vals[:, 0], expected, atol=1e-12)
 
     def test_single_qubit_z_on_plus(self, sampling_mode: CpuSamplingMode) -> None:
@@ -91,7 +93,9 @@ class TestExactOracle:
         sv = clifft_statevector(circuit)
         expected = pauli_expectation(sv, "Z0", 1)
 
-        result = sampling_mode.sample(sampling_mode.compile(f"{circuit}\nEXP_VAL Z0"), 131, seed=0)
+        result = sampling_mode.sample(
+            sampling_mode.compile(f"{circuit}\nEXP_VAL Z0"), shots=SMALL_CIRCUIT_SHOTS, seed=0
+        )
         np.testing.assert_allclose(result.exp_vals[:, 0], expected, atol=1e-12)
 
     def test_bell_zz(self, sampling_mode: CpuSamplingMode) -> None:
@@ -101,7 +105,7 @@ class TestExactOracle:
         expected = pauli_expectation(sv, "Z0*Z1", 2)
 
         result = sampling_mode.sample(
-            sampling_mode.compile(f"{circuit}\nEXP_VAL Z0*Z1"), 131, seed=0
+            sampling_mode.compile(f"{circuit}\nEXP_VAL Z0*Z1"), shots=SMALL_CIRCUIT_SHOTS, seed=0
         )
         np.testing.assert_allclose(result.exp_vals[:, 0], expected, atol=1e-12)
 
@@ -112,7 +116,7 @@ class TestExactOracle:
         expected = pauli_expectation(sv, "X0*X1", 2)
 
         result = sampling_mode.sample(
-            sampling_mode.compile(f"{circuit}\nEXP_VAL X0*X1"), 131, seed=0
+            sampling_mode.compile(f"{circuit}\nEXP_VAL X0*X1"), shots=SMALL_CIRCUIT_SHOTS, seed=0
         )
         np.testing.assert_allclose(result.exp_vals[:, 0], expected, atol=1e-12)
 
@@ -122,7 +126,9 @@ class TestExactOracle:
         sv = clifft_statevector(circuit)
         expected = pauli_expectation(sv, "X0", 1)
 
-        result = sampling_mode.sample(sampling_mode.compile(f"{circuit}\nEXP_VAL X0"), 131, seed=0)
+        result = sampling_mode.sample(
+            sampling_mode.compile(f"{circuit}\nEXP_VAL X0"), shots=SMALL_CIRCUIT_SHOTS, seed=0
+        )
         np.testing.assert_allclose(result.exp_vals[:, 0], expected, atol=1e-10)
 
     def test_multi_qubit_product(self, sampling_mode: CpuSamplingMode) -> None:
@@ -132,18 +138,18 @@ class TestExactOracle:
         expected = pauli_expectation(sv, "X0*Y1*Z2", 3)
 
         result = sampling_mode.sample(
-            sampling_mode.compile(f"{circuit}\nEXP_VAL X0*Y1*Z2"), 131, seed=0
+            sampling_mode.compile(f"{circuit}\nEXP_VAL X0*Y1*Z2"), shots=SMALL_CIRCUIT_SHOTS, seed=0
         )
         np.testing.assert_allclose(result.exp_vals[:, 0], expected, atol=1e-10)
 
     def test_high_dormant_support_with_active_factor(self, sampling_mode: CpuSamplingMode) -> None:
         """Dormant masks beyond one word retain X/Y-zero and Z-identity semantics."""
         program = sampling_mode.compile("H 0\nT 0\nEXP_VAL X0*Z128 X0*X128 Z128")
-        result = sampling_mode.sample(program, 131, seed=0)
+        result = sampling_mode.sample(program, shots=SMALL_CIRCUIT_SHOTS, seed=0)
 
         np.testing.assert_allclose(
             result.exp_vals,
-            np.tile([1.0 / np.sqrt(2.0), 0.0, 1.0], (131, 1)),
+            np.tile([1.0 / np.sqrt(2.0), 0.0, 1.0], (SMALL_CIRCUIT_SHOTS, 1)),
             atol=1e-10,
         )
 
@@ -161,7 +167,7 @@ class TestExactOracle:
         expected = pauli_expectation(sv, pauli, num_qubits)
 
         prog = sampling_mode.compile(f"{circuit}\nEXP_VAL {pauli}")
-        result = sampling_mode.sample(prog, 131, seed=0)
+        result = sampling_mode.sample(prog, shots=SMALL_CIRCUIT_SHOTS, seed=0)
         np.testing.assert_allclose(
             result.exp_vals[:, 0],
             expected,
@@ -192,7 +198,7 @@ class TestExactOracle:
         expected = np.array(
             [pauli_expectation(qiskit_sv, pauli, program.num_qubits) for pauli in paulis]
         )
-        result = sampling_mode.sample(program, 131, seed=0)
+        result = sampling_mode.sample(program, shots=SMALL_CIRCUIT_SHOTS, seed=0)
 
         np.testing.assert_allclose(
             result.exp_vals,
@@ -258,19 +264,19 @@ class TestPauliFrameInteraction:
     def test_z_error_flips_x_expectation(self, sampling_mode: CpuSamplingMode) -> None:
         """Z_ERROR(1.0) anti-commutes with X, flipping <X> from +1 to -1."""
         prog = sampling_mode.compile("H 0\nZ_ERROR(1.0) 0\nEXP_VAL X0")
-        result = sampling_mode.sample(prog, 131, seed=0)
+        result = sampling_mode.sample(prog, shots=SMALL_CIRCUIT_SHOTS, seed=0)
         np.testing.assert_allclose(result.exp_vals[:, 0], -1.0, atol=1e-12)
 
     def test_x_error_flips_z_expectation(self, sampling_mode: CpuSamplingMode) -> None:
         """X_ERROR(1.0) anti-commutes with Z, flipping <Z> from +1 to -1."""
         prog = sampling_mode.compile("X_ERROR(1.0) 0\nEXP_VAL Z0")
-        result = sampling_mode.sample(prog, 131, seed=0)
+        result = sampling_mode.sample(prog, shots=SMALL_CIRCUIT_SHOTS, seed=0)
         np.testing.assert_allclose(result.exp_vals[:, 0], -1.0, atol=1e-12)
 
     def test_z_error_commutes_with_z(self, sampling_mode: CpuSamplingMode) -> None:
         """Z_ERROR(1.0) commutes with Z, so <Z> on |0> stays +1."""
         prog = sampling_mode.compile("Z_ERROR(1.0) 0\nEXP_VAL Z0")
-        result = sampling_mode.sample(prog, 131, seed=0)
+        result = sampling_mode.sample(prog, shots=SMALL_CIRCUIT_SHOTS, seed=0)
         np.testing.assert_allclose(result.exp_vals[:, 0], 1.0, atol=1e-12)
 
     def test_measurement_feedback_cx(self, sampling_mode: CpuSamplingMode) -> None:
@@ -319,8 +325,8 @@ class TestNoExpValRegression:
     def test_exp_vals_shape_empty(self, sampling_mode: CpuSamplingMode) -> None:
         """exp_vals has shape (shots, 0) when no EXP_VAL in circuit."""
         prog = sampling_mode.compile("H 0\nM 0")
-        result = sampling_mode.sample(prog, 131, seed=0)
-        assert result.exp_vals.shape == (131, 0)
+        result = sampling_mode.sample(prog, shots=SMALL_CIRCUIT_SHOTS, seed=0)
+        assert result.exp_vals.shape == (SMALL_CIRCUIT_SHOTS, 0)
 
     def test_num_exp_vals_zero(self, sampling_api: Any) -> None:
         """Program reports num_exp_vals == 0."""

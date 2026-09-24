@@ -62,6 +62,9 @@ CPU_SAMPLING_MODES = (
     CpuSamplingMode("packed-65-2-workers", 65, threads=2),
 )
 
+# Two full packed-65 batches plus a tail allow both workers to receive work.
+SMALL_CIRCUIT_SHOTS = 2 * 65 + 1
+
 
 @lru_cache(maxsize=256)
 def unitary_reference(source: str) -> npt.NDArray[np.complex128]:
