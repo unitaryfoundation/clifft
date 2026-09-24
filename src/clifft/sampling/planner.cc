@@ -56,53 +56,6 @@ struct ResolvedPauli {
     AffineBool sign;
 };
 
-// An operation's schedule position and logical position, both expressed as
-// noise-site counts: how many NOISE ops the planner has processed in
-// schedule order when it reaches the operation (schedule_count) versus how
-// many logically precede the operation in the original circuit
-// (logical_prefix). The two agree unless HirModule::logical_noise_prefix
-// moved the operation across a noise site.
-struct NoiseCrossing {
-    uint32_t schedule_count = 0;
-    uint32_t logical_prefix = 0;
-};
-
-// The initial sign of a movable Pauli operation, corrected for every site it
-// crossed. The symbolic frame already folded each site's channels in at
-// that site's schedule position. For a site between an operation's schedule
-// and logical positions, that frame contribution is wrong for the
-// operation's logical position: either missing (the operation moved earlier
-// than the site) or spurious (it moved later than the site). XORing the
-// same site's channel symbols back in fixes both directions, since XOR is
-// its own inverse.
-AffineBool logical_pauli_sign(const HirModule& hir, const HeisenbergOp& op,
-                              std::span<const uint32_t> noise_site_symbol_base,
-                              NoiseCrossing crossing) {
-    AffineBool sign(hir.sign(op));
-    if (crossing.schedule_count == crossing.logical_prefix) {
-        return sign;
-    }
-    const MaskView x = hir.destab_mask(op);
-    const MaskView z = hir.stab_mask(op);
-    const uint32_t begin = std::min(crossing.schedule_count, crossing.logical_prefix);
-    const uint32_t end = std::max(crossing.schedule_count, crossing.logical_prefix);
-    for (uint32_t site = begin; site < end; ++site) {
-        const NoiseSite& noise_site = hir.noise_sites[site];
-        uint32_t local_index = 0;
-        for (const NoiseChannel& channel : noise_site.channels) {
-            if (channel.prob == 0.0) {
-                continue;
-            }
-            const PauliMaskView channel_view = hir.noise_channel_masks.at(channel.mask);
-            if (anti_commute(x, z, channel_view.x(), channel_view.z())) {
-                sign ^= AffineBool::symbol(SymbolId{noise_site_symbol_base[site] + local_index});
-            }
-            ++local_index;
-        }
-    }
-    return sign;
-}
-
 ResolvedPauli resolve_pauli(const Pauli& initial_body, const AffineBool& initial_sign,
                             CoordinateFrame& coordinates, SymbolicPauliFrame& symbolic_frame) {
     AffineBool sign = initial_sign;
@@ -228,107 +181,10 @@ struct PendingObservable {
     std::vector<uint32_t> source_lines;
 };
 
-struct PlanningRequirements {
-    uint32_t symbol_count = 0;
-    bool supports_final_state_queries = true;
-    // noise_site_symbol_base[site] is the symbol count reserved before that
-    // site's own nonzero channels, i.e. the value plan.symbols.size() will
-    // have when the main loop's NOISE case starts pushing that site's
-    // symbols. Indexed by NoiseSiteIdx; sized to hir.noise_sites.size() even
-    // though only sites actually reached by a NOISE op are meaningful. Left
-    // empty when HIR has no materialized logical_noise_prefix, since no
-    // operation can then cross a noise site and nothing needs a base to
-    // correct from.
-    std::vector<uint32_t> noise_site_symbol_base;
-};
-
-bool operation_supports_final_state_queries(OpType type) {
-    switch (type) {
-        case OpType::T_GATE:
-        case OpType::PHASE_ROTATION:
-        case OpType::EXP_VAL:
-            return true;
-        case OpType::MEASURE:
-        case OpType::CONDITIONAL_PAULI:
-        case OpType::NOISE:
-        case OpType::READOUT_NOISE:
-        case OpType::INSTRUMENT:
-        case OpType::DETECTOR:
-        case OpType::OBSERVABLE:
-        case OpType::NUM_OP_TYPES:
-            return false;
-    }
-    return false;
-}
-
-PlanningRequirements inspect_planning_requirements(const HirModule& hir) {
-    PlanningRequirements result;
-    // Only a materialized logical_noise_prefix can move an operation across
-    // a noise site, so only that case needs a base to correct from.
-    const bool track_noise_site_symbol_base = hir.has_logical_noise_prefix();
-    if (track_noise_site_symbol_base) {
-        result.noise_site_symbol_base.assign(hir.noise_sites.size(), 0);
-    }
-    auto add = [&](size_t amount) {
-        if (amount > std::numeric_limits<uint32_t>::max() - result.symbol_count) {
-            throw std::length_error("sampling planner symbol count exceeds uint32 range");
-        }
-        result.symbol_count += static_cast<uint32_t>(amount);
-    };
-
-    for (size_t i = 0; i < hir.ops.size(); ++i) {
-        const HeisenbergOp& op = hir.ops[i];
-        result.supports_final_state_queries &= operation_supports_final_state_queries(op.op_type());
-        switch (op.op_type()) {
-            case OpType::MEASURE:
-            case OpType::READOUT_NOISE:
-            case OpType::INSTRUMENT:
-                add(1);
-                break;
-            case OpType::NOISE: {
-                const uint32_t site_index = static_cast<uint32_t>(op.noise_site_idx());
-                if (site_index >= hir.noise_sites.size()) {
-                    throw std::invalid_argument("sampling planner noise site is out of range");
-                }
-                if (track_noise_site_symbol_base) {
-                    result.noise_site_symbol_base[site_index] = result.symbol_count;
-                }
-                const NoiseSite& site = hir.noise_sites[site_index];
-                add(std::ranges::count_if(site.channels, [](const NoiseChannel& channel) {
-                    return channel.prob != 0.0;
-                }));
-                break;
-            }
-            case OpType::T_GATE:
-            case OpType::PHASE_ROTATION:
-            case OpType::EXP_VAL:
-                break;
-            case OpType::CONDITIONAL_PAULI:
-            case OpType::DETECTOR:
-            case OpType::OBSERVABLE:
-                break;
-            case OpType::NUM_OP_TYPES:
-                throw std::invalid_argument("sampling planner does not support HIR operation " +
-                                            op_type_to_str(op.op_type()) + " at index " +
-                                            std::to_string(i));
-        }
-    }
-    return result;
-}
-
-// Validates logical_noise_prefix before any symbol is reserved. NOISE sites
-// are always processed in circuit order (checked separately, below), so
-// their logical position is always their schedule position; the same holds
-// for every other operation that is not a T_GATE, PHASE_ROTATION, or
-// MEASURE, since the optimizer never moves those across a noise site. Only
-// those three op types may legitimately disagree with their schedule count.
+// Only rotations and measurements may change their position relative to noise.
 void validate_logical_noise_prefix(const HirModule& hir) {
-    if (hir.logical_noise_prefix.empty()) {
+    if (!hir.has_logical_noise_prefix()) {
         return;
-    }
-    if (hir.logical_noise_prefix.size() != hir.ops.size()) {
-        throw std::invalid_argument(
-            "sampling planner logical noise prefix size does not match the operation count");
     }
     const auto num_noise_sites = static_cast<uint32_t>(hir.noise_sites.size());
     uint32_t schedule_count = 0;
@@ -352,6 +208,138 @@ void validate_logical_noise_prefix(const HirModule& hir) {
             ++schedule_count;
         }
     }
+}
+
+// Resolve noise-dependent signs without exposing optional HIR metadata to
+// the planning loop. Symbol bases also allow references to later noise sites.
+class NoiseSigns {
+  public:
+    explicit NoiseSigns(const HirModule& hir) : hir_(hir) {
+        validate_logical_noise_prefix(hir);
+        if (hir.has_logical_noise_prefix()) {
+            symbol_bases_.resize(hir.noise_sites.size());
+        }
+    }
+
+    void record_symbols(uint32_t site, uint32_t first_symbol) {
+        if (!symbol_bases_.empty()) {
+            symbol_bases_[site] = first_symbol;
+        }
+    }
+
+    void check_symbols(uint32_t site, size_t first_symbol) const {
+        assert((symbol_bases_.empty() || symbol_bases_[site] == first_symbol) &&
+               "noise symbol allocation disagrees with the planning prepass");
+    }
+
+    // Moving a Z rotation across an X error reverses its angle if the error
+    // fires. XOR the crossed anticommuting channels to correct either direction.
+    [[nodiscard]] AffineBool sign_for(size_t operation_index, uint32_t noise_count) const {
+        const HeisenbergOp& op = hir_.ops[operation_index];
+        AffineBool sign(hir_.sign(op));
+        if (symbol_bases_.empty()) {
+            return sign;
+        }
+        const uint32_t original_count = hir_.logical_noise_prefix[operation_index];
+        if (noise_count == original_count) {
+            return sign;
+        }
+        const MaskView x = hir_.destab_mask(op);
+        const MaskView z = hir_.stab_mask(op);
+        const uint32_t begin = std::min(noise_count, original_count);
+        const uint32_t end = std::max(noise_count, original_count);
+        for (uint32_t site = begin; site < end; ++site) {
+            uint32_t local_index = 0;
+            for (const NoiseChannel& channel : hir_.noise_sites[site].channels) {
+                if (channel.prob == 0.0) {
+                    continue;
+                }
+                const PauliMaskView channel_view = hir_.noise_channel_masks.at(channel.mask);
+                if (anti_commute(x, z, channel_view.x(), channel_view.z())) {
+                    sign ^= AffineBool::symbol(SymbolId{symbol_bases_[site] + local_index});
+                }
+                ++local_index;
+            }
+        }
+        return sign;
+    }
+
+  private:
+    const HirModule& hir_;
+    // First symbol for each noise site's nonzero channels. Unneeded without
+    // recorded positions, so ordinary planning does not allocate this table.
+    std::vector<uint32_t> symbol_bases_;
+};
+
+struct PlanningRequirements {
+    uint32_t symbol_count = 0;
+    bool supports_final_state_queries = true;
+};
+
+bool operation_supports_final_state_queries(OpType type) {
+    switch (type) {
+        case OpType::T_GATE:
+        case OpType::PHASE_ROTATION:
+        case OpType::EXP_VAL:
+            return true;
+        case OpType::MEASURE:
+        case OpType::CONDITIONAL_PAULI:
+        case OpType::NOISE:
+        case OpType::READOUT_NOISE:
+        case OpType::INSTRUMENT:
+        case OpType::DETECTOR:
+        case OpType::OBSERVABLE:
+        case OpType::NUM_OP_TYPES:
+            return false;
+    }
+    return false;
+}
+
+PlanningRequirements inspect_planning_requirements(const HirModule& hir, NoiseSigns& noise_signs) {
+    PlanningRequirements result;
+    auto add = [&](size_t amount) {
+        if (amount > std::numeric_limits<uint32_t>::max() - result.symbol_count) {
+            throw std::length_error("sampling planner symbol count exceeds uint32 range");
+        }
+        result.symbol_count += static_cast<uint32_t>(amount);
+    };
+
+    for (size_t i = 0; i < hir.ops.size(); ++i) {
+        const HeisenbergOp& op = hir.ops[i];
+        result.supports_final_state_queries &= operation_supports_final_state_queries(op.op_type());
+        switch (op.op_type()) {
+            case OpType::MEASURE:
+            case OpType::READOUT_NOISE:
+            case OpType::INSTRUMENT:
+                add(1);
+                break;
+            case OpType::NOISE: {
+                const uint32_t site_index = static_cast<uint32_t>(op.noise_site_idx());
+                if (site_index >= hir.noise_sites.size()) {
+                    throw std::invalid_argument("sampling planner noise site is out of range");
+                }
+                noise_signs.record_symbols(site_index, result.symbol_count);
+                const NoiseSite& site = hir.noise_sites[site_index];
+                add(std::ranges::count_if(site.channels, [](const NoiseChannel& channel) {
+                    return channel.prob != 0.0;
+                }));
+                break;
+            }
+            case OpType::T_GATE:
+            case OpType::PHASE_ROTATION:
+            case OpType::EXP_VAL:
+                break;
+            case OpType::CONDITIONAL_PAULI:
+            case OpType::DETECTOR:
+            case OpType::OBSERVABLE:
+                break;
+            case OpType::NUM_OP_TYPES:
+                throw std::invalid_argument("sampling planner does not support HIR operation " +
+                                            op_type_to_str(op.op_type()) + " at index " +
+                                            std::to_string(i));
+        }
+    }
+    return result;
 }
 
 void initialize_site_metadata(const HirModule& hir, SamplingPlan& plan) {
@@ -540,7 +528,7 @@ void process_instrument(const HirModule& hir, const HeisenbergOp& op, uint32_t n
 }  // namespace
 
 SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
-    validate_logical_noise_prefix(hir);
+    NoiseSigns noise_signs(hir);
 
     SamplingPlan plan;
     plan.num_qubits = hir.num_qubits;
@@ -561,8 +549,7 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
 
     // The packed symbolic frame needs its row count up front. Count only;
     // operations and their Paulis are consumed directly from HIR below.
-    const PlanningRequirements requirements = inspect_planning_requirements(hir);
-    const std::span<const uint32_t> noise_site_symbol_base(requirements.noise_site_symbol_base);
+    const PlanningRequirements requirements = inspect_planning_requirements(hir, noise_signs);
     plan.symbols.reserve(requirements.symbol_count);
     initialize_site_metadata(hir, plan);
     if (requirements.supports_final_state_queries) {
@@ -613,27 +600,21 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
         const HeisenbergOp& op = hir.ops[i];
         const std::span<const uint32_t> source_lines =
             plan.source_map.has_value() ? source_lines_for(hir, i) : std::span<const uint32_t>{};
-        // Absent when the vector is not materialized: every operation's
-        // logical position is then its schedule position, which keeps the
-        // correction interval empty and the plan unchanged.
-        const uint32_t logical_prefix =
-            hir.has_logical_noise_prefix() ? hir.logical_noise_prefix[i] : next_noise_site;
-        const NoiseCrossing crossing{next_noise_site, logical_prefix};
         supports_final_state_queries &= operation_supports_final_state_queries(op.op_type());
         switch (op.op_type()) {
             case OpType::T_GATE: {
                 const double half_turns = op.is_dagger() ? -0.25 : 0.25;
                 const Pauli body = pauli_from_hir(hir, op);
-                final_coordinates_changed |= process_rotation(
-                    body, half_turns, logical_pauli_sign(hir, op, noise_site_symbol_base, crossing),
-                    plan, active_width, coordinates, symbolic_frame, source_lines);
+                final_coordinates_changed |=
+                    process_rotation(body, half_turns, noise_signs.sign_for(i, next_noise_site),
+                                     plan, active_width, coordinates, symbolic_frame, source_lines);
                 break;
             }
             case OpType::PHASE_ROTATION: {
                 const Pauli body = pauli_from_hir(hir, op);
-                final_coordinates_changed |= process_rotation(
-                    body, op.alpha(), logical_pauli_sign(hir, op, noise_site_symbol_base, crossing),
-                    plan, active_width, coordinates, symbolic_frame, source_lines);
+                final_coordinates_changed |=
+                    process_rotation(body, op.alpha(), noise_signs.sign_for(i, next_noise_site),
+                                     plan, active_width, coordinates, symbolic_frame, source_lines);
                 break;
             }
             case OpType::MEASURE: {
@@ -641,8 +622,8 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
                 const SymbolId branch = reserve_symbol(plan);
                 const Pauli body = pauli_from_hir(hir, op);
                 const AffineBool outcome = process_measurement(
-                    body, logical_pauli_sign(hir, op, noise_site_symbol_base, crossing), record,
-                    branch, plan, active_width, coordinates, symbolic_frame, source_lines);
+                    body, noise_signs.sign_for(i, next_noise_site), record, branch, plan,
+                    active_width, coordinates, symbolic_frame, source_lines);
                 assign_record(record, outcome, i);
                 break;
             }
@@ -663,13 +644,7 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
                 }
                 ++next_noise_site;
                 const NoiseSite& hir_site = hir.noise_sites[site_index];
-                // The base is only populated when HIR has a materialized
-                // logical_noise_prefix; skip the check rather than index an
-                // empty vector when it was left untracked.
-                assert((!hir.has_logical_noise_prefix() ||
-                        plan.symbols.size() == requirements.noise_site_symbol_base[site_index]) &&
-                       "sampling planner symbol prepass disagrees with the schedule-order "
-                       "allocation it precomputed for this noise site");
+                noise_signs.check_symbols(site_index, plan.symbols.size());
                 PresampledNoiseSite& plan_site = plan.presampled_noise_sites[site_index];
                 plan_site.outcomes.reserve(hir_site.channels.size());
                 for (const NoiseChannel& channel : hir_site.channels) {

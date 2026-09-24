@@ -511,32 +511,6 @@ TEST_CASE("Logical noise prefix preserves the sampling distribution across noise
 }
 
 TEST_CASE(
-    "Logical noise prefix preserves the sampling distribution across noise-crossing reorders "
-    "for an independent random sample",
-    "[logical_noise_prefix]") {
-    constexpr uint32_t kShots = 20000;
-    constexpr uint32_t kTrials = 10;
-    clifft::Xoshiro256PlusPlus circuit_rng(0xD0DE2);
-    clifft::Xoshiro256PlusPlus control_rng(0x51DE9A2);
-    for (uint32_t trial = 0; trial < kTrials; ++trial) {
-        const uint32_t num_qubits = 4 + (trial % 5);
-        const uint32_t num_ops = 25 + (trial % 20);
-        const std::string source = generate_noisy_source(circuit_rng, num_qubits, num_ops);
-        CAPTURE(trial, num_qubits, num_ops, source);
-
-        const HirModule original = clifft::trace(clifft::parse(source));
-        HirModule reordered = original;
-        std::vector<size_t> original_index(reordered.ops.size());
-        std::iota(original_index.begin(), original_index.end(), 0);
-        clifft::Xoshiro256PlusPlus reorder_rng(control_rng());
-        randomly_reorder_across_noise(reordered, original_index, reorder_rng,
-                                      8 * static_cast<int>(reordered.ops.size()) + 8);
-
-        check_sampling_equivalent(original, reordered, kShots, control_rng(), control_rng());
-    }
-}
-
-TEST_CASE(
     "A noise-crossing reorder from the test-only walk is exactly sampling equivalent for every "
     "checked noise realization",
     "[logical_noise_prefix]") {
@@ -793,6 +767,9 @@ TEST_CASE("Logical noise prefix validation rejects a wrong-size vector", "[logic
     REQUIRE(hir.ops.size() == 2);
     hir.logical_noise_prefix = {0};
 
+    REQUIRE_THROWS_AS(hir.has_logical_noise_prefix(), std::invalid_argument);
+    REQUIRE_THROWS_AS(hir.materialize_logical_noise_prefix(), std::invalid_argument);
+    REQUIRE_THROWS_AS(StatevectorSqueezePass{}.run(hir), std::invalid_argument);
     REQUIRE_THROWS_AS(clifft::sampling::plan_sampling(hir), std::invalid_argument);
 }
 

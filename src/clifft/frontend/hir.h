@@ -460,30 +460,10 @@ struct HirModule {
     /// invalidated the map for that op.
     std::vector<std::vector<uint32_t>> source_map;
 
-    // A NOISE outcome is a schedule-independent random variable. Its symbol
-    // must be available before any dependent action; execution may draw it
-    // eagerly or defer it until first use. Reordering changes which symbols
-    // the planner folds into an operation's sign, preserving the same
-    // distribution. logical_noise_prefix[i], when non-empty, is the number of
-    // NOISE ops that logically precede ops[i] in the original circuit, and
-    // the planner resolves ops[i]'s noise-dependent sign from that count
-    // instead of from ops[i]'s position among the NOISE ops before it in
-    // `ops`. Noise sites themselves never move, so a logical position is
-    // always expressible as a plain site count.
-    //
-    // Empty means schedule semantics: every operation's logical position
-    // equals its schedule position, i.e. today's behavior with nothing
-    // reordered across noise.
-    //
-    // Contract for passes, mirroring source_map: an entry travels with its
-    // operation, and a pass that deletes an operation drops its entry. A
-    // pass that removes NOISE ops must clear the vector entirely, because
-    // once the sites are gone there is nothing left for a stale entry to
-    // correct for. A pass that absorbs a virtual Clifford gate into later
-    // operation and noise-site masks must not run while an entry disagrees
-    // with its schedule position, because the correction it implies
-    // compares an operation's mask against noise-site masks that the frame
-    // change may have moved into a different basis.
+    // Number of NOISE ops originally preceding each operation.
+    // Empty means use the current operation order. Otherwise, entries must
+    // stay aligned with ops through reordering and deletion. Removing all
+    // noise clears this mapping; NOISE ops retain their relative order.
     std::vector<uint32_t> logical_noise_prefix;
 
     std::optional<Tableau> final_tableau;
@@ -508,19 +488,43 @@ struct HirModule {
         return true;
     }
 
-    /// True when logical_noise_prefix is materialized and parallel to ops.
-    /// An empty ops list is never considered materialized, since an empty
-    /// vector cannot then be distinguished from the schedule-semantics
-    /// sentinel.
+    /// Whether noise positions are recorded. A partial mapping is invalid.
     [[nodiscard]] bool has_logical_noise_prefix() const {
-        return !ops.empty() && logical_noise_prefix.size() == ops.size();
+        if (logical_noise_prefix.empty()) {
+            return false;
+        }
+        if (logical_noise_prefix.size() != ops.size()) {
+            throw std::invalid_argument(
+                "HIR logical noise prefix size does not match the operation count");
+        }
+        return true;
     }
 
-    /// Fills logical_noise_prefix with each operation's schedule-order
-    /// noise count, making today's implicit schedule semantics explicit.
-    /// A no-op when the vector is already non-empty.
+    /// True if the mapping is redundant with the current operation order.
+    /// Malformed mappings do not match and must not be discarded.
+    [[nodiscard]] bool logical_noise_prefix_matches_schedule() const {
+        if (logical_noise_prefix.empty()) {
+            return true;
+        }
+        if (logical_noise_prefix.size() != ops.size()) {
+            return false;
+        }
+        uint32_t noise_count = 0;
+        for (size_t i = 0; i < ops.size(); ++i) {
+            if (logical_noise_prefix[i] != noise_count) {
+                return false;
+            }
+            if (ops[i].op_type() == OpType::NOISE) {
+                ++noise_count;
+            }
+        }
+        return true;
+    }
+
+    /// Record current noise positions before operations can cross noise.
+    /// Preserve an existing mapping, since its positions may already differ.
     void materialize_logical_noise_prefix() {
-        if (!logical_noise_prefix.empty()) {
+        if (has_logical_noise_prefix()) {
             return;
         }
         logical_noise_prefix.reserve(ops.size());

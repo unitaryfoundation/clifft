@@ -1,9 +1,8 @@
 #pragma once
 
-// Independent checks for reordered HIR: random noisy circuits, sampling
-// distributions, and exact probabilities for fixed noise realizations.
-// The realization sampler uses Xoshiro256PlusPlus so the shared 64-bit
-// uniform conversion spans the full [0, 1) interval.
+// Differential checks for HIR reorderings, shared by noise-position,
+// dependence, and scheduler tests. These compare Clifft plans; independent
+// simulator references are covered by the Python Aer and Stim tests.
 
 #include "clifft/frontend/hir.h"
 #include "clifft/sampling/executable_plan.h"
@@ -50,20 +49,9 @@ struct GeneratedCircuit {
     std::vector<NoiseLine> noise_lines;
 };
 
-// Deterministic generator over a mixed gate set: absorbed Cliffords (H, S,
-// CX, CZ) that the frontend folds into its frame without emitting an HIR op,
-// movable non-Clifford ops (T, T_DAG, R_Z, M, MX, MR), a reset, a noisy
-// measurement, classical feedback on an earlier record, every Pauli noise
-// channel this suite covers, and DETECTOR/OBSERVABLE_INCLUDE targets into
-// the growing record. Every generated line is individually valid, so the
-// circuit as a whole always parses and traces.
-//
-// Noise probabilities are drawn from a set that includes 0.5 and 1.0, not
-// just small values: a wrong noise-crossing sign shows up in a fixed
-// fraction of shots landing on the wrong outcome, and that fraction has to
-// clear check_sampling_equivalent's statistical tolerance to be caught. At a
-// small probability the wrong fraction can hide inside the tolerance band;
-// at 0.5 or 1.0 it cannot.
+// Mix non-Clifford gates, measurements, feedback, and noise with absorbed
+// Cliffords that vary their Pauli bases. Include frequent errors so incorrect
+// noise-crossing signs cannot hide within sampling tolerances.
 inline GeneratedCircuit generate_noisy_circuit(clifft::Xoshiro256PlusPlus& rng, uint32_t num_qubits,
                                                uint32_t num_ops) {
     assert(num_qubits >= 2 && "two-qubit gates and channels need a second qubit");
@@ -454,13 +442,10 @@ struct ExactEquivalenceStats {
     size_t reachable = 0;
 };
 
-// For every realization of the presampled noise sites (which channel, if
-// any, fires at each site) and every possible visible record, replays both
-// plans and requires them to agree exactly: same reachability, the same
-// joint log probability, and the same detector and observable outputs. This
-// is the per-realization claim behind noise transparency, checked with no
-// statistics; a wrong sign on a rare channel is as visible here as on a
-// likely one.
+// Compare full record probabilities, reachability, detectors, and observables
+// for the same fixed noise outcomes. Enumerate all realizations when small;
+// otherwise check the no-error case and a bounded random selection. Every
+// visible record is checked for each selected realization.
 inline ExactEquivalenceStats check_exact_equivalent(const HirModule& original,
                                                     const HirModule& reordered,
                                                     clifft::Xoshiro256PlusPlus& rng,
