@@ -407,7 +407,7 @@ TEST_CASE("Search statistics distinguish executions from classification probes",
     REQUIRE(pass.result_peak() == 1);
 }
 
-TEST_CASE("Greedy schedules preserve noisy circuit sampling", "[schedule_pass]") {
+TEST_CASE("Greedy schedules preserve noisy circuit sampling", "[schedule_pass][expensive]") {
     const HirModule original = clifft::trace(
         clifft::parse_file(std::string(CLIFFT_FIXTURES_DIR) + "/coherent_d3_r3.stim"));
     for (double budget : {0.0, 0.001, 0.1}) {
@@ -570,7 +570,7 @@ TEST_CASE("Schedule pass is deterministic across repeated runs", "[schedule_pass
 // ---------------------------------------------------------------------------
 
 TEST_CASE("Scheduled programs remain sampling equivalent to the unoptimized program",
-          "[schedule_pass]") {
+          "[schedule_pass][expensive]") {
     constexpr uint32_t kShots = 20000;
 
     SECTION("coherent_d3_r3 fixture") {

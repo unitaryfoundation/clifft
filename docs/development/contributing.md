@@ -85,6 +85,10 @@ When testing parallel execution, provide enough work for multiple workers to
 contribute without asserting a particular scheduling outcome. Keep resource use
 bounded.
 
+Mark measured high-cost sampling or fixture cases with Catch2 `[expensive]`
+or `@pytest.mark.expensive` so CI runs their full workload in optimized builds;
+retain small representative checks in Debug.
+
 ## Running Tests
 
 === "Python"

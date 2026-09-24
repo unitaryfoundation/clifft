@@ -166,6 +166,21 @@ CTest runs the distance-nine scheduling regression in optimized builds. Debug
 builds retain the distance-seven case and omit the `[large-schedule]` test to
 avoid repeating its expensive unoptimized search across CI configurations.
 
+CI Debug jobs exclude the CTest `expensive` label and pytest `expensive`
+marker. These identify high-shot statistical comparisons, large fixture
+sweeps, and the unsqueezed width-24 sampling case. Optimized CI jobs run these
+cases at their full sample counts. The Release smoke job (C++ and Python) and
+the Windows Python wheel keep `assert()` active with `CLIFFT_FORCE_ASSERTS=ON`;
+the GCC Release job runs the C++ cases with `NDEBUG`. Windows C++ stays in
+Debug to retain MSVC library and runtime checks.
+Small deterministic cases and squeezed sampling boundaries remain in Debug.
+Local test runs include expensive cases by default, as do the nightly C++
+sanitizer and weekly coverage jobs.
+
+To reproduce the CI Debug selection locally, use
+`ctest --test-dir build --output-on-failure --label-exclude expensive` and
+`uv run pytest tests/python/ -m "not expensive" --durations=20`.
+
 To generate HTML coverage reports for both layers of the application to ensure new features are thoroughly exercised:
 
 ```bash

@@ -140,26 +140,34 @@ def test_coherent_d5_squeezed_exercises_convoy_bypass(
     assert programs.squeezed.peak_active_width < programs.peephole_only.peak_active_width
 
 
+@pytest.mark.parametrize(
+    "program_name,shots,batch_size,seed",
+    [
+        pytest.param(
+            "peephole_only", 1, "auto", 51_001, marks=pytest.mark.expensive, id="unsqueezed-auto"
+        ),
+        pytest.param("squeezed", 5, 1, 51_002, id="squeezed-scalar"),
+        pytest.param("squeezed", 65, "auto", 51_003, id="squeezed-auto"),
+        pytest.param("squeezed", 65, 65, 51_004, id="squeezed-packed"),
+    ],
+)
 def test_coherent_d5_sampling_modes_preserve_annotations(
     coherent_d5_programs: _PipelinePrograms,
+    program_name: str,
+    shots: int,
+    batch_size: int | str,
+    seed: int,
 ) -> None:
     programs = coherent_d5_programs
     converter = _record_converter(programs.circuit)
 
-    # The width-24 squeeze-off plan is intentionally limited to one automatic
-    # shot. Production is cheap enough to cross scalar, automatic, and an
-    # explicit packed capacity without building the expensive full matrix.
-    results = (
-        clifft.sample(programs.peephole_only, 1, seed=51_001, batch_size="auto"),
-        clifft.sample(programs.squeezed, 5, seed=51_002, batch_size=1),
-        clifft.sample(programs.squeezed, 65, seed=51_003, batch_size="auto"),
-        clifft.sample(programs.squeezed, 65, seed=51_004, batch_size=65),
-    )
-    for result in results:
-        assert result.measurements.shape[1] == 145
-        assert result.detectors.shape[1] == 120
-        assert result.observables.shape[1] == 1
-        _assert_annotations_match_records(converter, result)
+    # Even one width-24 unsqueezed shot is expensive in Debug. The squeezed
+    # cases retain scalar and packed boundary coverage in every CI build.
+    result = clifft.sample(getattr(programs, program_name), shots, seed=seed, batch_size=batch_size)
+    assert result.measurements.shape == (shots, 145)
+    assert result.detectors.shape == (shots, 120)
+    assert result.observables.shape == (shots, 1)
+    _assert_annotations_match_records(converter, result)
 
 
 def test_coherent_d3_four_way_semantic_oracle(

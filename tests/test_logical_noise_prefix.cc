@@ -113,7 +113,8 @@ void check_inert_if_plannable(const HirModule& hir) {
     REQUIRE(schedule_plan.inspect() == materialized_plan.inspect());
 }
 
-TEST_CASE("Logical noise prefix is inert on fixture circuits", "[logical_noise_prefix]") {
+TEST_CASE("Logical noise prefix is inert on fixture circuits",
+          "[logical_noise_prefix][expensive]") {
     static const char* const fixtures[] = {
         "coherent_d3_r3.stim",     "coherent_d5_r5.stim", "cultivation_d5.stim",
         "surface_d7_r7_p001.stim", "qv10.stim",           "surface_d11_r11_p001.stim",
@@ -470,7 +471,7 @@ void randomly_reorder_across_noise(HirModule& hir, std::vector<size_t>& original
 // sampling_equivalence_helpers.h, shared with test_schedule_dependence.cc.
 
 TEST_CASE("Logical noise prefix preserves the sampling distribution across noise-crossing reorders",
-          "[logical_noise_prefix]") {
+          "[logical_noise_prefix][expensive]") {
     constexpr uint32_t kShots = 20000;
 
     SECTION("random circuits") {
