@@ -199,7 +199,37 @@ void apply_schedule(HirModule& hir, const ScheduleDependence& dependence,
         hir.materialize_logical_noise_prefix();
     }
 
-    hir.permute_ops(order);
+    const bool has_source_map = hir.source_map.size() == hir.ops.size();
+    const bool has_lnp = hir.has_logical_noise_prefix();
+
+    std::vector<HeisenbergOp> new_ops;
+    new_ops.reserve(hir.ops.size());
+    std::vector<std::vector<uint32_t>> new_source_map;
+    std::vector<uint32_t> new_lnp;
+    if (has_source_map) {
+        new_source_map.reserve(hir.ops.size());
+    }
+    if (has_lnp) {
+        new_lnp.reserve(hir.ops.size());
+    }
+
+    for (uint32_t idx : order) {
+        new_ops.push_back(hir.ops[idx]);
+        if (has_source_map) {
+            new_source_map.push_back(std::move(hir.source_map[idx]));
+        }
+        if (has_lnp) {
+            new_lnp.push_back(hir.logical_noise_prefix[idx]);
+        }
+    }
+
+    hir.ops = std::move(new_ops);
+    if (has_source_map) {
+        hir.source_map = std::move(new_source_map);
+    }
+    if (has_lnp) {
+        hir.logical_noise_prefix = std::move(new_lnp);
+    }
 }
 
 }  // namespace clifft::detail
