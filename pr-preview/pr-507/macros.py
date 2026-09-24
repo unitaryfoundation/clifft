@@ -122,7 +122,7 @@ def define_env(env: Any) -> None:
         {
             "name": "ActiveWidthSchedulePass",
             "kind": "HIR",
-            "default_enabled": True,
+            "default_enabled": False,
             "preserves_record_order": False,
             "preserves_instrument_prefix": False,
             "python_name": "ActiveWidthSchedulePass",
@@ -135,7 +135,8 @@ def define_env(env: Any) -> None:
                 "untouched. "
                 "A deterministic work budget limits search executions, but does not bound "
                 "classification probes or wall time. "
-                "Enabled by default to reduce sampling work at extra compilation cost. "
+                "Opt in to reduce sampling work at extra compilation cost. "
+                "Skips search below min_peak_width, which defaults to 3. "
                 "Run it last, after "
                 "PeepholeFusionPass and StatevectorSqueezePass: reordering across noise "
                 "can prevent subsequent peephole fusion."
