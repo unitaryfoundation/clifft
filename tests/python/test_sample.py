@@ -394,6 +394,30 @@ class TestSample:
             abs(adjacent_both_1 - expected_adj) < adj_tol
         ), f"Adjacency correlation off: {adjacent_both_1}"
 
+    def test_active_measurement_feedback_and_reset(self, sampling_mode: CpuSamplingMode) -> None:
+        program = sampling_mode.compile(
+            "H 0 1 2 3 4\nT 0 1 2 3 4\nEXP_VAL X0*X1*X2*X3*X4\n"
+            "H 0\nM 0\nCX rec[-1] 0\nEXP_VAL Z0\nM 0\n"
+            "R_X(0.125) 4\nEXP_VAL Z4\nR 1\nM 1\n"
+            "DETECTOR rec[-2]\nOBSERVABLE_INCLUDE(0) rec[-3]"
+        )
+        # Measurement removes one coordinate before the remaining active rotation.
+        assert program.peak_active_width == 5
+        shots = 257
+        result = sampling_mode.sample(program, shots, seed=1912)
+        first = result.measurements[:, 0]
+        probability = (1 - np.sqrt(0.5)) / 2
+        assert 0 < first.sum() < shots
+        assert abs(first.mean() - probability) < binomial_tolerance(probability, shots)
+        np.testing.assert_array_equal(result.measurements[:, 1:], np.zeros((shots, 2)))
+        np.testing.assert_array_equal(result.detectors, np.zeros((shots, 1)))
+        np.testing.assert_array_equal(result.observables[:, 0], first)
+        # T|+> has X=Y=1/sqrt(2); Rx transfers its Y component into Z.
+        expected = [2**-2.5, 1, np.sin(np.pi / 8) / np.sqrt(2)]
+        np.testing.assert_allclose(
+            result.exp_vals, np.broadcast_to(expected, (shots, 3)), atol=1e-12, rtol=0
+        )
+
 
 class TestStatevector:
     """Tests for clifft.get_statevector()."""
@@ -937,6 +961,54 @@ class TestPostselection:
 
 class TestSampleSurvivors:
     """Tests for sample_survivors() API."""
+
+    @pytest.mark.parametrize("keep_records", [False, True])
+    def test_active_postselection_preserves_survivor_outputs(
+        self, sampling_mode: CpuSamplingMode, keep_records: bool
+    ) -> None:
+        program = sampling_mode.compile(
+            "H 0 1 2 3 4\nT 0 1 2 3 4\nEXP_VAL X0*X1*X2*X3*X4\n"
+            "R_X(0.125) 4\nEXP_VAL Z4\nM 0\nDETECTOR rec[-1]\n"
+            "H 1\nM 1\nOBSERVABLE_INCLUDE(0) rec[-1]\nEXP_VAL Z1",
+            postselection_mask=[1],
+        )
+        assert program.peak_active_width == 5
+        shots = 257
+        result = sampling_mode.sample_survivors(
+            program, shots, seed=1913, keep_records=keep_records
+        )
+        passed = result.passed_shots
+        assert result.total_shots == shots
+        assert result.discards == shots - passed
+        assert 0 < passed < shots
+        assert abs(passed / shots - 0.5) < binomial_tolerance(0.5, shots)
+        # Qubit 1 is independent of the postselected qubit and measures H T |+>.
+        probability = (1 - np.sqrt(0.5)) / 2
+        assert 0 < result.logical_errors < passed
+        assert abs(result.logical_errors / passed - probability) < binomial_tolerance(
+            probability, passed
+        )
+        np.testing.assert_array_equal(result.observable_ones, [result.logical_errors])
+        rows = passed if keep_records else 0
+        assert result.measurements.shape == (rows, 2)
+        assert result.detectors.shape == (rows, 1)
+        assert result.observables.shape == (rows, 1)
+        assert result.exp_vals.shape == (rows, 3)
+        if keep_records:
+            np.testing.assert_array_equal(result.measurements[:, 0], np.zeros(passed))
+            np.testing.assert_array_equal(result.detectors, np.zeros((passed, 1)))
+            np.testing.assert_array_equal(result.observables[:, 0], result.measurements[:, 1])
+            assert result.observables.sum() == result.logical_errors
+            expected = [2**-2.5, np.sin(np.pi / 8) / np.sqrt(2)]
+            np.testing.assert_allclose(
+                result.exp_vals[:, :2], np.broadcast_to(expected, (passed, 2)), atol=1e-12, rtol=0
+            )
+            np.testing.assert_allclose(
+                result.exp_vals[:, 2],
+                1 - 2 * result.measurements[:, 1].astype(int),
+                atol=1e-12,
+                rtol=0,
+            )
 
     def test_zero_shots_returns_empty_result(self, sampling_mode: CpuSamplingMode) -> None:
         """Zero shots preserves the existing empty-result contract."""
