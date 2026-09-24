@@ -3,6 +3,7 @@
 #include "clifft/api/reference_syndrome.h"
 #include "clifft/circuit/parser.h"
 #include "clifft/frontend/frontend.h"
+#include "clifft/sampling/batch/policy.h"
 #include "clifft/sampling/planner.h"
 #include "clifft/sampling/sampler.h"
 #include "clifft/util/fault_sampling.h"
@@ -678,16 +679,26 @@ TEST_CASE("Threaded conditioned sampling preserves seeded rows and survivors") {
     auto fixed = compile_circuit(R"(
         X_ERROR(0.1) 0 1 2
         M 0 1 2
+        DETECTOR rec[-3]
         OBSERVABLE_INCLUDE(0) rec[-1]
+        EXP_VAL Z2
     )");
-    const clifft::sampling::SamplingResult fixed_serial =
-        clifft::sampling::sample_k(fixed, 257, 1, 47, 1);
-    const clifft::sampling::SamplingResult fixed_threaded =
-        clifft::sampling::sample_k(fixed, 257, 1, 47, 3);
-    REQUIRE(fixed_threaded.measurements == fixed_serial.measurements);
-    REQUIRE(fixed_threaded.detectors == fixed_serial.detectors);
-    REQUIRE(fixed_threaded.observables == fixed_serial.observables);
-    REQUIRE(fixed_threaded.exp_vals == fixed_serial.exp_vals);
+    for (uint32_t capacity : {1U, 65U}) {
+        CAPTURE(capacity);
+        const auto policy = clifft::sampling::resolve_batch_execution_policy(
+            fixed, 257, 2, 1, clifft::sampling::BatchOutputMode::Rows, capacity,
+            clifft::sampling::BatchSamplingMode::FixedFaults);
+        REQUIRE(policy.lane_capacity == capacity);
+        REQUIRE(policy.worker_count == 2);
+        const clifft::sampling::SamplingResult fixed_serial =
+            clifft::sampling::sample_k(fixed, 257, 1, 47, 1, std::nullopt, capacity);
+        const clifft::sampling::SamplingResult fixed_threaded =
+            clifft::sampling::sample_k(fixed, 257, 1, 47, 2, std::nullopt, capacity);
+        REQUIRE(fixed_threaded.measurements == fixed_serial.measurements);
+        REQUIRE(fixed_threaded.detectors == fixed_serial.detectors);
+        REQUIRE(fixed_threaded.observables == fixed_serial.observables);
+        REQUIRE(fixed_threaded.exp_vals == fixed_serial.exp_vals);
+    }
 
     const std::array<uint8_t, 1> postselection{1};
     auto survivors = compile_circuit(R"(
