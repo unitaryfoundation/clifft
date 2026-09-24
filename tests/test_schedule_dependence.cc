@@ -187,7 +187,6 @@ void check_closure_matches_can_swap(const HirModule& hir, bool noise_transparent
 
     REQUIRE(dep.num_ops() == hir.ops.size());
     REQUIRE(dep.noise_transparent() == noise_transparent);
-    for (size_t i = 0; i < hir.ops.size(); ++i) {}
 
     const std::vector<std::vector<bool>> reference =
         reference_ancestor_closure(hir, noise_transparent);

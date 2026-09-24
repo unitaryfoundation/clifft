@@ -21,9 +21,26 @@ class CompilerProfile:
         return clifft.compile(source, hir_passes=self.make_passes())
 
 
+def fusion_squeeze_passes() -> clifft.HirPassManager:
+    manager = clifft.HirPassManager()
+    manager.add(clifft.PeepholeFusionPass())
+    manager.add(clifft.StatevectorSqueezePass())
+    return manager
+
+
+def active_width_passes(
+    schedule_pass: clifft.ActiveWidthSchedulePass | None = None,
+) -> clifft.HirPassManager:
+    manager = fusion_squeeze_passes()
+    manager.add(schedule_pass if schedule_pass is not None else clifft.ActiveWidthSchedulePass())
+    return manager
+
+
 UNOPTIMIZED = CompilerProfile("unoptimized", lambda: None)
+FUSION_SQUEEZE = CompilerProfile("fusion-squeeze", fusion_squeeze_passes)
 DEFAULT = CompilerProfile("default", lambda: clifft.default_hir_pass_manager())
-COMPILER_PROFILES = (UNOPTIMIZED, DEFAULT)
+ACTIVE_WIDTH = CompilerProfile("active-width", lambda: active_width_passes())
+COMPILER_PROFILES = (UNOPTIMIZED, DEFAULT, ACTIVE_WIDTH)
 
 
 @dataclass(frozen=True)

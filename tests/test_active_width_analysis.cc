@@ -651,6 +651,7 @@ TEST_CASE("Dormant commutation queries agree across word boundaries", "[active_w
     for (uint32_t n : {0u, 1u, 63u, 64u, 65u, 128u}) {
         Xoshiro256PlusPlus rng(991 + n);
         DormantSubspace subspace(n);
+        uint32_t hint = n;
         for (uint32_t step = 0; step < 200; ++step) {
             const PauliString p = random_pauli_string(rng, n);
             const auto generators = subspace.generators();
@@ -658,8 +659,14 @@ TEST_CASE("Dormant commutation queries agree across word boundaries", "[active_w
                 generators, [&](const PauliString& g) { return g.view().commutes(p.view()); });
             CAPTURE(n, step);
             REQUIRE(subspace.commutes_with_all(p) == expected);
+            // Reuse hints across basis changes and unrelated queries, as
+            // speculative scheduler branches do. Invalid hints are safe too.
+            REQUIRE(subspace.commutes_with_all(p.x(), p.z(), &hint) == expected);
+            uint32_t invalid_hint = n + 1;
+            REQUIRE(subspace.commutes_with_all(p.x(), p.z(), &invalid_hint) == expected);
             for (const auto& g : generators) {
                 REQUIRE(subspace.commutes_with_all(g));
+                REQUIRE(subspace.commutes_with_all(g.x(), g.z(), &hint));
             }
             if (step % 3 == 0) {
                 subspace.apply_rotation(p);
@@ -684,6 +691,7 @@ TEST_CASE("Dormant updates agree with an embedded small reference across word bo
         Xoshiro256PlusPlus rng(719 + n);
         DormantSubspace subspace(n);
         ReferenceDormantSubspace reference(8);
+        uint32_t hint = n;
         for (uint32_t step = 0; step < 200; ++step) {
             const PauliString p = random_pauli_string(rng, 8);
             const PauliString wide = embed(p);
@@ -699,6 +707,9 @@ TEST_CASE("Dormant updates agree with an embedded small reference across word bo
             }
             const PauliString query = random_pauli_string(rng, 8);
             REQUIRE(subspace.commutes_with_all(embed(query)) == reference.commutes_with_all(query));
+            const PauliString wide_query = embed(query);
+            REQUIRE(subspace.commutes_with_all(wide_query.x(), wide_query.z(), &hint) ==
+                    reference.commutes_with_all(query));
             REQUIRE(subspace.contains(embed(query)) == reference.contains(query));
         }
     }

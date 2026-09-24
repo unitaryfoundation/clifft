@@ -42,7 +42,9 @@ class DormantSubspace {
     [[nodiscard]] bool commutes_with_all(const PauliString& p) const {
         return commutes_with_all(p.x(), p.z());
     }
-    [[nodiscard]] bool commutes_with_all(MaskView x, MaskView z) const;
+    // A remembered row is only a hint: basis updates can replace or remove it.
+    [[nodiscard]] bool commutes_with_all(MaskView x, MaskView z,
+                                         uint32_t* anticommuting_row = nullptr) const;
 
     // True when the unsigned Pauli body belongs to S. For a Pauli commuting
     // with S, this distinguishes a stabilizer from an active operation.

@@ -68,21 +68,37 @@ DormantSubspace::DormantSubspace(uint32_t num_qubits)
     }
 }
 
-bool DormantSubspace::commutes_with_all(MaskView x, MaskView z) const {
+bool DormantSubspace::commutes_with_all(MaskView x, MaskView z, uint32_t* anticommuting_row) const {
     assert(x.num_words() == words_per_row_ && z.num_words() == words_per_row_ &&
            "Pauli body must share the subspace's word width");
     // Hoist the single-word case out of the row scan to avoid rebuilding
     // mask views and entering a generic word loop for every row.
     if (words_per_row_ == 1) {
+        if (anticommuting_row && *anticommuting_row < dimension_ &&
+            (std::popcount((rows_x_[*anticommuting_row] & z.words[0]) ^
+                           (rows_z_[*anticommuting_row] & x.words[0])) &
+             1) != 0) {
+            return false;
+        }
         for (uint32_t i = 0; i < dimension_; ++i) {
             if ((std::popcount((rows_x_[i] & z.words[0]) ^ (rows_z_[i] & x.words[0])) & 1) != 0) {
+                if (anticommuting_row) {
+                    *anticommuting_row = i;
+                }
                 return false;
             }
         }
         return true;
     }
+    if (anticommuting_row && *anticommuting_row < dimension_ &&
+        anti_commute(row_x(*anticommuting_row), row_z(*anticommuting_row), x, z)) {
+        return false;
+    }
     for (uint32_t i = 0; i < dimension_; ++i) {
         if (anti_commute(row_x(i), row_z(i), x, z)) {
+            if (anticommuting_row) {
+                *anticommuting_row = i;
+            }
             return false;
         }
     }

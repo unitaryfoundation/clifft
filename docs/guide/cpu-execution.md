@@ -170,3 +170,10 @@ and `1024`, using the production worker budget and result options.
 
 Use `program.peak_active_width` as a first-order cost indicator, but do not
 choose a layout from peak width alone.
+
+## Compile-time scheduling
+
+For repeated sampling, the opt-in active-width scheduler can reduce the active
+state at extra compilation cost. See
+[Active-width scheduling](compilation.md#active-width-scheduling) for setup,
+playground controls, and how to compare compilation plus sampling time.

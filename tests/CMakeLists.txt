@@ -31,6 +31,7 @@ add_executable(clifft_tests
     test_source_map.cc
     test_logical_noise_prefix.cc
     test_schedule_dependence.cc
+    test_active_width_schedule_pass.cc
     test_importance_sampling.cc
     test_runtime_isa.cc
     test_shot_parallel.cc
@@ -84,7 +85,9 @@ if(CLIFFT_COVERAGE)
     target_link_options(clifft_tests PRIVATE --coverage)
 endif()
 
-catch_discover_tests(clifft_tests)
+# The distance-nine structural regression is covered by optimized builds;
+# repeating its unoptimized search across Debug ISA jobs dominates test time.
+catch_discover_tests(clifft_tests TEST_SPEC "$<IF:$<CONFIG:Debug>,~[large-schedule],*>")
 
 if(CLIFFT_ENABLE_HIP)
     # Keep hardware-dependent skips scoped to the HIP executable so exit code

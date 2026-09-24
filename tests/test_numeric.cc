@@ -2,6 +2,7 @@
 
 #include "test_helpers.h"
 
+#include <bit>
 #include <catch2/catch_test_macros.hpp>
 #include <limits>
 
@@ -37,4 +38,18 @@ TEST_CASE("Probability checks survive finite-math optimization") {
     CHECK_FALSE(is_probability(clifft::test::opaque_nan()));
     CHECK_FALSE(is_probability(clifft::test::opaque_infinity()));
     CHECK_FALSE(is_probability(clifft::test::opaque_nonfinite(0xFFF0000000000000ULL)));
+}
+
+TEST_CASE("Finite nonnegative checks survive finite-math optimization") {
+    CHECK(is_finite_non_negative(0.0));
+    CHECK(is_finite_non_negative(-0.0));
+    CHECK(is_finite_non_negative(1.0));
+    CHECK(is_finite_non_negative(std::numeric_limits<double>::max()));
+    CHECK(is_finite_non_negative(std::bit_cast<double>(uint64_t{0x0000000000000001ULL})));
+    CHECK_FALSE(is_finite_non_negative(std::bit_cast<double>(uint64_t{0x8000000000000001ULL})));
+    CHECK_FALSE(is_finite_non_negative(-1.0));
+    CHECK_FALSE(is_finite_non_negative(std::numeric_limits<double>::lowest()));
+    CHECK_FALSE(is_finite_non_negative(clifft::test::opaque_nan()));
+    CHECK_FALSE(is_finite_non_negative(clifft::test::opaque_infinity()));
+    CHECK_FALSE(is_finite_non_negative(clifft::test::opaque_nonfinite(0xFFF0000000000000ULL)));
 }

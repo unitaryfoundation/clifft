@@ -31,12 +31,33 @@ const names = passes.map((p) => p.name);
 assert.ok(names.includes("PeepholeFusionPass"), "Missing PeepholeFusionPass");
 assert.ok(names.includes("StatevectorSqueezePass"), "Missing StatevectorSqueezePass");
 assert.ok(names.includes("RemoveNoisePass"), "Missing RemoveNoisePass");
+const scheduler = passes.find((p) => p.name === "ActiveWidthSchedulePass");
+assert.ok(scheduler, "Missing opt-in ActiveWidthSchedulePass");
+assert.equal(scheduler.default, false, "Scheduling must be opt-in in the playground");
 // Check schema
 for (const p of passes) {
     assert.ok(typeof p.name === "string");
     assert.equal(p.kind, "hir");
     assert.ok(typeof p.default === "boolean");
 }
+
+// Selecting the optional pass must reach both compilation and simulation.
+const schedulingWitness = `R_PAULI(0.3) X0*X1
+Z_ERROR(0.3) 0
+R_PAULI(0.3) Z0*Y1
+MPP Y0*Y1
+MPP Y0`;
+const withScheduling = JSON.stringify({
+    hir: [...passes.filter((p) => p.default).map((p) => p.name), scheduler.name],
+});
+const unscheduled = JSON.parse(mod.compile_to_json(schedulingWitness, DEFAULTS));
+const scheduled = JSON.parse(mod.compile_to_json(schedulingWitness, withScheduling));
+assert.equal(unscheduled.error, undefined);
+assert.equal(scheduled.error, undefined);
+assert.equal(unscheduled.peak_active_width, 2);
+assert.equal(scheduled.peak_active_width, 1);
+const scheduledSamples = JSON.parse(mod.simulate_wasm(schedulingWitness, 100, withScheduling));
+assert.equal(scheduledSamples.error, undefined);
 
 // --- compile_to_json with defaults ---
 const json = mod.compile_to_json("H 0\nT 0\nM 0", DEFAULTS);

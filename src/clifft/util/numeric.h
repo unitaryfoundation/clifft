@@ -87,6 +87,16 @@ inline bool is_finite_robust(double value) {
     return (bits & kExpMask) != kExpMask;
 }
 
+// Check the magnitude bits so fast-math cannot hide nonfinite or negative
+// subnormal inputs. Both signs of zero count as nonnegative.
+inline bool is_finite_non_negative(double value) {
+    const uint64_t bits = detail::opaque_binary64_bits(value);
+    constexpr uint64_t kSignMask = 0x8000000000000000ULL;
+    constexpr uint64_t kInfinityBits = 0x7FF0000000000000ULL;
+    const uint64_t magnitude = bits & ~kSignMask;
+    return magnitude == 0 || ((bits & kSignMask) == 0 && magnitude < kInfinityBits);
+}
+
 // Return the Clifford representative when alpha is within the shared absolute
 // tolerance of a multiple of 0.5 half-turns. Reducing modulo two before any
 // scaling also keeps the calculation finite for every finite binary64 input.
