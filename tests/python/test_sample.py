@@ -10,7 +10,7 @@ from conftest import (
     binomial_tolerance,
     random_clifford_circuit,
 )
-from utils_conformance import SMALL_CIRCUIT_SHOTS, CpuSamplingMode, skip_unavailable_intra_shot
+from utils_conformance import SMALL_CIRCUIT_SHOTS, CpuSamplingMode, skip_unavailable_thread_layout
 
 import clifft
 
@@ -268,7 +268,7 @@ class TestSample:
                 intra_shot_min_active_width=3,
             )
         except ValueError as error:
-            skip_unavailable_intra_shot(error)
+            skip_unavailable_thread_layout(error, (1, 2))
         np.testing.assert_array_equal(threaded.measurements, serial.measurements)
         np.testing.assert_allclose(threaded.exp_vals, serial.exp_vals, atol=1e-12, rtol=0)
 

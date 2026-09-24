@@ -139,7 +139,8 @@ Intra-shot tests lower the active-width threshold so small circuits can exercise
 parallel kernels; narrower circuits retain serial execution. Active-state cases
 check evolution and its interactions with measurement, feedback, and postselection
 against independent expectations. Intra-shot execution is skipped on builds
-without OpenMP.
+without OpenMP. Hybrid execution is also skipped when OpenMP processor binding
+is active; run with `OMP_PROC_BIND=false` to include those cases.
 
 Dedicated tests check seeded repeatability across worker counts and behavior
 at batch and output boundaries. Short dynamically scheduled cross-shot calls
