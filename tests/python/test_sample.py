@@ -252,16 +252,21 @@ class TestSample:
         self, sampling_api: Any
     ) -> None:
         """Expert layouts can lower the kernel crossover without rebuilding."""
-        prog = sampling_api.compile("H 0 1\nT 0\nM 0 1")
+        # The probes retain four active qubits: two rotation chunks even with AVX-512.
+        prog = sampling_api.compile(
+            "H 0 1 2 3\nT 0 1 2 3\nEXP_VAL X0*X1*X2*X3\nR_X(0.125) 0\nEXP_VAL Z0\nM 0 1 2 3"
+        )
+        assert prog.peak_active_width == 4
         serial = sampling_api.sample(prog, 31, seed=12347, threads=1)
         threaded = sampling_api.sample(
             prog,
             31,
             seed=12347,
             thread_layout=(1, 2),
-            intra_shot_min_active_width=0,
+            intra_shot_min_active_width=3,
         )
         np.testing.assert_array_equal(threaded.measurements, serial.measurements)
+        np.testing.assert_allclose(threaded.exp_vals, serial.exp_vals, atol=1e-12, rtol=0)
 
     @pytest.mark.parametrize(
         ("thread_layout", "min_active_width"),
