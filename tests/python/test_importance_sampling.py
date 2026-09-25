@@ -540,3 +540,12 @@ class TestActiveFaults:
             )
         )
         np.testing.assert_allclose(result.exp_vals, expected, atol=1e-12, rtol=0)
+
+        # The final Z probe only checks consistency with the recorded bit;
+        # the measurement distribution must also follow the row's own fault.
+        for fault in (0, 1):
+            outcome_probability = (1 + (2 * fault - 1) / np.sqrt(2)) / 2
+            outcomes = result.measurements[active_fault == fault, 1]
+            assert abs(outcomes.mean() - outcome_probability) < binomial_tolerance(
+                outcome_probability, len(outcomes)
+            )
