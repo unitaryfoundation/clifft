@@ -281,6 +281,7 @@ jobs:
             --build-config ${{ env.CMAKE_BUILD_TYPE }} \
             --output-on-failure \
             --parallel \
+            --label-exclude expensive \
             --timeout 300
         shell: bash
 
@@ -292,6 +293,7 @@ jobs:
             --build-config ${{ env.CMAKE_BUILD_TYPE }} \
             --output-on-failure \
             --parallel \
+            --label-exclude expensive \
             --timeout 300
         shell: bash
 
@@ -304,6 +306,7 @@ jobs:
             --build-config ${{ env.CMAKE_BUILD_TYPE }} \
             --output-on-failure \
             --parallel \
+            --label-exclude expensive \
             --timeout 300
         shell: bash
 
@@ -320,6 +323,7 @@ jobs:
             --build-config ${{ env.CMAKE_BUILD_TYPE }} \
             --output-on-failure \
             --parallel \
+            --label-exclude expensive \
             --timeout 300
         shell: bash
 
@@ -330,12 +334,12 @@ jobs:
         run: uv run python tools/ci/audit_python_exports.py
 
       - name: Run Python tests (default ISA)
-        run: uv run --locked pytest tests/python/ -n logical --maxprocesses 4 -v
+        run: uv run --locked pytest tests/python/ -n logical --maxprocesses 4 -v -m "not expensive" --durations=20
 
       - name: Run Python tests (scalar ISA)
         env:
           CLIFFT_FORCE_ISA: scalar
-        run: uv run --locked pytest tests/python/ -n logical --maxprocesses 4 -v
+        run: uv run --locked pytest tests/python/ -n logical --maxprocesses 4 -v -m "not expensive" --durations=20
 
       - name: Test documentation code examples
         run: uv run --locked pytest --codeblocks docs/ README.md -v
@@ -400,6 +404,7 @@ jobs:
             -DCMAKE_BUILD_TYPE=${{ env.CMAKE_BUILD_TYPE }} \
             -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=${{ env.CLIFFT_INTERPROCEDURAL_OPTIMIZATION }} \
             -DCLIFFT_OPENMP=${{ env.CLIFFT_OPENMP }} \
+            -DCLIFFT_FORCE_ASSERTS=ON \
             -DCLIFFT_CPU_BASELINE=${{ env.CLIFFT_CPU_BASELINE }}
 
       - name: Build C++ tests
@@ -445,7 +450,7 @@ jobs:
         run: .smoke-venv/bin/python tools/ci/audit_python_exports.py
 
       - name: Run Python tests (optimized extension)
-        run: .smoke-venv/bin/python -m pytest tests/python/ -n logical --maxprocesses 4 -v
+        run: .smoke-venv/bin/python -m pytest tests/python/ -n logical --maxprocesses 4 -v --durations=20
 
       # Run a small QEMU-emulated CPU matrix against the release-baseline
       # Python install. Catches AVX-512 leakage into the AVX-2 dispatch
@@ -650,8 +655,8 @@ jobs:
           uv export --frozen --only-group dev --no-emit-project \
             --output-file /tmp/dev-requirements.txt
           uv pip install --python .abi3-venv/bin/python \
-            --requirements /tmp/dev-requirements.txt
-          .abi3-venv/bin/python -m pytest tests/python/ -n logical --maxprocesses 4 -v
+            --only-binary :all: --requirements /tmp/dev-requirements.txt
+          .abi3-venv/bin/python -m pytest tests/python/ -n logical --maxprocesses 4 -v --durations=20
 
   macos-release-wheel-smoke:
     name: macOS 14 release wheel smoke
@@ -728,19 +733,23 @@ jobs:
             install-deps: sudo apt-get update && sudo apt-get install -y ninja-build
             skbuild-type: Debug
             skbuild-cmake-args: ""
+            pytest-markexpr: "not expensive"
           - label: macOS
             os: macos-latest
             install-deps: brew install ninja libomp
             skbuild-type: Debug
             skbuild-cmake-args: ""
+            pytest-markexpr: "not expensive"
           # MSVC Debug wheels make the Python suite several times slower than
           # every other platform, so Windows tests an optimized wheel that
-          # keeps assert() active instead.
+          # keeps assert() active instead. The C++ suite stays in Debug for
+          # MSVC library and runtime checks.
           - label: Windows
             os: windows-latest
             install-deps: ""
             skbuild-type: RelWithDebInfo
             skbuild-cmake-args: "-DCLIFFT_FORCE_ASSERTS=ON"
+            pytest-markexpr: ""
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     env:
@@ -795,6 +804,7 @@ jobs:
             --build-config ${{ env.CMAKE_BUILD_TYPE }} \
             --output-on-failure \
             --parallel \
+            --label-exclude expensive \
             --timeout 300
         shell: bash
 
@@ -805,7 +815,9 @@ jobs:
         run: uv run python tools/ci/audit_python_exports.py
 
       - name: Run Python tests
-        run: uv run --locked pytest tests/python/ -n logical --maxprocesses 4 -v
+        run: >-
+          uv run --locked pytest tests/python/ -n logical --maxprocesses 4 -v
+          -m "${{ matrix.pytest-markexpr }}" --durations=20
 
   # Single aggregate check for branch protection. Requiring this job
   # instead of enumerating every job means new or renamed jobs cannot

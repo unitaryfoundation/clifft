@@ -534,7 +534,7 @@ TEST_CASE("apply_schedule carries source_map and logical_noise_prefix with their
 }
 
 TEST_CASE("A random linear extension under noise transparency is sampling equivalent",
-          "[schedule_dependence]") {
+          "[schedule_dependence][expensive]") {
     constexpr uint32_t kShots = 20000;
 
     SECTION("random circuits") {

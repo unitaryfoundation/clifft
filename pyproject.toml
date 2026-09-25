@@ -109,6 +109,9 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 testpaths = ["tests/python"]
 pythonpath = ["."]
+markers = [
+    "expensive: large sampling or fixture cases covered by optimized CI builds",
+]
 
 [tool.coverage.run]
 source = ["clifft"]

@@ -232,7 +232,8 @@ std::string random_stim_circuit(std::mt19937& rng, uint32_t num_qubits, uint32_t
 // Differential tests against the planner
 // ---------------------------------------------------------------------------
 
-TEST_CASE("Active width analysis matches the planner on fixture circuits", "[active_width]") {
+TEST_CASE("Active width analysis matches the planner on fixture circuits",
+          "[active_width][expensive]") {
     const std::vector<std::string> mandatory_fixtures = {
         "coherent_d3_r3.stim",
         "coherent_d5_r5.stim",

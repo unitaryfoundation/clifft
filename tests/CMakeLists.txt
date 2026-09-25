@@ -87,7 +87,12 @@ endif()
 
 # The distance-nine structural regression is covered by optimized builds;
 # repeating its unoptimized search across Debug ISA jobs dominates test time.
-catch_discover_tests(clifft_tests TEST_SPEC "$<IF:$<CONFIG:Debug>,~[large-schedule],*>")
+catch_discover_tests(clifft_tests TEST_SPEC "~[expensive]$<$<CONFIG:Debug>:~[large-schedule]>")
+# A separate label lets CI Debug jobs omit costly oracle sweeps while local
+# runs, optimized jobs, and sanitizers retain their full sample counts.
+catch_discover_tests(clifft_tests
+    TEST_SPEC "[expensive]$<$<CONFIG:Debug>:~[large-schedule]>"
+    PROPERTIES LABELS expensive)
 
 if(CLIFFT_ENABLE_HIP)
     # Keep hardware-dependent skips scoped to the HIP executable so exit code
