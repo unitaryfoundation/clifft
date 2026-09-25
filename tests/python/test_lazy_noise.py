@@ -2,10 +2,10 @@
 
 import numpy as np
 import stim
-from utils_conformance import CpuSamplingMode
+from utils_conformance import SamplingMode
 
 
-def test_noise_preserves_conditioned_joint_distribution(sampling_mode: CpuSamplingMode) -> None:
+def test_noise_preserves_conditioned_joint_distribution(sampling_mode: SamplingMode) -> None:
     text = """
         CORRELATED_ERROR(0.25) X0 X1
         ELSE_CORRELATED_ERROR(0.25) X1
@@ -41,7 +41,7 @@ def test_noise_preserves_conditioned_joint_distribution(sampling_mode: CpuSampli
     assert np.all(np.abs(actual - expected) <= 6 * np.sqrt(variance) + 0.001)
 
 
-def test_noise_preserves_noisy_nonclifford_interference(sampling_mode: CpuSamplingMode) -> None:
+def test_noise_preserves_noisy_nonclifford_interference(sampling_mode: SamplingMode) -> None:
     from qiskit import QuantumCircuit
     from qiskit_aer import AerSimulator
 

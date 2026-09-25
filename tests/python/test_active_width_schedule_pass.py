@@ -8,7 +8,7 @@ from typing import Any
 import numpy as np
 import pytest
 from conftest import assert_statevectors_equiv
-from utils_conformance import CpuSamplingMode, assert_joint_distribution, unitary_reference
+from utils_conformance import SamplingMode, assert_joint_distribution, unitary_reference
 from utils_conformance import active_width_passes as _schedule_pass_manager
 
 import clifft
@@ -156,7 +156,7 @@ def test_applied_unitary_schedule_matches_aer() -> None:
     assert_statevectors_equiv(clifft.get_statevector(program), unitary_reference(text))
 
 
-def test_applied_schedule_crossing_noise_matches_aer(sampling_mode: CpuSamplingMode) -> None:
+def test_applied_schedule_crossing_noise_matches_aer(sampling_mode: SamplingMode) -> None:
     from qiskit import QuantumCircuit
     from qiskit_aer import AerSimulator
 
@@ -170,7 +170,7 @@ def test_applied_schedule_crossing_noise_matches_aer(sampling_mode: CpuSamplingM
     opaque = clifft.ActiveWidthSchedulePass(noise_transparent=False)
     clifft.compile(text, hir_passes=_schedule_pass_manager(opaque))
     pass_ = clifft.ActiveWidthSchedulePass()
-    program = clifft.compile(text, hir_passes=_schedule_pass_manager(pass_))
+    program = sampling_mode.compile(text, hir_passes=_schedule_pass_manager(pass_))
 
     # The improvement must require crossing noise, not just reordering the
     # noiseless suffix. A no-op scheduler cannot satisfy this witness.

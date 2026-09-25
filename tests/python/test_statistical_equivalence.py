@@ -15,7 +15,7 @@ import numpy as np
 import pytest
 import stim
 from conftest import cross_binomial_tolerance
-from utils_conformance import CpuSamplingMode
+from utils_conformance import SamplingMode
 
 import clifft
 
@@ -74,7 +74,7 @@ class TestTargetQECCircuit:
         self,
         circuit_text: str,
         stim_sampler: stim.CompiledDetectorSampler,
-        sampling_mode: CpuSamplingMode,
+        sampling_mode: SamplingMode,
     ) -> None:
         """All detector and observable marginals match within 5-sigma bounds.
 
@@ -124,7 +124,7 @@ class TestTargetQECCircuit:
 class TestSimpleCircuitEquivalence:
     """Quick statistical checks on simpler circuits."""
 
-    def test_bell_state_with_noise(self, sampling_mode: CpuSamplingMode) -> None:
+    def test_bell_state_with_noise(self, sampling_mode: SamplingMode) -> None:
         """Bell state with depolarizing noise matches Stim."""
         circuit = """
             H 0
@@ -149,7 +149,7 @@ class TestSimpleCircuitEquivalence:
         tol = cross_binomial_tolerance((clifft_rate + stim_rate) / 2, shots)
         assert abs(clifft_rate - stim_rate) < tol
 
-    def test_repeated_measurements_with_readout_noise(self, sampling_mode: CpuSamplingMode) -> None:
+    def test_repeated_measurements_with_readout_noise(self, sampling_mode: SamplingMode) -> None:
         """Repeated measurements with readout noise match Stim."""
         circuit = """
             M(0.05) 0
@@ -173,7 +173,7 @@ class TestSimpleCircuitEquivalence:
         tol = cross_binomial_tolerance((clifft_rate + stim_rate) / 2, shots)
         assert abs(clifft_rate - stim_rate) < tol
 
-    def test_stabilizer_round_with_reset(self, sampling_mode: CpuSamplingMode) -> None:
+    def test_stabilizer_round_with_reset(self, sampling_mode: SamplingMode) -> None:
         """Circuit with resets has correct detector behavior."""
         circuit = """
             R 0
@@ -212,7 +212,7 @@ class TestTopologicalQECCodes:
         ],
     )
     def test_qec_code_statistical_equivalence(
-        self, code_task: str, sampling_mode: CpuSamplingMode
+        self, code_task: str, sampling_mode: SamplingMode
     ) -> None:
         """Generated QEC circuit matches Stim within statistical bounds.
 
@@ -339,7 +339,7 @@ class TestUnstructuredNoiseFuzzing:
     @pytest.mark.parametrize("num_qubits", [2, 4, 6])
     @pytest.mark.parametrize("seed", [42, 123, 456, 789, 1337])
     def test_random_noisy_circuit(
-        self, num_qubits: int, seed: int, sampling_mode: CpuSamplingMode
+        self, num_qubits: int, seed: int, sampling_mode: SamplingMode
     ) -> None:
         """Random noisy circuit marginals match Stim.
 
@@ -466,7 +466,7 @@ class TestMidCircuitMeasurementEvolution:
     @pytest.mark.parametrize("num_qubits", [2, 3, 4])
     @pytest.mark.parametrize("seed", [10, 20, 30])
     def test_midcircuit_marginals(
-        self, num_qubits: int, seed: int, sampling_mode: CpuSamplingMode
+        self, num_qubits: int, seed: int, sampling_mode: SamplingMode
     ) -> None:
         """Mid-circuit measurement circuits match Stim on 1-body marginals."""
         shots = 50_000
@@ -498,7 +498,7 @@ class TestMidCircuitMeasurementEvolution:
     @pytest.mark.parametrize("num_qubits", [3, 4])
     @pytest.mark.parametrize("seed", [10, 20, 30])
     def test_midcircuit_3body_parity(
-        self, num_qubits: int, seed: int, sampling_mode: CpuSamplingMode
+        self, num_qubits: int, seed: int, sampling_mode: SamplingMode
     ) -> None:
         """3-body parity checks on mid-circuit measurement circuits.
 
@@ -619,7 +619,7 @@ class TestTVDSmallMeasurementSpace:
     @pytest.mark.parametrize("n_measurements", [4, 6, 8])
     @pytest.mark.parametrize("seed", [42, 123, 456])
     def test_tvd_small_circuits(
-        self, n_measurements: int, seed: int, sampling_mode: CpuSamplingMode
+        self, n_measurements: int, seed: int, sampling_mode: SamplingMode
     ) -> None:
         """TVD of full distribution is below statistical threshold."""
         num_qubits = 3

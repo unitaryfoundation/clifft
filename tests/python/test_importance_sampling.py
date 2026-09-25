@@ -54,9 +54,9 @@ class TestNoiseSiteProbabilities:
 
 
 class TestSampleK:
-    def test_k0_no_errors(self, sampling_mode: CpuSamplingMode) -> None:
+    def test_k0_no_errors(self, importance_sampling_mode: CpuSamplingMode) -> None:
         """With k=0 forced faults, no errors should appear."""
-        prog = sampling_mode.compile(
+        prog = importance_sampling_mode.compile(
             """
             R 0 1 2
             X_ERROR(0.1) 0 1 2
@@ -67,14 +67,14 @@ class TestSampleK:
             """,
             normalize_syndromes=True,
         )
-        result = sampling_mode.sample_k(prog, shots=SMALL_CIRCUIT_SHOTS, k=0, seed=42)
+        result = importance_sampling_mode.sample_k(prog, shots=SMALL_CIRCUIT_SHOTS, k=0, seed=42)
         assert result.measurements.shape == (SMALL_CIRCUIT_SHOTS, 3)
         assert np.all(result.observables == 0)
         assert np.all(result.detectors == 0)
 
-    def test_k_equals_n_forces_all(self, sampling_mode: CpuSamplingMode) -> None:
+    def test_k_equals_n_forces_all(self, importance_sampling_mode: CpuSamplingMode) -> None:
         """k=N should force every noise site to fire."""
-        prog = sampling_mode.compile(
+        prog = importance_sampling_mode.compile(
             """
             R 0
             X_ERROR(0.5) 0
@@ -86,11 +86,11 @@ class TestSampleK:
         )
         n_sites = len(prog.noise_site_probabilities)
         assert n_sites == 1
-        result = sampling_mode.sample_k(prog, shots=SMALL_CIRCUIT_SHOTS, k=1, seed=42)
+        result = importance_sampling_mode.sample_k(prog, shots=SMALL_CIRCUIT_SHOTS, k=1, seed=42)
         assert np.all(result.observables == 1)
 
-    def test_k_exceeds_n_raises(self, sampling_mode: CpuSamplingMode) -> None:
-        prog = sampling_mode.compile(
+    def test_k_exceeds_n_raises(self, importance_sampling_mode: CpuSamplingMode) -> None:
+        prog = importance_sampling_mode.compile(
             """
             R 0
             X_ERROR(0.1) 0
@@ -101,32 +101,36 @@ class TestSampleK:
         )
         n_sites = len(prog.noise_site_probabilities)
         with pytest.raises(ValueError, match="exceeds total fault sites"):
-            sampling_mode.sample_k(prog, shots=SMALL_CIRCUIT_SHOTS, k=n_sites + 1, seed=42)
+            importance_sampling_mode.sample_k(
+                prog, shots=SMALL_CIRCUIT_SHOTS, k=n_sites + 1, seed=42
+            )
         with pytest.raises(ValueError, match="exceeds total fault sites"):
-            sampling_mode.sample_k_survivors(
+            importance_sampling_mode.sample_k_survivors(
                 prog, shots=SMALL_CIRCUIT_SHOTS, k=n_sites + 1, seed=42
             )
 
-    def test_zero_mass_stratum_raises(self, sampling_mode: CpuSamplingMode) -> None:
+    def test_zero_mass_stratum_raises(self, importance_sampling_mode: CpuSamplingMode) -> None:
         """An existing zero-probability site makes the in-range k=1 stratum impossible."""
-        prog = sampling_mode.compile(
+        prog = importance_sampling_mode.compile(
             "R 0\nX_ERROR(0) 0\nM 0\nOBSERVABLE_INCLUDE(0) rec[-1]", normalize_syndromes=True
         )
         np.testing.assert_array_equal(prog.noise_site_probabilities, [0.0])
-        result = sampling_mode.sample_k(prog, shots=SMALL_CIRCUIT_SHOTS, k=0, seed=42)
+        result = importance_sampling_mode.sample_k(prog, shots=SMALL_CIRCUIT_SHOTS, k=0, seed=42)
         np.testing.assert_array_equal(result.measurements, np.zeros((SMALL_CIRCUIT_SHOTS, 1)))
         with pytest.raises(ValueError, match="stratum k=1 has zero probability mass"):
-            sampling_mode.sample_k(prog, shots=SMALL_CIRCUIT_SHOTS, k=1, seed=42)
+            importance_sampling_mode.sample_k(prog, shots=SMALL_CIRCUIT_SHOTS, k=1, seed=42)
         with pytest.raises(ValueError, match="stratum k=1 has zero probability mass"):
-            sampling_mode.sample_k_survivors(prog, shots=SMALL_CIRCUIT_SHOTS, k=1, seed=42)
+            importance_sampling_mode.sample_k_survivors(
+                prog, shots=SMALL_CIRCUIT_SHOTS, k=1, seed=42
+            )
 
     @pytest.mark.parametrize("k", range(4))
     @pytest.mark.parametrize("postselect", [False, True])
     def test_conditional_fault_distribution(
-        self, sampling_mode: CpuSamplingMode, k: int, postselect: bool
+        self, importance_sampling_mode: CpuSamplingMode, k: int, postselect: bool
     ) -> None:
         """Condition on the fault count without losing the unequal site probabilities."""
-        program = sampling_mode.compile(
+        program = importance_sampling_mode.compile(
             "X_ERROR(0.1) 0\nX_ERROR(0.3) 1\nX_ERROR(0.7) 2\n"
             "M 0 1 2\nDETECTOR rec[-3]\nOBSERVABLE_INCLUDE(0) rec[-1]",
             postselection_mask=[1] if postselect else None,
@@ -139,7 +143,7 @@ class TestSampleK:
         expected = mass / mass.sum()
         shots = 1025 if k in (1, 2) else SMALL_CIRCUIT_SHOTS
         if postselect:
-            result = sampling_mode.sample_k_survivors(
+            result = importance_sampling_mode.sample_k_survivors(
                 program, shots, k=k, seed=42 + k, keep_records=True
             )
             expected[bits[:, 0] == 1] = 0
@@ -156,14 +160,14 @@ class TestSampleK:
                 return
             expected /= survival_probability
         else:
-            result = sampling_mode.sample_k(program, shots, k=k, seed=42 + k)
+            result = importance_sampling_mode.sample_k(program, shots, k=k, seed=42 + k)
         np.testing.assert_array_equal(result.detectors[:, 0], result.measurements[:, 0])
         np.testing.assert_array_equal(result.measurements.sum(axis=1), k)
         np.testing.assert_array_equal(result.observables[:, 0], result.measurements[:, 2])
         assert_joint_distribution(result.measurements, expected)
 
-    def test_deterministic_with_seed(self, sampling_mode: CpuSamplingMode) -> None:
-        prog = sampling_mode.compile(
+    def test_deterministic_with_seed(self, importance_sampling_mode: CpuSamplingMode) -> None:
+        prog = importance_sampling_mode.compile(
             """
             R 0 1
             DEPOLARIZE1(0.05) 0 1
@@ -173,8 +177,8 @@ class TestSampleK:
             """,
             normalize_syndromes=True,
         )
-        r1 = sampling_mode.sample_k(prog, shots=SMALL_CIRCUIT_SHOTS, k=1, seed=99)
-        r2 = sampling_mode.sample_k(prog, shots=SMALL_CIRCUIT_SHOTS, k=1, seed=99)
+        r1 = importance_sampling_mode.sample_k(prog, shots=SMALL_CIRCUIT_SHOTS, k=1, seed=99)
+        r2 = importance_sampling_mode.sample_k(prog, shots=SMALL_CIRCUIT_SHOTS, k=1, seed=99)
         np.testing.assert_array_equal(r1.measurements, r2.measurements)
         np.testing.assert_array_equal(r1.detectors, r2.detectors)
         np.testing.assert_array_equal(r1.observables, r2.observables)
@@ -193,9 +197,9 @@ class TestSampleK:
         np.testing.assert_array_equal(threaded.observables, serial.observables)
         np.testing.assert_array_equal(threaded.exp_vals, serial.exp_vals)
 
-    def test_readout_noise_forcing(self, sampling_mode: CpuSamplingMode) -> None:
+    def test_readout_noise_forcing(self, importance_sampling_mode: CpuSamplingMode) -> None:
         """k=1 with only readout noise should flip every shot."""
-        prog = sampling_mode.compile(
+        prog = importance_sampling_mode.compile(
             """
             R 0
             M(0.1) 0
@@ -205,13 +209,13 @@ class TestSampleK:
             normalize_syndromes=True,
         )
         assert len(prog.noise_site_probabilities) == 1
-        result = sampling_mode.sample_k(prog, shots=SMALL_CIRCUIT_SHOTS, k=1, seed=42)
+        result = importance_sampling_mode.sample_k(prog, shots=SMALL_CIRCUIT_SHOTS, k=1, seed=42)
         assert np.all(result.observables == 1)
 
 
 class TestSampleKSurvivors:
-    def test_k0_no_errors(self, sampling_mode: CpuSamplingMode) -> None:
-        prog = sampling_mode.compile(
+    def test_k0_no_errors(self, importance_sampling_mode: CpuSamplingMode) -> None:
+        prog = importance_sampling_mode.compile(
             """
             R 0 1 2
             X_ERROR(0.1) 0 1 2
@@ -222,15 +226,17 @@ class TestSampleKSurvivors:
             """,
             normalize_syndromes=True,
         )
-        result = sampling_mode.sample_k_survivors(prog, shots=SMALL_CIRCUIT_SHOTS, k=0, seed=42)
+        result = importance_sampling_mode.sample_k_survivors(
+            prog, shots=SMALL_CIRCUIT_SHOTS, k=0, seed=42
+        )
         assert isinstance(result, clifft.SampleResult)
         assert result.total_shots == SMALL_CIRCUIT_SHOTS
         assert result.passed_shots == SMALL_CIRCUIT_SHOTS
         assert result.logical_errors == 0
         assert result.measurements.shape == (0, prog.num_measurements)
 
-    def test_keep_records(self, sampling_mode: CpuSamplingMode) -> None:
-        prog = sampling_mode.compile(
+    def test_keep_records(self, importance_sampling_mode: CpuSamplingMode) -> None:
+        prog = importance_sampling_mode.compile(
             """
             R 0 1
             X_ERROR(0.1) 0 1
@@ -240,7 +246,7 @@ class TestSampleKSurvivors:
             """,
             normalize_syndromes=True,
         )
-        result = sampling_mode.sample_k_survivors(
+        result = importance_sampling_mode.sample_k_survivors(
             prog, shots=SMALL_CIRCUIT_SHOTS, k=1, seed=42, keep_records=True
         )
         passed = result.passed_shots
@@ -267,13 +273,17 @@ class TestSampleKSurvivors:
         np.testing.assert_array_equal(threaded.detectors, serial.detectors)
         np.testing.assert_array_equal(threaded.observables, serial.observables)
 
-    def test_survivors_replay_seeded_rows(self, sampling_mode: CpuSamplingMode) -> None:
-        prog = sampling_mode.compile(
+    def test_survivors_replay_seeded_rows(self, importance_sampling_mode: CpuSamplingMode) -> None:
+        prog = importance_sampling_mode.compile(
             "X_ERROR(0.1) 0 1 2\nM 0 1 2\nDETECTOR rec[-3]\nOBSERVABLE_INCLUDE(0) rec[-1]",
             postselection_mask=[1],
         )
-        first = sampling_mode.sample_k_survivors(prog, shots=257, k=1, seed=101, keep_records=True)
-        replay = sampling_mode.sample_k_survivors(prog, shots=257, k=1, seed=101, keep_records=True)
+        first = importance_sampling_mode.sample_k_survivors(
+            prog, shots=257, k=1, seed=101, keep_records=True
+        )
+        replay = importance_sampling_mode.sample_k_survivors(
+            prog, shots=257, k=1, seed=101, keep_records=True
+        )
         assert first.passed_shots == replay.passed_shots
         assert first.logical_errors == replay.logical_errors
         np.testing.assert_array_equal(first.measurements, replay.measurements)
@@ -283,9 +293,9 @@ class TestSampleKSurvivors:
 class TestImportanceSamplingEndToEnd:
     """Integration test: verify the stratified importance sampling workflow."""
 
-    def test_single_qubit_k0_vs_k1(self, sampling_mode: CpuSamplingMode) -> None:
+    def test_single_qubit_k0_vs_k1(self, importance_sampling_mode: CpuSamplingMode) -> None:
         """Single qubit: k=0 has no error, k=1 always has error."""
-        prog = sampling_mode.compile(
+        prog = importance_sampling_mode.compile(
             """
             R 0
             X_ERROR(0.1) 0
@@ -298,13 +308,19 @@ class TestImportanceSamplingEndToEnd:
         probs = prog.noise_site_probabilities
         assert len(probs) == 1
 
-        r0 = sampling_mode.sample_k_survivors(prog, shots=SMALL_CIRCUIT_SHOTS, k=0, seed=42)
+        r0 = importance_sampling_mode.sample_k_survivors(
+            prog, shots=SMALL_CIRCUIT_SHOTS, k=0, seed=42
+        )
         assert r0.logical_errors == 0
 
-        r1 = sampling_mode.sample_k_survivors(prog, shots=SMALL_CIRCUIT_SHOTS, k=1, seed=42)
+        r1 = importance_sampling_mode.sample_k_survivors(
+            prog, shots=SMALL_CIRCUIT_SHOTS, k=1, seed=42
+        )
         assert r1.logical_errors == r1.passed_shots
 
-    def test_weighted_error_rate_single_qubit(self, sampling_mode: CpuSamplingMode) -> None:
+    def test_weighted_error_rate_single_qubit(
+        self, importance_sampling_mode: CpuSamplingMode
+    ) -> None:
         """Stratified estimate matches exact for single-qubit X_ERROR."""
         p_phys = 0.05
         circuit_text = f"""
@@ -314,7 +330,7 @@ class TestImportanceSamplingEndToEnd:
             DETECTOR rec[-1]
             OBSERVABLE_INCLUDE(0) rec[-1]
         """
-        prog = sampling_mode.compile(circuit_text, normalize_syndromes=True)
+        prog = importance_sampling_mode.compile(circuit_text, normalize_syndromes=True)
         probs = prog.noise_site_probabilities
         max_k = len(probs)
         pmf = poisson_binomial_pmf(probs, max_k)
@@ -326,7 +342,7 @@ class TestImportanceSamplingEndToEnd:
         for k in range(max_k + 1):
             if pmf[k] < 1e-15:
                 continue
-            result = sampling_mode.sample_k_survivors(
+            result = importance_sampling_mode.sample_k_survivors(
                 prog, shots=SMALL_CIRCUIT_SHOTS, k=k, seed=42 + k
             )
             total = result.total_shots
@@ -342,7 +358,9 @@ class TestImportanceSamplingEndToEnd:
 
         assert p_fail_stratified == pytest.approx(p_fail_exact, abs=1e-12)
 
-    def test_weighted_error_rate_two_qubits(self, sampling_mode: CpuSamplingMode) -> None:
+    def test_weighted_error_rate_two_qubits(
+        self, importance_sampling_mode: CpuSamplingMode
+    ) -> None:
         """Stratified estimate matches the exact marginal error probability."""
         circuit_text = """
             R 0 1
@@ -351,7 +369,7 @@ class TestImportanceSamplingEndToEnd:
             DETECTOR rec[-1] rec[-2]
             OBSERVABLE_INCLUDE(0) rec[-1]
         """
-        prog = sampling_mode.compile(circuit_text, normalize_syndromes=True)
+        prog = importance_sampling_mode.compile(circuit_text, normalize_syndromes=True)
         probs = prog.noise_site_probabilities
         max_k = len(probs)
         pmf = poisson_binomial_pmf(probs, max_k)
@@ -362,7 +380,7 @@ class TestImportanceSamplingEndToEnd:
         for k in range(max_k + 1):
             if pmf[k] < 1e-15:
                 continue
-            result = sampling_mode.sample_k_survivors(prog, shots=1025, k=k, seed=42 + k)
+            result = importance_sampling_mode.sample_k_survivors(prog, shots=1025, k=k, seed=42 + k)
             total = result.total_shots
             if total == 0:
                 continue
@@ -377,10 +395,10 @@ class TestImportanceSamplingEndToEnd:
 
     @pytest.mark.parametrize("keep_records", [False, True])
     def test_weighted_error_rate_with_postselection(
-        self, sampling_mode: CpuSamplingMode, keep_records: bool
+        self, importance_sampling_mode: CpuSamplingMode, keep_records: bool
     ) -> None:
         """Reweight attempted shots even when an entire stratum is rejected."""
-        program = sampling_mode.compile(
+        program = importance_sampling_mode.compile(
             "X_ERROR(0.1) 0\nX_ERROR(0.3) 1\nM 0 1\n"
             "DETECTOR rec[-2] rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]",
             postselection_mask=[1],
@@ -389,7 +407,7 @@ class TestImportanceSamplingEndToEnd:
         weighted_errors = 0.0
         weighted_survival = 0.0
         for k in range(3):
-            result = sampling_mode.sample_k_survivors(
+            result = importance_sampling_mode.sample_k_survivors(
                 program, SMALL_CIRCUIT_SHOTS, k=k, seed=1914 + k, keep_records=keep_records
             )
             passed = SMALL_CIRCUIT_SHOTS if k != 1 else 0
@@ -440,10 +458,12 @@ class TestActiveFaults:
         )
 
     @pytest.mark.parametrize("k", [0, 1])
-    def test_forced_fault_rotations(self, sampling_mode: CpuSamplingMode, k: int) -> None:
-        program = sampling_mode.compile(self.source)
+    def test_forced_fault_rotations(
+        self, importance_sampling_mode: CpuSamplingMode, k: int
+    ) -> None:
+        program = importance_sampling_mode.compile(self.source)
         assert program.peak_active_width == 5
-        result = sampling_mode.sample_k(program, 257, k=k, seed=1915 + k)
+        result = importance_sampling_mode.sample_k(program, 257, k=k, seed=1915 + k)
         assert result.measurements.shape == (257, 2)
         assert result.exp_vals.shape == (257, 4)
         self.assert_rows(result, k)
@@ -465,12 +485,12 @@ class TestActiveFaults:
     @pytest.mark.parametrize("k", [0, 1])
     @pytest.mark.parametrize("keep_records", [False, True])
     def test_forced_fault_survivors(
-        self, sampling_mode: CpuSamplingMode, k: int, keep_records: bool
+        self, importance_sampling_mode: CpuSamplingMode, k: int, keep_records: bool
     ) -> None:
-        program = sampling_mode.compile(self.source, postselection_mask=[1])
+        program = importance_sampling_mode.compile(self.source, postselection_mask=[1])
         assert program.peak_active_width == 5
         shots = 257
-        result = sampling_mode.sample_k_survivors(
+        result = importance_sampling_mode.sample_k_survivors(
             program, shots, k=k, seed=1915 + k, keep_records=keep_records
         )
         passed = result.passed_shots
@@ -496,17 +516,19 @@ class TestActiveFaults:
 
     @pytest.mark.parametrize("postselect", [False, True])
     def test_forced_faults_follow_each_active_shot(
-        self, sampling_mode: CpuSamplingMode, postselect: bool
+        self, importance_sampling_mode: CpuSamplingMode, postselect: bool
     ) -> None:
         # With exactly one fault, measuring qubit 5 identifies whether the fault
         # hit that qubit or the active state. Probes must follow each row's choice.
         source = self.source.replace("Z_ERROR(0.2) 4", "Z_ERROR(0.2) 4\nX_ERROR(0.3) 5") + "\nM 5"
-        program = sampling_mode.compile(source, postselection_mask=[1] if postselect else None)
+        program = importance_sampling_mode.compile(
+            source, postselection_mask=[1] if postselect else None
+        )
         assert program.peak_active_width == 5
         np.testing.assert_array_equal(program.noise_site_probabilities, [0.2, 0.3])
         shots = 257
         if postselect:
-            result = sampling_mode.sample_k_survivors(
+            result = importance_sampling_mode.sample_k_survivors(
                 program, shots, k=1, seed=1916, keep_records=True
             )
             rows = result.passed_shots
@@ -518,7 +540,7 @@ class TestActiveFaults:
             assert result.logical_errors == result.observables.sum()
             np.testing.assert_array_equal(result.observable_ones, [result.logical_errors])
         else:
-            result = sampling_mode.sample_k(program, shots, k=1, seed=1916)
+            result = importance_sampling_mode.sample_k(program, shots, k=1, seed=1916)
             rows = shots
         assert result.measurements.shape == (rows, 3)
         assert result.exp_vals.shape == (rows, 4)
