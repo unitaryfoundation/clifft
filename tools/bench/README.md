@@ -22,6 +22,24 @@ uv run pytest tools/bench/ --benchmark-sort=name --benchmark-columns=Mean,StdDev
 | `test_bench_deep_clifford.py` | 50-qubit, 5000 random Cliffords | Pure Clifford compile/sample throughput |
 | `test_bench_qv.py` | 20-qubit Quantum Volume (`fixtures/qv20_seed42.stim`) | Large statevector (peak active width 20) per-shot throughput |
 | `test_bench_noncomp.py` | d=17, r=5 repetition-code memory with a hooked leak/loss layer | Noncomputational pipeline overhead and trap/continuation cost vs plain sampling |
+| `test_bench_sinter.py` | Clifford S-gate cultivation at p=0.001 | Counts-only postselection through the Sinter adapter |
+
+## Sinter postselection
+
+The Sinter benchmark uses the existing fully Clifford S-gate cultivation fixture,
+with every detector postselected. It measures 16384 attempts per call after
+compilation and warmup, using one native thread and capacity 2048. The output is
+aggregate attempted-shot, discard, and logical-error counts; this is error
+detection with zero observable prediction, not a decoded memory task. It runs
+with `just bench`, or on its own:
+
+```bash
+uv run pytest tools/bench/test_bench_sinter.py
+```
+
+This is a throughput regression case, not a complete Sinter job or a general
+speed comparison with Stim. The existing QEC and deep-Clifford cases provide
+other Clifford workload coverage.
 
 ## Fixtures
 

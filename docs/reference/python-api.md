@@ -32,6 +32,12 @@ compatibility limits.
 
 ::: clifft.sample_k_survivors
 
+## Optional Sinter Integration
+
+Install `clifft[sinter]` for the
+[`PerfectionistSampler` adapter](../guide/sinter.md). It supports all-detector
+postselection and aggregate error counts, using the existing native survivor API.
+
 ## Experimental Hardware Backends
 
 !!! warning "Experimental"

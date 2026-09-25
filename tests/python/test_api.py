@@ -42,6 +42,37 @@ _SAMPLING_SIGNATURES = {
 }
 
 
+def test_import_without_optional_sinter_dependencies() -> None:
+    """The ordinary package stays usable without the optional integration."""
+    subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            """
+import importlib.abc
+import sys
+
+class BlockOptional(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path, target=None):
+        if fullname.split('.')[0] in {'stim', 'sinter'}:
+            raise ModuleNotFoundError(fullname, name=fullname.split('.')[0])
+
+sys.meta_path.insert(0, BlockOptional())
+import clifft
+assert clifft.sample(clifft.compile('M 0'), 1).measurements.shape == (1, 1)
+assert 'stim' not in sys.modules and 'sinter' not in sys.modules
+try:
+    import clifft.sinter
+except ImportError as error:
+    assert 'clifft[sinter]' in str(error)
+else:
+    raise AssertionError('Optional integration imported without its dependency')
+""",
+        ],
+        check=True,
+    )
+
+
 def test_version() -> None:
     """Test that version() returns a valid version string."""
     v = clifft.version()
