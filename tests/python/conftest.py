@@ -1,6 +1,7 @@
 """Shared test fixtures and utilities for Clifft Python tests."""
 
 from collections.abc import Callable, Mapping, Sequence
+from functools import partial
 from typing import Any, cast
 
 import numpy as np
@@ -45,10 +46,12 @@ def statevector_from_circuit(
     return statevector
 
 
-@pytest.fixture(params=[clifft.noncomp.sample], ids=["symbolic-coordinate"])
-def noncomp_sampling_api(request: pytest.FixtureRequest) -> Any:
-    """Run supported noncomputational trajectories through the production executor."""
-    return cast(Any, request.param)
+@pytest.fixture(params=[1, 2], ids=["1-worker", "2-workers"])
+def noncomp_sampling_api(
+    request: pytest.FixtureRequest,
+) -> Callable[..., clifft.noncomp.NonComputationalSample]:
+    """Run shared trajectory assertions with bounded cross-shot worker counts."""
+    return partial(clifft.noncomp.sample, threads=request.param)
 
 
 def noncomp_transition_matrix(
