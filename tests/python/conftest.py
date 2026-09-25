@@ -1,7 +1,6 @@
 """Shared test fixtures and utilities for Clifft Python tests."""
 
 from collections.abc import Callable, Mapping, Sequence
-from functools import partial
 from typing import Any, cast
 
 import numpy as np
@@ -51,7 +50,14 @@ def noncomp_sampling_api(
     request: pytest.FixtureRequest,
 ) -> Callable[..., clifft.noncomp.NonComputationalSample]:
     """Run shared trajectory assertions with bounded cross-shot worker counts."""
-    return partial(clifft.noncomp.sample, threads=request.param)
+
+    def sample(*args: Any, **kwargs: Any) -> clifft.noncomp.NonComputationalSample:
+        if "threads" in kwargs:
+            raise TypeError("threads is selected by noncomp_sampling_api")
+        kwargs["threads"] = request.param
+        return clifft.noncomp.sample(*args, **kwargs)
+
+    return sample
 
 
 def noncomp_transition_matrix(

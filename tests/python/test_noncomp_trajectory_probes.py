@@ -268,7 +268,6 @@ def test_neglect_bell_correlation_probe(noncomp_sampling_api):
     the partner collapses to 1.  Unfired shots (q0 was on g): q0 reads 0;
     q1 measures from the post-trace |0>, also 0.  Both outcomes must occur
     to guard vacuity.
-
     """
     PROBE_SHOTS = 512
     transitions = {"leak": noncomp_transition_matrix({(Level.LEAK_E, Level.E): 1.0})}
