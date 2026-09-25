@@ -34,24 +34,38 @@ class PerfectionistSampler(sinter.Sampler):
     """Count logical errors after rejecting every shot with a detection event.
 
     An absent postselection mask selects every detector. An explicit mask must
-    also select every detector; with no detectors, an empty mask is accepted.
-    On surviving shots, any observable flip counts as one error, using zero
-    observable prediction. Observable postselection and arbitrary decoders are
-    unsupported. Circuits must use instructions supported by Clifft; Stim tags
-    are ignored when compiling.
+    be a little-endian packed ``uint8`` NumPy array selecting every detector,
+    with one byte per eight detectors, rounded up. Padding bits are ignored;
+    with no detectors, an absent or empty mask is accepted.
+
+    Detector and observable bits are normalized against the noiseless
+    reference. On surviving shots, any observable flip counts as one error,
+    using zero observable prediction. Observable postselection and arbitrary
+    decoders are unsupported. Leave Sinter's ``count_detection_events`` and
+    ``count_observable_error_combos`` options false; Sinter 1.16 rejects these
+    options for custom samplers.
+
+    Tasks must contain a resolved ``stim.Circuit`` using instructions supported
+    by Clifft. Heralded noise, sweep-bit controls, and Pauli targets in
+    ``OBSERVABLE_INCLUDE`` are unsupported. Stim tags are ignored when compiling
+    without modifying the task's circuit. A supplied detector error model
+    participates in Sinter's task identity but is not used to predict corrections.
 
     Register an instance in ``sinter.collect(custom_decoders=...)``. Its
     configuration is pickle-safe; each worker compiles its own Clifft program
     and uses one native thread. Sampling returns aggregate counts without
     materializing survivor rows. Each call uses fresh native randomness;
-    this adapter does not expose a seed or a retained random stream.
+    this adapter does not expose a seed or a retained random stream. Direct
+    ``sample(0)`` calls return zero counts.
 
     Args:
         batch_size: Native lane capacity, defaulting to 1024. Each call uses at
-            most the requested number of shots and 2048 lanes. This is separate
-            from Sinter's ``max_batch_size``, which defaults to 1024 in Sinter
-            1.16. Use 1 for scalar execution or ``"auto"`` for Clifft's core
-            policy, which currently selects scalar execution for postselection.
+            most the requested number of shots and 2048 lanes; larger capacities
+            are capped, not rejected. This is separate from Sinter's
+            ``max_batch_size``, which defaults to 1024 in Sinter 1.16. Increase
+            that limit to use larger native batches. Use 1 for scalar execution
+            or ``"auto"`` for Clifft's core policy, which currently selects
+            scalar execution for postselection.
     """
 
     batch_size: int | Literal["auto"] = 1024

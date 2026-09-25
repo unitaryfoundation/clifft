@@ -34,9 +34,10 @@ compatibility limits.
 
 ## Optional Sinter Integration
 
-Install `clifft[sinter]` for the
-[`PerfectionistSampler` adapter](../guide/sinter.md). It supports all-detector
-postselection and aggregate error counts, using the existing native survivor API.
+Install `clifft[sinter]` for this optional integration with Stim/Sinter 1.16.
+See [Using with Sinter](../guide/sinter.md) for a runnable collection example.
+
+::: clifft.sinter.PerfectionistSampler
 
 ## Experimental Hardware Backends
 
