@@ -1135,6 +1135,46 @@ class TestSampleSurvivors:
         np.testing.assert_array_equal(first.measurements, replay.measurements)
         np.testing.assert_array_equal(first.observables, replay.observables)
 
+    @pytest.mark.parametrize("non_clifford", [False, True], ids=["clifford", "non-clifford"])
+    @pytest.mark.parametrize("k", [None, 1], ids=["ordinary", "fixed-fault"])
+    def test_final_postselection_filters_seeded_rows(
+        self, sampling_mode: CpuSamplingMode, non_clifford: bool, k: int | None
+    ) -> None:
+        circuit = "H 0 1\n" + ("T 0 1\n" if non_clifford else "")
+        circuit += (
+            "EXP_VAL X0*X1\nM(0.1) 0\nEXP_VAL Z0\n"
+            "X_ERROR(0.2) 1\nM(0.1) 1\nEXP_VAL Z1\n"
+            "OBSERVABLE_INCLUDE(0) rec[-2]\nOBSERVABLE_INCLUDE(2) rec[-1]\n"
+            "DETECTOR rec[-1]\nDETECTOR"
+        )
+        # A quiet selected detector keeps automatic execution policy identical
+        # in the reference while allowing every shot through.
+        unselected = sampling_mode.compile(circuit, postselection_mask=[0, 1])
+        selected = sampling_mode.compile(circuit, postselection_mask=[1, 0])
+        assert (selected.peak_active_width > 0) == non_clifford
+        # A terminal detector leaves all random draws unchanged, allowing exact
+        # comparison with the corresponding subset of unselected output rows.
+        if k is None:
+            reference = sampling_mode.sample_survivors(
+                unselected, 131, seed=9186, keep_records=True
+            )
+            result = sampling_mode.sample_survivors(selected, 131, seed=9186, keep_records=True)
+        else:
+            reference = sampling_mode.sample_k_survivors(
+                unselected, 131, k=k, seed=9186, keep_records=True
+            )
+            result = sampling_mode.sample_k_survivors(
+                selected, 131, k=k, seed=9186, keep_records=True
+            )
+        survivors = reference.detectors[:, 0] == 0
+        assert reference.passed_shots == 131
+        assert 0 < result.passed_shots < result.total_shots
+        assert result.passed_shots == np.count_nonzero(survivors)
+        for name in ["measurements", "detectors", "observables", "exp_vals"]:
+            np.testing.assert_array_equal(
+                getattr(result, name), getattr(reference, name)[survivors]
+            )
+
     @pytest.mark.parametrize("threads", [2, 3])
     @pytest.mark.parametrize("batch_size", [1, 65, "auto"])
     @pytest.mark.parametrize("keep_records", [False, True])
