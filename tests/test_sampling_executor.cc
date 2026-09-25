@@ -1963,6 +1963,62 @@ TEST_CASE("Sampling thread layouts validate explicit worker counts") {
 }
 
 #if defined(CLIFFT_TESTS_HAVE_OPENMP)
+TEST_CASE("Hybrid active-state sampling preserves seeded rows and survivors") {
+    // Probes retain enough coefficients for both inner workers, including with AVX-512.
+    const clifft::HirModule hir = clifft::trace(clifft::parse(R"(
+        H 0 1 2 3 4
+        T 0 1 2 3 4
+        EXP_VAL X0*X1*X2*X3*X4
+        R_X(0.125) 4
+        EXP_VAL Z4
+        M 0
+        DETECTOR rec[-1]
+        H 1
+        M 1
+        OBSERVABLE_INCLUDE(0) rec[-1]
+        EXP_VAL Z1
+    )"));
+    constexpr clifft::sampling::ThreadLayout hybrid{
+        .shot_workers = 2, .intra_shot_workers = 2, .intra_shot_min_active_width = 3};
+    constexpr uint32_t shots = 257;
+    constexpr uint64_t seed = 1913;
+    const ExecutablePlan executable(clifft::sampling::plan_sampling(hir));
+    REQUIRE(executable.peak_active_width() == 5);
+    if (clifft::openmp_process_binding_active()) {
+        REQUIRE_THROWS_WITH(clifft::sampling::sample(executable, shots, seed, 1, hybrid, 1),
+                            "hybrid thread_layout requires OMP_PROC_BIND=false");
+        return;
+    }
+    const auto serial = clifft::sampling::sample(executable, shots, seed, 1, std::nullopt, 1);
+    const auto threaded = clifft::sampling::sample(executable, shots, seed, 1, hybrid, 1);
+    REQUIRE(threaded.measurements == serial.measurements);
+    REQUIRE(threaded.detectors == serial.detectors);
+    REQUIRE(threaded.observables == serial.observables);
+    REQUIRE(threaded.exp_vals == serial.exp_vals);
+
+    const std::array<uint8_t, 1> mask{1};
+    const ExecutablePlan postselected(
+        clifft::sampling::plan_sampling(hir, {.postselection_mask = mask}));
+    REQUIRE(postselected.peak_active_width() == 5);
+    for (bool keep_records : {false, true}) {
+        CAPTURE(keep_records);
+        const auto expected = clifft::sampling::sample_survivors(postselected, shots, seed,
+                                                                 keep_records, 1, std::nullopt, 1);
+        const auto actual = clifft::sampling::sample_survivors(postselected, shots, seed,
+                                                               keep_records, 1, hybrid, 1);
+        REQUIRE(expected.passed_shots > 0);
+        REQUIRE(expected.passed_shots < shots);
+        REQUIRE(actual.total_shots == expected.total_shots);
+        REQUIRE(actual.passed_shots == expected.passed_shots);
+        REQUIRE(actual.logical_errors == expected.logical_errors);
+        REQUIRE(actual.observable_ones == expected.observable_ones);
+        REQUIRE(actual.measurements == expected.measurements);
+        REQUIRE(actual.detectors == expected.detectors);
+        REQUIRE(actual.observables == expected.observables);
+        REQUIRE(actual.exp_vals == expected.exp_vals);
+    }
+}
+
 TEST_CASE("Automatic intra-shot sampling preserves seeded results") {
     constexpr uint32_t width = 18;
     std::string circuit;
