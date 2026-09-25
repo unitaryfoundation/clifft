@@ -102,6 +102,49 @@ class CpuSamplingMode:
                 skip_unavailable_thread_layout(error, self.thread_layout)
             raise
 
+    def sample_k(self, program: Any, shots: int, k: int, seed: int | None = None) -> Any:
+        try:
+            return clifft.sample_k(
+                program,
+                shots,
+                k=k,
+                seed=seed,
+                threads=self.threads,
+                batch_size=self.batch_size,
+                thread_layout=self.thread_layout,
+                intra_shot_min_active_width=self.intra_shot_min_active_width,
+            )
+        except ValueError as error:
+            if self.thread_layout is not None:
+                skip_unavailable_thread_layout(error, self.thread_layout)
+            raise
+
+    def sample_k_survivors(
+        self,
+        program: Any,
+        shots: int,
+        k: int,
+        *,
+        seed: int | None = None,
+        keep_records: bool = False,
+    ) -> Any:
+        try:
+            return clifft.sample_k_survivors(
+                program,
+                shots,
+                k=k,
+                seed=seed,
+                keep_records=keep_records,
+                threads=self.threads,
+                batch_size=self.batch_size,
+                thread_layout=self.thread_layout,
+                intra_shot_min_active_width=self.intra_shot_min_active_width,
+            )
+        except ValueError as error:
+            if self.thread_layout is not None:
+                skip_unavailable_thread_layout(error, self.thread_layout)
+            raise
+
 
 CPU_SAMPLING_MODES = (
     CpuSamplingMode("single-shot", 1),

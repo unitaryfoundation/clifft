@@ -361,18 +361,30 @@ def test_cpu_sampling_modes_include_batch_and_worker_configurations() -> None:
 
 
 @pytest.mark.parametrize("mode", CPU_SAMPLING_MODES, ids=lambda mode: mode.name)
+@pytest.mark.parametrize(
+    ("sampler", "options"),
+    [
+        ("sample", {}),
+        ("sample_survivors", {"keep_records": False}),
+        ("sample_survivors", {"keep_records": True}),
+        ("sample_k", {"k": 2}),
+        ("sample_k_survivors", {"k": 2, "keep_records": False}),
+        ("sample_k_survivors", {"k": 2, "keep_records": True}),
+    ],
+)
 def test_sampling_mode_forwards_its_configuration(
-    mode: CpuSamplingMode, monkeypatch: pytest.MonkeyPatch
+    mode: CpuSamplingMode, sampler: str, options: dict[str, Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     calls = []
     program = object()
-    monkeypatch.setattr(clifft, "sample", lambda *args, **kwargs: calls.append((args, kwargs)))
-    mode.sample(program, 8193, 1907)
+    monkeypatch.setattr(clifft, sampler, lambda *args, **kwargs: calls.append((args, kwargs)))
+    getattr(mode, sampler)(program, 257, seed=41, **options)
     assert calls == [
         (
-            (program, 8193),
+            (program, 257),
             {
-                "seed": 1907,
+                **options,
+                "seed": 41,
                 "threads": mode.threads,
                 "batch_size": mode.batch_size,
                 "thread_layout": mode.thread_layout,
@@ -381,28 +393,10 @@ def test_sampling_mode_forwards_its_configuration(
         )
     ]
 
-    monkeypatch.setattr(
-        clifft, "sample_survivors", lambda *args, **kwargs: calls.append((args, kwargs))
-    )
-    for keep_records in (False, True):
-        calls.clear()
-        mode.sample_survivors(program, 257, seed=41, keep_records=keep_records)
-        assert calls == [
-            (
-                (program, 257),
-                {
-                    "seed": 41,
-                    "keep_records": keep_records,
-                    "threads": mode.threads,
-                    "batch_size": mode.batch_size,
-                    "thread_layout": mode.thread_layout,
-                    "intra_shot_min_active_width": mode.intra_shot_min_active_width,
-                },
-            )
-        ]
 
-
-@pytest.mark.parametrize("sampler", ["sample", "sample_survivors"])
+@pytest.mark.parametrize(
+    "sampler", ["sample", "sample_survivors", "sample_k", "sample_k_survivors"]
+)
 @pytest.mark.parametrize(
     "layout",
     [None, (1, 1), (2, 1), (1, 2), (2, 2)],
@@ -452,10 +446,11 @@ def test_sampling_mode_only_skips_unavailable_layouts(
 
     monkeypatch.setattr(clifft, sampler, reject)
     mode = CpuSamplingMode("threaded", 1, thread_layout=layout)
+    options = {"k": 1} if sampler in ("sample_k", "sample_k_survivors") else {}
     if layout in skipped_layouts:
         with pytest.raises(pytest.skip.Exception, match=skip_reason):
-            getattr(mode, sampler)(object(), 2)
+            getattr(mode, sampler)(object(), 2, **options)
     else:
         with pytest.raises(ValueError) as raised:
-            getattr(mode, sampler)(object(), 2)
+            getattr(mode, sampler)(object(), 2, **options)
         assert raised.value is error

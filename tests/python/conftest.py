@@ -30,12 +30,6 @@ def basis_probabilities_api(request: pytest.FixtureRequest) -> Any:
 
 
 @pytest.fixture(params=[clifft], ids=["symbolic-coordinate"])
-def importance_sampling_api(request: pytest.FixtureRequest) -> Any:
-    """Run forced-fault tests against the production backend."""
-    return cast(Any, request.param)
-
-
-@pytest.fixture(params=[clifft], ids=["symbolic-coordinate"])
 def statevector_from_circuit(
     request: pytest.FixtureRequest,
 ) -> Callable[[str], npt.NDArray[np.complex128]]:
