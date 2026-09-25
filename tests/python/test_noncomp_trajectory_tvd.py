@@ -13,6 +13,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 import numpy as np
+import pytest
 import utils_noncomp_enumerator as en
 from conftest import binomial_tolerance, noncomp_transition_matrix
 
@@ -187,5 +188,6 @@ def _run_and_compare(
         assert abs(got_lost - want_lost) < binomial_tolerance(max(want_lost, 1e-4), SHOTS)
 
 
+@pytest.mark.expensive
 def test_rep_code_round_tvd_reaches_shot_noise(noncomp_sampling_api):
     _run_and_compare(seed=21, sample_noncomp=noncomp_sampling_api)

@@ -74,8 +74,9 @@ uv run --frozen --only-group dev pre-commit run --all-files --show-diff-on-failu
 ## Writing Tests
 
 Choose tests that validate the behavior affected by your change. Reuse existing
-shared tests where applicable. For sampling behavior, use `sampling_mode` to
-test features across supported modes and let new modes inherit applicable tests.
+shared tests where applicable. For sampling behavior, use `sampling_mode` (or
+`noncomp_sampling_api` for leakage/loss trajectories) to test features across
+supported modes and let new modes inherit applicable tests.
 
 Check that each test exercises the behavior it claims to cover. Configuration
 alone may not establish this: optimization can remove relevant work, and

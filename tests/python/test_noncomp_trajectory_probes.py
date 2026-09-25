@@ -269,10 +269,6 @@ def test_neglect_bell_correlation_probe(noncomp_sampling_api):
     q1 measures from the post-trace |0>, also 0.  Both outcomes must occur
     to guard vacuity.
 
-    This is the sharp neglect-mode check at the Bell-correlation level; the
-    TVD test exercises neglect end-to-end against the enumerator reference
-    but cannot resolve the O(p^2) difference between exact and neglect at
-    the cold-atom rates used there.
     """
     PROBE_SHOTS = 512
     transitions = {"leak": noncomp_transition_matrix({(Level.LEAK_E, Level.E): 1.0})}
