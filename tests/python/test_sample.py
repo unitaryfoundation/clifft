@@ -249,7 +249,7 @@ class TestSample:
         np.testing.assert_array_equal(threaded.detectors, serial.detectors)
         np.testing.assert_array_equal(threaded.observables, serial.observables)
 
-    @pytest.mark.parametrize("layout", [(1, 2), (2, 2)])
+    @pytest.mark.parametrize("layout", [(1, 2), (2, 2)], ids=["intra-shot", "hybrid"])
     def test_sample_runtime_intra_shot_threshold_preserves_seeded_rows(
         self, sampling_api: Any, layout: tuple[int, int]
     ) -> None:
@@ -966,7 +966,7 @@ class TestPostselection:
 class TestSampleSurvivors:
     """Tests for sample_survivors() API."""
 
-    @pytest.mark.parametrize("layout", [(1, 2), (2, 2)])
+    @pytest.mark.parametrize("layout", [(1, 2), (2, 2)], ids=["intra-shot", "hybrid"])
     @pytest.mark.parametrize("keep_records", [False, True])
     def test_active_thread_layout_preserves_seeded_survivors(
         self, layout: tuple[int, int], keep_records: bool

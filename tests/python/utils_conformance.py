@@ -79,7 +79,7 @@ class CpuSamplingMode:
                 intra_shot_min_active_width=self.intra_shot_min_active_width,
             )
         except ValueError as error:
-            if self.thread_layout is not None and self.thread_layout[1] > 1:
+            if self.thread_layout is not None:
                 skip_unavailable_thread_layout(error, self.thread_layout)
             raise
 
@@ -98,7 +98,7 @@ class CpuSamplingMode:
                 intra_shot_min_active_width=self.intra_shot_min_active_width,
             )
         except ValueError as error:
-            if self.thread_layout is not None and self.thread_layout[1] > 1:
+            if self.thread_layout is not None:
                 skip_unavailable_thread_layout(error, self.thread_layout)
             raise
 

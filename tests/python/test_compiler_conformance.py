@@ -403,51 +403,59 @@ def test_sampling_mode_forwards_its_configuration(
 
 
 @pytest.mark.parametrize("sampler", ["sample", "sample_survivors"])
-@pytest.mark.parametrize("layout", [(1, 2), (2, 2)])
-def test_sampling_mode_only_skips_missing_openmp(
-    sampler: str, layout: tuple[int, int], monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(
+    "layout",
+    [None, (1, 1), (2, 1), (1, 2), (2, 2)],
+    ids=["implicit", "serial", "cross-shot", "intra-shot", "hybrid"],
+)
+@pytest.mark.parametrize(
+    ("message", "skipped_layouts", "skip_reason"),
+    [
+        (
+            "thread_layout intra-shot workers require an OpenMP-enabled build",
+            [(1, 2), (2, 2)],
+            "Clifft was built without OpenMP",
+        ),
+        (
+            "hybrid thread_layout requires OMP_PROC_BIND=false",
+            [(2, 2)],
+            "Hybrid sampling requires OMP_PROC_BIND=false",
+        ),
+        ("invalid program", [], ""),
+        (
+            "unexpected error: thread_layout intra-shot workers require an OpenMP-enabled build",
+            [],
+            "",
+        ),
+        ("unexpected error: hybrid thread_layout requires OMP_PROC_BIND=false", [], ""),
+    ],
+    ids=[
+        "missing-openmp",
+        "processor-binding",
+        "unrelated",
+        "openmp-substring",
+        "binding-substring",
+    ],
+)
+def test_sampling_mode_only_skips_unavailable_layouts(
+    sampler: str,
+    layout: tuple[int, int] | None,
+    message: str,
+    skipped_layouts: list[tuple[int, int]],
+    skip_reason: str,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    error = ValueError(message)
+
     def reject(*args: Any, **kwargs: Any) -> None:
         raise error
 
     monkeypatch.setattr(clifft, sampler, reject)
     mode = CpuSamplingMode("threaded", 1, thread_layout=layout)
-    unavailable = ValueError("thread_layout intra-shot workers require an OpenMP-enabled build")
-    for error in (ValueError("invalid program"), ValueError(f"unexpected error: {unavailable}")):
-        with pytest.raises(ValueError) as raised:
-            getattr(mode, sampler)(object(), 1)
-        assert raised.value is error
-
-    error = unavailable
-    with pytest.raises(pytest.skip.Exception, match="Clifft was built without OpenMP"):
-        getattr(mode, sampler)(object(), 1)
-
-    serial = CpuSamplingMode("single-shot", 1)
-    with pytest.raises(ValueError) as raised:
-        getattr(serial, sampler)(object(), 1)
-    assert raised.value is unavailable
-
-
-@pytest.mark.parametrize("sampler", ["sample", "sample_survivors"])
-def test_only_hybrid_mode_skips_active_processor_binding(
-    sampler: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    def reject(*args: Any, **kwargs: Any) -> None:
-        raise error
-
-    monkeypatch.setattr(clifft, sampler, reject)
-    error = ValueError("hybrid thread_layout requires OMP_PROC_BIND=false")
-    for layout in ((1, 1), (2, 1), (1, 2)):
-        mode = CpuSamplingMode("non-hybrid", 1, thread_layout=layout)
+    if layout in skipped_layouts:
+        with pytest.raises(pytest.skip.Exception, match=skip_reason):
+            getattr(mode, sampler)(object(), 2)
+    else:
         with pytest.raises(ValueError) as raised:
             getattr(mode, sampler)(object(), 2)
         assert raised.value is error
-
-    hybrid = CpuSamplingMode("hybrid", 1, thread_layout=(2, 2))
-    with pytest.raises(pytest.skip.Exception, match="Hybrid sampling requires OMP_PROC_BIND=false"):
-        getattr(hybrid, sampler)(object(), 2)
-
-    error = ValueError(f"unexpected error: {error}")
-    with pytest.raises(ValueError) as raised:
-        getattr(hybrid, sampler)(object(), 2)
-    assert raised.value is error
