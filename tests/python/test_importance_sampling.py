@@ -493,3 +493,50 @@ class TestActiveFaults:
             np.testing.assert_array_equal(result.measurements[:, 0], np.zeros(passed))
             assert result.observables.sum() == result.logical_errors
             self.assert_rows(result, k)
+
+    @pytest.mark.parametrize("postselect", [False, True])
+    def test_forced_faults_follow_each_active_shot(
+        self, sampling_mode: CpuSamplingMode, postselect: bool
+    ) -> None:
+        # With exactly one fault, measuring qubit 5 identifies whether the fault
+        # hit that qubit or the active state. Probes must follow each row's choice.
+        source = self.source.replace("Z_ERROR(0.2) 4", "Z_ERROR(0.2) 4\nX_ERROR(0.3) 5") + "\nM 5"
+        program = sampling_mode.compile(source, postselection_mask=[1] if postselect else None)
+        assert program.peak_active_width == 5
+        np.testing.assert_array_equal(program.noise_site_probabilities, [0.2, 0.3])
+        shots = 257
+        if postselect:
+            result = sampling_mode.sample_k_survivors(
+                program, shots, k=1, seed=1916, keep_records=True
+            )
+            rows = result.passed_shots
+            assert result.total_shots == shots
+            assert result.discards == shots - rows
+            assert 0 < rows < shots
+            assert abs(rows / shots - 0.5) < binomial_tolerance(0.5, shots)
+            np.testing.assert_array_equal(result.measurements[:, 0], np.zeros(rows))
+            assert result.logical_errors == result.observables.sum()
+            np.testing.assert_array_equal(result.observable_ones, [result.logical_errors])
+        else:
+            result = sampling_mode.sample_k(program, shots, k=1, seed=1916)
+            rows = shots
+        assert result.measurements.shape == (rows, 3)
+        assert result.exp_vals.shape == (rows, 4)
+        np.testing.assert_array_equal(result.detectors[:, 0], result.measurements[:, 0])
+        np.testing.assert_array_equal(result.observables[:, 0], result.measurements[:, 1])
+
+        witness = result.measurements[:, 2].astype(int)
+        assert 0 < witness.sum() < rows
+        active_fault = 1 - witness
+        probability = 0.2 * 0.7 / (0.2 * 0.7 + 0.8 * 0.3)
+        assert abs(active_fault.mean() - probability) < binomial_tolerance(probability, rows)
+        sign = 1 - 2 * active_fault
+        expected = np.column_stack(
+            (
+                np.full(rows, 2**-2.5),
+                sign / np.sqrt(2),
+                sign * np.sin(np.pi / 8) / np.sqrt(2),
+                1 - 2 * result.measurements[:, 1].astype(int),
+            )
+        )
+        np.testing.assert_allclose(result.exp_vals, expected, atol=1e-12, rtol=0)
