@@ -8,6 +8,7 @@ from utils_conformance import (
     SMALL_CIRCUIT_SHOTS,
     CpuSamplingMode,
     assert_joint_distribution,
+    unitary_reference,
 )
 
 import clifft
@@ -409,3 +410,83 @@ class TestImportanceSamplingEndToEnd:
         assert weighted_errors / weighted_survival == pytest.approx(
             0.1 * 0.3 / survival_probability, abs=1e-12
         )
+
+
+class TestActiveFaults:
+    # The first probe retains five active coordinates so the later rotation has
+    # multiple SIMD chunks even with AVX-512, before measurement shrinks the state.
+    source = (
+        "H 0 1 2 3 4\nT 0 1 2 3 4\nEXP_VAL X0*X1*X2*X3*X4\n"
+        "Z_ERROR(0.2) 4\nR_X(0.125) 4\nEXP_VAL X4 Z4\nM 0\nDETECTOR rec[-1]\n"
+        "H 4\nM 4\nOBSERVABLE_INCLUDE(0) rec[-1]\nEXP_VAL Z4"
+    )
+
+    @staticmethod
+    def assert_rows(result: clifft.SampleResult, k: int) -> None:
+        rows = len(result.measurements)
+        np.testing.assert_array_equal(result.detectors[:, 0], result.measurements[:, 0])
+        np.testing.assert_array_equal(result.observables[:, 0], result.measurements[:, 1])
+        # A forced Z reverses X and Y before Rx converts Y into Z.
+        sign = 1 - 2 * k
+        expected = [2**-2.5, sign / np.sqrt(2), sign * np.sin(np.pi / 8) / np.sqrt(2)]
+        np.testing.assert_allclose(
+            result.exp_vals[:, :3], np.broadcast_to(expected, (rows, 3)), atol=1e-12, rtol=0
+        )
+        np.testing.assert_allclose(
+            result.exp_vals[:, 3], 1 - 2 * result.measurements[:, 1].astype(int), atol=1e-12, rtol=0
+        )
+
+    @pytest.mark.parametrize("k", [0, 1])
+    def test_forced_fault_rotations(self, sampling_mode: CpuSamplingMode, k: int) -> None:
+        program = sampling_mode.compile(self.source)
+        assert program.peak_active_width == 5
+        result = sampling_mode.sample_k(program, 257, k=k, seed=1915 + k)
+        assert result.measurements.shape == (257, 2)
+        assert result.exp_vals.shape == (257, 4)
+        self.assert_rows(result, k)
+
+        # With one noise site, conditioning replaces it with either I or Z.
+        reference = unitary_reference(
+            "H 0 1 2 3 4\nT 0 1 2 3 4\n" + ("Z 4\n" if k else "") + "R_X(0.125) 4\nH 4"
+        )
+        indices = np.arange(32)
+        records = (indices & 1) + 2 * ((indices >> 4) & 1)
+        expected = np.bincount(records, weights=np.abs(reference) ** 2, minlength=4)
+        assert_joint_distribution(result.measurements, expected)
+        # The joint bound is conservative at 257 shots; also check the biased marginal.
+        probability = float(expected[2:].sum())
+        assert abs(result.measurements[:, 1].mean() - probability) < binomial_tolerance(
+            probability, 257
+        )
+
+    @pytest.mark.parametrize("k", [0, 1])
+    @pytest.mark.parametrize("keep_records", [False, True])
+    def test_forced_fault_survivors(
+        self, sampling_mode: CpuSamplingMode, k: int, keep_records: bool
+    ) -> None:
+        program = sampling_mode.compile(self.source, postselection_mask=[1])
+        assert program.peak_active_width == 5
+        shots = 257
+        result = sampling_mode.sample_k_survivors(
+            program, shots, k=k, seed=1915 + k, keep_records=keep_records
+        )
+        passed = result.passed_shots
+        assert result.total_shots == shots
+        assert result.discards == shots - passed
+        assert 0 < passed < shots
+        assert abs(passed / shots - 0.5) < binomial_tolerance(0.5, shots)
+        probability = (1 - (1 - 2 * k) / np.sqrt(2)) / 2
+        assert 0 < result.logical_errors < passed
+        assert abs(result.logical_errors / passed - probability) < binomial_tolerance(
+            probability, passed
+        )
+        np.testing.assert_array_equal(result.observable_ones, [result.logical_errors])
+        rows = passed if keep_records else 0
+        assert result.measurements.shape == (rows, 2)
+        assert result.detectors.shape == (rows, 1)
+        assert result.observables.shape == (rows, 1)
+        assert result.exp_vals.shape == (rows, 4)
+        if keep_records:
+            np.testing.assert_array_equal(result.measurements[:, 0], np.zeros(passed))
+            assert result.observables.sum() == result.logical_errors
+            self.assert_rows(result, k)
