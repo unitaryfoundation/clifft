@@ -33,10 +33,12 @@ def _shot_count(value: int, *, minimum: int, name: str) -> int:
 class PerfectionistSampler(sinter.Sampler):
     """Count logical errors after rejecting every shot with a detection event.
 
-    Tasks must explicitly select every detector for postselection. With no
-    detectors, an absent or empty mask is also accepted. On surviving shots,
-    any observable flip counts as one error, using zero observable prediction.
-    Observable postselection and arbitrary decoders are unsupported.
+    An absent postselection mask selects every detector. An explicit mask must
+    also select every detector; with no detectors, an empty mask is accepted.
+    On surviving shots, any observable flip counts as one error, using zero
+    observable prediction. Observable postselection and arbitrary decoders are
+    unsupported. Circuits must use instructions supported by Clifft; Stim tags
+    are ignored when compiling.
 
     Register an instance in ``sinter.collect(custom_decoders=...)``. Its
     configuration is pickle-safe; each worker compiles its own Clifft program
@@ -45,13 +47,14 @@ class PerfectionistSampler(sinter.Sampler):
     this adapter does not expose a seed or a retained random stream.
 
     Args:
-        batch_size: Native lane capacity, or ``"auto"`` for Clifft's
-            conservative execution policy. This is separate from Sinter's
-            ``max_batch_size``. Explicit packing can improve throughput;
-            benchmark the capacity on the intended circuit.
+        batch_size: Native lane capacity, defaulting to 1024. Each call uses at
+            most the requested number of shots and 2048 lanes. This is separate
+            from Sinter's ``max_batch_size``, which defaults to 1024 in Sinter
+            1.16. Use 1 for scalar execution or ``"auto"`` for Clifft's core
+            policy, which currently selects scalar execution for postselection.
     """
 
-    batch_size: int | Literal["auto"] = "auto"
+    batch_size: int | Literal["auto"] = 1024
 
     def __post_init__(self) -> None:
         if self.batch_size != "auto":
@@ -66,12 +69,7 @@ class PerfectionistSampler(sinter.Sampler):
 
         num_detectors = task.circuit.num_detectors
         mask = task.postselection_mask
-        if mask is None:
-            if num_detectors:
-                raise ValueError(
-                    "PerfectionistSampler requires explicit all-detector postselection"
-                )
-        else:
+        if mask is not None:
             if (
                 not isinstance(mask, np.ndarray)
                 or mask.dtype != np.uint8
@@ -85,7 +83,7 @@ class PerfectionistSampler(sinter.Sampler):
                 raise ValueError("PerfectionistSampler requires all-detector postselection")
 
         program = clifft.compile(
-            str(task.circuit),
+            str(task.circuit.without_tags()),
             postselection_mask=[1] * num_detectors,
             normalize_syndromes=True,
         )

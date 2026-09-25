@@ -1,14 +1,17 @@
 """Public Sinter integration and independent count/normalization checks."""
 
 import pickle
-from typing import Any
+import subprocess
+import sys
+from pathlib import Path
+from typing import Any, cast
 
 import numpy as np
 import pytest
 import sinter
 import stim
 from conftest import binomial_tolerance, cross_binomial_tolerance
-from utils_conformance import CpuSamplingMode
+from utils_conformance import CPU_SAMPLING_MODES, CpuSamplingMode
 
 from clifft.sinter import PerfectionistSampler
 
@@ -23,11 +26,19 @@ def all_detector_task(source: str) -> sinter.Task:
     )
 
 
-@pytest.fixture
-def sampler(sampling_mode: CpuSamplingMode) -> PerfectionistSampler:
-    if sampling_mode.threads != 1 or sampling_mode.thread_layout is not None:
-        pytest.skip("The Sinter adapter deliberately uses one native thread per worker")
-    return PerfectionistSampler(batch_size=sampling_mode.batch_size)  # type: ignore[arg-type]
+@pytest.fixture(
+    params=[pytest.param(None, id="default")]
+    + [
+        pytest.param(mode, id=mode.name)
+        for mode in CPU_SAMPLING_MODES
+        if mode.threads == 1 and mode.thread_layout is None
+    ]
+)
+def sampler(request: pytest.FixtureRequest) -> PerfectionistSampler:
+    mode = cast(CpuSamplingMode | None, request.param)
+    if mode is None:
+        return PerfectionistSampler()
+    return PerfectionistSampler(batch_size=mode.batch_size)  # type: ignore[arg-type]
 
 
 @pytest.mark.parametrize(
@@ -47,6 +58,19 @@ def sampler(sampling_mode: CpuSamplingMode) -> PerfectionistSampler:
             0,
         ),
         ("R 0\nX 0\nM 0\nDETECTOR rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]", 0, 0),
+        (
+            "REPEAT[round] 2 {\nR[reset] 0\nX_ERROR[fault](1) 0\n"
+            "M[readout] 0\nDETECTOR[check] rec[-1]\n}\n"
+            "OBSERVABLE_INCLUDE[logical](0) rec[-1]",
+            131,
+            0,
+        ),
+        (
+            "R[reset] 0 1\nX_ERROR[fault](1) 1\nM[readout] 0 1\n"
+            "DETECTOR[check] rec[-2]\nOBSERVABLE_INCLUDE[logical](0) rec[-1]",
+            0,
+            131,
+        ),
         ("", 0, 0),
     ],
 )
@@ -54,7 +78,9 @@ def test_exact_counts_match_stim(
     sampler: PerfectionistSampler, source: str, discards: int, errors: int
 ) -> None:
     task = all_detector_task(source)
+    original = str(task.circuit)
     compiled = sampler.compiled_sampler_for_task(task)
+    assert str(task.circuit) == original
     assert compiled.sample(0) == sinter.AnonTaskStats()
     dets, obs = task.circuit.compile_detector_sampler(seed=10).sample(
         131, separate_observables=True
@@ -110,14 +136,13 @@ def test_mask_padding_does_not_select_extra_detectors(last_byte: int) -> None:
 @pytest.mark.parametrize(
     "mask",
     [
-        None,
         np.array([0], dtype=np.uint8),
         np.array([], dtype=np.uint8),
         np.array([1], dtype=np.int64),
         np.array([[1]], dtype=np.uint8),
     ],
 )
-def test_reject_missing_partial_and_malformed_masks(mask: Any) -> None:
+def test_reject_partial_and_malformed_masks(mask: Any) -> None:
     task = all_detector_task("R 0\nM 0\nDETECTOR rec[-1]")
     task.postselection_mask = mask
     with pytest.raises(ValueError, match="postselection|postselection_mask"):
@@ -146,6 +171,18 @@ def test_no_detectors_accepts_absent_mask() -> None:
     task = sinter.Task(circuit=stim.Circuit("R 0\nM 0\nOBSERVABLE_INCLUDE(0) rec[-1]"))
     stats = PerfectionistSampler().compiled_sampler_for_task(task).sample(5)
     assert (stats.shots, stats.errors, stats.discards) == (5, 0, 0)
+
+
+def test_absent_mask_selects_every_detector(sampler: PerfectionistSampler) -> None:
+    task = sinter.Task(
+        circuit=stim.Circuit(
+            "R 0 1\nX_ERROR(1) 1\nM 0 1\n"
+            + "DETECTOR rec[-2]\n" * 8
+            + "DETECTOR rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]"
+        )
+    )
+    stats = sampler.compiled_sampler_for_task(task).sample(131)
+    assert (stats.shots, stats.discards, stats.errors) == (131, 131, 0)
 
 
 @pytest.mark.parametrize("value", [-1, 0, 2**32, True, 1.5, "bad"])
@@ -180,6 +217,22 @@ def test_pickling_and_multiprocess_collection() -> None:
         (100_000, 0, 100_000),
         (100_000, 100_000, 0),
     ]
+
+
+def test_guide_example_runs_as_script(tmp_path: Path) -> None:
+    guide = Path(__file__).resolve().parents[2] / "docs/guide/sinter.md"
+    source = guide.read_text().split("```python\n", 1)[1].split("```", 1)[0]
+    script = tmp_path / "sinter_example.py"
+    script.write_text(source)
+    # A subprocess executes the main guard and lets Sinter spawn real workers.
+    result = subprocess.run(
+        [sys.executable, str(script)], capture_output=True, text=True, timeout=60
+    )
+    assert result.returncode == 0, result.stderr
+    shots, discards, errors = map(int, result.stdout.split())
+    assert shots == 100_000
+    assert 0 < discards < shots
+    assert 0 <= errors <= shots - discards
 
 
 @pytest.mark.parametrize("option", ["count_detection_events", "count_observable_error_combos"])

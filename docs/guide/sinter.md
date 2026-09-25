@@ -15,13 +15,15 @@ pip install 'clifft[sinter]'
 The regular `clifft` installation requires neither Stim nor Sinter. This
 integration supports Stim/Sinter 1.16 and uses their public sampler interface.
 
+Sinter's built-in `"perfectionist"` sampler computes the same counts using Stim.
+Register the Clifft sampler as shown below to compare them on your workload.
+
 ## Collect statistics
 
 Save this example as a Python script and run it. The main guard is required
 for Sinter's multiprocessing workers.
 
 ```python
-import numpy as np
 import sinter
 import stim
 
@@ -42,19 +44,15 @@ def main():
         circuit=circuit,
         # No graphlike decomposition is needed for zero-prediction error detection.
         detector_error_model=circuit.detector_error_model(),
-        postselection_mask=np.packbits(
-            np.ones(circuit.num_detectors, dtype=np.uint8), bitorder="little"
-        ),
     )
     results = sinter.collect(
         num_workers=2,
         tasks=[task],
         decoders=["clifft-perfectionist"],
         custom_decoders={
-            "clifft-perfectionist": PerfectionistSampler(batch_size=2048),
+            "clifft-perfectionist": PerfectionistSampler(),
         },
         max_shots=100_000,
-        max_batch_size=16_384,
     )
     for result in results:
         print(result.shots, result.discards, result.errors)
@@ -76,10 +74,14 @@ task identity, but this sampler does not use it to predict corrections.
 
 ## Supported task contract
 
-- Supply a `stim.Circuit` and a little-endian `uint8` postselection mask selecting
-  every detector. Padding bits in the final byte are ignored. A missing mask is
-  rejected when the circuit has detectors; no detectors permits an absent or
-  empty mask.
+- Supply a `stim.Circuit` using [instructions supported by Clifft](../reference/gates.md).
+  Stim instruction tags are ignored when compiling. Some Stim features, such as
+  heralded noise, sweep-bit controls, and Pauli targets in `OBSERVABLE_INCLUDE`,
+  are not supported.
+- An absent `postselection_mask` selects every detector, matching Sinter's
+  built-in `"perfectionist"`. An explicit mask must be a little-endian `uint8`
+  array selecting every detector. Padding bits in the final byte are ignored.
+  With no detectors, an absent or empty mask is accepted.
 - Detector and observable bits are normalized against the noiseless reference.
   The sampler predicts zero observable flips for every accepted shot.
 - Observable postselection, partial detector postselection, and arbitrary
@@ -99,18 +101,23 @@ reproducibility guarantee. Direct `sample(0)` calls return zero counts.
 
 Each Sinter process uses one Clifft native thread. Sinter's `max_batch_size`
 controls attempts requested per call; the adapter's `batch_size` controls native
-lane capacity within that call. These are separate settings.
+lane capacity within that call. Both default to 1024 with Sinter 1.16, though
+Sinter starts with smaller calls and increases them as collection proceeds.
+Native capacity is capped at 2048 lanes and at the shots requested in each call.
+To use `batch_size=2048`, also increase Sinter's `max_batch_size` to at least 2048;
+larger native capacity requests are capped, not rejected.
 
-The default `batch_size="auto"` uses Clifft's conservative policy, which currently
-chooses scalar execution for postselection. An explicit capacity such as 2048
-can improve throughput on Clifford error-detection circuits. Measure the
-intended workload before choosing a capacity; 2048 is an example, not a universal
-optimum. See [CPU Execution and Tuning](cpu-execution.md).
+The adapter defaults to packed execution for Clifford error detection. Set
+`batch_size=1` for scalar execution or `batch_size="auto"` to use Clifft's core
+policy, which currently chooses scalar execution for postselection and can be
+substantially slower on these workloads. Packed execution uses more memory;
+the best capacity and any speedup over Stim depend on the circuit and hardware.
+Compare complete collection runs, including compilation and worker startup,
+when choosing a sampler. See [CPU Execution and Tuning](cpu-execution.md).
 
 The adapter calls `sample_survivors(..., keep_records=False)` through the public
 API. It retains the compiled program but constructs native workers for each
-sampling call. It produces no survivor-row matrices, and does not require a
-Stim-shaped sampler facade or retained C++ executor API.
+sampling call. It produces no survivor-row matrices.
 
 The [regular benchmark suite](https://github.com/unitaryfoundation/clifft/blob/main/tools/bench/README.md#sinter-postselection)
 includes the fully Clifford S-gate cultivation fixture as a counts-only
