@@ -893,10 +893,11 @@ def test_sample_type_hints_resolve_at_runtime():
     assert "circuit" in hints
 
 
-def test_noncomp_preserves_true_prefix_expressions_across_continuations():
+def test_noncomp_preserves_true_prefix_expressions_across_continuations(noncomp_sampling_api):
+    shots = 257
     model = noncomp.Model(classifier=classifier_for(LEAK_G, [1.0, 0.0]))
-    result = noncomp.sample("X_ERROR(1) 0\nLEAKAGE(1) 1\nM 0", model, shots=8, seed=280)
-    assert np.array_equal(result.measurements, np.ones((8, 1), dtype=np.uint8))
+    result = noncomp_sampling_api("X_ERROR(1) 0\nLEAKAGE(1) 1\nM 0", model, shots=shots, seed=280)
+    assert np.array_equal(result.measurements, np.ones((shots, 1), dtype=np.uint8))
 
 
 def test_qubit_status_values():

@@ -11,23 +11,15 @@ shot-noise band calibrated from the reference distribution itself.
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
 
 import numpy as np
 import pytest
 import utils_noncomp_enumerator as en
 from conftest import binomial_tolerance, noncomp_transition_matrix
 
-import clifft
 from clifft import noncomp
 
 Level = noncomp.Level
-
-
-@pytest.fixture(params=[clifft.noncomp.sample], ids=["symbolic"])
-def noncomp_sampling_api(request: pytest.FixtureRequest) -> Any:
-    """Compare the production trajectory sampler with the exact enumerator."""
-    return request.param
 
 
 def _classifier_matrix() -> list[list[float]]:
@@ -196,5 +188,6 @@ def _run_and_compare(
         assert abs(got_lost - want_lost) < binomial_tolerance(max(want_lost, 1e-4), SHOTS)
 
 
+@pytest.mark.expensive
 def test_rep_code_round_tvd_reaches_shot_noise(noncomp_sampling_api):
     _run_and_compare(seed=21, sample_noncomp=noncomp_sampling_api)

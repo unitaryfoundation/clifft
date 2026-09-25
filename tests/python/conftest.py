@@ -45,10 +45,19 @@ def statevector_from_circuit(
     return statevector
 
 
-@pytest.fixture(params=[clifft.noncomp.sample], ids=["symbolic-coordinate"])
-def noncomp_sampling_api(request: pytest.FixtureRequest) -> Any:
-    """Run supported noncomputational trajectories through the production executor."""
-    return cast(Any, request.param)
+@pytest.fixture(params=[1, 2], ids=["1-worker", "2-workers"])
+def noncomp_sampling_api(
+    request: pytest.FixtureRequest,
+) -> Callable[..., clifft.noncomp.NonComputationalSample]:
+    """Run shared trajectory assertions with bounded cross-shot worker counts."""
+
+    def sample(*args: Any, **kwargs: Any) -> clifft.noncomp.NonComputationalSample:
+        if "threads" in kwargs:
+            raise TypeError("threads is selected by noncomp_sampling_api")
+        kwargs["threads"] = request.param
+        return clifft.noncomp.sample(*args, **kwargs)
+
+    return sample
 
 
 def noncomp_transition_matrix(

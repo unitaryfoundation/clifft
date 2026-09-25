@@ -44,9 +44,7 @@ def test_gate_determined_source_fires_exactly_zero(noncomp_sampling_api):
     ahead-of-time source guess loud: a uniform draw would leak half the
     shots."""
     model = _model({"leak": noncomp_transition_matrix({(Level.LEAK_E, Level.E): 1.0})})
-    r = noncomp_sampling_api(
-        "H 0\nH 0\nLEVEL_TRANSITION[leak] 0\nM 0\n", model, shots=SHOTS, seed=11
-    )
+    r = noncomp_sampling_api("H 0\nH 0\nLEVEL_TRANSITION[leak] 0\nM 0\n", model, shots=257, seed=11)
     status = np.asarray(r.final_status)
     assert (status == noncomp.QubitStatus.COMPUTATIONAL).all()
     assert (np.asarray(r.measurements) == 0).all()  # H H |0> measures 0
@@ -73,6 +71,8 @@ def test_bell_joint_correlation_has_tvd_zero(noncomp_sampling_api):
     # The certain fire really happened: an accidentally skipped transition
     # would also show perfect agreement (a plain Bell pair does).
     assert np.isin(status[:, 0], (noncomp.QubitStatus.LEAK_G, noncomp.QubitStatus.LEAK_E)).all()
+    assert ((status[:, 0] == noncomp.QubitStatus.LEAK_E) == (m[:, 0] == 1)).all()
+    assert (status[:, 1] == noncomp.QubitStatus.COMPUTATIONAL).all()
     assert (m[:, 0] == m[:, 1]).all()  # off-diagonal mass is exactly 0
     assert abs(m[:, 0].mean() - 0.5) < binomial_tolerance(0.5, SHOTS)
 
@@ -84,9 +84,9 @@ def test_damping_boundary_probe_separates_exact_from_neglect(noncomp_sampling_ap
     damping modes: exact applies the filter diag(1, sqrt(1 - p)), leaving
     coherence sqrt(1 - p) and a nonzero X-basis flip rate; neglect keeps
     |+> intact, so the no-fire branch reads 1 with probability exactly 0.
-    Both expectations are computed from the oracle's channel primitives,
-    and the closed forms are far enough apart that each sample can only
-    match its own mode."""
+    Conditioning on the final status isolates that difference from the
+    fired shots, whose classifier always reads 1 in both modes."""
+    shots = 2049
     p = 0.84
     transitions = {"leak": noncomp_transition_matrix({(Level.LEAK_E, Level.E): p})}
     text = "H 0\nLEVEL_TRANSITION[leak] 0\nH 0\nM 0\n"
@@ -102,21 +102,31 @@ def test_damping_boundary_probe_separates_exact_from_neglect(noncomp_sampling_ap
     # Neglect: the no-fire branch keeps |+>, and H|+> = |0> reads 1 never.
     expected_neglect = p_fire * 1.0
 
-    tol_exact = binomial_tolerance(expected_exact, SHOTS)
-    tol_neglect = binomial_tolerance(expected_neglect, SHOTS)
-    assert abs(expected_exact - expected_neglect) > 2 * (
-        tol_exact + tol_neglect
-    ), "probe lost its discriminating power; adjust p or SHOTS"
+    for damping, seed, expected in (
+        ("exact", 13, expected_exact),
+        ("neglect", 14, expected_neglect),
+    ):
+        result = noncomp_sampling_api(
+            text, _model(transitions, damping=damping), shots=shots, seed=seed
+        )
+        measurements = np.asarray(result.measurements)[:, 0]
+        status = np.asarray(result.final_status)[:, 0]
+        fired = status == noncomp.QubitStatus.LEAK_E
+        assert np.isin(
+            status, (noncomp.QubitStatus.COMPUTATIONAL, noncomp.QubitStatus.LEAK_E)
+        ).all()
+        assert 0 < fired.sum() < shots
+        assert abs(fired.mean() - p_fire) < binomial_tolerance(p_fire, shots)
+        assert (measurements[fired] == 1).all()
+        assert abs(measurements.mean() - expected) < binomial_tolerance(expected, shots)
 
-    r_exact = noncomp_sampling_api(text, _model(transitions, damping="exact"), shots=SHOTS, seed=13)
-    r_neglect = noncomp_sampling_api(
-        text, _model(transitions, damping="neglect"), shots=SHOTS, seed=14
-    )
-    p1_exact = float(np.asarray(r_exact.measurements)[:, 0].mean())
-    p1_neglect = float(np.asarray(r_neglect.measurements)[:, 0].mean())
-
-    assert abs(p1_exact - expected_exact) < tol_exact
-    assert abs(p1_neglect - expected_neglect) < tol_neglect
+        no_fire = measurements[~fired]
+        if damping == "exact":
+            tolerance = binomial_tolerance(p1_no_fire, len(no_fire))
+            assert p1_no_fire > 2 * tolerance, "no-fire probe cannot distinguish neglect damping"
+            assert abs(no_fire.mean() - p1_no_fire) < tolerance
+        else:
+            assert (no_fire == 0).all()
 
 
 def test_damping_null_source_independent_rates_make_neglect_exact(noncomp_sampling_api):
@@ -220,6 +230,17 @@ def test_entangled_two_site_chain_matches_hand_derived_distribution(noncomp_samp
     status = np.asarray(r.final_status)
     # q0 is never given a LEVEL_TRANSITION; it stays computational on every shot.
     assert (status[:, 0] == noncomp.QubitStatus.COMPUTATIONAL).all()
+    # A leaked site reads 0 after collapsing its untouched GHZ partner to 1.
+    # The same record bit is also 0 on the uncollapsed |000> branch, so use M0
+    # to distinguish it before checking each row's status.
+    for qubit in (1, 2):
+        assert np.isin(
+            status[:, qubit], (noncomp.QubitStatus.COMPUTATIONAL, noncomp.QubitStatus.LEAK_G)
+        ).all()
+        assert (
+            (status[:, qubit] == noncomp.QubitStatus.LEAK_G)
+            == ((m[:, 0] == 1) & (m[:, qubit] == 0))
+        ).all()
     # q1 transitions to LEAK_G on exactly the shots where the q1 site fired.
     leak_q1 = (status[:, 1] == noncomp.QubitStatus.LEAK_G).mean()
     assert abs(leak_q1 - 0.45) < binomial_tolerance(0.45, SHOTS)
@@ -247,11 +268,6 @@ def test_neglect_bell_correlation_probe(noncomp_sampling_api):
     the partner collapses to 1.  Unfired shots (q0 was on g): q0 reads 0;
     q1 measures from the post-trace |0>, also 0.  Both outcomes must occur
     to guard vacuity.
-
-    This is the sharp neglect-mode check at the Bell-correlation level; the
-    TVD test exercises neglect end-to-end against the enumerator reference
-    but cannot resolve the O(p^2) difference between exact and neglect at
-    the cold-atom rates used there.
     """
     PROBE_SHOTS = 512
     transitions = {"leak": noncomp_transition_matrix({(Level.LEAK_E, Level.E): 1.0})}

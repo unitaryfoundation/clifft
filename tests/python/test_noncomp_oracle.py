@@ -1,4 +1,4 @@
-"""Cross-check both noncomputational executors against an independent reference.
+"""Cross-check noncomputational sampling modes against an independent reference.
 
 The reference (``utils_noncomp_oracle``) is a tiny numpy density-matrix
 simulator built from first principles, plus explicit closed-form probabilities
@@ -17,8 +17,6 @@ trace.
 
 from __future__ import annotations
 
-from typing import Any
-
 import numpy as np
 import numpy.typing as npt
 import pytest
@@ -31,12 +29,6 @@ from clifft import noncomp
 Level = noncomp.Level
 BAND = 0.04  # ~7 sigma at 8000 shots for p near 0.5
 SHOTS = 8000
-
-
-@pytest.fixture(params=[clifft.noncomp.sample], ids=["symbolic"])
-def noncomp_sampling_api(request: pytest.FixtureRequest) -> Any:
-    """Run the independent-oracle checks against the production trajectory sampler."""
-    return request.param
 
 
 def _classifier(level: int, col: list[float]) -> noncomp.Classifier:
