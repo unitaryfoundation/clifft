@@ -44,9 +44,14 @@ ACTIVE_WIDTH = CompilerProfile("active-width", lambda: active_width_passes())
 COMPILER_PROFILES = (UNOPTIMIZED, DEFAULT, ACTIVE_WIDTH)
 
 
-def skip_unavailable_intra_shot(error: ValueError) -> NoReturn:
-    if str(error) == "thread_layout intra-shot workers require an OpenMP-enabled build":
+def skip_unavailable_thread_layout(error: ValueError, layout: tuple[int, int]) -> NoReturn:
+    if (
+        layout[1] > 1
+        and str(error) == "thread_layout intra-shot workers require an OpenMP-enabled build"
+    ):
         pytest.skip("Clifft was built without OpenMP")
+    if min(layout) > 1 and str(error) == "hybrid thread_layout requires OMP_PROC_BIND=false":
+        pytest.skip("Hybrid sampling requires OMP_PROC_BIND=false")
     raise error
 
 
@@ -74,8 +79,8 @@ class CpuSamplingMode:
                 intra_shot_min_active_width=self.intra_shot_min_active_width,
             )
         except ValueError as error:
-            if self.thread_layout is not None and self.thread_layout[1] > 1:
-                skip_unavailable_intra_shot(error)
+            if self.thread_layout is not None:
+                skip_unavailable_thread_layout(error, self.thread_layout)
             raise
 
     def sample_survivors(
@@ -93,8 +98,8 @@ class CpuSamplingMode:
                 intra_shot_min_active_width=self.intra_shot_min_active_width,
             )
         except ValueError as error:
-            if self.thread_layout is not None and self.thread_layout[1] > 1:
-                skip_unavailable_intra_shot(error)
+            if self.thread_layout is not None:
+                skip_unavailable_thread_layout(error, self.thread_layout)
             raise
 
 
@@ -105,6 +110,7 @@ CPU_SAMPLING_MODES = (
     CpuSamplingMode("scalar-2-workers", 1, threads=2),
     CpuSamplingMode("packed-65-2-workers", 65, threads=2),
     CpuSamplingMode("intra-shot-2-workers", 1, thread_layout=(1, 2), intra_shot_min_active_width=3),
+    CpuSamplingMode("hybrid-2x2-workers", 1, thread_layout=(2, 2), intra_shot_min_active_width=3),
 )
 
 # Two full packed-65 batches plus a tail allow both workers to receive work.

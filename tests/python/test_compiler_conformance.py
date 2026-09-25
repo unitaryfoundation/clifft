@@ -351,12 +351,13 @@ def test_cpu_sampling_modes_include_batch_and_worker_configurations() -> None:
     assert {(1, 1), (65, 1), ("auto", 1), (1, 2), (65, 2)} <= {
         (mode.batch_size, mode.threads) for mode in CPU_SAMPLING_MODES
     }
-    assert any(
-        mode.batch_size == 1
-        and mode.thread_layout == (1, 2)
-        and mode.intra_shot_min_active_width == 3
-        for mode in CPU_SAMPLING_MODES
-    )
+    for layout in ((1, 2), (2, 2)):
+        assert any(
+            mode.batch_size == 1
+            and mode.thread_layout == layout
+            and mode.intra_shot_min_active_width == 3
+            for mode in CPU_SAMPLING_MODES
+        )
 
 
 @pytest.mark.parametrize("mode", CPU_SAMPLING_MODES, ids=lambda mode: mode.name)
@@ -402,25 +403,59 @@ def test_sampling_mode_forwards_its_configuration(
 
 
 @pytest.mark.parametrize("sampler", ["sample", "sample_survivors"])
-def test_sampling_mode_only_skips_missing_openmp(
-    sampler: str, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(
+    "layout",
+    [None, (1, 1), (2, 1), (1, 2), (2, 2)],
+    ids=["implicit", "serial", "cross-shot", "intra-shot", "hybrid"],
+)
+@pytest.mark.parametrize(
+    ("message", "skipped_layouts", "skip_reason"),
+    [
+        (
+            "thread_layout intra-shot workers require an OpenMP-enabled build",
+            [(1, 2), (2, 2)],
+            "Clifft was built without OpenMP",
+        ),
+        (
+            "hybrid thread_layout requires OMP_PROC_BIND=false",
+            [(2, 2)],
+            "Hybrid sampling requires OMP_PROC_BIND=false",
+        ),
+        ("invalid program", [], ""),
+        (
+            "unexpected error: thread_layout intra-shot workers require an OpenMP-enabled build",
+            [],
+            "",
+        ),
+        ("unexpected error: hybrid thread_layout requires OMP_PROC_BIND=false", [], ""),
+    ],
+    ids=[
+        "missing-openmp",
+        "processor-binding",
+        "unrelated",
+        "openmp-substring",
+        "binding-substring",
+    ],
+)
+def test_sampling_mode_only_skips_unavailable_layouts(
+    sampler: str,
+    layout: tuple[int, int] | None,
+    message: str,
+    skipped_layouts: list[tuple[int, int]],
+    skip_reason: str,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    error = ValueError(message)
+
     def reject(*args: Any, **kwargs: Any) -> None:
         raise error
 
     monkeypatch.setattr(clifft, sampler, reject)
-    mode = CpuSamplingMode("intra-shot", 1, thread_layout=(1, 2))
-    unavailable = ValueError("thread_layout intra-shot workers require an OpenMP-enabled build")
-    for error in (ValueError("invalid program"), ValueError(f"unexpected error: {unavailable}")):
+    mode = CpuSamplingMode("threaded", 1, thread_layout=layout)
+    if layout in skipped_layouts:
+        with pytest.raises(pytest.skip.Exception, match=skip_reason):
+            getattr(mode, sampler)(object(), 2)
+    else:
         with pytest.raises(ValueError) as raised:
-            getattr(mode, sampler)(object(), 1)
+            getattr(mode, sampler)(object(), 2)
         assert raised.value is error
-
-    error = unavailable
-    with pytest.raises(pytest.skip.Exception, match="Clifft was built without OpenMP"):
-        getattr(mode, sampler)(object(), 1)
-
-    serial = CpuSamplingMode("single-shot", 1)
-    with pytest.raises(ValueError) as raised:
-        getattr(serial, sampler)(object(), 1)
-    assert raised.value is unavailable

@@ -138,8 +138,11 @@ The CPU corpus shares assertions across batching and threading configurations.
 Intra-shot tests lower the active-width threshold so small circuits can exercise
 parallel kernels; narrower circuits retain serial execution. Active-state cases
 check evolution and its interactions with measurement, feedback, and postselection
-against independent expectations. Intra-shot execution is skipped on builds
-without OpenMP.
+against independent expectations. Cases requesting intra-shot workers skip on
+builds without OpenMP. Cases requesting hybrid layouts also skip when OpenMP
+processor binding is active, including narrow circuits whose execution would
+otherwise fall back to cross-shot workers. Run with `OMP_PROC_BIND=false` to
+include those cases.
 
 Dedicated tests check seeded repeatability across worker counts and behavior
 at batch and output boundaries. Short dynamically scheduled cross-shot calls
