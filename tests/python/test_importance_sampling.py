@@ -4,7 +4,11 @@ import numpy as np
 import numpy.typing as npt
 import pytest
 from conftest import binomial_tolerance
-from utils_conformance import SMALL_CIRCUIT_SHOTS, CpuSamplingMode
+from utils_conformance import (
+    SMALL_CIRCUIT_SHOTS,
+    CpuSamplingMode,
+    assert_joint_distribution,
+)
 
 import clifft
 
@@ -112,23 +116,47 @@ class TestSampleK:
         with pytest.raises(ValueError):
             sampling_mode.sample_k_survivors(prog, shots=SMALL_CIRCUIT_SHOTS, k=1, seed=42)
 
-    def test_exactly_k_faults_per_shot(self, sampling_mode: CpuSamplingMode) -> None:
-        """Verify exactly k measurements flip per shot with X_ERROR."""
-        prog = sampling_mode.compile(
-            """
-            R 0 1 2
-            X_ERROR(0.01) 0
-            X_ERROR(0.05) 1
-            X_ERROR(0.1) 2
-            M 0 1 2
-            OBSERVABLE_INCLUDE(0) rec[-1]
-            """,
-            normalize_syndromes=True,
+    @pytest.mark.parametrize("k", range(4))
+    @pytest.mark.parametrize("postselect", [False, True])
+    def test_conditional_fault_distribution(
+        self, sampling_mode: CpuSamplingMode, k: int, postselect: bool
+    ) -> None:
+        """Condition on the fault count without losing the unequal site probabilities."""
+        program = sampling_mode.compile(
+            "X_ERROR(0.1) 0\nX_ERROR(0.3) 1\nX_ERROR(0.7) 2\n"
+            "M 0 1 2\nDETECTOR rec[-3]\nOBSERVABLE_INCLUDE(0) rec[-1]",
+            postselection_mask=[1] if postselect else None,
         )
-        for k in range(4):
-            result = sampling_mode.sample_k(prog, shots=SMALL_CIRCUIT_SHOTS, k=k, seed=42 + k)
-            flips_per_shot = np.sum(result.measurements, axis=1)
-            np.testing.assert_array_equal(flips_per_shot, k)
+        probabilities = np.array([0.1, 0.3, 0.7])
+        # Enumerate the eight independent Bernoulli outcomes, then condition on K.
+        bits = (np.arange(8)[:, None] >> np.arange(3)) & 1
+        mass = np.prod(np.where(bits, probabilities, 1 - probabilities), axis=1)
+        mass[bits.sum(axis=1) != k] = 0
+        expected = mass / mass.sum()
+        shots = 1025 if k in (1, 2) else SMALL_CIRCUIT_SHOTS
+        if postselect:
+            result = sampling_mode.sample_k_survivors(
+                program, shots, k=k, seed=42 + k, keep_records=True
+            )
+            expected[bits[:, 0] == 1] = 0
+            survival_probability = float(expected.sum())
+            assert result.total_shots == shots
+            assert result.discards == shots - result.passed_shots
+            assert abs(result.passed_shots / shots - survival_probability) < binomial_tolerance(
+                survival_probability, shots
+            )
+            assert result.measurements.shape == (result.passed_shots, 3)
+            assert result.logical_errors == result.observables.sum()
+            np.testing.assert_array_equal(result.observable_ones, [result.logical_errors])
+            if survival_probability == 0:
+                return
+            expected /= survival_probability
+        else:
+            result = sampling_mode.sample_k(program, shots, k=k, seed=42 + k)
+        np.testing.assert_array_equal(result.detectors[:, 0], result.measurements[:, 0])
+        np.testing.assert_array_equal(result.measurements.sum(axis=1), k)
+        np.testing.assert_array_equal(result.observables[:, 0], result.measurements[:, 2])
+        assert_joint_distribution(result.measurements, expected)
 
     def test_deterministic_with_seed(self, sampling_mode: CpuSamplingMode) -> None:
         prog = sampling_mode.compile(
@@ -342,3 +370,42 @@ class TestImportanceSamplingEndToEnd:
         # Observable is rec[-1] = qubit 1. Error whenever qubit 1 flips.
         # p_fail = p = 0.1
         assert abs(p_fail_stratified - 0.1) < pmf[1] * binomial_tolerance(0.5, 1025)
+
+    @pytest.mark.parametrize("keep_records", [False, True])
+    def test_weighted_error_rate_with_postselection(
+        self, sampling_mode: CpuSamplingMode, keep_records: bool
+    ) -> None:
+        """Reweight attempted shots even when an entire stratum is rejected."""
+        program = sampling_mode.compile(
+            "X_ERROR(0.1) 0\nX_ERROR(0.3) 1\nM 0 1\n"
+            "DETECTOR rec[-2] rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]",
+            postselection_mask=[1],
+        )
+        pmf = poisson_binomial_pmf(program.noise_site_probabilities, 2)
+        weighted_errors = 0.0
+        weighted_survival = 0.0
+        for k in range(3):
+            result = sampling_mode.sample_k_survivors(
+                program, SMALL_CIRCUIT_SHOTS, k=k, seed=1914 + k, keep_records=keep_records
+            )
+            passed = SMALL_CIRCUIT_SHOTS if k != 1 else 0
+            errors = SMALL_CIRCUIT_SHOTS if k == 2 else 0
+            assert result.total_shots == SMALL_CIRCUIT_SHOTS
+            assert result.passed_shots == passed
+            assert result.discards == SMALL_CIRCUIT_SHOTS - passed
+            assert result.logical_errors == errors
+            np.testing.assert_array_equal(result.observable_ones, [errors])
+            rows = passed if keep_records else 0
+            np.testing.assert_array_equal(result.measurements, np.full((rows, 2), k // 2))
+            np.testing.assert_array_equal(result.detectors, np.zeros((rows, 1)))
+            np.testing.assert_array_equal(result.observables, np.full((rows, 1), k // 2))
+            weighted_errors += pmf[k] * result.logical_errors / result.total_shots
+            weighted_survival += pmf[k] * result.passed_shots / result.total_shots
+
+        # Equal measured bits survive; a logical error requires both faults.
+        survival_probability = 0.9 * 0.7 + 0.1 * 0.3
+        assert weighted_survival == pytest.approx(survival_probability, abs=1e-12)
+        assert weighted_errors == pytest.approx(0.1 * 0.3, abs=1e-12)
+        assert weighted_errors / weighted_survival == pytest.approx(
+            0.1 * 0.3 / survival_probability, abs=1e-12
+        )
