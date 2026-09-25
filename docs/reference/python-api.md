@@ -32,6 +32,13 @@ compatibility limits.
 
 ::: clifft.sample_k_survivors
 
+## Optional Sinter Integration
+
+Install `clifft[sinter]` for this optional integration with Stim/Sinter 1.16.
+See [Using with Sinter](../guide/sinter.md) for a runnable collection example.
+
+::: clifft.sinter.PerfectionistSampler
+
 ## Experimental Hardware Backends
 
 !!! warning "Experimental"
