@@ -100,21 +100,24 @@ class TestSampleK:
             normalize_syndromes=True,
         )
         n_sites = len(prog.noise_site_probabilities)
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="exceeds total fault sites"):
             sampling_mode.sample_k(prog, shots=SMALL_CIRCUIT_SHOTS, k=n_sites + 1, seed=42)
+        with pytest.raises(ValueError, match="exceeds total fault sites"):
+            sampling_mode.sample_k_survivors(
+                prog, shots=SMALL_CIRCUIT_SHOTS, k=n_sites + 1, seed=42
+            )
 
     def test_zero_mass_stratum_raises(self, sampling_mode: CpuSamplingMode) -> None:
-        """k > 0 on a noiseless circuit should raise (zero-mass stratum)."""
+        """An existing zero-probability site makes the in-range k=1 stratum impossible."""
         prog = sampling_mode.compile(
-            "R 0\nM 0\nOBSERVABLE_INCLUDE(0) rec[-1]", normalize_syndromes=True
+            "R 0\nX_ERROR(0) 0\nM 0\nOBSERVABLE_INCLUDE(0) rec[-1]", normalize_syndromes=True
         )
-        assert len(prog.noise_site_probabilities) == 0
-        # k=0 is fine
-        sampling_mode.sample_k(prog, shots=SMALL_CIRCUIT_SHOTS, k=0, seed=42)
-        # k=1 is impossible
-        with pytest.raises(ValueError):
+        np.testing.assert_array_equal(prog.noise_site_probabilities, [0.0])
+        result = sampling_mode.sample_k(prog, shots=SMALL_CIRCUIT_SHOTS, k=0, seed=42)
+        np.testing.assert_array_equal(result.measurements, np.zeros((SMALL_CIRCUIT_SHOTS, 1)))
+        with pytest.raises(ValueError, match="stratum k=1 has zero probability mass"):
             sampling_mode.sample_k(prog, shots=SMALL_CIRCUIT_SHOTS, k=1, seed=42)
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="stratum k=1 has zero probability mass"):
             sampling_mode.sample_k_survivors(prog, shots=SMALL_CIRCUIT_SHOTS, k=1, seed=42)
 
     @pytest.mark.parametrize("k", range(4))
