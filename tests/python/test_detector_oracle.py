@@ -6,11 +6,11 @@ the same detectors and observables on every shot.
 
 import numpy as np
 import stim
-from utils_conformance import CpuSamplingMode
+from utils_conformance import SamplingMode
 
 
 def sample_clifft(
-    sampling_mode: CpuSamplingMode, circuit_text: str, shots: int, seed: int = 0
+    sampling_mode: SamplingMode, circuit_text: str, shots: int, seed: int = 0
 ) -> tuple[np.ndarray, np.ndarray]:
     """Sample from Clifft, returning (detectors, observables) as bool arrays."""
     prog = sampling_mode.compile(circuit_text)
@@ -36,7 +36,7 @@ class TestBellStateDetector:
         DETECTOR rec[-1] rec[-2]
     """
 
-    def test_clean_bell_detector_always_zero(self, sampling_mode: CpuSamplingMode) -> None:
+    def test_clean_bell_detector_always_zero(self, sampling_mode: SamplingMode) -> None:
         """Clean Bell state: measurements always correlated, detector = 0."""
         shots = 100
 
@@ -47,7 +47,7 @@ class TestBellStateDetector:
         assert np.all(~clifft_det), "Clifft: Clean Bell detector should always be 0"
         assert np.all(~stim_det), "Stim: Clean Bell detector should always be 0"
 
-    def test_x_error_after_cx_flips_detector(self, sampling_mode: CpuSamplingMode) -> None:
+    def test_x_error_after_cx_flips_detector(self, sampling_mode: SamplingMode) -> None:
         """X error after CX breaks correlation, detector = 1."""
         circuit = """
             H 0
@@ -67,7 +67,7 @@ class TestBellStateDetector:
         # Exact match
         np.testing.assert_array_equal(clifft_det, stim_det)
 
-    def test_z_error_before_measurement_detected(self, sampling_mode: CpuSamplingMode) -> None:
+    def test_z_error_before_measurement_detected(self, sampling_mode: SamplingMode) -> None:
         """Z error before H+M changes measurement basis outcome."""
         # In X basis: H puts qubit in |+>, Z flips to |->, M gives 1
         circuit = """
@@ -91,7 +91,7 @@ class TestBellStateDetector:
 class TestMultiQubitErrorPropagation:
     """Test that errors propagate correctly through multi-qubit gates."""
 
-    def test_x_error_propagates_through_cx(self, sampling_mode: CpuSamplingMode) -> None:
+    def test_x_error_propagates_through_cx(self, sampling_mode: SamplingMode) -> None:
         """X error on control propagates to target via CX.
 
         Circuit: X_ERROR on q0, then CX 0 1, then measure both.
@@ -116,7 +116,7 @@ class TestMultiQubitErrorPropagation:
         np.testing.assert_array_equal(clifft_det, stim_det)
 
     def test_z_error_on_target_invisible_before_entanglement(
-        self, sampling_mode: CpuSamplingMode
+        self, sampling_mode: SamplingMode
     ) -> None:
         """Z error on |0> is invisible (eigenstate of Z).
 
@@ -144,7 +144,7 @@ class TestMultiQubitErrorPropagation:
 class TestObservableTracking:
     """Test observable value computation matches Stim."""
 
-    def test_observable_tracks_logical_value(self, sampling_mode: CpuSamplingMode) -> None:
+    def test_observable_tracks_logical_value(self, sampling_mode: SamplingMode) -> None:
         """Observable accumulates measurement parities correctly."""
         circuit = """
             H 0
@@ -163,7 +163,7 @@ class TestObservableTracking:
         assert np.all(~stim_obs), "Stim: Bell state observable should be 0"
         np.testing.assert_array_equal(clifft_obs, stim_obs)
 
-    def test_error_flips_observable(self, sampling_mode: CpuSamplingMode) -> None:
+    def test_error_flips_observable(self, sampling_mode: SamplingMode) -> None:
         """X error on one qubit flips the observable."""
         circuit = """
             H 0
@@ -187,7 +187,7 @@ class TestObservableTracking:
 class TestMultipleDetectors:
     """Test circuits with multiple detectors."""
 
-    def test_independent_detectors(self, sampling_mode: CpuSamplingMode) -> None:
+    def test_independent_detectors(self, sampling_mode: SamplingMode) -> None:
         """Multiple independent detectors are computed correctly."""
         circuit = """
             H 0
@@ -209,7 +209,7 @@ class TestMultipleDetectors:
         assert np.all(~stim_det), "Stim: Both detectors should be 0"
         np.testing.assert_array_equal(clifft_det, stim_det)
 
-    def test_error_affects_specific_detector(self, sampling_mode: CpuSamplingMode) -> None:
+    def test_error_affects_specific_detector(self, sampling_mode: SamplingMode) -> None:
         """Error on one Bell pair only affects its detector."""
         circuit = """
             H 0
@@ -235,7 +235,7 @@ class TestMultipleDetectors:
 class TestYError:
     """Test Y error handling (Y = iXZ)."""
 
-    def test_y_error_flips_detector(self, sampling_mode: CpuSamplingMode) -> None:
+    def test_y_error_flips_detector(self, sampling_mode: SamplingMode) -> None:
         """Y error on Bell state flips detector (acts like X)."""
         circuit = """
             H 0
@@ -258,7 +258,7 @@ class TestYError:
 class TestActiveInterfereErrorTracking:
     """Test error frame tracking through active interference and array compaction."""
 
-    def test_x_error_with_active_interfere(self, sampling_mode: CpuSamplingMode) -> None:
+    def test_x_error_with_active_interfere(self, sampling_mode: SamplingMode) -> None:
         """Error-frame tracking must survive an active measurement.
 
         H 0 -> |+>

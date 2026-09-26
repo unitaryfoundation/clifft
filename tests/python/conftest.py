@@ -6,7 +6,13 @@ from typing import Any, cast
 import numpy as np
 import numpy.typing as npt
 import pytest
-from utils_conformance import CPU_SAMPLING_MODES, CpuSamplingMode
+from utils_conformance import (
+    CPU_SAMPLING_MODES,
+    GPU_SAMPLING_MODES,
+    CpuSamplingMode,
+    GpuSamplingMode,
+    SamplingMode,
+)
 
 import clifft
 
@@ -17,9 +23,34 @@ def sampling_api(request: pytest.FixtureRequest) -> Any:
     return cast(Any, request.param)
 
 
+def pytest_addoption(parser: pytest.Parser) -> None:
+    parser.addoption(
+        "--require-gpu",
+        choices=["hip", "cuda"],
+        help="Fail before testing if the requested GPU backend has no available device.",
+    )
+
+
+def pytest_sessionstart(session: pytest.Session) -> None:
+    backend = session.config.getoption("--require-gpu")
+    if backend is not None:
+        mode = next(mode for mode in GPU_SAMPLING_MODES if mode.backend == backend)
+        if not mode.api.is_available():
+            raise pytest.UsageError(f"--require-gpu={backend}: {mode.api.backend_info()}")
+
+
+@pytest.fixture(params=CPU_SAMPLING_MODES + GPU_SAMPLING_MODES, ids=lambda mode: mode.name)
+def sampling_mode(request: pytest.FixtureRequest) -> SamplingMode:
+    """Run ordinary/survivor assertions through supported CPU and GPU configurations."""
+    mode = cast(SamplingMode, request.param)
+    if isinstance(mode, GpuSamplingMode):
+        mode.require_available()
+    return mode
+
+
 @pytest.fixture(params=CPU_SAMPLING_MODES, ids=lambda mode: mode.name)
-def sampling_mode(request: pytest.FixtureRequest) -> CpuSamplingMode:
-    """Run shared behavioral assertions through each CPU sampling configuration."""
+def importance_sampling_mode(request: pytest.FixtureRequest) -> CpuSamplingMode:
+    """Forced-fault sampling is currently supported only by the CPU APIs."""
     return cast(CpuSamplingMode, request.param)
 
 

@@ -10,7 +10,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 import stim
-from utils_conformance import SMALL_CIRCUIT_SHOTS, CpuSamplingMode
+from utils_conformance import SMALL_CIRCUIT_SHOTS, SamplingMode
 
 import clifft
 
@@ -137,7 +137,7 @@ def test_compile_returns_public_program() -> None:
 
 
 def test_expectation_probes_are_available_through_public_api(
-    sampling_mode: CpuSamplingMode,
+    sampling_mode: SamplingMode,
 ) -> None:
     program = sampling_mode.compile("EXP_VAL X0 Z0")
     result = sampling_mode.sample(program, shots=SMALL_CIRCUIT_SHOTS, seed=1)
@@ -147,7 +147,7 @@ def test_expectation_probes_are_available_through_public_api(
 
 
 def test_noise_readout_feedback_and_syndrome_share_one_symbolic_record(
-    sampling_mode: CpuSamplingMode,
+    sampling_mode: SamplingMode,
 ) -> None:
     circuit = """
         X_ERROR(1) 0
@@ -166,7 +166,7 @@ def test_noise_readout_feedback_and_syndrome_share_one_symbolic_record(
     np.testing.assert_array_equal(result.observables, np.zeros((shots, 1), dtype=np.uint8))
 
 
-def test_asymmetric_readout_noise_uses_the_pre_flip_record(sampling_mode: CpuSamplingMode) -> None:
+def test_asymmetric_readout_noise_uses_the_pre_flip_record(sampling_mode: SamplingMode) -> None:
     shots = SMALL_CIRCUIT_SHOTS
     zero = sampling_mode.sample(
         sampling_mode.compile("M 0\nREADOUT_NOISE(1, 0) rec[-1]"), shots=shots, seed=1
@@ -179,7 +179,7 @@ def test_asymmetric_readout_noise_uses_the_pre_flip_record(sampling_mode: CpuSam
     assert np.all(one.measurements == 0)
 
 
-def test_syndrome_outputs_preserve_record_snapshots(sampling_mode: CpuSamplingMode) -> None:
+def test_syndrome_outputs_preserve_record_snapshots(sampling_mode: SamplingMode) -> None:
     program = sampling_mode.compile(
         "X 0\nM 0\nDETECTOR rec[-1]\n"
         "OBSERVABLE_INCLUDE(0) rec[-1]\nOBSERVABLE_INCLUDE(2) rec[-1]\n"
@@ -197,7 +197,7 @@ def test_syndrome_outputs_preserve_record_snapshots(sampling_mode: CpuSamplingMo
     np.testing.assert_array_equal(result.observables, np.broadcast_to([0, 1, 0], (shots, 3)))
 
 
-def test_postselection_survivor_metadata_and_records(sampling_mode: CpuSamplingMode) -> None:
+def test_postselection_survivor_metadata_and_records(sampling_mode: SamplingMode) -> None:
     program = sampling_mode.compile(
         "H 0\nEXP_VAL X0\nM 0\nDETECTOR rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]",
         postselection_mask=[1],
@@ -241,7 +241,7 @@ def test_representative_qec_fixtures_execute(fixture: str) -> None:
 
 
 def test_generated_surface_code_executes_with_reference_normalization(
-    sampling_mode: CpuSamplingMode,
+    sampling_mode: SamplingMode,
 ) -> None:
     circuit = stim.Circuit.generated(
         "surface_code:rotated_memory_x",

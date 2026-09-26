@@ -3,7 +3,9 @@
 from collections.abc import Callable
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import Any, NoReturn
+from importlib import import_module
+from types import ModuleType
+from typing import Any, Literal, NoReturn
 
 import numpy as np
 import numpy.typing as npt
@@ -155,6 +157,51 @@ CPU_SAMPLING_MODES = (
     CpuSamplingMode("intra-shot-2-workers", 1, thread_layout=(1, 2), intra_shot_min_active_width=3),
     CpuSamplingMode("hybrid-2x2-workers", 1, thread_layout=(2, 2), intra_shot_min_active_width=3),
 )
+
+
+@dataclass(frozen=True)
+class GpuSamplingProgram:
+    sampler: Any
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self.sampler.program, name)
+
+
+@dataclass(frozen=True)
+class GpuSamplingMode:
+    name: str
+    backend: Literal["hip", "cuda"]
+
+    @property
+    def api(self) -> ModuleType:
+        return import_module(f"clifft.experimental.{self.backend}")
+
+    def require_available(self) -> None:
+        if not self.api.is_available():
+            pytest.skip(self.api.backend_info())
+
+    def compile(self, source: str, **kwargs: Any) -> GpuSamplingProgram:
+        program = self.api.compile(source, **kwargs)
+        # Keep workspace bounded and reuse it across calls on this program.
+        sampler = self.api.Sampler(program, precision="fp64", tier="auto", max_batch_shots=65)
+        return GpuSamplingProgram(sampler)
+
+    def sample(self, program: GpuSamplingProgram, shots: int, seed: int | None = None) -> Any:
+        return program.sampler.sample(shots, seed=seed)
+
+    def sample_survivors(
+        self,
+        program: GpuSamplingProgram,
+        shots: int,
+        *,
+        seed: int | None = None,
+        keep_records: bool = False,
+    ) -> Any:
+        return program.sampler.sample_survivors(shots, seed=seed, keep_records=keep_records)
+
+
+GPU_SAMPLING_MODES = (GpuSamplingMode("hip-fp64", "hip"), GpuSamplingMode("cuda-fp64", "cuda"))
+SamplingMode = CpuSamplingMode | GpuSamplingMode
 
 # Two full packed-65 batches plus a tail allow both workers to receive work.
 SMALL_CIRCUIT_SHOTS = 2 * 65 + 1

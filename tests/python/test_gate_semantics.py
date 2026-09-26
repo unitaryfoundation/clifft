@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 import stim
 from conftest import assert_statevectors_equiv
-from utils_conformance import SMALL_CIRCUIT_SHOTS, CpuSamplingMode
+from utils_conformance import SMALL_CIRCUIT_SHOTS, SamplingMode
 
 import clifft
 
@@ -13,7 +13,7 @@ def _statevector(circuit: str) -> np.ndarray:
     return np.asarray(clifft.get_statevector(clifft.compile(circuit)))
 
 
-def _measurements(sampling_mode: CpuSamplingMode, circuit: str, *, seed: int = 1) -> np.ndarray:
+def _measurements(sampling_mode: SamplingMode, circuit: str, *, seed: int = 1) -> np.ndarray:
     return np.asarray(
         sampling_mode.sample(
             sampling_mode.compile(circuit), shots=SMALL_CIRCUIT_SHOTS, seed=seed
@@ -159,7 +159,7 @@ def test_exact_clifford_rotations_match_named_gates() -> None:
     _assert_statevectors_equivalent("H 0\nR_Z(1.5) 0", "H 0\nS_DAG 0")
 
 
-def test_mpad_and_inverted_measurements(sampling_mode: CpuSamplingMode) -> None:
+def test_mpad_and_inverted_measurements(sampling_mode: SamplingMode) -> None:
     np.testing.assert_array_equal(
         _measurements(sampling_mode, "MPAD 1 0 1 0"),
         np.tile([1, 0, 1, 0], (SMALL_CIRCUIT_SHOTS, 1)),
@@ -172,7 +172,7 @@ def test_mpad_and_inverted_measurements(sampling_mode: CpuSamplingMode) -> None:
     )
 
 
-def test_pair_measurement_aliases_match_mpp(sampling_mode: CpuSamplingMode) -> None:
+def test_pair_measurement_aliases_match_mpp(sampling_mode: SamplingMode) -> None:
     preparations = {
         "XX": "H 0\nCX 0 1",
         "YY": "H 0\nCX 0 1",
@@ -184,7 +184,7 @@ def test_pair_measurement_aliases_match_mpp(sampling_mode: CpuSamplingMode) -> N
         np.testing.assert_array_equal(pair, product)
 
 
-def test_y_reset_uses_a_z_correction(sampling_mode: CpuSamplingMode) -> None:
+def test_y_reset_uses_a_z_correction(sampling_mode: SamplingMode) -> None:
     for seed in range(20):
         assert np.all(_measurements(sampling_mode, "S 0\nH 0\nRY 0\nMY 0", seed=seed)[:, 0] == 0)
         assert np.all(_measurements(sampling_mode, "S 0\nH 0\nMRY 0\nMY 0", seed=seed)[:, 1] == 0)
@@ -199,7 +199,7 @@ def test_y_reset_uses_a_z_correction(sampling_mode: CpuSamplingMode) -> None:
     ids=["z", "x", "y"],
 )
 def test_readout_noise_and_resets_preserve_measurement_records(
-    sampling_mode: CpuSamplingMode, axis: str, preparation: str, flip: str
+    sampling_mode: SamplingMode, axis: str, preparation: str, flip: str
 ) -> None:
     circuit = f"""
         {preparation}
