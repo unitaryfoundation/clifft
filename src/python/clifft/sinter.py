@@ -42,7 +42,7 @@ class PerfectionistSampler(sinter.Sampler):
     reference. On surviving shots, any observable flip counts as one error,
     using zero observable prediction. Observable postselection and arbitrary
     decoders are unsupported. Leave Sinter's ``count_detection_events`` and
-    ``count_observable_error_combos`` options false; Sinter 1.16 rejects these
+    ``count_observable_error_combos`` options false; Sinter rejects these
     options for custom samplers.
 
     Tasks must contain a resolved ``stim.Circuit`` using instructions supported
@@ -62,7 +62,7 @@ class PerfectionistSampler(sinter.Sampler):
         batch_size: Native lane capacity, defaulting to 1024. Each call uses at
             most the requested number of shots and 2048 lanes; larger capacities
             are capped, not rejected. This is separate from Sinter's
-            ``max_batch_size``, which defaults to 1024 in Sinter 1.16. Increase
+            ``max_batch_size``, which defaults to 1024 in Sinter 1.15. Increase
             that limit to use larger native batches. Use 1 for scalar execution
             or ``"auto"`` for Clifft's core policy, which currently selects
             scalar execution for postselection.

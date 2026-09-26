@@ -637,10 +637,13 @@ jobs:
       - name: Assert the wheel is stable-ABI (cp312-abi3)
         run: ls wheelhouse/clifft-*cp312-abi3*.whl
 
-      - name: Install the wheel on the newest stable CPython
+      - name: Install the wheel and Sinter extra on the newest stable CPython
         run: |
           uv venv --python 3.14 .abi3-venv
-          uv pip install --python .abi3-venv/bin/python wheelhouse/*.whl
+          for wheel in wheelhouse/*.whl; do
+            uv pip install --python .abi3-venv/bin/python \
+              --only-binary :all: "${wheel}[sinter]"
+          done
 
       - name: Run the packaging smoke
         run: .abi3-venv/bin/python .github/scripts/artifact_smoke.py --expect-python 3.14
