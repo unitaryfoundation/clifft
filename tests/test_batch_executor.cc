@@ -83,22 +83,22 @@ ExecutablePlan compile_batch_fixture(const char* name) {
 }
 
 void compare_lane_outputs(const BatchExecutor& actual, const BatchExecutor& replay, uint32_t lane,
-                          const ExecutablePlan& plan) {
+                          uint32_t replay_lane, const ExecutablePlan& plan) {
     for (uint32_t record = 0; record < plan.num_visible_records(); ++record) {
         CAPTURE(lane, record);
-        REQUIRE(actual.measurement(lane, record) == replay.measurement(lane, record));
+        REQUIRE(actual.measurement(lane, record) == replay.measurement(replay_lane, record));
     }
     for (uint32_t detector = 0; detector < plan.num_detectors(); ++detector) {
         CAPTURE(lane, detector);
-        REQUIRE(actual.detector(lane, detector) == replay.detector(lane, detector));
+        REQUIRE(actual.detector(lane, detector) == replay.detector(replay_lane, detector));
     }
     for (uint32_t observable = 0; observable < plan.num_observables(); ++observable) {
         CAPTURE(lane, observable);
-        REQUIRE(actual.observable(lane, observable) == replay.observable(lane, observable));
+        REQUIRE(actual.observable(lane, observable) == replay.observable(replay_lane, observable));
     }
     for (uint32_t exp_val = 0; exp_val < plan.num_exp_vals(); ++exp_val) {
         CAPTURE(lane, exp_val);
-        REQUIRE(actual.exp_val(lane, exp_val) == replay.exp_val(lane, exp_val));
+        REQUIRE(actual.exp_val(lane, exp_val) == replay.exp_val(replay_lane, exp_val));
     }
 }
 
@@ -118,7 +118,7 @@ TEST_CASE("Packed executor replays seeded fixed-plan rows") {
     for (uint32_t shot = 0; shot < shots; ++shot) {
         REQUIRE(batch.shot_index(shot) == shot);
         REQUIRE(replay.shot_index(shot) == shot);
-        compare_lane_outputs(batch, replay, shot, plan);
+        compare_lane_outputs(batch, replay, shot, shot, plan);
     }
 }
 
@@ -135,7 +135,7 @@ TEST_CASE("Packed executor replays compacted survivor sidecars") {
     REQUIRE(batch.surviving_shots() == replay.surviving_shots());
     for (uint32_t lane = 0; lane < batch.surviving_shots(); ++lane) {
         REQUIRE(batch.shot_index(lane) == replay.shot_index(lane));
-        compare_lane_outputs(batch, replay, lane, plan);
+        compare_lane_outputs(batch, replay, lane, lane, plan);
     }
 }
 
@@ -154,8 +154,129 @@ TEST_CASE("Packed executor replays fixed-fault rows") {
     for (uint32_t shot = 0; shot < shots; ++shot) {
         REQUIRE(batch.shot_index(shot) == shot);
         REQUIRE(replay.shot_index(shot) == shot);
-        compare_lane_outputs(batch, replay, shot, plan);
+        compare_lane_outputs(batch, replay, shot, shot, plan);
     }
+}
+
+TEST_CASE("Final survivor compaction preserves rows and shot identities across resets") {
+    for (const bool non_clifford : {false, true}) {
+        std::string circuit = "H 1\n";
+        if (non_clifford) {
+            circuit += "T 1\n";
+        }
+        circuit += R"(
+            EXP_VAL X1
+            CX 1 2
+            X_ERROR(0.125) 0 2
+            M(0.25) 0
+            M 1
+            M(0.25) 2
+            EXP_VAL Z1
+            EXP_VAL Z2
+            X 3
+            M 3
+            OBSERVABLE_INCLUDE(0) rec[-2]
+            OBSERVABLE_INCLUDE(2) rec[-3] rec[-2]
+            DETECTOR rec[-4]
+            DETECTOR
+            DETECTOR rec[-1]
+        )";
+        const clifft::HirModule hir = clifft::trace(clifft::parse(circuit));
+        const ExecutablePlan unselected(clifft::sampling::plan_sampling(hir));
+        REQUIRE((unselected.peak_active_width() > 0) == non_clifford);
+        REQUIRE(unselected.num_expression_registers() > 0);
+        REQUIRE(unselected.noise_site_probabilities().size() == 4);
+        // All rejection happens after the final random draw, so filtering an
+        // unselected run is an exact oracle for compacted rows and shot mapping.
+        for (const std::array<uint8_t, 3> mask :
+             {std::array<uint8_t, 3>{0, 0, 0}, {1, 0, 0}, {0, 1, 0}, {0, 0, 1}}) {
+            const ExecutablePlan selected(
+                clifft::sampling::plan_sampling(hir, {.postselection_mask = mask,
+                                                      .expected_detectors = {},
+                                                      .expected_observables = {}}));
+            for (const BatchSamplingMode mode :
+                 {BatchSamplingMode::Ordinary, BatchSamplingMode::FixedFaults}) {
+                for (const uint32_t capacity : {63, 64, 65, 129}) {
+                    CAPTURE(non_clifford, mask, mode, capacity);
+                    BatchExecutor batch(selected, capacity, BatchOutputMode::Rows, mode);
+                    BatchExecutor reference(unselected, capacity, BatchOutputMode::Rows, mode);
+                    KFaultSampler batch_faults(selected.noise_site_probabilities(), 1);
+                    KFaultSampler reference_faults(unselected.noise_site_probabilities(), 1);
+                    const SeedRoot root = make_seed_root(8 * capacity, uint64_t{9186});
+                    uint32_t first_shot = 0;
+                    for (const uint32_t shots : {capacity, capacity - 1, 0U, 1U, capacity}) {
+                        CAPTURE(shots, first_shot);
+                        if (mode == BatchSamplingMode::FixedFaults) {
+                            batch.run_batch(root, first_shot, shots, batch_faults);
+                            reference.run_batch(root, first_shot, shots, reference_faults);
+                        } else {
+                            batch.run_batch(root, first_shot, shots);
+                            reference.run_batch(root, first_shot, shots);
+                        }
+                        uint32_t destination = 0;
+                        for (uint32_t source = 0; source < shots; ++source) {
+                            bool rejected = false;
+                            for (uint32_t detector = 0; detector < mask.size(); ++detector) {
+                                rejected |= mask[detector] && reference.detector(source, detector);
+                            }
+                            if (!rejected) {
+                                REQUIRE(destination < batch.surviving_shots());
+                                REQUIRE(batch.shot_index(destination) == first_shot + source);
+                                compare_lane_outputs(batch, reference, destination, source,
+                                                     selected);
+                                ++destination;
+                            }
+                        }
+                        REQUIRE(batch.surviving_shots() == destination);
+                        if (mask[0] && shots >= 63) {
+                            REQUIRE(destination > 0);
+                            REQUIRE(destination < shots);
+                        }
+                        first_shot += capacity;
+                    }
+                }
+            }
+        }
+    }
+}
+
+TEST_CASE("Intermediate compaction retains pending expressions and forced readout faults") {
+    std::string circuit = "X_ERROR(0.8) 0\nM 0\nDETECTOR rec[-1]\nH 1\n";
+    for (uint32_t probe = 0; probe < 96; ++probe) {
+        circuit += "T 1\nEXP_VAL X1\nH 1\n";
+    }
+    circuit += "X_ERROR(0.1) 2\nM(0.1) 2\nOBSERVABLE_INCLUDE(0) rec[-1]\n";
+    const clifft::HirModule hir = clifft::trace(clifft::parse(circuit));
+    const ExecutablePlan unselected(clifft::sampling::plan_sampling(hir));
+    const std::array<uint8_t, 1> mask{1};
+    const ExecutablePlan selected(clifft::sampling::plan_sampling(
+        hir, {.postselection_mask = mask, .expected_detectors = {}, .expected_observables = {}}));
+    REQUIRE(selected.peak_active_width() > 0);
+    REQUIRE(selected.num_readout_noise_sites() == 1);
+    constexpr uint32_t shots = 129;
+    BatchExecutor batch(selected, shots, BatchOutputMode::Rows, BatchSamplingMode::FixedFaults);
+    BatchExecutor reference(unselected, shots, BatchOutputMode::Rows,
+                            BatchSamplingMode::FixedFaults);
+    KFaultSampler batch_faults(selected.noise_site_probabilities(), 1);
+    KFaultSampler reference_faults(unselected.noise_site_probabilities(), 1);
+    const SeedRoot root = make_seed_root(shots, uint64_t{9187});
+    batch.run_batch(root, 0, shots, batch_faults);
+    reference.run_batch(root, 0, shots, reference_faults);
+    REQUIRE(batch.surviving_shots() > 0);
+    REQUIRE(batch.surviving_shots() < shots);
+    uint32_t destination = 0;
+    for (uint32_t source = 0; source < shots; ++source) {
+        if (!reference.detector(source, 0)) {
+            REQUIRE(destination < batch.surviving_shots());
+            REQUIRE(batch.shot_index(destination) == source);
+            // With one fault, surviving shots must flip the final readout by
+            // either its presampled X error or its forced measurement error.
+            REQUIRE(batch.measurement(destination, 1));
+            compare_lane_outputs(batch, reference, destination, source, selected);
+            ++destination;
+        }
+    }
+    REQUIRE(destination == batch.surviving_shots());
 }
 
 TEST_CASE("Packed compaction policy distinguishes compact and defer decisions") {

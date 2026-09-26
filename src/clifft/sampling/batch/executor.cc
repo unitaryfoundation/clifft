@@ -504,7 +504,7 @@ void BatchExecutor::execute_action(const ExecutablePlan::ExecuteDetector& action
     }
     live_count_ -= rejected;
     if (should_compact(action)) {
-        compact_live_lanes();
+        compact_live_lanes(CompactionMode::ContinueExecution);
     }
 }
 
@@ -608,7 +608,7 @@ bool BatchExecutor::should_compact(const ExecutablePlan::ExecuteDetector& detect
         output_mode_);
 }
 
-void BatchExecutor::compact_live_lanes() noexcept {
+void BatchExecutor::compact_live_lanes(CompactionMode mode) noexcept {
     if (live_count_ == active_lanes()) {
         return;
     }
@@ -626,11 +626,15 @@ void BatchExecutor::compact_live_lanes() noexcept {
     }
     assert(destination == live_count_ && "lane compaction must retain every live context");
     const std::span<const uint32_t> sources(compaction_sources_.data(), live_count_);
-    expression_registers_.compact(live_words_, old_lanes, live_count_, scratch_words_);
+    // Dispatch consumes these columns, but output access does not. Reset clears
+    // them before another batch, so finalization can leave their lanes unmoved.
+    if (mode == CompactionMode::ContinueExecution) {
+        expression_registers_.compact(live_words_, old_lanes, live_count_, scratch_words_);
+        forced_readout_.compact(live_words_, old_lanes, live_count_, scratch_words_);
+    }
     records_.compact(live_words_, old_lanes, live_count_, scratch_words_);
     detectors_.compact(live_words_, old_lanes, live_count_, scratch_words_);
     observables_.compact(live_words_, old_lanes, live_count_, scratch_words_);
-    forced_readout_.compact(live_words_, old_lanes, live_count_, scratch_words_);
     state_.compact_lanes(sources);
 
     for (destination = 0; destination < live_count_; ++destination) {
@@ -675,7 +679,7 @@ uint32_t BatchExecutor::accumulate_survivor_counts(
 
 void BatchExecutor::finalize_live_lanes() noexcept {
     if (live_count_ != active_lanes()) {
-        compact_live_lanes();
+        compact_live_lanes(CompactionMode::FinalizeOutputs);
     }
 }
 
