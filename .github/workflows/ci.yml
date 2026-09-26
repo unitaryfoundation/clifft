@@ -649,13 +649,16 @@ jobs:
       # get the focused smoke above. Test dependencies install at their
       # locked versions so an unrelated PyPI release cannot fail this
       # main-only step; the wheel stays the artifact under test.
+      # Sinter 1.16 is pure Python but publishes only an sdist, so allow
+      # that source build while requiring wheels for other dependencies.
       - name: Run Python tests against the installed wheel (main only)
         if: github.event_name == 'push'
         run: |
           uv export --frozen --only-group dev --no-emit-project \
             --output-file /tmp/dev-requirements.txt
           uv pip install --python .abi3-venv/bin/python \
-            --only-binary :all: --requirements /tmp/dev-requirements.txt
+            --only-binary :all: --no-binary sinter \
+            --requirements /tmp/dev-requirements.txt
           .abi3-venv/bin/python -m pytest tests/python/ -n logical --maxprocesses 4 -v --durations=20
 
   macos-release-wheel-smoke:
