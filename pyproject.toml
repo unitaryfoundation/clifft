@@ -28,7 +28,8 @@ dependencies = [
 
 [project.optional-dependencies]
 sinter = [
-    "sinter>=1.16,<2",
+    # Sinter 1.16 has no wheel; keep the extra compatible with wheel-only installs.
+    "sinter>=1.15,<1.16",
     "stim>=1.16,<2",
 ]
 
@@ -44,7 +45,7 @@ dev = [
     "nanobind>=2.0",
     "scikit-build-core>=0.10",
     "stim>=1.10",
-    "sinter>=1.16,<2",
+    "sinter>=1.15,<1.16",
     "qiskit>=1.0",
     "qiskit-aer>=0.14",
     "pytest-codeblocks>=0.17.0",
