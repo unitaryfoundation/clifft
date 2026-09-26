@@ -156,7 +156,7 @@ docs = [
 [package.metadata]
 requires-dist = [
     { name = "numpy", specifier = ">=1.26" },
-    { name = "sinter", marker = "extra == 'sinter'", specifier = ">=1.15,<1.16" },
+    { name = "sinter", marker = "extra == 'sinter'", specifier = ">=1.15,<2" },
     { name = "stim", marker = "extra == 'sinter'", specifier = ">=1.16,<2" },
 ]
 provides-extras = ["sinter"]
@@ -175,7 +175,7 @@ dev = [
     { name = "qiskit-aer", specifier = ">=0.14" },
     { name = "ruff", specifier = ">=0.3" },
     { name = "scikit-build-core", specifier = ">=0.10" },
-    { name = "sinter", specifier = ">=1.15,<1.16" },
+    { name = "sinter", specifier = ">=1.15,<2" },
     { name = "stim", specifier = ">=1.10" },
 ]
 docs = [
