@@ -47,6 +47,9 @@ class BatchExecutor {
     [[nodiscard]] double exp_val(uint32_t lane, uint32_t exp_val) const noexcept;
 
   private:
+    // Tests observe dispatch before finalization can hide whether lanes moved.
+    friend struct BatchExecutorTestAccess;
+
     enum class CompactionMode { ContinueExecution, FinalizeOutputs };
 
     BatchExecutor(const ExecutablePlan& plan, BatchOutputMode output_mode,

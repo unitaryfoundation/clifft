@@ -157,13 +157,19 @@ void PackedBitColumns::xor_into(size_t column_index, std::span<const uint64_t> s
 
 void PackedBitColumns::compact(std::span<const uint64_t> keep_mask, uint32_t old_lanes,
                                uint32_t new_lanes, std::span<uint64_t> scratch) noexcept {
-    assert(old_lanes <= lane_capacity_ && new_lanes <= old_lanes &&
+    compact_prefix(columns_, keep_mask, old_lanes, new_lanes, scratch);
+}
+
+void PackedBitColumns::compact_prefix(size_t columns, std::span<const uint64_t> keep_mask,
+                                      uint32_t old_lanes, uint32_t new_lanes,
+                                      std::span<uint64_t> scratch) noexcept {
+    assert(columns <= columns_ && old_lanes <= lane_capacity_ && new_lanes <= old_lanes &&
            keep_mask.size() >= word_capacity_ && scratch.size() >= word_capacity_ &&
            count_lane_bits(keep_mask, old_lanes) == new_lanes &&
            "packed compaction inputs must describe the retained lanes");
     (void)new_lanes;
     const size_t old_words = packed_word_count(old_lanes);
-    for (size_t column_index = 0; column_index < columns_; ++column_index) {
+    for (size_t column_index = 0; column_index < columns; ++column_index) {
         std::ranges::fill(scratch, uint64_t{0});
         const std::span<const uint64_t> source = column(column_index);
         uint32_t destination_bit = 0;

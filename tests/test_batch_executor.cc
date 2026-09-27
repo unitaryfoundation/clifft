@@ -9,6 +9,7 @@
 
 #include <array>
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 #include <cstdint>
 #include <optional>
@@ -43,6 +44,22 @@ using clifft::sampling::WriteDetector;
 using clifft::sampling::WriteExpectationValue;
 using clifft::sampling::batch_detail::BatchCompactionPolicyInput;
 using clifft::sampling::batch_detail::should_compact_batch_lanes;
+
+namespace clifft::sampling {
+
+struct BatchExecutorTestAccess {
+    static uint32_t run_with_pre_finalization_lane_count(BatchExecutor& batch, const SeedRoot& root,
+                                                         uint32_t shots, KFaultSampler& faults) {
+        batch.reset_batch(root, 0, shots);
+        batch.assign_forced_faults(faults);
+        batch.execute_actions();
+        const uint32_t lanes = batch.active_lanes();
+        batch.finalize_live_lanes();
+        return lanes;
+    }
+};
+
+}  // namespace clifft::sampling
 
 namespace {
 
@@ -83,7 +100,8 @@ ExecutablePlan compile_batch_fixture(const char* name) {
 }
 
 void compare_lane_outputs(const BatchExecutor& actual, const BatchExecutor& replay, uint32_t lane,
-                          uint32_t replay_lane, const ExecutablePlan& plan) {
+                          uint32_t replay_lane, const ExecutablePlan& plan,
+                          double exp_val_tolerance = 0.0) {
     for (uint32_t record = 0; record < plan.num_visible_records(); ++record) {
         CAPTURE(lane, record);
         REQUIRE(actual.measurement(lane, record) == replay.measurement(replay_lane, record));
@@ -98,7 +116,13 @@ void compare_lane_outputs(const BatchExecutor& actual, const BatchExecutor& repl
     }
     for (uint32_t exp_val = 0; exp_val < plan.num_exp_vals(); ++exp_val) {
         CAPTURE(lane, exp_val);
-        REQUIRE(actual.exp_val(lane, exp_val) == replay.exp_val(replay_lane, exp_val));
+        if (exp_val_tolerance == 0.0) {
+            REQUIRE(actual.exp_val(lane, exp_val) == replay.exp_val(replay_lane, exp_val));
+        } else {
+            REQUIRE_THAT(actual.exp_val(lane, exp_val),
+                         Catch::Matchers::WithinAbs(replay.exp_val(replay_lane, exp_val),
+                                                    exp_val_tolerance));
+        }
     }
 }
 
@@ -160,7 +184,7 @@ TEST_CASE("Packed executor replays fixed-fault rows") {
 
 TEST_CASE("Final survivor compaction preserves rows and shot identities across resets") {
     for (const bool non_clifford : {false, true}) {
-        std::string circuit = "H 1\n";
+        std::string circuit = "H 3\nR 3\nH 1\n";
         if (non_clifford) {
             circuit += "T 1\n";
         }
@@ -185,6 +209,7 @@ TEST_CASE("Final survivor compaction preserves rows and shot identities across r
         const ExecutablePlan unselected(clifft::sampling::plan_sampling(hir));
         REQUIRE((unselected.peak_active_width() > 0) == non_clifford);
         REQUIRE(unselected.num_expression_registers() > 0);
+        REQUIRE(unselected.num_hidden_records() > 0);
         REQUIRE(unselected.noise_site_probabilities().size() == 4);
         // All rejection happens after the final random draw, so filtering an
         // unselected run is an exact oracle for compacted rows and shot mapping.
@@ -199,13 +224,14 @@ TEST_CASE("Final survivor compaction preserves rows and shot identities across r
                 for (const uint32_t capacity : {63, 64, 65, 129}) {
                     CAPTURE(non_clifford, mask, mode, capacity);
                     BatchExecutor batch(selected, capacity, BatchOutputMode::Rows, mode);
-                    BatchExecutor reference(unselected, capacity, BatchOutputMode::Rows, mode);
                     KFaultSampler batch_faults(selected.noise_site_probabilities(), 1);
-                    KFaultSampler reference_faults(unselected.noise_site_probabilities(), 1);
                     const SeedRoot root = make_seed_root(8 * capacity, uint64_t{9186});
                     uint32_t first_shot = 0;
                     for (const uint32_t shots : {capacity, capacity - 1, 0U, 1U, capacity}) {
                         CAPTURE(shots, first_shot);
+                        // A reused reference could share the same stale-state bug.
+                        BatchExecutor reference(unselected, capacity, BatchOutputMode::Rows, mode);
+                        KFaultSampler reference_faults(unselected.noise_site_probabilities(), 1);
                         if (mode == BatchSamplingMode::FixedFaults) {
                             batch.run_batch(root, first_shot, shots, batch_faults);
                             reference.run_batch(root, first_shot, shots, reference_faults);
@@ -260,10 +286,13 @@ TEST_CASE("Intermediate compaction retains pending expressions and forced readou
     KFaultSampler batch_faults(selected.noise_site_probabilities(), 1);
     KFaultSampler reference_faults(unselected.noise_site_probabilities(), 1);
     const SeedRoot root = make_seed_root(shots, uint64_t{9187});
-    batch.run_batch(root, 0, shots, batch_faults);
+    const uint32_t lanes_before_finalization =
+        clifft::sampling::BatchExecutorTestAccess::run_with_pre_finalization_lane_count(
+            batch, root, shots, batch_faults);
     reference.run_batch(root, 0, shots, reference_faults);
     REQUIRE(batch.surviving_shots() > 0);
     REQUIRE(batch.surviving_shots() < shots);
+    REQUIRE(lanes_before_finalization == batch.surviving_shots());
     uint32_t destination = 0;
     for (uint32_t source = 0; source < shots; ++source) {
         if (!reference.detector(source, 0)) {
@@ -272,7 +301,8 @@ TEST_CASE("Intermediate compaction retains pending expressions and forced readou
             // With one fault, surviving shots must flip the final readout by
             // either its presampled X error or its forced measurement error.
             REQUIRE(batch.measurement(destination, 1));
-            compare_lane_outputs(batch, reference, destination, source, selected);
+            // Different lane spans can select different SIMD arithmetic paths.
+            compare_lane_outputs(batch, reference, destination, source, selected, 1e-12);
             ++destination;
         }
     }

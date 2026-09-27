@@ -626,13 +626,17 @@ void BatchExecutor::compact_live_lanes(CompactionMode mode) noexcept {
     }
     assert(destination == live_count_ && "lane compaction must retain every live context");
     const std::span<const uint32_t> sources(compaction_sources_.data(), live_count_);
-    // Dispatch consumes these columns, but output access does not. Reset clears
-    // them before another batch, so finalization can leave their lanes unmoved.
+    // Output access only reads visible records and output sidecars. Reset clears
+    // the skipped expression, forced-readout, and hidden record columns before
+    // the next batch.
     if (mode == CompactionMode::ContinueExecution) {
         expression_registers_.compact(live_words_, old_lanes, live_count_, scratch_words_);
         forced_readout_.compact(live_words_, old_lanes, live_count_, scratch_words_);
+        records_.compact(live_words_, old_lanes, live_count_, scratch_words_);
+    } else {
+        records_.compact_prefix(plan_->num_visible_records_, live_words_, old_lanes, live_count_,
+                                scratch_words_);
     }
-    records_.compact(live_words_, old_lanes, live_count_, scratch_words_);
     detectors_.compact(live_words_, old_lanes, live_count_, scratch_words_);
     observables_.compact(live_words_, old_lanes, live_count_, scratch_words_);
     state_.compact_lanes(sources);

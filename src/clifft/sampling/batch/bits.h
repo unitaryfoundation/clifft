@@ -45,6 +45,10 @@ class PackedBitColumns {
     void compact(std::span<const uint64_t> keep_mask, uint32_t old_lanes, uint32_t new_lanes,
                  std::span<uint64_t> scratch) noexcept;
 
+    // Final output collection can leave hidden record columns unmoved.
+    void compact_prefix(size_t columns, std::span<const uint64_t> keep_mask, uint32_t old_lanes,
+                        uint32_t new_lanes, std::span<uint64_t> scratch) noexcept;
+
   private:
     size_t columns_ = 0;
     uint32_t lane_capacity_ = 0;

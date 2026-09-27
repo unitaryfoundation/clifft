@@ -2,6 +2,7 @@
 
 #include <array>
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/generators/catch_generators.hpp>
 #include <cstdint>
 #include <vector>
 
@@ -39,9 +40,11 @@ TEST_CASE("Packed batch column footprint includes page alignment") {
     REQUIRE(packed_bit_columns_storage_bytes(0, lanes) == 0);
 }
 
-TEST_CASE("Packed batch columns compact every sidecar stably") {
+TEST_CASE("Packed batch column compaction preserves unselected columns") {
     constexpr uint32_t lanes = 130;
     PackedBitColumns columns(4, lanes);
+    const size_t compact_columns = GENERATE(0U, 2U, 4U);
+    CAPTURE(compact_columns);
     std::vector<uint64_t> keep(packed_word_count(lanes), 0);
     std::vector<uint32_t> sources;
     for (uint32_t lane = 0; lane < lanes; ++lane) {
@@ -57,12 +60,23 @@ TEST_CASE("Packed batch columns compact every sidecar stably") {
     }
 
     std::vector<uint64_t> scratch(packed_word_count(lanes), 0);
-    columns.compact(keep, lanes, static_cast<uint32_t>(sources.size()), scratch);
+    if (compact_columns == columns.num_columns()) {
+        columns.compact(keep, lanes, static_cast<uint32_t>(sources.size()), scratch);
+    } else {
+        columns.compact_prefix(compact_columns, keep, lanes, static_cast<uint32_t>(sources.size()),
+                               scratch);
+    }
     for (size_t column = 0; column < columns.num_columns(); ++column) {
-        for (uint32_t destination = 0; destination < sources.size(); ++destination) {
-            CAPTURE(column, destination, sources[destination]);
-            REQUIRE(columns.bit(column, destination) ==
-                    (((sources[destination] * 7 + static_cast<uint32_t>(column)) % 11) < 4));
+        for (uint32_t destination = 0; destination < lanes; ++destination) {
+            CAPTURE(column, destination);
+            if (column < compact_columns && destination >= sources.size()) {
+                REQUIRE_FALSE(columns.bit(column, destination));
+            } else {
+                const uint32_t source =
+                    column < compact_columns ? sources[destination] : destination;
+                REQUIRE(columns.bit(column, destination) ==
+                        (((source * 7 + static_cast<uint32_t>(column)) % 11) < 4));
+            }
         }
     }
 }
