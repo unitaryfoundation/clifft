@@ -5,21 +5,30 @@ from unittest.mock import Mock
 import numpy as np
 import pytest
 from conftest import pytest_sessionstart
-from utils_conformance import GPU_SAMPLING_MODES, SMALL_CIRCUIT_SHOTS, GpuSamplingMode
+from utils_conformance import (
+    GPU_COOPERATIVE_SAMPLING_MODES,
+    GPU_SAMPLING_MODES,
+    SMALL_CIRCUIT_SHOTS,
+    GpuSamplingMode,
+)
 
 
-@pytest.mark.parametrize("mode", GPU_SAMPLING_MODES, ids=lambda mode: mode.name)
+@pytest.mark.parametrize(
+    "mode", GPU_SAMPLING_MODES + GPU_COOPERATIVE_SAMPLING_MODES, ids=lambda mode: mode.name
+)
 def test_gpu_mode_routes_calls_through_one_retained_sampler(
     mode: GpuSamplingMode, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     api = Mock()
+    api.Sampler.return_value.precision = "fp64"
+    api.Sampler.return_value.tier = mode.tier
     import_api = Mock(return_value=api)
     monkeypatch.setattr("utils_conformance.import_module", import_api)
     program = mode.compile("M 0", postselection_mask=[0], hir_passes=None)
     import_api.assert_called_with(f"clifft.experimental.{mode.backend}")
     api.compile.assert_called_once_with("M 0", postselection_mask=[0], hir_passes=None)
     api.Sampler.assert_called_once_with(
-        api.compile.return_value, precision="fp64", tier="auto", max_batch_shots=65
+        api.compile.return_value, precision="fp64", tier=mode.tier, max_batch_shots=65
     )
     sampler = api.Sampler.return_value
     sampler.program = api.compile.return_value

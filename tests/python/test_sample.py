@@ -11,6 +11,7 @@ from conftest import (
     random_clifford_circuit,
 )
 from utils_conformance import (
+    SAMPLING_MODES_WITH_GPU_TIERS,
     SMALL_CIRCUIT_SHOTS,
     CpuSamplingMode,
     SamplingMode,
@@ -404,6 +405,9 @@ class TestSample:
             abs(adjacent_both_1 - expected_adj) < adj_tol
         ), f"Adjacency correlation off: {adjacent_both_1}"
 
+    @pytest.mark.parametrize(
+        "sampling_mode", SAMPLING_MODES_WITH_GPU_TIERS, indirect=True, ids=lambda mode: mode.name
+    )
     def test_active_measurement_feedback_and_reset(self, sampling_mode: SamplingMode) -> None:
         """A measured bit changes a later rotation on a still-active qubit."""
         program = sampling_mode.compile(
@@ -1001,6 +1005,9 @@ class TestSampleSurvivors:
         np.testing.assert_allclose(threaded.exp_vals, serial.exp_vals, atol=1e-12, rtol=0)
 
     @pytest.mark.parametrize("keep_records", [False, True])
+    @pytest.mark.parametrize(
+        "sampling_mode", SAMPLING_MODES_WITH_GPU_TIERS, indirect=True, ids=lambda mode: mode.name
+    )
     def test_active_postselection_preserves_survivor_outputs(
         self, sampling_mode: SamplingMode, keep_records: bool
     ) -> None:
@@ -1290,6 +1297,65 @@ class TestSampleSurvivors:
 
 
 class TestSyndromeNormalization:
+    @pytest.mark.parametrize("postselect", [False, True], ids=["ordinary", "survivors"])
+    @pytest.mark.parametrize(
+        "sampling_mode", SAMPLING_MODES_WITH_GPU_TIERS, indirect=True, ids=lambda mode: mode.name
+    )
+    def test_normalized_noisy_feedback_preserves_row_outputs(
+        self, sampling_mode: SamplingMode, postselect: bool
+    ) -> None:
+        """Noisy records steer later rotations while normalized outputs report errors."""
+        # The joint probe retains eight active coordinates for cooperative lane work.
+        # Readout noise flips the record of |1>, without changing its physical state.
+        program = sampling_mode.compile(
+            "H 0 1 2 3 4 5 6 7\nT 0 1 2 3 4 5 6 7\n"
+            "EXP_VAL X0*X1*X2*X3*X4*X5*X6*X7\n"
+            "X 8\nM(0.25) 8\nDETECTOR rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]\n"
+            "CX rec[-1] 0\nR_Z(0.125) 0\nEXP_VAL X0\nEXP_VAL Z8\n"
+            "H 9\nM 9\nCX rec[-1] 1\nR_Z(0.125) 1\nEXP_VAL X1",
+            normalize_syndromes=True,
+            postselection_mask=[1] if postselect else [],
+        )
+        assert program.peak_active_width == 8
+        shots = 257
+        if postselect:
+            result = sampling_mode.sample_survivors(program, shots, seed=1914, keep_records=True)
+            rows = result.passed_shots
+            assert result.total_shots == shots
+            assert result.discards == shots - rows
+            assert 0 < rows < shots
+            assert abs(rows / shots - 0.75) < binomial_tolerance(0.75, shots)
+            assert result.logical_errors == 0
+            np.testing.assert_array_equal(result.observable_ones, [0])
+        else:
+            result = sampling_mode.sample(program, shots, seed=1914)
+            rows = shots
+
+        assert result.measurements.shape == (rows, 2)
+        assert result.detectors.shape == result.observables.shape == (rows, 1)
+        noisy, dormant = result.measurements.T
+        errors = noisy ^ 1
+        if postselect:
+            np.testing.assert_array_equal(errors, np.zeros(rows))
+        else:
+            assert 0 < errors.sum() < rows
+            assert abs(errors.mean() - 0.25) < binomial_tolerance(0.25, rows)
+        assert 0 < dormant.sum() < rows
+        assert abs(dormant.mean() - 0.5) < binomial_tolerance(0.5, rows)
+        np.testing.assert_array_equal(result.detectors[:, 0], errors)
+        np.testing.assert_array_equal(result.observables[:, 0], errors)
+        # Each recorded control reverses a different T|+> azimuth before Rz adds pi/8.
+        azimuths = np.where(result.measurements == 0, np.pi / 4, -np.pi / 4)
+        expected = np.column_stack(
+            (
+                np.full(rows, 2**-4),
+                np.cos(azimuths[:, 0] + np.pi / 8),
+                np.full(rows, -1),
+                np.cos(azimuths[:, 1] + np.pi / 8),
+            )
+        )
+        np.testing.assert_allclose(result.exp_vals, expected, atol=1e-12, rtol=0)
+
     def test_normalize_syndromes_multiple_observables_xord(
         self, sampling_mode: SamplingMode
     ) -> None:

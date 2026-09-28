@@ -171,6 +171,7 @@ class GpuSamplingProgram:
 class GpuSamplingMode:
     name: str
     backend: Literal["hip", "cuda"]
+    tier: Literal["auto", "block_shared", "block_global"] = "auto"
 
     @property
     def api(self) -> ModuleType:
@@ -183,7 +184,10 @@ class GpuSamplingMode:
     def compile(self, source: str, **kwargs: Any) -> GpuSamplingProgram:
         program = self.api.compile(source, **kwargs)
         # Keep workspace bounded and reuse it across calls on this program.
-        sampler = self.api.Sampler(program, precision="fp64", tier="auto", max_batch_shots=65)
+        sampler = self.api.Sampler(program, precision="fp64", tier=self.tier, max_batch_shots=65)
+        if self.tier != "auto":
+            assert sampler.precision == "fp64"
+            assert sampler.tier == self.tier
         return GpuSamplingProgram(sampler)
 
     def sample(self, program: GpuSamplingProgram, shots: int, seed: int | None = None) -> Any:
@@ -201,6 +205,16 @@ class GpuSamplingMode:
 
 
 GPU_SAMPLING_MODES = (GpuSamplingMode("hip-fp64", "hip"), GpuSamplingMode("cuda-fp64", "cuda"))
+GPU_COOPERATIVE_SAMPLING_MODES = (
+    GpuSamplingMode("hip-fp64-block-shared", "hip", tier="block_shared"),
+    GpuSamplingMode("hip-fp64-block-global", "hip", tier="block_global"),
+    GpuSamplingMode("cuda-fp64-block-shared", "cuda", tier="block_shared"),
+    GpuSamplingMode("cuda-fp64-block-global", "cuda", tier="block_global"),
+)
+# Selected active-state tests opt into forced tiers without multiplying the whole suite.
+SAMPLING_MODES_WITH_GPU_TIERS = (
+    CPU_SAMPLING_MODES + GPU_SAMPLING_MODES + GPU_COOPERATIVE_SAMPLING_MODES
+)
 SamplingMode = CpuSamplingMode | GpuSamplingMode
 
 # Two full packed-65 batches plus a tail allow both workers to receive work.
