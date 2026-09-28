@@ -123,31 +123,7 @@ GPU modes share the behavioral assertions; identical random rows across
 backends are not required. Forced-fault sampling, noncomputational trajectories,
 and the CPU compiler-profile matrix keep their own fixtures.
 
-GPU cases skip when their backend or device is unavailable. On a GPU machine,
-build the corresponding [HIP](hip-backend.md#hardware-and-source-build) or
-[CUDA](cuda-backend.md#hardware-and-source-build) extension and install the test
-dependencies with `uv sync --frozen --only-group dev` before building. Then run
-serially to avoid competing GPU workspaces:
-
-```bash
-# AMD: shared FP64 cases plus the existing focused HIP tests.
-git rev-parse HEAD
-uv run --no-sync pytest tests/python --require-gpu=hip \
-    -k 'hip-fp64 or test_experimental_hip' -v -rP --durations=20
-
-# NVIDIA: shared FP64 cases plus the existing focused CUDA tests.
-git rev-parse HEAD
-uv run --no-sync pytest tests/python --require-gpu=cuda \
-    -k 'cuda-fp64 or test_experimental_cuda' -v -rP --durations=20
-```
-
-`--require-gpu` fails before testing if the requested backend has no available
-device. The adapter's execution checks print backend/device information,
-precision, and the actual tier for narrow and five-coordinate states; `-rP`
-includes this output in the report. Preserve the revision and report when
-sharing hardware results. Existing focused GPU tests retain their precision,
-tier, replay, and workspace checks; automatic selection on these small shared
-cases does not establish coverage of every GPU tier or FP32.
+GPU cases skip when their backend or device is unavailable.
 
 ## Code Coverage
 
