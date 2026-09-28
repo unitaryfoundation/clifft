@@ -1,7 +1,7 @@
 """Python integration tests for EXP_VAL expectation value probes.
 
 Tests cover:
-  - Qiskit-independent exact oracle (numpy statevector Pauli expectation)
+  - Statevector Pauli expectations and independent Qiskit Aer references
   - Statistical equivalence to destructive MPP measurement
   - Noise and Pauli-frame trajectory interaction
   - Regression on circuits without EXP_VAL
@@ -14,7 +14,7 @@ from typing import Any
 import numpy as np
 import pytest
 from conftest import random_clifford_t_circuit
-from utils_conformance import SMALL_CIRCUIT_SHOTS, SamplingMode, expectation_atol
+from utils_conformance import SMALL_CIRCUIT_SHOTS, SamplingMode, expectation_atol, unitary_reference
 from utils_qiskit import qiskit_statevector, stim_to_qiskit_noiseless
 
 import clifft
@@ -78,16 +78,6 @@ def pauli_expectation(sv: np.ndarray, pauli_str: str, num_qubits: int) -> float:
 def clifft_statevector(circuit_str: str) -> np.ndarray:
     """Compile and expand a circuit without applying HIR optimizations."""
     return np.array(clifft.get_statevector(clifft.compile(circuit_str, hir_passes=None)))
-
-
-def random_pauli_product(num_qubits: int, rng: np.random.Generator) -> str:
-    """Generate a random non-identity Pauli product on the given qubits."""
-    paulis = ["X", "Y", "Z"]
-    # Pick 1 to num_qubits qubits to act on
-    k = rng.integers(1, num_qubits + 1)
-    qubits = rng.choice(num_qubits, size=k, replace=False)
-    terms = [f"{rng.choice(paulis)}{q}" for q in sorted(qubits)]
-    return "*".join(terms)
 
 
 # =============================================================================
@@ -177,20 +167,36 @@ class TestExactOracle:
             atol=expectation_atol(sampling_mode, fp64=1e-10),
         )
 
-    @pytest.mark.parametrize("seed", range(8))
-    def test_random_clifford_t_oracle(self, seed: int, sampling_mode: SamplingMode) -> None:
-        """Random Clifford+T circuit with random Pauli product matches oracle."""
+    @pytest.mark.parametrize(
+        ("seed", "pauli"),
+        [
+            (0, "X0*Y1*Y2"),
+            (1, "X3"),
+            (2, "Y0*X1*Y2*Y3"),
+            (3, "Z0*Y2"),
+            (4, "Y2*X4"),
+            (5, "Y3"),
+            (6, "Z0*X1"),
+            (7, "Y0*X1"),
+        ],
+    )
+    def test_random_clifford_t_oracle(
+        self, seed: int, pauli: str, sampling_mode: SamplingMode
+    ) -> None:
+        """Seeded Clifford+T circuits with nontrivial probes match Qiskit."""
         rng = np.random.default_rng(seed + 1000)
         num_qubits = int(rng.integers(3, 6))
         depth = int(rng.integers(10, 21))
 
-        circuit = random_clifford_t_circuit(num_qubits, depth, seed)
-        sv = clifft_statevector(circuit)
-
-        pauli = random_pauli_product(num_qubits, rng)
-        expected = pauli_expectation(sv, pauli, num_qubits)
+        # Nonstabilizer inputs keep the short random suffix useful for active-state probes.
+        targets = " ".join(str(q) for q in range(num_qubits))
+        circuit = f"H {targets}\nT {targets}\n" + random_clifford_t_circuit(num_qubits, depth, seed)
+        expected = pauli_expectation(unitary_reference(circuit), pauli, num_qubits)
+        # Constant zero and identity probes can bypass coefficient-state arithmetic.
+        assert 0.1 < abs(expected) < 0.9
 
         prog = sampling_mode.compile(f"{circuit}\nEXP_VAL {pauli}")
+        assert prog.peak_active_width > 0
         result = sampling_mode.sample(prog, shots=SMALL_CIRCUIT_SHOTS, seed=0)
         np.testing.assert_allclose(
             result.exp_vals[:, 0],
