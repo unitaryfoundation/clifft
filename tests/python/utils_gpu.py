@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from types import ModuleType
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -16,16 +17,44 @@ if TYPE_CHECKING:
 
 # Narrow enough for CUDA to select thread-per-shot automatically, so forcing
 # its cooperative tiers exercises their noise and output paths on a small case.
-NARROW_NOISY_CIRCUIT = """\
+NARROW_UNITARY_CIRCUIT = """\
 H 0
 T 0
 H 0
 CX 0 1
+"""
+NARROW_NOISY_CIRCUIT = (
+    NARROW_UNITARY_CIRCUIT
+    + """\
 PAULI_CHANNEL_1(0.1, 0.2, 0.05) 1
 M 0 1
 DETECTOR rec[-1] rec[-2]
 OBSERVABLE_INCLUDE(0) rec[-1]
 """
+)
+
+
+def require_gpu_device(api: ModuleType) -> None:
+    """Skip only when the requested backend has no available device."""
+    if not api.is_available():
+        pytest.skip(api.backend_info())
+
+
+def assert_rate_matches(
+    cpu_count: int,
+    cpu_total: int,
+    gpu_count: int,
+    gpu_total: int,
+    *,
+    sigma: float = 6.0,
+    absolute_floor: float = 1e-3,
+) -> None:
+    """Compare two empirical rates under a two-sample binomial tolerance."""
+    cpu_rate = cpu_count / cpu_total
+    gpu_rate = gpu_count / gpu_total
+    pooled = (cpu_count + gpu_count) / (cpu_total + gpu_total)
+    tolerance = sigma * np.sqrt(pooled * (1.0 - pooled) * (1.0 / cpu_total + 1.0 / gpu_total))
+    assert gpu_rate == pytest.approx(cpu_rate, abs=tolerance + absolute_floor)
 
 
 def assert_same_rows(left: clifft.SampleResult, right: clifft.SampleResult) -> None:

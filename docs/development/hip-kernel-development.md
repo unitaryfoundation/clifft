@@ -80,7 +80,7 @@ sampler are rejected; use a separate sampler per caller.
 | Change per-shot memory layout | `coefficient_elements_per_shot` in `device_program.h` and `Sampler::Impl` in `sampler.hip` | Shared host/device sizing and retained workspace |
 | Change launch or batching | Host half of `sampler.hip` | Global shot indices and synchronous batches |
 | Change the Python experiment | `src/python/clifft/experimental/hip.py` | Typed optional facade over `_clifft_hip` |
-| Add conformance cases | `tests/test_hip_sampler.cc` and `tests/python/utils_hip.py` | CPU oracle, replay, and distributions |
+| Add conformance cases | `tests/test_hip_sampler.cc` and `tests/python/test_experimental_gpu.py` | CPU oracle, replay, and distributions |
 
 The `__HIP_DEVICE_COMPILE__` boundary in `sampler.hip` separates device
 interpretation from host ownership and collection. Kernel templates must keep
@@ -157,15 +157,17 @@ cmake --build build-hip --target clifft_tests clifft_hip_tests -j
 ctest --test-dir build-hip --output-on-failure -R HIP
 ```
 
-For Python API and replay tests:
+On AMD hardware, run the shared sampling tests, focused API/replay tests, and
+common CPU references together:
 
 ```bash
-uv run pytest tests/python/test_gpu_replay_reference.py tests/python/test_experimental_hip.py -v
+uv run --no-sync pytest tests/python --require-gpu=hip -k 'hip or gpu_reference' -v
 ```
 
-`tests/python/utils_hip.py` provides exact repeatability, full-row
-distribution, and forced-record probability helpers. Prefer forced replay for
-small branching circuits because it probes every reachable branch and its
+`tests/python/utils_gpu.py` provides exact repeatability and full-row distribution
+helpers; `tests/python/utils_gpu_replay.py` provides forced-record probability
+checks. Prefer forced replay for small branching circuits because it probes
+every reachable branch and its
 likelihood. Use joint-distribution comparisons for noise and other stochastic
 behavior, with both precision modes parameterized. Add later measurements,
 detectors, observables, and expectation values after non-diagonal operations so

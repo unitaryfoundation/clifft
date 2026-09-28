@@ -258,7 +258,7 @@ backend-specific.
 | Change coefficient evolution | Device half of `src/clifft/sampling/cuda/sampler.cu` | Lane-strided FP32 and FP64 action bodies shared by every tier |
 | Change tier selection or launch | Host half of `sampler.cu` | `resolve_tier`, `resolve_concurrency`, and `Sampler::Impl::launch` |
 | Change the Python experiment | `src/python/clifft/experimental/cuda.py` | Typed optional facade over `_clifft_cuda` |
-| Add conformance cases | `tests/test_cuda_sampler.cc` and `tests/python/utils_cuda.py` | CPU oracle, replay, tiers, and distributions |
+| Add conformance cases | `tests/test_cuda_sampler.cc`, `tests/python/test_experimental_gpu.py`, and `tests/python/test_experimental_cuda.py` | CPU oracle, replay, tiers, and distributions |
 
 When changing the kernels, preserve these invariants:
 
@@ -285,14 +285,16 @@ cmake --build build-cuda --target clifft_tests clifft_cuda_tests -j
 ctest --test-dir build-cuda --output-on-failure -R CUDA
 ```
 
-The Python suite provides quick developer probes with the same helpers:
+On NVIDIA hardware, run the shared sampling tests, focused API/replay tests, and
+common CPU references together:
 
 ```bash
-uv run pytest tests/python/test_gpu_replay_reference.py tests/python/test_experimental_cuda.py -v
+uv run --no-sync pytest tests/python --require-gpu=cuda -k 'cuda or gpu_reference' -v
 ```
 
-Kernel-launch tests are skipped without a visible NVIDIA GPU, so this coverage
-does not establish runtime correctness on hardware. The hardware suite
+GPU-free CI skips kernel-launch tests, so it does not establish runtime
+correctness on hardware. The Python command above fails if CUDA has no available
+device. The hardware suite
 exercises FP64 and FP32 repeatability, every tier against the CPU executor on
 forced branches and expectation values, cross-tier agreement on a wide
 program, noisy distributions, post-selection, retained output rows, the

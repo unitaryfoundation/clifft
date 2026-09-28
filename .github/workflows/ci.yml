@@ -139,7 +139,9 @@ jobs:
         run: uv pip install --editable .
 
       - name: Run GPU-free HIP Python boundary tests
-        run: uv run --no-sync pytest tests/python/test_experimental_hip.py -v
+        run: >-
+          uv run --no-sync pytest tests/python/test_experimental_gpu.py
+          -k 'hip or gpu_reference' -v
 
   cuda-offline-build:
     timeout-minutes: 30
@@ -192,7 +194,9 @@ jobs:
         run: uv pip install --editable .
 
       - name: Run GPU-free CUDA Python boundary tests
-        run: uv run --no-sync pytest tests/python/test_experimental_cuda.py -v
+        run: >-
+          uv run --no-sync pytest tests/python/test_experimental_gpu.py
+          tests/python/test_experimental_cuda.py -k 'cuda or gpu_reference' -v
 
   build-and-test:
     timeout-minutes: 45

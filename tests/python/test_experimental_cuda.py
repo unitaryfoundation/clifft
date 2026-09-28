@@ -2,22 +2,18 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import cast
 
 import numpy as np
 import pytest
 from utils_conformance import assert_joint_distribution, unitary_reference
-from utils_cuda import (
+from utils_gpu import (
     assert_distribution_matches,
-    assert_forced_record_probabilities,
     assert_rate_matches,
-    assert_repeatable,
     assert_same_rows,
-    require_cuda_device,
+    require_gpu_device,
 )
-from utils_gpu import NARROW_NOISY_CIRCUIT
-from utils_gpu_replay import PAULI_REPLAY_CIRCUIT, REPLAY_CASES, ReplayCase
+from utils_gpu_replay import PAULI_REPLAY_CIRCUIT, assert_forced_record_probabilities
 
 import clifft
 from clifft.experimental import cuda
@@ -110,26 +106,6 @@ EXP_VAL Z0
 """
 
 
-@dataclass(frozen=True)
-class _NoisyCase:
-    circuit: str
-    bit_flips: tuple[tuple[int, float], ...]
-    observable_column: int
-
-
-def test_cuda_facade_explains_when_native_extension_is_absent() -> None:
-    if cuda.is_built():
-        program = cuda.compile("H 0\nT 0\nM 0")
-        assert program.num_actions > 0
-        assert "CUDA executable" in program.inspect()
-        return
-
-    assert not cuda.is_available()
-    assert "CLIFFT_ENABLE_CUDA=ON" in cuda.backend_info()
-    with pytest.raises(RuntimeError, match="CLIFFT_ENABLE_CUDA"):
-        cuda.compile("M 0")
-
-
 def test_cuda_facade_rejects_unknown_tier_and_precision_names() -> None:
     if not cuda.is_built():
         pytest.skip("requires the CUDA extension")
@@ -145,7 +121,7 @@ def test_cuda_facade_rejects_unknown_tier_and_precision_names() -> None:
 
 
 def test_cuda_python_tier_selection_follows_width() -> None:
-    require_cuda_device()
+    require_gpu_device(cuda)
     narrow = cuda.compile("H 0\nT 0\nH 0\nM 0")
     wide = cuda.compile(_WIDE_CIRCUIT)
 
@@ -163,51 +139,6 @@ def test_cuda_python_tier_selection_follows_width() -> None:
     assert forced.max_batch_shots == 64
 
 
-@pytest.mark.parametrize("precision", ["fp64", "fp32"])
-def test_cuda_python_sampler_reuses_bounded_workspace(precision: cuda.Precision) -> None:
-    require_cuda_device()
-    program = cuda.compile("H 0\nT 0\nH 0\nM 0\nOBSERVABLE_INCLUDE(0) rec[-1]")
-    sampler = cuda.Sampler(program, precision=precision, max_batch_shots=7)
-
-    assert sampler.precision == precision
-    assert sampler.tier == "thread_per_shot"
-    assert sampler.max_batch_shots == 7
-    assert sampler.allocated_device_bytes > 0
-    assert_repeatable(sampler, 257, 1234)
-
-
-@pytest.mark.parametrize(
-    ("precision", "tolerance"),
-    [("fp64", 1e-12), ("fp32", 2e-5)],
-)
-@pytest.mark.parametrize("tier", _EXPLICIT_TIERS)
-@pytest.mark.parametrize("case", REPLAY_CASES, ids=lambda case: case.name)
-def test_cuda_python_forced_replay_probes_each_branch(
-    case: ReplayCase,
-    precision: cuda.Precision,
-    tolerance: float,
-    tier: cuda.Tier,
-) -> None:
-    if not cuda.is_built():
-        pytest.skip("requires the CUDA extension")
-    circuit = case.circuit
-    cpu_program = clifft.compile(circuit)
-    cuda_program = cuda.compile(circuit)
-    assert cuda_program.num_measurements == case.visible
-    assert cuda_program.num_records == case.visible + case.hidden
-    assert cuda_program.peak_active_width >= case.min_active_width
-
-    require_cuda_device()
-    sampler = cuda.Sampler(cuda_program, precision=precision, max_batch_shots=1, tier=tier)
-    assert sampler.tier == tier
-
-    assert_forced_record_probabilities(
-        cpu_program,
-        sampler,
-        absolute_tolerance=tolerance,
-    )
-
-
 @pytest.mark.parametrize("tier", _EXPLICIT_TIERS)
 @pytest.mark.parametrize(("precision", "tolerance"), [("fp64", 1e-12), ("fp32", 2e-5)])
 def test_cuda_python_replay_with_multiple_pauli_measurements(
@@ -220,7 +151,7 @@ def test_cuda_python_replay_with_multiple_pauli_measurements(
     assert cuda_program.num_measurements == cpu_program.num_measurements == 2
     assert cuda_program.num_records == 2
 
-    require_cuda_device()
+    require_gpu_device(cuda)
     sampler = cuda.Sampler(cuda_program, precision=precision, max_batch_shots=1, tier=tier)
     assert_forced_record_probabilities(cpu_program, sampler, absolute_tolerance=tolerance)
 
@@ -229,7 +160,7 @@ def test_cuda_python_replay_with_multiple_pauli_measurements(
 def test_cuda_python_tiers_agree_on_a_wide_program(
     tier: cuda.Tier, cuda_cpu_wide: clifft.SampleResult
 ) -> None:
-    require_cuda_device()
+    require_gpu_device(cuda)
     shots = 20_000
     cpu = cuda_cpu_wide
     sampler = cuda.Sampler(cuda.compile(_WIDE_CIRCUIT), tier=tier)
@@ -251,15 +182,15 @@ def test_cuda_python_tiers_agree_on_a_wide_program(
 
 @pytest.mark.parametrize("precision", ["fp64", "fp32"])
 @pytest.mark.parametrize("tier", _EXPLICIT_TIERS)
-def test_cuda_python_matches_cpu_joint_distribution(
+def test_cuda_python_matches_cpu_wide_joint_distribution(
     tier: cuda.Tier,
     precision: cuda.Precision,
-    cuda_cpu_distribution: tuple[_NoisyCase, clifft.SampleResult],
+    cuda_cpu_wide_distribution: clifft.SampleResult,
 ) -> None:
-    require_cuda_device()
+    require_gpu_device(cuda)
     shots = 20_000
-    case, cpu = cuda_cpu_distribution
-    sampler = cuda.Sampler(cuda.compile(case.circuit), precision=precision, tier=tier)
+    cpu = cuda_cpu_wide_distribution
+    sampler = cuda.Sampler(cuda.compile(_WIDE_NOISY_CIRCUIT), precision=precision, tier=tier)
     assert sampler.tier == tier
     gpu = sampler.sample(shots, seed=42)
     cpu_rows = np.concatenate((cpu.measurements, cpu.detectors, cpu.observables), axis=1)
@@ -275,7 +206,7 @@ def test_cuda_python_matches_cpu_joint_distribution(
 def test_cuda_python_survivor_sampling_counts_and_rows(
     tier: cuda.Tier, keep_records: bool, cuda_cpu_survivors: clifft.SampleResult
 ) -> None:
-    require_cuda_device()
+    require_gpu_device(cuda)
     shots = 8192
     gpu_program = cuda.compile(_POSTSELECTED_CIRCUIT, postselection_mask=[1])
     assert gpu_program.has_postselection
@@ -335,22 +266,11 @@ def cuda_cpu_wide() -> clifft.SampleResult:
     return cast(clifft.SampleResult, clifft.sample(clifft.compile(_WIDE_CIRCUIT), 20_000, seed=41))
 
 
-@pytest.fixture(
-    scope="module",
-    params=[
-        pytest.param(
-            _NoisyCase(NARROW_NOISY_CIRCUIT, bit_flips=((1, 0.3),), observable_column=1),
-            id="narrow",
-        ),
-        pytest.param(
-            _NoisyCase(_WIDE_NOISY_CIRCUIT, bit_flips=((1, 0.3), (3, 0.1)), observable_column=3),
-            id="wide",
-        ),
-    ],
-)
-def cuda_cpu_distribution(request: pytest.FixtureRequest) -> tuple[_NoisyCase, clifft.SampleResult]:
-    case = cast(_NoisyCase, request.param)
-    return case, clifft.sample(clifft.compile(case.circuit), 20_000, seed=41)
+@pytest.fixture(scope="module")
+def cuda_cpu_wide_distribution() -> clifft.SampleResult:
+    return cast(
+        clifft.SampleResult, clifft.sample(clifft.compile(_WIDE_NOISY_CIRCUIT), 20_000, seed=41)
+    )
 
 
 @pytest.fixture(scope="module")
@@ -385,14 +305,14 @@ def test_cuda_wide_cpu_reference(cuda_cpu_wide: clifft.SampleResult) -> None:
     )
 
 
-def test_cuda_cpu_distribution_reference(
-    cuda_cpu_distribution: tuple[_NoisyCase, clifft.SampleResult],
+def test_cuda_cpu_wide_distribution_reference(
+    cuda_cpu_wide_distribution: clifft.SampleResult,
 ) -> None:
-    case, cpu = cuda_cpu_distribution
-    probabilities = np.abs(unitary_reference(_unitary_prefix(case.circuit))) ** 2
+    cpu = cuda_cpu_wide_distribution
+    probabilities = np.abs(unitary_reference(_unitary_prefix(_WIDE_NOISY_CIRCUIT))) ** 2
     indices = np.arange(len(probabilities))
     # Noise follows all unitaries, so X/Y faults permute final Z-basis outcomes.
-    for qubit, probability in case.bit_flips:
+    for qubit, probability in ((1, 0.3), (3, 0.1)):
         probabilities = (1 - probability) * probabilities + probability * probabilities[
             indices ^ (1 << qubit)
         ]
@@ -402,9 +322,7 @@ def test_cuda_cpu_distribution_reference(
     np.testing.assert_array_equal(
         cpu.detectors[:, 0], cpu.measurements[:, -1] ^ cpu.measurements[:, -2]
     )
-    np.testing.assert_array_equal(
-        cpu.observables[:, 0], cpu.measurements[:, case.observable_column]
-    )
+    np.testing.assert_array_equal(cpu.observables[:, 0], cpu.measurements[:, 3])
 
 
 def test_cuda_cpu_survivor_reference(cuda_cpu_survivors: clifft.SampleResult) -> None:
