@@ -186,8 +186,10 @@ class GpuSamplingMode:
         # Keep workspace bounded and reuse it across calls on this program.
         sampler = self.api.Sampler(program, precision="fp64", tier=self.tier, max_batch_shots=65)
         if self.tier != "auto":
-            assert sampler.precision == "fp64"
-            assert sampler.tier == self.tier
+            assert (sampler.precision, sampler.tier) == ("fp64", self.tier), (
+                f"{self.backend}: requested precision=fp64, tier={self.tier}; "
+                f"got precision={sampler.precision}, tier={sampler.tier}"
+            )
         return GpuSamplingProgram(sampler)
 
     def sample(self, program: GpuSamplingProgram, shots: int, seed: int | None = None) -> Any:
