@@ -117,6 +117,7 @@ void BatchExecutor::reset_batch(const SeedRoot& root, uint32_t first_shot,
                                 uint32_t shots) noexcept {
     assert(shots <= lane_capacity_ && "packed batch must fit retained capacity");
     live_count_ = shots;
+    compacted_during_execution_ = false;
     fill_low_lane_mask(live_words_, shots);
     if (plan_->batch_presampled_program_.has_value()) {
         batch_noise_carriers_.clear();
@@ -630,6 +631,7 @@ void BatchExecutor::compact_live_lanes(CompactionMode mode) noexcept {
     // the skipped expression, forced-readout, and hidden record columns before
     // the next batch.
     if (mode == CompactionMode::ContinueExecution) {
+        compacted_during_execution_ = true;
         expression_registers_.compact(live_words_, old_lanes, live_count_, scratch_words_);
         forced_readout_.compact(live_words_, old_lanes, live_count_, scratch_words_);
         records_.compact(live_words_, old_lanes, live_count_, scratch_words_);

@@ -45,22 +45,6 @@ using clifft::sampling::WriteExpectationValue;
 using clifft::sampling::batch_detail::BatchCompactionPolicyInput;
 using clifft::sampling::batch_detail::should_compact_batch_lanes;
 
-namespace clifft::sampling {
-
-struct BatchExecutorTestAccess {
-    static uint32_t run_with_pre_finalization_lane_count(BatchExecutor& batch, const SeedRoot& root,
-                                                         uint32_t shots, KFaultSampler& faults) {
-        batch.reset_batch(root, 0, shots);
-        batch.assign_forced_faults(faults);
-        batch.execute_actions();
-        const uint32_t lanes = batch.active_lanes();
-        batch.finalize_live_lanes();
-        return lanes;
-    }
-};
-
-}  // namespace clifft::sampling
-
 namespace {
 
 #ifndef CLIFFT_FIXTURES_DIR
@@ -239,6 +223,9 @@ TEST_CASE("Final survivor compaction preserves rows and shot identities across r
                             batch.run_batch(root, first_shot, shots);
                             reference.run_batch(root, first_shot, shots);
                         }
+                        if (!non_clifford) {
+                            REQUIRE_FALSE(batch.compacted_during_execution());
+                        }
                         uint32_t destination = 0;
                         for (uint32_t source = 0; source < shots; ++source) {
                             bool rejected = false;
@@ -286,13 +273,12 @@ TEST_CASE("Intermediate compaction retains pending expressions and forced readou
     KFaultSampler batch_faults(selected.noise_site_probabilities(), 1);
     KFaultSampler reference_faults(unselected.noise_site_probabilities(), 1);
     const SeedRoot root = make_seed_root(shots, uint64_t{9187});
-    const uint32_t lanes_before_finalization =
-        clifft::sampling::BatchExecutorTestAccess::run_with_pre_finalization_lane_count(
-            batch, root, shots, batch_faults);
+    batch.run_batch(root, 0, shots, batch_faults);
     reference.run_batch(root, 0, shots, reference_faults);
     REQUIRE(batch.surviving_shots() > 0);
     REQUIRE(batch.surviving_shots() < shots);
-    REQUIRE(lanes_before_finalization == batch.surviving_shots());
+    REQUIRE(batch.compacted_during_execution());
+    REQUIRE_FALSE(reference.compacted_during_execution());
     uint32_t destination = 0;
     for (uint32_t source = 0; source < shots; ++source) {
         if (!reference.detector(source, 0)) {
@@ -307,6 +293,8 @@ TEST_CASE("Intermediate compaction retains pending expressions and forced readou
         }
     }
     REQUIRE(destination == batch.surviving_shots());
+    batch.run_batch(root, 0, 0, batch_faults);
+    REQUIRE_FALSE(batch.compacted_during_execution());
 }
 
 TEST_CASE("Packed compaction policy distinguishes compact and defer decisions") {

@@ -38,6 +38,9 @@ class BatchExecutor {
                    KFaultSampler& fault_sampler) noexcept;
 
     [[nodiscard]] uint32_t surviving_shots() const noexcept { return live_count_; }
+    [[nodiscard]] bool compacted_during_execution() const noexcept {
+        return compacted_during_execution_;
+    }
     [[nodiscard]] uint32_t accumulate_survivor_counts(
         std::span<uint64_t> observable_ones) const noexcept;
     [[nodiscard]] uint32_t shot_index(uint32_t lane) const noexcept;
@@ -47,9 +50,6 @@ class BatchExecutor {
     [[nodiscard]] double exp_val(uint32_t lane, uint32_t exp_val) const noexcept;
 
   private:
-    // Tests observe dispatch before finalization can hide whether lanes moved.
-    friend struct BatchExecutorTestAccess;
-
     enum class CompactionMode { ContinueExecution, FinalizeOutputs };
 
     BatchExecutor(const ExecutablePlan& plan, BatchOutputMode output_mode,
@@ -125,6 +125,7 @@ class BatchExecutor {
     std::vector<double> lane_values_;
 
     uint32_t live_count_ = 0;
+    bool compacted_during_execution_ = false;
 };
 
 }  // namespace clifft::sampling
