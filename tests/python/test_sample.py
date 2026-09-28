@@ -17,6 +17,7 @@ from utils_conformance import (
     SMALL_CIRCUIT_SHOTS,
     CpuSamplingMode,
     SamplingMode,
+    expectation_atol,
     skip_unavailable_thread_layout,
 )
 
@@ -431,7 +432,9 @@ class TestSample:
         # Conditional X reverses the T|+> azimuth before Rz adds pi/8.
         azimuth = np.where(first == 0, np.pi / 4, -np.pi / 4)
         expected = np.column_stack((np.full(shots, 2**-2.5), np.cos(azimuth + np.pi / 8)))
-        np.testing.assert_allclose(result.exp_vals, expected, atol=1e-12, rtol=0)
+        np.testing.assert_allclose(
+            result.exp_vals, expected, atol=expectation_atol(sampling_mode, fp64=1e-12), rtol=0
+        )
 
 
 class TestStatevector:
@@ -1049,12 +1052,15 @@ class TestSampleSurvivors:
             assert result.observables.sum() == result.logical_errors
             expected = [2**-2.5, np.sin(np.pi / 8) / np.sqrt(2)]
             np.testing.assert_allclose(
-                result.exp_vals[:, :2], np.broadcast_to(expected, (passed, 2)), atol=1e-12, rtol=0
+                result.exp_vals[:, :2],
+                np.broadcast_to(expected, (passed, 2)),
+                atol=expectation_atol(sampling_mode, fp64=1e-12),
+                rtol=0,
             )
             np.testing.assert_allclose(
                 result.exp_vals[:, 2],
                 1 - 2 * result.measurements[:, 1].astype(int),
-                atol=1e-12,
+                atol=expectation_atol(sampling_mode, fp64=1e-12),
                 rtol=0,
             )
 
@@ -1405,7 +1411,9 @@ class TestSyndromeNormalization:
                 np.cos(azimuths[:, 1] + np.pi / 8),
             )
         )
-        np.testing.assert_allclose(result.exp_vals, expected, atol=1e-12, rtol=0)
+        np.testing.assert_allclose(
+            result.exp_vals, expected, atol=expectation_atol(sampling_mode, fp64=1e-12), rtol=0
+        )
 
     def test_normalize_syndromes_multiple_observables_xord(
         self, sampling_mode: SamplingMode

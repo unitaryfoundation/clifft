@@ -14,7 +14,7 @@ from typing import Any
 import numpy as np
 import pytest
 from conftest import random_clifford_t_circuit
-from utils_conformance import SMALL_CIRCUIT_SHOTS, SamplingMode
+from utils_conformance import SMALL_CIRCUIT_SHOTS, SamplingMode, expectation_atol
 from utils_qiskit import qiskit_statevector, stim_to_qiskit_noiseless
 
 import clifft
@@ -151,7 +151,9 @@ class TestExactOracle:
         result = sampling_mode.sample(
             sampling_mode.compile(f"{circuit}\nEXP_VAL X0"), shots=SMALL_CIRCUIT_SHOTS, seed=0
         )
-        np.testing.assert_allclose(result.exp_vals[:, 0], expected, atol=1e-10)
+        np.testing.assert_allclose(
+            result.exp_vals[:, 0], expected, atol=expectation_atol(sampling_mode, fp64=1e-10)
+        )
 
     def test_multi_qubit_product(self, sampling_mode: SamplingMode) -> None:
         """<X0*Y1*Z2> on a 3-qubit state matches numpy oracle."""
@@ -172,7 +174,7 @@ class TestExactOracle:
         np.testing.assert_allclose(
             result.exp_vals,
             np.tile([1.0 / np.sqrt(2.0), 0.0, 1.0], (SMALL_CIRCUIT_SHOTS, 1)),
-            atol=1e-10,
+            atol=expectation_atol(sampling_mode, fp64=1e-10),
         )
 
     @pytest.mark.parametrize("seed", range(8))
@@ -193,7 +195,7 @@ class TestExactOracle:
         np.testing.assert_allclose(
             result.exp_vals[:, 0],
             expected,
-            atol=1e-8,
+            atol=expectation_atol(sampling_mode, fp64=1e-8),
             err_msg=f"Pauli={pauli}, circuit seed={seed}, nq={num_qubits}, depth={depth}",
         )
 
@@ -210,7 +212,7 @@ class TestExactOracle:
         np.testing.assert_allclose(
             result.exp_vals,
             np.broadcast_to(expected, result.exp_vals.shape),
-            atol=1e-10,
+            atol=expectation_atol(sampling_mode, fp64=1e-10),
             rtol=0.0,
         )
 
@@ -233,7 +235,7 @@ class TestExactOracle:
         np.testing.assert_allclose(
             result.exp_vals,
             np.broadcast_to(expected, (SMALL_CIRCUIT_SHOTS, len(expected))),
-            atol=1e-12,
+            atol=expectation_atol(sampling_mode, fp64=1e-12),
             rtol=0,
         )
 

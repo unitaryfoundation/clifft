@@ -116,8 +116,9 @@ retain small representative checks in Debug.
 
 ### GPU behavioral tests
 
-The `sampling_mode` fixture includes HIP and CUDA in FP64 with automatic tier
-selection. Each compiled program retains its own sampler, with a 65-shot batch
+The `sampling_mode` fixture includes HIP and CUDA in FP64 and FP32 with automatic
+tier selection. Selected active-state tests also request explicit cooperative
+tiers. Each compiled program retains its own sampler, with a 65-shot batch
 limit to exercise batching and partial batches with bounded workspace. CPU and
 GPU modes share the behavioral assertions; identical random rows across
 backends are not required. Forced-fault sampling, noncomputational trajectories,

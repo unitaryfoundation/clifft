@@ -10,6 +10,7 @@ from utils_conformance import (
     GPU_SAMPLING_MODES,
     SMALL_CIRCUIT_SHOTS,
     GpuSamplingMode,
+    expectation_atol,
 )
 
 
@@ -20,15 +21,15 @@ def test_gpu_mode_routes_calls_through_one_retained_sampler(
     mode: GpuSamplingMode, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     api = Mock()
-    api.Sampler.return_value.precision = "fp64"
-    api.Sampler.return_value.tier = mode.tier
+    api.Sampler.return_value.precision = mode.precision
+    api.Sampler.return_value.tier = "thread_per_shot" if mode.tier == "auto" else mode.tier
     import_api = Mock(return_value=api)
     monkeypatch.setattr("utils_conformance.import_module", import_api)
     program = mode.compile("M 0", postselection_mask=[0], hir_passes=None)
     import_api.assert_called_with(f"clifft.experimental.{mode.backend}")
     api.compile.assert_called_once_with("M 0", postselection_mask=[0], hir_passes=None)
     api.Sampler.assert_called_once_with(
-        api.compile.return_value, precision="fp64", tier=mode.tier, max_batch_shots=65
+        api.compile.return_value, precision=mode.precision, tier=mode.tier, max_batch_shots=65
     )
     sampler = api.Sampler.return_value
     sampler.program = api.compile.return_value
@@ -77,7 +78,7 @@ def test_gpu_mode_executes_with_reported_precision_and_tier(
     sampler = program.sampler
     assert program.peak_active_width == width
     assert isinstance(sampler, mode.api.Sampler)
-    assert sampler.precision == "fp64"
+    assert sampler.precision == mode.precision
     assert sampler.tier == ("thread_per_shot" if width <= 4 else "block_shared")
     assert sampler.max_batch_shots == 65
     assert sampler.allocated_device_bytes > 0
@@ -91,5 +92,7 @@ def test_gpu_mode_executes_with_reported_precision_and_tier(
     assert result.measurements.shape == (SMALL_CIRCUIT_SHOTS, width)
     assert survivors.total_shots == survivors.passed_shots == SMALL_CIRCUIT_SHOTS
     np.testing.assert_array_equal(survivors.measurements, result.measurements)
-    np.testing.assert_allclose(result.exp_vals, 2 ** (-width / 2), atol=1e-12, rtol=0)
+    np.testing.assert_allclose(
+        result.exp_vals, 2 ** (-width / 2), atol=expectation_atol(mode, fp64=1e-12), rtol=0
+    )
     np.testing.assert_allclose(survivors.exp_vals, result.exp_vals, atol=1e-12, rtol=0)

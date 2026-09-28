@@ -1,7 +1,7 @@
 """Shared compiler configurations and independent sampling assertions."""
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import lru_cache
 from importlib import import_module
 from types import ModuleType
@@ -172,6 +172,7 @@ class GpuSamplingMode:
     name: str
     backend: Literal["hip", "cuda"]
     tier: Literal["auto", "block_shared", "block_global"] = "auto"
+    precision: Literal["fp64", "fp32"] = "fp64"
 
     @property
     def api(self) -> ModuleType:
@@ -184,12 +185,15 @@ class GpuSamplingMode:
     def compile(self, source: str, **kwargs: Any) -> GpuSamplingProgram:
         program = self.api.compile(source, **kwargs)
         # Keep workspace bounded and reuse it across calls on this program.
-        sampler = self.api.Sampler(program, precision="fp64", tier=self.tier, max_batch_shots=65)
-        if self.tier != "auto":
-            assert (sampler.precision, sampler.tier) == ("fp64", self.tier), (
-                f"{self.backend}: requested precision=fp64, tier={self.tier}; "
-                f"got precision={sampler.precision}, tier={sampler.tier}"
-            )
+        sampler = self.api.Sampler(
+            program, precision=self.precision, tier=self.tier, max_batch_shots=65
+        )
+        assert sampler.precision == self.precision and (
+            self.tier == "auto" or sampler.tier == self.tier
+        ), (
+            f"{self.backend}: requested precision={self.precision}, tier={self.tier}; "
+            f"got precision={sampler.precision}, tier={sampler.tier}"
+        )
         return GpuSamplingProgram(sampler)
 
     def sample(self, program: GpuSamplingProgram, shots: int, seed: int | None = None) -> Any:
@@ -206,18 +210,35 @@ class GpuSamplingMode:
         return program.sampler.sample_survivors(shots, seed=seed, keep_records=keep_records)
 
 
-GPU_SAMPLING_MODES = (GpuSamplingMode("hip-fp64", "hip"), GpuSamplingMode("cuda-fp64", "cuda"))
-GPU_COOPERATIVE_SAMPLING_MODES = (
-    GpuSamplingMode("hip-fp64-block-shared", "hip", tier="block_shared"),
-    GpuSamplingMode("hip-fp64-block-global", "hip", tier="block_global"),
-    GpuSamplingMode("cuda-fp64-block-shared", "cuda", tier="block_shared"),
-    GpuSamplingMode("cuda-fp64-block-global", "cuda", tier="block_global"),
+GPU_SAMPLING_MODES = (
+    GpuSamplingMode("hip-fp64", "hip"),
+    GpuSamplingMode("cuda-fp64", "cuda"),
+    GpuSamplingMode("hip-fp32", "hip", precision="fp32"),
+    GpuSamplingMode("cuda-fp32", "cuda", precision="fp32"),
+)
+_GPU_COOPERATIVE_TIERS: tuple[Literal["block_shared", "block_global"], ...] = (
+    "block_shared",
+    "block_global",
+)
+GPU_COOPERATIVE_SAMPLING_MODES = tuple(
+    replace(mode, name=f"{mode.name}-{tier.replace('_', '-')}", tier=tier)
+    for mode in GPU_SAMPLING_MODES
+    for tier in _GPU_COOPERATIVE_TIERS
 )
 # Selected active-state tests opt into forced tiers without multiplying the whole suite.
 SAMPLING_MODES_WITH_GPU_TIERS = (
     CPU_SAMPLING_MODES + GPU_SAMPLING_MODES + GPU_COOPERATIVE_SAMPLING_MODES
 )
 SamplingMode = CpuSamplingMode | GpuSamplingMode
+
+
+def expectation_atol(mode: SamplingMode, *, fp64: float) -> float:
+    """Numerical error budget for small-circuit probes, separate from shot noise."""
+    # FP32 state updates accumulate rounding before the FP64 expectation reduction.
+    if isinstance(mode, GpuSamplingMode) and mode.precision == "fp32":
+        return max(fp64, 2e-5)
+    return fp64
+
 
 # Two full packed-65 batches plus a tail allow both workers to receive work.
 SMALL_CIRCUIT_SHOTS = 2 * 65 + 1
