@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from types import ModuleType
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Protocol
 
 import numpy as np
 import numpy.typing as npt
@@ -15,14 +14,14 @@ if TYPE_CHECKING:
     from clifft.experimental import cuda, hip
 
 
-# Narrow enough for CUDA to select thread-per-shot automatically, so forcing
-# its cooperative tiers exercises their noise and output paths on a small case.
 NARROW_UNITARY_CIRCUIT = """\
 H 0
 T 0
 H 0
 CX 0 1
 """
+# Narrow enough for CUDA to select thread-per-shot automatically, so forcing
+# its cooperative tiers exercises their noise and output paths on a small case.
 NARROW_NOISY_CIRCUIT = (
     NARROW_UNITARY_CIRCUIT
     + """\
@@ -34,7 +33,28 @@ OBSERVABLE_INCLUDE(0) rec[-1]
 )
 
 
-def require_gpu_device(api: ModuleType) -> None:
+class GpuApi(Protocol):
+    """Common facade calls used by the focused GPU tests."""
+
+    __name__: str
+
+    def is_built(self) -> bool: ...
+    def is_available(self) -> bool: ...
+    def backend_info(self) -> str: ...
+    def compile(self, stim_text: str) -> hip.Program | cuda.Program: ...
+
+    # Each test passes the backend-specific program back to its own module.
+    def Sampler(
+        self,
+        program: Any,
+        *,
+        precision: hip.Precision = "fp64",
+        max_batch_shots: int | None = None,
+        tier: hip.Tier = "auto",
+    ) -> hip.Sampler | cuda.Sampler: ...
+
+
+def require_gpu_device(api: GpuApi) -> None:
     """Skip only when the requested backend has no available device."""
     if not api.is_available():
         pytest.skip(api.backend_info())

@@ -1,6 +1,5 @@
 """Common HIP/CUDA API, retained-sampler, and CPU-reference checks."""
 
-from types import ModuleType
 from typing import cast
 
 import numpy as np
@@ -9,6 +8,7 @@ from utils_conformance import assert_joint_distribution, unitary_reference
 from utils_gpu import (
     NARROW_NOISY_CIRCUIT,
     NARROW_UNITARY_CIRCUIT,
+    GpuApi,
     assert_distribution_matches,
     assert_repeatable,
     require_gpu_device,
@@ -18,21 +18,22 @@ from utils_gpu_replay import REPLAY_CASES, ReplayCase, assert_forced_record_prob
 import clifft
 from clifft.experimental import cuda, hip
 
-# HIP's native suite exercises explicit tiers; these Python probes use automatic selection.
+_HIP: GpuApi = hip
+_CUDA: GpuApi = cuda
 _GPU_EXECUTIONS = [
-    pytest.param(hip, "auto", id="hip-auto"),
-    pytest.param(cuda, "thread_per_shot", id="cuda-thread-per-shot"),
-    pytest.param(cuda, "block_shared", id="cuda-block-shared"),
-    pytest.param(cuda, "block_global", id="cuda-block-global"),
+    pytest.param(_HIP, "auto", id="hip-auto"),
+    pytest.param(_CUDA, "thread_per_shot", id="cuda-thread-per-shot"),
+    pytest.param(_CUDA, "block_shared", id="cuda-block-shared"),
+    pytest.param(_CUDA, "block_global", id="cuda-block-global"),
 ]
 
 
-@pytest.fixture(params=[hip, cuda], ids=["hip", "cuda"])
-def gpu_api(request: pytest.FixtureRequest) -> ModuleType:
-    return cast(ModuleType, request.param)
+@pytest.fixture(params=[_HIP, _CUDA], ids=["hip", "cuda"])
+def gpu_api(request: pytest.FixtureRequest) -> GpuApi:
+    return cast(GpuApi, request.param)
 
 
-def test_facade_explains_when_native_extension_is_absent(gpu_api: ModuleType) -> None:
+def test_facade_explains_when_native_extension_is_absent(gpu_api: GpuApi) -> None:
     backend = gpu_api.__name__.rsplit(".", 1)[-1].upper()
     if gpu_api.is_built():
         program = gpu_api.compile("H 0\nT 0\nM 0")
@@ -47,7 +48,7 @@ def test_facade_explains_when_native_extension_is_absent(gpu_api: ModuleType) ->
 
 
 @pytest.mark.parametrize("precision", ["fp64", "fp32"])
-def test_sampler_reuses_bounded_workspace(gpu_api: ModuleType, precision: hip.Precision) -> None:
+def test_sampler_reuses_bounded_workspace(gpu_api: GpuApi, precision: hip.Precision) -> None:
     require_gpu_device(gpu_api)
     program = gpu_api.compile("H 0\nT 0\nH 0\nM 0\nOBSERVABLE_INCLUDE(0) rec[-1]")
     sampler = gpu_api.Sampler(program, precision=precision, max_batch_shots=7)
@@ -63,7 +64,7 @@ def test_sampler_reuses_bounded_workspace(gpu_api: ModuleType, precision: hip.Pr
 @pytest.mark.parametrize(("precision", "tolerance"), [("fp64", 1e-12), ("fp32", 2e-5)])
 @pytest.mark.parametrize("case", REPLAY_CASES, ids=lambda case: case.name)
 def test_forced_replay_probes_each_branch(
-    gpu_api: ModuleType,
+    gpu_api: GpuApi,
     tier: hip.Tier,
     case: ReplayCase,
     precision: hip.Precision,
@@ -88,7 +89,7 @@ def test_forced_replay_probes_each_branch(
 @pytest.mark.parametrize(("gpu_api", "tier"), _GPU_EXECUTIONS)
 @pytest.mark.parametrize("precision", ["fp64", "fp32"])
 def test_matches_cpu_narrow_joint_distribution(
-    gpu_api: ModuleType,
+    gpu_api: GpuApi,
     tier: hip.Tier,
     precision: hip.Precision,
     cpu_narrow_distribution: clifft.SampleResult,
