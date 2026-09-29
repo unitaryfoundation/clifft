@@ -17,12 +17,6 @@ from utils_conformance import (
 import clifft
 
 
-@pytest.fixture(params=[clifft], ids=["symbolic-coordinate"])
-def sampling_api(request: pytest.FixtureRequest) -> Any:
-    """Run public sampling conformance tests against the production backend."""
-    return cast(Any, request.param)
-
-
 def pytest_addoption(parser: pytest.Parser) -> None:
     parser.addoption(
         "--require-gpu",
@@ -54,23 +48,14 @@ def importance_sampling_mode(request: pytest.FixtureRequest) -> CpuSamplingMode:
     return cast(CpuSamplingMode, request.param)
 
 
-@pytest.fixture(params=[clifft], ids=["symbolic-coordinate"])
-def basis_probabilities_api(request: pytest.FixtureRequest) -> Any:
-    """Run exact basis-query tests against the production backend."""
-    return cast(Any, request.param)
-
-
-@pytest.fixture(params=[clifft], ids=["symbolic-coordinate"])
-def statevector_from_circuit(
-    request: pytest.FixtureRequest,
-) -> Callable[[str], npt.NDArray[np.complex128]]:
+@pytest.fixture
+def statevector_from_circuit() -> Callable[[str], npt.NDArray[np.complex128]]:
     """Compile and expand a pure-state circuit through the production backend."""
-    api = request.param
 
     def statevector(stim_text: str) -> npt.NDArray[np.complex128]:
         return cast(
             npt.NDArray[np.complex128],
-            api.get_statevector(api.compile(stim_text, hir_passes=None)),
+            clifft.get_statevector(clifft.compile(stim_text, hir_passes=None)),
         )
 
     return statevector

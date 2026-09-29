@@ -152,22 +152,20 @@ class TestSample:
         assert np.array_equal(result1.measurements, result2.measurements)
 
     @pytest.mark.parametrize("batch_size", ["auto", 1, 2, 65])
-    def test_sample_batch_configuration_replays_seeded_rows(
-        self, sampling_api: Any, batch_size: Any
-    ) -> None:
+    def test_sample_batch_configuration_replays_seeded_rows(self, batch_size: Any) -> None:
         """A seed replays exactly when the batching configuration is unchanged."""
-        prog = sampling_api.compile("X_ERROR(0.125) 0\nH 1\nM 0 1\nDETECTOR rec[-2] rec[-1]")
-        first = sampling_api.sample(prog, 257, seed=12345, batch_size=batch_size)
-        replay = sampling_api.sample(prog, 257, seed=12345, batch_size=batch_size)
+        prog = clifft.compile("X_ERROR(0.125) 0\nH 1\nM 0 1\nDETECTOR rec[-2] rec[-1]")
+        first = clifft.sample(prog, 257, seed=12345, batch_size=batch_size)
+        replay = clifft.sample(prog, 257, seed=12345, batch_size=batch_size)
         np.testing.assert_array_equal(first.measurements, replay.measurements)
         np.testing.assert_array_equal(first.detectors, replay.detectors)
 
-    def test_scalar_and_packed_modes_are_statistically_equivalent(self, sampling_api: Any) -> None:
+    def test_scalar_and_packed_modes_are_statistically_equivalent(self) -> None:
         """Changing execution mode may change rows but not the sampled distribution."""
-        prog = sampling_api.compile("X_ERROR(0.125) 0\nH 1\nM 0 1")
+        prog = clifft.compile("X_ERROR(0.125) 0\nH 1\nM 0 1")
         shots = 50_000
-        scalar = sampling_api.sample(prog, shots, seed=12346, batch_size=1)
-        packed = sampling_api.sample(prog, shots, seed=12346, batch_size=257)
+        scalar = clifft.sample(prog, shots, seed=12346, batch_size=1)
+        packed = clifft.sample(prog, shots, seed=12346, batch_size=257)
         expected = (0.125, 0.5)
         for column, probability in enumerate(expected):
             tolerance = binomial_tolerance(probability, shots)
@@ -175,16 +173,16 @@ class TestSample:
             assert abs(float(np.mean(packed.measurements[:, column])) - probability) < tolerance
 
     @pytest.mark.parametrize("batch_size", [0, -1, "all", 1.5])
-    def test_sample_rejects_invalid_batch_size(self, sampling_api: Any, batch_size: Any) -> None:
+    def test_sample_rejects_invalid_batch_size(self, batch_size: Any) -> None:
         """Only positive integer capacities and the auto sentinel are accepted."""
-        prog = sampling_api.compile("M 0")
+        prog = clifft.compile("M 0")
         with pytest.raises((TypeError, ValueError), match="batch_size|incompatible"):
-            sampling_api.sample(prog, 1, batch_size=batch_size)
+            clifft.sample(prog, 1, batch_size=batch_size)
 
-    def test_packed_batch_rejects_intra_shot_workers(self, sampling_api: Any) -> None:
-        prog = sampling_api.compile("H 0\nT 0\nM 0")
+    def test_packed_batch_rejects_intra_shot_workers(self) -> None:
+        prog = clifft.compile("H 0\nT 0\nM 0")
         with pytest.raises(ValueError, match="batch_size|intra-shot"):
-            sampling_api.sample(
+            clifft.sample(
                 prog,
                 64,
                 thread_layout=(1, 2),
@@ -192,43 +190,39 @@ class TestSample:
                 batch_size=64,
             )
 
-    def test_explicit_batch_size_rejects_unsafe_state_footprint(self, sampling_api: Any) -> None:
+    def test_explicit_batch_size_rejects_unsafe_state_footprint(self) -> None:
         circuit = "\n".join(f"H {qubit}\nT {qubit}" for qubit in range(20))
-        prog = sampling_api.compile(circuit)
+        prog = clifft.compile(circuit)
         with pytest.raises(ValueError, match="64 MiB packed-state limit"):
-            sampling_api.sample(prog, 4096, batch_size=2048)
+            clifft.sample(prog, 4096, batch_size=2048)
 
     @pytest.mark.parametrize("threads", [2, 3])
     @pytest.mark.parametrize("batch_size", [1, 65])
-    def test_sample_threads_preserve_seeded_rows(
-        self, sampling_api: Any, threads: int, batch_size: int
-    ) -> None:
+    def test_sample_threads_preserve_seeded_rows(self, threads: int, batch_size: int) -> None:
         """Worker count and dynamic scheduling do not change seeded rows."""
-        prog = sampling_api.compile(
+        prog = clifft.compile(
             "H 0 1\nT 0\nEXP_VAL X0\nM 0 1\nEXP_VAL Z0\n"
             "DETECTOR rec[-2] rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]"
         )
         # Explicit capacities exercise multiple batches without changing RNG boundaries.
-        serial = sampling_api.sample(prog, 257, seed=12345, threads=1, batch_size=batch_size)
-        threaded = sampling_api.sample(
-            prog, 257, seed=12345, threads=threads, batch_size=batch_size
-        )
+        serial = clifft.sample(prog, 257, seed=12345, threads=1, batch_size=batch_size)
+        threaded = clifft.sample(prog, 257, seed=12345, threads=threads, batch_size=batch_size)
         np.testing.assert_array_equal(threaded.measurements, serial.measurements)
         np.testing.assert_array_equal(threaded.detectors, serial.detectors)
         np.testing.assert_array_equal(threaded.observables, serial.observables)
         np.testing.assert_array_equal(threaded.exp_vals, serial.exp_vals)
 
-    def test_auto_batch_boundaries_ignore_worker_count(self, sampling_api: Any) -> None:
+    def test_auto_batch_boundaries_ignore_worker_count(self) -> None:
         """Changing worker count preserves automatic batch RNG boundaries."""
-        prog = sampling_api.compile(
+        prog = clifft.compile(
             "X_ERROR(0.125) 0\nH 1\nT 1\nEXP_VAL X1\nM 0 1\n"
             "DETECTOR rec[-2] rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]"
         )
         # Two full automatic batches and a tail leave work for both workers.
         shots = 2 * 2048 + 1
 
-        serial = sampling_api.sample(prog, shots, seed=42, threads=1)
-        threaded = sampling_api.sample(prog, shots, seed=42, threads=2)
+        serial = clifft.sample(prog, shots, seed=42, threads=1)
+        threaded = clifft.sample(prog, shots, seed=42, threads=2)
 
         np.testing.assert_array_equal(threaded.measurements, serial.measurements)
         np.testing.assert_array_equal(threaded.detectors, serial.detectors)
@@ -236,22 +230,20 @@ class TestSample:
         np.testing.assert_array_equal(threaded.exp_vals, serial.exp_vals)
 
     @pytest.mark.parametrize("threads", [0, -1, "all", 1.5])
-    def test_sample_rejects_invalid_threads(self, sampling_api: Any, threads: Any) -> None:
+    def test_sample_rejects_invalid_threads(self, threads: Any) -> None:
         """Only positive integers and the auto sentinel are accepted."""
-        prog = sampling_api.compile("M 0")
+        prog = clifft.compile("M 0")
         with pytest.raises((TypeError, ValueError), match="threads|incompatible"):
-            sampling_api.sample(prog, 1, threads=threads)
+            clifft.sample(prog, 1, threads=threads)
 
     @pytest.mark.parametrize("batch_size", [1, 65])
-    def test_sample_thread_layout_preserves_seeded_rows(
-        self, sampling_api: Any, batch_size: int
-    ) -> None:
+    def test_sample_thread_layout_preserves_seeded_rows(self, batch_size: int) -> None:
         """An explicit layout is a thin override of automatic worker selection."""
-        prog = sampling_api.compile(
+        prog = clifft.compile(
             "H 0 1\nT 0\nM 0 1\nDETECTOR rec[-2] rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]"
         )
-        serial = sampling_api.sample(prog, 257, seed=12346, threads=1, batch_size=batch_size)
-        threaded = sampling_api.sample(
+        serial = clifft.sample(prog, 257, seed=12346, threads=1, batch_size=batch_size)
+        threaded = clifft.sample(
             prog, 257, seed=12346, threads="auto", thread_layout=(2, 1), batch_size=batch_size
         )
         np.testing.assert_array_equal(threaded.measurements, serial.measurements)
@@ -260,17 +252,17 @@ class TestSample:
 
     @pytest.mark.parametrize("layout", [(1, 2), (2, 2)], ids=["intra-shot", "hybrid"])
     def test_sample_runtime_intra_shot_threshold_preserves_seeded_rows(
-        self, sampling_api: Any, layout: tuple[int, int]
+        self, layout: tuple[int, int]
     ) -> None:
         """Expert layouts can lower the kernel crossover without rebuilding."""
         # The probes retain four active qubits: two rotation chunks even with AVX-512.
-        prog = sampling_api.compile(
+        prog = clifft.compile(
             "H 0 1 2 3\nT 0 1 2 3\nEXP_VAL X0*X1*X2*X3\nR_X(0.125) 0\nEXP_VAL Z0\nM 0 1 2 3"
         )
         assert prog.peak_active_width == 4
-        serial = sampling_api.sample(prog, 31, seed=12347, threads=1, batch_size=1)
+        serial = clifft.sample(prog, 31, seed=12347, threads=1, batch_size=1)
         try:
-            threaded = sampling_api.sample(
+            threaded = clifft.sample(
                 prog,
                 31,
                 seed=12347,
@@ -288,14 +280,14 @@ class TestSample:
         [(None, 0), ((1, 1), -1), ((1, 1), 2**40), ((1, 1), 1.5)],
     )
     def test_sample_rejects_invalid_runtime_intra_shot_threshold(
-        self, sampling_api: Any, thread_layout: Any, min_active_width: Any
+        self, thread_layout: Any, min_active_width: Any
     ) -> None:
         """The expert threshold is bounded and requires an explicit layout."""
-        prog = sampling_api.compile("M 0")
+        prog = clifft.compile("M 0")
         with pytest.raises(
             (TypeError, ValueError), match="intra_shot_min_active_width|incompatible"
         ):
-            sampling_api.sample(
+            clifft.sample(
                 prog,
                 1,
                 thread_layout=thread_layout,
@@ -303,13 +295,11 @@ class TestSample:
             )
 
     @pytest.mark.parametrize("thread_layout", [(0, 1), (1, 0), (1,), "auto", (1, 1.5)])
-    def test_sample_rejects_invalid_thread_layout(
-        self, sampling_api: Any, thread_layout: Any
-    ) -> None:
+    def test_sample_rejects_invalid_thread_layout(self, thread_layout: Any) -> None:
         """Explicit layouts require two positive integral worker counts."""
-        prog = sampling_api.compile("M 0")
+        prog = clifft.compile("M 0")
         with pytest.raises((TypeError, ValueError), match="thread_layout|incompatible"):
-            sampling_api.sample(prog, 1, thread_layout=thread_layout)
+            clifft.sample(prog, 1, thread_layout=thread_layout)
 
     def test_sample_different_seeds(self, sampling_mode: SamplingMode) -> None:
         """Different seeds produce different results."""
@@ -725,9 +715,9 @@ class TestNoiseAndQEC:
         assert det.shape == (SMALL_CIRCUIT_SHOTS, 0)
         assert obs.shape == (SMALL_CIRCUIT_SHOTS, 0)
 
-    def test_program_detector_observable_counts(self, sampling_api: Any) -> None:
+    def test_program_detector_observable_counts(self) -> None:
         """Program reports correct detector and observable counts."""
-        prog = sampling_api.compile("""
+        prog = clifft.compile("""
             H 0
             M 0
             DETECTOR rec[-1]
@@ -918,25 +908,25 @@ class TestNoiseAndQEC:
 class TestPostselection:
     """Tests for compile() with postselection_mask."""
 
-    def test_compile_with_postselection_mask(self, sampling_api: Any) -> None:
+    def test_compile_with_postselection_mask(self) -> None:
         """Compile with postselection_mask kwarg works via nanobind."""
-        prog = sampling_api.compile(
+        prog = clifft.compile(
             "M 0\nDETECTOR rec[-1]\n",
             postselection_mask=[1],
         )
         assert prog.num_detectors == 1
         assert prog.num_measurements == 1
 
-    def test_has_postselection_flag(self, sampling_api: Any) -> None:
+    def test_has_postselection_flag(self) -> None:
         """has_postselection is True when mask is non-trivial, False otherwise."""
         circuit = "M 0\nDETECTOR rec[-1]\n"
-        prog_no_mask = sampling_api.compile(circuit)
+        prog_no_mask = clifft.compile(circuit)
         assert prog_no_mask.has_postselection is False
 
-        prog_zero_mask = sampling_api.compile(circuit, postselection_mask=[0])
+        prog_zero_mask = clifft.compile(circuit, postselection_mask=[0])
         assert prog_zero_mask.has_postselection is False
 
-        prog_with_mask = sampling_api.compile(circuit, postselection_mask=[1])
+        prog_with_mask = clifft.compile(circuit, postselection_mask=[1])
         assert prog_with_mask.has_postselection is True
 
     def test_sample_raises_on_postselected_program(self, sampling_mode: SamplingMode) -> None:
@@ -969,11 +959,11 @@ class TestPostselection:
         result = sampling_mode.sample(prog, shots=SMALL_CIRCUIT_SHOTS, seed=42)
         assert result.detectors.shape == (SMALL_CIRCUIT_SHOTS, 1)
 
-    def test_empty_mask_is_default(self, sampling_api: Any) -> None:
+    def test_empty_mask_is_default(self) -> None:
         """Empty postselection_mask produces same result as no mask."""
         circuit = "M 0\nDETECTOR rec[-1]\n"
-        prog_default = sampling_api.compile(circuit)
-        prog_empty = sampling_api.compile(circuit, postselection_mask=[])
+        prog_default = clifft.compile(circuit)
+        prog_empty = clifft.compile(circuit, postselection_mask=[])
         assert prog_default.num_actions == prog_empty.num_actions
 
 
@@ -1208,19 +1198,19 @@ class TestSampleSurvivors:
     @pytest.mark.parametrize("batch_size", [1, 65, "auto"])
     @pytest.mark.parametrize("keep_records", [False, True])
     def test_threads_preserve_survivor_results(
-        self, sampling_api: Any, threads: int, batch_size: int | str, keep_records: bool
+        self, threads: int, batch_size: int | str, keep_records: bool
     ) -> None:
         """Survivor counts and retained row order are independent of worker schedules."""
-        prog = sampling_api.compile(
+        prog = clifft.compile(
             "H 0\nM 0\nDETECTOR rec[-1]\nH 1\nM 1\nEXP_VAL Z1\nOBSERVABLE_INCLUDE(0) rec[-1]",
             postselection_mask=[1],
         )
         # More packed batches give fast aggregate workers time to share the work.
         shots = 32 * 65 + 1 if batch_size == 65 else 257
-        serial = sampling_api.sample_survivors(
+        serial = clifft.sample_survivors(
             prog, shots, seed=54321, keep_records=keep_records, threads=1, batch_size=batch_size
         )
-        threaded = sampling_api.sample_survivors(
+        threaded = clifft.sample_survivors(
             prog,
             shots,
             seed=54321,
@@ -1467,13 +1457,13 @@ class TestSyndromeNormalization:
         assert np.all(res.observables == 0)
         assert res.logical_errors == 0
 
-    def test_normalize_syndromes_conflict_raises(self, sampling_api: Any) -> None:
+    def test_normalize_syndromes_conflict_raises(self) -> None:
         """Cannot provide explicit expected parities with normalize_syndromes=True."""
         import pytest
 
         circuit = "M 0\nDETECTOR rec[-1]\n"
         with pytest.raises(ValueError):
-            sampling_api.compile(
+            clifft.compile(
                 circuit,
                 normalize_syndromes=True,
                 expected_detectors=[0],

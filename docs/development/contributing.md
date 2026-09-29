@@ -114,6 +114,11 @@ retain small representative checks in Debug.
     just test
     ```
 
+CPU tests requesting intra-shot workers require an OpenMP build. Hybrid cases
+also require `OMP_PROC_BIND=false`; unavailable configurations skip with a
+reason. These execution configurations are separate from CPU instruction-set
+selection.
+
 ### GPU behavioral tests
 
 The `sampling_mode` fixture includes HIP and CUDA in FP64 and FP32 with automatic

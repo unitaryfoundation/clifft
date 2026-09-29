@@ -152,7 +152,7 @@ CPU_SAMPLING_MODES = (
     CpuSamplingMode("single-shot", 1),
     CpuSamplingMode("packed-65", 65),
     CpuSamplingMode("automatic", "auto"),
-    CpuSamplingMode("scalar-2-workers", 1, threads=2),
+    CpuSamplingMode("single-shot-2-workers", 1, threads=2),
     CpuSamplingMode("packed-65-2-workers", 65, threads=2),
     CpuSamplingMode("intra-shot-2-workers", 1, thread_layout=(1, 2), intra_shot_min_active_width=3),
     CpuSamplingMode("hybrid-2x2-workers", 1, thread_layout=(2, 2), intra_shot_min_active_width=3),

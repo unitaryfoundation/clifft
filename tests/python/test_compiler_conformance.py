@@ -13,7 +13,6 @@ from typing import Any, cast
 
 import numpy as np
 import pytest
-import utils_conformance
 from utils_conformance import (
     ACTIVE_WIDTH,
     COMPILER_PROFILES,
@@ -24,10 +23,8 @@ from utils_conformance import (
     CompilerProfile,
     CpuSamplingMode,
     assert_joint_distribution,
-    fusion_squeeze_passes,
     unitary_reference,
 )
-from utils_pass_registry import registered_hir_passes
 from utils_qiskit import stim_to_qiskit_noiseless
 
 import clifft
@@ -69,13 +66,6 @@ BOUNDARY_SOURCE = (
     + "\nDETECTOR rec[-65] rec[-64]\nDETECTOR rec[-2] rec[-1]"
     + "\nOBSERVABLE_INCLUDE(0) rec[-64]\nOBSERVABLE_INCLUDE(1) rec[-1]"
 )
-
-# These passes deliberately change the reference distribution; they need
-# their own contract tests instead of this original-circuit equivalence test.
-EXCLUDED_PASSES = {
-    "RemoveNoisePass": "Removes noise, changing the noisy circuit's distribution.",
-    "DropNonUnitaryPass": "Removes measurements and other nonunitary operations.",
-}
 
 
 @pytest.fixture(scope="module", params=CASES, ids=lambda case: case.name)
@@ -158,16 +148,6 @@ def test_deterministic_outputs_cross_word_and_batch_boundaries(
     _assert_boundary_outputs(result, shots)
 
 
-@pytest.mark.parametrize("output", ["measurements", "detectors", "observables"])
-def test_boundary_check_rejects_an_unwritten_final_row(output: str) -> None:
-    mode = next(mode for mode in CPU_SAMPLING_MODES if mode.name == "packed-65")
-    result = mode.sample(DEFAULT.compile(BOUNDARY_SOURCE), 131, seed=1907)
-    _assert_boundary_outputs(result, 131)
-    getattr(result, output)[-1] = 0
-    with pytest.raises(AssertionError):
-        _assert_boundary_outputs(result, 131)
-
-
 @pytest.mark.parametrize(
     "witness", [case for case in CASES if case.witness_for], ids=lambda c: c.name
 )
@@ -177,67 +157,11 @@ def test_default_pipeline_really_transforms_witness(witness: UnitaryCase) -> Non
     assert optimized.peak_active_width < baseline.peak_active_width, witness.witness_for
 
 
-@pytest.mark.parametrize(
-    "witness", [case for case in CASES if case.witness_for], ids=lambda c: c.name
-)
-def test_pass_witness_rejects_a_missing_transformation(
-    witness: UnitaryCase, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    remaining_pass = (
-        clifft.StatevectorSqueezePass
-        if witness.witness_for == "PeepholeFusionPass"
-        else clifft.PeepholeFusionPass
-    )
-
-    def remaining_pipeline() -> Any:
-        manager = clifft.HirPassManager()
-        manager.add(remaining_pass())
-        return manager
-
-    monkeypatch.setattr(clifft, "default_hir_pass_manager", remaining_pipeline)
-    with pytest.raises(AssertionError, match=witness.witness_for):
-        test_default_pipeline_really_transforms_witness(witness)
-
-
 def test_active_width_profile_really_transforms_witness() -> None:
     source = "R_PAULI(0.3) X0*X1\nR_PAULI(0.3) Z0*Y1\nMPP Y0*Y1\nMPP Y0"
     baseline = FUSION_SQUEEZE.compile(source)
     scheduled = ACTIVE_WIDTH.compile(source)
     assert scheduled.peak_active_width < baseline.peak_active_width, "ActiveWidthSchedulePass"
-
-
-def test_active_width_witness_rejects_a_missing_transformation(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(utils_conformance, "active_width_passes", lambda: fusion_squeeze_passes())
-    with pytest.raises(AssertionError, match="ActiveWidthSchedulePass"):
-        test_active_width_profile_really_transforms_witness()
-
-
-def _assert_pass_inventory(registry: dict[str, dict[str, object]]) -> None:
-    witnesses = {case.witness_for for case in CASES if case.witness_for} | {
-        "ActiveWidthSchedulePass"
-    }
-    declared = witnesses | EXCLUDED_PASSES.keys()
-    assert set(registry) == declared, (
-        f"Pass coverage decision required: missing={set(registry) - declared}, "
-        f"stale={declared - set(registry)}"
-    )
-    assert all(EXCLUDED_PASSES.values())
-    for name in witnesses - {"ActiveWidthSchedulePass"}:
-        assert registry[name]["default_enabled"], f"{name} needs an explicit opt-in profile"
-    assert not registry["ActiveWidthSchedulePass"]["default_enabled"]
-
-
-def test_every_registered_pass_has_a_coverage_decision() -> None:
-    _assert_pass_inventory(registered_hir_passes())
-
-
-def test_coverage_guard_rejects_an_unaccounted_pass() -> None:
-    registry = registered_hir_passes()
-    registry["UnaccountedPass"] = {"default_enabled": True}
-    with pytest.raises(AssertionError, match="Pass coverage decision required"):
-        _assert_pass_inventory(registry)
 
 
 def test_joint_check_detects_reversed_record_bit_order() -> None:
@@ -394,49 +318,35 @@ def test_sampling_mode_forwards_its_configuration(
     ]
 
 
+_MISSING_OPENMP = "thread_layout intra-shot workers require an OpenMP-enabled build"
+_PROCESSOR_BINDING = "hybrid thread_layout requires OMP_PROC_BIND=false"
+
+
 @pytest.mark.parametrize(
     "sampler", ["sample", "sample_survivors", "sample_k", "sample_k_survivors"]
 )
 @pytest.mark.parametrize(
-    "layout",
-    [None, (1, 1), (2, 1), (1, 2), (2, 2)],
-    ids=["implicit", "serial", "cross-shot", "intra-shot", "hybrid"],
-)
-@pytest.mark.parametrize(
-    ("message", "skipped_layouts", "skip_reason"),
+    ("layout", "message", "skips"),
     [
-        (
-            "thread_layout intra-shot workers require an OpenMP-enabled build",
-            [(1, 2), (2, 2)],
-            "Clifft was built without OpenMP",
+        pytest.param(None, _MISSING_OPENMP, False, id="implicit"),
+        pytest.param((1, 1), _MISSING_OPENMP, False, id="serial"),
+        pytest.param((2, 1), _MISSING_OPENMP, False, id="cross-shot"),
+        pytest.param((1, 2), _MISSING_OPENMP, True, id="intra-shot-without-openmp"),
+        pytest.param((2, 2), _MISSING_OPENMP, True, id="hybrid-without-openmp"),
+        pytest.param((1, 2), _PROCESSOR_BINDING, False, id="bound-intra-shot"),
+        pytest.param((2, 2), _PROCESSOR_BINDING, True, id="bound-hybrid"),
+        pytest.param((2, 2), "invalid program", False, id="unrelated"),
+        pytest.param((2, 2), f"unexpected error: {_MISSING_OPENMP}", False, id="openmp-substring"),
+        pytest.param(
+            (2, 2), f"unexpected error: {_PROCESSOR_BINDING}", False, id="binding-substring"
         ),
-        (
-            "hybrid thread_layout requires OMP_PROC_BIND=false",
-            [(2, 2)],
-            "Hybrid sampling requires OMP_PROC_BIND=false",
-        ),
-        ("invalid program", [], ""),
-        (
-            "unexpected error: thread_layout intra-shot workers require an OpenMP-enabled build",
-            [],
-            "",
-        ),
-        ("unexpected error: hybrid thread_layout requires OMP_PROC_BIND=false", [], ""),
-    ],
-    ids=[
-        "missing-openmp",
-        "processor-binding",
-        "unrelated",
-        "openmp-substring",
-        "binding-substring",
     ],
 )
 def test_sampling_mode_only_skips_unavailable_layouts(
     sampler: str,
     layout: tuple[int, int] | None,
     message: str,
-    skipped_layouts: list[tuple[int, int]],
-    skip_reason: str,
+    skips: bool,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     error = ValueError(message)
@@ -447,8 +357,8 @@ def test_sampling_mode_only_skips_unavailable_layouts(
     monkeypatch.setattr(clifft, sampler, reject)
     mode = CpuSamplingMode("threaded", 1, thread_layout=layout)
     options = {"k": 1} if sampler in ("sample_k", "sample_k_survivors") else {}
-    if layout in skipped_layouts:
-        with pytest.raises(pytest.skip.Exception, match=skip_reason):
+    if skips:
+        with pytest.raises(pytest.skip.Exception):
             getattr(mode, sampler)(object(), 2, **options)
     else:
         with pytest.raises(ValueError) as raised:

@@ -1,199 +1,78 @@
 <!--pytest-codeblocks:skipfile-->
 # Testing Strategy
 
-Clifft uses a layered testing strategy. Fast C++ unit tests validate individual compiler and runtime components, while Python integration tests compare full-system behavior against independent simulation oracles and statistical expectations.
+Clifft combines focused C++ tests with Python integration tests. C++ tests
+localize failures in parsing, compilation, planning, and execution. Python tests
+check public behavior against analytic expectations and independent simulators.
+Exact state and record checks complement statistical checks of noisy circuits.
 
-This split mirrors Clifft's architecture. The compiler pipeline is tested for
-deterministic correctness: parsing, Clifford absorption, HIR construction,
-coordinate planning, expression lowering, and executable-plan preparation
-should produce reproducible results. The sampling layer is tested
-statistically: noisy circuits and detector outputs are compared against
-independent references within shot-noise bounds.
+## Independent References
 
-Because Clifft is an exact simulator for near-Clifford fault-tolerant circuits, the tests emphasize both sides of the system: exact basis and frame transformations, and correct stochastic behavior under noise, measurements, detectors, and observables.
+* **Qiskit Aer** checks small unitary circuits, including non-Clifford gates,
+  across compiler profiles. Statevectors are compared up to global phase;
+  exact record probabilities and sampled joint distributions check correlations
+  that measurement averages can miss. See the
+  [statevector oracle](https://github.com/unitaryfoundation/clifft/blob/main/tests/python/test_qiskit_aer.py)
+  and [compiler conformance tests](https://github.com/unitaryfoundation/clifft/blob/main/tests/python/test_compiler_conformance.py).
+* **Stim** checks Clifford gate semantics and noisy detector/observable
+  statistics. Probability-one errors give exact regression cases; stochastic
+  comparisons use shot-noise bounds. See the
+  [Clifford oracle](https://github.com/unitaryfoundation/clifft/blob/main/tests/python/test_stim_statevector_oracle.py)
+  and [statistical tests](https://github.com/unitaryfoundation/clifft/blob/main/tests/python/test_statistical_equivalence.py).
+* **Analytic and small dense references** check leakage/loss trajectories,
+  transition probabilities, and correlations between records and final states.
+  See the [noncomputational oracle tests](https://github.com/unitaryfoundation/clifft/blob/main/tests/python/test_noncomp_oracle.py).
 
-## Core Primitives and the Tableau Contract
-
-Clifft's compiler uses stabilizer tableau operations for Clifford-frame
-tracking and Pauli rewinding. The exact representation, composition direction,
-phase convention, bit order, and padding requirements are specified in
-[Tableau Conventions](tableau-conventions.md). These rules are part of the
-compiler contract regardless of which library implements them.
-
-C++ tests compare the packed native implementation with deliberately scalar
-Clifford and Pauli-channel references, algebraic round trips, and property
-checks across 64-bit storage boundaries. End-to-end Python tests retain Stim as
-an independent oracle for every supported Clifford gate and noisy circuit
-behavior.
-
-## Structured and Random Circuit Oracles
-
-Random circuit fuzzing is useful for finding edge cases, but it is not sufficient on its own. Deep random circuits can produce output distributions and dense states whose errors are difficult to diagnose locally. Clifft therefore combines random fuzzing with structured circuit families whose expected behavior is known analytically.
-
-* **Mirror circuits ($UU^\dagger = I$):** We generate deep, entangling
-  circuits with a bounded number of non-Clifford gates and append the exact
-  inverse circuit. The final state must return to `|00...0>`. These tests
-  exercise active-state expansion, non-Clifford phase handling,
-  measurement-free reversibility, and normalization behavior. With
-  optimization enabled, related tests check that the compiler can recognize
-  and eliminate cancelling non-Clifford structure in these cases
-  ([`test_peephole_oracle.py`](https://github.com/unitaryfoundation/clifft/blob/main/tests/python/test_peephole_oracle.py)).
-
-* **Structured compiler stress tests:** We generate circuit families designed to exercise specific parts of the compiler and executor:
-    * **Commutation tests:** circuits that force non-Clifford operations through chains of commuting and anti-commuting Pauli structure, stressing HIR rewrites and scheduling.
-    * **Coordinate and expression tests:** CNOT/CZ fan-out patterns that verify multi-qubit Pauli products map to the intended active coordinates and affine dependencies.
-    * **Active-state lifecycle tests:** circuits that repeatedly introduce and remove active degrees of freedom, stressing active-array growth, compaction, and accumulated scale-factor handling.
-
-* **Random fuzzing:** Dense random Clifford+T circuits are used to shake out
-  edge cases in coordinate planning, prepared active operations, and the
-  routing of physical correlations through planned coordinates and affine
-  signs.
-
-All procedural generators are centralized in [`utils_fuzzing.py`](https://github.com/unitaryfoundation/clifft/blob/main/tests/python/utils_fuzzing.py).
-
-## External Cross-Validation Oracles
-
-End-to-end Python tests compare Clifft against independent references whenever
-practical. These tests validate the full symbolic sampling pipeline rather
-than isolated implementation details.
-
-* **Statevector equivalence with Qiskit Aer:** For small circuits, Clifft
-  expands its final factored state into a dense $2^n$ state vector. We then
-  compare this state against the same circuit simulated by Qiskit Aer using a
-  strict fidelity threshold
-  ([`test_qiskit_aer.py`](https://github.com/unitaryfoundation/clifft/blob/main/tests/python/test_qiskit_aer.py)).
-  This checks that Clifft's non-Clifford phase handling and coordinate
-  reconstruction agree with an independent dense-state simulator up to global
-  phase. The same circuits are checked with and without compiler optimization.
-
-* **Compiler and sampling conformance:** Small unitary circuits are checked
-  against Qiskit Aer across compiler optimizations and CPU sampling modes
-  ([`test_compiler_conformance.py`](https://github.com/unitaryfoundation/clifft/blob/main/tests/python/test_compiler_conformance.py)).
-  Comparing complete measurement outcomes checks correlations that individual
-  measurement averages can miss. Exact checks also catch missing or incorrect
-  output rows.
-
-* **Clifford statevector equivalence with Stim:** Every named Clifford accepted
-  by the frontend, plus representative arbitrary Pauli-product Cliffords, is
-  applied to a tomographically complete set of stabilizer inputs and compared
-  with Stim up to global phase
-  ([`test_stim_statevector_oracle.py`](https://github.com/unitaryfoundation/clifft/blob/main/tests/python/test_stim_statevector_oracle.py)).
-  This end-to-end gate and phase oracle remains independent of the C++ test
-  references.
-
-* **Statistical equivalence with Stim:** For purely Clifford noisy circuits, Clifft should reproduce the detector and observable statistics produced by Stim. We run surface-code-style extraction circuits for many shots in both simulators and require each detector and logical observable marginal to agree within a binomial shot-noise bound ([`test_statistical_equivalence.py`](https://github.com/unitaryfoundation/clifft/blob/main/tests/python/test_statistical_equivalence.py)). This validates Clifft's ahead-of-time handling of stochastic noise, measurements, detectors, and classical record logic in the Clifford regime.
-
-* **Deterministic trajectory tests:** To test individual noisy trajectories without relying on statistical convergence, we inject deterministic Pauli errors such as `X_ERROR(1.0)` into entangled circuits. Clifft's detector and observable outputs are then compared directly against Stim's frame-tracking sampler ([`test_detector_oracle.py`](https://github.com/unitaryfoundation/clifft/blob/main/tests/python/test_detector_oracle.py)). These tests check that rewound frames, prepared symbolic actions, and detector updates produce the expected classical outcomes.
-
-## Layer-by-Layer C++ Unit Testing
-
-The C++ core is unit-tested with `Catch2`. These tests target individual layers of the compiler and runtime so that failures can be localized before reaching the full Python integration suite.
-
-* **Parsing and AST:** [`test_parser.cc`](https://github.com/unitaryfoundation/clifft/blob/main/tests/test_parser.cc) validates conversion from text to `clifft::Circuit`, including `REPEAT` unrolling and supported Stim-like syntax.
-
-* **Front end:** [`test_frontend.cc`](https://github.com/unitaryfoundation/clifft/blob/main/tests/test_frontend.cc) checks Clifford absorption, Heisenberg rewinding, and extraction of the Pauli masks passed into HIR.
-
-* **Symbolic planning and lowering:** `test_sampling_planner.cc`,
-  `test_sampling_planner_frame.cc`, `test_sampling_plan.cc`, and
-  `test_sampling_executor.cc` cover coordinate selection, frame changes,
-  affine dependencies, plan validation, prepared actions, and execution
-  boundaries.
-
-* **Active-state kernels:** `test_sampling_kernels.cc` and the focused
-  rotation, measurement, and instrument suites compare scalar and SIMD
-  implementations across width and mask boundaries.
-
-* **Inspection and source provenance:** `test_source_map.cc` and the Python
-  introspection tests cover HIR source provenance. The sampling planner, plan,
-  and executor suites cover semantic and executable-plan inspection, including
-  the mapping from fused executable actions back to semantic actions. The
-  WebAssembly smoke suite checks provenance through HIR, semantic-plan, and
-  executable-plan inspection as exposed by the playground.
-
-## Validation and Backend Coverage
-
-Construction-time validation rejects malformed HIR and semantic plans before
-they reach execution. Debug builds additionally assert internal invariants in
-the ordinary dispatch loop and kernels, where exceptions and allocations are
-deliberately avoided.
-
-CI exercises the scalar, AVX2, and AVX-512 execution paths. Native runners
-cover the instruction sets available on their hosts, while emulation provides
-deterministic coverage of older x86 CPUs and AVX-512. These tests verify both
-automatic backend selection and clean rejection of forced, unsupported
-backends. The Release smoke job also runs the full Python suite against an
-optimized build with internal assertions enabled.
-
-Separate jobs cover Linux arm64, macOS, Windows, and WebAssembly. Nightly
-sanitizer jobs check for memory errors, undefined behavior, and data races,
-while a weekly job records combined C++ and Python coverage.
+Structured circuits make failures easier to diagnose: mirror circuits test
+reversibility, entangled circuits expose correlation errors, and repeated
+growth and measurement exercise active-state reuse. Random circuits supplement
+these targeted cases. C++ tests also compare kernels and tableau operations
+against simple references; [Tableau Conventions](tableau-conventions.md) defines
+the algebraic contract.
 
 ## Shared Sampling Behavior
 
-Shared sampling tests run the same behavioral assertions across supported
-execution modes. This helps new features receive coverage across modes and
-makes new modes inherit existing behavioral and regression tests.
+Shared fixtures run the same behavioral assertions across supported execution
+configurations. New shared tests inherit the existing configurations, and new
+configurations inherit the applicable tests. Coverage includes ordinary and
+postselected sampling, forced-fault sampling, and noncomputational trajectories.
 
-The CPU corpus shares assertions across batching and threading configurations.
-Intra-shot tests lower the active-width threshold so small circuits can exercise
-parallel kernels; narrower circuits retain serial execution. Active-state cases
-check evolution and its interactions with measurement, feedback, and postselection
-against independent expectations. Cases requesting intra-shot workers skip on
-builds without OpenMP. Cases requesting hybrid layouts also skip when OpenMP
-processor binding is active, including narrow circuits whose execution would
-otherwise fall back to cross-shot workers. Run with `OMP_PROC_BIND=false` to
-include those cases.
+Compiler-profile comparisons, exact-query APIs, large benchmarks, and focused
+resource, dispatch, and cross-mode comparisons retain their own configurations.
+These tests complement the shared behavioral suite. Configuration alone does
+not prove that a particular execution path ran: representative cases must keep
+the relevant work after optimization and exercise the intended runtime path.
+See [Writing Tests](contributing.md#writing-tests) for fixture selection and
+contribution guidance.
 
-Dedicated tests check seeded repeatability across worker counts and behavior
-at batch and output boundaries. Short dynamically scheduled cross-shot calls
-may finish on one worker. See [Writing Tests](contributing.md#writing-tests)
-for contribution guidance.
+## CI Coverage
+
+CI exercises CPU instruction sets, supported platforms, and WebAssembly.
+Debug builds check internal invariants; optimized builds cover release behavior
+and expensive workloads. Sanitizers check memory errors, undefined behavior,
+and data races, while coverage jobs report which code the suites exercise.
+
+Small representative cases remain in Debug. Measured high-cost cases marked
+`expensive` run in optimized CI; local runs include them by default. The
+[CI workflow](https://github.com/unitaryfoundation/clifft/blob/main/.github/workflows/ci.yml)
+and [C++ test configuration](https://github.com/unitaryfoundation/clifft/blob/main/tests/CMakeLists.txt)
+define the exact build and test selections.
 
 ## Running the Tests
 
-We use `pytest` for the Python oracles and `CTest` for the C++ units. You can run the test suites locally using the provided `just` shortcuts.
-
-=== "Python"
-
-    ```bash
-    uv run pytest tests/python/ -v
-    # Or using just:
-    just py-test
-    ```
-
-=== "C++"
-
-    ```bash
-    cmake -B build -DCMAKE_BUILD_TYPE=Debug
-    cmake --build build -j
-    ctest --test-dir build --output-on-failure
-    # Or using just:
-    just test
-    ```
-
-CTest runs the distance-nine scheduling regression in optimized builds. Debug
-builds retain the distance-seven case and omit the `[large-schedule]` test to
-avoid repeating its expensive unoptimized search across CI configurations.
-
-CI Debug jobs exclude the CTest `expensive` label and pytest `expensive`
-marker. These identify high-shot statistical comparisons, large fixture
-sweeps, and the unsqueezed width-24 sampling case. Optimized CI jobs run these
-cases at their full sample counts. The Release smoke job (C++ and Python) and
-the Windows Python wheel keep `assert()` active with `CLIFFT_FORCE_ASSERTS=ON`;
-the GCC Release job runs the C++ cases with `NDEBUG`. Windows C++ stays in
-Debug to retain MSVC library and runtime checks.
-Small deterministic cases and squeezed sampling boundaries remain in Debug.
-Local test runs include expensive cases by default, as do the nightly C++
-sanitizer and weekly coverage jobs.
-
-To reproduce the CI Debug selection locally, use
-`ctest --test-dir build --output-on-failure --label-exclude expensive` and
-`uv run pytest tests/python/ -m "not expensive" --durations=20`.
-
-To generate HTML coverage reports for both layers of the application to ensure new features are thoroughly exercised:
+With the development environment and C++ build prepared:
 
 ```bash
-just py-cov    # Generates Python coverage report
-just cpp-cov   # Generates C++ coverage report (requires lcov)
-just cov       # Runs both
+just py-test
+just test
 ```
+
+To exclude expensive cases, as the CI Debug jobs do:
+
+```bash
+uv run pytest tests/python/ -m "not expensive" --durations=20
+ctest --test-dir build --output-on-failure --label-exclude expensive
+```
+
+See [Running Tests](contributing.md#running-tests) for direct build/run commands
+and [Code Coverage](contributing.md#code-coverage) for coverage reports.

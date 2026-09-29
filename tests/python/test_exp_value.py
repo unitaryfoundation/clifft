@@ -9,8 +9,6 @@ Tests cover:
 
 from __future__ import annotations
 
-from typing import Any
-
 import numpy as np
 import pytest
 from conftest import random_clifford_t_circuit
@@ -366,9 +364,9 @@ class TestNoExpValRegression:
         result = sampling_mode.sample(prog, shots=SMALL_CIRCUIT_SHOTS, seed=0)
         assert result.exp_vals.shape == (SMALL_CIRCUIT_SHOTS, 0)
 
-    def test_num_exp_vals_zero(self, sampling_api: Any) -> None:
+    def test_num_exp_vals_zero(self) -> None:
         """Program reports num_exp_vals == 0."""
-        prog = sampling_api.compile("H 0\nM 0")
+        prog = clifft.compile("H 0\nM 0")
         assert prog.num_exp_vals == 0
 
     def test_measurements_unchanged(self, sampling_mode: SamplingMode) -> None:
