@@ -6,7 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [0.11.0] - 2026-09-30
 
-Clifft 0.11.0 adds an opt-in scheduler that searches for operation schedules with lower peak active width or less work at larger widths, defers scalar noise sampling until its first use, and introduces a Sinter-compatible sampler. Local single-thread scalar A/B measurements on four fixtures ranged from 0.86x to 2.31x sampling throughput with scheduling enabled, including both gains and a slowdown. See [Less Work per Shot in Clifft](https://unitaryfoundation.github.io/clifft/stable/updates/less-work-per-shot/) for the development story and local A/B measurements.
+Clifft 0.11.0 adds an opt-in scheduler that searches for operation schedules with lower peak active width or less work at larger widths, defers scalar noise sampling until its first use, and introduces a Sinter-compatible sampler. See [Less Work per Shot in Clifft](https://unitaryfoundation.github.io/clifft/stable/updates/less-work-per-shot/) for the development story, release results, and local A/B measurements.
+
+The matched single-core QEC campaign, using 0.11.0rc1 with scheduling enabled and independently calibrated batch sizes, records a 1.20x median per-workload throughput ratio over 0.10.0rc1 across six workloads. The coherent circuits improve by 2.52x and 2.21x, distillation by 1.30x, and cultivation at distance 5 by 1.10x; the other two workloads remain essentially unchanged. See [Performance](https://unitaryfoundation.github.io/clifft/stable/guide/performance/) for absolute rates, the SymFT and Stim comparisons, and measurement details.
 
 The release extends the experimental AMD HIP backend with cooperative execution for wider active states and introduces an experimental NVIDIA CUDA backend. Thanks to @josemonsalve2 and AMD for the HIP contributions, and @FarLab for the CUDA backend. Both backends require explicit source builds, are outside the stable API, and are never selected automatically.
 
@@ -43,6 +45,7 @@ The shared test suite now checks sampling features across supported CPU and GPU 
 
 ### Documentation
 
+- Added the v0.11.0 development post and refreshed the performance guide, release-history figures, and release comparisons from the reviewed candidate benchmark results. Existing Quantum Volume measurements remain explicitly labeled as 0.10.0rc1.
 - Corrected links to versioned documentation, by @bachase in [#486](https://github.com/unitaryfoundation/clifft/pull/486).
 
 ## [0.10.1] - 2026-09-14

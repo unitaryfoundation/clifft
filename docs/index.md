@@ -105,10 +105,17 @@ operation orders with lower peak active width or less work at larger widths;
 deferred noise draws let postselected shots avoid later noise work after
 rejection.
 
-Early testing suggested that Clifft could be competitive with Stim on some
-Clifford error-detection circuits. The new
-[Sinter-compatible sampler](guide/sinter.md) makes those workloads accessible
-through Sinter's experiment collection tools and is a first step toward
+The matched single-core release campaign puts these changes in context. With
+the scheduler enabled and batch sizes calibrated for each workload, throughput
+is **2.52x and 2.21x** the previous release on the two coherent QEC circuits,
+**1.30x** on distillation, and **1.10x** on cultivation at distance 5.
+Cultivation at distance 3 and Clifford surface-code sampling remain essentially
+unchanged. See [Performance](guide/performance.md) for the comparisons and
+measurement details.
+
+Clifft's performance on Clifford error-detection circuits also motivated the
+new [Sinter-compatible sampler](guide/sinter.md). It brings all-detector
+postselection to Sinter's experiment collection tools and is a first step toward
 exploring broader QEC workflows.
 
 Experimental GPU work also continues, exploring workloads that could benefit
@@ -125,7 +132,7 @@ The shared test suite has grown alongside these execution choices: feature
 tests run across the modes that support them, and new backends inherit the
 existing tests for their supported features. Read
 [Less Work per Shot in Clifft](updates/less-work-per-shot.md) for the development
-story and local A/B measurements, or see the
+story, release results, and local A/B measurements, or see the
 [full release notes](https://github.com/unitaryfoundation/clifft/blob/main/CHANGELOG.md).
 
 ## What's New in 0.10.1
