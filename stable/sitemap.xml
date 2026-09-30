@@ -2,146 +2,158 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/stable/</loc>
-         <lastmod>2026-09-14</lastmod>
+         <lastmod>2026-09-30</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/stable/development/building/</loc>
-         <lastmod>2026-09-14</lastmod>
+         <lastmod>2026-09-30</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/stable/development/contributing/</loc>
-         <lastmod>2026-09-14</lastmod>
+         <lastmod>2026-09-30</lastmod>
+    </url>
+    <url>
+         <loc>https://unitaryfoundation.github.io/clifft/stable/development/cuda-backend/</loc>
+         <lastmod>2026-09-30</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/stable/development/hip-backend/</loc>
-         <lastmod>2026-09-14</lastmod>
+         <lastmod>2026-09-30</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/stable/development/hip-kernel-development/</loc>
-         <lastmod>2026-09-14</lastmod>
+         <lastmod>2026-09-30</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/stable/development/releasing/</loc>
-         <lastmod>2026-09-14</lastmod>
+         <lastmod>2026-09-30</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/stable/development/tableau-conventions/</loc>
-         <lastmod>2026-09-14</lastmod>
+         <lastmod>2026-09-30</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/stable/development/testing/</loc>
-         <lastmod>2026-09-14</lastmod>
+         <lastmod>2026-09-30</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/stable/getting-started/choosing-a-workflow/</loc>
-         <lastmod>2026-09-14</lastmod>
+         <lastmod>2026-09-30</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/stable/getting-started/installation/</loc>
-         <lastmod>2026-09-14</lastmod>
+         <lastmod>2026-09-30</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/stable/getting-started/quickstart/</loc>
-         <lastmod>2026-09-14</lastmod>
+         <lastmod>2026-09-30</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/stable/guide/</loc>
-         <lastmod>2026-09-14</lastmod>
+         <lastmod>2026-09-30</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/stable/guide/circuit-inputs/</loc>
-         <lastmod>2026-09-14</lastmod>
+         <lastmod>2026-09-30</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/stable/guide/compilation/</loc>
-         <lastmod>2026-09-14</lastmod>
+         <lastmod>2026-09-30</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/stable/guide/cpu-execution/</loc>
-         <lastmod>2026-09-14</lastmod>
+         <lastmod>2026-09-30</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/stable/guide/delayed-loss/</loc>
-         <lastmod>2026-09-14</lastmod>
+         <lastmod>2026-09-30</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/stable/guide/importance-sampling-tutorial/</loc>
-         <lastmod>2026-09-14</lastmod>
+         <lastmod>2026-09-30</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/stable/guide/importance-sampling/</loc>
-         <lastmod>2026-09-14</lastmod>
+         <lastmod>2026-09-30</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/stable/guide/leakage-and-loss/</loc>
-         <lastmod>2026-09-14</lastmod>
+         <lastmod>2026-09-30</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/stable/guide/neutral-atom-leakage/</loc>
-         <lastmod>2026-09-14</lastmod>
+         <lastmod>2026-09-30</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/stable/guide/performance/</loc>
-         <lastmod>2026-09-14</lastmod>
+         <lastmod>2026-09-30</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/stable/guide/simulation/</loc>
-         <lastmod>2026-09-14</lastmod>
+         <lastmod>2026-09-30</lastmod>
+    </url>
+    <url>
+         <loc>https://unitaryfoundation.github.io/clifft/stable/guide/sinter/</loc>
+         <lastmod>2026-09-30</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/stable/guide/strong-simulation/</loc>
-         <lastmod>2026-09-14</lastmod>
+         <lastmod>2026-09-30</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/stable/guide/surface-code/</loc>
-         <lastmod>2026-09-14</lastmod>
+         <lastmod>2026-09-30</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/stable/guide/circuits/neutral_atom/</loc>
-         <lastmod>2026-09-14</lastmod>
+         <lastmod>2026-09-30</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/stable/reference/compiler-ir/</loc>
-         <lastmod>2026-09-14</lastmod>
+         <lastmod>2026-09-30</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/stable/reference/gates/</loc>
-         <lastmod>2026-09-14</lastmod>
+         <lastmod>2026-09-30</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/stable/reference/passes/</loc>
-         <lastmod>2026-09-14</lastmod>
+         <lastmod>2026-09-30</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/stable/reference/python-api/</loc>
-         <lastmod>2026-09-14</lastmod>
+         <lastmod>2026-09-30</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/stable/theory/architecture/</loc>
-         <lastmod>2026-09-14</lastmod>
+         <lastmod>2026-09-30</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/stable/theory/basis_probabilities/</loc>
-         <lastmod>2026-09-14</lastmod>
+         <lastmod>2026-09-30</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/stable/theory/noncomputational/</loc>
-         <lastmod>2026-09-14</lastmod>
+         <lastmod>2026-09-30</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/stable/theory/overview/</loc>
-         <lastmod>2026-09-14</lastmod>
+         <lastmod>2026-09-30</lastmod>
+    </url>
+    <url>
+         <loc>https://unitaryfoundation.github.io/clifft/stable/updates/less-work-per-shot/</loc>
+         <lastmod>2026-09-30</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/stable/updates/packed-sampling/</loc>
-         <lastmod>2026-09-14</lastmod>
+         <lastmod>2026-09-30</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/stable/updates/parallel-sampling/</loc>
-         <lastmod>2026-09-14</lastmod>
+         <lastmod>2026-09-30</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/stable/updates/symbolic-sampling/</loc>
-         <lastmod>2026-09-14</lastmod>
+         <lastmod>2026-09-30</lastmod>
     </url>
 </urlset>
