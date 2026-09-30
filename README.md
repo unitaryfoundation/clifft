@@ -80,10 +80,6 @@ usually associated with specialized Clifford tools.
   <img src="https://raw.githubusercontent.com/unitaryfoundation/clifft/main/docs/assets/performance/clifft-throughput-light.png" alt="Clifft v0.11 attempted shots per second across six near-Clifford workloads">
 </picture>
 
-With active-width scheduling enabled, the v0.11 release campaign improves
-median per-workload throughput by **20% over v0.10**, with gains up to
-**2.52x**. Batch sizes are calibrated for each workload and implementation.
-
 See the [Performance guide](https://unitaryfoundation.github.io/clifft/stable/guide/performance/)
 for comparisons with other simulators, release history, dense Quantum Volume
 results, and measurement details.

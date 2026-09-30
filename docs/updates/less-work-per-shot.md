@@ -8,40 +8,9 @@ experiments, how far each shot runs before it is rejected.
 The previous two releases expanded how Clifft uses CPU resources, through
 parallel and packed sampling. Version 0.11.0 continues improving CPU sampling
 in two ways: searching for better operation schedules and deferring noise
-sampling until its first use. The release benchmarks show how these changes
-work together; local A/B measurements then help explain the individual
-trade-offs. The release also introduces a Sinter integration, continues
-experimental GPU work, and expands the tests supporting these execution choices.
-
-## The release in context
-
-The matched single-core `clifft-bench` campaign compares the published
-0.11.0rc1 wheel with 0.10.0rc1 on six QEC workloads. The new release uses the
-opt-in scheduler after the default compiler pipeline, with the standard
-settings. Batch size is calibrated independently for each workload and
-implementation, so the comparison captures the combined release improvements.
-
-![Clifft v0.11 throughput relative to v0.10 across six QEC workloads](../assets/performance/v011-vs-v010-light.png#only-light)
-![Clifft v0.11 throughput relative to v0.10 across six QEC workloads](../assets/performance/v011-vs-v010-dark.png#only-dark)
-
-The coherent circuits improve by **2.52x at d=3, r=3** and **2.21x at
-d=5, r=5**. Distillation improves by **1.30x**, and cultivation at distance 5
-by **1.10x**. Cultivation at distance 3 and Clifford surface-code sampling
-remain essentially unchanged. The median per-workload improvement is **20%**.
-
-Filled markers show workloads where 0.11 selected packed execution; hollow
-markers show scalar execution. Coherent d3 now benefits from a calibrated
-batch of 2,048 shots, while coherent d5 remains scalar. The scheduler reduces
-peak active width from 5 to 4 on coherent d3 and from 5 to 3 on distillation.
-Its coherent d5 schedule does less estimated dense work at the same peak width.
-
-These are sampling rates with compilation measured separately. The run used
-one pinned logical CPU on an AWS `m7a.xlarge`, with five samples of at least
-30 seconds per configuration. The
-[comparison table](https://github.com/unitaryfoundation/clifft-bench/blob/566924f2638a04d87cffa5930a91f3b4b3a48ee7/results/release-v1/release-v1-20260930-180134/comparisons.csv)
-retains the exact candidate identities; the
-[Performance guide](../guide/performance.md) covers absolute rates, comparisons
-with other tools, and the release history.
+sampling until its first use. This post looks at both changes with local A/B
+measurements, then introduces the Sinter integration, ongoing experimental GPU
+work, and the test coverage supporting these execution choices.
 
 ## Schedule for lower active width
 
@@ -62,8 +31,6 @@ pass, using its default settings. The table reports sampling throughput with
 the pass enabled relative to disabled, and compilation time separately.
 Values above 1 mean faster sampling; values below 1 mean slower sampling.
 These are local single-thread scalar measurements on four repository fixtures.
-They isolate scheduling with the same build and execution mode. The release
-comparison above also includes the other sampling changes and batch calibration.
 
 | Circuit | Peak width off / on | Compile ms off / on | Sampling throughput on / off |
 | --- | ---: | ---: | ---: |
