@@ -98,27 +98,34 @@ For QEC workflows, Clifft also supports detector-based post-selection, survivor 
 
 ## What's New in 0.11.0
 
-When a circuit is sampled many times, small amounts of unnecessary work add up.
-The 0.11.0 release candidate continues Clifft's work on that cost: an opt-in
-[active-width scheduler](guide/compilation.md#active-width-scheduling) searches
-for an operation order that needs a smaller active state, while scalar sampling
-defers noise work until it is needed so rejected shots can stop earlier.
+Clifft 0.11.0 continues improving CPU sampling through
+[active-width scheduling](guide/compilation.md#active-width-scheduling) and
+sampling noise only when it is needed. The opt-in scheduler searches for
+operation orders with lower peak active width or less work at larger widths;
+deferred noise draws let postselected shots avoid later noise work after
+rejection.
 
-For error-detection experiments, the new
-[Sinter integration](guide/sinter.md) carries that idea through to the result.
-Its perfectionist sampler rejects shots with any detection event and returns
-aggregate counts without building rows of surviving samples.
+Early testing suggested that Clifft could be competitive with Stim on some
+Clifford error-detection circuits. The new
+[Sinter-compatible sampler](guide/sinter.md) makes those workloads accessible
+through Sinter's experiment collection tools and is a first step toward
+exploring broader QEC workflows.
 
-We are also extending the same compiled sampling model to GPUs, with a new
-[NVIDIA CUDA backend](development/cuda-backend.md) and cooperative execution for
-wider active states on [AMD HIP](development/hip-backend.md). Both remain
-experimental, require source builds, and are never selected automatically.
-Performance work is ongoing; we plan to benchmark the candidate in
-[clifft-bench](https://github.com/unitaryfoundation/clifft-bench) before the
-final release.
+Experimental GPU work also continues, exploring workloads that could benefit
+from GPU memory capacity and bandwidth. The [AMD HIP
+backend](development/hip-backend.md) gains cooperative execution for wider
+active states, and the new [NVIDIA CUDA backend](development/cuda-backend.md)
+opens another hardware path. Thanks to
+[Jose Manuel Monsalve Diaz](https://github.com/josemonsalve2) and AMD for the HIP
+contributions, and [Farrokh Labib](https://github.com/FarLab) for the CUDA
+backend. Both remain experimental, require source builds, and are never
+selected automatically.
 
-Read [Less Work per Shot in Clifft](updates/less-work-per-shot.md) for the
-development story, or see the
+The shared test suite has grown alongside these execution choices: feature
+tests run across the modes that support them, and new backends inherit the
+existing tests for their supported features. Read
+[Less Work per Shot in Clifft](updates/less-work-per-shot.md) for the development
+story and local A/B measurements, or see the
 [full release notes](https://github.com/unitaryfoundation/clifft/blob/main/CHANGELOG.md).
 
 ## What's New in 0.10.1

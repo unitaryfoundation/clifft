@@ -6,16 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [0.11.0] - 2026-09-30
 
-Clifft 0.11.0 continues work on the cost of repeated sampling. An opt-in active-width scheduler searches for smaller active states, scalar sampling defers noise work until it is needed, and a new Sinter perfectionist sampler collects aggregate error-detection counts without materializing survivor rows. See [Less Work per Shot in Clifft](https://unitaryfoundation.github.io/clifft/stable/updates/less-work-per-shot/) for the development story.
+Clifft 0.11.0 adds an opt-in scheduler that searches for operation schedules with lower peak active width or less work at larger widths, defers scalar noise sampling until its first use, and introduces a Sinter-compatible sampler. Local single-thread scalar A/B measurements on four fixtures ranged from 0.86x to 2.31x sampling throughput with scheduling enabled, including both gains and a slowdown. See [Less Work per Shot in Clifft](https://unitaryfoundation.github.io/clifft/stable/updates/less-work-per-shot/) for the development story and local A/B measurements.
 
-The release also introduces an experimental NVIDIA CUDA backend and extends AMD HIP with cooperative execution for wider active states. Both GPU backends require explicit source builds, are outside the stable API, and are never selected automatically. Performance work is ongoing; the release candidate will be benchmarked in clifft-bench before the final release.
+The release extends the experimental AMD HIP backend with cooperative execution for wider active states and introduces an experimental NVIDIA CUDA backend. Thanks to @josemonsalve2 and AMD for the HIP contributions, and @FarLab for the CUDA backend. Both backends require explicit source builds, are outside the stable API, and are never selected automatically.
+
+The shared test suite now checks sampling features across supported CPU and GPU execution modes, and gives new backends the existing tests for the features they support. This expands coverage in both directions, with independent Stim and Qiskit Aer references where applicable.
 
 ### Added
 
 - Added the opt-in `ActiveWidthSchedulePass`, available in Python and the Playground. It searches legal operation orders for lower peak active width or less estimated dense work at the same peak, including supported motion across Pauli noise. The pass adds compilation cost and can change seeded samples while preserving their distribution; it remains disabled by default. See [Compiling Circuits](https://unitaryfoundation.github.io/clifft/stable/guide/compilation/#active-width-scheduling), by @bachase in [#507](https://github.com/unitaryfoundation/clifft/pull/507).
 - Added `clifft.sinter.PerfectionistSampler` for all-detector postselection on supported Clifford circuits. Each Sinter worker uses Clifft's counts-only survivor sampling with packed execution by default, returning shots, discards, and logical error counts. Install the optional `clifft[sinter]` extra; ordinary installations still require neither Stim nor Sinter. See [Using with Sinter](https://unitaryfoundation.github.io/clifft/stable/guide/sinter/), by @bachase in [#521](https://github.com/unitaryfoundation/clifft/pull/521).
-- Added an experimental NVIDIA CUDA sampling backend and Python facade under `clifft.experimental.cuda`, validated on Hopper-class devices. Eligible ordinary and survivor sampling use FP64 or experimental FP32 coefficients, with thread-per-shot and cooperative block execution tiers. See the [CUDA Backend](https://unitaryfoundation.github.io/clifft/stable/development/cuda-backend/), by @FarLab in [#464](https://github.com/unitaryfoundation/clifft/pull/464) and [#466](https://github.com/unitaryfoundation/clifft/pull/466).
 - Extended the experimental AMD HIP backend with shared-memory and global-memory cooperative tiers for wider active states, automatic tier selection, and tier inspection in Python and C++. See the [HIP Backend](https://unitaryfoundation.github.io/clifft/stable/development/hip-backend/), by @josemonsalve2 in [#498](https://github.com/unitaryfoundation/clifft/pull/498).
+- Added an experimental NVIDIA CUDA sampling backend and Python facade under `clifft.experimental.cuda`, validated on Hopper-class devices. Eligible ordinary and survivor sampling use FP64 or experimental FP32 coefficients, with thread-per-shot and cooperative block execution tiers. See the [CUDA Backend](https://unitaryfoundation.github.io/clifft/stable/development/cuda-backend/), by @FarLab in [#464](https://github.com/unitaryfoundation/clifft/pull/464) and [#466](https://github.com/unitaryfoundation/clifft/pull/466).
 
 ### Changed
 
@@ -41,7 +43,6 @@ The release also introduces an experimental NVIDIA CUDA backend and extends AMD 
 
 ### Documentation
 
-- Added the v0.11.0 development post and updated the docs home page, covering ongoing sampling and experimental GPU work without new performance figures.
 - Corrected links to versioned documentation, by @bachase in [#486](https://github.com/unitaryfoundation/clifft/pull/486).
 
 ## [0.10.1] - 2026-09-14
