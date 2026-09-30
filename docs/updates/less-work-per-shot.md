@@ -62,25 +62,8 @@ Scalar sampling now defers noise draws until execution reaches their first
 use. The planner determines those deadlines ahead of time. If a detector
 rejects the shot, the remaining noise work can be skipped.
 
-To isolate this change, we built the commits immediately before and after it
-with the same compiler and settings. The following local measurements compare
-sampling throughput after the change with before it. Postselected fixtures
-reject a shot when any detector fires; the ordinary-sampling row provides a
-comparison without early rejection.
-
-| Circuit | Sampling throughput after / before |
-| --- | ---: |
-| Cultivation d=5 with postselection | 1.69x |
-| Clifford S-gate cultivation d=3 | 1.00x |
-| Surface code d=7 r=7 with postselection | 1.08x |
-| Surface code d=7 r=7 ordinary sampling | 1.02x |
-| Synthetic early rejection | 1.70x |
-
-The benefit depends on how much noise work remains after rejection. The
-cultivation distance-5 fixture benefits substantially, while S-gate cultivation
-and ordinary surface-code sampling change little. The synthetic case puts a
-99% rejection check before a long noisy suffix; it illustrates that mechanism
-rather than predicting a typical circuit's speedup.
+In local tests on the circuit corpus, deferred noise increased sampling
+throughput with early rejection by up to about 70%.
 
 ## A first connection to Sinter
 
@@ -138,21 +121,3 @@ share coverage across the CPU modes that support them. Independent Stim and
 Qiskit Aer references check the applicable circuit semantics. This structure
 helps catch interactions that isolated tests for a new feature or backend
 could miss.
-
-## Local measurement setup
-
-These illustrative A/B runs used one pinned logical CPU in an exe.dev VM
-reporting an AMD EPYC 9554P, GCC 13.3.0 Release builds with native tuning and
-AVX-512 dispatch, and `threads=1, batch_size=1`. Each row is the median of 15
-paired sampling ratios, alternating A/B and B/A order after warmup. Compilation
-is excluded from sampling time; its separate figures are medians of five
-warmed compilations. Survivor sampling returns aggregate counts except in the
-synthetic case, which retains records. These measurements describe this local
-scalar setup; they do not establish gains for packed, threaded, or GPU paths.
-
-The scheduler comparison uses the same candidate code with the pass off and
-on. The noise comparison uses the parent and commit of
-[#491](https://github.com/unitaryfoundation/clifft/pull/491), isolating that
-change from later optimizations. The
-[measurement record](../assets/updates/v0.11.0-local-ab/README.md) includes exact
-source identities, raw timings, circuit hashes, and the reproduction script.
