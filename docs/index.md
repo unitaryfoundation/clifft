@@ -96,6 +96,31 @@ For QEC workflows, Clifft also supports detector-based post-selection, survivor 
 [Quick Start](getting-started/quickstart.md){ .md-button .md-button--primary }
 [Try the Playground]({{ playground_url }}){ .md-button }
 
+## What's New in 0.11.0
+
+When a circuit is sampled many times, small amounts of unnecessary work add up.
+The 0.11.0 release candidate continues Clifft's work on that cost: an opt-in
+[active-width scheduler](guide/compilation.md#active-width-scheduling) searches
+for an operation order that needs a smaller active state, while scalar sampling
+defers noise work until it is needed so rejected shots can stop earlier.
+
+For error-detection experiments, the new
+[Sinter integration](guide/sinter.md) carries that idea through to the result.
+Its perfectionist sampler rejects shots with any detection event and returns
+aggregate counts without building rows of surviving samples.
+
+We are also extending the same compiled sampling model to GPUs, with a new
+[NVIDIA CUDA backend](development/cuda-backend.md) and cooperative execution for
+wider active states on [AMD HIP](development/hip-backend.md). Both remain
+experimental, require source builds, and are never selected automatically.
+Performance work is ongoing; we plan to benchmark the candidate in
+[clifft-bench](https://github.com/unitaryfoundation/clifft-bench) before the
+final release.
+
+Read [Less Work per Shot in Clifft](updates/less-work-per-shot.md) for the
+development story, or see the
+[full release notes](https://github.com/unitaryfoundation/clifft/blob/main/CHANGELOG.md).
+
 ## What's New in 0.10.1
 
 Clifft 0.10.1 fixes biased noise sampling in multi-shot

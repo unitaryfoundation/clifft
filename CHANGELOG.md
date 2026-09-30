@@ -4,6 +4,46 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.11.0] - 2026-09-30
+
+Clifft 0.11.0 continues work on the cost of repeated sampling. An opt-in active-width scheduler searches for smaller active states, scalar sampling defers noise work until it is needed, and a new Sinter perfectionist sampler collects aggregate error-detection counts without materializing survivor rows. See [Less Work per Shot in Clifft](https://unitaryfoundation.github.io/clifft/stable/updates/less-work-per-shot/) for the development story.
+
+The release also introduces an experimental NVIDIA CUDA backend and extends AMD HIP with cooperative execution for wider active states. Both GPU backends require explicit source builds, are outside the stable API, and are never selected automatically. Performance work is ongoing; the release candidate will be benchmarked in clifft-bench before the final release.
+
+### Added
+
+- Added the opt-in `ActiveWidthSchedulePass`, available in Python and the Playground. It searches legal operation orders for lower peak active width or less estimated dense work at the same peak, including supported motion across Pauli noise. The pass adds compilation cost and can change seeded samples while preserving their distribution; it remains disabled by default. See [Compiling Circuits](https://unitaryfoundation.github.io/clifft/stable/guide/compilation/#active-width-scheduling), by @bachase in [#507](https://github.com/unitaryfoundation/clifft/pull/507).
+- Added `clifft.sinter.PerfectionistSampler` for all-detector postselection on supported Clifford circuits. Each Sinter worker uses Clifft's counts-only survivor sampling with packed execution by default, returning shots, discards, and logical error counts. Install the optional `clifft[sinter]` extra; ordinary installations still require neither Stim nor Sinter. See [Using with Sinter](https://unitaryfoundation.github.io/clifft/stable/guide/sinter/), by @bachase in [#521](https://github.com/unitaryfoundation/clifft/pull/521).
+- Added an experimental NVIDIA CUDA sampling backend and Python facade under `clifft.experimental.cuda`, validated on Hopper-class devices. Eligible ordinary and survivor sampling use FP64 or experimental FP32 coefficients, with thread-per-shot and cooperative block execution tiers. See the [CUDA Backend](https://unitaryfoundation.github.io/clifft/stable/development/cuda-backend/), by @FarLab in [#464](https://github.com/unitaryfoundation/clifft/pull/464) and [#466](https://github.com/unitaryfoundation/clifft/pull/466).
+- Extended the experimental AMD HIP backend with shared-memory and global-memory cooperative tiers for wider active states, automatic tier selection, and tier inspection in Python and C++. See the [HIP Backend](https://unitaryfoundation.github.io/clifft/stable/development/hip-backend/), by @josemonsalve2 in [#498](https://github.com/unitaryfoundation/clifft/pull/498).
+
+### Changed
+
+- **Breaking, experimental HIP API:** `block_size` now defaults to `0` for automatic sizing. Pass `block_size=256` to retain the previous explicit default, by @josemonsalve2 in [#498](https://github.com/unitaryfoundation/clifft/pull/498).
+
+### Performance
+
+- Deferred scalar noise draws to compiler-precomputed first-use deadlines, allowing rejected shots to skip remaining noise work, by @bachase in [#491](https://github.com/unitaryfoundation/clifft/pull/491).
+- Skipped internal columns that are no longer needed during final packed-survivor compaction, preserving output ordering and seeded results, by @bachase in [#524](https://github.com/unitaryfoundation/clifft/pull/524).
+
+### Fixed
+
+- Made the measurement dust threshold depend on coefficient precision in HIP and CUDA sampling and forced replay. FP32 uses an empirical relative cutoff to suppress rounding residue on impossible branches; it also treats sufficiently small genuine probabilities as zero. The FP64 cutoff is unchanged, by @josemonsalve2 in [#509](https://github.com/unitaryfoundation/clifft/pull/509).
+- Isolated the macOS Python extension's OpenMP runtime to prevent symbol conflicts when Qiskit Aer loads its own runtime, with import-order and wheel checks, by @bachase in [#506](https://github.com/unitaryfoundation/clifft/pull/506).
+- Allowed Sinter 1.15 in the optional extra so wheel-only installations remain possible when newer Sinter releases lack wheels, by @bachase in [#525](https://github.com/unitaryfoundation/clifft/pull/525).
+- Scaled the Playground's active-width timeline to circuit activity, by @bachase in [#496](https://github.com/unitaryfoundation/clifft/pull/496).
+
+### Testing
+
+- Expanded shared behavioral coverage across scalar, packed, cross-shot, intra-shot, and hybrid CPU execution, including importance sampling and noncomputational trajectories where supported, with independent Stim and Qiskit Aer references and shared compiler profiles, by @bachase in [#476](https://github.com/unitaryfoundation/clifft/pull/476), [#501](https://github.com/unitaryfoundation/clifft/pull/501), [#508](https://github.com/unitaryfoundation/clifft/pull/508), [#513](https://github.com/unitaryfoundation/clifft/pull/513), [#514](https://github.com/unitaryfoundation/clifft/pull/514), [#516](https://github.com/unitaryfoundation/clifft/pull/516), [#517](https://github.com/unitaryfoundation/clifft/pull/517), [#522](https://github.com/unitaryfoundation/clifft/pull/522), and [#529](https://github.com/unitaryfoundation/clifft/pull/529).
+- Shared applicable sampling semantics with HIP and CUDA in FP64 and FP32, added cooperative-tier interaction coverage, and strengthened replay checks for biased active and dormant measurements and hidden records, by @bachase in [#511](https://github.com/unitaryfoundation/clifft/pull/511), [#512](https://github.com/unitaryfoundation/clifft/pull/512), [#523](https://github.com/unitaryfoundation/clifft/pull/523), [#526](https://github.com/unitaryfoundation/clifft/pull/526), [#527](https://github.com/unitaryfoundation/clifft/pull/527), and [#528](https://github.com/unitaryfoundation/clifft/pull/528).
+- Added benchmark coverage for noise work after early rejection and reduced redundant Stim builds while retaining expensive test coverage in optimized CI builds, by @bachase in [#488](https://github.com/unitaryfoundation/clifft/pull/488) and [#515](https://github.com/unitaryfoundation/clifft/pull/515).
+
+### Documentation
+
+- Added the v0.11.0 development post and updated the docs home page, covering ongoing sampling and experimental GPU work without new performance figures.
+- Corrected links to versioned documentation, by @bachase in [#486](https://github.com/unitaryfoundation/clifft/pull/486).
+
 ## [0.10.1] - 2026-09-14
 
 Clifft 0.10.1 fixes biased noise sampling in multi-shot leakage and loss simulations after a shot resumes through a continuation. The release also adds a worked neutral-atom logical Shor tutorial. Public APIs are unchanged.
