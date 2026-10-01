@@ -396,15 +396,10 @@ class Parser {
                 throw ParseError(name + " probability must be finite and lie in [0, 1]", line_num);
             }
         }
-        if (is_noncomputational_herald(gate)) {
-            const std::string name{clifft::gate_name(gate)};
-            if (args.size() > 1) {
-                throw ParseError(name + " accepts at most 1 argument (false-negative probability)",
-                                 line_num);
-            }
-            if (!args.empty() && !is_probability(args[0])) {
-                throw ParseError(name + " probability must be finite and lie in [0, 1]", line_num);
-            }
+        if (is_noncomputational_herald(gate) && !args.empty()) {
+            throw ParseError(std::string(clifft::gate_name(gate)) +
+                                 " takes no arguments; use READOUT_NOISE on its record bit",
+                             line_num);
         }
         if (gate == GateType::READOUT_NOISE) {
             if (args.size() != 1 && args.size() != 2) {
@@ -805,8 +800,7 @@ class Parser {
             case GateArity::SINGLE:
                 // One AstNode per target.
                 for (Target t : targets) {
-                    // Physical readouts and MPAD use symmetric record noise. Status
-                    // probes retain their argument for state-dependent false negatives.
+                    // Physical readouts and MPAD accept inline symmetric record noise.
                     bool is_noisy_meas = accepts_measurement_modifiers && arg > 0.0;
 
                     // Pass args through directly; zero-arg gates get an empty vector.

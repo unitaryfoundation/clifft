@@ -2158,15 +2158,15 @@ TEST_CASE("LEAKAGE parses its probability and rejects bad forms") {
     CHECK_THROWS_AS(parse("M 0\nLEAKAGE(0.1) rec[-1]\n"), ParseError);
 }
 
-TEST_CASE("Status heralds preserve false-negative arguments and record positions", "[parser]") {
+TEST_CASE("Status heralds preserve record positions and reject arguments", "[parser]") {
     for (const std::string name : {"HERALD_LEAKAGE_EVENT", "HERALD_LOSS_EVENT"}) {
-        const auto circuit = parse("M 0\n" + name + "(0.25) 4 2\nDETECTOR rec[-2] rec[-1]\n");
+        const auto circuit = parse("M 0\n" + name + " 4 2\nDETECTOR rec[-2] rec[-1]\n");
         REQUIRE(circuit.num_qubits == 5);
         REQUIRE(circuit.num_measurements == 3);
         REQUIRE(circuit.nodes.size() == 4);
         for (size_t i = 1; i <= 2; ++i) {
             CHECK(circuit.nodes[i].gate == clifft::parse_gate_name(name));
-            CHECK(circuit.nodes[i].args == std::vector<double>{0.25});
+            CHECK(circuit.nodes[i].args.empty());
         }
         CHECK(circuit.nodes[1].targets[0].value() == 4);
         CHECK(circuit.nodes[2].targets[0].value() == 2);
@@ -2174,7 +2174,8 @@ TEST_CASE("Status heralds preserve false-negative arguments and record positions
         CHECK(circuit.nodes[3].targets[1] == clifft::Target::rec(2));
         CHECK(parse(name + " 0").nodes[0].args.empty());
 
-        for (const std::string args : {"(-0.1)", "(1.1)", "(nan)", "(inf)", "(0.1, 0.2)"}) {
+        for (const std::string args :
+             {"(0)", "(0.25)", "(1)", "(-0.1)", "(1.1)", "(nan)", "(inf)", "(0.1, 0.2)"}) {
             CHECK_THROWS_AS(parse(name + args + " 0"), ParseError);
         }
         for (const std::string target : {"", "!0", "X0", "rec[-1]"}) {

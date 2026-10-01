@@ -47,10 +47,9 @@ def test_status_heralds_distinguish_levels_without_classifier(level, noncomp_sam
 def test_negative_status_probes_preserve_computational_bell_correlations(
     basis, noncomp_sampling_api
 ):
-    # Both sites stay computational, so the miss probability is inactive.
     # X-basis correlations catch accidental collapse by a status probe.
     prefix = "H 0\nCX 0 1\n"
-    probes = "HERALD_LEAKAGE_EVENT(0.5) 0 1\nHERALD_LOSS_EVENT(0.5) 0 1\n"
+    probes = "HERALD_LEAKAGE_EVENT 0 1\nHERALD_LOSS_EVENT 0 1\n"
     result = noncomp_sampling_api(
         prefix + probes + f"{basis} 0 1", noncomp.Model(), shots=2048, seed=72
     )
@@ -64,32 +63,46 @@ def test_negative_status_probes_preserve_computational_bell_correlations(
 
 
 @pytest.mark.parametrize("gate,transition", zip(HERALDS, ["LEAKAGE", "LOSS"]))
-@pytest.mark.parametrize("miss", [0, 0.3, 1])
-def test_false_negatives_only_suppress_positive_status(
-    gate, transition, miss, noncomp_sampling_api
+@pytest.mark.parametrize(
+    "noise_args,false_positive,miss",
+    [
+        ("0,0", 0, 0),
+        ("0,0.3", 0, 0.3),
+        ("0,1", 0, 1),
+        ("0.2,0.3", 0.2, 0.3),
+        ("1,0", 1, 0),
+        ("0.3", 0.3, 0.3),
+    ],
+)
+def test_readout_noise_on_status_records_preserves_true_status(
+    gate, transition, noise_args, false_positive, miss, noncomp_sampling_api
 ):
-    # Certain transitions exercise a continuation; repeated probes must draw
-    # independently while leaving the positive status intact.
+    # Certain transitions exercise a continuation. Readout errors must be
+    # independent across records and leave the underlying site statuses intact.
     result = noncomp_sampling_api(
-        f"{transition}(1) 0\n{gate}({miss}) 0 1 0\n{gate} 0",
+        f"{transition}(1) 0\n{gate} 0 1 0\n"
+        f"READOUT_NOISE({noise_args}) rec[-3] rec[-2] rec[-1]\n{gate} 0",
         noncomp.Model(),
         shots=2048,
         seed=74,
     )
     reference = (
-        stim.Circuit(f"MPAD({miss}) 1\nMPAD 0\nMPAD({miss}) 1\nMPAD 1")
+        stim.Circuit(f"MPAD({miss}) 1\nMPAD({false_positive}) 0\nMPAD({miss}) 1\nMPAD 1")
         .compile_sampler(seed=75)
         .sample(2048)
     )
     actual = result.measurements
-    assert not actual[:, 1].any()
     assert actual[:, 3].all()
-    for column in (0, 2):
+    for column, probability in enumerate((1 - miss, false_positive, 1 - miss)):
         assert abs(
             actual[:, column].mean() - reference[:, column].mean()
-        ) < cross_binomial_tolerance(1 - miss, 2048)
+        ) < cross_binomial_tolerance(probability, 2048)
     joint = (actual[:, 0] & actual[:, 2]).mean()
     assert abs(joint - (1 - miss) ** 2) < binomial_tolerance((1 - miss) ** 2, 2048)
+    positive_status = (
+        noncomp.QubitStatus.LEAK_G if transition == "LEAKAGE" else noncomp.QubitStatus.LOST
+    )
+    assert (result.final_status == [positive_status, noncomp.QubitStatus.COMPUTATIONAL]).all()
     assert not result.heralds.any()
 
 
@@ -136,7 +149,8 @@ def test_noisy_herald_records_drive_feedback_and_qec_outputs(
         f"""
         REPEAT 2 {{
             {transition}(1) 0
-            {gate}(0.3) 0
+            {gate} 0
+            READOUT_NOISE(0, 0.3) rec[-1]
             CX rec[-1] 1
             H 2
             CZ rec[-1] 2
@@ -187,11 +201,14 @@ def test_status_heralds_reject_ordinary_compilation_and_transition_hooks(gate):
 def test_herald_prefix_is_reproducible_across_continuations_and_workers():
     circuit = """
         LEAKAGE(1) 0
-        HERALD_LEAKAGE_EVENT(0.3) 0
+        HERALD_LEAKAGE_EVENT 0
+        READOUT_NOISE(0, 0.3) rec[-1]
         LOSS(0.5) 1
-        HERALD_LOSS_EVENT(0.2) 1
+        HERALD_LOSS_EVENT 1
+        READOUT_NOISE(0, 0.2) rec[-1]
         LEAKAGE(0.5) 2
-        HERALD_LEAKAGE_EVENT(0.4) 2
+        HERALD_LEAKAGE_EVENT 2
+        READOUT_NOISE(0, 0.4) rec[-1]
         OBSERVABLE_INCLUDE(0) rec[-3]
     """
     one = noncomp.sample(circuit, noncomp.Model(), shots=257, seed=79, threads=1)

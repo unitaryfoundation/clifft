@@ -9,15 +9,12 @@
 
 namespace clifft {
 
-double herald_false_negative_probability(const AstNode& node, uint32_t op_index,
-                                         std::string_view caller) {
-    if (node.args.size() > 1 || (!node.args.empty() && !is_probability(node.args[0]))) {
-        throw std::invalid_argument(
-            std::string(caller) + ": " + std::string(gate_name(node.gate)) + " at op " +
-            std::to_string(op_index) +
-            " accepts at most one false-negative probability, finite and in [0, 1]");
+void validate_herald_arguments(const AstNode& node, uint32_t op_index, std::string_view caller) {
+    if (!node.args.empty()) {
+        throw std::invalid_argument(std::string(caller) + ": " + std::string(gate_name(node.gate)) +
+                                    " at op " + std::to_string(op_index) +
+                                    " takes no arguments; use READOUT_NOISE on its record bit");
     }
-    return node.args.empty() ? 0.0 : node.args[0];
 }
 
 double inline_transition_probability(GateType gate, const std::vector<double>& args,

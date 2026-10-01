@@ -276,7 +276,8 @@ TEST_CASE("Status herald validation rejects malformed AST nodes before sampling"
         circuit.nodes.push_back({gate, {Target::qubit(0)}, {}, 0});
         REQUIRE_NOTHROW(sample_noncomputational(circuit, model, 0, 1));
 
-        for (const auto& args : std::vector<std::vector<double>>{{-0.1}, {1.1}, {0.1, 0.2}}) {
+        for (const auto& args :
+             std::vector<std::vector<double>>{{0.0}, {0.25}, {1.0}, {-0.1}, {1.1}, {0.1, 0.2}}) {
             circuit.nodes[0].args = args;
             CHECK_THROWS_AS(sample_noncomputational(circuit, model, 0, 1), std::invalid_argument);
         }

@@ -11,9 +11,9 @@
 //   record slot. READOUT_NOISE supplies a random classifier result when
 //   needed. Kept computational M/MR measurements receive the classifier's
 //   readout error when its computational columns are not the identity.
-// - A status probe becomes a classical record write using MPAD and, only for
-//   an uncertain false negative, READOUT_NOISE. It leaves the quantum state
-//   and status unchanged and creates no classified-measurement entry.
+// - A status probe becomes an MPAD of the current leakage or loss flag. It
+//   leaves the quantum state and status unchanged and creates no
+//   classified-measurement entry.
 // - A recorded jump inserts a reset immediately after the transition
 //   annotation. For a leaked or lost destination, the reset implements the
 //   trace-out. For a return to g or e, it prepares the qubit at that level,

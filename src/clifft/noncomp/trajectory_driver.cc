@@ -101,7 +101,7 @@ struct AnnotationChannel {
 void validate_annotation(const AstNode& node, const NonComputationalModel& model, uint32_t op_index,
                          uint32_t num_qubits) {
     if (is_noncomputational_herald(node.gate)) {
-        (void)herald_false_negative_probability(node, op_index, "sample_noncomputational");
+        validate_herald_arguments(node, op_index, "sample_noncomputational");
     } else {
         (void)resolve_annotation(node, model, op_index);
     }

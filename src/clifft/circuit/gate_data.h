@@ -144,8 +144,8 @@ enum class GateType : uint16_t {
     LEVEL_TRANSITION,      // Per-site level transition; the tag names a model matrix
     LEAKAGE,               // Per-site source-preserving leakage with an inline probability
     LOSS,                  // Per-site uniform loss with an inline probability
-    HERALD_LEAKAGE_EVENT,  // Record-only probe of leak_g or leak_e; optional miss probability
-    HERALD_LOSS_EVENT,     // Record-only probe of lost status; optional miss probability
+    HERALD_LEAKAGE_EVENT,  // Record-only probe of leak_g or leak_e
+    HERALD_LOSS_EVENT,     // Record-only probe of lost status
 
     // Simulation-only probes
     EXP_VAL,  // Non-destructive expectation value

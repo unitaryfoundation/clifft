@@ -214,7 +214,7 @@ ContinuationRewrite rewrite_continuation(const Circuit& annotated, const Traject
         const GateType gate = node.gate;
 
         if (is_noncomputational_herald(gate)) {
-            const double miss = herald_false_negative_probability(node, op_index, "rewrite");
+            validate_herald_arguments(node, op_index, "rewrite");
             // Direct callers can bypass the driver's AST validation. Require
             // the parser's single-target shape to preserve record accounting.
             const std::string location =
@@ -233,12 +233,7 @@ ContinuationRewrite rewrite_continuation(const Circuit& annotated, const Traject
             const QubitStatus current = status[target.value()];
             const bool detected =
                 gate == GateType::HERALD_LEAKAGE_EVENT ? is_leaked(current) : is_lost(current);
-            out.nodes.push_back(mpad_op(detected && miss < 1.0 ? 1 : 0));
-            // Only an uncertain positive detection needs a noise site. A
-            // negative status must never produce a false positive.
-            if (detected && miss > 0.0 && miss < 1.0) {
-                out.nodes.push_back(readout_noise_op(slot, miss));
-            }
+            out.nodes.push_back(mpad_op(detected ? 1 : 0));
             ++slot;
             continue;
         }

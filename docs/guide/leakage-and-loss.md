@@ -138,10 +138,7 @@ qubit target appends one ordinary record bit, in target order:
 | `LEAK_G` or `LEAK_E` | 1 | 0 |
 | `LOST` | 0 | 1 |
 
-An optional argument, such as `HERALD_LEAKAGE_EVENT(0.05) 0`, specifies the
-probability of missing a positive status. Omitting the argument gives perfect
-detection. Each target is sampled independently, and the probes never report a
-false positive. Probabilities must be finite and in `[0, 1]`; targets must be
+Status probes are perfect and take no arguments. Targets must be
 plain qubit indices without inversion.
 
 The result is available to `DETECTOR`, `OBSERVABLE_INCLUDE`, and record-controlled
@@ -171,6 +168,18 @@ assert result.detectors.all()
 assert result.observables.all()
 assert not result.heralds.any()
 ```
+
+To model detection errors, apply `READOUT_NOISE` to the probe's record bit.
+This example uses a 2% false-positive rate and a 5% false-negative rate:
+
+```text
+HERALD_LEAKAGE_EVENT 0
+READOUT_NOISE(0.02, 0.05) rec[-1]
+```
+
+Use `READOUT_NOISE(0, p)` for missed detections only, or `READOUT_NOISE(p)` for
+symmetric errors. These errors affect the reported bit, leaving the site's
+quantum state and status unchanged.
 
 Like transition annotations, status probes require `noncomp.sample`;
 ordinary `clifft.compile` rejects them.
