@@ -11,7 +11,7 @@ FetchContent_Declare(
 
 FetchContent_MakeAvailable(Catch2)
 
-# Dependency sources should not inherit Clifft's CI warning-as-error policy.
+# Keep Catch2's compiled sources outside Clifft's CI warning-as-error policy.
 set_target_properties(Catch2 Catch2WithMain PROPERTIES COMPILE_WARNING_AS_ERROR OFF)
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
