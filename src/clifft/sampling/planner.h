@@ -11,9 +11,9 @@ namespace clifft::sampling {
 // HIR subset. The planner performs all stabilizer-coordinate changes and
 // symbolic dependency discovery before execution.
 struct SamplingPlanOptions {
-    std::span<const uint8_t> postselection_mask;
-    std::span<const uint8_t> expected_detectors;
-    std::span<const uint8_t> expected_observables;
+    std::span<const uint8_t> postselection_mask{};
+    std::span<const uint8_t> expected_detectors{};
+    std::span<const uint8_t> expected_observables{};
     // Tooling can request an action-to-source sidecar when the HIR carries a
     // complete parallel source map. Sampling and ordinary lowering do not
     // require or retain it.

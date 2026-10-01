@@ -33,7 +33,7 @@ enum class TokenKind : uint8_t {
 
 struct Token {
     TokenKind kind = TokenKind::End;
-    std::string_view text;
+    std::string_view text{};
     uint32_t line = 1;
 };
 

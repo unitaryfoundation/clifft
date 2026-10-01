@@ -1697,7 +1697,7 @@ SamplingSurvivorResult sample_survivors(const ExecutablePlan& executable, uint32
     validate_block_size(options.block_size);
     validate_max_batch_shots(options.max_batch_shots);
     if (shots == 0) {
-        return {.total_shots = 0};
+        return {};
     }
     Sampler sampler(executable, options.coefficient_precision,
                     std::min(shots, options.max_batch_shots), options.tier);

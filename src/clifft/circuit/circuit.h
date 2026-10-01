@@ -45,7 +45,7 @@ struct AstNode {
     // Bracket tag from `NAME[tag] targets` syntax. LEVEL_TRANSITION uses it to
     // reference a model transition matrix by name; no other instruction
     // accepts one. Empty when absent.
-    std::string tag;
+    std::string tag{};
 };
 
 // A parsed circuit ready for compilation.

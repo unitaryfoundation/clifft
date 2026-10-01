@@ -865,12 +865,14 @@ TEST_CASE("Pass registry: trajectory compatibility requires both guarantees") {
         .default_enabled = true,
         .record_order = clifft::kPreservesRecordOrder,
         .instrument_prefix = clifft::kMayChangeInstrumentPrefix,
+        .make = nullptr,
     };
     constexpr clifft::PassInfo prefix_only{
         .name = "prefix-only",
         .default_enabled = true,
         .record_order = clifft::kBreaksRecordOrder,
         .instrument_prefix = clifft::kPreservesInstrumentPrefix,
+        .make = nullptr,
     };
     static_assert(!clifft::is_trajectory_compatible(record_only));
     static_assert(!clifft::is_trajectory_compatible(prefix_only));
