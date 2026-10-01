@@ -11,5 +11,18 @@ FetchContent_Declare(
 
 FetchContent_MakeAvailable(Catch2)
 
+# Dependency sources should not inherit Clifft's CI warning-as-error policy.
+set_target_properties(Catch2 Catch2WithMain PROPERTIES COMPILE_WARNING_AS_ERROR OFF)
+
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    include(CheckCXXCompilerFlag)
+    check_cxx_compiler_flag(-Wc2y-extensions CLIFFT_HAS_C2Y_EXTENSION_WARNING)
+    if(CLIFFT_HAS_C2Y_EXTENSION_WARNING)
+        # Catch2 3.5 expands __COUNTER__ in consumer translation units. Keep
+        # this exception after directory warning flags, which can re-enable it.
+        target_compile_options(Catch2 PUBLIC -Wno-c2y-extensions)
+    endif()
+endif()
+
 # Add Catch2's CMake helpers for test discovery
 list(APPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/extras)

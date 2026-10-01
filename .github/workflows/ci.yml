@@ -238,6 +238,7 @@ jobs:
         run: |
           cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=${{ env.CMAKE_BUILD_TYPE }} \
+            -DCMAKE_COMPILE_WARNING_AS_ERROR=ON \
             -DCLIFFT_CPU_BASELINE=${{ env.CLIFFT_CPU_BASELINE }}
 
       - name: Build C++
@@ -360,8 +361,6 @@ jobs:
       CMAKE_C_COMPILER_LAUNCHER: ccache
       CMAKE_CXX_COMPILER_LAUNCHER: ccache
       CCACHE_COMPILERCHECK: content
-      # Catch2 3.5 uses __COUNTER__, which Clang 22 diagnoses under -Wpedantic.
-      CXXFLAGS: -Wno-c2y-extensions
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -512,6 +511,7 @@ jobs:
           g++ --version
           cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=${{ env.CMAKE_BUILD_TYPE }} \
+            -DCMAKE_COMPILE_WARNING_AS_ERROR=ON \
             -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=${{ env.CLIFFT_INTERPROCEDURAL_OPTIMIZATION }} \
             -DCLIFFT_OPENMP=${{ env.CLIFFT_OPENMP }} \
             -DCLIFFT_CPU_BASELINE=${{ env.CLIFFT_CPU_BASELINE }}

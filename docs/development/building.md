@@ -118,6 +118,12 @@ cmake --build build -j
 ctest --test-dir build --output-on-failure
 ```
 
+With CMake 3.24 or newer, add `-DCMAKE_COMPILE_WARNING_AS_ERROR=ON` to make
+compiler warnings fail the build. CI enables this for the standalone GCC Debug
+and Release builds; ordinary source builds leave it off. Catch2's compiled
+sources are exempt, and its `__COUNTER__` extension warning is disabled for
+Catch2 and its consumers on Clang versions that diagnose it.
+
 ### Build Types
 
 | Type | Flag | Use Case |
