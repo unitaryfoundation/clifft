@@ -199,6 +199,11 @@ jobs:
           tests/python/test_experimental_cuda.py -k 'cuda or gpu_reference' -v
 
   build-and-test:
+    name: build-and-test (${{ matrix.isa }})
+    strategy:
+      fail-fast: false
+      matrix:
+        isa: [default, scalar]
     timeout-minutes: 45
     runs-on: ubuntu-24.04
     env:
@@ -225,7 +230,8 @@ jobs:
           key: ${{ runner.os }}-ccache-${{ env.CMAKE_BUILD_TYPE }}-${{ env.CLIFFT_CPU_BASELINE }}
           # Caches saved from PR runs are scoped to the PR ref and cannot be
           # reused elsewhere; saving only on main limits repo cache eviction.
-          save: ${{ github.ref == 'refs/heads/main' }}
+          # Both ISA jobs build identical artifacts, so only one saves them.
+          save: ${{ github.ref == 'refs/heads/main' && matrix.isa == 'default' }}
           evict-old-files: job
 
       - name: Setup uv and Python
@@ -249,6 +255,7 @@ jobs:
             --compile-commands build/compile_commands.json
 
       - name: Check x86 kernel CPU flags
+        if: matrix.isa == 'default'
         id: isa_check
         run: |
           python3 - <<'PY'
@@ -280,6 +287,7 @@ jobs:
           PY
 
       - name: Run C++ tests (default ISA)
+        if: matrix.isa == 'default'
         run: |
           ctest --test-dir build \
             --build-config ${{ env.CMAKE_BUILD_TYPE }} \
@@ -290,6 +298,7 @@ jobs:
         shell: bash
 
       - name: Run C++ tests (scalar ISA)
+        if: matrix.isa == 'scalar'
         env:
           CLIFFT_FORCE_ISA: scalar
         run: |
@@ -302,7 +311,7 @@ jobs:
         shell: bash
 
       - name: Run C++ tests (avx2 ISA)
-        if: steps.isa_check.outputs.avx2_supported == 'true'
+        if: matrix.isa == 'default' && steps.isa_check.outputs.avx2_supported == 'true'
         env:
           CLIFFT_FORCE_ISA: avx2
         run: |
@@ -319,7 +328,7 @@ jobs:
       # The deterministic AVX-512 check is the SDE smoke in
       # release-cpp-smoke, which executes on a fixed emulated CPU model.
       - name: Run C++ tests (avx512 ISA)
-        if: steps.isa_check.outputs.avx512_supported == 'true'
+        if: matrix.isa == 'default' && steps.isa_check.outputs.avx512_supported == 'true'
         env:
           CLIFFT_FORCE_ISA: avx512
         run: |
@@ -338,14 +347,17 @@ jobs:
         run: uv run python tools/ci/audit_python_exports.py
 
       - name: Run Python tests (default ISA)
+        if: matrix.isa == 'default'
         run: uv run --locked pytest tests/python/ -n logical --maxprocesses 4 -v -m "not expensive" --durations=20
 
       - name: Run Python tests (scalar ISA)
+        if: matrix.isa == 'scalar'
         env:
           CLIFFT_FORCE_ISA: scalar
         run: uv run --locked pytest tests/python/ -n logical --maxprocesses 4 -v -m "not expensive" --durations=20
 
       - name: Test documentation code examples
+        if: matrix.isa == 'default'
         run: uv run --locked pytest --codeblocks docs/ README.md -v
 
   release-cpp-smoke:
