@@ -788,10 +788,29 @@ jobs:
         if: matrix.install-deps != ''
         run: ${{ matrix.install-deps }}
 
+      - name: Setup MSVC dev environment
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Identify MSVC compiler cache
+        if: runner.os == 'Windows'
+        id: msvc_cache
+        shell: pwsh
+        run: |
+          $compiler = Get-Command cl.exe -ErrorAction Stop
+          $compilerHash = (Get-FileHash -LiteralPath $compiler.Source -Algorithm SHA256).Hash.ToLowerInvariant()
+          Write-Host "MSVC compiler: $($compiler.Source)"
+          Write-Host "MSVC version: $((Get-Item -LiteralPath $compiler.Source).VersionInfo.FileVersion)"
+          "suffix=-msvc-$compilerHash" >> $env:GITHUB_OUTPUT
+
       - name: Setup ccache
         uses: hendrikmuhs/ccache-action@v1.2
         with:
-          key: ${{ runner.os }}-ccache-${{ env.CMAKE_BUILD_TYPE }}-${{ env.CLIFFT_CPU_BASELINE }}
+          # Runner image rollouts can alternate MSVC binaries. Separate their
+          # snapshots so per-job eviction cannot discard another compiler's cache.
+          key: ${{ runner.os }}-ccache-${{ env.CMAKE_BUILD_TYPE }}-${{ env.CLIFFT_CPU_BASELINE }}${{ steps.msvc_cache.outputs.suffix }}
+          # Reuse the legacy cache until main has saved this compiler's snapshot.
+          restore-keys: ${{ runner.os == 'Windows' && format('{0}-ccache-{1}-{2}', runner.os, env.CMAKE_BUILD_TYPE, env.CLIFFT_CPU_BASELINE) || '' }}
           # Caches saved from PR runs are scoped to the PR ref and cannot be
           # reused elsewhere; saving only on main limits repo cache eviction.
           save: ${{ github.ref == 'refs/heads/main' }}
@@ -802,10 +821,6 @@ jobs:
         with:
           enable-cache: true
           python-version: "3.12"
-
-      - name: Setup MSVC dev environment
-        if: runner.os == 'Windows'
-        uses: ilammy/msvc-dev-cmd@v1
 
       - name: Configure C++ build
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=${{ env.CMAKE_BUILD_TYPE }} -DCLIFFT_CPU_BASELINE=${{ env.CLIFFT_CPU_BASELINE }}
