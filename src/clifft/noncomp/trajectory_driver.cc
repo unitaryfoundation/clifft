@@ -537,8 +537,7 @@ void validate_model_contract(const Circuit& annotated, const NonComputationalMod
     // operand. MPAD and status probes only append classical record bits.
     if (model.classifier() == nullptr) {
         for (const AstNode& node : annotated.nodes) {
-            if (is_measurement(node.gate) && node.gate != GateType::MPAD &&
-                !is_noncomputational_herald(node.gate)) {
+            if (is_physical_measurement(node.gate)) {
                 throw std::invalid_argument(
                     "sample_noncomputational: this model can leak or lose qubits and the circuit"
                     " measures; a classifier is required to define what a measurement of a leaked"

@@ -176,7 +176,10 @@ struct GateTraits {
     // Unitary gate action (Clifford or not); excludes measurements, resets, noise, and annotations.
     bool unitary = false;
     bool clifford = false;
+    // Produces a visible record bit, including classical padding and status probes.
     bool measurement = false;
+    // Measures a quantum observable; only these measurements accept physical hooks.
+    bool physical_measurement = false;
     bool reset = false;
     bool measure_reset = false;
     bool identity_noop = false;
@@ -261,20 +264,20 @@ inline constexpr GateTraits kGateTraitsData[] = {
     {.arity = P, .unitary = true, .clifford = true, .name = "YCY"},
     {.arity = P, .unitary = true, .clifford = true, .name = "YCZ"},
     // Measurements
-    {.arity = S, .measurement = true, .name = "M"},
-    {.arity = S, .measurement = true, .name = "MX"},
-    {.arity = S, .measurement = true, .name = "MY"},
-    {.arity = S, .measurement = true, .measure_reset = true, .name = "MR"},
-    {.arity = S, .measurement = true, .measure_reset = true, .name = "MRX"},
-    {.arity = ML, .measurement = true, .name = "MPP"},
-    {.arity = P, .measurement = true, .parser_desugared = true, .name = "MXX"},
-    {.arity = P, .measurement = true, .parser_desugared = true, .name = "MYY"},
-    {.arity = P, .measurement = true, .parser_desugared = true, .name = "MZZ"},
+    {.arity = S, .measurement = true, .physical_measurement = true, .name = "M"},
+    {.arity = S, .measurement = true, .physical_measurement = true, .name = "MX"},
+    {.arity = S, .measurement = true, .physical_measurement = true, .name = "MY"},
+    {.arity = S, .measurement = true, .physical_measurement = true, .measure_reset = true, .name = "MR"},
+    {.arity = S, .measurement = true, .physical_measurement = true, .measure_reset = true, .name = "MRX"},
+    {.arity = ML, .measurement = true, .physical_measurement = true, .name = "MPP"},
+    {.arity = P, .measurement = true, .physical_measurement = true, .parser_desugared = true, .name = "MXX"},
+    {.arity = P, .measurement = true, .physical_measurement = true, .parser_desugared = true, .name = "MYY"},
+    {.arity = P, .measurement = true, .physical_measurement = true, .parser_desugared = true, .name = "MZZ"},
     // Resets
     {.arity = S, .reset = true, .name = "R"},
     {.arity = S, .reset = true, .name = "RX"},
     {.arity = S, .reset = true, .name = "RY"},
-    {.arity = S, .measurement = true, .measure_reset = true, .name = "MRY"},
+    {.arity = S, .measurement = true, .physical_measurement = true, .measure_reset = true, .name = "MRY"},
     // Deterministic padding
     {.arity = S, .measurement = true, .name = "MPAD"},
     // Identity no-ops
@@ -336,6 +339,17 @@ constexpr bool unitary_excludes_channels() {
     }
     return true;
 }
+constexpr bool physical_measurements_produce_records() {
+    for (const GateTraits& t : kGateTraitsData) {
+        if ((t.physical_measurement && !t.measurement) ||
+            (t.measure_reset && !t.physical_measurement)) {
+            return false;
+        }
+    }
+    return true;
+}
+static_assert(physical_measurements_produce_records(),
+              "physical measurements produce records and include measure-reset gates");
 static_assert(clifford_implies_unitary(), "every Clifford gate is a unitary");
 static_assert(unitary_excludes_channels(),
               "a unitary gate is not a measurement, reset, or noise channel");
@@ -358,6 +372,9 @@ inline constexpr bool is_unitary(GateType g) {
 }
 inline constexpr bool is_measurement(GateType g) {
     return gate_traits(g).measurement;
+}
+inline constexpr bool is_physical_measurement(GateType g) {
+    return gate_traits(g).physical_measurement;
 }
 inline constexpr bool is_reset(GateType g) {
     return gate_traits(g).reset;

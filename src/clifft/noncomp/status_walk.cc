@@ -97,7 +97,7 @@ OperandAction operand_action(GateType gate, QubitStatus status,
     if (is_measure_reset(gate)) {
         return OperandAction::Apply;
     }
-    if (is_measurement(gate)) {
+    if (is_physical_measurement(gate)) {
         return (gate == GateType::M || gate == GateType::MX || gate == GateType::MY)
                    ? OperandAction::Apply
                    : OperandAction::Reject;
@@ -159,7 +159,7 @@ OrdinaryStep advance_ordinary_node(const AstNode& node, uint32_t op_index,
     for (const QubitOperand& operand : operands) {
         const uint32_t qubit = operand.qubit;
         const QubitStatus pre = status[qubit];
-        if (is_measurement(gate) && !is_computational(pre)) {
+        if (is_physical_measurement(gate) && !is_computational(pre)) {
             classified = ClassifiedOperand{qubit, noncomp_level(pre)};
         }
         status[qubit] = drop_op ? pre : normal_post_op_status(pre, gate, operand.role, policy);

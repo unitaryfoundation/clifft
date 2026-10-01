@@ -30,7 +30,7 @@ bool supports_transition(GateType g) {
     if (is_reset(g)) {
         return true;  // R, RX, RY
     }
-    if (is_measurement(g) && g != GateType::MPAD && !is_noncomputational_herald(g)) {
+    if (is_physical_measurement(g)) {
         return true;  // M, MX, MY, MR, MRX, MRY, MPP
     }
     return false;

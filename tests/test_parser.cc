@@ -1395,10 +1395,17 @@ TEST_CASE("Parse MPAD does not affect num_qubits", "[parser]") {
 }
 
 TEST_CASE("Parse noisy MPAD decomposes to MPAD plus READOUT_NOISE", "[parser]") {
-    auto circuit = parse("MPAD(0.01) 1");
+    auto circuit = parse("MPAD(0.01) !1");
     REQUIRE(circuit.nodes.size() == 2);
     CHECK(circuit.nodes[0].gate == GateType::MPAD);
+    CHECK(circuit.nodes[0].targets[0].is_inverted());
+    CHECK(circuit.nodes[0].args[0] == 0.0);
     CHECK(circuit.nodes[1].gate == GateType::READOUT_NOISE);
+    CHECK(circuit.nodes[1].targets[0].is_rec());
+    CHECK(circuit.nodes[1].targets[0].value() == 0);
+    CHECK(circuit.nodes[1].args[0] == 0.01);
+    CHECK(circuit.num_measurements == 1);
+    CHECK(circuit.num_qubits == 0);
 }
 
 TEST_CASE("Parse MPAD rejects rec targets", "[parser]") {
@@ -1821,6 +1828,29 @@ TEST_CASE("GateTraits: measurements", "[gate_data]") {
     CHECK(is_measurement(GateType::MPAD));
     CHECK(!is_measurement(GateType::H));
     CHECK(!is_measurement(GateType::R));
+}
+
+TEST_CASE("GateTraits distinguish physical readouts from classical record writes", "[gate_data]") {
+    for (GateType gate :
+         {GateType::M, GateType::MX, GateType::MY, GateType::MR, GateType::MRX, GateType::MRY,
+          GateType::MPP, GateType::MXX, GateType::MYY, GateType::MZZ}) {
+        CAPTURE(gate_name(gate));
+        CHECK(is_measurement(gate));
+        CHECK(is_physical_measurement(gate));
+    }
+    for (GateType gate :
+         {GateType::MPAD, GateType::HERALD_LEAKAGE_EVENT, GateType::HERALD_LOSS_EVENT}) {
+        CAPTURE(gate_name(gate));
+        CHECK(is_measurement(gate));
+        CHECK_FALSE(is_physical_measurement(gate));
+    }
+    for (GateType gate :
+         {GateType::H, GateType::R, GateType::READOUT_NOISE, GateType::LEVEL_TRANSITION,
+          GateType::LEAKAGE, GateType::LOSS, GateType::EXP_VAL}) {
+        CAPTURE(gate_name(gate));
+        CHECK_FALSE(is_measurement(gate));
+        CHECK_FALSE(is_physical_measurement(gate));
+    }
 }
 
 TEST_CASE("GateTraits: measure-reset subset", "[gate_data]") {
