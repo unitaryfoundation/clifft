@@ -144,6 +144,8 @@ enum class GateType : uint16_t {
     LEVEL_TRANSITION,  // Per-site level transition; the tag names a model matrix
     LEAKAGE,           // Per-site source-preserving leakage with an inline probability
     LOSS,              // Per-site uniform loss with an inline probability
+    HERALD_LEAKAGE_EVENT,
+    HERALD_LOSS_EVENT,
 
     // Simulation-only probes
     EXP_VAL,  // Non-destructive expectation value
@@ -301,6 +303,8 @@ inline constexpr GateTraits kGateTraitsData[] = {
     {.arity = S, .name = "LEVEL_TRANSITION"},
     {.arity = S, .name = "LEAKAGE"},
     {.arity = S, .name = "LOSS"},
+    {.arity = S, .measurement = true, .name = "HERALD_LEAKAGE_EVENT"},
+    {.arity = S, .measurement = true, .name = "HERALD_LOSS_EVENT"},
     // Simulation-only probes
     {.arity = ML, .name = "EXP_VAL"},
     // Parse-time rewrites: no AST nodes carry these types
@@ -376,8 +380,12 @@ inline constexpr bool is_exp_val(GateType g) {
 inline constexpr bool is_inline_noncomputational_annotation(GateType g) {
     return g == GateType::LEAKAGE || g == GateType::LOSS;
 }
+inline constexpr bool is_noncomputational_herald(GateType g) {
+    return g == GateType::HERALD_LEAKAGE_EVENT || g == GateType::HERALD_LOSS_EVENT;
+}
 inline constexpr bool is_noncomputational_annotation(GateType g) {
-    return g == GateType::LEVEL_TRANSITION || is_inline_noncomputational_annotation(g);
+    return g == GateType::LEVEL_TRANSITION || is_inline_noncomputational_annotation(g) ||
+           is_noncomputational_herald(g);
 }
 inline constexpr std::string_view gate_name(GateType g) {
     return gate_traits(g).name;

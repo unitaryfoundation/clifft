@@ -396,6 +396,16 @@ class Parser {
                 throw ParseError(name + " probability must be finite and lie in [0, 1]", line_num);
             }
         }
+        if (is_noncomputational_herald(gate)) {
+            const std::string name{clifft::gate_name(gate)};
+            if (args.size() > 1) {
+                throw ParseError(name + " accepts at most 1 argument (false-negative probability)",
+                                 line_num);
+            }
+            if (!args.empty() && !is_probability(args[0])) {
+                throw ParseError(name + " probability must be finite and lie in [0, 1]", line_num);
+            }
+        }
         if (gate == GateType::READOUT_NOISE) {
             if (args.size() != 1 && args.size() != 2) {
                 throw ParseError(
@@ -743,7 +753,7 @@ class Parser {
                     "probabilities instead",
                     line_num);
             }
-            if (!is_measurement(gate) && inverted) {
+            if ((!is_measurement(gate) || is_noncomputational_herald(gate)) && inverted) {
                 throw_invalid_target_modifiers(token, clifft::gate_name(gate), line_num);
             }
 
@@ -795,7 +805,8 @@ class Parser {
                 for (Target t : targets) {
                     // For noisy measurements M(p), MX(p), MY(p): decompose into
                     // clean measurement followed by READOUT_NOISE.
-                    bool is_noisy_meas = is_measurement(gate) && arg > 0.0;
+                    bool is_noisy_meas =
+                        is_measurement(gate) && !is_noncomputational_herald(gate) && arg > 0.0;
 
                     // Pass args through directly; zero-arg gates get an empty vector.
                     std::vector<double> node_args = args;

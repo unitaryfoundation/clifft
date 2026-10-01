@@ -213,6 +213,23 @@ ContinuationRewrite rewrite_continuation(const Circuit& annotated, const Traject
         const AstNode& node = annotated.nodes[op_index];
         const GateType gate = node.gate;
 
+        if (is_noncomputational_herald(gate)) {
+            const double miss = herald_false_negative_probability(node, op_index, "rewrite");
+            for (const Target& target : node.targets) {
+                const QubitStatus current = status.at(target.value());
+                const bool detected =
+                    gate == GateType::HERALD_LEAKAGE_EVENT ? is_leaked(current) : is_lost(current);
+                out.nodes.push_back(mpad_op(detected ? 1 : 0));
+                // Readout noise is conditional on a positive status so missed
+                // detections cannot introduce false positives.
+                if (detected && miss > 0.0) {
+                    out.nodes.push_back(readout_noise_op(slot, miss));
+                }
+                ++slot;
+            }
+            continue;
+        }
+
         if (is_noncomputational_annotation(gate)) {
             for (const Target& target : node.targets) {
                 const uint32_t qubit = target.value();

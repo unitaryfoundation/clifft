@@ -266,3 +266,25 @@ TEST_CASE("validation: a hand-built multi-target measurement node is rejected up
         REQUIRE_NOTHROW(sample_noncomputational(c, model, 0, 1));
     }
 }
+
+TEST_CASE("Status herald validation rejects malformed AST nodes before sampling") {
+    const auto model = make_validation_model({});
+    for (const auto gate : {GateType::HERALD_LEAKAGE_EVENT, GateType::HERALD_LOSS_EVENT}) {
+        Circuit circuit;
+        circuit.num_qubits = 1;
+        circuit.num_measurements = 1;
+        circuit.nodes.push_back({gate, {Target::qubit(0)}, {}, 0});
+        REQUIRE_NOTHROW(sample_noncomputational(circuit, model, 0, 1));
+
+        for (const auto& args : std::vector<std::vector<double>>{{-0.1}, {1.1}, {0.1, 0.2}}) {
+            circuit.nodes[0].args = args;
+            CHECK_THROWS_AS(sample_noncomputational(circuit, model, 0, 1), std::invalid_argument);
+        }
+        circuit.nodes[0].args.clear();
+        for (const auto& targets : std::vector<std::vector<Target>>{
+                 {}, {Target::qubit(1)}, {Target::rec(0)}, {Target::qubit(0), Target::qubit(0)}}) {
+            circuit.nodes[0].targets = targets;
+            CHECK_THROWS_AS(sample_noncomputational(circuit, model, 0, 1), std::invalid_argument);
+        }
+    }
+}

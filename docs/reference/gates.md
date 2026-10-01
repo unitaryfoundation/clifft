@@ -231,10 +231,19 @@ channel probabilities.
 | `LEAKAGE(p)` | Moves `g` to `leak_g` and `e` to `leak_e` with probability `p`; other levels are unchanged |
 | `LOSS(p)` | Loses each target with probability `p`, from any occupied level |
 | `LEVEL_TRANSITION[name]` | Fires the model's named transition matrix on each target |
+| `HERALD_LEAKAGE_EVENT(p)` | Records 1 for `leak_g` or `leak_e`, otherwise 0; optional `p` is the false-negative probability |
+| `HERALD_LOSS_EVENT(p)` | Records 1 for `lost`, otherwise 0; optional `p` is the false-negative probability |
 
-All three are recognized only by the leakage/loss sampler — `clifft.compile()`
+These instructions are recognized only by the leakage/loss sampler — `clifft.compile()`
 rejects them and points to `clifft.noncomp.sample()`. See the
 [Leakage and Loss guide](../guide/leakage-and-loss.md).
+
+Status heralds append one ordinary record bit per plain qubit target, in target
+order, without changing the quantum state or site status. Omitting `p` gives
+perfect detection; `p` must be finite and in `[0, 1]`. They never produce false
+positives, require no classifier, and do not populate the classifier `heralds`
+sidecar. Their record bits support `rec` references, including detectors,
+observables, and feedback. Inverted targets are not supported.
 
 ## Identity Gates
 

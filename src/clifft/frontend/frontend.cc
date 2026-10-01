@@ -977,8 +977,10 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
 
             case GateType::LEVEL_TRANSITION:
             case GateType::LEAKAGE:
-            case GateType::LOSS: {
-                if (instruments == nullptr) {
+            case GateType::LOSS:
+            case GateType::HERALD_LEAKAGE_EVENT:
+            case GateType::HERALD_LOSS_EVENT: {
+                if (instruments == nullptr || is_noncomputational_herald(node.gate)) {
                     throw std::invalid_argument(
                         std::string(gate_name(node.gate)) +
                         " is a noncomputational annotation; run the circuit through "

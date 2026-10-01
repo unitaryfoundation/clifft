@@ -298,6 +298,11 @@ def sample(
     measures a physical site. Parity measurements (``MPP``) and ``EXP_VAL``
     probes are not supported with such models.
 
+    ``HERALD_LEAKAGE_EVENT`` and ``HERALD_LOSS_EVENT`` append nondestructive
+    status checks to the ordinary measurement record. An optional probability
+    suppresses positive results only. They require no classifier and leave
+    their entries in the classifier ``heralds`` sidecar zero.
+
     Continuations are compiled with the default optimization passes that
     preserve measurement-record order and instrument-prefix stability, omitting
     [StatevectorSqueezePass][clifft.StatevectorSqueezePass]. Reordering can

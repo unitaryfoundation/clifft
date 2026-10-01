@@ -25,6 +25,9 @@ namespace clifft {
 double inline_transition_probability(GateType gate, const std::vector<double>& args,
                                      uint32_t op_index, std::string_view caller);
 
+double herald_false_negative_probability(const AstNode& node, uint32_t op_index,
+                                         std::string_view caller);
+
 // The role a qubit operand plays in an operation. A CX/CZ with a record
 // control is a virtual frame correction, not a physical gate application.
 enum class OperandRole {

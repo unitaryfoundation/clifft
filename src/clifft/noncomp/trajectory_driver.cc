@@ -100,7 +100,11 @@ struct AnnotationChannel {
 // checks enforce the target shape expected by the driver and rewriter.
 void validate_annotation(const AstNode& node, const NonComputationalModel& model, uint32_t op_index,
                          uint32_t num_qubits) {
-    (void)resolve_annotation(node, model, op_index);
+    if (is_noncomputational_herald(node.gate)) {
+        (void)herald_false_negative_probability(node, op_index, "sample_noncomputational");
+    } else {
+        (void)resolve_annotation(node, model, op_index);
+    }
     if (node.targets.empty()) {
         throw std::invalid_argument(
             "sample_noncomputational: annotation '" + std::string(gate_name(node.gate)) +
@@ -214,6 +218,9 @@ void extend_classical_outcomes(const Circuit& annotated, TrajectoryEvents& event
     for (uint32_t op_index = 0; op_index < annotated.nodes.size(); ++op_index) {
         const AstNode& node = annotated.nodes[op_index];
         const GateType gate = node.gate;
+        if (is_noncomputational_herald(gate)) {
+            continue;
+        }
         if (is_noncomputational_annotation(gate)) {
             for (const Target& target : node.targets) {
                 const uint32_t qubit = target.value();
@@ -527,10 +534,11 @@ void validate_model_contract(const Circuit& annotated, const NonComputationalMod
     }
 
     // A physical-qubit measurement needs a classifier for any leaked or lost
-    // operand. MPAD only appends a classical literal to the record.
+    // operand. MPAD and status probes only append classical record bits.
     if (model.classifier() == nullptr) {
         for (const AstNode& node : annotated.nodes) {
-            if (is_measurement(node.gate) && node.gate != GateType::MPAD) {
+            if (is_measurement(node.gate) && node.gate != GateType::MPAD &&
+                !is_noncomputational_herald(node.gate)) {
                 throw std::invalid_argument(
                     "sample_noncomputational: this model can leak or lose qubits and the circuit"
                     " measures; a classifier is required to define what a measurement of a leaked"
