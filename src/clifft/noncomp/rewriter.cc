@@ -215,18 +215,31 @@ ContinuationRewrite rewrite_continuation(const Circuit& annotated, const Traject
 
         if (is_noncomputational_herald(gate)) {
             const double miss = herald_false_negative_probability(node, op_index, "rewrite");
-            for (const Target& target : node.targets) {
-                const QubitStatus current = status.at(target.value());
-                const bool detected =
-                    gate == GateType::HERALD_LEAKAGE_EVENT ? is_leaked(current) : is_lost(current);
-                out.nodes.push_back(mpad_op(detected ? 1 : 0));
-                // Readout noise is conditional on a positive status so missed
-                // detections cannot introduce false positives.
-                if (detected && miss > 0.0) {
-                    out.nodes.push_back(readout_noise_op(slot, miss));
-                }
-                ++slot;
+            // Direct callers can bypass the driver's AST validation. Require
+            // the parser's single-target shape to preserve record accounting.
+            const std::string location =
+                "rewrite: " + std::string(gate_name(gate)) + " at op " + std::to_string(op_index);
+            if (node.targets.size() != 1) {
+                throw std::invalid_argument(location + " requires exactly one plain qubit target");
             }
+            const Target target = node.targets[0];
+            if (target.is_rec() || target.has_pauli() || target.is_inverted()) {
+                throw std::invalid_argument(location + " requires a plain qubit target");
+            }
+            if (target.value() >= status.size()) {
+                throw std::invalid_argument(location + " target qubit " +
+                                            std::to_string(target.value()) + " is out of range");
+            }
+            const QubitStatus current = status[target.value()];
+            const bool detected =
+                gate == GateType::HERALD_LEAKAGE_EVENT ? is_leaked(current) : is_lost(current);
+            out.nodes.push_back(mpad_op(detected && miss < 1.0 ? 1 : 0));
+            // Only an uncertain positive detection needs a noise site. A
+            // negative status must never produce a false positive.
+            if (detected && miss > 0.0 && miss < 1.0) {
+                out.nodes.push_back(readout_noise_op(slot, miss));
+            }
+            ++slot;
             continue;
         }
 

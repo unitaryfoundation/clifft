@@ -23,14 +23,17 @@
 #include "clifft/optimizer/pass_factory.h"
 
 #include "noncomp_test_helpers.h"
+#include "test_helpers.h"
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 #include <cstdint>
+#include <limits>
 #include <map>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -50,12 +53,14 @@ using clifft::NonComputationalPolicy;
 using clifft::parse;
 using clifft::QubitStatus;
 using clifft::rewrite_continuation;
+using clifft::Target;
 using clifft::trace;
 using clifft::TrajectoryEvents;
 using clifft::TransitionInstrument;
 using clifft::test::certain_transition_from_computational;
 using clifft::test::classifier_matrix_with_column;
 using clifft::test::level_index;
+using clifft::test::opaque_nan;
 using clifft::test::pure_initial_state;
 using clifft::test::RawProbabilityMatrix;
 using clifft::test::zero_transition_matrix;
@@ -657,6 +662,118 @@ TEST_CASE("rewrite: a malformed LOSS annotation rejects instead of reading past 
         REQUIRE_THROWS_WITH(
             rewrite_continuation(annotated, events, false, model),
             ContainsSubstring("rewrite_continuation") && ContainsSubstring("exactly one argument"));
+    }
+}
+
+TEST_CASE("rewrite: certain status heralds emit literal bits without noise sites") {
+    const auto model = make_rewriter_model({});
+    const std::vector<Level> levels = {Level::G, Level::E, Level::LeakG, Level::LeakE, Level::Lost};
+    for (const auto gate : {GateType::HERALD_LEAKAGE_EVENT, GateType::HERALD_LOSS_EVENT}) {
+        const std::string name(clifft::gate_name(gate));
+        CAPTURE(name);
+        const Circuit circuit =
+            parse(name + " 0 1 2 3 4\n" + name + "(0) 0 1 2 3 4\n" + name + "(1) 0 1 2 3 4\n");
+        const auto rw = rewritten(circuit, model, levels);
+        const std::vector<uint32_t> expected = gate == GateType::HERALD_LEAKAGE_EVENT
+                                                   ? std::vector<uint32_t>{0, 0, 1, 1, 0}
+                                                   : std::vector<uint32_t>{0, 0, 0, 0, 1};
+        REQUIRE(rw.circuit.nodes.size() == 15);
+        CHECK(rw.circuit.num_measurements == 15);
+        for (size_t i = 0; i < rw.circuit.nodes.size(); ++i) {
+            CAPTURE(i);
+            const auto& node = rw.circuit.nodes[i];
+            CHECK(node.gate == GateType::MPAD);
+            REQUIRE(node.targets.size() == 1);
+            CHECK(node.targets[0] == Target::qubit(i < 10 ? expected[i % 5] : 0));
+        }
+        CHECK(trace(rw.circuit).readout_noise.empty());
+        CHECK(rw.final_status == initials(levels));
+        CHECK(rw.classified_measurements.empty());
+        CHECK(rw.site_targets.empty());
+    }
+}
+
+TEST_CASE("rewrite: noisy status heralds flip only their own positive record slots") {
+    const auto model = make_rewriter_model({});
+    const Circuit circuit = parse(
+        "MPAD 1\n"
+        "HERALD_LEAKAGE_EVENT(0.25) 0 1 2\n"
+        "HERALD_LOSS_EVENT(0.75) 0 1 2\n"
+        "M 0\n"
+        "HERALD_LEAKAGE_EVENT(0.5) 1\n"
+        "DETECTOR rec[-1] rec[-2]\n");
+    const std::vector<Level> levels = {Level::G, Level::LeakE, Level::Lost};
+    const auto rw = rewritten(circuit, model, levels);
+    CHECK(rw.circuit.num_measurements == 9);
+    CHECK(count_gate(rw.circuit, GateType::MPAD) == 8);
+    CHECK(count_gate(rw.circuit, GateType::M) == 1);
+    std::vector<uint32_t> slots;
+    std::vector<double> probabilities;
+    for (const auto& node : rw.circuit.nodes) {
+        if (node.gate == GateType::READOUT_NOISE) {
+            REQUIRE(node.targets.size() == 1);
+            CHECK(node.targets[0].is_rec());
+            slots.push_back(node.targets[0].value());
+            REQUIRE(node.args.size() == 1);
+            probabilities.push_back(node.args[0]);
+        }
+    }
+    CHECK(slots == std::vector<uint32_t>{2, 6, 8});
+    CHECK(probabilities == std::vector<double>{0.25, 0.75, 0.5});
+    CHECK(rw.circuit.nodes.back().targets == circuit.nodes.back().targets);
+    CHECK(rw.final_status == initials(levels));
+    CHECK(rw.classified_measurements.empty());
+    CHECK(rw.site_targets.empty());
+}
+
+TEST_CASE("rewrite: malformed status herald targets report the gate and operation") {
+    const auto model = make_rewriter_model({});
+    TrajectoryEvents events;
+    events.initial_status = initials({Level::G, Level::G});
+    for (const auto gate : {GateType::HERALD_LEAKAGE_EVENT, GateType::HERALD_LOSS_EVENT}) {
+        const std::string name(clifft::gate_name(gate));
+        Circuit circuit = parse("H 1\n" + name + " 0\n");
+        for (const auto& targets :
+             std::vector<std::vector<Target>>{{},
+                                              {Target::qubit(2)},
+                                              {Target::rec(0)},
+                                              {Target::qubit(0).inverted()},
+                                              {Target::pauli(0, Target::kPauliX)},
+                                              {Target::qubit(0), Target::qubit(1)},
+                                              {Target::qubit(0), Target::qubit(0)}}) {
+            CAPTURE(name, targets);
+            circuit.nodes[1].targets = targets;
+            CHECK_THROWS_AS(rewrite_continuation(circuit, events, false, model),
+                            std::invalid_argument);
+            CHECK_THROWS_WITH(rewrite_continuation(circuit, events, false, model),
+                              ContainsSubstring("rewrite") && ContainsSubstring(name) &&
+                                  ContainsSubstring("op 1") && ContainsSubstring("target"));
+        }
+    }
+}
+
+TEST_CASE("rewrite: malformed status herald probabilities report the gate and operation") {
+    const auto model = make_rewriter_model({});
+    TrajectoryEvents events;
+    events.initial_status = initials({Level::G});
+    for (const auto gate : {GateType::HERALD_LEAKAGE_EVENT, GateType::HERALD_LOSS_EVENT}) {
+        const std::string name(clifft::gate_name(gate));
+        Circuit circuit = parse("H 0\n" + name + " 0\n");
+        for (const auto& args :
+             std::vector<std::vector<double>>{{-0.1},
+                                              {1.1},
+                                              {0.0, 0.1},
+                                              {opaque_nan()},
+                                              {std::numeric_limits<double>::infinity()}}) {
+            CAPTURE(name, args);
+            circuit.nodes[1].args = args;
+            CHECK_THROWS_AS(rewrite_continuation(circuit, events, false, model),
+                            std::invalid_argument);
+            CHECK_THROWS_WITH(rewrite_continuation(circuit, events, false, model),
+                              ContainsSubstring("rewrite") && ContainsSubstring(name) &&
+                                  ContainsSubstring("op 1") &&
+                                  ContainsSubstring("false-negative probability"));
+        }
     }
 }
 
