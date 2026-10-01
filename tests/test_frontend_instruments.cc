@@ -22,6 +22,7 @@
 #include <catch2/matchers/catch_matchers.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
+#include <stdexcept>
 #include <string>
 
 using namespace clifft;
@@ -64,6 +65,28 @@ TEST_CASE("trace: annotations still reject without instrument options") {
                         ContainsSubstring("noncomputational annotation"));
     REQUIRE_THROWS_WITH(trace(parse("LOSS(0.1) 0")),
                         ContainsSubstring("noncomputational annotation"));
+}
+
+TEST_CASE("trace: status probes direct ordinary callers to noncomputational sampling") {
+    for (const auto gate : {GateType::HERALD_LEAKAGE_EVENT, GateType::HERALD_LOSS_EVENT}) {
+        const std::string name(gate_name(gate));
+        const Circuit circuit = parse("H 0\n" + name + " 0\n");
+        CHECK_THROWS_WITH(trace(circuit),
+                          ContainsSubstring(name) && ContainsSubstring("clifft.noncomp.sample"));
+    }
+}
+
+TEST_CASE("trace: status probes with instruments report missing rewriter lowering") {
+    const InstrumentTraceOptions options;
+    for (const auto gate : {GateType::HERALD_LEAKAGE_EVENT, GateType::HERALD_LOSS_EVENT}) {
+        const std::string name(gate_name(gate));
+        const Circuit circuit = parse("H 0\n" + name + " 0\n");
+        CHECK_THROWS_AS(trace(circuit, &options), std::invalid_argument);
+        CHECK_THROWS_WITH(trace(circuit, &options),
+                          ContainsSubstring("unlowered " + name) && ContainsSubstring("node 1") &&
+                              ContainsSubstring("noncomputational rewriter") &&
+                              !ContainsSubstring("clifft.noncomp.sample"));
+    }
 }
 
 TEST_CASE("trace: LEVEL_TRANSITION materializes an INSTRUMENT with its spec") {

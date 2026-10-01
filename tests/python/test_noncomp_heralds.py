@@ -44,7 +44,11 @@ def test_status_heralds_distinguish_levels_without_classifier(level, noncomp_sam
 
 
 @pytest.mark.parametrize("basis", ["M", "MX"])
-def test_status_probes_preserve_bell_correlations(basis, noncomp_sampling_api):
+def test_negative_status_probes_preserve_computational_bell_correlations(
+    basis, noncomp_sampling_api
+):
+    # Both sites stay computational, so the miss probability is inactive.
+    # X-basis correlations catch accidental collapse by a status probe.
     prefix = "H 0\nCX 0 1\n"
     probes = "HERALD_LEAKAGE_EVENT(0.5) 0 1\nHERALD_LOSS_EVENT(0.5) 0 1\n"
     result = noncomp_sampling_api(

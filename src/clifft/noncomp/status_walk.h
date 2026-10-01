@@ -25,6 +25,9 @@ namespace clifft {
 double inline_transition_probability(GateType gate, const std::vector<double>& args,
                                      uint32_t op_index, std::string_view caller);
 
+// Status probes accept zero or one argument: a finite miss probability in
+// [0, 1], defaulting to zero for perfect detection. It only suppresses positive
+// detections; it cannot create false positives. `caller` prefixes diagnostics.
 double herald_false_negative_probability(const AstNode& node, uint32_t op_index,
                                          std::string_view caller);
 

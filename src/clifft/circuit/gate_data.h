@@ -139,13 +139,13 @@ enum class GateType : uint16_t {
     // Annotations
     TICK,  // Timing layer marker (no-op)
 
-    // Noncomputational trajectory annotations (consumed by the
-    // noncomputational sampling layer; trace() rejects them)
-    LEVEL_TRANSITION,  // Per-site level transition; the tag names a model matrix
-    LEAKAGE,           // Per-site source-preserving leakage with an inline probability
-    LOSS,              // Per-site uniform loss with an inline probability
-    HERALD_LEAKAGE_EVENT,
-    HERALD_LOSS_EVENT,
+    // Noncomputational trajectory annotations (require the noncomputational
+    // sampling layer; ordinary compilation rejects them)
+    LEVEL_TRANSITION,      // Per-site level transition; the tag names a model matrix
+    LEAKAGE,               // Per-site source-preserving leakage with an inline probability
+    LOSS,                  // Per-site uniform loss with an inline probability
+    HERALD_LEAKAGE_EVENT,  // Record-only probe of leak_g or leak_e; optional miss probability
+    HERALD_LOSS_EVENT,     // Record-only probe of lost status; optional miss probability
 
     // Simulation-only probes
     EXP_VAL,  // Non-destructive expectation value

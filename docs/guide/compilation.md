@@ -48,7 +48,8 @@ in the program. `sample_survivors()` then applies the post-selection mask to
 those normalized detector values; it does not recompute the reference per
 call.
 
-Circuits containing `LEAKAGE`, `LOSS`, or `LEVEL_TRANSITION` annotations take a
+Circuits containing `LEAKAGE`, `LOSS`, or `LEVEL_TRANSITION` annotations, or the
+status probes `HERALD_LEAKAGE_EVENT` and `HERALD_LOSS_EVENT`, take a
 trajectory-specific path. Pass the circuit and model to
 `clifft.noncomp.sample()` rather than compiling one fixed program first; see
 [Leakage and Loss](leakage-and-loss.md).
