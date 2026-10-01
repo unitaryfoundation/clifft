@@ -30,7 +30,6 @@
 #include <catch2/matchers/catch_matchers.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 #include <cstdint>
-#include <limits>
 #include <map>
 #include <optional>
 #include <stdexcept>
@@ -60,6 +59,7 @@ using clifft::TransitionInstrument;
 using clifft::test::certain_transition_from_computational;
 using clifft::test::classifier_matrix_with_column;
 using clifft::test::level_index;
+using clifft::test::opaque_infinity;
 using clifft::test::opaque_nan;
 using clifft::test::pure_initial_state;
 using clifft::test::RawProbabilityMatrix;
@@ -759,12 +759,8 @@ TEST_CASE("rewrite: malformed status herald probabilities report the gate and op
     for (const auto gate : {GateType::HERALD_LEAKAGE_EVENT, GateType::HERALD_LOSS_EVENT}) {
         const std::string name(clifft::gate_name(gate));
         Circuit circuit = parse("H 0\n" + name + " 0\n");
-        for (const auto& args :
-             std::vector<std::vector<double>>{{-0.1},
-                                              {1.1},
-                                              {0.0, 0.1},
-                                              {opaque_nan()},
-                                              {std::numeric_limits<double>::infinity()}}) {
+        for (const auto& args : std::vector<std::vector<double>>{
+                 {-0.1}, {1.1}, {0.0, 0.1}, {opaque_nan()}, {opaque_infinity()}}) {
             CAPTURE(name, args);
             circuit.nodes[1].args = args;
             CHECK_THROWS_AS(rewrite_continuation(circuit, events, false, model),
