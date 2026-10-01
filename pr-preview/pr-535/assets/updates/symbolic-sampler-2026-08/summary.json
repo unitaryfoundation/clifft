@@ -1,0 +1,1769 @@
+{
+  "schema": "clifft_symbolic_release_summary_v1",
+  "environment": {
+    "captured_at_utc": "2026-08-18T16:34:18.913858+00:00",
+    "host": "exe.dev KVM VM",
+    "cpu": "AMD EPYC 9554P 64-Core Processor (Zen 4)",
+    "visible_cpus": 8,
+    "benchmark_cpu": 3,
+    "threads_per_process": 1,
+    "kernel": "Linux 6.12.90 x86_64",
+    "compiler": "GCC 13.3.0",
+    "cmake": "3.28.3",
+    "python": "3.12.3",
+    "available_isa": [
+      "avx2",
+      "fma",
+      "avx512f",
+      "avx512dq",
+      "avx512bw",
+      "avx512vl"
+    ]
+  },
+  "builds": {
+    "clifft_current": {
+      "commit": "04c4fe662d9b42d06817450096dbb56a541e709d",
+      "role": "release-target Clifft sampler",
+      "cmake_build_type": "Release",
+      "compiler_flags": "-O3 -DNDEBUG",
+      "cpu_baseline": "x86-64-v2",
+      "runtime_dispatch": true
+    },
+    "clifft_legacy": {
+      "commit": "aa7e7a3d3e03d0414bb4f5757d9a7204b082539c",
+      "role": "last legacy-default Clifft SVM before the sampler cutover",
+      "cmake_build_type": "Release",
+      "compiler_flags": "-O3 -DNDEBUG",
+      "cpu_baseline": "x86-64-v2",
+      "runtime_dispatch": true
+    },
+    "symft": {
+      "commit": "c89b98514a919240b8afa53a271e08d926d3c987",
+      "role": "corrected CPU reference-normalization implementation",
+      "compiler_flags": "-std=c++20 -O3 -fvisibility=hidden -march=native",
+      "runtime_dispatch": true,
+      "notes": "AVX2 and AVX-512 kernels were also compiled in separate ISA-specific translation units."
+    }
+  },
+  "primary_avx512": {
+    "meta": {
+      "rounds": 12,
+      "target_sample_s": 1.5,
+      "cpu": "3",
+      "current_clifft": "04c4fe662d9b42d06817450096dbb56a541e709d",
+      "legacy_clifft": "aa7e7a3d3e03d0414bb4f5757d9a7204b082539c",
+      "symft": "c89b98514a919240b8afa53a271e08d926d3c987",
+      "clifft_cpu_baseline": "x86-64-v2",
+      "clifft_forced_isa": "avx512",
+      "symft_native": true,
+      "observable_contract": "retain observable 0 only; add observable 0 from final record when absent",
+      "reference_contract": "one explicit Clifft noiseless reference vector passed to every arm"
+    },
+    "circuits": {
+      "surface_d7_r7": {
+        "probe": {
+          "source": "unitaryfoundation/clifft-paper@db7dc9f13a2c2854690e92390c779048a1ac1400:qec_bench/circuits/surface_d7_r7.stim",
+          "source_sha256": "30d1940101d70e05a63f0d2f877756ffaeaba7e8e17e94cd2ea40fce04b99583",
+          "benchmark_view_sha256": "30d1940101d70e05a63f0d2f877756ffaeaba7e8e17e94cd2ea40fce04b99583",
+          "num_qubits": 118,
+          "num_measurements": 385,
+          "num_detectors": 336,
+          "num_observables": 1,
+          "peak_active_width": 0,
+          "expected_detector_bits": "000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "expected_observable_bits": "0"
+        },
+        "arms": {
+          "clifft_legacy": {
+            "samples": 12,
+            "shots_per_sample": [
+              446134
+            ],
+            "rate_median": 295453.25483992917,
+            "rate_mad": 4243.148195432121,
+            "rate_relative_mad": 0.014361487395801328,
+            "rate_min": 288642.8766085573,
+            "rate_max": 305679.7186905625,
+            "versus_legacy": 1.0,
+            "compile_ms_median": 7.783586159348488,
+            "compile_ms_mad": 0.12787478044629097,
+            "ru_maxrss_kib_median": 37888.0,
+            "attempted_shots": 5353608,
+            "discard_fraction": 0.9121995857746775,
+            "passed_shots": 470049,
+            "logical_error_fraction": 0.0,
+            "max_wall_over_cpu": 1.0003454806445653
+          },
+          "clifft_current": {
+            "samples": 12,
+            "shots_per_sample": [
+              684524
+            ],
+            "rate_median": 453100.1259568912,
+            "rate_mad": 5739.099632326484,
+            "rate_relative_mad": 0.012666294497725461,
+            "rate_min": 429289.6808823109,
+            "rate_max": 471160.08341395896,
+            "versus_legacy": 1.5335763561053746,
+            "compile_ms_median": 12.181587982922792,
+            "compile_ms_mad": 0.36997115239501,
+            "ru_maxrss_kib_median": 40934.0,
+            "attempted_shots": 8214288,
+            "discard_fraction": 0.9121035201103248,
+            "passed_shots": 722007,
+            "logical_error_fraction": 0.0,
+            "max_wall_over_cpu": 1.0005801662170795
+          },
+          "symft_single": {
+            "samples": 12,
+            "shots_per_sample": [
+              287835
+            ],
+            "rate_median": 190172.27222234418,
+            "rate_mad": 1329.2041802640451,
+            "rate_relative_mad": 0.0069894741474718055,
+            "rate_min": 181434.61662380886,
+            "rate_max": 194794.21927324985,
+            "versus_legacy": 0.6436628099608374,
+            "compile_ms_median": 22.138843312859535,
+            "compile_ms_mad": 1.0800780728459358,
+            "ru_maxrss_kib_median": 39500.0,
+            "attempted_shots": 3454020,
+            "discard_fraction": 0.9123369291434329,
+            "passed_shots": 302790,
+            "logical_error_fraction": 0.0,
+            "max_wall_over_cpu": 1.0004842081844905,
+            "batch_size": 0,
+            "active_components": false,
+            "reference_normalized": true
+          },
+          "symft_batch": {
+            "samples": 12,
+            "shots_per_sample": [
+              5180823
+            ],
+            "rate_median": 3442399.0830737976,
+            "rate_mad": 63138.37284149323,
+            "rate_relative_mad": 0.018341386724143417,
+            "rate_min": 3342152.641460332,
+            "rate_max": 3601914.382518439,
+            "versus_legacy": 11.651247791935218,
+            "compile_ms_median": 21.60251932218671,
+            "compile_ms_mad": 0.5915449000895023,
+            "ru_maxrss_kib_median": 40982.0,
+            "attempted_shots": 62169876,
+            "discard_fraction": 0.9121047466782787,
+            "passed_shots": 5464437,
+            "logical_error_fraction": 0.0,
+            "max_wall_over_cpu": 1.0008189019680556,
+            "batch_size": 2048,
+            "active_components": false,
+            "reference_normalized": true
+          }
+        }
+      },
+      "cultivation_d3": {
+        "probe": {
+          "source": "unitaryfoundation/clifft-paper@db7dc9f13a2c2854690e92390c779048a1ac1400:qec_bench/circuits/cultivation_d3.stim",
+          "source_sha256": "90a7d841e003e5ee38137cd9a3eb6529bb552e49c424bc6b0932a27d97cdb41f",
+          "benchmark_view_sha256": "90a7d841e003e5ee38137cd9a3eb6529bb552e49c424bc6b0932a27d97cdb41f",
+          "num_qubits": 15,
+          "num_measurements": 21,
+          "num_detectors": 20,
+          "num_observables": 1,
+          "peak_active_width": 4,
+          "expected_detector_bits": "00000000000000000000",
+          "expected_observable_bits": "0"
+        },
+        "arms": {
+          "clifft_legacy": {
+            "samples": 12,
+            "shots_per_sample": [
+              1108666
+            ],
+            "rate_median": 735021.0091266669,
+            "rate_mad": 8246.775660445273,
+            "rate_relative_mad": 0.011219782234855953,
+            "rate_min": 725894.6892443931,
+            "rate_max": 747304.3331439267,
+            "versus_legacy": 1.0,
+            "compile_ms_median": 0.9021805599331856,
+            "compile_ms_mad": 0.013630371540784836,
+            "ru_maxrss_kib_median": 35380.0,
+            "attempted_shots": 13303992,
+            "discard_fraction": 0.31326725091235774,
+            "passed_shots": 9136287,
+            "logical_error_fraction": 8.756292353775664e-07,
+            "max_wall_over_cpu": 1.001008963395848
+          },
+          "clifft_current": {
+            "samples": 12,
+            "shots_per_sample": [
+              1548757
+            ],
+            "rate_median": 1072023.0307021579,
+            "rate_mad": 5884.907921090024,
+            "rate_relative_mad": 0.005489534975042004,
+            "rate_min": 1046269.0035035803,
+            "rate_max": 1100860.6797864996,
+            "versus_legacy": 1.4584930463088506,
+            "compile_ms_median": 1.3754148967564106,
+            "compile_ms_mad": 0.055433716624975204,
+            "ru_maxrss_kib_median": 34966.0,
+            "attempted_shots": 18585084,
+            "discard_fraction": 0.313392880010658,
+            "passed_shots": 12760651,
+            "logical_error_fraction": 7.052931703876236e-07,
+            "max_wall_over_cpu": 1.0004014222816504
+          },
+          "symft_single": {
+            "samples": 12,
+            "shots_per_sample": [
+              1098243
+            ],
+            "rate_median": 725984.432869391,
+            "rate_mad": 10516.746162552794,
+            "rate_relative_mad": 0.014486186874539802,
+            "rate_min": 687038.929860129,
+            "rate_max": 747453.1992236862,
+            "versus_legacy": 0.9877056898441408,
+            "compile_ms_median": 3.2355901785194874,
+            "compile_ms_mad": 0.059064943343400955,
+            "ru_maxrss_kib_median": 33384.0,
+            "attempted_shots": 13178916,
+            "discard_fraction": 0.3133423113099742,
+            "passed_shots": 9049404,
+            "logical_error_fraction": 4.4201805997389443e-07,
+            "max_wall_over_cpu": 1.0003808086646717,
+            "batch_size": 0,
+            "active_components": false,
+            "reference_normalized": true
+          },
+          "symft_batch": {
+            "samples": 12,
+            "shots_per_sample": [
+              3701349
+            ],
+            "rate_median": 2580479.5853454317,
+            "rate_mad": 40648.16159650916,
+            "rate_relative_mad": 0.015752173288775647,
+            "rate_min": 2389288.426959806,
+            "rate_max": 2692442.9551373785,
+            "versus_legacy": 3.5107562277865925,
+            "compile_ms_median": 3.946376033127308,
+            "compile_ms_mad": 0.09275181218981743,
+            "ru_maxrss_kib_median": 34776.0,
+            "attempted_shots": 44416188,
+            "discard_fraction": 0.3132428879308598,
+            "passed_shots": 30503133,
+            "logical_error_fraction": 7.540209066393278e-07,
+            "max_wall_over_cpu": 1.0003146142867898,
+            "batch_size": 2048,
+            "active_components": false,
+            "reference_normalized": true
+          }
+        }
+      },
+      "cultivation_d5": {
+        "probe": {
+          "source": "unitaryfoundation/clifft-paper@db7dc9f13a2c2854690e92390c779048a1ac1400:qec_bench/circuits/cultivation_d5.stim",
+          "source_sha256": "c2b4566917bd9bf27a5705284dac02700ef0dcc7c03c91066670db376d633a6d",
+          "benchmark_view_sha256": "c2b4566917bd9bf27a5705284dac02700ef0dcc7c03c91066670db376d633a6d",
+          "num_qubits": 42,
+          "num_measurements": 112,
+          "num_detectors": 107,
+          "num_observables": 1,
+          "peak_active_width": 10,
+          "expected_detector_bits": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "expected_observable_bits": "0"
+        },
+        "arms": {
+          "clifft_legacy": {
+            "samples": 12,
+            "shots_per_sample": [
+              104609
+            ],
+            "rate_median": 67263.97378628375,
+            "rate_mad": 749.0778886063927,
+            "rate_relative_mad": 0.011136390647784508,
+            "rate_min": 65102.1843388357,
+            "rate_max": 68982.08490797335,
+            "versus_legacy": 1.0,
+            "compile_ms_median": 5.019550211727619,
+            "compile_ms_mad": 0.1223655417561531,
+            "ru_maxrss_kib_median": 37354.0,
+            "attempted_shots": 1255308,
+            "discard_fraction": 0.8557995328636478,
+            "passed_shots": 181016,
+            "logical_error_fraction": 0.0,
+            "max_wall_over_cpu": 1.0003188504838305
+          },
+          "clifft_current": {
+            "samples": 12,
+            "shots_per_sample": [
+              193795
+            ],
+            "rate_median": 125325.23427394796,
+            "rate_mad": 4482.637060249559,
+            "rate_relative_mad": 0.03576803256119178,
+            "rate_min": 119436.64224934773,
+            "rate_max": 134641.5619831997,
+            "versus_legacy": 1.8631851081552349,
+            "compile_ms_median": 11.303339153528214,
+            "compile_ms_mad": 0.3441823646426201,
+            "ru_maxrss_kib_median": 41674.0,
+            "attempted_shots": 2325540,
+            "discard_fraction": 0.856362823258254,
+            "passed_shots": 334034,
+            "logical_error_fraction": 0.0,
+            "max_wall_over_cpu": 1.0009667311273802
+          },
+          "symft_single": {
+            "samples": 12,
+            "shots_per_sample": [
+              159035
+            ],
+            "rate_median": 116597.50937372555,
+            "rate_mad": 1712.213711707518,
+            "rate_relative_mad": 0.014684822350873934,
+            "rate_min": 114702.94786239736,
+            "rate_max": 121509.04556209508,
+            "versus_legacy": 1.7334317735105584,
+            "compile_ms_median": 42.16014686971903,
+            "compile_ms_mad": 0.3154273144900799,
+            "ru_maxrss_kib_median": 42216.0,
+            "attempted_shots": 1908420,
+            "discard_fraction": 0.8562103729786944,
+            "passed_shots": 274411,
+            "logical_error_fraction": 0.0,
+            "max_wall_over_cpu": 1.0003986647880068,
+            "batch_size": 0,
+            "active_components": false,
+            "reference_normalized": true
+          },
+          "symft_batch": {
+            "samples": 12,
+            "shots_per_sample": [
+              224892
+            ],
+            "rate_median": 162263.29519221018,
+            "rate_mad": 1703.086986491835,
+            "rate_relative_mad": 0.01049582399072095,
+            "rate_min": 154892.59262323484,
+            "rate_max": 165101.30127492116,
+            "versus_legacy": 2.412335847236227,
+            "compile_ms_median": 42.418642435222864,
+            "compile_ms_mad": 0.8509079925715923,
+            "ru_maxrss_kib_median": 42276.0,
+            "attempted_shots": 2698704,
+            "discard_fraction": 0.8562283970379856,
+            "passed_shots": 387997,
+            "logical_error_fraction": 0.0,
+            "max_wall_over_cpu": 1.0004646186997899,
+            "batch_size": 32,
+            "active_components": false,
+            "reference_normalized": true
+          }
+        }
+      },
+      "distillation": {
+        "probe": {
+          "source": "unitaryfoundation/clifft-paper@db7dc9f13a2c2854690e92390c779048a1ac1400:qec_bench/circuits/distillation.stim",
+          "source_sha256": "188bd53c48dbc21f840fb297df6f41c61f5bad6a856bba621f00ff42078921c1",
+          "benchmark_view_sha256": "03251e0b37cec9be9affac02f769914ff9bd891e108978eb461066497f1b0289",
+          "num_qubits": 85,
+          "num_measurements": 85,
+          "num_detectors": 40,
+          "num_observables": 1,
+          "peak_active_width": 5,
+          "expected_detector_bits": "0000000000000000000000000000000000000000",
+          "expected_observable_bits": "0"
+        },
+        "arms": {
+          "clifft_legacy": {
+            "samples": 12,
+            "shots_per_sample": [
+              135045
+            ],
+            "rate_median": 91188.79130649522,
+            "rate_mad": 1099.0587723481658,
+            "rate_relative_mad": 0.012052564318503932,
+            "rate_min": 89394.88720704078,
+            "rate_max": 94844.29162127506,
+            "versus_legacy": 1.0,
+            "compile_ms_median": 2.9285168275237083,
+            "compile_ms_mad": 0.08102366700768471,
+            "ru_maxrss_kib_median": 35620.0,
+            "attempted_shots": 1620540,
+            "discard_fraction": 0.9198316610512545,
+            "passed_shots": 129916,
+            "logical_error_fraction": 0.42316573786138734,
+            "max_wall_over_cpu": 1.0009792530235007
+          },
+          "clifft_current": {
+            "samples": 12,
+            "shots_per_sample": [
+              782828
+            ],
+            "rate_median": 534409.4262618839,
+            "rate_mad": 6583.991845746466,
+            "rate_relative_mad": 0.012320126708468692,
+            "rate_min": 524024.7889852932,
+            "rate_max": 543395.6132045262,
+            "versus_legacy": 5.860472746762012,
+            "compile_ms_median": 2.1757548674941063,
+            "compile_ms_mad": 0.03560492768883705,
+            "ru_maxrss_kib_median": 34718.0,
+            "attempted_shots": 9393936,
+            "discard_fraction": 0.9202967744298024,
+            "passed_shots": 748727,
+            "logical_error_fraction": 0.4217852434866113,
+            "max_wall_over_cpu": 1.000216799109797
+          },
+          "symft_single": {
+            "samples": 12,
+            "shots_per_sample": [
+              414515
+            ],
+            "rate_median": 272307.8792574158,
+            "rate_mad": 3080.551371669484,
+            "rate_relative_mad": 0.011312751507852634,
+            "rate_min": 266532.157811732,
+            "rate_max": 279355.0876066316,
+            "versus_legacy": 2.986199020251953,
+            "compile_ms_median": 2.762224990874529,
+            "compile_ms_mad": 0.07548928260803223,
+            "ru_maxrss_kib_median": 33502.0,
+            "attempted_shots": 4974180,
+            "discard_fraction": 0.9202242379648505,
+            "passed_shots": 396819,
+            "logical_error_fraction": 0.42065778100342976,
+            "max_wall_over_cpu": 1.000232106200516,
+            "batch_size": 0,
+            "active_components": false,
+            "reference_normalized": true
+          },
+          "symft_batch": {
+            "samples": 12,
+            "shots_per_sample": [
+              2530678
+            ],
+            "rate_median": 1736231.248757835,
+            "rate_mad": 15724.089082065853,
+            "rate_relative_mad": 0.009056448611505787,
+            "rate_min": 1643452.312590924,
+            "rate_max": 1758408.736876806,
+            "versus_legacy": 19.03996339771823,
+            "compile_ms_median": 3.3615808933973312,
+            "compile_ms_mad": 0.18493039533495903,
+            "ru_maxrss_kib_median": 34378.0,
+            "attempted_shots": 30368136,
+            "discard_fraction": 0.9202276688961087,
+            "passed_shots": 2422537,
+            "logical_error_fraction": 0.422086019738811,
+            "max_wall_over_cpu": 1.0003902030418277,
+            "batch_size": 1024,
+            "active_components": false,
+            "reference_normalized": true
+          }
+        }
+      },
+      "coherent_d3_r1": {
+        "probe": {
+          "source": "unitaryfoundation/clifft-paper@db7dc9f13a2c2854690e92390c779048a1ac1400:qec_bench/circuits/coherent_d3_r1.stim",
+          "source_sha256": "9b439238478b15977829c1015ee47dfe401976b3882092d9560ba321fb0f510a",
+          "benchmark_view_sha256": "9b439238478b15977829c1015ee47dfe401976b3882092d9560ba321fb0f510a",
+          "num_qubits": 26,
+          "num_measurements": 17,
+          "num_detectors": 8,
+          "num_observables": 1,
+          "peak_active_width": 4,
+          "expected_detector_bits": "00000000",
+          "expected_observable_bits": "0"
+        },
+        "arms": {
+          "clifft_legacy": {
+            "samples": 12,
+            "shots_per_sample": [
+              1885068
+            ],
+            "rate_median": 1355255.68613345,
+            "rate_mad": 19169.395295498543,
+            "rate_relative_mad": 0.014144486159795357,
+            "rate_min": 1321754.6857959323,
+            "rate_max": 1403484.7189401037,
+            "versus_legacy": 1.0,
+            "compile_ms_median": 0.3885147161781788,
+            "compile_ms_mad": 0.023520085960626602,
+            "ru_maxrss_kib_median": 35066.0,
+            "attempted_shots": 22620816,
+            "discard_fraction": 0.02564368146577913,
+            "passed_shots": 22040735,
+            "logical_error_fraction": 0.0,
+            "max_wall_over_cpu": 1.0007885707488324
+          },
+          "clifft_current": {
+            "samples": 12,
+            "shots_per_sample": [
+              2049473
+            ],
+            "rate_median": 1329090.3332936203,
+            "rate_mad": 11896.810397187714,
+            "rate_relative_mad": 0.008951092411985433,
+            "rate_min": 1289869.744410164,
+            "rate_max": 1362597.4834349924,
+            "versus_legacy": 0.9806934196199689,
+            "compile_ms_median": 0.3604218363761902,
+            "compile_ms_mad": 0.011052004992961884,
+            "ru_maxrss_kib_median": 34194.0,
+            "attempted_shots": 24593676,
+            "discard_fraction": 0.025666882819794814,
+            "passed_shots": 23962433,
+            "logical_error_fraction": 4.17319894019109e-08,
+            "max_wall_over_cpu": 1.0003897262337793
+          },
+          "symft_single": {
+            "samples": 12,
+            "shots_per_sample": [
+              1432376
+            ],
+            "rate_median": 976122.4564570627,
+            "rate_mad": 13686.155278436374,
+            "rate_relative_mad": 0.014020940905418453,
+            "rate_min": 937963.8145426448,
+            "rate_max": 1019807.7056256275,
+            "versus_legacy": 0.7202496668668804,
+            "compile_ms_median": 0.7895296439528465,
+            "compile_ms_mad": 0.015894882380962372,
+            "ru_maxrss_kib_median": 32210.0,
+            "attempted_shots": 17188512,
+            "discard_fraction": 0.025691578188967144,
+            "passed_shots": 16746912,
+            "logical_error_fraction": 0.0,
+            "max_wall_over_cpu": 1.0002963363652815,
+            "batch_size": 0,
+            "active_components": false,
+            "reference_normalized": true
+          },
+          "symft_batch": {
+            "samples": 12,
+            "shots_per_sample": [
+              3863075
+            ],
+            "rate_median": 2547479.64399382,
+            "rate_mad": 23097.244168830104,
+            "rate_relative_mad": 0.009066704114117795,
+            "rate_min": 2490420.1219531256,
+            "rate_max": 2583911.0885557304,
+            "versus_legacy": 1.8797040809780994,
+            "compile_ms_median": 1.1026198044419289,
+            "compile_ms_mad": 0.047647859901189804,
+            "ru_maxrss_kib_median": 33088.0,
+            "attempted_shots": 46356900,
+            "discard_fraction": 0.025663709178137453,
+            "passed_shots": 45167210,
+            "logical_error_fraction": 0.0,
+            "max_wall_over_cpu": 1.0007483596299878,
+            "batch_size": 2048,
+            "active_components": false,
+            "reference_normalized": true
+          }
+        }
+      },
+      "coherent_d3_r3": {
+        "probe": {
+          "source": "unitaryfoundation/clifft-paper@db7dc9f13a2c2854690e92390c779048a1ac1400:qec_bench/circuits/coherent_d3_r3.stim",
+          "source_sha256": "87d1308c83894e87c60aeb2dc31b74be89b3460a951929951f2c3ac92606827d",
+          "benchmark_view_sha256": "87d1308c83894e87c60aeb2dc31b74be89b3460a951929951f2c3ac92606827d",
+          "num_qubits": 26,
+          "num_measurements": 33,
+          "num_detectors": 24,
+          "num_observables": 1,
+          "peak_active_width": 7,
+          "expected_detector_bits": "000000000100000000000000",
+          "expected_observable_bits": "0"
+        },
+        "arms": {
+          "clifft_legacy": {
+            "samples": 12,
+            "shots_per_sample": [
+              532448
+            ],
+            "rate_median": 345970.28114014206,
+            "rate_mad": 2908.5255597376963,
+            "rate_relative_mad": 0.008406865324248879,
+            "rate_min": 332815.6666426592,
+            "rate_max": 351836.82376841013,
+            "versus_legacy": 1.0,
+            "compile_ms_median": 0.6605135276913643,
+            "compile_ms_mad": 0.022332649677991867,
+            "ru_maxrss_kib_median": 35256.0,
+            "attempted_shots": 6389376,
+            "discard_fraction": 0.9101838739808081,
+            "passed_shots": 573869,
+            "logical_error_fraction": 0.0,
+            "max_wall_over_cpu": 1.0001872439014696
+          },
+          "clifft_current": {
+            "samples": 12,
+            "shots_per_sample": [
+              575650
+            ],
+            "rate_median": 394010.9944653878,
+            "rate_mad": 3759.908168200898,
+            "rate_relative_mad": 0.009542647847435106,
+            "rate_min": 381349.6382141088,
+            "rate_max": 401865.0717231711,
+            "versus_legacy": 1.1388579191453323,
+            "compile_ms_median": 0.6338274106383324,
+            "compile_ms_mad": 0.022113323211669922,
+            "ru_maxrss_kib_median": 34178.0,
+            "attempted_shots": 6907800,
+            "discard_fraction": 0.9103462752251078,
+            "passed_shots": 619310,
+            "logical_error_fraction": 0.0,
+            "max_wall_over_cpu": 1.0008998610154631
+          },
+          "symft_single": {
+            "samples": 12,
+            "shots_per_sample": [
+              729112
+            ],
+            "rate_median": 425469.1844873279,
+            "rate_mad": 8916.358850134508,
+            "rate_relative_mad": 0.020956532635561697,
+            "rate_min": 403159.9650426399,
+            "rate_max": 447697.1181434494,
+            "versus_legacy": 1.22978535348527,
+            "compile_ms_median": 1.7062709666788578,
+            "compile_ms_mad": 0.03793276846408844,
+            "ru_maxrss_kib_median": 32378.0,
+            "attempted_shots": 8749344,
+            "discard_fraction": 0.9101659507272774,
+            "passed_shots": 785989,
+            "logical_error_fraction": 0.0,
+            "max_wall_over_cpu": 1.000316820330748,
+            "batch_size": 0,
+            "active_components": false,
+            "reference_normalized": true
+          },
+          "symft_batch": {
+            "samples": 12,
+            "shots_per_sample": [
+              991605
+            ],
+            "rate_median": 663597.4959878661,
+            "rate_mad": 5307.892835927894,
+            "rate_relative_mad": 0.007998663147494681,
+            "rate_min": 647592.5571158793,
+            "rate_max": 675939.7936345179,
+            "versus_legacy": 1.9180765868125618,
+            "compile_ms_median": 2.016331534832716,
+            "compile_ms_mad": 0.0594407320022583,
+            "ru_maxrss_kib_median": 33332.0,
+            "attempted_shots": 11899260,
+            "discard_fraction": 0.9100423051517489,
+            "passed_shots": 1070430,
+            "logical_error_fraction": 0.0,
+            "max_wall_over_cpu": 1.0001924363333319,
+            "batch_size": 256,
+            "active_components": false,
+            "reference_normalized": true
+          }
+        }
+      },
+      "coherent_d5_r1": {
+        "probe": {
+          "source": "unitaryfoundation/clifft-paper@db7dc9f13a2c2854690e92390c779048a1ac1400:qec_bench/circuits/coherent_d5_r1.stim",
+          "source_sha256": "2707188abe8912f693fe4f910db8c4b6bd795c71a8fba38cc153da90ee5910b8",
+          "benchmark_view_sha256": "2707188abe8912f693fe4f910db8c4b6bd795c71a8fba38cc153da90ee5910b8",
+          "num_qubits": 64,
+          "num_measurements": 49,
+          "num_detectors": 24,
+          "num_observables": 1,
+          "peak_active_width": 12,
+          "expected_detector_bits": "000000000000000000000000",
+          "expected_observable_bits": "0"
+        },
+        "arms": {
+          "clifft_legacy": {
+            "samples": 12,
+            "shots_per_sample": [
+              22944
+            ],
+            "rate_median": 15216.509876857726,
+            "rate_mad": 143.29238250551498,
+            "rate_relative_mad": 0.009416902014005427,
+            "rate_min": 14907.277162312399,
+            "rate_max": 15548.316178189365,
+            "versus_legacy": 1.0,
+            "compile_ms_median": 1.2282347306609154,
+            "compile_ms_mad": 0.019298866391181946,
+            "ru_maxrss_kib_median": 35212.0,
+            "attempted_shots": 275328,
+            "discard_fraction": 0.07125682821943283,
+            "passed_shots": 255709,
+            "logical_error_fraction": 0.0,
+            "max_wall_over_cpu": 1.0009282674534068
+          },
+          "clifft_current": {
+            "samples": 12,
+            "shots_per_sample": [
+              21432
+            ],
+            "rate_median": 14106.393385274896,
+            "rate_mad": 163.98571057645313,
+            "rate_relative_mad": 0.011624921133110559,
+            "rate_min": 13720.999971405981,
+            "rate_max": 14345.106047536032,
+            "versus_legacy": 0.927045261984079,
+            "compile_ms_median": 1.2367931194603443,
+            "compile_ms_mad": 0.031482428312301636,
+            "ru_maxrss_kib_median": 34306.0,
+            "attempted_shots": 257184,
+            "discard_fraction": 0.07028819833271122,
+            "passed_shots": 239107,
+            "logical_error_fraction": 0.0,
+            "max_wall_over_cpu": 1.0004732915125196
+          },
+          "symft_single": {
+            "samples": 12,
+            "shots_per_sample": [
+              47230
+            ],
+            "rate_median": 32320.244984450852,
+            "rate_mad": 508.5595215601661,
+            "rate_relative_mad": 0.015735014440788807,
+            "rate_min": 31019.779193221966,
+            "rate_max": 33756.46125797088,
+            "versus_legacy": 2.1240248418335153,
+            "compile_ms_median": 3.240820951759815,
+            "compile_ms_mad": 0.05309004336595535,
+            "ru_maxrss_kib_median": 32570.0,
+            "attempted_shots": 566760,
+            "discard_fraction": 0.07116063236643376,
+            "passed_shots": 526429,
+            "logical_error_fraction": 0.0,
+            "max_wall_over_cpu": 1.000933678246044,
+            "batch_size": 0,
+            "active_components": true,
+            "reference_normalized": true
+          },
+          "symft_batch": {
+            "samples": 12,
+            "shots_per_sample": [
+              45391
+            ],
+            "rate_median": 30481.59717552342,
+            "rate_mad": 303.1854593758908,
+            "rate_relative_mad": 0.009946508302371612,
+            "rate_min": 26850.913215280263,
+            "rate_max": 31134.479565505582,
+            "versus_legacy": 2.0031924154882486,
+            "compile_ms_median": 3.770641051232815,
+            "compile_ms_mad": 0.22475142031908035,
+            "ru_maxrss_kib_median": 33528.0,
+            "attempted_shots": 544692,
+            "discard_fraction": 0.07117049635390275,
+            "passed_shots": 505926,
+            "logical_error_fraction": 0.0,
+            "max_wall_over_cpu": 1.00086489769716,
+            "batch_size": 8,
+            "active_components": true,
+            "reference_normalized": true
+          }
+        }
+      },
+      "coherent_d5_r5": {
+        "probe": {
+          "source": "unitaryfoundation/clifft-paper@db7dc9f13a2c2854690e92390c779048a1ac1400:qec_bench/circuits/coherent_d5_r5.stim",
+          "source_sha256": "54088bbd5f06b441596e414f9fa99d8eeaff8a4a1a862b911e0ad40092c5e549",
+          "benchmark_view_sha256": "54088bbd5f06b441596e414f9fa99d8eeaff8a4a1a862b911e0ad40092c5e549",
+          "num_qubits": 64,
+          "num_measurements": 145,
+          "num_detectors": 120,
+          "num_observables": 1,
+          "peak_active_width": 22,
+          "expected_detector_bits": "000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "expected_observable_bits": "0"
+        },
+        "arms": {
+          "clifft_legacy": {
+            "samples": 12,
+            "shots_per_sample": [
+              2
+            ],
+            "rate_median": 1.416665811164842,
+            "rate_mad": 0.0363203180628755,
+            "rate_relative_mad": 0.025637887056095054,
+            "rate_min": 0.9544655758455292,
+            "rate_max": 2.752609782665594,
+            "versus_legacy": 1.0,
+            "compile_ms_median": 3.5646772012114525,
+            "compile_ms_mad": 0.048798974603414536,
+            "ru_maxrss_kib_median": 101324.0,
+            "attempted_shots": 24,
+            "discard_fraction": 1.0,
+            "passed_shots": 0,
+            "logical_error_fraction": null,
+            "max_wall_over_cpu": 1.0003111941751386
+          },
+          "clifft_current": {
+            "samples": 12,
+            "shots_per_sample": [
+              5
+            ],
+            "rate_median": 3.4432711027813303,
+            "rate_mad": 0.26305926389414824,
+            "rate_relative_mad": 0.07639806917371682,
+            "rate_min": 2.6097735324362783,
+            "rate_max": 4.617871300161834,
+            "versus_legacy": 2.4305457756124773,
+            "compile_ms_median": 3.865012899041176,
+            "compile_ms_mad": 0.06186356768012047,
+            "ru_maxrss_kib_median": 100166.0,
+            "attempted_shots": 60,
+            "discard_fraction": 1.0,
+            "passed_shots": 0,
+            "logical_error_fraction": null,
+            "max_wall_over_cpu": 1.000334956281171
+          },
+          "symft_single": {
+            "samples": 12,
+            "shots_per_sample": [
+              76
+            ],
+            "rate_median": 51.71452057782,
+            "rate_mad": 3.40671926526694,
+            "rate_relative_mad": 0.06587548771994337,
+            "rate_min": 46.62964503355986,
+            "rate_max": 59.43873827046725,
+            "versus_legacy": 36.504389511100115,
+            "compile_ms_median": 26.678462512791157,
+            "compile_ms_mad": 0.4309541545808315,
+            "ru_maxrss_kib_median": 66176.0,
+            "attempted_shots": 912,
+            "discard_fraction": 1.0,
+            "passed_shots": 0,
+            "logical_error_fraction": null,
+            "max_wall_over_cpu": 1.0002036653390145,
+            "batch_size": 0,
+            "active_components": true,
+            "reference_normalized": true
+          },
+          "symft_batch": {
+            "samples": 12,
+            "shots_per_sample": [
+              70
+            ],
+            "rate_median": 56.12176181218898,
+            "rate_mad": 2.8986435469906624,
+            "rate_relative_mad": 0.05164919014287095,
+            "rate_min": 51.51253458899853,
+            "rate_max": 63.96845052082273,
+            "versus_legacy": 39.61538520227527,
+            "compile_ms_median": 26.70747321099043,
+            "compile_ms_mad": 0.40056416764855385,
+            "ru_maxrss_kib_median": 66222.0,
+            "attempted_shots": 840,
+            "discard_fraction": 1.0,
+            "passed_shots": 0,
+            "logical_error_fraction": null,
+            "max_wall_over_cpu": 1.0002883282286998,
+            "batch_size": 1,
+            "active_components": true,
+            "reference_normalized": true
+          }
+        }
+      },
+      "regime_k12_l512": {
+        "probe": {
+          "source": "corrected SymFT audit fixture regime_k12_l512.stim (identified by SHA-256)",
+          "source_sha256": "f7ca68d1d1bffda5c6a0837ba25d6bd5dde01132040e4eff3ffd0c6a9571395d",
+          "benchmark_view_sha256": "f7ca68d1d1bffda5c6a0837ba25d6bd5dde01132040e4eff3ffd0c6a9571395d",
+          "num_qubits": 28,
+          "num_measurements": 513,
+          "num_detectors": 0,
+          "num_observables": 1,
+          "peak_active_width": 12,
+          "expected_detector_bits": "",
+          "expected_observable_bits": "0"
+        },
+        "arms": {
+          "clifft_legacy": {
+            "samples": 12,
+            "shots_per_sample": [
+              34919
+            ],
+            "rate_median": 23728.610450158456,
+            "rate_mad": 176.08627833400715,
+            "rate_relative_mad": 0.0074208423920934345,
+            "rate_min": 23186.958350414243,
+            "rate_max": 24256.84166801515,
+            "versus_legacy": 1.0,
+            "compile_ms_median": 4.014233592897654,
+            "compile_ms_mad": 0.26239315047860146,
+            "ru_maxrss_kib_median": 36880.0,
+            "attempted_shots": 419028,
+            "discard_fraction": 0.0,
+            "passed_shots": 419028,
+            "logical_error_fraction": 0.49996658934486476,
+            "max_wall_over_cpu": 1.0001977733067855
+          },
+          "clifft_current": {
+            "samples": 12,
+            "shots_per_sample": [
+              94193
+            ],
+            "rate_median": 62871.797225964074,
+            "rate_mad": 592.511069440352,
+            "rate_relative_mad": 0.00942411535192545,
+            "rate_min": 61467.854303518914,
+            "rate_max": 64226.33215184502,
+            "versus_legacy": 2.6496198484957736,
+            "compile_ms_median": 4.294234327971935,
+            "compile_ms_mad": 0.07673585787415504,
+            "ru_maxrss_kib_median": 35850.0,
+            "attempted_shots": 1130316,
+            "discard_fraction": 0.0,
+            "passed_shots": 1130316,
+            "logical_error_fraction": 0.5007033431359018,
+            "max_wall_over_cpu": 1.0007047860578564
+          },
+          "symft_single": {
+            "samples": 12,
+            "shots_per_sample": [
+              17925
+            ],
+            "rate_median": 11686.755657734418,
+            "rate_mad": 167.23950515504293,
+            "rate_relative_mad": 0.014310173845755222,
+            "rate_min": 11289.526456751964,
+            "rate_max": 12049.28686481726,
+            "versus_legacy": 0.4925174899003147,
+            "compile_ms_median": 26.429383549839258,
+            "compile_ms_mad": 0.8558901026844978,
+            "ru_maxrss_kib_median": 38194.0,
+            "attempted_shots": 215100,
+            "discard_fraction": 0.0,
+            "passed_shots": 215100,
+            "logical_error_fraction": 0.4989865178986518,
+            "max_wall_over_cpu": 1.0005507471591584,
+            "batch_size": 0,
+            "active_components": false,
+            "reference_normalized": true
+          },
+          "symft_batch": {
+            "samples": 12,
+            "shots_per_sample": [
+              19404
+            ],
+            "rate_median": 13078.941339150268,
+            "rate_mad": 109.67374917538018,
+            "rate_relative_mad": 0.008385521911248639,
+            "rate_min": 12435.739519102906,
+            "rate_max": 13293.895251123093,
+            "versus_legacy": 0.551188674390452,
+            "compile_ms_median": 26.14955324679613,
+            "compile_ms_mad": 0.5482221022248268,
+            "ru_maxrss_kib_median": 38164.0,
+            "attempted_shots": 232848,
+            "discard_fraction": 0.0,
+            "passed_shots": 232848,
+            "logical_error_fraction": 0.4998282141139284,
+            "max_wall_over_cpu": 1.0007776735905725,
+            "batch_size": 8,
+            "active_components": false,
+            "reference_normalized": true
+          }
+        }
+      },
+      "qv10": {
+        "probe": {
+          "source": "unitaryfoundation/clifft@04c4fe662d9b42d06817450096dbb56a541e709d:tests/fixtures/qv10.stim",
+          "source_sha256": "8d5165e91b7e5aad719186f1a11c42ba753bf6098bd506e66de9ff071aff5635",
+          "benchmark_view_sha256": "4764f549ed51493412aab83c36c254cbf9d4238b9edb22a4e9830205130030c4",
+          "num_qubits": 10,
+          "num_measurements": 10,
+          "num_detectors": 0,
+          "num_observables": 1,
+          "peak_active_width": 10,
+          "expected_detector_bits": "",
+          "expected_observable_bits": "0"
+        },
+        "arms": {
+          "clifft_legacy": {
+            "samples": 12,
+            "shots_per_sample": [
+              33925
+            ],
+            "rate_median": 22159.467582623685,
+            "rate_mad": 457.22575156629136,
+            "rate_relative_mad": 0.020633426767203752,
+            "rate_min": 20778.400370065036,
+            "rate_max": 22779.05145014939,
+            "versus_legacy": 1.0,
+            "compile_ms_median": 3.494344651699066,
+            "compile_ms_mad": 0.07874518632888794,
+            "ru_maxrss_kib_median": 35758.0,
+            "attempted_shots": 407100,
+            "discard_fraction": 0.0,
+            "passed_shots": 407100,
+            "logical_error_fraction": 0.5108597396217146,
+            "max_wall_over_cpu": 1.0025286921881582
+          },
+          "clifft_current": {
+            "samples": 12,
+            "shots_per_sample": [
+              29582
+            ],
+            "rate_median": 19469.8959597269,
+            "rate_mad": 153.07115976979912,
+            "rate_relative_mad": 0.007861940304479481,
+            "rate_min": 18396.886401461652,
+            "rate_max": 20337.075966977955,
+            "versus_legacy": 0.8786265232741508,
+            "compile_ms_median": 4.848420154303312,
+            "compile_ms_mad": 0.13491464778780937,
+            "ru_maxrss_kib_median": 36644.0,
+            "attempted_shots": 354984,
+            "discard_fraction": 0.0,
+            "passed_shots": 354984,
+            "logical_error_fraction": 0.5129301602325739,
+            "max_wall_over_cpu": 1.0002505792919032
+          },
+          "symft_single": {
+            "samples": 12,
+            "shots_per_sample": [
+              1930
+            ],
+            "rate_median": 1283.0951515391403,
+            "rate_mad": 10.019523154774447,
+            "rate_relative_mad": 0.007808869936696044,
+            "rate_min": 1239.5828809221762,
+            "rate_max": 1298.7114508552343,
+            "versus_legacy": 0.05790279693115359,
+            "compile_ms_median": 3.8916426710784435,
+            "compile_ms_mad": 0.06839912384748459,
+            "ru_maxrss_kib_median": 33440.0,
+            "attempted_shots": 23160,
+            "discard_fraction": 0.0,
+            "passed_shots": 23160,
+            "logical_error_fraction": 0.5088514680483592,
+            "max_wall_over_cpu": 1.0003795361143362,
+            "batch_size": 0,
+            "active_components": false,
+            "reference_normalized": true
+          },
+          "symft_batch": {
+            "samples": 12,
+            "shots_per_sample": [
+              1955
+            ],
+            "rate_median": 1306.4656707339282,
+            "rate_mad": 13.05134422823096,
+            "rate_relative_mad": 0.00998981031082061,
+            "rate_min": 1265.9736597712008,
+            "rate_max": 1334.2393348327532,
+            "versus_legacy": 0.05895744858772651,
+            "compile_ms_median": 4.319428000599146,
+            "compile_ms_mad": 0.22919336333870888,
+            "ru_maxrss_kib_median": 34332.0,
+            "attempted_shots": 23460,
+            "discard_fraction": 0.0,
+            "passed_shots": 23460,
+            "logical_error_fraction": 0.5123614663256607,
+            "max_wall_over_cpu": 1.0001854809217745,
+            "batch_size": 32,
+            "active_components": false,
+            "reference_normalized": true
+          }
+        }
+      },
+      "qv20_seed42": {
+        "probe": {
+          "source": "unitaryfoundation/clifft@04c4fe662d9b42d06817450096dbb56a541e709d:tools/bench/fixtures/qv20_seed42.stim",
+          "source_sha256": "6b3198b30e3cb9bf6233e9e3b3bb283d7f31d1d98f17afa05c80b4ece3c6edf8",
+          "benchmark_view_sha256": "881507a9b38498576a02bd8d01816e104448191c131092b0c98ee1254c9e5108",
+          "num_qubits": 20,
+          "num_measurements": 20,
+          "num_detectors": 0,
+          "num_observables": 1,
+          "peak_active_width": 20,
+          "expected_detector_bits": "",
+          "expected_observable_bits": "0"
+        },
+        "arms": {
+          "clifft_legacy": {
+            "samples": 12,
+            "shots_per_sample": [
+              5
+            ],
+            "rate_median": 4.006922845765931,
+            "rate_mad": 0.16261218018327295,
+            "rate_relative_mad": 0.040582807915830806,
+            "rate_min": 2.839502224253042,
+            "rate_max": 4.341124960042849,
+            "versus_legacy": 1.0,
+            "compile_ms_median": 14.719642233103514,
+            "compile_ms_mad": 0.21865637972950935,
+            "ru_maxrss_kib_median": 54100.0,
+            "attempted_shots": 60,
+            "discard_fraction": 0.0,
+            "passed_shots": 60,
+            "logical_error_fraction": 0.5166666666666667,
+            "max_wall_over_cpu": 1.0002672403704502
+          },
+          "clifft_current": {
+            "samples": 12,
+            "shots_per_sample": [
+              8
+            ],
+            "rate_median": 5.017967193566168,
+            "rate_mad": 0.5333255209212502,
+            "rate_relative_mad": 0.10628318208318666,
+            "rate_min": 4.038140000914667,
+            "rate_max": 5.99034695171001,
+            "versus_legacy": 1.2523243862478148,
+            "compile_ms_median": 21.28035156056285,
+            "compile_ms_mad": 0.4405928775668144,
+            "ru_maxrss_kib_median": 61404.0,
+            "attempted_shots": 96,
+            "discard_fraction": 0.0,
+            "passed_shots": 96,
+            "logical_error_fraction": 0.4791666666666667,
+            "max_wall_over_cpu": 1.0002624631291566
+          },
+          "symft_single": {
+            "samples": 12,
+            "shots_per_sample": [
+              1
+            ],
+            "rate_median": 0.24034490365581312,
+            "rate_mad": 0.00536330857244606,
+            "rate_relative_mad": 0.02231505012532576,
+            "rate_min": 0.21312873504960284,
+            "rate_max": 0.25565200232559737,
+            "versus_legacy": 0.05998241366433665,
+            "compile_ms_median": 32.527188770473,
+            "compile_ms_mad": 0.30865008011460304,
+            "ru_maxrss_kib_median": 71442.0,
+            "attempted_shots": 12,
+            "discard_fraction": 0.0,
+            "passed_shots": 12,
+            "logical_error_fraction": 0.4166666666666667,
+            "max_wall_over_cpu": 1.0011077039511007,
+            "batch_size": 0,
+            "active_components": false,
+            "reference_normalized": true
+          },
+          "symft_batch": {
+            "samples": 12,
+            "shots_per_sample": [
+              1
+            ],
+            "rate_median": 0.23863856492167945,
+            "rate_mad": 0.00932762805788126,
+            "rate_relative_mad": 0.03908684273617956,
+            "rate_min": 0.2214585835328212,
+            "rate_max": 0.2521191959076451,
+            "versus_legacy": 0.059556566000227844,
+            "compile_ms_median": 31.18708450347185,
+            "compile_ms_mad": 0.6967517547309399,
+            "ru_maxrss_kib_median": 71340.0,
+            "attempted_shots": 12,
+            "discard_fraction": 0.0,
+            "passed_shots": 12,
+            "logical_error_fraction": 0.4166666666666667,
+            "max_wall_over_cpu": 1.0004414429081088,
+            "batch_size": 1,
+            "active_components": false,
+            "reference_normalized": true
+          }
+        }
+      }
+    },
+    "quality": {
+      "errors": [],
+      "wall_over_cpu_over_1_03": []
+    }
+  },
+  "forced_avx2": {
+    "meta": {
+      "rounds": 8,
+      "target_sample_s": 1.25,
+      "cpu": "3",
+      "runtime_isa": "avx2",
+      "current_clifft": "04c4fe662d9b42d06817450096dbb56a541e709d",
+      "legacy_clifft": "aa7e7a3d3e03d0414bb4f5757d9a7204b082539c",
+      "reference_contract": "one explicit Clifft noiseless reference vector passed to every arm",
+      "observable_contract": "retain observable 0 only; add observable 0 from final record when absent"
+    },
+    "circuits": {
+      "surface_d7_r7": {
+        "probe": {
+          "source": "unitaryfoundation/clifft-paper@db7dc9f13a2c2854690e92390c779048a1ac1400:qec_bench/circuits/surface_d7_r7.stim",
+          "source_sha256": "30d1940101d70e05a63f0d2f877756ffaeaba7e8e17e94cd2ea40fce04b99583",
+          "benchmark_view_sha256": "30d1940101d70e05a63f0d2f877756ffaeaba7e8e17e94cd2ea40fce04b99583",
+          "num_qubits": 118,
+          "num_measurements": 385,
+          "num_detectors": 336,
+          "num_observables": 1,
+          "peak_active_width": 0,
+          "expected_detector_bits": "000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "expected_observable_bits": "0"
+        },
+        "arms": {
+          "clifft_legacy": {
+            "samples": 8,
+            "shots_per_sample": [
+              387051
+            ],
+            "rate_median": 306105.4110324143,
+            "rate_mad": 3116.7767627975845,
+            "rate_relative_mad": 0.010182037463125867,
+            "rate_min": 297877.40975837514,
+            "rate_max": 312569.778142271,
+            "versus_legacy": 1.0,
+            "compile_ms_median": 7.630961947143078,
+            "compile_ms_mad": 0.06596511229872704,
+            "ru_maxrss_kib_median": 37828.0,
+            "attempted_shots": 3096408,
+            "discard_fraction": 0.9121892205419958,
+            "passed_shots": 271898,
+            "logical_error_fraction": 0.0,
+            "max_wall_over_cpu": 1.0015631766436357
+          },
+          "clifft_current": {
+            "samples": 8,
+            "shots_per_sample": [
+              556404
+            ],
+            "rate_median": 458014.79384871305,
+            "rate_mad": 3447.0535787572444,
+            "rate_relative_mad": 0.007526074757960419,
+            "rate_min": 450378.0535838093,
+            "rate_max": 469676.2842097341,
+            "versus_legacy": 1.4962649379635196,
+            "compile_ms_median": 12.411047238856554,
+            "compile_ms_mad": 0.4030223935842514,
+            "ru_maxrss_kib_median": 40924.0,
+            "attempted_shots": 4451232,
+            "discard_fraction": 0.9122119449177216,
+            "passed_shots": 390765,
+            "logical_error_fraction": 0.0,
+            "max_wall_over_cpu": 1.0006657312155869
+          }
+        }
+      },
+      "cultivation_d3": {
+        "probe": {
+          "source": "unitaryfoundation/clifft-paper@db7dc9f13a2c2854690e92390c779048a1ac1400:qec_bench/circuits/cultivation_d3.stim",
+          "source_sha256": "90a7d841e003e5ee38137cd9a3eb6529bb552e49c424bc6b0932a27d97cdb41f",
+          "benchmark_view_sha256": "90a7d841e003e5ee38137cd9a3eb6529bb552e49c424bc6b0932a27d97cdb41f",
+          "num_qubits": 15,
+          "num_measurements": 21,
+          "num_detectors": 20,
+          "num_observables": 1,
+          "peak_active_width": 4,
+          "expected_detector_bits": "00000000000000000000",
+          "expected_observable_bits": "0"
+        },
+        "arms": {
+          "clifft_legacy": {
+            "samples": 8,
+            "shots_per_sample": [
+              904057
+            ],
+            "rate_median": 721097.556786855,
+            "rate_mad": 7006.777395855519,
+            "rate_relative_mad": 0.009716823098218611,
+            "rate_min": 705742.6617144614,
+            "rate_max": 728434.5307335889,
+            "versus_legacy": 1.0,
+            "compile_ms_median": 0.9506279602646828,
+            "compile_ms_mad": 0.044327229261398315,
+            "ru_maxrss_kib_median": 35368.0,
+            "attempted_shots": 7232456,
+            "discard_fraction": 0.3131669242094248,
+            "passed_shots": 4967490,
+            "logical_error_fraction": 1.2078534632178424e-06,
+            "max_wall_over_cpu": 1.00032345959906
+          },
+          "clifft_current": {
+            "samples": 8,
+            "shots_per_sample": [
+              1259772
+            ],
+            "rate_median": 1037516.3305637629,
+            "rate_mad": 4794.324976381555,
+            "rate_relative_mad": 0.004620963386452363,
+            "rate_min": 1022156.0232380901,
+            "rate_max": 1049221.2507235804,
+            "versus_legacy": 1.4388016167837834,
+            "compile_ms_median": 1.4049080200493336,
+            "compile_ms_mad": 0.046280212700366974,
+            "ru_maxrss_kib_median": 34902.0,
+            "attempted_shots": 10078176,
+            "discard_fraction": 0.313041665475975,
+            "passed_shots": 6923287,
+            "logical_error_fraction": 5.777602459640919e-07,
+            "max_wall_over_cpu": 1.0002559647883174
+          }
+        }
+      },
+      "cultivation_d5": {
+        "probe": {
+          "source": "unitaryfoundation/clifft-paper@db7dc9f13a2c2854690e92390c779048a1ac1400:qec_bench/circuits/cultivation_d5.stim",
+          "source_sha256": "c2b4566917bd9bf27a5705284dac02700ef0dcc7c03c91066670db376d633a6d",
+          "benchmark_view_sha256": "c2b4566917bd9bf27a5705284dac02700ef0dcc7c03c91066670db376d633a6d",
+          "num_qubits": 42,
+          "num_measurements": 112,
+          "num_detectors": 107,
+          "num_observables": 1,
+          "peak_active_width": 10,
+          "expected_detector_bits": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "expected_observable_bits": "0"
+        },
+        "arms": {
+          "clifft_legacy": {
+            "samples": 8,
+            "shots_per_sample": [
+              81406
+            ],
+            "rate_median": 62538.88507626349,
+            "rate_mad": 801.7558905994774,
+            "rate_relative_mad": 0.012820118069290337,
+            "rate_min": 59972.93162133099,
+            "rate_max": 63898.39793115548,
+            "versus_legacy": 1.0,
+            "compile_ms_median": 4.968405235558748,
+            "compile_ms_mad": 0.05244370549917221,
+            "ru_maxrss_kib_median": 37370.0,
+            "attempted_shots": 651248,
+            "discard_fraction": 0.8551534899147483,
+            "passed_shots": 94331,
+            "logical_error_fraction": 0.0,
+            "max_wall_over_cpu": 1.0002439043953786
+          },
+          "clifft_current": {
+            "samples": 8,
+            "shots_per_sample": [
+              147342
+            ],
+            "rate_median": 124263.64735085919,
+            "rate_mad": 763.2531387985728,
+            "rate_relative_mad": 0.0061422077580221245,
+            "rate_min": 102851.27145633267,
+            "rate_max": 126413.70076045231,
+            "versus_legacy": 1.9869821343844714,
+            "compile_ms_median": 11.23796682804823,
+            "compile_ms_mad": 0.11534476652741432,
+            "ru_maxrss_kib_median": 41632.0,
+            "attempted_shots": 1178736,
+            "discard_fraction": 0.8558846085976843,
+            "passed_shots": 169874,
+            "logical_error_fraction": 0.0,
+            "max_wall_over_cpu": 1.0003082960588505
+          }
+        }
+      },
+      "distillation": {
+        "probe": {
+          "source": "unitaryfoundation/clifft-paper@db7dc9f13a2c2854690e92390c779048a1ac1400:qec_bench/circuits/distillation.stim",
+          "source_sha256": "188bd53c48dbc21f840fb297df6f41c61f5bad6a856bba621f00ff42078921c1",
+          "benchmark_view_sha256": "03251e0b37cec9be9affac02f769914ff9bd891e108978eb461066497f1b0289",
+          "num_qubits": 85,
+          "num_measurements": 85,
+          "num_detectors": 40,
+          "num_observables": 1,
+          "peak_active_width": 5,
+          "expected_detector_bits": "0000000000000000000000000000000000000000",
+          "expected_observable_bits": "0"
+        },
+        "arms": {
+          "clifft_legacy": {
+            "samples": 8,
+            "shots_per_sample": [
+              116588
+            ],
+            "rate_median": 92329.68913510587,
+            "rate_mad": 1070.5432643788445,
+            "rate_relative_mad": 0.011594789004567322,
+            "rate_min": 84630.70388153625,
+            "rate_max": 93467.19690572952,
+            "versus_legacy": 1.0,
+            "compile_ms_median": 2.829143777489662,
+            "compile_ms_mad": 0.028428155928850174,
+            "ru_maxrss_kib_median": 35694.0,
+            "attempted_shots": 932704,
+            "discard_fraction": 0.9195403900916046,
+            "passed_shots": 75045,
+            "logical_error_fraction": 0.4194816443467253,
+            "max_wall_over_cpu": 1.0005097652710706
+          },
+          "clifft_current": {
+            "samples": 8,
+            "shots_per_sample": [
+              678053
+            ],
+            "rate_median": 535988.9206756977,
+            "rate_mad": 5579.280426873534,
+            "rate_relative_mad": 0.010409320438638882,
+            "rate_min": 528071.67903174,
+            "rate_max": 547807.945999523,
+            "versus_legacy": 5.805163276260858,
+            "compile_ms_median": 2.1960181184113026,
+            "compile_ms_mad": 0.05552917718887329,
+            "ru_maxrss_kib_median": 34744.0,
+            "attempted_shots": 5424424,
+            "discard_fraction": 0.920012705496473,
+            "passed_shots": 433885,
+            "logical_error_fraction": 0.4219850882146191,
+            "max_wall_over_cpu": 1.0001825860570108
+          }
+        }
+      },
+      "coherent_d3_r1": {
+        "probe": {
+          "source": "unitaryfoundation/clifft-paper@db7dc9f13a2c2854690e92390c779048a1ac1400:qec_bench/circuits/coherent_d3_r1.stim",
+          "source_sha256": "9b439238478b15977829c1015ee47dfe401976b3882092d9560ba321fb0f510a",
+          "benchmark_view_sha256": "9b439238478b15977829c1015ee47dfe401976b3882092d9560ba321fb0f510a",
+          "num_qubits": 26,
+          "num_measurements": 17,
+          "num_detectors": 8,
+          "num_observables": 1,
+          "peak_active_width": 4,
+          "expected_detector_bits": "00000000",
+          "expected_observable_bits": "0"
+        },
+        "arms": {
+          "clifft_legacy": {
+            "samples": 8,
+            "shots_per_sample": [
+              1541136
+            ],
+            "rate_median": 1285099.7401398625,
+            "rate_mad": 7194.8736049884465,
+            "rate_relative_mad": 0.005598688864574356,
+            "rate_min": 1197643.7809076295,
+            "rate_max": 1292703.9630478795,
+            "versus_legacy": 1.0,
+            "compile_ms_median": 0.38329605013132095,
+            "compile_ms_mad": 0.015197787433862686,
+            "ru_maxrss_kib_median": 35112.0,
+            "attempted_shots": 12329088,
+            "discard_fraction": 0.025626145259081613,
+            "passed_shots": 12013141,
+            "logical_error_fraction": 0.0,
+            "max_wall_over_cpu": 1.001018734189181
+          },
+          "clifft_current": {
+            "samples": 8,
+            "shots_per_sample": [
+              1624395
+            ],
+            "rate_median": 1289465.200903179,
+            "rate_mad": 14172.819958911161,
+            "rate_relative_mad": 0.010991238808914042,
+            "rate_min": 1274711.0991617648,
+            "rate_max": 1320025.6182508403,
+            "versus_legacy": 1.0033969820605841,
+            "compile_ms_median": 0.3696158528327942,
+            "compile_ms_mad": 0.010671094059944153,
+            "ru_maxrss_kib_median": 34198.0,
+            "attempted_shots": 12995160,
+            "discard_fraction": 0.02569818301583051,
+            "passed_shots": 12661208,
+            "logical_error_fraction": 7.898140524979923e-08,
+            "max_wall_over_cpu": 1.0003697308705097
+          }
+        }
+      },
+      "coherent_d3_r3": {
+        "probe": {
+          "source": "unitaryfoundation/clifft-paper@db7dc9f13a2c2854690e92390c779048a1ac1400:qec_bench/circuits/coherent_d3_r3.stim",
+          "source_sha256": "87d1308c83894e87c60aeb2dc31b74be89b3460a951929951f2c3ac92606827d",
+          "benchmark_view_sha256": "87d1308c83894e87c60aeb2dc31b74be89b3460a951929951f2c3ac92606827d",
+          "num_qubits": 26,
+          "num_measurements": 33,
+          "num_detectors": 24,
+          "num_observables": 1,
+          "peak_active_width": 7,
+          "expected_detector_bits": "000000000100000000000000",
+          "expected_observable_bits": "0"
+        },
+        "arms": {
+          "clifft_legacy": {
+            "samples": 8,
+            "shots_per_sample": [
+              410451
+            ],
+            "rate_median": 329514.2719068002,
+            "rate_mad": 812.6622681174194,
+            "rate_relative_mad": 0.002466243004938107,
+            "rate_min": 320050.37023893243,
+            "rate_max": 336724.8656220374,
+            "versus_legacy": 1.0,
+            "compile_ms_median": 0.6979242898523808,
+            "compile_ms_mad": 0.054492149502038956,
+            "ru_maxrss_kib_median": 35198.0,
+            "attempted_shots": 3283608,
+            "discard_fraction": 0.9103568391842144,
+            "passed_shots": 294353,
+            "logical_error_fraction": 0.0,
+            "max_wall_over_cpu": 1.000380157260485
+          },
+          "clifft_current": {
+            "samples": 8,
+            "shots_per_sample": [
+              563209
+            ],
+            "rate_median": 456207.3156157733,
+            "rate_mad": 5115.79516226743,
+            "rate_relative_mad": 0.01121375082589875,
+            "rate_min": 445446.9577536927,
+            "rate_max": 467965.4749810463,
+            "versus_legacy": 1.3844842378930615,
+            "compile_ms_median": 0.614567194133997,
+            "compile_ms_mad": 0.009774696081876755,
+            "ru_maxrss_kib_median": 34182.0,
+            "attempted_shots": 4505672,
+            "discard_fraction": 0.9102187198713089,
+            "passed_shots": 404525,
+            "logical_error_fraction": 0.0,
+            "max_wall_over_cpu": 1.0002906471959345
+          }
+        }
+      },
+      "coherent_d5_r1": {
+        "probe": {
+          "source": "unitaryfoundation/clifft-paper@db7dc9f13a2c2854690e92390c779048a1ac1400:qec_bench/circuits/coherent_d5_r1.stim",
+          "source_sha256": "2707188abe8912f693fe4f910db8c4b6bd795c71a8fba38cc153da90ee5910b8",
+          "benchmark_view_sha256": "2707188abe8912f693fe4f910db8c4b6bd795c71a8fba38cc153da90ee5910b8",
+          "num_qubits": 64,
+          "num_measurements": 49,
+          "num_detectors": 24,
+          "num_observables": 1,
+          "peak_active_width": 12,
+          "expected_detector_bits": "000000000000000000000000",
+          "expected_observable_bits": "0"
+        },
+        "arms": {
+          "clifft_legacy": {
+            "samples": 8,
+            "shots_per_sample": [
+              11542
+            ],
+            "rate_median": 9041.844393143198,
+            "rate_mad": 37.171592935607805,
+            "rate_relative_mad": 0.004111063110508355,
+            "rate_min": 8702.818786620073,
+            "rate_max": 9238.710410819116,
+            "versus_legacy": 1.0,
+            "compile_ms_median": 1.216305885463953,
+            "compile_ms_mad": 0.01511862501502037,
+            "ru_maxrss_kib_median": 35242.0,
+            "attempted_shots": 92336,
+            "discard_fraction": 0.07169468029804194,
+            "passed_shots": 85716,
+            "logical_error_fraction": 0.0,
+            "max_wall_over_cpu": 1.000340345723692
+          },
+          "clifft_current": {
+            "samples": 8,
+            "shots_per_sample": [
+              19114
+            ],
+            "rate_median": 15272.500003108464,
+            "rate_mad": 181.02927322767482,
+            "rate_relative_mad": 0.011853283561357297,
+            "rate_min": 14252.065760846202,
+            "rate_max": 15612.42444014046,
+            "versus_legacy": 1.6890912228803925,
+            "compile_ms_median": 1.2330105528235435,
+            "compile_ms_mad": 0.02672988921403885,
+            "ru_maxrss_kib_median": 34392.0,
+            "attempted_shots": 152912,
+            "discard_fraction": 0.0706615569739458,
+            "passed_shots": 142107,
+            "logical_error_fraction": 0.0,
+            "max_wall_over_cpu": 1.000189149592795
+          }
+        }
+      },
+      "regime_k12_l512": {
+        "probe": {
+          "source": "corrected SymFT audit fixture regime_k12_l512.stim (identified by SHA-256)",
+          "source_sha256": "f7ca68d1d1bffda5c6a0837ba25d6bd5dde01132040e4eff3ffd0c6a9571395d",
+          "benchmark_view_sha256": "f7ca68d1d1bffda5c6a0837ba25d6bd5dde01132040e4eff3ffd0c6a9571395d",
+          "num_qubits": 28,
+          "num_measurements": 513,
+          "num_detectors": 0,
+          "num_observables": 1,
+          "peak_active_width": 12,
+          "expected_detector_bits": "",
+          "expected_observable_bits": "0"
+        },
+        "arms": {
+          "clifft_legacy": {
+            "samples": 8,
+            "shots_per_sample": [
+              25954
+            ],
+            "rate_median": 20504.37868372111,
+            "rate_mad": 141.9553983830574,
+            "rate_relative_mad": 0.006923174828787132,
+            "rate_min": 19976.381488845076,
+            "rate_max": 20964.482273775306,
+            "versus_legacy": 1.0,
+            "compile_ms_median": 3.8469890132546425,
+            "compile_ms_mad": 0.07819896563887596,
+            "ru_maxrss_kib_median": 36862.0,
+            "attempted_shots": 207632,
+            "discard_fraction": 0.0,
+            "passed_shots": 207632,
+            "logical_error_fraction": 0.49987959466748866,
+            "max_wall_over_cpu": 1.000952273717663
+          },
+          "clifft_current": {
+            "samples": 8,
+            "shots_per_sample": [
+              50097
+            ],
+            "rate_median": 40535.40413203379,
+            "rate_mad": 270.2930490341896,
+            "rate_relative_mad": 0.006668073374913905,
+            "rate_min": 39872.58413136587,
+            "rate_max": 41042.88662777122,
+            "versus_legacy": 1.976914529198379,
+            "compile_ms_median": 4.255974665284157,
+            "compile_ms_mad": 0.04647020250558853,
+            "ru_maxrss_kib_median": 35842.0,
+            "attempted_shots": 400776,
+            "discard_fraction": 0.0,
+            "passed_shots": 400776,
+            "logical_error_fraction": 0.4994859971654989,
+            "max_wall_over_cpu": 1.0003389110359706
+          }
+        }
+      },
+      "qv10": {
+        "probe": {
+          "source": "unitaryfoundation/clifft@04c4fe662d9b42d06817450096dbb56a541e709d:tests/fixtures/qv10.stim",
+          "source_sha256": "8d5165e91b7e5aad719186f1a11c42ba753bf6098bd506e66de9ff071aff5635",
+          "benchmark_view_sha256": "4764f549ed51493412aab83c36c254cbf9d4238b9edb22a4e9830205130030c4",
+          "num_qubits": 10,
+          "num_measurements": 10,
+          "num_detectors": 0,
+          "num_observables": 1,
+          "peak_active_width": 10,
+          "expected_detector_bits": "",
+          "expected_observable_bits": "0"
+        },
+        "arms": {
+          "clifft_legacy": {
+            "samples": 8,
+            "shots_per_sample": [
+              24477
+            ],
+            "rate_median": 18993.120878329217,
+            "rate_mad": 231.59401150510166,
+            "rate_relative_mad": 0.012193573293652121,
+            "rate_min": 18499.094833843355,
+            "rate_max": 19502.895649222275,
+            "versus_legacy": 1.0,
+            "compile_ms_median": 3.407752141356468,
+            "compile_ms_mad": 0.050506554543972015,
+            "ru_maxrss_kib_median": 35756.0,
+            "attempted_shots": 195816,
+            "discard_fraction": 0.0,
+            "passed_shots": 195816,
+            "logical_error_fraction": 0.5106273236099195,
+            "max_wall_over_cpu": 1.0018529515574233
+          },
+          "clifft_current": {
+            "samples": 8,
+            "shots_per_sample": [
+              22733
+            ],
+            "rate_median": 18585.5578559384,
+            "rate_mad": 438.6764093676611,
+            "rate_relative_mad": 0.023603080024175684,
+            "rate_min": 17879.8283683355,
+            "rate_max": 19387.691570210125,
+            "versus_legacy": 0.9785415453836321,
+            "compile_ms_median": 3.1171711161732674,
+            "compile_ms_mad": 0.08769892156124115,
+            "ru_maxrss_kib_median": 35244.0,
+            "attempted_shots": 181864,
+            "discard_fraction": 0.0,
+            "passed_shots": 181864,
+            "logical_error_fraction": 0.5116680596489684,
+            "max_wall_over_cpu": 1.0010176397903956
+          }
+        }
+      },
+      "qv20_seed42": {
+        "probe": {
+          "source": "unitaryfoundation/clifft@04c4fe662d9b42d06817450096dbb56a541e709d:tools/bench/fixtures/qv20_seed42.stim",
+          "source_sha256": "6b3198b30e3cb9bf6233e9e3b3bb283d7f31d1d98f17afa05c80b4ece3c6edf8",
+          "benchmark_view_sha256": "881507a9b38498576a02bd8d01816e104448191c131092b0c98ee1254c9e5108",
+          "num_qubits": 20,
+          "num_measurements": 20,
+          "num_detectors": 0,
+          "num_observables": 1,
+          "peak_active_width": 20,
+          "expected_detector_bits": "",
+          "expected_observable_bits": "0"
+        },
+        "arms": {
+          "clifft_legacy": {
+            "samples": 8,
+            "shots_per_sample": [
+              4
+            ],
+            "rate_median": 3.253346528949013,
+            "rate_mad": 0.07201850424860945,
+            "rate_relative_mad": 0.022136745535027553,
+            "rate_min": 3.1069580859771366,
+            "rate_max": 3.4766337189691767,
+            "versus_legacy": 1.0,
+            "compile_ms_median": 14.555796515196562,
+            "compile_ms_mad": 0.27839234098792076,
+            "ru_maxrss_kib_median": 54112.0,
+            "attempted_shots": 32,
+            "discard_fraction": 0.0,
+            "passed_shots": 32,
+            "logical_error_fraction": 0.5,
+            "max_wall_over_cpu": 1.0008581956712266
+          },
+          "clifft_current": {
+            "samples": 8,
+            "shots_per_sample": [
+              4
+            ],
+            "rate_median": 3.2931487962448465,
+            "rate_mad": 0.2332907828979207,
+            "rate_relative_mad": 0.07084125174177994,
+            "rate_min": 2.987829826706881,
+            "rate_max": 4.073770202262438,
+            "versus_legacy": 1.0122342538495865,
+            "compile_ms_median": 17.478938214480877,
+            "compile_ms_mad": 0.23523718118667603,
+            "ru_maxrss_kib_median": 56606.0,
+            "attempted_shots": 32,
+            "discard_fraction": 0.0,
+            "passed_shots": 32,
+            "logical_error_fraction": 0.5,
+            "max_wall_over_cpu": 1.0003903633687314
+          }
+        }
+      }
+    },
+    "quality": {
+      "errors": [],
+      "wall_over_cpu_over_1_03": []
+    }
+  }
+}
