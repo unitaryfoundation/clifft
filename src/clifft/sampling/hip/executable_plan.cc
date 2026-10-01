@@ -14,7 +14,7 @@ namespace clifft::sampling::hip {
 namespace {
 
 template <typename>
-inline constexpr bool kAlwaysFalse = false;
+[[maybe_unused]] inline constexpr bool kAlwaysFalse = false;
 
 void require_uint32_size(size_t size, const char* storage) {
     if (size > std::numeric_limits<uint32_t>::max()) {

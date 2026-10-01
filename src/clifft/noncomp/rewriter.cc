@@ -259,8 +259,8 @@ ContinuationRewrite rewrite_continuation(const Circuit& annotated, const Traject
                             std::to_string(op_index) + ", qubit " + std::to_string(qubit) + ")");
                     }
                     const ClassicalOutcome& outcome = events.classical_outcomes[classical_cursor++];
-                    const AnnotationTarget target{op_index, qubit};
-                    if (outcome.target != target) {
+                    const AnnotationTarget site_target{op_index, qubit};
+                    if (outcome.target != site_target) {
                         throw std::invalid_argument(
                             "rewrite_continuation: classical outcome (op " +
                             std::to_string(outcome.target.op_index) + ", qubit " +

@@ -14,7 +14,7 @@ namespace {
 constexpr size_t kCompactInspectionExpressionTerms = 4;
 
 template <typename>
-inline constexpr bool kAlwaysFalse = false;
+[[maybe_unused]] inline constexpr bool kAlwaysFalse = false;
 
 std::string format_expression(const AffineBool& expression,
                               std::optional<size_t> max_terms = std::nullopt) {

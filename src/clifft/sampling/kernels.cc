@@ -16,7 +16,8 @@ namespace {
 
 constexpr double kInvSqrt2 = 0.707106781186547524400844362104849039;
 
-void assert_descriptor_width(const State& state, const PreparedPauli& pauli) {
+void assert_descriptor_width([[maybe_unused]] const State& state,
+                             [[maybe_unused]] const PreparedPauli& pauli) {
     assert(state.active_width() == pauli.active_width &&
            "prepared Pauli width must match the active state");
 }

@@ -16,7 +16,7 @@ namespace clifft::sampling {
 namespace {
 
 template <typename>
-inline constexpr bool kAlwaysFalse = false;
+[[maybe_unused]] inline constexpr bool kAlwaysFalse = false;
 
 std::vector<SymbolId> xor_terms(const std::vector<SymbolId>& left,
                                 const std::vector<SymbolId>& right) {

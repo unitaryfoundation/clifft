@@ -227,7 +227,7 @@ class NoiseSigns {
         }
     }
 
-    void check_symbols(uint32_t site, size_t first_symbol) const {
+    void check_symbols([[maybe_unused]] uint32_t site, [[maybe_unused]] size_t first_symbol) const {
         assert((symbol_bases_.empty() || symbol_bases_[site] == first_symbol) &&
                "noise symbol allocation disagrees with the planning prepass");
     }

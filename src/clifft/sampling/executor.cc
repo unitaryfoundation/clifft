@@ -475,7 +475,8 @@ void Executor::execute_action(const ExecutablePlan::ExecuteActiveMeasurement& ac
     } else {
         if (forced_record_mask_[action.record] != 0) {
             branch = (forced_record_values_[action.record] != 0) ^ correction;
-            const std::optional<double> forced = force_active_branch(probabilities, branch);
+            [[maybe_unused]] const std::optional<double> forced =
+                force_active_branch(probabilities, branch);
             assert(forced.has_value() &&
                    "forced continuation measurement branch must be reachable");
             forced_record_mask_[action.record] = 0;

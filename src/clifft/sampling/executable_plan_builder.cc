@@ -18,7 +18,7 @@ namespace clifft::sampling {
 namespace {
 
 template <typename>
-inline constexpr bool kAlwaysFalse = false;
+[[maybe_unused]] inline constexpr bool kAlwaysFalse = false;
 
 // Moving these small lowering helpers out of the constructor stopped non-LTO
 // Release builds from inlining them and measurably regressed small-plan

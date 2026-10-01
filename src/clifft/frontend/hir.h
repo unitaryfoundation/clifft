@@ -369,9 +369,9 @@ struct HeisenbergOp {
 
     PauliMaskHandle mask_handle_;  // 4 bytes (kNoMask for ops with no Pauli)
 
-    OpType type_;     // 1 byte
-    uint8_t flags_;   // 1 byte
-    uint8_t pad_[2];  // 2 bytes
+    OpType type_;                      // 1 byte
+    uint8_t flags_;                    // 1 byte
+    [[maybe_unused]] uint8_t pad_[2];  // Keeps the payload aligned without implicit padding.
 
     // Per-OpType payload variants. Named to keep clang's
     // -Wgnu-anonymous-struct-in-union extension warning quiet.

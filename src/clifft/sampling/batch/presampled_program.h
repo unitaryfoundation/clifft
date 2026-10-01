@@ -11,7 +11,7 @@ namespace clifft::sampling {
 class BatchExecutor;
 class ExecutablePlan;
 class ExecutablePlanBuilder;
-class SamplingPlan;
+struct SamplingPlan;
 
 // Immutable packed-only program for evaluating presampled affine inputs.
 // Categorical outcomes set XOR combinations of compact carrier columns based

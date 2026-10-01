@@ -398,8 +398,8 @@ void apply_fused_rotation_avx2(State& state, const PreparedFusedRotation& rotati
             sidecar.weights.data() +
             selector_index(representative, rotation.selector_masks) * kMatrixSize;
 
-        std::array<__m256d, kDimension> input_real;
-        std::array<__m256d, kDimension> input_imag;
+        __m256d input_real[kDimension];
+        __m256d input_imag[kDimension];
         for (size_t column = 0; column < kDimension; ++column) {
             uint64_t index = representative;
             if ((column & 1U) != 0) {
@@ -534,8 +534,8 @@ void apply_fused_rotation_avx2_parallel(State& state, const PreparedFusedRotatio
                     sidecar.weights.data() +
                     selector_index(representative, rotation.selector_masks) * kMatrixSize;
 
-                std::array<__m256d, kDimension> input_real;
-                std::array<__m256d, kDimension> input_imag;
+                __m256d input_real[kDimension];
+                __m256d input_imag[kDimension];
                 for (size_t column = 0; column < kDimension; ++column) {
                     uint64_t index = representative;
                     if ((column & 1U) != 0) {
