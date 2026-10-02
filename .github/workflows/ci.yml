@@ -16,6 +16,9 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
+  lean-proofs:
+    uses: ./.github/workflows/lean.yml
+
   wasm:
     timeout-minutes: 20
     runs-on: ubuntu-24.04
@@ -846,6 +849,7 @@ jobs:
     timeout-minutes: 10
     if: always()
     needs:
+      - lean-proofs
       - wasm
       - lint
       - playground-lint
