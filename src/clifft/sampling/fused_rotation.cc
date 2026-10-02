@@ -77,6 +77,27 @@ class BinaryBasis {
     // Returns the dimension of the represented subspace.
     [[nodiscard]] uint32_t rank() const { return rank_; }
 
+    [[nodiscard]] uint64_t pivots() const {
+        uint64_t result = 0;
+        for (uint32_t bit = 0; bit < rows_.size(); ++bit) {
+            if (rows_[bit] != 0) {
+                result |= uint64_t{1} << bit;
+            }
+        }
+        return result;
+    }
+
+    [[nodiscard]] BinaryBasis projected(uint64_t mask) const {
+        BinaryBasis result;
+        for (uint64_t row : rows_) {
+            if (row != 0) {
+                [[maybe_unused]] const bool inserted = result.insert(row & mask);
+                assert(inserted);
+            }
+        }
+        return result;
+    }
+
     // Returns the reduced basis vectors in ascending pivot-bit order.
     [[nodiscard]] std::vector<uint64_t> rows() const {
         std::vector<uint64_t> result;
@@ -429,9 +450,9 @@ FusedRotationRun prepare_fused_rotation_run(std::span<const PlannedAction> actio
         return result;
     }
 
-    // Extend the maximal same-width prefix while its X masks span at most two
-    // dimensions. Every additional dimension doubles the matrix side length.
     BinaryBasis orbit_basis;
+    BinaryBasis selector_basis;
+    uint64_t orbit_pivots = 0;
     while (result.action_count < actions.size()) {
         const PlannedAction& candidate = actions[result.action_count];
         const auto* rotation = std::get_if<RotateActivePauli>(&candidate.action);
@@ -439,18 +460,34 @@ FusedRotationRun prepare_fused_rotation_run(std::span<const PlannedAction> actio
             rotation->pauli.is_identity() || candidate.active_before != first.active_before) {
             break;
         }
-        BinaryBasis next_basis = orbit_basis;
-        if (!next_basis.insert(rotation->pauli.x, 2)) {
+        if (!orbit_basis.contains(rotation->pauli.x)) {
+            BinaryBasis next_basis = orbit_basis;
+            if (!next_basis.insert(rotation->pauli.x, 2)) {
+                break;
+            }
+            const uint64_t next_pivots = next_basis.pivots();
+            // New orbit pivots absorb former selector coordinates. Project the
+            // existing span instead of rescanning all preceding rotations.
+            BinaryBasis next_selectors = selector_basis.projected(~next_pivots);
+            if (!next_selectors.insert(rotation->pauli.z & ~next_pivots,
+                                       kMaxFusedRotationSelectors)) {
+                break;
+            }
+            orbit_basis = next_basis;
+            selector_basis = next_selectors;
+            orbit_pivots = next_pivots;
+        } else if (!selector_basis.insert(rotation->pauli.z & ~orbit_pivots,
+                                          kMaxFusedRotationSelectors)) {
+            // Keep the useful prefix instead of discarding all its fusion when
+            // a later rotation would exceed the matrix-table limit.
             break;
         }
-        orbit_basis = next_basis;
         ++result.action_count;
     }
 
-    // If selector growth rejects the descriptor, action_count still lets the
-    // caller lower this entire eligible prefix as individual rotations.
     if (result.action_count >= kMinFusedRotationActions) {
         result.rotation = prepare_fused_rotation(actions.first(result.action_count), orbit_basis);
+        assert(result.rotation.has_value() && "prechecked selector span must fit the table");
     }
     return result;
 }

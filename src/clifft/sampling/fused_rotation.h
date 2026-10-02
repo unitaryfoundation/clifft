@@ -29,9 +29,9 @@ struct PreparedFusedRotation {
     std::vector<std::complex<double>> matrices;
 };
 
-// Describes the maximal rank-two-eligible constant-sign rotation run beginning
-// at the supplied action. A populated rotation replaces all action_count
-// inputs; otherwise the caller lowers that many actions individually.
+// A constant-sign prefix extended while the orbit and selector ranks fit their
+// matrix-table limits. A populated rotation replaces all action_count inputs;
+// otherwise the caller lowers that many actions individually.
 struct FusedRotationRun {
     size_t action_count = 0;
     std::optional<PreparedFusedRotation> rotation;

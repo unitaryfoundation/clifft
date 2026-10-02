@@ -160,6 +160,72 @@ TEST_CASE("Fused rotation falls back for a rank three run") {
     require_matches_scalar(rotation_plan(3, rotations), 0, 3);
 }
 
+TEST_CASE("Fused rotation partitions selector overflow and preserves provenance") {
+    for (uint64_t x : {uint64_t{0}, uint64_t{1} << 6}) {
+        std::vector<RotateActivePauli> rotations;
+        for (uint32_t axis = 0; axis < 7; ++axis) {
+            rotations.push_back({{uint64_t{1} << axis, 0}, 0.37, AffineBool::symbol(SymbolId{0})});
+        }
+        // The final low pivot keeps these preparation rotations outside the
+        // dynamic fuser while populating every selector assignment.
+        rotations.push_back({{1, 0}, -0.13, AffineBool::symbol(SymbolId{0})});
+        for (uint32_t axis = 0; axis < 6; ++axis) {
+            rotations.push_back(
+                {{x, uint64_t{1} << axis}, 0.11 * (axis + 1), AffineBool((axis & 1U) != 0)});
+        }
+        rotations.push_back({{x, uint64_t{1} << 5}, -0.23, AffineBool(false)});
+        rotations.push_back({{0, uint64_t{1} << 5}, 0.31, AffineBool(true)});
+        SamplingPlan plan = rotation_plan(7, rotations);
+        plan.source_map.emplace();
+        for (uint32_t line = 1; line <= rotations.size(); ++line) {
+            plan.source_map->append(std::span<const uint32_t>(&line, 1));
+        }
+
+        const ExecutablePlan executable(plan);
+        REQUIRE(executable.num_actions() == 10);
+        REQUIRE(executable.action_plan_range(8) == ExecutablePlan::PlanActionRange{8, 13});
+        REQUIRE(executable.action_plan_range(9) == ExecutablePlan::PlanActionRange{13, 16});
+        require_matches_scalar(plan, 0, 10);
+        require_matches_scalar(plan, 1, 10);
+    }
+}
+
+TEST_CASE("Fused rotation absorbs selector coordinates into new orbit pivots") {
+    std::vector<RotateActivePauli> rotations;
+    for (uint32_t axis = 0; axis < 5; ++axis) {
+        rotations.push_back({{0, uint64_t{1} << axis}, 0.17, AffineBool(false)});
+    }
+    rotations.push_back({{1, uint64_t{1} << 5}, -0.23, AffineBool(true)});
+    rotations.push_back({{2, uint64_t{1} << 6}, 0.31, AffineBool(false)});
+    const SamplingPlan plan = rotation_plan(7, rotations);
+    const auto run = prepare_fused_rotation_run(plan.actions);
+    REQUIRE(run.rotation.has_value());
+    REQUIRE(run.action_count == rotations.size());
+    REQUIRE(run.rotation->orbit_rank == 2);
+    REQUIRE(run.rotation->selector_masks.size() == 5);
+
+    State expected(7, 7);
+    State actual(7, 7);
+    for (uint64_t basis = 0; basis < expected.size(); ++basis) {
+        // Distinct amplitudes expose pairing and phase errors for all selectors.
+        expected.real_data()[basis] = actual.real_data()[basis] =
+            static_cast<double>(basis + 1) / 2048;
+        expected.imag_data()[basis] = actual.imag_data()[basis] =
+            static_cast<double>(expected.size() - basis) / 2048;
+    }
+    for (const auto& rotation : rotations) {
+        apply_rotation(expected, prepare_rotation(rotation.pauli, 7, rotation.half_turns),
+                       rotation.sign.constant());
+    }
+    apply_fused_rotation(actual, *run.rotation);
+    for (uint64_t basis = 0; basis < expected.size(); ++basis) {
+        REQUIRE_THAT(actual.real_data()[basis],
+                     Catch::Matchers::WithinAbs(expected.real_data()[basis], 1e-12));
+        REQUIRE_THAT(actual.imag_data()[basis],
+                     Catch::Matchers::WithinAbs(expected.imag_data()[basis], 1e-12));
+    }
+}
+
 #if defined(CLIFFT_TESTS_HAVE_APPLE_NEON)
 TEST_CASE("Apple NEON fused rotation matches scalar") {
     const std::array rotations = {

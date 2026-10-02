@@ -423,16 +423,6 @@ TEST_CASE("Sampling executor fuses constant rotation orbits") {
         RotateActivePauli{{0b101101, 0b101100}, -0.2, AffineBool(true)},
     };
     require_matches_scalar(6, rank_two_high_pivots);
-
-    SamplingPlan wide_selector_plan;
-    wide_selector_plan.num_qubits = 6;
-    wide_selector_plan.initial_active_width = 6;
-    wide_selector_plan.peak_active_width = 6;
-    for (uint32_t axis = 0; axis < 6; ++axis) {
-        wide_selector_plan.actions.push_back(PlannedAction{
-            6, 6, RotateActivePauli{{0, uint64_t{1} << axis}, 0.25, AffineBool(false)}});
-    }
-    REQUIRE(ExecutablePlan(wide_selector_plan).num_actions() == 6);
 }
 
 TEST_CASE("Sampling replay inverts affine records and preserves branch dependencies") {
