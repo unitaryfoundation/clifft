@@ -67,6 +67,42 @@ for how continuations are compiled and resumed.
 
 {{ p['detail'] }}
 
+{% if p['name'] == 'PhasePolynomialPass' %}
+`max_variables` defaults to `32` and accepts integers from `0` to `64`.
+Zero disables the pass. A new independent rotation axis ends a region when
+adding it would exceed this limit. The polynomial has degree at most three,
+so increasing the variable limit can substantially increase compilation cost.
+
+Noncommuting rotations, arbitrary-angle rotations, instruments and observers
+whose conjugates are not Paulis end a region. A Pauli-noise site can remain
+inside a region only when every channel with nonzero probability commutes with
+its preceding rotation axes. A previous scheduling pass that crossed noise causes
+the pass to skip the circuit.
+
+Each region is collected incrementally, without rescanning rejected suffixes.
+Removed Clifford factors accumulate in a compiler-side frame. The executor
+uses the existing operations and kernels. The pass never increases the T count
+and rejects a candidate whose active-width analysis is worse at this pipeline
+position. This local guard does not guarantee lower memory or sampling time
+after subsequent scheduling. Benchmark the complete pipeline before enabling
+it for a workload; arbitrary-angle and gate-depolarizing circuits may gain
+nothing.
+
+After a run, `input_t_count`, `output_t_count`, `blocks_reduced` and
+`pauli_pullbacks` describe the accepted rewrite. `applied` reports whether
+the candidate was accepted. The pass is excluded from instrument-continuation
+pipelines.
+
+```python
+import clifft
+
+pm = clifft.HirPassManager()
+pm.add(clifft.PeepholeFusionPass())
+pm.add(clifft.PhasePolynomialPass(max_variables=32))
+pm.add(clifft.StatevectorSqueezePass())
+```
+{% endif %}
+
 {% if p['name'] == 'ActiveWidthSchedulePass' %}
 See [Compiling Circuits](../guide/compilation.md#active-width-scheduling) for
 setup and guidance on when to enable this pass.

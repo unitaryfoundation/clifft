@@ -13,6 +13,11 @@
 #include "clifft/optimizer/schedule_dependence.h"
 #endif
 
+#if __has_include("clifft/optimizer/phase_polynomial_pass.h")
+#define CLIFFT_BENCHMARK_HAS_PHASE_POLYNOMIAL
+#include "clifft/optimizer/phase_polynomial_pass.h"
+#endif
+
 #include <array>
 #include <benchmark/benchmark.h>
 #include <cstdint>
@@ -106,6 +111,55 @@ void squeeze_parallel_t(benchmark::State& state) {
         benchmark::DoNotOptimize(hir.ops.size());
     }
 }
+
+#ifdef CLIFFT_BENCHMARK_HAS_PHASE_POLYNOMIAL
+// Unsupported observers must end collection immediately, rather than making
+// each new region inspect the same long suffix again.
+void phase_measurement_barriers(benchmark::State& state) {
+    std::string source = "H 0\n";
+    for (int64_t i = 0; i < state.range(0); ++i) {
+        source += "T 0\nMX 0\n";
+    }
+    const auto original = trace(parse(source));
+    for ([[maybe_unused]] auto _ : state) {
+        auto hir = original;
+        PhasePolynomialPass pass;
+        pass.run(hir);
+        benchmark::DoNotOptimize(hir.ops.size());
+    }
+}
+
+// Repeated Clifford extraction should transform each input operation once,
+// without walking the remaining circuit for every removed factor.
+void phase_clifford_regions(benchmark::State& state) {
+    std::string source;
+    for (int64_t i = 0; i < state.range(0); ++i) {
+        source += "H 0\nT 0\nT 0\n";
+    }
+    const auto original = trace(parse(source));
+    for ([[maybe_unused]] auto _ : state) {
+        auto hir = original;
+        PhasePolynomialPass pass;
+        pass.run(hir);
+        benchmark::DoNotOptimize(hir.final_tableau);
+    }
+}
+
+void phase_rank_limited_region(benchmark::State& state) {
+    HirModule original(40, static_cast<size_t>(state.range(0)));
+    for (int64_t i = 0; i < state.range(0); ++i) {
+        original.append_tgate(false, [i](MutablePauliMaskView mask) {
+            mask.x().bit_set(static_cast<uint32_t>(i % 40), true);
+        });
+    }
+    for ([[maybe_unused]] auto _ : state) {
+        auto hir = original;
+        PhasePolynomialPass pass;
+        pass.run(hir);
+        benchmark::DoNotOptimize(hir.ops.size());
+    }
+}
+#endif
 
 // Cultivation combines parsing, optimization, postselection planning, and
 // active-state lowering, protecting the complete compiler pipeline's latency.
@@ -362,6 +416,11 @@ void sample_exp_val(benchmark::State& state) {
 }
 
 BENCHMARK(squeeze_parallel_t)->Name("squeeze_parallel_t_8192");
+#ifdef CLIFFT_BENCHMARK_HAS_PHASE_POLYNOMIAL
+BENCHMARK(phase_measurement_barriers)->RangeMultiplier(4)->Range(256, 4096);
+BENCHMARK(phase_clifford_regions)->RangeMultiplier(4)->Range(256, 4096);
+BENCHMARK(phase_rank_limited_region)->RangeMultiplier(4)->Range(2000, 32000);
+#endif
 BENCHMARK(compile_plan_cultivation_d5)->Name("compile_plan_cultivation_d5");
 #ifdef CLIFFT_BENCHMARK_HAS_ACTIVE_WIDTH
 BENCHMARK(compile_schedule_plan_coherent_d5_r5)->Name("compile_schedule_plan_coherent_d5_r5");

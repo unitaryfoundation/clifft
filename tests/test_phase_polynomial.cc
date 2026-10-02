@@ -1,0 +1,134 @@
+#include "clifft/optimizer/phase_polynomial.h"
+
+#include <bit>
+#include <catch2/catch_test_macros.hpp>
+#include <cstdint>
+#include <random>
+#include <vector>
+
+using namespace clifft::phase_detail;
+
+namespace {
+
+unsigned evaluate(const Polynomial& polynomial, uint64_t assignment) {
+    unsigned value = 0;
+    for (const auto& [monomial, coefficient] : polynomial) {
+        if ((assignment & monomial) == monomial) {
+            value += coefficient;
+        }
+    }
+    return value & 7;
+}
+
+void check_synthesis(const Polynomial& original, uint32_t width,
+                     const std::vector<uint64_t>& assignments) {
+    auto reduced = original;
+    const auto basis = reduce_core(reduced, width);
+    const auto synthesis = synthesize_parities(reduced);
+    REQUIRE(basis.parities.size() == width);
+    for (uint64_t assignment : assignments) {
+        uint64_t changed = 0;
+        for (uint32_t j = 0; j < width; ++j) {
+            if (std::popcount(assignment & basis.parities[j]) & 1) {
+                changed |= uint64_t{1} << j;
+            }
+        }
+        unsigned reconstructed = 0;
+        for (const auto& [parity, coefficient] : synthesis) {
+            reconstructed += coefficient * (std::popcount(parity & changed) & 1);
+        }
+        REQUIRE(evaluate(original, assignment) == evaluate(reduced, changed));
+        REQUIRE(evaluate(original, assignment) == (reconstructed & 7));
+    }
+}
+
+}  // namespace
+
+TEST_CASE("Phase polynomial parity expansion agrees with Boolean parity", "[optimizer]") {
+    for (uint64_t parity = 1; parity < 32; ++parity) {
+        for (int coefficient = -7; coefficient <= 7; ++coefficient) {
+            Polynomial polynomial;
+            add_parity(polynomial, parity, coefficient);
+            for (uint64_t x = 0; x < 32; ++x) {
+                REQUIRE(evaluate(polynomial, x) ==
+                        unsigned((coefficient * (std::popcount(parity & x) & 1)) & 7));
+            }
+        }
+    }
+}
+
+TEST_CASE("Phase polynomial kernel and Pauli derivatives match exhaustive values", "[optimizer]") {
+    std::mt19937_64 rng(42191);
+    for (unsigned trial = 0; trial < 80; ++trial) {
+        const uint32_t width = 1 + rng() % 5;
+        const unsigned size = 1U << width;
+        Polynomial polynomial;
+        for (unsigned j = 0; j < 3 * size; ++j) {
+            add_parity(polynomial, rng() % (size - 1) + 1, rng() % 8);
+        }
+        const auto kernel = clifford_kernel(polynomial, width);
+        std::vector<bool> in_kernel(size, false);
+        for (unsigned combination = 0; combination < (1U << kernel.size()); ++combination) {
+            uint64_t flip = 0;
+            for (size_t j = 0; j < kernel.size(); ++j) {
+                if ((combination >> j) & 1) {
+                    flip ^= kernel[j];
+                }
+            }
+            in_kernel[flip] = true;
+        }
+        std::vector<uint64_t> assignments;
+        for (unsigned flip = 0; flip < size; ++flip) {
+            assignments.push_back(flip);
+            const unsigned constant = (evaluate(polynomial, flip) - evaluate(polynomial, 0)) & 7;
+            bool is_pauli = !(constant & 1);
+            unsigned parity = 0;
+            for (uint32_t j = 0; j < width; ++j) {
+                const unsigned slope = (evaluate(polynomial, flip ^ (1U << j)) -
+                                        evaluate(polynomial, 1U << j) - constant) &
+                                       7;
+                is_pauli &= slope == 0 || slope == 4;
+                if (slope == 4) {
+                    parity |= 1U << j;
+                }
+            }
+            for (unsigned x = 0; x < size; ++x) {
+                is_pauli &= ((evaluate(polynomial, x ^ flip) - evaluate(polynomial, x)) & 7) ==
+                            ((constant + 4 * (std::popcount(parity & x) & 1)) & 7);
+            }
+            REQUIRE(in_kernel[flip] == is_pauli);
+            const auto derivative = pauli_derivative(polynomial, flip);
+            REQUIRE(derivative.has_value() == is_pauli);
+            if (derivative) {
+                REQUIRE(derivative->constant == constant);
+                REQUIRE(derivative->parity == parity);
+            }
+        }
+        check_synthesis(polynomial, width, assignments);
+    }
+}
+
+TEST_CASE("Phase polynomial basis changes preserve high variable bits", "[optimizer]") {
+    std::mt19937_64 rng(53921);
+    for (uint32_t width : {31, 32, 63, 64}) {
+        for (unsigned trial = 0; trial < 8; ++trial) {
+            Polynomial polynomial;
+            const std::vector<uint32_t> support{0, 1, 2, width - 2, width - 1};
+            for (unsigned term = 0; term < 64; ++term) {
+                uint64_t parity = 0;
+                const unsigned selection = rng() % 31 + 1;
+                for (size_t j = 0; j < support.size(); ++j) {
+                    if ((selection >> j) & 1) {
+                        parity |= uint64_t{1} << support[j];
+                    }
+                }
+                add_parity(polynomial, parity, rng() % 8);
+            }
+            std::vector<uint64_t> assignments;
+            for (unsigned sample = 0; sample < 64; ++sample) {
+                assignments.push_back(width == 64 ? rng() : rng() & ((uint64_t{1} << width) - 1));
+            }
+            check_synthesis(polynomial, width, assignments);
+        }
+    }
+}

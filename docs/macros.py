@@ -120,6 +120,24 @@ def define_env(env: Any) -> None:
             ),
         },
         {
+            "name": "PhasePolynomialPass",
+            "kind": "HIR",
+            "default_enabled": False,
+            "preserves_record_order": True,
+            "preserves_instrument_prefix": False,
+            "python_name": "PhasePolynomialPass",
+            "summary": "State-independent phase reduction of commuting T rotations.",
+            "detail": (
+                "Builds a Boolean phase polynomial modulo eight and separates its "
+                "non-Clifford core from fixed Clifford factors. The rewrite is valid "
+                "for arbitrary input states; it assumes no entry stabilizers or "
+                "postselection outcomes. Measurements, feedback and expectation probes "
+                "can move before a phase prefix when their exact conjugates are Paulis. "
+                "Record order, noise sites and categorical probabilities are preserved. "
+                "Opt in after PeepholeFusionPass and before squeezing or scheduling."
+            ),
+        },
+        {
             "name": "ActiveWidthSchedulePass",
             "kind": "HIR",
             "default_enabled": False,
