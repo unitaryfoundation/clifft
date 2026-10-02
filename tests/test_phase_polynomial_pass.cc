@@ -1,6 +1,7 @@
 #include "clifft/circuit/parser.h"
 #include "clifft/frontend/frontend.h"
 #include "clifft/optimizer/active_width_analysis.h"
+#include "clifft/optimizer/known_stabilizers.h"
 #include "clifft/optimizer/phase_polynomial_pass.h"
 
 #include "instrument_test_helpers.h"
@@ -73,6 +74,55 @@ TEST_CASE("Phase pass does not assume an entry stabilizer", "[optimizer]") {
     pass.run(hir);
     REQUIRE_FALSE(pass.applied());
     REQUIRE(hir.num_t_gates() == 2);
+}
+
+TEST_CASE("Known stabilizers preserve correlations and deterministic signs", "[optimizer]") {
+    KnownStabilizers known(2);
+    auto hir = trace(parse("PAULI_CHANNEL_2(0,0,0,0,0.25,0,0,0,0,0,0,0,0,0,0) 0 1\nX_ERROR(1) 0"));
+    PauliString z0(2);
+    z0.set_pauli(0, false, true);
+    PauliString zz = z0;
+    zz.set_pauli(1, false, true);
+    known.advance(hir, hir.ops[0]);
+    REQUIRE_FALSE(known.eigenvalue(z0).has_value());
+    REQUIRE(known.eigenvalue(zz) == false);
+    known.advance(hir, hir.ops[1]);
+    REQUIRE(known.eigenvalue(zz) == true);
+}
+
+TEST_CASE("Known stabilizers do not assume a sampled measurement outcome", "[optimizer]") {
+    KnownStabilizers known(1);
+    auto hir = trace(parse("MX 0"));
+    known.advance(hir, hir.ops[0]);
+    PauliString x(1);
+    x.set_pauli(0, true, false);
+    PauliString z(1);
+    z.set_pauli(0, false, true);
+    REQUIRE_FALSE(known.eigenvalue(x).has_value());
+    REQUIRE_FALSE(known.eigenvalue(z).has_value());
+}
+
+TEST_CASE("Phase pass can reduce axes modulo known entry constraints", "[optimizer]") {
+    for (uint32_t ancilla : {1, 64, 129}) {
+        CAPTURE(ancilla);
+        const auto cx = "CX " + std::to_string(ancilla) + " 0\n";
+        auto hir = trace(parse("H 0\nT 0\n" + cx + "T 0\n" + cx));
+        PhasePolynomialPass pass({32, true});
+        pass.run(hir);
+        REQUIRE(pass.applied());
+        REQUIRE(hir.num_t_gates() == 0);
+    }
+}
+
+TEST_CASE("Phase pass respects constraints changed by a crossed boundary", "[optimizer]") {
+    for (const auto* boundary : {"X_ERROR(0.25) 1", "MX 1"}) {
+        CAPTURE(boundary);
+        auto hir = trace(parse(std::string("H 0\nT 0\n") + boundary + "\nCX 1 0\nT 0\nCX 1 0"));
+        PhasePolynomialPass pass({32, true});
+        pass.run(hir);
+        REQUIRE_FALSE(pass.applied());
+        REQUIRE(hir.num_t_gates() == 2);
+    }
 }
 
 TEST_CASE("Phase pass composes noncommuting Clifford factors across regions", "[optimizer]") {

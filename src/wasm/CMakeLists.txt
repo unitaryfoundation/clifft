@@ -35,6 +35,7 @@ add_library(clifft_core STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/commutation.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/peephole.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/phase_polynomial.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/known_stabilizers.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/phase_polynomial_pass.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/pass_factory.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/remove_noise_pass.cc

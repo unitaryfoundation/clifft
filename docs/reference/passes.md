@@ -73,6 +73,19 @@ Zero disables the pass. A new independent rotation axis ends a region when
 adding it would exceed this limit. The polynomial has degree at most three,
 so increasing the variable limit can substantially increase compilation cost.
 
+`use_known_stabilizers` defaults to `False`. Setting it to `True` enables
+experimental state-aware reduction using signed Pauli constraints derived from
+the circuit's all-zero input. Only constraints with a fixed eigenvalue on every
+reachable trajectory are retained. Measurements and stochastic Pauli noise
+discard relations with unknown signs; deterministic Pauli noise updates the
+signs. Instruments discard all entry knowledge. No assumption is made from
+future postselection. Use this mode on complete circuits, not fragments with
+an unspecified input state.
+
+The same phase algebra handles both modes. With entry knowledge enabled, the
+variable limit counts axes modulo known constraints. Every constraint used by
+a region must survive its rotations and crossed observers and noise sites.
+
 Noncommuting rotations, arbitrary-angle rotations, instruments and observers
 whose conjugates are not Paulis end a region. A Pauli-noise site can remain
 inside a region only when every channel with nonzero probability commutes with

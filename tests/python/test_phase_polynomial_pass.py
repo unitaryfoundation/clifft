@@ -49,7 +49,10 @@ def test_native_phase_reduction_is_opt_in() -> None:
 
 
 @pytest.mark.parametrize("seed", range(12))
-def test_native_phase_reduction_on_general_clifford_layouts(seed: int) -> None:
+@pytest.mark.parametrize("use_known_stabilizers", [False, True])
+def test_native_phase_reduction_on_general_clifford_layouts(
+    seed: int, use_known_stabilizers: bool
+) -> None:
     rng = np.random.default_rng(seed)
     prep = ["H 0 1 2 3", "S 0 2", "CX 0 1", "H 1", "CX 1 3", "S_DAG 3"]
     core = _identity_parities()
@@ -59,7 +62,12 @@ def test_native_phase_reduction_on_general_clifford_layouts(seed: int) -> None:
         )
     tail = ["H 0", "S 1", "CX 0 2", "T_DAG 2", "H 3", "T 3", "CZ 1 3"]
     source = "\n".join(prep + core + tail)
-    program = clifft.compile(source, hir_passes=_manager())
+    program = clifft.compile(
+        source,
+        hir_passes=_manager(
+            clifft.PhasePolynomialPass(use_known_stabilizers=use_known_stabilizers)
+        ),
+    )
     assert_statevectors_equiv(clifft.get_statevector(program), unitary_reference(source))
 
 
@@ -242,11 +250,14 @@ def _noisy_reference(kind: str, force: bool | None = None) -> tuple[str, np.ndar
         "late_axis",
     ],
 )
+@pytest.mark.parametrize("use_known_stabilizers", [False, True])
 def test_native_phase_reduction_preserves_noisy_joint_records(
-    sampling_mode: SamplingMode, kind: str
+    sampling_mode: SamplingMode,
+    kind: str,
+    use_known_stabilizers: bool,
 ) -> None:
     source, expected = _noisy_reference(kind)
-    phase = clifft.PhasePolynomialPass()
+    phase = clifft.PhasePolynomialPass(use_known_stabilizers=use_known_stabilizers)
     program = sampling_mode.compile(source, hir_passes=_manager(phase), normalize_syndromes=False)
     assert program.num_measurements == 3
     if kind != "interleaved":
@@ -264,7 +275,12 @@ def test_native_phase_reduction_preserves_noisy_joint_records(
     )
 
     selected = sampling_mode.compile(
-        source, hir_passes=_manager(), normalize_syndromes=False, postselection_mask=[1]
+        source,
+        hir_passes=_manager(
+            clifft.PhasePolynomialPass(use_known_stabilizers=use_known_stabilizers)
+        ),
+        normalize_syndromes=False,
+        postselection_mask=[1],
     )
     survivors = sampling_mode.sample_survivors(selected, shots=16384, seed=621, keep_records=True)
     probability = sum(
@@ -277,11 +293,15 @@ def test_native_phase_reduction_preserves_noisy_joint_records(
 
 @pytest.mark.parametrize("k", [0, 1])
 @pytest.mark.parametrize("kind", ["commuting", "hoisted", "late_axis"])
+@pytest.mark.parametrize("use_known_stabilizers", [False, True])
 def test_native_phase_reduction_preserves_forced_fault_sampling(
-    importance_sampling_mode: CpuSamplingMode, k: int, kind: str
+    importance_sampling_mode: CpuSamplingMode,
+    k: int,
+    kind: str,
+    use_known_stabilizers: bool,
 ) -> None:
     source, expected = _noisy_reference(kind, force=bool(k))
-    phase = clifft.PhasePolynomialPass()
+    phase = clifft.PhasePolynomialPass(use_known_stabilizers=use_known_stabilizers)
     program = importance_sampling_mode.compile(source, hir_passes=_manager(phase))
     assert phase.applied
     assert len(program.noise_site_probabilities) == 1
@@ -306,8 +326,10 @@ def test_native_phase_reduction_preserves_exact_measurement_records() -> None:
     )
 
 
+@pytest.mark.parametrize("use_known_stabilizers", [False, True])
 def test_native_phase_reduction_of_clifford_block_matches_stim(
     sampling_mode: SamplingMode,
+    use_known_stabilizers: bool,
 ) -> None:
     import stim
 
@@ -322,7 +344,7 @@ def test_native_phase_reduction_of_clifford_block_matches_stim(
             "MY 0",
         ]
     )
-    phase = clifft.PhasePolynomialPass()
+    phase = clifft.PhasePolynomialPass(use_known_stabilizers=use_known_stabilizers)
     program = sampling_mode.compile(source, hir_passes=_manager(phase))
     assert phase.applied
     assert program.peak_active_width == 0
@@ -331,3 +353,117 @@ def test_native_phase_reduction_of_clifford_block_matches_stim(
     expected = np.bincount(samples.astype(np.int64) @ np.array([1, 2]), minlength=4) / len(samples)
     result = sampling_mode.sample(program, shots=16384, seed=720)
     assert_joint_distribution(result.measurements, expected)
+
+
+@pytest.mark.parametrize("prefix", ["", "X 1", "Y 1", "R_Y(0.137) 1", "H 1\nT 1"])
+@pytest.mark.parametrize("suffix", ["", "R_PAULI(0.25) X1", "H 0\nT 0\nS 1\nCX 1 0\nT 1"])
+def test_known_phase_relations_preserve_prepared_states(prefix: str, suffix: str) -> None:
+    source = prefix + "\nR_PAULI(0.25) X0\nR_PAULI(0.25) X0*Z1\n" + suffix
+    phase = clifft.PhasePolynomialPass(use_known_stabilizers=True)
+    program = clifft.compile(source, hir_passes=_manager(phase))
+    if prefix in ("", "X 1", "Y 1"):
+        assert phase.applied
+    assert_statevectors_equiv(clifft.get_statevector(program), unitary_reference(source))
+
+
+@lru_cache(maxsize=16)
+def _entry_reference(kind: str, force: bool | None = None) -> tuple[str, np.ndarray]:
+    from qiskit import QuantumCircuit
+    from qiskit_aer import AerSimulator
+    from qiskit_aer.noise import pauli_error
+
+    circuit = QuantumCircuit(5)
+    source: list[str] = []
+
+    def noise() -> None:
+        probability = 1.0 if kind == "deterministic" else 0.23
+        source.append(f"X_ERROR({probability}) 1")
+        if force is not None:
+            probability = float(force)
+        circuit.append(
+            pauli_error([("X", probability), ("I", 1 - probability)]).to_instruction(), [1]
+        )
+
+    def measure(q: int, axis: str, record: int) -> None:
+        source.append(f"M{axis if axis != 'Z' else ''} {q}")
+        if axis == "Y":
+            circuit.sdg(q)
+        if axis != "Z":
+            circuit.h(q)
+        circuit.cx(q, record)
+        if axis != "Z":
+            circuit.h(q)
+        if axis == "Y":
+            circuit.s(q)
+
+    if kind == "before":
+        noise()
+    source.append("R_PAULI(0.25) X0")
+    circuit.rx(np.pi / 4, 0)
+    if kind in ("hoisted", "deterministic"):
+        noise()
+    elif kind in ("measure", "feedback"):
+        measure(1, "X", 2)
+        if kind == "feedback":
+            source.append("CX rec[-1] 0")
+            circuit.cx(2, 0)
+    source.append("R_PAULI(0.25) X0*Z1")
+    circuit.h(0)
+    circuit.cx(0, 1)
+    circuit.rz(np.pi / 4, 1)
+    circuit.cx(0, 1)
+    circuit.h(0)
+    if kind == "after":
+        noise()
+    source.append("R_PAULI(0.25) X1")
+    circuit.rx(np.pi / 4, 1)
+    if kind not in ("measure", "feedback"):
+        measure(1, "Z", 2)
+    measure(0, "Y", 3)
+    measure(1, "X", 4)
+    source.extend(["DETECTOR rec[-3] rec[-2]", "OBSERVABLE_INCLUDE(0) rec[-1]"])
+    circuit.save_probabilities([2, 3, 4])
+    result = AerSimulator(method="density_matrix").run(circuit, shots=1).result()
+    assert result.success
+    expected = np.asarray(result.data()["probabilities"])
+    expected[np.abs(expected) < 1e-14] = 0
+    np.testing.assert_allclose(expected.sum(), 1, atol=1e-12)
+    return "\n".join(source), expected
+
+
+@pytest.mark.parametrize(
+    "kind", ["ideal", "before", "hoisted", "deterministic", "after", "measure", "feedback"]
+)
+def test_known_phase_constraints_preserve_joint_records(
+    sampling_mode: SamplingMode, kind: str
+) -> None:
+    source, expected = _entry_reference(kind)
+    phase = clifft.PhasePolynomialPass(use_known_stabilizers=True)
+    program = sampling_mode.compile(source, hir_passes=_manager(phase), normalize_syndromes=False)
+    assert phase.applied == (kind in ("ideal", "deterministic", "after"))
+    samples = sampling_mode.sample(program, shots=16384, seed=891)
+    assert_joint_distribution(samples.measurements, expected)
+    selected = sampling_mode.compile(
+        source,
+        hir_passes=_manager(clifft.PhasePolynomialPass(use_known_stabilizers=True)),
+        postselection_mask=[1],
+        normalize_syndromes=False,
+    )
+    survivors = sampling_mode.sample_survivors(selected, shots=16384, seed=892)
+    probability = sum(p for record, p in enumerate(expected) if ((record >> 1) ^ record) & 1 == 0)
+    assert abs(survivors.passed_shots / survivors.total_shots - probability) < binomial_tolerance(
+        probability, survivors.total_shots
+    )
+
+
+@pytest.mark.parametrize("kind", ["before", "hoisted", "after"])
+@pytest.mark.parametrize("k", [0, 1])
+def test_known_phase_constraints_preserve_forced_faults(
+    importance_sampling_mode: CpuSamplingMode, kind: str, k: int
+) -> None:
+    source, expected = _entry_reference(kind, force=bool(k))
+    program = importance_sampling_mode.compile(
+        source, hir_passes=_manager(clifft.PhasePolynomialPass(use_known_stabilizers=True))
+    )
+    samples = importance_sampling_mode.sample_k(program, shots=16384, k=k, seed=893)
+    assert_joint_distribution(samples.measurements, expected)

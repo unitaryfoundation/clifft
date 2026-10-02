@@ -11,11 +11,14 @@ struct PhasePolynomialOptions {
     // Bounds the cubic phase algebra. Zero disables the pass; at most 64
     // independent commuting axes can be represented in one region.
     uint32_t max_variables = 32;
+    // Use fixed signed constraints derived from the circuit's all-zero input.
+    bool use_known_stabilizers = false;
 };
 
-// Opt-in, state-independent reduction of commuting T rotations modulo Clifford
-// factors. Measurements and feedback cross a phase prefix only when its exact
-// Pauli conjugate exists. No entry-state or postselection relations are assumed.
+// Opt-in reduction of commuting T rotations modulo Clifford factors.
+// State-independent by default; optionally quotient by proven entry constraints.
+// Observers must admit exact Pauli pullback and preserve each used constraint.
+// No relation is inferred from postselection.
 class PhasePolynomialPass : public HirPass {
   public:
     explicit PhasePolynomialPass(PhasePolynomialOptions options = {});
