@@ -101,12 +101,15 @@ struct Block {
     phase_detail::Polynomial polynomial;
     std::vector<Observer> observers;
     KnownStabilizers constraints;
+    phase_detail::Polynomial original_terms;
 };
 
 class Rewriter {
   public:
     Rewriter(HirModule& hir, PhasePolynomialOptions options)
-        : hir_(hir), max_variables_(options.max_variables) {
+        : hir_(hir),
+          max_variables_(options.max_variables),
+          preserve_parities_(options.preserve_parities) {
         if (options.use_known_stabilizers) {
             known_.emplace(hir.num_qubits);
         }
@@ -147,7 +150,7 @@ class Rewriter {
     };
 
     Block collect(size_t start) {
-        Block block{start, {}, {}, {}, {}, {}};
+        Block block{start, {}, {}, {}, {}, {}, {}};
         // Entry coordinates stay fixed while barriers remove relations that
         // cannot hold after moving those operations ahead of the phase block.
         auto available = known_;
@@ -205,6 +208,11 @@ class Rewriter {
                 }
                 phase_detail::add_parity(block.polynomial, coordinates,
                                          *negative ? -coefficient : coefficient);
+                if (preserve_parities_) {
+                    auto& term = block.original_terms[coordinates];
+                    term =
+                        static_cast<uint8_t>((term + (*negative ? -coefficient : coefficient)) & 7);
+                }
                 write_axis(hir_.mask_at(op), axis);
                 block.rotations.push_back(i);
             } else if (type == OpType::NOISE) {
@@ -274,7 +282,10 @@ class Rewriter {
     bool rewrite(size_t start, Block& block) {
         const auto basis = phase_detail::reduce_core(
             block.polynomial, static_cast<uint32_t>(block.generators.size()));
-        const auto synthesis = phase_detail::synthesize_parities(block.polynomial);
+        const auto synthesis =
+            preserve_parities_
+                ? phase_detail::project_parities(block.original_terms, block.polynomial, basis)
+                : phase_detail::synthesize_parities(block.polynomial);
         const size_t output_count = std::ranges::count_if(
             synthesis, [](const auto& term) { return (term.second & 1) != 0; });
         if (output_count > block.rotations.size() ||
@@ -382,6 +393,7 @@ class Rewriter {
 
     HirModule& hir_;
     uint32_t max_variables_;
+    bool preserve_parities_;
     CliffordFrame frame_;
     // Follow emitted operations: absorbed Cliffords live in frame_, so their
     // effects reach this analysis through the transformed subsequent operands.

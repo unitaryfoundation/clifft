@@ -731,18 +731,20 @@ NB_MODULE(_clifft_core, m) {
         "Opt-in reduction of commuting T rotations. "
         "Run after peephole fusion and before squeezing or scheduling. "
         "use_known_stabilizers optionally uses constraints from the circuit's "
-        "all-zero input that hold on every trajectory.")
+        "all-zero input that hold on every trajectory. "
+        "preserve_parities retains input parity terms during core reduction.")
         .def(
             "__init__",
-            [](clifft::PhasePolynomialPass* self, int64_t max_variables,
-               bool use_known_stabilizers) {
+            [](clifft::PhasePolynomialPass* self, int64_t max_variables, bool use_known_stabilizers,
+               bool preserve_parities) {
                 if (max_variables < 0 || max_variables > 64) {
                     throw std::invalid_argument("max_variables must be between zero and 64");
                 }
-                new (self) clifft::PhasePolynomialPass(
-                    {static_cast<uint32_t>(max_variables), use_known_stabilizers});
+                new (self) clifft::PhasePolynomialPass({static_cast<uint32_t>(max_variables),
+                                                        use_known_stabilizers, preserve_parities});
             },
-            nb::arg("max_variables") = int64_t{32}, nb::arg("use_known_stabilizers") = false)
+            nb::arg("max_variables") = int64_t{32}, nb::arg("use_known_stabilizers") = false,
+            nb::arg("preserve_parities") = false)
         .def_prop_ro("blocks_reduced", &clifft::PhasePolynomialPass::blocks_reduced)
         .def_prop_ro("pauli_pullbacks", &clifft::PhasePolynomialPass::pauli_pullbacks)
         .def_prop_ro("input_t_count", &clifft::PhasePolynomialPass::input_t_count)

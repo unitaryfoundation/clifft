@@ -186,7 +186,8 @@ CoreBasis reduce_core(Polynomial& p, uint32_t width) {
             }
         }
     }
-    return {core_width, std::move(generators)};
+    columns.resize(core_width);
+    return {core_width, std::move(generators), std::move(columns)};
 }
 
 Polynomial synthesize_parities(const Polynomial& p) {
@@ -211,6 +212,36 @@ Polynomial synthesize_parities(const Polynomial& p) {
                 add(out, subset, (std::popcount(subset) & 1) ? 1 : -1);
             }
         }
+    }
+    return out;
+}
+
+Polynomial project_parities(const Polynomial& terms, const Polynomial& reduced,
+                            const CoreBasis& basis) {
+    Polynomial out;
+    auto remainder = reduced;
+    for (const auto& [parity, coefficient] : terms) {
+        uint64_t projected = 0;
+        for (uint32_t j = 0; j < basis.core_width; ++j) {
+            if (std::popcount(parity & basis.core_columns[j]) & 1) {
+                projected |= uint64_t{1} << j;
+            }
+        }
+        if (projected) {
+            add(out, projected, coefficient);
+            add_parity(remainder, projected, -int(coefficient));
+        }
+    }
+    // Kernel directions have Pauli derivatives, so all remaining dependence
+    // on them is Clifford. This identity avoids expanding the non-Clifford core.
+    for (const auto& [mask, coefficient] : remainder) {
+        const auto degree = std::popcount(mask);
+        assert(degree == 0 || (degree == 1 && coefficient % 2 == 0) ||
+               (degree == 2 && coefficient % 4 == 0));
+    }
+    for (const auto& [parity, coefficient] : synthesize_parities(remainder)) {
+        assert(coefficient % 2 == 0);
+        add(out, parity, coefficient);
     }
     return out;
 }

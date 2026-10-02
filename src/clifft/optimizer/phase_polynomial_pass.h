@@ -13,6 +13,8 @@ struct PhasePolynomialOptions {
     uint32_t max_variables = 32;
     // Use fixed signed constraints derived from the circuit's all-zero input.
     bool use_known_stabilizers = false;
+    // Avoid expanding the non-Clifford core into separate monomials.
+    bool preserve_parities = false;
 };
 
 // Opt-in reduction of commuting T rotations modulo Clifford factors.

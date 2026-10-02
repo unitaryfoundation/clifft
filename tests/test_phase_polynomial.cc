@@ -1,5 +1,6 @@
 #include "clifft/optimizer/phase_polynomial.h"
 
+#include <algorithm>
 #include <bit>
 #include <catch2/catch_test_macros.hpp>
 #include <cstdint>
@@ -129,6 +130,79 @@ TEST_CASE("Phase polynomial basis changes preserve high variable bits", "[optimi
                 assignments.push_back(width == 64 ? rng() : rng() & ((uint64_t{1} << width) - 1));
             }
             check_synthesis(polynomial, width, assignments);
+        }
+    }
+}
+
+TEST_CASE("Projected parity synthesis preserves phases and bounds non-Clifford terms",
+          "[optimizer]") {
+    std::mt19937_64 rng(712409);
+    for (uint32_t width : {0, 1, 4, 6, 32, 64}) {
+        const uint64_t domain = width == 64 ? ~uint64_t{0} : (uint64_t{1} << width) - 1;
+        for (unsigned trial = 0; trial < 30; ++trial) {
+            Polynomial terms;
+            Polynomial original;
+            const auto append = [&](uint64_t parity, unsigned coefficient) {
+                if (!parity) {
+                    return;
+                }
+                terms[parity] = static_cast<uint8_t>((terms[parity] + coefficient) & 7);
+                add_parity(original, parity, coefficient);
+            };
+            // Dense parity identities hide a small core behind cancellations;
+            // even-weight parities supply a nontrivial Clifford remainder.
+            std::vector<uint64_t> axes;
+            for (uint32_t j = 0; j < std::min(width, uint32_t{4}); ++j) {
+                axes.push_back(uint64_t{1} << (j == 0 ? width - 1 : j - 1));
+            }
+            for (unsigned mask = 1; mask < (1U << axes.size()); ++mask) {
+                uint64_t parity = 0;
+                for (size_t j = 0; j < axes.size(); ++j) {
+                    if ((mask >> j) & 1) {
+                        parity ^= axes[j];
+                    }
+                }
+                append(parity, 1);
+            }
+            for (unsigned j = 0; j < 8; ++j) {
+                const uint64_t parity = rng() & domain;
+                append(parity, 2 * (rng() % 4));
+                if (trial % 2) {
+                    append(parity, rng() % 8);
+                }
+            }
+            if (width) {
+                append(uint64_t{1} << (width - 1), trial % 2 ? 7 : 1);
+            }
+            auto reduced = original;
+            const auto basis = reduce_core(reduced, width);
+            const auto synthesis = project_parities(terms, reduced, basis);
+            size_t input_t = 0;
+            size_t output_t = 0;
+            for (const auto& [parity, coefficient] : terms) {
+                (void)parity;
+                input_t += coefficient & 1;
+            }
+            for (const auto& [parity, coefficient] : synthesis) {
+                output_t += coefficient & 1;
+                if ((coefficient & 1) && basis.core_width < 64) {
+                    REQUIRE((parity >> basis.core_width) == 0);
+                }
+            }
+            REQUIRE(output_t <= input_t);
+            const unsigned samples = width <= 6 ? (1U << width) : 64;
+            for (unsigned sample = 0; sample < samples; ++sample) {
+                const uint64_t assignment = width <= 6 ? sample : rng() & domain;
+                uint64_t changed = 0;
+                for (uint32_t j = 0; j < width; ++j) {
+                    changed |= uint64_t(std::popcount(assignment & basis.parities[j]) & 1) << j;
+                }
+                unsigned reconstructed = 0;
+                for (const auto& [parity, coefficient] : synthesis) {
+                    reconstructed += coefficient * (std::popcount(parity & changed) & 1);
+                }
+                REQUIRE(evaluate(original, assignment) == (reconstructed & 7));
+            }
         }
     }
 }

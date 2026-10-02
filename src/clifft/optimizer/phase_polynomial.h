@@ -23,10 +23,17 @@ struct CoreBasis {
     // New eigenbit parities in the original coordinates, including the core
     // complement first. The polynomial is rewritten in these new coordinates.
     std::vector<uint64_t> parities;
+    // Original eigenbit assignments for retained coordinates with kernel bits zero.
+    std::vector<uint64_t> core_columns;
 };
 
 CoreBasis reduce_core(Polynomial& polynomial, uint32_t width);
 Polynomial synthesize_parities(const Polynomial& polynomial);
+
+// Preserve the input parity list on the retained coordinates and account for
+// the removed dependence with an exact diagonal Clifford correction.
+Polynomial project_parities(const Polynomial& terms, const Polynomial& reduced,
+                            const CoreBasis& basis);
 
 struct PauliDerivative {
     uint64_t parity;
