@@ -732,10 +732,13 @@ NB_MODULE(_clifft_core, m) {
         "Run after peephole fusion and before squeezing or scheduling.")
         .def(
             "__init__",
-            [](clifft::PhasePolynomialPass* self, uint32_t max_variables) {
-                new (self) clifft::PhasePolynomialPass({max_variables});
+            [](clifft::PhasePolynomialPass* self, int64_t max_variables) {
+                if (max_variables < 0 || max_variables > 64) {
+                    throw std::invalid_argument("max_variables must be between zero and 64");
+                }
+                new (self) clifft::PhasePolynomialPass({static_cast<uint32_t>(max_variables)});
             },
-            nb::arg("max_variables") = uint32_t{32})
+            nb::arg("max_variables") = int64_t{32})
         .def_prop_ro("blocks_reduced", &clifft::PhasePolynomialPass::blocks_reduced)
         .def_prop_ro("pauli_pullbacks", &clifft::PhasePolynomialPass::pauli_pullbacks)
         .def_prop_ro("input_t_count", &clifft::PhasePolynomialPass::input_t_count)

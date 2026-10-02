@@ -150,6 +150,29 @@ TEST_CASE("Phase pass bounds regions at noncommuting noise", "[optimizer]") {
     REQUIRE(hir.num_t_gates() == 2);
 }
 
+TEST_CASE("Phase pass keeps noise unsigned while retaining coherent operand signs", "[optimizer]") {
+    for (bool collected : {false, true}) {
+        CAPTURE(collected);
+        std::string source = "T 0\nT 0\n";
+        if (collected) {
+            source += "R_PAULI(0.25) X0\n";
+        }
+        source += "X_ERROR(0.1) 0\nMX 0";
+        auto hir = trace(parse(source));
+        PhasePolynomialPass pass;
+        pass.run(hir);
+        REQUIRE(pass.applied());
+        const auto channel = hir.noise_channel_masks.at(hir.noise_sites[0].channels[0].mask);
+        REQUIRE(channel.x().words[0] == 1);
+        REQUIRE(channel.z().words[0] == 1);
+        REQUIRE_FALSE(channel.sign());
+        const auto measured = hir.mask_view(hir.ops.back());
+        REQUIRE(measured.x().words[0] == 1);
+        REQUIRE(measured.z().words[0] == 1);
+        REQUIRE(measured.sign());
+    }
+}
+
 TEST_CASE("Phase pass transforms instrument bodies and destination flips", "[optimizer]") {
     const auto options = test::source_dependent_jump_options(false);
     auto hir = trace(parse("H 0\nT 0\nT 0\nH 0\nLEVEL_TRANSITION[jump] 0\nM 0"), &options);

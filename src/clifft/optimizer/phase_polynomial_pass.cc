@@ -199,6 +199,7 @@ class Rewriter {
                         })) {
                         return block;
                     }
+                    axis.set_sign(false);
                     axes.push_back(std::move(axis));
                 }
                 for (size_t j = 0; j < channels.size(); ++j) {
@@ -297,18 +298,38 @@ class Rewriter {
         const auto transform_mask = [&](MutablePauliMaskView mask) {
             write_axis(mask, frame_.read(mask, hir_.num_qubits));
         };
-        if (op.has_mask()) {
-            transform_mask(hir_.mask_at(op));
-        }
-        if (op.op_type() == OpType::NOISE) {
-            for (const auto& channel :
-                 hir_.noise_sites[static_cast<uint32_t>(op.noise_site_idx())].channels) {
-                transform_mask(hir_.noise_channel_masks.mut_at(channel.mask));
+        switch (op.op_type()) {
+            case OpType::T_GATE:
+            case OpType::PHASE_ROTATION:
+            case OpType::MEASURE:
+            case OpType::CONDITIONAL_PAULI:
+            case OpType::EXP_VAL:
+                transform_mask(hir_.mask_at(op));
+                break;
+
+            case OpType::INSTRUMENT: {
+                transform_mask(hir_.mask_at(op));
+                const auto& site =
+                    hir_.instrument_sites[static_cast<uint32_t>(op.instrument_site_idx())];
+                transform_mask(hir_.pauli_masks.mut_at(site.destination_flip_mask));
+                break;
             }
-        } else if (op.op_type() == OpType::INSTRUMENT) {
-            const auto& site =
-                hir_.instrument_sites[static_cast<uint32_t>(op.instrument_site_idx())];
-            transform_mask(hir_.pauli_masks.mut_at(site.destination_flip_mask));
+
+            case OpType::NOISE:
+                for (const auto& channel :
+                     hir_.noise_sites[static_cast<uint32_t>(op.noise_site_idx())].channels) {
+                    auto mask = hir_.noise_channel_masks.mut_at(channel.mask);
+                    transform_mask(mask);
+                    // A channel is unchanged by replacing its Pauli with -P.
+                    mask.set_sign(false);
+                }
+                break;
+
+            case OpType::READOUT_NOISE:
+            case OpType::DETECTOR:
+            case OpType::OBSERVABLE:
+            case OpType::NUM_OP_TYPES:
+                break;
         }
     }
 

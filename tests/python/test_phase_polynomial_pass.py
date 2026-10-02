@@ -104,8 +104,12 @@ def test_phase_reduction_variable_limits_preserve_unitaries(cap: int) -> None:
         assert not phase.applied
         assert program.peak_active_width == 4
     assert_statevectors_equiv(clifft.get_statevector(program), unitary_reference(source))
+
+
+@pytest.mark.parametrize("cap", [-1, 65, 2**32])
+def test_phase_reduction_rejects_out_of_range_variable_limits(cap: int) -> None:
     with pytest.raises(ValueError, match="max_variables"):
-        clifft.PhasePolynomialPass(max_variables=65)
+        clifft.PhasePolynomialPass(max_variables=cap)
 
 
 @lru_cache(maxsize=8)
