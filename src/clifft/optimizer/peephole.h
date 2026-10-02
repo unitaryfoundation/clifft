@@ -4,6 +4,8 @@
 #include "clifft/util/mask_view.h"
 
 #include <cstddef>
+#include <cstdint>
+#include <span>
 
 namespace clifft {
 
@@ -15,6 +17,13 @@ void apply_s_to_tableau(Tableau& tab, MaskView x_v, MaskView z_v, bool sign_v, b
 
 /// Compose U_C' = U_C * P into `tab` for the virtual Pauli (x_v, z_v).
 void apply_pauli_to_tableau(Tableau& tab, MaskView x_v, MaskView z_v);
+
+/// Move a fixed Clifford factor after a block into the remaining Pauli masks
+/// and final tableau. Deleted slots are excluded from the frame change.
+void apply_virtual_s_downstream(HirModule& hir, size_t start_idx, MaskView x_v, MaskView z_v,
+                                bool sign_v, bool is_dagger, std::span<const uint8_t> deleted);
+void apply_virtual_pauli_downstream(HirModule& hir, size_t start_idx, MaskView x_v, MaskView z_v,
+                                    std::span<const uint8_t> deleted);
 
 }  // namespace internal
 

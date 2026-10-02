@@ -1,0 +1,1824 @@
+{
+  "corpus": {
+    "circuits": 1037,
+    "manifest_sha256": "64285984b4db0bfe48de4bcd306c36bda9578131c6cf23bc3fc6b594847d39b0",
+    "ordered_circuit_sources_sha256": "2ed1ec65d5f8b3da1d007f1f4a393d57c2be89c0929879668e40ce89355e01e8"
+  },
+  "architecture_scope": "Offline symbolic compilation and Python reference wrappers dispatching fixed existing native programs. No HIR, planner or executor modifications.",
+  "symbolic_scan": {
+    "circuits": 1037,
+    "affine_pre_t": 742,
+    "affine_post_t": 1037,
+    "gate_target_geometry_rank_histogram": {
+      "10": 12,
+      "11": 14,
+      "15": 12,
+      "16": 16,
+      "17": 2,
+      "21": 3,
+      "22": 24,
+      "23": 6,
+      "29": 22,
+      "35": 5,
+      "36": 28,
+      "37": 16,
+      "41": 3,
+      "44": 8,
+      "46": 16,
+      "47": 6,
+      "53": 3,
+      "59": 6,
+      "64": 136,
+      "65": 3,
+      "66": 16,
+      "73": 136,
+      "79": 136,
+      "82": 272,
+      "90": 6,
+      "94": 18,
+      "98": 36,
+      "99": 52,
+      "136": 24
+    },
+    "gate_target_fixed_frame_prepared_core_histogram": {
+      "4": 12,
+      "5": 26,
+      "6": 16,
+      "7": 18,
+      "8": 36,
+      "9": 29,
+      "10": 24,
+      "11": 18,
+      "13": 5,
+      "14": 8,
+      "15": 3,
+      "16": 24,
+      "17": 6,
+      "19": 139,
+      "20": 144,
+      "21": 142,
+      "22": 136,
+      "23": 139,
+      "24": 66,
+      "25": 6,
+      "26": 6,
+      "27": 6,
+      "28": 6,
+      "29": 22
+    },
+    "models": "Independent X faults on every physical qubit before first T; independent Y faults on every physical qubit after last T. Not full circuit-level depolarizing noise.",
+    "pre_t_geometry_rank_histogram": {
+      "1": 628,
+      "2": 57,
+      "3": 21,
+      "4": 5,
+      "6": 4,
+      "8": 5,
+      "10": 18,
+      "11": 5,
+      "12": 5,
+      "14": 5,
+      "15": 12,
+      "16": 3,
+      "17": 1,
+      "18": 5,
+      "21": 2,
+      "22": 6,
+      "23": 2,
+      "29": 4,
+      "35": 1,
+      "36": 14,
+      "37": 6,
+      "44": 4,
+      "46": 3,
+      "47": 1,
+      "53": 2,
+      "59": 1,
+      "64": 36,
+      "65": 3,
+      "66": 12,
+      "73": 29,
+      "79": 36,
+      "82": 73,
+      "94": 3,
+      "98": 2,
+      "99": 11,
+      "136": 12
+    },
+    "post_t_geometry_rank_histogram": {
+      "0": 1037
+    },
+    "median_precompute_ms": 9.315874893218279,
+    "maximum_precompute_seconds": 0.061877458123490214,
+    "maximum_s_parity_terms": 8293,
+    "maximum_selector_words_64": 80772,
+    "one_core": {
+      "circuits": 856,
+      "geometry_rank_histogram": {
+        "1": 628,
+        "10": 12,
+        "11": 4,
+        "15": 12,
+        "16": 1,
+        "22": 2,
+        "29": 2,
+        "36": 2,
+        "37": 3,
+        "46": 2,
+        "64": 36,
+        "73": 29,
+        "79": 36,
+        "82": 73,
+        "94": 3,
+        "98": 2,
+        "99": 9
+      }
+    }
+  },
+  "fixed_frame_summary": {
+    "pre_t_affine_eligible_one_core": 628,
+    "pre_t_affine_eligible_larger_core": 114,
+    "gate_target_common_prepared_core_equals_original_variable_width": 1037,
+    "interpretation": "Exact common-Pauli-body representation size for the unmeasured preparation under one shared Clifford decoder and arbitrary Pauli signs. Not a sampling lower bound. Gate-target study allows X/Y faults after unitary targets and no noisy measurement/reset gadgets."
+  },
+  "independent_aer_record_oracle": {
+    "circuits": 23,
+    "models": 46,
+    "paths": 448,
+    "maximum_probability_error": 2.6645352591003757e-15,
+    "seconds": 5.443958374904469,
+    "seed": 31719
+  },
+  "dephasing_throughout_selected_circuits": [
+    {
+      "circuit": "circuits/circuit_0001.stim",
+      "fault_sites": 1353,
+      "seconds": 0.07047262508422136,
+      "geometry_rank": 0,
+      "core_width": 1,
+      "candidate_peak": 1
+    },
+    {
+      "circuit": "circuits/circuit_0005.stim",
+      "fault_sites": 2653,
+      "seconds": 0.45018508401699364,
+      "geometry_rank": 0,
+      "core_width": 1,
+      "candidate_peak": 1
+    },
+    {
+      "circuit": "circuits/circuit_0262.stim",
+      "fault_sites": 3734,
+      "seconds": 2.0471879160031676,
+      "geometry_rank": 0,
+      "core_width": 1,
+      "candidate_peak": 1
+    },
+    {
+      "circuit": "circuits/circuit_0689.stim",
+      "fault_sites": 3476,
+      "seconds": 1.55843620817177,
+      "geometry_rank": 0,
+      "core_width": 1,
+      "candidate_peak": 1
+    },
+    {
+      "circuit": "circuits/circuit_1037.stim",
+      "fault_sites": 3340,
+      "seconds": 0.8427917908411473,
+      "geometry_rank": 0,
+      "core_width": 1,
+      "candidate_peak": 1
+    }
+  ],
+  "benchmarks": {
+    "cpu": "Apple M4 Pro",
+    "baseline": "Current default HIR passes plus opt-in ActiveWidthSchedulePass",
+    "candidate": "Same native compiler for resynthesized leaves; Python NumPy stochastic orchestration",
+    "timing_method": "Five alternating repeats; per-arm shot budgets calibrated toward 0.15 seconds, with minimum 16 and maximum 1000000 shots. Median wall time per attempted shot; includes noise and postselection; excludes compilation and warmup. One thread and batch size one. Target is a calibration budget, not a hard timeout.",
+    "six_site_bank": {
+      "version": "0.10.2.dev29+gfe28c3fe1",
+      "isa": "neon",
+      "threads": 1,
+      "batch_size": 1,
+      "fault_sites": 6,
+      "target_seconds": 0.15,
+      "repeats": 5,
+      "scope": "Exact independent-X models restricted to selected sites before first T. Branch bank fully enumerated and compiled up front. Timings include fault draws, grouping, dispatch and native sampling, but exclude compile and warmup.",
+      "median_speedup": 760.1448295625202,
+      "equal_shots_total_speedup": 5826.179381364723,
+      "cases": [
+        {
+          "circuit": "circuits/circuit_0001.stim",
+          "noise": {
+            "type": "independent X before first T",
+            "qubits": [
+              94,
+              105,
+              95,
+              67,
+              44,
+              110
+            ],
+            "probability": 0.03
+          },
+          "symbolic": {
+            "fault_selectors": 6,
+            "prepared_variables": 5,
+            "core_width": 1,
+            "fixed_frame_prepared_core_width": 5,
+            "s_parity_terms": 14,
+            "cz_forms": 10,
+            "geometry_rank": 5,
+            "measurement_forms": 0,
+            "selector_words_64": 30
+          },
+          "fault_patterns": 64,
+          "unique_programs": 64,
+          "baseline_peak": 5,
+          "bank_peak": 1,
+          "symbolic_compile_seconds": 0.001239374978467822,
+          "baseline_compile_seconds": 0.001650958089157939,
+          "bank_compile_seconds": 0.006431374931707978,
+          "shots": [
+            169622,
+            1000000
+          ],
+          "timings_seconds": [
+            [
+              0.15109591698274016,
+              0.14873245800845325,
+              0.1514477920718491,
+              0.15028037503361702,
+              0.15194945805706084
+            ],
+            [
+              0.05314287496730685,
+              0.053099000127986073,
+              0.05340183386579156,
+              0.05288916593417525,
+              0.05308125005103648
+            ]
+          ],
+          "counts": [
+            [
+              {
+                "total_shots": 169622,
+                "passed_shots": 157156,
+                "observable_ones": []
+              },
+              {
+                "total_shots": 169622,
+                "passed_shots": 157313,
+                "observable_ones": []
+              },
+              {
+                "total_shots": 169622,
+                "passed_shots": 157295,
+                "observable_ones": []
+              },
+              {
+                "total_shots": 169622,
+                "passed_shots": 157398,
+                "observable_ones": []
+              },
+              {
+                "total_shots": 169622,
+                "passed_shots": 157345,
+                "observable_ones": []
+              }
+            ],
+            [
+              {
+                "total_shots": 1000000,
+                "passed_shots": 926864,
+                "observable_ones": []
+              },
+              {
+                "total_shots": 1000000,
+                "passed_shots": 926948,
+                "observable_ones": []
+              },
+              {
+                "total_shots": 1000000,
+                "passed_shots": 927563,
+                "observable_ones": []
+              },
+              {
+                "total_shots": 1000000,
+                "passed_shots": 927420,
+                "observable_ones": []
+              },
+              {
+                "total_shots": 1000000,
+                "passed_shots": 927142,
+                "observable_ones": []
+              }
+            ]
+          ],
+          "baseline_shots_per_second": 1122611.4072915425,
+          "candidate_shots_per_second": 18832746.334011387,
+          "speedup": 16.7758373126174,
+          "maximum_pooled_count_difference_standard_errors": 0.5800942057348659
+        },
+        {
+          "circuit": "circuits/circuit_0005.stim",
+          "noise": {
+            "type": "independent X before first T",
+            "qubits": [
+              102,
+              91,
+              96,
+              79,
+              90,
+              100
+            ],
+            "probability": 0.03
+          },
+          "symbolic": {
+            "fault_selectors": 6,
+            "prepared_variables": 19,
+            "core_width": 1,
+            "fixed_frame_prepared_core_width": 7,
+            "s_parity_terms": 35,
+            "cz_forms": 82,
+            "geometry_rank": 6,
+            "measurement_forms": 0,
+            "selector_words_64": 152
+          },
+          "fault_patterns": 64,
+          "unique_programs": 64,
+          "baseline_peak": 10,
+          "bank_peak": 1,
+          "symbolic_compile_seconds": 0.004324666922912002,
+          "baseline_compile_seconds": 0.004835667088627815,
+          "bank_compile_seconds": 0.012765666004270315,
+          "shots": [
+            6769,
+            1000000
+          ],
+          "timings_seconds": [
+            [
+              0.14688929193653166,
+              0.14893879205919802,
+              0.14964858395978808,
+              0.14704445889219642,
+              0.14948983397334814
+            ],
+            [
+              0.11324091581627727,
+              0.11297929217107594,
+              0.11222462495788932,
+              0.1121160420589149,
+              0.11366704199463129
+            ]
+          ],
+          "counts": [
+            [
+              {
+                "total_shots": 6769,
+                "passed_shots": 6189,
+                "observable_ones": [
+                  875
+                ]
+              },
+              {
+                "total_shots": 6769,
+                "passed_shots": 6215,
+                "observable_ones": [
+                  866
+                ]
+              },
+              {
+                "total_shots": 6769,
+                "passed_shots": 6134,
+                "observable_ones": [
+                  916
+                ]
+              },
+              {
+                "total_shots": 6769,
+                "passed_shots": 6201,
+                "observable_ones": [
+                  924
+                ]
+              },
+              {
+                "total_shots": 6769,
+                "passed_shots": 6146,
+                "observable_ones": [
+                  930
+                ]
+              }
+            ],
+            [
+              {
+                "total_shots": 1000000,
+                "passed_shots": 913082,
+                "observable_ones": [
+                  133539
+                ]
+              },
+              {
+                "total_shots": 1000000,
+                "passed_shots": 913387,
+                "observable_ones": [
+                  133887
+                ]
+              },
+              {
+                "total_shots": 1000000,
+                "passed_shots": 913865,
+                "observable_ones": [
+                  134659
+                ]
+              },
+              {
+                "total_shots": 1000000,
+                "passed_shots": 913342,
+                "observable_ones": [
+                  133663
+                ]
+              },
+              {
+                "total_shots": 1000000,
+                "passed_shots": 913935,
+                "observable_ones": [
+                  133294
+                ]
+              }
+            ]
+          ],
+          "baseline_shots_per_second": 45448.199937794285,
+          "candidate_shots_per_second": 8851179.546122277,
+          "speedup": 194.7531378192543,
+          "maximum_pooled_count_difference_standard_errors": 0.6390878458577877
+        },
+        {
+          "circuit": "circuits/circuit_0262.stim",
+          "noise": {
+            "type": "independent X before first T",
+            "qubits": [
+              19,
+              11,
+              13,
+              20,
+              8,
+              5
+            ],
+            "probability": 0.03
+          },
+          "symbolic": {
+            "fault_selectors": 6,
+            "prepared_variables": 22,
+            "core_width": 1,
+            "fixed_frame_prepared_core_width": 1,
+            "s_parity_terms": 323,
+            "cz_forms": 0,
+            "geometry_rank": 0,
+            "measurement_forms": 21,
+            "selector_words_64": 452
+          },
+          "fault_patterns": 64,
+          "unique_programs": 64,
+          "baseline_peak": 15,
+          "bank_peak": 1,
+          "symbolic_compile_seconds": 0.01881604199297726,
+          "baseline_compile_seconds": 0.0039900001138448715,
+          "bank_compile_seconds": 0.006882541114464402,
+          "shots": [
+            340,
+            1000000
+          ],
+          "timings_seconds": [
+            [
+              0.14942525001242757,
+              0.14984037494286895,
+              0.14970712503418326,
+              0.15090833301655948,
+              0.14871570910327137
+            ],
+            [
+              0.1274325419217348,
+              0.12945516710169613,
+              0.1392060830257833,
+              0.13695683307014406,
+              0.1374893330503255
+            ]
+          ],
+          "counts": [
+            [
+              {
+                "total_shots": 340,
+                "passed_shots": 340,
+                "observable_ones": []
+              },
+              {
+                "total_shots": 340,
+                "passed_shots": 340,
+                "observable_ones": []
+              },
+              {
+                "total_shots": 340,
+                "passed_shots": 340,
+                "observable_ones": []
+              },
+              {
+                "total_shots": 340,
+                "passed_shots": 340,
+                "observable_ones": []
+              },
+              {
+                "total_shots": 340,
+                "passed_shots": 340,
+                "observable_ones": []
+              }
+            ],
+            [
+              {
+                "total_shots": 1000000,
+                "passed_shots": 1000000,
+                "observable_ones": []
+              },
+              {
+                "total_shots": 1000000,
+                "passed_shots": 1000000,
+                "observable_ones": []
+              },
+              {
+                "total_shots": 1000000,
+                "passed_shots": 1000000,
+                "observable_ones": []
+              },
+              {
+                "total_shots": 1000000,
+                "passed_shots": 1000000,
+                "observable_ones": []
+              },
+              {
+                "total_shots": 1000000,
+                "passed_shots": 1000000,
+                "observable_ones": []
+              }
+            ]
+          ],
+          "baseline_shots_per_second": 2271.100990833712,
+          "candidate_shots_per_second": 7301570.70357956,
+          "speedup": 3214.9916419609253,
+          "maximum_pooled_count_difference_standard_errors": 0
+        },
+        {
+          "circuit": "circuits/circuit_0689.stim",
+          "noise": {
+            "type": "independent X before first T",
+            "qubits": [
+              19,
+              11,
+              13,
+              18,
+              8,
+              10
+            ],
+            "probability": 0.03
+          },
+          "symbolic": {
+            "fault_selectors": 6,
+            "prepared_variables": 20,
+            "core_width": 1,
+            "fixed_frame_prepared_core_width": 1,
+            "s_parity_terms": 244,
+            "cz_forms": 0,
+            "geometry_rank": 0,
+            "measurement_forms": 19,
+            "selector_words_64": 334
+          },
+          "fault_patterns": 64,
+          "unique_programs": 64,
+          "baseline_peak": 13,
+          "bank_peak": 1,
+          "symbolic_compile_seconds": 0.013195666018873453,
+          "baseline_compile_seconds": 0.0037362920120358467,
+          "bank_compile_seconds": 0.005911166779696941,
+          "shots": [
+            1544,
+            1000000
+          ],
+          "timings_seconds": [
+            [
+              0.1486154580488801,
+              0.1497038749512285,
+              0.14996904181316495,
+              0.14959470904432237,
+              0.15161066595464945
+            ],
+            [
+              0.12755262479186058,
+              0.1238721669651568,
+              0.1344767918344587,
+              0.13053704192861915,
+              0.12242499995045364
+            ]
+          ],
+          "counts": [
+            [
+              {
+                "total_shots": 1544,
+                "passed_shots": 1544,
+                "observable_ones": [
+                  237
+                ]
+              },
+              {
+                "total_shots": 1544,
+                "passed_shots": 1544,
+                "observable_ones": [
+                  224
+                ]
+              },
+              {
+                "total_shots": 1544,
+                "passed_shots": 1544,
+                "observable_ones": [
+                  236
+                ]
+              },
+              {
+                "total_shots": 1544,
+                "passed_shots": 1544,
+                "observable_ones": [
+                  216
+                ]
+              },
+              {
+                "total_shots": 1544,
+                "passed_shots": 1544,
+                "observable_ones": [
+                  245
+                ]
+              }
+            ],
+            [
+              {
+                "total_shots": 1000000,
+                "passed_shots": 1000000,
+                "observable_ones": [
+                  146042
+                ]
+              },
+              {
+                "total_shots": 1000000,
+                "passed_shots": 1000000,
+                "observable_ones": [
+                  146707
+                ]
+              },
+              {
+                "total_shots": 1000000,
+                "passed_shots": 1000000,
+                "observable_ones": [
+                  147474
+                ]
+              },
+              {
+                "total_shots": 1000000,
+                "passed_shots": 1000000,
+                "observable_ones": [
+                  146383
+                ]
+              },
+              {
+                "total_shots": 1000000,
+                "passed_shots": 1000000,
+                "observable_ones": [
+                  145933
+                ]
+              }
+            ]
+          ],
+          "baseline_shots_per_second": 10313.694288160641,
+          "candidate_shots_per_second": 7839901.386833807,
+          "speedup": 760.1448295625202,
+          "maximum_pooled_count_difference_standard_errors": 0.8670337042710028
+        },
+        {
+          "circuit": "circuits/circuit_1037.stim",
+          "noise": {
+            "type": "independent X before first T",
+            "qubits": [
+              102,
+              91,
+              96,
+              79,
+              90,
+              100
+            ],
+            "probability": 0.03
+          },
+          "symbolic": {
+            "fault_selectors": 6,
+            "prepared_variables": 22,
+            "core_width": 1,
+            "fixed_frame_prepared_core_width": 7,
+            "s_parity_terms": 43,
+            "cz_forms": 117,
+            "geometry_rank": 6,
+            "measurement_forms": 0,
+            "selector_words_64": 195
+          },
+          "fault_patterns": 64,
+          "unique_programs": 64,
+          "baseline_peak": 18,
+          "bank_peak": 1,
+          "symbolic_compile_seconds": 0.005841874983161688,
+          "baseline_compile_seconds": 0.005332916975021362,
+          "bank_compile_seconds": 0.015218584099784493,
+          "shots": [
+            55,
+            1000000
+          ],
+          "timings_seconds": [
+            [
+              0.15047483309172094,
+              0.15196862490847707,
+              0.1513707919511944,
+              0.15281816688366234,
+              0.15302433306351304
+            ],
+            [
+              0.14541441714391112,
+              0.14292658306658268,
+              0.13872633315622807,
+              0.139808916952461,
+              0.133457750082016
+            ]
+          ],
+          "counts": [
+            [
+              {
+                "total_shots": 55,
+                "passed_shots": 51,
+                "observable_ones": [
+                  7
+                ]
+              },
+              {
+                "total_shots": 55,
+                "passed_shots": 51,
+                "observable_ones": [
+                  7
+                ]
+              },
+              {
+                "total_shots": 55,
+                "passed_shots": 48,
+                "observable_ones": [
+                  5
+                ]
+              },
+              {
+                "total_shots": 55,
+                "passed_shots": 48,
+                "observable_ones": [
+                  6
+                ]
+              },
+              {
+                "total_shots": 55,
+                "passed_shots": 51,
+                "observable_ones": [
+                  10
+                ]
+              }
+            ],
+            [
+              {
+                "total_shots": 1000000,
+                "passed_shots": 913148,
+                "observable_ones": [
+                  133562
+                ]
+              },
+              {
+                "total_shots": 1000000,
+                "passed_shots": 913425,
+                "observable_ones": [
+                  133883
+                ]
+              },
+              {
+                "total_shots": 1000000,
+                "passed_shots": 913855,
+                "observable_ones": [
+                  134647
+                ]
+              },
+              {
+                "total_shots": 1000000,
+                "passed_shots": 913345,
+                "observable_ones": [
+                  133655
+                ]
+              },
+              {
+                "total_shots": 1000000,
+                "passed_shots": 913924,
+                "observable_ones": [
+                  133295
+                ]
+              }
+            ]
+          ],
+          "baseline_shots_per_second": 361.91681034900256,
+          "candidate_shots_per_second": 7152619.602510964,
+          "speedup": 19763.15937249107,
+          "maximum_pooled_count_difference_standard_errors": 0.4770378512709325
+        }
+      ]
+    },
+    "affine_post_t": {
+      "version": "0.10.2.dev29+gfe28c3fe1",
+      "isa": "neon",
+      "threads": 1,
+      "batch_size": 1,
+      "placement": "post",
+      "target_seconds": 0.15,
+      "repeats": 5,
+      "scope": "Independent Pauli faults at every physical qubit at one selected layer, not throughout the circuit. One fixed native sampler plus precomputed affine record flips. Sampling includes noise draws, NumPy parity evaluation and postselection, and excludes compile and warmup.",
+      "median_speedup": 953.6652993782496,
+      "cases": [
+        {
+          "circuit": "circuits/circuit_0001.stim",
+          "physical_qubits": 128,
+          "noise": {
+            "placement": "post",
+            "axis": "Y",
+            "probability": 0.001,
+            "sites": 128
+          },
+          "symbolic": {
+            "fault_selectors": 128,
+            "prepared_variables": 5,
+            "core_width": 1,
+            "fixed_frame_prepared_core_width": 1,
+            "s_parity_terms": 316,
+            "cz_forms": 0,
+            "geometry_rank": 0,
+            "measurement_forms": 0,
+            "selector_words_64": 669
+          },
+          "baseline_peak": 5,
+          "candidate_peak": 1,
+          "symbolic_compile_seconds": 0.0014402498491108418,
+          "baseline_compile_seconds": 0.0026877911295741796,
+          "candidate_compile_seconds": 0.0009306250140070915,
+          "shots": [
+            166963,
+            256963
+          ],
+          "timings_seconds": [
+            [
+              0.15159316593781114,
+              0.149875083938241,
+              0.15167066594585776,
+              0.15169845800846815,
+              0.1505157919600606
+            ],
+            [
+              0.15015437500551343,
+              0.14970233314670622,
+              0.16272179200313985,
+              0.15065504214726388,
+              0.14985050004906952
+            ]
+          ],
+          "counts": [
+            [
+              {
+                "total_shots": 166963,
+                "passed_shots": 147441,
+                "observable_ones": []
+              },
+              {
+                "total_shots": 166963,
+                "passed_shots": 147485,
+                "observable_ones": []
+              },
+              {
+                "total_shots": 166963,
+                "passed_shots": 147496,
+                "observable_ones": []
+              },
+              {
+                "total_shots": 166963,
+                "passed_shots": 147611,
+                "observable_ones": []
+              },
+              {
+                "total_shots": 166963,
+                "passed_shots": 147482,
+                "observable_ones": []
+              }
+            ],
+            [
+              {
+                "total_shots": 256963,
+                "passed_shots": 227081,
+                "observable_ones": []
+              },
+              {
+                "total_shots": 256963,
+                "passed_shots": 227434,
+                "observable_ones": []
+              },
+              {
+                "total_shots": 256963,
+                "passed_shots": 227206,
+                "observable_ones": []
+              },
+              {
+                "total_shots": 256963,
+                "passed_shots": 227157,
+                "observable_ones": []
+              },
+              {
+                "total_shots": 256963,
+                "passed_shots": 227479,
+                "observable_ones": []
+              }
+            ]
+          ],
+          "baseline_shots_per_second": 1101388.7002564094,
+          "candidate_shots_per_second": 1711325.4275179442,
+          "speedup": 1.5537888005565503,
+          "maximum_pooled_count_difference_standard_errors": 2.232142363954544
+        },
+        {
+          "circuit": "circuits/circuit_0005.stim",
+          "physical_qubits": 127,
+          "noise": {
+            "placement": "post",
+            "axis": "Y",
+            "probability": 0.001,
+            "sites": 127
+          },
+          "symbolic": {
+            "fault_selectors": 127,
+            "prepared_variables": 19,
+            "core_width": 1,
+            "fixed_frame_prepared_core_width": 1,
+            "s_parity_terms": 608,
+            "cz_forms": 0,
+            "geometry_rank": 0,
+            "measurement_forms": 0,
+            "selector_words_64": 1213
+          },
+          "baseline_peak": 19,
+          "candidate_peak": 1,
+          "symbolic_compile_seconds": 0.004625542089343071,
+          "baseline_compile_seconds": 0.00696595897898078,
+          "candidate_compile_seconds": 0.0021802501287311316,
+          "shots": [
+            19,
+            116351
+          ],
+          "timings_seconds": [
+            [
+              0.15749895805492997,
+              0.15574808418750763,
+              0.15598416700959206,
+              0.15598758403211832,
+              0.15780237480066717
+            ],
+            [
+              0.15192279196344316,
+              0.15118575002998114,
+              0.15265366691164672,
+              0.1517192090395838,
+              0.15290708281099796
+            ]
+          ],
+          "counts": [
+            [
+              {
+                "total_shots": 19,
+                "passed_shots": 15,
+                "observable_ones": [
+                  1
+                ]
+              },
+              {
+                "total_shots": 19,
+                "passed_shots": 18,
+                "observable_ones": [
+                  3
+                ]
+              },
+              {
+                "total_shots": 19,
+                "passed_shots": 16,
+                "observable_ones": [
+                  2
+                ]
+              },
+              {
+                "total_shots": 19,
+                "passed_shots": 16,
+                "observable_ones": [
+                  1
+                ]
+              },
+              {
+                "total_shots": 19,
+                "passed_shots": 18,
+                "observable_ones": [
+                  3
+                ]
+              }
+            ],
+            [
+              {
+                "total_shots": 116351,
+                "passed_shots": 102415,
+                "observable_ones": [
+                  14913
+                ]
+              },
+              {
+                "total_shots": 116351,
+                "passed_shots": 102615,
+                "observable_ones": [
+                  14984
+                ]
+              },
+              {
+                "total_shots": 116351,
+                "passed_shots": 102523,
+                "observable_ones": [
+                  14951
+                ]
+              },
+              {
+                "total_shots": 116351,
+                "passed_shots": 102530,
+                "observable_ones": [
+                  15183
+                ]
+              },
+              {
+                "total_shots": 116351,
+                "passed_shots": 102618,
+                "observable_ones": [
+                  15022
+                ]
+              }
+            ]
+          ],
+          "baseline_shots_per_second": 121.8045661639829,
+          "candidate_shots_per_second": 765856.1200481182,
+          "speedup": 6287.5813622377855,
+          "maximum_pooled_count_difference_standard_errors": 0.6904660213542666
+        },
+        {
+          "circuit": "circuits/circuit_0262.stim",
+          "physical_qubits": 22,
+          "noise": {
+            "placement": "post",
+            "axis": "Y",
+            "probability": 0.001,
+            "sites": 22
+          },
+          "symbolic": {
+            "fault_selectors": 22,
+            "prepared_variables": 22,
+            "core_width": 1,
+            "fixed_frame_prepared_core_width": 1,
+            "s_parity_terms": 27,
+            "cz_forms": 0,
+            "geometry_rank": 0,
+            "measurement_forms": 21,
+            "selector_words_64": 139
+          },
+          "baseline_peak": 15,
+          "candidate_peak": 1,
+          "symbolic_compile_seconds": 0.017564042005687952,
+          "baseline_compile_seconds": 0.004408667096868157,
+          "candidate_compile_seconds": 0.00029929191805422306,
+          "shots": [
+            336,
+            328230
+          ],
+          "timings_seconds": [
+            [
+              0.1482003340497613,
+              0.14923558314330876,
+              0.14891916699707508,
+              0.14925020816735923,
+              0.15085891704075038
+            ],
+            [
+              0.15286758402362466,
+              0.15208175010047853,
+              0.15218970808200538,
+              0.1544396250974387,
+              0.1539172090124339
+            ]
+          ],
+          "counts": [
+            [
+              {
+                "total_shots": 336,
+                "passed_shots": 336,
+                "observable_ones": []
+              },
+              {
+                "total_shots": 336,
+                "passed_shots": 336,
+                "observable_ones": []
+              },
+              {
+                "total_shots": 336,
+                "passed_shots": 336,
+                "observable_ones": []
+              },
+              {
+                "total_shots": 336,
+                "passed_shots": 336,
+                "observable_ones": []
+              },
+              {
+                "total_shots": 336,
+                "passed_shots": 335,
+                "observable_ones": []
+              }
+            ],
+            [
+              {
+                "total_shots": 328230,
+                "passed_shots": 327575,
+                "observable_ones": []
+              },
+              {
+                "total_shots": 328230,
+                "passed_shots": 327616,
+                "observable_ones": []
+              },
+              {
+                "total_shots": 328230,
+                "passed_shots": 327545,
+                "observable_ones": []
+              },
+              {
+                "total_shots": 328230,
+                "passed_shots": 327568,
+                "observable_ones": []
+              },
+              {
+                "total_shots": 328230,
+                "passed_shots": 327584,
+                "observable_ones": []
+              }
+            ]
+          ],
+          "baseline_shots_per_second": 2251.4737633138343,
+          "candidate_shots_per_second": 2147152.4005329623,
+          "speedup": 953.6652993782496,
+          "maximum_pooled_count_difference_standard_errors": 1.2811903394250226
+        },
+        {
+          "circuit": "circuits/circuit_0689.stim",
+          "physical_qubits": 20,
+          "noise": {
+            "placement": "post",
+            "axis": "Y",
+            "probability": 0.001,
+            "sites": 20
+          },
+          "symbolic": {
+            "fault_selectors": 20,
+            "prepared_variables": 20,
+            "core_width": 1,
+            "fixed_frame_prepared_core_width": 1,
+            "s_parity_terms": 24,
+            "cz_forms": 0,
+            "geometry_rank": 0,
+            "measurement_forms": 19,
+            "selector_words_64": 110
+          },
+          "baseline_peak": 13,
+          "candidate_peak": 1,
+          "symbolic_compile_seconds": 0.012508457992225885,
+          "baseline_compile_seconds": 0.004017000086605549,
+          "candidate_compile_seconds": 0.00027316599152982235,
+          "shots": [
+            1543,
+            348680
+          ],
+          "timings_seconds": [
+            [
+              0.1504507497884333,
+              0.1510098751168698,
+              0.14859433309175074,
+              0.15026749996468425,
+              0.14962683315388858
+            ],
+            [
+              0.14954629121348262,
+              0.14951841696165502,
+              0.15068420814350247,
+              0.15079916617833078,
+              0.15060454094782472
+            ]
+          ],
+          "counts": [
+            [
+              {
+                "total_shots": 1543,
+                "passed_shots": 1540,
+                "observable_ones": [
+                  250
+                ]
+              },
+              {
+                "total_shots": 1543,
+                "passed_shots": 1540,
+                "observable_ones": [
+                  216
+                ]
+              },
+              {
+                "total_shots": 1543,
+                "passed_shots": 1541,
+                "observable_ones": [
+                  243
+                ]
+              },
+              {
+                "total_shots": 1543,
+                "passed_shots": 1537,
+                "observable_ones": [
+                  225
+                ]
+              },
+              {
+                "total_shots": 1543,
+                "passed_shots": 1541,
+                "observable_ones": [
+                  252
+                ]
+              }
+            ],
+            [
+              {
+                "total_shots": 348680,
+                "passed_shots": 347996,
+                "observable_ones": [
+                  50619
+                ]
+              },
+              {
+                "total_shots": 348680,
+                "passed_shots": 347982,
+                "observable_ones": [
+                  50863
+                ]
+              },
+              {
+                "total_shots": 348680,
+                "passed_shots": 347961,
+                "observable_ones": [
+                  50842
+                ]
+              },
+              {
+                "total_shots": 348680,
+                "passed_shots": 347974,
+                "observable_ones": [
+                  51102
+                ]
+              },
+              {
+                "total_shots": 348680,
+                "passed_shots": 347964,
+                "observable_ones": [
+                  50794
+                ]
+              }
+            ]
+          ],
+          "baseline_shots_per_second": 10268.354769744854,
+          "candidate_shots_per_second": 2315202.4355015717,
+          "speedup": 225.46965774139295,
+          "maximum_pooled_count_difference_standard_errors": 1.9635903974859776
+        },
+        {
+          "circuit": "circuits/circuit_1037.stim",
+          "physical_qubits": 127,
+          "noise": {
+            "placement": "post",
+            "axis": "Y",
+            "probability": 0.001,
+            "sites": 127
+          },
+          "symbolic": {
+            "fault_selectors": 127,
+            "prepared_variables": 22,
+            "core_width": 1,
+            "fixed_frame_prepared_core_width": 1,
+            "s_parity_terms": 720,
+            "cz_forms": 0,
+            "geometry_rank": 0,
+            "measurement_forms": 0,
+            "selector_words_64": 1389
+          },
+          "baseline_peak": 22,
+          "candidate_peak": 1,
+          "symbolic_compile_seconds": 0.005892208078876138,
+          "baseline_compile_seconds": 0.006883250083774328,
+          "candidate_compile_seconds": 0.0024651659186929464,
+          "shots": [
+            16,
+            96525
+          ],
+          "timings_seconds": [
+            [
+              1.2612635421101004,
+              1.2631938341073692,
+              1.2573275421746075,
+              1.264516375027597,
+              1.2610867079347372
+            ],
+            [
+              0.14901854214258492,
+              0.14708283403888345,
+              0.14892437495291233,
+              0.14735041582025588,
+              0.1486642921809107
+            ]
+          ],
+          "counts": [
+            [
+              {
+                "total_shots": 16,
+                "passed_shots": 13,
+                "observable_ones": [
+                  1
+                ]
+              },
+              {
+                "total_shots": 16,
+                "passed_shots": 15,
+                "observable_ones": [
+                  2
+                ]
+              },
+              {
+                "total_shots": 16,
+                "passed_shots": 14,
+                "observable_ones": [
+                  2
+                ]
+              },
+              {
+                "total_shots": 16,
+                "passed_shots": 13,
+                "observable_ones": [
+                  1
+                ]
+              },
+              {
+                "total_shots": 16,
+                "passed_shots": 15,
+                "observable_ones": [
+                  3
+                ]
+              }
+            ],
+            [
+              {
+                "total_shots": 96525,
+                "passed_shots": 84970,
+                "observable_ones": [
+                  12346
+                ]
+              },
+              {
+                "total_shots": 96525,
+                "passed_shots": 85136,
+                "observable_ones": [
+                  12390
+                ]
+              },
+              {
+                "total_shots": 96525,
+                "passed_shots": 85037,
+                "observable_ones": [
+                  12329
+                ]
+              },
+              {
+                "total_shots": 96525,
+                "passed_shots": 85037,
+                "observable_ones": [
+                  12581
+                ]
+              },
+              {
+                "total_shots": 96525,
+                "passed_shots": 85109,
+                "observable_ones": [
+                  12405
+                ]
+              }
+            ]
+          ],
+          "baseline_shots_per_second": 12.685691345071243,
+          "candidate_shots_per_second": 649281.6706955964,
+          "speedup": 51182.20623804323,
+          "maximum_pooled_count_difference_standard_errors": 0.42937577220944617
+        }
+      ]
+    },
+    "affine_pre_t": {
+      "version": "0.10.2.dev29+gfe28c3fe1",
+      "isa": "neon",
+      "threads": 1,
+      "batch_size": 1,
+      "placement": "pre",
+      "target_seconds": 0.15,
+      "repeats": 5,
+      "scope": "Independent Pauli faults at every physical qubit at one selected layer, not throughout the circuit. One fixed native sampler plus precomputed affine record flips. Sampling includes noise draws, NumPy parity evaluation and postselection, and excludes compile and warmup.",
+      "median_speedup": 32588.509311668484,
+      "cases": [
+        {
+          "circuit": "circuits/circuit_0016.stim",
+          "physical_qubits": 5,
+          "noise": {
+            "placement": "pre",
+            "axis": "X",
+            "probability": 0.001,
+            "sites": 5
+          },
+          "symbolic": {
+            "fault_selectors": 5,
+            "prepared_variables": 5,
+            "core_width": 1,
+            "fixed_frame_prepared_core_width": 1,
+            "s_parity_terms": 48,
+            "cz_forms": 0,
+            "geometry_rank": 1,
+            "measurement_forms": 4,
+            "selector_words_64": 60
+          },
+          "baseline_peak": 4,
+          "candidate_peak": 1,
+          "symbolic_compile_seconds": 0.00034120911732316017,
+          "baseline_compile_seconds": 0.000235249986872077,
+          "candidate_compile_seconds": 0.0001141249667853117,
+          "shots": [
+            783495,
+            1000000
+          ],
+          "timings_seconds": [
+            [
+              0.15070229209959507,
+              0.15172654204070568,
+              0.1503827078267932,
+              0.15016258391551673,
+              0.1507687501143664
+            ],
+            [
+              0.08766058296896517,
+              0.08683608309365809,
+              0.08669891697354615,
+              0.08831012505106628,
+              0.08627095795236528
+            ]
+          ],
+          "counts": [
+            [
+              {
+                "total_shots": 783495,
+                "passed_shots": 783495,
+                "observable_ones": [
+                  114725
+                ]
+              },
+              {
+                "total_shots": 783495,
+                "passed_shots": 783495,
+                "observable_ones": [
+                  114112
+                ]
+              },
+              {
+                "total_shots": 783495,
+                "passed_shots": 783495,
+                "observable_ones": [
+                  115234
+                ]
+              },
+              {
+                "total_shots": 783495,
+                "passed_shots": 783495,
+                "observable_ones": [
+                  114541
+                ]
+              },
+              {
+                "total_shots": 783495,
+                "passed_shots": 783495,
+                "observable_ones": [
+                  115111
+                ]
+              }
+            ],
+            [
+              {
+                "total_shots": 1000000,
+                "passed_shots": 1000000,
+                "observable_ones": [
+                  146089
+                ]
+              },
+              {
+                "total_shots": 1000000,
+                "passed_shots": 1000000,
+                "observable_ones": [
+                  146753
+                ]
+              },
+              {
+                "total_shots": 1000000,
+                "passed_shots": 1000000,
+                "observable_ones": [
+                  146691
+                ]
+              },
+              {
+                "total_shots": 1000000,
+                "passed_shots": 1000000,
+                "observable_ones": [
+                  146770
+                ]
+              },
+              {
+                "total_shots": 1000000,
+                "passed_shots": 1000000,
+                "observable_ones": [
+                  146554
+                ]
+              }
+            ]
+          ],
+          "baseline_shots_per_second": 5198958.748963216,
+          "candidate_shots_per_second": 11515950.10246418,
+          "speedup": 2.215049331707182,
+          "maximum_pooled_count_difference_standard_errors": 0.4993940490773972
+        },
+        {
+          "circuit": "circuits/circuit_0002.stim",
+          "physical_qubits": 21,
+          "noise": {
+            "placement": "pre",
+            "axis": "X",
+            "probability": 0.001,
+            "sites": 21
+          },
+          "symbolic": {
+            "fault_selectors": 21,
+            "prepared_variables": 21,
+            "core_width": 1,
+            "fixed_frame_prepared_core_width": 1,
+            "s_parity_terms": 992,
+            "cz_forms": 0,
+            "geometry_rank": 1,
+            "measurement_forms": 20,
+            "selector_words_64": 1181
+          },
+          "baseline_peak": 20,
+          "candidate_peak": 1,
+          "symbolic_compile_seconds": 0.018865292193368077,
+          "baseline_compile_seconds": 0.004830249818041921,
+          "candidate_compile_seconds": 0.0018926248885691166,
+          "shots": [
+            16,
+            326681
+          ],
+          "timings_seconds": [
+            [
+              0.24394408403895795,
+              0.24345458298921585,
+              0.2451546248048544,
+              0.24350391700863838,
+              0.2441656249575317
+            ],
+            [
+              0.14956249995157123,
+              0.15176679100841284,
+              0.15283741685561836,
+              0.15303312498144805,
+              0.15468675014562905
+            ]
+          ],
+          "counts": [
+            [
+              {
+                "total_shots": 16,
+                "passed_shots": 16,
+                "observable_ones": [
+                  1
+                ]
+              },
+              {
+                "total_shots": 16,
+                "passed_shots": 16,
+                "observable_ones": [
+                  3
+                ]
+              },
+              {
+                "total_shots": 16,
+                "passed_shots": 16,
+                "observable_ones": [
+                  1
+                ]
+              },
+              {
+                "total_shots": 16,
+                "passed_shots": 16,
+                "observable_ones": [
+                  3
+                ]
+              },
+              {
+                "total_shots": 16,
+                "passed_shots": 16,
+                "observable_ones": [
+                  3
+                ]
+              }
+            ],
+            [
+              {
+                "total_shots": 326681,
+                "passed_shots": 326681,
+                "observable_ones": [
+                  47631
+                ]
+              },
+              {
+                "total_shots": 326681,
+                "passed_shots": 326681,
+                "observable_ones": [
+                  47758
+                ]
+              },
+              {
+                "total_shots": 326681,
+                "passed_shots": 326681,
+                "observable_ones": [
+                  47698
+                ]
+              },
+              {
+                "total_shots": 326681,
+                "passed_shots": 326681,
+                "observable_ones": [
+                  48020
+                ]
+              },
+              {
+                "total_shots": 326681,
+                "passed_shots": 326681,
+                "observable_ones": [
+                  47680
+                ]
+              }
+            ]
+          ],
+          "baseline_shots_per_second": 65.58880106903841,
+          "candidate_shots_per_second": 2137441.25437953,
+          "speedup": 32588.509311668484,
+          "maximum_pooled_count_difference_standard_errors": 0.21998900401478558
+        },
+        {
+          "circuit": "circuits/circuit_0042.stim",
+          "physical_qubits": 23,
+          "noise": {
+            "placement": "pre",
+            "axis": "X",
+            "probability": 0.001,
+            "sites": 23
+          },
+          "symbolic": {
+            "fault_selectors": 23,
+            "prepared_variables": 23,
+            "core_width": 1,
+            "fixed_frame_prepared_core_width": 1,
+            "s_parity_terms": 1056,
+            "cz_forms": 0,
+            "geometry_rank": 1,
+            "measurement_forms": 22,
+            "selector_words_64": 1300
+          },
+          "baseline_peak": 22,
+          "candidate_peak": 1,
+          "symbolic_compile_seconds": 0.02239141706377268,
+          "baseline_compile_seconds": 0.004622749984264374,
+          "candidate_compile_seconds": 0.0022739998530596495,
+          "shots": [
+            16,
+            303087
+          ],
+          "timings_seconds": [
+            [
+              0.9209674999583513,
+              0.9253309578634799,
+              0.9266618748661131,
+              0.9239770411513746,
+              0.9267569580115378
+            ],
+            [
+              0.15235983300954103,
+              0.14736470789648592,
+              0.15544058289378881,
+              0.15227983403019607,
+              0.15366462501697242
+            ]
+          ],
+          "counts": [
+            [
+              {
+                "total_shots": 16,
+                "passed_shots": 16,
+                "observable_ones": []
+              },
+              {
+                "total_shots": 16,
+                "passed_shots": 16,
+                "observable_ones": []
+              },
+              {
+                "total_shots": 16,
+                "passed_shots": 16,
+                "observable_ones": []
+              },
+              {
+                "total_shots": 16,
+                "passed_shots": 16,
+                "observable_ones": []
+              },
+              {
+                "total_shots": 16,
+                "passed_shots": 16,
+                "observable_ones": []
+              }
+            ],
+            [
+              {
+                "total_shots": 303087,
+                "passed_shots": 303087,
+                "observable_ones": []
+              },
+              {
+                "total_shots": 303087,
+                "passed_shots": 303087,
+                "observable_ones": []
+              },
+              {
+                "total_shots": 303087,
+                "passed_shots": 303087,
+                "observable_ones": []
+              },
+              {
+                "total_shots": 303087,
+                "passed_shots": 303087,
+                "observable_ones": []
+              },
+              {
+                "total_shots": 303087,
+                "passed_shots": 303087,
+                "observable_ones": []
+              }
+            ]
+          ],
+          "baseline_shots_per_second": 17.291110671302736,
+          "candidate_shots_per_second": 1989284.1440763471,
+          "speedup": 115046.63765629994,
+          "maximum_pooled_count_difference_standard_errors": 0
+        }
+      ]
+    }
+  },
+  "validation": {
+    "pytest": "49 passed, 8 GPU cases skipped",
+    "reference_checks": "Exact Aer full joint records and branch states for selected paths; stochastic Clifford models independently checked against Stim. Timing-run count agreement is an additional smoke check, with limited baseline shots on the most expensive cases."
+  },
+  "limitations": [
+    "Corpus inputs have no stochastic noise; benchmark models insert independent binary Pauli channels. These are not full depolarizing circuit noise benchmarks.",
+    "Trajectory algebra can be averaged with categorical Pauli probabilities, but the reference wrappers currently draw independent binary fault selectors only.",
+    "Prepared pure-state nullity staying one does not guarantee a single fixed native sampling plan with peak width one under arbitrary Pauli noise.",
+    "Branch banks grow exponentially with selected fault count and are not a production backend.",
+    "No new gains are established for current clifft-bench circuits outside this preparation fragment."
+  ]
+}

@@ -23,8 +23,8 @@ namespace {
 
 /// Conjugate Pauli Q by S_P in place.
 ///
-/// For S gate (is_dagger=false), c_phase=3 computes S^dag Q S.
-/// For S_dag gate (is_dagger=true), c_phase=1 computes S Q S^dag.
+/// For S gate (is_dagger=false), c_phase=1 computes S^dag Q S.
+/// For S_dag gate (is_dagger=true), c_phase=3 computes S Q S^dag.
 ///
 /// The symplectic product of two single-qubit Paulis A_i, B_i contributes
 /// a phase i^{+1} when A*B advances cyclically (X->Y->Z->X) and i^{-1}
@@ -92,12 +92,12 @@ void apply_pauli_to_tableau(Tableau& tab, MaskView x_v, MaskView z_v) {
 
 }  // namespace internal
 
-namespace {
+namespace internal {
 
 /// Absorb a virtual S gate on Pauli generator (x_v, z_v) into all
 /// downstream HIR operations and the final tableau.
 void apply_virtual_s_downstream(HirModule& hir, size_t start_idx, MaskView x_v, MaskView z_v,
-                                bool sign_v, bool is_dagger, const std::vector<uint8_t>& deleted) {
+                                bool sign_v, bool is_dagger, std::span<const uint8_t> deleted) {
     // 1. Conjugate all downstream ops
     for (size_t k = start_idx; k < hir.ops.size(); ++k) {
         if (deleted[k])
@@ -159,7 +159,7 @@ void apply_virtual_s_downstream(HirModule& hir, size_t start_idx, MaskView x_v, 
         }
     }
 
-    // 2. Final Tableau: U_C' = U_C S (requires inverted dagger flag)
+    // Preserve the final state in the physical Clifford frame.
     if (hir.final_tableau.has_value()) {
         internal::apply_s_to_tableau(*hir.final_tableau, x_v, z_v, sign_v, is_dagger);
     }
@@ -167,7 +167,7 @@ void apply_virtual_s_downstream(HirModule& hir, size_t start_idx, MaskView x_v, 
 
 /// Absorb a virtual Pauli into downstream signs and the final Clifford frame.
 void apply_virtual_pauli_downstream(HirModule& hir, size_t start_idx, MaskView x_v, MaskView z_v,
-                                    const std::vector<uint8_t>& deleted) {
+                                    std::span<const uint8_t> deleted) {
     auto conjugate_mask = [&](MutablePauliMaskView mask) {
         if (anti_commute(x_v, z_v, mask.x(), mask.z())) {
             mask.set_sign(!mask.sign());
@@ -211,6 +211,10 @@ void apply_virtual_pauli_downstream(HirModule& hir, size_t start_idx, MaskView x
         internal::apply_pauli_to_tableau(*hir.final_tableau, x_v, z_v);
     }
 }
+
+}  // namespace internal
+
+namespace {
 
 // =========================================================================
 // Peephole helpers
@@ -410,8 +414,8 @@ void PeepholeFusionPass::run(HirModule& hir) {
                         deleted[i] = true;
                         deleted[j] = true;
 
-                        apply_virtual_s_downstream(hir, j + 1, destab_i, stab_i, false, s_is_dagger,
-                                                   deleted);
+                        internal::apply_virtual_s_downstream(hir, j + 1, destab_i, stab_i, false,
+                                                             s_is_dagger, deleted);
                         ++fusions_;
                     }
 
@@ -462,21 +466,22 @@ void PeepholeFusionPass::run(HirModule& hir) {
                         // S gate: absorb downstream.
                         deleted[i] = true;
                         deleted[j] = true;
-                        apply_virtual_s_downstream(hir, j + 1, destab_i, stab_i, false, false,
-                                                   deleted);
+                        internal::apply_virtual_s_downstream(hir, j + 1, destab_i, stab_i, false,
+                                                             false, deleted);
                         ++fusions_;
                     } else if (clifford == CliffordRotation::SQRT_DAG) {
                         // S_dag gate: absorb downstream.
                         deleted[i] = true;
                         deleted[j] = true;
-                        apply_virtual_s_downstream(hir, j + 1, destab_i, stab_i, false, true,
-                                                   deleted);
+                        internal::apply_virtual_s_downstream(hir, j + 1, destab_i, stab_i, false,
+                                                             true, deleted);
                         ++fusions_;
                     } else if (clifford == CliffordRotation::PAULI) {
                         // A Pauli rotation is Clifford up to global phase.
                         deleted[i] = true;
                         deleted[j] = true;
-                        apply_virtual_pauli_downstream(hir, j + 1, destab_i, stab_i, deleted);
+                        internal::apply_virtual_pauli_downstream(hir, j + 1, destab_i, stab_i,
+                                                                 deleted);
                         ++fusions_;
                     } else if (std::abs(fused - 0.25) < kRotationCanonicalizationTolerance) {
                         hir.demote_to_tgate(hir.ops[i], false);
@@ -534,21 +539,23 @@ void PeepholeFusionPass::run(HirModule& hir) {
                 changed = true;
             } else if (clifford == CliffordRotation::SQRT) {
                 // S: absorb downstream.
-                apply_virtual_s_downstream(hir, i + 1, hir.destab_mask(hir.ops[i]),
-                                           hir.stab_mask(hir.ops[i]), false, false, deleted);
+                internal::apply_virtual_s_downstream(hir, i + 1, hir.destab_mask(hir.ops[i]),
+                                                     hir.stab_mask(hir.ops[i]), false, false,
+                                                     deleted);
                 deleted[i] = true;
                 ++fusions_;
                 changed = true;
             } else if (clifford == CliffordRotation::SQRT_DAG) {
                 // S_dag: absorb downstream.
-                apply_virtual_s_downstream(hir, i + 1, hir.destab_mask(hir.ops[i]),
-                                           hir.stab_mask(hir.ops[i]), false, true, deleted);
+                internal::apply_virtual_s_downstream(hir, i + 1, hir.destab_mask(hir.ops[i]),
+                                                     hir.stab_mask(hir.ops[i]), false, true,
+                                                     deleted);
                 deleted[i] = true;
                 ++fusions_;
                 changed = true;
             } else if (clifford == CliffordRotation::PAULI) {
-                apply_virtual_pauli_downstream(hir, i + 1, hir.destab_mask(hir.ops[i]),
-                                               hir.stab_mask(hir.ops[i]), deleted);
+                internal::apply_virtual_pauli_downstream(hir, i + 1, hir.destab_mask(hir.ops[i]),
+                                                         hir.stab_mask(hir.ops[i]), deleted);
                 deleted[i] = true;
                 ++fusions_;
                 changed = true;

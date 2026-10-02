@@ -67,6 +67,26 @@ for how continuations are compiled and resumed.
 
 {{ p['detail'] }}
 
+{% if p['name'] == 'PhasePolynomialPass' %}
+`PhasePolynomialPass(max_variables=32)` caps independent phase variables at 32.
+Values from 0 through 64 are supported; zero disables rewriting. Blocks above
+this cap and candidates requiring more T gates are left unchanged.
+
+Use the order `PeepholeFusionPass`, `PhasePolynomialPass`,
+`StatevectorSqueezePass`, then optionally `ActiveWidthSchedulePass`.
+The pass is opt in while its compilation costs and coverage are studied.
+It preserves joint record probabilities and record order under Pauli noise.
+Seeded random draws need not match those of the unreduced circuit.
+
+`input_t_count`, `output_t_count`, `blocks_examined`, `blocks_reduced`,
+`pauli_pullbacks`, `oversized_blocks`, and `expansion_rejections` report the last
+run. `incumbent_peak` and `result_peak` use structural active-width analysis;
+`applied` indicates an accepted rewrite. The final guard also compares the
+same dense-work estimate used by the active-width scheduler. It evaluates
+the HIR at this pass's position: subsequent heuristic scheduling passes can
+produce a different comparison. These estimates do not guarantee wall time.
+{% endif %}
+
 {% if p['name'] == 'ActiveWidthSchedulePass' %}
 See [Compiling Circuits](../guide/compilation.md#active-width-scheduling) for
 setup and guidance on when to enable this pass.

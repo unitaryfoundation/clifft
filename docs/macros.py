@@ -120,6 +120,32 @@ def define_env(env: Any) -> None:
             ),
         },
         {
+            "name": "PhasePolynomialPass",
+            "kind": "HIR",
+            "default_enabled": False,
+            "preserves_record_order": True,
+            "preserves_instrument_prefix": False,
+            "python_name": "PhasePolynomialPass",
+            "summary": "Commuting phase-polynomial reduction modulo proven stabilizers.",
+            "detail": (
+                "Rewrites commuting T blocks in independent Pauli eigenbits, using only "
+                "entry stabilizer relations with known signs on every trajectory. "
+                "A derivative kernel isolates a non-Clifford core; the remaining fixed "
+                "Clifford is absorbed into later Pauli masks and the final tableau. "
+                "Measurements, feedback, and expectation values can be pulled before "
+                "the phase block when their prefix conjugate is a Pauli and both branches "
+                "preserve the entry code. Their record order is unchanged. Instruments "
+                "bound blocks. Noise sites retain their order and distributions; T gates "
+                "may cross a site only when every channel commutes with the whole block. "
+                "Unknown noise and measurement signs conservatively remove entry relations. "
+                "Candidates cannot increase T count or worsen the structural peak-width "
+                "and dense-work score. The variable cap bounds polynomial storage, but "
+                "does not bound total compilation time. Run after PeepholeFusionPass "
+                "and before StatevectorSqueezePass or ActiveWidthSchedulePass. "
+                "A prior noise crossing prevents frame-changing rewrites."
+            ),
+        },
+        {
             "name": "ActiveWidthSchedulePass",
             "kind": "HIR",
             "default_enabled": False,

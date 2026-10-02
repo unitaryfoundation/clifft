@@ -1,0 +1,4316 @@
+{
+  "study": "Native phase-polynomial HIR pass with exact Pauli observer pullback",
+  "date": "2026-10-01",
+  "base_commit": "8c5f8143",
+  "working_tree_prototype": true,
+  "cpu": "Apple M4 Pro",
+  "build": "Release with CLIFFT_FORCE_ASSERTS=ON and OpenMP enabled",
+  "corpus_csv_sha256": "64285984b4db0bfe48de4bcd306c36bda9578131c6cf23bc3fc6b594847d39b0",
+  "existing_bench_commit": "566924f",
+  "method": {
+    "compiler": "Native HIR passes, planner and executor; no Python sampling rewrite",
+    "sampling": "Median wall time per attempted shot, three alternating repetitions, excluding compilation and warmup",
+    "postselection": "All detectors designated for postselection by the supplied CSV; normalize_syndromes=False",
+    "selection": "64 random circuits with seed 20261001, supplemented with cases 0005, 0262, 0273, 0300, 0689 and 1037",
+    "shot_cap": 200000,
+    "aggregate_speedup": "Sum of baseline median seconds per shot divided by sum of native median seconds per shot, estimating an equal-shot run on the 69 sampled circuits",
+    "noise_probability": 0.001,
+    "noise_measurements": "Ideal measurement and reset gadgets",
+    "width_regression_confirmation": "Five alternating repetitions calibrated toward 0.15 seconds per arm, same 200000-shot cap",
+    "existing_compile_times": "Seven paired repetitions after the no-T fast path; throughput from the semantically identical earlier native build",
+    "timing_limits": "Short calibration-based measurements on one host; some expensive baselines have only one shot per repetition"
+  },
+  "summary": {
+    "version": "0.10.1.dev33+g8c5f8143",
+    "isa": "neon",
+    "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+    "baseline": "PeepholeFusionPass, StatevectorSqueezePass, ActiveWidthSchedulePass",
+    "native": "PeepholeFusionPass, PhasePolynomialPass, StatevectorSqueezePass, ActiveWidthSchedulePass",
+    "threads": 1,
+    "batch_size": 1,
+    "circuits": 1037,
+    "applied": 1005,
+    "lower_peak": 1003,
+    "higher_peak": 2,
+    "baseline_peak_histogram": {
+      "4": 46,
+      "5": 40,
+      "6": 20,
+      "7": 23,
+      "8": 41,
+      "9": 16,
+      "10": 22,
+      "11": 55,
+      "12": 45,
+      "13": 44,
+      "14": 65,
+      "15": 86,
+      "16": 113,
+      "17": 121,
+      "18": 106,
+      "19": 75,
+      "20": 60,
+      "21": 37,
+      "22": 16,
+      "23": 6
+    },
+    "native_peak_histogram": {
+      "1": 924,
+      "2": 47,
+      "3": 17,
+      "4": 15,
+      "5": 2,
+      "6": 4,
+      "8": 4,
+      "9": 1,
+      "10": 2,
+      "12": 3,
+      "14": 2,
+      "16": 4,
+      "18": 2,
+      "20": 6,
+      "22": 2,
+      "23": 2
+    },
+    "input_t": 157880,
+    "output_t": 3552,
+    "median_compile_ms": [
+      3.589250147342682,
+      7.277124794200063
+    ],
+    "maximum_native_compile_seconds": 0.24209579196758568,
+    "sampled": 69,
+    "target_seconds": 0.03,
+    "repeats": 3,
+    "median_sampled_speedup": 8259.77962243128,
+    "equal_shots_sampled_speedup": 15.485149779639583,
+    "slower_over_ten_percent": 0,
+    "noise_models": "Post-T layer: depolarizing on all qubits. Gate Z: independent dephasing on each target after each unitary. Gate depolarizing: 1q or 2q depolarizing after each unitary. Measurements are ideal."
+  },
+  "sampling": [
+    {
+      "circuit": "circuits/circuit_0487.stim",
+      "applied": true,
+      "input_t": 127,
+      "output_t": 1,
+      "before_phase_peak": 21,
+      "after_phase_peak": 1,
+      "baseline_peak": 12,
+      "native_peak": 1,
+      "baseline_actions": 169,
+      "native_actions": 43,
+      "noise_sites": 0,
+      "compile_seconds": [
+        0.004758874885737896,
+        0.006118000019341707
+      ],
+      "shots": [
+        443,
+        200000
+      ],
+      "timings_seconds": [
+        [
+          0.030720707960426807,
+          0.029774917056784034,
+          0.030390750151127577
+        ],
+        [
+          0.027005666866898537,
+          0.02669158298522234,
+          0.025764582911506295
+        ]
+      ],
+      "seconds_per_shot": [
+        6.860214481067173e-05,
+        1.334579149261117e-07
+      ],
+      "speedup": 514.0357905985041
+    },
+    {
+      "circuit": "circuits/circuit_0657.stim",
+      "applied": true,
+      "input_t": 512,
+      "output_t": 2,
+      "before_phase_peak": 11,
+      "after_phase_peak": 2,
+      "baseline_peak": 11,
+      "native_peak": 2,
+      "baseline_actions": 518,
+      "native_actions": 20,
+      "noise_sites": 0,
+      "compile_seconds": [
+        0.0737322501372546,
+        0.007277624914422631
+      ],
+      "shots": [
+        229,
+        200000
+      ],
+      "timings_seconds": [
+        [
+          0.030332209076732397,
+          0.03039708291180432,
+          0.029824999859556556
+        ],
+        [
+          0.010715249925851822,
+          0.01064862497150898,
+          0.010992000112310052
+        ]
+      ],
+      "seconds_per_shot": [
+        0.00013245506147044716,
+        5.357624962925911e-08
+      ],
+      "speedup": 2472.2719934116235
+    },
+    {
+      "circuit": "circuits/circuit_0737.stim",
+      "applied": true,
+      "input_t": 255,
+      "output_t": 1,
+      "before_phase_peak": 9,
+      "after_phase_peak": 1,
+      "baseline_peak": 8,
+      "native_peak": 1,
+      "baseline_actions": 273,
+      "native_actions": 19,
+      "noise_sites": 0,
+      "compile_seconds": [
+        0.011811082949861884,
+        0.002939834026619792
+      ],
+      "shots": [
+        2382,
+        200000
+      ],
+      "timings_seconds": [
+        [
+          0.029453709023073316,
+          0.029930083081126213,
+          0.02996108401566744
+        ],
+        [
+          0.012227999977767467,
+          0.012182124890387058,
+          0.012251750100404024
+        ]
+      ],
+      "seconds_per_shot": [
+        1.2565106247324187e-05,
+        6.113999988883733e-08
+      ],
+      "speedup": 205.5136779550153
+    },
+    {
+      "circuit": "circuits/circuit_0803.stim",
+      "applied": true,
+      "input_t": 127,
+      "output_t": 1,
+      "before_phase_peak": 23,
+      "after_phase_peak": 1,
+      "baseline_peak": 21,
+      "native_peak": 1,
+      "baseline_actions": 173,
+      "native_actions": 47,
+      "noise_sites": 0,
+      "compile_seconds": [
+        0.004234958905726671,
+        0.03231295803561807
+      ],
+      "shots": [
+        1,
+        200000
+      ],
+      "timings_seconds": [
+        [
+          0.03189916699193418,
+          0.031736708944663405,
+          0.03205291694030166
+        ],
+        [
+          0.025042125023901463,
+          0.024751875083893538,
+          0.03136208397336304
+        ]
+      ],
+      "seconds_per_shot": [
+        0.03189916699193418,
+        1.252106251195073e-07
+      ],
+      "speedup": 254764.05825374654
+    },
+    {
+      "circuit": "circuits/circuit_0255.stim",
+      "applied": true,
+      "input_t": 127,
+      "output_t": 1,
+      "before_phase_peak": 23,
+      "after_phase_peak": 1,
+      "baseline_peak": 14,
+      "native_peak": 1,
+      "baseline_actions": 173,
+      "native_actions": 47,
+      "noise_sites": 0,
+      "compile_seconds": [
+        0.005160541972145438,
+        0.008551709121093154
+      ],
+      "shots": [
+        109,
+        200000
+      ],
+      "timings_seconds": [
+        [
+          0.029961500084027648,
+          0.030434874817728996,
+          0.030431709019467235
+        ],
+        [
+          0.028173584025353193,
+          0.028436332941055298,
+          0.026917791925370693
+        ]
+      ],
+      "seconds_per_shot": [
+        0.00027918999100428655,
+        1.4086792012676596e-07
+      ],
+      "speedup": 1981.927402300294
+    },
+    {
+      "circuit": "circuits/circuit_0308.stim",
+      "applied": true,
+      "input_t": 127,
+      "output_t": 1,
+      "before_phase_peak": 19,
+      "after_phase_peak": 1,
+      "baseline_peak": 17,
+      "native_peak": 1,
+      "baseline_actions": 165,
+      "native_actions": 39,
+      "noise_sites": 0,
+      "compile_seconds": [
+        0.00340087478980422,
+        0.013168415986001492
+      ],
+      "shots": [
+        15,
+        200000
+      ],
+      "timings_seconds": [
+        [
+          0.03182416711933911,
+          0.031046167016029358,
+          0.03142120782285929
+        ],
+        [
+          0.021181915886700153,
+          0.021043583983555436,
+          0.024801667081192136
+        ]
+      ],
+      "seconds_per_shot": [
+        0.002094747188190619,
+        1.0590957943350076e-07
+      ],
+      "speedup": 19778.63758307041
+    },
+    {
+      "circuit": "circuits/circuit_0386.stim",
+      "applied": true,
+      "input_t": 254,
+      "output_t": 2,
+      "before_phase_peak": 9,
+      "after_phase_peak": 2,
+      "baseline_peak": 8,
+      "native_peak": 2,
+      "baseline_actions": 268,
+      "native_actions": 16,
+      "noise_sites": 0,
+      "compile_seconds": [
+        0.013263958971947432,
+        0.0016523338854312897
+      ],
+      "shots": [
+        2403,
+        200000
+      ],
+      "timings_seconds": [
+        [
+          0.030161957954987884,
+          0.029636874794960022,
+          0.030165459029376507
+        ],
+        [
+          0.009409750113263726,
+          0.009289459092542529,
+          0.009872332913801074
+        ]
+      ],
+      "seconds_per_shot": [
+        1.2551792740319553e-05,
+        4.704875056631863e-08
+      ],
+      "speedup": 266.7827006931223
+    },
+    {
+      "circuit": "circuits/circuit_0160.stim",
+      "applied": true,
+      "input_t": 127,
+      "output_t": 1,
+      "before_phase_peak": 21,
+      "after_phase_peak": 1,
+      "baseline_peak": 20,
+      "native_peak": 1,
+      "baseline_actions": 167,
+      "native_actions": 41,
+      "noise_sites": 0,
+      "compile_seconds": [
+        0.003908375045284629,
+        0.010156207950785756
+      ],
+      "shots": [
+        2,
+        200000
+      ],
+      "timings_seconds": [
+        [
+          0.046501124976202846,
+          0.04637445812113583,
+          0.04638150008395314
+        ],
+        [
+          0.024800124811008573,
+          0.02421970898285508,
+          0.024207666981965303
+        ]
+      ],
+      "seconds_per_shot": [
+        0.02319075004197657,
+        1.210985449142754e-07
+      ],
+      "speedup": 191503.12713000062
+    },
+    {
+      "circuit": "circuits/circuit_0280.stim",
+      "applied": true,
+      "input_t": 511,
+      "output_t": 1,
+      "before_phase_peak": 10,
+      "after_phase_peak": 1,
+      "baseline_peak": 10,
+      "native_peak": 1,
+      "baseline_actions": 531,
+      "native_actions": 21,
+      "noise_sites": 0,
+      "compile_seconds": [
+        0.06311900005675852,
+        0.006682957988232374
+      ],
+      "shots": [
+        318,
+        200000
+      ],
+      "timings_seconds": [
+        [
+          0.03023254103027284,
+          0.029539624927565455,
+          0.03007758315652609
+        ],
+        [
+          0.013242665911093354,
+          0.013168790843337774,
+          0.013313167029991746
+        ]
+      ],
+      "seconds_per_shot": [
+        9.458359483184304e-05,
+        6.621332955546678e-08
+      ],
+      "speedup": 1428.4675829903788
+    },
+    {
+      "circuit": "circuits/circuit_0077.stim",
+      "applied": true,
+      "input_t": 62,
+      "output_t": 2,
+      "before_phase_peak": 7,
+      "after_phase_peak": 2,
+      "baseline_peak": 6,
+      "native_peak": 2,
+      "baseline_actions": 72,
+      "native_actions": 12,
+      "noise_sites": 0,
+      "compile_seconds": [
+        0.0006962921470403671,
+        0.0002891670446842909
+      ],
+      "shots": [
+        27887,
+        200000
+      ],
+      "timings_seconds": [
+        [
+          0.030363708036020398,
+          0.029962250031530857,
+          0.030080041848123074
+        ],
+        [
+          0.007784374989569187,
+          0.00781633285805583,
+          0.00823483313433826
+        ]
+      ],
+      "seconds_per_shot": [
+        1.078640292900745e-06,
+        3.908166429027915e-08
+      ],
+      "speedup": 27.599650948566104
+    },
+    {
+      "circuit": "circuits/circuit_0383.stim",
+      "applied": true,
+      "input_t": 127,
+      "output_t": 1,
+      "before_phase_peak": 22,
+      "after_phase_peak": 1,
+      "baseline_peak": 19,
+      "native_peak": 1,
+      "baseline_actions": 169,
+      "native_actions": 43,
+      "noise_sites": 0,
+      "compile_seconds": [
+        0.004081292077898979,
+        0.012340292101725936
+      ],
+      "shots": [
+        5,
+        200000
+      ],
+      "timings_seconds": [
+        [
+          0.036515583051368594,
+          0.036899833008646965,
+          0.0372855830937624
+        ],
+        [
+          0.024901082972064614,
+          0.02434241701848805,
+          0.026480667060241103
+        ]
+      ],
+      "seconds_per_shot": [
+        0.007379966601729393,
+        1.2450541486032306e-07
+      ],
+      "speedup": 59274.26216770283
+    },
+    {
+      "circuit": "circuits/circuit_0948.stim",
+      "applied": true,
+      "input_t": 127,
+      "output_t": 1,
+      "before_phase_peak": 20,
+      "after_phase_peak": 1,
+      "baseline_peak": 16,
+      "native_peak": 1,
+      "baseline_actions": 165,
+      "native_actions": 39,
+      "noise_sites": 0,
+      "compile_seconds": [
+        0.0035628750920295715,
+        0.004589500138536096
+      ],
+      "shots": [
+        31,
+        200000
+      ],
+      "timings_seconds": [
+        [
+          0.030033166985958815,
+          0.0306235000025481,
+          0.030592374969273806
+        ],
+        [
+          0.02264408301562071,
+          0.022016082890331745,
+          0.021736749913543463
+        ]
+      ],
+      "seconds_per_shot": [
+        0.0009868508054604454,
+        1.1008041445165873e-07
+      ],
+      "speedup": 8964.81731447165
+    },
+    {
+      "circuit": "circuits/circuit_0777.stim",
+      "applied": true,
+      "input_t": 127,
+      "output_t": 1,
+      "before_phase_peak": 20,
+      "after_phase_peak": 1,
+      "baseline_peak": 16,
+      "native_peak": 1,
+      "baseline_actions": 165,
+      "native_actions": 39,
+      "noise_sites": 0,
+      "compile_seconds": [
+        0.003909500082954764,
+        0.009506666101515293
+      ],
+      "shots": [
+        34,
+        200000
+      ],
+      "timings_seconds": [
+        [
+          0.031320415902882814,
+          0.03045312501490116,
+          0.030767541844397783
+        ],
+        [
+          0.0219116669613868,
+          0.021692915819585323,
+          0.022797791985794902
+        ]
+      ],
+      "seconds_per_shot": [
+        0.0009049277013058172,
+        1.09558334806934e-07
+      ],
+      "speedup": 8259.77962243128
+    },
+    {
+      "circuit": "circuits/circuit_0438.stim",
+      "applied": true,
+      "input_t": 127,
+      "output_t": 1,
+      "before_phase_peak": 22,
+      "after_phase_peak": 1,
+      "baseline_peak": 18,
+      "native_peak": 1,
+      "baseline_actions": 171,
+      "native_actions": 45,
+      "noise_sites": 0,
+      "compile_seconds": [
+        0.003608416998758912,
+        0.010059666819870472
+      ],
+      "shots": [
+        8,
+        200000
+      ],
+      "timings_seconds": [
+        [
+          0.031882209004834294,
+          0.0318422089330852,
+          0.03224670886993408
+        ],
+        [
+          0.026488207979127765,
+          0.026516832876950502,
+          0.02763716597110033
+        ]
+      ],
+      "seconds_per_shot": [
+        0.003985276125604287,
+        1.3258416438475252e-07
+      ],
+      "speedup": 30058.462442311116
+    },
+    {
+      "circuit": "circuits/circuit_0698.stim",
+      "applied": true,
+      "input_t": 127,
+      "output_t": 1,
+      "before_phase_peak": 17,
+      "after_phase_peak": 1,
+      "baseline_peak": 17,
+      "native_peak": 1,
+      "baseline_actions": 173,
+      "native_actions": 47,
+      "noise_sites": 0,
+      "compile_seconds": [
+        0.003631749888882041,
+        0.014674166915938258
+      ],
+      "shots": [
+        14,
+        200000
+      ],
+      "timings_seconds": [
+        [
+          0.030632292153313756,
+          0.030067750019952655,
+          0.03030433296225965
+        ],
+        [
+          0.02605312503874302,
+          0.024111583828926086,
+          0.026109166909009218
+        ]
+      ],
+      "seconds_per_shot": [
+        0.002164595211589975,
+        1.3026562519371508e-07
+      ],
+      "speedup": 16616.779817170143
+    },
+    {
+      "circuit": "circuits/circuit_0393.stim",
+      "applied": true,
+      "input_t": 127,
+      "output_t": 1,
+      "before_phase_peak": 20,
+      "after_phase_peak": 1,
+      "baseline_peak": 15,
+      "native_peak": 1,
+      "baseline_actions": 167,
+      "native_actions": 41,
+      "noise_sites": 0,
+      "compile_seconds": [
+        0.003188665956258774,
+        0.008553583174943924
+      ],
+      "shots": [
+        77,
+        200000
+      ],
+      "timings_seconds": [
+        [
+          0.030413916101679206,
+          0.03062345809303224,
+          0.030225083930417895
+        ],
+        [
+          0.02551216585561633,
+          0.0252488749101758,
+          0.027901625027880073
+        ]
+      ],
+      "seconds_per_shot": [
+        0.0003949859233984312,
+        1.2756082927808166e-07
+      ],
+      "speedup": 3096.4515175529696
+    },
+    {
+      "circuit": "circuits/circuit_0549.stim",
+      "applied": true,
+      "input_t": 127,
+      "output_t": 1,
+      "before_phase_peak": 23,
+      "after_phase_peak": 1,
+      "baseline_peak": 19,
+      "native_peak": 1,
+      "baseline_actions": 171,
+      "native_actions": 45,
+      "noise_sites": 0,
+      "compile_seconds": [
+        0.005419875029474497,
+        0.003334375098347664
+      ],
+      "shots": [
+        6,
+        200000
+      ],
+      "timings_seconds": [
+        [
+          0.032024624990299344,
+          0.03169391583651304,
+          0.03205658285878599
+        ],
+        [
+          0.027157249860465527,
+          0.024663958000019193,
+          0.0231581658590585
+        ]
+      ],
+      "seconds_per_shot": [
+        0.005337437498383224,
+        1.2331979000009595e-07
+      ],
+      "speedup": 43281.27300880962
+    },
+    {
+      "circuit": "circuits/circuit_0521.stim",
+      "applied": true,
+      "input_t": 127,
+      "output_t": 1,
+      "before_phase_peak": 20,
+      "after_phase_peak": 1,
+      "baseline_peak": 12,
+      "native_peak": 1,
+      "baseline_actions": 167,
+      "native_actions": 41,
+      "noise_sites": 0,
+      "compile_seconds": [
+        0.005251500057056546,
+        0.006012166850268841
+      ],
+      "shots": [
+        542,
+        200000
+      ],
+      "timings_seconds": [
+        [
+          0.03050674987025559,
+          0.029880749993026257,
+          0.030251167016103864
+        ],
+        [
+          0.027221084106713533,
+          0.02710162498988211,
+          0.025089124916121364
+        ]
+      ],
+      "seconds_per_shot": [
+        5.581396128432447e-05,
+        1.3550812494941056e-07
+      ],
+      "speedup": 411.8864555550567
+    },
+    {
+      "circuit": "circuits/circuit_0801.stim",
+      "applied": true,
+      "input_t": 127,
+      "output_t": 1,
+      "before_phase_peak": 21,
+      "after_phase_peak": 1,
+      "baseline_peak": 20,
+      "native_peak": 1,
+      "baseline_actions": 169,
+      "native_actions": 43,
+      "noise_sites": 0,
+      "compile_seconds": [
+        0.004104082938283682,
+        0.025426582898944616
+      ],
+      "shots": [
+        2,
+        200000
+      ],
+      "timings_seconds": [
+        [
+          0.03201900003477931,
+          0.03222829196602106,
+          0.03261945815756917
+        ],
+        [
+          0.02589658391661942,
+          0.02597629209049046,
+          0.028300000121816993
+        ]
+      ],
+      "seconds_per_shot": [
+        0.01611414598301053,
+        1.298814604524523e-07
+      ],
+      "speedup": 124068.0996877894
+    },
+    {
+      "circuit": "circuits/circuit_0417.stim",
+      "applied": true,
+      "input_t": 127,
+      "output_t": 1,
+      "before_phase_peak": 22,
+      "after_phase_peak": 1,
+      "baseline_peak": 18,
+      "native_peak": 1,
+      "baseline_actions": 171,
+      "native_actions": 45,
+      "noise_sites": 0,
+      "compile_seconds": [
+        0.00401420914568007,
+        0.02742058294825256
+      ],
+      "shots": [
+        13,
+        200000
+      ],
+      "timings_seconds": [
+        [
+          0.0311942920088768,
+          0.030791375087574124,
+          0.031058917054906487
+        ],
+        [
+          0.02664195792749524,
+          0.02761262492276728,
+          0.029262499883770943
+        ]
+      ],
+      "seconds_per_shot": [
+        0.0023891474657620373,
+        1.380631246138364e-07
+      ],
+      "speedup": 17304.74717593493
+    },
+    {
+      "circuit": "circuits/circuit_0641.stim",
+      "applied": true,
+      "input_t": 127,
+      "output_t": 1,
+      "before_phase_peak": 19,
+      "after_phase_peak": 1,
+      "baseline_peak": 12,
+      "native_peak": 1,
+      "baseline_actions": 163,
+      "native_actions": 37,
+      "noise_sites": 0,
+      "compile_seconds": [
+        0.0033834169153124094,
+        0.007744249887764454
+      ],
+      "shots": [
+        600,
+        200000
+      ],
+      "timings_seconds": [
+        [
+          0.03025562479160726,
+          0.030519082909449935,
+          0.029855416156351566
+        ],
+        [
+          0.023279624991118908,
+          0.02296491712331772,
+          0.02284941589459777
+        ]
+      ],
+      "seconds_per_shot": [
+        5.0426041319345435e-05,
+        1.148245856165886e-07
+      ],
+      "speedup": 439.1571809170146
+    },
+    {
+      "circuit": "circuits/circuit_0053.stim",
+      "applied": true,
+      "input_t": 127,
+      "output_t": 1,
+      "before_phase_peak": 19,
+      "after_phase_peak": 1,
+      "baseline_peak": 19,
+      "native_peak": 1,
+      "baseline_actions": 175,
+      "native_actions": 49,
+      "noise_sites": 0,
+      "compile_seconds": [
+        0.0037031250540167093,
+        0.02595283300615847
+      ],
+      "shots": [
+        6,
+        200000
+      ],
+      "timings_seconds": [
+        [
+          0.0322865410707891,
+          0.03138362499885261,
+          0.03148595802485943
+        ],
+        [
+          0.027517792070284486,
+          0.025456625036895275,
+          0.02604795782826841
+        ]
+      ],
+      "seconds_per_shot": [
+        0.005247659670809905,
+        1.3023978914134204e-07
+      ],
+      "speedup": 40292.29243541626
+    },
+    {
+      "circuit": "circuits/circuit_0474.stim",
+      "applied": true,
+      "input_t": 127,
+      "output_t": 1,
+      "before_phase_peak": 19,
+      "after_phase_peak": 1,
+      "baseline_peak": 17,
+      "native_peak": 1,
+      "baseline_actions": 163,
+      "native_actions": 37,
+      "noise_sites": 0,
+      "compile_seconds": [
+        0.003553499933332205,
+        0.006654042052105069
+      ],
+      "shots": [
+        23,
+        200000
+      ],
+      "timings_seconds": [
+        [
+          0.030820833053439856,
+          0.030685957986861467,
+          0.02996495901606977
+        ],
+        [
+          0.0226133749820292,
+          0.0224262080155313,
+          0.023095583077520132
+        ]
+      ],
+      "seconds_per_shot": [
+        0.001334172086385281,
+        1.13066874910146e-07
+      ],
+      "speedup": 11799.849314359708
+    },
+    {
+      "circuit": "circuits/circuit_0509.stim",
+      "applied": true,
+      "input_t": 127,
+      "output_t": 1,
+      "before_phase_peak": 22,
+      "after_phase_peak": 1,
+      "baseline_peak": 20,
+      "native_peak": 1,
+      "baseline_actions": 169,
+      "native_actions": 43,
+      "noise_sites": 0,
+      "compile_seconds": [
+        0.00417716708034277,
+        0.011818791972473264
+      ],
+      "shots": [
+        3,
+        200000
+      ],
+      "timings_seconds": [
+        [
+          0.04402929195202887,
+          0.04297229088842869,
+          0.04358545783907175
+        ],
+        [
+          0.023956417106091976,
+          0.023847375065088272,
+          0.02386600011959672
+        ]
+      ],
+      "seconds_per_shot": [
+        0.01452848594635725,
+        1.193300005979836e-07
+      ],
+      "speedup": 121750.48917751155
+    },
+    {
+      "circuit": "circuits/circuit_0539.stim",
+      "applied": true,
+      "input_t": 127,
+      "output_t": 1,
+      "before_phase_peak": 22,
+      "after_phase_peak": 1,
+      "baseline_peak": 19,
+      "native_peak": 1,
+      "baseline_actions": 169,
+      "native_actions": 43,
+      "noise_sites": 0,
+      "compile_seconds": [
+        0.0039157920982688665,
+        0.012342874892055988
+      ],
+      "shots": [
+        6,
+        200000
+      ],
+      "timings_seconds": [
+        [
+          0.031971832970157266,
+          0.031778958858922124,
+          0.03196666715666652
+        ],
+        [
+          0.024244291940703988,
+          0.025310249999165535,
+          0.025315792066976428
+        ]
+      ],
+      "seconds_per_shot": [
+        0.00532777785944442,
+        1.265512499958277e-07
+      ],
+      "speedup": 42099.76479584416
+    },
+    {
+      "circuit": "circuits/circuit_0983.stim",
+      "applied": true,
+      "input_t": 127,
+      "output_t": 1,
+      "before_phase_peak": 23,
+      "after_phase_peak": 1,
+      "baseline_peak": 18,
+      "native_peak": 1,
+      "baseline_actions": 173,
+      "native_actions": 47,
+      "noise_sites": 0,
+      "compile_seconds": [
+        0.004313999786973,
+        0.026465167058631778
+      ],
+      "shots": [
+        7,
+        200000
+      ],
+      "timings_seconds": [
+        [
+          0.02977845910936594,
+          0.02981462492607534,
+          0.030472541926428676
+        ],
+        [
+          0.030563208973035216,
+          0.02848862507380545,
+          0.025583375012502074
+        ]
+      ],
+      "seconds_per_shot": [
+        0.004259232132296477,
+        1.4244312536902725e-07
+      ],
+      "speedup": 29901.282503189177
+    },
+    {
+      "circuit": "circuits/circuit_0927.stim",
+      "applied": true,
+      "input_t": 127,
+      "output_t": 1,
+      "before_phase_peak": 19,
+      "after_phase_peak": 1,
+      "baseline_peak": 14,
+      "native_peak": 1,
+      "baseline_actions": 163,
+      "native_actions": 37,
+      "noise_sites": 0,
+      "compile_seconds": [
+        0.0032770419493317604,
+        0.004514334024861455
+      ],
+      "shots": [
+        156,
+        200000
+      ],
+      "timings_seconds": [
+        [
+          0.029798417119309306,
+          0.030208874959498644,
+          0.02993324981071055
+        ],
+        [
+          0.022514583077281713,
+          0.02236387482844293,
+          0.018351374892517924
+        ]
+      ],
+      "seconds_per_shot": [
+        0.00019187980647891379,
+        1.1181937414221466e-07
+      ],
+      "speedup": 1715.9799717254389
+    },
+    {
+      "circuit": "circuits/circuit_0380.stim",
+      "applied": true,
+      "input_t": 1008,
+      "output_t": 3,
+      "before_phase_peak": 16,
+      "after_phase_peak": 3,
+      "baseline_peak": 16,
+      "native_peak": 3,
+      "baseline_actions": 1034,
+      "native_actions": 29,
+      "noise_sites": 0,
+      "compile_seconds": [
+        0.14039595914073288,
+        0.02098979102447629
+      ],
+      "shots": [
+        3,
+        200000
+      ],
+      "timings_seconds": [
+        [
+          0.030936375027522445,
+          0.030998083064332604,
+          0.030356209026649594
+        ],
+        [
+          0.015067917061969638,
+          0.014959624968469143,
+          0.014299792004749179
+        ]
+      ],
+      "seconds_per_shot": [
+        0.010312125009174148,
+        7.479812484234571e-08
+      ],
+      "speedup": 137866.08997096287
+    },
+    {
+      "circuit": "circuits/circuit_0738.stim",
+      "applied": true,
+      "input_t": 512,
+      "output_t": 2,
+      "before_phase_peak": 11,
+      "after_phase_peak": 2,
+      "baseline_peak": 11,
+      "native_peak": 1,
+      "baseline_actions": 520,
+      "native_actions": 24,
+      "noise_sites": 0,
+      "compile_seconds": [
+        0.07354908296838403,
+        0.009929792024195194
+      ],
+      "shots": [
+        225,
+        200000
+      ],
+      "timings_seconds": [
+        [
+          0.030193916987627745,
+          0.02984325005672872,
+          0.03014433290809393
+        ],
+        [
+          0.01627791696228087,
+          0.016154125100001693,
+          0.016645249910652637
+        ]
+      ],
+      "seconds_per_shot": [
+        0.0001339748129248619,
+        8.138958481140435e-08
+      ],
+      "speedup": 1646.0928414281489
+    },
+    {
+      "circuit": "circuits/circuit_0796.stim",
+      "applied": true,
+      "input_t": 127,
+      "output_t": 1,
+      "before_phase_peak": 21,
+      "after_phase_peak": 1,
+      "baseline_peak": 16,
+      "native_peak": 1,
+      "baseline_actions": 167,
+      "native_actions": 41,
+      "noise_sites": 0,
+      "compile_seconds": [
+        0.004971041111275554,
+        0.0026556248776614666
+      ],
+      "shots": [
+        51,
+        200000
+      ],
+      "timings_seconds": [
+        [
+          0.02973504178225994,
+          0.03005670802667737,
+          0.03028249996714294
+        ],
+        [
+          0.023600124986842275,
+          0.023267207900062203,
+          0.02339316694997251
+        ]
+      ],
+      "seconds_per_shot": [
+        0.0005893472162093603,
+        1.1696583474986256e-07
+      ],
+      "speedup": 5038.627027026392
+    },
+    {
+      "circuit": "circuits/circuit_1032.stim",
+      "applied": true,
+      "input_t": 127,
+      "output_t": 1,
+      "before_phase_peak": 23,
+      "after_phase_peak": 1,
+      "baseline_peak": 21,
+      "native_peak": 1,
+      "baseline_actions": 173,
+      "native_actions": 47,
+      "noise_sites": 0,
+      "compile_seconds": [
+        0.004290666896849871,
+        0.03536591678857803
+      ],
+      "shots": [
+        1,
+        200000
+      ],
+      "timings_seconds": [
+        [
+          0.03185866679996252,
+          0.03269958379678428,
+          0.032592250034213066
+        ],
+        [
+          0.02736908383667469,
+          0.02763254102319479,
+          0.02525554085150361
+        ]
+      ],
+      "seconds_per_shot": [
+        0.032592250034213066,
+        1.3684541918337344e-07
+      ],
+      "speedup": 238168.3671160327
+    },
+    {
+      "circuit": "circuits/circuit_0117.stim",
+      "applied": true,
+      "input_t": 128,
+      "output_t": 1,
+      "before_phase_peak": 5,
+      "after_phase_peak": 1,
+      "baseline_peak": 5,
+      "native_peak": 1,
+      "baseline_actions": 56,
+      "native_actions": 9,
+      "noise_sites": 0,
+      "compile_seconds": [
+        0.0015558339655399323,
+        0.00044429185800254345
+      ],
+      "shots": [
+        51290,
+        200000
+      ],
+      "timings_seconds": [
+        [
+          0.029287208104506135,
+          0.029296124819666147,
+          0.029286792036145926
+        ],
+        [
+          0.006268916884437203,
+          0.006227915873751044,
+          0.006375417113304138
+        ]
+      ],
+      "seconds_per_shot": [
+        5.710120511699383e-07,
+        3.1344584422186017e-08
+      ],
+      "speedup": 18.21724746702241
+    },
+    {
+      "circuit": "circuits/circuit_0921.stim",
+      "applied": true,
+      "input_t": 127,
+      "output_t": 1,
+      "before_phase_peak": 21,
+      "after_phase_peak": 1,
+      "baseline_peak": 13,
+      "native_peak": 1,
+      "baseline_actions": 169,
+      "native_actions": 43,
+      "noise_sites": 0,
+      "compile_seconds": [
+        0.003711041994392872,
+        0.017694042064249516
+      ],
+      "shots": [
+        187,
+        200000
+      ],
+      "timings_seconds": [
+        [
+          0.030259791994467378,
+          0.030164083000272512,
+          0.030625208048149943
+        ],
+        [
+          0.026442457921802998,
+          0.026208041002973914,
+          0.027203040895983577
+        ]
+      ],
+      "seconds_per_shot": [
+        0.00016181706948913035,
+        1.3221228960901498e-07
+      ],
+      "speedup": 1223.9185174665997
+    },
+    {
+      "circuit": "circuits/circuit_0798.stim",
+      "applied": false,
+      "input_t": 56,
+      "output_t": 56,
+      "before_phase_peak": 19,
+      "after_phase_peak": 19,
+      "baseline_peak": 18,
+      "native_peak": 18,
+      "baseline_actions": 62,
+      "native_actions": 62,
+      "noise_sites": 0,
+      "compile_seconds": [
+        0.0006756659131497145,
+        0.004729209002107382
+      ],
+      "shots": [
+        25,
+        24
+      ],
+      "timings_seconds": [
+        [
+          0.031510625034570694,
+          0.031512374989688396,
+          0.031204999890178442
+        ],
+        [
+          0.030332957860082388,
+          0.030337125062942505,
+          0.03026316687464714
+        ]
+      ],
+      "seconds_per_shot": [
+        0.0012604250013828278,
+        0.0012638732441700995
+      ],
+      "speedup": 0.9972716862207682
+    },
+    {
+      "circuit": "circuits/circuit_0999.stim",
+      "applied": true,
+      "input_t": 30,
+      "output_t": 2,
+      "before_phase_peak": 10,
+      "after_phase_peak": 2,
+      "baseline_peak": 5,
+      "native_peak": 2,
+      "baseline_actions": 46,
+      "native_actions": 18,
+      "noise_sites": 0,
+      "compile_seconds": [
+        0.0003433339297771454,
+        0.00011120806448161602
+      ],
+      "shots": [
+        69893,
+        200000
+      ],
+      "timings_seconds": [
+        [
+          0.030623124912381172,
+          0.030025582993403077,
+          0.029324958100914955
+        ],
+        [
+          0.010026291944086552,
+          0.009979584021493793,
+          0.009311083005741239
+        ]
+      ],
+      "seconds_per_shot": [
+        4.2959356435412815e-07,
+        4.989792010746896e-08
+      ],
+      "speedup": 8.609448318264162
+    },
+    {
+      "circuit": "circuits/circuit_0251.stim",
+      "applied": true,
+      "input_t": 127,
+      "output_t": 1,
+      "before_phase_peak": 19,
+      "after_phase_peak": 1,
+      "baseline_peak": 11,
+      "native_peak": 1,
+      "baseline_actions": 163,
+      "native_actions": 37,
+      "noise_sites": 0,
+      "compile_seconds": [
+        0.004370666109025478,
+        0.0018163749482482672
+      ],
+      "shots": [
+        1302,
+        200000
+      ],
+      "timings_seconds": [
+        [
+          0.03020208398811519,
+          0.029809874948114157,
+          0.03021624987013638
+        ],
+        [
+          0.0227614170871675,
+          0.022691666847094893,
+          0.02250341698527336
+        ]
+      ],
+      "seconds_per_shot": [
+        2.3196685090718272e-05,
+        1.1345833423547446e-07
+      ],
+      "speedup": 204.45113395173996
+    },
+    {
+      "circuit": "circuits/circuit_0221.stim",
+      "applied": true,
+      "input_t": 127,
+      "output_t": 1,
+      "before_phase_peak": 23,
+      "after_phase_peak": 1,
+      "baseline_peak": 20,
+      "native_peak": 1,
+      "baseline_actions": 171,
+      "native_actions": 45,
+      "noise_sites": 0,
+      "compile_seconds": [
+        0.004236208042129874,
+        0.014707708032801747
+      ],
+      "shots": [
+        4,
+        200000
+      ],
+      "timings_seconds": [
+        [
+          0.0392859170679003,
+          0.03908608295023441,
+          0.03873499995097518
+        ],
+        [
+          0.027104084147140384,
+          0.026911875000223517,
+          0.022199667058885098
+        ]
+      ],
+      "seconds_per_shot": [
+        0.009771520737558603,
+        1.345593750011176e-07
+      ],
+      "speedup": 72618.65431135842
+    },
+    {
+      "circuit": "circuits/circuit_1012.stim",
+      "applied": true,
+      "input_t": 127,
+      "output_t": 1,
+      "before_phase_peak": 21,
+      "after_phase_peak": 1,
+      "baseline_peak": 20,
+      "native_peak": 1,
+      "baseline_actions": 167,
+      "native_actions": 41,
+      "noise_sites": 0,
+      "compile_seconds": [
+        0.003909999970346689,
+        0.008714833064004779
+      ],
+      "shots": [
+        3,
+        200000
+      ],
+      "timings_seconds": [
+        [
+          0.03596358303911984,
+          0.036713083973154426,
+          0.036499416921287775
+        ],
+        [
+          0.024460208136588335,
+          0.023746625054627657,
+          0.02680816617794335
+        ]
+      ],
+      "seconds_per_shot": [
+        0.012166472307095924,
+        1.2230104068294167e-07
+      ],
+      "speedup": 99479.71202172185
+    },
+    {
+      "circuit": "circuits/circuit_0782.stim",
+      "applied": true,
+      "input_t": 127,
+      "output_t": 1,
+      "before_phase_peak": 23,
+      "after_phase_peak": 1,
+      "baseline_peak": 18,
+      "native_peak": 1,
+      "baseline_actions": 173,
+      "native_actions": 47,
+      "noise_sites": 0,
+      "compile_seconds": [
+        0.004218624904751778,
+        0.02795891696587205
+      ],
+      "shots": [
+        11,
+        200000
+      ],
+      "timings_seconds": [
+        [
+          0.031089749885722995,
+          0.03148204181343317,
+          0.03168291714973748
+        ],
+        [
+          0.025213457876816392,
+          0.025134332943707705,
+          0.02578566689044237
+        ]
+      ],
+      "seconds_per_shot": [
+        0.002862003801221197,
+        1.2606728938408196e-07
+      ],
+      "speedup": 22702.191942127785
+    },
+    {
+      "circuit": "circuits/circuit_0361.stim",
+      "applied": true,
+      "input_t": 1024,
+      "output_t": 3,
+      "before_phase_peak": 16,
+      "after_phase_peak": 3,
+      "baseline_peak": 16,
+      "native_peak": 3,
+      "baseline_actions": 1050,
+      "native_actions": 29,
+      "noise_sites": 0,
+      "compile_seconds": [
+        0.4743783751036972,
+        0.036470500053837895
+      ],
+      "shots": [
+        4,
+        200000
+      ],
+      "timings_seconds": [
+        [
+          0.03937933291308582,
+          0.03958508395589888,
+          0.03858604212291539
+        ],
+        [
+          0.014809584012255073,
+          0.014564000070095062,
+          0.01551458309404552
+        ]
+      ],
+      "seconds_per_shot": [
+        0.009844833228271455,
+        7.404792006127536e-08
+      ],
+      "speedup": 132952.19123136424
+    },
+    {
+      "circuit": "circuits/circuit_0867.stim",
+      "applied": true,
+      "input_t": 127,
+      "output_t": 1,
+      "before_phase_peak": 20,
+      "after_phase_peak": 1,
+      "baseline_peak": 16,
+      "native_peak": 1,
+      "baseline_actions": 167,
+      "native_actions": 41,
+      "noise_sites": 0,
+      "compile_seconds": [
+        0.0038857499603182077,
+        0.01835241704247892
+      ],
+      "shots": [
+        34,
+        200000
+      ],
+      "timings_seconds": [
+        [
+          0.031094167148694396,
+          0.03063283395022154,
+          0.030805625021457672
+        ],
+        [
+          0.02487833285704255,
+          0.024526583962142467,
+          0.02643741713836789
+        ]
+      ],
+      "seconds_per_shot": [
+        0.0009060477947487551,
+        1.2439166428521277e-07
+      ],
+      "speedup": 7283.8304717212695
+    },
+    {
+      "circuit": "circuits/circuit_0364.stim",
+      "applied": true,
+      "input_t": 127,
+      "output_t": 1,
+      "before_phase_peak": 21,
+      "after_phase_peak": 1,
+      "baseline_peak": 17,
+      "native_peak": 1,
+      "baseline_actions": 169,
+      "native_actions": 43,
+      "noise_sites": 0,
+      "compile_seconds": [
+        0.0030382080003619194,
+        0.00450395792722702
+      ],
+      "shots": [
+        23,
+        200000
+      ],
+      "timings_seconds": [
+        [
+          0.030855209100991488,
+          0.030153125058859587,
+          0.030931000132113695
+        ],
+        [
+          0.02651166613213718,
+          0.026461249915882945,
+          0.026572417002171278
+        ]
+      ],
+      "seconds_per_shot": [
+        0.0013415308304778907,
+        1.325583306606859e-07
+      ],
+      "speedup": 10120.305708374173
+    },
+    {
+      "circuit": "circuits/circuit_0584.stim",
+      "applied": true,
+      "input_t": 127,
+      "output_t": 1,
+      "before_phase_peak": 23,
+      "after_phase_peak": 1,
+      "baseline_peak": 21,
+      "native_peak": 1,
+      "baseline_actions": 173,
+      "native_actions": 47,
+      "noise_sites": 0,
+      "compile_seconds": [
+        0.00428670784458518,
+        0.021849708864465356
+      ],
+      "shots": [
+        1,
+        200000
+      ],
+      "timings_seconds": [
+        [
+          0.03577795787714422,
+          0.03564150002785027,
+          0.03522504190914333
+        ],
+        [
+          0.025465582963079214,
+          0.025421125115826726,
+          0.02911125007085502
+        ]
+      ],
+      "seconds_per_shot": [
+        0.03564150002785027,
+        1.2732791481539607e-07
+      ],
+      "speedup": 279918.9798994542
+    },
+    {
+      "circuit": "circuits/circuit_0112.stim",
+      "applied": true,
+      "input_t": 127,
+      "output_t": 1,
+      "before_phase_peak": 20,
+      "after_phase_peak": 1,
+      "baseline_peak": 17,
+      "native_peak": 1,
+      "baseline_actions": 165,
+      "native_actions": 39,
+      "noise_sites": 0,
+      "compile_seconds": [
+        0.00263858400285244,
+        0.0013622499536722898
+      ],
+      "shots": [
+        28,
+        200000
+      ],
+      "timings_seconds": [
+        [
+          0.029702917207032442,
+          0.0299627089407295,
+          0.029311666963621974
+        ],
+        [
+          0.022631374886259437,
+          0.02215933403931558,
+          0.02208612486720085
+        ]
+      ],
+      "seconds_per_shot": [
+        0.00106081847167973,
+        1.107966701965779e-07
+      ],
+      "speedup": 9574.461667463494
+    },
+    {
+      "circuit": "circuits/circuit_0995.stim",
+      "applied": true,
+      "input_t": 127,
+      "output_t": 1,
+      "before_phase_peak": 21,
+      "after_phase_peak": 1,
+      "baseline_peak": 18,
+      "native_peak": 1,
+      "baseline_actions": 167,
+      "native_actions": 41,
+      "noise_sites": 0,
+      "compile_seconds": [
+        0.005148625001311302,
+        0.0026640829164534807
+      ],
+      "shots": [
+        11,
+        200000
+      ],
+      "timings_seconds": [
+        [
+          0.03157741599716246,
+          0.03095237514935434,
+          0.03146420791745186
+        ],
+        [
+          0.02353791706264019,
+          0.023450416047126055,
+          0.02301279199309647
+        ]
+      ],
+      "seconds_per_shot": [
+        0.002860382537950169,
+        1.1725208023563027e-07
+      ],
+      "speedup": 24395.15386167932
+    },
+    {
+      "circuit": "circuits/circuit_0910.stim",
+      "applied": true,
+      "input_t": 127,
+      "output_t": 1,
+      "before_phase_peak": 20,
+      "after_phase_peak": 1,
+      "baseline_peak": 17,
+      "native_peak": 1,
+      "baseline_actions": 167,
+      "native_actions": 41,
+      "noise_sites": 0,
+      "compile_seconds": [
+        0.0036628341767936945,
+        0.01608954183757305
+      ],
+      "shots": [
+        23,
+        200000
+      ],
+      "timings_seconds": [
+        [
+          0.030858416808769107,
+          0.030869417125359178,
+          0.031011583982035518
+        ],
+        [
+          0.025246166856959462,
+          0.025618832791224122,
+          0.025516959140077233
+        ]
+      ],
+      "seconds_per_shot": [
+        0.0013421485706677904,
+        1.2758479570038617e-07
+      ],
+      "speedup": 10519.659206255468
+    },
+    {
+      "circuit": "circuits/circuit_0034.stim",
+      "applied": true,
+      "input_t": 127,
+      "output_t": 1,
+      "before_phase_peak": 21,
+      "after_phase_peak": 1,
+      "baseline_peak": 18,
+      "native_peak": 1,
+      "baseline_actions": 169,
+      "native_actions": 43,
+      "noise_sites": 0,
+      "compile_seconds": [
+        0.0032969589810818434,
+        0.004718624986708164
+      ],
+      "shots": [
+        11,
+        200000
+      ],
+      "timings_seconds": [
+        [
+          0.0316939998883754,
+          0.030632499838247895,
+          0.031395999947562814
+        ],
+        [
+          0.026675791945308447,
+          0.02642162493430078,
+          0.027561666909605265
+        ]
+      ],
+      "seconds_per_shot": [
+        0.002854181813414801,
+        1.3337895972654222e-07
+      ],
+      "speedup": 21399.040892705532
+    },
+    {
+      "circuit": "circuits/circuit_0494.stim",
+      "applied": true,
+      "input_t": 126,
+      "output_t": 2,
+      "before_phase_peak": 8,
+      "after_phase_peak": 2,
+      "baseline_peak": 7,
+      "native_peak": 1,
+      "baseline_actions": 142,
+      "native_actions": 18,
+      "noise_sites": 0,
+      "compile_seconds": [
+        0.001879874849691987,
+        0.000782292103394866
+      ],
+      "shots": [
+        8615,
+        200000
+      ],
+      "timings_seconds": [
+        [
+          0.030159458983689547,
+          0.030649792170152068,
+          0.030865042004734278
+        ],
+        [
+          0.014909167075529695,
+          0.014842583099380136,
+          0.014839957933872938
+        ]
+      ],
+      "seconds_per_shot": [
+        3.5577239895707566e-06,
+        7.421291549690068e-08
+      ],
+      "speedup": 47.93941816932574
+    },
+    {
+      "circuit": "circuits/circuit_0898.stim",
+      "applied": true,
+      "input_t": 127,
+      "output_t": 1,
+      "before_phase_peak": 19,
+      "after_phase_peak": 1,
+      "baseline_peak": 17,
+      "native_peak": 1,
+      "baseline_actions": 165,
+      "native_actions": 39,
+      "noise_sites": 0,
+      "compile_seconds": [
+        0.003560582874342799,
+        0.012295207940042019
+      ],
+      "shots": [
+        23,
+        200000
+      ],
+      "timings_seconds": [
+        [
+          0.030579791869968176,
+          0.029767709085717797,
+          0.03050337522290647
+        ],
+        [
+          0.025934292003512383,
+          0.025533749954774976,
+          0.02607858390547335
+        ]
+      ],
+      "seconds_per_shot": [
+        0.0013262337053437595,
+        1.296714600175619e-07
+      ],
+      "speedup": 10227.645352062378
+    },
+    {
+      "circuit": "circuits/circuit_0926.stim",
+      "applied": true,
+      "input_t": 127,
+      "output_t": 1,
+      "before_phase_peak": 20,
+      "after_phase_peak": 1,
+      "baseline_peak": 15,
+      "native_peak": 1,
+      "baseline_actions": 165,
+      "native_actions": 39,
+      "noise_sites": 0,
+      "compile_seconds": [
+        0.0049743750132620335,
+        0.003583792131394148
+      ],
+      "shots": [
+        61,
+        200000
+      ],
+      "timings_seconds": [
+        [
+          0.030062709003686905,
+          0.030302667059004307,
+          0.029756665928289294
+        ],
+        [
+          0.025766042061150074,
+          0.025643917033448815,
+          0.023814624873921275
+        ]
+      ],
+      "seconds_per_shot": [
+        0.0004928312951424082,
+        1.2821958516724408e-07
+      ],
+      "speedup": 3843.650675515604
+    },
+    {
+      "circuit": "circuits/circuit_0273.stim",
+      "applied": false,
+      "input_t": 68,
+      "output_t": 68,
+      "before_phase_peak": 23,
+      "after_phase_peak": 23,
+      "baseline_peak": 22,
+      "native_peak": 22,
+      "baseline_actions": 74,
+      "native_actions": 74,
+      "noise_sites": 0,
+      "compile_seconds": [
+        0.0010705841705203056,
+        0.010108583839610219
+      ],
+      "shots": [
+        2,
+        2
+      ],
+      "timings_seconds": [
+        [
+          0.04127241694368422,
+          0.04005545820109546,
+          0.04123858315870166
+        ],
+        [
+          0.040666500106453896,
+          0.04155979189090431,
+          0.041229709051549435
+        ]
+      ],
+      "seconds_per_shot": [
+        0.02061929157935083,
+        0.020614854525774717
+      ],
+      "speedup": 1.0002152357452032
+    },
+    {
+      "circuit": "circuits/circuit_0971.stim",
+      "applied": true,
+      "input_t": 127,
+      "output_t": 1,
+      "before_phase_peak": 22,
+      "after_phase_peak": 1,
+      "baseline_peak": 18,
+      "native_peak": 1,
+      "baseline_actions": 169,
+      "native_actions": 43,
+      "noise_sites": 0,
+      "compile_seconds": [
+        0.0033200830221176147,
+        0.005358583061024547
+      ],
+      "shots": [
+        9,
+        200000
+      ],
+      "timings_seconds": [
+        [
+          0.03333079209551215,
+          0.03625725000165403,
+          0.03502662479877472
+        ],
+        [
+          0.024103958159685135,
+          0.02444666693918407,
+          0.02695275004953146
+        ]
+      ],
+      "seconds_per_shot": [
+        0.0038918471998638576,
+        1.2223333469592034e-07
+      ],
+      "speedup": 31839.491326532156
+    },
+    {
+      "circuit": "circuits/circuit_0552.stim",
+      "applied": true,
+      "input_t": 127,
+      "output_t": 1,
+      "before_phase_peak": 12,
+      "after_phase_peak": 1,
+      "baseline_peak": 12,
+      "native_peak": 1,
+      "baseline_actions": 169,
+      "native_actions": 43,
+      "noise_sites": 0,
+      "compile_seconds": [
+        0.002710958942770958,
+        0.011331500019878149
+      ],
+      "shots": [
+        501,
+        200000
+      ],
+      "timings_seconds": [
+        [
+          0.03041237499564886,
+          0.02938191592693329,
+          0.030185499927029014
+        ],
+        [
+          0.027330166893079877,
+          0.025742124998942018,
+          0.027012999868020415
+        ]
+      ],
+      "seconds_per_shot": [
+        6.025049885634534e-05,
+        1.3506499934010207e-07
+      ],
+      "speedup": 446.0852119402958
+    },
+    {
+      "circuit": "circuits/circuit_0457.stim",
+      "applied": true,
+      "input_t": 127,
+      "output_t": 1,
+      "before_phase_peak": 19,
+      "after_phase_peak": 1,
+      "baseline_peak": 15,
+      "native_peak": 1,
+      "baseline_actions": 163,
+      "native_actions": 37,
+      "noise_sites": 0,
+      "compile_seconds": [
+        0.00314024998806417,
+        0.006205166922882199
+      ],
+      "shots": [
+        69,
+        200000
+      ],
+      "timings_seconds": [
+        [
+          0.029585374984890223,
+          0.029978124890476465,
+          0.02966495812870562
+        ],
+        [
+          0.0208338750526309,
+          0.019194541033357382,
+          0.020476666977629066
+        ]
+      ],
+      "seconds_per_shot": [
+        0.00042992692940153074,
+        1.0238333488814532e-07
+      ],
+      "speedup": 4199.188567858525
+    },
+    {
+      "circuit": "circuits/circuit_0507.stim",
+      "applied": true,
+      "input_t": 127,
+      "output_t": 1,
+      "before_phase_peak": 19,
+      "after_phase_peak": 1,
+      "baseline_peak": 16,
+      "native_peak": 1,
+      "baseline_actions": 163,
+      "native_actions": 37,
+      "noise_sites": 0,
+      "compile_seconds": [
+        0.0035082499962300062,
+        0.005775208119302988
+      ],
+      "shots": [
+        46,
+        200000
+      ],
+      "timings_seconds": [
+        [
+          0.03009058302268386,
+          0.02971475012600422,
+          0.0309433750808239
+        ],
+        [
+          0.020204291911795735,
+          0.01872437517158687,
+          0.02000287501141429
+        ]
+      ],
+      "seconds_per_shot": [
+        0.0006541431091887796,
+        1.0001437505707145e-07
+      ],
+      "speedup": 6540.490892589233
+    },
+    {
+      "circuit": "circuits/circuit_0189.stim",
+      "applied": true,
+      "input_t": 127,
+      "output_t": 1,
+      "before_phase_peak": 20,
+      "after_phase_peak": 1,
+      "baseline_peak": 16,
+      "native_peak": 1,
+      "baseline_actions": 167,
+      "native_actions": 41,
+      "noise_sites": 0,
+      "compile_seconds": [
+        0.005139125045388937,
+        0.0038895418401807547
+      ],
+      "shots": [
+        48,
+        200000
+      ],
+      "timings_seconds": [
+        [
+          0.030246916925534606,
+          0.0309132500551641,
+          0.030052917078137398
+        ],
+        [
+          0.025984250009059906,
+          0.026942958123981953,
+          0.025653667049482465
+        ]
+      ],
+      "seconds_per_shot": [
+        0.0006301441026153043,
+        1.2992125004529953e-07
+      ],
+      "speedup": 4850.200428302472
+    },
+    {
+      "circuit": "circuits/circuit_0412.stim",
+      "applied": true,
+      "input_t": 63,
+      "output_t": 1,
+      "before_phase_peak": 7,
+      "after_phase_peak": 1,
+      "baseline_peak": 6,
+      "native_peak": 1,
+      "baseline_actions": 75,
+      "native_actions": 13,
+      "noise_sites": 0,
+      "compile_seconds": [
+        0.0008541669230908155,
+        0.00022283289581537247
+      ],
+      "shots": [
+        27330,
+        200000
+      ],
+      "timings_seconds": [
+        [
+          0.03010283294133842,
+          0.029921582899987698,
+          0.029292041901499033
+        ],
+        [
+          0.008544292068108916,
+          0.008152584079653025,
+          0.008236792171373963
+        ]
+      ],
+      "seconds_per_shot": [
+        1.0948255726303584e-06,
+        4.118396085686982e-08
+      ],
+      "speedup": 26.583785285618845
+    },
+    {
+      "circuit": "circuits/circuit_0429.stim",
+      "applied": true,
+      "input_t": 127,
+      "output_t": 1,
+      "before_phase_peak": 22,
+      "after_phase_peak": 1,
+      "baseline_peak": 20,
+      "native_peak": 1,
+      "baseline_actions": 169,
+      "native_actions": 43,
+      "noise_sites": 0,
+      "compile_seconds": [
+        0.003924167016521096,
+        0.010968958958983421
+      ],
+      "shots": [
+        2,
+        200000
+      ],
+      "timings_seconds": [
+        [
+          0.03595320810563862,
+          0.0342805830296129,
+          0.03561891685239971
+        ],
+        [
+          0.0254117080476135,
+          0.023714750073850155,
+          0.026229749899357557
+        ]
+      ],
+      "seconds_per_shot": [
+        0.017809458426199853,
+        1.270585402380675e-07
+      ],
+      "speedup": 140167.34642811544
+    },
+    {
+      "circuit": "circuits/circuit_0106.stim",
+      "applied": true,
+      "input_t": 127,
+      "output_t": 1,
+      "before_phase_peak": 23,
+      "after_phase_peak": 1,
+      "baseline_peak": 15,
+      "native_peak": 1,
+      "baseline_actions": 173,
+      "native_actions": 47,
+      "noise_sites": 0,
+      "compile_seconds": [
+        0.0036771660670638084,
+        0.010958958882838488
+      ],
+      "shots": [
+        73,
+        200000
+      ],
+      "timings_seconds": [
+        [
+          0.03181149996817112,
+          0.031219457974657416,
+          0.03146108309738338
+        ],
+        [
+          0.027790042106062174,
+          0.029919541906565428,
+          0.028922165976837277
+        ]
+      ],
+      "seconds_per_shot": [
+        0.0004309737410600463,
+        1.446108298841864e-07
+      ],
+      "speedup": 2980.231434984487
+    },
+    {
+      "circuit": "circuits/circuit_0680.stim",
+      "applied": true,
+      "input_t": 127,
+      "output_t": 1,
+      "before_phase_peak": 23,
+      "after_phase_peak": 1,
+      "baseline_peak": 14,
+      "native_peak": 1,
+      "baseline_actions": 173,
+      "native_actions": 47,
+      "noise_sites": 0,
+      "compile_seconds": [
+        0.0036932078655809164,
+        0.010720582911744714
+      ],
+      "shots": [
+        98,
+        116236
+      ],
+      "timings_seconds": [
+        [
+          0.030500541906803846,
+          0.029966540867462754,
+          0.03089608298614621
+        ],
+        [
+          0.015652624890208244,
+          0.017614584183320403,
+          0.01649766694754362
+        ]
+      ],
+      "seconds_per_shot": [
+        0.0003112300194571821,
+        1.4193250754967154e-07
+      ],
+      "speedup": 2192.8029373275335
+    },
+    {
+      "circuit": "circuits/circuit_0424.stim",
+      "applied": true,
+      "input_t": 125,
+      "output_t": 3,
+      "before_phase_peak": 20,
+      "after_phase_peak": 3,
+      "baseline_peak": 20,
+      "native_peak": 1,
+      "baseline_actions": 183,
+      "native_actions": 61,
+      "noise_sites": 0,
+      "compile_seconds": [
+        0.004280082881450653,
+        0.10064249997958541
+      ],
+      "shots": [
+        2,
+        186447
+      ],
+      "timings_seconds": [
+        [
+          0.036984916077926755,
+          0.038345874985679984,
+          0.037508999928832054
+        ],
+        [
+          0.03190733282826841,
+          0.03347816690802574,
+          0.034036124823614955
+        ]
+      ],
+      "seconds_per_shot": [
+        0.018754499964416027,
+        1.795586247460444e-07
+      ],
+      "speedup": 104447.78128001998
+    },
+    {
+      "circuit": "circuits/circuit_0236.stim",
+      "applied": true,
+      "input_t": 127,
+      "output_t": 1,
+      "before_phase_peak": 22,
+      "after_phase_peak": 1,
+      "baseline_peak": 16,
+      "native_peak": 1,
+      "baseline_actions": 169,
+      "native_actions": 43,
+      "noise_sites": 0,
+      "compile_seconds": [
+        0.004406999796628952,
+        0.014821832999587059
+      ],
+      "shots": [
+        41,
+        200000
+      ],
+      "timings_seconds": [
+        [
+          0.031046791933476925,
+          0.03050191607326269,
+          0.03155058389529586
+        ],
+        [
+          0.028504041023552418,
+          0.02751595783047378,
+          0.028023208025842905
+        ]
+      ],
+      "seconds_per_shot": [
+        0.0007572388276457787,
+        1.4011604012921453e-07
+      ],
+      "speedup": 5404.369313802014
+    },
+    {
+      "circuit": "circuits/circuit_0759.stim",
+      "applied": true,
+      "input_t": 511,
+      "output_t": 1,
+      "before_phase_peak": 9,
+      "after_phase_peak": 1,
+      "baseline_peak": 9,
+      "native_peak": 1,
+      "baseline_actions": 531,
+      "native_actions": 21,
+      "noise_sites": 0,
+      "compile_seconds": [
+        0.01895641698502004,
+        0.0035207499749958515
+      ],
+      "shots": [
+        608,
+        200000
+      ],
+      "timings_seconds": [
+        [
+          0.029726749984547496,
+          0.02984520816244185,
+          0.029981750063598156
+        ],
+        [
+          0.014238832984119654,
+          0.014366709161549807,
+          0.01315212482586503
+        ]
+      ],
+      "seconds_per_shot": [
+        4.908751342506883e-05,
+        7.119416492059827e-08
+      ],
+      "speedup": 689.4878741792303
+    },
+    {
+      "circuit": "circuits/circuit_0649.stim",
+      "applied": true,
+      "input_t": 127,
+      "output_t": 1,
+      "before_phase_peak": 23,
+      "after_phase_peak": 1,
+      "baseline_peak": 19,
+      "native_peak": 1,
+      "baseline_actions": 173,
+      "native_actions": 47,
+      "noise_sites": 0,
+      "compile_seconds": [
+        0.005801999941468239,
+        0.011439583962783217
+      ],
+      "shots": [
+        7,
+        200000
+      ],
+      "timings_seconds": [
+        [
+          0.03557333303615451,
+          0.0372180410195142,
+          0.03542654193006456
+        ],
+        [
+          0.030159249901771545,
+          0.028378291986882687,
+          0.02928712498396635
+        ]
+      ],
+      "seconds_per_shot": [
+        0.005081904719450644,
+        1.4643562491983176e-07
+      ],
+      "speedup": 34704.01906798843
+    },
+    {
+      "circuit": "circuits/circuit_0005.stim",
+      "applied": true,
+      "input_t": 127,
+      "output_t": 1,
+      "before_phase_peak": 19,
+      "after_phase_peak": 1,
+      "baseline_peak": 10,
+      "native_peak": 1,
+      "baseline_actions": 165,
+      "native_actions": 39,
+      "noise_sites": 0,
+      "compile_seconds": [
+        0.005396542139351368,
+        0.006178583018481731
+      ],
+      "shots": [
+        1258,
+        200000
+      ],
+      "timings_seconds": [
+        [
+          0.02924754098057747,
+          0.028603333048522472,
+          0.02969554183073342
+        ],
+        [
+          0.02394845779053867,
+          0.021735958056524396,
+          0.024118665838614106
+        ]
+      ],
+      "seconds_per_shot": [
+        2.3249237663416112e-05,
+        1.1974228895269335e-07
+      ],
+      "speedup": 194.16062501194713
+    },
+    {
+      "circuit": "circuits/circuit_0262.stim",
+      "applied": true,
+      "input_t": 127,
+      "output_t": 1,
+      "before_phase_peak": 22,
+      "after_phase_peak": 1,
+      "baseline_peak": 15,
+      "native_peak": 1,
+      "baseline_actions": 169,
+      "native_actions": 43,
+      "noise_sites": 0,
+      "compile_seconds": [
+        0.00438029202632606,
+        0.011799542000517249
+      ],
+      "shots": [
+        66,
+        200000
+      ],
+      "timings_seconds": [
+        [
+          0.02972470805980265,
+          0.029150957940146327,
+          0.030313791008666158
+        ],
+        [
+          0.0246951668523252,
+          0.025073125027120113,
+          0.024775666883215308
+        ]
+      ],
+      "seconds_per_shot": [
+        0.00045037436454246443,
+        1.2387833441607655e-07
+      ],
+      "speedup": 3635.6185015352953
+    },
+    {
+      "circuit": "circuits/circuit_0300.stim",
+      "applied": true,
+      "input_t": 1024,
+      "output_t": 3,
+      "before_phase_peak": 16,
+      "after_phase_peak": 3,
+      "baseline_peak": 16,
+      "native_peak": 1,
+      "baseline_actions": 1056,
+      "native_actions": 35,
+      "noise_sites": 0,
+      "compile_seconds": [
+        0.49579899990931153,
+        0.053002542117610574
+      ],
+      "shots": [
+        3,
+        200000
+      ],
+      "timings_seconds": [
+        [
+          0.030396999791264534,
+          0.03028941689990461,
+          0.030296375043690205
+        ],
+        [
+          0.023120541824027896,
+          0.023456374881789088,
+          0.023711292073130608
+        ]
+      ],
+      "seconds_per_shot": [
+        0.010098791681230068,
+        1.1728187440894544e-07
+      ],
+      "speedup": 86107.01126771729
+    },
+    {
+      "circuit": "circuits/circuit_0689.stim",
+      "applied": true,
+      "input_t": 127,
+      "output_t": 1,
+      "before_phase_peak": 20,
+      "after_phase_peak": 1,
+      "baseline_peak": 13,
+      "native_peak": 1,
+      "baseline_actions": 167,
+      "native_actions": 41,
+      "noise_sites": 0,
+      "compile_seconds": [
+        0.0036694169975817204,
+        0.013657666044309735
+      ],
+      "shots": [
+        309,
+        200000
+      ],
+      "timings_seconds": [
+        [
+          0.030309499939903617,
+          0.030176708009094,
+          0.030419958056882024
+        ],
+        [
+          0.027363084023818374,
+          0.026845583925023675,
+          0.027517582988366485
+        ]
+      ],
+      "seconds_per_shot": [
+        9.808899656926736e-05,
+        1.3681542011909187e-07
+      ],
+      "speedup": 716.9440146723605
+    },
+    {
+      "circuit": "circuits/circuit_1037.stim",
+      "applied": true,
+      "input_t": 127,
+      "output_t": 1,
+      "before_phase_peak": 22,
+      "after_phase_peak": 1,
+      "baseline_peak": 18,
+      "native_peak": 1,
+      "baseline_actions": 171,
+      "native_actions": 45,
+      "noise_sites": 0,
+      "compile_seconds": [
+        0.004969084169715643,
+        0.005808833055198193
+      ],
+      "shots": [
+        11,
+        200000
+      ],
+      "timings_seconds": [
+        [
+          0.030538792023435235,
+          0.029777250019833446,
+          0.03052929206751287
+        ],
+        [
+          0.029435167089104652,
+          0.029275209177285433,
+          0.02905929205007851
+        ]
+      ],
+      "seconds_per_shot": [
+        0.0027753901879557156,
+        1.4637604588642717e-07
+      ],
+      "speedup": 18960.68561729789
+    }
+  ],
+  "noise": [
+    {
+      "circuit": "circuits/circuit_0005.stim",
+      "noise_model": "post_layer",
+      "applied": true,
+      "input_t": 127,
+      "output_t": 1,
+      "before_phase_peak": 19,
+      "after_phase_peak": 1,
+      "baseline_peak": 19,
+      "native_peak": 1,
+      "baseline_actions": 165,
+      "native_actions": 39,
+      "noise_sites": 127,
+      "compile_seconds": [
+        0.007322333054617047,
+        0.0023285411298274994
+      ],
+      "shots": [
+        4,
+        200000
+      ],
+      "timings_seconds": [
+        [
+          0.03342400002293289,
+          0.03266862500458956,
+          0.033313375199213624
+        ],
+        [
+          0.028475790983065963,
+          0.02804779098369181,
+          0.028142250142991543
+        ]
+      ],
+      "seconds_per_shot": [
+        0.008328343799803406,
+        1.4071125071495772e-07
+      ],
+      "speedup": 59187.47617896126
+    },
+    {
+      "circuit": "circuits/circuit_0005.stim",
+      "noise_model": "gate_z",
+      "applied": true,
+      "input_t": 127,
+      "output_t": 1,
+      "before_phase_peak": 19,
+      "after_phase_peak": 1,
+      "baseline_peak": 10,
+      "native_peak": 1,
+      "baseline_actions": 165,
+      "native_actions": 39,
+      "noise_sites": 2653,
+      "compile_seconds": [
+        0.027336457977071404,
+        0.00991595908999443
+      ],
+      "shots": [
+        1492,
+        94394
+      ],
+      "timings_seconds": [
+        [
+          0.03084083297289908,
+          0.030172124970704317,
+          0.030376791022717953
+        ],
+        [
+          0.02805212512612343,
+          0.026661917101591825,
+          0.027174041140824556
+        ]
+      ],
+      "seconds_per_shot": [
+        2.0359779505843133e-05,
+        2.878789026932279e-07
+      ],
+      "speedup": 70.72341639268753
+    },
+    {
+      "circuit": "circuits/circuit_0005.stim",
+      "noise_model": "gate_depolarizing",
+      "applied": false,
+      "input_t": 127,
+      "output_t": 127,
+      "before_phase_peak": 19,
+      "after_phase_peak": 19,
+      "baseline_peak": 12,
+      "native_peak": 12,
+      "baseline_actions": 165,
+      "native_actions": 165,
+      "noise_sites": 1400,
+      "compile_seconds": [
+        0.027456084033474326,
+        0.029048583935946226
+      ],
+      "shots": [
+        654,
+        674
+      ],
+      "timings_seconds": [
+        [
+          0.030089457985013723,
+          0.030133292078971863,
+          0.030597625067457557
+        ],
+        [
+          0.03135145804844797,
+          0.031394416000694036,
+          0.03137600002810359
+        ]
+      ],
+      "seconds_per_shot": [
+        4.607537015133312e-05,
+        4.655192882507951e-05
+      ],
+      "speedup": 0.9897628586876159
+    },
+    {
+      "circuit": "circuits/circuit_0262.stim",
+      "noise_model": "post_layer",
+      "applied": true,
+      "input_t": 127,
+      "output_t": 1,
+      "before_phase_peak": 22,
+      "after_phase_peak": 1,
+      "baseline_peak": 15,
+      "native_peak": 1,
+      "baseline_actions": 169,
+      "native_actions": 43,
+      "noise_sites": 22,
+      "compile_seconds": [
+        0.004613624885678291,
+        0.010616458021104336
+      ],
+      "shots": [
+        69,
+        200000
+      ],
+      "timings_seconds": [
+        [
+          0.030545584158971906,
+          0.02998308395035565,
+          0.030310082947835326
+        ],
+        [
+          0.025659165810793638,
+          0.025480292038992047,
+          0.026131749851629138
+        ]
+      ],
+      "seconds_per_shot": [
+        0.00043927656446138155,
+        1.282958290539682e-07
+      ],
+      "speedup": 3423.93488315663
+    },
+    {
+      "circuit": "circuits/circuit_0262.stim",
+      "noise_model": "gate_z",
+      "applied": true,
+      "input_t": 127,
+      "output_t": 1,
+      "before_phase_peak": 22,
+      "after_phase_peak": 1,
+      "baseline_peak": 14,
+      "native_peak": 1,
+      "baseline_actions": 169,
+      "native_actions": 43,
+      "noise_sites": 3734,
+      "compile_seconds": [
+        0.02863812493160367,
+        0.015487999888136983
+      ],
+      "shots": [
+        179,
+        89367
+      ],
+      "timings_seconds": [
+        [
+          0.03142191702499986,
+          0.03237954108044505,
+          0.03141208295710385
+        ],
+        [
+          0.028962250100448728,
+          0.028688207967206836,
+          0.028817249927669764
+        ]
+      ],
+      "seconds_per_shot": [
+        0.00017554143589385395,
+        3.2245963194098227e-07
+      ],
+      "speedup": 544.3826715214454
+    },
+    {
+      "circuit": "circuits/circuit_0262.stim",
+      "noise_model": "gate_depolarizing",
+      "applied": false,
+      "input_t": 127,
+      "output_t": 127,
+      "before_phase_peak": 22,
+      "after_phase_peak": 22,
+      "baseline_peak": 15,
+      "native_peak": 15,
+      "baseline_actions": 169,
+      "native_actions": 169,
+      "noise_sites": 1942,
+      "compile_seconds": [
+        0.04051562491804361,
+        0.04283366701565683
+      ],
+      "shots": [
+        120,
+        121
+      ],
+      "timings_seconds": [
+        [
+          0.029167165979743004,
+          0.02909091697074473,
+          0.028344250051304698
+        ],
+        [
+          0.031559209106490016,
+          0.03004683298058808,
+          0.02888687513768673
+        ]
+      ],
+      "seconds_per_shot": [
+        0.0002424243080895394,
+        0.0002483209337238684
+      ],
+      "speedup": 0.9762540131196268
+    },
+    {
+      "circuit": "circuits/circuit_0300.stim",
+      "noise_model": "post_layer",
+      "applied": true,
+      "input_t": 1024,
+      "output_t": 3,
+      "before_phase_peak": 16,
+      "after_phase_peak": 3,
+      "baseline_peak": 16,
+      "native_peak": 1,
+      "baseline_actions": 1056,
+      "native_actions": 35,
+      "noise_sites": 1024,
+      "compile_seconds": [
+        0.759365624981001,
+        0.059043874964118004
+      ],
+      "shots": [
+        3,
+        133250
+      ],
+      "timings_seconds": [
+        [
+          0.031033540843054652,
+          0.031170249916613102,
+          0.030543999979272485
+        ],
+        [
+          0.027655249927192926,
+          0.027429542038589716,
+          0.02761604217812419
+        ]
+      ],
+      "seconds_per_shot": [
+        0.01034451361435155,
+        2.0724984749061306e-07
+      ],
+      "speedup": 49913.2507917531
+    },
+    {
+      "circuit": "circuits/circuit_0300.stim",
+      "noise_model": "gate_z",
+      "applied": true,
+      "input_t": 1024,
+      "output_t": 3,
+      "before_phase_peak": 16,
+      "after_phase_peak": 3,
+      "baseline_peak": 16,
+      "native_peak": 1,
+      "baseline_actions": 1056,
+      "native_actions": 35,
+      "noise_sites": 33950,
+      "compile_seconds": [
+        5.730586375109851,
+        0.5210016251076013
+      ],
+      "shots": [
+        4,
+        6633
+      ],
+      "timings_seconds": [
+        [
+          0.038787666941061616,
+          0.0409473751205951,
+          0.040526208002120256
+        ],
+        [
+          0.027571583166718483,
+          0.027493749978020787,
+          0.028302166843786836
+        ]
+      ],
+      "seconds_per_shot": [
+        0.010131552000530064,
+        4.1567289562367685e-06
+      ],
+      "speedup": 2437.385768280285
+    },
+    {
+      "circuit": "circuits/circuit_0300.stim",
+      "noise_model": "gate_depolarizing",
+      "applied": false,
+      "input_t": 1024,
+      "output_t": 1024,
+      "before_phase_peak": 16,
+      "after_phase_peak": 16,
+      "baseline_peak": 16,
+      "native_peak": 16,
+      "baseline_actions": 1056,
+      "native_actions": 1056,
+      "noise_sites": 17501,
+      "compile_seconds": [
+        4.6970489581581205,
+        5.0968267500866205
+      ],
+      "shots": [
+        4,
+        4
+      ],
+      "timings_seconds": [
+        [
+          0.03959225001744926,
+          0.040001000044867396,
+          0.039415583945810795
+        ],
+        [
+          0.03927195817232132,
+          0.03948000003583729,
+          0.03965304093435407
+        ]
+      ],
+      "seconds_per_shot": [
+        0.009898062504362315,
+        0.009870000008959323
+      ],
+      "speedup": 1.0028432112844496
+    },
+    {
+      "circuit": "circuits/circuit_0689.stim",
+      "noise_model": "post_layer",
+      "applied": true,
+      "input_t": 127,
+      "output_t": 1,
+      "before_phase_peak": 20,
+      "after_phase_peak": 1,
+      "baseline_peak": 13,
+      "native_peak": 1,
+      "baseline_actions": 167,
+      "native_actions": 41,
+      "noise_sites": 20,
+      "compile_seconds": [
+        0.00430966611020267,
+        0.0073597917798906565
+      ],
+      "shots": [
+        305,
+        200000
+      ],
+      "timings_seconds": [
+        [
+          0.02960124984383583,
+          0.03009374998509884,
+          0.030110416933894157
+        ],
+        [
+          0.02906345808878541,
+          0.0291399578563869,
+          0.02865012502297759
+        ]
+      ],
+      "seconds_per_shot": [
+        9.866803273802897e-05,
+        1.4531729044392705e-07
+      ],
+      "speedup": 678.9834329872918
+    },
+    {
+      "circuit": "circuits/circuit_0689.stim",
+      "noise_model": "gate_z",
+      "applied": true,
+      "input_t": 127,
+      "output_t": 1,
+      "before_phase_peak": 20,
+      "after_phase_peak": 1,
+      "baseline_peak": 12,
+      "native_peak": 1,
+      "baseline_actions": 167,
+      "native_actions": 41,
+      "noise_sites": 3476,
+      "compile_seconds": [
+        0.02509008301422,
+        0.018717375118285418
+      ],
+      "shots": [
+        582,
+        86998
+      ],
+      "timings_seconds": [
+        [
+          0.03080850001424551,
+          0.029984416905790567,
+          0.028186833951622248
+        ],
+        [
+          0.027293667197227478,
+          0.02697545802220702,
+          0.02767512504942715
+        ]
+      ],
+      "seconds_per_shot": [
+        5.1519616676616096e-05,
+        3.137275247388156e-07
+      ],
+      "speedup": 164.21771318760509
+    },
+    {
+      "circuit": "circuits/circuit_0689.stim",
+      "noise_model": "gate_depolarizing",
+      "applied": false,
+      "input_t": 127,
+      "output_t": 127,
+      "before_phase_peak": 20,
+      "after_phase_peak": 20,
+      "baseline_peak": 13,
+      "native_peak": 13,
+      "baseline_actions": 167,
+      "native_actions": 167,
+      "noise_sites": 1812,
+      "compile_seconds": [
+        0.037382165901362896,
+        0.03794912504963577
+      ],
+      "shots": [
+        518,
+        519
+      ],
+      "timings_seconds": [
+        [
+          0.02975179092027247,
+          0.0303718748036772,
+          0.02908633416518569
+        ],
+        [
+          0.029229374835267663,
+          0.03051395807415247,
+          0.029548583086580038
+        ]
+      ],
+      "seconds_per_shot": [
+        5.743588980747581e-05,
+        5.6933686101310285e-05
+      ],
+      "speedup": 1.0088208535325094
+    },
+    {
+      "circuit": "circuits/circuit_1037.stim",
+      "noise_model": "post_layer",
+      "applied": true,
+      "input_t": 127,
+      "output_t": 1,
+      "before_phase_peak": 22,
+      "after_phase_peak": 1,
+      "baseline_peak": 22,
+      "native_peak": 1,
+      "baseline_actions": 171,
+      "native_actions": 45,
+      "noise_sites": 127,
+      "compile_seconds": [
+        0.007725500036031008,
+        0.003604667028412223
+      ],
+      "shots": [
+        1,
+        180880
+      ],
+      "timings_seconds": [
+        [
+          0.07833012496121228,
+          0.07803091709502041,
+          0.07811020803637803
+        ],
+        [
+          0.03082216694019735,
+          0.03065162501297891,
+          0.030849291943013668
+        ]
+      ],
+      "seconds_per_shot": [
+        0.07811020803637803,
+        1.704011883027275e-07
+      ],
+      "speedup": 458390.0430178383
+    },
+    {
+      "circuit": "circuits/circuit_1037.stim",
+      "noise_model": "gate_z",
+      "applied": true,
+      "input_t": 127,
+      "output_t": 1,
+      "before_phase_peak": 22,
+      "after_phase_peak": 1,
+      "baseline_peak": 14,
+      "native_peak": 1,
+      "baseline_actions": 171,
+      "native_actions": 45,
+      "noise_sites": 3340,
+      "compile_seconds": [
+        0.04011187516152859,
+        0.011098334100097418
+      ],
+      "shots": [
+        149,
+        81082
+      ],
+      "timings_seconds": [
+        [
+          0.030695582972839475,
+          0.030542624881491065,
+          0.030859458027407527
+        ],
+        [
+          0.029892750084400177,
+          0.02905558398924768,
+          0.03040345897898078
+        ]
+      ],
+      "seconds_per_shot": [
+        0.0002060106239787884,
+        3.6867307274611104e-07
+      ],
+      "speedup": 558.7894511641182
+    },
+    {
+      "circuit": "circuits/circuit_1037.stim",
+      "noise_model": "gate_depolarizing",
+      "applied": false,
+      "input_t": 127,
+      "output_t": 127,
+      "before_phase_peak": 22,
+      "after_phase_peak": 22,
+      "baseline_peak": 22,
+      "native_peak": 22,
+      "baseline_actions": 171,
+      "native_actions": 171,
+      "noise_sites": 1745,
+      "compile_seconds": [
+        0.04077283293008804,
+        0.04235449992120266
+      ],
+      "shots": [
+        1,
+        1
+      ],
+      "timings_seconds": [
+        [
+          0.04313337500207126,
+          0.04347212519496679,
+          0.04290229198522866
+        ],
+        [
+          0.04294545901939273,
+          0.0432527088560164,
+          0.042636417085304856
+        ]
+      ],
+      "seconds_per_shot": [
+        0.04313337500207126,
+        0.04294545901939273
+      ],
+      "speedup": 1.0043756892339577
+    }
+  ],
+  "existing": [
+    {
+      "workload": "msc-d3-inject-cultivate-p1e-3",
+      "applied": false,
+      "input_t": 29,
+      "output_t": 29,
+      "before_phase_peak": 4,
+      "after_phase_peak": 4,
+      "baseline_peak": 4,
+      "native_peak": 4,
+      "baseline_actions": 112,
+      "native_actions": 112,
+      "noise_sites": 518,
+      "compile_seconds": [
+        0.0012481659650802612,
+        0.0013642918784171343
+      ],
+      "compilation_repeats": 7,
+      "shots": [
+        50764,
+        53510
+      ],
+      "timings_seconds": [
+        [
+          0.02902729087509215,
+          0.029087833128869534,
+          0.02943562506698072
+        ],
+        [
+          0.030515999998897314,
+          0.03123083314858377,
+          0.031036957865580916
+        ]
+      ],
+      "seconds_per_shot": [
+        5.730012041775576e-07,
+        5.800216383027643e-07
+      ],
+      "speedup": 0.9878962547918908
+    },
+    {
+      "workload": "msc-d5-inject-cultivate-p1e-3",
+      "applied": false,
+      "input_t": 91,
+      "output_t": 91,
+      "before_phase_peak": 10,
+      "after_phase_peak": 10,
+      "baseline_peak": 10,
+      "native_peak": 10,
+      "baseline_actions": 522,
+      "native_actions": 522,
+      "noise_sites": 3564,
+      "compile_seconds": [
+        0.012318750144913793,
+        0.01309966598637402
+      ],
+      "compilation_repeats": 7,
+      "shots": [
+        5838,
+        5834
+      ],
+      "timings_seconds": [
+        [
+          0.0297450409270823,
+          0.02985891606658697,
+          0.02904291683807969
+        ],
+        [
+          0.030024999985471368,
+          0.029716749908402562,
+          0.029289582977071404
+        ]
+      ],
+      "seconds_per_shot": [
+        5.095073814162778e-06,
+        5.093717845115283e-06
+      ],
+      "speedup": 1.0002662041928363
+    },
+    {
+      "workload": "surface-code-d7-r7-p1e-3",
+      "applied": false,
+      "input_t": 0,
+      "output_t": 0,
+      "before_phase_peak": 0,
+      "after_phase_peak": 0,
+      "baseline_peak": 0,
+      "native_peak": 0,
+      "baseline_actions": 819,
+      "native_actions": 819,
+      "noise_sites": 2673,
+      "compile_seconds": [
+        0.0070403339341282845,
+        0.007166875060647726
+      ],
+      "compilation_repeats": 7,
+      "shots": [
+        21518,
+        21899
+      ],
+      "timings_seconds": [
+        [
+          0.03029695781879127,
+          0.030197625048458576,
+          0.029863999923691154
+        ],
+        [
+          0.02907466609030962,
+          0.02983887493610382,
+          0.030008208006620407
+        ]
+      ],
+      "seconds_per_shot": [
+        1.4033657890351602e-06,
+        1.3625679225582822e-06
+      ],
+      "speedup": 1.02994189559393
+    },
+    {
+      "workload": "distillation-color-code-85q-p5e-2",
+      "applied": false,
+      "input_t": 5,
+      "output_t": 5,
+      "before_phase_peak": 5,
+      "after_phase_peak": 5,
+      "baseline_peak": 3,
+      "native_peak": 3,
+      "baseline_actions": 225,
+      "native_actions": 225,
+      "noise_sites": 294,
+      "compile_seconds": [
+        0.0017192920204252005,
+        0.0019157079514116049
+      ],
+      "compilation_repeats": 7,
+      "shots": [
+        29146,
+        31397
+      ],
+      "timings_seconds": [
+        [
+          0.02817549998871982,
+          0.028481582878157496,
+          0.02768950001336634
+        ],
+        [
+          0.030614875024184585,
+          0.03065808303654194,
+          0.030292750103399158
+        ]
+      ],
+      "seconds_per_shot": [
+        9.667021199725458e-07,
+        9.75089181265235e-07
+      ],
+      "speedup": 0.99139867259956
+    },
+    {
+      "workload": "coherent-surface-d3-r1-p1e-3-rz2e-2",
+      "applied": false,
+      "input_t": 0,
+      "output_t": 0,
+      "before_phase_peak": 4,
+      "after_phase_peak": 4,
+      "baseline_peak": 0,
+      "native_peak": 0,
+      "baseline_actions": 43,
+      "native_actions": 43,
+      "noise_sites": 42,
+      "compile_seconds": [
+        0.00015183398500084877,
+        0.00015391712076961994
+      ],
+      "compilation_repeats": 7,
+      "shots": [
+        161436,
+        160140
+      ],
+      "timings_seconds": [
+        [
+          0.02962195803411305,
+          0.029781625140458345,
+          0.029861124930903316
+        ],
+        [
+          0.029508959036320448,
+          0.028961915988475084,
+          0.02830241690389812
+        ]
+      ],
+      "seconds_per_shot": [
+        1.8447945402796368e-07,
+        1.8085372791604273e-07
+      ],
+      "speedup": 1.0200478372975763
+    },
+    {
+      "workload": "coherent-surface-d3-r3-p1e-3-rz2e-2",
+      "applied": false,
+      "input_t": 0,
+      "output_t": 0,
+      "before_phase_peak": 8,
+      "after_phase_peak": 8,
+      "baseline_peak": 4,
+      "native_peak": 4,
+      "baseline_actions": 132,
+      "native_actions": 132,
+      "noise_sites": 74,
+      "compile_seconds": [
+        0.0006589160766452551,
+        0.0006725001148879528
+      ],
+      "compilation_repeats": 7,
+      "shots": [
+        46312,
+        46349
+      ],
+      "timings_seconds": [
+        [
+          0.029651583172380924,
+          0.02961495891213417,
+          0.029574250103905797
+        ],
+        [
+          0.02999654202722013,
+          0.030135832959786057,
+          0.029926415998488665
+        ]
+      ],
+      "seconds_per_shot": [
+        6.394662055651703e-07,
+        6.471885483445194e-07
+      ],
+      "speedup": 0.9880678624504365
+    },
+    {
+      "workload": "coherent-surface-d5-r1-p1e-3-rz2e-2",
+      "applied": false,
+      "input_t": 0,
+      "output_t": 0,
+      "before_phase_peak": 12,
+      "after_phase_peak": 12,
+      "baseline_peak": 0,
+      "native_peak": 0,
+      "baseline_actions": 123,
+      "native_actions": 123,
+      "noise_sites": 122,
+      "compile_seconds": [
+        0.0009831669740378857,
+        0.0009790831245481968
+      ],
+      "compilation_repeats": 7,
+      "shots": [
+        64868,
+        65745
+      ],
+      "timings_seconds": [
+        [
+          0.029204374877735972,
+          0.02954220795072615,
+          0.029129000147804618
+        ],
+        [
+          0.029350167140364647,
+          0.029012166894972324,
+          0.02916629216633737
+        ]
+      ],
+      "seconds_per_shot": [
+        4.5021235243472856e-07,
+        4.436275331407312e-07
+      ],
+      "speedup": 1.0148431258253496
+    },
+    {
+      "workload": "coherent-surface-d5-r5-p1e-3-rz2e-2",
+      "applied": false,
+      "input_t": 0,
+      "output_t": 0,
+      "before_phase_peak": 24,
+      "after_phase_peak": 24,
+      "baseline_peak": 13,
+      "native_peak": 13,
+      "baseline_actions": 670,
+      "native_actions": 670,
+      "noise_sites": 314,
+      "compile_seconds": [
+        0.009069791994988918,
+        0.009132167091593146
+      ],
+      "compilation_repeats": 7,
+      "shots": [
+        351,
+        347
+      ],
+      "timings_seconds": [
+        [
+          0.02888624998740852,
+          0.029884290881454945,
+          0.02951316605322063
+        ],
+        [
+          0.029145749984309077,
+          0.02948670811019838,
+          0.02903437498025596
+        ]
+      ],
+      "seconds_per_shot": [
+        8.408309416871974e-05,
+        8.39935158049253e-05
+      ],
+      "speedup": 1.001066491418248
+    },
+    {
+      "workload": "quantum-volume-q10-seed42",
+      "applied": false,
+      "input_t": 0,
+      "output_t": 0,
+      "before_phase_peak": 10,
+      "after_phase_peak": 10,
+      "baseline_peak": 10,
+      "native_peak": 10,
+      "baseline_actions": 353,
+      "native_actions": 353,
+      "noise_sites": 0,
+      "compile_seconds": [
+        0.0027103330940008163,
+        0.0027120420709252357
+      ],
+      "compilation_repeats": 7,
+      "shots": [
+        619,
+        621
+      ],
+      "timings_seconds": [
+        [
+          0.030433125095441937,
+          0.030326209031045437,
+          0.030518207931891084
+        ],
+        [
+          0.03071175003424287,
+          0.030127458041533828,
+          0.03069404186680913
+        ]
+      ],
+      "seconds_per_shot": [
+        4.916498399909844e-05,
+        4.942679849727718e-05
+      ],
+      "speedup": 0.9947029848960749
+    },
+    {
+      "workload": "quantum-volume-q20-seed42",
+      "applied": false,
+      "input_t": 0,
+      "output_t": 0,
+      "before_phase_peak": 20,
+      "after_phase_peak": 20,
+      "baseline_peak": 20,
+      "native_peak": 20,
+      "baseline_actions": 1000,
+      "native_actions": 1000,
+      "noise_sites": 0,
+      "compile_seconds": [
+        0.02210862492211163,
+        0.021952082868665457
+      ],
+      "compilation_repeats": 7,
+      "shots": [
+        1,
+        1
+      ],
+      "timings_seconds": [
+        [
+          0.21643145801499486,
+          0.21482500014826655,
+          0.21535645797848701
+        ],
+        [
+          0.21642137481831014,
+          0.21589145879261196,
+          0.21476966701447964
+        ]
+      ],
+      "seconds_per_shot": [
+        0.21535645797848701,
+        0.21589145879261196
+      ],
+      "speedup": 0.9975218991195067
+    }
+  ],
+  "width_regression_confirmation": [
+    {
+      "circuit": "circuits/circuit_0204.stim",
+      "applied": true,
+      "input_t": 26,
+      "output_t": 20,
+      "before_phase_peak": 8,
+      "after_phase_peak": 6,
+      "baseline_peak": 4,
+      "native_peak": 5,
+      "baseline_actions": 44,
+      "native_actions": 38,
+      "noise_sites": 0,
+      "compile_seconds": [
+        0.0003374998923391104,
+        0.0005979170091450214
+      ],
+      "shots": [
+        200000,
+        200000
+      ],
+      "timings_seconds": [
+        [
+          0.09673974988982081,
+          0.0954752501565963,
+          0.09610054106451571,
+          0.09570874995552003,
+          0.0953655419871211
+        ],
+        [
+          0.06573520880192518,
+          0.06721433391794562,
+          0.06747383391484618,
+          0.06583520816639066,
+          0.06700633303262293
+        ]
+      ],
+      "seconds_per_shot": [
+        4.785437497776002e-07,
+        3.350316651631147e-07
+      ],
+      "speedup": 1.428353793199263
+    },
+    {
+      "circuit": "circuits/circuit_0481.stim",
+      "applied": true,
+      "input_t": 26,
+      "output_t": 20,
+      "before_phase_peak": 9,
+      "after_phase_peak": 6,
+      "baseline_peak": 4,
+      "native_peak": 5,
+      "baseline_actions": 44,
+      "native_actions": 38,
+      "noise_sites": 0,
+      "compile_seconds": [
+        0.0003949590027332306,
+        0.0005869169253855944
+      ],
+      "shots": [
+        200000,
+        200000
+      ],
+      "timings_seconds": [
+        [
+          0.09173954208381474,
+          0.09406608296558261,
+          0.09077779087238014,
+          0.09358329093083739,
+          0.09110383386723697
+        ],
+        [
+          0.06764470902271569,
+          0.06679245783016086,
+          0.0666216250974685,
+          0.06592783308587968,
+          0.06747391703538597
+        ]
+      ],
+      "seconds_per_shot": [
+        4.586977104190737e-07,
+        3.3396228915080426e-07
+      ],
+      "speedup": 1.3735015159509336
+    },
+    {
+      "circuit": "circuits/circuit_0273.stim",
+      "applied": false,
+      "input_t": 68,
+      "output_t": 68,
+      "before_phase_peak": 23,
+      "after_phase_peak": 23,
+      "baseline_peak": 22,
+      "native_peak": 22,
+      "baseline_actions": 74,
+      "native_actions": 74,
+      "noise_sites": 0,
+      "compile_seconds": [
+        0.0010485840030014515,
+        0.010076165897771716
+      ],
+      "shots": [
+        8,
+        8
+      ],
+      "timings_seconds": [
+        [
+          0.15786708309315145,
+          0.16077204188331962,
+          0.16104058315977454,
+          0.16061179107055068,
+          0.16215658304281533
+        ],
+        [
+          0.15889291698113084,
+          0.16060687508434057,
+          0.16140754101797938,
+          0.16098799998871982,
+          0.16123866592533886
+        ]
+      ],
+      "seconds_per_shot": [
+        0.020096505235414952,
+        0.020123499998589978
+      ],
+      "speedup": 0.9986585453237798
+    }
+  ],
+  "oracles": {
+    "summary": {
+      "aer_states": 95,
+      "full_record_distributions": 95,
+      "max_amplitude_error": 1.245023981993948e-15,
+      "max_record_probability_error": 5.551115123125783e-16,
+      "record_reference": "Unoptimized native forced-outcome probabilities; unitary state reference is independent Qiskit Aer."
+    },
+    "rows": [
+      {
+        "circuit": "circuits/circuit_0009.stim",
+        "amplitude_error": 8.601989796748051e-16,
+        "record_error": 1.1102230246251565e-16
+      },
+      {
+        "circuit": "circuits/circuit_0016.stim",
+        "amplitude_error": 1.6184142622847341e-16,
+        "record_error": 1.1102230246251565e-16
+      },
+      {
+        "circuit": "circuits/circuit_0020.stim",
+        "amplitude_error": 4.17488514772616e-16,
+        "record_error": 0.0
+      },
+      {
+        "circuit": "circuits/circuit_0024.stim",
+        "amplitude_error": 2.810037859529239e-16,
+        "record_error": 0.0
+      },
+      {
+        "circuit": "circuits/circuit_0025.stim",
+        "amplitude_error": 1.2413543501468598e-15,
+        "record_error": 0.0
+      },
+      {
+        "circuit": "circuits/circuit_0049.stim",
+        "amplitude_error": 1.2413543501468598e-15,
+        "record_error": 1.1102230246251565e-16
+      },
+      {
+        "circuit": "circuits/circuit_0056.stim",
+        "amplitude_error": 7.11870997173569e-17,
+        "record_error": 0.0
+      },
+      {
+        "circuit": "circuits/circuit_0060.stim",
+        "amplitude_error": 7.216616720313208e-16,
+        "record_error": 2.220446049250313e-16
+      },
+      {
+        "circuit": "circuits/circuit_0077.stim",
+        "amplitude_error": 3.9745993972772024e-16,
+        "record_error": 0.0
+      },
+      {
+        "circuit": "circuits/circuit_0078.stim",
+        "amplitude_error": 2.754662226278516e-16,
+        "record_error": 0.0
+      },
+      {
+        "circuit": "circuits/circuit_0090.stim",
+        "amplitude_error": 5.985977498731892e-16,
+        "record_error": 0.0
+      },
+      {
+        "circuit": "circuits/circuit_0099.stim",
+        "amplitude_error": 2.754662226278516e-16,
+        "record_error": 1.1102230246251565e-16
+      },
+      {
+        "circuit": "circuits/circuit_0100.stim",
+        "amplitude_error": 5.985977498731892e-16,
+        "record_error": 1.1102230246251565e-16
+      },
+      {
+        "circuit": "circuits/circuit_0101.stim",
+        "amplitude_error": 1.6184142622847341e-16,
+        "record_error": 0.0
+      },
+      {
+        "circuit": "circuits/circuit_0122.stim",
+        "amplitude_error": 6.146407045207052e-16,
+        "record_error": 0.0
+      },
+      {
+        "circuit": "circuits/circuit_0123.stim",
+        "amplitude_error": 6.146407045207052e-16,
+        "record_error": 0.0
+      },
+      {
+        "circuit": "circuits/circuit_0124.stim",
+        "amplitude_error": 2.810037859529239e-16,
+        "record_error": 0.0
+      },
+      {
+        "circuit": "circuits/circuit_0131.stim",
+        "amplitude_error": 5.985977498731892e-16,
+        "record_error": 1.1102230246251565e-16
+      },
+      {
+        "circuit": "circuits/circuit_0136.stim",
+        "amplitude_error": 1.6184142622847341e-16,
+        "record_error": 0.0
+      },
+      {
+        "circuit": "circuits/circuit_0137.stim",
+        "amplitude_error": 7.216616720313208e-16,
+        "record_error": 0.0
+      },
+      {
+        "circuit": "circuits/circuit_0151.stim",
+        "amplitude_error": 8.601989796748051e-16,
+        "record_error": 2.220446049250313e-16
+      },
+      {
+        "circuit": "circuits/circuit_0156.stim",
+        "amplitude_error": 4.17488514772616e-16,
+        "record_error": 0.0
+      },
+      {
+        "circuit": "circuits/circuit_0161.stim",
+        "amplitude_error": 2.754662226278516e-16,
+        "record_error": 1.1102230246251565e-16
+      },
+      {
+        "circuit": "circuits/circuit_0204.stim",
+        "amplitude_error": 7.700406315851725e-17,
+        "record_error": 1.1102230246251565e-16
+      },
+      {
+        "circuit": "circuits/circuit_0223.stim",
+        "amplitude_error": 1.2413543501468598e-15,
+        "record_error": 0.0
+      },
+      {
+        "circuit": "circuits/circuit_0256.stim",
+        "amplitude_error": 8.68471251378335e-16,
+        "record_error": 5.551115123125783e-17
+      },
+      {
+        "circuit": "circuits/circuit_0265.stim",
+        "amplitude_error": 7.424621293404278e-16,
+        "record_error": 0.0
+      },
+      {
+        "circuit": "circuits/circuit_0271.stim",
+        "amplitude_error": 1.7663540160192472e-16,
+        "record_error": 0.0
+      },
+      {
+        "circuit": "circuits/circuit_0276.stim",
+        "amplitude_error": 2.754662226278516e-16,
+        "record_error": 1.1102230246251565e-16
+      },
+      {
+        "circuit": "circuits/circuit_0278.stim",
+        "amplitude_error": 1.7663540160192472e-16,
+        "record_error": 0.0
+      },
+      {
+        "circuit": "circuits/circuit_0285.stim",
+        "amplitude_error": 7.700406315851725e-17,
+        "record_error": 0.0
+      },
+      {
+        "circuit": "circuits/circuit_0296.stim",
+        "amplitude_error": 1.7663540160192472e-16,
+        "record_error": 0.0
+      },
+      {
+        "circuit": "circuits/circuit_0310.stim",
+        "amplitude_error": 3.9745993972772024e-16,
+        "record_error": 1.1102230246251565e-16
+      },
+      {
+        "circuit": "circuits/circuit_0325.stim",
+        "amplitude_error": 6.146407045207052e-16,
+        "record_error": 0.0
+      },
+      {
+        "circuit": "circuits/circuit_0333.stim",
+        "amplitude_error": 2.810037859529239e-16,
+        "record_error": 0.0
+      },
+      {
+        "circuit": "circuits/circuit_0340.stim",
+        "amplitude_error": 1.2413543501468598e-15,
+        "record_error": 5.551115123125783e-17
+      },
+      {
+        "circuit": "circuits/circuit_0346.stim",
+        "amplitude_error": 8.601989796748051e-16,
+        "record_error": 0.0
+      },
+      {
+        "circuit": "circuits/circuit_0349.stim",
+        "amplitude_error": 1.7663540160192472e-16,
+        "record_error": 0.0
+      },
+      {
+        "circuit": "circuits/circuit_0370.stim",
+        "amplitude_error": 7.424621293404278e-16,
+        "record_error": 1.1102230246251565e-16
+      },
+      {
+        "circuit": "circuits/circuit_0390.stim",
+        "amplitude_error": 7.700406315851725e-17,
+        "record_error": 0.0
+      },
+      {
+        "circuit": "circuits/circuit_0395.stim",
+        "amplitude_error": 8.68471251378335e-16,
+        "record_error": 0.0
+      },
+      {
+        "circuit": "circuits/circuit_0398.stim",
+        "amplitude_error": 1.2413543501468598e-15,
+        "record_error": 0.0
+      },
+      {
+        "circuit": "circuits/circuit_0408.stim",
+        "amplitude_error": 1.2413543501468598e-15,
+        "record_error": 0.0
+      },
+      {
+        "circuit": "circuits/circuit_0412.stim",
+        "amplitude_error": 4.17488514772616e-16,
+        "record_error": 0.0
+      },
+      {
+        "circuit": "circuits/circuit_0414.stim",
+        "amplitude_error": 6.146407045207052e-16,
+        "record_error": 0.0
+      },
+      {
+        "circuit": "circuits/circuit_0420.stim",
+        "amplitude_error": 5.985977498731892e-16,
+        "record_error": 0.0
+      },
+      {
+        "circuit": "circuits/circuit_0437.stim",
+        "amplitude_error": 8.68471251378335e-16,
+        "record_error": 0.0
+      },
+      {
+        "circuit": "circuits/circuit_0446.stim",
+        "amplitude_error": 1.6184142622847341e-16,
+        "record_error": 0.0
+      },
+      {
+        "circuit": "circuits/circuit_0448.stim",
+        "amplitude_error": 2.810037859529239e-16,
+        "record_error": 0.0
+      },
+      {
+        "circuit": "circuits/circuit_0452.stim",
+        "amplitude_error": 2.810037859529239e-16,
+        "record_error": 0.0
+      },
+      {
+        "circuit": "circuits/circuit_0459.stim",
+        "amplitude_error": 1.0408340855860843e-16,
+        "record_error": 0.0
+      },
+      {
+        "circuit": "circuits/circuit_0461.stim",
+        "amplitude_error": 8.68471251378335e-16,
+        "record_error": 2.220446049250313e-16
+      },
+      {
+        "circuit": "circuits/circuit_0472.stim",
+        "amplitude_error": 1.11724811264373e-16,
+        "record_error": 0.0
+      },
+      {
+        "circuit": "circuits/circuit_0473.stim",
+        "amplitude_error": 7.11870997173569e-17,
+        "record_error": 1.1102230246251565e-16
+      },
+      {
+        "circuit": "circuits/circuit_0484.stim",
+        "amplitude_error": 4.17488514772616e-16,
+        "record_error": 8.326672684688674e-17
+      },
+      {
+        "circuit": "circuits/circuit_0494.stim",
+        "amplitude_error": 5.985977498731892e-16,
+        "record_error": 5.551115123125783e-17
+      },
+      {
+        "circuit": "circuits/circuit_0534.stim",
+        "amplitude_error": 1.2413543501468598e-15,
+        "record_error": 2.220446049250313e-16
+      },
+      {
+        "circuit": "circuits/circuit_0559.stim",
+        "amplitude_error": 6.146407045207052e-16,
+        "record_error": 0.0
+      },
+      {
+        "circuit": "circuits/circuit_0560.stim",
+        "amplitude_error": 1.245023981993948e-15,
+        "record_error": 5.551115123125783e-16
+      },
+      {
+        "circuit": "circuits/circuit_0603.stim",
+        "amplitude_error": 7.114650642396823e-16,
+        "record_error": 5.551115123125783e-17
+      },
+      {
+        "circuit": "circuits/circuit_0604.stim",
+        "amplitude_error": 3.9745993972772024e-16,
+        "record_error": 0.0
+      },
+      {
+        "circuit": "circuits/circuit_0614.stim",
+        "amplitude_error": 8.601989796748051e-16,
+        "record_error": 0.0
+      },
+      {
+        "circuit": "circuits/circuit_0625.stim",
+        "amplitude_error": 1.377331113139258e-16,
+        "record_error": 0.0
+      },
+      {
+        "circuit": "circuits/circuit_0640.stim",
+        "amplitude_error": 7.424621293404278e-16,
+        "record_error": 1.1102230246251565e-16
+      },
+      {
+        "circuit": "circuits/circuit_0661.stim",
+        "amplitude_error": 1.245023981993948e-15,
+        "record_error": 0.0
+      },
+      {
+        "circuit": "circuits/circuit_0671.stim",
+        "amplitude_error": 3.9745993972772024e-16,
+        "record_error": 1.1102230246251565e-16
+      },
+      {
+        "circuit": "circuits/circuit_0701.stim",
+        "amplitude_error": 5.985977498731892e-16,
+        "record_error": 1.1102230246251565e-16
+      },
+      {
+        "circuit": "circuits/circuit_0707.stim",
+        "amplitude_error": 1.1064218096644412e-16,
+        "record_error": 5.551115123125783e-17
+      },
+      {
+        "circuit": "circuits/circuit_0719.stim",
+        "amplitude_error": 1.245023981993948e-15,
+        "record_error": 0.0
+      },
+      {
+        "circuit": "circuits/circuit_0720.stim",
+        "amplitude_error": 7.424621293404278e-16,
+        "record_error": 0.0
+      },
+      {
+        "circuit": "circuits/circuit_0724.stim",
+        "amplitude_error": 1.245023981993948e-15,
+        "record_error": 0.0
+      },
+      {
+        "circuit": "circuits/circuit_0740.stim",
+        "amplitude_error": 1.245023981993948e-15,
+        "record_error": 0.0
+      },
+      {
+        "circuit": "circuits/circuit_0756.stim",
+        "amplitude_error": 8.601989796748051e-16,
+        "record_error": 0.0
+      },
+      {
+        "circuit": "circuits/circuit_0759.stim",
+        "amplitude_error": 1.245023981993948e-15,
+        "record_error": 1.1102230246251565e-16
+      },
+      {
+        "circuit": "circuits/circuit_0763.stim",
+        "amplitude_error": 3.9745993972772024e-16,
+        "record_error": 1.1102230246251565e-16
+      },
+      {
+        "circuit": "circuits/circuit_0769.stim",
+        "amplitude_error": 7.114650642396823e-16,
+        "record_error": 0.0
+      },
+      {
+        "circuit": "circuits/circuit_0780.stim",
+        "amplitude_error": 1.7663540160192472e-16,
+        "record_error": 1.1102230246251565e-16
+      },
+      {
+        "circuit": "circuits/circuit_0785.stim",
+        "amplitude_error": 2.754662226278516e-16,
+        "record_error": 0.0
+      },
+      {
+        "circuit": "circuits/circuit_0792.stim",
+        "amplitude_error": 2.754662226278516e-16,
+        "record_error": 0.0
+      },
+      {
+        "circuit": "circuits/circuit_0807.stim",
+        "amplitude_error": 2.810037859529239e-16,
+        "record_error": 0.0
+      },
+      {
+        "circuit": "circuits/circuit_0886.stim",
+        "amplitude_error": 7.700406315851725e-17,
+        "record_error": 0.0
+      },
+      {
+        "circuit": "circuits/circuit_0906.stim",
+        "amplitude_error": 3.9745993972772024e-16,
+        "record_error": 0.0
+      },
+      {
+        "circuit": "circuits/circuit_0911.stim",
+        "amplitude_error": 7.11870997173569e-17,
+        "record_error": 5.551115123125783e-17
+      },
+      {
+        "circuit": "circuits/circuit_0925.stim",
+        "amplitude_error": 4.17488514772616e-16,
+        "record_error": 1.3877787807814457e-16
+      },
+      {
+        "circuit": "circuits/circuit_0936.stim",
+        "amplitude_error": 2.754662226278516e-16,
+        "record_error": 2.220446049250313e-16
+      },
+      {
+        "circuit": "circuits/circuit_0939.stim",
+        "amplitude_error": 6.146407045207052e-16,
+        "record_error": 0.0
+      },
+      {
+        "circuit": "circuits/circuit_0952.stim",
+        "amplitude_error": 4.17488514772616e-16,
+        "record_error": 1.1102230246251565e-16
+      },
+      {
+        "circuit": "circuits/circuit_0955.stim",
+        "amplitude_error": 8.341116186757556e-17,
+        "record_error": 0.0
+      },
+      {
+        "circuit": "circuits/circuit_0996.stim",
+        "amplitude_error": 7.11870997173569e-17,
+        "record_error": 1.1102230246251565e-16
+      },
+      {
+        "circuit": "circuits/circuit_0999.stim",
+        "amplitude_error": 7.11870997173569e-17,
+        "record_error": 0.0
+      },
+      {
+        "circuit": "circuits/circuit_1003.stim",
+        "amplitude_error": 5.985977498731892e-16,
+        "record_error": 0.0
+      },
+      {
+        "circuit": "circuits/circuit_1006.stim",
+        "amplitude_error": 5.985977498731892e-16,
+        "record_error": 0.0
+      },
+      {
+        "circuit": "circuits/circuit_1007.stim",
+        "amplitude_error": 8.68471251378335e-16,
+        "record_error": 1.1102230246251565e-16
+      },
+      {
+        "circuit": "circuits/circuit_1025.stim",
+        "amplitude_error": 7.11870997173569e-17,
+        "record_error": 0.0
+      },
+      {
+        "circuit": "circuits/circuit_1033.stim",
+        "amplitude_error": 2.810037859529239e-16,
+        "record_error": 1.1102230246251565e-16
+      }
+    ]
+  },
+  "tests": {
+    "cpp_non_expensive_passed": 1029,
+    "cpp_phase_cases": 14,
+    "cpp_phase_assertions": 69,
+    "python_passed": 187,
+    "python_skipped": 36,
+    "python_skips": "GPU unavailable",
+    "independent_references": "Aer statevectors and density-matrix joint records on general/noisy test circuits; Stim for stochastic Clifford cases"
+  }
+}

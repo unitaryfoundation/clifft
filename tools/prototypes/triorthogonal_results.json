@@ -1,0 +1,108 @@
+{
+  "version": "0.10.2.dev29+gfe28c3fe1",
+  "isa": "neon",
+  "threads": 1,
+  "batch_size": 1,
+  "baseline": "default passes plus ActiveWidthSchedulePass with default settings",
+  "circuits": 1037,
+  "lower_peak": 1023,
+  "higher_peak": 0,
+  "input_t": 159592,
+  "output_t": 2508,
+  "median_rewrite_ms": 7.161875022575259,
+  "sampled": 1037,
+  "target_seconds": 0.01,
+  "repeats": 3,
+  "median_speedup": 5631.605437285581,
+  "geometric_mean_speedup": 3209.172530473022,
+  "equal_shots_total_speedup": 30.26504470150937,
+  "slower_over_ten_percent": 0,
+  "rewritten": 1023,
+  "unchanged": 14,
+  "cpu": "Apple M4 Pro",
+  "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+  "source_checkout": "8c5f8143",
+  "binary_source_commit": "fe28c3fe1",
+  "binary_source_matches_checkout": "src and CMakeLists.txt have no differences between these commits",
+  "median_baseline_compile_ms": 3.5368751268833876,
+  "median_rewrite_plus_compile_ms": 7.265750085934997,
+  "median_peak_before": 16,
+  "median_peak_after": 1,
+  "t_reduction_fraction": 0.9842849265627349,
+  "oracle_validation": {
+    "aer_states": 95,
+    "full_record_distributions": 95,
+    "max_amplitude_error": 1.2442998696788253e-15,
+    "max_record_probability_error": 2.220446049250313e-16
+  },
+  "long_confirmation": {
+    "target_seconds": 0.1,
+    "repeats": 5,
+    "cases": [
+      {
+        "circuit": "circuits/circuit_0005.stim",
+        "rewritten": true,
+        "baseline_peak": 10,
+        "reduced_peak": 1,
+        "speedup": 249.90013178561085
+      },
+      {
+        "circuit": "circuits/circuit_0262.stim",
+        "rewritten": true,
+        "baseline_peak": 15,
+        "reduced_peak": 1,
+        "speedup": 3908.20857261583
+      },
+      {
+        "circuit": "circuits/circuit_0273.stim",
+        "rewritten": false,
+        "baseline_peak": 22,
+        "reduced_peak": 22,
+        "speedup": 1.008562741548012
+      },
+      {
+        "circuit": "circuits/circuit_0300.stim",
+        "rewritten": true,
+        "baseline_peak": 16,
+        "reduced_peak": 1,
+        "speedup": 107959.59895262806
+      },
+      {
+        "circuit": "circuits/circuit_0481.stim",
+        "rewritten": false,
+        "baseline_peak": 4,
+        "reduced_peak": 4,
+        "speedup": 1.016963318822216
+      },
+      {
+        "circuit": "circuits/circuit_0689.stim",
+        "rewritten": true,
+        "baseline_peak": 13,
+        "reduced_peak": 1,
+        "speedup": 910.4570464046661
+      },
+      {
+        "circuit": "circuits/circuit_1017.stim",
+        "rewritten": false,
+        "baseline_peak": 4,
+        "reduced_peak": 4,
+        "speedup": 1.0044439768056055
+      },
+      {
+        "circuit": "circuits/circuit_1037.stim",
+        "rewritten": true,
+        "baseline_peak": 18,
+        "reduced_peak": 1,
+        "speedup": 21597.732167504255
+      }
+    ]
+  },
+  "notes": [
+    "Ideal prepared-state rewrite with T-count expansion guard. Not arbitrary-input unitary equivalence.",
+    "Sampler timings exclude rewrite and compilation. Ratios are attempted-shot throughput.",
+    "Equal-shots-total speedup is the ratio of summed seconds per shot across the corpus.",
+    "Timing calibration caps each call at 200000 shots.",
+    "All measured postselection attempts passed.",
+    "Full raw measurements are in /tmp/clifft-phase-polynomial-guarded. Corpus is supplied separately."
+  ]
+}

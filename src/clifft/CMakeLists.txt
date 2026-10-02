@@ -12,6 +12,7 @@ add_library(clifft_core STATIC
     optimizer/drop_non_unitary_pass.cc
     optimizer/commutation.cc
     optimizer/peephole.cc
+    optimizer/phase_polynomial_pass.cc
     optimizer/pass_factory.cc
     optimizer/remove_noise_pass.cc
     optimizer/schedule_dependence.cc
