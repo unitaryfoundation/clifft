@@ -134,6 +134,16 @@ NonComputationalModel NonComputationalModel::from_spec(
     const std::map<std::string, std::vector<std::vector<double>>>& transition_matrices,
     std::optional<std::vector<std::vector<double>>> classifier_matrix,
     NonComputationalPolicy policy) {
+    return from_spec(std::move(initial_state), transition_matrices, std::move(classifier_matrix),
+                     policy, {}, {});
+}
+
+NonComputationalModel NonComputationalModel::from_spec(
+    std::vector<double> initial_state,
+    const std::map<std::string, std::vector<std::vector<double>>>& transition_matrices,
+    std::optional<std::vector<std::vector<double>>> classifier_matrix,
+    NonComputationalPolicy policy, GatePartnerEffects gate_partner_effects,
+    const std::vector<InteractionRule>& interactions) {
     std::map<std::string, TransitionInstrument> transitions;
     for (const auto& [gate, matrix] : transition_matrices) {
         try {
@@ -149,8 +159,52 @@ NonComputationalModel NonComputationalModel::from_spec(
         classifier = MeasurementClassifier::from_matrix(*classifier_matrix);
     }
 
-    return NonComputationalModel(std::move(initial_state), std::move(transitions),
-                                 std::move(classifier), policy);
+    NonComputationalModel model(std::move(initial_state), std::move(transitions),
+                                std::move(classifier), policy);
+    if (gate_partner_effects.leaked) {
+        gate_partner_effects.leaked->validate(true, "gate_partner_effects leaked");
+    }
+    if (gate_partner_effects.lost) {
+        gate_partner_effects.lost->validate(false, "gate_partner_effects lost");
+    }
+    model.gate_partner_effects_ = std::move(gate_partner_effects);
+    for (const auto& rule : interactions) {
+        const std::string context = "interaction rule for '" + rule.gate + "'";
+        const GateType gate = parse_gate_name(rule.gate);
+        if (!supports_partner_effect(gate)) {
+            throw std::invalid_argument(context +
+                                        " requires a supported native two-qubit unitary gate");
+        }
+        if (rule.source_operand > 1) {
+            throw std::invalid_argument(context + " source_operand must be 0 or 1");
+        }
+        if (rule.source_status != InteractionSource::Leaked &&
+            rule.source_status != InteractionSource::Lost) {
+            throw std::invalid_argument(context + " has an unrecognized source status");
+        }
+        rule.effect.validate(rule.source_status == InteractionSource::Leaked, context);
+        const auto key = std::make_tuple(gate, rule.source_operand, rule.source_status);
+        if (!model.interactions_.emplace(key, rule.effect).second) {
+            throw std::invalid_argument(context + " duplicates a rule for canonical gate '" +
+                                        std::string(gate_name(gate)) +
+                                        "' with the same direction and status");
+        }
+    }
+    return model;
+}
+
+const PartnerEffect* NonComputationalModel::partner_effect(GateType gate, uint32_t source_operand,
+                                                           InteractionSource source_status) const {
+    if (!supports_partner_effect(gate)) {
+        return nullptr;
+    }
+    const auto it = interactions_.find({gate, source_operand, source_status});
+    if (it != interactions_.end()) {
+        return &it->second;
+    }
+    const auto& effect = source_status == InteractionSource::Leaked ? gate_partner_effects_.leaked
+                                                                    : gate_partner_effects_.lost;
+    return effect ? &*effect : nullptr;
 }
 
 const TransitionInstrument* NonComputationalModel::transition_named(std::string_view name) const {

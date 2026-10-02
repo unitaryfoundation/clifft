@@ -4,6 +4,8 @@
 #include "clifft/circuit/target.h"
 #include "clifft/noncomp/status_walk.h"
 
+#include <stdexcept>
+
 namespace clifft {
 
 Circuit expand_transition_hooks(const Circuit& circuit, const NonComputationalModel& model) {
@@ -14,6 +16,34 @@ Circuit expand_transition_hooks(const Circuit& circuit, const NonComputationalMo
 
     for (const AstNode& node : circuit.nodes) {
         out.nodes.push_back(node);
+        if (supports_partner_effect(node.gate)) {
+            const auto operands = qubit_operands(node);
+            if (operands.size() == 2 && operands[0].role == OperandRole::Physical &&
+                operands[1].role == OperandRole::Physical) {
+                for (uint32_t source = 0; source < 2; ++source) {
+                    for (const auto status : {InteractionSource::Leaked, InteractionSource::Lost}) {
+                        const PartnerEffect* effect =
+                            model.partner_effect(node.gate, source, status);
+                        if (effect == nullptr || effect->empty()) {
+                            continue;
+                        }
+                        const bool leakage = status == InteractionSource::Leaked;
+                        std::vector<double> args(effect->pauli.begin(), effect->pauli.end());
+                        if (leakage) {
+                            args.push_back(effect->spread_probability);
+                        }
+                        out.nodes.push_back(AstNode{
+                            leakage ? GateType::LEAKAGE_INTERACTION : GateType::LOSS_INTERACTION,
+                            {node.targets[source], node.targets[1 - source]},
+                            std::move(args),
+                            node.source_line});
+                    }
+                }
+            } else if (operands.size() != 1 || operands[0].role != OperandRole::Feedback) {
+                throw std::invalid_argument(
+                    "model expansion requires one physical gate pair per node");
+            }
+        }
         const auto hook = hooks.find(node.gate);
         if (hook == hooks.end()) {
             continue;
