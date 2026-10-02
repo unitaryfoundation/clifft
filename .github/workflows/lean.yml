@@ -1,0 +1,54 @@
+name: Lean proofs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "lean/**"
+      - ".github/workflows/lean.yml"
+  pull_request:
+    paths:
+      - "lean/**"
+      - ".github/workflows/lean.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  MATHLIB_NO_CACHE_ON_UPDATE: "1"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  proofs:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Lean toolchain
+        uses: leanprover/lean-action@f061402b660e0c34644504b324e830f2991d4865 # v1
+        with:
+          lake-package-directory: lean
+          auto-config: false
+          use-mathlib-cache: false
+          use-github-cache: false
+
+      - name: Fetch imported Mathlib artifacts
+        working-directory: lean
+        run: |
+          lake exe cache get \
+            Mathlib.Basic.Complex.Basic \
+            Mathlib.LinearAlgebra.Matrix.Notation \
+            Mathlib.Tactic.FinCases \
+            Mathlib.Tactic.NormNum
+
+      - name: Check imports and proofs including axiom dependencies
+        working-directory: lean
+        run: |
+          lake exe mk_all --lib ClifftProofs --check
+          lake build
