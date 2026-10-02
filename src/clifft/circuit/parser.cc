@@ -1,5 +1,6 @@
 #include "clifft/circuit/parser.h"
 
+#include "clifft/noncomp/interaction.h"
 #include "clifft/util/config.h"
 #include "clifft/util/numeric.h"
 
@@ -385,6 +386,13 @@ class Parser {
             if (!args.empty()) {
                 throw ParseError("LEVEL_TRANSITION takes no arguments (the tag names the matrix)",
                                  line_num);
+            }
+        }
+        if (is_noncomputational_interaction(gate)) {
+            try {
+                (void)interaction_arguments(gate, args);
+            } catch (const std::invalid_argument& e) {
+                throw ParseError(e.what(), line_num);
             }
         }
         if (is_inline_noncomputational_annotation(gate)) {
@@ -883,6 +891,11 @@ class Parser {
                         }
                     }
 
+                    if (is_noncomputational_interaction(gate) &&
+                        (t0.has_pauli() || t1.has_pauli() || t0.value() == t1.value())) {
+                        throw ParseError("Interaction requires distinct plain qubit targets",
+                                         line_num);
+                    }
                     AstNode node{gate, {t0, t1}, args, line_num};
                     update_circuit_stats(node, circuit);
                     circuit.nodes.push_back(std::move(node));

@@ -39,6 +39,7 @@ add_executable(clifft_tests
     test_noncomp_value_types.cc
     test_noncomp_transition_instrument.cc
     test_noncomp_classifier.cc
+    test_noncomp_interactions.cc
     test_noncomp_model.cc
     test_noncomp_status_walk.cc
     test_noncomp_rewriter.cc

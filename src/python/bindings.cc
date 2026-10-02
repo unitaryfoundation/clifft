@@ -382,6 +382,8 @@ NB_MODULE(_clifft_core, m) {
         .value("LEVEL_TRANSITION", clifft::GateType::LEVEL_TRANSITION)
         .value("LEAKAGE", clifft::GateType::LEAKAGE)
         .value("LOSS", clifft::GateType::LOSS)
+        .value("LEAKAGE_INTERACTION", clifft::GateType::LEAKAGE_INTERACTION)
+        .value("LOSS_INTERACTION", clifft::GateType::LOSS_INTERACTION)
         .value("HERALD_LEAKAGE_EVENT", clifft::GateType::HERALD_LEAKAGE_EVENT)
         .value("HERALD_LOSS_EVENT", clifft::GateType::HERALD_LOSS_EVENT)
         // Simulation-only probes
