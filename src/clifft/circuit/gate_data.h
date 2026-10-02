@@ -156,6 +156,7 @@ enum class GateType : uint16_t {
     CCX,  // Toffoli / controlled-controlled-X (rewritten at parse time)
     CCZ,  // Controlled-controlled-Z (rewritten at parse time)
 
+    // Conditional partner annotations; appended to preserve existing gate values.
     LEAKAGE_INTERACTION,
     LOSS_INTERACTION,
 
@@ -317,6 +318,7 @@ inline constexpr GateTraits kGateTraitsData[] = {
     {.arity = P, .unitary = true, .parser_desugared = true, .name = "CH"},
     {.arity = T, .unitary = true, .parser_desugared = true, .name = "CCX"},
     {.arity = T, .unitary = true, .parser_desugared = true, .name = "CCZ"},
+    // Conditional partner annotations
     {.arity = P, .name = "LEAKAGE_INTERACTION"},
     {.arity = P, .name = "LOSS_INTERACTION"},
     // Sentinel

@@ -1,6 +1,5 @@
 #include "clifft/circuit/parser.h"
 
-#include "clifft/noncomp/interaction.h"
 #include "clifft/util/config.h"
 #include "clifft/util/numeric.h"
 
@@ -389,10 +388,20 @@ class Parser {
             }
         }
         if (is_noncomputational_interaction(gate)) {
-            try {
-                (void)interaction_arguments(gate, args);
-            } catch (const std::invalid_argument& e) {
-                throw ParseError(e.what(), line_num);
+            const std::string name{clifft::gate_name(gate)};
+            const size_t count = gate == GateType::LEAKAGE_INTERACTION ? 4 : 3;
+            if (args.size() != count) {
+                throw ParseError(name + " requires " + std::to_string(count) + " arguments",
+                                 line_num);
+            }
+            for (const double probability : args) {
+                if (!is_probability(probability)) {
+                    throw ParseError(name + " probabilities must be finite and lie in [0, 1]",
+                                     line_num);
+                }
+            }
+            if (args[0] + args[1] + args[2] > 1.0) {
+                throw ParseError(name + " Pauli probabilities must sum to at most 1", line_num);
             }
         }
         if (is_inline_noncomputational_annotation(gate)) {
