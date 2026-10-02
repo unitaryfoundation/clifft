@@ -5,7 +5,9 @@
 
 #include <array>
 #include <cstdint>
+#include <optional>
 #include <span>
+#include <string>
 #include <string_view>
 
 namespace clifft {
@@ -18,6 +20,23 @@ struct PartnerEffect {
     bool has_pauli() const;
     bool empty() const;
 };
+
+enum class InteractionSource { Leaked, Lost };
+
+struct GatePartnerEffects {
+    std::optional<PartnerEffect> leaked;
+    std::optional<PartnerEffect> lost;
+};
+
+struct InteractionRule {
+    std::string gate;
+    uint32_t source_operand;
+    InteractionSource source_status;
+    PartnerEffect effect;
+};
+
+InteractionSource parse_interaction_source(std::string_view name);
+bool supports_partner_effect(GateType gate);
 
 PartnerEffect interaction_arguments(GateType gate, std::span<const double> args);
 

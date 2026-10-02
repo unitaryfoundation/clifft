@@ -8,6 +8,22 @@
 
 namespace clifft {
 
+InteractionSource parse_interaction_source(std::string_view name) {
+    if (name == "leaked") {
+        return InteractionSource::Leaked;
+    }
+    if (name == "lost") {
+        return InteractionSource::Lost;
+    }
+    throw std::invalid_argument("interaction source status '" + std::string(name) +
+                                "' must be 'leaked' or 'lost'");
+}
+
+bool supports_partner_effect(GateType gate) {
+    return is_unitary(gate) && gate_arity(gate) == GateArity::PAIR && !is_identity_noop(gate) &&
+           !is_parser_desugared(gate);
+}
+
 void PartnerEffect::validate(bool allow_spreading, std::string_view context) const {
     for (double p : pauli) {
         if (!is_probability(p)) {

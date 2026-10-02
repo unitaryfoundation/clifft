@@ -2,13 +2,11 @@
 
 // Expands gate hooks into explicit circuit annotations.
 //
-// A gate hook is a model transition named after a gate, such as "CZ". For
-// every occurrence of that gate, expand_transition_hooks() inserts a
-// LEVEL_TRANSITION immediately afterward for each qubit the gate acts on
-// directly. Existing LEVEL_TRANSITION, LEAKAGE, and LOSS annotations are
-// copied unchanged. Record-controlled feedback receives no transition because
-// it does not physically execute the gate. Later stages therefore only need
-// to handle explicit annotations.
+// Each physical gate is followed by its configured partner interactions and
+// then its per-operand LEVEL_TRANSITION hooks, before the next user node.
+// Explicit annotations are copied unchanged and compose sequentially with
+// generated effects. Record-controlled feedback receives neither kind of
+// hook. Later stages therefore only need to handle explicit annotations.
 
 #include "clifft/circuit/circuit.h"
 #include "clifft/noncomp/model.h"

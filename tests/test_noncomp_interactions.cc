@@ -5,6 +5,7 @@
 #include "clifft/noncomp/model.h"
 #include "clifft/noncomp/rewriter.h"
 #include "clifft/noncomp/sample.h"
+#include "clifft/noncomp/transition_hooks.h"
 
 #include "noncomp_test_helpers.h"
 
@@ -135,5 +136,69 @@ TEST_CASE(
         CHECK(result.measurements[shot * 6 + 4] == 1);
         CHECK(result.measurements[shot * 6 + 5] == 0);
         CHECK(result.final_status[shot * 3 + 1] == QubitStatus::LeakE);
+    }
+}
+
+TEST_CASE("Interaction defaults expand before transition hooks and explicit annotations") {
+    const PartnerEffect depolarizing{{0.25, 0.25, 0.25}, 0.1};
+    const auto model = NonComputationalModel::from_spec(
+        test::pure_initial_state(Level::G),
+        {{"CX", test::certain_transition_from_computational(Level::LeakG)}}, std::nullopt, {},
+        {depolarizing, PartnerEffect{{0, 0, 1}, 0}}, {{"CNOT", 0, InteractionSource::Leaked, {}}});
+    const auto expanded =
+        expand_transition_hooks(parse("CX 2 5\nLOSS_INTERACTION(1, 0, 0) 2 5"), model);
+    const auto expected = parse(
+        "CX 2 5\n"
+        "LOSS_INTERACTION(0, 0, 1) 2 5\n"
+        "LEAKAGE_INTERACTION(0.25, 0.25, 0.25, 0.1) 5 2\n"
+        "LOSS_INTERACTION(0, 0, 1) 5 2\n"
+        "LEVEL_TRANSITION[CX] 2 5\n"
+        "LOSS_INTERACTION(1, 0, 0) 2 5");
+    REQUIRE(expanded.nodes.size() == expected.nodes.size());
+    for (size_t i = 0; i < expanded.nodes.size(); ++i) {
+        CAPTURE(i);
+        CHECK(expanded.nodes[i].gate == expected.nodes[i].gate);
+        CHECK(expanded.nodes[i].args == expected.nodes[i].args);
+        CHECK(expanded.nodes[i].tag == expected.nodes[i].tag);
+        REQUIRE(expanded.nodes[i].targets.size() == expected.nodes[i].targets.size());
+        for (size_t j = 0; j < expanded.nodes[i].targets.size(); ++j) {
+            CHECK(expanded.nodes[i].targets[j].value() == expected.nodes[i].targets[j].value());
+        }
+    }
+}
+
+TEST_CASE("Interaction defaults exclude noise and feedback and include native rotations") {
+    const auto model =
+        NonComputationalModel::from_spec(test::pure_initial_state(Level::G), {}, std::nullopt, {},
+                                         {PartnerEffect{{1, 0, 0}, 0}, std::nullopt}, {});
+    const auto circuit = parse(
+        "M 0\nCX rec[-1] 1\nCZ rec[-1] 1\n"
+        "DEPOLARIZE2(0.1) 0 1\nR_XX(0.17) 0 1");
+    const auto expanded = expand_transition_hooks(circuit, model);
+    REQUIRE(expanded.nodes.size() == circuit.nodes.size() + 2);
+    CHECK(expanded.nodes[circuit.nodes.size()].gate == GateType::LEAKAGE_INTERACTION);
+    CHECK(expanded.nodes.back().targets[0].value() == 1);
+}
+
+TEST_CASE("Interaction models reject invalid native rules and loss spreading") {
+    const auto make = [](GatePartnerEffects defaults, const std::vector<InteractionRule>& rules) {
+        return NonComputationalModel::from_spec(test::pure_initial_state(Level::G), {},
+                                                std::nullopt, {}, defaults, rules);
+    };
+    CHECK_THROWS_WITH(make({std::nullopt, PartnerEffect{{0, 0, 0}, 0.1}}, {}),
+                      ContainsSubstring("leaked source"));
+    CHECK_THROWS_WITH(make({}, {{"CX", 0, InteractionSource::Lost, {{0, 0, 0}, 0.1}}}),
+                      ContainsSubstring("leaked source"));
+    CHECK_THROWS_WITH(make({}, {{"CX", 2, InteractionSource::Leaked, {}}}),
+                      ContainsSubstring("source_operand"));
+    CHECK_THROWS_WITH(make({}, {{"CX", 0, static_cast<InteractionSource>(3), {}}}),
+                      ContainsSubstring("source status"));
+    CHECK_THROWS_WITH(make({}, {{"CX", 0, InteractionSource::Leaked, {}},
+                                {"CNOT", 0, InteractionSource::Leaked, {}}}),
+                      ContainsSubstring("duplicates"));
+    for (const std::string gate : {"H", "CH", "CCX", "DEPOLARIZE2", "MXX", "II", "typo"}) {
+        CAPTURE(gate);
+        CHECK_THROWS_WITH(make({}, {{gate, 0, InteractionSource::Leaked, {}}}),
+                          ContainsSubstring("native two-qubit unitary"));
     }
 }
