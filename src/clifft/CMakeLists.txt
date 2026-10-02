@@ -46,6 +46,7 @@ add_library(clifft_core STATIC
     util/page_allocation.cc
     util/runtime_isa.cc
     util/xoshiro.cc
+    noncomp/interaction.cc
     noncomp/transition_instrument.cc
     noncomp/transition_hooks.cc
     noncomp/instrument_options.cc

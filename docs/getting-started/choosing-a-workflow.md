@@ -63,7 +63,9 @@ use each one.
 - **My circuit includes leakage or loss.** Use `clifft.noncomp.sample()` for
   supported noncomputational transitions. It accepts a circuit and model
   together and compiles continuations internally. See
-  [Leakage and Loss](../guide/leakage-and-loss.md) for the model and its limits.
+  [Leakage and Loss](../guide/leakage-and-loss.md) for the model and its limits,
+  and [Partner Interactions](../guide/partner-interactions.md) to configure
+  effects on computational partners of leaked or lost operands.
 
 ## 3. Choose performance options
 

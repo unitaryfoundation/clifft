@@ -979,19 +979,23 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
             case GateType::LEAKAGE:
             case GateType::LOSS:
             case GateType::HERALD_LEAKAGE_EVENT:
-            case GateType::HERALD_LOSS_EVENT: {
+            case GateType::HERALD_LOSS_EVENT:
+            case GateType::LEAKAGE_INTERACTION:
+            case GateType::LOSS_INTERACTION: {
                 if (instruments == nullptr) {
                     throw std::invalid_argument(
                         std::string(gate_name(node.gate)) +
                         " is a noncomputational annotation; run the circuit through "
                         "clifft.noncomp.sample instead of compiling it directly");
                 }
-                if (is_noncomputational_herald(node.gate)) {
-                    throw std::invalid_argument(
-                        "trace: unlowered " + std::string(gate_name(node.gate)) + " at node " +
-                        std::to_string(node_index) +
-                        "; status probes must be lowered by the noncomputational rewriter "
-                        "before tracing with instruments");
+                if (is_noncomputational_herald(node.gate) ||
+                    is_noncomputational_interaction(node.gate)) {
+                    throw std::invalid_argument("trace: unlowered " +
+                                                std::string(gate_name(node.gate)) + " at node " +
+                                                std::to_string(node_index) +
+                                                "; status-dependent annotations must be lowered by "
+                                                "the noncomputational rewriter "
+                                                "before tracing with instruments");
                 }
                 for (const auto& target : node.targets) {
                     const uint32_t qubit = target.value();

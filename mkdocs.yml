@@ -113,6 +113,7 @@ nav:
       - Sampling and Results: guide/simulation.md
       - Importance Sampling: guide/importance-sampling.md
       - Leakage and Loss: guide/leakage-and-loss.md
+      - Partner Interactions: guide/partner-interactions.md
       - Exact Probabilities: guide/strong-simulation.md
       - Using with Sinter: guide/sinter.md
     - Execution:
