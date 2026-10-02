@@ -155,7 +155,7 @@ If you use Clifft in your work, please cite the arXiv [preprint](https://arxiv.o
 See the [building from source](https://unitaryfoundation.github.io/clifft/stable/development/building/) guide for build
 instructions.
 
-The optional [Lean mathematical companion](lean/README.md) proves selected
+The optional [Lean mathematical companion](https://github.com/unitaryfoundation/clifft/blob/main/lean/README.md) proves selected
 mathematical rules used by Clifft and documents their correspondence to C++.
 
 ## AI Acknowledgement

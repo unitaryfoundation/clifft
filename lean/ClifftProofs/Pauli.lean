@@ -1,4 +1,5 @@
 import Mathlib.Basic.Complex.Basic
+import Mathlib.LinearAlgebra.Matrix.ConjTranspose
 import Mathlib.LinearAlgebra.Matrix.Notation
 import Mathlib.Tactic.FinCases
 import Mathlib.Tactic.NormNum
@@ -42,6 +43,17 @@ def signed (x z negative : Bool) : Pauli where
   z := z
   phase := (if x && z then 1 else 0) + if negative then 2 else 0
 
+/-- Only Hermitian inputs have a real sign after removing the body's Y phase. -/
+def sign (p : Pauli) : Bool :=
+  p.phase - (if p.x && p.z then 1 else 0) == 2
+
+def isHermitian (p : Pauli) : Bool :=
+  let delta := p.phase - (if p.x && p.z then 1 else 0)
+  delta == 0 || delta == 2
+
+theorem sign_signed (x z negative : Bool) : sign (signed x z negative) = negative := by
+  cases x <;> cases z <;> cases negative <;> decide
+
 theorem phaseFactor_add (a b : Fin 4) :
     phaseFactor (a + b) = phaseFactor a * phaseFactor b := by
   fin_cases a <;> fin_cases b <;>
@@ -81,6 +93,41 @@ theorem denote_signed_negative (x z : Bool) :
     denote (signed x z true) = -denote (signed x z false) := by
   cases x <;> cases z <;>
     norm_num [denote, signed, phaseFactor, pow_succ, Complex.I_sq, neg_smul]
+
+theorem isHermitian_iff_signed (p : Pauli) :
+    isHermitian p = true <-> exists negative, p = signed p.x p.z negative := by
+  cases p with
+  | mk x z phase =>
+    cases x <;> cases z <;> fin_cases phase <;> decide
+
+/-- The phase test agrees with the usual adjoint-based definition. -/
+theorem isHermitian_iff_conjTranspose (p : Pauli) :
+    isHermitian p = true <-> Matrix.conjTranspose (denote p) = denote p := by
+  rw [<- Matrix.ext_iff]
+  cases p with
+  | mk x z phase =>
+    cases x <;> cases z <;> fin_cases phase <;>
+      norm_num [isHermitian, denote, phaseFactor, body, xMatrix, zMatrix,
+        Fin.forall_fin_two, Matrix.conjTranspose_apply, Matrix.smul_apply,
+        Matrix.mul_apply, Fin.sum_univ_two, Matrix.one_apply, pow_succ, Complex.ext_iff]
+
+theorem hermitian_iff_signed (p : Pauli) :
+    Matrix.conjTranspose (denote p) = denote p <->
+      exists negative, p = signed p.x p.z negative := by
+  rw [<- isHermitian_iff_conjTranspose, isHermitian_iff_signed]
+
+theorem denote_injective : Function.Injective denote := by
+  intro p q h
+  rw [<- Matrix.ext_iff] at h
+  cases p with
+  | mk x z phase =>
+    cases q with
+    | mk x' z' phase' =>
+      cases x <;> cases z <;> cases x' <;> cases z' <;>
+        fin_cases phase <;> fin_cases phase' <;>
+        norm_num [denote, phaseFactor, body, xMatrix, zMatrix,
+          Fin.forall_fin_two, Matrix.mul_apply,
+          Fin.sum_univ_two, Matrix.one_apply, pow_succ, Complex.ext_iff] at h <;> rfl
 
 end Pauli
 

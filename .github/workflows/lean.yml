@@ -1,15 +1,7 @@
 name: Lean proofs
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "lean/**"
-      - ".github/workflows/lean.yml"
-  pull_request:
-    paths:
-      - "lean/**"
-      - ".github/workflows/lean.yml"
+  workflow_call:
   workflow_dispatch:
 
 permissions:
@@ -17,10 +9,7 @@ permissions:
 
 env:
   MATHLIB_NO_CACHE_ON_UPDATE: "1"
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+  LEAN_NUM_THREADS: "2"
 
 jobs:
   proofs:
@@ -40,15 +29,11 @@ jobs:
 
       - name: Fetch imported Mathlib artifacts
         working-directory: lean
-        run: |
-          lake exe cache get \
-            Mathlib.Basic.Complex.Basic \
-            Mathlib.LinearAlgebra.Matrix.Notation \
-            Mathlib.Tactic.FinCases \
-            Mathlib.Tactic.NormNum
+        run: bash cache.sh
 
       - name: Check imports and proofs including axiom dependencies
         working-directory: lean
         run: |
           lake exe mk_all --lib ClifftProofs --check
           lake build
+          lake env leanchecker -v ClifftProofs ClifftProofsAudit
