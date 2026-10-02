@@ -3,6 +3,7 @@
 #include "clifft/circuit/gate_data.h"
 #include "clifft/circuit/target.h"
 #include "clifft/noncomp/classifier.h"
+#include "clifft/noncomp/interaction.h"
 #include "clifft/noncomp/level.h"
 #include "clifft/noncomp/status_walk.h"
 #include "clifft/noncomp/transition_instrument.h"
@@ -210,7 +211,30 @@ ContinuationRewrite rewrite_continuation(const Circuit& annotated, const Traject
     uint32_t slot = 0;  // visible measurement record index
 
     for (uint32_t op_index = 0; op_index < annotated.nodes.size(); ++op_index) {
-        const AstNode& node = annotated.nodes[op_index];
+        const AstNode& original = annotated.nodes[op_index];
+        std::optional<AstNode> spreading;
+        if (is_noncomputational_interaction(original.gate)) {
+            const PartnerEffect effect =
+                validate_interaction(original, op_index, status.size(), "rewrite");
+            if (!interaction_applies(original, status)) {
+                continue;
+            }
+            const Target partner = original.targets[1];
+            if (effect.has_pauli()) {
+                out.nodes.push_back(AstNode{GateType::PAULI_CHANNEL_1,
+                                            {partner},
+                                            {effect.pauli[0], effect.pauli[1], effect.pauli[2]},
+                                            original.source_line});
+            }
+            if (effect.spread_probability == 0.0) {
+                continue;
+            }
+            // Keep the original annotation index as the transition identity.
+            // Recompiling after a jump must preserve the preceding Pauli draw.
+            spreading = AstNode{
+                GateType::LEAKAGE, {partner}, {effect.spread_probability}, original.source_line};
+        }
+        const AstNode& node = spreading.has_value() ? *spreading : original;
         const GateType gate = node.gate;
 
         if (is_noncomputational_herald(gate)) {

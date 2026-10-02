@@ -16,6 +16,7 @@
 
 #include "clifft/frontend/frontend.h"
 #include "clifft/noncomp/instrument_options.h"
+#include "clifft/noncomp/interaction.h"
 #include "clifft/noncomp/rewriter.h"
 #include "clifft/noncomp/status_walk.h"
 #include "clifft/noncomp/transition_hooks.h"
@@ -76,6 +77,10 @@ struct AnnotationChannel {
 [[nodiscard]] AnnotationChannel resolve_annotation(const AstNode& node,
                                                    const NonComputationalModel& model,
                                                    uint32_t op_index) {
+    if (node.gate == GateType::LEAKAGE_INTERACTION) {
+        return AnnotationChannel::for_leakage(
+            interaction_arguments(node.gate, node.args).spread_probability);
+    }
     if (is_inline_noncomputational_annotation(node.gate)) {
         const double p = inline_transition_probability(node.gate, node.args, op_index,
                                                        "sample_noncomputational");
@@ -100,6 +105,10 @@ struct AnnotationChannel {
 // checks enforce the target shape expected by the driver and rewriter.
 void validate_annotation(const AstNode& node, const NonComputationalModel& model, uint32_t op_index,
                          uint32_t num_qubits) {
+    if (is_noncomputational_interaction(node.gate)) {
+        (void)validate_interaction(node, op_index, num_qubits, "sample_noncomputational");
+        return;
+    }
     if (is_noncomputational_herald(node.gate)) {
         validate_herald_arguments(node, op_index, "sample_noncomputational");
     } else {
@@ -219,6 +228,16 @@ void extend_classical_outcomes(const Circuit& annotated, TrajectoryEvents& event
         const AstNode& node = annotated.nodes[op_index];
         const GateType gate = node.gate;
         if (is_noncomputational_herald(gate)) {
+            continue;
+        }
+        if (is_noncomputational_interaction(gate)) {
+            if (interaction_applies(node, status)) {
+                const uint32_t partner = node.targets[1].value();
+                const auto jump = jump_dest.find({op_index, partner});
+                if (jump != jump_dest.end()) {
+                    status[partner] = status_for(jump->second);
+                }
+            }
             continue;
         }
         if (is_noncomputational_annotation(gate)) {
