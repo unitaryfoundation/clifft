@@ -82,11 +82,17 @@ workflow limits.
 ## Leakage and Loss
 
 Sampling under a five-level leakage/loss model. See the
-[Leakage and Loss guide](../guide/leakage-and-loss.md).
+[Leakage and Loss guide](../guide/leakage-and-loss.md) and
+[Partner Interactions](../guide/partner-interactions.md) for model defaults,
+directional overrides, and circuit annotation ordering.
 
 ::: clifft.noncomp.sample
 
 ::: clifft.noncomp.Model
+
+::: clifft.noncomp.PartnerEffect
+
+::: clifft.noncomp.InteractionRule
 
 ::: clifft.noncomp.Classifier
 

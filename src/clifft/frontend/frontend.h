@@ -62,8 +62,9 @@ struct InstrumentTraceOptions {
 //   LOSS annotations into INSTRUMENT ops (one per target, at their circuit
 //   positions, mask = the rewound source projector Z_q); without it,
 //   these annotations reject with a pointer to clifft.noncomp.sample.
-// - HERALD_LEAKAGE_EVENT and HERALD_LOSS_EVENT always reject here: the
-//   noncomputational rewriter must first lower them to classical record writes.
+// - Status probes and conditional partner interactions always reject here:
+//   the noncomputational rewriter must resolve their status-dependent behavior
+//   before tracing.
 //
 // Throws std::runtime_error if the circuit exceeds the conservative
 // 65536-qubit safety ceiling. Pauli mask storage is otherwise sized at

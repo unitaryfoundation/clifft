@@ -11,6 +11,9 @@
 //   record slot. READOUT_NOISE supplies a random classifier result when
 //   needed. Kept computational M/MR measurements receive the classifier's
 //   readout error when its computational columns are not the identity.
+// - A matching partner interaction emits localized Pauli noise followed by an
+//   optional leakage instrument. The instrument keeps the original annotation
+//   position and partner as its identity across continuations.
 // - A status probe becomes an MPAD of the current leakage or loss flag. It
 //   leaves the quantum state and status unchanged and creates no
 //   classified-measurement entry.

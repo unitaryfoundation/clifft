@@ -148,12 +148,27 @@ prepared at that computational basis level.
 ## After a site becomes noncomputational
 
 Once a site has a definite noncomputational level, it no longer participates
-in coherent evolution. Under the current policy, most operations that touch it
-cannot act, a single-site measurement samples its result from the classifier
-without regard to measurement basis, and a reset or later transition may
+in coherent evolution. Most operations that touch it cannot act, a single-site
+measurement samples its result from the classifier without regard to measurement
+basis, and a reset or later transition may
 restore it to the computational subspace. The
 [Leakage and Loss guide](../guide/leakage-and-loss.md#what-happens-on-a-leaked-or-lost-site)
 defines the exact behavior for supported circuit operations.
+
+By default, dropping a physical two-qubit gate leaves its computational
+partner unchanged. Optional [partner effects](../guide/partner-interactions.md)
+replace that identity with a single-qubit Pauli channel, followed by a
+source-preserving leakage attempt on the partner. The source operand's
+noncomputational status is unchanged. The partner's jump is conditioned on its
+live quantum state, so correlations with other computational sites are retained.
+This remains an incoherent effective model, without coherent leakage exchange
+or correlated mobility.
+
+Model-generated interactions test the statuses entering the physical gate and
+precede its post-gate transition hooks. Standalone interaction annotations test
+statuses at their own expanded circuit position; mixing both representations
+composes the effects sequentially. Ordinary multi-qubit noise retains its
+whole-operation drop policy, with the existing correlated-error-chain exception.
 
 The visible binary result occupies the same record slot as the original
 measurement. Later `rec` references, detectors, observables, and classical
@@ -194,6 +209,14 @@ combined weight for all noncomputational destinations. This is enough for the
 executor to evaluate the live computational state using active coordinates. The
 trajectory driver retains the original five-level matrix so that it can
 resolve the combined noncomputational outcome outside the executor.
+
+Conditional interaction annotations are resolved while constructing each
+continuation. A matching annotation emits ordinary Pauli noise and, when
+spreading is enabled, a leakage instrument for the partner. Its stable identity
+comes from the original annotation position and partner qubit. When spreading
+traps, recompilation preserves the Pauli draw and instrument in the executed
+prefix, updates subsequent status-dependent operations, and resumes after that
+instrument. No status checks or topology discovery enter ordinary execution.
 
 Each continuation still uses Clifft's normal compiler and symbolic-coordinate
 architecture. Clifford operations, coordinate planning, and symbolic
