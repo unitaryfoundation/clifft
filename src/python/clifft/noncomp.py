@@ -223,11 +223,11 @@ class Model:
             hooks. Explicit circuit annotations run at their own expanded
             position and compose with generated effects without overriding them.
 
-    By default, an operation with no representable effect on a leaked or lost operand --
-    e.g. a two-qubit gate onto a vacated site -- is dropped, acting as the
+    By default, an operation with no representable effect on a leaked or lost
+    operand -- e.g. a two-qubit gate onto a vacated site -- is dropped, acting as the
     identity on the surviving operands. Configured partner interactions replace
-    that identity with Pauli noise and optional leakage spreading. Single-qubit measurements (``M``,
-    ``MX``, ``MY``) keep their record slot; once the qubit has left the
+    that identity with Pauli noise and optional leakage spreading. Single-qubit
+    measurements (``M``, ``MX``, ``MY``) keep their record slot; once the qubit has left the
     computational subspace the readout basis is incidental and the
     classifier supplies the bit. A
     measure-and-reset (``MR``/``MRX``/``MRY``) keeps its record the same
@@ -240,7 +240,8 @@ class Model:
     classifier when the circuit measures a qubit.
 
     Construction validates shapes, probabilities, gate keys, policy values,
-    and level table consistency, raising ``ValueError`` on any problem.
+    and level table consistency. Invalid values raise ``ValueError``; effect
+    and rule objects of the wrong type raise ``TypeError``.
     """
 
     __slots__ = (
@@ -402,9 +403,14 @@ def sample(
     probes are not supported with such models.
 
     ``HERALD_LEAKAGE_EVENT`` and ``HERALD_LOSS_EVENT`` append nondestructive
-    status checks to the ordinary measurement record. An optional probability
-    suppresses positive results only. They require no classifier and leave
-    their entries in the classifier ``heralds`` sidecar zero.
+    status checks to the ordinary measurement record. They take no arguments;
+    use ``READOUT_NOISE`` to model probe errors. They require no classifier and
+    leave their entries in the classifier ``heralds`` sidecar zero.
+
+    ``LEAKAGE_INTERACTION`` and ``LOSS_INTERACTION`` apply conditional partner
+    effects without adding records. Model-generated interactions precede the
+    gate's level-transition hooks. Explicit annotations evaluate status at their
+    own expanded position and compose with generated effects.
 
     Continuations are compiled with the default optimization passes that
     preserve measurement-record order and instrument-prefix stability, omitting
