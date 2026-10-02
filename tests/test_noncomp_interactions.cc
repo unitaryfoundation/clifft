@@ -180,6 +180,62 @@ TEST_CASE("Interaction defaults exclude noise and feedback and include native ro
     CHECK(expanded.nodes.back().targets[0].value() == 1);
 }
 
+TEST_CASE("Grouped gate pairs retain their behavior without an enabled partner effect") {
+    const auto make = [](GatePartnerEffects defaults, const std::vector<InteractionRule>& rules) {
+        return NonComputationalModel::from_spec(
+            test::pure_initial_state(Level::G), {},
+            test::classifier_matrix_with_column(Level::LeakE, {0, 1}), {}, defaults, rules);
+    };
+    const PartnerEffect x_error{{1, 0, 0}, 0};
+    const std::vector<NonComputationalModel> models{
+        make({}, {}), make({PartnerEffect{}, PartnerEffect{}}, {}),
+        make({}, {{"CX", 0, InteractionSource::Leaked, {}}}),
+        make({}, {{"CZ", 0, InteractionSource::Leaked, x_error}}),
+        make({x_error, std::nullopt},
+             {{"CX", 0, InteractionSource::Leaked, {}}, {"CX", 1, InteractionSource::Leaked, {}}})};
+    auto grouped = parse("X 0\nX 2\nCX 0 1\nM 1 3");
+    grouped.nodes[2].targets = {Target::qubit(0), Target::qubit(1), Target::qubit(2),
+                                Target::qubit(3)};
+    for (const bool leaked : {false, true}) {
+        Circuit circuit = grouped;
+        if (leaked) {
+            circuit.nodes.insert(circuit.nodes.begin() + 2,
+                                 AstNode{GateType::LEAKAGE, {Target::qubit(0)}, {1.0}});
+        }
+        for (size_t i = 0; i < models.size(); ++i) {
+            CAPTURE(leaked, i);
+            const auto result = sample_noncomputational(circuit, models[i], 16, 19);
+            REQUIRE(result.num_measurements == 2);
+            for (const auto bit : result.measurements) {
+                // The legacy policy drops the entire grouped node if any operand leaks.
+                CHECK(bit == (leaked ? 0 : 1));
+            }
+        }
+    }
+    CHECK_THROWS_WITH(sample_noncomputational(grouped, make({x_error, std::nullopt}, {}), 0, 19),
+                      ContainsSubstring("one physical gate pair per node"));
+}
+
+TEST_CASE("Grouped gate pairs retain post-node transition placement without partner effects") {
+    auto transition = test::zero_transition_matrix();
+    transition[test::level_index(Level::LeakG)][test::level_index(Level::G)] = 1;
+    const auto model = NonComputationalModel::from_spec(
+        test::pure_initial_state(Level::G), {{"CX", transition}},
+        test::classifier_matrix_with_column(Level::LeakE, {0, 1}), {});
+    auto grouped = parse("X 0\nX 1\nX 2\nCX 0 1\nM 1");
+    grouped.nodes[3].targets = {Target::qubit(0), Target::qubit(1), Target::qubit(2),
+                                Target::qubit(1)};
+    const auto split = parse("X 0\nX 1\nX 2\nCX 0 1 2 1\nM 1");
+    const auto grouped_result = sample_noncomputational(grouped, model, 16, 19);
+    const auto split_result = sample_noncomputational(split, model, 16, 19);
+    for (size_t shot = 0; shot < 16; ++shot) {
+        CHECK(grouped_result.measurements[shot] == 1);
+        CHECK(grouped_result.final_status[shot * 3 + 1] == QubitStatus::Computational);
+        CHECK(split_result.measurements[shot] == 0);
+        CHECK(split_result.final_status[shot * 3 + 1] == QubitStatus::LeakG);
+    }
+}
+
 TEST_CASE("Interaction models reject invalid native rules and loss spreading") {
     const auto make = [](GatePartnerEffects defaults, const std::vector<InteractionRule>& rules) {
         return NonComputationalModel::from_spec(test::pure_initial_state(Level::G), {},
