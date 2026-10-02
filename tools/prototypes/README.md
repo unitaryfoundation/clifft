@@ -568,3 +568,154 @@ uv run pytest tests/python/test_phase_polynomial_pass.py \
     tests/python/test_optimization_invariants.py
 ctest --test-dir build/phase-native-tests -j8 --output-on-failure -LE expensive
 ```
+
+## Depolarizing channel covariance and scheduler order
+
+The original native phase study is saved at commit `9f24b16f` on
+`codex/native-phase-polynomial-study`. The follow-up lives on
+`codex/depolarizing-phase-study`; raw comparisons are in
+[channel_covariance_results.json](channel_covariance_results.json).
+
+`channel_covariance_study.cc` is a standalone native compiler experiment. It
+uses the existing native passes, planner and ordinary `sample_survivors` for
+throughput. Python generates inputs and supplies independent Aer oracles; it
+is not a second sampling implementation. No pass is registered and no default,
+HIR, planner or executor architecture is changed.
+
+### Channel and labelled-fault semantics
+
+For rotation about Pauli A, a Pauli channel commutes with the rotation at all
+angles if every anticommuting error R has the same weight as its partner i*A*R.
+Their unsigned bodies differ by XOR with A. Commuting errors impose no further
+condition. The tool aggregates equal bodies and requires exact equality of
+floating probabilities, conservatively skipping near-equalities.
+
+This allows depolarizing noise on the matching subsystem to cross a T even
+though its individual X and Y errors do not commute with T. After Clifford
+conjugation, support matters: arbitrary depolarizing sites cannot cross every
+rotation. The criterion is checked against independently computed Pauli
+transfer eigenvalues in 5,120 one- and two-qubit cases, plus a multiword case.
+
+Two semantic variants deliberately distinguish what is preserved:
+
+- `channel_left` and `channel_right` clear the original logical-noise prefixes.
+  They preserve the averaged channel and distributions conditioned on fault
+  count, but can change the effect of a particular labelled Pauli fault.
+- `labelled_covariant_left` and `labelled_covariant_right` make the same
+  permutations while carrying the original logical-noise prefixes. Existing
+  planner sign corrections preserve every labelled fault realization.
+- `labelled_all_left` and `labelled_all_right` use that machinery to cross any
+  Pauli noise site, including channels without covariance.
+
+All variants move only rotations through noise or commuting rotations, stopping
+at every other operation. Noise-site order is retained. Twelve tests compare
+full joint records with Aer density matrices and enumerate native records for
+all small fault patterns. They cover biased channels, asymmetric failures,
+conjugated support, arbitrary angles, intermediate measurements and feedback.
+The channel-only variant changes one labelled-path probability by 0.5 in a
+witness; all labelled variants preserve path probabilities within 2e-14.
+The enumeration is an oracle, not a proposed throughput implementation.
+
+### Noisy sampling results
+
+The baseline pipeline is fusion, phase reduction, squeezing and default
+active-width scheduling. Each reordered arm adds the movement and another
+fusion before phase reduction. Frame-changing passes already skip when original
+noise prefixes have become nonredundant. The noise is the prior
+`gate_depolarizing` model: probability 0.001 after every primitive unitary,
+with ideal measurement/reset gadgets and the original postselection mask.
+
+| Circuit | Baseline peak | Labelled covariant right peak | Sampling speedup |
+| --- | ---: | ---: | ---: |
+| 0005 | 12 | 10 | 3.21x |
+| 0262 | 15 | 15 | 1.01x |
+| 0300 | 16 | 16 | 1.02x |
+| 0689 | 13 | 13 | 0.99x |
+| 1037 | 22 | 13 | 408x |
+
+The averaged-channel and labelled-fault versions have identical widths and
+nearly identical throughput here. All five retain their original T counts and
+accept no phase-polynomial reduction. Covariance therefore does not recover the
+one-coordinate core under full gate-local depolarizing noise in this sample.
+The gains come from a different starting order for squeezing and the bounded
+scheduler, using the existing fault-preserving representation.
+
+A separate stable block collector checks that this negative phase result is
+not merely caused by bubbling each rotation too far. It collects the complete
+T layer in 0005, 0300 and 1037. The resulting blocks still exceed both the
+32-variable default and the maximum supported 64-variable setting: they have
+more than 64 independent axes modulo the fixed signed entry relations that the
+pass can prove under noise. No T or peak reduction follows. The other two
+examples remain bounded and unchanged. Both collection variants also pass the
+joint-record and labelled-path oracles. This diagnoses the current fixed-entry
+representation; it does not prove a lower bound on noisy sampling cost.
+
+Timings use one thread, batch size one, calibration toward 0.2 seconds capped
+at 200,000 shots, and five alternating repeats. Compilation and warmup are
+excluded. Rates are per attempted shot, including postselection and noise.
+Circuit 1037 uses five baseline shots per repeat. These are measurements on one
+host and five selected noisy examples, not a full noisy-corpus throughput study.
+
+An arbitrary seed can regress severely: moving left raises circuit 0005 from
+peak 12 to 18 and runs about 78x slower. A candidate must be compared against
+the original complete pipeline. Single compilation measurements for 0300 are
+about five seconds at baseline and six seconds for covariant-right movement;
+other selected examples are tens of milliseconds. Source parse/trace and the
+HIR argument copy are excluded. This experiment is not ready for default use.
+
+### Existing workloads and pass interactions
+
+Reordering also helps two noiseless quantum-volume workloads, which have no T
+gates at the phase-pass position. The labelled left arm gives about 1.12x on
+qv10 and 1.07x on qv20. Their peaks, HIR operation counts and semantic action
+counts are unchanged, but executable action counts fall from 353 to 252 and
+from 1,000 to 883. The executor can fuse more adjacent rotations. This benefit
+comes from general rotation ordering and prepared-kernel fusion, rather than
+phase-polynomial compression or noise covariance.
+
+Most other existing workloads remain near unchanged. The right seed raises the
+coherent d5 r5 workload's peak from 13 to 14; unrestricted right movement raises
+it to 17. Compiling multiple candidates also costs more. HIR dense-work estimates
+can miss the quantum-volume gains, whereas the existing lowered coefficient-
+visit estimates reflect the additional executor fusion. Neither estimate is a
+complete hardware timing model.
+
+Running the default scheduler twice or three times gives no further peak
+reduction on the five noisy examples. Increasing `search_budget` from 16 to 64
+with beam eight produces peaks 11, 14, 16, 12 and 20. Beam 32 with budget 64 gives
+the original default peaks instead; extra beam width consumes the finite search
+budget differently. Larger settings are not uniformly better. Another fusion
+pass after squeezing alone does not reproduce the quantum-volume gains.
+
+The next general compiler direction is diverse fault-preserving scheduling
+orders with a cost objective that accounts for prepared executor fusion, guarded
+by a comparison of complete pipeline candidates. It requires broader noisy
+coverage and compilation-cost control. Channel covariance remains a useful
+mathematical rewrite criterion, but these results do not justify extending the
+phase pass with averaged-channel semantics to recover noisy peak one.
+Fault-dependent Clifford compression remains a separate unresolved direction
+and would need an explicit architecture decision before implementation.
+
+### Reproduction
+
+With the checkpoint's assertion-enabled static core already built, the study
+executable on this macOS OpenMP build is linked as follows:
+
+```bash
+mkdir -p build/channel-covariance-study
+c++ -std=c++20 -O3 -UNDEBUG -I src -I build/phase-native-tests/generated \
+    tools/prototypes/channel_covariance_study.cc \
+    build/phase-native-tests/src/clifft/libclifft_core.a \
+    -L /opt/homebrew/opt/libomp/lib -lomp \
+    -o build/channel-covariance-study/channel_covariance_study
+uv run python -m tools.prototypes.bench_channel_covariance CORPUS OUTPUT \
+    --binary build/channel-covariance-study/channel_covariance_study \
+    --existing-bench CLIFFT_BENCH --target-seconds 0.2 --repeats 5
+uv run pytest tests/python/test_channel_covariance_study.py
+```
+
+The wrapper's `--scan` collects structural and lowered costs without sampling;
+`--settings-scan` compares repeated passes and scheduler settings, and
+`--collection-scan` tests block collection at phase-variable caps 32 and 64. Use
+`--circuits` to select CSV row numbers. Tests skip if the standalone executable
+is absent; `CLIFFT_CHANNEL_COVARIANCE_STUDY` overrides its path.
