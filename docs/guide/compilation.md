@@ -61,7 +61,7 @@ for an operation order with lower peak active width, or less estimated dense
 work at the same peak. A smaller active state can save sampling time and memory,
 but the search adds compilation time and may find no improvement.
 
-Add it after the default fusion and squeezing passes:
+Add it after the default fusion, phase reduction and squeezing passes:
 
 ```python
 import clifft

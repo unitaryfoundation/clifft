@@ -39,11 +39,21 @@ def active_width_passes(
     return manager
 
 
+def phase_polynomial_passes() -> clifft.HirPassManager:
+    manager = clifft.HirPassManager()
+    manager.add(clifft.PeepholeFusionPass())
+    manager.add(clifft.PhasePolynomialPass())
+    manager.add(clifft.StatevectorSqueezePass())
+    manager.add(clifft.ActiveWidthSchedulePass())
+    return manager
+
+
 UNOPTIMIZED = CompilerProfile("unoptimized", lambda: None)
 FUSION_SQUEEZE = CompilerProfile("fusion-squeeze", fusion_squeeze_passes)
 DEFAULT = CompilerProfile("default", lambda: clifft.default_hir_pass_manager())
 ACTIVE_WIDTH = CompilerProfile("active-width", lambda: active_width_passes())
-COMPILER_PROFILES = (UNOPTIMIZED, DEFAULT, ACTIVE_WIDTH)
+PHASE_POLYNOMIAL = CompilerProfile("phase-polynomial", phase_polynomial_passes)
+COMPILER_PROFILES = (UNOPTIMIZED, DEFAULT, ACTIVE_WIDTH, PHASE_POLYNOMIAL)
 
 
 def skip_unavailable_thread_layout(error: ValueError, layout: tuple[int, int]) -> NoReturn:

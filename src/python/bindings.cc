@@ -13,6 +13,7 @@
 #include "clifft/optimizer/hir_pass_manager.h"
 #include "clifft/optimizer/pass_factory.h"
 #include "clifft/optimizer/peephole.h"
+#include "clifft/optimizer/phase_polynomial_pass.h"
 #include "clifft/optimizer/remove_noise_pass.h"
 #include "clifft/optimizer/statevector_squeeze_pass.h"
 #include "clifft/sampling/executor.h"
@@ -723,6 +724,29 @@ NB_MODULE(_clifft_core, m) {
         .def("__repr__", [](const clifft::PeepholeFusionPass& p) {
             return "PeepholeFusionPass(cancellations=" + std::to_string(p.cancellations()) +
                    ", fusions=" + std::to_string(p.fusions()) + ")";
+        });
+
+    nb::class_<clifft::PhasePolynomialPass, clifft::HirPass>(
+        m, "PhasePolynomialPass",
+        "Reduce commuting T rotations using constraints from the circuit's |0> input. "
+        "Run after peephole fusion and before squeezing or scheduling.")
+        .def(
+            "__init__",
+            [](clifft::PhasePolynomialPass* self, int64_t max_variables) {
+                if (max_variables < 0 || max_variables > 64) {
+                    throw std::invalid_argument("max_variables must be between zero and 64");
+                }
+                new (self) clifft::PhasePolynomialPass({static_cast<uint32_t>(max_variables)});
+            },
+            nb::arg("max_variables") = int64_t{32})
+        .def_prop_ro("blocks_reduced", &clifft::PhasePolynomialPass::blocks_reduced)
+        .def_prop_ro("pauli_pullbacks", &clifft::PhasePolynomialPass::pauli_pullbacks)
+        .def_prop_ro("input_t_count", &clifft::PhasePolynomialPass::input_t_count)
+        .def_prop_ro("output_t_count", &clifft::PhasePolynomialPass::output_t_count)
+        .def_prop_ro("applied", &clifft::PhasePolynomialPass::applied)
+        .def("__repr__", [](const clifft::PhasePolynomialPass& p) {
+            return "PhasePolynomialPass(input_t_count=" + std::to_string(p.input_t_count()) +
+                   ", output_t_count=" + std::to_string(p.output_t_count()) + ")";
         });
 
     nb::class_<clifft::StatevectorSqueezePass, clifft::HirPass>(
