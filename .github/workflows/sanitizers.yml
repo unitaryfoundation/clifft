@@ -33,7 +33,7 @@ jobs:
       - name: Capture paired timings and profiles
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python3 tools/ci/phase_canary_layout.py
+        run: python3 tools/ci/phase_canary_tiled.py
       - uses: actions/upload-artifact@v7
         if: always()
         with:

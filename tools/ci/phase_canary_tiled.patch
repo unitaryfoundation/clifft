@@ -1,0 +1,68 @@
+--- a/src/clifft/sampling/sampler.cc
++++ b/src/clifft/sampling/sampler.cc
+@@ -166,7 +166,7 @@
+     return static_cast<size_t>(shots) * stride;
+ }
+
+-template <typename Output>
++template <bool CopyExpectations = true, typename Output>
+ void copy_batch_lane(Output& output, const BatchExecutor& executor, uint32_t lane, uint32_t shot,
+                      const ExecutablePlan& plan) noexcept {
+     for (uint32_t record = 0; record < plan.num_visible_records(); ++record) {
+@@ -181,9 +181,11 @@
+         output.observables[static_cast<size_t>(shot) * plan.num_observables() + observable] =
+             static_cast<uint8_t>(executor.observable(lane, observable));
+     }
+-    for (uint32_t exp_val = 0; exp_val < plan.num_exp_vals(); ++exp_val) {
+-        output.exp_vals[static_cast<size_t>(shot) * plan.num_exp_vals() + exp_val] =
+-            executor.exp_val(lane, exp_val);
++    if constexpr (CopyExpectations) {
++        for (uint32_t exp_val = 0; exp_val < plan.num_exp_vals(); ++exp_val) {
++            output.exp_vals[static_cast<size_t>(shot) * plan.num_exp_vals() + exp_val] =
++                executor.exp_val(lane, exp_val);
++        }
+     }
+ }
+
+@@ -272,7 +274,19 @@
+                        "fixed-row batch must retain every shot");
+                 for (uint32_t lane = 0; lane < batch; ++lane) {
+                     const uint32_t shot = executor.shot_index(lane);
+-                    copy_batch_lane(result, executor, lane, shot, plan);
++                    copy_batch_lane<false>(result, executor, lane, shot, plan);
++                }
++                if (plan.num_exp_vals() != 0) {
++                    for (uint32_t first = 0; first < batch; first += 32) {
++                        const uint32_t end = std::min(first + 32, batch);
++                        for (uint32_t probe = 0; probe < plan.num_exp_vals(); ++probe) {
++                            for (uint32_t lane = first; lane < end; ++lane) {
++                                const uint32_t shot = executor.shot_index(lane);
++                                result.exp_vals[static_cast<size_t>(shot) * plan.num_exp_vals() + probe] =
++                                    executor.exp_val(lane, probe);
++                            }
++                        }
++                    }
+                 }
+                 offset += batch;
+             }
+@@ -404,7 +418,19 @@
+                     counts.logical_errors += static_cast<uint32_t>(logical_error);
+                     const uint32_t shot = executor.shot_index(lane);
+                     survived[shot] = 1;
+-                    copy_batch_lane(result, executor, lane, shot, plan);
++                    copy_batch_lane<false>(result, executor, lane, shot, plan);
++                }
++                if (plan.num_exp_vals() != 0) {
++                    for (uint32_t first = 0; first < batch; first += 32) {
++                        const uint32_t end = std::min(first + 32, batch);
++                        for (uint32_t probe = 0; probe < plan.num_exp_vals(); ++probe) {
++                            for (uint32_t lane = first; lane < end; ++lane) {
++                                const uint32_t shot = executor.shot_index(lane);
++                                result.exp_vals[static_cast<size_t>(shot) * plan.num_exp_vals() + probe] =
++                                    executor.exp_val(lane, probe);
++                            }
++                        }
++                    }
+                 }
+                 offset += batch;
+             }
