@@ -19,6 +19,7 @@ import clifft
 
 pm = clifft.HirPassManager()
 pm.add(clifft.PeepholeFusionPass())
+pm.add(clifft.PhasePolynomialPass())
 pm.add(clifft.StatevectorSqueezePass())
 pm.add(clifft.ActiveWidthSchedulePass())
 ```
@@ -38,7 +39,7 @@ collapse can change quantum correlations.
 `clifft.noncomp.sample` therefore applies only passes that are enabled by
 default, preserve measurement-record order, and preserve instrument prefixes.
 Its HIR pipeline uses `PeepholeFusionPass` but omits
-`StatevectorSqueezePass` and `ActiveWidthSchedulePass`.
+`PhasePolynomialPass`, `StatevectorSqueezePass` and `ActiveWidthSchedulePass`.
 
 Record-order preservation is necessary but does not by itself make a
 continuation compatible with an already-running executor. Trajectory passes
@@ -66,6 +67,70 @@ for how continuations are compiled and resumed.
 | **Python** | `clifft.{{ p['python_name'] }}()` |
 
 {{ p['detail'] }}
+
+{% if p['name'] == 'PhasePolynomialPass' %}
+This pass uses signed Pauli constraints proved from the complete circuit's
+all-zero input. It retains only fixed eigenvalues shared by every reachable
+trajectory. Measurements and stochastic Pauli noise discard relations with
+unknown signs; deterministic Pauli noise updates signs. Instruments discard
+all entry knowledge. Future postselection never justifies a rewrite. Do not use
+this pass on fragments with an unspecified input state.
+
+For a commuting region, write its phase as a Boolean polynomial `f` modulo eight.
+After quotienting by the known constraints, change coordinates to `(u, v)` so
+that `f(u, v) = f(u, 0) + q(u, v)`, with `q` a diagonal Clifford polynomial.
+Project the original parity terms onto the retained coordinates, reduce their
+odd coefficients with TOHPE, and reconstruct the exact Clifford correction.
+The Clifford part moves into a compiler-side frame; only the non-Clifford core
+needs active-state rotations. The executor uses its existing operations.
+
+TOHPE is the third-order homogeneous polynomial elimination algorithm from
+[Vandaele, *Lower T-count with faster algorithms*, Algorithm 2](https://arxiv.org/abs/2407.08695).
+Clifft implements it natively with deterministic elimination and tie-breaking.
+A core of dimension `r` needs at least `r` odd parity terms, so the search skips
+representations that already meet this bound. Search is limited to 128 odd
+terms per region; larger tables retain the projected parity representation.
+This bounds synthesis search, not total compilation time.
+
+`max_variables=32` accepts integers from `0` to `64`; zero disables the pass.
+This bounds independent axes modulo known constraints, not circuit qubits.
+Exceeding the cap starts a new region. Increasing it can substantially increase
+compilation cost because the polynomial is cubic.
+
+Noncommuting rotations, arbitrary-angle rotations, instruments and observers
+whose conjugates are not Paulis end a region. Crossed operations must preserve
+every constraint the region uses. A Pauli-noise site can move before a phase
+prefix only when its nonzero-probability channels commute with that prefix.
+Prior scheduling across noise causes the pass to skip the circuit.
+
+The pass does not increase T count. It accepts the complete candidate only if
+peak active width decreases, or stays equal without increasing estimated dense
+work. This is a guard at the current pipeline position; subsequent squeezing
+or scheduling can change the outcome. Benchmark the complete pipeline for your
+workload; arbitrary-angle and gate-depolarizing circuits may gain nothing.
+
+After a run, `input_t_count`, `output_t_count`, `blocks_reduced` and
+`pauli_pullbacks` describe the accepted rewrite; `applied` reports acceptance.
+The pass preserves measurement-record order and is excluded from instrument
+continuations.
+
+The default pipeline runs this pass after peephole fusion and before squeezing.
+An optional `ActiveWidthSchedulePass` can follow the defaults. Equivalent
+rewrites can change samples for a fixed random seed while preserving their
+distribution. To opt out of phase reduction while retaining the other defaults,
+supply an explicit manager:
+
+```python
+import clifft
+
+pm = clifft.HirPassManager()
+pm.add(clifft.PeepholeFusionPass())
+pm.add(clifft.StatevectorSqueezePass())
+program = clifft.compile("H 0\nT 0\nM 0", hir_passes=pm)
+```
+
+Pass `hir_passes=None` to `clifft.compile()` to disable all HIR optimization.
+{% endif %}
 
 {% if p['name'] == 'ActiveWidthSchedulePass' %}
 See [Compiling Circuits](../guide/compilation.md#active-width-scheduling) for
