@@ -45,24 +45,3 @@
                  }
                  offset += batch;
              }
-@@ -404,7 +418,19 @@
-                     counts.logical_errors += static_cast<uint32_t>(logical_error);
-                     const uint32_t shot = executor.shot_index(lane);
-                     survived[shot] = 1;
--                    copy_batch_lane(result, executor, lane, shot, plan);
-+                    copy_batch_lane<false>(result, executor, lane, shot, plan);
-+                }
-+                if (plan.num_exp_vals() != 0) {
-+                    for (uint32_t first = 0; first < batch; first += 32) {
-+                        const uint32_t end = std::min(first + 32, batch);
-+                        for (uint32_t probe = 0; probe < plan.num_exp_vals(); ++probe) {
-+                            for (uint32_t lane = first; lane < end; ++lane) {
-+                                const uint32_t shot = executor.shot_index(lane);
-+                                result.exp_vals[static_cast<size_t>(shot) * plan.num_exp_vals() + probe] =
-+                                    executor.exp_val(lane, probe);
-+                            }
-+                        }
-+                    }
-                 }
-                 offset += batch;
-             }
