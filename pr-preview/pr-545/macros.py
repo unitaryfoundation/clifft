@@ -101,6 +101,24 @@ def define_env(env: Any) -> None:
             ),
         },
         {
+            "name": "PhasePolynomialPass",
+            "kind": "HIR",
+            "default_enabled": True,
+            "preserves_record_order": True,
+            "preserves_instrument_prefix": False,
+            "python_name": "PhasePolynomialPass",
+            "summary": "Reduce commuting T rotations using proven input-state constraints.",
+            "detail": (
+                "Builds a Boolean phase polynomial modulo eight, quotients by signed "
+                "Pauli constraints derived from the all-zero input, and separates the "
+                "non-Clifford core from Clifford factors. Observers can move before a "
+                "phase prefix when their exact conjugates are Paulis. Record order, "
+                "noise sites and categorical probabilities are preserved. "
+                "Synthesizes the core with TOHPE and an exact Clifford correction. "
+                "Runs after PeepholeFusionPass and before squeezing or scheduling."
+            ),
+        },
+        {
             "name": "StatevectorSqueezePass",
             "kind": "HIR",
             "default_enabled": True,
@@ -117,39 +135,6 @@ def define_env(env: Any) -> None:
                 "This prevents a blocked expansion from keeping a later movable "
                 "expansion live across a measurement. Measurements reduce active "
                 "width sooner, and non-Clifford expansions are deferred."
-            ),
-        },
-        {
-            "name": "PhasePolynomialPass",
-            "kind": "HIR",
-            "default_enabled": False,
-            "preserves_record_order": True,
-            "preserves_instrument_prefix": False,
-            "python_name": "PhasePolynomialPass",
-            "summary": "Reduce commuting T rotations using proven input-state constraints.",
-            "detail": (
-                "Builds a Boolean phase polynomial modulo eight, quotients by signed "
-                "Pauli constraints derived from the all-zero input, and separates the "
-                "non-Clifford core from Clifford factors. Observers can move before a "
-                "phase prefix when their exact conjugates are Paulis. Record order, "
-                "noise sites and categorical probabilities are preserved. "
-                "Opt in after PeepholeFusionPass and before squeezing or scheduling."
-            ),
-        },
-        {
-            "name": "PhasePolynomialCleanupPass",
-            "kind": "HIR",
-            "default_enabled": False,
-            "preserves_record_order": True,
-            "preserves_instrument_prefix": False,
-            "python_name": "PhasePolynomialCleanupPass",
-            "summary": "Final phase cleanup with parity-preserving synthesis.",
-            "detail": (
-                "Uses the same state constraints, phase algebra and acceptance guard as "
-                "PhasePolynomialPass. Projects the original parity terms onto the "
-                "non-Clifford core instead of expanding its monomials. Opt in after "
-                "squeezing and optional active-width scheduling, so the guard evaluates "
-                "the schedule that will execute."
             ),
         },
         {
