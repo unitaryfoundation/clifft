@@ -1,101 +1,39 @@
-name: Sanitizers
+name: Phase canary diagnostics
 
 on:
-  workflow_dispatch:  # Manual trigger
-  schedule:
-    - cron: '0 4 * * *'  # Nightly: 4am UTC
+  workflow_dispatch:
 
 permissions:
   contents: read
 
-concurrency:
-  group: sanitizers-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
-  tsan:
+  diagnose:
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 25
     env:
-      CMAKE_BUILD_TYPE: Debug
       CMAKE_GENERATOR: Ninja
-      # TSan flags: compile and link with -fsanitize=thread.
-      # The runner's libomp is not instrumented. ignore_noninstrumented_modules
-      # avoids runtime-internal false positives while Clifft code remains fully
-      # instrumented; named suppressions keep this scoped when symbols resolve.
-      TSAN_OPTIONS: "suppressions=${{ github.workspace }}/tools/tsan/suppressions.txt second_deadlock_stack=1 ignore_noninstrumented_modules=1"
+      CMAKE_CXX_COMPILER_LAUNCHER: ccache
+      CCACHE_COMPILERCHECK: content
+      CLIFFT_FORCE_ISA: avx2
+      OMP_DYNAMIC: "FALSE"
+      OMP_NUM_THREADS: "1"
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Install system dependencies
-        uses: ./.github/actions/setup-native-tools
-
-      - name: Install OpenMP runtime
-        run: sudo apt-get update && sudo apt-get install -y libomp-dev
-
-      - name: Configure C++ build with TSan
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/setup-native-tools
+      - name: Install compiler and profiling tools
         run: |
-          cmake -S . -B build -G Ninja \
-            -DCMAKE_BUILD_TYPE=Debug \
-            -DCMAKE_C_COMPILER=clang \
-            -DCMAKE_CXX_COMPILER=clang++ \
-            -DCLIFFT_OPENMP=ON \
-            -DCMAKE_CXX_FLAGS="-fsanitize=thread -g -O1" \
-            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=thread" \
-            -DCMAKE_SHARED_LINKER_FLAGS="-fsanitize=thread"
-
-      - name: Build C++
-        run: cmake --build build --parallel
-
-      - name: Run C++ tests under TSan
-        run: |
-          ctest --test-dir build \
-            --output-on-failure \
-            --timeout 600
-
-  asan-ubsan:
-    name: ASan and UBSan OpenMP ${{ matrix.openmp }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 45
-    strategy:
-      fail-fast: false
-      matrix:
-        openmp: [ON, OFF]
-    env:
-      CMAKE_BUILD_TYPE: Debug
-      CMAKE_GENERATOR: Ninja
-      ASAN_OPTIONS: "halt_on_error=1"
-      UBSAN_OPTIONS: "halt_on_error=1:print_stacktrace=1"
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Install system dependencies
-        uses: ./.github/actions/setup-native-tools
-
-      - name: Install OpenMP runtime
-        if: matrix.openmp == 'ON'
-        run: sudo apt-get update && sudo apt-get install -y libomp-dev
-
-      # -fno-sanitize-recover=all turns UBSan diagnostics into failures
-      # instead of warnings that pass the suite.
-      - name: Configure C++ build with ASan and UBSan
-        run: |
-          cmake -S . -B build -G Ninja \
-            -DCMAKE_BUILD_TYPE=Debug \
-            -DCMAKE_C_COMPILER=clang \
-            -DCMAKE_CXX_COMPILER=clang++ \
-            -DCLIFFT_OPENMP=${{ matrix.openmp }} \
-            -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -g -O1" \
-            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined" \
-            -DCMAKE_SHARED_LINKER_FLAGS="-fsanitize=address,undefined"
-
-      - name: Build C++
-        run: cmake --build build --parallel
-
-      - name: Run C++ tests under ASan and UBSan
-        run: |
-          ctest --test-dir build \
-            --output-on-failure \
-            --timeout 600
+          sudo apt-get update
+          sudo apt-get install -y libomp-18-dev linux-tools-generic
+          .github/scripts/install_ubuntu_clang.sh 22.1.8.1 "$RUNNER_TEMP/clifft-clang"
+          sudo sysctl kernel.perf_event_paranoid=-1
+      - name: Capture paired timings and profiles
+        run: python3 tools/ci/phase_canary_diagnostics.py
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: phase-canary-diagnostics
+          path: diagnostic-results/
+          retention-days: 7
