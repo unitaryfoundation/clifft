@@ -5,6 +5,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   diagnose:
@@ -30,7 +31,9 @@ jobs:
           .github/scripts/install_ubuntu_clang.sh 22.1.8.1 "$RUNNER_TEMP/clifft-clang"
           sudo sysctl kernel.perf_event_paranoid=-1
       - name: Capture paired timings and profiles
-        run: python3 tools/ci/phase_canary_diagnostics.py
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 tools/ci/phase_canary_layout.py
       - uses: actions/upload-artifact@v7
         if: always()
         with:
