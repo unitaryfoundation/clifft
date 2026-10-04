@@ -191,15 +191,18 @@ void copy_batch_expectations(std::span<double> output, const BatchExecutor& exec
     // The executor stores columns and the result stores rows. Copy neighboring
     // lanes together to reuse each source cache line without scattering writes
     // across the whole batch's output rows.
-    constexpr uint32_t tile_lanes = 8;
+    constexpr uint32_t kTileLanes = 8;
     const uint32_t lanes = executor.surviving_shots();
-    for (uint32_t first = 0; first < lanes; first += tile_lanes) {
-        const uint32_t end = first + std::min(tile_lanes, lanes - first);
+    for (uint32_t first = 0; first < lanes; first += kTileLanes) {
+        const uint32_t count = std::min(kTileLanes, lanes - first);
+        // Hoist the shot lookup so it is cheap even without cross-file inlining.
+        std::array<size_t, kTileLanes> rows{};
+        for (uint32_t i = 0; i < count; ++i) {
+            rows[i] = static_cast<size_t>(executor.shot_index(first + i)) * num_exp_vals;
+        }
         for (uint32_t exp_val = 0; exp_val < num_exp_vals; ++exp_val) {
-            for (uint32_t lane = first; lane < end; ++lane) {
-                const uint32_t shot = executor.shot_index(lane);
-                output[static_cast<size_t>(shot) * num_exp_vals + exp_val] =
-                    executor.exp_val(lane, exp_val);
+            for (uint32_t i = 0; i < count; ++i) {
+                output[rows[i] + exp_val] = executor.exp_val(first + i, exp_val);
             }
         }
     }
