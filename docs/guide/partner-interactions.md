@@ -326,35 +326,7 @@ representations equivalent in the computational subspace can therefore differ
 after leakage. Choose and retain the representation that expresses the
 intended noncomputational model.
 
-## Comparison with deltakit-stim
+## Acknowledgements
 
-[Deltakit-stim](https://github.com/Deltakit/deltakit-stim) automatically fully
-depolarizes the partner of a leaked operand on its supported interaction
-gates. Optional gate arguments configure directional spreading and mobility.
-Clifft makes partner effects opt-in, separates leaked and lost sources, and
-uses model settings or explicit annotations instead of changing unitary gate
-arguments.
-
-Using `pauli=(0.25, 0.25, 0.25)` and the same spreading probabilities matches
-that local partner-effect prescription. It does not establish whole-circuit
-compatibility. In particular, deltakit-stim's
-[ordinary two-qubit noise implementation](https://github.com/Deltakit/deltakit-stim/blob/d29c1be6b9077d0c44e0f2499eea0a61fef5079c/src/stim/simulators/frame_simulator.inl#L811)
-does not check leakage status, whereas Clifft retains the noise policy above.
-Clifft also keeps separate `LEAK_G` and `LEAK_E` occupations. This feature
-does not add deltakit's adaptive detector-error-model machinery.
-
-## Exactness and limits
-
-Partner effects use ordinary localized Pauli noise and exact source-preserving
-leakage transitions. Spreading can require compiling additional continuations;
-it does not add topology or status checks to ordinary executor dispatch.
-Measurement slots, detector definitions, result arrays, and the `sample` call
-are unchanged. Fixed seeds remain reproducible across worker counts.
-
-The configured channel is an effective physical model. It does not describe
-coherent superpositions between computational and leaked levels. Mobility,
-which transfers leakage while restoring the original source, requires a joint
-transition and is not implemented. Independently sampling spreading and
-recovery would define a different process. See the
-[noncomputational theory](../theory/noncomputational.md) for jump back-action
-and the distinction between exact simulation and physical modeling assumptions.
+Clifft's leakage partner effects were inspired by
+[deltakit-stim](https://github.com/Deltakit/deltakit-stim).
