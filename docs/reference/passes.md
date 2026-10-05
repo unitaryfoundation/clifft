@@ -24,6 +24,10 @@ pm.add(clifft.StatevectorSqueezePass())
 pm.add(clifft.ActiveWidthSchedulePass())
 ```
 
+Supply the manager as `hir_passes=pm` to `clifft.compile()` to replace the
+defaults. Omit any pass you want to disable, or use `hir_passes=None` to skip
+all HIR optimization.
+
 Optimization passes end at the HIR boundary; `SamplingPlan` is not a second
 public pass pipeline. See [Software Architecture](../theory/architecture.md)
 for the private planning and executable-preparation stages that follow.
@@ -79,32 +83,17 @@ all constraints; postselection supplies none. Use this pass only on complete
 circuits with an all-zero input; prior scheduling across noise causes it to skip
 the circuit.
 
-`max_variables=32` accepts integers from `0` to `64`; zero disables the pass.
-This bounds independent axes modulo known constraints, not circuit qubits.
-Exceeding the cap starts a new region. TOHPE searches at most 128 odd parity
-terms per region; larger inputs retain their projected parity representation.
-Increasing the variable cap can substantially increase compilation cost.
-
-Rewrites cannot increase T count or current peak active width; at equal peak,
-estimated dense work must not increase. This guard does not guarantee faster
-sampling after subsequent passes. Arbitrary-angle rotations and incompatible
-noise can prevent useful collection.
+`max_variables` limits how many independent phase variables the pass analyzes
+together (default `32`, range `0` to `64`; zero disables it). Circuits can have
+more qubits than this limit. Raising it may uncover more simplifications but
+increases compilation cost. The pass rejects rewrites that increase T count
+or peak active width; at unchanged width, estimated sampling work must not
+increase either. Actual sampling speedups depend on the complete optimization
+pipeline. Equivalent rewrites preserve sampling distributions but can change
+samples for a fixed random seed.
 
 After a run, `input_t_count`, `output_t_count`, `blocks_reduced` and
 `pauli_pullbacks` describe the accepted rewrite; `applied` reports acceptance.
-Equivalent rewrites can change samples for a fixed random seed while preserving
-their distribution. To opt out while retaining the other default passes:
-
-```python
-import clifft
-
-pm = clifft.HirPassManager()
-pm.add(clifft.PeepholeFusionPass())
-pm.add(clifft.StatevectorSqueezePass())
-program = clifft.compile("H 0\nT 0\nM 0", hir_passes=pm)
-```
-
-Pass `hir_passes=None` to `clifft.compile()` to disable all HIR optimization.
 {% endif %}
 
 {% if p['name'] == 'ActiveWidthSchedulePass' %}
