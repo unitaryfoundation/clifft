@@ -120,6 +120,36 @@ def test_empty_effects_preserve_default_seeded_results(noncomp_sampling_api):
     )
 
 
+@pytest.mark.parametrize("status, annotation", [("leaked", "LEAKAGE(1)"), ("lost", "LOSS(1)")])
+@pytest.mark.parametrize("source", [0, 1])
+def test_nonzero_rule_replaces_default_pauli_and_spreading(
+    status, annotation, source, noncomp_sampling_api
+):
+    model = noncomp.Model(
+        classifier=classifier(),
+        gate_partner_effects={
+            status: noncomp.PartnerEffect(
+                pauli=(1, 0, 0), spread_probability=1 if status == "leaked" else 0
+            )
+        },
+        interactions=[
+            rule(
+                gate="CNOT",
+                source=source,
+                status=status,
+                effect=noncomp.PartnerEffect(pauli=(0, 0, 1)),
+            )
+        ],
+    )
+    pairs = "0 1 0 2" if source == 0 else "1 0 2 0"
+    result = noncomp_sampling_api(
+        f"{annotation} 0\nH 2\nCX {pairs}\nM 1\nMX 2", model, shots=32, seed=15
+    )
+    # Z readout detects a retained default X; X readout detects a missing override Z.
+    np.testing.assert_array_equal(result.measurements, np.tile([0, 1], (32, 1)))
+    assert (result.final_status[:, 1:] == noncomp.QubitStatus.COMPUTATIONAL).all()
+
+
 def test_generated_effects_precede_hooks_and_explicit_effects_follow_them(noncomp_sampling_api):
     transition = np.zeros((5, 5))
     transition[noncomp.Level.LEAK_G, noncomp.Level.G] = 1
