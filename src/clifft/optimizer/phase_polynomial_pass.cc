@@ -108,17 +108,12 @@ struct Block {
 
 class Rewriter {
   public:
-    Rewriter(HirModule& hir, uint32_t max_variables)
-        : hir_(hir), max_variables_(max_variables), known_(hir.num_qubits) {
-        output_.reserve(hir.ops.size());
-        if (!hir.source_map.empty()) {
-            sources_.reserve(hir.ops.size());
-        }
-    }
+    Rewriter(const HirModule& input, uint32_t max_variables)
+        : input_(input), max_variables_(max_variables), known_(input.num_qubits) {}
 
-    void run() {
-        for (size_t i = 0; i < hir_.ops.size();) {
-            if (hir_.ops[i].op_type() == OpType::T_GATE) {
+    std::optional<HirModule> run() {
+        for (size_t i = 0; i < hir().ops.size();) {
+            if (hir().ops[i].op_type() == OpType::T_GATE) {
                 auto block = collect(i);
                 assert(block.end > i);
                 if (!rewrite(i, block)) {
@@ -128,13 +123,16 @@ class Rewriter {
                 }
                 i = block.end;
             } else {
-                transform(hir_.ops[i]);
+                transform(hir().ops[i]);
                 emit(i++);
             }
         }
-        hir_.ops = std::move(output_);
-        hir_.source_map = std::move(sources_);
-        frame_.finish(hir_);
+        if (candidate_) {
+            candidate_->ops = std::move(output_);
+            candidate_->source_map = std::move(sources_);
+            frame_.finish(*candidate_);
+        }
+        return std::move(candidate_);
     }
 
     size_t blocks_reduced = 0;
@@ -146,17 +144,37 @@ class Rewriter {
         uint64_t coordinates;
     };
 
+    const HirModule& hir() const { return candidate_ ? *candidate_ : input_; }
+
+    void start_candidate(size_t start) {
+        if (candidate_) {
+            return;
+        }
+        // Until a region improves, collection is read-only and the frame is
+        // empty. Keep the input intact for the final cost guard and exceptions.
+        candidate_.emplace(input_);
+        candidate_->logical_noise_prefix.clear();
+        output_.reserve(input_.ops.size());
+        output_.assign(input_.ops.begin(), input_.ops.begin() + start);
+        if (!input_.source_map.empty()) {
+            sources_.reserve(input_.ops.size());
+            for (size_t i = 0; i < start; ++i) {
+                sources_.push_back(std::move(candidate_->source_map[i]));
+            }
+        }
+    }
+
     Block collect(size_t start) {
         Block block{start, {}, {}, {}, {}, {}, {}};
         // Entry coordinates stay fixed while barriers remove relations that
         // cannot hold after moving those operations ahead of the phase block.
         auto available = known_;
         std::map<uint32_t, Row> rows;
-        for (size_t i = start; i < hir_.ops.size(); ++i) {
-            const auto& op = hir_.ops[i];
+        for (size_t i = start; i < hir().ops.size(); ++i) {
+            const auto& op = hir().ops[i];
             const auto type = op.op_type();
             if (type == OpType::T_GATE) {
-                auto axis = frame_.read(hir_.mask_view(op), hir_.num_qubits);
+                auto axis = frame_.read(hir().mask_view(op), hir().num_qubits);
                 auto reduced = known_.reduce_body(axis);
                 // An entry stabilizer commutes with every constraint derived
                 // from that same group, without a second basis scan.
@@ -188,7 +206,7 @@ class Rewriter {
                     block.generators.back().set_sign(false);
                     coordinates = bit;
                 }
-                auto residual = product_axis(block.generators, coordinates, hir_.num_qubits);
+                auto residual = product_axis(block.generators, coordinates, hir().num_qubits);
                 auto unsigned_axis = axis;
                 unsigned_axis.set_sign(false);
                 residual.right_multiply(unsigned_axis.view());
@@ -204,18 +222,20 @@ class Rewriter {
                                          *negative ? -coefficient : coefficient);
                 auto& term = block.original_terms[coordinates];
                 term = static_cast<uint8_t>((term + (*negative ? -coefficient : coefficient)) & 7);
-                write_axis(hir_.mask_at(op), axis);
+                if (candidate_) {
+                    write_axis(candidate_->mask_at(op), axis);
+                }
                 block.rotations.push_back(i);
             } else if (type == OpType::NOISE) {
                 // Moving this site before the phase prefix must preserve the
                 // relations already used. Later relations are checked against
                 // the entry knowledge after applying this channel.
                 const auto& channels =
-                    hir_.noise_sites[static_cast<uint32_t>(op.noise_site_idx())].channels;
+                    hir().noise_sites[static_cast<uint32_t>(op.noise_site_idx())].channels;
                 std::vector<PauliString> axes;
                 for (const auto& channel : channels) {
                     auto axis =
-                        frame_.read(hir_.noise_channel_masks.at(channel.mask), hir_.num_qubits);
+                        frame_.read(hir().noise_channel_masks.at(channel.mask), hir().num_qubits);
                     if (channel.prob > 0 &&
                         (!block.constraints.commutes(axis.view()) ||
                          std::ranges::any_of(block.generators, [&](const PauliString& generator) {
@@ -226,13 +246,16 @@ class Rewriter {
                     axis.set_sign(false);
                     axes.push_back(std::move(axis));
                 }
-                for (size_t j = 0; j < channels.size(); ++j) {
-                    write_axis(hir_.noise_channel_masks.mut_at(channels[j].mask), axes[j]);
+                if (candidate_) {
+                    for (size_t j = 0; j < channels.size(); ++j) {
+                        write_axis(candidate_->noise_channel_masks.mut_at(channels[j].mask),
+                                   axes[j]);
+                    }
                 }
-                available.advance(hir_, op);
+                available.advance(hir(), op);
             } else if (type == OpType::MEASURE || type == OpType::CONDITIONAL_PAULI ||
                        type == OpType::EXP_VAL) {
-                const auto axis = frame_.read(hir_.mask_view(op), hir_.num_qubits);
+                const auto axis = frame_.read(hir().mask_view(op), hir().num_qubits);
                 if (!block.constraints.commutes(axis.view())) {
                     break;
                 }
@@ -248,7 +271,7 @@ class Rewriter {
                 }
                 auto pulled = axis;
                 const auto correction =
-                    product_axis(block.generators, difference->parity, hir_.num_qubits);
+                    product_axis(block.generators, difference->parity, hir().num_qubits);
                 pulled.right_multiply(correction.view());
                 // U^dag M U = M * omega^(-difference). The scalar also repairs
                 // the imaginary phase when M anticommutes with its correction.
@@ -256,7 +279,9 @@ class Rewriter {
                 assert(pulled.is_hermitian());
                 block.observers.push_back({i, std::move(pulled)});
                 available.intersect(axis.view());
-                write_axis(hir_.mask_at(op), axis);
+                if (candidate_) {
+                    write_axis(candidate_->mask_at(op), axis);
+                }
             } else if (type != OpType::DETECTOR && type != OpType::OBSERVABLE &&
                        type != OpType::READOUT_NOISE) {
                 break;
@@ -278,22 +303,23 @@ class Rewriter {
              basis.core_width == block.generators.size())) {
             return false;
         }
+        start_candidate(start);
         std::vector<PauliString> generators;
         for (uint64_t parity : basis.parities) {
-            generators.push_back(product_axis(block.generators, parity, hir_.num_qubits));
+            generators.push_back(product_axis(block.generators, parity, hir().num_qubits));
         }
         for (const auto& observer : block.observers) {
-            write_axis(hir_.mask_at(hir_.ops[observer.index]), observer.pulled_axis);
+            write_axis(candidate_->mask_at(candidate_->ops[observer.index]), observer.pulled_axis);
         }
         for (size_t i = start; i < block.end; ++i) {
-            if (hir_.ops[i].op_type() != OpType::T_GATE) {
+            if (hir().ops[i].op_type() != OpType::T_GATE) {
                 emit(i);
             }
         }
         std::vector<uint32_t> sources;
-        if (!hir_.source_map.empty()) {
+        if (!hir().source_map.empty()) {
             for (size_t index : block.rotations) {
-                const auto& original = hir_.source_map[index];
+                const auto& original = hir().source_map[index];
                 sources.insert(sources.end(), original.begin(), original.end());
             }
             std::ranges::sort(sources);
@@ -301,16 +327,16 @@ class Rewriter {
         }
         size_t written = 0;
         for (const auto& [parity, coefficient] : synthesis) {
-            const auto axis = product_axis(generators, parity, hir_.num_qubits);
+            const auto axis = product_axis(generators, parity, hir().num_qubits);
             int clifford = coefficient;
             if (coefficient & 1) {
                 const bool dagger = coefficient >= 5;
-                auto& op = hir_.ops[block.rotations[written++]];
-                hir_.demote_to_tgate(op, dagger);
-                write_axis(hir_.mask_at(op), axis);
+                auto& op = candidate_->ops[block.rotations[written++]];
+                candidate_->demote_to_tgate(op, dagger);
+                write_axis(candidate_->mask_at(op), axis);
                 output_.push_back(op);
-                known_.advance(hir_, op);
-                if (!hir_.source_map.empty()) {
+                known_.advance(hir(), op);
+                if (!hir().source_map.empty()) {
                     sources_.push_back(sources);
                 }
                 clifford = (coefficient - (dagger ? -1 : 1)) & 7;
@@ -330,7 +356,7 @@ class Rewriter {
             return;
         }
         const auto transform_mask = [&](MutablePauliMaskView mask) {
-            write_axis(mask, frame_.read(mask, hir_.num_qubits));
+            write_axis(mask, frame_.read(mask, hir().num_qubits));
         };
         switch (op.op_type()) {
             case OpType::T_GATE:
@@ -338,21 +364,21 @@ class Rewriter {
             case OpType::MEASURE:
             case OpType::CONDITIONAL_PAULI:
             case OpType::EXP_VAL:
-                transform_mask(hir_.mask_at(op));
+                transform_mask(candidate_->mask_at(op));
                 break;
 
             case OpType::INSTRUMENT: {
-                transform_mask(hir_.mask_at(op));
+                transform_mask(candidate_->mask_at(op));
                 const auto& site =
-                    hir_.instrument_sites[static_cast<uint32_t>(op.instrument_site_idx())];
-                transform_mask(hir_.pauli_masks.mut_at(site.destination_flip_mask));
+                    hir().instrument_sites[static_cast<uint32_t>(op.instrument_site_idx())];
+                transform_mask(candidate_->pauli_masks.mut_at(site.destination_flip_mask));
                 break;
             }
 
             case OpType::NOISE:
                 for (const auto& channel :
-                     hir_.noise_sites[static_cast<uint32_t>(op.noise_site_idx())].channels) {
-                    auto mask = hir_.noise_channel_masks.mut_at(channel.mask);
+                     hir().noise_sites[static_cast<uint32_t>(op.noise_site_idx())].channels) {
+                    auto mask = candidate_->noise_channel_masks.mut_at(channel.mask);
                     transform_mask(mask);
                     // A channel is unchanged by replacing its Pauli with -P.
                     mask.set_sign(false);
@@ -368,14 +394,17 @@ class Rewriter {
     }
 
     void emit(size_t index) {
-        output_.push_back(hir_.ops[index]);
-        known_.advance(hir_, hir_.ops[index]);
-        if (!hir_.source_map.empty()) {
-            sources_.push_back(hir_.source_map[index]);
+        known_.advance(hir(), hir().ops[index]);
+        if (candidate_) {
+            output_.push_back(candidate_->ops[index]);
+            if (!candidate_->source_map.empty()) {
+                sources_.push_back(std::move(candidate_->source_map[index]));
+            }
         }
     }
 
-    HirModule& hir_;
+    const HirModule& input_;
+    std::optional<HirModule> candidate_;
     uint32_t max_variables_;
     CliffordFrame frame_;
     // Follow emitted operations: absorbed Cliffords live in frame_, so their
@@ -403,14 +432,12 @@ void PhasePolynomialPass::run(HirModule& hir) {
     if (!hir.source_map.empty() && hir.source_map.size() != hir.ops.size()) {
         throw std::invalid_argument("HIR source map size does not match the operation count");
     }
-    HirModule candidate = hir;
-    candidate.logical_noise_prefix.clear();
-    Rewriter rewriter(candidate, options_.max_variables);
-    rewriter.run();
-    if (!rewriter.blocks_reduced) {
+    Rewriter rewriter(hir, options_.max_variables);
+    auto candidate = rewriter.run();
+    if (!candidate) {
         return;
     }
-    const auto after = analyze_active_width(candidate);
+    const auto after = analyze_active_width(*candidate);
     // This is a local structural guard, not a prediction of later scheduling
     // or hardware throughput.
     // Zero width has no dense work and is already optimal for both criteria.
@@ -424,8 +451,8 @@ void PhasePolynomialPass::run(HirModule& hir) {
     }
     blocks_reduced_ = rewriter.blocks_reduced;
     pauli_pullbacks_ = rewriter.pauli_pullbacks;
-    output_t_count_ = candidate.num_t_gates();
-    hir = std::move(candidate);
+    output_t_count_ = candidate->num_t_gates();
+    hir = std::move(*candidate);
 }
 
 }  // namespace clifft

@@ -65,6 +65,33 @@ TEST_CASE("Phase pass supports Pauli axes spanning multiple words", "[optimizer]
     REQUIRE(axis.popcount() == 4);
 }
 
+TEST_CASE("Phase pass preserves an unreduced prefix and its provenance", "[optimizer]") {
+    HirModule hir(5, 18);
+    hir.final_tableau.emplace(5);
+    test::append_tgate(hir, 16, 0, false);
+    test::append_measure(hir, 0, 16, false, MeasRecordIdx{0});
+    hir.num_measurements = 1;
+    hir.source_map = {{1}, {2}};
+    for (uint32_t term = 1; term <= 16; ++term) {
+        test::append_tgate(hir, term == 16 ? 15 : term, 0, false);
+        hir.source_map.push_back({term + 2});
+    }
+    const auto original = hir;
+    PhasePolynomialPass pass;
+    pass.run(hir);
+    REQUIRE(pass.blocks_reduced() == 1);
+    REQUIRE(hir.ops.size() == 3);
+    REQUIRE(hir.source_map.size() == 3);
+    for (size_t i = 0; i < 2; ++i) {
+        REQUIRE(hir.ops[i].op_type() == original.ops[i].op_type());
+        REQUIRE(hir.mask_view(hir.ops[i]) == original.mask_view(original.ops[i]));
+        REQUIRE(hir.source_map[i] == original.source_map[i]);
+    }
+    REQUIRE(hir.source_map.back().size() == 16);
+    REQUIRE(hir.source_map.back().front() == original.source_map[2].front());
+    REQUIRE(hir.source_map.back().back() == original.source_map.back().back());
+}
+
 TEST_CASE("Phase pass removes rotations equivalent on the known input", "[optimizer]") {
     HirModule hir(2, 2);
     hir.final_tableau.emplace(2);
@@ -172,6 +199,9 @@ TEST_CASE("Phase pass leaves long sequences of non-Pauli observer barriers intac
     pass.run(hir);
     REQUIRE_FALSE(pass.applied());
     REQUIRE(hir.ops.size() == original.ops.size());
+    REQUIRE(hir.source_map == original.source_map);
+    REQUIRE(hir.logical_noise_prefix == original.logical_noise_prefix);
+    REQUIRE(hir.final_tableau == original.final_tableau);
     for (size_t i = 0; i < hir.ops.size(); ++i) {
         REQUIRE(hir.ops[i].op_type() == original.ops[i].op_type());
         REQUIRE(hir.mask_view(hir.ops[i]) == original.mask_view(original.ops[i]));
