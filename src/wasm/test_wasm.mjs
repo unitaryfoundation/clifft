@@ -59,6 +59,33 @@ assert.equal(scheduled.peak_active_width, 1);
 const scheduledSamples = JSON.parse(mod.simulate_wasm(schedulingWitness, 100, withScheduling));
 assert.equal(scheduledSamples.error, undefined);
 
+{
+    const name = "PhasePolynomialPass";
+    const phase = passes.find((p) => p.name === name);
+    assert.ok(phase, `Missing default ${name}`);
+    assert.equal(phase.default, true);
+    const phaseLines = ["H 0 1 2 3"];
+    for (let mask = 1; mask < 15; mask++) {
+        const factors = [0, 1, 2, 3].filter((q) => mask & (1 << q)).map((q) => `Z${q}`);
+        phaseLines.push(`R_PAULI(0.25) ${factors.join("*")}`);
+    }
+    phaseLines.push("MX 0 1 2 3");
+    const phaseWitness = phaseLines.join("\n");
+    const withPhase = JSON.stringify({
+        hir: ["PeepholeFusionPass", phase.name, "StatevectorSqueezePass"],
+    });
+    const withoutPhase = JSON.stringify({
+        hir: ["PeepholeFusionPass", "StatevectorSqueezePass"],
+    });
+    const phaseBaseline = JSON.parse(mod.compile_to_json(phaseWitness, withoutPhase));
+    const phaseReduced = JSON.parse(mod.compile_to_json(phaseWitness, DEFAULTS));
+    assert.equal(phaseBaseline.error, undefined);
+    assert.equal(phaseReduced.error, undefined);
+    assert.equal(phaseBaseline.peak_active_width, 4);
+    assert.equal(phaseReduced.peak_active_width, 1);
+    assert.equal(JSON.parse(mod.simulate_wasm(phaseWitness, 100, withPhase)).error, undefined);
+}
+
 // --- compile_to_json with defaults ---
 const json = mod.compile_to_json("H 0\nT 0\nM 0", DEFAULTS);
 const result = JSON.parse(json);

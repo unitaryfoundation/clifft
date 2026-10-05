@@ -19,9 +19,14 @@ import clifft
 
 pm = clifft.HirPassManager()
 pm.add(clifft.PeepholeFusionPass())
+pm.add(clifft.PhasePolynomialPass())
 pm.add(clifft.StatevectorSqueezePass())
 pm.add(clifft.ActiveWidthSchedulePass())
 ```
+
+Supply the manager as `hir_passes=pm` to `clifft.compile()` to replace the
+defaults. Omit any pass you want to disable, or use `hir_passes=None` to skip
+all HIR optimization.
 
 Optimization passes end at the HIR boundary; `SamplingPlan` is not a second
 public pass pipeline. See [Software Architecture](../theory/architecture.md)
@@ -38,7 +43,7 @@ collapse can change quantum correlations.
 `clifft.noncomp.sample` therefore applies only passes that are enabled by
 default, preserve measurement-record order, and preserve instrument prefixes.
 Its HIR pipeline uses `PeepholeFusionPass` but omits
-`StatevectorSqueezePass` and `ActiveWidthSchedulePass`.
+`PhasePolynomialPass`, `StatevectorSqueezePass` and `ActiveWidthSchedulePass`.
 
 Record-order preservation is necessary but does not by itself make a
 continuation compatible with an already-running executor. Trajectory passes
@@ -66,6 +71,30 @@ for how continuations are compiled and resumed.
 | **Python** | `clifft.{{ p['python_name'] }}()` |
 
 {{ p['detail'] }}
+
+{% if p['name'] == 'PhasePolynomialPass' %}
+Pauli measurements, expectation-value probes and classically controlled Pauli
+gates can move before a phase prefix only when their conjugated axes remain
+Paulis and all required constraints survive. Pauli noise can cross only when
+its nonzero-probability channels commute with that prefix and preserve those
+constraints. These must hold on every trajectory and the noiseless reference,
+so even probability-one noise discards affected constraints. Instruments clear
+all constraints; postselection supplies none. Use this pass only on complete
+circuits with an all-zero input; prior scheduling across noise causes it to skip
+the circuit.
+
+`max_variables` limits how many independent phase variables the pass analyzes
+together (default `32`, range `0` to `64`; zero disables it). Circuits can have
+more qubits than this limit. Raising it may uncover more simplifications but
+increases compilation cost. The pass rejects rewrites that increase T count
+or peak active width; at unchanged width, estimated sampling work must not
+increase either. Actual sampling speedups depend on the complete optimization
+pipeline. Equivalent rewrites preserve sampling distributions but can change
+samples for a fixed random seed.
+
+After a run, `input_t_count`, `output_t_count`, `blocks_reduced` and
+`pauli_pullbacks` describe the accepted rewrite; `applied` reports acceptance.
+{% endif %}
 
 {% if p['name'] == 'ActiveWidthSchedulePass' %}
 See [Compiling Circuits](../guide/compilation.md#active-width-scheduling) for

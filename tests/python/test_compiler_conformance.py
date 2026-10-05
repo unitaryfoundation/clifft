@@ -2,9 +2,9 @@
 
 Each CASES entry runs exact record checks under every compiler profile, and
 sampled record and annotation checks under every profile and sampling mode.
-Profiles select no HIR passes, production defaults, or explicit active-width
-scheduling. Execution configurations come from CPU_SAMPLING_MODES. Passes are not
-independently toggled in this matrix: separate witnesses check their effects.
+Profiles select no HIR passes, production defaults, explicit active-width
+scheduling, or phase reduction. Execution configurations come from CPU_SAMPLING_MODES.
+Passes are not independently toggled in this matrix: separate witnesses check their effects.
 The boundary circuit runs under every profile, mode, and designated shot count.
 """
 
@@ -18,6 +18,7 @@ from utils_conformance import (
     COMPILER_PROFILES,
     CPU_SAMPLING_MODES,
     DEFAULT,
+    DEFAULT_SCHEDULED,
     FUSION_SQUEEZE,
     UNOPTIMIZED,
     CompilerProfile,
@@ -42,11 +43,21 @@ class UnitaryCase:
         return self.source + "\nM " + " ".join(map(str, range(self.num_qubits)))
 
 
+PHASE_SOURCE = (
+    "H 0 1 2 3\n"
+    + "\n".join(
+        "R_PAULI(0.25) " + "*".join(f"Z{q}" for q in range(4) if parity & (1 << q))
+        for parity in [*range(1, 16), 15]
+    )
+    + "\nH 0 1 2 3"
+)
+
 CASES = (
     # Neither pass alone can satisfy the other pass's width-reduction witness.
     UnitaryCase("fusion", "H 0\nT 0\nT_DAG 0\nH 0", 1, "PeepholeFusionPass"),
     UnitaryCase("squeeze", "H 0 1\nT 0 1\nH 0 1", 2, "StatevectorSqueezePass"),
     UnitaryCase("bell", "H 0\nCX 0 1\nT 0", 2),
+    UnitaryCase("phase", PHASE_SOURCE, 4),
     UnitaryCase(
         "mixed-pauli", "R_X(0.3) 0\nR_Y(0.2) 1\nH 2\nCX 1 2\nR_PAULI(0.17) X0*Y1*Z2\nH 0 1", 3
     ),
@@ -162,6 +173,13 @@ def test_active_width_profile_really_transforms_witness() -> None:
     baseline = FUSION_SQUEEZE.compile(source)
     scheduled = ACTIVE_WIDTH.compile(source)
     assert scheduled.peak_active_width < baseline.peak_active_width, "ActiveWidthSchedulePass"
+
+
+def test_phase_profile_really_transforms_witness() -> None:
+    source = PHASE_SOURCE + "\nM 0 1 2 3"
+    baseline = ACTIVE_WIDTH.compile(source)
+    reduced = DEFAULT_SCHEDULED.compile(source)
+    assert reduced.peak_active_width == 1 < baseline.peak_active_width
 
 
 def test_joint_check_detects_reversed_record_bit_order() -> None:

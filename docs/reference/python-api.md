@@ -144,6 +144,8 @@ Sampling under a five-level leakage/loss model. See the
 
 ::: clifft.PeepholeFusionPass
 
+::: clifft.PhasePolynomialPass
+
 ::: clifft.StatevectorSqueezePass
 
 ::: clifft.active_width_trace
