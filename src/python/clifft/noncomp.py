@@ -26,7 +26,9 @@ other alphabet sizes are rejected.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from enum import IntEnum
+from math import isfinite
 from typing import Callable, Iterator, Literal
 
 import numpy as np
@@ -37,6 +39,8 @@ from clifft._clifft_core import Circuit
 
 __all__ = [
     "Classifier",
+    "InteractionRule",
+    "PartnerEffect",
     "Level",
     "Model",
     "NonComputationalSample",
@@ -104,6 +108,71 @@ class Classifier:
         self.matrix = _as_matrix(matrix)
 
 
+@dataclass(frozen=True, slots=True, init=False)
+class PartnerEffect:
+    """Noise on a computational partner of a leaked or lost operand.
+
+    ``pauli=(px, py, pz)`` specifies mutually exclusive X, Y, and Z errors;
+    identity has probability ``1 - px - py - pz``. Full depolarization is
+    ``(0.25, 0.25, 0.25)``. The optional leakage attempt happens after the
+    Pauli channel, with source-preserving ``g -> leak_g`` and ``e -> leak_e``
+    semantics on the partner. Spreading is supported only for leaked sources.
+    Both effects default to zero. Values are validated and copied on creation.
+    """
+
+    pauli: tuple[float, float, float]
+    spread_probability: float
+
+    def __init__(
+        self, *, pauli: Sequence[float] = (0.0, 0.0, 0.0), spread_probability: float = 0.0
+    ) -> None:
+        values = tuple(float(p) for p in pauli)
+        if len(values) != 3:
+            raise ValueError("pauli requires three probabilities in X, Y, Z order")
+        if any(not isfinite(p) or p < 0 or p > 1 for p in values) or sum(values) > 1:
+            raise ValueError(
+                "Pauli probabilities must be finite, nonnegative, and sum to at most 1"
+            )
+        spread = float(spread_probability)
+        if not isfinite(spread) or not 0 <= spread <= 1:
+            raise ValueError("spread_probability must be finite and in [0, 1]")
+        object.__setattr__(self, "pauli", values)
+        object.__setattr__(self, "spread_probability", spread)
+
+    def _values(self) -> list[float]:
+        return [*self.pauli, self.spread_probability]
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class InteractionRule:
+    """Replace a gate's default effect for one source status and direction.
+
+    ``source_operand`` is 0 for the first operand in each ordered gate pair,
+    or 1 for the second. ``source_status`` is ``"leaked"`` (either leaked
+    level) or ``"lost"``. The other operand must be computational. The entire
+    ``effect`` replaces the matching default; ``PartnerEffect()`` disables it.
+    ``Model`` validates gate support and rejects duplicate canonical rules,
+    including aliases such as CX and CNOT. Rules do not affect virtual feedback.
+    """
+
+    gate: str
+    source_operand: int
+    source_status: Literal["leaked", "lost"]
+    effect: PartnerEffect
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.gate, str):
+            raise TypeError("gate must be a gate name")
+        if not isinstance(self.source_operand, int) or self.source_operand not in (0, 1):
+            raise ValueError("source_operand must be 0 or 1")
+        if self.source_status not in ("leaked", "lost"):
+            raise ValueError("source_status must be 'leaked' or 'lost'")
+        if not isinstance(self.effect, PartnerEffect):
+            raise TypeError("effect must be a PartnerEffect")
+        if self.source_status == "lost" and self.effect.spread_probability != 0:
+            raise ValueError("spreading is only supported for a leaked source")
+
+
 class Model:
     """A noncomputational trajectory model over the built-in five-level set.
 
@@ -143,10 +212,22 @@ class Model:
             same total transition probability; otherwise the bias is of order
             ``|p_g - p_e|``.
 
-    An operation with no representable effect on a leaked or lost operand --
-    e.g. a two-qubit gate onto a vacated site -- is dropped, acting as the
-    identity on the surviving operands. Single-qubit measurements (``M``,
-    ``MX``, ``MY``) keep their record slot; once the qubit has left the
+        gate_partner_effects: Defaults keyed by ``"leaked"`` or ``"lost"``,
+            each a [PartnerEffect][clifft.noncomp.PartnerEffect]. Apply in both
+            directions of supported native physical two-qubit unitary gates
+            when the other operand is computational. Omitted statuses have no
+            partner effect. These defaults exclude noise and virtual feedback.
+        interactions: Specific [InteractionRule][clifft.noncomp.InteractionRule]
+            overrides. Each replaces the whole matching default. Generated
+            interactions run after the gate and before its level-transition
+            hooks. Explicit circuit annotations run at their own expanded
+            position and compose with generated effects without overriding them.
+
+    By default, an operation with no representable effect on a leaked or lost
+    operand -- e.g. a two-qubit gate onto a vacated site -- is dropped, acting as the
+    identity on the surviving operands. Configured partner interactions replace
+    that identity with Pauli noise and optional leakage spreading. Single-qubit
+    measurements (``M``, ``MX``, ``MY``) keep their record slot; once the qubit has left the
     computational subspace the readout basis is incidental and the
     classifier supplies the bit. A
     measure-and-reset (``MR``/``MRX``/``MRY``) keeps its record the same
@@ -159,7 +240,8 @@ class Model:
     classifier when the circuit measures a qubit.
 
     Construction validates shapes, probabilities, gate keys, policy values,
-    and level table consistency, raising ``ValueError`` on any problem.
+    and level table consistency. Invalid values raise ``ValueError``; effect
+    and rule objects of the wrong type raise ``TypeError``.
     """
 
     __slots__ = (
@@ -168,6 +250,8 @@ class Model:
         "_classifier_rows",
         "_reset_restores_lost",
         "_damping",
+        "_gate_partner_effects",
+        "_interactions",
     )
 
     def __init__(
@@ -177,6 +261,9 @@ class Model:
         classifier: Classifier | None = None,
         reset_restores_lost: bool = False,
         damping: str = "exact",
+        *,
+        gate_partner_effects: Mapping[str, PartnerEffect] | None = None,
+        interactions: Sequence[InteractionRule] | None = None,
     ) -> None:
         if initial_state is None:
             initial_state = [1.0, 0.0, 0.0, 0.0, 0.0]
@@ -184,12 +271,25 @@ class Model:
             str(gate): _as_matrix(matrix) for gate, matrix in (transitions or {}).items()
         }
         matrix = None if classifier is None else classifier.matrix
+        self._gate_partner_effects = dict(gate_partner_effects or {})
+        self._interactions = tuple(interactions or ())
+        if any(
+            not isinstance(effect, PartnerEffect) for effect in self._gate_partner_effects.values()
+        ):
+            raise TypeError("gate_partner_effects values must be PartnerEffect objects")
+        if any(not isinstance(rule, InteractionRule) for rule in self._interactions):
+            raise TypeError("interactions must contain InteractionRule objects")
         self._handle = _clifft_core._build_noncomp_model(
             [float(p) for p in initial_state],
             transition_matrices,
             matrix,
             bool(reset_restores_lost),
             str(damping),
+            {status: effect._values() for status, effect in self._gate_partner_effects.items()},
+            [
+                (rule.gate, rule.source_operand, rule.source_status, rule.effect._values())
+                for rule in self._interactions
+            ],
         )
         self._transition_keys: list[str] = sorted(transition_matrices.keys())
         self._classifier_rows: int | None = None if classifier is None else len(classifier.matrix)
@@ -202,6 +302,10 @@ class Model:
             parts.append(f"classifier={self._classifier_rows}-symbol")
         parts.append(f"reset_restores_lost={self._reset_restores_lost!r}")
         parts.append(f"damping={self._damping!r}")
+        if self._gate_partner_effects:
+            parts.append(f"gate_partner_effects={self._gate_partner_effects!r}")
+        if self._interactions:
+            parts.append(f"interactions={self._interactions!r}")
         return f"Model({', '.join(parts)})"
 
 
@@ -299,9 +403,14 @@ def sample(
     probes are not supported with such models.
 
     ``HERALD_LEAKAGE_EVENT`` and ``HERALD_LOSS_EVENT`` append nondestructive
-    status checks to the ordinary measurement record. An optional probability
-    suppresses positive results only. They require no classifier and leave
-    their entries in the classifier ``heralds`` sidecar zero.
+    status checks to the ordinary measurement record. They take no arguments;
+    use ``READOUT_NOISE`` to model probe errors. They require no classifier and
+    leave their entries in the classifier ``heralds`` sidecar zero.
+
+    ``LEAKAGE_INTERACTION`` and ``LOSS_INTERACTION`` apply conditional partner
+    effects without adding records. Model-generated interactions precede the
+    gate's level-transition hooks. Explicit annotations evaluate status at their
+    own expanded position and compose with generated effects.
 
     Continuations are compiled with the default optimization passes that
     preserve measurement-record order and instrument-prefix stability, omitting

@@ -215,7 +215,10 @@ void register_noncomp(nb::module_& m) {
         [](std::vector<double> initial_state,
            std::map<std::string, std::vector<std::vector<double>>> transitions,
            std::optional<std::vector<std::vector<double>>> classifier_matrix,
-           bool reset_restores_lost, const std::string& damping) {
+           bool reset_restores_lost, const std::string& damping,
+           const std::map<std::string, std::vector<double>>& gate_partner_effects,
+           const std::vector<std::tuple<std::string, uint32_t, std::string, std::vector<double>>>&
+               interactions) {
             clifft::NonComputationalPolicy policy;
             policy.reset_restores_lost = reset_restores_lost;
             if (damping == "exact") {
@@ -227,11 +230,35 @@ void register_noncomp(nb::module_& m) {
                     "noncomp model: damping must be 'exact' or 'neglect', got '" + damping + "'");
             }
 
+            const auto effect_from_values = [](const std::vector<double>& values) {
+                if (values.size() != 4) {
+                    throw std::invalid_argument(
+                        "partner effect requires three Pauli probabilities and a spreading "
+                        "probability");
+                }
+                return clifft::PartnerEffect{{values[0], values[1], values[2]}, values[3]};
+            };
+            clifft::GatePartnerEffects defaults;
+            for (const auto& [name, values] : gate_partner_effects) {
+                const auto status = clifft::parse_interaction_source(name);
+                auto& effect =
+                    status == clifft::InteractionSource::Leaked ? defaults.leaked : defaults.lost;
+                effect = effect_from_values(values);
+            }
+            std::vector<clifft::InteractionRule> rules;
+            for (const auto& [gate, operand, status, values] : interactions) {
+                rules.push_back({gate, operand, clifft::parse_interaction_source(status),
+                                 effect_from_values(values)});
+            }
             return clifft::NonComputationalModel::from_spec(std::move(initial_state), transitions,
-                                                            std::move(classifier_matrix), policy);
+                                                            std::move(classifier_matrix), policy,
+                                                            std::move(defaults), rules);
         },
         nb::arg("initial_state"), nb::arg("transitions"), nb::arg("classifier_matrix") = nb::none(),
         nb::arg("reset_restores_lost") = false, nb::arg("damping") = "exact",
+        nb::arg("gate_partner_effects") = std::map<std::string, std::vector<double>>{},
+        nb::arg("interactions") =
+            std::vector<std::tuple<std::string, uint32_t, std::string, std::vector<double>>>{},
         "Build the built-in five-level NonComputationalModel from raw matrices. See "
         "clifft.noncomp.Model.");
 
@@ -383,6 +410,8 @@ NB_MODULE(_clifft_core, m) {
         .value("LEVEL_TRANSITION", clifft::GateType::LEVEL_TRANSITION)
         .value("LEAKAGE", clifft::GateType::LEAKAGE)
         .value("LOSS", clifft::GateType::LOSS)
+        .value("LEAKAGE_INTERACTION", clifft::GateType::LEAKAGE_INTERACTION)
+        .value("LOSS_INTERACTION", clifft::GateType::LOSS_INTERACTION)
         .value("HERALD_LEAKAGE_EVENT", clifft::GateType::HERALD_LEAKAGE_EVENT)
         .value("HERALD_LOSS_EVENT", clifft::GateType::HERALD_LOSS_EVENT)
         // Simulation-only probes

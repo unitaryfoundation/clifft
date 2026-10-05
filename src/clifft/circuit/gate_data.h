@@ -156,6 +156,10 @@ enum class GateType : uint16_t {
     CCX,  // Toffoli / controlled-controlled-X (rewritten at parse time)
     CCZ,  // Controlled-controlled-Z (rewritten at parse time)
 
+    // Conditional partner annotations; appended to preserve existing gate values.
+    LEAKAGE_INTERACTION,
+    LOSS_INTERACTION,
+
     // Sentinel for unknown/unsupported gates
     UNKNOWN,
 };
@@ -314,6 +318,9 @@ inline constexpr GateTraits kGateTraitsData[] = {
     {.arity = P, .unitary = true, .parser_desugared = true, .name = "CH"},
     {.arity = T, .unitary = true, .parser_desugared = true, .name = "CCX"},
     {.arity = T, .unitary = true, .parser_desugared = true, .name = "CCZ"},
+    // Conditional partner annotations
+    {.arity = P, .name = "LEAKAGE_INTERACTION"},
+    {.arity = P, .name = "LOSS_INTERACTION"},
     // Sentinel
     {.arity = S, .name = "UNKNOWN"},
 };
@@ -400,9 +407,12 @@ inline constexpr bool is_inline_noncomputational_annotation(GateType g) {
 inline constexpr bool is_noncomputational_herald(GateType g) {
     return g == GateType::HERALD_LEAKAGE_EVENT || g == GateType::HERALD_LOSS_EVENT;
 }
+inline constexpr bool is_noncomputational_interaction(GateType g) {
+    return g == GateType::LEAKAGE_INTERACTION || g == GateType::LOSS_INTERACTION;
+}
 inline constexpr bool is_noncomputational_annotation(GateType g) {
     return g == GateType::LEVEL_TRANSITION || is_inline_noncomputational_annotation(g) ||
-           is_noncomputational_herald(g);
+           is_noncomputational_herald(g) || is_noncomputational_interaction(g);
 }
 inline constexpr std::string_view gate_name(GateType g) {
     return gate_traits(g).name;

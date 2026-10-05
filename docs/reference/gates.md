@@ -230,6 +230,8 @@ channel probabilities.
 |-------------|-------|
 | `LEAKAGE(p)` | Moves `g` to `leak_g` and `e` to `leak_e` with probability `p`; other levels are unchanged |
 | `LOSS(p)` | Loses each target with probability `p`, from any occupied level |
+| `LEAKAGE_INTERACTION(px, py, pz, p)` | Conditional Pauli noise followed by leakage with probability `p` on the computational partner of a leaked source |
+| `LOSS_INTERACTION(px, py, pz)` | Conditional Pauli noise on the computational partner of a lost source |
 | `LEVEL_TRANSITION[name]` | Fires the model's named transition matrix on each target |
 | `HERALD_LEAKAGE_EVENT` | Records 1 for `leak_g` or `leak_e`, otherwise 0 |
 | `HERALD_LOSS_EVENT` | Records 1 for `lost`, otherwise 0 |
@@ -237,6 +239,19 @@ channel probabilities.
 These instructions are recognized only by the leakage/loss sampler — `clifft.compile()`
 rejects them and points to `clifft.noncomp.sample()`. See the
 [Leakage and Loss guide](../guide/leakage-and-loss.md).
+
+Interaction annotations take ordered `source partner` pairs of distinct plain
+qubit targets. All three or four arguments are required. The Pauli probabilities
+are mutually exclusive, finite, nonnegative, and sum to at most one; spreading
+has its own finite probability in `[0, 1]`. An unmet status condition makes the
+annotation a no-op. Multiple pairs execute in written order. Interactions add
+no record slots and apply Pauli noise before source-preserving leakage.
+
+Model-generated interactions execute before a physical gate's automatic
+level-transition hooks. Explicit interactions execute at their own expanded
+circuit positions and compose with model-generated effects. See
+[Partner Interactions](../guide/partner-interactions.md) for defaults,
+overrides, examples, and the ordering nuance when mixing annotations and hooks.
 
 Status heralds take no arguments and append one ordinary record bit per plain
 qubit target without changing its quantum state or status. See

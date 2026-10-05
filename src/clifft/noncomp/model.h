@@ -21,6 +21,7 @@
 
 #include "clifft/circuit/gate_data.h"
 #include "clifft/noncomp/classifier.h"
+#include "clifft/noncomp/interaction.h"
 #include "clifft/noncomp/level.h"
 #include "clifft/noncomp/policy.h"
 #include "clifft/noncomp/transition_instrument.h"
@@ -31,6 +32,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <tuple>
 #include <vector>
 
 namespace clifft {
@@ -52,6 +54,17 @@ class NonComputationalModel {
         const std::map<std::string, std::vector<std::vector<double>>>& transition_matrices,
         std::optional<std::vector<std::vector<double>>> classifier_matrix,
         NonComputationalPolicy policy);
+
+    static NonComputationalModel from_spec(
+        std::vector<double> initial_state,
+        const std::map<std::string, std::vector<std::vector<double>>>& transition_matrices,
+        std::optional<std::vector<std::vector<double>>> classifier_matrix,
+        NonComputationalPolicy policy, GatePartnerEffects gate_partner_effects,
+        const std::vector<InteractionRule>& interactions);
+
+    // An override replaces the whole default effect, including when it is zero.
+    const PartnerEffect* partner_effect(GateType gate, uint32_t source_operand,
+                                        InteractionSource source_status) const;
 
     // P(initial level). The stored distribution sums to exactly 1.
     double initial_probability(Level level) const {
@@ -92,6 +105,8 @@ class NonComputationalModel {
     std::map<GateType, std::string> hooks_;
     std::optional<MeasurementClassifier> classifier_;
     NonComputationalPolicy policy_;
+    GatePartnerEffects gate_partner_effects_;
+    std::map<std::tuple<GateType, uint32_t, InteractionSource>, PartnerEffect> interactions_;
 };
 
 }  // namespace clifft

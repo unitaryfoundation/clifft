@@ -387,6 +387,23 @@ class Parser {
                                  line_num);
             }
         }
+        if (is_noncomputational_interaction(gate)) {
+            const std::string name{clifft::gate_name(gate)};
+            const size_t count = gate == GateType::LEAKAGE_INTERACTION ? 4 : 3;
+            if (args.size() != count) {
+                throw ParseError(name + " requires " + std::to_string(count) + " arguments",
+                                 line_num);
+            }
+            for (const double probability : args) {
+                if (!is_probability(probability)) {
+                    throw ParseError(name + " probabilities must be finite and lie in [0, 1]",
+                                     line_num);
+                }
+            }
+            if (args[0] + args[1] + args[2] > 1.0) {
+                throw ParseError(name + " Pauli probabilities must sum to at most 1", line_num);
+            }
+        }
         if (is_inline_noncomputational_annotation(gate)) {
             const std::string name{clifft::gate_name(gate)};
             if (args.size() != 1) {
@@ -883,6 +900,11 @@ class Parser {
                         }
                     }
 
+                    if (is_noncomputational_interaction(gate) &&
+                        (t0.has_pauli() || t1.has_pauli() || t0.value() == t1.value())) {
+                        throw ParseError("Interaction requires distinct plain qubit targets",
+                                         line_num);
+                    }
                     AstNode node{gate, {t0, t1}, args, line_num};
                     update_circuit_stats(node, circuit);
                     circuit.nodes.push_back(std::move(node));

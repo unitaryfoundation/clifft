@@ -21,6 +21,8 @@ restored. One program compiled before sampling cannot describe every shot, so
 
 This page is the API walkthrough. The model and its simulation semantics
 are described in [Noncomputational States](../theory/noncomputational.md).
+The [Partner Interactions guide](partner-interactions.md) explains optional
+Pauli noise and leakage spreading onto computational partners.
 The [Delayed Loss tutorial](delayed-loss.md) introduces the API with a
 surface-code memory experiment. The advanced [Logical Shor Noise Sweep
 tutorial](neutral-atom-leakage.md) applies the complete five-level model to a
@@ -30,8 +32,9 @@ published logical experiment.
 
 A `noncomp.Model` defines how qubit sites enter, leave, and are observed
 outside the computational subspace. It contains an initial level distribution,
-transition matrices, a measurement classifier, and policies such as whether a
-reset restores a lost site. The classifier maps a known level to probabilities
+transition matrices, a measurement classifier, optional partner interaction
+effects, and policies such as whether a reset restores a lost site. The
+classifier maps a known level to probabilities
 for a binary measurement result and, optionally, a herald.
 
 Clifft models five `Level` values: the computational levels `g` and `e`,
@@ -267,9 +270,14 @@ assert r.measurements.shape == (1000, 2)
 ## What happens on a leaked or lost site
 
 Most unitary gates, ordinary noise channels, and classical corrections that
-touch a leaked or lost site are skipped as a whole. For a multi-qubit
-operation, this leaves every computational partner unchanged. A single-qubit
-measurement is different: it keeps its record position, but the classifier
+touch a leaked or lost site are skipped as a whole. By default, this leaves
+every computational partner unchanged. For physical two-qubit unitary gates,
+`gate_partner_effects` and `InteractionRule` can replace this identity with
+Pauli noise and optional leakage spreading on the computational partner.
+Leaked and lost sources are configured separately. See
+[Partner Interactions](partner-interactions.md) for the configuration API,
+explicit circuit annotations, and their ordering with transition hooks. A
+single-qubit measurement is different: it keeps its record position, but the classifier
 rather than the measurement basis supplies its result (`M`, `MX`, and `MY`
 alike).
 
@@ -401,16 +409,21 @@ semantics and active-width cost are described in
   never takes, so it is conservative.
 
 ## Limits
-- **Partner-error channels and leakage transport are not modeled.** An
-  operation touching a leaked or lost site is dropped whole. The model
-  does not add partner depolarization conditioned on that status or move
-  leakage between sites.
+- **Leakage mobility is not modeled.** Configurable
+  [partner effects](partner-interactions.md) support Pauli noise and spreading;
+  spreading leaves the original leaked operand leaked. Correlated transfer
+  that restores the source requires a joint transition and remains unsupported.
+- **Ordinary multi-qubit noise retains the drop policy.** `DEPOLARIZE2/3` and
+  `PAULI_CHANNEL_2/3` touching a noncomputational site drop as whole operations.
+  Correlated-error chains keep their existing exception. See the
+  [noise policy](partner-interactions.md#ordinary-noise-keeps-its-existing-policy)
+  before substituting otherwise equivalent noise representations.
 - **Coherent leakage is outside the trajectory model.** Jumps into a
   noncomputational level are treated as incoherent, definite occupations.
 - **`MPP` is not supported** under a model that can leak or lose qubits:
   a parity of levels outside the qubit subspace has no faithful single-bit
   record. Expand the parity readout into an explicit ancilla circuit; the
-  ancilla's ladder gates then drop per the rules above.
+  ancilla's ladder gates then follow the configured partner-interaction policy.
 - **`EXP_VAL` is not supported.** `NonComputationalSample` has no
   expectation-value output, so circuits containing these probes are rejected
   before sampling.
