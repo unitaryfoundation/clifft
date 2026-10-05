@@ -181,9 +181,30 @@ void copy_batch_lane(Output& output, const BatchExecutor& executor, uint32_t lan
         output.observables[static_cast<size_t>(shot) * plan.num_observables() + observable] =
             static_cast<uint8_t>(executor.observable(lane, observable));
     }
-    for (uint32_t exp_val = 0; exp_val < plan.num_exp_vals(); ++exp_val) {
-        output.exp_vals[static_cast<size_t>(shot) * plan.num_exp_vals() + exp_val] =
-            executor.exp_val(lane, exp_val);
+}
+
+void copy_batch_expectations(std::span<double> output, const BatchExecutor& executor,
+                             uint32_t num_exp_vals) noexcept {
+    if (num_exp_vals == 0) {
+        return;
+    }
+    // The executor stores columns and the result stores rows. Copy neighboring
+    // lanes together to reuse each source cache line without scattering writes
+    // across the whole batch's output rows.
+    constexpr uint32_t kTileLanes = 8;
+    const uint32_t lanes = executor.surviving_shots();
+    for (uint32_t first = 0; first < lanes; first += kTileLanes) {
+        const uint32_t count = std::min(kTileLanes, lanes - first);
+        // Hoist the shot lookup so it is cheap even without cross-file inlining.
+        std::array<size_t, kTileLanes> rows{};
+        for (uint32_t i = 0; i < count; ++i) {
+            rows[i] = static_cast<size_t>(executor.shot_index(first + i)) * num_exp_vals;
+        }
+        for (uint32_t exp_val = 0; exp_val < num_exp_vals; ++exp_val) {
+            for (uint32_t i = 0; i < count; ++i) {
+                output[rows[i] + exp_val] = executor.exp_val(first + i, exp_val);
+            }
+        }
     }
 }
 
@@ -274,6 +295,7 @@ SamplingResult sample_fixed_batches(const ExecutablePlan& plan, uint32_t shots,
                     const uint32_t shot = executor.shot_index(lane);
                     copy_batch_lane(result, executor, lane, shot, plan);
                 }
+                copy_batch_expectations(result.exp_vals, executor, plan.num_exp_vals());
                 offset += batch;
             }
         },
@@ -406,6 +428,7 @@ SamplingSurvivorResult sample_surviving_batches(const ExecutablePlan& plan, uint
                     survived[shot] = 1;
                     copy_batch_lane(result, executor, lane, shot, plan);
                 }
+                copy_batch_expectations(result.exp_vals, executor, plan.num_exp_vals());
                 offset += batch;
             }
         },

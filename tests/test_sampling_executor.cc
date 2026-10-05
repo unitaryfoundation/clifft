@@ -1568,6 +1568,69 @@ TEST_CASE("Sampling batch and survivor results carry expectation columns") {
     }
 }
 
+TEST_CASE("Packed expectation rows retain probe order and shot identity") {
+    constexpr uint32_t probes = 67;
+    const std::array<const char*, 5> axes{"Z0", "Z1", "Z0*Z1", "X0", "X2"};
+    std::string circuit = "X_ERROR(0.25) 0\nX_ERROR(0.4) 1\nM 0 1\nH 2\nT 2\n";
+    for (uint32_t probe = 0; probe < probes; ++probe) {
+        if (probe == 17) {
+            circuit += "H 3\nM 3\nDETECTOR rec[-1]\n";
+        }
+        circuit += std::string("EXP_VAL ") + axes[probe % axes.size()] + "\n";
+    }
+    const auto hir = clifft::trace(clifft::parse(circuit));
+    for (const bool postselect : {false, true}) {
+        const std::array<uint8_t, 1> mask{static_cast<uint8_t>(postselect)};
+        const ExecutablePlan plan(
+            clifft::sampling::plan_sampling(hir, {.postselection_mask = mask}));
+        REQUIRE(plan.peak_active_width() == 1);
+        REQUIRE(plan.num_exp_vals() == probes);
+        for (const bool fixed_faults : {false, true}) {
+            for (const uint32_t capacity : {7, 8, 9, 31, 32, 33, 65}) {
+                const uint32_t shots = 2 * capacity + 3;
+                CAPTURE(postselect, fixed_faults, capacity);
+                const auto check_rows = [&](const auto& result, uint32_t rows) {
+                    REQUIRE(result.measurements.size() == 3 * rows);
+                    REQUIRE(result.exp_vals.size() == static_cast<size_t>(rows) * probes);
+                    for (uint32_t shot = 0; shot < rows; ++shot) {
+                        const double z0 = 1.0 - 2.0 * result.measurements[3 * shot];
+                        const double z1 = 1.0 - 2.0 * result.measurements[3 * shot + 1];
+                        const std::array<double, 5> expected{z0, z1, z0 * z1, 0.0,
+                                                             1.0 / std::sqrt(2.0)};
+                        if (postselect) {
+                            REQUIRE(result.measurements[3 * shot + 2] == 0);
+                        }
+                        for (uint32_t probe = 0; probe < probes; ++probe) {
+                            CAPTURE(shot, probe);
+                            REQUIRE_THAT(
+                                result.exp_vals[static_cast<size_t>(shot) * probes + probe],
+                                Catch::Matchers::WithinAbs(expected[probe % expected.size()],
+                                                           1e-12));
+                        }
+                    }
+                };
+                if (postselect) {
+                    const auto result =
+                        fixed_faults ? clifft::sampling::sample_k_survivors(
+                                           plan, shots, 1, 731, true, 1, std::nullopt, capacity)
+                                     : clifft::sampling::sample_survivors(plan, shots, 731, true, 1,
+                                                                          std::nullopt, capacity);
+                    REQUIRE(result.passed_shots > 0);
+                    REQUIRE(result.passed_shots < shots);
+                    check_rows(result, result.passed_shots);
+                } else {
+                    const auto result =
+                        fixed_faults
+                            ? clifft::sampling::sample_k(plan, shots, 1, 731, 1, std::nullopt,
+                                                         capacity)
+                            : clifft::sampling::sample(plan, shots, 731, 1, std::nullopt, capacity);
+                    check_rows(result, shots);
+                }
+            }
+        }
+    }
+}
+
 TEST_CASE("Sampling executor presamples mutually exclusive Pauli noise") {
     const clifft::HirModule hir = clifft::trace(clifft::parse(R"(
         E(0.5) X0
