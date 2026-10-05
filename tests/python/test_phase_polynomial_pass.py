@@ -53,6 +53,52 @@ def test_default_phase_reduction_can_be_disabled() -> None:
     assert_statevectors_equiv(clifft.get_statevector(program), unitary_reference(source))
 
 
+# These phases cancel after the fault, but flip qubit 0 without it. Folding
+# the probability-one fault into their signs would change the reference parity.
+_REFERENCE_NOISE_SOURCE = """X_ERROR(1) 1
+H 0
+CX 2 0
+T 0
+CX 2 0
+CX 3 0
+T 0
+CX 3 0
+CX 1 0
+T 0
+CX 3 0
+T 0
+CX 3 0
+CX 1 0
+H 0
+M 0
+DETECTOR rec[-1]
+OBSERVABLE_INCLUDE(0) rec[-1]
+"""
+
+
+@pytest.mark.parametrize("normalize", [False, True])
+def test_probability_one_noise_preserves_normalized_annotations(
+    sampling_mode: SamplingMode, normalize: bool
+) -> None:
+    reference = sampling_mode.compile(
+        _REFERENCE_NOISE_SOURCE, hir_passes=None, normalize_syndromes=normalize
+    )
+    optimized = sampling_mode.compile(_REFERENCE_NOISE_SOURCE, normalize_syndromes=normalize)
+    for program in (reference, optimized):
+        result = sampling_mode.sample(program, 129, seed=1)
+        np.testing.assert_array_equal(result.measurements, 0)
+        np.testing.assert_array_equal(result.detectors, int(normalize))
+        np.testing.assert_array_equal(result.observables, int(normalize))
+
+
+def test_probability_one_noise_preserves_public_reference_syndrome() -> None:
+    hir = clifft.trace(clifft.parse(_REFERENCE_NOISE_SOURCE))
+    expected = clifft.compute_reference_syndrome(hir)
+    assert expected == {"detectors": [1], "observables": [1]}
+    clifft.default_hir_pass_manager().run(hir)
+    assert clifft.compute_reference_syndrome(hir) == expected
+
+
 @pytest.mark.parametrize("seed", range(12))
 def test_native_phase_reduction_on_general_clifford_layouts(seed: int) -> None:
     rng = np.random.default_rng(seed)
@@ -422,7 +468,7 @@ def test_known_phase_constraints_preserve_joint_records(
     source, expected = _entry_reference(kind)
     phase = clifft.PhasePolynomialPass()
     program = sampling_mode.compile(source, hir_passes=_manager(phase), normalize_syndromes=False)
-    assert phase.applied == (kind in ("ideal", "deterministic", "after"))
+    assert phase.applied == (kind in ("ideal", "after"))
     samples = sampling_mode.sample(program, shots=16384, seed=891)
     assert_joint_distribution(samples.measurements, expected)
     selected = sampling_mode.compile(

@@ -76,7 +76,8 @@ TEST_CASE("Phase pass removes rotations equivalent on the known input", "[optimi
     REQUIRE(hir.num_t_gates() == 0);
 }
 
-TEST_CASE("Known stabilizers preserve correlations and deterministic signs", "[optimizer]") {
+TEST_CASE("Known stabilizers preserve correlations shared with the noiseless reference",
+          "[optimizer]") {
     KnownStabilizers known(2);
     auto hir = trace(parse("PAULI_CHANNEL_2(0,0,0,0,0.25,0,0,0,0,0,0,0,0,0,0) 0 1\nX_ERROR(1) 0"));
     PauliString z0(2);
@@ -87,7 +88,7 @@ TEST_CASE("Known stabilizers preserve correlations and deterministic signs", "[o
     REQUIRE_FALSE(known.eigenvalue(z0).has_value());
     REQUIRE(known.eigenvalue(zz) == false);
     known.advance(hir, hir.ops[1]);
-    REQUIRE(known.eigenvalue(zz) == true);
+    REQUIRE_FALSE(known.eigenvalue(zz).has_value());
 }
 
 TEST_CASE("Known stabilizers do not assume a sampled measurement outcome", "[optimizer]") {

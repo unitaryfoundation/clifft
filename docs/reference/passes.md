@@ -71,9 +71,10 @@ for how continuations are compiled and resumed.
 {% if p['name'] == 'PhasePolynomialPass' %}
 This pass uses signed Pauli constraints proved from the complete circuit's
 all-zero input. It retains only fixed eigenvalues shared by every reachable
-trajectory. Measurements and stochastic Pauli noise discard relations with
-unknown signs; deterministic Pauli noise updates signs. Instruments discard
-all entry knowledge. Future postselection never justifies a rewrite. Do not use
+trajectory and by the noiseless reference. Measurements and nonzero-probability
+Pauli noise discard affected relations, including probability-one noise because
+syndrome normalization later removes it. Instruments discard all entry knowledge.
+Future postselection never justifies a rewrite. Do not use
 this pass on fragments with an unspecified input state.
 
 For a commuting region, write its phase as a Boolean polynomial `f` modulo eight.

@@ -8,7 +8,8 @@
 
 namespace clifft {
 
-// Signed Pauli constraints with eigenvalue +1 on every reachable trajectory.
+// Signed Pauli constraints with eigenvalue +1 on every reachable trajectory,
+// including the noiseless reference used for syndrome normalization.
 // This differs from dormant-width analysis, which also retains bodies whose
 // eigenvalues depend on sampled outcomes. An empty group means no knowledge.
 class KnownStabilizers {

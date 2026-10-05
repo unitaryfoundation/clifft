@@ -111,7 +111,7 @@ void KnownStabilizers::intersect(PauliStringView axis) {
 }
 
 void KnownStabilizers::advance(const HirModule& hir, const HeisenbergOp& op) {
-    // Advancing only removes or changes the signs of existing facts.
+    // Advancing only removes existing facts.
     if (rows_.empty()) {
         return;
     }
@@ -133,16 +133,9 @@ void KnownStabilizers::advance(const HirModule& hir, const HeisenbergOp& op) {
                 }
                 const auto axis =
                     copy_axis(hir.noise_channel_masks.at(channel.mask), hir.num_qubits);
-                if (channel.prob == 1) {
-                    for (auto& [pivot, row] : rows_) {
-                        (void)pivot;
-                        if (!axis.view().commutes(row.view())) {
-                            row.negate();
-                        }
-                    }
-                } else {
-                    intersect(axis.view());
-                }
+                // Reference-syndrome computation strips even probability-one
+                // noise after optimization, so facts must also hold without it.
+                intersect(axis.view());
             }
             break;
         }
