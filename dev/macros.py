@@ -101,6 +101,24 @@ def define_env(env: Any) -> None:
             ),
         },
         {
+            "name": "PhasePolynomialPass",
+            "kind": "HIR",
+            "default_enabled": True,
+            "preserves_record_order": True,
+            "preserves_instrument_prefix": False,
+            "python_name": "PhasePolynomialPass",
+            "summary": "Reduce commuting T rotations using proven input-state constraints.",
+            "detail": (
+                "Uses TOHPE from [Vandaele, *Lower T-count with faster algorithms*, "
+                "Algorithm 2](https://arxiv.org/abs/2407.08695) for T-count reduction. "
+                "Clifft tracks commuting T rotations as a Boolean phase polynomial "
+                "and uses Pauli constraints from the all-zero input to separate a "
+                "non-Clifford core from a Clifford correction. TOHPE synthesizes the "
+                "core; Clifft supplies the state analysis, measurement/noise handling, "
+                "and exact Clifford correction."
+            ),
+        },
+        {
             "name": "StatevectorSqueezePass",
             "kind": "HIR",
             "default_enabled": True,
