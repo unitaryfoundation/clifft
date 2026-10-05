@@ -18,8 +18,8 @@ from utils_conformance import (
     COMPILER_PROFILES,
     CPU_SAMPLING_MODES,
     DEFAULT,
+    DEFAULT_SCHEDULED,
     FUSION_SQUEEZE,
-    PHASE_POLYNOMIAL,
     UNOPTIMIZED,
     CompilerProfile,
     CpuSamplingMode,
@@ -178,7 +178,7 @@ def test_active_width_profile_really_transforms_witness() -> None:
 def test_phase_profile_really_transforms_witness() -> None:
     source = PHASE_SOURCE + "\nM 0 1 2 3"
     baseline = ACTIVE_WIDTH.compile(source)
-    reduced = PHASE_POLYNOMIAL.compile(source)
+    reduced = DEFAULT_SCHEDULED.compile(source)
     assert reduced.peak_active_width == 1 < baseline.peak_active_width
 
 
