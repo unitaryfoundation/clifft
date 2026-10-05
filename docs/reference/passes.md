@@ -69,57 +69,31 @@ for how continuations are compiled and resumed.
 {{ p['detail'] }}
 
 {% if p['name'] == 'PhasePolynomialPass' %}
-This pass uses signed Pauli constraints proved from the complete circuit's
-all-zero input. It retains only fixed eigenvalues shared by every reachable
-trajectory and by the noiseless reference. Measurements and nonzero-probability
-Pauli noise discard affected relations, including probability-one noise because
-syndrome normalization later removes it. Instruments discard all entry knowledge.
-Future postselection never justifies a rewrite. Do not use
-this pass on fragments with an unspecified input state.
-
-For a commuting region, write its phase as a Boolean polynomial `f` modulo eight.
-After quotienting by the known constraints, change coordinates to `(u, v)` so
-that `f(u, v) = f(u, 0) + q(u, v)`, with `q` a diagonal Clifford polynomial.
-Project the original parity terms onto the retained coordinates, reduce their
-odd coefficients with TOHPE, and reconstruct the exact Clifford correction.
-The Clifford part moves into a compiler-side frame; only the non-Clifford core
-needs active-state rotations. The executor uses its existing operations.
-
-TOHPE is the third-order homogeneous polynomial elimination algorithm from
-[Vandaele, *Lower T-count with faster algorithms*, Algorithm 2](https://arxiv.org/abs/2407.08695).
-Clifft implements it natively with deterministic elimination and tie-breaking.
-A core of dimension `r` needs at least `r` odd parity terms, so the search skips
-representations that already meet this bound. Search is limited to 128 odd
-terms per region; larger tables retain the projected parity representation.
-This bounds synthesis search, not total compilation time.
+Pauli measurements, expectation-value probes and classically controlled Pauli
+gates can move before a phase prefix only when their conjugated axes remain
+Paulis and all required constraints survive. Pauli noise can cross only when
+its nonzero-probability channels commute with that prefix and preserve those
+constraints. These must hold on every trajectory and the noiseless reference,
+so even probability-one noise discards affected constraints. Instruments clear
+all constraints; postselection supplies none. Use this pass only on complete
+circuits with an all-zero input; prior scheduling across noise causes it to skip
+the circuit.
 
 `max_variables=32` accepts integers from `0` to `64`; zero disables the pass.
 This bounds independent axes modulo known constraints, not circuit qubits.
-Exceeding the cap starts a new region. Increasing it can substantially increase
-compilation cost because the polynomial is cubic.
+Exceeding the cap starts a new region. TOHPE searches at most 128 odd parity
+terms per region; larger inputs retain their projected parity representation.
+Increasing the variable cap can substantially increase compilation cost.
 
-Noncommuting rotations, arbitrary-angle rotations, instruments and observers
-whose conjugates are not Paulis end a region. Crossed operations must preserve
-every constraint the region uses. A Pauli-noise site can move before a phase
-prefix only when its nonzero-probability channels commute with that prefix.
-Prior scheduling across noise causes the pass to skip the circuit.
-
-The pass does not increase T count. It accepts the complete candidate only if
-peak active width decreases, or stays equal without increasing estimated dense
-work. This is a guard at the current pipeline position; subsequent squeezing
-or scheduling can change the outcome. Benchmark the complete pipeline for your
-workload; arbitrary-angle and gate-depolarizing circuits may gain nothing.
+Rewrites cannot increase T count or current peak active width; at equal peak,
+estimated dense work must not increase. This guard does not guarantee faster
+sampling after subsequent passes. Arbitrary-angle rotations and incompatible
+noise can prevent useful collection.
 
 After a run, `input_t_count`, `output_t_count`, `blocks_reduced` and
 `pauli_pullbacks` describe the accepted rewrite; `applied` reports acceptance.
-The pass preserves measurement-record order and is excluded from instrument
-continuations.
-
-The default pipeline runs this pass after peephole fusion and before squeezing.
-An optional `ActiveWidthSchedulePass` can follow the defaults. Equivalent
-rewrites can change samples for a fixed random seed while preserving their
-distribution. To opt out of phase reduction while retaining the other defaults,
-supply an explicit manager:
+Equivalent rewrites can change samples for a fixed random seed while preserving
+their distribution. To opt out while retaining the other default passes:
 
 ```python
 import clifft

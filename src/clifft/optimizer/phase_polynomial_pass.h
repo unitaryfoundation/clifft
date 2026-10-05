@@ -13,10 +13,13 @@ struct PhasePolynomialOptions {
     uint32_t max_variables = 32;
 };
 
-// State-aware reduction of commuting T rotations modulo Clifford factors.
-// Quotient by signed constraints proved from the complete circuit's |0> input.
+// Reduces commuting T rotations using Pauli constraints proved from the complete
+// circuit's |0> input. Separates a Clifford correction and synthesizes the
+// non-Clifford core with TOHPE.
 // Run before squeezing and scheduling to expose simpler rotation structure.
-// Observers must admit exact Pauli pullback and preserve each used constraint.
+// Pauli measurements, expectation probes and classically controlled Pauli gates
+// can cross a phase prefix only if their conjugates remain Paulis and preserve
+// each used constraint.
 // No relation is inferred from postselection.
 class PhasePolynomialPass : public HirPass {
   public:

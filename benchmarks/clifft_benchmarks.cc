@@ -6,7 +6,9 @@
 #include "clifft/sampling/planner.h"
 #include "clifft/sampling/sampler.h"
 
-// The canary also compiles this harness against revisions before scheduling existed.
+// The canary compiles this same harness against both compared source revisions.
+// These guards omit pass-specific benchmarks when the older revision lacks the
+// pass, while keeping shared benchmark definitions identical for a fair comparison.
 #if __has_include("clifft/optimizer/active_width_schedule_pass.h")
 #define CLIFFT_BENCHMARK_HAS_ACTIVE_WIDTH
 #include "clifft/optimizer/active_width_schedule_pass.h"
