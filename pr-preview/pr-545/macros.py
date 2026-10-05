@@ -109,13 +109,13 @@ def define_env(env: Any) -> None:
             "python_name": "PhasePolynomialPass",
             "summary": "Reduce commuting T rotations using proven input-state constraints.",
             "detail": (
-                "Builds a Boolean phase polynomial modulo eight, quotients by signed "
-                "Pauli constraints derived from the all-zero input, and separates the "
-                "non-Clifford core from Clifford factors. Observers can move before a "
-                "phase prefix when their exact conjugates are Paulis. Record order, "
-                "noise sites and categorical probabilities are preserved. "
-                "Synthesizes the core with TOHPE and an exact Clifford correction. "
-                "Runs after PeepholeFusionPass and before squeezing or scheduling."
+                "Uses TOHPE from [Vandaele, *Lower T-count with faster algorithms*, "
+                "Algorithm 2](https://arxiv.org/abs/2407.08695) for T-count reduction. "
+                "Clifft tracks commuting T rotations as a Boolean phase polynomial "
+                "and uses Pauli constraints from the all-zero input to separate a "
+                "non-Clifford core from a Clifford correction. TOHPE synthesizes the "
+                "core; Clifft supplies the state analysis, measurement/noise handling, "
+                "and exact Clifford correction."
             ),
         },
         {
