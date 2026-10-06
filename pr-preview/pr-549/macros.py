@@ -127,10 +127,10 @@ def define_env(env: Any) -> None:
             "python_name": "RotationSimplificationPass",
             "summary": "Simplify arbitrary-angle Pauli rotations using known stabilizers.",
             "detail": (
-                "Combines commuting Pauli rotations whose axes are equivalent under "
-                "known stabilizer constraints, including arbitrary rotation angles. "
-                "Rotations that become Clifford operations are absorbed into the "
-                "final Clifford tableau."
+                "Uses the circuit's known all-zero initial state to track stabilizer "
+                "constraints shared by every trajectory. These constraints let the "
+                "pass combine equivalent commuting Pauli rotations with arbitrary "
+                "angles and absorb resulting Clifford operations."
             ),
         },
         {
