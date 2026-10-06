@@ -1,7 +1,9 @@
 #include "clifft/optimizer/phase_polynomial_pass.h"
 
 #include "clifft/optimizer/active_width_analysis.h"
+#include "clifft/optimizer/clifford_frame.h"
 #include "clifft/optimizer/known_stabilizers.h"
+#include "clifft/optimizer/pauli_axis.h"
 #include "clifft/optimizer/phase_polynomial.h"
 
 #include <algorithm>
@@ -16,19 +18,7 @@
 namespace clifft {
 namespace {
 
-PauliString copy_axis(PauliMaskView mask, uint32_t width) {
-    PauliString axis(width);
-    axis.mut_x().xor_with(mask.x());
-    axis.mut_z().xor_with(mask.z());
-    axis.set_sign(mask.sign());
-    return axis;
-}
-
-void write_axis(MutablePauliMaskView mask, const PauliString& axis) {
-    std::ranges::copy(axis.x().words, mask.x().words.begin());
-    std::ranges::copy(axis.z().words, mask.z().words.begin());
-    mask.set_sign(axis.sign());
-}
+using optimizer_detail::write_axis;
 
 uint32_t pivot_of(const PauliString& axis) {
     const uint32_t domain = axis.x().num_words() * 64;
@@ -52,44 +42,7 @@ PauliString product_axis(const std::vector<PauliString>& generators, uint64_t pa
     return axis;
 }
 
-// Removed Clifford factors form C. Read each subsequent input axis as C^dag P C,
-// and compose C into the final tableau once. Updating both directions avoids
-// rescanning the circuit suffix or repeatedly inverting a dense tableau.
-class CliffordFrame {
-  public:
-    bool empty() const { return !forward_; }
-
-    PauliString read(PauliMaskView mask, uint32_t width) const {
-        auto axis = copy_axis(mask, width);
-        return inverse_ ? inverse_->apply(axis.view()) : axis;
-    }
-
-    void absorb(const PauliString& axis, uint8_t coefficient) {
-        if (!forward_) {
-            forward_.emplace(axis.num_qubits());
-            inverse_.emplace(axis.num_qubits());
-        }
-        const auto original_axis = forward_->apply(axis.view());
-        if (coefficient == 4) {
-            forward_->prepend_pauli(axis.view());
-            inverse_->prepend_pauli(original_axis.view());
-        } else {
-            assert(coefficient == 2 || coefficient == 6);
-            forward_->prepend_pauli_rotation(axis.view(), coefficient == 6);
-            inverse_->prepend_pauli_rotation(original_axis.view(), coefficient == 2);
-        }
-    }
-
-    void finish(HirModule& hir) const {
-        if (forward_ && hir.final_tableau) {
-            hir.final_tableau = forward_->then(*hir.final_tableau);
-        }
-    }
-
-  private:
-    std::optional<Tableau> forward_;
-    std::optional<Tableau> inverse_;
-};
+using optimizer_detail::CliffordFrame;
 
 struct Observer {
     size_t index;
@@ -352,44 +305,8 @@ class Rewriter {
     }
 
     void transform(const HeisenbergOp& op) {
-        if (frame_.empty()) {
-            return;
-        }
-        const auto transform_mask = [&](MutablePauliMaskView mask) {
-            write_axis(mask, frame_.read(mask, hir().num_qubits));
-        };
-        switch (op.op_type()) {
-            case OpType::T_GATE:
-            case OpType::PHASE_ROTATION:
-            case OpType::MEASURE:
-            case OpType::CONDITIONAL_PAULI:
-            case OpType::EXP_VAL:
-                transform_mask(candidate_->mask_at(op));
-                break;
-
-            case OpType::INSTRUMENT: {
-                transform_mask(candidate_->mask_at(op));
-                const auto& site =
-                    hir().instrument_sites[static_cast<uint32_t>(op.instrument_site_idx())];
-                transform_mask(candidate_->pauli_masks.mut_at(site.destination_flip_mask));
-                break;
-            }
-
-            case OpType::NOISE:
-                for (const auto& channel :
-                     hir().noise_sites[static_cast<uint32_t>(op.noise_site_idx())].channels) {
-                    auto mask = candidate_->noise_channel_masks.mut_at(channel.mask);
-                    transform_mask(mask);
-                    // A channel is unchanged by replacing its Pauli with -P.
-                    mask.set_sign(false);
-                }
-                break;
-
-            case OpType::READOUT_NOISE:
-            case OpType::DETECTOR:
-            case OpType::OBSERVABLE:
-            case OpType::NUM_OP_TYPES:
-                break;
+        if (candidate_) {
+            frame_.transform(*candidate_, op);
         }
     }
 

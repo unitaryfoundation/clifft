@@ -119,6 +119,22 @@ def define_env(env: Any) -> None:
             ),
         },
         {
+            "name": "RotationSimplificationPass",
+            "kind": "HIR",
+            "default_enabled": True,
+            "preserves_record_order": True,
+            "preserves_instrument_prefix": False,
+            "python_name": "RotationSimplificationPass",
+            "summary": "Simplify arbitrary-angle Pauli rotations using known stabilizers.",
+            "detail": (
+                "Reduces axes modulo stabilizer facts shared by every trajectory, "
+                "combines equal rotations, and absorbs Clifford factors in a "
+                "compile-time frame. Rewritten regions can consume newly commuting "
+                "neighbors with bounded live terms and local retries. "
+                "No runtime state representation or planning is added."
+            ),
+        },
+        {
             "name": "StatevectorSqueezePass",
             "kind": "HIR",
             "default_enabled": True,

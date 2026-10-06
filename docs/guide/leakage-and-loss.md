@@ -445,8 +445,9 @@ Each continuation uses the default optimization passes that preserve
 measurement-record order and explicitly opt in to instrument-prefix stability.
 At the HIR stage, this means `PeepholeFusionPass`;
 `StatevectorSqueezePass` and `ActiveWidthSchedulePass` are omitted because
-both can move measurements. `PhasePolynomialPass` is also omitted because it
-does not preserve the instrument prefix, even though it preserves record order.
+both can move measurements. `PhasePolynomialPass` and
+`RotationSimplificationPass` are also omitted because they do not preserve the
+instrument prefix, even though they preserve record order.
 See [Optimization Passes](../reference/passes.md)
 for the available HIR passes.
 

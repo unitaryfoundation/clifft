@@ -1,5 +1,7 @@
 #include "clifft/optimizer/known_stabilizers.h"
 
+#include "clifft/optimizer/pauli_axis.h"
+
 #include <algorithm>
 #include <cassert>
 #include <utility>
@@ -22,13 +24,7 @@ bool identity(const PauliString& axis) {
     return axis.x().is_zero() && axis.z().is_zero();
 }
 
-PauliString copy_axis(PauliMaskView mask, uint32_t width) {
-    PauliString axis(width);
-    axis.mut_x().xor_with(mask.x());
-    axis.mut_z().xor_with(mask.z());
-    axis.set_sign(mask.sign());
-    return axis;
-}
+using optimizer_detail::copy_axis;
 
 }  // namespace
 

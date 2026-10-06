@@ -152,6 +152,8 @@ directional overrides, and circuit annotation ordering.
 
 ::: clifft.PhasePolynomialPass
 
+::: clifft.RotationSimplificationPass
+
 ::: clifft.StatevectorSqueezePass
 
 ::: clifft.active_width_trace

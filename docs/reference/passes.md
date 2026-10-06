@@ -20,6 +20,7 @@ import clifft
 pm = clifft.HirPassManager()
 pm.add(clifft.PeepholeFusionPass())
 pm.add(clifft.PhasePolynomialPass())
+pm.add(clifft.RotationSimplificationPass())
 pm.add(clifft.StatevectorSqueezePass())
 pm.add(clifft.ActiveWidthSchedulePass())
 ```
@@ -43,7 +44,8 @@ collapse can change quantum correlations.
 `clifft.noncomp.sample` therefore applies only passes that are enabled by
 default, preserve measurement-record order, and preserve instrument prefixes.
 Its HIR pipeline uses `PeepholeFusionPass` but omits
-`PhasePolynomialPass`, `StatevectorSqueezePass` and `ActiveWidthSchedulePass`.
+`PhasePolynomialPass`, `RotationSimplificationPass`, `StatevectorSqueezePass`
+and `ActiveWidthSchedulePass`.
 
 Record-order preservation is necessary but does not by itself make a
 continuation compatible with an already-running executor. Trajectory passes
@@ -94,6 +96,44 @@ samples for a fixed random seed.
 
 After a run, `input_t_count`, `output_t_count`, `blocks_reduced` and
 `pauli_pullbacks` describe the accepted rewrite; `applied` reports acceptance.
+{% endif %}
+
+{% if p['name'] == 'RotationSimplificationPass' %}
+This pass simplifies commuting Pauli rotations using constraints known from the
+complete circuit's all-zero input. Equivalent axes can combine even when their
+angles are arbitrary. Newly exposed Clifford rotations update a compiler-side
+frame immediately, allowing the same region to absorb more following rotations
+and recover facts that would otherwise be lost. It makes one forward circuit
+sweep and does not repeat earlier passes or add runtime stabilizer tracking.
+
+Every nonrotation operation ends a region. Constraints must hold on every noise
+trajectory and the noiseless reference; probability-one noise is no exception.
+Measurements retain only outcome-independent facts, instruments clear all facts,
+and postselection supplies none. The pass skips circuits whose noise has already
+been rescheduled. Use it before squeezing and scheduling.
+
+| Option | Default | Meaning |
+|---|---|---|
+| `max_region_ops` | `256` | Maximum live rotations in a region; range `0` to `4096`. Zero disables the pass. |
+| `max_region_passes` | `8` | Maximum local retries without consuming fresh input; range `1` to `64`. |
+
+The live-term cap bounds pairwise commutation checks within each collection step;
+it does not bound the total number of input rotations a shrinking region can
+consume. Consuming new input resets the retry budget. These bounds limit local
+search, not total compilation time or source-provenance storage, and do not
+guarantee a globally optimal result.
+
+Analysis exits early if there are no rotations or no remaining known constraints.
+The pass copies the HIR only after finding a rewrite. Nontrivial rewrites are
+rejected if either peak active width or estimated dense work increases; deleting
+only known scalar phases needs no additional width analysis. This guard does not
+guarantee faster compilation or sampling. In particular, benefits observed on
+fixed-input adders do not imply the same benefit for arbitrary superpositions.
+
+After a run, `regions_examined` and `regions_capped` describe the attempted search.
+`regions_reduced`, `rotations_removed` and `applied` describe only an accepted
+rewrite. Merged rotations retain the union of their source locations. Equivalent
+rewrites preserve output distributions but can change samples for a fixed seed.
 {% endif %}
 
 {% if p['name'] == 'ActiveWidthSchedulePass' %}

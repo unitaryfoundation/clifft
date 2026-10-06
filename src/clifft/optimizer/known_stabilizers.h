@@ -18,6 +18,8 @@ class KnownStabilizers {
     KnownStabilizers() = default;
     explicit KnownStabilizers(uint32_t num_qubits);
 
+    [[nodiscard]] bool empty() const { return rows_.empty(); }
+
     [[nodiscard]] PauliString reduce_body(PauliString axis) const;
     // A missing value cannot justify a fixed rewrite; true denotes eigenvalue -1.
     [[nodiscard]] std::optional<bool> eigenvalue(PauliString axis) const;
