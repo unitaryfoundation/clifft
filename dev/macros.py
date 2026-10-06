@@ -88,7 +88,7 @@ def define_env(env: Any) -> None:
             "preserves_record_order": True,
             "preserves_instrument_prefix": True,
             "python_name": "PeepholeFusionPass",
-            "summary": "Algebraic T-gate fusion and terminal-phase elimination.",
+            "summary": "Fuse same-axis T gates and remove terminal phases.",
             "detail": (
                 "Scans the HIR to cancel or fuse T/T_dag gates acting on the "
                 "same virtual Pauli axis using the symplectic inner product as "
@@ -107,7 +107,7 @@ def define_env(env: Any) -> None:
             "preserves_record_order": True,
             "preserves_instrument_prefix": False,
             "python_name": "PhasePolynomialPass",
-            "summary": "Reduce commuting T rotations using proven input-state constraints.",
+            "summary": "Reduce T count using identities among commuting rotations.",
             "detail": (
                 "Uses TOHPE from [Vandaele, *Lower T-count with faster algorithms*, "
                 "Algorithm 2](https://arxiv.org/abs/2407.08695) for T-count reduction. "
@@ -116,6 +116,21 @@ def define_env(env: Any) -> None:
                 "non-Clifford core from a Clifford correction. TOHPE synthesizes the "
                 "core; Clifft supplies the state analysis, measurement/noise handling, "
                 "and exact Clifford correction."
+            ),
+        },
+        {
+            "name": "RotationSimplificationPass",
+            "kind": "HIR",
+            "default_enabled": True,
+            "preserves_record_order": True,
+            "preserves_instrument_prefix": False,
+            "python_name": "RotationSimplificationPass",
+            "summary": "Simplify arbitrary-angle Pauli rotations using known stabilizers.",
+            "detail": (
+                "Uses the circuit's known all-zero initial state to track stabilizer "
+                "constraints shared by every trajectory. These constraints let the "
+                "pass combine equivalent commuting Pauli rotations with arbitrary "
+                "angles and absorb resulting Clifford operations."
             ),
         },
         {
