@@ -1,7 +1,7 @@
 #include "clifft/optimizer/rotation_simplification_pass.h"
 
 #include "clifft/optimizer/active_width_analysis.h"
-#include "clifft/optimizer/clifford_frame.h"
+#include "clifft/optimizer/clifford_absorption.h"
 #include "clifft/optimizer/known_stabilizers.h"
 #include "clifft/util/numeric.h"
 
@@ -41,8 +41,8 @@ class Rewriter {
     std::optional<HirModule> run() {
         for (size_t start = 0; start < input_.ops.size();) {
             if (known_.empty()) {
-                // Unknown facts cannot justify further state-dependent rewrites.
-                // An existing frame still has to reach every remaining operand.
+                // Without known stabilizers, no further state-dependent rewrite
+                // is possible. Absorbed Cliffords must still transform the suffix.
                 if (candidate_) {
                     for (size_t i = start; i < input_.ops.size(); ++i) {
                         emit_original(i);
@@ -116,7 +116,7 @@ class Rewriter {
         if (candidate_) {
             candidate_->ops = std::move(output_);
             candidate_->source_map = std::move(sources_);
-            frame_.finish(*candidate_);
+            cliffords_.finish(*candidate_);
         }
         return std::move(candidate_);
     }
@@ -132,7 +132,7 @@ class Rewriter {
         while (end < input_.ops.size() && terms_.size() < options_.max_region_ops &&
                is_rotation(input_.ops[end])) {
             const auto& op = input_.ops[end];
-            auto axis = frame_.read(input_.mask_view(op), input_.num_qubits);
+            auto axis = cliffords_.read(input_.mask_view(op), input_.num_qubits);
             if (std::ranges::any_of(terms_, [&](const Term& earlier) {
                     return !axis.view().commutes(earlier.axis.view());
                 })) {
@@ -205,9 +205,9 @@ class Rewriter {
                 const uint8_t coefficient = *clifford == CliffordRotation::SQRT    ? 2
                                             : *clifford == CliffordRotation::PAULI ? 4
                                                                                    : 6;
-                // Every retained axis commutes with this factor, so moving it
-                // to the frame leaves the other terms in the region unchanged.
-                frame_.absorb(term.axis, coefficient);
+                // Every retained axis commutes with this factor, so absorbing
+                // it leaves the other terms in the region unchanged.
+                cliffords_.absorb(term.axis, coefficient);
             }
         }
         return changed;
@@ -233,7 +233,7 @@ class Rewriter {
             return;
         }
         auto& op = candidate_->ops[index];
-        frame_.transform(*candidate_, op);
+        cliffords_.transform(*candidate_, op);
         known_.advance(*candidate_, op);
         output_.push_back(op);
         if (!input_.source_map.empty()) {
@@ -244,7 +244,7 @@ class Rewriter {
     const HirModule& input_;
     RotationSimplificationOptions options_;
     KnownStabilizers known_;
-    optimizer_detail::CliffordFrame frame_;
+    optimizer_detail::CliffordAbsorption cliffords_;
     std::optional<HirModule> candidate_;
     std::vector<Term> terms_;
     std::vector<HeisenbergOp> output_;

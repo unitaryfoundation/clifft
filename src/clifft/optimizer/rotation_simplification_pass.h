@@ -13,11 +13,11 @@ struct RotationSimplificationOptions {
     uint32_t max_region_passes = 8;
 };
 
-// Uses outcome-independent Pauli constraints from the complete circuit's |0>
-// input to simplify arbitrary-angle rotations. Run after PhasePolynomialPass,
-// before squeezing or scheduling. All nonrotation operations are boundaries.
-// Newly absorbed Cliffords update a compile-time frame, so subsequent regions
-// see stronger facts without rerunning the circuit's earlier optimization passes.
+// Uses known stabilizers from the complete circuit's |0> input to simplify
+// arbitrary-angle rotations. Absorbing exposed Cliffords preserves stabilizer
+// constraints for subsequent rotations within a single forward sweep.
+// The default registry places this after PhasePolynomialPass to simplify its
+// output and before squeezing or scheduling can move operations across noise.
 class RotationSimplificationPass : public HirPass {
   public:
     explicit RotationSimplificationPass(RotationSimplificationOptions options = {});

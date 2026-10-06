@@ -1,7 +1,7 @@
 #include "clifft/optimizer/phase_polynomial_pass.h"
 
 #include "clifft/optimizer/active_width_analysis.h"
-#include "clifft/optimizer/clifford_frame.h"
+#include "clifft/optimizer/clifford_absorption.h"
 #include "clifft/optimizer/known_stabilizers.h"
 #include "clifft/optimizer/pauli_axis.h"
 #include "clifft/optimizer/phase_polynomial.h"
@@ -42,7 +42,7 @@ PauliString product_axis(const std::vector<PauliString>& generators, uint64_t pa
     return axis;
 }
 
-using optimizer_detail::CliffordFrame;
+using optimizer_detail::CliffordAbsorption;
 
 struct Observer {
     size_t index;
@@ -83,7 +83,7 @@ class Rewriter {
         if (candidate_) {
             candidate_->ops = std::move(output_);
             candidate_->source_map = std::move(sources_);
-            frame_.finish(*candidate_);
+            cliffords_.finish(*candidate_);
         }
         return std::move(candidate_);
     }
@@ -127,7 +127,7 @@ class Rewriter {
             const auto& op = hir().ops[i];
             const auto type = op.op_type();
             if (type == OpType::T_GATE) {
-                auto axis = frame_.read(hir().mask_view(op), hir().num_qubits);
+                auto axis = cliffords_.read(hir().mask_view(op), hir().num_qubits);
                 auto reduced = known_.reduce_body(axis);
                 // An entry stabilizer commutes with every constraint derived
                 // from that same group, without a second basis scan.
@@ -187,8 +187,8 @@ class Rewriter {
                     hir().noise_sites[static_cast<uint32_t>(op.noise_site_idx())].channels;
                 std::vector<PauliString> axes;
                 for (const auto& channel : channels) {
-                    auto axis =
-                        frame_.read(hir().noise_channel_masks.at(channel.mask), hir().num_qubits);
+                    auto axis = cliffords_.read(hir().noise_channel_masks.at(channel.mask),
+                                                hir().num_qubits);
                     if (channel.prob > 0 &&
                         (!block.constraints.commutes(axis.view()) ||
                          std::ranges::any_of(block.generators, [&](const PauliString& generator) {
@@ -208,7 +208,7 @@ class Rewriter {
                 available.advance(hir(), op);
             } else if (type == OpType::MEASURE || type == OpType::CONDITIONAL_PAULI ||
                        type == OpType::EXP_VAL) {
-                const auto axis = frame_.read(hir().mask_view(op), hir().num_qubits);
+                const auto axis = cliffords_.read(hir().mask_view(op), hir().num_qubits);
                 if (!block.constraints.commutes(axis.view())) {
                     break;
                 }
@@ -295,7 +295,7 @@ class Rewriter {
                 clifford = (coefficient - (dagger ? -1 : 1)) & 7;
             }
             if (clifford) {
-                frame_.absorb(axis, static_cast<uint8_t>(clifford));
+                cliffords_.absorb(axis, static_cast<uint8_t>(clifford));
             }
         }
         assert(written == output_count);
@@ -306,7 +306,7 @@ class Rewriter {
 
     void transform(const HeisenbergOp& op) {
         if (candidate_) {
-            frame_.transform(*candidate_, op);
+            cliffords_.transform(*candidate_, op);
         }
     }
 
@@ -323,8 +323,8 @@ class Rewriter {
     const HirModule& input_;
     std::optional<HirModule> candidate_;
     uint32_t max_variables_;
-    CliffordFrame frame_;
-    // Follow emitted operations: absorbed Cliffords live in frame_, so their
+    CliffordAbsorption cliffords_;
+    // Follow emitted operations: absorbed Cliffords live in cliffords_, so their
     // effects reach this analysis through the transformed subsequent operands.
     KnownStabilizers known_;
     std::vector<HeisenbergOp> output_;

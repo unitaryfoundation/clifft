@@ -107,7 +107,7 @@ void KnownStabilizers::intersect(PauliStringView axis) {
 }
 
 void KnownStabilizers::advance(const HirModule& hir, const HeisenbergOp& op) {
-    // Advancing only removes existing facts.
+    // Advancing only removes known stabilizers.
     if (rows_.empty()) {
         return;
     }
@@ -117,7 +117,7 @@ void KnownStabilizers::advance(const HirModule& hir, const HeisenbergOp& op) {
         case OpType::MEASURE:
         case OpType::CONDITIONAL_PAULI:
             // Keep relations common to both outcomes; future postselection
-            // cannot justify a fact at the current program point.
+            // cannot justify a stabilizer constraint at the current program point.
             intersect(copy_axis(hir.mask_view(op), hir.num_qubits).view());
             break;
         case OpType::NOISE: {
@@ -130,7 +130,7 @@ void KnownStabilizers::advance(const HirModule& hir, const HeisenbergOp& op) {
                 const auto axis =
                     copy_axis(hir.noise_channel_masks.at(channel.mask), hir.num_qubits);
                 // Reference-syndrome computation strips even probability-one
-                // noise after optimization, so facts must also hold without it.
+                // noise after optimization, so constraints must also hold without it.
                 intersect(axis.view());
             }
             break;

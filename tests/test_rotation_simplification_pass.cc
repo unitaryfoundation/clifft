@@ -69,7 +69,7 @@ TEST_CASE("Rotation simplification absorbs Clifford factors through instruments"
     REQUIRE(hir.final_tableau == reference.final_tableau);
 }
 
-TEST_CASE("Rotation simplification stops using facts after an instrument", "[optimizer]") {
+TEST_CASE("Rotation simplification discards known stabilizers after an instrument", "[optimizer]") {
     const auto options = test::source_dependent_jump_options(false);
     auto hir = trace(parse("LEVEL_TRANSITION[jump] 0\nR_Z(0.137) 0"), &options);
     const auto original = hir;
@@ -112,7 +112,8 @@ TEST_CASE("Rotation simplification skips circuits without rotations and resets s
     REQUIRE(pass.rotations_removed() == 0);
 }
 
-TEST_CASE("Rotation simplification stops scanning rotations after facts are lost", "[optimizer]") {
+TEST_CASE("Rotation simplification stops scanning rotations when no stabilizers remain",
+          "[optimizer]") {
     std::string source = "H 0\nR_Z(0.137) 0\n";
     for (size_t i = 0; i < 100; ++i) {
         source += "R_X(0.213) 0\nR_Z(0.137) 0\n";

@@ -7,9 +7,10 @@
 
 namespace clifft::optimizer_detail {
 
-// Removed Clifford factors form C. Read subsequent axes as C^dag P C and
-// compose C into the final tableau once, avoiding repeated suffix rewrites.
-class CliffordFrame {
+// Accumulate Clifford rotations removed during optimization to avoid repeated
+// scans of the remaining circuit. Transform subsequent Pauli axes as they are
+// visited, then compose the accumulated Clifford into the final tableau.
+class CliffordAbsorption {
   public:
     bool empty() const { return !forward_; }
 

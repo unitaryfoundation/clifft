@@ -240,7 +240,7 @@ def test_expectation_remains_between_rotations(sampling_mode: SamplingMode) -> N
 
 def test_benchmark_adder_matches_classical_addition(sampling_mode: SamplingMode) -> None:
     path = Path(__file__).resolve().parents[2] / "tools/bench/fixtures/draper_adder_16_basis.stim"
-    program = sampling_mode.compile(path.read_text(), hir_passes=_manager())
+    program = sampling_mode.compile(path.read_text())
     assert program.peak_active_width == 0
     expected = np.array(
         [(37449 >> bit) & 1 for bit in range(16)] + [(56173 >> bit) & 1 for bit in range(16)],

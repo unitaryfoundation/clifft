@@ -88,7 +88,7 @@ def define_env(env: Any) -> None:
             "preserves_record_order": True,
             "preserves_instrument_prefix": True,
             "python_name": "PeepholeFusionPass",
-            "summary": "Algebraic T-gate fusion and terminal-phase elimination.",
+            "summary": "Fuse same-axis T gates and remove terminal phases.",
             "detail": (
                 "Scans the HIR to cancel or fuse T/T_dag gates acting on the "
                 "same virtual Pauli axis using the symplectic inner product as "
@@ -107,7 +107,7 @@ def define_env(env: Any) -> None:
             "preserves_record_order": True,
             "preserves_instrument_prefix": False,
             "python_name": "PhasePolynomialPass",
-            "summary": "Reduce commuting T rotations using proven input-state constraints.",
+            "summary": "Reduce T count using identities among commuting rotations.",
             "detail": (
                 "Uses TOHPE from [Vandaele, *Lower T-count with faster algorithms*, "
                 "Algorithm 2](https://arxiv.org/abs/2407.08695) for T-count reduction. "
@@ -127,11 +127,10 @@ def define_env(env: Any) -> None:
             "python_name": "RotationSimplificationPass",
             "summary": "Simplify arbitrary-angle Pauli rotations using known stabilizers.",
             "detail": (
-                "Reduces axes modulo stabilizer facts shared by every trajectory, "
-                "combines equal rotations, and absorbs Clifford factors in a "
-                "compile-time frame. Rewritten regions can consume newly commuting "
-                "neighbors with bounded live terms and local retries. "
-                "No runtime state representation or planning is added."
+                "Combines commuting Pauli rotations whose axes are equivalent under "
+                "known stabilizer constraints, including arbitrary rotation angles. "
+                "Rotations that become Clifford operations are absorbed into the "
+                "final Clifford tableau."
             ),
         },
         {
