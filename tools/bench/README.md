@@ -53,5 +53,4 @@ Pre-generated circuit files live in `fixtures/`:
   with MQT Bench 2.3.0's `draper_qft_adder` and Qiskit 2.5.2 at
   `optimization_level=0`, with rotation angles converted to half-turns. Prepares
   a=37449 and b=18724 and computes b=56173, preserving a. The correctness test
-  checks every output bit; performance corpus integration is tracked in
-  [clifft-bench issue 66](https://github.com/unitaryfoundation/clifft-bench/issues/66).
+  checks every output bit.

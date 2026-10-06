@@ -101,8 +101,8 @@ After a run, `input_t_count`, `output_t_count`, `blocks_reduced` and
 {% endif %}
 
 {% if p['name'] == 'RotationSimplificationPass' %}
-Use this pass on complete circuits with an all-zero input, before squeezing or
-scheduling. It skips circuits whose noise has already been rescheduled.
+Run this pass on complete circuits before squeezing or scheduling. It skips
+circuits whose noise has already been rescheduled.
 
 Stabilizer constraints must hold for every measurement outcome and noise
 trajectory, including the noiseless reference. Every nonrotation operation ends
