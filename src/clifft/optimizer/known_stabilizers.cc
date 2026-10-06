@@ -1,5 +1,7 @@
 #include "clifft/optimizer/known_stabilizers.h"
 
+#include "clifft/optimizer/pauli_axis.h"
+
 #include <algorithm>
 #include <cassert>
 #include <utility>
@@ -22,13 +24,7 @@ bool identity(const PauliString& axis) {
     return axis.x().is_zero() && axis.z().is_zero();
 }
 
-PauliString copy_axis(PauliMaskView mask, uint32_t width) {
-    PauliString axis(width);
-    axis.mut_x().xor_with(mask.x());
-    axis.mut_z().xor_with(mask.z());
-    axis.set_sign(mask.sign());
-    return axis;
-}
+using optimizer_detail::copy_axis;
 
 }  // namespace
 
@@ -111,7 +107,7 @@ void KnownStabilizers::intersect(PauliStringView axis) {
 }
 
 void KnownStabilizers::advance(const HirModule& hir, const HeisenbergOp& op) {
-    // Advancing only removes existing facts.
+    // Advancing only removes known stabilizers.
     if (rows_.empty()) {
         return;
     }
@@ -121,7 +117,7 @@ void KnownStabilizers::advance(const HirModule& hir, const HeisenbergOp& op) {
         case OpType::MEASURE:
         case OpType::CONDITIONAL_PAULI:
             // Keep relations common to both outcomes; future postselection
-            // cannot justify a fact at the current program point.
+            // cannot justify a stabilizer constraint at the current program point.
             intersect(copy_axis(hir.mask_view(op), hir.num_qubits).view());
             break;
         case OpType::NOISE: {
@@ -134,7 +130,7 @@ void KnownStabilizers::advance(const HirModule& hir, const HeisenbergOp& op) {
                 const auto axis =
                     copy_axis(hir.noise_channel_masks.at(channel.mask), hir.num_qubits);
                 // Reference-syndrome computation strips even probability-one
-                // noise after optimization, so facts must also hold without it.
+                // noise after optimization, so constraints must also hold without it.
                 intersect(axis.view());
             }
             break;

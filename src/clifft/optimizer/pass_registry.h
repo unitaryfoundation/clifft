@@ -6,6 +6,7 @@
 #include "clifft/optimizer/peephole.h"
 #include "clifft/optimizer/phase_polynomial_pass.h"
 #include "clifft/optimizer/remove_noise_pass.h"
+#include "clifft/optimizer/rotation_simplification_pass.h"
 #include "clifft/optimizer/statevector_squeeze_pass.h"
 
 #include <cstddef>
@@ -79,6 +80,11 @@ inline const PassInfo kRegisteredPasses[] = {
      .record_order = kPreservesRecordOrder,
      .instrument_prefix = kMayChangeInstrumentPrefix,
      .make = make_hir<PhasePolynomialPass>},
+    {.name = "RotationSimplificationPass",
+     .default_enabled = true,
+     .record_order = kPreservesRecordOrder,
+     .instrument_prefix = kMayChangeInstrumentPrefix,
+     .make = make_hir<RotationSimplificationPass>},
     {.name = "StatevectorSqueezePass",
      .default_enabled = true,
      .record_order = kBreaksRecordOrder,

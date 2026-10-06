@@ -15,6 +15,7 @@
 #include "clifft/optimizer/peephole.h"
 #include "clifft/optimizer/phase_polynomial_pass.h"
 #include "clifft/optimizer/remove_noise_pass.h"
+#include "clifft/optimizer/rotation_simplification_pass.h"
 #include "clifft/optimizer/statevector_squeeze_pass.h"
 #include "clifft/sampling/executor.h"
 #include "clifft/sampling/planner.h"
@@ -777,6 +778,31 @@ NB_MODULE(_clifft_core, m) {
             return "PhasePolynomialPass(input_t_count=" + std::to_string(p.input_t_count()) +
                    ", output_t_count=" + std::to_string(p.output_t_count()) + ")";
         });
+
+    nb::class_<clifft::RotationSimplificationPass, clifft::HirPass>(
+        m, "RotationSimplificationPass",
+        "Simplify Pauli rotations using outcome-independent stabilizer constraints. "
+        "Run after PhasePolynomialPass and before squeezing or scheduling.")
+        .def(
+            "__init__",
+            [](clifft::RotationSimplificationPass* self, int64_t max_region_ops,
+               int64_t max_region_passes) {
+                if (max_region_ops < 0 || max_region_ops > 4096) {
+                    throw std::invalid_argument("max_region_ops must be between zero and 4096");
+                }
+                if (max_region_passes < 1 || max_region_passes > 64) {
+                    throw std::invalid_argument("max_region_passes must be between one and 64");
+                }
+                new (self)
+                    clifft::RotationSimplificationPass({static_cast<uint32_t>(max_region_ops),
+                                                        static_cast<uint32_t>(max_region_passes)});
+            },
+            nb::arg("max_region_ops") = int64_t{256}, nb::arg("max_region_passes") = int64_t{8})
+        .def_prop_ro("regions_examined", &clifft::RotationSimplificationPass::regions_examined)
+        .def_prop_ro("regions_reduced", &clifft::RotationSimplificationPass::regions_reduced)
+        .def_prop_ro("regions_capped", &clifft::RotationSimplificationPass::regions_capped)
+        .def_prop_ro("rotations_removed", &clifft::RotationSimplificationPass::rotations_removed)
+        .def_prop_ro("applied", &clifft::RotationSimplificationPass::applied);
 
     nb::class_<clifft::StatevectorSqueezePass, clifft::HirPass>(
         m, "StatevectorSqueezePass",

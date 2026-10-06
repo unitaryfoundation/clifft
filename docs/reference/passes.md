@@ -11,6 +11,8 @@ The default HIR pipeline:
 1. **{{ p['name'] }}** -- {{ p['summary'] }}
 {% endfor %}
 
+These passes are complementary; the default manager runs them in the order shown.
+
 Use `clifft.default_hir_pass_manager()` to get these defaults, or build a
 custom pipeline:
 
@@ -20,6 +22,7 @@ import clifft
 pm = clifft.HirPassManager()
 pm.add(clifft.PeepholeFusionPass())
 pm.add(clifft.PhasePolynomialPass())
+pm.add(clifft.RotationSimplificationPass())
 pm.add(clifft.StatevectorSqueezePass())
 pm.add(clifft.ActiveWidthSchedulePass())
 ```
@@ -43,7 +46,8 @@ collapse can change quantum correlations.
 `clifft.noncomp.sample` therefore applies only passes that are enabled by
 default, preserve measurement-record order, and preserve instrument prefixes.
 Its HIR pipeline uses `PeepholeFusionPass` but omits
-`PhasePolynomialPass`, `StatevectorSqueezePass` and `ActiveWidthSchedulePass`.
+`PhasePolynomialPass`, `RotationSimplificationPass`, `StatevectorSqueezePass`
+and `ActiveWidthSchedulePass`.
 
 Record-order preservation is necessary but does not by itself make a
 continuation compatible with an already-running executor. Trajectory passes
@@ -94,6 +98,27 @@ samples for a fixed random seed.
 
 After a run, `input_t_count`, `output_t_count`, `blocks_reduced` and
 `pauli_pullbacks` describe the accepted rewrite; `applied` reports acceptance.
+{% endif %}
+
+{% if p['name'] == 'RotationSimplificationPass' %}
+Run this pass on complete circuits before squeezing or scheduling. It skips
+circuits whose noise has already been rescheduled.
+
+Stabilizer constraints must hold for every measurement outcome and noise
+trajectory, including the noiseless reference. Every nonrotation operation ends
+a region; instruments discard the known stabilizers and postselection adds none.
+
+| Option | Default | Meaning |
+|---|---|---|
+| `max_region_ops` | `256` | Maximum rotations retained in a region; range `0` to `4096`. Zero disables the pass. |
+| `max_region_passes` | `8` | Maximum local retries without adding new rotations; range `1` to `64`. |
+
+Rewrites must not increase peak active width or estimated sampling work.
+Equivalent rewrites preserve output distributions but can change samples for a
+fixed seed.
+
+After a run, `regions_examined` and `regions_capped` describe the attempted search.
+`regions_reduced`, `rotations_removed` and `applied` describe the accepted rewrite.
 {% endif %}
 
 {% if p['name'] == 'ActiveWidthSchedulePass' %}

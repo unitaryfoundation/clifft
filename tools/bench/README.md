@@ -48,3 +48,9 @@ Pre-generated circuit files live in `fixtures/`:
 - **`qv20_seed42.stim`** — 20-qubit Quantum Volume circuit (seed=42) in Stim-superset
   format. Peak active width 20 (2^20 = 1M complex amplitudes, 16 MB statevector).
   Useful for profiling dense active-state kernels.
+
+- **`draper_adder_16_basis.stim`** -- 16-bit Draper adder on 32 qubits, generated
+  with MQT Bench 2.3.0's `draper_qft_adder` and Qiskit 2.5.2 at
+  `optimization_level=0`, with rotation angles converted to half-turns. Prepares
+  a=37449 and b=18724 and computes b=56173, preserving a. The correctness test
+  checks every output bit.
