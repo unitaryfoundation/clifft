@@ -71,6 +71,7 @@ class CpuSamplingMode:
     threads: int = 1
     thread_layout: tuple[int, int] | None = None
     intra_shot_min_active_width: int | None = None
+    tuning_budget_seconds: float | None = None
 
     @staticmethod
     def compile(source: str, **kwargs: Any) -> Any:
@@ -84,6 +85,7 @@ class CpuSamplingMode:
                 seed=seed,
                 threads=self.threads,
                 batch_size=self.batch_size,
+                tuning_budget_seconds=self.tuning_budget_seconds,
                 thread_layout=self.thread_layout,
                 intra_shot_min_active_width=self.intra_shot_min_active_width,
             )
@@ -103,6 +105,7 @@ class CpuSamplingMode:
                 keep_records=keep_records,
                 threads=self.threads,
                 batch_size=self.batch_size,
+                tuning_budget_seconds=self.tuning_budget_seconds,
                 thread_layout=self.thread_layout,
                 intra_shot_min_active_width=self.intra_shot_min_active_width,
             )
@@ -120,6 +123,7 @@ class CpuSamplingMode:
                 seed=seed,
                 threads=self.threads,
                 batch_size=self.batch_size,
+                tuning_budget_seconds=self.tuning_budget_seconds,
                 thread_layout=self.thread_layout,
                 intra_shot_min_active_width=self.intra_shot_min_active_width,
             )
@@ -146,6 +150,7 @@ class CpuSamplingMode:
                 keep_records=keep_records,
                 threads=self.threads,
                 batch_size=self.batch_size,
+                tuning_budget_seconds=self.tuning_budget_seconds,
                 thread_layout=self.thread_layout,
                 intra_shot_min_active_width=self.intra_shot_min_active_width,
             )
@@ -163,6 +168,13 @@ CPU_SAMPLING_MODES = (
     CpuSamplingMode("packed-65-2-workers", 65, threads=2),
     CpuSamplingMode("intra-shot-2-workers", 1, thread_layout=(1, 2), intra_shot_min_active_width=3),
     CpuSamplingMode("hybrid-2x2-workers", 1, thread_layout=(2, 2), intra_shot_min_active_width=3),
+)
+
+# Semantic tests opt into calibration separately: retuning can select a different
+# configuration and therefore different seeded rows on the next call.
+CPU_TUNING_MODES = (
+    CpuSamplingMode("tuned", "tune", tuning_budget_seconds=0.05),
+    CpuSamplingMode("tuned-2-workers", "tune", threads=2, tuning_budget_seconds=0.05),
 )
 
 

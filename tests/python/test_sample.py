@@ -13,6 +13,7 @@ from conftest import (
     random_clifford_circuit,
 )
 from utils_conformance import (
+    CPU_TUNING_MODES,
     SAMPLING_MODES_WITH_GPU_TIERS,
     SMALL_CIRCUIT_SHOTS,
     CpuSamplingMode,
@@ -399,7 +400,10 @@ class TestSample:
         ), f"Adjacency correlation off: {adjacent_both_1}"
 
     @pytest.mark.parametrize(
-        "sampling_mode", SAMPLING_MODES_WITH_GPU_TIERS, indirect=True, ids=lambda mode: mode.name
+        "sampling_mode",
+        SAMPLING_MODES_WITH_GPU_TIERS + CPU_TUNING_MODES,
+        indirect=True,
+        ids=lambda mode: mode.name,
     )
     def test_active_measurement_feedback_and_reset(self, sampling_mode: SamplingMode) -> None:
         """A measured bit changes a later rotation on a still-active qubit."""
@@ -1001,7 +1005,10 @@ class TestSampleSurvivors:
 
     @pytest.mark.parametrize("keep_records", [False, True])
     @pytest.mark.parametrize(
-        "sampling_mode", SAMPLING_MODES_WITH_GPU_TIERS, indirect=True, ids=lambda mode: mode.name
+        "sampling_mode",
+        SAMPLING_MODES_WITH_GPU_TIERS + CPU_TUNING_MODES,
+        indirect=True,
+        ids=lambda mode: mode.name,
     )
     def test_active_postselection_preserves_survivor_outputs(
         self, sampling_mode: SamplingMode, keep_records: bool
@@ -1346,7 +1353,10 @@ class TestSampleSurvivors:
 class TestSyndromeNormalization:
     @pytest.mark.parametrize("postselect", [False, True], ids=["ordinary", "survivors"])
     @pytest.mark.parametrize(
-        "sampling_mode", SAMPLING_MODES_WITH_GPU_TIERS, indirect=True, ids=lambda mode: mode.name
+        "sampling_mode",
+        SAMPLING_MODES_WITH_GPU_TIERS + CPU_TUNING_MODES,
+        indirect=True,
+        ids=lambda mode: mode.name,
     )
     def test_normalized_noisy_feedback_preserves_row_outputs(
         self, sampling_mode: SamplingMode, postselect: bool

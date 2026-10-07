@@ -35,11 +35,12 @@ worthwhile. Benchmark before overriding either decision.
 | Argument | Default | Meaning |
 |---|---|---|
 | `threads` | `1` | Total CPU worker budget; `"auto"` uses reported hardware concurrency. |
-| `batch_size` | `"auto"` | Packed-lane policy; `1` forces scalar execution. |
+| `batch_size` | `"auto"` | Packed-lane policy; `1` forces scalar execution and `"tune"` measures candidate capacities. |
+| `tuning_budget_seconds` | `None` | Keyword-only soft calibration budget for `batch_size="tune"`; `None` uses 0.25 seconds. |
 | `thread_layout` | `None` | Expert `(shot_workers, intra_shot_workers)` override. |
 | `intra_shot_min_active_width` | `None` | Expert threshold for enabling an explicit intra-shot layout. |
 
-The fixed-plan samplers above accept all four controls. The leakage and loss
+The fixed-plan samplers above accept these controls. The leakage and loss
 trajectory API, `clifft.noncomp.sample()`, accepts `threads` but not packing or
 intra-shot layouts. Exact probability queries and `get_statevector()` do not
 expose these sampling controls.
@@ -54,6 +55,79 @@ Three independent mechanisms are involved:
   worker.
 
 Packed execution cannot be combined with intra-shot workers.
+
+## Budgeted batch calibration
+
+The default `batch_size="auto"` uses conservative heuristics and may miss a
+faster batch size for your circuit. Set `batch_size="tune"` to briefly measure
+batch sizes for your circuit and simulation settings, then run all requested
+shots using the fastest measured choice. Calibration adds overhead, so it is
+most useful for longer sampling jobs.
+
+```python
+import clifft
+
+program = clifft.compile("H 0\nT 0\nH 0\nM 0")
+result = clifft.sample(
+    program,
+    shots=100_000,
+    threads=2,
+    batch_size="tune",
+    tuning_budget_seconds=0.1,
+)
+print(result.batch_tuning.batch_size)
+```
+
+`tuning_budget_seconds` defaults to 0.25 seconds. It is a **soft limit** on
+calibration time: work already in progress can finish after the deadline. It
+does not limit the requested sampling run. Keep these points in mind:
+
+- Calibration shots are extra and discarded; all requested shots still run.
+  Trial results are excluded from the returned counts and estimates.
+- Batch sizes that exceed the worker memory limits are excluded. If none fit,
+  Clifft samples without batching and skips calibration.
+- If calibration cannot make a useful comparison, Clifft uses `auto` and
+  returns the samples with a `RuntimeWarning` suggesting a larger budget.
+  A budget overrun alone does not cause a warning.
+
+The selected settings are returned in `result.batch_tuning`. To reuse the
+batch size without recalibrating, pass `batch_size=result.batch_tuning.batch_size`
+on later calls with the same circuit and simulation settings. Retune when the
+workload or machine changes; selections are not cached automatically.
+
+??? note "Calibration report details"
+
+    `result.batch_tuning` is a `BatchTuningReport`; it is `None` for `auto` or
+    explicitly sized calls.
+
+    | Field | Meaning |
+    |---|---|
+    | `batch_size`, `baseline_batch_size` | Selected and automatic batch sizes; `1` means scalar. |
+    | `shot_workers`, `intra_shot_workers` | Resolved production worker layout. |
+    | `elapsed_seconds` | Total calibration time, including setup and cleanup. |
+    | `trial_shots` | Extra attempted shots, including warmup. |
+    | `sufficient_measurements` | Whether the automatic choice and at least one alternative provided usable timings. False means the automatic choice was retained. |
+    | `stop_reason` | Why calibration ended; see below. |
+    | `trials` | A `BatchTuningTrial` for each candidate that was prepared. |
+
+    `completed` means every eligible candidate provided usable timing data,
+    even if the final trial crossed the soft deadline. `budget_exhausted`
+    means time prevented measuring at least one candidate; a partial sweep
+    can still provide sufficient measurements. `insufficient_measurements`
+    means usable timing data was missing without a candidate being excluded
+    for lack of time.
+
+    `zero_shots`, `zero_budget`, and `single_candidate` indicate that no
+    calibration was needed or requested. These cases do not issue a warning.
+
+    Each trial records `batch_size`, `shot_workers`, `setup_seconds`,
+    `warmup_shots`, `warmup_seconds`, subsequent measured `shots` and
+    `elapsed_seconds`, and `shots_per_second`. `used_warmup` indicates that
+    throughput comes from the first probe alone; setup time is excluded.
+
+    To reproduce the worker allocation as well as the batch size, pass
+    `thread_layout=(report.shot_workers, report.intra_shot_workers)` from a
+    nonempty call and preserve any explicit intra-shot threshold.
 
 ## Power-user tuning
 
@@ -137,6 +211,11 @@ Scalar and packed execution use separate random streams, and different packed
 capacities can produce different rows. Every supported strategy remains
 statistically equivalent. Keep the complete execution configuration fixed when
 exact seeded replay is required.
+
+Timing-based calibration can select a different capacity on repeated calls,
+even with the same seed. For debugging, pin the reported numeric batch size
+instead of requesting calibration again. Calibration uses separate random
+streams from production. Omitting `seed` continues to use hardware entropy.
 
 ### Memory tradeoffs
 

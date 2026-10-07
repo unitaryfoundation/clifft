@@ -12,6 +12,8 @@
 
 namespace clifft::sampling {
 
+inline constexpr double kDefaultBatchTuningBudgetSeconds = 0.25;
+
 // Sampling pipeline:
 //   optimized HirModule -> SamplingPlan -> ExecutablePlan -> Executor -> results
 // Planning produces semantic actions, lowering prepares fixed CPU descriptors,
@@ -40,11 +42,14 @@ struct ThreadLayout {
 // one for scalar execution, or an explicit packed lane-capacity limit. A seed
 // replays within one execution configuration; scalar and packed modes, or two
 // packed capacities, are statistically equivalent but need not return the same
-// individual rows.
+// individual rows. A tuning budget opts into calibration before production,
+// requires an empty batch_size, and bounds extra trial work with a soft deadline.
+// Trial shots are excluded from production results and survivor counts.
 [[nodiscard]] std::vector<uint8_t> sample_records(
     const ExecutablePlan& plan, uint32_t shots, std::optional<uint64_t> seed = std::nullopt,
     uint32_t threads = 1, std::optional<ThreadLayout> thread_layout = std::nullopt,
-    std::optional<uint32_t> batch_size = std::nullopt);
+    std::optional<uint32_t> batch_size = std::nullopt,
+    std::optional<double> tuning_budget_seconds = std::nullopt);
 
 // Replays each row-major visible record and returns its joint log probability.
 // Unreachable records map to the lowest finite double because release builds
@@ -59,24 +64,28 @@ struct ThreadLayout {
                                     std::optional<uint64_t> seed = std::nullopt,
                                     uint32_t threads = 1,
                                     std::optional<ThreadLayout> thread_layout = std::nullopt,
-                                    std::optional<uint32_t> batch_size = std::nullopt);
+                                    std::optional<uint32_t> batch_size = std::nullopt,
+                                    std::optional<double> tuning_budget_seconds = std::nullopt);
 
 [[nodiscard]] SamplingSurvivorResult sample_survivors(
     const ExecutablePlan& plan, uint32_t shots, std::optional<uint64_t> seed = std::nullopt,
     bool keep_records = false, uint32_t threads = 1,
     std::optional<ThreadLayout> thread_layout = std::nullopt,
-    std::optional<uint32_t> batch_size = std::nullopt);
+    std::optional<uint32_t> batch_size = std::nullopt,
+    std::optional<double> tuning_budget_seconds = std::nullopt);
 
 [[nodiscard]] SamplingResult sample_k(const ExecutablePlan& plan, uint32_t shots, uint32_t k,
                                       std::optional<uint64_t> seed = std::nullopt,
                                       uint32_t threads = 1,
                                       std::optional<ThreadLayout> thread_layout = std::nullopt,
-                                      std::optional<uint32_t> batch_size = std::nullopt);
+                                      std::optional<uint32_t> batch_size = std::nullopt,
+                                      std::optional<double> tuning_budget_seconds = std::nullopt);
 
 [[nodiscard]] SamplingSurvivorResult sample_k_survivors(
     const ExecutablePlan& plan, uint32_t shots, uint32_t k,
     std::optional<uint64_t> seed = std::nullopt, bool keep_records = false, uint32_t threads = 1,
     std::optional<ThreadLayout> thread_layout = std::nullopt,
-    std::optional<uint32_t> batch_size = std::nullopt);
+    std::optional<uint32_t> batch_size = std::nullopt,
+    std::optional<double> tuning_budget_seconds = std::nullopt);
 
 }  // namespace clifft::sampling

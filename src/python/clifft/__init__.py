@@ -31,6 +31,8 @@ from clifft import noncomp
 from clifft._clifft_core import (
     ActiveWidthSchedulePass,
     AstNode,
+    BatchTuningReport,
+    BatchTuningTrial,
     Circuit,
     DropNonUnitaryPass,
     GateType,
@@ -353,6 +355,8 @@ __all__ = [
     "ActiveWidthSchedulePass",
     "AstNode",
     "BasisBitstrings",
+    "BatchTuningReport",
+    "BatchTuningTrial",
     "MeasurementRecords",
     "Circuit",
     "GateType",
