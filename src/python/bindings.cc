@@ -758,7 +758,8 @@ NB_MODULE(_clifft_core, m) {
 
     nb::class_<clifft::PhasePolynomialPass, clifft::HirPass>(
         m, "PhasePolynomialPass",
-        "Reduce commuting T rotations using constraints from the circuit's |0> input. "
+        "Reduce commuting T rotations using fixed constraints from the all-zero input, "
+        "measurements, and feedback. "
         "Run after peephole fusion and before squeezing or scheduling.")
         .def(
             "__init__",
