@@ -116,6 +116,10 @@ directional overrides, and circuit annotation ordering.
 
 ::: clifft.SampleResult
 
+::: clifft.BatchTuningReport
+
+::: clifft.BatchTuningTrial
+
 ## Compiled Programs
 
 ::: clifft.Program

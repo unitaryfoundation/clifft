@@ -1,5 +1,6 @@
 """Calibration is extra work before one complete production sampling call."""
 
+import warnings
 from typing import Any, cast
 
 import numpy as np
@@ -62,6 +63,12 @@ def test_tuning_runs_requested_shots_and_reports_reusable_configuration(
         assert isinstance(trial, clifft.BatchTuningTrial)
         assert trial.shots_per_second >= 0
         assert trial.setup_seconds >= 0
+        assert trial.warmup_seconds >= 0
+        if trial.used_warmup:
+            assert trial.shots == 0
+            assert trial.shots_per_second == pytest.approx(
+                trial.warmup_shots / trial.warmup_seconds
+            )
 
     pinned = sampling_call(shots, seed=82, threads=threads, batch_size=report.batch_size)
     assert pinned.batch_tuning is None
@@ -98,6 +105,44 @@ def test_invalid_budget_is_rejected_before_sampling(sampling_call: Any, budget: 
 def test_budget_requires_tuning_mode(sampling_call: Any, batch_size: str | int) -> None:
     with pytest.raises(ValueError, match="requires batch_size='tune'"):
         sampling_call(1, batch_size=batch_size, tuning_budget_seconds=0.1)
+
+
+@pytest.mark.parametrize("batch_size", ["Tune", 0, -1])
+def test_invalid_batch_size_lists_tuning_as_an_option(
+    sampling_call: Any, batch_size: str | int
+) -> None:
+    with pytest.raises(ValueError, match="'auto'.*'tune'"):
+        sampling_call(1, batch_size=batch_size)
+
+
+def test_insufficient_tuning_warns_and_still_returns_complete_results(sampling_call: Any) -> None:
+    with pytest.warns(RuntimeWarning, match="using auto.*Increase tuning_budget_seconds"):
+        result = sampling_call(65, seed=87, batch_size="tune", tuning_budget_seconds=1e-300)
+    baseline = sampling_call(65, seed=87)
+    report = result.batch_tuning
+    assert not report.sufficient_measurements
+    assert report.stop_reason == "budget_exhausted"
+    assert report.batch_size == report.baseline_batch_size
+    assert "sufficient_measurements=False" in repr(report)
+    for field in ("measurements", "detectors", "observables", "exp_vals", "observable_ones"):
+        np.testing.assert_array_equal(getattr(result, field), getattr(baseline, field))
+    for field in ("total_shots", "passed_shots", "discards", "logical_errors"):
+        assert getattr(result, field) == getattr(baseline, field)
+
+
+def test_wide_circuit_skips_calibration_without_a_budget_warning() -> None:
+    qubits = " ".join(map(str, range(14)))
+    program = clifft.compile(f"H {qubits}\nT {qubits}\nM 0", hir_passes=None)
+    assert program.peak_active_width == 14
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        result = clifft.sample(program, 65, batch_size="tune")
+    report = result.batch_tuning
+    assert report.stop_reason == "single_candidate"
+    assert report.trial_shots == 0
+    assert report.trials == []
+    assert report.batch_size == 1
+    assert result.measurements.shape == (65, 1)
 
 
 def test_tuning_uses_default_budget_and_entropy() -> None:

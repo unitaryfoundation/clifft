@@ -38,6 +38,8 @@ BatchTuningReport sweep_batch_candidates(std::span<const BatchTuningCandidate> c
     report.stop_reason = "completed";
     report.trials.reserve(candidates.size());
     double best_rate = 0;
+    double best_packed_rate_per_worker = 0;
+    uint32_t smallest_measured_packed_capacity = 0;
     size_t measured_candidates = 0;
     uint64_t probe_index = 0;
     for (size_t i = 0; i < candidates.size(); ++i) {
@@ -48,28 +50,44 @@ BatchTuningReport sweep_batch_candidates(std::span<const BatchTuningCandidate> c
             break;
         }
         const auto& candidate = candidates[i];
+        // Scalar timing cannot predict a packed speedup. After a packed probe,
+        // use its throughput to avoid starting larger probes near the deadline.
+        if (best_packed_rate_per_worker > 0 &&
+            candidate.policy.lane_capacity > smallest_measured_packed_capacity &&
+            candidate.min_probe_shots /
+                    (best_packed_rate_per_worker * candidate.policy.worker_count) >
+                remaining) {
+            report.stop_reason = "budget_exhausted";
+            continue;
+        }
         const double slice = remaining / static_cast<double>(candidates.size() - i);
         BatchTuningTrial trial;
         trial.batch_size = candidate.policy.lane_capacity;
         trial.shot_workers = candidate.policy.worker_count;
         {
             auto probe = make_probe(candidate.policy);
+            trial.setup_seconds = now() - candidate_start;
             auto run = [&](uint32_t shots) {
                 const auto words =
                     derive_state(calibration_root, probe_index++, kBatchCalibrationDomain);
+                const double before = now();
                 probe(shots, words[0]);
+                const double elapsed = now() - before;
                 report.trial_shots += shots;
+                return elapsed;
             };
             if (now() - candidate_start < slice && now() - start < budget_seconds) {
-                run(candidate.min_probe_shots);
+                trial.warmup_seconds = run(candidate.min_probe_shots);
                 trial.warmup_shots = candidate.min_probe_shots;
             }
-            trial.setup_seconds = now() - candidate_start;
             uint32_t shots = candidate.min_probe_shots;
             while (now() - candidate_start < slice && now() - start < budget_seconds) {
-                const double before = now();
-                run(shots);
-                const double elapsed = now() - before;
+                const double rate = trial.shots_per_second();
+                if (rate > 0 && shots / rate > budget_seconds - (now() - start)) {
+                    report.stop_reason = "budget_exhausted";
+                    break;
+                }
+                const double elapsed = run(shots);
                 trial.shots += shots;
                 trial.elapsed_seconds += elapsed;
                 // Longer chunks amortize worker launch and clock overhead on
@@ -81,9 +99,17 @@ BatchTuningReport sweep_batch_candidates(std::span<const BatchTuningCandidate> c
             }
         }
         report.trials.push_back(trial);
-        if (trial.shots != 0 && trial.elapsed_seconds > 0) {
+        const double rate = trial.shots_per_second();
+        if (rate > 0) {
             ++measured_candidates;
-            const double rate = static_cast<double>(trial.shots) / trial.elapsed_seconds;
+            if (trial.batch_size > 1) {
+                best_packed_rate_per_worker =
+                    std::max(best_packed_rate_per_worker, rate / trial.shot_workers);
+                smallest_measured_packed_capacity =
+                    smallest_measured_packed_capacity == 0
+                        ? trial.batch_size
+                        : std::min(smallest_measured_packed_capacity, trial.batch_size);
+            }
             if (rate > best_rate) {
                 best_rate = rate;
                 report.batch_size = trial.batch_size;
@@ -91,14 +117,21 @@ BatchTuningReport sweep_batch_candidates(std::span<const BatchTuningCandidate> c
             }
         }
     }
+    report.elapsed_seconds = now() - start;
+    if (report.elapsed_seconds >= budget_seconds) {
+        report.stop_reason = "budget_exhausted";
+    }
     // An unmeasured baseline cannot justify selecting an alternative, even if
     // the latter happened to finish a cheap probe before the deadline.
-    if (measured_candidates < 2 || report.trials.empty() || report.trials.front().shots == 0) {
+    report.sufficient_measurements = measured_candidates >= 2 && !report.trials.empty() &&
+                                     report.trials.front().shots_per_second() > 0;
+    if (!report.sufficient_measurements) {
         report.batch_size = baseline.lane_capacity;
         report.shot_workers = baseline.worker_count;
-        report.stop_reason = "insufficient_measurements";
+        if (report.stop_reason != "budget_exhausted") {
+            report.stop_reason = "insufficient_measurements";
+        }
     }
-    report.elapsed_seconds = now() - start;
     return report;
 }
 

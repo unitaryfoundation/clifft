@@ -13,7 +13,17 @@ struct BatchTuningTrial {
     uint64_t warmup_shots = 0;
     uint64_t shots = 0;
     double setup_seconds = 0;
+    double warmup_seconds = 0;
     double elapsed_seconds = 0;
+
+    [[nodiscard]] bool used_warmup() const noexcept { return shots == 0 && warmup_seconds > 0; }
+
+    [[nodiscard]] double shots_per_second() const noexcept {
+        if (used_warmup()) {
+            return static_cast<double>(warmup_shots) / warmup_seconds;
+        }
+        return elapsed_seconds > 0 ? static_cast<double>(shots) / elapsed_seconds : 0;
+    }
 };
 
 struct BatchTuningReport {
@@ -23,6 +33,7 @@ struct BatchTuningReport {
     uint32_t intra_shot_workers = 1;
     uint64_t trial_shots = 0;
     double elapsed_seconds = 0;
+    bool sufficient_measurements = false;
     std::string stop_reason;
     std::vector<BatchTuningTrial> trials;
 };

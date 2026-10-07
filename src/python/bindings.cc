@@ -49,17 +49,18 @@ namespace {
 using ThreadOption = std::variant<int64_t, std::string>;
 using BatchOption = ThreadOption;
 
-std::optional<uint32_t> parse_positive_uint32_option(const ThreadOption& option,
-                                                     const char* field) {
+std::optional<uint32_t> parse_positive_uint32_option(
+    const ThreadOption& option, const char* field,
+    const char* choices = "a positive integer or 'auto'") {
     if (const auto* name = std::get_if<std::string>(&option)) {
         if (*name == "auto") {
             return std::nullopt;
         }
-        throw std::invalid_argument(std::string(field) + " must be a positive integer or 'auto'");
+        throw std::invalid_argument(std::string(field) + " must be " + choices);
     }
     const int64_t count = std::get<int64_t>(option);
     if (count <= 0 || static_cast<uint64_t>(count) > std::numeric_limits<uint32_t>::max()) {
-        throw std::invalid_argument(std::string(field) + " must be a positive integer or 'auto'");
+        throw std::invalid_argument(std::string(field) + " must be " + choices);
     }
     return static_cast<uint32_t>(count);
 }
@@ -77,7 +78,7 @@ struct ParsedBatchOption {
 
 ParsedBatchOption parse_batch_option(const BatchOption& option, std::optional<double> budget) {
     if (const auto* name = std::get_if<std::string>(&option); name != nullptr && *name == "tune") {
-        const double seconds = budget.value_or(0.25);
+        const double seconds = budget.value_or(clifft::sampling::kDefaultBatchTuningBudgetSeconds);
         if (!clifft::is_finite_non_negative(seconds)) {
             throw std::invalid_argument("tuning_budget_seconds must be finite and non-negative");
         }
@@ -86,7 +87,23 @@ ParsedBatchOption parse_batch_option(const BatchOption& option, std::optional<do
     if (budget.has_value()) {
         throw std::invalid_argument("tuning_budget_seconds requires batch_size='tune'");
     }
-    return {parse_positive_uint32_option(option, "batch_size"), std::nullopt};
+    return {
+        parse_positive_uint32_option(option, "batch_size", "a positive integer, 'auto', or 'tune'"),
+        std::nullopt};
+}
+
+void warn_if_batch_tuning_inconclusive(
+    const std::optional<clifft::sampling::BatchTuningReport>& report) {
+    if (report.has_value() && !report->sufficient_measurements &&
+        (report->stop_reason == "budget_exhausted" ||
+         report->stop_reason == "insufficient_measurements")) {
+        if (PyErr_WarnEx(PyExc_RuntimeWarning,
+                         "Insufficient timing data to compare batch sizes; using auto. "
+                         "Increase tuning_budget_seconds to allow more calibration.",
+                         1) < 0) {
+            throw nb::python_error();
+        }
+    }
 }
 
 std::optional<clifft::sampling::ThreadLayout> parse_thread_layout(
@@ -299,27 +316,50 @@ void register_noncomp(nb::module_& m) {
 }
 
 NB_MODULE(_clifft_core, m) {
-    nb::class_<clifft::sampling::BatchTuningTrial>(m, "BatchTuningTrial")
+    nb::class_<clifft::sampling::BatchTuningTrial>(
+        m, "BatchTuningTrial",
+        "Timing for one batch-size candidate. The first probe is recorded as warmup; "
+        "its throughput is used when no subsequent measurement is available.")
         .def_ro("batch_size", &clifft::sampling::BatchTuningTrial::batch_size)
         .def_ro("shot_workers", &clifft::sampling::BatchTuningTrial::shot_workers)
         .def_ro("warmup_shots", &clifft::sampling::BatchTuningTrial::warmup_shots)
         .def_ro("shots", &clifft::sampling::BatchTuningTrial::shots)
         .def_ro("setup_seconds", &clifft::sampling::BatchTuningTrial::setup_seconds)
+        .def_ro("warmup_seconds", &clifft::sampling::BatchTuningTrial::warmup_seconds)
         .def_ro("elapsed_seconds", &clifft::sampling::BatchTuningTrial::elapsed_seconds)
-        .def_prop_ro("shots_per_second", [](const clifft::sampling::BatchTuningTrial& trial) {
-            return trial.elapsed_seconds > 0
-                       ? static_cast<double>(trial.shots) / trial.elapsed_seconds
-                       : 0.0;
+        .def_prop_ro("used_warmup", &clifft::sampling::BatchTuningTrial::used_warmup,
+                     "Whether throughput comes from the first probe only.")
+        .def_prop_ro("shots_per_second", &clifft::sampling::BatchTuningTrial::shots_per_second,
+                     "Attempted-shot throughput used for selection, or zero without timing data.")
+        .def("__repr__", [](const clifft::sampling::BatchTuningTrial& trial) {
+            return "BatchTuningTrial(batch_size=" + std::to_string(trial.batch_size) +
+                   ", shot_workers=" + std::to_string(trial.shot_workers) +
+                   ", shots_per_second=" + std::to_string(trial.shots_per_second()) +
+                   ", used_warmup=" + (trial.used_warmup() ? "True" : "False") + ")";
         });
-    nb::class_<clifft::sampling::BatchTuningReport>(m, "BatchTuningReport")
+    nb::class_<clifft::sampling::BatchTuningReport>(
+        m, "BatchTuningReport",
+        "Calibration outcome and reusable batch size. sufficient_measurements says whether "
+        "the automatic choice and an alternative were compared; stop_reason records why "
+        "calibration ended, including budget exhaustion even when falling back to auto.")
         .def_ro("batch_size", &clifft::sampling::BatchTuningReport::batch_size)
         .def_ro("baseline_batch_size", &clifft::sampling::BatchTuningReport::baseline_batch_size)
         .def_ro("shot_workers", &clifft::sampling::BatchTuningReport::shot_workers)
         .def_ro("intra_shot_workers", &clifft::sampling::BatchTuningReport::intra_shot_workers)
         .def_ro("trial_shots", &clifft::sampling::BatchTuningReport::trial_shots)
         .def_ro("elapsed_seconds", &clifft::sampling::BatchTuningReport::elapsed_seconds)
+        .def_ro("sufficient_measurements",
+                &clifft::sampling::BatchTuningReport::sufficient_measurements)
         .def_ro("stop_reason", &clifft::sampling::BatchTuningReport::stop_reason)
-        .def_ro("trials", &clifft::sampling::BatchTuningReport::trials);
+        .def_ro("trials", &clifft::sampling::BatchTuningReport::trials)
+        .def("__repr__", [](const clifft::sampling::BatchTuningReport& report) {
+            return "BatchTuningReport(batch_size=" + std::to_string(report.batch_size) +
+                   ", baseline_batch_size=" + std::to_string(report.baseline_batch_size) +
+                   ", elapsed_seconds=" + std::to_string(report.elapsed_seconds) +
+                   ", sufficient_measurements=" +
+                   (report.sufficient_measurements ? "True" : "False") + ", stop_reason='" +
+                   report.stop_reason + "')";
+        });
 
     m.doc() = "Clifft core C++ extension module";
 
@@ -1132,6 +1172,7 @@ NB_MODULE(_clifft_core, m) {
                 result = clifft::sampling::sample(program, shots, seed, threads, thread_layout,
                                                   batch_size, tuning_budget);
             }
+            warn_if_batch_tuning_inconclusive(result.batch_tuning);
 
             auto meas_arr = vec_to_numpy(std::move(result.measurements),
                                          {shots, program.num_visible_records()});
@@ -1204,6 +1245,7 @@ NB_MODULE(_clifft_core, m) {
                 result = clifft::sampling::sample_k(program, shots, k, seed, threads, thread_layout,
                                                     batch_size, tuning_budget);
             }
+            warn_if_batch_tuning_inconclusive(result.batch_tuning);
 
             auto meas_arr = vec_to_numpy(std::move(result.measurements),
                                          {shots, program.num_visible_records()});
@@ -1260,6 +1302,7 @@ NB_MODULE(_clifft_core, m) {
     auto make_survivor_result = [](clifft::sampling::SamplingSurvivorResult result,
                                    const clifft::sampling::ExecutablePlan& program,
                                    bool keep_records) -> nb::object {
+        warn_if_batch_tuning_inconclusive(result.batch_tuning);
         size_t num_obs = result.observable_ones.size();
         auto obs_ones_arr = vec_to_numpy(std::move(result.observable_ones), {num_obs});
 

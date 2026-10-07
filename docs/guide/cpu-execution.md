@@ -85,20 +85,29 @@ cannot exercise their production worker count within that output limit are
 omitted. Threads and compiler passes are not tuned.
 
 Each candidate receives roughly an equal share of the remaining budget.
-Worker preparation and warmup count toward the budget; subsequent probes
-measure attempted-shot throughput, including output collection. Calibration
+Worker preparation and the first probe (warmup) count toward the budget.
+Probes measure attempted-shot throughput, including output collection. If no
+subsequent measurement fits, the first probe's timing is used; otherwise,
+selection uses the subsequent measurements to reduce first-touch effects. Calibration
 uses the requested sampling function, record-retention setting, fixed-fault
 stratum when applicable, and resolved thread layout. Workers are prepared once
 per candidate and released before the next candidate. The fastest measured
-candidate is used for production. If the baseline and at least one alternative
-cannot be measured, the automatic choice is retained.
+candidate is used for production. Unless the baseline and at least one
+alternative are both measured, the automatic choice is retained. Inconclusive
+calibration emits a Python `RuntimeWarning` when returning the production result,
+suggesting a larger `tuning_budget_seconds`. The requested production shots still run.
 
 The budget is a **soft wall-clock limit** for extra calibration work. An
-allocation or an execution chunk already in progress can exceed it. It does
-not limit production sampling. Zero budget uses the automatic policy without
+allocation or an execution chunk already in progress can exceed it. Once a
+packed candidate has been measured, its throughput helps skip larger probes
+estimated not to fit the remaining time. Scalar timings do not prevent trying
+the first packed candidate. These estimates are heuristics: the first probe or
+an unexpectedly slow probe can still overrun the budget. It does not limit
+production sampling. Zero budget uses the automatic policy without
 trials. Empty requests and layouts with no eligible alternative also skip
-calibration. Budgets must be finite and nonnegative, and an explicit budget
-requires `batch_size="tune"`.
+calibration, without a warning. In particular, if every packed candidate exceeds
+the memory limits, increasing the time budget will not help. Budgets must be finite
+and nonnegative, and an explicit budget requires `batch_size="tune"`.
 
 Calibration shots are discarded. They do not enter returned rows,
 `total_shots`, survivor counts, or logical-error estimates. Production still
@@ -116,15 +125,22 @@ automatic or explicitly sized calls. Its fields are:
 | `shot_workers`, `intra_shot_workers` | Resolved production worker layout. |
 | `elapsed_seconds` | Total calibration time, including setup, warmup, and cleanup. |
 | `trial_shots` | Extra attempted shots, including warmup. |
+| `sufficient_measurements` | Whether both the baseline and at least one alternative provided usable timings. False means the automatic choice was retained. |
 | `stop_reason` | `completed`, `budget_exhausted`, `insufficient_measurements`, `zero_shots`, `zero_budget`, or `single_candidate`. |
 | `trials` | Candidate measurements in sweep order. |
 
 Each `BatchTuningTrial` records `batch_size`, `shot_workers`, `warmup_shots`,
-measured `shots`, `setup_seconds` (including warmup), measured
-`elapsed_seconds`, and `shots_per_second`. A trial with no measured shots has
-zero throughput. `single_candidate` means there was no eligible comparison;
-`completed` means the sweep visited all candidates, even if some received only
-setup or warmup time.
+subsequent measured `shots`, `setup_seconds` (worker preparation only),
+`warmup_seconds`, subsequent measured `elapsed_seconds`, and `shots_per_second`.
+`used_warmup` indicates that throughput comes from the first probe alone. A
+trial without any usable probe timing has zero throughput.
+
+`single_candidate` means there was no eligible alternative, so no timing work
+was needed. `budget_exhausted` means calibration reached its deadline or omitted
+probes estimated not to fit; it can occur with or without sufficient measurements.
+`insufficient_measurements` means calibration was inconclusive without exhausting
+the budget. `completed` means the sweep finished with a usable comparison and
+without being limited by the budget.
 
 To reuse a selection, pass `batch_size=result.batch_tuning.batch_size` on
 subsequent calls. For the same worker allocation, also pass

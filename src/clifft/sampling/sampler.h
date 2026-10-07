@@ -12,6 +12,8 @@
 
 namespace clifft::sampling {
 
+inline constexpr double kDefaultBatchTuningBudgetSeconds = 0.25;
+
 // Sampling pipeline:
 //   optimized HirModule -> SamplingPlan -> ExecutablePlan -> Executor -> results
 // Planning produces semantic actions, lowering prepares fixed CPU descriptors,
