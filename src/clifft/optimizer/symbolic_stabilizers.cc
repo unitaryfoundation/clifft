@@ -29,10 +29,20 @@ using optimizer_detail::copy_axis;
 
 }  // namespace
 
-SymbolicStabilizers::SymbolicStabilizers(uint32_t num_qubits, SymbolicStabilizerOptions options)
+SymbolicStabilizers::SymbolicStabilizers(const HirModule& hir, SymbolicStabilizerOptions options)
+    : SymbolicStabilizers(hir, hir.ops.size(), options) {}
+
+SymbolicStabilizers::SymbolicStabilizers(const HirModule& hir, size_t end,
+                                         SymbolicStabilizerOptions options)
     : options_(options) {
-    for (uint32_t q = 0; q < num_qubits; ++q) {
-        PauliString axis(num_qubits);
+    assert(end <= hir.ops.size());
+    for (size_t i = 0; i < end; ++i) {
+        if (hir.ops[i].op_type() == OpType::CONDITIONAL_PAULI) {
+            ++remaining_uses_[static_cast<uint32_t>(hir.ops[i].controlling_meas())];
+        }
+    }
+    for (uint32_t q = 0; q < hir.num_qubits; ++q) {
+        PauliString axis(hir.num_qubits);
         axis.set_pauli(q, false, true);
         const auto pivot = pivot_of(axis);
         rows_.emplace(pivot, Row{std::move(axis), {}});
@@ -127,6 +137,9 @@ std::optional<SymbolicStabilizers::AffineBool> SymbolicStabilizers::affine_eigen
             capped = true;
             return std::nullopt;
         }
+        if (identity(reduced.axis)) {
+            break;
+        }
     }
     if (!identity(reduced.axis)) {
         return std::nullopt;
@@ -210,9 +223,12 @@ void SymbolicStabilizers::assign_record(uint32_t record, AffineBool value) {
         return;
     }
     if (records_.size() == options_.max_record_entries && !records_.contains(record)) {
-        records_.erase(records_.begin());
+        // Hidden reset slots follow visible slots numerically, not temporally.
+        auto oldest = std::ranges::min_element(records_, {},
+                                               [](const auto& entry) { return entry.second.age; });
+        records_.erase(oldest);
     }
-    records_.insert_or_assign(record, std::move(value));
+    records_.insert_or_assign(record, Record{std::move(value), next_record_age_++});
 }
 
 void SymbolicStabilizers::forget() {
@@ -231,6 +247,15 @@ void SymbolicStabilizers::advance(const HirModule& hir, const HeisenbergOp& op) 
             }
             break;
         case OpType::MEASURE: {
+            const auto record = static_cast<uint32_t>(op.meas_record_idx());
+            if (!remaining_uses_.contains(record)) {
+                // An outcome never used for feedback is a private sign, just
+                // like a fault event. Keep only its commuting subgroup.
+                if (!rows_.empty()) {
+                    intersect(copy_axis(hir.mask_view(op), hir.num_qubits).view());
+                }
+                break;
+            }
             auto axis = copy_axis(hir.mask_view(op), hir.num_qubits);
             bool capped = false;
             auto outcome = affine_eigenvalue(axis, capped);
@@ -245,20 +270,25 @@ void SymbolicStabilizers::advance(const HirModule& hir, const HeisenbergOp& op) 
                 }
             }
             if (outcome) {
-                assign_record(static_cast<uint32_t>(op.meas_record_idx()), std::move(*outcome));
+                assign_record(record, std::move(*outcome));
             }
             break;
         }
         case OpType::CONDITIONAL_PAULI: {
-            if (rows_.empty()) {
-                break;
+            const auto id = static_cast<uint32_t>(op.controlling_meas());
+            if (!rows_.empty()) {
+                const auto axis = copy_axis(hir.mask_view(op), hir.num_qubits);
+                auto record = records_.find(id);
+                if (record == records_.end()) {
+                    intersect(axis.view());
+                } else {
+                    apply_pauli(axis.view(), record->second.value);
+                }
             }
-            const auto axis = copy_axis(hir.mask_view(op), hir.num_qubits);
-            auto record = records_.find(static_cast<uint32_t>(op.controlling_meas()));
-            if (record == records_.end()) {
-                intersect(axis.view());
-            } else {
-                apply_pauli(axis.view(), record->second);
+            auto use = remaining_uses_.find(id);
+            if (use != remaining_uses_.end() && --use->second == 0) {
+                records_.erase(id);
+                remaining_uses_.erase(use);
             }
             break;
         }
@@ -298,8 +328,8 @@ void SymbolicStabilizers::advance(const HirModule& hir, const HeisenbergOp& op) 
             }
             // The flip can depend on the physical outcome. Only the reported
             // record changes; constraints retain the original collapse sign.
-            record->second ^= *flip;
-            if (record->second.terms().size() > options_.max_expression_terms) {
+            record->second.value ^= *flip;
+            if (record->second.value.terms().size() > options_.max_expression_terms) {
                 records_.erase(record);
             }
             break;

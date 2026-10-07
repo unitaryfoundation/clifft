@@ -17,6 +17,15 @@ feedback, and stabilizer slicing through the complete default compiler pipeline.
 It includes faulty-preparation and readout controls, a phase-pass ablation, and
 independent Aer/Stim checks.
 
+Add `--wide` to time each default optimizer pass on rotated surface-code memory
+at distances 3, 11, and 21 with equally many rounds. These stress cases replace
+each depolarizing location with `R_Z(0.02)` on the same targets, retaining
+measurement flips and optionally the original Pauli noise. They measure pass
+time and rotation removals without lowering or sampling the wide state. The
+distance-21 cases can take several minutes; compare identical cases and build
+settings in separate environments. These are scaling probes, not validated
+fault-tolerant coherent-noise models.
+
 ## Build
 
 The harnesses are opt-in. `RelWithDebInfo` retains call stacks while preserving

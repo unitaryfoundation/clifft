@@ -70,6 +70,14 @@ fault without retaining event bits that feedback cannot read. Even
 probability-one noise includes the no-fault reference path. Instruments
 discard the analysis state; postselection establishes no facts.
 
+Analysis stops after the last rotation the consuming pass can rewrite.
+Measurement outcomes without feedback uses in that prefix are private signs
+and use the same commuting-subgroup rule. A record is retained until its last
+feedback use; if live records exceed the budget, the oldest measurement is
+evicted regardless of its slot number. This matters for hidden reset records,
+which are numbered after visible records. The feedback-use schedule requires
+storage proportional to the number of distinct feedback controls in the prefix.
+
 The internal inference limits are 64 terms per affine expression, 4,096
 remembered records, and 4,096 row products per elimination stage. Exhausting
 a budget conservatively loses knowledge, and later measurements can recover

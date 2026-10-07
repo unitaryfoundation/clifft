@@ -42,6 +42,12 @@ PauliString product_axis(const std::vector<PauliString>& generators, uint64_t pa
     return axis;
 }
 
+size_t last_t_end(const HirModule& hir) {
+    const auto last = std::find_if(hir.ops.rbegin(), hir.ops.rend(),
+                                   [](const auto& op) { return op.op_type() == OpType::T_GATE; });
+    return static_cast<size_t>(last.base() - hir.ops.begin());
+}
+
 using optimizer_detail::CliffordAbsorption;
 
 struct Observer {
@@ -62,7 +68,10 @@ struct Block {
 class Rewriter {
   public:
     Rewriter(const HirModule& input, uint32_t max_variables)
-        : input_(input), max_variables_(max_variables), known_(input.num_qubits) {}
+        : input_(input),
+          max_variables_(max_variables),
+          analysis_end_(last_t_end(input)),
+          known_(input, analysis_end_) {}
 
     std::optional<HirModule> run() {
         for (size_t i = 0; i < hir().ops.size();) {
@@ -311,7 +320,9 @@ class Rewriter {
     }
 
     void emit(size_t index) {
-        known_.advance(hir(), hir().ops[index]);
+        if (index < analysis_end_) {
+            known_.advance(hir(), hir().ops[index]);
+        }
         if (candidate_) {
             output_.push_back(candidate_->ops[index]);
             if (!candidate_->source_map.empty()) {
@@ -323,6 +334,7 @@ class Rewriter {
     const HirModule& input_;
     std::optional<HirModule> candidate_;
     uint32_t max_variables_;
+    size_t analysis_end_;
     CliffordAbsorption cliffords_;
     // Follow emitted operations: absorbed Cliffords live in cliffords_, so their
     // effects reach this analysis through the transformed subsequent operands.

@@ -436,6 +436,54 @@ def validate_slicing() -> list[dict[str, Any]]:
     return checks
 
 
+def profile_wide_memory(distance: int, *, pauli_noise: bool, repeats: int) -> dict[str, Any]:
+    """Stress optimizer scaling without lowering or allocating a wide active state."""
+    circuit = stim.Circuit.generated(
+        "surface_code:rotated_memory_z",
+        distance=distance,
+        rounds=distance,
+        after_clifford_depolarization=0.001,
+        before_measure_flip_probability=0.001,
+    ).flattened()
+    lines = []
+    for op in circuit:
+        if op.name.startswith("DEPOLARIZE"):
+            if pauli_noise:
+                lines.append(str(op))
+            lines.append("R_Z(0.02) " + " ".join(str(t.value) for t in op.targets_copy()))
+        else:
+            lines.append(str(op))
+    source = "\n".join(lines)
+    timings = []
+    removed = []
+    for _ in range(repeats):
+        hir = clifft.trace(clifft.parse(source))
+        rotation = clifft.RotationSimplificationPass()
+        row = []
+        for pass_ in (
+            clifft.PeepholeFusionPass(),
+            clifft.PhasePolynomialPass(),
+            rotation,
+            clifft.StatevectorSqueezePass(),
+        ):
+            manager = clifft.HirPassManager()
+            manager.add(pass_)
+            start = perf_counter()
+            manager.run(hir)
+            row.append(perf_counter() - start)
+        timings.append(row)
+        removed.append(rotation.rotations_removed)
+    return {
+        "distance": distance,
+        "rounds": distance,
+        "pauli_noise": pauli_noise,
+        "qubits": hir.num_qubits,
+        "pass_columns": ["peephole", "phase", "rotation", "squeeze"],
+        "pass_seconds": timings,
+        "rotations_removed": removed,
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
@@ -443,6 +491,9 @@ def main() -> None:
     parser.add_argument("--shots", type=int, default=8192)
     parser.add_argument("--skip-validation", action="store_true")
     parser.add_argument("--small-batches", action="store_true")
+    parser.add_argument(
+        "--wide", action="store_true", help="Time optimizer passes on distance 3, 11, and 21 memory"
+    )
     parser.add_argument(
         "--corpus", action="store_true", help="Include compilation of repository fixtures"
     )
@@ -489,6 +540,14 @@ def main() -> None:
             source = fixture.read_text()
             results[f"corpus_{name}"] = profile(source, args.repeats, 0)
             results[f"corpus_{name}"].pop("plan")
+    if args.wide:
+        for distance in (3, 11, 21):
+            for pauli_noise in (False, True):
+                name = f"memory_d{distance}_{'pauli' if pauli_noise else 'readout'}"
+                print(f"Profiling wide compilation {name}", flush=True)
+                results[name] = profile_wide_memory(
+                    distance, pauli_noise=pauli_noise, repeats=args.repeats
+                )
     print("Validating independent references", flush=True)
     validation = None if args.skip_validation else validate()
     args.output.parent.mkdir(parents=True, exist_ok=True)

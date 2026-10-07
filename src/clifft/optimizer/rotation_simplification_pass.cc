@@ -21,6 +21,11 @@ bool is_rotation(const HeisenbergOp& op) {
     return op.op_type() == OpType::T_GATE || op.op_type() == OpType::PHASE_ROTATION;
 }
 
+size_t last_rotation_end(const HirModule& hir) {
+    const auto last = std::find_if(hir.ops.rbegin(), hir.ops.rend(), is_rotation);
+    return static_cast<size_t>(last.base() - hir.ops.begin());
+}
+
 std::vector<uint64_t> axis_key(const PauliString& axis) {
     std::vector<uint64_t> key(axis.x().words.begin(), axis.x().words.end());
     key.insert(key.end(), axis.z().words.begin(), axis.z().words.end());
@@ -36,7 +41,10 @@ struct Term {
 class Rewriter {
   public:
     Rewriter(const HirModule& input, RotationSimplificationOptions options)
-        : input_(input), options_(options), known_(input.num_qubits) {}
+        : input_(input),
+          options_(options),
+          analysis_end_(last_rotation_end(input)),
+          known_(input, analysis_end_) {}
 
     std::optional<HirModule> run() {
         for (size_t start = 0; start < input_.ops.size();) {
@@ -219,12 +227,16 @@ class Rewriter {
 
     void emit_original(size_t index) {
         if (!candidate_) {
-            known_.advance(input_, input_.ops[index]);
+            if (index < analysis_end_) {
+                known_.advance(input_, input_.ops[index]);
+            }
             return;
         }
         auto& op = candidate_->ops[index];
         cliffords_.transform(*candidate_, op);
-        known_.advance(*candidate_, op);
+        if (index < analysis_end_) {
+            known_.advance(*candidate_, op);
+        }
         output_.push_back(op);
         if (!input_.source_map.empty()) {
             sources_.push_back(input_.source_map[index]);
@@ -233,6 +245,7 @@ class Rewriter {
 
     const HirModule& input_;
     RotationSimplificationOptions options_;
+    size_t analysis_end_;
     SymbolicStabilizers known_;
     optimizer_detail::CliffordAbsorption cliffords_;
     std::optional<HirModule> candidate_;

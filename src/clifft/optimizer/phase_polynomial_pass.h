@@ -14,7 +14,8 @@ struct PhasePolynomialOptions {
 };
 
 // Reduces commuting T rotations using Pauli constraints proved from the complete
-// circuit's |0> input. Separates a Clifford correction and synthesizes the
+// circuit's |0> input and recovered through measurement and feedback.
+// Separates a Clifford correction and synthesizes the
 // non-Clifford core with TOHPE.
 // Run before squeezing and scheduling to expose simpler rotation structure.
 // Pauli measurements, expectation probes and classically controlled Pauli gates

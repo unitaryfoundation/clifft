@@ -39,6 +39,11 @@ def _entangled_reference(kind: str, basis: str, angle: float = 0.137) -> tuple[s
         )
     source.append("CX rec[-1] 1")
     circuit.cx(4, 1)
+    if kind == "repeated_feedback":
+        source += ["READOUT_NOISE(0.2) rec[-1]", "CX rec[-1] 1", "CX rec[-1] 1"]
+        circuit.append(pauli_error([("X", 0.2), ("I", 0.8)]).to_instruction(), [4])
+        circuit.cx(4, 1)
+        circuit.cx(4, 1)
     if kind in ("x_fault", "x_one"):
         probability = 1.0 if kind == "x_one" else 0.2
         source.append(f"X_ERROR({probability}) 1")
@@ -65,20 +70,45 @@ def _entangled_reference(kind: str, basis: str, angle: float = 0.137) -> tuple[s
     return "\n".join(source), expected
 
 
-@pytest.mark.parametrize("angle", [0.137, 0.25])
+@pytest.mark.parametrize(
+    "pass_name,angle", [("rotation", 0.137), ("rotation", 0.25), ("phase", 0.25)]
+)
 @pytest.mark.parametrize("axes", product("XYZ", repeat=3))
 def test_measured_rewrites_preserve_full_conditional_state(
-    axes: tuple[str, ...], angle: float
+    axes: tuple[str, ...], pass_name: str, angle: float
 ) -> None:
     source, expected = _entangled_reference("ideal", "".join(axes), angle)
     records = np.array([[(i >> j) & 1 for j in range(4)] for i in range(16)], dtype=np.uint8)
-    program = clifft.compile(source)
+    if pass_name == "phase":
+        source = source.replace("R_Z(0.25) 0\nR_Z(-0.25) 1", "T 0\nT_DAG 1")
+        simplifier = clifft.PhasePolynomialPass()
+    else:
+        simplifier = clifft.RotationSimplificationPass()
+    manager = clifft.HirPassManager()
+    manager.add(simplifier)
+    program = clifft.compile(source, hir_passes=manager)
+    if pass_name == "phase":
+        assert simplifier.input_t_count == 2
+        assert simplifier.output_t_count == 0
+        assert simplifier.applied
+    else:
+        assert simplifier.rotations_removed == 2
     actual = clifft.record_probabilities(program, records)
     np.testing.assert_allclose(actual, expected, atol=1e-12)
 
 
 @pytest.mark.parametrize(
-    "kind", ["ideal", "readout", "asymmetric", "readout_one", "x_fault", "x_one", "shared_fault"]
+    "kind",
+    [
+        "ideal",
+        "readout",
+        "asymmetric",
+        "readout_one",
+        "x_fault",
+        "x_one",
+        "shared_fault",
+        "repeated_feedback",
+    ],
 )
 @pytest.mark.parametrize("basis", ["XXX", "YXY", "ZZZ"])
 def test_noisy_measured_rewrites_preserve_records_and_spectators(
@@ -86,7 +116,12 @@ def test_noisy_measured_rewrites_preserve_records_and_spectators(
 ) -> None:
     source, expected = _entangled_reference(kind, basis)
     source += "\nDETECTOR rec[-4]\nOBSERVABLE_INCLUDE(0) rec[-4] rec[-1]"
-    program = sampling_mode.compile(source)
+    simplifier = clifft.RotationSimplificationPass()
+    manager = clifft.HirPassManager()
+    manager.add(simplifier)
+    program = sampling_mode.compile(source, hir_passes=manager)
+    if kind in ("ideal", "shared_fault", "repeated_feedback"):
+        assert simplifier.rotations_removed == 2
     result = sampling_mode.sample(program, shots=8192, seed=751)
     assert_joint_distribution(result.measurements, expected)
     np.testing.assert_array_equal(result.detectors[:, 0], result.measurements[:, 0])
@@ -136,5 +171,58 @@ MPP X0*X1 Z0*Z1
     reference = stim.Circuit(source).compile_sampler(seed=693).sample(shots=32768)
     indices = reference.astype(np.uint64) @ (1 << np.arange(4, dtype=np.uint64))
     expected = np.bincount(indices.astype(np.int64), minlength=16) / len(reference)
-    actual = sampling_mode.sample(sampling_mode.compile(source), shots=32768, seed=972)
+    rewritten = source.replace("MPP X0*X1 Z0*Z1", "R_Z(0.137) 0\nR_Z(-0.137) 1\nMPP X0*X1 Z0*Z1")
+    simplifier = clifft.RotationSimplificationPass()
+    manager = clifft.HirPassManager()
+    manager.add(simplifier)
+    program = sampling_mode.compile(rewritten, hir_passes=manager)
+    assert simplifier.rotations_removed == 2
+    actual = sampling_mode.sample(program, shots=32768, seed=972)
     assert_joint_distribution(actual.measurements, expected)
+
+
+@pytest.mark.parametrize("resets", [4094, 4095, 4100])
+@pytest.mark.parametrize("angle", [0.137, 0.25])
+def test_hidden_reset_records_do_not_crowd_out_visible_feedback(
+    sampling_mode: SamplingMode, resets: int, angle: float
+) -> None:
+    source = f"REPEAT {resets} {{\nR 1\n}}\nR_X(0.3) 0\nM 0\nR 1\n"
+    rotation_source = "T 0" if angle == 0.25 else f"R_Z({angle}) 0"
+    source += f"CX rec[-1] 0\n{rotation_source}\nM 0\n"
+    phase = clifft.PhasePolynomialPass()
+    rotation = clifft.RotationSimplificationPass()
+    manager = clifft.HirPassManager()
+    manager.add(phase)
+    manager.add(rotation)
+    program = sampling_mode.compile(source, hir_passes=manager)
+    if angle == 0.25:
+        assert phase.output_t_count == 0
+        assert phase.applied
+    else:
+        assert rotation.rotations_removed == 1
+    actual = sampling_mode.sample(program, shots=1024, seed=149)
+    probability = np.sin(np.pi * 0.3 / 2) ** 2
+    assert_joint_distribution(actual.measurements, np.array([1 - probability, probability, 0, 0]))
+    np.testing.assert_array_equal(actual.measurements[:, -1], 0)
+
+
+@pytest.mark.parametrize("pass_name", ["phase", "rotation"])
+def test_last_rotation_still_transforms_measurement_and_feedback_suffix(pass_name: str) -> None:
+    suffix = "H 0\nM 0\nCX rec[-1] 1\nH 1\nMPP X0*X1 Z0*Z1\n"
+    source = "H 0\nT 0\nCX 1 0\nT 0\nCX 1 0\n" + suffix
+    reference = clifft.compile("H 0\nS 0\n" + suffix, hir_passes=None)
+    pass_ = (
+        clifft.PhasePolynomialPass()
+        if pass_name == "phase"
+        else clifft.RotationSimplificationPass()
+    )
+    manager = clifft.HirPassManager()
+    manager.add(pass_)
+    program = clifft.compile(source, hir_passes=manager)
+    assert pass_.applied
+    records = [format(i, "03b") for i in range(8)]
+    np.testing.assert_allclose(
+        clifft.record_probabilities(program, records),
+        clifft.record_probabilities(reference, records),
+        atol=1e-12,
+    )

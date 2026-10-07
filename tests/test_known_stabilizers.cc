@@ -14,7 +14,7 @@ namespace {
 std::optional<bool> final_eigenvalue(std::string_view source, std::string_view pauli,
                                      SymbolicStabilizerOptions options = {}) {
     const auto hir = trace(parse(source));
-    SymbolicStabilizers known(hir.num_qubits, options);
+    SymbolicStabilizers known(hir, options);
     for (const auto& op : hir.ops) {
         known.advance(hir, op);
     }
@@ -90,7 +90,7 @@ TEST_CASE("Affine analysis budgets lose knowledge and allow subsequent recovery"
     REQUIRE_FALSE(final_eigenvalue("X_ERROR(0.2) 0\nX_ERROR(0.3) 0", "Z", options));
     REQUIRE(final_eigenvalue("X_ERROR(0.2) 0\nX_ERROR(0.3) 0\nR 0", "Z", options) == false);
     options.max_record_entries = 1;
-    REQUIRE_FALSE(final_eigenvalue("H 0 1\nM 0 1\nCX rec[-2] 0", "ZI", options));
+    REQUIRE_FALSE(final_eigenvalue("H 0 1\nM 0 1\nCX rec[-2] 0\nCX rec[-1] 1", "ZI", options));
     REQUIRE(final_eigenvalue("H 0 1\nM 0 1\nCX rec[-1] 1", "IZ", options) == false);
     options.max_row_products = 0;
     REQUIRE_FALSE(final_eigenvalue("E(0.2) X0 X1", "ZZ", options));
@@ -100,7 +100,7 @@ TEST_CASE("Affine analysis budgets lose knowledge and allow subsequent recovery"
 TEST_CASE("Fixed lookahead snapshots cannot learn constraints from future measurements",
           "[optimizer]") {
     const auto hir = trace(parse("H 0\nM 0\nCX rec[-1] 0"));
-    SymbolicStabilizers known(hir.num_qubits);
+    SymbolicStabilizers known(hir);
     auto entry = known.fixed_constraints();
     for (const auto& op : hir.ops) {
         known.advance(hir, op);
@@ -109,6 +109,73 @@ TEST_CASE("Fixed lookahead snapshots cannot learn constraints from future measur
     const auto axis = hir.final_tableau->inverse().apply(PauliString::from_text("+Z").view());
     REQUIRE(known.fixed_constraints().eigenvalue(axis) == false);
     REQUIRE_FALSE(entry.eigenvalue(axis));
+}
+
+TEST_CASE("Unused measurement records do not evict a pending feedback control", "[optimizer]") {
+    SymbolicStabilizerOptions options;
+    options.max_record_entries = 1;
+    REQUIRE(final_eigenvalue("H 0\nM 0\nH 1 2\nM 1 2\nCX rec[-3] 0", "ZII", options) == false);
+    REQUIRE(final_eigenvalue("H 0\nM 0\nCX rec[-1] 0\nH 1\nM 1\nCX rec[-1] 1", "IZ", options) ==
+            false);
+}
+
+TEST_CASE("Live record eviction follows measurement order rather than slot numbering",
+          "[optimizer]") {
+    auto hir = trace(parse("H 0 1 2\nM 0 1 2\nCX rec[-3] 0\nCX rec[-2] 1\nCX rec[-1] 2"));
+    for (auto& op : hir.ops) {
+        if (op.op_type() == OpType::MEASURE) {
+            const auto id = static_cast<uint32_t>(op.meas_record_idx());
+            op = HeisenbergOp::make_measure(op.mask_handle(), MeasRecordIdx{2 - id});
+        } else if (op.op_type() == OpType::CONDITIONAL_PAULI) {
+            const auto id = static_cast<uint32_t>(op.controlling_meas());
+            op = HeisenbergOp::make_conditional(op.mask_handle(), ControllingMeasIdx{2 - id});
+        }
+    }
+    SymbolicStabilizerOptions options;
+    options.max_record_entries = 2;
+    SymbolicStabilizers known(hir, options);
+    for (const auto& op : hir.ops) {
+        known.advance(hir, op);
+    }
+    const auto inverse = hir.final_tableau->inverse();
+    REQUIRE_FALSE(
+        known.fixed_constraints().eigenvalue(inverse.apply(PauliString::from_text("+ZII").view())));
+    REQUIRE(known.fixed_constraints().eigenvalue(
+                inverse.apply(PauliString::from_text("+IZI").view())) == false);
+    REQUIRE(known.fixed_constraints().eigenvalue(
+                inverse.apply(PauliString::from_text("+IIZ").view())) == false);
+}
+
+TEST_CASE("Repeated feedback retains a record through intervening report mutations",
+          "[optimizer]") {
+    const std::string prefix = "H 0\nM 0\nCX rec[-1] 0\nREADOUT_NOISE(0.2) rec[-1]\n";
+    REQUIRE_FALSE(final_eigenvalue(prefix + "CX rec[-1] 0", "Z"));
+    REQUIRE(final_eigenvalue(prefix + "CX rec[-1] 0\nCX rec[-1] 0", "Z") == false);
+}
+
+TEST_CASE("Readout expression exhaustion preserves conservative fallback and recovery",
+          "[optimizer]") {
+    SymbolicStabilizerOptions options;
+    options.max_expression_terms = 1;
+    const std::string source = "H 0\nM 0\nREADOUT_NOISE(0.2) rec[-1]\nCX rec[-1] 0\n";
+    REQUIRE_FALSE(final_eigenvalue(source, "Z", options));
+    REQUIRE(final_eigenvalue(source + "R 0", "Z", options) == false);
+}
+
+TEST_CASE("Discarded facts retain the schedule needed for later reset recovery", "[optimizer]") {
+    SymbolicStabilizerOptions options;
+    options.max_row_products = 0;
+    REQUIRE_FALSE(final_eigenvalue("E(0.2) X0 X1", "ZZ", options));
+    REQUIRE(final_eigenvalue("E(0.2) X0 X1\nR 0 1", "ZZ", options) == false);
+}
+
+TEST_CASE("Measured feedback constraints span multiple mask words", "[optimizer]") {
+    const std::string source = "R_X(0.173) 0 64 129\nMPP Z0*Z64*Z129\nCX rec[-1] 129\n";
+    std::string axis(130, 'I');
+    axis[0] = axis[64] = axis[129] = 'Z';
+    REQUIRE(final_eigenvalue(source, axis) == false);
+    REQUIRE(final_eigenvalue(source + "E(0.2) X0 X64", axis) == false);
+    REQUIRE_FALSE(final_eigenvalue(source + "X_ERROR(0.2) 129", axis));
 }
 
 TEST_CASE("Rewrite proof obligations retain the complete fixed group", "[optimizer]") {

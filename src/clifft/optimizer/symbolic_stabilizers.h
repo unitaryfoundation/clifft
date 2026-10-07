@@ -23,7 +23,8 @@ struct SymbolicStabilizerOptions {
 // coordinate-dependent outcome convention.
 class SymbolicStabilizers {
   public:
-    explicit SymbolicStabilizers(uint32_t num_qubits, SymbolicStabilizerOptions options = {});
+    explicit SymbolicStabilizers(const HirModule& hir, SymbolicStabilizerOptions options = {});
+    SymbolicStabilizers(const HirModule& hir, size_t end, SymbolicStabilizerOptions options = {});
 
     // The reference remains valid until advance; callers modifying a lookahead
     // group take a copy. Fixed groups have no records or inference budgets.
@@ -35,6 +36,10 @@ class SymbolicStabilizers {
     struct Row {
         PauliString axis;
         AffineBool sign;
+    };
+    struct Record {
+        AffineBool value;
+        size_t age;
     };
 
     [[nodiscard]] std::optional<AffineBool> affine_eigenvalue(PauliString axis, bool& capped) const;
@@ -49,8 +54,12 @@ class SymbolicStabilizers {
 
     SymbolicStabilizerOptions options_;
     uint64_t next_symbol_ = 0;
+    size_t next_record_age_ = 0;
     std::map<uint32_t, Row> rows_;
-    std::map<uint32_t, AffineBool> records_;
+    std::map<uint32_t, Record> records_;
+    // Uses follow emitted classical operations even when rotations are moved.
+    // This schedule survives discarded facts and requires O(feedback records) storage.
+    std::map<uint32_t, size_t> remaining_uses_;
     mutable KnownStabilizers fixed_;
     mutable bool fixed_valid_ = false;
 };

@@ -13,11 +13,11 @@ struct RotationSimplificationOptions {
     uint32_t max_region_passes = 8;
 };
 
-// Uses known stabilizers from the complete circuit's |0> input to simplify
-// arbitrary-angle rotations. Absorbing exposed Cliffords preserves stabilizer
-// constraints for subsequent rotations within a single forward sweep.
-// The default registry places this after PhasePolynomialPass to simplify its
-// output and before squeezing or scheduling can move operations across noise.
+// Uses fixed stabilizers propagated from the complete circuit's |0> input
+// and recovered through measurement and feedback to simplify rotations. Absorbing exposed Cliffords
+// preserves stabilizer constraints for subsequent rotations within a single forward sweep. The
+// default registry places this after PhasePolynomialPass to simplify its output and before
+// squeezing or scheduling can move operations across noise.
 class RotationSimplificationPass : public HirPass {
   public:
     explicit RotationSimplificationPass(RotationSimplificationOptions options = {});
