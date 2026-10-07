@@ -2,9 +2,9 @@
 
 #include "clifft/optimizer/active_width_analysis.h"
 #include "clifft/optimizer/clifford_absorption.h"
-#include "clifft/optimizer/known_stabilizers.h"
 #include "clifft/optimizer/pauli_axis.h"
 #include "clifft/optimizer/phase_polynomial.h"
+#include "clifft/optimizer/symbolic_stabilizers.h"
 
 #include <algorithm>
 #include <bit>
@@ -121,14 +121,14 @@ class Rewriter {
         Block block{start, {}, {}, {}, {}, {}, {}};
         // Entry coordinates stay fixed while barriers remove relations that
         // cannot hold after moving those operations ahead of the phase block.
-        auto available = known_;
+        auto available = known_.fixed_constraints();
         std::map<uint32_t, Row> rows;
         for (size_t i = start; i < hir().ops.size(); ++i) {
             const auto& op = hir().ops[i];
             const auto type = op.op_type();
             if (type == OpType::T_GATE) {
                 auto axis = cliffords_.read(hir().mask_view(op), hir().num_qubits);
-                auto reduced = known_.reduce_body(axis);
+                auto reduced = known_.fixed_constraints().reduce_body(axis);
                 // An entry stabilizer commutes with every constraint derived
                 // from that same group, without a second basis scan.
                 const bool entry_stabilizer = reduced.x().is_zero() && reduced.z().is_zero();
@@ -326,7 +326,7 @@ class Rewriter {
     CliffordAbsorption cliffords_;
     // Follow emitted operations: absorbed Cliffords live in cliffords_, so their
     // effects reach this analysis through the transformed subsequent operands.
-    KnownStabilizers known_;
+    SymbolicStabilizers known_;
     std::vector<HeisenbergOp> output_;
     std::vector<std::vector<uint32_t>> sources_;
 };

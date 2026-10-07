@@ -59,6 +59,17 @@ pipeline and does not currently accept custom pass managers. See
 [Leakage and Loss](../guide/leakage-and-loss.md#why-there-is-no-compile-step)
 for how continuations are compiled and resumed.
 
+## Constraints from Measurement and Feedback
+
+`PhasePolynomialPass` and `RotationSimplificationPass` track constraints whose
+signs depend on measurement records, but authorize rewrites only when those
+signs become fixed. Measuring a Pauli and applying anticommuting Pauli feedback
+using its physical outcome can recover such a constraint. A corrupted readout
+record can leave the sign uncertain, preventing the corresponding rewrite.
+Measurements and resets can recover useful facts after earlier non-Clifford
+work, including in later regions of the circuit. Constraints must also hold
+for the noiseless reference; postselection supplies no additional facts.
+
 ---
 
 ## HIR Passes
