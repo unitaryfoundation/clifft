@@ -3,7 +3,7 @@
 Each CASES entry runs exact record checks under every compiler profile, and
 sampled record and annotation checks under every profile and sampling mode.
 Profiles select no HIR passes, production defaults, explicit active-width
-scheduling, or phase reduction. Execution configurations come from CPU_SAMPLING_MODES.
+scheduling, or phase reduction. Fixed and tuned CPU modes share the sampled assertions.
 Passes are not independently toggled in this matrix: separate witnesses check their effects.
 The boundary circuit runs under every profile, mode, and designated shot count.
 """
@@ -17,6 +17,7 @@ from utils_conformance import (
     ACTIVE_WIDTH,
     COMPILER_PROFILES,
     CPU_SAMPLING_MODES,
+    CPU_TUNING_MODES,
     DEFAULT,
     DEFAULT_SCHEDULED,
     FUSION_SQUEEZE,
@@ -118,7 +119,7 @@ def test_exact_records_match_independent_oracle(
         np.testing.assert_allclose(probabilities, [1] + [0] * (len(probabilities) - 1), atol=1e-12)
 
 
-@pytest.mark.parametrize("mode", CPU_SAMPLING_MODES, ids=lambda mode: mode.name)
+@pytest.mark.parametrize("mode", CPU_SAMPLING_MODES + CPU_TUNING_MODES, ids=lambda mode: mode.name)
 def test_samples_and_annotations_match_independent_oracle(
     case: UnitaryCase, annotated_program: Any, probabilities: np.ndarray, mode: CpuSamplingMode
 ) -> None:
@@ -148,7 +149,7 @@ def boundary_program(compiler: CompilerProfile) -> Any:
     return compiler.compile(BOUNDARY_SOURCE)
 
 
-@pytest.mark.parametrize("mode", CPU_SAMPLING_MODES, ids=lambda mode: mode.name)
+@pytest.mark.parametrize("mode", CPU_SAMPLING_MODES + CPU_TUNING_MODES, ids=lambda mode: mode.name)
 @pytest.mark.parametrize("shots", [63, 64, 65, 66, 129, 130, 131, 2049])
 def test_deterministic_outputs_cross_word_and_batch_boundaries(
     boundary_program: Any, mode: CpuSamplingMode, shots: int
@@ -302,7 +303,7 @@ def test_cpu_sampling_modes_include_batch_and_worker_configurations() -> None:
         )
 
 
-@pytest.mark.parametrize("mode", CPU_SAMPLING_MODES, ids=lambda mode: mode.name)
+@pytest.mark.parametrize("mode", CPU_SAMPLING_MODES + CPU_TUNING_MODES, ids=lambda mode: mode.name)
 @pytest.mark.parametrize(
     ("sampler", "options"),
     [
@@ -329,6 +330,7 @@ def test_sampling_mode_forwards_its_configuration(
                 "seed": 41,
                 "threads": mode.threads,
                 "batch_size": mode.batch_size,
+                "tuning_budget_seconds": mode.tuning_budget_seconds,
                 "thread_layout": mode.thread_layout,
                 "intra_shot_min_active_width": mode.intra_shot_min_active_width,
             },

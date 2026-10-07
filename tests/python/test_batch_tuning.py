@@ -50,10 +50,15 @@ def test_tuning_runs_requested_shots_and_reports_reusable_configuration(
 ) -> None:
     shots = 4097
     result = sampling_call(
-        shots, seed=82, threads=threads, batch_size="tune", tuning_budget_seconds=0.03
+        shots, seed=82, threads=threads, batch_size="tune", tuning_budget_seconds=0.25
     )
     report = result.batch_tuning
     assert isinstance(report, clifft.BatchTuningReport)
+    assert report.trial_shots > 0
+    assert report.sufficient_measurements
+    measured_sizes = {trial.batch_size for trial in report.trials if trial.shots_per_second > 0}
+    assert report.baseline_batch_size in measured_sizes
+    assert len(measured_sizes) >= 2
     assert report.batch_size in {1, 64, 256, 1024, 2048}
     assert report.intra_shot_workers == 1
     assert 1 <= report.shot_workers <= threads

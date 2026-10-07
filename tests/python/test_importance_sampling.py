@@ -5,6 +5,8 @@ import numpy.typing as npt
 import pytest
 from conftest import binomial_tolerance
 from utils_conformance import (
+    CPU_SAMPLING_MODES,
+    CPU_TUNING_MODES,
     SMALL_CIRCUIT_SHOTS,
     CpuSamplingMode,
     assert_joint_distribution,
@@ -126,6 +128,12 @@ class TestSampleK:
 
     @pytest.mark.parametrize("k", range(4))
     @pytest.mark.parametrize("postselect", [False, True])
+    @pytest.mark.parametrize(
+        "importance_sampling_mode",
+        CPU_SAMPLING_MODES + CPU_TUNING_MODES,
+        indirect=True,
+        ids=lambda mode: mode.name,
+    )
     def test_conditional_fault_distribution(
         self, importance_sampling_mode: CpuSamplingMode, k: int, postselect: bool
     ) -> None:

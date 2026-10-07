@@ -58,8 +58,11 @@ Packed execution cannot be combined with intra-shot workers.
 
 ## Budgeted batch calibration
 
-Set `batch_size="tune"` to calibrate and then run all requested shots in the
-same call. No separate preparation call is needed:
+The default `batch_size="auto"` uses conservative heuristics and may miss a
+faster batch size for your circuit. Set `batch_size="tune"` to briefly measure
+batch sizes for your circuit and simulation settings, then run all requested
+shots using the fastest measured choice. Calibration adds overhead, so it is
+most useful for longer sampling jobs.
 
 ```python
 import clifft
@@ -75,84 +78,56 @@ result = clifft.sample(
 print(result.batch_tuning.batch_size)
 ```
 
-Calibration sweeps the automatic choice, scalar execution, and capacities
-64, 256, 1024, and 2048, removing duplicate and ineligible configurations.
-It can consider packed execution above the automatic width cutoff and for
-postselected programs. Packed candidates must fit the existing automatic
-worker-storage budgets of 8 MiB per worker and 64 MiB across workers;
-calibration output buffers are separately limited to 8 MiB. Candidates that
-cannot exercise their production worker count within that output limit are
-omitted. Threads and compiler passes are not tuned.
+`tuning_budget_seconds` defaults to 0.25 seconds. It is a **soft limit** on
+calibration time: work already in progress can finish after the deadline. It
+does not limit the requested sampling run. Keep these points in mind:
 
-Each candidate receives roughly an equal share of the remaining budget.
-Worker preparation and the first probe (warmup) count toward the budget.
-Probes measure attempted-shot throughput, including output collection. If no
-subsequent measurement fits, the first probe's timing is used; otherwise,
-selection uses the subsequent measurements to reduce first-touch effects. Calibration
-uses the requested sampling function, record-retention setting, fixed-fault
-stratum when applicable, and resolved thread layout. Workers are prepared once
-per candidate and released before the next candidate. The fastest measured
-candidate is used for production. Unless the baseline and at least one
-alternative are both measured, the automatic choice is retained. Inconclusive
-calibration emits a Python `RuntimeWarning` when returning the production result,
-suggesting a larger `tuning_budget_seconds`. The requested production shots still run.
+- Calibration shots are extra and discarded; all requested shots still run.
+  Trial results are excluded from the returned counts and estimates.
+- Batch sizes that exceed the worker memory limits are excluded. If none fit,
+  Clifft samples without batching and skips calibration.
+- If calibration cannot make a useful comparison, Clifft uses `auto` and
+  returns the samples with a `RuntimeWarning` suggesting a larger budget.
+  A budget overrun alone does not cause a warning.
 
-The budget is a **soft wall-clock limit** for extra calibration work. An
-allocation or an execution chunk already in progress can exceed it. Once a
-packed candidate has been measured, its throughput helps skip larger probes
-estimated not to fit the remaining time. Scalar timings do not prevent trying
-the first packed candidate. These estimates are heuristics: the first probe or
-an unexpectedly slow probe can still overrun the budget. It does not limit
-production sampling. Zero budget uses the automatic policy without
-trials. Empty requests and layouts with no eligible alternative also skip
-calibration, without a warning. In particular, if every packed candidate exceeds
-the memory limits, increasing the time budget will not help. Budgets must be finite
-and nonnegative, and an explicit budget requires `batch_size="tune"`.
+The selected settings are returned in `result.batch_tuning`. To reuse the
+batch size without recalibrating, pass `batch_size=result.batch_tuning.batch_size`
+on later calls with the same circuit and simulation settings. Retune when the
+workload or machine changes; selections are not cached automatically.
 
-Calibration shots are discarded. They do not enter returned rows,
-`total_shots`, survivor counts, or logical-error estimates. Production still
-runs exactly the requested number of attempted shots. Tuning adds overhead,
-so use it for jobs long enough to benefit, and compare total elapsed time
-including calibration. Measured choices can vary with machine load and are
-not guaranteed to improve performance.
+??? note "Calibration report details"
 
-`result.batch_tuning` is a `BatchTuningReport`; it is `None` for ordinary
-automatic or explicitly sized calls. Its fields are:
+    `result.batch_tuning` is a `BatchTuningReport`; it is `None` for `auto` or
+    explicitly sized calls.
 
-| Field | Meaning |
-|---|---|
-| `batch_size`, `baseline_batch_size` | Selected and automatic lane capacities; `1` means scalar. |
-| `shot_workers`, `intra_shot_workers` | Resolved production worker layout. |
-| `elapsed_seconds` | Total calibration time, including setup, warmup, and cleanup. |
-| `trial_shots` | Extra attempted shots, including warmup. |
-| `sufficient_measurements` | Whether both the baseline and at least one alternative provided usable timings. False means the automatic choice was retained. |
-| `stop_reason` | `completed`, `budget_exhausted`, `insufficient_measurements`, `zero_shots`, `zero_budget`, or `single_candidate`. |
-| `trials` | Candidate measurements in sweep order. |
+    | Field | Meaning |
+    |---|---|
+    | `batch_size`, `baseline_batch_size` | Selected and automatic batch sizes; `1` means scalar. |
+    | `shot_workers`, `intra_shot_workers` | Resolved production worker layout. |
+    | `elapsed_seconds` | Total calibration time, including setup and cleanup. |
+    | `trial_shots` | Extra attempted shots, including warmup. |
+    | `sufficient_measurements` | Whether the automatic choice and at least one alternative provided usable timings. False means the automatic choice was retained. |
+    | `stop_reason` | Why calibration ended; see below. |
+    | `trials` | A `BatchTuningTrial` for each candidate that was prepared. |
 
-Each `BatchTuningTrial` records `batch_size`, `shot_workers`, `warmup_shots`,
-subsequent measured `shots`, `setup_seconds` (worker preparation only),
-`warmup_seconds`, subsequent measured `elapsed_seconds`, and `shots_per_second`.
-`used_warmup` indicates that throughput comes from the first probe alone. A
-trial without any usable probe timing has zero throughput.
+    `completed` means every eligible candidate provided usable timing data,
+    even if the final trial crossed the soft deadline. `budget_exhausted`
+    means time prevented measuring at least one candidate; a partial sweep
+    can still provide sufficient measurements. `insufficient_measurements`
+    means usable timing data was missing without a candidate being excluded
+    for lack of time.
 
-`single_candidate` means there was no eligible alternative, so no timing work
-was needed. `completed` means every eligible candidate provided usable timing
-data. The last candidate using up its share, or an in-progress final probe
-crossing the soft deadline, still counts as completion; `elapsed_seconds`
-records the actual duration.
+    `zero_shots`, `zero_budget`, and `single_candidate` indicate that no
+    calibration was needed or requested. These cases do not issue a warning.
 
-`budget_exhausted` means at least one candidate was skipped or could not run a
-probe within the available time. It can occur with or without
-`sufficient_measurements`: a partial sweep can still compare the baseline with
-an alternative. `insufficient_measurements` means some usable timing data was
-missing without a candidate being excluded for lack of time.
+    Each trial records `batch_size`, `shot_workers`, `setup_seconds`,
+    `warmup_shots`, `warmup_seconds`, subsequent measured `shots` and
+    `elapsed_seconds`, and `shots_per_second`. `used_warmup` indicates that
+    throughput comes from the first probe alone; setup time is excluded.
 
-To reuse a selection, pass `batch_size=result.batch_tuning.batch_size` on
-subsequent calls. For the same worker allocation, also pass
-`thread_layout=(report.shot_workers, report.intra_shot_workers)` using the
-report from a nonempty call and preserve any explicit intra-shot threshold.
-Recommendations are specific to the program, sampling mode, output options,
-request size, and machine; they are not cached automatically.
+    To reproduce the worker allocation as well as the batch size, pass
+    `thread_layout=(report.shot_workers, report.intra_shot_workers)` from a
+    nonempty call and preserve any explicit intra-shot threshold.
 
 ## Power-user tuning
 
