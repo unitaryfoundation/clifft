@@ -35,11 +35,12 @@ worthwhile. Benchmark before overriding either decision.
 | Argument | Default | Meaning |
 |---|---|---|
 | `threads` | `1` | Total CPU worker budget; `"auto"` uses reported hardware concurrency. |
-| `batch_size` | `"auto"` | Packed-lane policy; `1` forces scalar execution. |
+| `batch_size` | `"auto"` | Packed-lane policy; `1` forces scalar execution and `"tune"` measures candidate capacities. |
+| `tuning_budget_seconds` | `None` | Keyword-only soft calibration budget for `batch_size="tune"`; `None` uses 0.25 seconds. |
 | `thread_layout` | `None` | Expert `(shot_workers, intra_shot_workers)` override. |
 | `intra_shot_min_active_width` | `None` | Expert threshold for enabling an explicit intra-shot layout. |
 
-The fixed-plan samplers above accept all four controls. The leakage and loss
+The fixed-plan samplers above accept these controls. The leakage and loss
 trajectory API, `clifft.noncomp.sample()`, accepts `threads` but not packing or
 intra-shot layouts. Exact probability queries and `get_statevector()` do not
 expose these sampling controls.
@@ -54,6 +55,83 @@ Three independent mechanisms are involved:
   worker.
 
 Packed execution cannot be combined with intra-shot workers.
+
+## Budgeted batch calibration
+
+Set `batch_size="tune"` to calibrate and then run all requested shots in the
+same call. No separate preparation call is needed:
+
+```python
+import clifft
+
+program = clifft.compile("H 0\nT 0\nH 0\nM 0")
+result = clifft.sample(
+    program,
+    shots=100_000,
+    threads=2,
+    batch_size="tune",
+    tuning_budget_seconds=0.1,
+)
+print(result.batch_tuning.batch_size)
+```
+
+Calibration sweeps the automatic choice, scalar execution, and capacities
+64, 256, 1024, and 2048, removing duplicate and ineligible configurations.
+It can consider packed execution above the automatic width cutoff and for
+postselected programs. Packed candidates must fit the existing automatic
+worker-storage budgets of 8 MiB per worker and 64 MiB across workers;
+calibration output buffers are separately limited to 8 MiB. Candidates that
+cannot exercise their production worker count within that output limit are
+omitted. Threads and compiler passes are not tuned.
+
+Each candidate receives roughly an equal share of the remaining budget.
+Worker preparation and warmup count toward the budget; subsequent probes
+measure attempted-shot throughput, including output collection. Calibration
+uses the requested sampling function, record-retention setting, fixed-fault
+stratum when applicable, and resolved thread layout. Workers are prepared once
+per candidate and released before the next candidate. The fastest measured
+candidate is used for production. If the baseline and at least one alternative
+cannot be measured, the automatic choice is retained.
+
+The budget is a **soft wall-clock limit** for extra calibration work. An
+allocation or an execution chunk already in progress can exceed it. It does
+not limit production sampling. Zero budget uses the automatic policy without
+trials. Empty requests and layouts with no eligible alternative also skip
+calibration. Budgets must be finite and nonnegative, and an explicit budget
+requires `batch_size="tune"`.
+
+Calibration shots are discarded. They do not enter returned rows,
+`total_shots`, survivor counts, or logical-error estimates. Production still
+runs exactly the requested number of attempted shots. Tuning adds overhead,
+so use it for jobs long enough to benefit, and compare total elapsed time
+including calibration. Measured choices can vary with machine load and are
+not guaranteed to improve performance.
+
+`result.batch_tuning` is a `BatchTuningReport`; it is `None` for ordinary
+automatic or explicitly sized calls. Its fields are:
+
+| Field | Meaning |
+|---|---|
+| `batch_size`, `baseline_batch_size` | Selected and automatic lane capacities; `1` means scalar. |
+| `shot_workers`, `intra_shot_workers` | Resolved production worker layout. |
+| `elapsed_seconds` | Total calibration time, including setup, warmup, and cleanup. |
+| `trial_shots` | Extra attempted shots, including warmup. |
+| `stop_reason` | `completed`, `budget_exhausted`, `insufficient_measurements`, `zero_shots`, `zero_budget`, or `single_candidate`. |
+| `trials` | Candidate measurements in sweep order. |
+
+Each `BatchTuningTrial` records `batch_size`, `shot_workers`, `warmup_shots`,
+measured `shots`, `setup_seconds` (including warmup), measured
+`elapsed_seconds`, and `shots_per_second`. A trial with no measured shots has
+zero throughput. `single_candidate` means there was no eligible comparison;
+`completed` means the sweep visited all candidates, even if some received only
+setup or warmup time.
+
+To reuse a selection, pass `batch_size=result.batch_tuning.batch_size` on
+subsequent calls. For the same worker allocation, also pass
+`thread_layout=(report.shot_workers, report.intra_shot_workers)` using the
+report from a nonempty call and preserve any explicit intra-shot threshold.
+Recommendations are specific to the program, sampling mode, output options,
+request size, and machine; they are not cached automatically.
 
 ## Power-user tuning
 
@@ -137,6 +215,11 @@ Scalar and packed execution use separate random streams, and different packed
 capacities can produce different rows. Every supported strategy remains
 statistically equivalent. Keep the complete execution configuration fixed when
 exact seeded replay is required.
+
+Timing-based calibration can select a different capacity on repeated calls,
+even with the same seed. For debugging, pin the reported numeric batch size
+instead of requesting calibration again. Calibration uses separate random
+streams from production. Omitting `seed` continues to use hardware entropy.
 
 ### Memory tradeoffs
 

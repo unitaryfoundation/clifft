@@ -16,28 +16,32 @@ _SAMPLING_SIGNATURES = {
         "threads: int | typing.Literal['auto'] = 1, "
         "thread_layout: tuple[int, int] | None = None, "
         "intra_shot_min_active_width: int | None = None, "
-        "batch_size: int | typing.Literal['auto'] = 'auto') -> clifft.SampleResult"
+        "batch_size: int | typing.Literal['auto', 'tune'] = 'auto', *, "
+        "tuning_budget_seconds: float | None = None) -> clifft.SampleResult"
     ),
     "sample_k": (
         "def sample_k(program: Program, shots: int, k: int, seed: int | None = None, "
         "threads: int | typing.Literal['auto'] = 1, "
         "thread_layout: tuple[int, int] | None = None, "
         "intra_shot_min_active_width: int | None = None, "
-        "batch_size: int | typing.Literal['auto'] = 'auto') -> clifft.SampleResult"
+        "batch_size: int | typing.Literal['auto', 'tune'] = 'auto', *, "
+        "tuning_budget_seconds: float | None = None) -> clifft.SampleResult"
     ),
     "sample_k_survivors": (
         "def sample_k_survivors(program: Program, shots: int, k: int, seed: int | None = None, "
         "keep_records: bool = False, threads: int | typing.Literal['auto'] = 1, "
         "thread_layout: tuple[int, int] | None = None, "
         "intra_shot_min_active_width: int | None = None, "
-        "batch_size: int | typing.Literal['auto'] = 'auto') -> clifft.SampleResult"
+        "batch_size: int | typing.Literal['auto', 'tune'] = 'auto', *, "
+        "tuning_budget_seconds: float | None = None) -> clifft.SampleResult"
     ),
     "sample_survivors": (
         "def sample_survivors(program: Program, shots: int, seed: int | None = None, "
         "keep_records: bool = False, threads: int | typing.Literal['auto'] = 1, "
         "thread_layout: tuple[int, int] | None = None, "
         "intra_shot_min_active_width: int | None = None, "
-        "batch_size: int | typing.Literal['auto'] = 'auto') -> clifft.SampleResult"
+        "batch_size: int | typing.Literal['auto', 'tune'] = 'auto', *, "
+        "tuning_budget_seconds: float | None = None) -> clifft.SampleResult"
     ),
 }
 

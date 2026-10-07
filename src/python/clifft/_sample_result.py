@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Iterator
+from typing import TYPE_CHECKING, Iterator
 
 import numpy as np
 import numpy.typing as npt
+
+if TYPE_CHECKING:
+    from clifft._clifft_core import BatchTuningReport
 
 
 class SampleResult:
@@ -15,6 +18,7 @@ class SampleResult:
         measurements: uint8 array, shape (shots, num_measurements)
         detectors: uint8 array, shape (shots, num_detectors)
         observables: uint8 array, shape (shots, num_observables)
+        batch_tuning: calibration report when batch_size="tune", otherwise None
 
     Survivor-only attributes:
         total_shots: total number of shots attempted
@@ -39,6 +43,7 @@ class SampleResult:
         "discards",
         "logical_errors",
         "observable_ones",
+        "batch_tuning",
     )
 
     def __init__(
@@ -51,7 +56,9 @@ class SampleResult:
         logical_errors: int | None = None,
         observable_ones: npt.NDArray[np.uint64] | None = None,
         exp_vals: npt.NDArray[np.float64] | None = None,
+        batch_tuning: BatchTuningReport | None = None,
     ) -> None:
+        self.batch_tuning = batch_tuning
         self.measurements = measurements
         self.detectors = detectors
         self.observables = observables

@@ -8,6 +8,7 @@ add_executable(clifft_tests
     test_bitmask.cc
     test_batch_bits.cc
     test_batch_executor.cc
+    test_batch_tuning.cc
     test_mask_view.cc
     test_numeric.cc
     test_page_allocation.cc
