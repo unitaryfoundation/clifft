@@ -302,4 +302,82 @@ TEST_CASE("Phase pass clears statistics between runs", "[optimizer]") {
     REQUIRE(pass.pauli_pullbacks() == 0);
     REQUIRE(pass.input_t_count() == 1);
     REQUIRE(pass.output_t_count() == 1);
+    REQUIRE(pass.blocks_examined() == 1);
+    REQUIRE(pass.blocks_capped() == 0);
+    REQUIRE(pass.expansion_attempts() == 0);
+    REQUIRE(pass.blocks_expanded() == 0);
+}
+
+TEST_CASE("Phase expansion respects explicit limits and the representation ceiling",
+          "[optimizer]") {
+    for (uint32_t width : {33, 48, 64, 65}) {
+        CAPTURE(width);
+        HirModule original(width, 2 * width);
+        original.final_tableau.emplace(width);
+        for (uint32_t repeat = 0; repeat < 2; ++repeat) {
+            for (uint32_t q = 0; q < width; ++q) {
+                original.append_tgate(
+                    false, [&](MutablePauliMaskView mask) { mask.x().bit_set(q, true); });
+            }
+        }
+        auto bounded = original;
+        PhasePolynomialPass limited({32});
+        limited.run(bounded);
+        REQUIRE(limited.blocks_capped() > 0);
+        REQUIRE(limited.expansion_attempts() == 0);
+        REQUIRE(bounded.num_t_gates() == original.num_t_gates());
+        PhasePolynomialPass adaptive;
+        adaptive.run(original);
+        REQUIRE(adaptive.expansion_attempts() > 0);
+        if (width <= 64) {
+            REQUIRE(adaptive.blocks_expanded() == 1);
+            REQUIRE(adaptive.blocks_capped() == 0);
+            REQUIRE(original.num_t_gates() == 0);
+            REQUIRE(analyze_active_width(original).peak_width == 0);
+            std::string clifford;
+            for (uint32_t q = 0; q < width; ++q) {
+                const auto target = std::to_string(q) + "\n";
+                clifford += "H " + target + "S " + target + "H " + target;
+            }
+            REQUIRE(original.final_tableau == trace(parse(clifford)).final_tableau);
+        } else {
+            REQUIRE(adaptive.blocks_expanded() == 0);
+            REQUIRE(adaptive.blocks_capped() > 0);
+            REQUIRE(original.num_t_gates() == 2 * width);
+        }
+        auto empty = trace(parse("M 0"));
+        adaptive.run(empty);
+        REQUIRE(adaptive.blocks_examined() == 0);
+        REQUIRE(adaptive.blocks_capped() == 0);
+        REQUIRE(adaptive.expansion_attempts() == 0);
+        REQUIRE(adaptive.blocks_expanded() == 0);
+    }
+}
+
+TEST_CASE("Phase expansion reads pending Clifford corrections only once", "[optimizer]") {
+    std::string source = "H 0\nT 0\nT 0\nH 0\nT 0\n";
+    std::string reference = "H 0\nS 0\nH 0\nT 0\n";
+    for (uint32_t q = 1; q <= 40; ++q) {
+        const auto target = std::to_string(q) + "\n";
+        source += "H " + target;
+        reference += "H " + target + "S " + target + "H " + target;
+    }
+    for (uint32_t repeat = 0; repeat < 2; ++repeat) {
+        for (uint32_t q = 1; q <= 40; ++q) {
+            source += "T " + std::to_string(q) + "\n";
+        }
+    }
+    for (uint32_t q = 1; q <= 40; ++q) {
+        source += "H " + std::to_string(q) + "\n";
+    }
+    auto hir = trace(parse(source));
+    const auto expected = trace(parse(reference));
+    PhasePolynomialPass pass;
+    pass.run(hir);
+    REQUIRE(pass.blocks_reduced() == 2);
+    REQUIRE(pass.blocks_expanded() == 1);
+    REQUIRE(hir.ops.size() == 1);
+    REQUIRE(hir.mask_view(hir.ops[0]) == expected.mask_view(expected.ops[0]));
+    REQUIRE(hir.ops[0].is_dagger() == expected.ops[0].is_dagger());
+    REQUIRE(hir.final_tableau == expected.final_tableau);
 }

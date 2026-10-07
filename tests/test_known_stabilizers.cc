@@ -186,3 +186,46 @@ TEST_CASE("Rewrite proof obligations retain the complete fixed group", "[optimiz
     REQUIRE_FALSE(obligations.commutes(PauliString::from_text("+XI").view()));
     REQUIRE_FALSE(obligations.commutes(PauliString::from_text("+ZI").view()));
 }
+
+TEST_CASE("Combined feedback preserves products and ignores branch global phases", "[optimizer]") {
+    REQUIRE(final_eigenvalue("H 0\nM 0\nCX rec[-1] 0\nCZ rec[-1] 0", "Z") == false);
+    SymbolicStabilizerOptions options;
+    options.max_record_entries = 0;
+    const std::string source = "H 0\nCX 0 1\nH 2\nM 2\nCX rec[-1] 0\nCX rec[-1] 1";
+    REQUIRE(final_eigenvalue(source, "ZZI", options) == false);
+    REQUIRE(final_eigenvalue(source, "XXI", options) == false);
+}
+
+TEST_CASE("Fixed constraint queries flush pending feedback before later uses", "[optimizer]") {
+    const auto hir = trace(parse("H 0\nM 0\nCX rec[-1] 0\nCX rec[-1] 0"));
+    SymbolicStabilizers known(hir);
+    const auto axis = hir.final_tableau->inverse().apply(PauliString::from_text("+Z").view());
+    known.advance(hir, hir.ops[0]);
+    known.advance(hir, hir.ops[1]);
+    REQUIRE(known.fixed_constraints().eigenvalue(axis) == false);
+    known.advance(hir, hir.ops[2]);
+    REQUIRE_FALSE(known.fixed_constraints().eigenvalue(axis));
+}
+
+TEST_CASE("Cached fixed subgroups agree with fresh extraction after intersections", "[optimizer]") {
+    const auto hir =
+        trace(parse("H 0 1 2\nMPP Z0*Z1\nCX rec[-1] 0\n"
+                    "E(0.2) X0 X1\nR_Z(0.17) 2\nM 1\n"
+                    "CX rec[-1] 1\nR_X(0.21) 0\nR 0"));
+    SymbolicStabilizers cached(hir);
+    for (size_t end = 0; end < hir.ops.size(); ++end) {
+        cached.advance(hir, hir.ops[end]);
+        const auto& fixed = cached.fixed_constraints();
+        SymbolicStabilizers fresh(hir);
+        for (size_t i = 0; i <= end; ++i) {
+            fresh.advance(hir, hir.ops[i]);
+        }
+        for (uint32_t body = 0; body < 64; ++body) {
+            PauliString axis(3);
+            for (uint32_t q = 0; q < 3; ++q) {
+                axis.set_pauli(q, (body >> q) & 1, (body >> (q + 3)) & 1);
+            }
+            REQUIRE(fixed.eigenvalue(axis) == fresh.fixed_constraints().eigenvalue(axis));
+        }
+    }
+}

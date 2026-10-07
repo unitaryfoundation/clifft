@@ -28,7 +28,7 @@ class SymbolicStabilizers {
 
     // The reference remains valid until advance; callers modifying a lookahead
     // group take a copy. Fixed groups have no records or inference budgets.
-    [[nodiscard]] const KnownStabilizers& fixed_constraints() const;
+    [[nodiscard]] const KnownStabilizers& fixed_constraints();
     void advance(const HirModule& hir, const HeisenbergOp& op);
 
   private:
@@ -41,6 +41,11 @@ class SymbolicStabilizers {
         AffineBool value;
         size_t age;
     };
+    struct Feedback {
+        uint32_t record;
+        PauliString axis;
+        std::optional<AffineBool> condition;
+    };
 
     [[nodiscard]] std::optional<AffineBool> affine_eigenvalue(PauliString axis, bool& capped) const;
     [[nodiscard]] std::optional<AffineBool> fresh_symbol();
@@ -50,6 +55,7 @@ class SymbolicStabilizers {
     void intersect(PauliStringView axis);
     void apply_pauli(PauliStringView axis, const AffineBool& condition);
     void assign_record(uint32_t record, AffineBool value);
+    void flush_feedback();
     void forget();
 
     SymbolicStabilizerOptions options_;
@@ -60,8 +66,9 @@ class SymbolicStabilizers {
     // Uses follow emitted classical operations even when rotations are moved.
     // This schedule survives discarded facts and requires O(feedback records) storage.
     std::map<uint32_t, size_t> remaining_uses_;
-    mutable KnownStabilizers fixed_;
-    mutable bool fixed_valid_ = false;
+    std::optional<Feedback> feedback_;
+    KnownStabilizers fixed_;
+    bool fixed_valid_ = false;
 };
 
 }  // namespace clifft
