@@ -136,11 +136,16 @@ subsequent measured `shots`, `setup_seconds` (worker preparation only),
 trial without any usable probe timing has zero throughput.
 
 `single_candidate` means there was no eligible alternative, so no timing work
-was needed. `budget_exhausted` means calibration reached its deadline or omitted
-probes estimated not to fit; it can occur with or without sufficient measurements.
-`insufficient_measurements` means calibration was inconclusive without exhausting
-the budget. `completed` means the sweep finished with a usable comparison and
-without being limited by the budget.
+was needed. `completed` means every eligible candidate provided usable timing
+data. The last candidate using up its share, or an in-progress final probe
+crossing the soft deadline, still counts as completion; `elapsed_seconds`
+records the actual duration.
+
+`budget_exhausted` means at least one candidate was skipped or could not run a
+probe within the available time. It can occur with or without
+`sufficient_measurements`: a partial sweep can still compare the baseline with
+an alternative. `insufficient_measurements` means some usable timing data was
+missing without a candidate being excluded for lack of time.
 
 To reuse a selection, pass `batch_size=result.batch_tuning.batch_size` on
 subsequent calls. For the same worker allocation, also pass

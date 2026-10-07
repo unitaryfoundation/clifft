@@ -84,7 +84,6 @@ BatchTuningReport sweep_batch_candidates(std::span<const BatchTuningCandidate> c
             while (now() - candidate_start < slice && now() - start < budget_seconds) {
                 const double rate = trial.shots_per_second();
                 if (rate > 0 && shots / rate > budget_seconds - (now() - start)) {
-                    report.stop_reason = "budget_exhausted";
                     break;
                 }
                 const double elapsed = run(shots);
@@ -99,6 +98,9 @@ BatchTuningReport sweep_batch_candidates(std::span<const BatchTuningCandidate> c
             }
         }
         report.trials.push_back(trial);
+        if (trial.warmup_shots == 0 && trial.shots == 0) {
+            report.stop_reason = "budget_exhausted";
+        }
         const double rate = trial.shots_per_second();
         if (rate > 0) {
             ++measured_candidates;
@@ -118,8 +120,10 @@ BatchTuningReport sweep_batch_candidates(std::span<const BatchTuningCandidate> c
         }
     }
     report.elapsed_seconds = now() - start;
-    if (report.elapsed_seconds >= budget_seconds) {
-        report.stop_reason = "budget_exhausted";
+    // Completing a candidate's repetitions is normal. The budget only leaves
+    // the sweep incomplete when it prevents measuring a candidate at all.
+    if (report.stop_reason == "completed" && measured_candidates != candidates.size()) {
+        report.stop_reason = "insufficient_measurements";
     }
     // An unmeasured baseline cannot justify selecting an alternative, even if
     // the latter happened to finish a cheap probe before the deadline.

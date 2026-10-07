@@ -51,6 +51,7 @@ TEST_CASE("Batch tuning selects measured throughput and accounts for discarded t
     REQUIRE(report.batch_size == 256);
     REQUIRE(report.baseline_batch_size == 1);
     REQUIRE(report.sufficient_measurements);
+    REQUIRE(report.stop_reason == "completed");
     REQUIRE(report.shot_workers == 2);
     REQUIRE(report.trial_shots == attempted);
     REQUIRE(report.elapsed_seconds == clock);
@@ -100,6 +101,7 @@ TEST_CASE("Batch tuning can compare first probes without steady state measuremen
     REQUIRE(report.sufficient_measurements);
     REQUIRE(report.batch_size == 64);
     REQUIRE(report.trial_shots == 65);
+    REQUIRE(report.stop_reason == "completed");
     for (const auto& trial : report.trials) {
         REQUIRE(trial.used_warmup());
         REQUIRE(trial.shots == 0);
@@ -126,7 +128,7 @@ TEST_CASE("Batch tuning prefers steady state timings when they are available") {
     REQUIRE(report.trials.back().shots_per_second() == Catch::Approx(10000));
 }
 
-TEST_CASE("Batch tuning reports a final probe overrun even with a usable comparison") {
+TEST_CASE("Batch tuning completes when the final measured candidate overruns its share") {
     const std::array<BatchTuningCandidate, 2> candidates{{{{1, 1}, 1, 1}, {{64, 1}, 64, 64}}};
     double clock = 0;
     const auto report = sweep_batch_candidates(
@@ -141,6 +143,41 @@ TEST_CASE("Batch tuning reports a final probe overrun even with a usable compari
     REQUIRE(report.sufficient_measurements);
     REQUIRE(report.batch_size == 64);
     REQUIRE(report.elapsed_seconds > 0.2);
+    REQUIRE(report.stop_reason == "completed");
+}
+
+TEST_CASE("Batch tuning completes when the last candidate uses the remaining time") {
+    const std::array<BatchTuningCandidate, 2> candidates{{{{1, 1}, 1, 1}, {{64, 1}, 64, 64}}};
+    double clock = 0;
+    const auto report = sweep_batch_candidates(
+        candidates, candidates.front().policy, 1, 1, clifft::seed_root_from_seed(42),
+        [&] { return clock; },
+        [&](BatchExecutionPolicy) { return [&](uint32_t, uint64_t) { clock += 0.125; }; });
+    REQUIRE(report.elapsed_seconds == 1);
+    REQUIRE(report.sufficient_measurements);
+    REQUIRE(report.stop_reason == "completed");
+    for (const auto& trial : report.trials) {
+        REQUIRE(trial.shots > 0);
+    }
+}
+
+TEST_CASE("Batch tuning reports exhaustion when final candidate setup leaves no probe time") {
+    const std::array<BatchTuningCandidate, 3> candidates{
+        {{{1, 1}, 1, 1}, {{64, 1}, 64, 64}, {{256, 1}, 256, 256}}};
+    double clock = 0;
+    const auto report = sweep_batch_candidates(
+        candidates, candidates.front().policy, 1, 0.3, clifft::seed_root_from_seed(42),
+        [&] { return clock; },
+        [&](BatchExecutionPolicy policy) {
+            if (policy.lane_capacity == 256) {
+                clock += 0.3;
+            }
+            return [&](uint32_t, uint64_t) { clock += 0.01; };
+        });
+    REQUIRE(report.trials.size() == candidates.size());
+    REQUIRE(report.trials.back().warmup_shots == 0);
+    REQUIRE(report.trials.back().shots == 0);
+    REQUIRE(report.sufficient_measurements);
     REQUIRE(report.stop_reason == "budget_exhausted");
 }
 
