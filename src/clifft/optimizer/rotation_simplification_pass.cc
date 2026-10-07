@@ -2,7 +2,7 @@
 
 #include "clifft/optimizer/active_width_analysis.h"
 #include "clifft/optimizer/clifford_absorption.h"
-#include "clifft/optimizer/known_stabilizers.h"
+#include "clifft/optimizer/symbolic_stabilizers.h"
 #include "clifft/util/numeric.h"
 
 #include <algorithm>
@@ -40,17 +40,7 @@ class Rewriter {
 
     std::optional<HirModule> run() {
         for (size_t start = 0; start < input_.ops.size();) {
-            if (known_.empty()) {
-                // Without known stabilizers, no further state-dependent rewrite
-                // is possible. Absorbed Cliffords must still transform the suffix.
-                if (candidate_) {
-                    for (size_t i = start; i < input_.ops.size(); ++i) {
-                        emit_original(i);
-                    }
-                }
-                break;
-            }
-            if (!is_rotation(input_.ops[start])) {
+            if (!is_rotation(input_.ops[start]) || known_.fixed_constraints().empty()) {
                 emit_original(start++);
                 continue;
             }
@@ -151,7 +141,7 @@ class Rewriter {
     }
 
     bool simplify() {
-        auto preserved = known_;
+        auto preserved = known_.fixed_constraints();
         for (const auto& term : terms_) {
             preserved.intersect(term.axis.view());
         }
@@ -243,7 +233,7 @@ class Rewriter {
 
     const HirModule& input_;
     RotationSimplificationOptions options_;
-    KnownStabilizers known_;
+    SymbolicStabilizers known_;
     optimizer_detail::CliffordAbsorption cliffords_;
     std::optional<HirModule> candidate_;
     std::vector<Term> terms_;

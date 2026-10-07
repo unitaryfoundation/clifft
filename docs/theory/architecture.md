@@ -48,6 +48,37 @@ gates and express the remaining rotations, measurements, noise, feedback, and
 outputs in the Heisenberg frame. HIR passes then simplify this representation
 using Pauli algebra and dataflow. Neither stage fixes a sampling data layout.
 
+The phase-polynomial and rotation-simplification passes use
+`SymbolicStabilizers` to propagate Pauli constraints with affine measurement
+signs. Measuring S with physical outcome m establishes eigenvalue `(-1)^m`.
+An anticommuting Pauli controlled by that outcome cancels the sign through
+`m XOR m = 0`. Readout noise changes the reported record while preserving the
+physical collapse constraint, so feedback using a corrupted report need not
+recover a fixed sign. Measurements and resets can establish new facts after
+earlier non-Clifford operations have removed the original constraints.
+
+Only the fixed-sign subgroup is exposed to rewrites, through the exact
+`KnownStabilizers` type. Products can have fixed signs even when individual
+generators do not; extraction eliminates affine columns and preserves Pauli
+multiplication phases. Lookahead receives fixed entry facts and can discard
+them, but cannot learn from future measurements. Required rewrite constraints
+are retained exactly, independently of the forward analysis budgets.
+
+Private Pauli-fault events are eliminated by retaining the subgroup commuting
+with each possible fault. This preserves products unaffected by a shared
+fault without retaining event bits that feedback cannot read. Even
+probability-one noise includes the no-fault reference path. Instruments
+discard the analysis state; postselection establishes no facts.
+
+The internal inference limits are 64 terms per affine expression, 4,096
+remembered records, and 4,096 row products per elimination stage. Exhausting
+a budget conservatively loses knowledge, and later measurements can recover
+facts. These limits do not change circuit operations or sampling probabilities.
+Analysis symbols have no assumed independence or probability distribution.
+They remain local to compilation: a physical measurement outcome can differ
+from a planner branch by an incoming frame sign, so analysis symbol IDs are
+not exported into sampling plans.
+
 ### Semantic Planning
 
 The planner chooses active stabilizer coordinates, resolves basis changes,

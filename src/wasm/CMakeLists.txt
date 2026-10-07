@@ -37,6 +37,7 @@ add_library(clifft_core STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/phase_polynomial.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/tohpe.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/known_stabilizers.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/symbolic_stabilizers.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/phase_polynomial_pass.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/rotation_simplification_pass.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/pass_factory.cc

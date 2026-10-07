@@ -1,6 +1,6 @@
 # Native Profiling Tools
 
-Three native C++ harnesses isolate production compile, sampling, and
+Native C++ harnesses isolate production compile, sampling, and
 strong-simulation costs for `perf` or another sampling profiler:
 
 - `profile_compile` repeatedly runs parse, trace and HIR optimization,
@@ -9,6 +9,13 @@ strong-simulation costs for `perf` or another sampling profiler:
   `clifft::basis_probabilities()` over a batch of bitstrings.
 - `profile_sample` compiles a circuit once and repeatedly samples it through
   the public C++ path.
+- `profile_optimizer_allocations` counts allocations within the default HIR
+  optimizer, excluding parsing, tracing, planning, and execution.
+
+`profile_symbolic_stabilizers.py` measures measured CSS preparation, Pauli
+feedback, and stabilizer slicing through the complete default compiler pipeline.
+It includes faulty-preparation and readout controls, a phase-pass ablation, and
+independent Aer/Stim checks.
 
 ## Build
 
@@ -19,15 +26,17 @@ the optimized code paths used for profiling.
 cmake -B build-profile \
   -DCMAKE_BUILD_TYPE=RelWithDebInfo \
   -DCLIFFT_BUILD_PROFILER=ON
-cmake --build build-profile --target profile_compile profile_probability profile_sample -j$(nproc)
+cmake --build build-profile --target profile_compile profile_probability profile_sample profile_optimizer_allocations -j$(nproc)
 ```
 
-The equivalent build command is `just profile-build`.
+`just profile-build` builds the timing harnesses. Build the allocation probe
+explicitly when needed.
 
 ## Compilation
 
-`profile_compile` reports parse, trace and optimization, plan, prepare, and
-total time separately. File I/O is outside the timed loop.
+`profile_compile` runs `default_hir_pass_manager()` and reports parse, trace,
+optimization, scheduling, plan, prepare, and total time separately. File I/O
+is outside the timed loop.
 
 ```bash
 CLIFFT_COMPILE_ITERATIONS=200 \
@@ -64,6 +73,50 @@ The scheduler reports `swept_ops` and `classification_probes` separately. The
 execution budget does not bound classification probes, which can grow
 quadratically for wide ready sets. The total compile time also includes
 parsing, production passes, planning, and executable preparation.
+
+### Optimizer allocations
+
+```bash
+./build-profile/profile_optimizer_allocations tests/fixtures/cultivation_d5.stim
+```
+
+The standalone probe replaces C++ `new` and `delete` only in its own executable.
+It counts requested payload bytes allocated during the single-threaded default
+HIR optimizer, including live output allocations. Peak live bytes exclude
+preexisting HIR storage, allocator metadata, and direct C allocation calls.
+This is an optimizer allocation measurement, not process RSS or isolated
+symbolic-analysis memory. Use the ordinary harness for timings; the probe's
+allocation headers change allocator behavior.
+
+### Measured preparation and feedback
+
+Run from the repository root with the development dependencies installed:
+
+```bash
+taskset -c 0 .venv/bin/python tools/profile/profile_symbolic_stabilizers.py \
+  --repeats 11 --shots 65536 --corpus --small-batches \
+  --output /tmp/symbolic-stabilizers.json
+```
+
+The JSON output includes circuits, optimized T counts, active widths, action
+counts, plans, compilation stages, sampling throughput, and independent
+validation results. `--small-batches` adds sampling timings for 1, 16, 256,
+and 4,096 shots; `--corpus` adds compilation of existing repository fixtures.
+Use `--skip-validation` when repeating timing-only runs. Compare builds in
+separate environments with the same inputs, retained outputs, thread count,
+and CPU affinity; alternate their execution order to limit timing drift.
+
+The Reed-Muller workload prepares a logical plus state using ten measured Z
+checks and Pauli feedback, then applies transversal T. It retains preparation
+records, logical outputs, and expectation probes. The slicing workload checks
+arbitrary-angle cancellation, unequal rotations, and sign-changing faults.
+The 45-qubit transversal-CCZ case is a compilation scaling control without a
+decoder, acceptance rule, or fault-tolerant ancilla preparation.
+
+For a fresh compilation, compare compilation plus sampling time at the desired
+shot count. When reusing a compiled program, amortize compilation separately.
+The no-phase ablation distinguishes reductions enabled by HIR optimization
+from facts already exploited by the sampling planner.
 
 ## Sampling
 

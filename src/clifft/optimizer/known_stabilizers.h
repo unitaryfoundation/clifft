@@ -26,11 +26,14 @@ class KnownStabilizers {
     [[nodiscard]] bool commutes(PauliStringView axis) const;
 
     // The caller must prove that the inserted signed axis has eigenvalue +1.
+    // Required rewrite constraints are exact and have no inference budget.
     void insert(PauliString axis);
     void intersect(PauliStringView axis);
+    // Lookahead only discards entry facts; it never learns from future operations.
     void advance(const HirModule& hir, const HeisenbergOp& op);
 
   private:
+    friend class SymbolicStabilizers;
     std::map<uint32_t, PauliString> rows_;
 };
 
