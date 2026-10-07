@@ -77,6 +77,11 @@ feedback use; if live records exceed the budget, the oldest measurement is
 evicted regardless of its slot number. This matters for hidden reset records,
 which are numbered after visible records. The feedback-use schedule requires
 storage proportional to the number of distinct feedback controls in the prefix.
+Consecutive Pauli feedback operations using the same record are combined for
+analysis before scanning the facts. The pending product is applied before a
+different control, any non-feedback operation, or a fixed-constraint query.
+This changes only compiler bookkeeping; the emitted classical operations and
+execution architecture are unchanged.
 
 The internal inference limits are 64 terms per affine expression, 4,096
 remembered records, and 4,096 row products per elimination stage. Exhausting

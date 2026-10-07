@@ -62,7 +62,8 @@ bool SymbolicStabilizers::multiply(Row& left, const Row& right, size_t& products
     return true;
 }
 
-const KnownStabilizers& SymbolicStabilizers::fixed_constraints() const {
+const KnownStabilizers& SymbolicStabilizers::fixed_constraints() {
+    flush_feedback();
     if (fixed_valid_) {
         return fixed_;
     }
@@ -238,7 +239,24 @@ void SymbolicStabilizers::forget() {
     fixed_valid_ = false;
 }
 
+void SymbolicStabilizers::flush_feedback() {
+    if (!feedback_) {
+        return;
+    }
+    auto feedback = std::move(*feedback_);
+    feedback_.reset();
+    if (feedback.condition) {
+        apply_pauli(feedback.axis.view(), *feedback.condition);
+    } else {
+        intersect(feedback.axis.view());
+    }
+}
+
 void SymbolicStabilizers::advance(const HirModule& hir, const HeisenbergOp& op) {
+    if (feedback_ && (op.op_type() != OpType::CONDITIONAL_PAULI ||
+                      static_cast<uint32_t>(op.controlling_meas()) != feedback_->record)) {
+        flush_feedback();
+    }
     switch (op.op_type()) {
         case OpType::T_GATE:
         case OpType::PHASE_ROTATION:
@@ -277,12 +295,18 @@ void SymbolicStabilizers::advance(const HirModule& hir, const HeisenbergOp& op) 
         case OpType::CONDITIONAL_PAULI: {
             const auto id = static_cast<uint32_t>(op.controlling_meas());
             if (!rows_.empty()) {
-                const auto axis = copy_axis(hir.mask_view(op), hir.num_qubits);
-                auto record = records_.find(id);
-                if (record == records_.end()) {
-                    intersect(axis.view());
+                if (feedback_) {
+                    // Consecutive Paulis with the same classical control act
+                    // as their product, up to an irrelevant branch phase.
+                    const auto mask = hir.mask_view(op);
+                    feedback_->axis.mut_x().xor_with(mask.x());
+                    feedback_->axis.mut_z().xor_with(mask.z());
                 } else {
-                    apply_pauli(axis.view(), record->second.value);
+                    const auto record = records_.find(id);
+                    feedback_ =
+                        Feedback{id, copy_axis(hir.mask_view(op), hir.num_qubits),
+                                 record == records_.end() ? std::nullopt
+                                                          : std::optional{record->second.value}};
                 }
             }
             auto use = remaining_uses_.find(id);
