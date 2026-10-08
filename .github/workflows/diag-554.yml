@@ -19,7 +19,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        slot: [1, 2, 3, 4, 5, 6, 7, 8]
+        slot: [1, 2, 3, 4, 5, 6]
     runs-on: ubuntu-24.04
     timeout-minutes: 75
     steps:
@@ -43,14 +43,14 @@ jobs:
 
       - name: Run experiments
         env:
-          ZEN3_EXPERIMENTS: env maps natural favunfav stack9 sweep2 natural2
-          OTHER_EXPERIMENTS: env
+          ZEN3_EXPERIMENTS: env layouts
+          OTHER_EXPERIMENTS: env layouts
         run: bash tools/diag554/run4.sh
 
       - name: Upload results
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: diag-554-round5-slot-${{ matrix.slot }}
+          name: diag-554-round6-slot-${{ matrix.slot }}
           path: diag-out/
           retention-days: 14

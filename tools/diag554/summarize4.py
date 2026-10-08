@@ -136,6 +136,27 @@ def main():
             print(f"| {d.name} | " + " | ".join(cells) + " |")
 
 
+def layouts(out):
+    root = out / "layouts"
+    if not root.exists():
+        return
+    print("\n| Benchmark | control median (min-max) ms | local | compact |")
+    print("|---|---|---:|---:|")
+    for d in sorted(root.iterdir()):
+        by = {v: [med(p) for p in sorted(d.glob(f"pad*_{v}.json"))] for v in VARIANTS}
+        if not by["control"]:
+            continue
+        c = statistics.median(by["control"])
+        cells = [f"{c:.3f} ({min(by['control']):.3f}-{max(by['control']):.3f})"]
+        for v in ["local", "compact"]:
+            if by[v]:
+                m = statistics.median(by[v])
+                cells.append(f"{100 * (m / c - 1):+.1f}% ({min(by[v]):.3f}-{max(by[v]):.3f})")
+            else:
+                cells.append("")
+        print(f"| {d.name} | " + " | ".join(cells) + " |")
+
+
 def _ranges(js):
     if not js:
         return "none"
@@ -153,3 +174,4 @@ def _ranges(js):
 
 if __name__ == "__main__":
     main()
+    layouts(pathlib.Path(sys.argv[1]))

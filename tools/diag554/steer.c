@@ -14,6 +14,8 @@
  *   STEER_ADDR=<hex>      address handed out for the steered object.
  *   STEER_SKIP=<decimal>  number of matching calls to pass through first.
  *   STEER_REPORT=1        print counters to fd 2 at exit.
+ *   STEER_PAD=<decimal>   leak one allocation of this size at startup, which
+ *                         shifts later heap chunks without moving libraries.
  *
  * The shim never allocates, uses no TLS, and depends only on libc.
  */
@@ -141,6 +143,13 @@ __attribute__((constructor)) static void steer_init(int argc, char** argv, char*
 
     if ((s = env_find(env, "STEER_REPORT=", 13)))
         g_report = s[0] == '1';
+    if ((s = env_find(env, "STEER_PAD=", 10))) {
+        size_t pad = parse(s, 10);
+        if (pad) {
+            void* volatile leak = __libc_malloc(pad);
+            (void)leak;
+        }
+    }
     if (!(s = env_find(env, "STEER_SIZE=", 11)))
         return;
     size_t size = parse(s, 10);

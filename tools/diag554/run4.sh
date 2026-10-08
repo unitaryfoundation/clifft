@@ -47,6 +47,12 @@ steer_env() { # size skip addr
         "$STEER" "$1" "$2" "$3"
 }
 
+# Same, plus a startup heap shift; used only by the layouts experiment.
+pad_env() { # pad bytes
+    printf 'LD_PRELOAD=%s STEER_SIZE=%06d STEER_SKIP=%04d STEER_ADDR=%012x STEER_PAD=%06d' \
+        "$STEER" 0 0 0x555560000000 "$1"
+}
+
 put() { # name variant addr
     # shellcheck disable=SC2046
     bench "$2" "$HIGH" 0.5 3 env $(steer_env 792 0 "$3")
@@ -178,6 +184,21 @@ for experiment in $EXPERIMENTS; do
             done
         done
         echo "done sweep2"
+        ;;
+    layouts)
+        # Every sampling benchmark under four heap shifts per variant, so a
+        # code change is compared across layouts instead of in one layout.
+        for name in $("$BIN/control" --benchmark_list_tests=true | grep '^sample_'); do
+            mkdir -p "$OUT/layouts/$name"
+            for pad in 0 4152 9000 20000; do
+                for v in $VARIANTS; do
+                    # shellcheck disable=SC2046
+                    bench "$v" "^$name\$" 0.5 3 env $(pad_env "$pad")
+                    mv "$JSON" "$OUT/layouts/$name/pad${pad}_$v.json"
+                done
+            done
+        done
+        echo "done layouts"
         ;;
     wide)
         for name in $("$BIN/control" --benchmark_list_tests=true | grep '^sample_'); do
