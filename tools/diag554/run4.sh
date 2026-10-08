@@ -15,9 +15,9 @@ grep -q "EPYC 7763" /proc/cpuinfo && ZEN3=1
 EXPERIMENTS=${EXPERIMENTS:-}
 if [[ -z $EXPERIMENTS ]]; then
     if ((ZEN3)) || [[ -n ${FORCE_ALL:-} ]]; then
-        EXPERIMENTS="env warmup maps natural favunfav sweep stack wide natural2"
+        EXPERIMENTS=${ZEN3_EXPERIMENTS:-env warmup maps natural favunfav sweep stack wide natural2}
     else
-        EXPERIMENTS="env warmup maps natural favunfav wide natural2"
+        EXPERIMENTS=${OTHER_EXPERIMENTS:-env warmup maps natural favunfav wide natural2}
     fi
 fi
 
@@ -153,6 +153,31 @@ for experiment in $EXPERIMENTS; do
                 "$OUT" "$(printf '%x' $((GOOD + 0x820)))"
         done
         echo "done stack"
+        ;;
+    stack9)
+        # Hot stack lines on the log constants line (set 9) and on sets 8-9.
+        read -r LIBM BAD GOOD < <(pick_pages)
+        for off in 240 200; do
+            for v in $VARIANTS; do
+                python3 "$ROOT/tools/diag554/stack_collision.py" "$v" "$BIN/$v" "$STEER" "$CPU" \
+                    "$OUT" "$(printf '%x' $((GOOD + 0x820)))" "$off"
+            done
+        done
+        echo "done stack9"
+        ;;
+    sweep2)
+        read -r LIBM BAD GOOD < <(pick_pages)
+        for j in $(seq 1 2 63); do
+            for v in $VARIANTS; do
+                put "sweep_bad_${v}_$j" "$v" $((BAD + j * 64 + 0x20))
+            done
+        done
+        for j in $(seq 4 8 63); do
+            for v in $VARIANTS; do
+                put "sweep_good_${v}_$j" "$v" $((GOOD + j * 64 + 0x20))
+            done
+        done
+        echo "done sweep2"
         ;;
     wide)
         for name in $("$BIN/control" --benchmark_list_tests=true | grep '^sample_'); do

@@ -1,6 +1,7 @@
 """Place the noise loop's stack frame on a page that aliases libm's log table.
 
 usage: stack_collision.py <name> <binary> <steer.so> <cpu> <out dir> <heap addr hex>
+                          [rsp offset hex]
 
 The benchmark disables ASLR, so the stack depends only on the environment and
 argument strings. gdb measures the stack pointer at the return address of the
@@ -124,6 +125,8 @@ def timed(binary, env, cpu, out_json):
 
 def main():
     name, binary, steer, cpu, out_arg, heap_addr = sys.argv[1:7]
+    rsp_offset = int(sys.argv[7], 16) if len(sys.argv) > 7 else 0x400
+    tag = f"{name}_{rsp_offset:03x}"
     out_dir = pathlib.Path(out_arg)
     (out_dir / "single").mkdir(parents=True, exist_ok=True)
     steer_env = [
@@ -142,7 +145,7 @@ def main():
     page = (rsp0 >> 12) - 1
     while utag(page << 12) != target_tag:
         page -= 1
-    target = (page << 12) + 0x400 + (rsp0 & 0xF)
+    target = (page << 12) + rsp_offset + (rsp0 & 0xF)
     extra = rsp0 - target
     for _ in range(3):
         rsp, _, frame = gdb_probe(binary, steer_env + pad_env(extra), cpu, ret_off)
@@ -166,11 +169,12 @@ def main():
                 binary,
                 steer_env + pad_env(ext),
                 cpu,
-                out_dir / "single" / f"stack_{name}_{kind}_{i}.json",
+                out_dir / "single" / f"stack_{tag}_{kind}_{i}.json",
             )
     _, _, gdb_frame_unfav = gdb_probe(binary, steer_env + pad_env(extra), cpu, ret_off)
     record.update(timed_frames=frames, gdb_frame_unfav=gdb_frame_unfav)
-    (out_dir / f"stack_{name}.json").write_text(json.dumps(record, indent=1))
+    record["name"] = tag
+    (out_dir / f"stack_{tag}.json").write_text(json.dumps(record, indent=1))
     print(json.dumps(record))
 
 
