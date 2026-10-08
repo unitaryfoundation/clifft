@@ -198,6 +198,40 @@ jobs:
           uv run --no-sync pytest tests/python/test_experimental_gpu.py
           tests/python/test_experimental_cuda.py -k 'cuda or gpu_reference' -v
 
+  # Runs the CUDA conformance suite on a simulated H100 so the device cases
+  # execute instead of skipping. This complements, and does not replace,
+  # validation on physical hardware, and it is deliberately not part of the
+  # required-status aggregate below.
+  cuda-simulated-gpu:
+    timeout-minutes: 45
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install build tools
+        run: sudo apt-get update && sudo apt-get install -y cmake git ninja-build
+
+      - name: Set up simulated H100
+        uses: pantheongpu/setup-pantheonsim@06648b8c0cb091584196678593215db2e16bd7eb # v0.1.2
+        with:
+          gpu: nvidia/h100
+          cuda-toolkit: "13.0"
+
+      - name: Configure sm_90 CUDA build with the shared runtime
+        run: |
+          cmake -S . -B build-cuda-sim -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCLIFFT_ENABLE_CUDA=ON \
+            -DCLIFFT_CUDA_SHARED_RUNTIME=ON \
+            -DCMAKE_CUDA_ARCHITECTURES=90-virtual
+
+      - name: Compile CUDA backend and conformance tests
+        run: cmake --build build-cuda-sim --target clifft_cuda_tests --parallel 2
+
+      - name: Run CUDA conformance tests on the simulated GPU
+        run: ctest --test-dir build-cuda-sim --output-on-failure --no-tests=error -R CUDA
+
   build-and-test:
     name: build-and-test (${{ matrix.isa }})
     strategy:
