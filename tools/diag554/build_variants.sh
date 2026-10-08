@@ -12,7 +12,9 @@ for variant in control local compact; do
     mkdir -p "$ROOT/benchmark-source"
     git -C "$ROOT" archive "$SOURCE_SHA" | tar -x -C "$ROOT/benchmark-source"
     if [[ $variant != control ]]; then
-        git -C "$ROOT/benchmark-source" apply "$ROOT/tools/diag554/variants/$variant.diff"
+        # benchmark-source sits inside the checkout, where git apply would patch
+        # the checkout itself; patch only touches the snapshot.
+        patch -d "$ROOT/benchmark-source" -p1 --forward <"$ROOT/tools/diag554/variants/$variant.diff"
     fi
     cmake -E remove_directory "$ROOT/benchmark-build"
     cmake -S "$ROOT/benchmarks" -B "$ROOT/benchmark-build" \
@@ -28,3 +30,9 @@ for variant in control local compact; do
     cp "$ROOT/benchmark-build/clifft_benchmarks" "$ROOT/canary-bin/$variant"
 done
 ls -la "$ROOT/canary-bin"
+if cmp -s "$ROOT/canary-bin/control" "$ROOT/canary-bin/local" ||
+    cmp -s "$ROOT/canary-bin/control" "$ROOT/canary-bin/compact"; then
+    echo "variant binaries are identical to control" >&2
+    exit 1
+fi
+md5sum "$ROOT"/canary-bin/*
