@@ -509,22 +509,25 @@ medians should not be read as a no-regression guarantee for dense faults.
 The record-only run is retained in
 [bt27-boundary-records.json](bt27-boundary-records.json).
 
-### Next bounded experiment
+### Revised experiment priority
 
 The physical correction and reusable reduced-prefix interface now have concrete
-implementations and validation. The next cost question is the remaining
-per-pattern construction/planning, which still greatly exceeds one shot's
-execution time. Measure a bounded cache of complete preplanned variants under
-the original categorical depolarizing distribution, including repeated patterns,
-multiple-fault misses, compilation time, resident memory, and total sampling
-cost. Misses must use the same exact construction and preserve the original
-noise law and reference parities.
+implementations and validation for the single-layer noise model. Remaining
+per-pattern construction/planning greatly exceeds one shot's execution time.
+The initial next-step suggestion was a bounded cache of complete planned
+variants under that model.
 
-That experiment can use ordinary prepared executables and host-side planning.
-It should establish whether a practical cache suffices before proposing a more
-complex shared suffix or conditional-Clifford executor. Any such executor or
-lifecycle change remains a separate architectural decision. Interleaved-noise
-stress tests remain a separate correctness and scaling problem.
+The user's circuit-level noise objection changes that priority: a per-site
+probability of 0.001 does not imply a sparse whole-circuit history. Increasing
+the number of sites can remove almost all repetition of complete histories.
+Before developing a cache, measure that effect and specialization behavior on
+noise throughout the circuit, including a different protocol and a larger
+control. The full-circuit diagnostic below supersedes the proposed cache
+experiment. Possible sharing through equivalent regional corrections remains
+a separate question from repeating identical fault histories.
+
+Any executor or lifecycle change still requires a separate architectural
+decision. The existing prototype remains an offline, single-layer diagnostic.
 
 ### Reproduction
 
@@ -549,6 +552,178 @@ formula, and compares native outputs. `--merlin` requires the same optional
 pinned reference used in the earlier study. Temporary sample binaries use
 same-host byte order and are deleted; the JSON retains checks and diagnostics.
 The native tool is a research executable, not a production compilation entrypoint.
+
+## Full-circuit noise diagnostic on 2026-10-08
+
+The next study replaces the assumption of one noisy layer with errors throughout
+preparation, the non-Clifford region, and decoding. It separates two questions:
+whether complete fault histories repeat, and whether known histories still admit
+small compiled programs. These are different properties.
+
+### Workloads and noise law
+
+`tools/profile/study_circuit_noise.py` studies nine models:
+
+- The original single-layer BT27 control.
+- Synthetic BT27 gate noise in preparation only, the phase region only, the
+  decoder only, and all three regions together, each at probability 0.001.
+- The existing SOFT cultivation d5 fixture at its original probability 0.005,
+  and a diagnostic variant with all 0.005 probabilities rescaled to 0.001.
+- The existing Clifford-only target QEC fixture as a Stim validation control.
+- A larger BT81 circuit from the pinned Merlin generator, with the same
+  synthetic gate-noise policy throughout and without inverse target scoring.
+
+The synthetic BT policy places two-qubit depolarization after each quantum
+CNOT, single-qubit depolarization after each T/T_DAG and on the target of each
+classical feedback CNOT, Z errors after X resets, and readout errors on M/MX.
+The feedback target channel is present whether or not the conditional gate
+fires. This deliberately simple diagnostic omits idle noise and a hardware
+schedule; it is not a claim to reproduce a physical BT implementation's noise
+budget. The cultivation fixture retains its existing noise placement and final
+scoring operations.
+
+One site means one categorical channel application, not one source line or one
+physical qubit. A two-qubit depolarizing site has 15 nonidentity outcomes. A
+sampled history contains every selected site and its Pauli outcome, including
+readout flips. All site probabilities within each studied model are equal.
+
+Each model gets 10,000 independent history draws for repetition statistics and
+a separate 16 draws for compilation. The identity is also compiled as a control.
+Only distinct histories in that small compilation sample are compiled. The
+control and deduplicated compilation sample are not a probability-weighted
+logical-error estimate. Measurements and feedback remain live; readout faults
+invert recorded results rather than fixing physical measurement outcomes.
+The original ideal reference parities remain fixed across each model's variants.
+
+### Whole-history cache scaling
+
+For N independent sites with fault probability p, the expected fault count is
+Np, and the no-fault probability is `(1-p)^N`. Thus a small per-site p alone
+does not imply few faults per circuit. For 10,000 sites at p = 0.001, the expected
+count is ten and the probability of at most one fault is only 0.0497%.
+
+The observed repeat fractions below count every history after its first
+appearance as a hit. They assume an initially empty, unlimited cache retaining
+every previous complete history. They are upper bounds for an initially empty
+bounded cache keyed by that same history on that same stream. They are not
+measurements of a cache implementation or of equivalent-correction reuse.
+
+| Model | Sites | p | Expected faults | Repeated histories in 10,000 draws |
+| --- | ---: | ---: | ---: | ---: |
+| BT27, original layer | 81 | 0.001 | 0.081 | 97.34% |
+| BT27, noise throughout | 4,170 | 0.001 | 4.170 | 1.74% |
+| Cultivation d5, rescaled | 3,564 | 0.001 | 3.564 | 3.31% |
+| Cultivation d5, original | 3,564 | 0.005 | 17.820 | 0% |
+| BT81, noise throughout | 24,492 | 0.001 | 24.492 | 0% |
+
+The result depends on the number of shots and the cache key. Different complete
+histories may still induce the same effective action on a smaller region. The
+JSON also records the exact probability that two independent histories match:
+the product over sites of `(1-p)^2 + p^2/m`, where m is the number of equally
+likely nonidentity outcomes at that site. This pair-collision probability is
+not itself the hit rate of a warmed cache.
+
+Without stochastic faults, the existing approach can compile the circuit once
+and reuse its executable across measurement trajectories. A fault-history cache
+is unnecessary in that case; this does not imply that all trajectories share
+one coefficient array.
+
+### Specialization results and validation
+
+| Model | Unfixed peak width / T count | Fixed peak widths / T count |
+| --- | ---: | ---: |
+| BT27, original layer | 28 / 216 | 9 / 37 |
+| BT27, preparation noise | 28 / 216 | 7-9 / 37 |
+| BT27, phase-region noise | 33 / 378 | 9 / 37 |
+| BT27, decoder noise | 9 / 37 | 9 / 37 |
+| BT27, noise throughout | 33 / 378 | 7-9 / 37 |
+| Cultivation d5, either p | 10 / 72 | 10 / 72 |
+| Clifford target QEC | 0 / 0 | 0 / 0 |
+| BT81, noise throughout | 87 / 1,134 | 56 / 648 |
+
+All 16 sampled full-noise BT27 histories are distinct, have two to eight faults,
+and recover 37 T gates at width at most nine. Including the identity control,
+the widths are nine for ten cases, eight for four, and seven for three. This
+extends the evidence for a recoverable small core beyond the single-layer
+model. It does not establish a common executable, a correction formula for all
+these sites, a worst-case bound for full-circuit noise, or efficient per-shot
+construction. Median ordinary optimization alone remains about 62 ms per
+full-noise BT27 pattern.
+
+The region controls locate different blockers. Decoder noise already permits
+the ordinary reduced core. Noise between T gates instead fragments collection:
+the unspecialized full-noise circuit has 378 examined phase blocks, zero capped
+blocks, and no reductions. Fixed histories restore the reduction in this sample.
+This is distinct from the variable-cap behavior seen with preparation noise.
+
+Cultivation is a useful counterexample to treating noise or poor cache reuse as
+necessarily expensive: its ordinary noisy program is already width ten, and
+fixing faults does not reduce width or T count in this sample. Its outputs were
+validated as records, detector parities, and logical observable parities; no
+additional quantum-state probes were added for this protocol.
+
+BT81 remains a compiler-limited control. Its ideal and sampled fixed programs
+already have peak width 56 and 648 T gates, with nine capped phase blocks. Its
+known 87-variable support exceeds the current parity representation. The wider
+result does not establish an intrinsic simulation lower bound. All BT81 cases
+were inspected only, without allocating a dense state or computing a sampled
+reference syndrome.
+
+Validation comprises 106 fixed model/pattern cases and four directly noisy
+controls against Merlin, with 512 shots per simulator per case and distinct
+seeds. BT27 retains the earlier 95 logical Pauli probes and 1,592 joint moments.
+The maximum discrepancy score over all models is 3.589 for the joint moments
+and 1.323 for logical observable means, below the six-sigma diagnostic threshold.
+There are 233 constant conditional-probe groups checked, with maximum difference
+1.67e-16. The Clifford control also passes 12 fixed/unfixed comparisons against
+Stim. Each model's reconstructed noisy source exactly matches its original
+parsed instructions, including absolute feedback references and readout noise.
+These finite statistical checks are not tomography or a rare-event accuracy
+claim. No postselection is used in the comparisons.
+
+The complete measurements are in [circuit-noise-study.json](circuit-noise-study.json).
+The diagnostic runs sequentially, keeps execution below width 17, and does not
+implement a cache or change production code.
+
+### Next question
+
+The immediate priority is to derive and test an inexpensive representation of
+the effect of different histories, rather than cache complete histories:
+
+1. Extend the physical boundary calculation to faults at different positions
+   inside BT27's CNOT/T region, then include preparation and readout/feedback
+   effects and decoder faults. Keep classical record changes explicit. Compare
+   reconstructed full-circuit outputs with the fixed-history oracle used here.
+2. Determine which regional correction controls and planned actions can share
+   precomputed topology. Equal optimized widths and T counts do not prove this.
+   Measure construction and execution cost across different histories, including
+   cold patterns, and count equivalent correction summaries if they exist.
+3. Retain cultivation as a different-protocol control. Investigate BT81's known
+   algebraic representation cap separately before using its present width to
+   assess conditional corrections.
+
+Regional reuse may survive even when complete histories never repeat, but that
+is a hypothesis to test. A bounded cache can be an optional later optimization
+if the measured correction classes repeat. It is no longer the proposed
+foundation for full-circuit noisy simulation. All topology discovery and variant
+construction in this investigation remain offline; any new executor mechanism
+requires its own architectural decision.
+
+### Reproduction
+
+Use the same development build and pinned Merlin installation as the earlier
+experiments:
+
+```bash
+.venv/bin/python tools/profile/study_circuit_noise.py \
+  --merlin-checkout /path/to/merlin-at-097380fac1a3968ca47925146e211fe990f4c396 \
+  --output /tmp/circuit-noise-study.json
+```
+
+Defaults are 10,000 history draws, 16 compilation draws, 512 validation shots,
+seed 20261009, and maximum execution width 16. Larger programs are inspected
+without execution. Results are checkpointed after each model. The script uses
+the existing compiler unchanged and requires the optional Merlin package.
 
 ## References
 

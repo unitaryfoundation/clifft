@@ -282,6 +282,13 @@ against fresh compilation and optionally Merlin. It also records the common
 prefix actions, varying decoder actions, and exploratory costs. Each suffix is
 still planned offline; no executor state or runtime topology is shared.
 
+`study_circuit_noise.py` broadens the diagnostic to synthetic gate/readout noise
+throughout BT27 and BT81, the existing noisy cultivation fixture, and a Clifford
+QEC control. It measures exact-history repetition separately from fixed-history
+compilation, validates bounded-width cases against Merlin and the Clifford
+control against Stim, and inspects wide cases without execution. It does not
+implement a cache. The research record documents noise policies and limitations.
+
 ## Probability queries
 
 `profile_probability` uses a unitary-only circuit because measurements,
