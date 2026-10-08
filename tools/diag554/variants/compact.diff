@@ -1,0 +1,66 @@
+From d3b80f69f16c5bffa0ffa00cbd17bfbd3d097d2e Mon Sep 17 00:00:00 2001
+From: Brad Chase <brad@unitary.foundation>
+Date: Thu, 8 Oct 2026 16:59:58 +0000
+Subject: [PATCH] perf(sampling): group hot noise-sampling members first
+ (experiment variant)
+
+Reorder BatchExecutor data members so the plan pointer, RNG, noise
+carrier and symbol bit columns, and the capacity fields that packed noise
+sampling touches on every draw sit together at the start of the object.
+Total size is unchanged. The constructor initializer list follows the new
+declaration order.
+
+Assisted-by: Claude Code (Sonnet) <noreply@anthropic.com>
+---
+ src/clifft/sampling/batch/executor.cc | 4 ++--
+ src/clifft/sampling/batch/executor.h  | 6 +++---
+ 2 files changed, 5 insertions(+), 5 deletions(-)
+
+diff --git a/src/clifft/sampling/batch/executor.cc b/src/clifft/sampling/batch/executor.cc
+index 35a38462..7c943b7e 100644
+--- a/src/clifft/sampling/batch/executor.cc
++++ b/src/clifft/sampling/batch/executor.cc
+@@ -67,14 +67,14 @@ BatchExecutor::BatchExecutor(const ExecutablePlan& plan, BatchOutputMode output_
+                              BatchSamplingMode sampling_mode,
+                              const batch_detail::BatchWorkerStorageLayout& storage)
+     : plan_(validate_batch_plan(plan)),
++      batch_noise_carriers_(storage.noise_carrier_columns, storage.lane_capacity),
++      symbols_(storage.symbol_columns, storage.lane_capacity),
+       output_mode_(output_mode),
+       sampling_mode_(sampling_mode),
+       lane_capacity_(storage.lane_capacity),
+       word_capacity_(storage.word_capacity),
+       state_(storage.peak_active_width, storage.initial_active_width, storage.lane_capacity),
+       shot_indices_(storage.shot_index_entries),
+-      symbols_(storage.symbol_columns, storage.lane_capacity),
+-      batch_noise_carriers_(storage.noise_carrier_columns, storage.lane_capacity),
+       expression_registers_(storage.expression_register_columns, storage.lane_capacity),
+       records_(storage.record_columns, storage.lane_capacity),
+       detectors_(storage.detector_columns, storage.lane_capacity),
+diff --git a/src/clifft/sampling/batch/executor.h b/src/clifft/sampling/batch/executor.h
+index b1af621f..dc56d83d 100644
+--- a/src/clifft/sampling/batch/executor.h
++++ b/src/clifft/sampling/batch/executor.h
+@@ -97,17 +97,17 @@ class BatchExecutor {
+     void finalize_live_lanes() noexcept;
+
+     const ExecutablePlan* plan_;
++    Xoshiro256PlusPlus rng_;
++    PackedBitColumns batch_noise_carriers_;
++    PackedBitColumns symbols_;
+     const BatchOutputMode output_mode_;
+     const BatchSamplingMode sampling_mode_;
+     uint32_t lane_capacity_ = 0;
+     size_t word_capacity_ = 0;
+
+     InterleavedBatchState state_;
+-    Xoshiro256PlusPlus rng_;
+     std::vector<uint32_t> shot_indices_;
+
+-    PackedBitColumns symbols_;
+-    PackedBitColumns batch_noise_carriers_;
+     PackedBitColumns expression_registers_;
+     PackedBitColumns records_;
+     PackedBitColumns detectors_;
+--
+2.43.0

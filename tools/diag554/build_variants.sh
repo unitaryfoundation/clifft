@@ -12,7 +12,7 @@ for variant in control local compact; do
     mkdir -p "$ROOT/benchmark-source"
     git -C "$ROOT" archive "$SOURCE_SHA" | tar -x -C "$ROOT/benchmark-source"
     if [[ $variant != control ]]; then
-        git -C "$ROOT/benchmark-source" apply "$ROOT/tools/diag554/variants/$variant.patch"
+        git -C "$ROOT/benchmark-source" apply "$ROOT/tools/diag554/variants/$variant.diff"
     fi
     cmake -E remove_directory "$ROOT/benchmark-build"
     cmake -S "$ROOT/benchmarks" -B "$ROOT/benchmark-build" \
