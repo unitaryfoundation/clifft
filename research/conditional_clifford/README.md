@@ -3,6 +3,12 @@
 This is a research record, not an execution-architecture specification. The
 repository's planning, allocation, and correctness invariants continue to apply.
 
+Latest result: the [complete scored sampler](#complete-scored-sampler-on-2026-10-08)
+now runs fresh circuit-wide noise and agrees with the independent references
+in the retained checks. The next question is the full-circuit Clifford
+reduction exposed by including target scoring. Earlier sections retain the
+experiment's progression and the narrower scopes used at each stage.
+
 ## Baseline and question
 
 The branch `codex/bt27-fault-specialization` was created from this chat's checkout
@@ -1057,6 +1063,165 @@ executor architecture.
 Once the complete sampler is correct and practically usable, return to the
 decoder/suffix cost study if measurements justify it. Noiseless optimization
 remains an independent future direction.
+
+## Complete scored sampler on 2026-10-08
+
+The research sampler now executes the complete target-scored BT27 source.
+It includes all 135 physical qubits, preparation and feedback, the physical
+CCZ layer, decoding, all six logical scoring CCZ gates, and final logical
+readout. Each shot returns 135 measurement records, 72 detectors, and nine
+logical observables. The ideal prefix is optimized once; the scoring tail
+adds 42 T/T_DAG gates to the 37-T shared core. Fault draws, measurement
+trajectories, and output corrections remain live for every requested shot.
+
+The original p = 0.001 pre-CCZ depolarizing model is matched exactly against
+the pinned Merlin generator with `target_scoring=True`. The broader model
+uses the previously documented 4,170 gate/readout sites throughout preparation,
+the physical phase region, and decoding, also at p = 0.001. Both samplers use
+identical full sources and an ideal scoring tail. This is the benchmark's
+verifier convention, not a claim to include hardware noise during verification
+or an idle-noise schedule. The sparse history drawer currently requires equal
+site probabilities and uniform outcomes within each depolarizing channel;
+support for arbitrary fixed Pauli histories should not be read as a general
+biased-channel sampling interface.
+
+### Construction and validation
+
+`ScoredSampler` in `tools/profile/study_bt27_scored_sampling.py` is an offline
+research host. It evaluates the existing full-circuit fault controls, then
+asks `profile_bt27_scored_sampling` to compose and plan one variant before
+calling the ordinary executor. The first composition boundary inserts the
+physical Clifford after the shared phase core. The second inserts the decoder
+Pauli before logical scoring. Record flips and the resulting detector and
+observable parity changes are restored against the original ideal zero
+references. There is no full-history cache, no truncation by fault count, and
+no postselection or discarded shot.
+
+The native diagnostic checks raw composition against tracing the physically
+relocated circuit, including visible and hidden record numbering and observable
+metadata. The fixed-history comparison independently recompiles the faults at
+their original locations and also samples those original locations with Merlin.
+Merlin's fixed-fault records are interpreted with the original ideal reference,
+because a reference calculated from the faulty circuit can hide its syndrome
+or logical effect. The fresh stochastic comparison additionally checks both
+samplers' returned detector/observable arrays against their raw record parities.
+
+Each distribution comparison covers 1,942 statistics: all record and detector
+means, 64 additional record/detector parities, all 511 nonempty nine-bit logical
+parities, 648 detector/logical correlations, the zero-syndrome indicator, and
+511 logical parities weighted by that indicator. These are finite six-sigma
+checks with a finite-sample allowance, not a proof of the complete joint
+distribution or an accurate estimate of rare undetected logical errors.
+
+A separate negative control isolates an X fault on physical/logical qubit 0
+after decoding. Its phase correction and record flips are zero, and every
+syndrome remains zero. A nine-qubit Aer calculation of the full logical
+operation, X fault, inverse logical operation, and X readout predicts a
+93.75% chance of a logical event. The correct sampler produced 482 such shots
+out of 512. Deliberately moving X past scoring produced zero. This confirms
+that simply treating the decoder Pauli as a final readout adjustment would
+miss a real logical effect.
+
+### Results and implications
+
+All 163 fixed cases passed both the fresh-Clifft and Merlin comparisons at
+512 shots per sampler per case, including the two histories with faults at
+every one of the 4,170 sites. The maximum comparison scores were 3.90 and
+4.35 respectively, below the six-sigma threshold. The complete stochastic
+comparison used 4,096 shots per sampler per model and passed all three models.
+Both ideal samples had zero detector and logical events.
+
+The broader noisy run drew 4,022 distinct histories in 4,096 shots, averaging
+4.175 faults per shot against the model's expectation of 4.170. Every variant
+used active width nine and 79 T/T_DAG gates in the shared-core construction.
+The result therefore does not depend on repeatedly sampling a small set of
+fault histories. Full-noise zero-syndrome shots numbered 140 for the prototype
+and 122 for Merlin; nine and 17 respectively also had logical events. Those
+small counts support only a coarse joint-distribution check, not a reliable
+logical-error-rate estimate.
+
+One local run on one pinned CPU measured the following costs. Shot time includes
+fault drawing, control evaluation, IPC, per-variant composition and planning,
+execution, and record/detector/observable restoration and materialization.
+Diagnostic summary aggregation and disk interchange are outside shot timing.
+
+| Complete scored input | Prototype per shot | Merlin per shot | Ratio | Prototype setup | Merlin setup |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Ideal control | 4.316 ms | 1.096 ms | 3.94 | 176 ms | 134 ms |
+| Original pre-CCZ noise | 4.376 ms | 1.078 ms | 4.06 | 272 ms | 227 ms |
+| Gate/readout noise throughout the physical protocol | 4.706 ms | 1.479 ms | 3.18 | 469 ms | 197 ms |
+
+The broader noisy prototype used 131.3 MiB peak in its Python host and 7.2 MiB
+in its native child; Merlin's Python process used 65.0 MiB. These separately
+measured high-water marks include each process's imports and diagnostic
+storage, and should not be added as if they were simultaneous unique memory.
+Setup includes constructing and checking the source as well as backend setup.
+The ideal control deliberately replans every shot like the noisy path; it is
+not a proposed noiseless implementation or a benchmark of ordinary Clifft.
+
+This is a modest multiple of Merlin's runtime, below the user's 10-100x
+practical concern, and it establishes a complete working research path.
+It does not establish a speed advantage. In the broader noisy run, composition
+cost 2.810 ms per shot and planning 1.407 ms; ordinary sampling itself cost
+0.0151 ms. The remaining cost includes Python controls, fault drawing, IPC,
+preparation, and output handling. This locates a possible future optimization
+target without changing the completion-first priority.
+
+There is also a new structural observation from including scoring: fresh
+whole-circuit optimization of every tested *fixed* history removes all T gates
+and reaches active width zero, including the dense stress cases. The inverse
+logical target operation exposes cancellations unavailable when stopping at
+the unscored outputs. This is stronger than the earlier unscored width-nine
+result, but it does not mean the unresolved noisy source now optimizes away:
+
+| Complete scored source before fixing faults | Remaining T/T_DAG gates | Peak active width |
+| --- | ---: | ---: |
+| Ideal | 0 | 0 |
+| Original stochastic noise | 239 | 28 |
+| Broader stochastic gate/readout noise | 401 | 33 |
+
+The wide stochastic sources were inspected without execution. Specializing a
+history and recompiling its whole scored circuit still pays a fresh compilation
+cost per shot. The shared-core sampler currently retains its 79 T gates and
+width nine rather than invoking that optimizer inside ordinary execution.
+
+The next study should explain and validate this complete-circuit Clifford
+reduction algebraically: determine whether the full scored fault-dependent
+Clifford can be obtained directly from the existing controls while preserving
+measurements, feedback, and joint outputs. The finite fixed-case result is
+evidence for that question, not a general proof. Keep the completed sampler
+and independent references as correctness baselines. Any production integration
+or new execution lifecycle still needs an explicit architecture proposal;
+no such change was made here. Broader biased/nonuniform Pauli-channel sampling
+and independent noiseless optimization remain separate follow-ups.
+
+Results are retained in [bt27-scored-sampling.json](bt27-scored-sampling.json).
+
+### Reproduction
+
+```bash
+cmake -S . -B build-profile -DCMAKE_BUILD_TYPE=Release \
+  -DCLIFFT_BUILD_PROFILER=ON -DCLIFFT_BUILD_TESTS=OFF
+cmake --build build-profile --target profile_bt27_scored_sampling -j4
+.venv/bin/python tools/profile/study_bt27_scored_sampling.py \
+  --binary build-profile/profile_bt27_scored_sampling \
+  --merlin-checkout /path/to/pinned/merlin \
+  --shots 4096 --fixed-shots 512 \
+  --output /tmp/bt27-scored-sampling.json
+```
+
+The optional Merlin installation, pinned checkout, Stim, Qiskit, and Aer are
+required. `--smoke --shots 128 --fixed-shots 128` retains seven fixed cases,
+including the all-sites stress histories and the scoring negative control.
+The host pins itself and child processes to one available CPU. A width guard
+rejects plans above 16 before native executable allocation. Linux `VmHWM`
+reports each process's resident-memory peak since exec; it avoids the pre-exec
+parent peak that can contaminate `getrusage`. Separate Python and native peaks
+are not an additive measurement of simultaneous unique resident memory.
+
+The result artifact retains full source hashes, the Merlin revision and
+extension hash, the native binary hash, seeds, every fixed history, statistical
+checks, logical-pattern counts, and timing and memory telemetry.
 
 ## References
 

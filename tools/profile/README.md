@@ -297,6 +297,36 @@ outputs against fresh compilation and Merlin, small phase operators against
 Aer, and a Clifford control's signed flows against Stim. Construction, suffix
 planning, and output restoration remain offline research operations.
 
+`profile_bt27_scored_sampling` and `study_bt27_scored_sampling.py` extend that
+experiment through Merlin's complete logical target-scoring tail: six logical
+CCZ gates, nine X measurements, and nine observables. The Python research host
+draws a new categorical fault history for every shot, composes both the phase
+correction and the decoder Pauli before scoring, and returns all 135 records,
+72 detectors, and nine observables. Each variant is planned before calling the
+ordinary executor; there is no history cache or production sampling API change.
+
+The driver checks fixed histories against fresh compilation and Merlin, checks
+an isolated decoder fault against a nine-qubit Aer oracle, and compares fresh
+stochastic samples on identical complete sources. The original pre-CCZ noise
+and the synthetic gate/readout-noise model both retain Merlin's ideal scoring
+tail. Timings include every per-shot fault draw, composition, planning,
+execution, and output restoration; setup is reported separately. Linux memory
+high-water marks are recorded separately for the Python and native processes.
+
+```bash
+cmake --build build-profile --target profile_bt27_scored_sampling -j4
+.venv/bin/python tools/profile/study_bt27_scored_sampling.py \
+  --binary build-profile/profile_bt27_scored_sampling \
+  --merlin-checkout /path/to/pinned/merlin \
+  --shots 4096 --fixed-shots 512 --output /tmp/bt27-scored-sampling.json
+```
+
+Add `--smoke --shots 128 --fixed-shots 128` for a smaller validation run. The
+study requires the pinned Merlin checkout and installed `merlin-sim`, Stim,
+Qiskit, and Aer. It limits native active width to 16 before allocation; this is
+a research budget, not a production simulator limit. Finite distribution
+checks are not precise estimates of rare undetected logical errors.
+
 ## Probability queries
 
 `profile_probability` uses a unitary-only circuit because measurements,

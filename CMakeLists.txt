@@ -326,6 +326,12 @@ else()
             ${CMAKE_CURRENT_SOURCE_DIR}/src
             ${CMAKE_CURRENT_BINARY_DIR}/generated
         )
+        add_executable(profile_bt27_scored_sampling tools/profile/profile_bt27_scored_sampling.cpp)
+        target_link_libraries(profile_bt27_scored_sampling PRIVATE clifft_core)
+        target_include_directories(profile_bt27_scored_sampling PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/src
+            ${CMAKE_CURRENT_BINARY_DIR}/generated
+        )
         add_executable(profile_probability tools/profile/profile_probability.cpp)
         target_link_libraries(profile_probability PRIVATE clifft_core)
         target_include_directories(profile_probability PRIVATE
