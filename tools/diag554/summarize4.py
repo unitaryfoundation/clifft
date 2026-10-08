@@ -136,6 +136,34 @@ def main():
             print(f"| {d.name} | " + " | ".join(cells) + " |")
 
 
+def stacksweep(out):
+    single = out / "single"
+    if not (single / "stacksweep_bad_control_0.json").exists():
+        return
+    print(
+        "\n| Variant | stack sweep on aliasing page min / median / max ms"
+        " | positions >3% over favorable | favorable page min / max ms |"
+    )
+    print("|---|---|---:|---|")
+    table = {}
+    for v in VARIANTS:
+        bad = [med(single / f"stacksweep_bad_{v}_{j}.json") for j in range(64)]
+        good = [med(single / f"stacksweep_good_{v}_{j}.json") for j in range(0, 64, 8)]
+        table[v] = bad
+        ref = statistics.median(good)
+        slow = [j for j, t in enumerate(bad) if t > 1.03 * ref]
+        print(
+            f"| {v} | {min(bad):.2f} / {statistics.median(bad):.2f} / {max(bad):.2f} | "
+            f"{len(slow)} ({_ranges(slow)}) | {min(good):.2f} / {max(good):.2f} |"
+        )
+    print("\n<details><summary>Stack sweep by line position</summary>\n")
+    print("| j | " + " | ".join(VARIANTS) + " |")
+    print("|---:|" + "---:|" * len(VARIANTS))
+    for j in range(64):
+        print(f"| {j} | " + " | ".join(f"{table[v][j]:.2f}" for v in VARIANTS) + " |")
+    print("\n</details>")
+
+
 def layouts(out):
     root = out / "layouts"
     if not root.exists():
@@ -174,4 +202,5 @@ def _ranges(js):
 
 if __name__ == "__main__":
     main()
+    stacksweep(pathlib.Path(sys.argv[1]))
     layouts(pathlib.Path(sys.argv[1]))

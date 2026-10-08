@@ -171,6 +171,14 @@ for experiment in $EXPERIMENTS; do
         done
         echo "done stack9"
         ;;
+    stacksweep)
+        read -r LIBM BAD GOOD < <(pick_pages)
+        for v in $VARIANTS; do
+            (cd "$ROOT/tools/diag554" && python3 stack_sweep.py "$v" "$BIN/$v" "$STEER" "$CPU" \
+                "$OUT" "$(printf '%x' $((GOOD + 0x820)))")
+        done
+        echo "done stacksweep"
+        ;;
     sweep2)
         read -r LIBM BAD GOOD < <(pick_pages)
         for j in $(seq 1 2 63); do
