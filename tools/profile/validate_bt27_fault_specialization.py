@@ -94,7 +94,7 @@ def compare(c: Any, m: Any, converter: Any, reference: dict[str, Any]) -> dict[s
     max_difference = 0.0
     for key in c_groups.keys() & m_groups.keys():
         c_values, m_values = c_groups[key], m_groups[key]
-        if min(len(c_values), len(m_values)) < 8:
+        if min(len(c_values), len(m_values)) < 8 or c_values.shape[1] == 0:
             continue
         spread = max(float(np.ptp(c_values, axis=0).max()), float(np.ptp(m_values, axis=0).max()))
         if spread > 1e-10:

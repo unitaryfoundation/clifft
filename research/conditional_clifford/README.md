@@ -387,6 +387,169 @@ success if the sweep completes. Inspect the `matches` fields; exit status alone
 does not certify a reusable frame bank. Repository-wide pre-commit checks are
 also required before committing changes to these research tools.
 
+## Reusing a prefix at the physical phase boundary on 2026-10-08
+
+The next diagnostic constructs complete programs from one fault-free optimized
+prefix and exact physical Clifford corrections. It does not infer corrections
+from optimized faulty output frames, and it does not rerun the phase pass for
+each pattern. All construction, coordinate changes, and planning remain offline.
+
+### The reduction is available before the decoder
+
+Preparation plus source lines 1958-2875, with the entire decoder omitted,
+compiles to 37 T gates and peak/final active width nine. The prefix retains 54
+visible preparation records and 63 hidden reset records. Thus the small core
+does not require future decoder measurements to establish the reduction.
+
+The construction retains that physical boundary: the optimized preparation and
+core precede every decoder measurement. It deliberately forgoes the ordinary
+whole-program pass's opportunity to move suitable measurements ahead of the
+core. This makes the reusable interface explicit, with a possible execution
+cost to be measured separately.
+
+### Exact composition at the interface
+
+Let `F` be the original prefix's final Clifford frame, `G` the optimized
+prefix's frame, `H` the original full circuit's frame, and `C` the physical
+fault correction already derived from the phase polynomial. All use the same
+135 physical coordinates, including preparation ancillas. In matrix-product
+notation, with the rightmost factor acting first:
+
+```text
+suffix Pauli pullback = G^-1 C^-1 F
+new final frame      = H F^-1 C G
+```
+
+The first expression conjugates each signed suffix Pauli from the original
+HIR into the optimized prefix's coordinates. The second restores the final
+physical frame. Only the already-supported standalone prefix optimization is
+state dependent; the interface formulas are exact Clifford algebra.
+
+Hidden reset records need a separate bookkeeping adjustment: standalone prefix
+records 54-116 become full-program hidden records 126-188. Visible records and
+their controlling feedback retain their identities. The diagnostic checks
+composition using the unoptimized prefix against a freshly traced source with
+the correction inserted physically. That comparison includes all signed HIR
+operations, record identities, detector targets, and final tableau. It verifies
+the coordinate formula without relying on the optimized-prefix equivalence.
+
+Together, the standalone prefix optimization and this exact interface justify
+reuse on the prefix's reachable states. This is not a claim that the reduced
+prefix equals the original operator on every input state, nor an independent
+formal verification of the existing optimizer.
+
+The construction also explains the width bound. The prefix reaches width nine;
+absorbing `C` changes its physical Clifford frame without adding coefficient
+coordinates. The remaining decoder is Clifford and projective measurement.
+The current planner's measurement actions preserve or decrease active width,
+and expectation probes do not promote coordinates. Consequently this
+construction has a structural width-nine bound for any fixed Pauli assignment
+at this one noise layer, assuming the standalone prefix optimization's existing
+correctness contract. This argument does not cover interleaved non-Clifford
+operations or a different noise model.
+
+### Results and costs
+
+All 292 patterns pass the exact unoptimized-boundary comparison. All also pass
+sampling comparisons against both ordinary fresh compilation and independently
+installed Merlin, including all 30 patterns whose inferred optimized-frame
+reconstructions previously differed. Each sampler executes 512 shots with
+distinct seeds, retaining the original reference parities and all 95 logical
+Pauli probes.
+
+The 1,592 joint-moment checks have maximum discrepancy scores of 3.521 against
+fresh compilation and 3.966 against Merlin. Constant conditional-probe checks
+cover 2,788 and 2,792 groups respectively, each across 252 patterns, with maximum
+differences of 1.53e-16 and 1.12e-16. These are finite statistical/probe checks,
+not full tomography. Results are in
+[bt27-boundary-validation.json](bt27-boundary-validation.json).
+
+Every reconstructed program has peak width nine and 37 T gates. Every plan has
+the same complete descriptions for its first 154 preparation/core actions.
+The remaining 144 actions write decoder measurements and detectors; validation
+adds 95 expectation actions. The 24 patterns whose ordinary compilation peaks
+below nine instead shrink after the common core, using one to five active
+measurements. This is the cost of keeping a uniform boundary representation.
+
+There are 292 distinct complete semantic-plan descriptions, both with and
+without probes. This is a description-level count, not a lower bound on required
+executables: differences can reflect coordinate and symbol choices. The
+measurement bodies, action kinds, and symbolic dependencies still need an
+appropriate representation before one universal suffix can be claimed.
+
+The common prefix's rotation signs contain affine expressions in preparation
+outcomes. Common instructions do not imply identical coefficient arrays for
+all trajectories. Simply caching one prepared statevector would require an
+additional argument about those signs and the corresponding frame corrections.
+
+A separate 256-shot run omits the added probes and validates all 292 patterns
+using 262 classical-record/detector moments. Its maximum discrepancy score
+against fresh compilation is 3.578. Local medians are:
+
+| Stage | Time per pattern |
+| --- | ---: |
+| Evaluate the physical correction formula in Python | 0.230 ms |
+| Read/trace that correction and compose the shared-prefix HIR | 1.55 ms |
+| Plan the resulting complete program | 1.15 ms |
+| Prepare its executable | 0.043 ms |
+| Sum of those stages, median of per-pattern sums | 3.00 ms |
+| Fresh whole-source parse, trace, and optimization alone | 60.0 ms |
+| Sample 256 records from the constructed program | 1.148 ms |
+| Sample 256 records from ordinary fresh compilation | 1.147 ms |
+
+Native one-time setup takes 33-52 ms across the two runs. The constructed path
+still plans and prepares a complete executable for each distinct pattern; it
+shares the prefix optimization, not executor storage. The reported stage times
+exclude validation/oracle work and temporary-input generation. Formula
+evaluation was separately timed in the record-only run. Sampling includes
+executor setup, with one worker and batch size one. Timings are single local
+observations rather than controlled production throughput measurements.
+Individual pattern sampling ratios reach about 1.8x, so the nearly equal
+medians should not be read as a no-regression guarantee for dense faults.
+The record-only run is retained in
+[bt27-boundary-records.json](bt27-boundary-records.json).
+
+### Next bounded experiment
+
+The physical correction and reusable reduced-prefix interface now have concrete
+implementations and validation. The next cost question is the remaining
+per-pattern construction/planning, which still greatly exceeds one shot's
+execution time. Measure a bounded cache of complete preplanned variants under
+the original categorical depolarizing distribution, including repeated patterns,
+multiple-fault misses, compilation time, resident memory, and total sampling
+cost. Misses must use the same exact construction and preserve the original
+noise law and reference parities.
+
+That experiment can use ordinary prepared executables and host-side planning.
+It should establish whether a practical cache suffices before proposing a more
+complex shared suffix or conditional-Clifford executor. Any such executor or
+lifecycle change remains a separate architectural decision. Interleaved-noise
+stress tests remain a separate correctness and scaling problem.
+
+### Reproduction
+
+```bash
+cmake -B build-profile -DCMAKE_BUILD_TYPE=Release \
+  -DCLIFFT_BUILD_PROFILER=ON -DCLIFFT_BUILD_TESTS=OFF
+cmake --build build-profile --target profile_bt27_boundary_reuse -j4
+
+.venv/bin/python tools/profile/study_bt27_boundary_reuse.py \
+  --binary build-profile/profile_bt27_boundary_reuse \
+  --study research/conditional_clifford/bt27-specialization.json \
+  --output /tmp/bt27-boundary-validation.json --merlin
+
+.venv/bin/python tools/profile/study_bt27_boundary_reuse.py \
+  --binary build-profile/profile_bt27_boundary_reuse \
+  --study research/conditional_clifford/bt27-specialization.json \
+  --output /tmp/bt27-boundary-records.json --without-probes --shots 256
+```
+
+The Python driver generates temporary inputs, evaluates the physical correction
+formula, and compares native outputs. `--merlin` requires the same optional
+pinned reference used in the earlier study. Temporary sample binaries use
+same-host byte order and are deleted; the JSON retains checks and diagnostics.
+The native tool is a research executable, not a production compilation entrypoint.
+
 ## References
 
 - [PR 552](https://github.com/unitaryfoundation/clifft/pull/552)

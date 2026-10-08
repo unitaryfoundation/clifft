@@ -275,6 +275,13 @@ planning or executable preparation. This is an offline diagnostic, not a
 specialization backend. Reproduction commands and retained results are in the
 same research record.
 
+`profile_bt27_boundary_reuse` is a separate opt-in native target that composes
+exact physical corrections with one optimized prefix ending before the decoder.
+`study_bt27_boundary_reuse.py` prepares its inputs and validates complete outputs
+against fresh compilation and optionally Merlin. It also records the common
+prefix actions, varying decoder actions, and exploratory costs. Each suffix is
+still planned offline; no executor state or runtime topology is shared.
+
 ## Probability queries
 
 `profile_probability` uses a unitary-only circuit because measurements,
