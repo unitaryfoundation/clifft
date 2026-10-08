@@ -166,6 +166,30 @@ def stacksweep(out):
     print("\n</details>")
 
 
+def stackpoints(out):
+    single = out / "single"
+    files = sorted(single.glob("stackpoint_*.json"))
+    if not files:
+        return
+    table: dict[tuple[str, int], list[float]] = {}
+    for p in files:
+        _, name, j, _r = p.stem.split("_")
+        table.setdefault((name, int(j)), []).append(med(p))
+    positions = sorted({j for _, j in table})
+    print(
+        "\n| Variant | "
+        + " | ".join(f"stack position {j}: median (min-max) ms" for j in positions)
+        + " |"
+    )
+    print("|---|" + "---|" * len(positions))
+    for v in VARIANTS:
+        cells = []
+        for j in positions:
+            xs = table.get((v, j), [])
+            cells.append(f"{statistics.median(xs):.2f} ({min(xs):.2f}-{max(xs):.2f})" if xs else "")
+        print(f"| {v} | " + " | ".join(cells) + " |")
+
+
 def layouts(out):
     root = out / "layouts"
     if not root.exists():
@@ -205,4 +229,5 @@ def _ranges(js):
 if __name__ == "__main__":
     main()
     stacksweep(pathlib.Path(sys.argv[1]))
+    stackpoints(pathlib.Path(sys.argv[1]))
     layouts(pathlib.Path(sys.argv[1]))

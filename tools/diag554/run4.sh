@@ -181,6 +181,17 @@ for experiment in $EXPERIMENTS; do
         done
         echo "done stacksweep"
         ;;
+    stackpoints)
+        # Repeated processes at the stack positions where the sweep found
+        # aliasing, plus a mid-page reference position.
+        read -r LIBM BAD GOOD < <(pick_pages)
+        args=()
+        for v in $VARIANTS; do args+=("$v=$BIN/$v"); done
+        (cd "$ROOT/tools/diag554" && python3 stack_points.py "$STEER" "$CPU" "$OUT" \
+            "$(printf '%x' $((GOOD + 0x820)))" "${STACK_POSITIONS:-7,8,9,10,30}" \
+            "${STACK_REPEATS:-5}" "${args[@]}")
+        echo "done stackpoints"
+        ;;
     sweep2)
         read -r LIBM BAD GOOD < <(pick_pages)
         for j in $(seq 1 2 63); do
