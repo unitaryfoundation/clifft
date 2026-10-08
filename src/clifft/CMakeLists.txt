@@ -160,7 +160,14 @@ if(CLIFFT_ENABLE_CUDA)
         ${CMAKE_CURRENT_SOURCE_DIR}/..
         ${CMAKE_BINARY_DIR}/generated
     )
-    target_link_libraries(clifft_cuda_backend PUBLIC clifft_cuda_plan CUDA::cudart_static)
+    # The shared runtime lets a driver-API shim (for example a simulated GPU
+    # in CI) interpose on libcudart; the static runtime cannot be interposed.
+    if(CLIFFT_CUDA_SHARED_RUNTIME)
+        set(CLIFFT_CUDART_TARGET CUDA::cudart)
+    else()
+        set(CLIFFT_CUDART_TARGET CUDA::cudart_static)
+    endif()
+    target_link_libraries(clifft_cuda_backend PUBLIC clifft_cuda_plan ${CLIFFT_CUDART_TARGET})
     target_compile_features(clifft_cuda_backend PUBLIC cxx_std_20)
     # Strict floating point keeps both device interpreters on the same
     # footing against the CPU oracle; the HIP backend disables fast math too.

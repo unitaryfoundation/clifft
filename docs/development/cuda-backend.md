@@ -94,6 +94,10 @@ cmake -S . -B build-cuda -G Ninja \
 cmake --build build-cuda -j
 ```
 
+By default the backend links the static CUDA runtime. Pass
+`-DCLIFFT_CUDA_SHARED_RUNTIME=ON` to link the shared `libcudart` instead, for
+example to run the tests under a GPU simulator that replaces the runtime.
+
 The build compiles device code without a visible GPU. Sampling requires a
 compatible device at runtime:
 

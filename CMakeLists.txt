@@ -23,6 +23,8 @@ if(CLIFFT_ENABLE_HIP)
 endif()
 
 option(CLIFFT_ENABLE_CUDA "Build the experimental NVIDIA CUDA sampling backend" OFF)
+option(CLIFFT_CUDA_SHARED_RUNTIME
+    "Link the CUDA backend against the shared cudart instead of cudart_static" OFF)
 if(CLIFFT_ENABLE_CUDA)
     if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
         set(CMAKE_CUDA_ARCHITECTURES 90 CACHE STRING
