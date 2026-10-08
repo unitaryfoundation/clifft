@@ -2,12 +2,14 @@
 
 import json
 import math
+import os
 import pathlib
 import re
 import statistics
 import sys
 
-VARIANTS = ["control", "local", "compact"]
+VARIANTS = os.environ.get("VARIANTS", "control local compact").split()
+OTHERS = [v for v in VARIANTS if v != "control"]
 
 
 def iterations(path):
@@ -124,14 +126,14 @@ def main():
 
     wide = out / "wide"
     if wide.exists():
-        print("\n| Benchmark | control ms | local | compact |")
-        print("|---|---:|---:|---:|")
+        print("\n| Benchmark | control ms | " + " | ".join(OTHERS) + " |")
+        print("|---|---:|" + "---:|" * len(OTHERS))
         for d in sorted(wide.iterdir()):
             r = balanced(d)
             if "control" not in r:
                 continue
             cells: list[str] = [f"{r['control']:.3f}"]
-            for v in ["local", "compact"]:
+            for v in OTHERS:
                 cells.append(f"{100 * (r[v] / r['control'] - 1):+.1f}%" if v in r else "")
             print(f"| {d.name} | " + " | ".join(cells) + " |")
 
@@ -168,15 +170,15 @@ def layouts(out):
     root = out / "layouts"
     if not root.exists():
         return
-    print("\n| Benchmark | control median (min-max) ms | local | compact |")
-    print("|---|---|---:|---:|")
+    print("\n| Benchmark | control median (min-max) ms | " + " | ".join(OTHERS) + " |")
+    print("|---|---|" + "---:|" * len(OTHERS))
     for d in sorted(root.iterdir()):
         by = {v: [med(p) for p in sorted(d.glob(f"pad*_{v}.json"))] for v in VARIANTS}
         if not by["control"]:
             continue
         c = statistics.median(by["control"])
         cells = [f"{c:.3f} ({min(by['control']):.3f}-{max(by['control']):.3f})"]
-        for v in ["local", "compact"]:
+        for v in OTHERS:
             if by[v]:
                 m = statistics.median(by[v])
                 cells.append(f"{100 * (m / c - 1):+.1f}% ({min(by[v]):.3f}-{max(by[v]):.3f})")

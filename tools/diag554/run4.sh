@@ -7,7 +7,7 @@ ROOT=${GITHUB_WORKSPACE:-$PWD}
 OUT=$ROOT/diag-out
 BIN=${BIN:-$ROOT/canary-bin}
 STEER=$ROOT/tools/diag554/steer.so
-VARIANTS="control local compact"
+VARIANTS=${VARIANTS:-control local compact}
 mkdir -p "$OUT/single"
 
 ZEN3=0
@@ -60,7 +60,9 @@ put() { # name variant addr
 }
 
 # Six legs in a balanced order so drift affects every variant equally.
-LEGS="control-first local-first compact-first compact-second local-second control-second"
+LEGS=""
+for v in $VARIANTS; do LEGS="$LEGS $v-first"; done
+for v in $(echo "$VARIANTS" | tr ' ' '\n' | tac); do LEGS="$LEGS $v-second"; done
 balanced() { # dir filter [prefix...]
     local dir=$1 filter=$2
     shift 2

@@ -7,7 +7,7 @@ set -euo pipefail
 ROOT=${GITHUB_WORKSPACE:-$PWD}
 SOURCE_SHA=${SOURCE_SHA:?SOURCE_SHA names the clifft revision to patch}
 mkdir -p "$ROOT/canary-bin"
-for variant in control local compact; do
+for variant in ${VARIANTS:-control local compact}; do
     rm -rf "$ROOT/benchmark-source"
     mkdir -p "$ROOT/benchmark-source"
     git -C "$ROOT" archive "$SOURCE_SHA" | tar -x -C "$ROOT/benchmark-source"
@@ -30,9 +30,10 @@ for variant in control local compact; do
     cp "$ROOT/benchmark-build/clifft_benchmarks" "$ROOT/canary-bin/$variant"
 done
 ls -la "$ROOT/canary-bin"
-if cmp -s "$ROOT/canary-bin/control" "$ROOT/canary-bin/local" ||
-    cmp -s "$ROOT/canary-bin/control" "$ROOT/canary-bin/compact"; then
-    echo "variant binaries are identical to control" >&2
-    exit 1
-fi
+for variant in ${VARIANTS:-control local compact}; do
+    if [[ $variant != control ]] && cmp -s "$ROOT/canary-bin/control" "$ROOT/canary-bin/$variant"; then
+        echo "$variant binary is identical to control" >&2
+        exit 1
+    fi
+done
 md5sum "$ROOT"/canary-bin/*
