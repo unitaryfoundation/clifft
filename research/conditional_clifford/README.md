@@ -3,12 +3,13 @@
 This is a research record, not an execution-architecture specification. The
 repository's planning, allocation, and correctness invariants continue to apply.
 
-Latest result: [stronger equivalence checks](#stronger-equivalence-checks-on-2026-10-08)
-compare exact compiled output laws for 398 fault histories and establish
-agreement within predeclared tolerances for three rates using 262,144 fresh
-shots per simulator. The next question is the full-circuit Clifford reduction
-exposed by including target scoring. Earlier sections retain the experiment's
-progression and the narrower scopes used at each stage.
+Latest result: [direct scored Clifford construction](#direct-scored-clifford-construction-on-2026-10-08)
+removes every T gate from the complete scored circuit using the fault controls,
+without invoking the HIR optimizer or caching histories. Exact Boolean
+identities explain the reduction, and all 398 saved joint output laws match.
+The preceding [equivalence study](#stronger-equivalence-checks-on-2026-10-08)
+remains the larger independent comparison of three noisy output rates. Earlier
+sections retain the experiment's progression and narrower scopes.
 
 ## Baseline and question
 
@@ -1351,6 +1352,178 @@ Commands and dependencies for both new drivers are in
 the complete protocol without drawing experimental samples; a subsequent run
 with the same arguments executes or resumes the fixed budget. Use a new output
 path for a different binary or protocol rather than modifying a declared test.
+
+## Direct scored Clifford construction on 2026-10-08
+
+The complete scored BT27 circuit can now be constructed as a Clifford circuit
+directly from the existing fixed-fault controls. The new Python research path
+uses ordinary Clifft tracing, lowering, and sampling with zero T gates and zero
+active width. It invokes no HIR optimization pass. Every shot still includes
+the preparation, live measurements and feedback, decoder, syndrome outputs,
+and the effect of Merlin's logical target scoring. Compiling away the scoring
+gates preserves their effect on the output law; simply dropping them would
+not do so.
+
+This result covers any number of faults admitted by the existing physical
+Pauli/readout model, including faults throughout preparation, the physical
+phase region, and the decoder. As in the preceding experiments, Merlin's
+verification tail is ideal. It is a circuit-specific reduction, not a claim
+that general Clifford+T circuits with noise become Clifford circuits.
+
+### Why the phases cancel
+
+Write the ideal preparation as A, the physical diagonal unitary as
+U = (-1)^g, and the decoder's CNOT map as L. The inverse logical target used
+for scoring is S = (-1)^f, where f contains six cubic CCZ monomials on the
+nine logical outputs. Let B denote the syndrome measurements and annotations.
+The earlier fault controls put a fixed history into this chronological form:
+
+```text
+A; U; D_delta; X_a; decoder; B; P; S; logical MX
+```
+
+Here D_delta is diagonal Clifford, a is the X mask at the physical phase
+boundary, and P is the final decoder Pauli with X mask b. The separate
+measurement-record flip mask is restored afterward, exactly as before.
+
+The new certificate establishes g(x) = f(Lx) on the computational support
+of A. It propagates Boolean linear forms through the actual preparation:
+each RX introduces a fresh free bit, each Z measurement records its current
+form, and classical feedback uses that recorded form. No measurement outcome
+is fixed or postselected. The resulting 63-variable expressions for both
+phases are identical six-term Boolean polynomials. This is an exact identity
+for every assignment of those variables, including every measurement branch.
+
+The support restriction matters. On unrestricted 135-qubit computational
+inputs, the difference has 388 monomials and is not zero. Replacing the actual
+preparation by RX on all 135 qubits makes the certificate fail, as required.
+
+Define the nine-bit logical shift
+
+```text
+h = (L a)_logical XOR b_logical.
+```
+
+The score commutes with B because the syndrome measurements and logical score
+act on disjoint qubits. Moving its phase back through P, the decoder, and X_a
+changes it to f(Lx XOR h). Its fault-free part cancels g on the prepared
+support. The remaining phase is the Boolean finite difference
+
+```text
+Q_h(x) = (-1)^[f(Lx XOR h) XOR f(Lx)].
+```
+
+It is quadratic, so it is Clifford. For one cubic monomial, the identity is
+
+```text
+(x XOR a)(y XOR b)(z XOR c) XOR xyz
+  = a*yz XOR b*xz XOR c*xy
+    XOR a*b*z XOR a*c*y XOR b*c*x XOR a*b*c.
+```
+
+The mixed products of shift bits are essential Z corrections when multiple
+bits flip. Only the last, constant term can be dropped as a global phase.
+The diagonal correction D_delta commutes with these phases and preserves
+computational support. The complete replacement is therefore
+
+```text
+A; D_delta; Q_h; X_a; decoder; B; P; logical MX
+```
+
+with the same record restoration and declared output parities. Both the
+boundary X mask and the final decoder X mask enter h; omitting the latter
+already fails for an isolated decoder fault. Final Z corrections remain in P.
+
+### Precomputed controls and validation
+
+The one-time construction precomputes nine first-order responses and 18 mixed
+responses. Their packed scoring-response payload is 625 bytes, excluding
+Python object overhead and the pre-existing fault maps. The combined boundary
+correction uses a fixed pool of 388 possible physical CZ pairs, including the
+162 pairs from the earlier phase controls. Each history evaluates these fixed
+responses and emits a Clifford circuit. There is no cache of histories or
+per-history optimization pass. The current host still traces and plans each
+emitted circuit before calling ordinary sampling.
+
+The retained validation includes:
+
+- All 512 logical shifts, tested on every physical input of Hamming weight
+  zero, one, or two: 4,700,672 exact Boolean evaluations. These points determine
+  a quadratic polynomial completely, so this certifies each response on all
+  135-bit physical inputs. Omitting the mixed responses fails for 462 shifts.
+- 65 independent Aer Choi-state comparisons of the phase identity with
+  arbitrary diagonal Clifford corrections, CNOT decoders, boundary X masks,
+  and final Paulis. Entangled spectators test the full small-system operators.
+  Maximum amplitude error after aligning global phase is 3.33e-16. The omitted
+  mixed-term negative control gives orthogonal Choi states within rounding.
+- All 398 saved fixed histories, including the two all-4,170-sites stress
+  histories. Stim interprets the directly constructed physical Clifford
+  circuits and obtains exactly the same canonical joint laws for all 216
+  output bits as the retained references. The candidate side uses no Clifft
+  optimizer; the saved reference hashes still originate from the previous
+  optimizer-based validation.
+- 256 samples per fixed history from both ordinary Clifft and Stim. Every
+  sample lies in its exact allowed output space, and the existing distribution
+  bug checks pass. The isolated decoder-X negative control is detected.
+
+The exact support identity and finite-difference identity remove the earlier
+dependence on observing zero T gates after optimizing selected histories.
+They explain the reduction for every control value. Correctness from the
+original noisy source still relies on the earlier fault-relocation algebra
+and on the circuit parsers and simulators; the finite regression matrix alone
+does not certify those implementations for every possible input.
+
+### Fresh-noise sampling and remaining work
+
+Each model drew 4,096 fresh shots per backend with independent measurement
+seeds. The existing 1,942-feature bug checks passed, with maximum scores
+between 3.21 and 3.46 against a threshold of six. Under full physical noise,
+the direct path produced 131 zero-syndrome shots and 14 undetected logical
+events; Merlin produced 104 and eight. Those small event counts do not support
+a new tight equivalence claim. The preceding 262,144-shot comparison remains
+the predeclared rate-equivalence study of the earlier sampler; it was not
+repeated for this new execution path.
+
+On one pinned CPU, the current research host measured:
+
+| Complete scored source | Direct Clifford host, ms/shot | Merlin, ms/shot | Ratio |
+| --- | ---: | ---: | ---: |
+| Ideal | 2.485 | 1.130 | 2.20x |
+| Original pre-phase depolarizing noise | 2.472 | 1.150 | 2.15x |
+| Full physical gate/readout noise | 6.950 | 1.667 | 4.17x |
+
+These are local, single-run end-to-end measurements, with setup reported
+separately. The direct host includes its per-shot parity consistency checks.
+For full noise, controls cost 0.118 ms/shot, source emission 0.149 ms,
+ordinary Clifft parsing/tracing/lowering/sampling together 2.653 ms, and record
+restoration plus parity checks and output collection 3.692 ms. Thus the largest
+measured component is currently output handling and validation. These timings
+do not isolate the cost of the Clifford execution kernel. One-time model and
+control setup cost 0.439 seconds for full noise.
+
+The algebraic reduction is successful, but this host is slower than the
+preceding 4.71 ms/shot shared-core prototype as well as Merlin. Removing T
+gates alone does not remove per-shot construction or Python validation cost.
+The ideal measurement also rebuilds an identical circuit each shot; it is not
+a tuned noise-free baseline.
+
+The next question is how much of this varying Clifford circuit can use a
+reusable plan under the existing execution invariants. In particular,
+precomputing gate coefficients does not prove that the planner's symbolic
+coordinates and measurement dependencies can be shared across corrections.
+Investigate that interface and separate construction, execution, and output
+costs before selecting a production representation. Any executor or lifecycle
+change needs an explicit architecture proposal. The present work makes no
+such change. Arbitrary biased/nonuniform channel probabilities and independent
+noise-free optimizations remain separate follow-ups.
+
+The implementation and reproduction driver are
+[`bt27_scored_clifford.py`](../../tools/profile/bt27_scored_clifford.py) and
+[`study_bt27_direct_clifford.py`](../../tools/profile/study_bt27_direct_clifford.py).
+The certificate, exact-law hashes, negative controls, source and extension
+hashes, versions, seeds, output counts, and timing breakdown are retained in
+[`bt27-direct-scored-clifford.json`](bt27-direct-scored-clifford.json).
+Commands are in [the profiling-tool README](../../tools/profile/README.md).
 
 ## References
 

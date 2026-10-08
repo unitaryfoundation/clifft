@@ -369,6 +369,39 @@ new output path. A confidence interval outside a requested equivalence margin
 means equivalence to that tolerance was not established; it does not by itself
 prove a simulator defect.
 
+`bt27_scored_clifford.py` derives the complete scored Clifford circuit directly
+from the existing fault controls. It checks the physical/scoring phase identity
+on the ideal preparation's computational support, then precomputes the
+quadratic finite-difference responses to the nine-bit logical X shift.
+Mixed shift products supply essential Z terms. The resulting physical Clifford
+source retains all measurements, feedback, record restoration, detectors, and
+scored logical outputs; ordinary Clifft traces, lowers, and samples it without
+invoking the HIR optimizer. Construction and planning remain offline research
+operations before each ordinary sampling call.
+
+`study_bt27_direct_clifford.py` certifies all 512 shift responses, checks small
+operator identities with Aer, matches the 398 retained exact joint output laws
+using Stim, and compares fresh noisy samples against Merlin. It exercises
+negative controls for unsupported preparation, missing mixed terms, and an
+omitted decoder-X contribution. The fresh-shot comparisons are bug checks;
+they do not repeat the preceding study's predeclared rate-equivalence margins.
+Timings include new circuit construction and planning per shot, with setup
+reported separately. There is no history cache.
+
+```bash
+.venv/bin/python tools/profile/study_bt27_direct_clifford.py \
+  --merlin-checkout /path/to/pinned/merlin \
+  --shots 4096 --fixed-shots 256 \
+  --output /tmp/bt27-direct-scored-clifford.json
+```
+
+This driver requires the same pinned Merlin checkout and installed `merlin-sim`,
+Stim, Qiskit, and Aer, plus the retained scored-sampling and exact-equivalence
+JSON artifacts. It uses the installed Clifft Python extension and does not
+require the native research target. Add `--smoke --shots 128 --fixed-shots 128`
+to restrict the fixed-history matrix to five representative cases. The exact
+Boolean and small Aer checks run in full even in smoke mode.
+
 ## Probability queries
 
 `profile_probability` uses a unitary-only circuit because measurements,
