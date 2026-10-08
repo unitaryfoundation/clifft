@@ -1,0 +1,94 @@
+{
+  "shots_per_batch": 512,
+  "measured_batches": 3,
+  "warmup_shots": 32,
+  "cpu_affinity": [
+    0
+  ],
+  "outputs": "All records, detectors and declared observables; no added probes or postselection",
+  "noise": "Original stochastic noise instructions executed each shot; no fixed-history specialization",
+  "limitations": "Small local timing check; no end-to-end benchmark of the experimental path, no per-case peak memory measurement",
+  "models": {
+    "bt27_one_layer": {
+      "source_sha256": "da7b32ae0aff28029071c36ecf5bebc978bc2c9cde1d81bacf7d5fc1ac546c41",
+      "merlin": {
+        "setup_seconds": 0.006593762896955013,
+        "sample_seconds": [
+          0.5218671597540379,
+          0.48893345706164837,
+          0.5017619673162699
+        ],
+        "median_seconds_per_shot": 0.0009800038424145896,
+        "record_columns": 126
+      },
+      "clifft": {
+        "peak_width": 28,
+        "execution": "not run: dense width exceeds 16-qubit study budget"
+      }
+    },
+    "bt27_full_noise": {
+      "source_sha256": "2b5793042e241ec40c469698ffb6e0bb0b0dacf28bc00abef4c5379d252e70de",
+      "merlin": {
+        "setup_seconds": 0.012757122982293367,
+        "sample_seconds": [
+          0.6390644949860871,
+          0.6235539712943137,
+          0.6526585700921714
+        ],
+        "median_seconds_per_shot": 0.0012481728417697013,
+        "record_columns": 126
+      },
+      "clifft": {
+        "peak_width": 33,
+        "execution": "not run: dense width exceeds 16-qubit study budget"
+      }
+    },
+    "cultivation_d5_p001": {
+      "source_sha256": "500eb86cd5f2a25dd12083873ad051bdd8723d48fff9e20de54584826d3f16f1",
+      "merlin": {
+        "setup_seconds": 0.002852723002433777,
+        "sample_seconds": [
+          0.3668386610224843,
+          0.35531672509387136,
+          0.3536167531274259
+        ],
+        "median_seconds_per_shot": 0.0006939779786989675,
+        "record_columns": 112
+      },
+      "clifft": {
+        "setup_seconds": 0.01529927272349596,
+        "sample_seconds": [
+          0.007847076281905174,
+          0.007796248886734247,
+          0.0076951258815824986
+        ],
+        "median_seconds_per_shot": 1.5227048606902827e-05,
+        "peak_width": 10
+      }
+    },
+    "bt81_full_noise": {
+      "source_sha256": "5ad69a1c989c6b44e989ecf21bc16e214aad10e95e83b9a50caeed4b28d9e7f5",
+      "merlin": {
+        "setup_seconds": 0.09213556721806526,
+        "sample_seconds": [
+          8.851631953846663,
+          8.961166672874242,
+          8.998804320115596
+        ],
+        "median_seconds_per_shot": 0.017502278657957504,
+        "record_columns": 396
+      },
+      "clifft": {
+        "peak_width": 87,
+        "execution": "not run: dense width exceeds 16-qubit study budget"
+      }
+    }
+  },
+  "merlin._core_sha256": "32852fd51aebca00519912337ea35bd37a10e79f4cb44369d2b302ce41bc4d74",
+  "clifft._clifft_core_sha256": "7d1fdcb705231ff636333ef5fc243ed1b4f7f3a535404ab62b15c72e3af7fee7",
+  "merlin_version": "0.1.0",
+  "merlin_checkout_revision": "097380fac1a3968ca47925146e211fe990f4c396",
+  "clifft_repository_revision": "f8bb5f31d37bf5f7966d186929d19283bf00904c",
+  "reproduction_script": "import hashlib\nimport importlib\nimport json\nimport os\nfrom pathlib import Path\nimport statistics\nimport sys\nfrom time import perf_counter\n\nROOT = Path('/home/exedev/.codex/worktrees/93cf/clifft-codex')\nsys.path.insert(0, str(ROOT / 'tools/profile'))\nsys.path.insert(0, '/tmp/merlin-research-2026-10-06')\nfrom study_circuit_noise import Model, synthetic_bt_noise, source\nfrom profile_bt27_fault_specialization import optimize, FIXTURE\nimport clifft\nimport merlin\n\nos.sched_setaffinity(0, {min(os.sched_getaffinity(0))})\ngenerator = importlib.import_module('benchmarks.protocols.code_switching')\nsources = {\n    'bt27_one_layer': source(noise='DEPOLARIZE1(0.001)'),\n    'bt27_full_noise': synthetic_bt_noise(source(), {'prep', 'phase', 'decoder'}, .001),\n    'cultivation_d5_p001': (FIXTURE.parent / 'cultivation_d5.stim').read_text().replace('(0.005)', '(0.001)'),\n    'bt81_full_noise': synthetic_bt_noise(generator.build_code_switching_case('bt81', p_phys=0, target_scoring=False).circuit, {'prep', 'phase', 'decoder'}, .001),\n}\ndocument = {\n    'shots_per_batch': 512, 'measured_batches': 3, 'warmup_shots': 32,\n    'cpu_affinity': sorted(os.sched_getaffinity(0)),\n    'outputs': 'All records, detectors and declared observables; no added probes or postselection',\n    'noise': 'Original stochastic noise instructions executed each shot; no fixed-history specialization',\n    'limitations': 'Small local timing check; no end-to-end benchmark of the experimental path, no per-case peak memory measurement',\n    'models': {},\n}\nfor name, text in sources.items():\n    row = {'source_sha256': hashlib.sha256(Model(text).render(None).encode()).hexdigest()}\n    document['models'][name] = row\n    print('Checking', name, flush=True)\n    try:\n        start = perf_counter()\n        sampler = merlin.CircuitSampler(text, seed=20261010)\n        setup = perf_counter() - start\n        sampler.sample(32)\n        times = []\n        for _ in range(3):\n            start = perf_counter()\n            sample = sampler.sample(512)\n            times.append(perf_counter() - start)\n            assert sample.measurements.shape[0] == 512\n        row['merlin'] = {'setup_seconds': setup, 'sample_seconds': times, 'median_seconds_per_shot': statistics.median(times) / 512, 'record_columns': sample.measurements.shape[1]}\n    except Exception as error:\n        row['merlin'] = {'error': str(error)}\n    if name.startswith('cultivation'):\n        start = perf_counter()\n        program = clifft.compile(text)\n        setup = perf_counter() - start\n        assert program.peak_active_width <= 16\n        clifft.sample(program, shots=32, seed=901, threads=1)\n        times = []\n        for seed in (912, 923, 934):\n            start = perf_counter()\n            sample = clifft.sample(program, shots=512, seed=seed, threads=1)\n            times.append(perf_counter() - start)\n            assert sample.measurements.shape[0] == 512\n        row['clifft'] = {'setup_seconds': setup, 'sample_seconds': times, 'median_seconds_per_shot': statistics.median(times) / 512, 'peak_width': program.peak_active_width}\n    else:\n        _, stats = optimize(text)\n        row['clifft'] = {'peak_width': stats['peak_width'], 'execution': 'not run: dense width exceeds 16-qubit study budget'}\n    print(json.dumps(row), flush=True)\n    Path('/tmp/noise-baseline-check.json').write_text(json.dumps(document, indent=2) + '\\n')\n",
+  "experimental_comparison_note": "The earlier 2.819 ms construction/planning figure is a separate run and case matrix, not a matched end-to-end noisy sampler measurement."
+}

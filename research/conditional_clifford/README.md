@@ -905,7 +905,9 @@ descriptions across the 162 cases, despite the common 154-action prefix.
 
 ### Next bounded question
 
-The physical full-circuit correction and common reduced core are now concrete.
+The performance-baseline clarification below takes priority before further
+suffix optimization. The physical full-circuit correction and common reduced
+core are now concrete.
 The remaining bottleneck is constructing and planning the varying decoder
 actions. The next diagnostic should classify which suffix decisions vary:
 Pauli axes/signs, measurement classification, active-coordinate changes, and
@@ -938,6 +940,67 @@ The input defaults to `research/conditional_clifford/circuit-noise-study.json`;
 its canonical noisy-source hash must match the reconstructed model. Seeds and
 case generation are fixed in the driver, and the artifacts retain every history,
 correction summary, comparison result, and relevant binary/fixture hashes.
+
+## Performance-baseline clarification on 2026-10-08
+
+The user correctly challenged what "faster" means here. The 60 ms comparison
+was fresh compilation after replacing every noise event by its sampled fixed
+Pauli realization. It was not successful reduction of the original stochastic
+noisy circuit: that unspecialized BT27 circuit still has peak width 33 with
+noise throughout. The 2.8 ms construction result establishes improvement over
+a costly specialization fallback, not a speed advantage over existing noisy
+simulators. The earlier 256-shot batches repeat each fixed history for
+validation; they are not an end-to-end random-noise throughput benchmark.
+
+A bounded local check now samples the original stochastic circuits directly,
+with new noise each shot, all records/detectors/declared observables, no extra
+quantum probes, and no postselection. It pins execution to one CPU and measures
+three 512-shot batches after a 32-shot warmup. Median costs, excluding separately
+recorded setup, are:
+
+| Circuit and p = 0.001 noise model | Merlin per shot | Ordinary Clifft per shot |
+| --- | ---: | ---: |
+| BT27, original single layer | 0.980 ms | Not executed; peak width 28 |
+| BT27, synthetic noise throughout | 1.248 ms | Not executed; peak width 33 |
+| Cultivation d5, uniformly rescaled fixture | 0.694 ms | 0.0152 ms; peak width 10 |
+| BT81, synthetic noise throughout | 17.502 ms | Not executed; peak width 87 |
+
+Wide Clifft cases exceed this study's execution budget; this is not a claim
+that the implementation rejects them. Merlin full-noise BT27 setup took
+12.8 ms, paid once, and subsequent shots execute the noisy source directly.
+Its measured per-shot cost is below the experimental path's earlier median
+construction cost alone. The runs have different case matrices and timing
+conditions, so this is indicative rather than a matched head-to-head ratio.
+There is no established speed win for the prototype over Merlin. Cultivation
+already has an efficient ordinary Clifft path and does not currently motivate
+the specialization machinery.
+
+Merlin is an existing simulator for this supported CNOT/T circuit family,
+with restrictions on compatible X measurements. Its ordinary sampler supports
+Pauli channels directly; its separately exposed fixed-fault-count mode has
+additional channel restrictions. Arbitrary Pauli fault patterns on a supported
+circuit should not be conflated with support for arbitrary non-Clifford circuits.
+See the [Merlin implementation and documentation](https://github.com/mark-koch/merlin).
+
+The immediate next performance question is a matched end-to-end baseline:
+same noisy source, outputs, reference conventions, numerical semantics, CPU
+allocation, and shot count, with every per-shot fault draw, control evaluation,
+composition/planning miss, execution, and output correction included. Report
+one-time setup and peak memory separately. Compare ordinary Clifft wherever
+feasible and Merlin on its supported workloads; additional simulators need
+actual matched measurements before ranking them. Do not amortize a newly
+sampled history over hundreds of shots in that comparison.
+
+Only then use the decoder/suffix analysis above to target an observed cost
+gap. The structural result remains useful: full BT27 Pauli/readout histories
+admit a shared small core. That is a feasibility and representation result,
+independent of whether the present prototype is the fastest simulator.
+
+The timing samples, input hashes, binary hashes, pinned revision, and exact
+local reproduction script are retained in
+[noisy-reference-baselines.json](noisy-reference-baselines.json). This is a small
+local timing check, not a comprehensive simulator comparison or an all-fault
+correctness proof. It does not measure per-case peak memory.
 
 ## References
 
