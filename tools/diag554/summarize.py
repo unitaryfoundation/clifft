@@ -42,6 +42,15 @@ def main():
             f"| {directory.name} | {base:.2f} | {head:.2f} | "
             f"{100 * (head / base - 1):+.1f}% | {legs} |"
         )
+    single = out / "single"
+    if single.exists():
+        print("\n| Single process | median ms | repetitions (ms) |")
+        print("|---|---:|---|")
+        paths = sorted(single.glob("*.json"), key=lambda p: p.stat().st_mtime)
+        for path in paths:
+            times = iterations(path)
+            reps = ", ".join(f"{t:.2f}" for t in times)
+            print(f"| {path.stem} | {median(times):.2f} | {reps} |")
     procs = out / "procs"
     if procs.exists():
         print("\n| Fresh processes | per-process ms |")

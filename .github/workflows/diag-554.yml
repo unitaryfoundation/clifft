@@ -37,7 +37,9 @@ jobs:
           sudo apt-get install -y libomp-18-dev
 
       - name: Build tracer
-        run: gcc -O2 -fPIC -shared -o tools/diag554/libmtrace.so tools/diag554/mtrace.c -lgcc_s
+        run: |
+          gcc -O2 -fPIC -shared -o tools/diag554/libmtrace.so tools/diag554/mtrace.c -lgcc_s
+          gcc -O2 -fPIC -shared -fno-asynchronous-unwind-tables -Wl,--build-id=none -o tools/diag554/steer.so tools/diag554/steer.c
 
       - name: Run experiments
         run: bash tools/diag554/run.sh
