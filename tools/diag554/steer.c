@@ -43,6 +43,7 @@ static unsigned long g_busy_hits;
 static unsigned long g_steered;
 static int g_busy; /* slot in use */
 static int g_report;
+static unsigned long g_frame; /* stack frame of the first steered malloc */
 
 static void* steer(void* shadow) {
     if (__atomic_fetch_add(&g_match, 1, __ATOMIC_RELAXED) < g_skip)
@@ -58,8 +59,11 @@ static void* steer(void* shadow) {
 
 void* malloc(size_t size) {
     void* p = __libc_malloc(size);
-    if (p && g_size && size == g_size)
+    if (p && g_size && size == g_size) {
+        if (!g_frame)
+            g_frame = (unsigned long)__builtin_frame_address(0);
         return steer(p);
+    }
     return p;
 }
 
@@ -186,6 +190,7 @@ __attribute__((destructor)) static void steer_fini(void) {
     char* o = put(buf, "steer: steered=", g_steered);
     o = put(o, " busy=", g_busy_hits);
     o = put(o, " skipped=", skipped);
+    o = put(o, " frame=", g_frame);
     *o++ = '\n';
     (void)!write(2, buf, o - buf);
 }

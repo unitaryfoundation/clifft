@@ -7,47 +7,82 @@ on:
 
 permissions:
   contents: read
-  actions: read
+
+env:
+  CLIFFT_LINUX_WHEEL_CLANG_VERSION: "22.1.8.1"
+  SOURCE_SHA: 2c418257e5b6abe1690f4eaa9612d3a17f27eee2
 
 jobs:
+  build:
+    name: build executor variants
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      CMAKE_GENERATOR: Ninja
+      CMAKE_C_COMPILER_LAUNCHER: ccache
+      CMAKE_CXX_COMPILER_LAUNCHER: ccache
+      CCACHE_COMPILERCHECK: content
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install native build tools
+        uses: ./.github/actions/setup-native-tools
+
+      - name: Install pinned Clang and OpenMP
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libomp-18-dev
+          .github/scripts/install_ubuntu_clang.sh \
+            "${{ env.CLIFFT_LINUX_WHEEL_CLANG_VERSION }}" \
+            "$RUNNER_TEMP/clifft-clang"
+
+      - name: Build variants
+        run: bash tools/diag554/build_variants.sh
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: diag-554-variant-binaries
+          path: canary-bin/
+          retention-days: 14
+
   diagnose:
     name: diagnose slot ${{ matrix.slot }}
+    needs: build
     strategy:
       fail-fast: false
       matrix:
-        slot: [1, 2, 3, 4]
+        slot: [1, 2, 3, 4, 5]
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
 
-      - name: Fetch saved canary binaries
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh run download 37790615669 -R "$GITHUB_REPOSITORY" -n canary-diagnosis -D saved
-          chmod +x saved/base saved/head
-          grep -m1 'Model name' saved/cpu.txt
+      - uses: actions/download-artifact@v8
+        with:
+          name: diag-554-variant-binaries
+          path: canary-bin
 
       - name: Install runtime libraries
         run: |
+          chmod +x canary-bin/*
           sudo apt-get update
-          sudo apt-get install -y libomp-18-dev
+          sudo apt-get install -y libomp-18-dev gdb
 
-      - name: Build tracer
-        run: |
-          gcc -O2 -fPIC -shared -o tools/diag554/libmtrace.so tools/diag554/mtrace.c -lgcc_s
-          gcc -O2 -fPIC -shared -fno-asynchronous-unwind-tables -Wl,--build-id=none -o tools/diag554/steer.so tools/diag554/steer.c
+      - name: Build steering shim
+        run: gcc -O2 -fPIC -shared -fno-asynchronous-unwind-tables -Wl,--build-id=none -o tools/diag554/steer.so tools/diag554/steer.c
 
       - name: Run experiments
-        run: bash tools/diag554/run.sh
+        run: bash tools/diag554/run4.sh
 
       - name: Upload results
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: diag-554-slot-${{ matrix.slot }}
+          name: diag-554-round4-slot-${{ matrix.slot }}
           path: diag-out/
           retention-days: 14
