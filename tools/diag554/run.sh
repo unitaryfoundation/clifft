@@ -7,7 +7,7 @@ ROOT=${GITHUB_WORKSPACE:-$PWD}
 OUT=$ROOT/diag-out
 BIN=$ROOT/saved
 SHIM=$ROOT/tools/diag554/libmtrace.so
-EXPERIMENTS=${EXPERIMENTS:-env warmup normal normal2 preload trace aslr_off tcache_off procs smaps bt pad}
+EXPERIMENTS=${EXPERIMENTS:-env warmup normal envpad libpad normal2}
 mkdir -p "$OUT"
 
 CPU=$(python3 -c 'import os; print(min(os.sched_getaffinity(0)))')
@@ -134,6 +134,27 @@ for experiment in $EXPERIMENTS; do
         for pad in ${PADS:-24 56 120 248 504 1016 2040 3064}; do
             abba "pad_$((pad + 8))" env LD_PRELOAD="$SHIM" MTRACE_PAD_SIZE="$pad"
         done
+        ;;
+    envpad)
+        # Shift only the initial stack: one extra environment string, no
+        # preload, so heap and mmap layout are unchanged.
+        for n in ${ENVPADS:-1 9 25 57 121 249 505 1017 2041 3065}; do
+            abba "envpad_$n" env DIAG_ENV_PAD="$(head -c "$n" /dev/zero | tr '\\0' x)"
+        done
+        ;;
+    libpad)
+        # Shift only the mmap region (shared libraries, TLS, large chunks) by
+        # preloading an empty library with a sized .bss. Paths have equal
+        # length so the stack is identical across this sweep.
+        mkdir -p /tmp/p "$OUT/libpad-maps"
+        for pages in ${LIBPADS:-0 1 2 3 4 8 16 32 57 64 128 256 1024 4096 65536}; do
+            name=$(printf '/tmp/p/pad_%06d.so' "$pages")
+            echo "char diag_pad_bss[$((pages * 4096 + 1))];" >/tmp/p/pad.c
+            gcc -O2 -fPIC -shared -o "$name" /tmp/p/pad.c
+            LD_PRELOAD="$name" cat /proc/self/maps >"$OUT/libpad-maps/$pages.maps"
+            abba "libpad_$pages" env LD_PRELOAD="$name"
+        done
+        LD_PRELOAD= cat /proc/self/maps >"$OUT/libpad-maps/none.maps"
         ;;
     esac
 done
