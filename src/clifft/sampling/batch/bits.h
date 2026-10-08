@@ -24,6 +24,11 @@ class PackedBitColumns {
 
     [[nodiscard]] size_t num_columns() const noexcept { return columns_; }
 
+    // Raw storage for loops that cache the base pointer and stride: column c
+    // and lane s live at words()[c * word_capacity() + s / 64].
+    [[nodiscard]] uint64_t* words() noexcept { return words_; }
+    [[nodiscard]] size_t word_capacity() const noexcept { return word_capacity_; }
+
     [[nodiscard]] std::span<uint64_t> column(size_t column) noexcept;
     [[nodiscard]] std::span<const uint64_t> column(size_t column) const noexcept;
 
