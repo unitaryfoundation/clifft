@@ -905,9 +905,9 @@ descriptions across the 162 cases, despite the common 154-action prefix.
 
 ### Next bounded question
 
-The performance-baseline clarification below takes priority before further
-suffix optimization. The physical full-circuit correction and common reduced
-core are now concrete.
+The completion-first milestone below takes priority before further suffix
+optimization. The physical protocol correction and common reduced core are
+now concrete.
 The remaining bottleneck is constructing and planning the varying decoder
 actions. The next diagnostic should classify which suffix decisions vary:
 Pauli axes/signs, measurement classification, active-coordinate changes, and
@@ -965,6 +965,11 @@ recorded setup, are:
 | Cultivation d5, uniformly rescaled fixture | 0.694 ms | 0.0152 ms; peak width 10 |
 | BT81, synthetic noise throughout | 17.502 ms | Not executed; peak width 87 |
 
+The BT rows use `target_scoring=False`, matching the preceding correction study.
+They cover the physical protocol through decoding, not the generator's final
+inverse logical operation and logical readout. They must not be treated as
+timings of the complete target-scored Merlin benchmark.
+
 Wide Clifft cases exceed this study's execution budget; this is not a claim
 that the implementation rejects them. Merlin full-noise BT27 setup took
 12.8 ms, paid once, and subsequent shots execute the noisy source directly.
@@ -1001,6 +1006,57 @@ local reproduction script are retained in
 [noisy-reference-baselines.json](noisy-reference-baselines.json). This is a small
 local timing check, not a comprehensive simulator comparison or an all-fault
 correctness proof. It does not measure per-case peak memory.
+
+## Completion-first milestone on 2026-10-08
+
+The user clarified the immediate goal: complete the BT27 circuit that Merlin
+simulates before prioritizing speed optimization. Performance remains a
+practical guardrail; an order-of-magnitude slowdown would warrant reassessing
+the approach, while a modest slowdown need not block a correct complete
+prototype. This supersedes prioritizing suffix optimization or speed ranking.
+
+The existing work covers all 135 physical qubits through preparation, code
+switching and feedback, the physical CCZ layer, decoding, and 72 checks. It
+preserves 126 measurement records and probes the nine decoded logical qubits.
+It has two gaps relative to a complete target-scored stochastic sampler:
+
+1. The fixture uses `target_scoring=False`. Merlin's default scored generator
+   appends six logical CCZ gates, then X measurements on all nine logical
+   outputs and nine declared observables. That tail contains another 42
+   T/T_DAG gates and 60 CNOTs. Finite expectation probes are not a replacement
+   for executing those gates and sampling their joint outputs.
+2. The correction harness runs many measurement trajectories for each fixed
+   fault history. It does not yet expose a complete sampling loop that draws
+   fresh faults for each requested shot and returns the corresponding complete
+   record, detector, and logical-observable arrays.
+
+The next milestone is an offline research sampler that closes both gaps:
+
+- Match the pinned Merlin BT27 source with `target_scoring=True` and its
+  original noise model, including final scoring and logical readout.
+- Also run the broadened gate/readout-noise model throughout the physical
+  protocol with that same scoring tail. Keep the benchmark's ideal verifier
+  distinct from the physical noise model and use identical sources in Merlin.
+- Draw fresh categorical faults per shot, keep measurement/feedback outcomes
+  live, retain the original ideal references, and preserve the joint detector
+  and logical-output distribution. Include the zero-noise control.
+- Compare complete outputs with Merlin, then report actual end-to-end time,
+  one-time setup, and memory. Do not substitute fixed-history batch timings
+  for this measurement or drop difficult histories.
+
+The target-scoring tail is a second non-Clifford region after decoding. The
+existing native diagnostic deliberately accepts only a Clifford suffix, and
+its Python driver assumes no declared logical observables. Closing this gap
+therefore needs explicit composition and output handling in the research
+harness. In particular, decoder Pauli corrections must act before target
+scoring; merely flipping final readout bits does not generally propagate them
+through logical CCZ correctly. This is research-tool scope, with ordinary
+offline planning before execution, not authorization to change the production
+executor architecture.
+
+Once the complete sampler is correct and practically usable, return to the
+decoder/suffix cost study if measurements justify it. Noiseless optimization
+remains an independent future direction.
 
 ## References
 
