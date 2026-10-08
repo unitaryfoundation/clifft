@@ -462,6 +462,51 @@ extension, and the pinned Merlin generator checkout. No new native build is
 needed. Formula-evaluation timings exclude fault drawing, correction evaluation,
 preparation sampling, output restoration, and exhaustive offline construction.
 
+## Automatic conditional simplification across circuits
+
+`automatic_specialization.py` is a research host around the existing default
+algebraic HIR pipeline. It materializes sampled Pauli faults at their original
+locations, without identifying circuit families or logical operations. An
+optional second path samples the maximal initial Clifford prefix with Stim,
+reconstructs its conditional state, retains its records with MPAD, and compiles
+the suffix. This tests one preparation boundary; it cannot resume an arbitrary
+non-Clifford state at every later measurement.
+
+The noise host accepts independent X/Y/Z errors, depolarizing channels, biased
+one- and two-qubit Pauli channels, and symmetric readout flips, with different
+probabilities at different locations. Two-qubit channels are categorical.
+Inter-location correlated channels and unsupported instructions are rejected.
+Sampling and compilation occur outside the existing executor. There is no
+history cache, postselection, or fault-count truncation.
+
+`study_automatic_specialization.py` compares ordinary noisy compilation,
+noise-free compilation, sampled faults, and sampled preparation outcomes on
+distillation, cultivation, BT, and constructed controls. Direct-X variants
+retain actual logical sampling without an ideal verification tail. It records
+T counts, active widths, compiler limits, bounded stress histories, fresh-shot
+costs, batch costs, and Merlin acceptance and timings. Wide plans are inspected
+without allocating their dense execution state. Timing shots do not establish
+statistical equivalence.
+
+```bash
+env OMP_NUM_THREADS=1 taskset -c 0 .venv/bin/python \
+  tools/profile/study_automatic_specialization.py \
+  --merlin-checkout /path/to/pinned/merlin --shots 32 --batch-shots 1024 \
+  --output /tmp/automatic-specialization.json
+env OMP_NUM_THREADS=1 .venv/bin/python \
+  tools/profile/validate_automatic_specialization.py \
+  --merlin-checkout /path/to/pinned/merlin \
+  --output /tmp/automatic-specialization-validation.json
+```
+
+The validator checks exact small noise mixtures and measurement-conditioned
+laws against Aer, complete joint record laws for selected distillation fault
+histories against Aer, wire renaming, an unreduced noncommuting control, and
+stochastic Clifford behavior against Stim. Larger cultivation checks compare
+fixed-history moments with Merlin and are explicitly not equivalence proofs.
+The same pinned Merlin checkout and the existing development dependencies are
+required. No native build or production execution change is introduced.
+
 ## Probability queries
 
 `profile_probability` uses a unitary-only circuit because measurements,

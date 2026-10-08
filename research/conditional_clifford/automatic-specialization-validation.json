@@ -1,0 +1,530 @@
+{
+  "channels": {
+    "histories": 64,
+    "records": 4,
+    "maximum_aer_error": 6.938893903907228e-17,
+    "stim_shots": 131072,
+    "categorical_draws": 131072,
+    "unsupported_rejected": [
+      "E(0.1) X0 Y1",
+      "HERALDED_ERASE(0.1) 0"
+    ]
+  },
+  "measurement_branches": {
+    "cases": [
+      {
+        "feedback": false,
+        "branches": 16,
+        "maximum_conditional_error": 5.551115123125783e-17,
+        "maximum_aer_mixture_error": 1.3877787807814457e-17
+      },
+      {
+        "feedback": true,
+        "branches": 16,
+        "maximum_conditional_error": 5.551115123125783e-17,
+        "maximum_aer_mixture_error": 5.551115123125783e-17
+      }
+    ]
+  },
+  "distillation": {
+    "cases": [
+      {
+        "case": "15to1_scored",
+        "histories": [
+          [],
+          [
+            [
+              159,
+              4
+            ]
+          ],
+          [
+            [
+              116,
+              10
+            ],
+            [
+              224,
+              13
+            ],
+            [
+              235,
+              14
+            ],
+            [
+              247,
+              1
+            ],
+            [
+              254,
+              11
+            ]
+          ],
+          [
+            [
+              2,
+              4
+            ],
+            [
+              10,
+              4
+            ],
+            [
+              20,
+              5
+            ],
+            [
+              21,
+              5
+            ],
+            [
+              134,
+              3
+            ],
+            [
+              141,
+              2
+            ],
+            [
+              143,
+              3
+            ],
+            [
+              153,
+              1
+            ],
+            [
+              162,
+              11
+            ],
+            [
+              222,
+              13
+            ],
+            [
+              249,
+              11
+            ],
+            [
+              288,
+              5
+            ]
+          ]
+        ],
+        "output_t": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "positive_probability_records_checked": 20,
+        "maximum_joint_probability_error": 1.7763568394002505e-15,
+        "wire_renaming": "passed"
+      },
+      {
+        "case": "15to1_direct_x",
+        "histories": [
+          [],
+          [
+            [
+              159,
+              4
+            ]
+          ],
+          [
+            [
+              116,
+              10
+            ],
+            [
+              224,
+              13
+            ],
+            [
+              235,
+              14
+            ],
+            [
+              247,
+              1
+            ],
+            [
+              254,
+              11
+            ]
+          ],
+          [
+            [
+              2,
+              4
+            ],
+            [
+              10,
+              4
+            ],
+            [
+              20,
+              5
+            ],
+            [
+              21,
+              5
+            ],
+            [
+              134,
+              3
+            ],
+            [
+              141,
+              2
+            ],
+            [
+              143,
+              3
+            ],
+            [
+              153,
+              1
+            ],
+            [
+              162,
+              11
+            ],
+            [
+              222,
+              13
+            ],
+            [
+              249,
+              11
+            ],
+            [
+              288,
+              5
+            ]
+          ]
+        ],
+        "output_t": [
+          1,
+          1,
+          1,
+          1
+        ],
+        "positive_probability_records_checked": 38,
+        "maximum_joint_probability_error": 9.992007221626409e-16,
+        "wire_renaming": "passed"
+      },
+      {
+        "case": "bh_scored",
+        "histories": [
+          [],
+          [
+            [
+              79,
+              4
+            ]
+          ],
+          [
+            [
+              58,
+              8
+            ],
+            [
+              112,
+              3
+            ],
+            [
+              117,
+              1
+            ],
+            [
+              123,
+              3
+            ],
+            [
+              208,
+              5
+            ]
+          ],
+          [
+            [
+              1,
+              5
+            ],
+            [
+              10,
+              1
+            ],
+            [
+              67,
+              4
+            ],
+            [
+              71,
+              4
+            ],
+            [
+              81,
+              5
+            ],
+            [
+              111,
+              2
+            ],
+            [
+              124,
+              1
+            ],
+            [
+              144,
+              13
+            ],
+            [
+              165,
+              8
+            ],
+            [
+              181,
+              12
+            ],
+            [
+              182,
+              1
+            ],
+            [
+              191,
+              11
+            ]
+          ]
+        ],
+        "output_t": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "positive_probability_records_checked": 27,
+        "maximum_joint_probability_error": 1.3322676295501878e-15,
+        "wire_renaming": "passed"
+      },
+      {
+        "case": "bh_direct_x",
+        "histories": [
+          [],
+          [
+            [
+              79,
+              4
+            ]
+          ],
+          [
+            [
+              58,
+              8
+            ],
+            [
+              112,
+              3
+            ],
+            [
+              117,
+              1
+            ],
+            [
+              123,
+              3
+            ],
+            [
+              208,
+              5
+            ]
+          ],
+          [
+            [
+              1,
+              5
+            ],
+            [
+              10,
+              1
+            ],
+            [
+              67,
+              4
+            ],
+            [
+              71,
+              4
+            ],
+            [
+              81,
+              5
+            ],
+            [
+              111,
+              2
+            ],
+            [
+              124,
+              1
+            ],
+            [
+              144,
+              13
+            ],
+            [
+              165,
+              8
+            ],
+            [
+              181,
+              12
+            ],
+            [
+              182,
+              1
+            ],
+            [
+              191,
+              11
+            ]
+          ]
+        ],
+        "output_t": [
+          2,
+          2,
+          2,
+          2
+        ],
+        "positive_probability_records_checked": 76,
+        "maximum_joint_probability_error": 5.551115123125783e-16,
+        "wire_renaming": "passed"
+      }
+    ]
+  },
+  "negative_control": {
+    "histories": [
+      [],
+      [
+        [
+          2,
+          3
+        ],
+        [
+          3,
+          3
+        ],
+        [
+          5,
+          1
+        ],
+        [
+          9,
+          1
+        ],
+        [
+          10,
+          1
+        ],
+        [
+          17,
+          1
+        ],
+        [
+          20,
+          2
+        ],
+        [
+          28,
+          2
+        ],
+        [
+          29,
+          7
+        ]
+      ]
+    ],
+    "maximum_aer_probability_error": 6.106226635438361e-16,
+    "retained_t": 24,
+    "wire_renaming": "passed"
+  },
+  "cultivation": {
+    "scope": "Bug checks of fixed-history moments, not distribution equivalence",
+    "cases": [
+      {
+        "case": "cultivation_d3",
+        "history": [],
+        "shots_per_backend": 8192,
+        "features": 107,
+        "maximum_score": 0.0
+      },
+      {
+        "case": "cultivation_d3",
+        "history": [
+          [
+            49,
+            2
+          ],
+          [
+            246,
+            2
+          ],
+          [
+            356,
+            3
+          ],
+          [
+            403,
+            1
+          ],
+          [
+            513,
+            2
+          ]
+        ],
+        "shots_per_backend": 8192,
+        "features": 107,
+        "maximum_score": 0.9999724902333943
+      },
+      {
+        "case": "cultivation_d5",
+        "history": [],
+        "shots_per_backend": 8192,
+        "features": 285,
+        "maximum_score": 2.8286618168128337
+      },
+      {
+        "case": "cultivation_d5",
+        "history": [
+          [
+            196,
+            3
+          ],
+          [
+            199,
+            1
+          ],
+          [
+            1612,
+            2
+          ],
+          [
+            2055,
+            1
+          ],
+          [
+            2604,
+            8
+          ]
+        ],
+        "shots_per_backend": 8192,
+        "features": 285,
+        "maximum_score": 1.937681704066239
+      }
+    ]
+  },
+  "source_hashes": {
+    "validate_automatic_specialization.py": "6e3821e4222be52fa497a54ebd53649eaa0163ddaafdaed8f7da8ca222f1349c",
+    "automatic_specialization.py": "c1d058e0dffc3af886393943d0950dea4754e77ff9ee8faa2e0e956a58eb38e9"
+  }
+}

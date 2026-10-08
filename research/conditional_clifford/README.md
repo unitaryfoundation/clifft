@@ -9,13 +9,19 @@ still execute normally; this does not assume an all-zero state at an internal
 phase boundary. Supporting arbitrary unknown input states is not a requirement
 of this investigation.
 
-Latest study: [reusable preparation and conditional maps](#reusable-preparation-and-conditional-maps-on-2026-10-08)
-factors the complete output law into fixed preparation records, determined Z
-readouts, and a changing diagonal Clifford core of 33 qubits for BT27 or 87
-for BT81. Exhaustive small fault slices compile to Boolean sampling formulas,
-but their growth does not yet justify a full-noise formula or plan bank.
-Earlier sections retain the full samplers, rate-equivalence study, and the
-narrower scopes used during the investigation.
+Accepted extension: specialization may use sampled faults and observed
+mid-circuit measurement outcomes. Requiring all non-stochastic work to be
+compiled once is not a research constraint. The current production executor
+contract remains unchanged; host-side experiments may sample and recompile
+between calls to it.
+
+Latest study: [automatic specialization across circuit families](AUTOMATIC_SPECIALIZATION.md)
+tests the existing algebraic optimizer on raw circuits after sampled faults,
+and optionally after sampling an initial Clifford preparation. It demonstrates
+both complete and partial reductions outside BT, a measurement-dependent
+reduction, and important compilation-cost and representation limits. This
+assessment takes priority over further BT-only core integration. Earlier
+sections retain the BT samplers, rate-equivalence study, and narrower scopes.
 
 ## Baseline and question
 
