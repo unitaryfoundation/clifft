@@ -219,6 +219,174 @@ tomography, a proof for untested faults, or a complete scientific workflow with
 a decoder. They provide independent evidence beyond T counts, widths, or
 acceptance-only checks. Repository-wide pre-commit checks also pass.
 
+## Shared structure and exact physical corrections on 2026-10-08
+
+The follow-up uses the same 292 patterns and production compiler. It adds only
+offline research tools and an opt-in native diagnostic. It does not introduce
+conditional-Clifford execution, runtime planning, or a new public API.
+
+### What varies after ordinary compilation
+
+All variants have 685 HIR operations and the same ordered 37 signed T axes.
+There are two rotation presentations: 224 patterns begin with T_DAG and 68
+begin with T on that first axis; the other 36 rotations agree. That difference
+can be absorbed into a Clifford frame. It must not be silently discarded when
+comparing programs.
+
+The measurement and frame interface varies substantially. Comparing measurements
+by record identity, rather than by positions after squeezing, finds between
+zero and 54 changed signed measurement masks. There are 93 operation skeletons
+after dropping Pauli masks/signs, and 123 distinct printed executable plans.
+Neither count is a cache-size estimate or an equivalence classification:
+instruction order can vary, and executable inspection omits dependencies.
+
+The retained fingerprints and correction coefficients are in
+[bt27-phase-corrections.json](bt27-phase-corrections.json). A common list of
+non-Clifford axes therefore remains useful evidence, but does not establish a
+common executable.
+
+### A frame-composition shortcut is not a sufficient certificate
+
+The native diagnostic canonicalizes T_DAG into T plus an exact Clifford frame
+correction, immediately after the phase pass and before rotation simplification
+and squeezing. It infers relative frames from 162 independently compiled X/Z
+single faults. For a multiple-fault pattern, it composes those frames, conjugates
+the 72 suffix measurement masks, and updates the final tableau of the no-fault
+HIR. It then compares against fresh compilation, including signed operations,
+record identities, side tables, and the final tableau.
+
+This reproduces fresh HIR for 262/292 patterns, including identity and all 243
+single faults. The other 30 multiple-fault patterns differ in both operations
+and final tableau; the first is `X10_X12_Y55`. Twelve inferred single-fault
+frames do not even square to the identity as full tableaus. These differences
+rule out treating this particular inferred frame bank as an exact representation
+of physical Pauli conjugation. They do not prove different physical output
+states: separately optimized programs can choose different extensions away
+from their supported states. A supported-subspace equivalence certificate has
+not been established, and the diagnostic never executes a rejected reconstruction.
+
+For the 262 matches, the remaining optimizer passes also reproduce fresh HIR;
+planning and executable preparation succeed. Across the sweep, the local median
+reconstruction time is 0.411 ms, versus 59.7 ms for fresh parse/trace and phase
+processing. For matching patterns, median remaining optimization, planning,
+and preparation times are 1.80 ms, 1.16 ms, and 0.042 ms, respectively. Building
+the inferred generator bank takes 9.81 seconds. These exploratory timings
+exclude oracle comparisons from the
+reconstruction stages, do not amortize setup, and leave 30 patterns unresolved.
+They are not an end-to-end speedup or a usable specialization backend.
+
+Results are retained in [bt27-shared-analysis.json](bt27-shared-analysis.json).
+The diagnostic was built through the opt-in CMake target in Release mode.
+
+### Deriving corrections before state-dependent optimization
+
+The original source region from lines 1958 through 2875 contains only CNOT,
+T, and T_DAG. The two CNOTs after the final T complete its return to the input
+coordinates. Expanding parity phases modulo eight gives an identity linear
+map and exactly 54 distinct cubic monomials, each with coefficient four:
+
+```text
+U |x> = exp(i*pi*p(x)/4) |x>
+p(x) = 4 * sum_{triples {i,j,k}} x_i x_j x_k  (mod 8)
+```
+
+This is an operator identity on the full physical data space. It does not use
+the prepared code state, measurement outcomes, or a favorable fault sample.
+For a fixed Pauli fault represented by `X^a Z^b`, define
+
+```text
+delta(x) = p(x XOR a) - p(x) + 4 * sum_i b_i x_i  (mod 8)
+U X^a Z^b = X^a D_delta U
+```
+
+Translation cancels the cubic terms. The remaining nonconstant phase is
+diagonal Clifford. For this homogeneous cubic region it needs only Z and CZ:
+
+```text
+CZ(i,j) control = XOR of a_k over triples containing {i,j,k}
+Z(i) control    = b_i XOR XOR of (a_j AND a_k) over triples containing {i,j,k}
+X(i) control    = a_i
+```
+
+Apply the diagonal corrections after U, then the X corrections. The fixed
+description has 162 candidate CZ pairs and 81 Z/X targets. It describes every
+Pauli assignment at this one noise layer, not only the sampled 292. It does not
+prove a width bound or an executable plan for every assignment.
+
+The quadratic fault-bit products in the Z controls are essential. For one CCZ
+on `(0,1,2)`, simultaneous X faults on 0 and 1 require `CZ 1 2`, `CZ 0 2`,
+and `Z 2`, followed by `X 0` and `X 1`. Simply retaining the single-fault CZ
+terms and omitting the Z term is wrong. Exact Clifford-generator composition
+can account for these terms implicitly; an explicit diagonal-control formula
+must include them.
+
+The analyzer retains the constant phase coefficient but omits it from emitted
+gates, along with the global phase of representing Y as XZ. That is valid for
+individual stochastic Pauli realizations. A coherent sum over fault branches
+would need those relative phases and is outside this experiment.
+
+### Validation and the next decision
+
+- Qiskit Aer validates 128 operator identities using maximally entangled data
+  and reference qubits: all 64 three-qubit Pauli faults through CCZ, plus 64
+  random four-qubit diagonal CNOT/T circuits. The latter also exercise S and
+  S_DAG corrections. Maximum amplitude error after global-phase alignment is
+  2.51e-16. Deliberately omitting the two-fault Z term produces orthogonal Choi
+  states, so the check distinguishes the incomplete formula.
+- Stim verifies that all 162 physical X/Z correction generators square to
+  identity and their compositions equal the directly translated correction
+  for all 292 patterns. This succeeds where the optimized-frame shortcut's
+  full-HIR comparison did not.
+- Original-fault and relocated-correction BT27 sources are independently
+  compiled by Clifft and sampled with different seeds, 512 shots per side.
+  All 292 pass the same 95 Pauli probes and 1,592 record/probe moment checks.
+  Maximum discrepancy score is 3.785; 2,790 constant conditional groups across
+  252 patterns agree within 1.25e-16. The respective compiled widths agree for
+  every pattern and remain between four and nine, including the probes.
+
+Results are in [bt27-phase-validation.json](bt27-phase-validation.json). The
+BT27 relocation comparison is differential testing with the same compiler,
+not a new independent Merlin run or full tomography. The earlier independent
+Merlin comparison still covers the original specialized sources.
+
+The next bounded experiment should transport this exact physical correction
+through the noiseless phase reduction using an explicit supported-subspace
+certificate at the physical phase boundary. Check whether a proposed common
+reduction depends on measurements later in the decoder. Then classify the
+resulting measurement actions and dependencies
+to see which admit shared preplanned execution, and measure construction cost
+for the complete valid path. This is a more precise target than assuming that
+relative final tableaus compose, or beginning with general continuation.
+Any executor architecture change still requires a separate decision. Interleaved
+noise and the BT81 variable ceiling remain separate investigations.
+
+### Reproduction
+
+From the repository root with the development build and Aer/Stim installed:
+
+```bash
+.venv/bin/python tools/profile/analyze_bt27_phase_corrections.py \
+  --study research/conditional_clifford/bt27-specialization.json \
+  --output /tmp/bt27-phase-corrections.json \
+  --structure --cases-output /tmp/bt27-variant-cases.txt
+
+cmake -B build-profile -DCMAKE_BUILD_TYPE=Release \
+  -DCLIFFT_BUILD_PROFILER=ON -DCLIFFT_BUILD_TESTS=OFF
+cmake --build build-profile --target profile_bt27_shared_analysis -j4
+build-profile/profile_bt27_shared_analysis \
+  tests/fixtures/merlin_bt27.stim /tmp/bt27-variant-cases.txt \
+  > /tmp/bt27-shared-analysis.json
+
+.venv/bin/python tools/profile/validate_bt27_phase_corrections.py \
+  --study research/conditional_clifford/bt27-specialization.json \
+  --output /tmp/bt27-phase-validation.json
+```
+
+The native diagnostic records unmatched reconstructions as data and returns
+success if the sweep completes. Inspect the `matches` fields; exit status alone
+does not certify a reusable frame bank. Repository-wide pre-commit checks are
+also required before committing changes to these research tools.
+
 ## References
 
 - [PR 552](https://github.com/unitaryfoundation/clifft/pull/552)

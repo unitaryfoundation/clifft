@@ -261,6 +261,20 @@ normalizing each fixed fault against a faulty reference.
 See [the research record](../../research/conditional_clifford/README.md) for
 commands, pinned revisions, results, limitations, and subsequent decisions.
 
+`analyze_bt27_phase_corrections.py` extracts an exact physical phase polynomial
+and fixed-fault Clifford correction controls. `--structure` also fingerprints
+ordinary optimized variants; those fingerprints are not executable-equivalence
+classes. `validate_bt27_phase_corrections.py` checks small operator identities
+with Aer, physical correction composition with Stim, and full-fixture fault
+relocation with Clifft differential sampling.
+
+The opt-in CMake target `profile_bt27_shared_analysis` tests a separate shortcut:
+reconstructing variants from relative frames inferred from compiled single
+faults. It records exact HIR mismatches, including negative results, before any
+planning or executable preparation. This is an offline diagnostic, not a
+specialization backend. Reproduction commands and retained results are in the
+same research record.
+
 ## Probability queries
 
 `profile_probability` uses a unitary-only circuit because measurements,

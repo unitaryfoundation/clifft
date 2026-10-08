@@ -1,0 +1,3243 @@
+{
+  "study_sha256": "2bc800f8853f98916d141c492e7b16166543e54e2a96a07550f9dffecc3d1351",
+  "fixture_sha256": "6fba8be045e377c80a32e5cc91b2a71be1d67359d02db0f52c55068f6eb7a15e",
+  "aer_operator_validation": {
+    "qiskit_aer_version": "0.17.2",
+    "exhaustive_ccz_paulis": 64,
+    "random_four_qubit_diagonal_circuits": 64,
+    "maximum_choi_amplitude_error_up_to_global_phase": 2.503186870860437e-16,
+    "correction_gate_counts": {
+      "CZ": 238,
+      "X": 223,
+      "Z": 161,
+      "S_DAG": 56,
+      "S": 60
+    },
+    "missing_quadratic_fault_term_negative_control_overlap": 2.498001805406602e-16
+  },
+  "stim_physical_frame_validation": {
+    "involutive_generators": 162,
+    "composed_patterns_checked": 292
+  },
+  "fixture_validation": {
+    "method": "Clifft differential comparison with independent shot seeds",
+    "shots_per_pattern_per_side": 512,
+    "pauli_probes": 95,
+    "limitations": "Finite probe and record moments, not tomography or independent BT27 simulation",
+    "results": {
+      "identity": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X0": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 2.7755575615628914e-17
+      },
+      "Y0": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 2.7755575615628914e-17
+      },
+      "Z0": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X1": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 2.7755575615628914e-17
+      },
+      "Y1": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 2.7755575615628914e-17
+      },
+      "Z1": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X2": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 3.469446951953614e-17
+      },
+      "Y2": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 3.469446951953614e-17
+      },
+      "Z2": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X3": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 3.469446951953614e-17
+      },
+      "Y3": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 3.469446951953614e-17
+      },
+      "Z3": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X4": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 9.71445146547012e-17
+      },
+      "Y4": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 9.71445146547012e-17
+      },
+      "Z4": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X5": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 9.71445146547012e-17
+      },
+      "Y5": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 9.71445146547012e-17
+      },
+      "Z5": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X6": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 3.469446951953614e-17
+      },
+      "Y6": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 3.469446951953614e-17
+      },
+      "Z6": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X7": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 3.469446951953614e-17
+      },
+      "Y7": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 3.469446951953614e-17
+      },
+      "Z7": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X8": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 2.7755575615628914e-17
+      },
+      "Y8": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 2.7755575615628914e-17
+      },
+      "Z8": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X9": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.3806116499666614,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 8.466797284545935e-17
+      },
+      "Y9": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.3806116499666614,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 8.466797284545935e-17
+      },
+      "Z9": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X10": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 2.7755575615628914e-17
+      },
+      "Y10": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 2.7755575615628914e-17
+      },
+      "Z10": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X11": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.1305119078999293,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 1.1102230246251565e-16
+      },
+      "Y11": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.1305119078999293,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 1.1102230246251565e-16
+      },
+      "Z11": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X12": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 3.469446951953614e-17
+      },
+      "Y12": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 3.469446951953614e-17
+      },
+      "Z12": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X13": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 2.7755575615628914e-17
+      },
+      "Y13": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 2.7755575615628914e-17
+      },
+      "Z13": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X14": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 2.7755575615628914e-17
+      },
+      "Y14": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 2.7755575615628914e-17
+      },
+      "Z14": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X15": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 3.469446951953614e-17
+      },
+      "Y15": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 3.469446951953614e-17
+      },
+      "Z15": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X16": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 4.163336342344337e-17
+      },
+      "Y16": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 4.163336342344337e-17
+      },
+      "Z16": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X17": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 2.7755575615628914e-17
+      },
+      "Y17": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 2.7755575615628914e-17
+      },
+      "Z17": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X18": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 2.7755575615628914e-17
+      },
+      "Y18": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 2.7755575615628914e-17
+      },
+      "Z18": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X19": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.1936207484379056,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 2.7755575615628914e-17
+      },
+      "Y19": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.1936207484379056,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 2.7755575615628914e-17
+      },
+      "Z19": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X20": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 4.163336342344337e-17
+      },
+      "Y20": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 4.163336342344337e-17
+      },
+      "Z20": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X21": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.1301191144032465,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 2.7755575615628914e-17
+      },
+      "Y21": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.1301191144032465,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 2.7755575615628914e-17
+      },
+      "Z21": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X22": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 2.7755575615628914e-17
+      },
+      "Y22": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 2.7755575615628914e-17
+      },
+      "Z22": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X23": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 4.85722573273506e-17
+      },
+      "Y23": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 4.85722573273506e-17
+      },
+      "Z23": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X24": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.6955585816696086,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 9.71445146547012e-17
+      },
+      "Y24": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.6955585816696086,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 9.71445146547012e-17
+      },
+      "Z24": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X25": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 1.249000902703301e-16
+      },
+      "Y25": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 1.249000902703301e-16
+      },
+      "Z25": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X26": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.5720437213091576,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 3.469446951953614e-17
+      },
+      "Y26": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.5720437213091576,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 3.469446951953614e-17
+      },
+      "Z26": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X27": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.132085257626332,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 2.7755575615628914e-17
+      },
+      "Y27": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.132085257626332,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 2.7755575615628914e-17
+      },
+      "Z27": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X28": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 3.084805983029738,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 8.466797284545935e-17
+      },
+      "Y28": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 3.084805983029738,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 8.466797284545935e-17
+      },
+      "Z28": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X29": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 4.163336342344337e-17
+      },
+      "Y29": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 4.163336342344337e-17
+      },
+      "Z29": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X30": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 3.469446951953614e-17
+      },
+      "Y30": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 3.469446951953614e-17
+      },
+      "Z30": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X31": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.6321931467625563,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 4.163336342344337e-17
+      },
+      "Y31": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.6321931467625563,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 4.163336342344337e-17
+      },
+      "Z31": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X32": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.2561655543679056,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 2.7755575615628914e-17
+      },
+      "Y32": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.2561655543679056,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 2.7755575615628914e-17
+      },
+      "Z32": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X33": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 9.71445146547012e-17
+      },
+      "Y33": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 9.71445146547012e-17
+      },
+      "Z33": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X34": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 2.7755575615628914e-17
+      },
+      "Y34": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 2.7755575615628914e-17
+      },
+      "Z34": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X35": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 3.469446951953614e-17
+      },
+      "Y35": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 3.469446951953614e-17
+      },
+      "Z35": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X36": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.2561655543679056,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 9.71445146547012e-17
+      },
+      "Y36": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.2561655543679056,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 9.71445146547012e-17
+      },
+      "Z36": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X37": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 9.71445146547012e-17
+      },
+      "Y37": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 9.71445146547012e-17
+      },
+      "Z37": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X38": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 9.71445146547012e-17
+      },
+      "Y38": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 9.71445146547012e-17
+      },
+      "Z38": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X39": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 9.71445146547012e-17
+      },
+      "Y39": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 9.71445146547012e-17
+      },
+      "Z39": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X40": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 4.163336342344337e-17
+      },
+      "Y40": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 4.163336342344337e-17
+      },
+      "Z40": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X41": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 5.551115123125783e-17
+      },
+      "Y41": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 5.551115123125783e-17
+      },
+      "Z41": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X42": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.317012095631338,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 8.466797284545935e-17
+      },
+      "Y42": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.317012095631338,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 8.466797284545935e-17
+      },
+      "Z42": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X43": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.3817827066198967,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 3.469446951953614e-17
+      },
+      "Y43": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.3817827066198967,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 3.469446951953614e-17
+      },
+      "Z43": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X44": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 8.466797284545935e-17
+      },
+      "Y44": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 8.466797284545935e-17
+      },
+      "Z44": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X45": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 3.084805983029738,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 2.7755575615628914e-17
+      },
+      "Y45": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 3.084805983029738,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 2.7755575615628914e-17
+      },
+      "Z45": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X46": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 2.7755575615628914e-17
+      },
+      "Y46": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 2.7755575615628914e-17
+      },
+      "Z46": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X47": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 3.392472075346667,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 3.469446951953614e-17
+      },
+      "Y47": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 3.392472075346667,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 3.469446951953614e-17
+      },
+      "Z47": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X48": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 1.1102230246251565e-16
+      },
+      "Y48": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 1.1102230246251565e-16
+      },
+      "Z48": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X49": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.3182577820141206,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 3.469446951953614e-17
+      },
+      "Y49": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.3182577820141206,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 3.469446951953614e-17
+      },
+      "Z49": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X50": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.5720437213091576,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 1.1102230246251565e-16
+      },
+      "Y50": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.5720437213091576,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 1.1102230246251565e-16
+      },
+      "Z50": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X51": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.5079303406255655,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 3.469446951953614e-17
+      },
+      "Y51": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.5079303406255655,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 3.469446951953614e-17
+      },
+      "Z51": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X52": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.193620748437905,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 4.85722573273506e-17
+      },
+      "Y52": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.193620748437905,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 4.85722573273506e-17
+      },
+      "Z52": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X53": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 2.7755575615628914e-17
+      },
+      "Y53": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 2.7755575615628914e-17
+      },
+      "Z53": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X54": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 2.7755575615628914e-17
+      },
+      "Y54": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 2.7755575615628914e-17
+      },
+      "Z54": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X55": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 4.85722573273506e-17
+      },
+      "Y55": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 4.85722573273506e-17
+      },
+      "Z55": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X56": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 2.7755575615628914e-17
+      },
+      "Y56": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 2.7755575615628914e-17
+      },
+      "Z56": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X57": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 3.469446951953614e-17
+      },
+      "Y57": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 3.469446951953614e-17
+      },
+      "Z57": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X58": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 2.7755575615628914e-17
+      },
+      "Y58": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 2.7755575615628914e-17
+      },
+      "Z58": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X59": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 3.392472075346667,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 4.163336342344337e-17
+      },
+      "Y59": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 3.392472075346667,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 4.163336342344337e-17
+      },
+      "Z59": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X60": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 2.7755575615628914e-17
+      },
+      "Y60": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 2.7755575615628914e-17
+      },
+      "Z60": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X61": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 2.7755575615628914e-17
+      },
+      "Y61": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 2.7755575615628914e-17
+      },
+      "Z61": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X62": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 2.7755575615628914e-17
+      },
+      "Y62": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 2.7755575615628914e-17
+      },
+      "Z62": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X63": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 4.163336342344337e-17
+      },
+      "Y63": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 4.163336342344337e-17
+      },
+      "Z63": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X64": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 8.466797284545935e-17
+      },
+      "Y64": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 8.466797284545935e-17
+      },
+      "Z64": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X65": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 8.466797284545935e-17
+      },
+      "Y65": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 8.466797284545935e-17
+      },
+      "Z65": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X66": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 2.7755575615628914e-17
+      },
+      "Y66": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 2.7755575615628914e-17
+      },
+      "Z66": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X67": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.5693145308690055,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 8.466797284545935e-17
+      },
+      "Y67": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.5693145308690055,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 8.466797284545935e-17
+      },
+      "Z67": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X68": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 4.163336342344337e-17
+      },
+      "Y68": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 4.163336342344337e-17
+      },
+      "Z68": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X69": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.379971958526934,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 3.469446951953614e-17
+      },
+      "Y69": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.379971958526934,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 3.469446951953614e-17
+      },
+      "Z69": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X70": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.13238064893968,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 2.7755575615628914e-17
+      },
+      "Y70": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.13238064893968,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 2.7755575615628914e-17
+      },
+      "Z70": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X71": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.319434128413384,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 2.7755575615628914e-17
+      },
+      "Y71": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.319434128413384,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 2.7755575615628914e-17
+      },
+      "Z71": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X72": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 4.163336342344337e-17
+      },
+      "Y72": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 4.163336342344337e-17
+      },
+      "Z72": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X73": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 4.163336342344337e-17
+      },
+      "Y73": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 4.163336342344337e-17
+      },
+      "Z73": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X74": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 3.7847917280511925,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 9.71445146547012e-17
+      },
+      "Y74": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 3.7847917280511925,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 9.71445146547012e-17
+      },
+      "Z74": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X75": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.4459001436131924,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 2.7755575615628914e-17
+      },
+      "Y75": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.4459001436131924,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 2.7755575615628914e-17
+      },
+      "Z75": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X76": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 3.392472075346667,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 3.469446951953614e-17
+      },
+      "Y76": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 3.392472075346667,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 3.469446951953614e-17
+      },
+      "Z76": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X77": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 8.466797284545935e-17
+      },
+      "Y77": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 8.466797284545935e-17
+      },
+      "Z77": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X78": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.7584899559192455,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 2.7755575615628914e-17
+      },
+      "Y78": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.7584899559192455,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 2.7755575615628914e-17
+      },
+      "Z78": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X79": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.5693145308690055,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 4.163336342344337e-17
+      },
+      "Y79": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.5693145308690055,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 4.163336342344337e-17
+      },
+      "Z79": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X80": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.2564257220609543,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 3.469446951953614e-17
+      },
+      "Y80": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.2564257220609543,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 3.469446951953614e-17
+      },
+      "Z80": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X5_Y37": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.638467122751164,
+        "common_syndrome_patterns": 186,
+        "constant_conditional_probe_groups_checked": 0,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X19_Z35": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.1936207484379056,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 2.7755575615628914e-17
+      },
+      "Z27_Z39": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 1,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X27_Z52": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.132085257626332,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 2.7755575615628914e-17
+      },
+      "Y3_Y59": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.2561655543679056,
+        "common_syndrome_patterns": 64,
+        "constant_conditional_probe_groups_checked": 19,
+        "maximum_conditional_probe_difference": 4.163336342344337e-17
+      },
+      "Y28_Y30": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.632253844158289,
+        "common_syndrome_patterns": 190,
+        "constant_conditional_probe_groups_checked": 0,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X7_Z24": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 3.469446951953614e-17
+      },
+      "Y37_Y51": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 3.015181429530833,
+        "common_syndrome_patterns": 201,
+        "constant_conditional_probe_groups_checked": 0,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "Y1_X7_Y59": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.5086831163996237,
+        "common_syndrome_patterns": 155,
+        "constant_conditional_probe_groups_checked": 0,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "Z8_Z42_X74": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 3.7847917280511925,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 9.71445146547012e-17
+      },
+      "X16_X40_Z44": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.759508945625266,
+        "common_syndrome_patterns": 184,
+        "constant_conditional_probe_groups_checked": 0,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "Y15_X25_Z37": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.1937219317625076,
+        "common_syndrome_patterns": 183,
+        "constant_conditional_probe_groups_checked": 0,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X0_X10_X34": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.8308341964630324,
+        "common_syndrome_patterns": 56,
+        "constant_conditional_probe_groups_checked": 0,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "Z3_Z54_X67": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.5693145308690055,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 8.466797284545935e-17
+      },
+      "X10_X12_Y55": {
+        "peak_widths_with_probes": [
+          8,
+          8
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.132085257626332,
+        "common_syndrome_patterns": 93,
+        "constant_conditional_probe_groups_checked": 0,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "Z23_X41_Y55": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 188,
+        "constant_conditional_probe_groups_checked": 0,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "Z14_X37_X45_X46_Z73": {
+        "peak_widths_with_probes": [
+          7,
+          7
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.5322154535148544,
+        "common_syndrome_patterns": 147,
+        "constant_conditional_probe_groups_checked": 0,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "Y2_X17_Z34_Z38_X59": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.828906953964141,
+        "common_syndrome_patterns": 53,
+        "constant_conditional_probe_groups_checked": 0,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "Z0_Y29_X33_Y59_Z65": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.889392693211101,
+        "common_syndrome_patterns": 162,
+        "constant_conditional_probe_groups_checked": 0,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X5_X7_Y36_Z39_X76": {
+        "peak_widths_with_probes": [
+          8,
+          8
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.5064845975293286,
+        "common_syndrome_patterns": 11,
+        "constant_conditional_probe_groups_checked": 0,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X1_Z8_X53_Y56_Y61": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.44353146920126,
+        "common_syndrome_patterns": 60,
+        "constant_conditional_probe_groups_checked": 0,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "Z18_Z19_Z26_X39_Z52": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 16,
+        "constant_conditional_probe_groups_checked": 16,
+        "maximum_conditional_probe_difference": 9.71445146547012e-17
+      },
+      "X17_Y25_X46_Z58_Z80": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.256304299271065,
+        "common_syndrome_patterns": 53,
+        "constant_conditional_probe_groups_checked": 0,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X5_X7_X22_Z35_Y37": {
+        "peak_widths_with_probes": [
+          8,
+          8
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.5064845975293286,
+        "common_syndrome_patterns": 21,
+        "constant_conditional_probe_groups_checked": 0,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "Z8_Y21_Z23_Y24_X31_Y34_Z59_Y73_Y76_X79": {
+        "peak_widths_with_probes": [
+          7,
+          7
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.693894122464674,
+        "common_syndrome_patterns": 3,
+        "constant_conditional_probe_groups_checked": 0,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "Y5_Z24_Z26_Z53_Y59_Z60_X62_X75_Z76_X80": {
+        "peak_widths_with_probes": [
+          8,
+          8
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.1918018394131167,
+        "common_syndrome_patterns": 5,
+        "constant_conditional_probe_groups_checked": 0,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X10_Y11_Z17_Y20_Y27_Z36_X39_Z43_X50_Y58": {
+        "peak_widths_with_probes": [
+          7,
+          7
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.254173920630524,
+        "common_syndrome_patterns": 1,
+        "constant_conditional_probe_groups_checked": 0,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "Z1_Y14_X20_Z22_Y27_Z33_Y35_Y48_Z51_Z52": {
+        "peak_widths_with_probes": [
+          6,
+          6
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.7598276115656124,
+        "common_syndrome_patterns": 7,
+        "constant_conditional_probe_groups_checked": 0,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "Y33_Y34_Y38_Z40_Y42_Z51_Z68_X71_Y75_Z76": {
+        "peak_widths_with_probes": [
+          6,
+          6
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.1341945088639096,
+        "common_syndrome_patterns": 7,
+        "constant_conditional_probe_groups_checked": 0,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "Z5_X26_X34_Y41_Y54_Z55_X65_Z70_Z75_Y80": {
+        "peak_widths_with_probes": [
+          8,
+          8
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.632172915230378,
+        "common_syndrome_patterns": 36,
+        "constant_conditional_probe_groups_checked": 0,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "Y2_Z14_X19_Z20_Z23_X26_Y48_Y51_X63_Z80": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.826154333256994,
+        "common_syndrome_patterns": 2,
+        "constant_conditional_probe_groups_checked": 0,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X0_X1_Y8_Z19_X22_Y32_Z41_Y52_Y61_Y77": {
+        "peak_widths_with_probes": [
+          7,
+          7
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.76059286047132,
+        "common_syndrome_patterns": 0,
+        "constant_conditional_probe_groups_checked": 0,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "Z1_Z2_X3_Y5_Y6_Y9_Y10_Y11_X12_Z13_Y14_Y16_Y21_Y23_Z25_Z29_X31_Z32_Y36_Z37_Y38_Z40_X42_Z45_Y47_Z51_Y52_Z54_Z58_X60_Z63_Z64_Z65_X66_X68_X72_Z73_X74_X75_X79": {
+        "peak_widths_with_probes": [
+          6,
+          6
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 0,
+        "constant_conditional_probe_groups_checked": 0,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X0_Y1_Y4_X6_Y9_X10_Z12_Z13_X14_Y16_Z24_Z27_Z34_Z36_Z39_X40_Y41_Z43_Z46_Y48_X50_Z51_Z52_Z53_Y54_X56_Z58_Y59_Y60_Y61_Z62_Z65_Z66_Y70_X73_X75_Y77_Y78_Z79_X80": {
+        "peak_widths_with_probes": [
+          8,
+          8
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.8875873449823906,
+        "common_syndrome_patterns": 0,
+        "constant_conditional_probe_groups_checked": 0,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "Z4_X7_Y8_X9_X15_X16_Z17_X19_Z23_X24_Z25_Z26_Z27_X28_Z29_Z30_X31_X36_Z37_X38_Y40_Y49_X54_Y55_Z57_Z60_Z62_X63_X65_X66_Z67_Y68_Y69_X70_X71_Z74_Z76_Y77_Y79_Y80": {
+        "peak_widths_with_probes": [
+          8,
+          8
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 0,
+        "constant_conditional_probe_groups_checked": 0,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "Z0_Z3_Z5_Y6_Y8_Y10_Y11_Y16_Y17_Y24_Y26_Z28_Z29_X31_Z32_Z33_Y34_Y35_X38_X40_Y45_X46_Y47_Y51_Y57_Z58_Z59_Y60_X61_Y66_Z67_X68_Y69_X70_X72_X76_X77_X78_X79_Z80": {
+        "peak_widths_with_probes": [
+          8,
+          8
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.6321931467625563,
+        "common_syndrome_patterns": 0,
+        "constant_conditional_probe_groups_checked": 0,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "Z0_Z2_Y3_X4_Y5_Y6_Z7_Z9_Z15_Y16_Z20_X21_X25_X26_X27_X30_Z31_X34_Z36_X38_Y43_X44_Y45_Y47_Y48_Y50_X52_Y53_X58_Z61_X62_X64_X67_Z69_Y70_X72_Y73_Z76_Y77_Y79": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.88865677230297,
+        "common_syndrome_patterns": 0,
+        "constant_conditional_probe_groups_checked": 0,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "Y1_X2_Z4_Y5_Y6_X10_X12_Z13_X20_Y21_Z22_X26_Z27_Y30_X33_Z34_Z35_Z36_X39_X41_Z43_X44_Y46_X50_X52_Z53_X56_Z59_Z60_Z61_Y66_Y67_Y68_Y69_X70_X71_Y72_Y73_Z74_Y80": {
+        "peak_widths_with_probes": [
+          7,
+          7
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.1916768955184813,
+        "common_syndrome_patterns": 0,
+        "constant_conditional_probe_groups_checked": 0,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X0_Y2_X3_X5_Y9_Y10_Y11_Z12_Y13_Z15_X16_Y19_Y23_X25_Z26_Y28_Y30_Y31_Y33_Y34_Z35_Z37_Y40_X41_Z45_X46_Y48_X52_Y54_Y55_X58_Y59_Z60_Z62_X65_X66_X69_Y75_Y76_X79": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 3.582949640502546,
+        "common_syndrome_patterns": 0,
+        "constant_conditional_probe_groups_checked": 0,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "Y1_Y3_Y4_X6_Z7_Z14_Y16_Z18_Y19_Z21_X24_X25_X26_Z27_Y28_Z29_Y30_Z31_Y34_Z35_X38_Y39_Z45_Y46_X47_Y50_Z52_Y53_X57_Y59_Z60_Y62_X63_X68_Y71_X72_Z74_Y77_Y78_X79": {
+        "peak_widths_with_probes": [
+          7,
+          7
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.128599089060421,
+        "common_syndrome_patterns": 0,
+        "constant_conditional_probe_groups_checked": 0,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X0_Y1_X2_Y3_Z4_Z5_Z6_Y7_Y8_X9_X10_Z11_X12_X13_X14_X15_Z16_Y17_X18_Z19_Z20_Z21_X22_Y23_X24_Y25_X26_Y27_X28_X29_Y30_Y31_Y32_X33_Z34_X35_X36_Y37_X38_X39_Y40_Z41_Y42_Z43_Y44_Y45_Z46_X47_Z48_X49_Y50_X51_X52_Z53_X54_Y55_Z56_X57_Y58_X59_X60_Y61_X62_X63_Y64_X65_Y66_Y67_Y68_X69_Y70_Y71_X72_Z73_Y74_Y75_X76_Y77_X78_X79_X80": {
+        "peak_widths_with_probes": [
+          7,
+          7
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 3.0750902595463665,
+        "common_syndrome_patterns": 0,
+        "constant_conditional_probe_groups_checked": 0,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "Y0_Y1_Z2_X3_X4_X5_Z6_Z7_Z8_X9_Z10_Y11_Z12_Y13_X14_Z15_X16_X17_Z18_Y19_Z20_X21_X22_X23_Z24_Y25_Z26_X27_X28_Z29_Z30_Z31_Z32_Y33_Z34_Z35_X36_Y37_Y38_Z39_Y40_Z41_Y42_X43_Z44_Z45_X46_Z47_X48_Y49_X50_Z51_Z52_Y53_Y54_X55_Z56_Y57_Y58_X59_Z60_Y61_Y62_X63_X64_Y65_X66_Z67_Z68_X69_Y70_Z71_Z72_Z73_Y74_X75_Y76_Y77_Z78_Y79_X80": {
+        "peak_widths_with_probes": [
+          4,
+          4
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 3.138560885431222,
+        "common_syndrome_patterns": 0,
+        "constant_conditional_probe_groups_checked": 0,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "Y0_Z1_X2_X3_Y4_Y5_X6_Y7_Z8_X9_Z10_Z11_Y12_X13_X14_Y15_Z16_Z17_Z18_Z19_X20_X21_Y22_Z23_Z24_Z25_Y26_X27_X28_Z29_Z30_Z31_Y32_X33_X34_Z35_Z36_X37_X38_Y39_Y40_Z41_X42_Y43_Z44_X45_Y46_X47_Y48_X49_Z50_Z51_X52_Y53_Z54_Y55_Z56_X57_Z58_Z59_Z60_Y61_Z62_X63_Z64_X65_Y66_X67_Y68_Y69_X70_Z71_Y72_Y73_Y74_Z75_Z76_Z77_X78_X79_Z80": {
+        "peak_widths_with_probes": [
+          8,
+          8
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 3.0748058910094462,
+        "common_syndrome_patterns": 0,
+        "constant_conditional_probe_groups_checked": 0,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "Y0_Y1_X2_Y3_X4_X5_X6_X7_Y8_Y9_Z10_X11_Z12_X13_Y14_Z15_X16_Z17_Y18_X19_Z20_Z21_Y22_Z23_X24_Z25_Y26_X27_Y28_Z29_X30_Z31_Y32_X33_Z34_Z35_X36_X37_Z38_Z39_Y40_Y41_Y42_X43_Y44_Z45_X46_Z47_Y48_X49_X50_Z51_X52_Z53_Y54_Z55_Z56_Y57_X58_X59_X60_Z61_X62_Y63_Y64_Y65_Z66_Y67_Z68_X69_X70_Z71_X72_X73_Y74_Y75_Y76_Y77_Y78_X79_X80": {
+        "peak_widths_with_probes": [
+          7,
+          7
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.9494399811134002,
+        "common_syndrome_patterns": 0,
+        "constant_conditional_probe_groups_checked": 0,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "Y0_X1_Y2_Z3_X4_Z5_Y6_X7_X8_Z9_Z10_X11_Z12_X13_X14_Y15_X16_Z17_X18_Y19_X20_Z21_Y22_Y23_Y24_X25_Z26_Y27_Y28_Y29_X30_X31_Y32_X33_Z34_Y35_Z36_X37_Z38_X39_Y40_Y41_Y42_X43_Z44_Z45_Z46_X47_X48_Z49_Z50_Y51_Y52_Y53_Z54_X55_Z56_Y57_Z58_X59_Y60_X61_Z62_Y63_Z64_X65_Z66_Z67_Z68_Y69_Y70_Z71_Y72_X73_Y74_Y75_Z76_Y77_X78_Y79_Y80": {
+        "peak_widths_with_probes": [
+          6,
+          6
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.7598063637348993,
+        "common_syndrome_patterns": 0,
+        "constant_conditional_probe_groups_checked": 0,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X0_X1_Y2_Y3_X4_Z5_X6_X7_Z8_X9_X10_Y11_Y12_Y13_Z14_X15_Y16_X17_Z18_Y19_Y20_X21_Y22_Z23_Z24_X25_Y26_X27_Y28_Y29_Z30_X31_Y32_Z33_X34_X35_Z36_X37_X38_X39_Z40_Y41_Y42_X43_Z44_X45_X46_Z47_X48_Y49_Z50_X51_X52_Y53_Y54_Y55_Z56_X57_Z58_Z59_Z60_X61_Y62_X63_Z64_X65_Z66_Z67_Z68_Y69_Y70_X71_Z72_Y73_X74_Z75_X76_Y77_Y78_Z79_Z80": {
+        "peak_widths_with_probes": [
+          9,
+          9
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.6985485951121175,
+        "common_syndrome_patterns": 0,
+        "constant_conditional_probe_groups_checked": 0,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "Z0_Y1_X2_Y3_X4_Z5_Y6_X7_X8_Y9_Y10_Y11_Z12_X13_Z14_Z15_Y16_Y17_Y18_Y19_X20_X21_X22_Y23_Y24_Y25_Z26_Z27_Z28_Y29_X30_Y31_X32_X33_X34_X35_X36_Y37_Z38_Y39_Z40_X41_X42_X43_X44_Y45_X46_X47_Y48_Y49_Z50_Z51_Y52_Z53_Y54_Y55_X56_Y57_Y58_Z59_X60_Z61_Y62_Y63_X64_Y65_X66_X67_Y68_Z69_Z70_Z71_Y72_X73_Y74_Z75_Y76_Y77_X78_Z79_X80": {
+        "peak_widths_with_probes": [
+          7,
+          7
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.957244557169457,
+        "common_syndrome_patterns": 0,
+        "constant_conditional_probe_groups_checked": 0,
+        "maximum_conditional_probe_difference": 0.0
+      },
+      "X0_Y1_Z2_X3_Y4_Z5_Z6_Z7_X8_Z9_X10_Y11_Z12_X13_Y14_Y15_Y16_X17_Z18_X19_X20_Y21_Y22_Z23_Z24_Z25_Z26_X27_Z28_X29_Y30_Z31_Y32_Y33_Z34_Z35_Z36_Z37_X38_Z39_Y40_X41_Y42_Y43_Z44_X45_X46_Y47_Z48_Z49_Z50_Y51_Y52_Z53_Y54_Y55_X56_Y57_X58_Z59_Y60_X61_Z62_Y63_Z64_Z65_X66_Z67_Z68_X69_Z70_Y71_Z72_Y73_Z74_X75_Z76_Y77_X78_Z79_Y80": {
+        "peak_widths_with_probes": [
+          5,
+          5
+        ],
+        "joint_features": 1592,
+        "maximum_moment_score": 2.318934853704189,
+        "common_syndrome_patterns": 0,
+        "constant_conditional_probe_groups_checked": 0,
+        "maximum_conditional_probe_difference": 0.0
+      }
+    }
+  },
+  "elapsed_seconds": 65.22661549178883
+}
