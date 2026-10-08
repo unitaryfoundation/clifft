@@ -7,6 +7,7 @@
 #include <vector>
 
 using clifft::sampling::fill_low_lane_mask;
+using clifft::sampling::MutableBitColumnsView;
 using clifft::sampling::packed_bit_columns_storage_bytes;
 using clifft::sampling::packed_word_count;
 using clifft::sampling::PackedBitColumns;
@@ -28,6 +29,35 @@ TEST_CASE("Packed batch columns preserve lane boundaries") {
             REQUIRE(columns.bit(2, lane) == ((lane % 3) == 1));
         }
     }
+}
+
+TEST_CASE("Mutable bit column views share owner addressing") {
+    PackedBitColumns bits(3, 70);
+    const MutableBitColumnsView view = bits.mutable_view();
+
+    view.set_bit(2, 69);
+    view.set_bit(0, 0);
+
+    REQUIRE(bits.bit(2, 69));
+    REQUIRE(bits.bit(0, 0));
+    REQUIRE_FALSE(bits.bit(2, 68));
+    REQUIRE_FALSE(bits.bit(1, 69));
+    REQUIRE(view.bit(2, 69));
+    REQUIRE_FALSE(view.bit(1, 69));
+
+    // Lane 69 is bit 5 of the second word; every other word stays zero.
+    REQUIRE(bits.column(0)[0] == 1);
+    REQUIRE(bits.column(0)[1] == 0);
+    REQUIRE(bits.column(1)[0] == 0);
+    REQUIRE(bits.column(1)[1] == 0);
+    REQUIRE(bits.column(2)[0] == 0);
+    REQUIRE(bits.column(2)[1] == (uint64_t{1} << 5));
+
+    // The view holds addressing only, so owner writes made after it was taken
+    // are visible through it.
+    bits.set_bit(1, 64);
+    REQUIRE(view.bit(1, 64));
+    REQUIRE(bits.column(1)[1] == 1);
 }
 
 TEST_CASE("Packed batch column footprint includes page alignment") {

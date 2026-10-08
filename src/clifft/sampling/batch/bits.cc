@@ -103,13 +103,11 @@ std::span<const uint64_t> PackedBitColumns::column(size_t column_index) const no
 }
 
 bool PackedBitColumns::bit(size_t column_index, uint32_t lane) const noexcept {
-    assert(lane < lane_capacity_ && "packed bit lane must be in range");
-    return ((column(column_index)[lane >> 6] >> (lane & 63)) & uint64_t{1}) != 0;
+    return view().bit(column_index, lane);
 }
 
 void PackedBitColumns::set_bit(size_t column_index, uint32_t lane) noexcept {
-    assert(lane < lane_capacity_ && "packed bit lane must be in range");
-    column(column_index)[lane >> 6] |= uint64_t{1} << (lane & 63);
+    mutable_view().set_bit(column_index, lane);
 }
 
 void PackedBitColumns::clear() noexcept {

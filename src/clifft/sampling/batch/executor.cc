@@ -207,16 +207,14 @@ struct BatchExecutor::NoiseSiteActivator {
         : sites(executor.plan_->noise_sites_),
           outcomes(executor.plan_->noise_outcomes_),
           has_program(executor.plan_->batch_presampled_program_.has_value()) {
-        PackedBitColumns* destination = &executor.symbols_;
         if (has_program) {
             const BatchPresampledProgram& program = *executor.plan_->batch_presampled_program_;
             outcome_assignments = program.outcome_assignments_;
             assigned_carriers = program.assigned_carriers_;
-            destination = &executor.batch_noise_carriers_;
+            destination = executor.batch_noise_carriers_.mutable_view();
+        } else {
+            destination = executor.symbols_.mutable_view();
         }
-        destination_words = destination->words();
-        destination_columns = destination->num_columns();
-        destination_stride = destination->word_capacity();
     }
 
     // Selects the firing site's outcome, drawing from rng only when the site
@@ -237,12 +235,10 @@ struct BatchExecutor::NoiseSiteActivator {
                        "channel draw must select a prepared outcome");
             }
         }
-        const uint64_t lane_bit = uint64_t{1} << (lane & 63);
         if (!has_program) {
             const uint32_t symbol = outcomes[outcome_index].symbol;
-            uint64_t& word = destination_word(symbol, lane);
-            assert((word & lane_bit) == 0 && "noise site must define a fresh lane symbol");
-            word |= lane_bit;
+            assert(!destination.bit(symbol, lane) && "noise site must define a fresh lane symbol");
+            destination.set_bit(symbol, lane);
             return;
         }
 
@@ -253,9 +249,9 @@ struct BatchExecutor::NoiseSiteActivator {
                "batch noise assignment must stay in its prepared tape");
         for (uint32_t assignment = batch_outcome.begin; assignment < assignment_end; ++assignment) {
             const uint32_t carrier = assigned_carriers[assignment];
-            uint64_t& word = destination_word(carrier, lane);
-            assert((word & lane_bit) == 0 && "batch noise carrier must be assigned once per site");
-            word |= lane_bit;
+            assert(!destination.bit(carrier, lane) &&
+                   "batch noise carrier must be assigned once per site");
+            destination.set_bit(carrier, lane);
         }
     }
 
@@ -264,17 +260,7 @@ struct BatchExecutor::NoiseSiteActivator {
     std::span<const BatchPresampledProgram::OutcomeAssignments> outcome_assignments;
     std::span<const uint32_t> assigned_carriers;
     bool has_program = false;
-    uint64_t* destination_words = nullptr;
-    size_t destination_columns = 0;
-    size_t destination_stride = 0;
-
-  private:
-    // Same addressing as PackedBitColumns::set_bit.
-    [[nodiscard]] uint64_t& destination_word(size_t column, uint32_t lane) const noexcept {
-        assert(column < destination_columns && (lane >> 6) < destination_stride &&
-               "noise destination bit must be in range");
-        return destination_words[column * destination_stride + (lane >> 6)];
-    }
+    MutableBitColumnsView destination;
 };
 
 void BatchExecutor::sample_presampled_noise() noexcept {
