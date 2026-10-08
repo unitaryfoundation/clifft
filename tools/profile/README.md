@@ -244,6 +244,23 @@ sparse cubic algebra on that 87-variable case with explicit work budgets and
 the existing rewrite cost guards. No conditional corrections or execution
 architecture changes are needed for the current policy.
 
+## BT27 fault specialization
+
+`profile_bt27_fault_specialization.py` fixes the pre-CCZ Pauli-fault realizations
+in the pinned BT27 fixture while keeping measurements and feedback live. It
+checks every single fault plus reproducible multiple-fault patterns, measures
+complete planned width, and samples only bounded-width cases. Original
+reference parities are retained across specializations. This is a diagnostic
+for conditional reduction, not a production execution or caching strategy.
+
+`validate_bt27_fault_specialization.py` optionally compares raw record and
+syndrome correlations and conditional logical Pauli probes with a separately
+installed Merlin. It reconstructs detector parities from raw records to avoid
+normalizing each fixed fault against a faulty reference.
+
+See [the research record](../../research/conditional_clifford/README.md) for
+commands, pinned revisions, results, limitations, and subsequent decisions.
+
 ## Probability queries
 
 `profile_probability` uses a unitary-only circuit because measurements,
