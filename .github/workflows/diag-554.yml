@@ -12,11 +12,47 @@ permissions:
 env:
   CLIFFT_LINUX_WHEEL_CLANG_VERSION: "22.1.8.1"
   SOURCE_SHA: 2c418257e5b6abe1690f4eaa9612d3a17f27eee2
-  VARIANTS: control local prod
+  VARIANTS: control prod view
 
 jobs:
+  build:
+    name: build executor variants
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      CMAKE_GENERATOR: Ninja
+      CMAKE_C_COMPILER_LAUNCHER: ccache
+      CMAKE_CXX_COMPILER_LAUNCHER: ccache
+      CCACHE_COMPILERCHECK: content
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install native build tools
+        uses: ./.github/actions/setup-native-tools
+
+      - name: Install pinned Clang and OpenMP
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libomp-18-dev
+          .github/scripts/install_ubuntu_clang.sh \
+            "${{ env.CLIFFT_LINUX_WHEEL_CLANG_VERSION }}" \
+            "$RUNNER_TEMP/clifft-clang"
+
+      - name: Build variants
+        run: bash tools/diag554/build_variants.sh
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: diag-554-round11-binaries
+          path: canary-bin/
+          retention-days: 14
+
   diagnose:
     name: diagnose slot ${{ matrix.slot }}
+    needs: build
     strategy:
       fail-fast: false
       matrix:
@@ -28,10 +64,10 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Fetch round-8 variant binaries
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh run download 37826371343 -R "$GITHUB_REPOSITORY" -n diag-554-round8-binaries -D canary-bin
+      - uses: actions/download-artifact@v8
+        with:
+          name: diag-554-round11-binaries
+          path: canary-bin
 
       - name: Install runtime libraries
         run: |
@@ -44,14 +80,16 @@ jobs:
 
       - name: Run experiments
         env:
-          ZEN3_EXPERIMENTS: env warmup maps natural favunfav layouts natural2
-          OTHER_EXPERIMENTS: env warmup maps natural favunfav layouts natural2
+          ZEN3_EXPERIMENTS: env warmup maps natural favunfav sweep stackpoints layouts natural2
+          OTHER_EXPERIMENTS: env warmup maps natural favunfav stackpoints layouts natural2
+          STACK_POSITIONS: 7,8,9,10,30
+          STACK_REPEATS: "5"
         run: bash tools/diag554/run4.sh
 
       - name: Upload results
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: diag-554-round10-slot-${{ matrix.slot }}
+          name: diag-554-round11-slot-${{ matrix.slot }}
           path: diag-out/
           retention-days: 14

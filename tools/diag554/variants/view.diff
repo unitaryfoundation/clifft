@@ -1,0 +1,344 @@
+diff --git a/src/clifft/sampling/batch/bits.cc b/src/clifft/sampling/batch/bits.cc
+index 18bacfda..6210459c 100644
+--- a/src/clifft/sampling/batch/bits.cc
++++ b/src/clifft/sampling/batch/bits.cc
+@@ -103,13 +103,11 @@ std::span<const uint64_t> PackedBitColumns::column(size_t column_index) const no
+ }
+
+ bool PackedBitColumns::bit(size_t column_index, uint32_t lane) const noexcept {
+-    assert(lane < lane_capacity_ && "packed bit lane must be in range");
+-    return ((column(column_index)[lane >> 6] >> (lane & 63)) & uint64_t{1}) != 0;
++    return view().bit(column_index, lane);
+ }
+
+ void PackedBitColumns::set_bit(size_t column_index, uint32_t lane) noexcept {
+-    assert(lane < lane_capacity_ && "packed bit lane must be in range");
+-    column(column_index)[lane >> 6] |= uint64_t{1} << (lane & 63);
++    mutable_view().set_bit(column_index, lane);
+ }
+
+ void PackedBitColumns::clear() noexcept {
+diff --git a/src/clifft/sampling/batch/bits.h b/src/clifft/sampling/batch/bits.h
+index 3bd59847..14fae64a 100644
+--- a/src/clifft/sampling/batch/bits.h
++++ b/src/clifft/sampling/batch/bits.h
+@@ -9,6 +9,48 @@
+
+ namespace clifft::sampling {
+
++// Non-owning handle to the words of a PackedBitColumns, for loops that set many
++// bits and must not re-read the owner between them. It copies the storage
++// pointer and shape and borrows the owner's storage, so it is valid until the
++// owner is destroyed, assigned, or moved from; the owner allocates once at
++// construction and never reallocates. Copying the view and its bit operations
++// never allocate or throw.
++class MutableBitColumnsView {
++  public:
++    MutableBitColumnsView() = default;
++
++    [[nodiscard]] bool bit(size_t column, uint32_t lane) const noexcept {
++        return ((words_[word_index(column, lane)] >> (lane & 63)) & uint64_t{1}) != 0;
++    }
++
++    void set_bit(size_t column, uint32_t lane) const noexcept {
++        words_[word_index(column, lane)] |= uint64_t{1} << (lane & 63);
++    }
++
++  private:
++    friend class PackedBitColumns;
++
++    MutableBitColumnsView(uint64_t* words, size_t columns, uint32_t lane_capacity,
++                          size_t word_capacity) noexcept
++        : words_(words),
++          columns_(columns),
++          word_capacity_(word_capacity),
++          lane_capacity_(lane_capacity) {}
++
++    // Column c and lane s live at words_[c * word_capacity_ + s / 64]; lanes at
++    // or beyond lane_capacity_ in the final word are padding.
++    [[nodiscard]] size_t word_index(size_t column, uint32_t lane) const noexcept {
++        assert(column < columns_ && "packed bit column index must be in range");
++        assert(lane < lane_capacity_ && "packed bit lane must be in range");
++        return column * word_capacity_ + (lane >> 6);
++    }
++
++    uint64_t* words_ = nullptr;
++    size_t columns_ = 0;
++    size_t word_capacity_ = 0;
++    uint32_t lane_capacity_ = 0;
++};
++
+ // Dense bit matrix with one stored Boolean value per column and one shot per
+ // lane:
+ //
+@@ -24,6 +66,11 @@ class PackedBitColumns {
+
+     [[nodiscard]] size_t num_columns() const noexcept { return columns_; }
+
++    // See MutableBitColumnsView for the lifetime rule.
++    [[nodiscard]] MutableBitColumnsView mutable_view() noexcept {
++        return {words_, columns_, lane_capacity_, word_capacity_};
++    }
++
+     [[nodiscard]] std::span<uint64_t> column(size_t column) noexcept;
+     [[nodiscard]] std::span<const uint64_t> column(size_t column) const noexcept;
+
+@@ -50,6 +97,12 @@ class PackedBitColumns {
+                         uint32_t new_lanes, std::span<uint64_t> scratch) noexcept;
+
+   private:
++    // Shares addressing with mutable_view(); words_ is non-const, so a const
++    // owner can still build the view for reads.
++    [[nodiscard]] MutableBitColumnsView view() const noexcept {
++        return {words_, columns_, lane_capacity_, word_capacity_};
++    }
++
+     size_t columns_ = 0;
+     uint32_t lane_capacity_ = 0;
+     size_t word_capacity_ = 0;
+diff --git a/src/clifft/sampling/batch/executor.cc b/src/clifft/sampling/batch/executor.cc
+index 35a38462..55780dcf 100644
+--- a/src/clifft/sampling/batch/executor.cc
++++ b/src/clifft/sampling/batch/executor.cc
+@@ -197,54 +197,124 @@ void BatchExecutor::finalize_presampled_symbols() noexcept {
+     initialize_presampled_expressions();
+ }
+
++// Plan tables and the noise destination, read once per batch. The noise loops
++// call std::log, which the compiler must assume may write any memory reachable
++// through the executor or plan, so reading these through either object would
++// repeat the loads, and the RNG stores, on every draw. Callers pass a local RNG
++// for the same reason.
++struct BatchExecutor::NoiseSiteActivator {
++    explicit NoiseSiteActivator(BatchExecutor& executor)
++        : sites(executor.plan_->noise_sites_),
++          outcomes(executor.plan_->noise_outcomes_),
++          has_program(executor.plan_->batch_presampled_program_.has_value()) {
++        if (has_program) {
++            const BatchPresampledProgram& program = *executor.plan_->batch_presampled_program_;
++            outcome_assignments = program.outcome_assignments_;
++            assigned_carriers = program.assigned_carriers_;
++            destination = executor.batch_noise_carriers_.mutable_view();
++        } else {
++            destination = executor.symbols_.mutable_view();
++        }
++    }
++
++    // Selects the firing site's outcome, drawing from rng only when the site
++    // has several, and sets that outcome's bits for the lane.
++    void activate(Xoshiro256PlusPlus& rng, uint32_t lane, uint32_t site_index) const noexcept {
++        assert(site_index < sites.size() && "noise site must be prepared");
++        const ExecutablePlan::PreparedNoiseSite& site = sites[site_index];
++        const uint32_t outcome_end = site.outcome_begin + site.outcome_count;
++        assert(site.outcome_count > 0 && outcome_end <= outcomes.size() &&
++               "firing noise site must contain prepared outcomes");
++        uint32_t outcome_index = site.outcome_begin;
++        if (site.outcome_count > 1) {
++            const double execution_probability = outcomes[outcome_end - 1].cumulative_probability;
++            const double draw = rng.next_double() * execution_probability;
++            while (draw >= outcomes[outcome_index].cumulative_probability) {
++                ++outcome_index;
++                assert(outcome_index < outcome_end &&
++                       "channel draw must select a prepared outcome");
++            }
++        }
++        if (!has_program) {
++            const uint32_t symbol = outcomes[outcome_index].symbol;
++            assert(!destination.bit(symbol, lane) && "noise site must define a fresh lane symbol");
++            destination.set_bit(symbol, lane);
++            return;
++        }
++
++        const BatchPresampledProgram::OutcomeAssignments& batch_outcome =
++            outcome_assignments[outcome_index];
++        const uint32_t assignment_end = batch_outcome.begin + batch_outcome.count;
++        assert(assignment_end <= assigned_carriers.size() &&
++               "batch noise assignment must stay in its prepared tape");
++        for (uint32_t assignment = batch_outcome.begin; assignment < assignment_end; ++assignment) {
++            const uint32_t carrier = assigned_carriers[assignment];
++            assert(!destination.bit(carrier, lane) &&
++                   "batch noise carrier must be assigned once per site");
++            destination.set_bit(carrier, lane);
++        }
++    }
++
++    std::span<const ExecutablePlan::PreparedNoiseSite> sites;
++    std::span<const ExecutablePlan::PreparedNoiseOutcome> outcomes;
++    std::span<const BatchPresampledProgram::OutcomeAssignments> outcome_assignments;
++    std::span<const uint32_t> assigned_carriers;
++    bool has_program = false;
++    MutableBitColumnsView destination;
++};
++
+ void BatchExecutor::sample_presampled_noise() noexcept {
+-    const uint32_t end = static_cast<uint32_t>(plan_->noise_sites_.size());
++    const NoiseSiteActivator activator(*this);
++    Xoshiro256PlusPlus rng = rng_;
++    const uint32_t lanes = active_lanes();
++    const uint32_t end = static_cast<uint32_t>(activator.sites.size());
+     if (plan_->uniform_noise_inverse_hazard_.has_value()) {
+-        const ExecutablePlan::PreparedNoiseSite& first_site = plan_->noise_sites_.front();
++        const ExecutablePlan::PreparedNoiseSite& first_site = activator.sites.front();
+         const uint32_t first_outcome_end = first_site.outcome_begin + first_site.outcome_count;
+-        if (plan_->noise_outcomes_[first_outcome_end - 1].cumulative_probability >= 1.0) {
+-            for (uint32_t lane = 0; lane < active_lanes(); ++lane) {
++        if (activator.outcomes[first_outcome_end - 1].cumulative_probability >= 1.0) {
++            for (uint32_t lane = 0; lane < lanes; ++lane) {
+                 for (uint32_t site = 0; site < end; ++site) {
+-                    activate_noise_site(lane, site);
++                    activator.activate(rng, lane, site);
+                 }
+             }
+-            finalize_presampled_symbols();
+-            return;
+-        }
+-        const double inverse_hazard = *plan_->uniform_noise_inverse_hazard_;
+-        const uint64_t total_draws = static_cast<uint64_t>(active_lanes()) * end;
+-        uint64_t draw_index = 0;
+-        while (draw_index < total_draws) {
+-            const double gap = -std::log(1.0 - rng_.next_double()) * inverse_hazard;
+-            if (gap >= static_cast<double>(total_draws - draw_index)) {
+-                break;
++        } else {
++            const double inverse_hazard = *plan_->uniform_noise_inverse_hazard_;
++            const uint64_t total_draws = static_cast<uint64_t>(lanes) * end;
++            uint64_t draw_index = 0;
++            while (draw_index < total_draws) {
++                const double gap = -std::log(1.0 - rng.next_double()) * inverse_hazard;
++                if (gap >= static_cast<double>(total_draws - draw_index)) {
++                    break;
++                }
++                draw_index += static_cast<uint64_t>(gap);
++                const uint32_t lane = static_cast<uint32_t>(draw_index / end);
++                const uint32_t site = static_cast<uint32_t>(draw_index % end);
++                activator.activate(rng, lane, site);
++                ++draw_index;
+             }
+-            draw_index += static_cast<uint64_t>(gap);
+-            const uint32_t lane = static_cast<uint32_t>(draw_index / end);
+-            const uint32_t site = static_cast<uint32_t>(draw_index % end);
+-            activate_noise_site(lane, site);
+-            ++draw_index;
+         }
+-        finalize_presampled_symbols();
+-        return;
+-    }
+-    for (uint32_t lane = 0; lane < active_lanes(); ++lane) {
+-        uint32_t first_candidate = 0;
+-        while (first_candidate < end) {
+-            const double current_hazard =
+-                first_candidate == 0 ? 0.0 : plan_->noise_hazards_[first_candidate - 1];
+-            if (current_hazard >= plan_->noise_hazards_[end - 1]) {
+-                break;
+-            }
+-            const uint32_t site =
+-                sample_next_noise_site(plan_->noise_hazards_, first_candidate, rng_.next_double());
+-            if (site == kNoNoiseSite || site >= end) {
+-                break;
++    } else {
++        const std::span<const double> hazards(plan_->noise_hazards_);
++        const double last_hazard = end == 0 ? 0.0 : hazards[end - 1];
++        for (uint32_t lane = 0; lane < lanes; ++lane) {
++            uint32_t first_candidate = 0;
++            while (first_candidate < end) {
++                const double current_hazard =
++                    first_candidate == 0 ? 0.0 : hazards[first_candidate - 1];
++                if (current_hazard >= last_hazard) {
++                    break;
++                }
++                const uint32_t site =
++                    sample_next_noise_site(hazards, first_candidate, rng.next_double());
++                if (site == kNoNoiseSite || site >= end) {
++                    break;
++                }
++                activator.activate(rng, lane, site);
++                first_candidate = site + 1;
+             }
+-            activate_noise_site(lane, site);
+-            first_candidate = site + 1;
+         }
+     }
++    rng_ = rng;
+     finalize_presampled_symbols();
+ }
+
+@@ -252,58 +322,25 @@ void BatchExecutor::assign_forced_faults(KFaultSampler& fault_sampler) noexcept
+     assert(fault_sampler.num_sites() ==
+                plan_->noise_sites_.size() + plan_->num_readout_noise_sites_ &&
+            "conditioned batch sampler must cover every fault site");
+-    const uint32_t quantum_sites = static_cast<uint32_t>(plan_->noise_sites_.size());
+-    for (uint32_t lane = 0; lane < active_lanes(); ++lane) {
++    const NoiseSiteActivator activator(*this);
++    Xoshiro256PlusPlus rng = rng_;
++    const uint32_t lanes = active_lanes();
++    const uint32_t quantum_sites = static_cast<uint32_t>(activator.sites.size());
++    for (uint32_t lane = 0; lane < lanes; ++lane) {
+         const std::span<const uint32_t> selected =
+-            fault_sampler.sample([&]() noexcept { return rng_.next_double(); });
++            fault_sampler.sample([&]() noexcept { return rng.next_double(); });
+         for (uint32_t site : selected) {
+             if (site < quantum_sites) {
+-                activate_noise_site(lane, site);
++                activator.activate(rng, lane, site);
+             } else {
+                 forced_readout_.set_bit(site - quantum_sites, lane);
+             }
+         }
+     }
++    rng_ = rng;
+     finalize_presampled_symbols();
+ }
+
+-void BatchExecutor::activate_noise_site(uint32_t lane, uint32_t site_index) noexcept {
+-    assert(site_index < plan_->noise_sites_.size() && "noise site must be prepared");
+-    const ExecutablePlan::PreparedNoiseSite& site = plan_->noise_sites_[site_index];
+-    const uint32_t outcome_end = site.outcome_begin + site.outcome_count;
+-    assert(site.outcome_count > 0 && outcome_end <= plan_->noise_outcomes_.size() &&
+-           "firing noise site must contain prepared outcomes");
+-    uint32_t outcome_index = site.outcome_begin;
+-    if (site.outcome_count > 1) {
+-        const double execution_probability =
+-            plan_->noise_outcomes_[outcome_end - 1].cumulative_probability;
+-        const double draw = rng_.next_double() * execution_probability;
+-        while (draw >= plan_->noise_outcomes_[outcome_index].cumulative_probability) {
+-            ++outcome_index;
+-            assert(outcome_index < outcome_end && "channel draw must select a prepared outcome");
+-        }
+-    }
+-    if (!plan_->batch_presampled_program_.has_value()) {
+-        const uint32_t symbol = plan_->noise_outcomes_[outcome_index].symbol;
+-        assert(!symbols_.bit(symbol, lane) && "noise site must define a fresh lane symbol");
+-        symbols_.set_bit(symbol, lane);
+-        return;
+-    }
+-
+-    const BatchPresampledProgram& program = *plan_->batch_presampled_program_;
+-    const BatchPresampledProgram::OutcomeAssignments& batch_outcome =
+-        program.outcome_assignments_[outcome_index];
+-    const uint32_t assignment_end = batch_outcome.begin + batch_outcome.count;
+-    assert(assignment_end <= program.assigned_carriers_.size() &&
+-           "batch noise assignment must stay in its prepared tape");
+-    for (uint32_t assignment = batch_outcome.begin; assignment < assignment_end; ++assignment) {
+-        const uint32_t carrier = program.assigned_carriers_[assignment];
+-        assert(!batch_noise_carriers_.bit(carrier, lane) &&
+-               "batch noise carrier must be assigned once per site");
+-        batch_noise_carriers_.set_bit(carrier, lane);
+-    }
+-}
+-
+ void BatchExecutor::propagate_symbol(uint32_t symbol, std::span<const uint64_t> values) noexcept {
+     for (uint32_t register_id : plan_->expression_dependencies_.dependent_registers(symbol)) {
+         expression_registers_.xor_into(register_id, values);
+diff --git a/src/clifft/sampling/batch/executor.h b/src/clifft/sampling/batch/executor.h
+index b1af621f..e65dc5cc 100644
+--- a/src/clifft/sampling/batch/executor.h
++++ b/src/clifft/sampling/batch/executor.h
+@@ -59,7 +59,7 @@ class BatchExecutor {
+     void reset_batch(const SeedRoot& root, uint32_t first_shot, uint32_t shots) noexcept;
+     void sample_presampled_noise() noexcept;
+     void assign_forced_faults(KFaultSampler& fault_sampler) noexcept;
+-    void activate_noise_site(uint32_t lane, uint32_t site) noexcept;
++    struct NoiseSiteActivator;
+     void initialize_expression_registers() noexcept;
+     void initialize_presampled_expressions() noexcept;
+     void finalize_presampled_symbols() noexcept;
