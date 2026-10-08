@@ -432,6 +432,36 @@ The same pinned Merlin checkout, installed Clifft extension, NumPy, Stim, and
 `merlin-sim` are required. The BT27 audit also consumes the retained scored
 sampling and exact-law artifacts. These drivers need no new native build.
 
+`scored_clifford_core.py` factors the direct physical Clifford circuit into a
+fixed preparation-record law, determined Z readouts, and a smaller diagonal
+Clifford on the X-readout coordinates. Exact signed output constraints certify
+the decoded product state on every preparation branch. The factorization
+preserves the complete output law after the existing fault-dependent record
+restoration. BT27 has a 33-qubit core and BT81 an 87-qubit core; both remain
+Clifford, with no dense non-Clifford active state.
+
+`study_conditional_clifford_maps.py` matches the retained joint laws and checks
+all combinations of a bounded set of binary Pauli-fault switches. It compiles
+the resulting affine samplers into Boolean coefficient expressions, validates
+their full support and rank, and records expression growth. An exhaustive
+three-qubit check compares all 512 diagonal Clifford settings against Aer.
+The map evaluator performs only precomputed Boolean and parity operations.
+Setup enumerates every selected setting; this is not a scalable compiler for
+the full noise model or a production execution change.
+
+```bash
+.venv/bin/python tools/profile/study_conditional_clifford_maps.py \
+  --merlin-checkout /path/to/pinned/merlin --switches 8 \
+  --output /tmp/conditional-clifford-maps.json
+```
+
+Use `--switches 2` for a smaller circuit slice; the complete small Aer check
+and all saved-history law checks still run. The driver requires the existing
+BT27/BT81 JSON references, NumPy, Stim, Qiskit, Aer, the installed Clifft
+extension, and the pinned Merlin generator checkout. No new native build is
+needed. Formula-evaluation timings exclude fault drawing, correction evaluation,
+preparation sampling, output restoration, and exhaustive offline construction.
+
 ## Probability queries
 
 `profile_probability` uses a unitary-only circuit because measurements,

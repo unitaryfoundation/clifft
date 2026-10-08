@@ -9,12 +9,12 @@ still execute normally; this does not assume an all-zero state at an internal
 phase boundary. Supporting arbitrary unknown input states is not a requirement
 of this investigation.
 
-Latest study: [generality and plan reuse](#generality-and-plan-reuse-on-2026-10-08)
-tests the direct Clifford reduction on BT81 and audits whether BT27 can reuse
-one fixed affine sampling plan. Faults change which measurements are random,
-so changing signs in the ideal plan is insufficient. Compact output-parity
-conversion separately removes substantial research-host overhead. Earlier
-sections retain the derivation, the larger rate-equivalence study, and the
+Latest study: [reusable preparation and conditional maps](#reusable-preparation-and-conditional-maps-on-2026-10-08)
+factors the complete output law into fixed preparation records, determined Z
+readouts, and a changing diagonal Clifford core of 33 qubits for BT27 or 87
+for BT81. Exhaustive small fault slices compile to Boolean sampling formulas,
+but their growth does not yet justify a full-noise formula or plan bank.
+Earlier sections retain the full samplers, rate-equivalence study, and the
 narrower scopes used during the investigation.
 
 ## Baseline and question
@@ -1695,6 +1695,166 @@ tableau evolution inside ordinary execution. Any new plan instructions or
 execution lifecycle require architectural review before implementation.
 The all-zero input assumption remains available for that design. Independent
 noise-free optimization and broader channel sampling remain separate work.
+
+## Reusable preparation and conditional maps on 2026-10-08
+
+This step investigates the agreed question without changing production
+execution: which dependencies can be shared, whether bounded fault choices
+can be compiled into a classical map, and how that map grows. The existing
+complete samplers remain the baseline.
+
+### A fixed preparation distribution and smaller changing core
+
+After the earlier fault relocation and phase cancellation, the circuit has an
+ideal preparation, a varying diagonal Clifford, boundary Paulis, the CNOT
+decoder, and the final measurements. For both BT circuits, the ideal
+preparation followed by the decoder puts every data qubit into a definite
+positive X or Z eigenstate, independently of the preparation records.
+
+The new certificate appends those mutually commuting X/Z measurements and
+uses exact stabilizer-flow generators to compute their joint record law.
+Every appended outcome has an individual constant-zero constraint. Their
+joint eigenspace is one-dimensional, establishing the product state on every
+preparation branch. This uses the accepted all-zero entry state and executes
+the preparation and feedback in full. A deliberately inserted Z that changes
+a certified X sign is rejected. The certificate avoids Stim's randomized
+signed `has_all_flows` check.
+
+Moving the varying diagonal Clifford through the CNOT decoder preserves its
+diagonal form. The zero-state coordinates can then be substituted away;
+only the coordinates read out in X remain in the changing quantum circuit:
+
+| Quantity | BT27 | BT81 |
+| --- | ---: | ---: |
+| Original physical qubits | 135 | 405 |
+| Preparation records | 54 | 162 |
+| Independent random bits in the fixed preparation law | 30 | 84 |
+| Z readouts determined by the fault controls | 48 | 156 |
+| Qubits in the changing diagonal Clifford core | 33 | 87 |
+| Positive data-product constraints checked | 81 | 243 |
+
+The core starts in all-plus, applies fault-dependent S/Z/CZ gates, and measures
+every qubit in X. Its qubit count is not a dense active-state width: it remains
+entirely Clifford. The 33 and 87 coordinates include both X syndrome readouts
+and the nine logical scoring outputs.
+
+The CNOT inverse determines the physical bits as fixed linear forms of these
+core bits. Pulling S through a parity produces S and CZ terms; overlapping S
+contributions require Z carries. Pulling CZ through two linear forms also
+produces a Z term when the forms overlap. These responses are precomputed.
+Boundary X masks determine the Z-readout flips, the final decoder Z mask flips
+logical X readouts, and the existing record-flip mask is restored unchanged.
+
+Preparation records and the core are independent conditional on a fixed fault
+history. They need not be independent after averaging over noise: both retain
+their dependence on the same sampled history. Physical preparation noise is
+still present through the relocated correction and record controls.
+
+Joining the fixed preparation law, core law, determined readouts, and declared
+detector/observable maps exactly reproduces all 398 saved BT27 joint laws and
+all 36 saved BT81 joint laws. It also matches a fresh direct physical Clifford
+interpretation for every assignment in the eight-switch studies below. This
+extends the exact comparison to the complete output law rather than only
+logical observables. The BT81 saved laws originate from the previously
+validated direct Clifford path; they are not independent exact laws of the
+original non-Clifford source.
+
+### Exhaustive Boolean sampling maps
+
+For each fixed history, a Clifford output law is uniform on an affine space.
+The diagnostic solves its canonical constraints once, producing output forms
+A(f)*r XOR b(f), where r is a fixed pool of fair random bits and f contains
+selected fault switches. A Boolean transform compiles each coefficient of A
+and b into XORs of products of f. Sampling then evaluates these fixed
+expressions and parities; it performs no elimination, tableau evolution, or
+dependency discovery. This is a finite offline experiment, not a new plan
+instruction or production sampler.
+
+An exhaustive three-qubit test covers all 512 combinations of three CZ gates,
+three S gates, and three Z gates. For every circuit, enumerating all eight
+random-bit assignments reproduces the exact probabilities independently
+computed by Aer, with maximum discrepancy below 2.23e-16. A one-qubit conditional S
+gives exactly `output = fault AND random_bit`. A three-CZ triangle requires
+odd X-output parity; a sampler that uses only the homogeneous support and
+omits its affine offset fails this control.
+
+For each full BT circuit, eight binary Pauli-fault switches were selected at
+distinct real noise sites spread across preparation, phase, and decoder.
+Their unsigned core responses are linearly independent. Every one of the 256
+combinations is checked against the corresponding complete physical Clifford
+circuit. All other sites are fixed fault-free in this bounded slice. The
+2/4/6-switch rows use prefixes of the same selection, not independently chosen
+examples. A symbolic constraint check and a rank check establish that each
+compiled map is uniform on the entire intended space, without relying on a
+finite sample of random bits for the large cores.
+
+The compiled expressions have the following sizes. A vector monomial stores
+one control product and a packed coefficient response shared across output
+forms; its degree is the number of distinct fault switches in that product.
+
+| Fault switches | BT27 vector monomials | BT27 maximum degree | BT81 vector monomials | BT81 maximum degree |
+| --- | ---: | ---: | ---: | ---: |
+| 2 | 2 | 1 | 2 | 1 |
+| 4 | 7 | 3 | 6 | 2 |
+| 6 | 32 | 5 | 19 | 4 |
+| 8 | 208 | 8 | 35 | 4 |
+
+At eight switches, each circuit has 256 distinct output laws and 256 distinct
+homogeneous constraint spaces. BT27's formulas have 1,476 scalar coefficient
+monomials and a 26,662-byte packed payload, compared with 35,165 bytes for
+its enumerated affine maps. BT81 has 194 scalar coefficient monomials and a
+32,361-byte payload versus 243,071 bytes for its enumerated maps. Payloads
+exclude Python object overhead and the shared preparation/decoder data.
+BT81's selected slice compresses substantially better than BT27's; this is
+not a monotonic comparison of circuit difficulty.
+
+For the eight-switch formulas, Python evaluation costs about 9.10 us per
+33-bit core sample and 20.31 us per 87-bit core sample in this local run.
+These are not complete-circuit throughput measurements. They exclude noise
+drawing, correction evaluation, preparation-record sampling, restoration,
+and exhaustive construction. Enumerating and independently checking the
+256 physical variants takes 7.38 seconds for BT27 and 109.08 seconds for BT81.
+
+The full noise model has many more control directions. The S-parity and CZ
+coefficients, excluding Z offsets, are a linear function of the elementary
+Pauli-fault bits: nonlinear S carries and mixed scoring terms affect only Z.
+The study composes this linear map with the fixed decoder substitution and
+computes its rank exactly. It has rank 219 for BT27 and 651 for BT81; 128
+additional fresh histories per circuit agree with direct evaluation of the
+map. Enumerating every distinct coefficient setting would therefore involve
+2^219 or 2^651 entries. This is not a lower bound on the number of different
+measurement laws or the size of a better sampler: distinct Clifford phases
+can produce identical measured distributions. It does rule out enumerating
+the complete coefficient space as the extension of this small-slice method.
+
+### Interpretation and next implementation candidate
+
+The useful reusable structure is now identified: the ideal preparation law,
+decoder substitutions, output placement, and fault-to-core responses can all
+be prepared once. The remaining difficulty is sampling a varying quadratic
+Clifford phase, which can change the output support and its affine offset.
+
+The bounded Boolean compilation demonstrates feasibility for a small set of
+controls. It does not provide a full-noise reusable sampler, and its exhaustive
+setup is exponential in the number of selected switches. Large or high-degree
+expressions in this particular canonical random-bit basis are not lower bounds
+for all possible representations. Factored expressions or different choices
+of random bits might be smaller; that remains unestablished.
+
+The practical next candidate is to reuse the fixed preparation distribution
+and output maps while constructing and planning only the 33/87-qubit Clifford
+core at the existing outside-dispatch boundary. Measure the complete cost and
+validate assembled records against the same exact laws and independent
+references. This keeps the current executor contract and avoids requiring an
+unproven complete conditional map. The core also gives a smaller setting for
+future studies of more compact Boolean representations. Any eventual new
+conditional executor operations still require an explicit architecture proposal.
+
+Implementation and reproduction are in
+[`scored_clifford_core.py`](../../tools/profile/scored_clifford_core.py) and
+[`study_conditional_clifford_maps.py`](../../tools/profile/study_conditional_clifford_maps.py).
+The certificates, selected switches, hashes, sizes, and timings are retained in
+[`conditional-clifford-maps.json`](conditional-clifford-maps.json).
 
 ## References
 
