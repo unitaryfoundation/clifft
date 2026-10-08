@@ -709,6 +709,15 @@ foundation for full-circuit noisy simulation. All topology discovery and variant
 construction in this investigation remain offline; any new executor mechanism
 requires its own architectural decision.
 
+The user's priority is to continue the full-circuit noise study now while
+retaining noiseless simulation optimization as an independent future direction.
+Reusing one compiled executable does not eliminate opportunities to reduce
+active width, non-Clifford work, compilation cost, or sampling cost. Evaluate
+such improvements on their own merits; they need not depend on the success of
+conditional corrections or noisy-workload reuse. BT81's algebraic representation
+cap is one candidate to revisit, rather than a prerequisite for the current
+noise study.
+
 ### Reproduction
 
 Use the same development build and pinned Merlin installation as the earlier
