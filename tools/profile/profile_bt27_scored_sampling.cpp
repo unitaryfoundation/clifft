@@ -222,12 +222,87 @@ long peak_rss_kib() {
     }
     throw std::runtime_error("Cannot read Linux resident-memory high-water mark");
 }
+
+void export_clifford(HirModule hir, const fs::path& path) {
+    for (const auto* name : {"PeepholeFusionPass", "PhasePolynomialPass",
+                             "RotationSimplificationPass", "StatevectorSqueezePass"})
+        make_hir_pass(name)->run(hir);
+    if (hir.num_t_gates() || !hir.noise_sites.empty() || !hir.readout_noise.empty())
+        throw std::runtime_error("Exact output check requires a noiseless Clifford HIR");
+    std::ofstream out(path);
+    if (!out)
+        throw std::runtime_error("Cannot write Clifford diagnostic");
+    const auto reset = [&] {
+        out << "R";
+        for (uint32_t q = 0; q < hir.num_qubits; ++q)
+            out << ' ' << q;
+        out << '\n';
+    };
+    // The HIR starts in |0>. Discarding the final quantum state isolates the
+    // classical output law; its final physical tableau cannot affect records.
+    reset();
+    std::vector<int64_t> order(hir.num_measurements + hir.num_hidden_measurements, -1);
+    int64_t count = 0;
+    for (const auto& op : hir.ops) {
+        if (op.op_type() == OpType::DETECTOR || op.op_type() == OpType::OBSERVABLE)
+            continue;
+        const auto axis = format_pauli_mask(hir.mask_view(op));
+        if (op.op_type() == OpType::MEASURE) {
+            const auto record = static_cast<uint32_t>(op.meas_record_idx());
+            if (record >= order.size() || order[record] != -1)
+                throw std::runtime_error("Invalid exported record numbering");
+            order[record] = count++;
+            out << "# RECORD " << record << '\n';
+            if (axis.substr(1) == "I")
+                out << "MPAD " << (axis[0] == '-') << '\n';
+            else
+                out << "MPP " << (axis[0] == '-' ? "!" : "") << axis.substr(1) << '\n';
+        } else if (op.op_type() == OpType::CONDITIONAL_PAULI) {
+            const auto record = static_cast<uint32_t>(op.controlling_meas());
+            if (record >= order.size() || order[record] < 0)
+                throw std::runtime_error("Exported feedback precedes its measurement");
+            if (axis.substr(1) == "I")
+                continue;
+            std::istringstream terms(axis.substr(1));
+            for (std::string term; std::getline(terms, term, '*');)
+                out << 'C' << term[0] << " rec[" << order[record] - count << "] " << term.substr(1)
+                    << '\n';
+        } else {
+            throw std::runtime_error("Unsupported Clifford export operation");
+        }
+    }
+    const auto targets = [&](const std::vector<uint32_t>& records) {
+        for (auto record : records) {
+            if (record >= hir.num_measurements || order[record] < 0)
+                throw std::runtime_error("Invalid exported output parity");
+            out << " rec[" << order[record] - count << ']';
+        }
+        out << '\n';
+    };
+    for (const auto& records : hir.detector_targets) {
+        out << "DETECTOR";
+        targets(records);
+    }
+    for (const auto& op : hir.ops) {
+        if (op.op_type() == OpType::OBSERVABLE) {
+            out << "OBSERVABLE_INCLUDE(" << static_cast<uint32_t>(op.observable_idx()) << ')';
+            targets(hir.observable_targets[op.observable_target_list_idx()]);
+        }
+    }
+    reset();
+}
 }  // namespace
 
 int main(int argc, char** argv) {
     try {
-        if (argc != 2)
-            throw std::invalid_argument("Usage: profile_bt27_scored_sampling DIRECTORY");
+        if (argc == 4 && std::string(argv[1]) == "--export-source") {
+            export_clifford(trace(parse(read(argv[2]))), argv[3]);
+            return 0;
+        }
+        if (argc < 2 || argc > 3 || (argc == 3 && std::string(argv[2]) != "--export-clifford"))
+            throw std::invalid_argument(
+                "Usage: profile_bt27_scored_sampling DIRECTORY [--export-clifford]");
+        const bool export_enabled = argc == 3;
         const fs::path directory(argv[1]);
         auto start = Clock::now();
         Boundaries boundaries(directory);
@@ -257,6 +332,11 @@ int main(int argc, char** argv) {
             if (check && !same_hir(boundaries.compose(boundaries.raw(), phase, decoder),
                                    trace(parse(read(directory / (name + ".moved"))))))
                 throw std::runtime_error("Scored raw boundary mismatch: " + name);
+            if (export_enabled) {
+                export_clifford(hir, directory / (name + ".shared.stim"));
+                export_clifford(trace(parse(read(directory / (name + ".original")))),
+                                directory / (name + ".fresh.stim"));
+            }
             const std::vector<uint8_t> detectors(72, 0), observables(9, 0);
             start = Clock::now();
             auto plan = sampling::plan_sampling(

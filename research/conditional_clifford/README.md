@@ -3,11 +3,12 @@
 This is a research record, not an execution-architecture specification. The
 repository's planning, allocation, and correctness invariants continue to apply.
 
-Latest result: the [complete scored sampler](#complete-scored-sampler-on-2026-10-08)
-now runs fresh circuit-wide noise and agrees with the independent references
-in the retained checks. The next question is the full-circuit Clifford
-reduction exposed by including target scoring. Earlier sections retain the
-experiment's progression and the narrower scopes used at each stage.
+Latest result: [stronger equivalence checks](#stronger-equivalence-checks-on-2026-10-08)
+compare exact compiled output laws for 398 fault histories and establish
+agreement within predeclared tolerances for three rates using 262,144 fresh
+shots per simulator. The next question is the full-circuit Clifford reduction
+exposed by including target scoring. Earlier sections retain the experiment's
+progression and the narrower scopes used at each stage.
 
 ## Baseline and question
 
@@ -1222,6 +1223,134 @@ are not an additive measurement of simultaneous unique resident memory.
 The result artifact retains full source hashes, the Merlin revision and
 extension hash, the native binary hash, seeds, every fixed history, statistical
 checks, logical-pattern counts, and timing and memory telemetry.
+
+## Stronger equivalence checks on 2026-10-08
+
+The user asked whether the earlier samples justified statistical agreement.
+They did not establish close equivalence: the six-sigma checks were useful
+bug detectors, and 9 versus 17 undetected events was too little information
+for a precise comparison. The agreed next step was stronger correctness
+checking before the next Clifford-reduction experiment. No new shortcut or
+production execution change is included in this step.
+
+### Exact fixed-history output laws
+
+The native research tool can now export the Clifford HIR obtained by optimizing
+the composed candidate and the independently traced original-location circuit.
+The ordinary sampled candidate remains the previous 79-T, width-nine program.
+Export is an optional validation operation before ordinary execution.
+
+The exported circuits retain each signed Pauli measurement, its original
+visible or hidden record slot, classically controlled Pauli feedback, and the
+detector/observable parity maps. They begin in the HIR's zero state. Final
+resets discard the unobserved quantum state; the physical output tableau cannot
+affect already recorded measurements. Stim computes complete stabilizer flow
+generators. Every final Z is then known to have eigenvalue +1, even if a flow
+generator mixes it with record terms. Binary elimination removes hidden reset
+outcomes and produces canonical affine constraints on the 135 visible records.
+Adding the declared parity maps gives the complete joint law of all 216 output
+bits: 135 records, 72 detectors, and nine logical observables.
+
+A Clifford circuit with Pauli feedback samples uniformly from its allowed
+affine output space. Equal canonical constraints therefore establish equality
+of these two compiled distributions, including arbitrary output correlations;
+there is no Monte Carlo tolerance in that comparison. This conclusion relies
+on both Clifft optimizer reductions being correct. It is not an independent
+proof of the original non-Clifford source or a proof for every fault history.
+
+All 398 distinct histories passed. The matrix includes the previous 163 cases,
+the first and last sites in each noise-type/position group with every supported
+Pauli outcome, 64 pairs within and across physical T-region boundaries, and
+63 additional distinct draws at p = 0.001. Dense cases include the two histories
+with a fault at every one of the 4,170 sites. Depending on the history, the
+216 output bits contain 30-63 independent random bits; exact constraints cover
+the resulting full spaces, which can be far larger than the sampled outputs.
+
+For each history, 256 samples from the unchanged candidate execution and 256
+from Merlin lay within that exact output support. This checks forbidden
+outcomes and all deterministic correlations. It does not establish that a
+sampler is uniform over the support, which is why the separate stochastic
+comparison remains necessary. Fixed-fault Merlin detector/observable parities
+are reconstructed against the original ideal reference.
+
+The export path independently matched Stim's direct interpretation of 36
+small Clifford circuits exercising resets, signed readout, feedback, and
+reordered visible/hidden measurements. Deliberately omitting record restoration
+changed the exact law in 230 cases. Omitting the isolated decoder X correction
+was also detected. A separate control distinguishes unbiased correlated bits
+from unbiased independent bits, which identical individual means would miss.
+
+The result and per-case canonical-law hashes are retained in
+[bt27-scored-exact-equivalence.json](bt27-scored-exact-equivalence.json). A final
+completeness audit substitutes all final Z outputs without assuming Stim's
+choice of generator basis separates quantum and classical terms; all 398
+previous canonical laws remain unchanged.
+
+### Predeclared stochastic equivalence margins
+
+The new probability-weighted comparison uses the full 4,170-site p = 0.001
+physical gate/readout-noise model and Merlin's ideal scoring tail. Each backend
+draws 262,144 new shots across eight independent seeds. The earlier pilot is
+used only to choose the budget; none of its shots is pooled into these results.
+No fault-count truncation, history cache, postselection during simulation,
+interim hypothesis test, or outcome-dependent extension is used.
+
+The protocol was saved before sampling. It fixes three absolute margins:
+0.3 percentage points for zero-syndrome acceptance, 0.1 points for undetected
+logical events per attempted shot, and 3 points for logical events conditional
+on acceptance. Exact two-sided Clopper-Pearson intervals are constructed for
+each backend's three rates. Assigning alpha = 0.05/6 to each interval and using
+the union bound yields at least 95% simultaneous coverage. Subtracting the
+interval endpoints gives simultaneous bounds on the three rate differences.
+Equivalence requires each difference interval to lie strictly within its
+predeclared margin; merely including zero is not enough. The interval method
+is described in the [NIST binomial confidence-interval reference](https://www.itl.nist.gov/div898/handbook/prc/section2/prc241.htm).
+
+An independent, seeded 10,000-trial planning simulation estimated 97.53% power
+to satisfy all three margins if both simulators had the pooled pilot rates.
+That is a planning assumption, not a confidence statement about the result.
+The actual intervals retain their coverage without requiring those pilot rates
+to be correct. The conditional-error interval uses the observed accepted-shot
+count as its binomial denominator; all attempted shots remain in the data.
+
+All three margins passed:
+
+| Quantity | Prototype | Merlin | Simultaneous difference interval, percentage points | Required margin, percentage points |
+| --- | ---: | ---: | ---: | ---: |
+| Zero-syndrome acceptance | 7785/262144 = 2.9697% | 7891/262144 = 3.0102% | [-0.2163, +0.1355] | +/-0.3 |
+| Undetected logical event per attempted shot | 819/262144 = 0.3124% | 830/262144 = 0.3166% | [-0.0623, +0.0539] | +/-0.1 |
+| Logical event given zero syndrome | 819/7785 = 10.5202% | 830/7891 = 10.5183% | [-1.8390, +1.8435] | +/-3.0 |
+
+The larger independent sample does not sustain the apparent 9-versus-17 gap
+from the pilot. It establishes agreement to these specified tolerances for
+these three rates. It does not establish equality, tight relative error for
+much rarer events, or a bound on the distance between the complete noisy output
+distributions. The exact checks cover selected fixed histories and share a
+compiler; neither result is an unrestricted equivalence proof.
+
+The frozen protocol, power calculation, all chunk counts, seeds, source/binary
+hashes, and confidence intervals are retained in
+[bt27-scored-rate-equivalence.json](bt27-scored-rate-equivalence.json). Concurrent
+workers accelerate validation, so their timing fields are not a head-to-head
+benchmark. The stochastic run uses a preserved copy of the preceding native
+binary, whose hash matches the original scored study, isolating it from the
+new optional export diagnostic.
+
+### Next step and reproduction
+
+This satisfies the bounded correctness gate agreed with the user and supports
+continuing the algebraic experiment: derive the full scored fault-dependent
+Clifford directly from the controls. Keep these exact laws and the independent
+Merlin comparison as regression references for that work. General equivalence
+of the proposed algebra still needs its own derivation and validation. Noiseless
+optimization and broader channel probabilities remain separate directions.
+
+Commands and dependencies for both new drivers are in
+[the profiling-tool README](../../tools/profile/README.md). The exact check's
+`--smoke --shots 64` runs four histories. The rate driver's `--plan-only` saves
+the complete protocol without drawing experimental samples; a subsequent run
+with the same arguments executes or resumes the fixed budget. Use a new output
+path for a different binary or protocol rather than modifying a declared test.
 
 ## References
 

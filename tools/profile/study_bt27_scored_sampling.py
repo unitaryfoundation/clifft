@@ -65,8 +65,9 @@ def sources(checkout: Path, model_name: str) -> tuple[Model, str, str]:
 
 
 class ScoredSampler:
-    def __init__(self, binary: Path, model: Model, tail: str):
+    def __init__(self, binary: Path, model: Model, tail: str, *, export_clifford: bool = False):
         self.model, self.tail = model, tail
+        self.export_clifford = export_clifford
         self.controls = Controls(model)
         self.prefix, self.body, self.suffix, _ = region(model.render(()))
         self.temp = tempfile.TemporaryDirectory(prefix="bt27-scored-")
@@ -76,7 +77,8 @@ class ScoredSampler:
         (self.directory / "scored.stim").write_text(model.render(()) + tail)
         self.errors = tempfile.TemporaryFile(mode="w+t")
         self.process = subprocess.Popen(
-            [str(binary.resolve()), str(self.directory)],
+            [str(binary.resolve()), str(self.directory)]
+            + (["--export-clifford"] if export_clifford else []),
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=self.errors,
@@ -130,6 +132,8 @@ class ScoredSampler:
         if check:
             moved = "\n".join(self.prefix + self.body + gates + self.suffix + final) + "\n"
             (self.directory / f"{name}.moved").write_text(moved + self.tail)
+        if self.export_clifford:
+            (self.directory / f"{name}.original").write_text(self.model.render(history) + self.tail)
         request = f"{name} {shots} {seed} {int(check)} {len(gates)} {len(final)} {flips}\n"
         request += "".join(gate + "\n" for gate in gates + final)
         assert self.process.stdin is not None

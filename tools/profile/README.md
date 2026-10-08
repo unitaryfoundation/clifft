@@ -327,6 +327,48 @@ Qiskit, and Aer. It limits native active width to 16 before allocation; this is
 a research budget, not a production simulator limit. Finite distribution
 checks are not precise estimates of rare undetected logical errors.
 
+`validate_bt27_scored_equivalence.py` strengthens the fixed-history check. It
+uses the native tool's optional `--export-clifford` diagnostic to reoptimize
+both the composed HIR and the original-location reference. Stim supplies their
+exact stabilizer flows; eliminating hidden reset outcomes yields a canonical
+affine law for every visible record, detector, and logical observable jointly.
+The exporter is checked against independently specified Clifford circuits,
+and deliberately omitted corrections exercise the comparison's sensitivity.
+Both BT27 reductions still depend on Clifft's optimizer, so equality here is
+conditional on those rewrites; it is not a fully independent proof of the
+unreduced non-Clifford circuits. Sample support checks also do not establish
+uniform sampling over the allowed outcomes.
+
+`compare_bt27_scored_rates.py` separately draws a predeclared number of fresh
+histories and compares three rates using exact binomial confidence intervals
+with simultaneous coverage. It declares absolute equivalence margins before
+sampling, checkpoints completed independent chunks, and never extends the
+budget based on observed outcomes. Its defaults use 262,144 shots per backend
+across eight seeds. Concurrent workers accelerate validation; their timings
+are not a performance comparison. SciPy is an additional dependency.
+
+```bash
+.venv/bin/python tools/profile/validate_bt27_scored_equivalence.py \
+  --binary build-profile/profile_bt27_scored_sampling \
+  --merlin-checkout /path/to/pinned/merlin \
+  --output /tmp/bt27-scored-exact-equivalence.json
+
+.venv/bin/python tools/profile/compare_bt27_scored_rates.py \
+  --binary build-profile/profile_bt27_scored_sampling \
+  --merlin-checkout /path/to/pinned/merlin \
+  --output /tmp/bt27-scored-rate-equivalence.json --plan-only
+.venv/bin/python tools/profile/compare_bt27_scored_rates.py \
+  --binary build-profile/profile_bt27_scored_sampling \
+  --merlin-checkout /path/to/pinned/merlin \
+  --output /tmp/bt27-scored-rate-equivalence.json
+```
+
+Use the same binary and protocol when resuming a rate comparison. To test
+different margins, inputs, or builds, start a separately declared study with a
+new output path. A confidence interval outside a requested equivalence margin
+means equivalence to that tolerance was not established; it does not by itself
+prove a simulator defect.
+
 ## Probability queries
 
 `profile_probability` uses a unitary-only circuit because measurements,
