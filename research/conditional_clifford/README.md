@@ -3,13 +3,19 @@
 This is a research record, not an execution-architecture specification. The
 repository's planning, allocation, and correctness invariants continue to apply.
 
-Latest result: [direct scored Clifford construction](#direct-scored-clifford-construction-on-2026-10-08)
-removes every T gate from the complete scored circuit using the fault controls,
-without invoking the HIR optimizer or caching histories. Exact Boolean
-identities explain the reduction, and all 398 saved joint output laws match.
-The preceding [equivalence study](#stronger-equivalence-checks-on-2026-10-08)
-remains the larger independent comparison of three noisy output rates. Earlier
-sections retain the experiment's progression and narrower scopes.
+Accepted scope: the user explicitly permits assuming that every qubit starts
+in |0> at circuit entry. Preparation gates, resets, measurements, and feedback
+still execute normally; this does not assume an all-zero state at an internal
+phase boundary. Supporting arbitrary unknown input states is not a requirement
+of this investigation.
+
+Latest study: [generality and plan reuse](#generality-and-plan-reuse-on-2026-10-08)
+tests the direct Clifford reduction on BT81 and audits whether BT27 can reuse
+one fixed affine sampling plan. Faults change which measurements are random,
+so changing signs in the ideal plan is insufficient. Compact output-parity
+conversion separately removes substantial research-host overhead. Earlier
+sections retain the derivation, the larger rate-equivalence study, and the
+narrower scopes used during the investigation.
 
 ## Baseline and question
 
@@ -1524,6 +1530,171 @@ The certificate, exact-law hashes, negative controls, source and extension
 hashes, versions, seeds, output counts, and timing breakdown are retained in
 [`bt27-direct-scored-clifford.json`](bt27-direct-scored-clifford.json).
 Commands are in [the profiling-tool README](../../tools/profile/README.md).
+
+## Generality and plan reuse on 2026-10-08
+
+The user accepts a fixed all-zero initial state at circuit entry. This is the
+state already used by the preparation certificate and the independent
+simulators. RX gates still prepare superpositions and measurements remain
+live. The assumption therefore does not remove the need to account for
+fault-dependent randomness later in the circuit.
+
+### Reusing one BT27 plan
+
+The direct Clifford circuits were traced and lowered for all 398 retained
+histories. Every exact joint law still matches the saved reference. Each
+lowered program contains 279 actions and has zero active width, but there
+are 197 different patterns of random versus determined visible measurements.
+Depending on the history, the full visible output has 30-63 independent random
+bits. The 63 additional random actions for hidden reset outcomes are counted
+separately; they are not extra visible-output entropy.
+
+A minimal witness is the isolated decoder X0 fault before scoring. In the
+ideal circuit, all nine scored logical outputs are zero. With this one fault,
+records 130, 131, 133, and 134 become random; the other five logical records
+remain determined. The full visible-law dimension increases from 30 to 34.
+This is an exact-law result, not an inference from sample counts.
+
+For a fixed affine sampler, write the output as A*r XOR b, with independent
+fair random bits r. Changing only the fault-dependent offset b preserves the
+rank of A and hence the output-law dimension. It cannot represent both sides
+of this witness. This rules out using the noiseless plan with only sign flips.
+It does not rule out a larger plan with fault-dependent coefficients,
+conditional actions, or multiple precomputed branches.
+
+The nine-bit scoring shift is also insufficient as a plan selector: the
+`identity` and `previous_13` histories both have shift zero, but their output
+dimensions are 30 and 38. The earlier diagonal correction still matters.
+The 512 possible shifts describe the added scoring responses; they do not
+bound the number of complete sampling plans.
+
+This matches the implementation's contract. `AffineBool` in
+[`plan.h`](../../src/clifft/sampling/plan.h) represents XOR expressions.
+[`process_measurement`](../../src/clifft/sampling/planner.cc) decides during
+planning whether to emit `MeasureDormantRandom` or `RecordClassical` and fixes
+the resulting dependencies. The diagnostic action text hides some expression
+contents, so matching action patterns would not establish plan compatibility.
+The observed differences and exact-law ranks suffice for the obstruction.
+
+### Separating construction and output costs
+
+The old research host called Stim's record-to-detector converter on a circuit
+containing every physical gate and noise instruction. Only its declared
+record parities were needed, with reference sampling disabled. The new host
+constructs a compact equivalent converter once from those parities. Agreement
+on the zero input and all 135 basis inputs certifies equality of the complete
+linear parity map. Both paths retain the same per-shot consistency assertions.
+
+Using the same 1,024 fresh histories and measurement seeds, every returned
+record, detector, and observable is identical between the two hosts. On one
+pinned CPU, total time falls from 6.741 to 2.770 ms/shot. These are sequential
+local runs, so the full difference should not be attributed to the converter
+alone; other stage timings also fluctuate. Output restoration, checks, and
+collection fall from 3.683 to 0.139 ms/shot.
+
+The compact host's measured stages are:
+
+| Stage | ms/shot |
+| --- | ---: |
+| Draw faults | 0.161 |
+| Evaluate controls | 0.076 |
+| Emit Clifford source | 0.108 |
+| Parse | 0.677 |
+| Trace | 0.508 |
+| Plan and lower | 1.075 |
+| Sampling call | 0.024 |
+| Restore records, check parities, collect outputs | 0.139 |
+
+The sampling-call measurement includes its own setup and result allocation;
+it is not an isolated kernel benchmark. Parsing, tracing, and lowering now
+account for about 82% of the measured total. All of that work still happens
+before ordinary dispatch. No history cache, runtime topology discovery, or
+production executor change was introduced.
+
+The complete audit and paired timings are retained in
+[`bt27-clifford-plans.json`](bt27-clifford-plans.json), with the driver in
+[`study_bt27_clifford_plans.py`](../../tools/profile/study_bt27_clifford_plans.py).
+
+### Transfer to BT81
+
+The unchanged `ScoredClifford` construction also succeeds on the pinned Merlin
+BT81 generator. This is a second preparation and decoder within the same code
+family, not evidence for arbitrary protocols. The complete scored circuit has
+405 physical qubits, 405 visible records, 234 detectors, and nine logical
+observables. The same synthetic policy places 24,492 categorical p = 0.001
+noise sites throughout the physical preparation, phase region, and decoder;
+the scoring tail remains ideal.
+
+The preparation certificate uses 171 free Boolean bits and 162 live
+preparation records. Its 162 physical cubic monomials and six logical cubic
+monomials reduce to the same six terms on prepared support. The unrestricted
+difference has 2,808 terms, and substituting an unconstrained all-plus
+preparation correctly fails the certificate. This negative control changes
+the preparation gates while preserving the all-zero entry state.
+
+All 512 logical shifts pass the complete quadratic coefficient check:
+42,094,592 Boolean evaluations on inputs of weights zero, one, and two.
+The generated boundary correction has 1,414 candidate CZ pairs. Its added
+scoring-response payload is 2,070 bytes, excluding existing fault maps and
+object overhead. None of the BT27-specific decoder rows or prepared-support
+polynomials were reused as constants.
+
+For 36 fixed histories, 128 samples per history from each of ordinary Clifft,
+Stim's direct Clifford circuit, and Merlin's original-location non-Clifford
+source all lie in the directly constructed exact joint output support. The
+cases include the ideal circuit, first/last sites in each noise type/position
+group, two all-24,492-sites stress histories, and 16 ordinary noise draws.
+Distribution bug checks pass as well. These checks do not establish exact
+equality of independently computed original-source laws: the exact law here
+comes from the direct Clifford circuit, and Merlin is checked by sampling.
+The visible-law dimensions range from 84 to 170 across these cases.
+
+The new host also draws 1,024 fresh histories and measurement outcomes and
+compares them with 1,024 independent Merlin shots. All 3,832-feature bug checks
+pass, with maximum score 3.42 after rounding upward. Both backends observe
+zero accepted shots at this noise level, so this run cannot validate the
+conditional accepted-error rate or precisely estimate rare events. It is not
+a predeclared equivalence-margin study.
+
+Every direct circuit has zero T gates and zero active width without invoking
+the HIR optimizer. This bypasses the earlier BT81 experiment's phase-pass
+representation ceiling without modifying or widening that pass. The complete
+sampled output includes the physical records and target-scored observables.
+
+On the pinned CPU, the direct host with compact output conversion takes
+21.897 ms/shot versus Merlin's 19.774 ms/shot, a 1.11x ratio in this local run.
+Direct model/control setup takes 15.496 seconds and is excluded from the shot
+time; Merlin's sampler construction is likewise excluded. Direct per-shot
+timing includes fault drawing, source construction, fresh tracing/lowering,
+sampling, record restoration, consistency checks, and output collection.
+This establishes feasibility at this size, not a broadly tuned speed claim.
+
+The source hashes, certificates, exact-law hashes, case definitions, seeds,
+counts, and timings are in [`bt81-scored-clifford.json`](bt81-scored-clifford.json).
+The driver is
+[`study_bt81_scored_clifford.py`](../../tools/profile/study_bt81_scored_clifford.py).
+
+### Next design question
+
+The direct reduction is a usable correctness baseline, and reducing output
+conversion overhead does not require an architectural change. Replacing
+per-history planning with a single fixed affine plan plus signs is ruled out
+by the exact witness above. A richer representation would need to express
+fault-dependent output dependencies as well as offsets, while precomputing
+all coordinate changes and measurement decisions.
+
+Before implementing such a representation, develop a bounded design proposal:
+identify which control combinations affect those dependencies, determine
+whether a finite family of certified plans or a precomputed conditional
+classical map can stay small, and specify a fallback when it cannot. A
+fault-dependent matrix A(h) applied to a fixed pool of random bits can change
+rank in principle, but neither its efficient construction nor its compatibility
+with the current affine instruction set follows from the phase certificate.
+Do not replace the missing analysis with per-shot Gaussian elimination or
+tableau evolution inside ordinary execution. Any new plan instructions or
+execution lifecycle require architectural review before implementation.
+The all-zero input assumption remains available for that design. Independent
+noise-free optimization and broader channel sampling remain separate work.
 
 ## References
 

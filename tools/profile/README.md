@@ -402,6 +402,36 @@ require the native research target. Add `--smoke --shots 128 --fixed-shots 128`
 to restrict the fixed-history matrix to five representative cases. The exact
 Boolean and small Aer checks run in full even in smoke mode.
 
+`study_bt27_clifford_plans.py` audits all 398 retained histories for changes to
+the random/determined measurement pattern and verifies the exact-law ranks.
+This detects an obstruction to reusing the ideal affine plan with only sign
+changes; matching diagnostic action shapes would not prove compatibility.
+It also builds a compact record-parity converter, verifies it on a complete
+linear basis, and compares old/new host outputs exactly for the same fresh
+histories and seeds. Stage timings separate parsing, tracing, lowering,
+sampling, and output restoration. It adds no production plan instructions.
+
+`study_bt81_scored_clifford.py` applies the same reduction to the larger BT81
+preparation and decoder with full synthetic physical gate/readout noise and
+ideal target scoring. It certifies all 512 logical shifts, exercises a failing
+preparation control, and checks fixed histories against direct Stim and
+original-location Merlin samples. Fresh stochastic comparisons are bug checks,
+not a rate-equivalence study. Both drivers assume all-zero circuit-entry state
+and execute the full preparation normally.
+
+```bash
+.venv/bin/python tools/profile/study_bt27_clifford_plans.py \
+  --merlin-checkout /path/to/pinned/merlin --shots 1024 \
+  --output /tmp/bt27-clifford-plans.json
+.venv/bin/python tools/profile/study_bt81_scored_clifford.py \
+  --merlin-checkout /path/to/pinned/merlin --shots 1024 --fixed-shots 128 \
+  --output /tmp/bt81-scored-clifford.json
+```
+
+The same pinned Merlin checkout, installed Clifft extension, NumPy, Stim, and
+`merlin-sim` are required. The BT27 audit also consumes the retained scored
+sampling and exact-law artifacts. These drivers need no new native build.
+
 ## Probability queries
 
 `profile_probability` uses a unitary-only circuit because measurements,
