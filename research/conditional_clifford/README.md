@@ -685,9 +685,9 @@ The complete measurements are in [circuit-noise-study.json](circuit-noise-study.
 The diagnostic runs sequentially, keeps execution below width 17, and does not
 implement a cache or change production code.
 
-### Next question
+### Direction for the boundary-reuse study
 
-The immediate priority is to derive and test an inexpensive representation of
+This diagnostic motivated deriving and testing an inexpensive representation of
 the effect of different histories, rather than cache complete histories:
 
 1. Extend the physical boundary calculation to faults at different positions
@@ -702,8 +702,8 @@ the effect of different histories, rather than cache complete histories:
    algebraic representation cap separately before using its present width to
    assess conditional corrections.
 
-Regional reuse may survive even when complete histories never repeat, but that
-is a hypothesis to test. A bounded cache can be an optional later optimization
+Regional reuse may survive even when complete histories never repeat; the next
+study below tests that hypothesis. A bounded cache can be an optional later optimization
 if the measured correction classes repeat. It is no longer the proposed
 foundation for full-circuit noisy simulation. All topology discovery and variant
 construction in this investigation remain offline; any new executor mechanism
@@ -733,6 +733,211 @@ Defaults are 10,000 history draws, 16 compilation draws, 512 validation shots,
 seed 20261009, and maximum execution width 16. Larger programs are inspected
 without execution. Results are checkpointed after each model. The script uses
 the existing compiler unchanged and requires the optional Merlin package.
+
+## Full-circuit boundary reuse on 2026-10-08
+
+The follow-up extends physical corrections to the entire synthetic gate/readout
+noise model from the preceding study. It reuses the existing native boundary
+diagnostic without changing production code or execution contracts. Two new
+Python tools perform offline control precomputation, evaluate fixed histories,
+and validate the resulting complete programs:
+`bt27_circuit_corrections.py` and `study_bt27_circuit_reuse.py`.
+
+### Physical reconstruction
+
+The construction keeps three pieces of fault-dependent information:
+
+1. A Clifford correction at the end of the ideal CNOT/T region, including
+   the effects of faulty preparation, readout, and preparation feedback.
+2. A constant XOR mask translating shared-program records into physical records.
+3. A final Pauli frame accounting for decoder faults when interpreting quantum
+   outputs. Expectations acquire the corresponding commutation sign.
+
+Preparation remains a Clifford circuit with Pauli feedback. Its fault-induced
+Pauli frame and record differences propagate linearly in the fault controls.
+A readout error changes a record without directly changing the measured state;
+if that record controls feedback, its difference contributes an additional
+Pauli. This propagation couples corresponding ideal and faulty measurement
+branches without fixing either branch's physical outcomes.
+
+For the phase region, precompute the input-coordinate parity `parity_j(x)`
+seen by each T/T_DAG gate and the fault-control parity `flip_j` that flips it.
+The CNOT region returns to its identity coordinate map. For any fixed history,
+its faulty action, including the entering preparation Pauli, satisfies
+
+```text
+V = X^a D_delta U
+delta(x) = -2 sum_j sign_j flip_j parity_j(x) + 4 (b dot x)  (mod 8)
+```
+
+Here U is the ideal phase region, `sign_j` is +1 for T and -1 for T_DAG, a is
+the outgoing X frame, and b collects entering and interleaved Z faults in the
+input coordinates. A trajectory-global phase is omitted. All `flip_j`, a, and b
+are precomputed linear functions of the physical fault bits. A parity's integer
+polynomial times two has only even linear terms and multiples of four on pairs
+modulo eight; higher-degree terms vanish. Therefore `D_delta` contains only
+S, S_DAG, Z, and CZ operations, for arbitrary simultaneous faults in this model.
+
+This formula accounts for fault positions inside the decomposed T circuit.
+It does not simply move each fault to the original single noisy layer. Adding
+two S controls also produces a Z carry; those carries and XOR cancellations
+must be retained for the accumulated Clifford to be correct.
+
+Decoder faults propagate as an ordinary Pauli frame, with associated measurement
+record flips. The prototype samples the shared ideal preparation/core followed
+by its corrected decoder, then restores physical records, recomputes detector
+parities against the unchanged ideal reference, and adjusts final Pauli probes.
+Those output operations are explicit offline diagnostic postprocessing. They
+are not an implemented production output-frame interface.
+
+### Precomputed structure and scope
+
+The physical control map has 14,709 primitive X/Z/readout fault controls and
+1,044 intermediate output bits, including 378 T-sign controls. It contains
+261,354 nonzero binary dependencies. Transposing that map once lets a sparse
+history select a few integer responses and XOR them together without another
+traversal of the circuit. Precomputed parity actions then accumulate S/Z/CZ
+controls. This fixture needs only 162 candidate CZ pairs.
+
+The stored integer response payload is 1,004,790 bytes before Python object and
+container overhead or other tables. Control setup took 0.26-0.28 seconds in the
+two local runs. The final physical summary has at most 963 control bits in this
+representation: three 135-qubit boundary masks, 162 CZ controls, 126 record
+flips, and two 135-qubit output-frame masks. This is a bound on control data,
+not on total process or executor memory.
+
+The algebra gives a Clifford boundary correction for every assignment of the
+specified independent Pauli/readout channels. Together with the validated ideal
+prefix and a suffix containing only Clifford operations and measurements, it
+supports the same width-nine construction for this full BT27 noise model. That
+structural argument relies on the existing optimizer/planner contracts and is
+separate from the finite implementation checks below. It does not cover
+non-Pauli noise, arbitrary adaptive non-Clifford circuits, or other protocols.
+
+### Validation
+
+The full-circuit matrix has 162 named cases: identity; the 16 previously sampled
+full-noise histories; 57 single-site cases covering every categorical outcome
+at representative channel/region combinations; 64 new p = 0.001 histories;
+16 p = 0.005 histories; and two stress cases at each weight 40, 128, 512, and
+4,170. The last two histories have a nonidentity event at every noise site.
+These stratified and dense controls are not a probability-weighted sample.
+
+All 162 reconstructed programs have 37 T gates and peak width nine. All share
+the same complete descriptions of their first 154 preparation/core actions.
+All pass the exact raw-HIR boundary-composition check and comparison with
+ordinary fresh compilation and Merlin. Fresh compilation peaks at nine for
+127 cases, eight for 19, seven for 15, and six for one. The shared representation
+keeps width nine and can shrink during decoding. Its rotation signs still
+depend on live preparation outcomes, so it does not cache one coefficient array.
+
+The principal run retains 95 logical Pauli probes, 1,592 joint moments, and
+512 shots per case per sampler. Maximum moment discrepancy scores are 3.908
+against fresh compilation and 3.834 against Merlin. Constant conditional-probe
+checks cover 728 and 731 groups respectively, with maximum differences of
+4.72e-16 and 1.67e-16. These are finite full-circuit statistical checks, not
+tomography. No postselection is used.
+
+Independent checks target both parts of the construction:
+
+- Qiskit Aer verifies 65 Choi-operator identities. The 64 random four-qubit
+  CNOT/T cases have interleaved multiple faults, with 5-24 faults per case.
+  Maximum aligned amplitude error is 1.39e-16. An omitted S-to-Z carry is
+  detected by an orthogonal negative control.
+- Replacing T/T_DAG by identities gives a Clifford control with the same fault
+  sites, preparation feedback, and measurement positions. All 162 reconstructed
+  controls match Stim's signed stabilizer-flow generator sets after the record
+  and final-frame transformations: 37,422 generators total. Omitting record
+  restoration fails in 119 cases; omitting the final Pauli fails in 84 cases.
+  These exact flow comparisons cover the Clifford control, not the full
+  non-Clifford program.
+
+Results are in [bt27-circuit-reuse.json](bt27-circuit-reuse.json). The Stim flow
+check for that artifact was run separately after its main sweep; its additional
+time is recorded separately. The record-only run described next includes that
+check within its main execution.
+
+### Costs and repetition
+
+On the same 10,000 p = 0.001 histories as the earlier study, there are 9,826
+distinct complete histories, 9,804 distinct full correction summaries, and
+9,255 distinct boundary Cliffords when output record/frame differences are
+ignored. Even this algebraic compression leaves little complete-summary
+repetition: 1.96%, versus 1.74% for histories. These are physical summaries,
+not minimized equivalence classes on the reachable quantum state.
+
+Evaluating controls for all 10,000 histories takes about 0.27-0.28 seconds in
+Python, or 27-28 microseconds per history on average. The formula uses shared
+precomputed structure even when its output is new. It does not require a cache
+hit or re-optimize the phase polynomial.
+
+A second run omits quantum probes, samples 256 shots per case, and validates all
+162 cases against both fresh compilation and Merlin. The maximum classical
+moment scores are 3.306 and 3.303. Local record-only medians are:
+
+| Stage | Time |
+| --- | ---: |
+| Evaluate controls and emit physical correction text | 0.047 ms per pattern |
+| Trace the correction and compose the reused-prefix HIR | 1.563 ms per pattern |
+| Plan the complete reconstructed program | 1.155 ms per pattern |
+| Prepare its executable | 0.042 ms per pattern |
+| Median sum of those four stages | 2.819 ms per pattern |
+| Fresh whole-source parse, trace, and optimization alone | 59.964 ms per pattern |
+| Sample 256 records from the reconstructed program | 1.162 ms per pattern |
+| Sample 256 records from ordinary fresh compilation | 1.140 ms per pattern |
+| Validate/restore physical outputs in the Python harness | 0.445 ms per 256-shot batch |
+
+The output-restoration timing includes assertions, converter work, and Python
+array allocation; it is not a production-kernel cost. One-time native prefix
+setup takes 62-77 ms. Timings exclude temporary-source generation and oracle
+work, except possible contention with the concurrent validation process. They
+are local exploratory measurements, not controlled throughput claims. The
+largest record-sampling ratio is about 1.62x versus fresh compilation.
+
+The retained record-only artifact is
+[bt27-circuit-reuse-records.json](bt27-circuit-reuse-records.json). Its 256 shots
+reuse each fixed history to validate measurement trajectories and measure a
+prepared program. Real full-noise sampling usually changes history each shot;
+the study does not amortize away that cold construction cost in its conclusions.
+The roughly 2.8 ms of per-pattern construction/planning remains far larger than
+prepared shot execution. There are still 121 distinct complete record-only plan
+descriptions across the 162 cases, despite the common 154-action prefix.
+
+### Next bounded question
+
+The physical full-circuit correction and common reduced core are now concrete.
+The remaining bottleneck is constructing and planning the varying decoder
+actions. The next diagnostic should classify which suffix decisions vary:
+Pauli axes/signs, measurement classification, active-coordinate changes, and
+record dependencies. Compare any proposed precomputed data or templates with
+the existing per-pattern planner as an oracle, and measure residual cold-case
+cost and memory. A common core alone does not establish one shared suffix.
+
+Keep this analysis offline. A production parameterized suffix or a new output
+frame/lifecycle interface requires an explicit architecture proposal before
+implementation. Full-history or full-summary cache hits are not assumed.
+Retain cultivation as a different-protocol control and keep noiseless
+optimization worthwhile independently, as requested.
+
+### Reproduction
+
+Use the existing `profile_bt27_boundary_reuse` Release target and optional
+pinned Merlin installation from the earlier experiments:
+
+```bash
+.venv/bin/python tools/profile/study_bt27_circuit_reuse.py \
+  --binary build-profile/profile_bt27_boundary_reuse \
+  --output /tmp/bt27-circuit-reuse.json
+
+.venv/bin/python tools/profile/study_bt27_circuit_reuse.py \
+  --binary build-profile/profile_bt27_boundary_reuse \
+  --without-probes --shots 256 --output /tmp/bt27-circuit-reuse-records.json
+```
+
+The input defaults to `research/conditional_clifford/circuit-noise-study.json`;
+its canonical noisy-source hash must match the reconstructed model. Seeds and
+case generation are fixed in the driver, and the artifacts retain every history,
+correction summary, comparison result, and relevant binary/fixture hashes.
 
 ## References
 

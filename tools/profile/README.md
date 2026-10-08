@@ -289,6 +289,14 @@ compilation, validates bounded-width cases against Merlin and the Clifford
 control against Stim, and inspects wide cases without execution. It does not
 implement a cache. The research record documents noise policies and limitations.
 
+`bt27_circuit_corrections.py` precomputes the physical fault dependencies for the
+full synthetic BT27 noise model. `study_bt27_circuit_reuse.py` evaluates them as
+boundary Cliffords, record flips, and final Pauli frames, then uses the existing
+native boundary diagnostic to reuse the ideal reduced core. It checks complete
+outputs against fresh compilation and Merlin, small phase operators against
+Aer, and a Clifford control's signed flows against Stim. Construction, suffix
+planning, and output restoration remain offline research operations.
+
 ## Probability queries
 
 `profile_probability` uses a unitary-only circuit because measurements,
