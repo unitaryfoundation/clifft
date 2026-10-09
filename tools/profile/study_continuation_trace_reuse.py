@@ -38,10 +38,11 @@ def study(source: str, args: Any) -> dict[str, Any]:
             assert front.rewrite(h, 319) == PreparedPhase.rewrite(front, h, 319)
         result["unchanged_fallback_checks"] = len(histories)
         return result
-    modes = ("fresh", "continuation")
+    modes = tuple(args.modes)
     times: dict[str, list[float]] = {m: [] for m in modes}
     host: dict[str, list[float]] = {m: [] for m in modes}
     stages: dict[str, dict[str, float]] = {m: defaultdict(float) for m in modes}
+    composition: dict[str, dict[str, float]] = {m: defaultdict(float) for m in modes}
     widths: dict[str, Counter[int]] = {m: Counter() for m in modes}
     records: dict[str, list[str]] = {m: [] for m in modes}
     sizes: dict[str, list[int]] = {m: [] for m in modes}
@@ -66,7 +67,7 @@ def study(source: str, args: Any) -> dict[str, Any]:
             histories.append(history)
             seed, sample_seed = quantum.getrandbits(64), quantum.getrandbits(64)
             replies = {}
-            for mode in modes if index % 2 else modes[::-1]:
+            for mode in modes[index % len(modes) :] + modes[: index % len(modes)]:
                 start = perf_counter()
                 if mode == "fresh":
                     branch = front.rewrite(history, seed)
@@ -78,12 +79,14 @@ def study(source: str, args: Any) -> dict[str, Any]:
                 else:
                     payload = front.payload(history, seed)
                     host[mode].append(perf_counter() - start)
-                    row = worker.instantiate(payload, sample_seed)
+                    row = worker.instantiate(payload, sample_seed, mode=mode)
                     sizes[mode].append(row["request_bytes"])
                 replies[mode] = row
                 times[mode].append(row["roundtrip_seconds"])
                 for key, value in row["stage_seconds"].items():
                     stages[mode][key] += value
+                for key, value in row["composition_seconds"].items():
+                    composition[mode][key] += value
                 widths[mode][row["width"]] += 1
                 if row["width"] <= args.max_width:
                     records[mode].append(row["measurements"])
@@ -96,24 +99,34 @@ def study(source: str, args: Any) -> dict[str, Any]:
                             }
                         ),
                     )
-            verified = worker.instantiate(payload, sample_seed, reference=tail)
-            checked += int(verified["checked"])
-            for key in ("width", "t_count", "measurements", "detectors", "observables", "exp_vals"):
-                assert replies["continuation"][key] == replies["fresh"][key], key
-                assert verified[key] == replies["fresh"][key], key
+            for mode in modes[1:]:
+                verified = worker.instantiate(payload, sample_seed, reference=tail, mode=mode)
+                checked += int(verified["checked"])
+                for key in (
+                    "width",
+                    "t_count",
+                    "measurements",
+                    "detectors",
+                    "observables",
+                    "exp_vals",
+                ):
+                    assert replies[mode][key] == replies["fresh"][key], (mode, key)
+                    assert verified[key] == replies["fresh"][key], (mode, key)
         stress = []
         selected = stress_histories(front.model)
         # Dense histories test the response algebra, not a truncated draw law.
         selected += [tuple((i, len(s.replacements) - 1) for i, s in enumerate(front.model.sites))]
         for history in selected:
             branch = front.rewrite(history, 419)
-            row = worker.instantiate(
-                front.payload(history, 419),
-                715,
-                reference=branch.source[len(front.optimized_prefix) :],
-            )
-            checked += int(row["checked"])
-            stress.append({"fault_weight": len(history), "width": row["width"]})
+            for mode in modes[1:]:
+                row = worker.instantiate(
+                    front.payload(history, 419),
+                    715,
+                    reference=branch.source[len(front.optimized_prefix) :],
+                    mode=mode,
+                )
+                checked += int(row["checked"])
+                stress.append({"mode": mode, "fault_weight": len(history), "width": row["width"]})
         result["native_peak_kib"] = row["native_peak_kib"]
     draw_mean = statistics.mean(draws)
     result.update(
@@ -126,6 +139,9 @@ def study(source: str, args: Any) -> dict[str, Any]:
                 "host_seconds_per_attempt": statistics.mean(host[m]),
                 "worker_seconds_per_attempt": statistics.mean(times[m]),
                 "stage_seconds_per_attempt": {k: v / args.shots for k, v in stages[m].items()},
+                "composition_seconds_per_attempt": {
+                    k: v / args.shots for k, v in composition[m].items()
+                },
                 "mean_request_bytes": statistics.mean(sizes[m]),
                 "widths": dict(widths[m]),
                 "completed_shots": len(records[m]),
@@ -151,9 +167,17 @@ def main() -> None:
     parser.add_argument("--shots", type=int, default=128)
     parser.add_argument("--max-width", type=int, default=12)
     parser.add_argument("--seed", type=int, default=271021)
+    parser.add_argument(
+        "--modes",
+        nargs="+",
+        choices=("fresh", "continuation", "diagonal"),
+        default=["fresh", "continuation"],
+    )
     args = parser.parse_args()
     if args.shots < 32 or not 0 <= args.max_width <= 16:
         parser.error("Require at least 32 shots and width budget at most sixteen")
+    if args.modes[0] != "fresh" or len(args.modes) < 2 or len(set(args.modes)) != len(args.modes):
+        parser.error("Require fresh first and at least one distinct reuse mode")
     panel = sources(args)
     result: dict[str, Any] = {
         "settings": {k: str(v) if isinstance(v, Path) else v for k, v in vars(args).items()},

@@ -26,6 +26,7 @@ def main() -> None:
     parser.add_argument("--exporter", type=Path, required=True)
     parser.add_argument("--worker", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--mode", choices=("continuation", "diagonal"), default="continuation")
     args = parser.parse_args()
     unitary = []
     for seed in range(32):
@@ -53,7 +54,10 @@ def main() -> None:
                         tail += "".join(f"{p[0]} {p[1:]}\n" for p in axis.split())
                     tail += piece
                 row = worker.instantiate(
-                    ContinuationShot(correction, tuple(bits(mask)), ()), seed, reference=tail
+                    ContinuationShot(correction, tuple(bits(mask)), ()),
+                    seed,
+                    reference=tail,
+                    mode=args.mode,
                 )
                 state = np.asarray([complex(*v) for v in row["statevector"]])
                 expected = cq_blocks(prefix + tail)[0]
@@ -96,6 +100,7 @@ def main() -> None:
                         ContinuationShot("", tuple(bits(mask & 7)), (0,) if mask & 8 else ()),
                         715,
                         reference=tail,
+                        mode=args.mode,
                     )
                     observed = np.asarray(row["record_probabilities"])
                     expected = np.trace(cq_blocks(prefix + tail), axis1=1, axis2=2).real
@@ -168,7 +173,10 @@ def main() -> None:
                         branch = front.rewrite(history, 197, choose_prefix=choose)
                         payload = front.payload(history, 197, choose_prefix=choose)
                         row = worker.instantiate(
-                            payload, 715, reference=branch.source[len(front.optimized_prefix) :]
+                            payload,
+                            715,
+                            reference=branch.source[len(front.optimized_prefix) :],
+                            mode=args.mode,
                         )
                         trace_checks += int(row["checked"])
                         expected = np.trace(cq_blocks(branch.source), axis1=1, axis2=2).real
@@ -199,7 +207,7 @@ def main() -> None:
             with ContinuationWorker(
                 args.worker, "I 1\nH 0\nT 0\n", max_width=6, phase=True, continuation=template
             ) as worker:
-                worker.instantiate(shot, 1)
+                worker.instantiate(shot, 1, mode=args.mode)
         except RuntimeError as error:
             rejected.append({"case": name, "reason": str(error)})
         else:
@@ -211,6 +219,7 @@ def main() -> None:
     witness = float(np.max(abs(right - postprocessed)))
     assert witness > 0.5
     result: dict[str, Any] = {
+        "mode": args.mode,
         "unitary_density_errors": unitary,
         "instrument_tomography_record_errors": instruments,
         "stim_exact_record_errors": stim_errors,

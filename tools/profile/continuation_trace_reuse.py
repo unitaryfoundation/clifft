@@ -167,10 +167,13 @@ class ContinuationWorker(TraceWorker):
         seed: int,
         *,
         reference: str | None = None,
+        mode: str = "continuation",
     ) -> dict[str, Any]:
+        if mode not in {"continuation", "diagonal"}:
+            raise ValueError("Unknown continuation construction mode")
         start = perf_counter()
         lines = shot.correction.splitlines()
-        request = f"continuation {seed} {len(lines)} {int(reference is not None)}\n"
+        request = f"{mode} {seed} {len(lines)} {int(reference is not None)}\n"
         request += "".join(line + "\n" for line in lines)
         request += " ".join(map(str, shot.active)) + "\n"
         request += " ".join(map(str, shot.flips)) + "\n"

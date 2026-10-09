@@ -21,6 +21,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <utility>
 
 namespace {
 using namespace clifft;
@@ -94,7 +95,54 @@ void append(HirModule& dest, const HirModule& source, const HeisenbergOp& op,
     }
 }
 
-HirModule compose(const HirModule& prefix, const Tableau& pullback, const HirModule& tail) {
+struct CompositionTimes {
+    double boundary = 0;
+    double patch = 0;
+    double axes = 0;
+    double frame = 0;
+};
+
+void append_diagonal(Tableau& frame, const std::vector<uint8_t>& powers,
+                     const std::vector<std::pair<uint32_t, uint32_t>>& pairs) {
+    std::vector<std::pair<uint32_t, uint8_t>> singles;
+    for (uint32_t q = 0; q < powers.size(); ++q)
+        if (powers[q])
+            singles.emplace_back(q, powers[q]);
+    if (singles.empty() && pairs.empty())
+        return;
+    for (uint32_t q = 0; q < frame.num_qubits(); ++q) {
+        for (const bool z_generator : {false, true}) {
+            PauliString axis(z_generator ? frame.z_output(q) : frame.x_output(q));
+            // Diagonal Cliffords preserve X support. For i^p X^x Z^z,
+            // S_a^k adds k*x_a to p and k*x_a mod 2 to z_a. CZ_ab
+            // adds 2*x_a*x_b to p and swaps the X bits into the Z updates.
+            // Keeping the raw phase also preserves signs of Y-containing rows.
+            for (const auto& [a, power] : singles) {
+                if (axis.x().bit_get(a)) {
+                    axis.add_phase(power);
+                    if (power & 1)
+                        axis.set_pauli(a, true, !axis.z().bit_get(a));
+                }
+            }
+            for (const auto& [a, b] : pairs) {
+                const bool x_a = axis.x().bit_get(a), x_b = axis.x().bit_get(b);
+                axis.add_phase(x_a && x_b ? 2 : 0);
+                if (x_b)
+                    axis.set_pauli(a, x_a, !axis.z().bit_get(a));
+                if (x_a)
+                    axis.set_pauli(b, x_b, !axis.z().bit_get(b));
+            }
+            if (z_generator)
+                frame.set_z_output(q, axis.view());
+            else
+                frame.set_x_output(q, axis.view());
+        }
+    }
+}
+
+HirModule compose(const HirModule& prefix, const Tableau& pullback, const HirModule& tail,
+                  CompositionTimes* times = nullptr) {
+    auto start = Clock::now();
     HirModule result(prefix.num_qubits, prefix.ops.size() + tail.ops.size());
     result.num_measurements = tail.num_measurements;
     result.num_hidden_measurements = tail.num_hidden_measurements;
@@ -110,7 +158,12 @@ HirModule compose(const HirModule& prefix, const Tableau& pullback, const HirMod
     // The prefix has no records, so visible and hidden tail indices stay fixed.
     for (const auto& op : tail.ops)
         append(result, tail, op, &pullback);
+    if (times)
+        times->axes = seconds(start);
+    start = Clock::now();
     result.final_tableau = prefix.final_tableau->then(*tail.final_tableau);
+    if (times)
+        times->frame = seconds(start);
     // Separate fragment line numbers do not describe the assembled input.
     result.source_map.clear();
     return result;
@@ -165,11 +218,15 @@ class ContinuationTemplate {
 
     HirModule instantiate(const HirModule& prefix, const Tableau& prefix_inverse,
                           const Circuit& correction, const std::vector<size_t>& active,
-                          const std::vector<size_t>& flips) const {
+                          const std::vector<size_t>& flips, CompositionTimes& times,
+                          bool diagonal) const {
+        auto start = Clock::now();
         if (prefix.num_qubits != base_.num_qubits || correction.num_qubits > base_.num_qubits)
             throw std::invalid_argument("Correction or prefix has the wrong physical width");
         auto head = prefix;
         auto inverse = prefix_inverse;
+        std::vector<uint8_t> powers(diagonal ? base_.num_qubits : 0);
+        std::vector<std::pair<uint32_t, uint32_t>> pairs;
         for (const auto& node : correction.nodes) {
             const auto gate = node.gate;
             if (gate != GateType::S && gate != GateType::S_DAG && gate != GateType::Z &&
@@ -183,13 +240,24 @@ class ContinuationTemplate {
                         throw std::invalid_argument("Boundary feedback must already be sampled");
                     targets.push_back(node.targets[i + j].value());
                 }
-                head.final_tableau->append_named_gate(gate, targets);
+                if (!diagonal)
+                    head.final_tableau->append_named_gate(gate, targets);
+                else if (gate == GateType::CZ)
+                    pairs.emplace_back(targets[0], targets[1]);
+                else if (gate != GateType::I) {
+                    const uint8_t power = gate == GateType::S ? 1 : gate == GateType::Z ? 2 : 3;
+                    powers[targets[0]] = (powers[targets[0]] + power) & 3;
+                }
                 inverse.prepend_named_gate(gate == GateType::S       ? GateType::S_DAG
                                            : gate == GateType::S_DAG ? GateType::S
                                                                      : gate,
                                            targets);
             }
         }
+        if (diagonal)
+            append_diagonal(*head.final_tableau, powers, pairs);
+        times.boundary = seconds(start);
+        start = Clock::now();
         auto tail = base_;
         std::vector<uint64_t> signs(words_);
         PauliString final_fault(base_.num_qubits);
@@ -215,7 +283,8 @@ class ContinuationTemplate {
         // them at a reset would lose the signed measurement/correction identity.
         final_fault.set_sign(false);
         tail.final_tableau->prepend_pauli(final_fault.view());
-        return compose(head, inverse, tail);
+        times.patch = seconds(start);
+        return compose(head, inverse, tail, &times);
     }
 
     size_t generators() const { return generators_.size(); }
@@ -308,7 +377,7 @@ int main(int argc, char** argv) {
             bool check;
             if (!(std::istringstream(request) >> mode >> seed >> count >> check) ||
                 (mode != "fresh" && mode != "parsed" && mode != "traced" &&
-                 mode != "continuation") ||
+                 mode != "continuation" && mode != "diagonal") ||
                 count > 1000000)
                 throw std::invalid_argument("Invalid request");
             std::string tail_text, line;
@@ -319,7 +388,8 @@ int main(int argc, char** argv) {
             }
             std::vector<size_t> active, flips;
             std::string reference_text;
-            if (mode == "continuation") {
+            const bool reused = mode == "continuation" || mode == "diagonal";
+            if (reused) {
                 if (!continuation)
                     throw std::invalid_argument("No continuation template was supplied");
                 for (auto* values : {&active, &flips}) {
@@ -361,22 +431,24 @@ int main(int argc, char** argv) {
                 assemble_seconds = seconds(start);
             }
             start = Clock::now();
-            auto hir = mode == "continuation" ? HirModule() : trace(circuit);
-            if (mode != "continuation")
+            auto hir = reused ? HirModule() : trace(circuit);
+            if (!reused)
                 validate(hir, false);
             const double trace_seconds = seconds(start);
             double compose_seconds = 0;
-            if (mode == "traced" || mode == "continuation") {
+            CompositionTimes composition;
+            if (mode == "traced" || reused) {
                 start = Clock::now();
                 hir = mode == "traced"
                           ? compose(prefix_hir, pullback, hir)
-                          : continuation->instantiate(prefix_hir, pullback, circuit, active, flips);
+                          : continuation->instantiate(prefix_hir, pullback, circuit, active, flips,
+                                                      composition, mode == "diagonal");
                 compose_seconds = seconds(start);
             }
             start = Clock::now();
             if (check && mode != "fresh") {
-                const auto reference = trace(
-                    parse(prefix_text + (mode == "continuation" ? reference_text : tail_text)));
+                const auto reference =
+                    trace(parse(prefix_text + (reused ? reference_text : tail_text)));
                 if (!same_hir(hir, reference))
                     throw std::runtime_error("Composed trace differs from complete tracing");
             }
@@ -434,8 +506,11 @@ int main(int argc, char** argv) {
                       << ",\"compose\":" << compose_seconds << ",\"optimize\":" << optimize_seconds
                       << ",\"width\":" << width_seconds << ",\"plan\":" << plan_seconds
                       << ",\"prepare\":" << prepare_seconds << ",\"sample\":" << sample_seconds
-                      << "},\"measurements\":\"" << bits(sample.measurements)
-                      << "\",\"detectors\":\"" << bits(sample.detectors) << "\",\"observables\":\""
+                      << "},\"composition_seconds\":{\"boundary\":" << composition.boundary
+                      << ",\"patch\":" << composition.patch << ",\"axes\":" << composition.axes
+                      << ",\"frame\":" << composition.frame << "},\"measurements\":\""
+                      << bits(sample.measurements) << "\",\"detectors\":\""
+                      << bits(sample.detectors) << "\",\"observables\":\""
                       << bits(sample.observables) << "\",\"exp_vals\":[";
             for (size_t i = 0; i < sample.exp_vals.size(); ++i)
                 std::cout << (i ? "," : "") << sample.exp_vals[i];

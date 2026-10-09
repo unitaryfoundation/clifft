@@ -19,7 +19,18 @@ Success criterion: extend the practically simulable circuit range, including
 cases whose ordinary active width is prohibitive. This mode need not replace
 ordinary Clifft or outperform it on every supported circuit.
 
-Latest study: [fixed Clifford-continuation response reuse](CONTINUATION_TRACE_REUSE.md)
+Latest study: [algebraic diagonal-boundary composition](BOUNDARY_COMPOSITION.md)
+locates the remaining construction bottleneck in repeated forward-frame gate
+updates. Combining their diagonal Clifford action reduces complete per-shot
+time by 17-35% versus the previous reuse mode: 14.54 ms for the noisy factory,
+2.44 ms for D, 1.57 ms for E, and 2.94 ms for BT direct-X. Exact trace checks,
+independent state/instrument checks, all 512 three-qubit diagonal Cliffords,
+and physical widths across mask-word boundaries pass. Composition is now a
+small cost; remaining optimization/width analysis and planning are the next
+assessment target. Circuit eligibility and the single-rotation carrier are
+unchanged.
+
+The preceding [fixed Clifford-continuation response reuse](CONTINUATION_TRACE_REUSE.md)
 precomputes how Pauli faults affect the continuation's signs and final frame,
 preserving reset, feedback, and sampled records without a history cache.
 Complete per-shot time falls from 21.70 to 17.81 ms on the noisy factory,

@@ -923,6 +923,50 @@ for setup/storage cost, measured factory/D/E gains, the BT slowdown, and the
 remaining per-shot composition and planning cost. This experiment does not
 automatically choose a backend or expand the single-rotation carrier.
 
+## Diagonal boundary composition
+
+The `diagonal` mode of `profile_prefix_trace_reuse` applies the sampled
+boundary's S powers and CZ terms in a single traversal of each forward
+Clifford-frame row. It preserves signed Y-containing axes through the native
+raw Pauli phase convention. The inverse frame, fault/readout responses,
+continuation composition, optimizer, planner, and executor retain their
+preceding behavior. Both older modes remain available for paired comparisons.
+
+```bash
+cmake --build build-profile --target profile_prefix_trace_reuse -j2
+env OMP_NUM_THREADS=1 .venv/bin/python \
+  tools/profile/validate_boundary_composition.py \
+  --worker build-profile/profile_prefix_trace_reuse \
+  --output /tmp/boundary-algebra-validation.json
+env OMP_NUM_THREADS=1 .venv/bin/python \
+  tools/profile/validate_continuation_trace_reuse.py --mode diagonal \
+  --exporter build-profile/export_optimized_prefix \
+  --worker build-profile/profile_prefix_trace_reuse \
+  --output /tmp/boundary-continuation-validation.json
+env OMP_NUM_THREADS=1 taskset -c 2 .venv/bin/python \
+  tools/profile/study_continuation_trace_reuse.py \
+  --benchmark-dir /tmp/clifft-factory-benchmarks-20261009 \
+  --merlin-checkout /path/to/pinned/merlin --shots 128 \
+  --exporter build-profile/export_optimized_prefix \
+  --worker build-profile/profile_prefix_trace_reuse \
+  --modes fresh continuation diagonal \
+  --output /tmp/boundary-composition-study.json
+```
+
+The timing driver rotates mode order and reports native boundary, patch,
+axis/assembly, and frame-product substages in addition to whole-shot costs.
+Pass `mode="diagonal"` to `ContinuationWorker.instantiate` to use the new path;
+the default remains `continuation` for reproducing the preceding experiment.
+The dedicated validator exhausts the 512 three-qubit diagonal Clifford
+corrections, including canceling gates, and checks physical widths 65, 129,
+and 193 against complete fresh traces. The existing continuation and prefix
+validators cover state/record equivalence and earlier worker modes.
+
+See the [assessment](../../research/conditional_clifford/BOUNDARY_COMPOSITION.md)
+for the formula, gains on all four eligible benchmark inputs, and the checkpoint
+before further optimization/planning reuse. This adds no production compiler
+or executor behavior and does not expand the phase frontend's applicability.
+
 ## Probability queries
 
 `profile_probability` uses a unitary-only circuit because measurements,
