@@ -1025,6 +1025,57 @@ the diagonal-boundary predicate proposed for a future scheduling certificate.
 The noisy and no-fault groups retain the preceding noise/outcome laws. Rerun
 `validate_prefix_trace_reuse.py` to check older worker paths as well.
 
+## Guarded squeeze schedule reuse
+
+`mode="squeeze"` in `ContinuationWorker.instantiate` uses a setup-time
+operation permutation when the diagonal-boundary axis certificate holds and
+an exact per-shot comparison shows the earlier optimizers preserved its
+scheduling inputs. It otherwise runs ordinary squeezing. Planning remains
+fresh in either case. The `squeeze_status` field distinguishes actual reuse,
+boundary-predicate fallback, and optimizer-change fallback.
+
+```bash
+cmake --build build-profile --target profile_prefix_trace_reuse -j2
+env OMP_NUM_THREADS=1 taskset -c 2 .venv/bin/python \
+  tools/profile/study_continuation_trace_reuse.py \
+  --benchmark-dir /tmp/clifft-factory-benchmarks-20261009 \
+  --merlin-checkout /path/to/pinned/merlin --shots 256 \
+  --exporter build-profile/export_optimized_prefix \
+  --worker build-profile/profile_prefix_trace_reuse \
+  --modes fresh diagonal squeeze --output /tmp/squeeze-reuse-study.json
+env OMP_NUM_THREADS=1 .venv/bin/python \
+  tools/profile/validate_continuation_trace_reuse.py --mode squeeze \
+  --exporter build-profile/export_optimized_prefix \
+  --worker build-profile/profile_prefix_trace_reuse \
+  --output /tmp/squeeze-reuse-validation.json
+env OMP_NUM_THREADS=1 .venv/bin/python \
+  tools/profile/validate_boundary_composition.py --mode squeeze \
+  --worker build-profile/profile_prefix_trace_reuse \
+  --output /tmp/squeeze-reuse-boundary.json
+env OMP_NUM_THREADS=1 .venv/bin/python tools/profile/validate_planning_reuse.py \
+  --worker build-profile/profile_prefix_trace_reuse \
+  --output /tmp/squeeze-reuse-controls.json
+env OMP_NUM_THREADS=1 .venv/bin/python tools/profile/validate_prefix_trace_reuse.py \
+  --exporter build-profile/export_optimized_prefix \
+  --worker build-profile/profile_prefix_trace_reuse \
+  --output /tmp/squeeze-reuse-prefix-regression.json
+```
+
+Reference requests in squeeze mode compare the final optimized HIR and Clifford
+frame with a full fresh pipeline, as well as checking raw composition. Ordinary
+timed requests omit this diagnostic work. `optimizer_seconds` reports the
+permutation application under `StatevectorSqueezePass`; `squeeze_guard_seconds`
+separately reports snapshot/comparison/destruction cost, also included in total
+optimization time. Common setup reports schedule construction and stored/moved
+operation counts. The study retains paired savings in consecutive 32-shot blocks.
+
+The boundary validator's squeeze mode uses a prefix whose rotations survive
+the earlier optimizers, and asserts actual reuse over the complete diagonal
+group. The diagnostic validator separately tests both fallback conditions,
+including an optimizer change with unchanged operation count.
+See the [assessment](../../research/conditional_clifford/SQUEEZE_SCHEDULE_REUSE.md)
+for measured savings, certificate scope, and the remaining planning cost.
+
 ## Probability queries
 
 `profile_probability` uses a unitary-only circuit because measurements,

@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import json
 import random
+from collections import Counter
 from itertools import product
 from pathlib import Path
 from typing import Any
@@ -27,9 +28,16 @@ def main() -> None:
     parser.add_argument("--worker", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument(
-        "--mode", choices=("continuation", "diagonal", "audit"), default="continuation"
+        "--mode", choices=("continuation", "diagonal", "audit", "squeeze"), default="continuation"
     )
     args = parser.parse_args()
+    statuses: Counter[str] = Counter()
+
+    def observe(row: dict[str, Any]) -> None:
+        statuses[row["squeeze_status"]] += 1
+        if args.mode == "squeeze":
+            assert row["optimized_checked"]
+
     unitary = []
     for seed in range(32):
         rng = random.Random(seed + 8251)
@@ -61,6 +69,7 @@ def main() -> None:
                     reference=tail,
                     mode=args.mode,
                 )
+                observe(row)
                 state = np.asarray([complex(*v) for v in row["statevector"]])
                 expected = cq_blocks(prefix + tail)[0]
                 actual = np.outer(state, state.conj())
@@ -104,6 +113,7 @@ def main() -> None:
                         reference=tail,
                         mode=args.mode,
                     )
+                    observe(row)
                     observed = np.asarray(row["record_probabilities"])
                     expected = np.trace(cq_blocks(prefix + tail), axis1=1, axis2=2).real
                     np.testing.assert_allclose(observed, expected, rtol=0, atol=1e-10)
@@ -180,6 +190,7 @@ def main() -> None:
                             reference=branch.source[len(front.optimized_prefix) :],
                             mode=args.mode,
                         )
+                        observe(row)
                         trace_checks += int(row["checked"])
                         expected = np.trace(cq_blocks(branch.source), axis1=1, axis2=2).real
                         np.testing.assert_allclose(
@@ -222,6 +233,7 @@ def main() -> None:
     assert witness > 0.5
     result: dict[str, Any] = {
         "mode": args.mode,
+        "squeeze_statuses": dict(statuses),
         "unitary_density_errors": unitary,
         "instrument_tomography_record_errors": instruments,
         "stim_exact_record_errors": stim_errors,
@@ -236,6 +248,7 @@ def main() -> None:
                 Path(__file__).with_name("continuation_trace_reuse.py"),
                 Path(__file__).with_name("profile_prefix_trace_reuse.cpp"),
                 Path(__file__).with_name("planning_reuse_audit.h"),
+                Path(__file__).with_name("squeeze_schedule_reuse.h"),
             ]
         },
         "worker_sha256": hashlib.sha256(args.worker.read_bytes()).hexdigest(),

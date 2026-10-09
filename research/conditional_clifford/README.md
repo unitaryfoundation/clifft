@@ -19,14 +19,23 @@ Success criterion: extend the practically simulable circuit range, including
 cases whose ordinary active width is prohibitive. This mode need not replace
 ordinary Clifft or outperform it on every supported circuit.
 
-Latest study: [optimization and planning reuse assessment](PLANNING_REUSE_ASSESSMENT.md)
+Latest study: [guarded squeeze-schedule reuse](SQUEEZE_SCHEDULE_REUSE.md)
+stores one algebraically justified operation permutation and checks each shot's
+scheduling inputs exactly after the earlier optimizer passes. Otherwise it
+runs ordinary squeezing. All 1,265 large optimized-HIR checks and independent
+state/instrument checks pass. Complete-shot time falls from 14.55 to 12.46 ms
+on the noisy factory, with 4-8% gains on D/E/BT. Fresh planning remains the
+largest cost; the next compilation question is coordinate-query reuse within
+stable planner frames. Circuit scope and the single-rotation carrier are unchanged.
+
+The preceding [optimization and planning reuse assessment](PLANNING_REUSE_ASSESSMENT.md)
 finds one stable squeeze permutation per input across 753 audited trajectories,
 while sampling plans vary even at equal peak width and after clearing constant
 signs. A setup-time Pauli-axis predicate explains the scheduling invariance
 for this interface, with a noncommuting-prefix counterexample outside it.
 Factory squeezing costs about 2.09 ms per shot; planning costs 6.69 ms and its
-profile is dominated by coordinate conversion. The next bounded experiment
-is certified squeeze-permutation reuse with fresh planning and a fallback.
+profile is dominated by coordinate conversion. It motivated the certified
+squeeze-permutation experiment above, retaining fresh planning and a fallback.
 This assessment does not skip optimizer passes, share plans, or expand the
 single-rotation carrier.
 

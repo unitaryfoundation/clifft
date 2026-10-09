@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import json
 import random
+from collections import Counter
 from itertools import product
 from pathlib import Path
 from typing import Any
@@ -19,8 +20,20 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--worker", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--mode", choices=("diagonal", "squeeze"), default="diagonal")
     args = parser.parse_args()
+    statuses: Counter[str] = Counter()
+
+    def observe(row: dict[str, Any]) -> None:
+        statuses[row["squeeze_status"]] += 1
+        if args.mode == "squeeze":
+            assert row["optimized_checked"]
+
     prefix = "H 0 1 2\nS 1\nCX 0 1\nT 0\nCX 1 2\nH 1\nY 2\nT_DAG 2\n"
+    if args.mode == "squeeze":
+        # Independent rotations survive the earlier passes, so the complete
+        # group exercises schedule reuse instead of its optimizer fallback.
+        prefix = "H 0 1 2\nT 0\nT_DAG 1\nT 2\n"
     template = "H 0\nE(.5) Y0 X2\nS_DAG 2\nCX 0 2\nH 1\n"
     errors = []
     with ContinuationWorker(
@@ -42,13 +55,16 @@ def main() -> None:
                 active = (0,) if (sum(powers) + edges) % 2 else ()
                 tail = correction + template.replace("E(.5) Y0 X2", "Y 0\nX 2" if active else "")
                 row = worker.instantiate(
-                    ContinuationShot(correction, active, ()), 75, reference=tail, mode="diagonal"
+                    ContinuationShot(correction, active, ()), 75, reference=tail, mode=args.mode
                 )
+                observe(row)
                 state = np.asarray([complex(*v) for v in row["statevector"]])
                 expected = cq_blocks(prefix + tail)[0]
                 actual = np.outer(state, state.conj())
                 np.testing.assert_allclose(actual, expected, atol=1e-10, rtol=0)
                 errors.append(float(np.max(abs(actual - expected))))
+    if args.mode == "squeeze":
+        assert statuses == {"reused": 512}
     wide = []
     for width in (65, 129, 193):
         rng = random.Random(9115 + width)
@@ -83,8 +99,9 @@ def main() -> None:
                 shot = ContinuationShot(correction, active, flips)
                 baseline = worker.instantiate(shot, 781, reference=correction + concrete)
                 composed = worker.instantiate(
-                    shot, 781, reference=correction + concrete, mode="diagonal"
+                    shot, 781, reference=correction + concrete, mode=args.mode
                 )
+                observe(composed)
                 for key in ("measurements", "detectors", "observables", "width", "t_count"):
                     assert composed[key] == baseline[key], (width, index, key)
                 assert composed["width"] <= 8
@@ -97,6 +114,8 @@ def main() -> None:
                     }
                 )
     result: dict[str, Any] = {
+        "mode": args.mode,
+        "squeeze_statuses": dict(statuses),
         "diagonal_group_density_errors": errors,
         "wide_cases": wide,
         "wide_exact_trace_checks": 2 * len(wide),
@@ -106,6 +125,8 @@ def main() -> None:
                 Path(__file__),
                 Path(__file__).with_name("profile_prefix_trace_reuse.cpp"),
                 Path(__file__).with_name("continuation_trace_reuse.py"),
+                Path(__file__).with_name("planning_reuse_audit.h"),
+                Path(__file__).with_name("squeeze_schedule_reuse.h"),
             ]
         },
         "worker_sha256": hashlib.sha256(args.worker.read_bytes()).hexdigest(),

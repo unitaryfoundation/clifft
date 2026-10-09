@@ -12,6 +12,7 @@
 #include "clifft/util/hir_introspection.h"
 
 #include "planning_reuse_audit.h"
+#include "squeeze_schedule_reuse.h"
 
 #include <algorithm>
 #include <chrono>
@@ -369,13 +370,25 @@ int main(int argc, char** argv) {
         }
         const bool diagonal_fixes_prefix =
             planning_reuse_audit::diagonal_boundary_fixes_prefix_axes(prefix_hir);
+        const auto schedule_start = Clock::now();
+        std::optional<squeeze_schedule_reuse::Schedule> schedule;
+        if (continuation && diagonal_fixes_prefix) {
+            CompositionTimes unused;
+            schedule.emplace(
+                continuation->instantiate(prefix_hir, pullback, Circuit{}, {}, {}, unused, true));
+        }
+        const double schedule_setup_seconds = seconds(schedule_start);
         std::cout << std::setprecision(17) << "{\"setup_seconds\":" << seconds(start)
                   << ",\"prefix_nodes\":" << prefix_ast.nodes.size()
                   << ",\"prefix_ops\":" << prefix_hir.ops.size()
                   << ",\"generators\":" << (continuation ? continuation->generators() : 0)
                   << ",\"response_bytes\":" << (continuation ? continuation->response_bytes() : 0)
                   << ",\"diagonal_boundary_fixes_prefix_axes\":"
-                  << (diagonal_fixes_prefix ? "true" : "false") << "}" << std::endl;
+                  << (diagonal_fixes_prefix ? "true" : "false")
+                  << ",\"squeeze_setup_seconds\":" << schedule_setup_seconds
+                  << ",\"squeeze_schedule_ops\":" << (schedule ? schedule->size() : 0)
+                  << ",\"squeeze_schedule_moved\":" << (schedule ? schedule->moved() : 0) << "}"
+                  << std::endl;
         for (std::string request; std::getline(std::cin, request);) {
             std::string mode;
             uint64_t seed;
@@ -383,7 +396,8 @@ int main(int argc, char** argv) {
             bool check;
             if (!(std::istringstream(request) >> mode >> seed >> count >> check) ||
                 (mode != "fresh" && mode != "parsed" && mode != "traced" &&
-                 mode != "continuation" && mode != "diagonal" && mode != "audit") ||
+                 mode != "continuation" && mode != "diagonal" && mode != "audit" &&
+                 mode != "squeeze") ||
                 count > 1000000)
                 throw std::invalid_argument("Invalid request");
             std::string tail_text, line;
@@ -395,7 +409,9 @@ int main(int argc, char** argv) {
             std::vector<size_t> active, flips;
             std::string reference_text;
             const bool auditing = mode == "audit";
-            const bool reused = mode == "continuation" || mode == "diagonal" || auditing;
+            const bool squeezing = mode == "squeeze";
+            const bool reused =
+                mode == "continuation" || mode == "diagonal" || auditing || squeezing;
             if (reused) {
                 if (!continuation)
                     throw std::invalid_argument("No continuation template was supplied");
@@ -453,13 +469,13 @@ int main(int argc, char** argv) {
                 compose_seconds = seconds(start);
             }
             start = Clock::now();
+            std::optional<HirModule> reference_hir;
             if (check && mode != "fresh") {
-                const auto reference =
-                    trace(parse(prefix_text + (reused ? reference_text : tail_text)));
-                if (!same_hir(hir, reference))
+                reference_hir = trace(parse(prefix_text + (reused ? reference_text : tail_text)));
+                if (!same_hir(hir, *reference_hir))
                     throw std::runtime_error("Composed trace differs from complete tracing");
             }
-            const double validation_seconds = seconds(start);
+            double validation_seconds = seconds(start);
             std::map<std::string, double> optimizer_seconds;
             std::ostringstream audit;
             if (auditing) {
@@ -468,13 +484,33 @@ int main(int argc, char** argv) {
                     hir.source_map.push_back({i + 1});
                 audit << "{\"initial\":" << planning_reuse_audit::hir_snapshot(hir);
             }
+            start = Clock::now();
+            auto scheduling_input =
+                squeezing && schedule
+                    ? std::optional{squeeze_schedule_reuse::scheduling_snapshot(hir)}
+                    : std::nullopt;
+            double guard_seconds = squeezing ? seconds(start) : 0;
+            std::string squeeze_status = squeezing ? "boundary_not_certified" : "not_requested";
             double optimize_seconds = 0;
             for (const auto* name : {"PeepholeFusionPass", "PhasePolynomialPass",
                                      "RotationSimplificationPass", "StatevectorSqueezePass"}) {
                 if (phase || std::string(name) != "PhasePolynomialPass") {
                     const auto before = auditing ? std::optional{hir} : std::nullopt;
+                    bool apply_schedule = false;
+                    if (scheduling_input && std::string(name) == "StatevectorSqueezePass") {
+                        start = Clock::now();
+                        apply_schedule = squeeze_schedule_reuse::unchanged_scheduling_input(
+                            *scheduling_input, hir);
+                        // Charge both creation and destruction of the guard snapshot.
+                        scheduling_input.reset();
+                        guard_seconds += seconds(start);
+                        squeeze_status = apply_schedule ? "reused" : "optimizer_changed";
+                    }
                     const auto pass_start = Clock::now();
-                    make_hir_pass(name)->run(hir);
+                    if (apply_schedule)
+                        schedule->apply(hir);
+                    else
+                        make_hir_pass(name)->run(hir);
                     optimizer_seconds[name] = seconds(pass_start);
                     optimize_seconds += optimizer_seconds[name];
                     if (auditing)
@@ -482,6 +518,17 @@ int main(int argc, char** argv) {
                               << "\":{\"changed\":" << (same_hir(*before, hir) ? "false" : "true")
                               << ",\"hir\":" << planning_reuse_audit::hir_snapshot(hir) << '}';
                 }
+            }
+            optimize_seconds += guard_seconds;
+            if (reference_hir && squeezing) {
+                start = Clock::now();
+                for (const auto* name : {"PeepholeFusionPass", "PhasePolynomialPass",
+                                         "RotationSimplificationPass", "StatevectorSqueezePass"})
+                    if (phase || std::string(name) != "PhasePolynomialPass")
+                        make_hir_pass(name)->run(*reference_hir);
+                if (!same_hir(hir, *reference_hir))
+                    throw std::runtime_error("Reused schedule differs from fresh optimized HIR");
+                validation_seconds += seconds(start);
             }
             start = Clock::now();
             const auto width_trace = analyze_active_width(hir);
@@ -538,6 +585,9 @@ int main(int argc, char** argv) {
             std::cout << "{\"width\":" << width << ",\"t_count\":" << hir.num_t_gates()
                       << ",\"validation_seconds\":" << validation_seconds
                       << ",\"checked\":" << (check && mode != "fresh" ? "true" : "false")
+                      << ",\"optimized_checked\":"
+                      << (reference_hir && squeezing ? "true" : "false") << ",\"squeeze_status\":\""
+                      << squeeze_status << '"' << ",\"squeeze_guard_seconds\":" << guard_seconds
                       << ",\"stage_seconds\":{\"parse\":" << parse_seconds
                       << ",\"assemble\":" << assemble_seconds << ",\"trace\":" << trace_seconds
                       << ",\"compose\":" << compose_seconds << ",\"optimize\":" << optimize_seconds

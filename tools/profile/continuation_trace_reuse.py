@@ -169,7 +169,7 @@ class ContinuationWorker(TraceWorker):
         reference: str | None = None,
         mode: str = "continuation",
     ) -> dict[str, Any]:
-        if mode not in {"continuation", "diagonal", "audit"}:
+        if mode not in {"continuation", "diagonal", "audit", "squeeze"}:
             raise ValueError("Unknown continuation construction mode")
         start = perf_counter()
         lines = shot.correction.splitlines()

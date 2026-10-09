@@ -1,0 +1,309 @@
+{
+  "commuting_boundary": {
+    "diagonal_boundary_fixes_prefix_axes": true,
+    "constant_normalization_checked": true,
+    "peephole_changes": [
+      false,
+      false,
+      false,
+      false
+    ],
+    "plan_kinds": [
+      [
+        [
+          1,
+          0,
+          1
+        ],
+        [
+          2,
+          1,
+          0
+        ]
+      ],
+      [
+        [
+          1,
+          0,
+          1
+        ],
+        [
+          2,
+          1,
+          0
+        ]
+      ],
+      [
+        [
+          1,
+          0,
+          1
+        ],
+        [
+          2,
+          1,
+          0
+        ]
+      ],
+      [
+        [
+          1,
+          0,
+          1
+        ],
+        [
+          2,
+          1,
+          0
+        ]
+      ]
+    ],
+    "squeeze_statuses": [
+      "reused",
+      "reused",
+      "reused",
+      "reused"
+    ]
+  },
+  "noncommuting_boundary": {
+    "diagonal_boundary_fixes_prefix_axes": false,
+    "constant_normalization_checked": true,
+    "peephole_changes": [
+      true,
+      true,
+      false,
+      false
+    ],
+    "plan_kinds": [
+      [
+        [
+          3,
+          0,
+          0
+        ]
+      ],
+      [
+        [
+          3,
+          0,
+          0
+        ]
+      ],
+      [
+        [
+          1,
+          0,
+          1
+        ],
+        [
+          2,
+          1,
+          0
+        ]
+      ],
+      [
+        [
+          1,
+          0,
+          1
+        ],
+        [
+          2,
+          1,
+          0
+        ]
+      ]
+    ],
+    "squeeze_statuses": [
+      "boundary_not_certified",
+      "boundary_not_certified",
+      "boundary_not_certified",
+      "boundary_not_certified"
+    ]
+  },
+  "optimizer_changes_certified_input": {
+    "diagonal_boundary_fixes_prefix_axes": true,
+    "constant_normalization_checked": true,
+    "peephole_changes": [
+      true,
+      true,
+      true,
+      true
+    ],
+    "plan_kinds": [
+      [
+        [
+          3,
+          0,
+          0
+        ]
+      ],
+      [
+        [
+          3,
+          0,
+          0
+        ]
+      ],
+      [
+        [
+          4,
+          0,
+          0
+        ]
+      ],
+      [
+        [
+          4,
+          0,
+          0
+        ]
+      ]
+    ],
+    "squeeze_statuses": [
+      "optimizer_changed",
+      "optimizer_changed",
+      "optimizer_changed",
+      "optimizer_changed"
+    ]
+  },
+  "optimizer_changes_same_op_count": {
+    "diagonal_boundary_fixes_prefix_axes": true,
+    "constant_normalization_checked": true,
+    "peephole_changes": [
+      true,
+      true,
+      true,
+      true
+    ],
+    "plan_kinds": [
+      [
+        [
+          1,
+          0,
+          1
+        ],
+        [
+          2,
+          1,
+          0
+        ]
+      ],
+      [
+        [
+          1,
+          0,
+          1
+        ],
+        [
+          2,
+          1,
+          0
+        ]
+      ],
+      [
+        [
+          1,
+          0,
+          1
+        ],
+        [
+          2,
+          1,
+          0
+        ]
+      ],
+      [
+        [
+          1,
+          0,
+          1
+        ],
+        [
+          2,
+          1,
+          0
+        ]
+      ]
+    ],
+    "squeeze_statuses": [
+      "optimizer_changed",
+      "optimizer_changed",
+      "optimizer_changed",
+      "optimizer_changed"
+    ]
+  },
+  "continuous_rotation": {
+    "diagonal_boundary_fixes_prefix_axes": true,
+    "constant_normalization_checked": true,
+    "peephole_changes": [
+      false,
+      false,
+      false,
+      false
+    ],
+    "plan_kinds": [
+      [
+        [
+          1,
+          0,
+          1
+        ],
+        [
+          2,
+          1,
+          0
+        ]
+      ],
+      [
+        [
+          1,
+          0,
+          1
+        ],
+        [
+          2,
+          1,
+          0
+        ]
+      ],
+      [
+        [
+          1,
+          0,
+          1
+        ],
+        [
+          2,
+          1,
+          0
+        ]
+      ],
+      [
+        [
+          1,
+          0,
+          1
+        ],
+        [
+          2,
+          1,
+          0
+        ]
+      ]
+    ],
+    "squeeze_statuses": [
+      "reused",
+      "reused",
+      "reused",
+      "reused"
+    ]
+  },
+  "source_hashes": {
+    "validate_planning_reuse.py": "b47850568c4b102c4ad689196b6d2f7032efade51f102d970bc964f75d699664",
+    "planning_reuse_audit.h": "3f0d0793c53488e57753b12529ccd046f32d1450309c63d8083036c74fa538a2",
+    "profile_prefix_trace_reuse.cpp": "7e6452a4e01b9f5b5bc7f45facedb10368444764c1d030eeab4a5303708c5d14",
+    "squeeze_schedule_reuse.h": "4ce9f5a6ad0682908f3d51d195b2d85c8e112bc3c8667f33ec82d42a79e4871d"
+  },
+  "worker_sha256": "6d142d89936372fe4bbd5789c3c39c4d62baf8bfb0d8682f9610bb9a11cb96c8"
+}

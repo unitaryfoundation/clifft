@@ -43,11 +43,15 @@ def study(source: str, args: Any) -> dict[str, Any]:
     host: dict[str, list[float]] = {m: [] for m in modes}
     stages: dict[str, dict[str, float]] = {m: defaultdict(float) for m in modes}
     composition: dict[str, dict[str, float]] = {m: defaultdict(float) for m in modes}
+    optimizer: dict[str, dict[str, float]] = {m: defaultdict(float) for m in modes}
+    guard: dict[str, float] = dict.fromkeys(modes, 0.0)
+    statuses: dict[str, Counter[str]] = {m: Counter() for m in modes}
     widths: dict[str, Counter[int]] = {m: Counter() for m in modes}
     records: dict[str, list[str]] = {m: [] for m in modes}
     sizes: dict[str, list[int]] = {m: [] for m in modes}
     draws, histories = [], []
     checked = 0
+    optimized_checked = 0
     faults, quantum = random.Random(args.seed), random.Random(args.seed ^ 0x9811)
     setup_start = perf_counter()
     with ContinuationWorker(
@@ -87,6 +91,10 @@ def study(source: str, args: Any) -> dict[str, Any]:
                     stages[mode][key] += value
                 for key, value in row["composition_seconds"].items():
                     composition[mode][key] += value
+                for key, value in row["optimizer_seconds"].items():
+                    optimizer[mode][key] += value
+                guard[mode] += row["squeeze_guard_seconds"]
+                statuses[mode][row["squeeze_status"]] += 1
                 widths[mode][row["width"]] += 1
                 if row["width"] <= args.max_width:
                     records[mode].append(row["measurements"])
@@ -102,6 +110,7 @@ def study(source: str, args: Any) -> dict[str, Any]:
             for mode in modes[1:]:
                 verified = worker.instantiate(payload, sample_seed, reference=tail, mode=mode)
                 checked += int(verified["checked"])
+                optimized_checked += int(verified["optimized_checked"])
                 for key in (
                     "width",
                     "t_count",
@@ -116,21 +125,49 @@ def study(source: str, args: Any) -> dict[str, Any]:
         selected = stress_histories(front.model)
         # Dense histories test the response algebra, not a truncated draw law.
         selected += [tuple((i, len(s.replacements) - 1) for i, s in enumerate(front.model.sites))]
-        for history in selected:
-            branch = front.rewrite(history, 419)
+        stress_inputs = [(h, 419, "fault_stress") for h in selected]
+        stress_inputs += [((), seed, "no_fault") for seed in range(16)]
+        stress_inputs += [(h, 419, "fixed_prefix_seed") for h in histories[:32]]
+        for history, prefix_seed, group in stress_inputs:
+            branch = front.rewrite(history, prefix_seed)
             for mode in modes[1:]:
                 row = worker.instantiate(
-                    front.payload(history, 419),
+                    front.payload(history, prefix_seed),
                     715,
                     reference=branch.source[len(front.optimized_prefix) :],
                     mode=mode,
                 )
                 checked += int(row["checked"])
-                stress.append({"mode": mode, "fault_weight": len(history), "width": row["width"]})
+                optimized_checked += int(row["optimized_checked"])
+                stress.append(
+                    {
+                        "mode": mode,
+                        "group": group,
+                        "fault_weight": len(history),
+                        "width": row["width"],
+                        "squeeze_status": row["squeeze_status"],
+                    }
+                )
         result["native_peak_kib"] = row["native_peak_kib"]
     draw_mean = statistics.mean(draws)
+    paired = {}
+    for baseline, candidate in zip(modes, modes[1:]):
+        saved = [
+            a + b - c - d
+            for a, b, c, d in zip(
+                host[baseline], times[baseline], host[candidate], times[candidate]
+            )
+        ]
+        paired[f"{baseline}_minus_{candidate}"] = {
+            "mean_seconds": statistics.mean(saved),
+            "median_seconds": statistics.median(saved),
+            "block_mean_seconds": [
+                statistics.mean(saved[i : i + 32]) for i in range(0, len(saved), 32)
+            ],
+        }
     result.update(
         draw_seconds_per_shot=draw_mean,
+        paired_seconds_saved=paired,
         modes={
             m: {
                 "seconds_per_attempt": draw_mean
@@ -142,6 +179,11 @@ def study(source: str, args: Any) -> dict[str, Any]:
                 "composition_seconds_per_attempt": {
                     k: v / args.shots for k, v in composition[m].items()
                 },
+                "optimizer_seconds_per_attempt": {
+                    k: v / args.shots for k, v in optimizer[m].items()
+                },
+                "squeeze_guard_seconds_per_attempt": guard[m] / args.shots,
+                "squeeze_statuses": dict(statuses[m]),
                 "mean_request_bytes": statistics.mean(sizes[m]),
                 "widths": dict(widths[m]),
                 "completed_shots": len(records[m]),
@@ -152,6 +194,7 @@ def study(source: str, args: Any) -> dict[str, Any]:
         histories_sha256=hashlib.sha256(json.dumps(histories).encode()).hexdigest(),
         fault_weights=dict(Counter(map(len, histories))),
         exact_trace_checks=checked,
+        exact_optimized_checks=optimized_checked,
         stress=stress,
     )
     return result
@@ -170,7 +213,7 @@ def main() -> None:
     parser.add_argument(
         "--modes",
         nargs="+",
-        choices=("fresh", "continuation", "diagonal"),
+        choices=("fresh", "continuation", "diagonal", "squeeze"),
         default=["fresh", "continuation"],
     )
     args = parser.parse_args()
@@ -190,6 +233,8 @@ def main() -> None:
                 Path(__file__).with_name("continuation_trace_reuse.py"),
                 Path(__file__).with_name("prefix_trace_reuse.py"),
                 Path(__file__).with_name("profile_prefix_trace_reuse.cpp"),
+                Path(__file__).with_name("planning_reuse_audit.h"),
+                Path(__file__).with_name("squeeze_schedule_reuse.h"),
             ]
         },
         "worker_sha256": hashlib.sha256(args.worker.read_bytes()).hexdigest(),
