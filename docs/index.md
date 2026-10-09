@@ -43,6 +43,9 @@ measurements can reduce it. For near-Clifford protocols with frequent
 measurements, such as magic-state preparation circuits, this can provide large
 memory and runtime savings over standard dense state-vector simulation.
 
+See [Acknowledgments and references](acknowledgments.md) for the research and
+software that shaped Clifft.
+
 ## Quick Example
 
 Install via `pip install clifft`, then:

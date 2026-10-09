@@ -24,6 +24,8 @@ executor organization remain Clifft-specific implementation choices.
 
 See [Symbolic Sampling in Clifft](../updates/symbolic-sampling.md) for the
 release-oriented migration history and matched performance comparison.
+See [Acknowledgments and references](../acknowledgments.md) for the broader
+research and software contributions to Clifft.
 
 ## Symbolic Clifford Coordinates
 

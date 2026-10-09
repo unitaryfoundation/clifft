@@ -330,3 +330,5 @@ intended noncomputational model.
 
 Clifft's leakage partner effects were inspired by
 [deltakit-stim](https://github.com/Deltakit/deltakit-stim).
+See [Acknowledgments and references](../acknowledgments.md#deltakit-stim) for
+this and other influences on Clifft.
