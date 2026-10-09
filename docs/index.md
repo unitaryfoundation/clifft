@@ -99,6 +99,27 @@ For QEC workflows, Clifft also supports detector-based post-selection, survivor 
 [Quick Start](getting-started/quickstart.md){ .md-button .md-button--primary }
 [Try the Playground]({{ playground_url }}){ .md-button }
 
+## What's New in 0.12.0
+
+Clifft 0.12.0 adds two default compiler passes that use known stabilizer
+constraints to reduce non-Clifford work. Phase-polynomial reduction finds
+smaller cores in commuting T rotations, and rotation simplification combines
+equivalent arbitrary-angle rotations. A prepared-input 32-qubit Draper adder
+now compiles to zero active width. Read
+[Smaller Active States in Clifft](updates/smaller-active-states.md) for the
+circuit examples, correctness checks, and scope of these reductions.
+
+For longer CPU sampling jobs, opt-in
+[batch calibration](guide/cpu-execution.md#budgeted-batch-calibration) measures
+eligible capacities and reports a reusable batch size. Leakage and loss
+simulations gain [in-record status checks](guide/leakage-and-loss.md#nondestructive-status-checks)
+and configurable [effects on gate partners](guide/partner-interactions.md).
+
+The new default passes can change compiled plans and fixed-seed samples while
+preserving distributions. See the
+[full release notes](https://github.com/unitaryfoundation/clifft/blob/main/CHANGELOG.md)
+for compatibility details.
+
 ## What's New in 0.11.0
 
 Clifft 0.11.0 continues improving CPU sampling through
@@ -130,41 +151,5 @@ existing tests for their supported features. Read
 [Less Work per Shot in Clifft](updates/less-work-per-shot.md) for the development
 story and local A/B measurements, or see the
 [full release notes](https://github.com/unitaryfoundation/clifft/blob/main/CHANGELOG.md).
-
-## What's New in 0.10.1
-
-Clifft 0.10.1 fixes biased noise sampling in multi-shot
-[leakage and loss](guide/leakage-and-loss.md) simulations after a shot resumes
-through a continuation. It also adds a
-[Logical Shor Noise Sweep on Neutral Atoms](guide/neutral-atom-leakage.md)
-tutorial with four example circuits and a runnable script comparing approximate
-and exact treatment of state-dependent leakage and loss.
-
-## What's New in 0.10.0
-
-Clifft 0.10.0 adds automatic packed batch sampling for eligible
-low-active-width CPU workloads and Apple Silicon NEON kernels for active-state
-operations. Advanced callers can use `batch_size` to tune the packed-lane
-capacity, while the default cost-aware policy balances throughput and memory.
-
-In single-core benchmarks, v0.10 is faster than v0.9 on all eight measured
-workloads, with a 3.23x median improvement. It also leads SymFT on all eight,
-from 1.05x to 87.7x. See [Performance](guide/performance.md) for the figures,
-absolute throughput, dense Quantum Volume results, and measurement details.
-
-The release also accepts supported unitary OpenQASM 2 circuits without Qiskit
-and moves production builds onto Clifft's native Clifford implementation. Stim
-remains an independent test oracle.
-
-Read [Packed Sampling in Clifft](updates/packed-sampling.md) for the design,
-automatic policy, and v0.9 comparison. See
-[Circuit Inputs](guide/circuit-inputs.md) for OpenQASM, Qiskit, and Cirq options,
-or [CPU Execution and Tuning](guide/cpu-execution.md) for detailed controls.
-
-### Earlier development updates
-
-Read [Parallel Sampling in Clifft](updates/parallel-sampling.md) for the v0.9.0
-threading work and [Symbolic Sampling in Clifft](updates/symbolic-sampling.md)
-for the v0.8.0 compiler and sampler redesign.
 
 [Full Changelog](https://github.com/unitaryfoundation/clifft/blob/main/CHANGELOG.md){ .md-button }

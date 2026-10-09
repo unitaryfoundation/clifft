@@ -145,6 +145,7 @@ nav:
     - Tableau Conventions: development/tableau-conventions.md
     - Releasing: development/releasing.md
   - Development Blog:
+    - "v0.12.0 (October 2026): Smaller Active States": updates/smaller-active-states.md
     - "v0.11.0 (September 2026): Less Work per Shot": updates/less-work-per-shot.md
     - "v0.10.0 (September 2026): Packed Sampling": updates/packed-sampling.md
     - "v0.9.0 (August 2026): Parallel Sampling": updates/parallel-sampling.md

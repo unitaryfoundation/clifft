@@ -4,6 +4,42 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.12.0] - 2026-10-09
+
+Clifft 0.12.0 adds default phase-polynomial and arbitrary-angle rotation simplification passes that use signed stabilizer constraints to expose smaller active states. It also adds opt-in CPU batch calibration and extends leakage and loss simulations with in-record status probes and configurable effects on computational gate partners. See [Smaller Active States in Clifft](https://unitaryfoundation.github.io/clifft/stable/updates/smaller-active-states/) for the compiler examples, correctness coverage, and candidate measurement plan.
+
+The prepared-input 32-qubit Draper adder fixture drops from peak active width 15 with the previous default pass selection to zero with the new defaults. This is a structural result for fixed basis inputs, not a sampling-throughput measurement. Release-over-release performance results will follow the published-candidate campaign in `clifft-bench`; the evolving triorthogonal collection remains a separate local study.
+
+### Added
+
+- Added default `PhasePolynomialPass` optimization using signed entry-state constraints, non-Clifford core reduction, native TOHPE synthesis, and exact Clifford corrections. Rewrites retain measurement-record and fault semantics, with conservative handling of noise, measurements, and instrument boundaries. See [Optimization Passes](https://unitaryfoundation.github.io/clifft/stable/reference/passes/), in [#545](https://github.com/unitaryfoundation/clifft/pull/545).
+- Added default `RotationSimplificationPass` optimization to combine equivalent arbitrary-angle Pauli rotations and absorb resulting Clifford operations. Bounded search and acceptance checks limit compilation work and reject increases in peak active width or estimated dense work. Includes a fixed-input Draper adder fixture validated against the expected classical sum, in [#549](https://github.com/unitaryfoundation/clifft/pull/549).
+- Added `batch_size="tune"` and the keyword-only `tuning_budget_seconds` option to the four fixed-plan CPU sampling functions. Calibration measures eligible capacities before running every requested shot, uses separate random streams, and excludes trial shots from production results. `result.batch_tuning` reports the chosen settings and calibration details. The default budget is a soft 0.25 seconds; inconclusive calibration falls back to `auto` with a warning. See [CPU Execution and Tuning](https://unitaryfoundation.github.io/clifft/stable/guide/cpu-execution/#budgeted-batch-calibration), in [#551](https://github.com/unitaryfoundation/clifft/pull/551).
+- Added `HERALD_LEAKAGE_EVENT` and `HERALD_LOSS_EVENT` to the noncomputational trajectory API. These nondestructive status probes write ordinary measurement-record bits for detectors, observables, and feedback; `READOUT_NOISE` can model detection errors. See [Nondestructive Status Checks](https://unitaryfoundation.github.io/clifft/stable/guide/leakage-and-loss/#nondestructive-status-checks), in [#533](https://github.com/unitaryfoundation/clifft/pull/533).
+- Added opt-in `PartnerEffect` defaults, directional `InteractionRule` overrides, and explicit annotations for two-qubit gates involving leaked or lost operands. Effects can apply Pauli noise to a computational partner and, for leaked sources, spread leakage while preserving the source's status. Existing models retain their defaults. See [Partner Interactions](https://unitaryfoundation.github.io/clifft/stable/guide/partner-interactions/), in [#542](https://github.com/unitaryfoundation/clifft/pull/542).
+
+### Changed
+
+- **Breaking, default compiler behavior:** The HIR pipeline is now `PeepholeFusionPass -> PhasePolynomialPass -> RotationSimplificationPass -> StatevectorSqueezePass`. Compiled plans and fixed-seed samples may change while distributions are preserved. To retain the v0.11.0 default pass selection, supply a `HirPassManager` containing `PeepholeFusionPass` and `StatevectorSqueezePass`; `hir_passes=None` still disables all HIR optimization. `ActiveWidthSchedulePass` remains opt-in. The new passes are excluded from leakage/loss continuation pipelines, in [#545](https://github.com/unitaryfoundation/clifft/pull/545) and [#549](https://github.com/unitaryfoundation/clifft/pull/549).
+- **Breaking, native C++ API:** Batch calibration adds trailing sampling parameters and fields to native result structs. Rebuild C++ clients and update explicit function-pointer types or structured bindings where needed. Existing Python sampling calls remain compatible, in [#551](https://github.com/unitaryfoundation/clifft/pull/551).
+
+### Performance
+
+- Reduced packed expectation-value copying overhead by processing small lane blocks, in [#546](https://github.com/unitaryfoundation/clifft/pull/546).
+- Kept packed noise-sampling RNG state and frequently used plan data in locals, reducing repeated memory accesses while preserving RNG draw order and seeded outputs, in [#555](https://github.com/unitaryfoundation/clifft/pull/555).
+
+### Testing
+
+- Added exact phase-polynomial reconstruction and wide-coordinate checks, independent Aer/Stim validation of compiler rewrites and noisy records, prepared and entangled arithmetic cases, and forced-fault/postselection coverage, in [#545](https://github.com/unitaryfoundation/clifft/pull/545) and [#549](https://github.com/unitaryfoundation/clifft/pull/549).
+- Extended shared conformance tests to tuned sampling and added deterministic calibration-budget, fallback, and production/trial-isolation tests, in [#551](https://github.com/unitaryfoundation/clifft/pull/551).
+- Added packed-noise RNG-state regression checks and bit-column view coverage, in [#555](https://github.com/unitaryfoundation/clifft/pull/555).
+- Removed the unused permissive Qiskit converter, retaining the strict independent unitary-reference path, in [#537](https://github.com/unitaryfoundation/clifft/pull/537).
+
+### Documentation and CI
+
+- Added acknowledgments and references for research and software influences, in [#560](https://github.com/unitaryfoundation/clifft/pull/560).
+- Ran Linux default and scalar ISA checks in parallel and enforced routine GCC warning checks, in [#534](https://github.com/unitaryfoundation/clifft/pull/534) and [#535](https://github.com/unitaryfoundation/clifft/pull/535).
+
 ## [0.11.0] - 2026-09-30
 
 Clifft 0.11.0 adds an opt-in scheduler that searches for operation schedules with lower peak active width or less work at larger widths, defers scalar noise sampling until its first use, and introduces a Sinter-compatible sampler. Local single-thread scalar A/B measurements on four fixtures ranged from 0.86x to 2.31x sampling throughput with scheduling enabled, including both gains and a slowdown. See [Less Work per Shot in Clifft](https://unitaryfoundation.github.io/clifft/stable/updates/less-work-per-shot/) for the development story and local A/B measurements.
