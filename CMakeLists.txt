@@ -308,6 +308,12 @@ else()
             ${CMAKE_CURRENT_SOURCE_DIR}/src
             ${CMAKE_CURRENT_BINARY_DIR}/generated
         )
+        add_executable(profile_optimizer_allocations tools/profile/profile_optimizer_allocations.cpp)
+        target_link_libraries(profile_optimizer_allocations PRIVATE clifft_core)
+        target_include_directories(profile_optimizer_allocations PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/src
+            ${CMAKE_CURRENT_BINARY_DIR}/generated
+        )
         add_executable(profile_probability tools/profile/profile_probability.cpp)
         target_link_libraries(profile_probability PRIVATE clifft_core)
         target_include_directories(profile_probability PRIVATE

@@ -1,0 +1,372 @@
+#include "clifft/optimizer/symbolic_stabilizers.h"
+
+#include "clifft/optimizer/pauli_axis.h"
+
+#include <algorithm>
+#include <cassert>
+#include <limits>
+#include <utility>
+
+namespace clifft {
+namespace {
+
+uint32_t pivot_of(const PauliString& axis) {
+    const uint32_t domain = axis.x().num_words() * 64;
+    const uint32_t x = axis.x().lowest_bit();
+    return x < domain ? x : domain + axis.z().lowest_bit();
+}
+
+bool body_bit(const PauliString& axis, uint32_t pivot) {
+    const uint32_t domain = axis.x().num_words() * 64;
+    return pivot < domain ? axis.x().bit_get(pivot) : axis.z().bit_get(pivot - domain);
+}
+
+bool identity(const PauliString& axis) {
+    return axis.x().is_zero() && axis.z().is_zero();
+}
+
+using optimizer_detail::copy_axis;
+
+}  // namespace
+
+SymbolicStabilizers::SymbolicStabilizers(const HirModule& hir, SymbolicStabilizerOptions options)
+    : SymbolicStabilizers(hir, hir.ops.size(), options) {}
+
+SymbolicStabilizers::SymbolicStabilizers(const HirModule& hir, size_t end,
+                                         SymbolicStabilizerOptions options)
+    : options_(options) {
+    assert(end <= hir.ops.size());
+    for (size_t i = 0; i < end; ++i) {
+        if (hir.ops[i].op_type() == OpType::CONDITIONAL_PAULI) {
+            ++remaining_uses_[static_cast<uint32_t>(hir.ops[i].controlling_meas())];
+        }
+    }
+    for (uint32_t q = 0; q < hir.num_qubits; ++q) {
+        PauliString axis(hir.num_qubits);
+        axis.set_pauli(q, false, true);
+        const auto pivot = pivot_of(axis);
+        rows_.emplace(pivot, Row{std::move(axis), {}});
+    }
+}
+
+bool SymbolicStabilizers::multiply(Row& left, const Row& right, size_t& products) const {
+    if (products == options_.max_row_products) {
+        return false;
+    }
+    ++products;
+    left.sign ^= right.sign;
+    if (left.sign.terms().size() > options_.max_expression_terms) {
+        return false;
+    }
+    left.axis.right_multiply(right.axis.view());
+    return true;
+}
+
+const KnownStabilizers& SymbolicStabilizers::fixed_constraints() {
+    flush_feedback();
+    if (fixed_valid_) {
+        return fixed_;
+    }
+    fixed_.rows_.clear();
+    // Preserve cheap constant facts even when symbolic elimination is capped.
+    for (const auto& [pivot, row] : rows_) {
+        if (row.sign.terms().empty()) {
+            auto axis = row.axis;
+            axis.set_sign(axis.sign() ^ row.sign.constant());
+            fixed_.rows_.emplace(pivot, std::move(axis));
+        }
+    }
+    std::map<sampling::SymbolId, Row> signs;
+    size_t products = 0;
+    for (const auto& [pivot, original] : rows_) {
+        if (original.sign.terms().empty()) {
+            continue;
+        }
+        Row row = original;
+        bool capped = false;
+        bool independent = false;
+        while (!row.sign.terms().empty()) {
+            const auto symbol = row.sign.terms().front();
+            auto it = signs.find(symbol);
+            if (it == signs.end()) {
+                signs.emplace(symbol, std::move(row));
+                independent = true;
+                break;
+            }
+            if (!multiply(row, it->second, products)) {
+                capped = true;
+                break;
+            }
+        }
+        if (capped) {
+            break;
+        }
+        if (independent) {
+            continue;
+        }
+        row.axis.set_sign(row.axis.sign() ^ row.sign.constant());
+        for (auto it = fixed_.rows_.lower_bound(pivot_of(row.axis)); it != fixed_.rows_.end();
+             ++it) {
+            if (body_bit(row.axis, it->first)) {
+                if (products == options_.max_row_products) {
+                    capped = true;
+                    break;
+                }
+                ++products;
+                row.axis.right_multiply(it->second.view());
+            }
+        }
+        if (capped) {
+            break;
+        }
+        if (!identity(row.axis)) {
+            fixed_.rows_.emplace(pivot_of(row.axis), std::move(row.axis));
+        } else {
+            assert(!row.axis.sign());
+        }
+    }
+    fixed_valid_ = true;
+    return fixed_;
+}
+
+std::optional<SymbolicStabilizers::AffineBool> SymbolicStabilizers::affine_eigenvalue(
+    PauliString axis, bool& capped) const {
+    Row reduced{std::move(axis), {}};
+    size_t products = 0;
+    for (auto it = rows_.lower_bound(pivot_of(reduced.axis)); it != rows_.end(); ++it) {
+        if (body_bit(reduced.axis, it->first) && !multiply(reduced, it->second, products)) {
+            capped = true;
+            return std::nullopt;
+        }
+        if (identity(reduced.axis)) {
+            break;
+        }
+    }
+    if (!identity(reduced.axis)) {
+        return std::nullopt;
+    }
+    assert(reduced.axis.is_hermitian());
+    reduced.sign ^= reduced.axis.sign();
+    return std::move(reduced.sign);
+}
+
+bool SymbolicStabilizers::insert_row(Row row) {
+    fixed_valid_ = false;
+    assert(row.axis.is_hermitian());
+    size_t products = 0;
+    for (auto it = rows_.lower_bound(pivot_of(row.axis)); it != rows_.end(); ++it) {
+        if (body_bit(row.axis, it->first) && !multiply(row, it->second, products)) {
+            return false;
+        }
+    }
+    if (identity(row.axis)) {
+        assert(row.sign.terms().empty() && row.axis.sign() == row.sign.constant());
+    } else {
+        rows_.emplace(pivot_of(row.axis), std::move(row));
+    }
+    return true;
+}
+
+bool SymbolicStabilizers::intersect_rows(PauliStringView axis) {
+    auto pivot = rows_.end();
+    for (auto it = rows_.begin(); it != rows_.end(); ++it) {
+        if (!axis.commutes(it->second.axis.view())) {
+            pivot = it;
+        }
+    }
+    if (pivot == rows_.end()) {
+        return true;
+    }
+    fixed_valid_ = false;
+    // The largest pivot preserves the earlier rows' leading bits.
+    size_t products = 0;
+    for (auto it = rows_.begin(); it != pivot; ++it) {
+        if (!axis.commutes(it->second.axis.view()) &&
+            !multiply(it->second, pivot->second, products)) {
+            return false;
+        }
+    }
+    rows_.erase(pivot);
+    return true;
+}
+
+void SymbolicStabilizers::intersect(PauliStringView axis) {
+    if (!intersect_rows(axis)) {
+        forget();
+    }
+}
+
+void SymbolicStabilizers::apply_pauli(PauliStringView axis, const AffineBool& condition) {
+    if (condition.terms().empty() && !condition.constant()) {
+        return;
+    }
+    for (auto& [pivot, row] : rows_) {
+        if (!axis.commutes(row.axis.view())) {
+            fixed_valid_ = false;
+            row.sign ^= condition;
+            if (row.sign.terms().size() > options_.max_expression_terms) {
+                forget();
+                return;
+            }
+        }
+    }
+}
+
+std::optional<SymbolicStabilizers::AffineBool> SymbolicStabilizers::fresh_symbol() {
+    if (options_.max_expression_terms == 0 || next_symbol_ > std::numeric_limits<uint32_t>::max()) {
+        return std::nullopt;
+    }
+    return AffineBool::symbol(sampling::SymbolId{static_cast<uint32_t>(next_symbol_++)});
+}
+
+void SymbolicStabilizers::assign_record(uint32_t record, AffineBool value) {
+    if (options_.max_record_entries == 0) {
+        return;
+    }
+    if (records_.size() == options_.max_record_entries && !records_.contains(record)) {
+        // Hidden reset slots follow visible slots numerically, not temporally.
+        auto oldest = std::ranges::min_element(records_, {},
+                                               [](const auto& entry) { return entry.second.age; });
+        records_.erase(oldest);
+    }
+    records_.insert_or_assign(record, Record{std::move(value), next_record_age_++});
+}
+
+void SymbolicStabilizers::forget() {
+    rows_.clear();
+    records_.clear();
+    fixed_.rows_.clear();
+    fixed_valid_ = false;
+}
+
+void SymbolicStabilizers::flush_feedback() {
+    if (!feedback_) {
+        return;
+    }
+    auto feedback = std::move(*feedback_);
+    feedback_.reset();
+    if (feedback.condition) {
+        apply_pauli(feedback.axis.view(), *feedback.condition);
+    } else {
+        intersect(feedback.axis.view());
+    }
+}
+
+void SymbolicStabilizers::advance(const HirModule& hir, const HeisenbergOp& op) {
+    if (feedback_ && (op.op_type() != OpType::CONDITIONAL_PAULI ||
+                      static_cast<uint32_t>(op.controlling_meas()) != feedback_->record)) {
+        flush_feedback();
+    }
+    switch (op.op_type()) {
+        case OpType::T_GATE:
+        case OpType::PHASE_ROTATION:
+            if (!rows_.empty()) {
+                intersect(copy_axis(hir.mask_view(op), hir.num_qubits).view());
+            }
+            break;
+        case OpType::MEASURE: {
+            const auto record = static_cast<uint32_t>(op.meas_record_idx());
+            if (!remaining_uses_.contains(record)) {
+                // An outcome never used for feedback is a private sign, just
+                // like a fault event. Keep only its commuting subgroup.
+                if (!rows_.empty()) {
+                    intersect(copy_axis(hir.mask_view(op), hir.num_qubits).view());
+                }
+                break;
+            }
+            auto axis = copy_axis(hir.mask_view(op), hir.num_qubits);
+            bool capped = false;
+            auto outcome = affine_eigenvalue(axis, capped);
+            if (capped) {
+                forget();
+            }
+            if (!outcome) {
+                outcome = fresh_symbol();
+                intersect(axis.view());
+                if (outcome && !insert_row(Row{std::move(axis), *outcome})) {
+                    forget();
+                }
+            }
+            if (outcome) {
+                assign_record(record, std::move(*outcome));
+            }
+            break;
+        }
+        case OpType::CONDITIONAL_PAULI: {
+            const auto id = static_cast<uint32_t>(op.controlling_meas());
+            if (!rows_.empty()) {
+                if (feedback_) {
+                    // Consecutive Paulis with the same classical control act
+                    // as their product, up to an irrelevant branch phase.
+                    const auto mask = hir.mask_view(op);
+                    feedback_->axis.mut_x().xor_with(mask.x());
+                    feedback_->axis.mut_z().xor_with(mask.z());
+                } else {
+                    const auto record = records_.find(id);
+                    feedback_ =
+                        Feedback{id, copy_axis(hir.mask_view(op), hir.num_qubits),
+                                 record == records_.end() ? std::nullopt
+                                                          : std::optional{record->second.value}};
+                }
+            }
+            auto use = remaining_uses_.find(id);
+            if (use != remaining_uses_.end() && --use->second == 0) {
+                records_.erase(id);
+                remaining_uses_.erase(use);
+            }
+            break;
+        }
+        case OpType::NOISE: {
+            const auto& channels =
+                hir.noise_sites[static_cast<uint32_t>(op.noise_site_idx())].channels;
+            for (const auto& channel : channels) {
+                if (rows_.empty()) {
+                    break;
+                }
+                if (channel.prob == 0) {
+                    continue;
+                }
+                const auto axis =
+                    copy_axis(hir.noise_channel_masks.at(channel.mask), hir.num_qubits);
+                // Fault events are never feedback controls. Eliminate their
+                // private signs now by retaining the commuting subgroup, whose
+                // products preserve shared-fault correlations. Include the
+                // no-fault path even at probability one for reference syndromes.
+                intersect(axis.view());
+            }
+            break;
+        }
+        case OpType::READOUT_NOISE: {
+            const auto& entry = hir.readout_noise[static_cast<uint32_t>(op.readout_noise_idx())];
+            if (entry.prob_zero_to_one == 0 && entry.prob_one_to_zero == 0) {
+                break;
+            }
+            auto record = records_.find(entry.meas_idx);
+            if (record == records_.end()) {
+                break;
+            }
+            const auto flip = fresh_symbol();
+            if (!flip) {
+                records_.erase(record);
+                break;
+            }
+            // The flip can depend on the physical outcome. Only the reported
+            // record changes; constraints retain the original collapse sign.
+            record->second.value ^= *flip;
+            if (record->second.value.terms().size() > options_.max_expression_terms) {
+                records_.erase(record);
+            }
+            break;
+        }
+        case OpType::INSTRUMENT:
+            forget();
+            break;
+        case OpType::EXP_VAL:
+        case OpType::DETECTOR:
+        case OpType::OBSERVABLE:
+        case OpType::NUM_OP_TYPES:
+            break;
+    }
+}
+
+}  // namespace clifft

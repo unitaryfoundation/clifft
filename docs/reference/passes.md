@@ -59,6 +59,17 @@ pipeline and does not currently accept custom pass managers. See
 [Leakage and Loss](../guide/leakage-and-loss.md#why-there-is-no-compile-step)
 for how continuations are compiled and resumed.
 
+## Constraints from Measurement and Feedback
+
+`PhasePolynomialPass` and `RotationSimplificationPass` track constraints whose
+signs depend on measurement records, but authorize rewrites only when those
+signs become fixed. Measuring a Pauli and applying anticommuting Pauli feedback
+using its physical outcome can recover such a constraint. A corrupted readout
+record can leave the sign uncertain, preventing the corresponding rewrite.
+Measurements and resets can recover useful facts after earlier non-Clifford
+work, including in later regions of the circuit. Constraints must also hold
+for the noiseless reference; postselection supplies no additional facts.
+
 ---
 
 ## HIR Passes
@@ -87,10 +98,18 @@ all constraints; postselection supplies none. Use this pass only on complete
 circuits with an all-zero input; prior scheduling across noise causes it to skip
 the circuit.
 
-`max_variables` limits how many independent phase variables the pass analyzes
-together (default `32`, range `0` to `64`; zero disables it). Circuits can have
-more qubits than this limit. Raising it may uncover more simplifications but
-increases compilation cost. The pass rejects rewrites that increase T count
+`max_variables` is a hard ceiling on independent phase variables analyzed
+together (default `64`, range `0` to `64`; zero disables the pass). Circuits can
+have more qubits than this limit. Collection starts at `min(32, max_variables)`.
+When that limit splits a region, the pass tries one collection up to the ceiling
+before synthesis. It uses the larger block only if collection reaches a natural
+boundary; otherwise synthesis keeps the smaller blocks and expansion is
+suppressed across the remaining capped chunks. A natural boundary or an emitted
+non-T operation permits expansion again. Explicit limits are never exceeded;
+`max_variables=32` disables expansion.
+
+Larger complete regions can uncover additional reductions, at extra compilation
+cost. The pass rejects rewrites that increase T count
 or peak active width; at unchanged width, estimated sampling work must not
 increase either. Actual sampling speedups depend on the complete optimization
 pipeline. Equivalent rewrites preserve sampling distributions but can change
@@ -98,6 +117,10 @@ samples for a fixed random seed.
 
 After a run, `input_t_count`, `output_t_count`, `blocks_reduced` and
 `pauli_pullbacks` describe the accepted rewrite; `applied` reports acceptance.
+`blocks_examined` counts synthesis attempts and `blocks_capped` counts selected
+blocks split by a variable limit. `expansion_attempts` counts larger collection
+probes and `blocks_expanded` counts probes adopted for synthesis. These search
+counters remain available when no rewrite is accepted and reset on each run.
 {% endif %}
 
 {% if p['name'] == 'RotationSimplificationPass' %}

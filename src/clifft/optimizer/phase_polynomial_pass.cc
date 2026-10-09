@@ -2,9 +2,9 @@
 
 #include "clifft/optimizer/active_width_analysis.h"
 #include "clifft/optimizer/clifford_absorption.h"
-#include "clifft/optimizer/known_stabilizers.h"
 #include "clifft/optimizer/pauli_axis.h"
 #include "clifft/optimizer/phase_polynomial.h"
+#include "clifft/optimizer/symbolic_stabilizers.h"
 
 #include <algorithm>
 #include <bit>
@@ -42,6 +42,12 @@ PauliString product_axis(const std::vector<PauliString>& generators, uint64_t pa
     return axis;
 }
 
+size_t last_t_end(const HirModule& hir) {
+    const auto last = std::find_if(hir.ops.rbegin(), hir.ops.rend(),
+                                   [](const auto& op) { return op.op_type() == OpType::T_GATE; });
+    return static_cast<size_t>(last.base() - hir.ops.begin());
+}
+
 using optimizer_detail::CliffordAbsorption;
 
 struct Observer {
@@ -57,25 +63,49 @@ struct Block {
     std::vector<Observer> observers;
     KnownStabilizers constraints;
     phase_detail::Polynomial original_terms;
+    bool capped = false;
 };
 
 class Rewriter {
   public:
     Rewriter(const HirModule& input, uint32_t max_variables)
-        : input_(input), max_variables_(max_variables), known_(input.num_qubits) {}
+        : input_(input),
+          max_variables_(max_variables),
+          analysis_end_(last_t_end(input)),
+          known_(input, analysis_end_) {}
 
     std::optional<HirModule> run() {
         for (size_t i = 0; i < hir().ops.size();) {
             if (hir().ops[i].op_type() == OpType::T_GATE) {
-                auto block = collect(i);
+                const auto initial_limit = std::min(max_variables_, uint32_t{32});
+                auto block = collect(i, initial_limit);
+                if (block.capped && initial_limit < max_variables_ && allow_expansion_) {
+                    ++expansion_attempts;
+                    auto expanded = collect(i, max_variables_);
+                    if (!expanded.capped) {
+                        block = std::move(expanded);
+                        ++blocks_expanded;
+                    } else {
+                        // Keep bounded synthesis for an oversized region. A
+                        // later split is not evidence that expanding will help.
+                        allow_expansion_ = false;
+                    }
+                }
+                ++blocks_examined;
+                blocks_capped += block.capped;
                 assert(block.end > i);
                 if (!rewrite(i, block)) {
                     for (size_t j = i; j < block.end; ++j) {
+                        transform(hir().ops[j]);
                         emit(j);
                     }
                 }
                 i = block.end;
+                if (!block.capped) {
+                    allow_expansion_ = true;
+                }
             } else {
+                allow_expansion_ = true;
                 transform(hir().ops[i]);
                 emit(i++);
             }
@@ -90,6 +120,10 @@ class Rewriter {
 
     size_t blocks_reduced = 0;
     size_t pauli_pullbacks = 0;
+    size_t blocks_examined = 0;
+    size_t blocks_capped = 0;
+    size_t expansion_attempts = 0;
+    size_t blocks_expanded = 0;
 
   private:
     struct Row {
@@ -117,18 +151,18 @@ class Rewriter {
         }
     }
 
-    Block collect(size_t start) {
+    Block collect(size_t start, uint32_t variable_limit) {
         Block block{start, {}, {}, {}, {}, {}, {}};
         // Entry coordinates stay fixed while barriers remove relations that
         // cannot hold after moving those operations ahead of the phase block.
-        auto available = known_;
+        auto available = known_.fixed_constraints();
         std::map<uint32_t, Row> rows;
         for (size_t i = start; i < hir().ops.size(); ++i) {
             const auto& op = hir().ops[i];
             const auto type = op.op_type();
             if (type == OpType::T_GATE) {
                 auto axis = cliffords_.read(hir().mask_view(op), hir().num_qubits);
-                auto reduced = known_.reduce_body(axis);
+                auto reduced = known_.fixed_constraints().reduce_body(axis);
                 // An entry stabilizer commutes with every constraint derived
                 // from that same group, without a second basis scan.
                 const bool entry_stabilizer = reduced.x().is_zero() && reduced.z().is_zero();
@@ -149,7 +183,8 @@ class Rewriter {
                     }
                 }
                 if (!reduced.x().is_zero() || !reduced.z().is_zero()) {
-                    if (block.generators.size() == max_variables_) {
+                    if (block.generators.size() == variable_limit) {
+                        block.capped = true;
                         break;
                     }
                     const uint64_t bit = uint64_t{1} << block.generators.size();
@@ -175,9 +210,6 @@ class Rewriter {
                                          *negative ? -coefficient : coefficient);
                 auto& term = block.original_terms[coordinates];
                 term = static_cast<uint8_t>((term + (*negative ? -coefficient : coefficient)) & 7);
-                if (candidate_) {
-                    write_axis(candidate_->mask_at(op), axis);
-                }
                 block.rotations.push_back(i);
             } else if (type == OpType::NOISE) {
                 // Moving this site before the phase prefix must preserve the
@@ -185,7 +217,6 @@ class Rewriter {
                 // the entry knowledge after applying this channel.
                 const auto& channels =
                     hir().noise_sites[static_cast<uint32_t>(op.noise_site_idx())].channels;
-                std::vector<PauliString> axes;
                 for (const auto& channel : channels) {
                     auto axis = cliffords_.read(hir().noise_channel_masks.at(channel.mask),
                                                 hir().num_qubits);
@@ -196,16 +227,10 @@ class Rewriter {
                          }))) {
                         return block;
                     }
-                    axis.set_sign(false);
-                    axes.push_back(std::move(axis));
-                }
-                if (candidate_) {
-                    for (size_t j = 0; j < channels.size(); ++j) {
-                        write_axis(candidate_->noise_channel_masks.mut_at(channels[j].mask),
-                                   axes[j]);
+                    if (channel.prob > 0) {
+                        available.intersect(axis.view());
                     }
                 }
-                available.advance(hir(), op);
             } else if (type == OpType::MEASURE || type == OpType::CONDITIONAL_PAULI ||
                        type == OpType::EXP_VAL) {
                 const auto axis = cliffords_.read(hir().mask_view(op), hir().num_qubits);
@@ -232,9 +257,6 @@ class Rewriter {
                 assert(pulled.is_hermitian());
                 block.observers.push_back({i, std::move(pulled)});
                 available.intersect(axis.view());
-                if (candidate_) {
-                    write_axis(candidate_->mask_at(op), axis);
-                }
             } else if (type != OpType::DETECTOR && type != OpType::OBSERVABLE &&
                        type != OpType::READOUT_NOISE) {
                 break;
@@ -266,6 +288,9 @@ class Rewriter {
         }
         for (size_t i = start; i < block.end; ++i) {
             if (hir().ops[i].op_type() != OpType::T_GATE) {
+                if (hir().ops[i].op_type() == OpType::NOISE) {
+                    transform(hir().ops[i]);
+                }
                 emit(i);
             }
         }
@@ -311,7 +336,9 @@ class Rewriter {
     }
 
     void emit(size_t index) {
-        known_.advance(hir(), hir().ops[index]);
+        if (index < analysis_end_) {
+            known_.advance(hir(), hir().ops[index]);
+        }
         if (candidate_) {
             output_.push_back(candidate_->ops[index]);
             if (!candidate_->source_map.empty()) {
@@ -323,10 +350,12 @@ class Rewriter {
     const HirModule& input_;
     std::optional<HirModule> candidate_;
     uint32_t max_variables_;
+    size_t analysis_end_;
+    bool allow_expansion_ = true;
     CliffordAbsorption cliffords_;
     // Follow emitted operations: absorbed Cliffords live in cliffords_, so their
     // effects reach this analysis through the transformed subsequent operands.
-    KnownStabilizers known_;
+    SymbolicStabilizers known_;
     std::vector<HeisenbergOp> output_;
     std::vector<std::vector<uint32_t>> sources_;
 };
@@ -341,6 +370,7 @@ PhasePolynomialPass::PhasePolynomialPass(PhasePolynomialOptions options) : optio
 
 void PhasePolynomialPass::run(HirModule& hir) {
     blocks_reduced_ = pauli_pullbacks_ = 0;
+    blocks_examined_ = blocks_capped_ = expansion_attempts_ = blocks_expanded_ = 0;
     input_t_count_ = output_t_count_ = hir.num_t_gates();
     if (options_.max_variables == 0 || input_t_count_ == 0 ||
         !hir.logical_noise_prefix_matches_schedule()) {
@@ -351,6 +381,10 @@ void PhasePolynomialPass::run(HirModule& hir) {
     }
     Rewriter rewriter(hir, options_.max_variables);
     auto candidate = rewriter.run();
+    blocks_examined_ = rewriter.blocks_examined;
+    blocks_capped_ = rewriter.blocks_capped;
+    expansion_attempts_ = rewriter.expansion_attempts;
+    blocks_expanded_ = rewriter.blocks_expanded;
     if (!candidate) {
         return;
     }

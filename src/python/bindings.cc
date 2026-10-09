@@ -836,7 +836,8 @@ NB_MODULE(_clifft_core, m) {
 
     nb::class_<clifft::PhasePolynomialPass, clifft::HirPass>(
         m, "PhasePolynomialPass",
-        "Reduce commuting T rotations using constraints from the circuit's |0> input. "
+        "Reduce commuting T rotations using fixed constraints from the all-zero input, "
+        "measurements, and feedback. "
         "Run after peephole fusion and before squeezing or scheduling.")
         .def(
             "__init__",
@@ -846,8 +847,12 @@ NB_MODULE(_clifft_core, m) {
                 }
                 new (self) clifft::PhasePolynomialPass({static_cast<uint32_t>(max_variables)});
             },
-            nb::arg("max_variables") = int64_t{32})
+            nb::arg("max_variables") = int64_t{64})
         .def_prop_ro("blocks_reduced", &clifft::PhasePolynomialPass::blocks_reduced)
+        .def_prop_ro("blocks_examined", &clifft::PhasePolynomialPass::blocks_examined)
+        .def_prop_ro("blocks_capped", &clifft::PhasePolynomialPass::blocks_capped)
+        .def_prop_ro("expansion_attempts", &clifft::PhasePolynomialPass::expansion_attempts)
+        .def_prop_ro("blocks_expanded", &clifft::PhasePolynomialPass::blocks_expanded)
         .def_prop_ro("pauli_pullbacks", &clifft::PhasePolynomialPass::pauli_pullbacks)
         .def_prop_ro("input_t_count", &clifft::PhasePolynomialPass::input_t_count)
         .def_prop_ro("output_t_count", &clifft::PhasePolynomialPass::output_t_count)
