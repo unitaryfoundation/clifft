@@ -1,0 +1,75 @@
+{
+  "settings": {
+    "benchmark_dir": "/tmp/clifft-factory-benchmarks-20261009",
+    "merlin_checkout": "/tmp/merlin-research-2026-10-06",
+    "exporter": "build-profile/export_optimized_prefix",
+    "worker": "build-profile/profile_prefix_trace_reuse",
+    "output": "research/conditional_clifford/planning-reuse-profile.json",
+    "shots": 256,
+    "max_width": 12,
+    "seed": 271021,
+    "cases": [
+      "quadcycle-noisy.stim"
+    ],
+    "perf": "/usr/lib/linux-tools-6.8.0-106/perf",
+    "perf_data": "/tmp/planning-reuse-final.perf.data"
+  },
+  "git_revision": "fc5676f5a49df76062ffefec12225d0d873800ac",
+  "affinity": [
+    2
+  ],
+  "source_hashes": {
+    "study_planning_reuse.py": "56b009a94b55778a18fe93dae261a55f92485f5d16e70989c96a81206195c569",
+    "planning_reuse_audit.h": "3f0d0793c53488e57753b12529ccd046f32d1450309c63d8083036c74fa538a2",
+    "profile_prefix_trace_reuse.cpp": "284a72b48be2394b37c5c635b16693476f13d6a81192ac3d5518d4953068dda8",
+    "continuation_trace_reuse.py": "a884506218eefdcb959c5c231beb9b4b35b2441668c251b61820ada80cf43945",
+    "prefix_trace_reuse.py": "67155be88d52e68d0042244c91439c44a5cb5d190dabd68fa294ddcfc3bb307b"
+  },
+  "worker_sha256": "704a34d1ac482f386a66a313ccdb98c99e4f585f50591adaa796f72c17b09dc4",
+  "exporter_sha256": "0d9ee042f7d9e6a7dcde2b9aa7dc0c26e54375c396bb091af1888383bcb97898",
+  "cases": {
+    "quadcycle-noisy.stim": {
+      "frontend_setup_seconds": 0.7584896478801966,
+      "source_sha256": "b29712e7bdf3f81f8cfba522407f5a7db2bb5f310c40d8329b9bd19496a1def9",
+      "continuation": {
+        "eligible": true,
+        "generators": 384,
+        "tail_fault_sites": 0,
+        "readout_sites": 162,
+        "template_lines": 6664,
+        "prefix_records": 189
+      },
+      "native_setup": {
+        "setup_seconds": 0.023704704,
+        "prefix_nodes": 1299,
+        "prefix_ops": 33,
+        "generators": 384,
+        "response_bytes": 95232,
+        "diagonal_boundary_fixes_prefix_axes": true
+      },
+      "timings_seconds_per_attempt": {
+        "draw": 0.0003681496800709283,
+        "host": 0.0019267392581241438,
+        "worker": 0.011949035835641553,
+        "PeepholeFusionPass": 0.00034482935546875003,
+        "RotationSimplificationPass": 0.0007697228359375,
+        "StatevectorSqueezePass": 0.0020953862734375,
+        "parse": 1.106637109375e-05,
+        "assemble": 0,
+        "trace": 2.0421484375000002e-07,
+        "compose": 0.0005125325000000001,
+        "optimize": 0.00320993846484375,
+        "width": 0.0013157345703125002,
+        "plan": 0.006653791269531251,
+        "prepare": 5.62720703125e-05,
+        "sample": 1.39698515625e-05
+      },
+      "seconds_per_attempt": 0.014243924773836625,
+      "exact_trace_checks": 0,
+      "timed_samples_matching_audit": 0,
+      "histories_sha256": "8971f539d993bef3b12872789c09a8ff7c254f4f06adc2738329a5349d077fcc",
+      "perf_data_sha256": "d645e1265111510781eb6d29c3b13d8451bac4c387891223b9bfd1162a9adccf"
+    }
+  },
+  "host_peak_bytes": 112291840
+}

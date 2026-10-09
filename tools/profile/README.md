@@ -967,6 +967,64 @@ for the formula, gains on all four eligible benchmark inputs, and the checkpoint
 before further optimization/planning reuse. This adds no production compiler
 or executor behavior and does not expand the phase frontend's applicability.
 
+## Optimization and planning reuse assessment
+
+`study_planning_reuse.py` measures the existing `diagonal` construction and
+separately requests `audit` snapshots from the worker. Those snapshots carry
+synthetic operation provenance through each pass, exact per-pass changed flags,
+diagnostic HIR fingerprints, width transitions, and untruncated plan actions.
+Comparisons distinguish full actions, actions without constant Boolean terms,
+and action-kind/width sequences. No result is used to select or reuse a plan.
+
+```bash
+cmake --build build-profile --target profile_prefix_trace_reuse -j2
+env OMP_NUM_THREADS=1 taskset -c 2 .venv/bin/python \
+  tools/profile/study_planning_reuse.py \
+  --benchmark-dir /tmp/clifft-factory-benchmarks-20261009 \
+  --merlin-checkout /path/to/pinned/merlin --shots 128 \
+  --exporter build-profile/export_optimized_prefix \
+  --worker build-profile/profile_prefix_trace_reuse \
+  --output /tmp/planning-reuse-study.json
+env OMP_NUM_THREADS=1 .venv/bin/python tools/profile/validate_planning_reuse.py \
+  --worker build-profile/profile_prefix_trace_reuse \
+  --output /tmp/planning-reuse-controls.json
+env OMP_NUM_THREADS=1 .venv/bin/python \
+  tools/profile/validate_continuation_trace_reuse.py --mode audit \
+  --exporter build-profile/export_optimized_prefix \
+  --worker build-profile/profile_prefix_trace_reuse \
+  --output /tmp/planning-reuse-validation.json
+```
+
+The same driver can profile one native worker without diagnostic requests:
+
+```bash
+env OMP_NUM_THREADS=1 taskset -c 2 .venv/bin/python \
+  tools/profile/study_planning_reuse.py \
+  --benchmark-dir /tmp/clifft-factory-benchmarks-20261009 \
+  --merlin-checkout /path/to/pinned/merlin --shots 256 \
+  --exporter build-profile/export_optimized_prefix \
+  --worker build-profile/profile_prefix_trace_reuse \
+  --cases quadcycle-noisy.stim \
+  --perf /usr/lib/linux-tools-6.8.0-106/perf \
+  --perf-data /tmp/planning-reuse.perf.data \
+  --output /tmp/planning-reuse-profile.json
+/usr/lib/linux-tools-6.8.0-106/perf report \
+  -i /tmp/planning-reuse.perf.data --stdio --children \
+  --call-graph none --percent-limit 1 --sort symbol
+```
+
+Use an available kernel-compatible `perf` binary on other machines. Profile
+mode omits audit requests and records no equivalence-check count; correctness
+comes from the separate assessment and validators. It includes native setup
+once and excludes Python host work. Inclusive sample shares overlap. Timing
+artifacts and native profiles serve different purposes.
+
+See the [assessment](../../research/conditional_clifford/PLANNING_REUSE_ASSESSMENT.md)
+for the observed invariant schedules, equal-width plan counterexamples, and
+the diagonal-boundary predicate proposed for a future scheduling certificate.
+The noisy and no-fault groups retain the preceding noise/outcome laws. Rerun
+`validate_prefix_trace_reuse.py` to check older worker paths as well.
+
 ## Probability queries
 
 `profile_probability` uses a unitary-only circuit because measurements,

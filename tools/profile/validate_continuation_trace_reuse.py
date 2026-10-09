@@ -26,7 +26,9 @@ def main() -> None:
     parser.add_argument("--exporter", type=Path, required=True)
     parser.add_argument("--worker", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--mode", choices=("continuation", "diagonal"), default="continuation")
+    parser.add_argument(
+        "--mode", choices=("continuation", "diagonal", "audit"), default="continuation"
+    )
     args = parser.parse_args()
     unitary = []
     for seed in range(32):
@@ -233,6 +235,7 @@ def main() -> None:
                 Path(__file__),
                 Path(__file__).with_name("continuation_trace_reuse.py"),
                 Path(__file__).with_name("profile_prefix_trace_reuse.cpp"),
+                Path(__file__).with_name("planning_reuse_audit.h"),
             ]
         },
         "worker_sha256": hashlib.sha256(args.worker.read_bytes()).hexdigest(),

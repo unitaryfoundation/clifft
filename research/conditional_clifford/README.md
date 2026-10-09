@@ -19,7 +19,18 @@ Success criterion: extend the practically simulable circuit range, including
 cases whose ordinary active width is prohibitive. This mode need not replace
 ordinary Clifft or outperform it on every supported circuit.
 
-Latest study: [algebraic diagonal-boundary composition](BOUNDARY_COMPOSITION.md)
+Latest study: [optimization and planning reuse assessment](PLANNING_REUSE_ASSESSMENT.md)
+finds one stable squeeze permutation per input across 753 audited trajectories,
+while sampling plans vary even at equal peak width and after clearing constant
+signs. A setup-time Pauli-axis predicate explains the scheduling invariance
+for this interface, with a noncommuting-prefix counterexample outside it.
+Factory squeezing costs about 2.09 ms per shot; planning costs 6.69 ms and its
+profile is dominated by coordinate conversion. The next bounded experiment
+is certified squeeze-permutation reuse with fresh planning and a fallback.
+This assessment does not skip optimizer passes, share plans, or expand the
+single-rotation carrier.
+
+The preceding [algebraic diagonal-boundary composition](BOUNDARY_COMPOSITION.md)
 locates the remaining construction bottleneck in repeated forward-frame gate
 updates. Combining their diagonal Clifford action reduces complete per-shot
 time by 17-35% versus the previous reuse mode: 14.54 ms for the noisy factory,

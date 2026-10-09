@@ -11,12 +11,15 @@
 #include "clifft/sampling/state_queries.h"
 #include "clifft/util/hir_introspection.h"
 
+#include "planning_reuse_audit.h"
+
 #include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <map>
 #include <memory>
 #include <sstream>
 #include <stdexcept>
@@ -364,12 +367,15 @@ int main(int argc, char** argv) {
             circuit.num_qubits = prefix_hir.num_qubits;
             continuation = std::make_unique<ContinuationTemplate>(circuit);
         }
+        const bool diagonal_fixes_prefix =
+            planning_reuse_audit::diagonal_boundary_fixes_prefix_axes(prefix_hir);
         std::cout << std::setprecision(17) << "{\"setup_seconds\":" << seconds(start)
                   << ",\"prefix_nodes\":" << prefix_ast.nodes.size()
                   << ",\"prefix_ops\":" << prefix_hir.ops.size()
                   << ",\"generators\":" << (continuation ? continuation->generators() : 0)
                   << ",\"response_bytes\":" << (continuation ? continuation->response_bytes() : 0)
-                  << "}" << std::endl;
+                  << ",\"diagonal_boundary_fixes_prefix_axes\":"
+                  << (diagonal_fixes_prefix ? "true" : "false") << "}" << std::endl;
         for (std::string request; std::getline(std::cin, request);) {
             std::string mode;
             uint64_t seed;
@@ -377,7 +383,7 @@ int main(int argc, char** argv) {
             bool check;
             if (!(std::istringstream(request) >> mode >> seed >> count >> check) ||
                 (mode != "fresh" && mode != "parsed" && mode != "traced" &&
-                 mode != "continuation" && mode != "diagonal") ||
+                 mode != "continuation" && mode != "diagonal" && mode != "audit") ||
                 count > 1000000)
                 throw std::invalid_argument("Invalid request");
             std::string tail_text, line;
@@ -388,7 +394,8 @@ int main(int argc, char** argv) {
             }
             std::vector<size_t> active, flips;
             std::string reference_text;
-            const bool reused = mode == "continuation" || mode == "diagonal";
+            const bool auditing = mode == "audit";
+            const bool reused = mode == "continuation" || mode == "diagonal" || auditing;
             if (reused) {
                 if (!continuation)
                     throw std::invalid_argument("No continuation template was supplied");
@@ -442,7 +449,7 @@ int main(int argc, char** argv) {
                 hir = mode == "traced"
                           ? compose(prefix_hir, pullback, hir)
                           : continuation->instantiate(prefix_hir, pullback, circuit, active, flips,
-                                                      composition, mode == "diagonal");
+                                                      composition, mode != "continuation");
                 compose_seconds = seconds(start);
             }
             start = Clock::now();
@@ -453,16 +460,42 @@ int main(int argc, char** argv) {
                     throw std::runtime_error("Composed trace differs from complete tracing");
             }
             const double validation_seconds = seconds(start);
-            start = Clock::now();
+            std::map<std::string, double> optimizer_seconds;
+            std::ostringstream audit;
+            if (auditing) {
+                hir.source_map.clear();
+                for (uint32_t i = 0; i < hir.ops.size(); ++i)
+                    hir.source_map.push_back({i + 1});
+                audit << "{\"initial\":" << planning_reuse_audit::hir_snapshot(hir);
+            }
+            double optimize_seconds = 0;
             for (const auto* name : {"PeepholeFusionPass", "PhasePolynomialPass",
                                      "RotationSimplificationPass", "StatevectorSqueezePass"}) {
-                if (phase || std::string(name) != "PhasePolynomialPass")
+                if (phase || std::string(name) != "PhasePolynomialPass") {
+                    const auto before = auditing ? std::optional{hir} : std::nullopt;
+                    const auto pass_start = Clock::now();
                     make_hir_pass(name)->run(hir);
+                    optimizer_seconds[name] = seconds(pass_start);
+                    optimize_seconds += optimizer_seconds[name];
+                    if (auditing)
+                        audit << ",\"" << name
+                              << "\":{\"changed\":" << (same_hir(*before, hir) ? "false" : "true")
+                              << ",\"hir\":" << planning_reuse_audit::hir_snapshot(hir) << '}';
+                }
             }
-            const double optimize_seconds = seconds(start);
             start = Clock::now();
-            const auto width = analyze_active_width(hir).peak_width;
+            const auto width_trace = analyze_active_width(hir);
+            const auto width = width_trace.peak_width;
             const double width_seconds = seconds(start);
+            if (auditing) {
+                audit << ",\"width_trace\":[";
+                for (size_t i = 0; i < width_trace.transitions.size(); ++i) {
+                    const auto& t = width_trace.transitions[i];
+                    audit << (i ? ",[" : "[") << t.before << ',' << t.after << ','
+                          << static_cast<unsigned>(t.effect) << ']';
+                }
+                audit << ']';
+            }
             double plan_seconds = 0, prepare_seconds = 0, sample_seconds = 0;
             sampling::SamplingResult sample;
             std::vector<double> probabilities;
@@ -471,6 +504,8 @@ int main(int argc, char** argv) {
                 start = Clock::now();
                 auto plan = sampling::plan_sampling(hir);
                 plan_seconds = seconds(start);
+                if (auditing)
+                    audit << ",\"plan\":" << planning_reuse_audit::plan_snapshot(plan);
                 if (plan.peak_active_width > max_width)
                     throw std::runtime_error("Planner width exceeds the inspection budget");
                 start = Clock::now();
@@ -498,6 +533,8 @@ int main(int argc, char** argv) {
                         state = sampling::get_statevector(executable);
                 }
             }
+            if (auditing)
+                audit << '}';
             std::cout << "{\"width\":" << width << ",\"t_count\":" << hir.num_t_gates()
                       << ",\"validation_seconds\":" << validation_seconds
                       << ",\"checked\":" << (check && mode != "fresh" ? "true" : "false")
@@ -511,7 +548,13 @@ int main(int argc, char** argv) {
                       << ",\"frame\":" << composition.frame << "},\"measurements\":\""
                       << bits(sample.measurements) << "\",\"detectors\":\""
                       << bits(sample.detectors) << "\",\"observables\":\""
-                      << bits(sample.observables) << "\",\"exp_vals\":[";
+                      << bits(sample.observables) << "\",\"optimizer_seconds\":{";
+            bool first_pass = true;
+            for (const auto& [name, value] : optimizer_seconds) {
+                std::cout << (first_pass ? "" : ",") << '"' << name << "\":" << value;
+                first_pass = false;
+            }
+            std::cout << "},\"audit\":" << (auditing ? audit.str() : "null") << ",\"exp_vals\":[";
             for (size_t i = 0; i < sample.exp_vals.size(); ++i)
                 std::cout << (i ? "," : "") << sample.exp_vals[i];
             std::cout << "],\"record_probabilities\":[";

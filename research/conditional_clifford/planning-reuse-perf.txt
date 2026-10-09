@@ -1,0 +1,53 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 1K of event 'cpu-clock:u'
+# Event count (approx.): 3044088152
+#
+# Children Self Symbol IPC [IPC Coverage]
+#
+99.80% 0.07% [.] main - -
+55.56% 0.20% [.] clifft::sampling::plan_sampling(clifft::HirModule const&, clifft::sampling::SamplingPlanOptions) - -
+52.60% 0.00% [.] clifft::sampling::(anonymous namespace)::resolve_pauli(clifft::PauliString const&, clifft::sampling::AffineBool const&, clifft::sampling::internal::CoordinateFrame&, clifft::sampling::internal::SymbolicPauliFrame&) - -
+51.35% 21.20% [.] clifft::sampling::internal::CoordinateFrame::to_current(clifft::PauliString const&) - -
+48.78% 0.72% [.] clifft::sampling::(anonymous namespace)::process_measurement(clifft::PauliString const&, clifft::sampling::AffineBool const&, clifft::sampling::RecordSlot, clifft::sampling::SymbolId, clifft::sampling::SamplingPlan&, unsigned int&, clifft::sampling::internal::CoordinateFrame&, clifft::sampling::internal::SymbolicPauliFrame&, std::span<unsigned int const, 18446744073709551615ul>) - -
+38.91% 0.00% [.] __libc_start_main_impl (inlined) - -
+37.92% 0.00% [.] _start - -
+28.77% 0.00% [.] __libc_start_call_main - -
+25.67% 25.67% [.] clifft::PauliStringView::commutes(clifft::PauliStringView) const - -
+17.71% 1.51% [.] clifft::StatevectorSqueezePass::run(clifft::HirModule&) - -
+16.46% 15.08% [.] clifft::can_swap(clifft::HeisenbergOp const&, clifft::HeisenbergOp const&, clifft::HirModule const&) - -
+12.38% 0.00% [.] __libc_start_call_main - -
+11.13% 0.07% [.] clifft::analyze_active_width(clifft::HirModule const&) - -
+11.06% 0.00% [.] clifft::classify_and_apply(clifft::HirModule const&, clifft::HeisenbergOp const&, clifft::DormantSubspace&) - -
+10.60% 0.07% [.] clifft::DormantSubspace::apply_measurement(clifft::BasicMaskView<unsigned long const>, clifft::BasicMaskView<unsigned long const>) - -
+9.61% 9.61% [.] clifft::DormantSubspace::intersect(clifft::BasicMaskView<unsigned long const>, clifft::BasicMaskView<unsigned long const>) - -
+6.52% 0.00% [.] clifft::RotationSimplificationPass::run(clifft::HirModule&) - -
+5.86% 0.07% [.] clifft::(anonymous namespace)::Rewriter::run() - -
+5.27% 0.00% [.] clifft::sampling::(anonymous namespace)::process_rotation(clifft::PauliString const&, double, clifft::sampling::AffineBool const&, clifft::sampling::SamplingPlan&, unsigned int&, clifft::sampling::internal::CoordinateFrame&, clifft::sampling::internal::SymbolicPauliFrame&, std::span<unsigned int const, 18446744073709551615ul>) - -
+4.21% 0.00% [.] 0xffffffffffffffff - -
+4.15% 0.26% [.] (anonymous namespace)::ContinuationTemplate::instantiate(clifft::HirModule const&, clifft::Tableau const&, clifft::Circuit const&, std::vector<unsigned long, std::allocator<unsigned long> > const&, std::vector<unsigned long, std::allocator<unsigned long> > const&, (anonymous namespace)::CompositionTimes&, bool) const [clone .constprop.0] - -
+3.03% 2.24% [.] clifft::PeepholeFusionPass::run(clifft::HirModule&) - -
+2.90% 0.00% [.] (anonymous namespace)::compose(clifft::HirModule const&, clifft::Tableau const&, clifft::HirModule const&, (anonymous namespace)::CompositionTimes*) - -
+2.76% 0.07% [.] clifft::(anonymous namespace)::Rewriter::simplify() - -
+2.63% 2.63% [.] clifft::Tableau::row(unsigned int) const - -
+2.37% 1.12% [.] clifft::Tableau::z_output(unsigned int) const - -
+2.30% 0.07% [.] clifft::SymbolicStabilizers::advance(clifft::HirModule const&, clifft::HeisenbergOp const&) - -
+2.24% 1.25% [.] clifft::SymbolicStabilizers::intersect_rows(clifft::PauliStringView) - -
+2.24% 0.20% [.] (anonymous namespace)::append(clifft::HirModule&, clifft::HirModule const&, clifft::HeisenbergOp const&, clifft::Tableau const*) - -
+2.24% 0.00% [.] clifft::SymbolicStabilizers::intersect(clifft::PauliStringView) - -
+2.17% 1.51% [.] clifft::KnownStabilizers::intersect(clifft::PauliStringView) - -
+2.04% 1.05% [.] clifft::Tableau::apply(clifft::PauliStringView) const - -
+1.97% 0.59% [.] clifft::Tableau::x_output(unsigned int) const - -
+1.84% 0.39% [.] (anonymous namespace)::append(clifft::HirModule&, clifft::HirModule const&, clifft::HeisenbergOp const&, clifft::Tableau const*)::{lambda(clifft::MutablePauliMaskView)#1}::operator()(clifft::MutablePauliMaskView) const [clone .isra.0] - -
+1.71% 1.71% [.] clifft::PauliString::set_pauli(unsigned int, bool, bool) - -
+1.65% 0.00% [.] __GI___libc_malloc (inlined) - -
+1.65% 0.00% [.] operator new(unsigned long) - -
+1.38% 1.38% [.] clifft::(anonymous namespace)::accesses_classical_index(clifft::HeisenbergOp const&, unsigned int, clifft::HirModule const&) - -
+1.25% 1.18% [.] clifft::sampling::internal::SymbolicPauliFrame::sign_for(clifft::PauliString const&) - -
+1.12% 0.00% [.] __GI___libc_free (inlined) - -
+#
+# (Cannot load tips.txt file, please install perf!)
+#

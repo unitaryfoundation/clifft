@@ -91,11 +91,12 @@ class TraceWorker:
         max_width: int,
         phase: bool,
         continuation: str | None = None,
+        launcher: tuple[str, ...] = (),
     ):
         self.directory = tempfile.TemporaryDirectory(prefix="clifft-trace-reuse-")
         path = Path(self.directory.name) / "prefix.stim"
         path.write_text(prefix)
-        command = [str(binary.resolve()), str(path), str(max_width), str(int(phase))]
+        command = [*launcher, str(binary.resolve()), str(path), str(max_width), str(int(phase))]
         if continuation is not None:
             tail = Path(self.directory.name) / "continuation.stim"
             tail.write_text(continuation)
