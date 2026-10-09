@@ -507,6 +507,49 @@ fixed-history moments with Merlin and are explicitly not equivalence proofs.
 The same pinned Merlin checkout and the existing development dependencies are
 required. No native build or production execution change is introduced.
 
+## Reusing conditional phase analysis
+
+`shared_phase_specialization.py` is a research compiler for a Clifford
+preparation followed by CNOT and diagonal phase operations with terminal Pauli
+readouts. It derives affine support and a weighted phase polynomial, then
+precomputes fault/outcome-dependent Clifford responses. It recognizes no circuit
+family or encoder/decoder pattern. Each shot evaluates those responses and
+traces/lowers only the reduced computation, retaining any fixed non-Clifford
+remainder. No phase optimization, history lookup, or tableau planning occurs
+in Clifft's executor; all conditional construction is in the research host.
+
+`study_shared_phase_specialization.py` records shared setup, fresh per-shot
+stages, ordinary batch costs, explicit fallbacks, and a measured cost comparison.
+The comparison is a research diagnostic, not a production selection policy.
+`validate_shared_phase_specialization.py` checks small general preparations and
+wire renamings against Aer, full distillation record laws against Aer, prefix
+fault responses against Stim, and scored BT27 conditional laws against the
+existing optimizer/exporter. It normalizes deterministic MPAD before requesting
+flow constraints to avoid the installed Stim 1.16.0 sign-ordering issue; a
+256-pattern literal control checks the normalized oracle. Timing-shot moment
+checks do not establish rate equivalence.
+
+```bash
+env OMP_NUM_THREADS=1 taskset -c 0 .venv/bin/python \
+  tools/profile/study_shared_phase_specialization.py \
+  --merlin-checkout /path/to/pinned/merlin --shots 256 \
+  --output /tmp/shared-phase-specialization.json
+env OMP_NUM_THREADS=1 .venv/bin/python \
+  tools/profile/validate_shared_phase_specialization.py \
+  --merlin-checkout /path/to/pinned/merlin \
+  --binary build-profile/profile_bt27_scored_sampling \
+  --output /tmp/shared-phase-validation.json
+```
+
+The same pinned Merlin checkout and Python development dependencies are
+required. The validation additionally uses the existing native scored-sampling
+diagnostic's `--export-source` mode. The default panel omits BT81; `--cases`
+selects named panel entries. Execution checks width before lowering (default
+budget 12), and unsupported resets or noncommuting operations inside a phase
+region produce an explicit fallback. See the
+[research report](../../research/conditional_clifford/SHARED_PHASE_SPECIALIZATION.md)
+for the supported interface and limits of each oracle.
+
 ## Probability queries
 
 `profile_probability` uses a unitary-only circuit because measurements,

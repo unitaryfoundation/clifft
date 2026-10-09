@@ -15,7 +15,15 @@ compiled once is not a research constraint. The current production executor
 contract remains unchanged; host-side experiments may sample and recompile
 between calls to it.
 
-Latest study: [automatic specialization across circuit families](AUTOMATIC_SPECIALIZATION.md)
+Latest study: [reusing conditional phase analysis](SHARED_PHASE_SPECIALIZATION.md)
+derives affine support, a fixed non-Clifford remainder, and fault/outcome-dependent
+Clifford responses once, then rebuilds only the reduced computation. The same
+construction handles distillation, BT27, and measured-state controls. It removes
+most of BT27's whole-circuit recompilation cost while the cost comparison keeps
+ordinary Clifft on small circuits. Its single-region boundary and the exact-law
+oracle correction are documented explicitly.
+
+The preceding [automatic specialization study](AUTOMATIC_SPECIALIZATION.md)
 tests the existing algebraic optimizer on raw circuits after sampled faults,
 and optionally after sampling an initial Clifford preparation. It demonstrates
 both complete and partial reductions outside BT, a measurement-dependent
