@@ -86,28 +86,20 @@ same quantum evolution.
 
 Encoded transversal-T circuits are a useful application. Preparing an encoded
 state establishes relationships among physical qubits that the pass can use
-to reduce the active state. Triorthogonal codes provide a family of these
-circuits connected to [magic-state distillation](https://arxiv.org/abs/1209.2426).
+to reduce the active state. Examples come from triorthogonal codes for
+magic-state distillation by [Bravyi and Haah](https://arxiv.org/abs/1209.2426)
+and [Haah and Hastings](https://arxiv.org/abs/1709.02832).
 
-We compared the published `0.12.0rc1` wheel on a fixed collection of 1,037
-noiseless triorthogonal circuits, using fusion and squeezing alone as the
-baseline. Adding phase reduction lowered peak active width on every circuit:
-the median fell from 17 to 1, and 939 circuits reached width 1.
+On 1,037 noiseless triorthogonal circuits, the new defaults lowered median
+peak active width from 17 to 1. Using the published `0.12.0rc1` wheel, a local
+single-thread scalar comparison against fusion and squeezing alone measured
+a median per-circuit sampling speedup of about 9,600x, with median compilation
+time rising from 0.54 ms to 6.95 ms.
 
 ![Peak active width decreases on all 1,037 noiseless triorthogonal circuits; larger points represent more circuits](../assets/updates/triorthogonal-active-width-light.png#only-light)
 ![Peak active width decreases on all 1,037 noiseless triorthogonal circuits; larger points represent more circuits](../assets/updates/triorthogonal-active-width-dark.png#only-dark)
 
-Across this collection, the median per-circuit sampling throughput gain was
-about 9,600x, while median compilation time rose from 0.54 ms to 6.95 ms.
-Phase reduction alone produced the same executable plans as the full default
-pipeline on all 1,037 circuits. These are comparisons of pass selections within
-the RC on this noiseless snapshot.
-
-Measurements used one pinned vCPU of an AMD EPYC 9554P VM with AVX-512,
-five timed repetitions, and counts-only survivor sampling (`threads=1`,
-`batch_size=1`). Sampling shot counts were calibrated toward 50 ms per trial;
-compilation was timed separately. Optional scheduling was disabled for both
-pipelines.
+Thanks to Matthew Cha of Riverlane for putting these circuits together.
 
 ### Simplify arbitrary-angle rotations
 
