@@ -19,13 +19,22 @@ Success criterion: extend the practically simulable circuit range, including
 cases whose ordinary active width is prohibitive. This mode need not replace
 ordinary Clifft or outperform it on every supported circuit.
 
-Latest study: [preparation rendering and parsed/traced prefix reuse](PREFIX_TRACE_REUSE.md)
+Latest study: [fixed Clifford-continuation response reuse](CONTINUATION_TRACE_REUSE.md)
+precomputes how Pauli faults affect the continuation's signs and final frame,
+preserving reset, feedback, and sampled records without a history cache.
+Complete per-shot time falls from 21.70 to 17.81 ms on the noisy factory,
+4.08 to 3.63 ms on D, and 2.54 to 2.36 ms on E; BT direct-X becomes slower.
+Exact trace and independent state/instrument checks pass. Per-shot boundary
+composition and ordinary planning remain; this is an explicit research option,
+with the single-rotation carrier and production execution unchanged.
+
+The preceding [preparation rendering and parsed/traced prefix reuse](PREFIX_TRACE_REUSE.md)
 avoids rebuilding the original preparation and measures native fragment
 composition. Direct emission saves about 0.7-0.8 ms per factory/D/E shot;
 traced-prefix reuse adds a small D/E benefit and none on the larger factory.
 Exact full-HIR comparisons preserve the final state frame and all records.
-The continuation and its planning remain the main next reuse targets; the
-single-rotation carrier is unchanged.
+It motivated the continuation study above; the single-rotation carrier is
+unchanged.
 
 The preceding [fixed-preparation compilation reuse](COMPILED_PREFIX_REUSE.md)
 optimizes the invariant preparation once while retaining fresh per-shot faults,

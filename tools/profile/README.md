@@ -877,6 +877,52 @@ See the [assessment](../../research/conditional_clifford/PREFIX_TRACE_REUSE.md)
 for the limited benefit of prefix-only tracing reuse and remaining continuation
 and planning costs.
 
+## Fixed Clifford-continuation reuse
+
+`ContinuationPhase` in `continuation_trace_reuse.py` extends `PreparedPhase`
+with a fixed continuation template and fault-response controls. Its native
+worker mode traces the encoder/Clifford tail once, removes setup-only Pauli
+probes, and precomputes packed operation-sign responses. Each shot supplies
+the sampled diagonal Clifford boundary correction, selected Pauli generators,
+and prefix/readout record flips. Full signed axes, feedback, hidden resets,
+annotations, and the outgoing frame are preserved before ordinary planning.
+
+This path retains the preceding frontend when its preparation reuse is
+ineligible or the tail is non-Clifford. Noise keeps the original categorical
+draw law, including correlated outcomes. There is no history cache, fault-weight
+truncation, or native executor change. The optional fourth worker argument is
+the setup probe circuit; the existing fresh/parsed/traced modes still work.
+
+```bash
+cmake --build build-profile --target export_optimized_prefix profile_prefix_trace_reuse -j2
+env OMP_NUM_THREADS=1 .venv/bin/python \
+  tools/profile/validate_continuation_trace_reuse.py \
+  --exporter build-profile/export_optimized_prefix \
+  --worker build-profile/profile_prefix_trace_reuse \
+  --output /tmp/continuation-trace-validation.json
+env OMP_NUM_THREADS=1 taskset -c 2 .venv/bin/python \
+  tools/profile/study_continuation_trace_reuse.py \
+  --benchmark-dir /tmp/clifft-factory-benchmarks-20261009 \
+  --merlin-checkout /path/to/pinned/merlin --shots 128 \
+  --exporter build-profile/export_optimized_prefix \
+  --worker build-profile/profile_prefix_trace_reuse \
+  --output /tmp/continuation-trace-study.json
+```
+
+The driver compares matched histories and seeds in alternating order against
+fresh tracing after direct prefix rendering. It includes complete host/IPC and
+native costs, checks width before coefficient allocation, and separately checks
+exact HIR equality. Selected stress histories include an outcome at every site;
+ordinary timing draws are unconditioned. Validation covers Aer full states,
+complete record laws with final-state tomography, exact Clifford laws from
+Stim, frontend instruments, and rejection/fallback controls. Rerun
+`validate_prefix_trace_reuse.py` for the preceding worker modes as well.
+
+See the [assessment](../../research/conditional_clifford/CONTINUATION_TRACE_REUSE.md)
+for setup/storage cost, measured factory/D/E gains, the BT slowdown, and the
+remaining per-shot composition and planning cost. This experiment does not
+automatically choose a backend or expand the single-rotation carrier.
+
 ## Probability queries
 
 `profile_probability` uses a unitary-only circuit because measurements,

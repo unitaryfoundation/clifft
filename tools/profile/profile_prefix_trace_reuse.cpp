@@ -17,6 +17,7 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <memory>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -115,6 +116,119 @@ HirModule compose(const HirModule& prefix, const Tableau& pullback, const HirMod
     return result;
 }
 
+class ContinuationTemplate {
+  public:
+    explicit ContinuationTemplate(const Circuit& circuit) {
+        const auto probed = trace(circuit);
+        if (!probed.readout_noise.empty() || !probed.instrument_sites.empty())
+            throw std::invalid_argument("Continuation probes must be Pauli channels only");
+        base_ = HirModule(probed.num_qubits, probed.ops.size());
+        base_.num_measurements = probed.num_measurements;
+        base_.num_hidden_measurements = probed.num_hidden_measurements;
+        base_.num_detectors = probed.num_detectors;
+        base_.num_observables = probed.num_observables;
+        base_.num_exp_vals = probed.num_exp_vals;
+        base_.detector_targets = probed.detector_targets;
+        base_.observable_targets = probed.observable_targets;
+        base_.final_tableau = probed.final_tableau;
+        std::vector<size_t> starts;
+        for (const auto& op : probed.ops) {
+            if (op.op_type() == OpType::NOISE) {
+                const auto& site = probed.noise_sites[static_cast<uint32_t>(op.noise_site_idx())];
+                if (site.channels.size() != 1 || site.total_probability != 0.5)
+                    throw std::invalid_argument("Expected one synthetic Pauli generator per probe");
+                generators_.push_back(optimizer_detail::copy_axis(
+                    probed.noise_channel_masks.at(site.channels[0].mask), probed.num_qubits));
+                starts.push_back(base_.ops.size());
+            } else {
+                if (op.op_type() == OpType::T_GATE || op.op_type() == OpType::PHASE_ROTATION)
+                    throw std::invalid_argument("Reusable continuation must be Clifford");
+                append(base_, probed, op, nullptr);
+            }
+        }
+        validate(base_, false);
+        words_ = (base_.ops.size() + 63) / 64;
+        responses_.resize(generators_.size(), std::vector<uint64_t>(words_));
+        record_ops_.resize(base_.num_measurements, base_.ops.size());
+        for (size_t i = 0; i < base_.ops.size(); ++i) {
+            const auto& op = base_.ops[i];
+            if (op.op_type() == OpType::MEASURE && !op.is_hidden())
+                record_ops_[static_cast<uint32_t>(op.meas_record_idx())] = i;
+            if (!op.has_mask())
+                continue;
+            const auto axis = optimizer_detail::copy_axis(base_.mask_view(op), base_.num_qubits);
+            for (size_t j = 0; j < generators_.size(); ++j)
+                if (i >= starts[j] && !axis.view().commutes(generators_[j].view()))
+                    responses_[j][i / 64] ^= uint64_t{1} << (i % 64);
+        }
+    }
+
+    HirModule instantiate(const HirModule& prefix, const Tableau& prefix_inverse,
+                          const Circuit& correction, const std::vector<size_t>& active,
+                          const std::vector<size_t>& flips) const {
+        if (prefix.num_qubits != base_.num_qubits || correction.num_qubits > base_.num_qubits)
+            throw std::invalid_argument("Correction or prefix has the wrong physical width");
+        auto head = prefix;
+        auto inverse = prefix_inverse;
+        for (const auto& node : correction.nodes) {
+            const auto gate = node.gate;
+            if (gate != GateType::S && gate != GateType::S_DAG && gate != GateType::Z &&
+                gate != GateType::CZ && gate != GateType::I)
+                throw std::invalid_argument("Expected the diagonal Clifford boundary correction");
+            const size_t arity = gate == GateType::CZ ? 2 : 1;
+            for (size_t i = 0; i < node.targets.size(); i += arity) {
+                std::vector<uint32_t> targets;
+                for (size_t j = 0; j < arity; ++j) {
+                    if (node.targets[i + j].is_rec())
+                        throw std::invalid_argument("Boundary feedback must already be sampled");
+                    targets.push_back(node.targets[i + j].value());
+                }
+                head.final_tableau->append_named_gate(gate, targets);
+                inverse.prepend_named_gate(gate == GateType::S       ? GateType::S_DAG
+                                           : gate == GateType::S_DAG ? GateType::S
+                                                                     : gate,
+                                           targets);
+            }
+        }
+        auto tail = base_;
+        std::vector<uint64_t> signs(words_);
+        PauliString final_fault(base_.num_qubits);
+        for (const auto j : active) {
+            if (j >= generators_.size())
+                throw std::invalid_argument("Invalid continuation generator");
+            for (size_t w = 0; w < words_; ++w)
+                signs[w] ^= responses_[j][w];
+            final_fault.mut_x().xor_with(generators_[j].x());
+            final_fault.mut_z().xor_with(generators_[j].z());
+        }
+        for (const auto record : flips) {
+            if (record >= record_ops_.size() || record_ops_[record] >= tail.ops.size())
+                throw std::invalid_argument("Invalid continuation record flip");
+            const auto i = record_ops_[record];
+            signs[i / 64] ^= uint64_t{1} << (i % 64);
+        }
+        for (size_t i = 0; i < tail.ops.size(); ++i)
+            if ((signs[i / 64] >> (i % 64)) & 1)
+                tail.set_sign(tail.ops[i], !tail.sign(tail.ops[i]));
+        // The trace leaves measurements and feedback explicit. Its accumulated
+        // Clifford frame therefore retains faults even across resets; removing
+        // them at a reset would lose the signed measurement/correction identity.
+        final_fault.set_sign(false);
+        tail.final_tableau->prepend_pauli(final_fault.view());
+        return compose(head, inverse, tail);
+    }
+
+    size_t generators() const { return generators_.size(); }
+    size_t response_bytes() const { return generators_.size() * words_ * sizeof(uint64_t); }
+
+  private:
+    HirModule base_;
+    size_t words_ = 0;
+    std::vector<PauliString> generators_;
+    std::vector<std::vector<uint64_t>> responses_;
+    std::vector<size_t> record_ops_;
+};
+
 bool same_hir(const HirModule& a, const HirModule& b) {
     if (a.final_tableau != b.final_tableau || a.ops.size() != b.ops.size() ||
         a.num_qubits != b.num_qubits || a.num_measurements != b.num_measurements ||
@@ -157,8 +271,9 @@ long resident_peak_kib() {
 
 int main(int argc, char** argv) {
     try {
-        if (argc != 4)
-            throw std::invalid_argument("Usage: profile_prefix_trace_reuse PREFIX MAX_WIDTH PHASE");
+        if (argc != 4 && argc != 5)
+            throw std::invalid_argument(
+                "Usage: profile_prefix_trace_reuse PREFIX MAX_WIDTH PHASE [CONTINUATION]");
         const auto max_width = std::stoul(argv[2]);
         const bool phase = std::stoi(argv[3]) != 0;
         if (max_width > 16)
@@ -172,22 +287,62 @@ int main(int argc, char** argv) {
         const auto prefix_hir = trace(prefix_ast);
         validate(prefix_hir, true);
         const auto pullback = prefix_hir.final_tableau->inverse();
+        std::unique_ptr<ContinuationTemplate> continuation;
+        if (argc == 5) {
+            auto circuit = parse(read(argv[4]));
+            if (circuit.num_qubits > prefix_hir.num_qubits)
+                throw std::invalid_argument("Continuation exceeds the prepared physical width");
+            circuit.num_qubits = prefix_hir.num_qubits;
+            continuation = std::make_unique<ContinuationTemplate>(circuit);
+        }
         std::cout << std::setprecision(17) << "{\"setup_seconds\":" << seconds(start)
                   << ",\"prefix_nodes\":" << prefix_ast.nodes.size()
-                  << ",\"prefix_ops\":" << prefix_hir.ops.size() << "}" << std::endl;
+                  << ",\"prefix_ops\":" << prefix_hir.ops.size()
+                  << ",\"generators\":" << (continuation ? continuation->generators() : 0)
+                  << ",\"response_bytes\":" << (continuation ? continuation->response_bytes() : 0)
+                  << "}" << std::endl;
         for (std::string request; std::getline(std::cin, request);) {
             std::string mode;
             uint64_t seed;
             size_t count;
             bool check;
             if (!(std::istringstream(request) >> mode >> seed >> count >> check) ||
-                (mode != "fresh" && mode != "parsed" && mode != "traced") || count > 1000000)
+                (mode != "fresh" && mode != "parsed" && mode != "traced" &&
+                 mode != "continuation") ||
+                count > 1000000)
                 throw std::invalid_argument("Invalid request");
             std::string tail_text, line;
             for (size_t i = 0; i < count; ++i) {
                 if (!std::getline(std::cin, line))
                     throw std::invalid_argument("Incomplete request");
                 tail_text += line + "\n";
+            }
+            std::vector<size_t> active, flips;
+            std::string reference_text;
+            if (mode == "continuation") {
+                if (!continuation)
+                    throw std::invalid_argument("No continuation template was supplied");
+                for (auto* values : {&active, &flips}) {
+                    if (!std::getline(std::cin, line))
+                        throw std::invalid_argument("Missing continuation controls");
+                    std::istringstream row(line);
+                    for (size_t value; row >> value;)
+                        values->push_back(value);
+                    if (!row.eof())
+                        throw std::invalid_argument("Invalid continuation control");
+                }
+                if (check) {
+                    if (!std::getline(std::cin, line))
+                        throw std::invalid_argument("Missing reference size");
+                    const auto reference_lines = std::stoul(line);
+                    if (reference_lines > 1000000)
+                        throw std::invalid_argument("Reference exceeds diagnostic budget");
+                    for (size_t i = 0; i < reference_lines; ++i) {
+                        if (!std::getline(std::cin, line))
+                            throw std::invalid_argument("Missing reference source");
+                        reference_text += line + "\n";
+                    }
+                }
             }
             start = Clock::now();
             auto circuit = parse(mode == "fresh" ? prefix_text + tail_text : tail_text);
@@ -206,18 +361,22 @@ int main(int argc, char** argv) {
                 assemble_seconds = seconds(start);
             }
             start = Clock::now();
-            auto hir = trace(circuit);
-            validate(hir, false);
+            auto hir = mode == "continuation" ? HirModule() : trace(circuit);
+            if (mode != "continuation")
+                validate(hir, false);
             const double trace_seconds = seconds(start);
             double compose_seconds = 0;
-            if (mode == "traced") {
+            if (mode == "traced" || mode == "continuation") {
                 start = Clock::now();
-                hir = compose(prefix_hir, pullback, hir);
+                hir = mode == "traced"
+                          ? compose(prefix_hir, pullback, hir)
+                          : continuation->instantiate(prefix_hir, pullback, circuit, active, flips);
                 compose_seconds = seconds(start);
             }
             start = Clock::now();
             if (check && mode != "fresh") {
-                const auto reference = trace(parse(prefix_text + tail_text));
+                const auto reference = trace(
+                    parse(prefix_text + (mode == "continuation" ? reference_text : tail_text)));
                 if (!same_hir(hir, reference))
                     throw std::runtime_error("Composed trace differs from complete tracing");
             }

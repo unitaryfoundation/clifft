@@ -9,7 +9,7 @@ import tempfile
 from collections.abc import Callable
 from pathlib import Path
 from time import perf_counter
-from typing import Any
+from typing import Any, Self
 
 from automatic_specialization import History
 from compiled_prefix_reuse import ReusablePhase
@@ -83,12 +83,25 @@ class PreparedPhase(ReusablePhase):
 
 
 class TraceWorker:
-    def __init__(self, binary: Path, prefix: str, *, max_width: int, phase: bool):
+    def __init__(
+        self,
+        binary: Path,
+        prefix: str,
+        *,
+        max_width: int,
+        phase: bool,
+        continuation: str | None = None,
+    ):
         self.directory = tempfile.TemporaryDirectory(prefix="clifft-trace-reuse-")
         path = Path(self.directory.name) / "prefix.stim"
         path.write_text(prefix)
+        command = [str(binary.resolve()), str(path), str(max_width), str(int(phase))]
+        if continuation is not None:
+            tail = Path(self.directory.name) / "continuation.stim"
+            tail.write_text(continuation)
+            command.append(str(tail))
         self.process = subprocess.Popen(
-            [str(binary.resolve()), str(path), str(max_width), str(int(phase))],
+            command,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -130,7 +143,7 @@ class TraceWorker:
             self.process.wait()
         self.directory.cleanup()
 
-    def __enter__(self) -> TraceWorker:
+    def __enter__(self) -> Self:
         return self
 
     def __exit__(self, *_: Any) -> None:
