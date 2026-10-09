@@ -82,6 +82,17 @@ extraction, and Clifford correction.
 - [Author's implementation](https://github.com/VivienVandaele/quantum-circuit-optimization),
   with the [revision used for validation](https://github.com/VivienVandaele/quantum-circuit-optimization/blob/231e6fe9f92d5bb1ebf7459c2a9233f5e74d148e/src/t_opt.rs#L79).
 
+## MQT Bench
+
+Clifft's fixed-input 32-qubit Draper QFT adder fixture was generated with
+MQT Bench. It provides an arithmetic workload for validating and benchmarking
+arbitrary-angle rotation simplification, as described in
+[Richer Noise Models, Smaller Active States](updates/smaller-active-states.md#simplify-arbitrary-angle-rotations).
+
+- Nils Quetschlich, Lukas Burgholzer, and Robert Wille, ["MQT Bench: Benchmarking Software and Design Automation Tools for Quantum Computing"](https://doi.org/10.22331/q-2023-07-20-1062),
+  *Quantum* 7, 1062 (2023).
+- [MQT Bench source](https://github.com/munich-quantum-toolkit/bench).
+
 ## Pauli Frame Sparse Representation
 
 Thomas Tuloup and Thomas Ayral's work informed Clifft's stratified
