@@ -19,14 +19,24 @@ Success criterion: extend the practically simulable circuit range, including
 cases whose ordinary active width is prohibitive. This mode need not replace
 ordinary Clifft or outperform it on every supported circuit.
 
-Latest study: [guarded squeeze-schedule reuse](SQUEEZE_SCHEDULE_REUSE.md)
+Latest study: [coordinate reuse during planning](PLANNER_COORDINATE_REUSE.md)
+finds that most repeated queries are identity Paulis and many frames survive
+only one query. A general identity shortcut reduces complete factory shot time
+from 12.41 to 9.55 ms and BT direct-X from 2.75 to 2.52 ms. Lazy inverse images
+help BT further but have mixed results elsewhere; earlier full inversion is
+not a useful uniform policy. All 494,940 large coordinate checks and independent
+state/instrument validations pass. Planning stays fresh and production source
+is unchanged. This is a checkpoint before a broader complete-circuit capability
+assessment, rather than further cache tuning on factory variants.
+
+The preceding [guarded squeeze-schedule reuse](SQUEEZE_SCHEDULE_REUSE.md)
 stores one algebraically justified operation permutation and checks each shot's
 scheduling inputs exactly after the earlier optimizer passes. Otherwise it
 runs ordinary squeezing. All 1,265 large optimized-HIR checks and independent
 state/instrument checks pass. Complete-shot time falls from 14.55 to 12.46 ms
 on the noisy factory, with 4-8% gains on D/E/BT. Fresh planning remains the
-largest cost; the next compilation question is coordinate-query reuse within
-stable planner frames. Circuit scope and the single-rotation carrier are unchanged.
+largest cost; it motivated the coordinate-query study above. Circuit scope and
+the single-rotation carrier are unchanged.
 
 The preceding [optimization and planning reuse assessment](PLANNING_REUSE_ASSESSMENT.md)
 finds one stable squeeze permutation per input across 753 audited trajectories,

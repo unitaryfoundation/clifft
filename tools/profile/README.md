@@ -1076,6 +1076,66 @@ including an optimizer change with unchanged operation count.
 See the [assessment](../../research/conditional_clifford/SQUEEZE_SCHEDULE_REUSE.md)
 for measured savings, certificate scope, and the remaining planning cost.
 
+## Planner coordinate reuse
+
+`study_coordinate_reuse.py` compares the existing `squeeze` worker with a
+native-algorithm wrapper control, an identity-Pauli shortcut, lazy inverse
+generator images, and a full inverse built after 32 nonidentity lookups in
+one frame. `coordinate-audit` separately records exact query uniqueness,
+generator use, and interval lengths between frame changes. No policy shares
+sampling plans or retains state across shots.
+
+```bash
+cmake --build build-profile --target profile_prefix_trace_reuse -j2
+env OMP_NUM_THREADS=1 taskset -c 2 .venv/bin/python \
+  tools/profile/study_coordinate_reuse.py \
+  --benchmark-dir /tmp/clifft-factory-benchmarks-20261009 \
+  --merlin-checkout /path/to/pinned/merlin --shots 128 --audit-shots 32 \
+  --worker build-profile/profile_prefix_trace_reuse \
+  --exporter build-profile/export_optimized_prefix \
+  --output /tmp/coordinate-reuse-study.json
+env OMP_NUM_THREADS=1 .venv/bin/python tools/profile/validate_coordinate_reuse.py \
+  --worker build-profile/profile_prefix_trace_reuse \
+  --output /tmp/coordinate-reuse-controls.json
+env OMP_NUM_THREADS=1 .venv/bin/python \
+  tools/profile/validate_continuation_trace_reuse.py --mode coordinate-identity \
+  --exporter build-profile/export_optimized_prefix \
+  --worker build-profile/profile_prefix_trace_reuse \
+  --output /tmp/coordinate-identity-validation.json
+env OMP_NUM_THREADS=1 .venv/bin/python \
+  tools/profile/validate_continuation_trace_reuse.py --mode coordinate-columns \
+  --exporter build-profile/export_optimized_prefix \
+  --worker build-profile/profile_prefix_trace_reuse \
+  --output /tmp/coordinate-columns-validation.json
+env OMP_NUM_THREADS=1 .venv/bin/python \
+  tools/profile/validate_continuation_trace_reuse.py --mode coordinate-inverse32 \
+  --exporter build-profile/export_optimized_prefix \
+  --worker build-profile/profile_prefix_trace_reuse \
+  --output /tmp/coordinate-inverse-validation.json
+env OMP_NUM_THREADS=1 .venv/bin/python \
+  tools/profile/validate_boundary_composition.py --mode coordinate-columns \
+  --worker build-profile/profile_prefix_trace_reuse \
+  --output /tmp/coordinate-boundary-validation.json
+```
+
+Also run `validate_prefix_trace_reuse.py` as in the preceding section to cover
+older worker modes. The study's default modes include `coordinate-native` to
+measure wrapper overhead. Pass a distinct subset with `--modes`, keeping
+`squeeze` first, for narrower comparisons.
+
+The profiling translation unit compiles the existing planner body with a
+different coordinate type and entry-point name. Native frame updates, symbolic
+planning, lowering, and execution are reused unchanged. Reference requests
+compare candidate coordinate results with the original conversion, optimized
+HIR with fresh tracing, and complete plan inspection/final frame with native
+planning. Those extra requests are outside timing; diagnostic interval sets
+are also disabled during timed requests.
+
+The preferred candidate from this experiment is `coordinate-identity`; the
+other policies remain opt-in comparisons. See the
+[assessment](../../research/conditional_clifford/PLANNER_COORDINATE_REUSE.md)
+for the mixed cache results and next broader capability checkpoint.
+
 ## Probability queries
 
 `profile_probability` uses a unitary-only circuit because measurements,

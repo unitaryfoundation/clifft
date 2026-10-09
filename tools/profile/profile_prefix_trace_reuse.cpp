@@ -11,6 +11,7 @@
 #include "clifft/sampling/state_queries.h"
 #include "clifft/util/hir_introspection.h"
 
+#include "coordinate_reuse.h"
 #include "planning_reuse_audit.h"
 #include "squeeze_schedule_reuse.h"
 
@@ -397,7 +398,9 @@ int main(int argc, char** argv) {
             if (!(std::istringstream(request) >> mode >> seed >> count >> check) ||
                 (mode != "fresh" && mode != "parsed" && mode != "traced" &&
                  mode != "continuation" && mode != "diagonal" && mode != "audit" &&
-                 mode != "squeeze") ||
+                 mode != "squeeze" && mode != "coordinate-audit" && mode != "coordinate-native" &&
+                 mode != "coordinate-identity" && mode != "coordinate-columns" &&
+                 mode != "coordinate-inverse32") ||
                 count > 1000000)
                 throw std::invalid_argument("Invalid request");
             std::string tail_text, line;
@@ -409,7 +412,9 @@ int main(int argc, char** argv) {
             std::vector<size_t> active, flips;
             std::string reference_text;
             const bool auditing = mode == "audit";
-            const bool squeezing = mode == "squeeze";
+            const bool coordinate_auditing = mode == "coordinate-audit";
+            const bool coordinate_research = mode.starts_with("coordinate-");
+            const bool squeezing = mode == "squeeze" || coordinate_research;
             const bool reused =
                 mode == "continuation" || mode == "diagonal" || auditing || squeezing;
             if (reused) {
@@ -547,10 +552,33 @@ int main(int argc, char** argv) {
             sampling::SamplingResult sample;
             std::vector<double> probabilities;
             std::vector<std::complex<double>> state;
+            std::string coordinate_diagnostics = "null";
+            bool plan_checked = false;
             if (width <= max_width) {
                 start = Clock::now();
-                auto plan = sampling::plan_sampling(hir);
+                const auto policy =
+                    mode == "coordinate-identity"    ? coordinate_reuse::Policy::Identity
+                    : mode == "coordinate-columns"   ? coordinate_reuse::Policy::Columns
+                    : mode == "coordinate-inverse32" ? coordinate_reuse::Policy::Inverse32
+                                                     : coordinate_reuse::Policy::Native;
+                auto research = coordinate_research ? std::optional{coordinate_reuse::plan(
+                                                          hir, policy, coordinate_auditing, check)}
+                                                    : std::nullopt;
+                auto plan = research ? std::move(research->plan) : sampling::plan_sampling(hir);
                 plan_seconds = seconds(start);
+                if (research) {
+                    coordinate_diagnostics = research->diagnostics();
+                    if (check || coordinate_auditing) {
+                        start = Clock::now();
+                        const auto reference_plan = sampling::plan_sampling(hir);
+                        if (plan.inspect() != reference_plan.inspect() ||
+                            plan.final_tableau != reference_plan.final_tableau)
+                            throw std::runtime_error(
+                                "Research coordinate plan differs from baseline");
+                        plan_checked = true;
+                        validation_seconds += seconds(start);
+                    }
+                }
                 if (auditing)
                     audit << ",\"plan\":" << planning_reuse_audit::plan_snapshot(plan);
                 if (plan.peak_active_width > max_width)
@@ -586,8 +614,11 @@ int main(int argc, char** argv) {
                       << ",\"validation_seconds\":" << validation_seconds
                       << ",\"checked\":" << (check && mode != "fresh" ? "true" : "false")
                       << ",\"optimized_checked\":"
-                      << (reference_hir && squeezing ? "true" : "false") << ",\"squeeze_status\":\""
-                      << squeeze_status << '"' << ",\"squeeze_guard_seconds\":" << guard_seconds
+                      << (reference_hir && squeezing ? "true" : "false")
+                      << ",\"plan_checked\":" << (plan_checked ? "true" : "false")
+                      << ",\"coordinate_diagnostics\":" << coordinate_diagnostics
+                      << ",\"squeeze_status\":\"" << squeeze_status << '"'
+                      << ",\"squeeze_guard_seconds\":" << guard_seconds
                       << ",\"stage_seconds\":{\"parse\":" << parse_seconds
                       << ",\"assemble\":" << assemble_seconds << ",\"trace\":" << trace_seconds
                       << ",\"compose\":" << compose_seconds << ",\"optimize\":" << optimize_seconds

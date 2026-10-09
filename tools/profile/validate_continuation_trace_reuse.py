@@ -28,15 +28,32 @@ def main() -> None:
     parser.add_argument("--worker", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument(
-        "--mode", choices=("continuation", "diagonal", "audit", "squeeze"), default="continuation"
+        "--mode",
+        choices=(
+            "continuation",
+            "diagonal",
+            "audit",
+            "squeeze",
+            "coordinate-identity",
+            "coordinate-columns",
+            "coordinate-inverse32",
+        ),
+        default="continuation",
     )
     args = parser.parse_args()
     statuses: Counter[str] = Counter()
+    coordinate_checks = 0
 
     def observe(row: dict[str, Any]) -> None:
+        nonlocal coordinate_checks
         statuses[row["squeeze_status"]] += 1
-        if args.mode == "squeeze":
+        if args.mode == "squeeze" or args.mode.startswith("coordinate-"):
             assert row["optimized_checked"]
+        if args.mode.startswith("coordinate-"):
+            assert row["plan_checked"]
+            diag = row["coordinate_diagnostics"]
+            assert diag["coordinate_checks"] == diag["queries"]
+            coordinate_checks += diag["coordinate_checks"]
 
     unitary = []
     for seed in range(32):
@@ -234,6 +251,7 @@ def main() -> None:
     result: dict[str, Any] = {
         "mode": args.mode,
         "squeeze_statuses": dict(statuses),
+        "coordinate_checks": coordinate_checks,
         "unitary_density_errors": unitary,
         "instrument_tomography_record_errors": instruments,
         "stim_exact_record_errors": stim_errors,
@@ -249,6 +267,8 @@ def main() -> None:
                 Path(__file__).with_name("profile_prefix_trace_reuse.cpp"),
                 Path(__file__).with_name("planning_reuse_audit.h"),
                 Path(__file__).with_name("squeeze_schedule_reuse.h"),
+                Path(__file__).with_name("coordinate_reuse.h"),
+                Path(__file__).with_name("coordinate_reuse.cpp"),
             ]
         },
         "worker_sha256": hashlib.sha256(args.worker.read_bytes()).hexdigest(),

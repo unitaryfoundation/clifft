@@ -1,0 +1,1042 @@
+{
+  "cases": {
+    "identity_records": [
+      {
+        "mode": "coordinate-identity",
+        "active": [],
+        "correction": "",
+        "coordinate_diagnostics": {
+          "queries": 6,
+          "identity_fast_paths": 2,
+          "inverse_builds": 0,
+          "column_builds": 0,
+          "column_hits": 0,
+          "maximum_cached_columns": 0,
+          "coordinate_checks": 6,
+          "intervals": []
+        },
+        "maximum_error": 8.326672684688674e-17
+      },
+      {
+        "mode": "coordinate-columns",
+        "active": [],
+        "correction": "",
+        "coordinate_diagnostics": {
+          "queries": 6,
+          "identity_fast_paths": 2,
+          "inverse_builds": 0,
+          "column_builds": 3,
+          "column_hits": 1,
+          "maximum_cached_columns": 2,
+          "coordinate_checks": 6,
+          "intervals": []
+        },
+        "maximum_error": 8.326672684688674e-17
+      },
+      {
+        "mode": "coordinate-inverse32",
+        "active": [],
+        "correction": "",
+        "coordinate_diagnostics": {
+          "queries": 6,
+          "identity_fast_paths": 2,
+          "inverse_builds": 0,
+          "column_builds": 0,
+          "column_hits": 0,
+          "maximum_cached_columns": 0,
+          "coordinate_checks": 6,
+          "intervals": []
+        },
+        "maximum_error": 8.326672684688674e-17
+      },
+      {
+        "mode": "coordinate-identity",
+        "active": [],
+        "correction": "S 0\nCZ 0 1\nS_DAG 2\n",
+        "coordinate_diagnostics": {
+          "queries": 6,
+          "identity_fast_paths": 2,
+          "inverse_builds": 0,
+          "column_builds": 0,
+          "column_hits": 0,
+          "maximum_cached_columns": 0,
+          "coordinate_checks": 6,
+          "intervals": []
+        },
+        "maximum_error": 8.326672684688674e-17
+      },
+      {
+        "mode": "coordinate-columns",
+        "active": [],
+        "correction": "S 0\nCZ 0 1\nS_DAG 2\n",
+        "coordinate_diagnostics": {
+          "queries": 6,
+          "identity_fast_paths": 2,
+          "inverse_builds": 0,
+          "column_builds": 5,
+          "column_hits": 1,
+          "maximum_cached_columns": 3,
+          "coordinate_checks": 6,
+          "intervals": []
+        },
+        "maximum_error": 8.326672684688674e-17
+      },
+      {
+        "mode": "coordinate-inverse32",
+        "active": [],
+        "correction": "S 0\nCZ 0 1\nS_DAG 2\n",
+        "coordinate_diagnostics": {
+          "queries": 6,
+          "identity_fast_paths": 2,
+          "inverse_builds": 0,
+          "column_builds": 0,
+          "column_hits": 0,
+          "maximum_cached_columns": 0,
+          "coordinate_checks": 6,
+          "intervals": []
+        },
+        "maximum_error": 8.326672684688674e-17
+      },
+      {
+        "mode": "coordinate-identity",
+        "active": [
+          0
+        ],
+        "correction": "",
+        "coordinate_diagnostics": {
+          "queries": 6,
+          "identity_fast_paths": 2,
+          "inverse_builds": 0,
+          "column_builds": 0,
+          "column_hits": 0,
+          "maximum_cached_columns": 0,
+          "coordinate_checks": 6,
+          "intervals": []
+        },
+        "maximum_error": 2.220446049250313e-16
+      },
+      {
+        "mode": "coordinate-columns",
+        "active": [
+          0
+        ],
+        "correction": "",
+        "coordinate_diagnostics": {
+          "queries": 6,
+          "identity_fast_paths": 2,
+          "inverse_builds": 0,
+          "column_builds": 3,
+          "column_hits": 1,
+          "maximum_cached_columns": 2,
+          "coordinate_checks": 6,
+          "intervals": []
+        },
+        "maximum_error": 2.220446049250313e-16
+      },
+      {
+        "mode": "coordinate-inverse32",
+        "active": [
+          0
+        ],
+        "correction": "",
+        "coordinate_diagnostics": {
+          "queries": 6,
+          "identity_fast_paths": 2,
+          "inverse_builds": 0,
+          "column_builds": 0,
+          "column_hits": 0,
+          "maximum_cached_columns": 0,
+          "coordinate_checks": 6,
+          "intervals": []
+        },
+        "maximum_error": 2.220446049250313e-16
+      },
+      {
+        "mode": "coordinate-identity",
+        "active": [
+          0
+        ],
+        "correction": "S 0\nCZ 0 1\nS_DAG 2\n",
+        "coordinate_diagnostics": {
+          "queries": 6,
+          "identity_fast_paths": 2,
+          "inverse_builds": 0,
+          "column_builds": 0,
+          "column_hits": 0,
+          "maximum_cached_columns": 0,
+          "coordinate_checks": 6,
+          "intervals": []
+        },
+        "maximum_error": 2.7755575615628914e-17
+      },
+      {
+        "mode": "coordinate-columns",
+        "active": [
+          0
+        ],
+        "correction": "S 0\nCZ 0 1\nS_DAG 2\n",
+        "coordinate_diagnostics": {
+          "queries": 6,
+          "identity_fast_paths": 2,
+          "inverse_builds": 0,
+          "column_builds": 5,
+          "column_hits": 1,
+          "maximum_cached_columns": 3,
+          "coordinate_checks": 6,
+          "intervals": []
+        },
+        "maximum_error": 2.7755575615628914e-17
+      },
+      {
+        "mode": "coordinate-inverse32",
+        "active": [
+          0
+        ],
+        "correction": "S 0\nCZ 0 1\nS_DAG 2\n",
+        "coordinate_diagnostics": {
+          "queries": 6,
+          "identity_fast_paths": 2,
+          "inverse_builds": 0,
+          "column_builds": 0,
+          "column_hits": 0,
+          "maximum_cached_columns": 0,
+          "coordinate_checks": 6,
+          "intervals": []
+        },
+        "maximum_error": 2.7755575615628914e-17
+      }
+    ],
+    "stable_frame": [
+      {
+        "mode": "coordinate-identity",
+        "active": [],
+        "correction": "",
+        "coordinate_diagnostics": {
+          "queries": 64,
+          "identity_fast_paths": 0,
+          "inverse_builds": 0,
+          "column_builds": 0,
+          "column_hits": 0,
+          "maximum_cached_columns": 0,
+          "coordinate_checks": 64,
+          "intervals": []
+        },
+        "maximum_error": 6.302658868223948e-16
+      },
+      {
+        "mode": "coordinate-columns",
+        "active": [],
+        "correction": "",
+        "coordinate_diagnostics": {
+          "queries": 64,
+          "identity_fast_paths": 0,
+          "inverse_builds": 0,
+          "column_builds": 7,
+          "column_hits": 120,
+          "maximum_cached_columns": 4,
+          "coordinate_checks": 64,
+          "intervals": []
+        },
+        "maximum_error": 6.302658868223948e-16
+      },
+      {
+        "mode": "coordinate-inverse32",
+        "active": [],
+        "correction": "",
+        "coordinate_diagnostics": {
+          "queries": 64,
+          "identity_fast_paths": 0,
+          "inverse_builds": 1,
+          "column_builds": 0,
+          "column_hits": 0,
+          "maximum_cached_columns": 0,
+          "coordinate_checks": 64,
+          "intervals": []
+        },
+        "maximum_error": 6.302658868223948e-16
+      },
+      {
+        "mode": "coordinate-identity",
+        "active": [],
+        "correction": "S 0\nCZ 0 1\nS_DAG 2\n",
+        "coordinate_diagnostics": {
+          "queries": 64,
+          "identity_fast_paths": 0,
+          "inverse_builds": 0,
+          "column_builds": 0,
+          "column_hits": 0,
+          "maximum_cached_columns": 0,
+          "coordinate_checks": 64,
+          "intervals": []
+        },
+        "maximum_error": 6.239701718191601e-16
+      },
+      {
+        "mode": "coordinate-columns",
+        "active": [],
+        "correction": "S 0\nCZ 0 1\nS_DAG 2\n",
+        "coordinate_diagnostics": {
+          "queries": 64,
+          "identity_fast_paths": 0,
+          "inverse_builds": 0,
+          "column_builds": 7,
+          "column_hits": 120,
+          "maximum_cached_columns": 4,
+          "coordinate_checks": 64,
+          "intervals": []
+        },
+        "maximum_error": 6.239701718191601e-16
+      },
+      {
+        "mode": "coordinate-inverse32",
+        "active": [],
+        "correction": "S 0\nCZ 0 1\nS_DAG 2\n",
+        "coordinate_diagnostics": {
+          "queries": 64,
+          "identity_fast_paths": 0,
+          "inverse_builds": 1,
+          "column_builds": 0,
+          "column_hits": 0,
+          "maximum_cached_columns": 0,
+          "coordinate_checks": 64,
+          "intervals": []
+        },
+        "maximum_error": 6.239701718191601e-16
+      },
+      {
+        "mode": "coordinate-identity",
+        "active": [
+          0
+        ],
+        "correction": "",
+        "coordinate_diagnostics": {
+          "queries": 64,
+          "identity_fast_paths": 0,
+          "inverse_builds": 0,
+          "column_builds": 0,
+          "column_hits": 0,
+          "maximum_cached_columns": 0,
+          "coordinate_checks": 64,
+          "intervals": []
+        },
+        "maximum_error": 6.302658868223948e-16
+      },
+      {
+        "mode": "coordinate-columns",
+        "active": [
+          0
+        ],
+        "correction": "",
+        "coordinate_diagnostics": {
+          "queries": 64,
+          "identity_fast_paths": 0,
+          "inverse_builds": 0,
+          "column_builds": 7,
+          "column_hits": 120,
+          "maximum_cached_columns": 4,
+          "coordinate_checks": 64,
+          "intervals": []
+        },
+        "maximum_error": 6.302658868223948e-16
+      },
+      {
+        "mode": "coordinate-inverse32",
+        "active": [
+          0
+        ],
+        "correction": "",
+        "coordinate_diagnostics": {
+          "queries": 64,
+          "identity_fast_paths": 0,
+          "inverse_builds": 1,
+          "column_builds": 0,
+          "column_hits": 0,
+          "maximum_cached_columns": 0,
+          "coordinate_checks": 64,
+          "intervals": []
+        },
+        "maximum_error": 6.302658868223948e-16
+      },
+      {
+        "mode": "coordinate-identity",
+        "active": [
+          0
+        ],
+        "correction": "S 0\nCZ 0 1\nS_DAG 2\n",
+        "coordinate_diagnostics": {
+          "queries": 64,
+          "identity_fast_paths": 0,
+          "inverse_builds": 0,
+          "column_builds": 0,
+          "column_hits": 0,
+          "maximum_cached_columns": 0,
+          "coordinate_checks": 64,
+          "intervals": []
+        },
+        "maximum_error": 6.239701718191601e-16
+      },
+      {
+        "mode": "coordinate-columns",
+        "active": [
+          0
+        ],
+        "correction": "S 0\nCZ 0 1\nS_DAG 2\n",
+        "coordinate_diagnostics": {
+          "queries": 64,
+          "identity_fast_paths": 0,
+          "inverse_builds": 0,
+          "column_builds": 7,
+          "column_hits": 120,
+          "maximum_cached_columns": 4,
+          "coordinate_checks": 64,
+          "intervals": []
+        },
+        "maximum_error": 6.239701718191601e-16
+      },
+      {
+        "mode": "coordinate-inverse32",
+        "active": [
+          0
+        ],
+        "correction": "S 0\nCZ 0 1\nS_DAG 2\n",
+        "coordinate_diagnostics": {
+          "queries": 64,
+          "identity_fast_paths": 0,
+          "inverse_builds": 1,
+          "column_builds": 0,
+          "column_hits": 0,
+          "maximum_cached_columns": 0,
+          "coordinate_checks": 64,
+          "intervals": []
+        },
+        "maximum_error": 6.239701718191601e-16
+      }
+    ],
+    "dense_axes": [
+      {
+        "mode": "coordinate-identity",
+        "active": [],
+        "correction": "",
+        "coordinate_diagnostics": {
+          "queries": 64,
+          "identity_fast_paths": 0,
+          "inverse_builds": 0,
+          "column_builds": 0,
+          "column_hits": 0,
+          "maximum_cached_columns": 0,
+          "coordinate_checks": 64,
+          "intervals": []
+        },
+        "maximum_error": 3.6212552588165486e-16
+      },
+      {
+        "mode": "coordinate-columns",
+        "active": [],
+        "correction": "",
+        "coordinate_diagnostics": {
+          "queries": 64,
+          "identity_fast_paths": 0,
+          "inverse_builds": 0,
+          "column_builds": 12,
+          "column_hits": 212,
+          "maximum_cached_columns": 5,
+          "coordinate_checks": 64,
+          "intervals": []
+        },
+        "maximum_error": 3.6212552588165486e-16
+      },
+      {
+        "mode": "coordinate-inverse32",
+        "active": [],
+        "correction": "",
+        "coordinate_diagnostics": {
+          "queries": 64,
+          "identity_fast_paths": 0,
+          "inverse_builds": 1,
+          "column_builds": 0,
+          "column_hits": 0,
+          "maximum_cached_columns": 0,
+          "coordinate_checks": 64,
+          "intervals": []
+        },
+        "maximum_error": 3.6212552588165486e-16
+      },
+      {
+        "mode": "coordinate-identity",
+        "active": [],
+        "correction": "S 0\nCZ 0 1\nS_DAG 2\n",
+        "coordinate_diagnostics": {
+          "queries": 64,
+          "identity_fast_paths": 0,
+          "inverse_builds": 0,
+          "column_builds": 0,
+          "column_hits": 0,
+          "maximum_cached_columns": 0,
+          "coordinate_checks": 64,
+          "intervals": []
+        },
+        "maximum_error": 3.6262330791815886e-16
+      },
+      {
+        "mode": "coordinate-columns",
+        "active": [],
+        "correction": "S 0\nCZ 0 1\nS_DAG 2\n",
+        "coordinate_diagnostics": {
+          "queries": 64,
+          "identity_fast_paths": 0,
+          "inverse_builds": 0,
+          "column_builds": 12,
+          "column_hits": 212,
+          "maximum_cached_columns": 5,
+          "coordinate_checks": 64,
+          "intervals": []
+        },
+        "maximum_error": 3.6262330791815886e-16
+      },
+      {
+        "mode": "coordinate-inverse32",
+        "active": [],
+        "correction": "S 0\nCZ 0 1\nS_DAG 2\n",
+        "coordinate_diagnostics": {
+          "queries": 64,
+          "identity_fast_paths": 0,
+          "inverse_builds": 1,
+          "column_builds": 0,
+          "column_hits": 0,
+          "maximum_cached_columns": 0,
+          "coordinate_checks": 64,
+          "intervals": []
+        },
+        "maximum_error": 3.6262330791815886e-16
+      },
+      {
+        "mode": "coordinate-identity",
+        "active": [
+          0
+        ],
+        "correction": "",
+        "coordinate_diagnostics": {
+          "queries": 64,
+          "identity_fast_paths": 0,
+          "inverse_builds": 0,
+          "column_builds": 0,
+          "column_hits": 0,
+          "maximum_cached_columns": 0,
+          "coordinate_checks": 64,
+          "intervals": []
+        },
+        "maximum_error": 3.6212552588165486e-16
+      },
+      {
+        "mode": "coordinate-columns",
+        "active": [
+          0
+        ],
+        "correction": "",
+        "coordinate_diagnostics": {
+          "queries": 64,
+          "identity_fast_paths": 0,
+          "inverse_builds": 0,
+          "column_builds": 12,
+          "column_hits": 212,
+          "maximum_cached_columns": 5,
+          "coordinate_checks": 64,
+          "intervals": []
+        },
+        "maximum_error": 3.6212552588165486e-16
+      },
+      {
+        "mode": "coordinate-inverse32",
+        "active": [
+          0
+        ],
+        "correction": "",
+        "coordinate_diagnostics": {
+          "queries": 64,
+          "identity_fast_paths": 0,
+          "inverse_builds": 1,
+          "column_builds": 0,
+          "column_hits": 0,
+          "maximum_cached_columns": 0,
+          "coordinate_checks": 64,
+          "intervals": []
+        },
+        "maximum_error": 3.6212552588165486e-16
+      },
+      {
+        "mode": "coordinate-identity",
+        "active": [
+          0
+        ],
+        "correction": "S 0\nCZ 0 1\nS_DAG 2\n",
+        "coordinate_diagnostics": {
+          "queries": 64,
+          "identity_fast_paths": 0,
+          "inverse_builds": 0,
+          "column_builds": 0,
+          "column_hits": 0,
+          "maximum_cached_columns": 0,
+          "coordinate_checks": 64,
+          "intervals": []
+        },
+        "maximum_error": 3.6212552588165486e-16
+      },
+      {
+        "mode": "coordinate-columns",
+        "active": [
+          0
+        ],
+        "correction": "S 0\nCZ 0 1\nS_DAG 2\n",
+        "coordinate_diagnostics": {
+          "queries": 64,
+          "identity_fast_paths": 0,
+          "inverse_builds": 0,
+          "column_builds": 12,
+          "column_hits": 212,
+          "maximum_cached_columns": 5,
+          "coordinate_checks": 64,
+          "intervals": []
+        },
+        "maximum_error": 3.6212552588165486e-16
+      },
+      {
+        "mode": "coordinate-inverse32",
+        "active": [
+          0
+        ],
+        "correction": "S 0\nCZ 0 1\nS_DAG 2\n",
+        "coordinate_diagnostics": {
+          "queries": 64,
+          "identity_fast_paths": 0,
+          "inverse_builds": 1,
+          "column_builds": 0,
+          "column_hits": 0,
+          "maximum_cached_columns": 0,
+          "coordinate_checks": 64,
+          "intervals": []
+        },
+        "maximum_error": 3.6212552588165486e-16
+      }
+    ],
+    "changing_frame": [
+      {
+        "mode": "coordinate-identity",
+        "active": [],
+        "correction": "",
+        "coordinate_diagnostics": {
+          "queries": 7,
+          "identity_fast_paths": 0,
+          "inverse_builds": 0,
+          "column_builds": 0,
+          "column_hits": 0,
+          "maximum_cached_columns": 0,
+          "coordinate_checks": 7,
+          "intervals": []
+        },
+        "maximum_error": 1.5265566588595902e-16
+      },
+      {
+        "mode": "coordinate-columns",
+        "active": [],
+        "correction": "",
+        "coordinate_diagnostics": {
+          "queries": 7,
+          "identity_fast_paths": 0,
+          "inverse_builds": 0,
+          "column_builds": 9,
+          "column_hits": 0,
+          "maximum_cached_columns": 3,
+          "coordinate_checks": 7,
+          "intervals": []
+        },
+        "maximum_error": 1.5265566588595902e-16
+      },
+      {
+        "mode": "coordinate-inverse32",
+        "active": [],
+        "correction": "",
+        "coordinate_diagnostics": {
+          "queries": 7,
+          "identity_fast_paths": 0,
+          "inverse_builds": 0,
+          "column_builds": 0,
+          "column_hits": 0,
+          "maximum_cached_columns": 0,
+          "coordinate_checks": 7,
+          "intervals": []
+        },
+        "maximum_error": 1.5265566588595902e-16
+      },
+      {
+        "mode": "coordinate-identity",
+        "active": [],
+        "correction": "S 0\nCZ 0 1\nS_DAG 2\n",
+        "coordinate_diagnostics": {
+          "queries": 7,
+          "identity_fast_paths": 0,
+          "inverse_builds": 0,
+          "column_builds": 0,
+          "column_hits": 0,
+          "maximum_cached_columns": 0,
+          "coordinate_checks": 7,
+          "intervals": []
+        },
+        "maximum_error": 1.249000902703301e-16
+      },
+      {
+        "mode": "coordinate-columns",
+        "active": [],
+        "correction": "S 0\nCZ 0 1\nS_DAG 2\n",
+        "coordinate_diagnostics": {
+          "queries": 7,
+          "identity_fast_paths": 0,
+          "inverse_builds": 0,
+          "column_builds": 11,
+          "column_hits": 0,
+          "maximum_cached_columns": 3,
+          "coordinate_checks": 7,
+          "intervals": []
+        },
+        "maximum_error": 1.249000902703301e-16
+      },
+      {
+        "mode": "coordinate-inverse32",
+        "active": [],
+        "correction": "S 0\nCZ 0 1\nS_DAG 2\n",
+        "coordinate_diagnostics": {
+          "queries": 7,
+          "identity_fast_paths": 0,
+          "inverse_builds": 0,
+          "column_builds": 0,
+          "column_hits": 0,
+          "maximum_cached_columns": 0,
+          "coordinate_checks": 7,
+          "intervals": []
+        },
+        "maximum_error": 1.249000902703301e-16
+      },
+      {
+        "mode": "coordinate-identity",
+        "active": [
+          0
+        ],
+        "correction": "",
+        "coordinate_diagnostics": {
+          "queries": 7,
+          "identity_fast_paths": 0,
+          "inverse_builds": 0,
+          "column_builds": 0,
+          "column_hits": 0,
+          "maximum_cached_columns": 0,
+          "coordinate_checks": 7,
+          "intervals": []
+        },
+        "maximum_error": 1.5265566588595902e-16
+      },
+      {
+        "mode": "coordinate-columns",
+        "active": [
+          0
+        ],
+        "correction": "",
+        "coordinate_diagnostics": {
+          "queries": 7,
+          "identity_fast_paths": 0,
+          "inverse_builds": 0,
+          "column_builds": 9,
+          "column_hits": 0,
+          "maximum_cached_columns": 3,
+          "coordinate_checks": 7,
+          "intervals": []
+        },
+        "maximum_error": 1.5265566588595902e-16
+      },
+      {
+        "mode": "coordinate-inverse32",
+        "active": [
+          0
+        ],
+        "correction": "",
+        "coordinate_diagnostics": {
+          "queries": 7,
+          "identity_fast_paths": 0,
+          "inverse_builds": 0,
+          "column_builds": 0,
+          "column_hits": 0,
+          "maximum_cached_columns": 0,
+          "coordinate_checks": 7,
+          "intervals": []
+        },
+        "maximum_error": 1.5265566588595902e-16
+      },
+      {
+        "mode": "coordinate-identity",
+        "active": [
+          0
+        ],
+        "correction": "S 0\nCZ 0 1\nS_DAG 2\n",
+        "coordinate_diagnostics": {
+          "queries": 7,
+          "identity_fast_paths": 0,
+          "inverse_builds": 0,
+          "column_builds": 0,
+          "column_hits": 0,
+          "maximum_cached_columns": 0,
+          "coordinate_checks": 7,
+          "intervals": []
+        },
+        "maximum_error": 1.249000902703301e-16
+      },
+      {
+        "mode": "coordinate-columns",
+        "active": [
+          0
+        ],
+        "correction": "S 0\nCZ 0 1\nS_DAG 2\n",
+        "coordinate_diagnostics": {
+          "queries": 7,
+          "identity_fast_paths": 0,
+          "inverse_builds": 0,
+          "column_builds": 11,
+          "column_hits": 0,
+          "maximum_cached_columns": 3,
+          "coordinate_checks": 7,
+          "intervals": []
+        },
+        "maximum_error": 1.249000902703301e-16
+      },
+      {
+        "mode": "coordinate-inverse32",
+        "active": [
+          0
+        ],
+        "correction": "S 0\nCZ 0 1\nS_DAG 2\n",
+        "coordinate_diagnostics": {
+          "queries": 7,
+          "identity_fast_paths": 0,
+          "inverse_builds": 0,
+          "column_builds": 0,
+          "column_hits": 0,
+          "maximum_cached_columns": 0,
+          "coordinate_checks": 7,
+          "intervals": []
+        },
+        "maximum_error": 1.249000902703301e-16
+      }
+    ],
+    "repeated_nonidentity": [
+      {
+        "mode": "coordinate-identity",
+        "active": [],
+        "correction": "",
+        "coordinate_diagnostics": {
+          "queries": 5,
+          "identity_fast_paths": 0,
+          "inverse_builds": 0,
+          "column_builds": 0,
+          "column_hits": 0,
+          "maximum_cached_columns": 0,
+          "coordinate_checks": 5,
+          "intervals": []
+        },
+        "maximum_error": 1.1102230246251565e-16
+      },
+      {
+        "mode": "coordinate-columns",
+        "active": [],
+        "correction": "",
+        "coordinate_diagnostics": {
+          "queries": 5,
+          "identity_fast_paths": 0,
+          "inverse_builds": 0,
+          "column_builds": 4,
+          "column_hits": 1,
+          "maximum_cached_columns": 2,
+          "coordinate_checks": 5,
+          "intervals": []
+        },
+        "maximum_error": 1.1102230246251565e-16
+      },
+      {
+        "mode": "coordinate-inverse32",
+        "active": [],
+        "correction": "",
+        "coordinate_diagnostics": {
+          "queries": 5,
+          "identity_fast_paths": 0,
+          "inverse_builds": 0,
+          "column_builds": 0,
+          "column_hits": 0,
+          "maximum_cached_columns": 0,
+          "coordinate_checks": 5,
+          "intervals": []
+        },
+        "maximum_error": 1.1102230246251565e-16
+      },
+      {
+        "mode": "coordinate-identity",
+        "active": [],
+        "correction": "S 0\nCZ 0 1\nS_DAG 2\n",
+        "coordinate_diagnostics": {
+          "queries": 5,
+          "identity_fast_paths": 0,
+          "inverse_builds": 0,
+          "column_builds": 0,
+          "column_hits": 0,
+          "maximum_cached_columns": 0,
+          "coordinate_checks": 5,
+          "intervals": []
+        },
+        "maximum_error": 1.6653345369377348e-16
+      },
+      {
+        "mode": "coordinate-columns",
+        "active": [],
+        "correction": "S 0\nCZ 0 1\nS_DAG 2\n",
+        "coordinate_diagnostics": {
+          "queries": 5,
+          "identity_fast_paths": 0,
+          "inverse_builds": 0,
+          "column_builds": 7,
+          "column_hits": 3,
+          "maximum_cached_columns": 3,
+          "coordinate_checks": 5,
+          "intervals": []
+        },
+        "maximum_error": 1.6653345369377348e-16
+      },
+      {
+        "mode": "coordinate-inverse32",
+        "active": [],
+        "correction": "S 0\nCZ 0 1\nS_DAG 2\n",
+        "coordinate_diagnostics": {
+          "queries": 5,
+          "identity_fast_paths": 0,
+          "inverse_builds": 0,
+          "column_builds": 0,
+          "column_hits": 0,
+          "maximum_cached_columns": 0,
+          "coordinate_checks": 5,
+          "intervals": []
+        },
+        "maximum_error": 1.6653345369377348e-16
+      },
+      {
+        "mode": "coordinate-identity",
+        "active": [
+          0
+        ],
+        "correction": "",
+        "coordinate_diagnostics": {
+          "queries": 5,
+          "identity_fast_paths": 0,
+          "inverse_builds": 0,
+          "column_builds": 0,
+          "column_hits": 0,
+          "maximum_cached_columns": 0,
+          "coordinate_checks": 5,
+          "intervals": []
+        },
+        "maximum_error": 1.1102230246251565e-16
+      },
+      {
+        "mode": "coordinate-columns",
+        "active": [
+          0
+        ],
+        "correction": "",
+        "coordinate_diagnostics": {
+          "queries": 5,
+          "identity_fast_paths": 0,
+          "inverse_builds": 0,
+          "column_builds": 4,
+          "column_hits": 1,
+          "maximum_cached_columns": 2,
+          "coordinate_checks": 5,
+          "intervals": []
+        },
+        "maximum_error": 1.1102230246251565e-16
+      },
+      {
+        "mode": "coordinate-inverse32",
+        "active": [
+          0
+        ],
+        "correction": "",
+        "coordinate_diagnostics": {
+          "queries": 5,
+          "identity_fast_paths": 0,
+          "inverse_builds": 0,
+          "column_builds": 0,
+          "column_hits": 0,
+          "maximum_cached_columns": 0,
+          "coordinate_checks": 5,
+          "intervals": []
+        },
+        "maximum_error": 1.1102230246251565e-16
+      },
+      {
+        "mode": "coordinate-identity",
+        "active": [
+          0
+        ],
+        "correction": "S 0\nCZ 0 1\nS_DAG 2\n",
+        "coordinate_diagnostics": {
+          "queries": 5,
+          "identity_fast_paths": 0,
+          "inverse_builds": 0,
+          "column_builds": 0,
+          "column_hits": 0,
+          "maximum_cached_columns": 0,
+          "coordinate_checks": 5,
+          "intervals": []
+        },
+        "maximum_error": 1.1102230246251565e-16
+      },
+      {
+        "mode": "coordinate-columns",
+        "active": [
+          0
+        ],
+        "correction": "S 0\nCZ 0 1\nS_DAG 2\n",
+        "coordinate_diagnostics": {
+          "queries": 5,
+          "identity_fast_paths": 0,
+          "inverse_builds": 0,
+          "column_builds": 7,
+          "column_hits": 3,
+          "maximum_cached_columns": 3,
+          "coordinate_checks": 5,
+          "intervals": []
+        },
+        "maximum_error": 1.1102230246251565e-16
+      },
+      {
+        "mode": "coordinate-inverse32",
+        "active": [
+          0
+        ],
+        "correction": "S 0\nCZ 0 1\nS_DAG 2\n",
+        "coordinate_diagnostics": {
+          "queries": 5,
+          "identity_fast_paths": 0,
+          "inverse_builds": 0,
+          "column_builds": 0,
+          "column_hits": 0,
+          "maximum_cached_columns": 0,
+          "coordinate_checks": 5,
+          "intervals": []
+        },
+        "maximum_error": 1.1102230246251565e-16
+      }
+    ]
+  },
+  "source_hashes": {
+    "validate_coordinate_reuse.py": "4e7af4f9cdd037fa5c52c2c10e9874df85b6f7dc60cc6de9064982f825ccba85",
+    "coordinate_reuse.cpp": "3ed2edb103bb513a669157f4f122d4a75c138dc73f1378573f831162158a5569",
+    "coordinate_reuse.h": "9b6040fc3a37b9a4428d87c0ca342b8e91ddcd1066fa839d6a90d6b13461fc92",
+    "profile_prefix_trace_reuse.cpp": "261683442bb0e0ff161d28b2ef964b7b5da91e0bd39577288e23bca11ff54e33",
+    "continuation_trace_reuse.py": "68e8b39a02e2229a55bdf21d849c7c982978f942c24fd1ba4549d38b753304a3"
+  },
+  "worker_sha256": "e42f7834f54972b882598fe6dcd9e8c4763f83c2ee6c56884b172238dc1f9c99"
+}

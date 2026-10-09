@@ -20,17 +20,34 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--worker", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--mode", choices=("diagonal", "squeeze"), default="diagonal")
+    parser.add_argument(
+        "--mode",
+        choices=(
+            "diagonal",
+            "squeeze",
+            "coordinate-identity",
+            "coordinate-columns",
+            "coordinate-inverse32",
+        ),
+        default="diagonal",
+    )
     args = parser.parse_args()
     statuses: Counter[str] = Counter()
+    coordinate_checks = 0
 
     def observe(row: dict[str, Any]) -> None:
+        nonlocal coordinate_checks
         statuses[row["squeeze_status"]] += 1
-        if args.mode == "squeeze":
+        if args.mode != "diagonal":
             assert row["optimized_checked"]
+        if args.mode.startswith("coordinate-"):
+            assert row["plan_checked"]
+            diag = row["coordinate_diagnostics"]
+            assert diag["coordinate_checks"] == diag["queries"]
+            coordinate_checks += diag["coordinate_checks"]
 
     prefix = "H 0 1 2\nS 1\nCX 0 1\nT 0\nCX 1 2\nH 1\nY 2\nT_DAG 2\n"
-    if args.mode == "squeeze":
+    if args.mode != "diagonal":
         # Independent rotations survive the earlier passes, so the complete
         # group exercises schedule reuse instead of its optimizer fallback.
         prefix = "H 0 1 2\nT 0\nT_DAG 1\nT 2\n"
@@ -63,7 +80,7 @@ def main() -> None:
                 actual = np.outer(state, state.conj())
                 np.testing.assert_allclose(actual, expected, atol=1e-10, rtol=0)
                 errors.append(float(np.max(abs(actual - expected))))
-    if args.mode == "squeeze":
+    if args.mode != "diagonal":
         assert statuses == {"reused": 512}
     wide = []
     for width in (65, 129, 193):
@@ -116,6 +133,7 @@ def main() -> None:
     result: dict[str, Any] = {
         "mode": args.mode,
         "squeeze_statuses": dict(statuses),
+        "coordinate_checks": coordinate_checks,
         "diagonal_group_density_errors": errors,
         "wide_cases": wide,
         "wide_exact_trace_checks": 2 * len(wide),
@@ -127,6 +145,8 @@ def main() -> None:
                 Path(__file__).with_name("continuation_trace_reuse.py"),
                 Path(__file__).with_name("planning_reuse_audit.h"),
                 Path(__file__).with_name("squeeze_schedule_reuse.h"),
+                Path(__file__).with_name("coordinate_reuse.h"),
+                Path(__file__).with_name("coordinate_reuse.cpp"),
             ]
         },
         "worker_sha256": hashlib.sha256(args.worker.read_bytes()).hexdigest(),
