@@ -86,8 +86,20 @@ same quantum evolution.
 
 Encoded transversal-T circuits are a useful application. Preparing an encoded
 state establishes relationships among physical qubits that the pass can use
-to reduce the active state. Triorthogonal codes provide a family of these
-circuits connected to [magic-state distillation](https://arxiv.org/abs/1209.2426).
+to reduce the active state. Examples come from triorthogonal codes for
+magic-state distillation by [Bravyi and Haah](https://arxiv.org/abs/1209.2426)
+and [Haah and Hastings](https://arxiv.org/abs/1709.02832).
+
+On 1,037 noiseless triorthogonal circuits, the new defaults lowered median
+peak active width from 17 to 1. Using the published `0.12.0rc1` wheel, a local
+single-thread scalar comparison against fusion and squeezing alone measured
+a median per-circuit sampling speedup of about 9,600x, with median compilation
+time rising from 0.54 ms to 6.95 ms.
+
+![Peak active width decreases on all 1,037 noiseless triorthogonal circuits; larger points represent more circuits](../assets/updates/triorthogonal-active-width-light.png#only-light)
+![Peak active width decreases on all 1,037 noiseless triorthogonal circuits; larger points represent more circuits](../assets/updates/triorthogonal-active-width-dark.png#only-dark)
+
+Thanks to Matthew Cha of Riverlane for putting these circuits together.
 
 ### Simplify arbitrary-angle rotations
 
@@ -123,7 +135,7 @@ It adds `a=37449` to `b=18724`, preserving `a` and returning `b=56173`.
 
 The new defaults eliminate the dense-state growth for these prepared basis
 inputs. The table compares pass selections on the same
-[source build](https://github.com/unitaryfoundation/clifft/commit/556c3e13fc25f756d145ee2cde954aed853bff6a),
+[published RC](https://github.com/unitaryfoundation/clifft/releases/tag/v0.12.0rc1),
 with optional active-width scheduling disabled. It measures state size. The
 fixture is also available in
 [clifft-bench](https://github.com/unitaryfoundation/clifft-bench/pull/67)

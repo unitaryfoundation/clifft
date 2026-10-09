@@ -82,6 +82,19 @@ extraction, and Clifford correction.
 - [Author's implementation](https://github.com/VivienVandaele/quantum-circuit-optimization),
   with the [revision used for validation](https://github.com/VivienVandaele/quantum-circuit-optimization/blob/231e6fe9f92d5bb1ebf7459c2a9233f5e74d148e/src/t_opt.rs#L79).
 
+## Triorthogonal circuits
+
+Matthew Cha of Riverlane assembled the triorthogonal circuit collection used
+to evaluate Clifft's phase-polynomial optimization. The
+[release post](updates/smaller-active-states.md#reduce-commuting-t-rotations)
+reports the results. The code families and distillation protocols are described
+in:
+
+- Sergey Bravyi and Jeongwan Haah, ["Magic state distillation with low overhead"](https://arxiv.org/abs/1209.2426),
+  *Physical Review A* 86, 052329 (2012).
+- Jeongwan Haah and Matthew B. Hastings, ["Codes and Protocols for Distilling T, controlled-S, and Toffoli Gates"](https://arxiv.org/abs/1709.02832),
+  *Quantum* 2, 71 (2018).
+
 ## MQT Bench
 
 Clifft's fixed-input 32-qubit Draper QFT adder fixture was generated with
