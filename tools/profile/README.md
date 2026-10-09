@@ -632,6 +632,45 @@ the bounded study. See the
 [chaining report](../../research/conditional_clifford/CHAINED_PHASE_SPECIALIZATION.md)
 for exact-check scope, costs, and the remaining non-Clifford-entry limitation.
 
+## Measurement deferral and realistic boundaries
+
+`deferred_phase_specialization.py` commutes supported phase operations and
+independent Pauli channels before earlier measurements only when their quantum
+and record dependencies permit it. It retains actual measurements and maps
+each original fault site into the new schedule, then invokes the unchanged
+state-preserving regional reducer. All work remains in the research host.
+
+`validate_deferred_phase_specialization.py` checks the permutation using
+independent wire/record projections, complete small Aer instruments, exhaustive
+categorical-noise mixtures, and Clifft record replay. Large scored output laws
+are compared with the preceding terminal shared-phase implementation; this is
+not an independent large-state equivalence proof.
+
+`study_deferred_phase_specialization.py` compares full scored/direct-X BT,
+distillation, and cultivation, with all-gate-noise variants and a BT81 growth
+probe. It diagnoses cultivation's logical input using Bell correlations whose
+physical representatives exclude explicitly purified reset environments.
+Setup, full per-shot stages, response-mask payload, and available Merlin
+comparisons are reported separately. The default is 64 shots and execution
+width twelve; `--cases`, `--shots`, and `--max-width` bound the run. BT81's
+analysis requires substantially more memory and setup time than BT27.
+
+```bash
+env OMP_NUM_THREADS=1 .venv/bin/python \
+  tools/profile/validate_deferred_phase_specialization.py \
+  --merlin-checkout /path/to/pinned/merlin \
+  --output /tmp/deferred-phase-validation.json
+env OMP_NUM_THREADS=1 taskset -c 0 .venv/bin/python \
+  tools/profile/study_deferred_phase_specialization.py \
+  --merlin-checkout /path/to/pinned/merlin --shots 64 \
+  --output /tmp/deferred-phase-specialization.json
+```
+
+The Python dependencies and unchanged pinned Merlin checkout are the same as
+the preceding studies. No native exporter is needed. See the
+[assessment](../../research/conditional_clifford/DEFERRED_PHASE_SPECIALIZATION.md)
+for the remaining non-Clifford-input restriction and validation scope.
+
 ## Probability queries
 
 `profile_probability` uses a unitary-only circuit because measurements,

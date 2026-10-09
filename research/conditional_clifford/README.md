@@ -19,7 +19,15 @@ Success criterion: extend the practically simulable circuit range, including
 cases whose ordinary active width is prohibitive. This mode need not replace
 ordinary Clifft or outperform it on every supported circuit.
 
-Latest study: [chaining through certified Clifford exits](CHAINED_PHASE_SPECIALIZATION.md)
+Latest study: [realistic measurement and non-Clifford boundaries](DEFERRED_PHASE_SPECIALIZATION.md)
+uses a dependency-based measurement permutation to expose scored BT27/BT81
+cancellation through a state-preserving interface, including noise in scoring.
+Direct-X BT retains its small non-Clifford computation. Purified-reset probes
+show a surviving logical input at cultivation's next region. Large analysis
+storage growth is recorded separately from execution width; general small-core
+entry remains the next capability question.
+
+The preceding [chaining study](CHAINED_PHASE_SPECIALIZATION.md)
 applies two or three reductions with intervening measurements and feedback.
 It retains old records, analyzes the actual later preparation, and stops safely
 when a non-Clifford remainder prevents re-entry. Constructed large circuits
