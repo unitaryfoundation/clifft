@@ -302,6 +302,12 @@ else()
     # Profiling tool (opt-in, not part of default or coverage builds)
     option(CLIFFT_BUILD_PROFILER "Build profiling harnesses" OFF)
     if(CLIFFT_BUILD_PROFILER)
+        add_executable(export_optimized_prefix tools/profile/export_optimized_prefix.cpp)
+        target_link_libraries(export_optimized_prefix PRIVATE clifft_core)
+        target_include_directories(export_optimized_prefix PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/src
+            ${CMAKE_CURRENT_BINARY_DIR}/generated
+        )
         add_executable(profile_compile tools/profile/profile_compile.cpp)
         target_link_libraries(profile_compile PRIVATE clifft_core)
         target_include_directories(profile_compile PRIVATE

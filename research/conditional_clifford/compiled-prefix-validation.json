@@ -1,0 +1,524 @@
+{
+  "preparations": [
+    {
+      "input_t": 8,
+      "output_t": 2,
+      "qubits": 3,
+      "exported_lines": 25,
+      "state_error": 2.592584715281538e-16
+    },
+    {
+      "input_t": 5,
+      "output_t": 2,
+      "qubits": 3,
+      "exported_lines": 21,
+      "state_error": 1.6883057536160646e-16
+    },
+    {
+      "input_t": 4,
+      "output_t": 2,
+      "qubits": 3,
+      "exported_lines": 29,
+      "state_error": 1.9471515087572151e-16
+    },
+    {
+      "input_t": 2,
+      "output_t": 2,
+      "qubits": 3,
+      "exported_lines": 19,
+      "state_error": 1.1443916996305594e-16
+    },
+    {
+      "input_t": 4,
+      "output_t": 4,
+      "qubits": 3,
+      "exported_lines": 28,
+      "state_error": 2.78040588843768e-16
+    },
+    {
+      "input_t": 5,
+      "output_t": 1,
+      "qubits": 3,
+      "exported_lines": 23,
+      "state_error": 2.0014830212433607e-16
+    },
+    {
+      "input_t": 3,
+      "output_t": 3,
+      "qubits": 3,
+      "exported_lines": 42,
+      "state_error": 1.6736837048683125e-16
+    },
+    {
+      "input_t": 5,
+      "output_t": 1,
+      "qubits": 3,
+      "exported_lines": 19,
+      "state_error": 1.6653345369377348e-16
+    },
+    {
+      "input_t": 0,
+      "output_t": 0,
+      "qubits": 3,
+      "exported_lines": 12,
+      "state_error": 1.3921450353778377e-16
+    },
+    {
+      "input_t": 2,
+      "output_t": 2,
+      "qubits": 3,
+      "exported_lines": 20,
+      "state_error": 1.1775693440128314e-16
+    },
+    {
+      "input_t": 1,
+      "output_t": 1,
+      "qubits": 3,
+      "exported_lines": 17,
+      "state_error": 1.547523131817761e-16
+    },
+    {
+      "input_t": 3,
+      "output_t": 3,
+      "qubits": 3,
+      "exported_lines": 36,
+      "state_error": 2.220513810852149e-16
+    },
+    {
+      "input_t": 3,
+      "output_t": 1,
+      "qubits": 3,
+      "exported_lines": 22,
+      "state_error": 1.5826142034617536e-16
+    },
+    {
+      "input_t": 5,
+      "output_t": 1,
+      "qubits": 3,
+      "exported_lines": 26,
+      "state_error": 1.716587549445839e-16
+    },
+    {
+      "input_t": 4,
+      "output_t": 4,
+      "qubits": 3,
+      "exported_lines": 47,
+      "state_error": 2.3672149953028353e-16
+    },
+    {
+      "input_t": 3,
+      "output_t": 3,
+      "qubits": 3,
+      "exported_lines": 29,
+      "state_error": 1.684979727857873e-16
+    },
+    {
+      "input_t": 4,
+      "output_t": 4,
+      "qubits": 3,
+      "exported_lines": 38,
+      "state_error": 1.1102230246251565e-16
+    },
+    {
+      "input_t": 2,
+      "output_t": 2,
+      "qubits": 3,
+      "exported_lines": 18,
+      "state_error": 1.3877787807814457e-16
+    },
+    {
+      "input_t": 4,
+      "output_t": 2,
+      "qubits": 3,
+      "exported_lines": 23,
+      "state_error": 1.1123893155135927e-16
+    },
+    {
+      "input_t": 3,
+      "output_t": 3,
+      "qubits": 3,
+      "exported_lines": 39,
+      "state_error": 2.8283812440088516e-16
+    },
+    {
+      "input_t": 3,
+      "output_t": 3,
+      "qubits": 3,
+      "exported_lines": 27,
+      "state_error": 1.2794688166302258e-16
+    },
+    {
+      "input_t": 2,
+      "output_t": 2,
+      "qubits": 3,
+      "exported_lines": 25,
+      "state_error": 1.9429096537506409e-16
+    },
+    {
+      "input_t": 3,
+      "output_t": 3,
+      "qubits": 3,
+      "exported_lines": 26,
+      "state_error": 2.0014830212433607e-16
+    },
+    {
+      "input_t": 2,
+      "output_t": 2,
+      "qubits": 3,
+      "exported_lines": 23,
+      "state_error": 1.3947004136484323e-16
+    }
+  ],
+  "instruments": [
+    {
+      "case": "ccz",
+      "reuse": {
+        "eligible": true,
+        "clifford_tail": true,
+        "preparation": {
+          "input_t": 7,
+          "output_t": 7,
+          "qubits": 3,
+          "exported_lines": 43
+        },
+        "export_seconds": 0.001399223692715168
+      },
+      "phase_required": false,
+      "histories": 1,
+      "checks": [
+        {
+          "branches": 1,
+          "instrument_error": 9.538699019624399e-17,
+          "record_error": 3.885780586188048e-16
+        }
+      ],
+      "mixture_error_bound": 9.538699019624399e-17
+    },
+    {
+      "case": "negative_complex",
+      "reuse": {
+        "eligible": true,
+        "clifford_tail": true,
+        "preparation": {
+          "input_t": 2,
+          "output_t": 2,
+          "qubits": 3,
+          "exported_lines": 8
+        },
+        "export_seconds": 0.0018234685994684696
+      },
+      "phase_required": false,
+      "histories": 1,
+      "checks": [
+        {
+          "branches": 1,
+          "instrument_error": 6.941061969544859e-17,
+          "record_error": 1.1102230246251565e-16
+        }
+      ],
+      "mixture_error_bound": 6.941061969544859e-17
+    },
+    {
+      "case": "observed_prefix",
+      "reuse": {
+        "eligible": true,
+        "clifford_tail": true,
+        "preparation": {
+          "input_t": 2,
+          "output_t": 2,
+          "qubits": 3,
+          "exported_lines": 12
+        },
+        "export_seconds": 0.001885552890598774
+      },
+      "phase_required": false,
+      "histories": 6,
+      "checks": [
+        {
+          "branches": 2,
+          "instrument_error": 6.947562107041945e-17,
+          "record_error": 1.1796119636642288e-16
+        },
+        {
+          "branches": 2,
+          "instrument_error": 4.2073750163139715e-17,
+          "record_error": 1.3877787807814457e-16
+        },
+        {
+          "branches": 2,
+          "instrument_error": 4.177767360805209e-17,
+          "record_error": 9.020562075079397e-17
+        },
+        {
+          "branches": 2,
+          "instrument_error": 6.947562107041945e-17,
+          "record_error": 1.1102230246251565e-16
+        },
+        {
+          "branches": 2,
+          "instrument_error": 4.16423974613979e-17,
+          "record_error": 1.6653345369377348e-16
+        },
+        {
+          "branches": 2,
+          "instrument_error": 4.177767360805209e-17,
+          "record_error": 1.1102230246251565e-16
+        }
+      ],
+      "mixture_error_bound": 5.952023195090747e-17
+    },
+    {
+      "case": "later_magic",
+      "reuse": {
+        "eligible": true,
+        "clifford_tail": false,
+        "preparation": {
+          "input_t": 2,
+          "output_t": 2,
+          "qubits": 2,
+          "exported_lines": 8
+        },
+        "export_seconds": 0.005293676164001226
+      },
+      "phase_required": true,
+      "histories": 1,
+      "checks": [
+        {
+          "branches": 1,
+          "instrument_error": 5.594315114139762e-17,
+          "record_error": 1.3877787807814457e-16
+        }
+      ],
+      "mixture_error_bound": 5.594315114139762e-17
+    },
+    {
+      "case": "carrier_fallback",
+      "reuse": {
+        "eligible": false,
+        "reason": "retain_existing_clifford_or_carrier_route"
+      },
+      "phase_required": true,
+      "histories": 1,
+      "checks": [
+        {
+          "branches": 2,
+          "instrument_error": 5.551115123125783e-17,
+          "record_error": 1.3877787807814457e-16
+        }
+      ],
+      "mixture_error_bound": 5.551115123125783e-17
+    },
+    {
+      "case": "initial_fallback",
+      "reuse": {
+        "eligible": false,
+        "reason": "no_initial_region"
+      },
+      "phase_required": true,
+      "histories": 1,
+      "checks": [
+        {
+          "branches": 1,
+          "instrument_error": 0.0,
+          "record_error": 1.1102230246251565e-16
+        }
+      ],
+      "mixture_error_bound": 0.0
+    },
+    {
+      "case": "clifford_fallback",
+      "reuse": {
+        "eligible": false,
+        "reason": "retain_existing_clifford_or_carrier_route"
+      },
+      "phase_required": true,
+      "histories": 1,
+      "checks": [
+        {
+          "branches": 1,
+          "instrument_error": 1.1102230246251565e-16,
+          "record_error": 2.220446049250313e-16
+        }
+      ],
+      "mixture_error_bound": 1.1102230246251565e-16
+    },
+    {
+      "case": "ccz_renamed",
+      "reuse": {
+        "eligible": true,
+        "clifford_tail": true,
+        "preparation": {
+          "input_t": 7,
+          "output_t": 7,
+          "qubits": 3,
+          "exported_lines": 43
+        },
+        "export_seconds": 0.004247447941452265
+      },
+      "phase_required": false,
+      "histories": 1,
+      "checks": [
+        {
+          "branches": 1,
+          "instrument_error": 1.285278522267606e-16,
+          "record_error": 4.440892098500626e-16
+        }
+      ],
+      "mixture_error_bound": 1.285278522267606e-16
+    },
+    {
+      "case": "negative_complex_renamed",
+      "reuse": {
+        "eligible": true,
+        "clifford_tail": true,
+        "preparation": {
+          "input_t": 2,
+          "output_t": 2,
+          "qubits": 3,
+          "exported_lines": 8
+        },
+        "export_seconds": 0.0037629022262990475
+      },
+      "phase_required": false,
+      "histories": 1,
+      "checks": [
+        {
+          "branches": 1,
+          "instrument_error": 5.553824967135427e-17,
+          "record_error": 1.1102230246251565e-16
+        }
+      ],
+      "mixture_error_bound": 5.553824967135427e-17
+    },
+    {
+      "case": "observed_prefix_renamed",
+      "reuse": {
+        "eligible": true,
+        "clifford_tail": true,
+        "preparation": {
+          "input_t": 2,
+          "output_t": 2,
+          "qubits": 3,
+          "exported_lines": 12
+        },
+        "export_seconds": 0.001649233978241682
+      },
+      "phase_required": false,
+      "histories": 6,
+      "checks": [
+        {
+          "branches": 2,
+          "instrument_error": 6.973502068242161e-17,
+          "record_error": 1.1796119636642288e-16
+        },
+        {
+          "branches": 2,
+          "instrument_error": 4.291468873614597e-17,
+          "record_error": 1.3877787807814457e-16
+        },
+        {
+          "branches": 2,
+          "instrument_error": 4.2207643840401616e-17,
+          "record_error": 9.020562075079397e-17
+        },
+        {
+          "branches": 2,
+          "instrument_error": 6.973502068242161e-17,
+          "record_error": 1.1102230246251565e-16
+        },
+        {
+          "branches": 2,
+          "instrument_error": 4.177767360805209e-17,
+          "record_error": 1.6653345369377348e-16
+        },
+        {
+          "branches": 2,
+          "instrument_error": 4.8696008501999263e-17,
+          "record_error": 1.1102230246251565e-16
+        }
+      ],
+      "mixture_error_bound": 6.005648172388912e-17
+    },
+    {
+      "case": "later_magic_renamed",
+      "reuse": {
+        "eligible": true,
+        "clifford_tail": false,
+        "preparation": {
+          "input_t": 2,
+          "output_t": 2,
+          "qubits": 2,
+          "exported_lines": 8
+        },
+        "export_seconds": 0.0021795891225337982
+      },
+      "phase_required": true,
+      "histories": 1,
+      "checks": [
+        {
+          "branches": 1,
+          "instrument_error": 2.0816681711721685e-17,
+          "record_error": 1.3877787807814457e-16
+        }
+      ],
+      "mixture_error_bound": 2.0816681711721685e-17
+    },
+    {
+      "case": "carrier_fallback_renamed",
+      "reuse": {
+        "eligible": false,
+        "reason": "retain_existing_clifford_or_carrier_route"
+      },
+      "phase_required": true,
+      "histories": 1,
+      "checks": [
+        {
+          "branches": 2,
+          "instrument_error": 5.551115123125783e-17,
+          "record_error": 1.3877787807814457e-16
+        }
+      ],
+      "mixture_error_bound": 5.551115123125783e-17
+    },
+    {
+      "case": "initial_fallback_renamed",
+      "reuse": {
+        "eligible": false,
+        "reason": "no_initial_region"
+      },
+      "phase_required": true,
+      "histories": 1,
+      "checks": [
+        {
+          "branches": 1,
+          "instrument_error": 0.0,
+          "record_error": 1.1102230246251565e-16
+        }
+      ],
+      "mixture_error_bound": 0.0
+    },
+    {
+      "case": "clifford_fallback_renamed",
+      "reuse": {
+        "eligible": false,
+        "reason": "retain_existing_clifford_or_carrier_route"
+      },
+      "phase_required": true,
+      "histories": 1,
+      "checks": [
+        {
+          "branches": 1,
+          "instrument_error": 1.1102230246251565e-16,
+          "record_error": 2.220446049250313e-16
+        }
+      ],
+      "mixture_error_bound": 1.1102230246251565e-16
+    }
+  ],
+  "source_hashes": {
+    "validate_compiled_prefix_reuse.py": "0fe0156bed22ec38d7da87056733648e29280fb6a1369ce199c69266e3e00b12",
+    "compiled_prefix_reuse.py": "d4969aa87fb0033332be81cadb039d0d1f7b56845cdf23978a696c385d733d4a",
+    "export_optimized_prefix.cpp": "dd8f6ed30bd1aed1bda1c98066fec5c73c5067adca77d160c54ab1cf3937f8c0"
+  },
+  "exporter_sha256": "0d9ee042f7d9e6a7dcde2b9aa7dc0c26e54375c396bb091af1888383bcb97898"
+}

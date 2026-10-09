@@ -10,12 +10,14 @@ import math
 import random
 import subprocess
 import sys
+from collections import Counter
 from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
 import stim
 from automatic_specialization import History, analyze
+from compiled_prefix_reuse import ReusablePhase, compile_stages
 from conditional_phase_frontend import ConditionalPhase
 from study_automatic_specialization import sample_parities
 from validate_automatic_specialization import visible_probability
@@ -68,21 +70,31 @@ def references(checkout: Path) -> tuple[Any, Any, dict[str, str]]:
     )
 
 
-def compile_source(source: str) -> tuple[Any, int]:
-    hir, info = analyze(source)
-    if info["peak_width"] > 12:
+def compile_source(source: str, *, phase: bool = True) -> tuple[Any, int]:
+    if phase:
+        hir, info = analyze(source)
+        width = info["peak_width"]
+    else:
+        hir, info = compile_stages(source, phase=False)
+        width = info["width"]
+    if width > 12:
         raise ValueError("Validation exceeds the dense execution width budget")
-    return clifft.lower(hir), info["peak_width"]
+    return clifft.lower(hir), width
 
 
-def automatic(source: str) -> tuple[Any, int]:
-    front = ConditionalPhase(source)
+def automatic(
+    source: str, exporter: Path | None = None, audit: Counter[str] | None = None
+) -> tuple[Any, int]:
+    front = ConditionalPhase(source) if exporter is None else ReusablePhase(source, exporter)
     branch = front.rewrite((), 7319)
     # These references describe unconditional records. Their initial encoded
     # preparations are unitary, so no outcome-conditioned comparison is allowed.
     if branch.carrier or any(step["prefix_records"] for step in branch.steps):
         raise ValueError("Reference queries require an unsampled visible prefix")
-    return compile_source(branch.source)
+    phase = not isinstance(front, ReusablePhase) or front.phase_required
+    if audit is not None:
+        audit["phase_pass" if phase else "reused_without_phase_pass"] += 1
+    return compile_source(branch.source, phase=phase)
 
 
 def main() -> None:
@@ -92,6 +104,7 @@ def main() -> None:
     parser.add_argument("--merlin-checkout", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--tail-limit", type=int, default=0)
+    parser.add_argument("--prefix-exporter", type=Path)
     args = parser.parse_args()
     manifest = load_manifest(args.benchmark_dir)
     ref, channels, reference_hashes = references(args.reference_checkout)
@@ -117,6 +130,17 @@ def main() -> None:
         },
     }
     counts: dict[str, int] = {}
+    reuse_audit: Counter[str] = Counter()
+
+    def compile_case(source: str) -> tuple[Any, int]:
+        return automatic(source, args.prefix_exporter, reuse_audit)
+
+    if args.prefix_exporter:
+        result["exporter_sha256"] = hashlib.sha256(args.prefix_exporter.read_bytes()).hexdigest()
+        for name in ("compiled_prefix_reuse.py", "export_optimized_prefix.cpp"):
+            result["source_hashes"][name] = hashlib.sha256(
+                Path(__file__).with_name(name).read_bytes()
+            ).hexdigest()
     max_relative = max_absolute = 0.0
 
     def check(program: Any, record: list[int], expected: Any, category: str) -> None:
@@ -134,7 +158,7 @@ def main() -> None:
     for entry in manifest["cases"]:
         if "record_probability_queries" not in entry:
             continue
-        program, _ = automatic((args.benchmark_dir / entry["file"]).read_text())
+        program, _ = compile_case((args.benchmark_dir / entry["file"]).read_text())
         for query in entry["record_probability_queries"]:
             check(program, query["record"], Fraction(query["probability"]), "manifest")
     print("All exported exact queries passed", flush=True)
@@ -178,9 +202,9 @@ def main() -> None:
             expected = extraction.reference(region, tail)
             original = workload.shared.model.render(region)
             raw_source = original + extraction.model.render(tail) + data_probes
-            raw, width = automatic(raw_source)
+            raw, width = compile_case(raw_source)
             widths.add(width)
-            coarse, width = automatic(original + extraction.coarse_source(tail) + data_probes)
+            coarse, width = compile_case(original + extraction.coarse_source(tail) + data_probes)
             widths.add(width)
             for syndrome, weight in expected["law"].items():
                 record = expected["anc_syndrome"] + ref.bits(syndrome, 24) + expected["data_z"]
@@ -195,7 +219,7 @@ def main() -> None:
                 check(raw, record, extraction.record_probability(record, expected), "raw_record")
             if name != "single":
                 for hadamard in (False, True):
-                    scored, width = automatic(
+                    scored, width = compile_case(
                         raw_source + extraction.score_source(expected["x"], hadamard)
                     )
                     widths.add(width)
@@ -240,7 +264,11 @@ def main() -> None:
     # actual prefix branches, and separately certify their complete sign law.
     factory_rows = []
     source = (args.benchmark_dir / "quadcycle-noisy.stim").read_text()
-    front = ConditionalPhase(source)
+    front = (
+        ConditionalPhase(source)
+        if args.prefix_exporter is None
+        else ReusablePhase(source, args.prefix_exporter)
+    )
     assert front.first is not None
     selected_region = front.first.region
     shared = selected_region.shared
@@ -279,7 +307,13 @@ def main() -> None:
                 + "\n".join(tail_lines)
                 + "\n"
             )
-            programs = [compile_source(s) for s in (candidate.source, reference)]
+            programs = [
+                compile_source(
+                    candidate.source,
+                    phase=not isinstance(front, ReusablePhase) or front.phase_required,
+                ),
+                compile_source(reference),
+            ]
             for program, _ in programs:
                 sample = clifft.sample(program, shots=8, seed=9271, threads=1)
                 sample_parities(source, sample)
@@ -299,6 +333,7 @@ def main() -> None:
         counts=counts,
         maximum_relative_error=max_relative,
         maximum_absolute_error=max_absolute,
+        reuse_audit=dict(reuse_audit),
         scope=(
             "Complete coarse D/E laws; selected raw/state queries; "
             "matched conditional factory records."

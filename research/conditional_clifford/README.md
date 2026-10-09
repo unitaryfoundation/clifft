@@ -19,7 +19,15 @@ Success criterion: extend the practically simulable circuit range, including
 cases whose ordinary active width is prohibitive. This mode need not replace
 ordinary Clifft or outperform it on every supported circuit.
 
-Latest study: [automatic frontend on factory benchmarks](FACTORY_FRONTEND_ASSESSMENT.md)
+Latest study: [fixed-preparation compilation reuse](COMPILED_PREFIX_REUSE.md)
+optimizes the invariant preparation once while retaining fresh per-shot faults,
+records, corrections, and continuation. Complete-shot cost falls by 1.79x on
+the noisy factory, 3.51x on D, and 4.08x on E in paired local measurements,
+with unchanged observed active widths and additional exact validation.
+Parsing, tracing, and planning still run per shot. The single-rotation carrier
+and existing fallbacks remain unchanged; broader non-Clifford carry is deferred.
+
+The preceding [automatic frontend on factory benchmarks](FACTORY_FRONTEND_ASSESSMENT.md)
 combines the existing reduction routes behind a raw-circuit entry point and
 assesses independently supplied complete diagnostic circuits. It includes
 correlated CCZ fault locations, independent D/E probability references,

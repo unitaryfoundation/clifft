@@ -767,6 +767,69 @@ scheduler. See the
 [assessment](../../research/conditional_clifford/FACTORY_FRONTEND_ASSESSMENT.md)
 for results, validation scope, and remaining applicability limits.
 
+## Fixed-preparation compilation reuse
+
+`compiled_prefix_reuse.py` extends the preceding frontend by optimizing its
+fixed, unmeasured preparation once. The opt-in `export_optimized_prefix` tool
+exports the optimized Pauli T rotations and complete final Clifford frame;
+Stim synthesizes that frame before any per-shot execution. All-zero circuit
+entry is assumed. Fault corrections, prefix records, and the full continuation
+remain trajectory-specific. A Clifford-only tail permits omitting the repeated
+phase pass; later magic retains it. Existing Clifford/carrier/fallback routes
+are unchanged. No native executor or public API changes are involved.
+
+```bash
+cmake --build build-profile --target export_optimized_prefix -j2
+env OMP_NUM_THREADS=1 .venv/bin/python \
+  tools/profile/validate_compiled_prefix_reuse.py \
+  --exporter build-profile/export_optimized_prefix \
+  --output /tmp/compiled-prefix-validation.json
+env OMP_NUM_THREADS=1 .venv/bin/python \
+  tools/profile/validate_factory_frontend.py \
+  --benchmark-dir /tmp/clifft-factory-benchmarks-20261009 \
+  --reference-checkout /path/to/quadcycle-factory-study \
+  --merlin-checkout /path/to/pinned/merlin --tail-limit 32 \
+  --prefix-exporter build-profile/export_optimized_prefix \
+  --output /tmp/compiled-prefix-factory-validation.json
+env OMP_NUM_THREADS=1 taskset -c 0 .venv/bin/python \
+  tools/profile/study_compiled_prefix_reuse.py \
+  --benchmark-dir /tmp/clifft-factory-benchmarks-20261009 \
+  --merlin-checkout /path/to/pinned/merlin --shots 128 \
+  --exporter build-profile/export_optimized_prefix \
+  --output /tmp/compiled-prefix-study.json
+```
+
+Regenerate the opt-in build configuration from the Build section first if the
+exporter target is absent. Dependencies and benchmark/reference checkouts are
+the same as the preceding assessment. The small validator checks complete
+preparation states and record/state instruments against Aer. The large
+validator keeps its independent reference while changing only the candidate
+route. It records how often phase optimization is actually omitted.
+
+The study compares fresh compilation, reuse with all passes, reuse with the
+conditional phase-pass omission, and omission without reuse. It alternates
+mode order, checks width before allocation, and retains failed attempts.
+Timings include complete shot construction and sampling but exclude setup
+and correctness audits. `--cases`, `--shots`, and `--max-width` bound the panel.
+Peak RSS spans all modes and imported validation dependencies; child RSS
+can include inherited parent memory. Neither is isolated native-state storage.
+
+Reproduce the motivating native compilation profile with:
+
+```bash
+env OMP_NUM_THREADS=1 CLIFFT_COMPILE_ITERATIONS=256 \
+  CLIFFT_CIRCUIT_FILE=research/conditional_clifford/compiled-prefix-profile.stim \
+  taskset -c 0 perf record -e cpu-clock:u -F 499 --call-graph dwarf \
+  -o /tmp/conditional-compile.perf.data build-profile/profile_compile
+perf report -i /tmp/conditional-compile.perf.data --stdio \
+  --children --call-graph none --percent-limit 1
+```
+
+On the study VM, the generic `perf` launcher lacked matching kernel tools;
+`/usr/lib/linux-tools-6.8.0-106/perf` supported the software event successfully.
+See the [assessment](../../research/conditional_clifford/COMPILED_PREFIX_REUSE.md)
+for ablations, correctness scope, and the remaining per-shot planning cost.
+
 ## Probability queries
 
 `profile_probability` uses a unitary-only circuit because measurements,
