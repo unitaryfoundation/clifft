@@ -171,9 +171,19 @@ class Readout:
 
 
 class SharedPhase:
-    def __init__(self, source: str, *, max_variables: int = 128, max_terms: int = 200000):
+    def __init__(
+        self,
+        source: str,
+        *,
+        max_variables: int = 128,
+        max_terms: int = 200000,
+        preserve_state: bool = False,
+    ):
         self.model = model = FaultModel(source)
-        self.lines = lines = terminal_bases(model)
+        self.preserve_state = preserve_state
+        # Absorbing a Clifford into a terminal readout preserves its record law,
+        # but can change the post-measurement state needed by a continuation.
+        self.lines = lines = model.lines.copy() if preserve_state else terminal_bases(model)
         n = model.num_qubits
         first = None
         for index, line in enumerate(lines):
@@ -267,6 +277,8 @@ class SharedPhase:
             gate, *targets = line.split()
             if gate.split("(")[0] in ANNOTATIONS:
                 continue
+            if preserve_state and gate in {"M", "MX", "MY", "MPAD"}:
+                raise ValueError("State-preserving phase regions must end before measurement")
             if gate not in {
                 "CX",
                 "CZ",
@@ -427,6 +439,7 @@ class SharedPhase:
             self.quantum_map[q] = output_qubit
             self.encoder += [f"CX {i} {output_qubit}" for i in bits(coordinate)]
         self.preparation = ["H " + " ".join(map(str, range(r)))] if r else []
+        self.exit_offsets = offsets
         self.symbolic_payload_bytes = sum((dep.bit_length() + 7) // 8 for dep, _ in self.events)
 
     def _prefix_responses(
@@ -595,7 +608,7 @@ class SharedPhase:
             flips ^= self.prefix_responses[site][outcome]
         return int(1 | ((prefix_bits ^ flips) << 1) | (faults << self.fault_base))
 
-    def render(self, controls: int, rng: random.Random | None) -> str:
+    def quantum_lines(self, controls: int) -> list[str]:
         correction = self.base
         active = pullback(controls, self.event_controls)
         for event in bits(active):
@@ -607,6 +620,33 @@ class SharedPhase:
             lines.append(f"{ {2: 'S', 4: 'Z', 6: 'S_DAG'}[coefficient] } {q}")
         lines += [f"CZ {self.pairs[i][0]} {self.pairs[i][1]}" for i in bits(cz)]
         lines += self.encoder
+        return lines
+
+    def render_state(self, controls: int) -> str:
+        """Prepare the conditional state on the original physical wire labels."""
+        if not self.preserve_state:
+            raise ValueError("A sampling-only reduction cannot expose a quantum-state interface")
+        physical = {compact: q for q, compact in self.quantum_map.items()}
+        lines = [f"I {self.model.num_qubits - 1}"]
+        for line in self.quantum_lines(controls):
+            gate, *targets = line.split()
+            lines.append(gate + " " + " ".join(str(physical[int(q)]) for q in targets))
+        for q, offset in enumerate(self.exit_offsets):
+            if parity(offset, controls):
+                lines.append(f"X {q}")
+        for output in self.output:
+            if isinstance(output, str):
+                lines.append(output)
+            elif isinstance(output, int):
+                lines.append(f"MPAD {(controls >> (1 + output)) & 1}")
+            else:
+                raise AssertionError("A quantum-state exit cannot contain deferred readouts")
+        return "\n".join(lines) + "\n"
+
+    def render(self, controls: int, rng: random.Random | None) -> str:
+        if self.preserve_state:
+            raise ValueError("Use the quantum-state renderer for a state-preserving region")
+        lines = self.quantum_lines(controls)
         auxiliary = len(self.quantum_map)
         for output in self.output:
             if isinstance(output, str):

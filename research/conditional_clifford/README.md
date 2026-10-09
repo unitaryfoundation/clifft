@@ -15,7 +15,19 @@ compiled once is not a research constraint. The current production executor
 contract remains unchanged; host-side experiments may sample and recompile
 between calls to it.
 
-Latest study: [reusing conditional phase analysis](SHARED_PHASE_SPECIALIZATION.md)
+Success criterion: extend the practically simulable circuit range, including
+cases whose ordinary active width is prohibitive. This mode need not replace
+ordinary Clifft or outperform it on every supported circuit.
+
+Latest study: [quantum continuations after regional reduction](REGIONAL_PHASE_SPECIALIZATION.md)
+preserves a reduced region's outgoing quantum state and classical records,
+then appends an ordinary continuation with further gates and measurements.
+State/instrument checks pass, and the width benefit survives on BT27 and a
+constructed larger noncommuting example. A demanding continuation can erase
+the benefit. The remaining limitation is entering a second region with an
+unsupported non-Clifford state.
+
+The preceding [shared phase analysis study](SHARED_PHASE_SPECIALIZATION.md)
 derives affine support, a fixed non-Clifford remainder, and fault/outcome-dependent
 Clifford responses once, then rebuilds only the reduced computation. The same
 construction handles distillation, BT27, and measured-state controls. It removes

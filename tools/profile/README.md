@@ -550,6 +550,48 @@ region produce an explicit fallback. See the
 [research report](../../research/conditional_clifford/SHARED_PHASE_SPECIALIZATION.md)
 for the supported interface and limits of each oracle.
 
+## Quantum continuations after regional reduction
+
+`regional_phase_specialization.py` discovers the first eligible phase region
+after a Clifford preparation and stops before the first incompatible operation.
+It uses the shared analysis in state-preserving mode: restore the physical
+wire labels, affine encoding, and fault/outcome-dependent offsets, retain
+preparation records, and append the remaining circuit. Later measurements,
+feedback, resets, and noncommuting gates run in ordinary Clifft. This is
+source composition in the research host, without native executor continuation
+or a second reduction on an unsupported non-Clifford input state.
+
+`validate_regional_phase_specialization.py` compares full joint record/state
+density matrices at the exit and after the continuation against Aer, and
+checks exact visible-record probabilities using Clifft replay. It includes
+complete physical statevectors for bounded protocol examples, intentional
+coherence/correlation errors that a weaker oracle would miss, and conditional
+scored BT27 output laws relative to the existing optimizer/exporter.
+
+`study_regional_phase_specialization.py` records region and complete-circuit
+widths, stress histories, fresh-shot stages, and explicit budget stops. A
+constructed parity-echo family varies the continuation's non-Clifford work to
+show both retained and lost width savings. Wide programs are inspected before
+lowering; sampled cases retain every original output record.
+
+```bash
+env OMP_NUM_THREADS=1 .venv/bin/python \
+  tools/profile/validate_regional_phase_specialization.py \
+  --merlin-checkout /path/to/pinned/merlin \
+  --binary build-profile/profile_bt27_scored_sampling \
+  --output /tmp/regional-phase-validation.json
+env OMP_NUM_THREADS=1 taskset -c 0 .venv/bin/python \
+  tools/profile/study_regional_phase_specialization.py \
+  --merlin-checkout /path/to/pinned/merlin --shots 64 \
+  --output /tmp/regional-phase-specialization.json
+```
+
+Dependencies are the same as the shared-phase study above. Re-run
+`validate_shared_phase_specialization.py` when changing their shared renderer.
+The [regional report](../../research/conditional_clifford/REGIONAL_PHASE_SPECIALIZATION.md)
+distinguishes state-interface evidence, large-circuit conditional law checks,
+and fresh execution diagnostics from statistical rate equivalence.
+
 ## Probability queries
 
 `profile_probability` uses a unitary-only circuit because measurements,
