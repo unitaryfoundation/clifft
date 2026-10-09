@@ -101,19 +101,19 @@ For QEC workflows, Clifft also supports detector-based post-selection, survivor 
 
 ## What's New in 0.12.0
 
-Clifft 0.12.0 adds two default compiler passes that use known stabilizer
-constraints to reduce non-Clifford work. Phase-polynomial reduction finds
-smaller cores in commuting T rotations, and rotation simplification combines
-equivalent arbitrary-angle rotations. A prepared-input 32-qubit Draper adder
-now compiles to zero active width. Read
-[Smaller Active States in Clifft](updates/smaller-active-states.md) for the
-circuit examples, correctness checks, and scope of these reductions.
+Clifft 0.12.0 extends leakage and loss simulations with
+[status checks](guide/leakage-and-loss.md#nondestructive-status-checks) that feed
+detectors and feedback, and configurable
+[effects on gate partners](guide/partner-interactions.md) to model Pauli noise
+and leakage spreading.
 
-For longer CPU sampling jobs, opt-in
-[batch calibration](guide/cpu-execution.md#budgeted-batch-calibration) measures
-eligible capacities and reports a reusable batch size. Leakage and loss
-simulations gain [in-record status checks](guide/leakage-and-loss.md#nondestructive-status-checks)
-and configurable [effects on gate partners](guide/partner-interactions.md).
+Two new default compiler passes use the prepared state to simplify commuting
+T rotations and arbitrary-angle rotations, reducing the dense state needed
+for sampling. Opt-in
+[batch tuning](guide/cpu-execution.md#budgeted-batch-calibration) measures and
+reports a reusable batch size for longer CPU sampling jobs. Read
+[Richer Noise Models, Smaller Active States](updates/smaller-active-states.md)
+for examples of the new capabilities.
 
 The new default passes can change compiled plans and fixed-seed samples while
 preserving distributions. See the

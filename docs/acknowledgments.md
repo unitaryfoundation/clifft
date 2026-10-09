@@ -87,7 +87,7 @@ extraction, and Clifford correction.
 Clifft's fixed-input 32-qubit Draper QFT adder fixture was generated with
 MQT Bench. It provides an arithmetic workload for validating and benchmarking
 arbitrary-angle rotation simplification, as described in
-[Smaller Active States in Clifft](updates/smaller-active-states.md#simplify-rotations-using-the-prepared-state).
+[Richer Noise Models, Smaller Active States](updates/smaller-active-states.md#simplify-arbitrary-angle-rotations).
 
 - Nils Quetschlich, Lukas Burgholzer, and Robert Wille, ["MQT Bench: Benchmarking Software and Design Automation Tools for Quantum Computing"](https://doi.org/10.22331/q-2023-07-20-1062),
   *Quantum* 7, 1062 (2023).
