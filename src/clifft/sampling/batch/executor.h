@@ -59,7 +59,7 @@ class BatchExecutor {
     void reset_batch(const SeedRoot& root, uint32_t first_shot, uint32_t shots) noexcept;
     void sample_presampled_noise() noexcept;
     void assign_forced_faults(KFaultSampler& fault_sampler) noexcept;
-    void activate_noise_site(uint32_t lane, uint32_t site) noexcept;
+    struct NoiseSiteActivator;
     void initialize_expression_registers() noexcept;
     void initialize_presampled_expressions() noexcept;
     void finalize_presampled_symbols() noexcept;

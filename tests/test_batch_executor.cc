@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 using clifft::KFaultSampler;
@@ -110,6 +111,44 @@ void compare_lane_outputs(const BatchExecutor& actual, const BatchExecutor& repl
     }
 }
 
+// Enough lanes that two runs agreeing on every bit of a random measurement by
+// chance is negligible, which lets the tests below compare whole columns.
+constexpr uint32_t kGeneratorTestShots = 256;
+constexpr uint64_t kGeneratorTestSeed = 9401;
+
+ExecutablePlan compile_unoptimized_plan(std::string_view circuit) {
+    const clifft::HirModule hir = clifft::trace(clifft::parse(circuit));
+    return ExecutablePlan(clifft::sampling::plan_sampling(hir));
+}
+
+std::vector<bool> record_zero_bits(const BatchExecutor& executor) {
+    REQUIRE(executor.surviving_shots() == kGeneratorTestShots);
+    std::vector<bool> bits;
+    bits.reserve(kGeneratorTestShots);
+    for (uint32_t lane = 0; lane < kGeneratorTestShots; ++lane) {
+        bits.push_back(executor.measurement(lane, 0));
+    }
+    return bits;
+}
+
+std::vector<bool> ordinary_record_zero_bits(std::string_view circuit) {
+    const ExecutablePlan plan = compile_unoptimized_plan(circuit);
+    const SeedRoot root = make_seed_root(kGeneratorTestShots, kGeneratorTestSeed);
+    BatchExecutor executor(plan, kGeneratorTestShots);
+    executor.run_batch(root, 0, kGeneratorTestShots);
+    return record_zero_bits(executor);
+}
+
+std::vector<bool> fixed_fault_record_zero_bits(std::string_view circuit, uint32_t k) {
+    const ExecutablePlan plan = compile_unoptimized_plan(circuit);
+    const SeedRoot root = make_seed_root(kGeneratorTestShots, kGeneratorTestSeed);
+    KFaultSampler faults(plan.noise_site_probabilities(), k);
+    BatchExecutor executor(plan, kGeneratorTestShots, BatchOutputMode::Rows,
+                           BatchSamplingMode::FixedFaults);
+    executor.run_batch(root, 0, kGeneratorTestShots, faults);
+    return record_zero_bits(executor);
+}
+
 }  // namespace
 
 TEST_CASE("Packed executor replays seeded fixed-plan rows") {
@@ -164,6 +203,51 @@ TEST_CASE("Packed executor replays fixed-fault rows") {
         REQUIRE(replay.shot_index(shot) == shot);
         compare_lane_outputs(batch, replay, shot, shot, plan);
     }
+}
+
+// Noise sampling draws from a local copy of the batch generator, so the later
+// random measurements must continue that stream rather than replay it. The
+// executor replay tests compare the executor with itself and cannot see a
+// missing write-back, so these compare a measurement's bits against a run in
+// which no noise draws precede it. Qubit 1 carries the noise and qubit 0 the
+// measurement, which keeps the noise from changing the measured distribution.
+TEST_CASE("Packed noise sampling advances the generator used by later measurements") {
+    const std::vector<bool> reference = ordinary_record_zero_bits("H 0\nM 0\nM 1\n");
+
+    // A certain single-outcome site fires without drawing, so a noise-bearing
+    // plan alone does not change the measurement bits.
+    REQUIRE(ordinary_record_zero_bits("X_ERROR(1) 1\nH 0\nM 0\nM 1\n") == reference);
+
+    struct DrawingCircuit {
+        const char* description;
+        const char* text;
+    };
+    const std::array<DrawingCircuit, 3> circuits{{
+        // Every site fires in every lane; only the outcome choice draws.
+        {"uniform hazards with several outcomes per site",
+         "PAULI_CHANNEL_1(0.2, 0.3, 0.5) 1\nH 0\nM 0\nM 1\n"},
+        // Equal site probabilities below one sample geometric gaps.
+        {"uniform hazards with geometric gaps", "X_ERROR(0.3) 1\nH 0\nM 0\nM 1\n"},
+        // Unequal site probabilities select the per-lane path.
+        {"non-uniform hazards", "X_ERROR(0.3) 1\nZ_ERROR(0.1) 1\nH 0\nM 0\nM 1\n"},
+    }};
+    for (const DrawingCircuit& circuit : circuits) {
+        DYNAMIC_SECTION(circuit.description) {
+            REQUIRE(ordinary_record_zero_bits(circuit.text) != reference);
+        }
+    }
+}
+
+TEST_CASE("Fixed-fault noise assignment advances the generator used by later measurements") {
+    const std::vector<bool> reference = fixed_fault_record_zero_bits("H 0\nM 0\nM 1\n", 0);
+    const char* const noisy = "PAULI_CHANNEL_1(0.1, 0.1, 0.1) 1\nH 0\nM 0\nM 1\n";
+
+    // With no fault selected the sampler and the activator draw nothing, so
+    // the extra site alone does not change the measurement bits.
+    REQUIRE(fixed_fault_record_zero_bits(noisy, 0) == reference);
+    // The single site fires in every lane, so each lane draws the fault
+    // selection and then the outcome before the measurement.
+    REQUIRE(fixed_fault_record_zero_bits(noisy, 1) != reference);
 }
 
 TEST_CASE("Final survivor compaction preserves rows and shot identities across resets") {
