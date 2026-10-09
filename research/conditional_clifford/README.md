@@ -19,7 +19,15 @@ Success criterion: extend the practically simulable circuit range, including
 cases whose ordinary active width is prohibitive. This mode need not replace
 ordinary Clifft or outperform it on every supported circuit.
 
-Latest study: [realistic measurement and non-Clifford boundaries](DEFERRED_PHASE_SPECIALIZATION.md)
+Latest study: [one Pauli rotation through a measured bridge](ONE_CORE_PHASE_SPECIALIZATION.md)
+carries a surviving non-Clifford input into the next phase region. Existing
+optimization of the transported conditional circuit reduces cultivation d3
+from width four to one; d5 stays at ten. The second research synthesis adds
+no benefit on cultivation, and host overhead remains much larger than Merlin.
+This establishes a bounded entry mechanism and a checkpoint before expanding
+the representation or integrating it.
+
+The preceding [realistic-boundary study](DEFERRED_PHASE_SPECIALIZATION.md)
 uses a dependency-based measurement permutation to expose scored BT27/BT81
 cancellation through a state-preserving interface, including noise in scoring.
 Direct-X BT retains its small non-Clifford computation. Purified-reset probes

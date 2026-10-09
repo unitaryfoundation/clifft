@@ -671,6 +671,52 @@ the preceding studies. No native exporter is needed. See the
 [assessment](../../research/conditional_clifford/DEFERRED_PHASE_SPECIALIZATION.md)
 for the remaining non-Clifford-input restriction and validation scope.
 
+## One Pauli rotation through a measured bridge
+
+`one_core_phase_specialization.py` requires the first regional reduction to
+leave one T rotation. It carries that rotation on a stabilizer reference through
+Clifford gates, commuting measurements, and resets whose wire can be cleared
+using a commuting stabilizer. Unsupported crossings retain the conditional
+state and ordinary continuation. A diagonal representative can enter a second
+phase region. A complete raw-width/T-count check rejects an expanded synthesis
+without resampling records already observed by the host.
+
+`validate_one_core_phase_specialization.py` exhaustively enumerates bounded
+preparation, measurement, and hidden-reset branches. Independent Aer matrices
+check the complete visible-record/physical-state interface. Clifft replay checks
+record probabilities before and after ordinary optimization. Noise mixtures,
+fallbacks, phase corruption, synthesis expansion, and explicit RNG seeds are
+covered. This validator does not require Merlin or a native exporter.
+
+`study_one_core_phase_specialization.py` measures complete cultivation d3/d5,
+distillation controls, and two small witnesses. The final source always goes
+through the existing HIR optimizer. `--carrier-only` skips the second research
+synthesis and tests whether transport alone exposes the useful structure.
+The default is 256 shots and execution width twelve; `--cases`, `--shots`, and
+`--max-width` bound the study.
+
+```bash
+env OMP_NUM_THREADS=1 .venv/bin/python \
+  tools/profile/validate_one_core_phase_specialization.py \
+  --output /tmp/one-core-phase-validation.json
+env OMP_NUM_THREADS=1 taskset -c 0 .venv/bin/python \
+  tools/profile/study_one_core_phase_specialization.py \
+  --merlin-checkout /path/to/pinned/merlin --shots 256 \
+  --output /tmp/one-core-phase-specialization.json
+env OMP_NUM_THREADS=1 taskset -c 0 .venv/bin/python \
+  tools/profile/study_one_core_phase_specialization.py \
+  --merlin-checkout /path/to/pinned/merlin --shots 256 --carrier-only \
+  --output /tmp/one-core-carrier-only.json
+```
+
+The shared analyzer's one-wire MPAD fix also requires the preceding full
+shared-phase regression command, including its pinned Merlin checkout and
+native exporter; use a fresh output path such as
+`/tmp/one-core-shared-regression.json`. The
+[assessment](../../research/conditional_clifford/ONE_CORE_PHASE_SPECIALIZATION.md)
+separates the demonstrated entry capability from synthesis expansion, remaining
+large-circuit validation limits, and substantial per-shot host overhead.
+
 ## Probability queries
 
 `profile_probability` uses a unitary-only circuit because measurements,

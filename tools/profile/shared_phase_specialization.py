@@ -203,6 +203,9 @@ class SharedPhase:
         simulator = stim.TableauSimulator(seed=71)
         simulator.set_num_qubits(n)
         simulator.do(ideal_prefix)
+        # Stim counts an MPAD literal 1 as an additional wire in a one-wire
+        # circuit. That unused |0> wire is not part of the physical interface.
+        simulator.set_num_qubits(n)
         rows, free, pivots = support_basis(simulator.canonical_stabilizers())
         self.variables = r = len(free)
         if r > max_variables:
