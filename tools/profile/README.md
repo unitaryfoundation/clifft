@@ -592,6 +592,46 @@ The [regional report](../../research/conditional_clifford/REGIONAL_PHASE_SPECIAL
 distinguishes state-interface evidence, large-circuit conditional law checks,
 and fresh execution diagnostics from statistical rate equivalence.
 
+## Chaining regions through Clifford exits
+
+`chained_phase_specialization.py` reuses the first regional analysis, then
+rebuilds later analyses only after an exact constructive Clifford-exit
+certificate. Faults are drawn once at their original locations. Earlier
+measurement records remain fixed, while new prefix uncertainty receives fresh
+explicit sampler seeds. A partial non-Clifford exit, unsupported next region,
+or region budget stops chaining and retains the complete continuation.
+All analysis and sampling of preparation outcomes occur in the research host.
+
+`validate_chained_phase_specialization.py` enumerates conditional branches and
+compares the full joint classical/quantum output against Aer, with Clifft replay
+for the complete visible-record law. It checks branch-dependent second regions,
+noise mixtures, retained records, conservative fallbacks, budgets, and fresh
+sampler seeds. Protocol fallback checks require exactly the existing
+single-region source; they do not constitute new physical-state proofs for BT.
+
+`study_chained_phase_specialization.py` compares ordinary, one-region, and
+chained widths on matched sources. Constructed two-region circuits test where
+one reduction remains too wide and chaining permits complete execution.
+Stage costs include the currently repeated analysis of later regions.
+
+```bash
+env OMP_NUM_THREADS=1 .venv/bin/python \
+  tools/profile/validate_chained_phase_specialization.py \
+  --merlin-checkout /path/to/pinned/merlin \
+  --output /tmp/chained-phase-validation.json
+env OMP_NUM_THREADS=1 taskset -c 0 .venv/bin/python \
+  tools/profile/study_chained_phase_specialization.py \
+  --merlin-checkout /path/to/pinned/merlin --shots 32 \
+  --output /tmp/chained-phase-specialization.json
+```
+
+The same Python dependencies and pinned Merlin checkout are required; this
+validator needs no native exporter. The default limits are eight regions and
+execution width twelve. `--max-regions`, `--max-width`, and `--cases` control
+the bounded study. See the
+[chaining report](../../research/conditional_clifford/CHAINED_PHASE_SPECIALIZATION.md)
+for exact-check scope, costs, and the remaining non-Clifford-entry limitation.
+
 ## Probability queries
 
 `profile_probability` uses a unitary-only circuit because measurements,

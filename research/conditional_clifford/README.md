@@ -19,7 +19,15 @@ Success criterion: extend the practically simulable circuit range, including
 cases whose ordinary active width is prohibitive. This mode need not replace
 ordinary Clifft or outperform it on every supported circuit.
 
-Latest study: [quantum continuations after regional reduction](REGIONAL_PHASE_SPECIALIZATION.md)
+Latest study: [chaining through certified Clifford exits](CHAINED_PHASE_SPECIALIZATION.md)
+applies two or three reductions with intervening measurements and feedback.
+It retains old records, analyzes the actual later preparation, and stops safely
+when a non-Clifford remainder prevents re-entry. Constructed large circuits
+become executable where one reduction still leaves excessive width. Later
+per-shot analysis dominates the current cost; existing BT and distillation
+protocol examples still exercise the conservative fallback.
+
+The preceding [quantum continuation study](REGIONAL_PHASE_SPECIALIZATION.md)
 preserves a reduced region's outgoing quantum state and classical records,
 then appends an ordinary continuation with further gates and measurements.
 State/instrument checks pass, and the width benefit survives on BT27 and a
