@@ -89,6 +89,26 @@ state establishes relationships among physical qubits that the pass can use
 to reduce the active state. Triorthogonal codes provide a family of these
 circuits connected to [magic-state distillation](https://arxiv.org/abs/1209.2426).
 
+We compared the published `0.12.0rc1` wheel on a fixed collection of 1,037
+noiseless triorthogonal circuits, using fusion and squeezing alone as the
+baseline. Adding phase reduction lowered peak active width on every circuit:
+the median fell from 17 to 1, and 939 circuits reached width 1.
+
+![Peak active width decreases on all 1,037 noiseless triorthogonal circuits; larger points represent more circuits](../assets/updates/triorthogonal-active-width-light.png#only-light)
+![Peak active width decreases on all 1,037 noiseless triorthogonal circuits; larger points represent more circuits](../assets/updates/triorthogonal-active-width-dark.png#only-dark)
+
+Across this collection, the median per-circuit sampling throughput gain was
+about 9,600x, while median compilation time rose from 0.54 ms to 6.95 ms.
+Phase reduction alone produced the same executable plans as the full default
+pipeline on all 1,037 circuits. These are comparisons of pass selections within
+the RC on this noiseless snapshot.
+
+Measurements used one pinned vCPU of an AMD EPYC 9554P VM with AVX-512,
+five timed repetitions, and counts-only survivor sampling (`threads=1`,
+`batch_size=1`). Sampling shot counts were calibrated toward 50 ms per trial;
+compilation was timed separately. Optional scheduling was disabled for both
+pipelines.
+
 ### Simplify arbitrary-angle rotations
 
 `RotationSimplificationPass` extends simplification to arbitrary angles. It
@@ -123,7 +143,7 @@ It adds `a=37449` to `b=18724`, preserving `a` and returning `b=56173`.
 
 The new defaults eliminate the dense-state growth for these prepared basis
 inputs. The table compares pass selections on the same
-[source build](https://github.com/unitaryfoundation/clifft/commit/556c3e13fc25f756d145ee2cde954aed853bff6a),
+[published RC](https://github.com/unitaryfoundation/clifft/releases/tag/v0.12.0rc1),
 with optional active-width scheduling disabled. It measures state size. The
 fixture is also available in
 [clifft-bench](https://github.com/unitaryfoundation/clifft-bench/pull/67)
