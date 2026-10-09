@@ -13,15 +13,16 @@ and effects on a gate's computational partner.
 
 ## Find the non-Clifford core
 
-Clifft already combines nearby rotations and schedules operations to keep
-their active lifetimes short. The new `PhasePolynomialPass` recognizes
+Clifft already combines nearby rotations and uses its default squeezing pass
+to shorten their active lifetimes. An additional active-width scheduling
+search remains opt-in. The new `PhasePolynomialPass` recognizes
 relationships among a larger collection of commuting T rotations. It uses
 signed stabilizer constraints established by the circuit's prepared input to
 express those rotations in fewer independent phase variables.
 
 The pass then synthesizes the remaining parity phases using a native
 implementation of TOHPE, following
-[Vandaele's T-count reduction algorithm](https://arxiv.org/abs/2407.08695).
+[Vandaele's T-count reduction algorithm](https://doi.org/10.22331/q-2025-09-16-1860).
 It reconstructs the exact Clifford correction, retaining the signs and phase
 relationships required by later gates and measurements. The pass rejects a
 candidate that increases T count or peak active width; at unchanged peak
@@ -72,7 +73,7 @@ The compiler must establish that equivalence from the actual preparation.
 Changing the preparation of qubit 1 can invalidate it.
 
 A larger example is the fixed-input 16-bit Draper QFT adder from
-[MQT Bench](https://github.com/munich-quantum-toolkit/bench), retained as a
+[MQT Bench](../acknowledgments.md#mqt-bench), retained as a
 [32-qubit fixture](https://github.com/unitaryfoundation/clifft/blob/037551a9/tools/bench/fixtures/draper_adder_16_basis.stim).
 It prepares `a=37449` and `b=18724`, preserves `a`, and returns `b=56173`.
 The following comparison uses the same circuit and source build, with optional
@@ -171,8 +172,8 @@ noise-draw order.
 `HERALD_LEAKAGE_EVENT` and `HERALD_LOSS_EVENT` now append ordinary record bits
 that report the site's current status without changing its state or
 occupation. Detectors, observables, and classical feedback can consume those
-bits in-circuit. The probes distinguish leakage from loss and are perfect by
-default; `READOUT_NOISE` models missed detections and false positives. See
+bits in-circuit. The probes distinguish leakage from loss, are perfect, and
+take no arguments. `READOUT_NOISE` models missed detections and false positives. See
 [Nondestructive Status Checks](../guide/leakage-and-loss.md#nondestructive-status-checks).
 
 Two-qubit gates involving a leaked or lost operand can also apply configured
