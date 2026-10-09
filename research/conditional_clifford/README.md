@@ -19,7 +19,15 @@ Success criterion: extend the practically simulable circuit range, including
 cases whose ordinary active width is prohibitive. This mode need not replace
 ordinary Clifft or outperform it on every supported circuit.
 
-Latest study: [one Pauli rotation through a measured bridge](ONE_CORE_PHASE_SPECIALIZATION.md)
+Latest study: [automatic frontend on factory benchmarks](FACTORY_FRONTEND_ASSESSMENT.md)
+combines the existing reduction routes behind a raw-circuit entry point and
+assesses independently supplied complete diagnostic circuits. It includes
+correlated CCZ fault locations, independent D/E probability references,
+conditional factory checks, and comparisons with simpler fault specialization.
+This is an assessment of the frozen reduction rules, not a broader
+non-Clifford representation or a production integration.
+
+The preceding [one Pauli rotation through a measured bridge](ONE_CORE_PHASE_SPECIALIZATION.md)
 carries a surviving non-Clifford input into the next phase region. Existing
 optimization of the transported conditional circuit reduces cultivation d3
 from width four to one; d5 stays at ten. The second research synthesis adds

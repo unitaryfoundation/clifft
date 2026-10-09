@@ -53,7 +53,8 @@ class FaultModel:
 
     A two-qubit channel is one categorical event, not independent X/Y/Z draws.
     Readout faults invert the reported record, leaving quantum collapse intact.
-    Inter-location correlations and conditional channels are rejected.
+    Adjacent correlated-error chains are one categorical location. Other
+    inter-location correlations and conditional channels are rejected.
     """
 
     def __init__(self, source: str):
@@ -68,6 +69,33 @@ class FaultModel:
             gate = node.gate.name
             if node.tag:
                 raise ValueError("Instruction tags are outside this research host")
+            if gate in {"CORRELATED_ERROR", "ELSE_CORRELATED_ERROR"}:
+                replacement = "\n".join(
+                    f"{repr(target)[0]} {target.value}" for target in node.targets
+                )
+                if gate == "CORRELATED_ERROR":
+                    self.sites.append(
+                        FaultSite(
+                            len(self.lines), gate, (1 - node.arg, node.arg), ("", replacement)
+                        )
+                    )
+                    self.lines.append("")
+                else:
+                    # ELSE probabilities are conditioned on every earlier
+                    # alternative failing, not independent physical events.
+                    previous = self.sites[-1]
+                    probability = previous.probabilities[0] * node.arg
+                    self.sites[-1] = FaultSite(
+                        previous.line,
+                        previous.gate,
+                        (
+                            previous.probabilities[0] - probability,
+                            *previous.probabilities[1:],
+                            probability,
+                        ),
+                        (*previous.replacements, replacement),
+                    )
+                continue
             if gate == "READOUT_NOISE":
                 if not self.lines or node.targets[0].value != records - 1:
                     raise ValueError("Expected readout noise on the most recent measurement")

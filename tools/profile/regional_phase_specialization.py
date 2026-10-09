@@ -23,6 +23,8 @@ import clifft
 
 PHASE_GATES = {"CX", "CZ", "T", "T_DAG", "S", "S_DAG", "X", "Y", "Z", "I"}
 PAULI_NOISE = {
+    "CORRELATED_ERROR",
+    "ELSE_CORRELATED_ERROR",
     "X_ERROR",
     "Y_ERROR",
     "Z_ERROR",

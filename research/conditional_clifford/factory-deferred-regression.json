@@ -1,0 +1,2498 @@
+{
+  "source_hashes": {
+    "validate_deferred_phase_specialization.py": "65855111b1a457da1da3913c7842991151918b53bffc547e1eefde1d984fc075",
+    "deferred_phase_specialization.py": "09a426cd13ae15ae32023a97b5953d8578bf773e9b844e9670eb927a13a6ee73",
+    "study_deferred_phase_specialization.py": "cc1ddc26f39d986dcade1674159a264958b487af6c2ba7e8188d07f41a934b96",
+    "regional_phase_specialization.py": "cce0b68016a59a527fd8a19a46b9a0bc390a27641cafddf7e46e5e130c79ff63",
+    "shared_phase_specialization.py": "e80a83f2df89c6150df1dd508b7836d0fc355a73b60c240cd41b5f0ca97dad76",
+    "validate_regional_phase_specialization.py": "faf9ad5731efcf52ed1a86d6897bde1ef9c3b47587bd3bd664befb7d90a7cf92",
+    "validate_shared_phase_specialization.py": "2c72d7acd5d8889474fe821ca7eac9a8d9606d806bd0efd30837ad5767d1f9a6",
+    "automatic_specialization.py": "391738d9b0c78e7a0658a1d1a5c3e6ad9e85bff1ed0e921b8d7c9272a573bc90",
+    "validate_automatic_specialization.py": "6e3821e4222be52fa497a54ebd53649eaa0163ddaafdaed8f7da8ca222f1349c"
+  },
+  "small": {
+    "cases": [
+      {
+        "case": "disjoint",
+        "histories": [
+          []
+        ],
+        "certificate": {
+          "wire_projections": 2,
+          "record_and_annotation_operations": 2
+        },
+        "scheduling": {
+          "moved_operations": 1,
+          "moved_t": 1,
+          "measurement_crossings": 1,
+          "deferred_records": 1,
+          "stop_gate": "H",
+          "permutation_sha256": "56936abf6634e02ea069fc3c4345f49254c76bde78569ab6f276f0bc6e723b2f",
+          "scheduled_source_sha256": "3159994753d4856bd6d7b909830375a914723a81131b1d6cdf19c5d09d3c5e52"
+        },
+        "checks": [
+          {
+            "branches": 1,
+            "scheduling_instrument_error": 5.551115123125783e-17,
+            "complete_instrument_error": 1.1102230246251565e-16,
+            "record_probability_error": 2.220446049250313e-16
+          }
+        ]
+      },
+      {
+        "case": "entangled",
+        "histories": [
+          []
+        ],
+        "certificate": {
+          "wire_projections": 2,
+          "record_and_annotation_operations": 2
+        },
+        "scheduling": {
+          "moved_operations": 1,
+          "moved_t": 1,
+          "measurement_crossings": 1,
+          "deferred_records": 1,
+          "stop_gate": "H",
+          "permutation_sha256": "56936abf6634e02ea069fc3c4345f49254c76bde78569ab6f276f0bc6e723b2f",
+          "scheduled_source_sha256": "22ca9d48dfacc3b70cdfa32d7f819f5c19d65573d63a03e56243bb4a5a8c1748"
+        },
+        "checks": [
+          {
+            "branches": 1,
+            "scheduling_instrument_error": 2.7755575615628914e-17,
+            "complete_instrument_error": 5.551115123125783e-17,
+            "record_probability_error": 1.3877787807814457e-16
+          }
+        ]
+      },
+      {
+        "case": "old_record",
+        "histories": [
+          [],
+          [
+            [
+              0,
+              1
+            ]
+          ]
+        ],
+        "certificate": {
+          "wire_projections": 3,
+          "record_and_annotation_operations": 6
+        },
+        "scheduling": {
+          "moved_operations": 2,
+          "moved_t": 1,
+          "measurement_crossings": 2,
+          "deferred_records": 1,
+          "stop_gate": "H",
+          "permutation_sha256": "ae9ab3e55329a14ebcb1c2207338c5536b2ae22bb40ad2aa8d362238bef6a942",
+          "scheduled_source_sha256": "f678394d594a6cec271193346e7c763e9f06de85b682dc7dd81f8da5a7e03adc"
+        },
+        "checks": [
+          {
+            "branches": 2,
+            "scheduling_instrument_error": 5.551115123125783e-17,
+            "complete_instrument_error": 1.3877787807814457e-16,
+            "record_probability_error": 2.220446049250313e-16
+          },
+          {
+            "branches": 2,
+            "scheduling_instrument_error": 5.551115123125783e-17,
+            "complete_instrument_error": 1.3877787807814457e-16,
+            "record_probability_error": 2.220446049250313e-16
+          }
+        ]
+      },
+      {
+        "case": "new_record_barrier",
+        "histories": [
+          []
+        ],
+        "certificate": {
+          "wire_projections": 2,
+          "record_and_annotation_operations": 2
+        },
+        "scheduling": {
+          "moved_operations": 0,
+          "moved_t": 0,
+          "measurement_crossings": 0,
+          "deferred_records": 1,
+          "stop_gate": "CX",
+          "permutation_sha256": "068ff0cf40cd49ec76ac5101505e9ea3875525b709a9db927049e4812f3bd59f",
+          "scheduled_source_sha256": "9a642684dbf87751bd99c957756738cb9435618661a40bcb0a02fb7b36d4330a"
+        },
+        "checks": [
+          {
+            "branches": 1,
+            "scheduling_instrument_error": 0.0,
+            "complete_instrument_error": 0.0,
+            "record_probability_error": 3.3306690738754696e-16
+          }
+        ]
+      },
+      {
+        "case": "shared_wire_barrier",
+        "histories": [
+          []
+        ],
+        "certificate": {
+          "wire_projections": 2,
+          "record_and_annotation_operations": 2
+        },
+        "scheduling": {
+          "moved_operations": 0,
+          "moved_t": 0,
+          "measurement_crossings": 0,
+          "deferred_records": 1,
+          "stop_gate": "CX",
+          "permutation_sha256": "068ff0cf40cd49ec76ac5101505e9ea3875525b709a9db927049e4812f3bd59f",
+          "scheduled_source_sha256": "1bd713d7c88de7619141cb072b1b3432cee341dd4fc30f0b7d7d3b15a7ca5227"
+        },
+        "checks": [
+          {
+            "branches": 1,
+            "scheduling_instrument_error": 0.0,
+            "complete_instrument_error": 0.0,
+            "record_probability_error": 3.3306690738754696e-16
+          }
+        ]
+      },
+      {
+        "case": "noise_barrier",
+        "histories": [
+          [],
+          [
+            [
+              0,
+              6
+            ]
+          ]
+        ],
+        "certificate": {
+          "wire_projections": 2,
+          "record_and_annotation_operations": 2
+        },
+        "scheduling": {
+          "moved_operations": 0,
+          "moved_t": 0,
+          "measurement_crossings": 0,
+          "deferred_records": 1,
+          "stop_gate": "DEPOLARIZE2",
+          "permutation_sha256": "068ff0cf40cd49ec76ac5101505e9ea3875525b709a9db927049e4812f3bd59f",
+          "scheduled_source_sha256": "da508c32133c2cb82c2db86f4414d27a7bdb099555ce745a18199f2440cbf6fb"
+        },
+        "checks": [
+          {
+            "branches": 1,
+            "scheduling_instrument_error": 0.0,
+            "complete_instrument_error": 0.0,
+            "record_probability_error": 3.3306690738754696e-16
+          },
+          {
+            "branches": 1,
+            "scheduling_instrument_error": 0.0,
+            "complete_instrument_error": 0.0,
+            "record_probability_error": 2.220446049250313e-16
+          }
+        ]
+      },
+      {
+        "case": "reset_barrier",
+        "histories": [
+          []
+        ],
+        "certificate": {
+          "wire_projections": 2,
+          "record_and_annotation_operations": 2
+        },
+        "scheduling": {
+          "moved_operations": 0,
+          "moved_t": 0,
+          "measurement_crossings": 0,
+          "deferred_records": 1,
+          "stop_gate": "R",
+          "permutation_sha256": "068ff0cf40cd49ec76ac5101505e9ea3875525b709a9db927049e4812f3bd59f",
+          "scheduled_source_sha256": "148531960858c8d99deca6c587378c10c68fe9d4ce20b8f7fbd8060ba08903d5"
+        },
+        "checks": [
+          {
+            "branches": 1,
+            "scheduling_instrument_error": 0.0,
+            "complete_instrument_error": 0.0,
+            "record_probability_error": 3.3306690738754696e-16
+          }
+        ]
+      },
+      {
+        "case": "product_measurement",
+        "histories": [
+          [],
+          [
+            [
+              0,
+              1
+            ]
+          ]
+        ],
+        "certificate": {
+          "wire_projections": 3,
+          "record_and_annotation_operations": 3
+        },
+        "scheduling": {
+          "moved_operations": 1,
+          "moved_t": 1,
+          "measurement_crossings": 1,
+          "deferred_records": 2,
+          "stop_gate": "CX",
+          "permutation_sha256": "4b199643fdb7aff06d548c1176df0cbdcbaa1ae24d58477505df7f55659afb67",
+          "scheduled_source_sha256": "34343f0eb504e2b2ad74968c5aaf867dbd0126e666f6f466bb076471d866e254"
+        },
+        "checks": [
+          {
+            "branches": 1,
+            "scheduling_instrument_error": 4.358438792651351e-18,
+            "complete_instrument_error": 2.7755575615628914e-17,
+            "record_probability_error": 1.942890293094024e-16
+          },
+          {
+            "branches": 1,
+            "scheduling_instrument_error": 4.358438792651351e-18,
+            "complete_instrument_error": 2.7755575615628914e-17,
+            "record_probability_error": 1.942890293094024e-16
+          }
+        ]
+      },
+      {
+        "case": "repeat_measurement",
+        "histories": [
+          []
+        ],
+        "certificate": {
+          "wire_projections": 2,
+          "record_and_annotation_operations": 3
+        },
+        "scheduling": {
+          "moved_operations": 1,
+          "moved_t": 1,
+          "measurement_crossings": 2,
+          "deferred_records": 3,
+          "stop_gate": "END",
+          "permutation_sha256": "d695a4fbf93149a7c9b1fe598a704b0d077c7c77721f0f11420726b1f30a6b89",
+          "scheduled_source_sha256": "d04bb086b2379338be8c8fcada09d1e15e43e239a824e55ed6f306ca339cc795"
+        },
+        "checks": [
+          {
+            "branches": 1,
+            "scheduling_instrument_error": 1.3877787807814457e-17,
+            "complete_instrument_error": 5.551115123125783e-17,
+            "record_probability_error": 1.3877787807814457e-16
+          }
+        ]
+      },
+      {
+        "case": "padding",
+        "histories": [
+          []
+        ],
+        "certificate": {
+          "wire_projections": 1,
+          "record_and_annotation_operations": 2
+        },
+        "scheduling": {
+          "moved_operations": 1,
+          "moved_t": 1,
+          "measurement_crossings": 1,
+          "deferred_records": 1,
+          "stop_gate": "H",
+          "permutation_sha256": "e1021b3e697a97b95ac49996c9340740976e00a04097f77b6a5074c94fcdf35a",
+          "scheduled_source_sha256": "1b8271fed388af3f8a942aa2e991948fb42a18459137af1be883664d7baed4a2"
+        },
+        "checks": [
+          {
+            "branches": 1,
+            "scheduling_instrument_error": 0.0,
+            "complete_instrument_error": 2.220446049250313e-16,
+            "record_probability_error": 2.220446049250313e-16
+          }
+        ]
+      },
+      {
+        "case": "noise_mixture",
+        "histories": [
+          [],
+          [
+            [
+              0,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              2,
+              1
+            ],
+            [
+              3,
+              1
+            ]
+          ]
+        ],
+        "certificate": {
+          "wire_projections": 2,
+          "record_and_annotation_operations": 4
+        },
+        "scheduling": {
+          "moved_operations": 2,
+          "moved_t": 1,
+          "measurement_crossings": 2,
+          "deferred_records": 1,
+          "stop_gate": "H",
+          "permutation_sha256": "070453960a8f264440d8b0f2f95b598d1715f5af6a966baec1b98e27e6f76fb3",
+          "scheduled_source_sha256": "8d7bd094c2a0bd66f924cab1853414ba5e6551d2a5377c85c81e1b0b3eff9ec0"
+        },
+        "checks": [
+          {
+            "branches": 1,
+            "scheduling_instrument_error": 1.3877787807814457e-17,
+            "complete_instrument_error": 5.551115123125783e-17,
+            "record_probability_error": 1.1102230246251565e-16
+          },
+          {
+            "branches": 1,
+            "scheduling_instrument_error": 1.3877787807814457e-17,
+            "complete_instrument_error": 5.551115123125783e-17,
+            "record_probability_error": 1.1102230246251565e-16
+          }
+        ]
+      },
+      {
+        "case": "categorical",
+        "histories": [
+          [],
+          [
+            [
+              0,
+              1
+            ],
+            [
+              1,
+              11
+            ]
+          ]
+        ],
+        "certificate": {
+          "wire_projections": 3,
+          "record_and_annotation_operations": 3
+        },
+        "scheduling": {
+          "moved_operations": 3,
+          "moved_t": 1,
+          "measurement_crossings": 3,
+          "deferred_records": 1,
+          "stop_gate": "H",
+          "permutation_sha256": "35781ea577b9fe8858dba14b9bbc2d440f11d706eb02e6f0fedf2610c1e9e782",
+          "scheduled_source_sha256": "c684fe616d819c075ae23c030a26de43c94714c0a39aca475110270e5d475c78"
+        },
+        "checks": [
+          {
+            "branches": 1,
+            "scheduling_instrument_error": 2.8609792490763984e-17,
+            "complete_instrument_error": 8.355534721610418e-17,
+            "record_probability_error": 2.220446049250313e-16
+          },
+          {
+            "branches": 1,
+            "scheduling_instrument_error": 1.3877787807814457e-17,
+            "complete_instrument_error": 4.163336342344337e-17,
+            "record_probability_error": 1.3877787807814457e-16
+          }
+        ]
+      },
+      {
+        "case": "general_0",
+        "histories": [
+          [],
+          [
+            [
+              0,
+              1
+            ],
+            [
+              1,
+              2
+            ]
+          ]
+        ],
+        "certificate": {
+          "wire_projections": 3,
+          "record_and_annotation_operations": 4
+        },
+        "scheduling": {
+          "moved_operations": 4,
+          "moved_t": 3,
+          "measurement_crossings": 5,
+          "deferred_records": 2,
+          "stop_gate": "H",
+          "permutation_sha256": "45ffb8e6e43bdb99e24757bf07eacba4b2b9cd65f9e95bc81e509bdb3203a280",
+          "scheduled_source_sha256": "b9688c9fc0501824676fbab37665cecb3f3dec27d2aa846e8d15a350d0d43bb0"
+        },
+        "checks": [
+          {
+            "branches": 1,
+            "scheduling_instrument_error": 7.757919228897728e-18,
+            "complete_instrument_error": 1.0551910960100404e-17,
+            "record_probability_error": 1.6653345369377348e-16
+          },
+          {
+            "branches": 1,
+            "scheduling_instrument_error": 8.673617379884035e-18,
+            "complete_instrument_error": 1.2266347333466993e-17,
+            "record_probability_error": 1.1102230246251565e-16
+          }
+        ]
+      },
+      {
+        "case": "general_1",
+        "histories": [
+          [],
+          [
+            [
+              0,
+              1
+            ],
+            [
+              1,
+              3
+            ]
+          ]
+        ],
+        "certificate": {
+          "wire_projections": 3,
+          "record_and_annotation_operations": 4
+        },
+        "scheduling": {
+          "moved_operations": 4,
+          "moved_t": 3,
+          "measurement_crossings": 5,
+          "deferred_records": 2,
+          "stop_gate": "H",
+          "permutation_sha256": "45ffb8e6e43bdb99e24757bf07eacba4b2b9cd65f9e95bc81e509bdb3203a280",
+          "scheduled_source_sha256": "02789bdebefb813092b040783f9533e3fceb42502424a07e7b24320f38312f55"
+        },
+        "checks": [
+          {
+            "branches": 1,
+            "scheduling_instrument_error": 1.7347234759768075e-18,
+            "complete_instrument_error": 3.469446951953614e-17,
+            "record_probability_error": 2.220446049250313e-16
+          },
+          {
+            "branches": 1,
+            "scheduling_instrument_error": 1.7347234759768075e-18,
+            "complete_instrument_error": 3.122502256758253e-17,
+            "record_probability_error": 2.220446049250313e-16
+          }
+        ]
+      },
+      {
+        "case": "general_2",
+        "histories": [
+          [],
+          [
+            [
+              0,
+              1
+            ],
+            [
+              1,
+              2
+            ]
+          ]
+        ],
+        "certificate": {
+          "wire_projections": 3,
+          "record_and_annotation_operations": 4
+        },
+        "scheduling": {
+          "moved_operations": 4,
+          "moved_t": 3,
+          "measurement_crossings": 5,
+          "deferred_records": 2,
+          "stop_gate": "H",
+          "permutation_sha256": "45ffb8e6e43bdb99e24757bf07eacba4b2b9cd65f9e95bc81e509bdb3203a280",
+          "scheduled_source_sha256": "646c9e06428b9cd8c725f93e937d2ec12059bcd5f3137831afeecc6fa5f1c9b1"
+        },
+        "checks": [
+          {
+            "branches": 1,
+            "scheduling_instrument_error": 3.3504882823795342e-18,
+            "complete_instrument_error": 4.163336342344337e-17,
+            "record_probability_error": 1.1102230246251565e-16
+          },
+          {
+            "branches": 1,
+            "scheduling_instrument_error": 2.0816681711721685e-17,
+            "complete_instrument_error": 6.245004513516506e-17,
+            "record_probability_error": 1.6653345369377348e-16
+          }
+        ]
+      },
+      {
+        "case": "general_3",
+        "histories": [
+          [],
+          [
+            [
+              0,
+              1
+            ],
+            [
+              1,
+              3
+            ]
+          ]
+        ],
+        "certificate": {
+          "wire_projections": 3,
+          "record_and_annotation_operations": 4
+        },
+        "scheduling": {
+          "moved_operations": 4,
+          "moved_t": 3,
+          "measurement_crossings": 5,
+          "deferred_records": 2,
+          "stop_gate": "H",
+          "permutation_sha256": "45ffb8e6e43bdb99e24757bf07eacba4b2b9cd65f9e95bc81e509bdb3203a280",
+          "scheduled_source_sha256": "44931dd9163a691021e66a6b00de5d17c4ffde930f79b296b217f34fd55234da"
+        },
+        "checks": [
+          {
+            "branches": 1,
+            "scheduling_instrument_error": 6.992893892674703e-18,
+            "complete_instrument_error": 1.7368905267604862e-17,
+            "record_probability_error": 1.6653345369377348e-16
+          },
+          {
+            "branches": 1,
+            "scheduling_instrument_error": 6.992893892674703e-18,
+            "complete_instrument_error": 1.7368905267604862e-17,
+            "record_probability_error": 1.6653345369377348e-16
+          }
+        ]
+      },
+      {
+        "case": "disjoint_renamed",
+        "histories": [
+          []
+        ],
+        "certificate": {
+          "wire_projections": 2,
+          "record_and_annotation_operations": 2
+        },
+        "scheduling": {
+          "moved_operations": 1,
+          "moved_t": 1,
+          "measurement_crossings": 1,
+          "deferred_records": 1,
+          "stop_gate": "H",
+          "permutation_sha256": "56936abf6634e02ea069fc3c4345f49254c76bde78569ab6f276f0bc6e723b2f",
+          "scheduled_source_sha256": "13d2d8b6c9471acab64dc8cfc7f94d96d8f537d46aaf0e4c2591890f561baf0c"
+        },
+        "checks": [
+          {
+            "branches": 1,
+            "scheduling_instrument_error": 5.551115123125783e-17,
+            "complete_instrument_error": 1.1102230246251565e-16,
+            "record_probability_error": 2.220446049250313e-16
+          }
+        ]
+      },
+      {
+        "case": "entangled_renamed",
+        "histories": [
+          []
+        ],
+        "certificate": {
+          "wire_projections": 2,
+          "record_and_annotation_operations": 2
+        },
+        "scheduling": {
+          "moved_operations": 1,
+          "moved_t": 1,
+          "measurement_crossings": 1,
+          "deferred_records": 1,
+          "stop_gate": "H",
+          "permutation_sha256": "56936abf6634e02ea069fc3c4345f49254c76bde78569ab6f276f0bc6e723b2f",
+          "scheduled_source_sha256": "db301d0e15f3913002e84882784d26ca46ba05e35140192e094590cded249ac7"
+        },
+        "checks": [
+          {
+            "branches": 1,
+            "scheduling_instrument_error": 2.7755575615628914e-17,
+            "complete_instrument_error": 5.551115123125783e-17,
+            "record_probability_error": 1.3877787807814457e-16
+          }
+        ]
+      },
+      {
+        "case": "old_record_renamed",
+        "histories": [
+          [],
+          [
+            [
+              0,
+              1
+            ]
+          ]
+        ],
+        "certificate": {
+          "wire_projections": 3,
+          "record_and_annotation_operations": 6
+        },
+        "scheduling": {
+          "moved_operations": 2,
+          "moved_t": 1,
+          "measurement_crossings": 2,
+          "deferred_records": 1,
+          "stop_gate": "H",
+          "permutation_sha256": "ae9ab3e55329a14ebcb1c2207338c5536b2ae22bb40ad2aa8d362238bef6a942",
+          "scheduled_source_sha256": "734ba5920315d1b8a07194b74cc4f51fd5f27dff8a33a0c8c6aa6f541274ffbb"
+        },
+        "checks": [
+          {
+            "branches": 2,
+            "scheduling_instrument_error": 5.551115123125783e-17,
+            "complete_instrument_error": 1.3877787807814457e-16,
+            "record_probability_error": 2.220446049250313e-16
+          },
+          {
+            "branches": 2,
+            "scheduling_instrument_error": 5.551115123125783e-17,
+            "complete_instrument_error": 1.3877787807814457e-16,
+            "record_probability_error": 2.220446049250313e-16
+          }
+        ]
+      },
+      {
+        "case": "new_record_barrier_renamed",
+        "histories": [
+          []
+        ],
+        "certificate": {
+          "wire_projections": 2,
+          "record_and_annotation_operations": 2
+        },
+        "scheduling": {
+          "moved_operations": 0,
+          "moved_t": 0,
+          "measurement_crossings": 0,
+          "deferred_records": 1,
+          "stop_gate": "CX",
+          "permutation_sha256": "068ff0cf40cd49ec76ac5101505e9ea3875525b709a9db927049e4812f3bd59f",
+          "scheduled_source_sha256": "c5709366e3a12cecd90bc06bc29dcedceab9adf1810499627a34d44e9f0e7c8e"
+        },
+        "checks": [
+          {
+            "branches": 1,
+            "scheduling_instrument_error": 0.0,
+            "complete_instrument_error": 0.0,
+            "record_probability_error": 3.3306690738754696e-16
+          }
+        ]
+      },
+      {
+        "case": "shared_wire_barrier_renamed",
+        "histories": [
+          []
+        ],
+        "certificate": {
+          "wire_projections": 2,
+          "record_and_annotation_operations": 2
+        },
+        "scheduling": {
+          "moved_operations": 0,
+          "moved_t": 0,
+          "measurement_crossings": 0,
+          "deferred_records": 1,
+          "stop_gate": "CX",
+          "permutation_sha256": "068ff0cf40cd49ec76ac5101505e9ea3875525b709a9db927049e4812f3bd59f",
+          "scheduled_source_sha256": "1a2fd202b158552f11e3cc3fdcc5344877fa2a3350f44801c6812a0ad85d5195"
+        },
+        "checks": [
+          {
+            "branches": 1,
+            "scheduling_instrument_error": 0.0,
+            "complete_instrument_error": 0.0,
+            "record_probability_error": 3.3306690738754696e-16
+          }
+        ]
+      },
+      {
+        "case": "noise_barrier_renamed",
+        "histories": [
+          [],
+          [
+            [
+              0,
+              11
+            ]
+          ]
+        ],
+        "certificate": {
+          "wire_projections": 2,
+          "record_and_annotation_operations": 2
+        },
+        "scheduling": {
+          "moved_operations": 0,
+          "moved_t": 0,
+          "measurement_crossings": 0,
+          "deferred_records": 1,
+          "stop_gate": "DEPOLARIZE2",
+          "permutation_sha256": "068ff0cf40cd49ec76ac5101505e9ea3875525b709a9db927049e4812f3bd59f",
+          "scheduled_source_sha256": "c07cc8c7a496a822f2dc04fa74e5220aad3e8e1919ba004df00f4c6493a5e9bf"
+        },
+        "checks": [
+          {
+            "branches": 1,
+            "scheduling_instrument_error": 0.0,
+            "complete_instrument_error": 0.0,
+            "record_probability_error": 3.3306690738754696e-16
+          },
+          {
+            "branches": 1,
+            "scheduling_instrument_error": 0.0,
+            "complete_instrument_error": 0.0,
+            "record_probability_error": 2.220446049250313e-16
+          }
+        ]
+      },
+      {
+        "case": "reset_barrier_renamed",
+        "histories": [
+          []
+        ],
+        "certificate": {
+          "wire_projections": 2,
+          "record_and_annotation_operations": 2
+        },
+        "scheduling": {
+          "moved_operations": 0,
+          "moved_t": 0,
+          "measurement_crossings": 0,
+          "deferred_records": 1,
+          "stop_gate": "R",
+          "permutation_sha256": "068ff0cf40cd49ec76ac5101505e9ea3875525b709a9db927049e4812f3bd59f",
+          "scheduled_source_sha256": "81657541d9952bfe19c63b699b7f1227db43df0956e4903ce5fefcc5b1731c51"
+        },
+        "checks": [
+          {
+            "branches": 1,
+            "scheduling_instrument_error": 0.0,
+            "complete_instrument_error": 0.0,
+            "record_probability_error": 3.3306690738754696e-16
+          }
+        ]
+      },
+      {
+        "case": "product_measurement_renamed",
+        "histories": [
+          [],
+          [
+            [
+              0,
+              1
+            ]
+          ]
+        ],
+        "certificate": {
+          "wire_projections": 3,
+          "record_and_annotation_operations": 3
+        },
+        "scheduling": {
+          "moved_operations": 1,
+          "moved_t": 1,
+          "measurement_crossings": 1,
+          "deferred_records": 2,
+          "stop_gate": "CX",
+          "permutation_sha256": "4b199643fdb7aff06d548c1176df0cbdcbaa1ae24d58477505df7f55659afb67",
+          "scheduled_source_sha256": "29ea9b702e73f712c5179de78cd8aec95116f4688972c121b17af1056c757f00"
+        },
+        "checks": [
+          {
+            "branches": 1,
+            "scheduling_instrument_error": 4.358438792651351e-18,
+            "complete_instrument_error": 2.7755575615628914e-17,
+            "record_probability_error": 1.942890293094024e-16
+          },
+          {
+            "branches": 1,
+            "scheduling_instrument_error": 4.358438792651351e-18,
+            "complete_instrument_error": 2.7755575615628914e-17,
+            "record_probability_error": 1.942890293094024e-16
+          }
+        ]
+      },
+      {
+        "case": "repeat_measurement_renamed",
+        "histories": [
+          []
+        ],
+        "certificate": {
+          "wire_projections": 2,
+          "record_and_annotation_operations": 3
+        },
+        "scheduling": {
+          "moved_operations": 1,
+          "moved_t": 1,
+          "measurement_crossings": 2,
+          "deferred_records": 3,
+          "stop_gate": "END",
+          "permutation_sha256": "d695a4fbf93149a7c9b1fe598a704b0d077c7c77721f0f11420726b1f30a6b89",
+          "scheduled_source_sha256": "8468c87c7d78452798f07a911f270f7e2c07dbfd524131cca0b30bc9291364c3"
+        },
+        "checks": [
+          {
+            "branches": 1,
+            "scheduling_instrument_error": 1.3877787807814457e-17,
+            "complete_instrument_error": 5.551115123125783e-17,
+            "record_probability_error": 1.3877787807814457e-16
+          }
+        ]
+      },
+      {
+        "case": "padding_renamed",
+        "histories": [
+          []
+        ],
+        "certificate": {
+          "wire_projections": 1,
+          "record_and_annotation_operations": 2
+        },
+        "scheduling": {
+          "moved_operations": 1,
+          "moved_t": 1,
+          "measurement_crossings": 1,
+          "deferred_records": 1,
+          "stop_gate": "H",
+          "permutation_sha256": "e1021b3e697a97b95ac49996c9340740976e00a04097f77b6a5074c94fcdf35a",
+          "scheduled_source_sha256": "1b8271fed388af3f8a942aa2e991948fb42a18459137af1be883664d7baed4a2"
+        },
+        "checks": [
+          {
+            "branches": 1,
+            "scheduling_instrument_error": 0.0,
+            "complete_instrument_error": 2.220446049250313e-16,
+            "record_probability_error": 2.220446049250313e-16
+          }
+        ]
+      },
+      {
+        "case": "noise_mixture_renamed",
+        "histories": [
+          [],
+          [
+            [
+              0,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              2,
+              1
+            ],
+            [
+              3,
+              1
+            ]
+          ]
+        ],
+        "certificate": {
+          "wire_projections": 2,
+          "record_and_annotation_operations": 4
+        },
+        "scheduling": {
+          "moved_operations": 2,
+          "moved_t": 1,
+          "measurement_crossings": 2,
+          "deferred_records": 1,
+          "stop_gate": "H",
+          "permutation_sha256": "070453960a8f264440d8b0f2f95b598d1715f5af6a966baec1b98e27e6f76fb3",
+          "scheduled_source_sha256": "9b2391c788883c15f770994160199cb00495cd3a5a6931e6a9f3670c679e147c"
+        },
+        "checks": [
+          {
+            "branches": 1,
+            "scheduling_instrument_error": 1.3877787807814457e-17,
+            "complete_instrument_error": 5.551115123125783e-17,
+            "record_probability_error": 1.1102230246251565e-16
+          },
+          {
+            "branches": 1,
+            "scheduling_instrument_error": 1.3877787807814457e-17,
+            "complete_instrument_error": 5.551115123125783e-17,
+            "record_probability_error": 1.1102230246251565e-16
+          }
+        ]
+      },
+      {
+        "case": "categorical_renamed",
+        "histories": [
+          [],
+          [
+            [
+              0,
+              1
+            ],
+            [
+              1,
+              8
+            ]
+          ]
+        ],
+        "certificate": {
+          "wire_projections": 3,
+          "record_and_annotation_operations": 3
+        },
+        "scheduling": {
+          "moved_operations": 3,
+          "moved_t": 1,
+          "measurement_crossings": 3,
+          "deferred_records": 1,
+          "stop_gate": "H",
+          "permutation_sha256": "35781ea577b9fe8858dba14b9bbc2d440f11d706eb02e6f0fedf2610c1e9e782",
+          "scheduled_source_sha256": "d30f0c6f968460ab3e86e138467e4aea1f07d9cff6bcf31887fb834f7915111f"
+        },
+        "checks": [
+          {
+            "branches": 1,
+            "scheduling_instrument_error": 2.8609792490763984e-17,
+            "complete_instrument_error": 8.355534721610418e-17,
+            "record_probability_error": 2.220446049250313e-16
+          },
+          {
+            "branches": 1,
+            "scheduling_instrument_error": 1.0408340855860843e-17,
+            "complete_instrument_error": 4.163336342344337e-17,
+            "record_probability_error": 1.3877787807814457e-16
+          }
+        ]
+      },
+      {
+        "case": "general_0_renamed",
+        "histories": [
+          [],
+          [
+            [
+              0,
+              1
+            ],
+            [
+              1,
+              1
+            ]
+          ]
+        ],
+        "certificate": {
+          "wire_projections": 3,
+          "record_and_annotation_operations": 4
+        },
+        "scheduling": {
+          "moved_operations": 4,
+          "moved_t": 3,
+          "measurement_crossings": 5,
+          "deferred_records": 2,
+          "stop_gate": "H",
+          "permutation_sha256": "45ffb8e6e43bdb99e24757bf07eacba4b2b9cd65f9e95bc81e509bdb3203a280",
+          "scheduled_source_sha256": "ca0eccb76331ba6c1f6db83c4e6ad54c180477d357c3e2cc27481781945500a1"
+        },
+        "checks": [
+          {
+            "branches": 1,
+            "scheduling_instrument_error": 7.757919228897728e-18,
+            "complete_instrument_error": 1.0551910960100404e-17,
+            "record_probability_error": 1.6653345369377348e-16
+          },
+          {
+            "branches": 1,
+            "scheduling_instrument_error": 8.673617379884035e-18,
+            "complete_instrument_error": 1.2266347333466993e-17,
+            "record_probability_error": 1.1102230246251565e-16
+          }
+        ]
+      },
+      {
+        "case": "general_1_renamed",
+        "histories": [
+          [],
+          [
+            [
+              0,
+              1
+            ],
+            [
+              1,
+              3
+            ]
+          ]
+        ],
+        "certificate": {
+          "wire_projections": 3,
+          "record_and_annotation_operations": 4
+        },
+        "scheduling": {
+          "moved_operations": 4,
+          "moved_t": 3,
+          "measurement_crossings": 5,
+          "deferred_records": 2,
+          "stop_gate": "H",
+          "permutation_sha256": "45ffb8e6e43bdb99e24757bf07eacba4b2b9cd65f9e95bc81e509bdb3203a280",
+          "scheduled_source_sha256": "cb60d28601def9428486cd59d7d6e6c2249f220e199702618bbf258b758207bd"
+        },
+        "checks": [
+          {
+            "branches": 1,
+            "scheduling_instrument_error": 1.7347234759768075e-18,
+            "complete_instrument_error": 3.469446951953614e-17,
+            "record_probability_error": 2.220446049250313e-16
+          },
+          {
+            "branches": 1,
+            "scheduling_instrument_error": 1.7347234759768075e-18,
+            "complete_instrument_error": 3.122502256758253e-17,
+            "record_probability_error": 2.220446049250313e-16
+          }
+        ]
+      },
+      {
+        "case": "general_2_renamed",
+        "histories": [
+          [],
+          [
+            [
+              0,
+              1
+            ],
+            [
+              1,
+              3
+            ]
+          ]
+        ],
+        "certificate": {
+          "wire_projections": 3,
+          "record_and_annotation_operations": 4
+        },
+        "scheduling": {
+          "moved_operations": 4,
+          "moved_t": 3,
+          "measurement_crossings": 5,
+          "deferred_records": 2,
+          "stop_gate": "H",
+          "permutation_sha256": "45ffb8e6e43bdb99e24757bf07eacba4b2b9cd65f9e95bc81e509bdb3203a280",
+          "scheduled_source_sha256": "e21fc24eaf28fde07069241a77ae7e069f35237847a230eaf442280e77d615cc"
+        },
+        "checks": [
+          {
+            "branches": 1,
+            "scheduling_instrument_error": 3.3504882823795342e-18,
+            "complete_instrument_error": 4.163336342344337e-17,
+            "record_probability_error": 1.1102230246251565e-16
+          },
+          {
+            "branches": 1,
+            "scheduling_instrument_error": 3.3504882823795342e-18,
+            "complete_instrument_error": 4.163336342344337e-17,
+            "record_probability_error": 1.1102230246251565e-16
+          }
+        ]
+      },
+      {
+        "case": "general_3_renamed",
+        "histories": [
+          [],
+          [
+            [
+              0,
+              1
+            ],
+            [
+              1,
+              1
+            ]
+          ]
+        ],
+        "certificate": {
+          "wire_projections": 3,
+          "record_and_annotation_operations": 4
+        },
+        "scheduling": {
+          "moved_operations": 4,
+          "moved_t": 3,
+          "measurement_crossings": 5,
+          "deferred_records": 2,
+          "stop_gate": "H",
+          "permutation_sha256": "45ffb8e6e43bdb99e24757bf07eacba4b2b9cd65f9e95bc81e509bdb3203a280",
+          "scheduled_source_sha256": "d32558c05f304f26e3b4ed703a4418e1770efeba0153938c480c53e0b5f5b6af"
+        },
+        "checks": [
+          {
+            "branches": 1,
+            "scheduling_instrument_error": 6.992893892674703e-18,
+            "complete_instrument_error": 1.7368905267604862e-17,
+            "record_probability_error": 1.6653345369377348e-16
+          },
+          {
+            "branches": 1,
+            "scheduling_instrument_error": 6.992893892674703e-18,
+            "complete_instrument_error": 2.083474391183281e-17,
+            "record_probability_error": 1.1102230246251565e-16
+          }
+        ]
+      }
+    ]
+  },
+  "mixtures": [
+    {
+      "case": "noise_mixture",
+      "histories": 16,
+      "probability_mass": 1.0,
+      "weighted_instrument_error_bound": 5.551115123125783e-17,
+      "maximum_record_probability_error": 1.1102230246251565e-16
+    },
+    {
+      "case": "categorical",
+      "histories": 32,
+      "probability_mass": 1.0,
+      "weighted_instrument_error_bound": 7.743029511160864e-17,
+      "maximum_record_probability_error": 2.220446049250313e-16
+    }
+  ],
+  "guards": {
+    "dependent_boundaries": 4,
+    "detected_bad_schedule": true,
+    "invalid_histories": 3,
+    "bell_probe_controls": [
+      {
+        "history": [],
+        "seed": 417,
+        "entry_reference_bloch": [
+          0,
+          0,
+          0
+        ],
+        "next_region_reference_bloch": [
+          0,
+          0,
+          0
+        ],
+        "entry_logical_witnesses": [
+          "+X_X",
+          "+Z_Z"
+        ],
+        "next_region_logical_witnesses": [
+          "+X_X_",
+          "+Z_Z_"
+        ],
+        "purified_resets": 1,
+        "first_logical_loss": null,
+        "bridge_gate_counts": {
+          "RX": 1,
+          "H": 1
+        },
+        "bridge_measurement_predictability": {},
+        "next_gate": "T",
+        "sampled_visible_records": [],
+        "scope": "Conditional Bell-probe instrument with resets purified; not probabilities for the original non-Clifford input"
+      },
+      {
+        "history": [],
+        "seed": 417,
+        "entry_reference_bloch": [
+          0,
+          0,
+          0
+        ],
+        "next_region_reference_bloch": [
+          0,
+          0,
+          0
+        ],
+        "entry_logical_witnesses": [
+          "+XX",
+          "+ZZ"
+        ],
+        "next_region_logical_witnesses": [
+          null,
+          null
+        ],
+        "purified_resets": 1,
+        "first_logical_loss": {
+          "gate": "R",
+          "instruction": "R 0"
+        },
+        "bridge_gate_counts": {
+          "R": 1,
+          "H": 1
+        },
+        "bridge_measurement_predictability": {},
+        "next_gate": "T",
+        "sampled_visible_records": [],
+        "scope": "Conditional Bell-probe instrument with resets purified; not probabilities for the original non-Clifford input"
+      },
+      {
+        "history": [],
+        "seed": 417,
+        "entry_reference_bloch": [
+          0,
+          0,
+          0
+        ],
+        "next_region_reference_bloch": [
+          0,
+          0,
+          0
+        ],
+        "entry_logical_witnesses": [
+          "+XXX",
+          "+Z_Z"
+        ],
+        "next_region_logical_witnesses": [
+          null,
+          "+Z_Z_"
+        ],
+        "purified_resets": 1,
+        "first_logical_loss": {
+          "gate": "RX",
+          "instruction": "RX 1"
+        },
+        "bridge_gate_counts": {
+          "RX": 1
+        },
+        "bridge_measurement_predictability": {},
+        "next_gate": "T",
+        "sampled_visible_records": [],
+        "scope": "Conditional Bell-probe instrument with resets purified; not probabilities for the original non-Clifford input"
+      },
+      {
+        "history": [],
+        "seed": 417,
+        "entry_reference_bloch": [
+          0,
+          0,
+          0
+        ],
+        "next_region_reference_bloch": [
+          0,
+          0,
+          0
+        ],
+        "entry_logical_witnesses": [
+          "+XXX",
+          "+Z_Z"
+        ],
+        "next_region_logical_witnesses": [
+          "+X_X_",
+          "+Z_Z_"
+        ],
+        "purified_resets": 1,
+        "first_logical_loss": null,
+        "bridge_gate_counts": {
+          "MX": 1,
+          "CZ": 1,
+          "RX": 1
+        },
+        "bridge_measurement_predictability": {
+          "random_MX": 1
+        },
+        "next_gate": "T",
+        "sampled_visible_records": [
+          1
+        ],
+        "scope": "Conditional Bell-probe instrument with resets purified; not probabilities for the original non-Clifford input"
+      }
+    ]
+  },
+  "protocols": [
+    {
+      "case": "bt27_scored",
+      "certificate": {
+        "wire_projections": 135,
+        "record_and_annotation_operations": 342
+      },
+      "scheduling": {
+        "moved_operations": 102,
+        "moved_t": 42,
+        "measurement_crossings": 7344,
+        "deferred_records": 81,
+        "stop_gate": "END",
+        "permutation_sha256": "f9f0c2d08a9fdb2b9313c27125a437622ade966abb00ac457c8131774f388daf",
+        "scheduled_source_sha256": "69291d5cba2f757ecd3fc7208b2e7d121e70a7b62d4f2c2a48e97fc0b014298b"
+      },
+      "histories": [
+        [],
+        [
+          [
+            0,
+            1
+          ]
+        ],
+        [
+          [
+            1390,
+            1
+          ]
+        ],
+        [
+          [
+            1390,
+            7
+          ]
+        ],
+        [
+          [
+            1390,
+            15
+          ]
+        ],
+        [
+          [
+            2780,
+            1
+          ]
+        ],
+        [
+          [
+            2780,
+            3
+          ]
+        ],
+        [
+          [
+            4169,
+            1
+          ]
+        ],
+        [
+          [
+            2846,
+            3
+          ],
+          [
+            3714,
+            7
+          ]
+        ],
+        [
+          [
+            93,
+            10
+          ],
+          [
+            559,
+            15
+          ],
+          [
+            1837,
+            2
+          ],
+          [
+            2801,
+            13
+          ],
+          [
+            2919,
+            1
+          ]
+        ],
+        [
+          [
+            384,
+            3
+          ],
+          [
+            877,
+            7
+          ],
+          [
+            942,
+            15
+          ],
+          [
+            1781,
+            6
+          ],
+          [
+            2185,
+            1
+          ],
+          [
+            2406,
+            2
+          ],
+          [
+            2448,
+            1
+          ],
+          [
+            2477,
+            13
+          ],
+          [
+            3759,
+            11
+          ],
+          [
+            3817,
+            5
+          ],
+          [
+            3836,
+            2
+          ],
+          [
+            4143,
+            1
+          ]
+        ]
+      ],
+      "conditional_laws": 22,
+      "law_hashes": [
+        "cd052a475f29d508afb8c2ef9a74037e273f79d2b20aa3c65828ca65662f1119",
+        "b57f854da00b993795c1741581067d5b86f08f4a355c1b3b39eed300e52ff971",
+        "6dc13c480718d6069db997ac21f3692b34099afd3d201d985b83013232c60ed9",
+        "d82e10a23dc801e816c150509f3ee67769686071ca781a2880a146e3e9bcedbf",
+        "ce7dd4dc30f79031f6a3cc26d63074a84be666e6c983ec3e8f7b7750908447a3",
+        "efd7c64d71469e01e09bfc1e7479dbde5ad1d949e1608afc09d39b30e6f191b0",
+        "aca5bec920009676f58351fbc94f9fdb9b44458dfad89875f5ee1534630407ac",
+        "6f666dd0e30eb4bed7b7c3dd79ab4d4b1c6bd8ed39e52731056a8b1620f9bdc1",
+        "8a15d072ba46ab0cc82039c08b4b64b0ada2388b208115bccde78f84705e07ba",
+        "247a9dc0f8eba40e162e3d80b0016b617103de90b1d3889fcf97d3245d52f63f",
+        "b9ea3bbb985f7619d465f3ef4cc01d70eb18b846a44da2fd7f49e2ce523831b5",
+        "8f0a8f848b34b057d0618428fff5b80592663e595d19f0dacb144b2924760f05",
+        "016bd66efea1d8e611b50c2faae2fab96dd214bf1fc30eb268985f9a9cb561f8",
+        "decadab6844996399c33293a686fd0c729832a26960c5b6c9e2ed00f976e6b04",
+        "7314d978737347bab9590d663900ca1f52f58349f85d5dfddadd767446dad38c",
+        "a1d49b15bd45f97e219cf83dd3717e2ba9133fd9f45bf4970f922d3a4c7ab60f",
+        "7bd569cadda75eba5a0da451bda78aa386b8666dd8ead68bb34450762b00335b",
+        "c66d5f8d84dfd50f7aaa4d613b07bdbfd4b9606c83db53bcc651019cc36340e2",
+        "fa97338911fe263e92028a878b421ff6bad88e1b0554f36af89e865235dabaf1",
+        "240b4f5a9f21b183b2bdff18dcf7eaf14561d9d9aed213334c345983d436384e",
+        "27ef745baab045e43f539ca80e53901dacd6c6ec773daf7bc0f3c96836f5e3ba",
+        "ec3d51fb3b972ea220ef30f376d1e6b49cf836ed636c12322b65b5c46917ed3d"
+      ],
+      "scope": "Compared to the prior shared-phase algorithm; not an independent large-state proof"
+    },
+    {
+      "case": "bt27_direct_x",
+      "certificate": {
+        "wire_projections": 135,
+        "record_and_annotation_operations": 342
+      },
+      "scheduling": {
+        "moved_operations": 0,
+        "moved_t": 0,
+        "measurement_crossings": 0,
+        "deferred_records": 81,
+        "stop_gate": "END",
+        "permutation_sha256": "5f6fbba71f6aaddf400720d3e0a19fa8b16c6503a10c8b539e6b93ee34a28205",
+        "scheduled_source_sha256": "a78d3d3b6914cbf9c5c2e4d5010fe991150a65624503f39fa6b5dcf613d84f20"
+      }
+    },
+    {
+      "case": "15to1_scored",
+      "certificate": {
+        "wire_projections": 15,
+        "record_and_annotation_operations": 30
+      },
+      "scheduling": {
+        "moved_operations": 1,
+        "moved_t": 1,
+        "measurement_crossings": 14,
+        "deferred_records": 15,
+        "stop_gate": "END",
+        "permutation_sha256": "e524fe7936b6fa073ab3bde52886fc52a4a8f6b481c953ac2ddc82573d8df717",
+        "scheduled_source_sha256": "18910d8264ea02f1fbac052bb1fddcceaa82e3780b737ec6d5590728ae087c01"
+      },
+      "histories": [
+        [],
+        [
+          [
+            0,
+            1
+          ]
+        ],
+        [
+          [
+            0,
+            7
+          ]
+        ],
+        [
+          [
+            0,
+            15
+          ]
+        ],
+        [
+          [
+            96,
+            1
+          ]
+        ],
+        [
+          [
+            96,
+            7
+          ]
+        ],
+        [
+          [
+            96,
+            15
+          ]
+        ],
+        [
+          [
+            192,
+            1
+          ]
+        ],
+        [
+          [
+            192,
+            7
+          ]
+        ],
+        [
+          [
+            192,
+            15
+          ]
+        ],
+        [
+          [
+            288,
+            1
+          ]
+        ],
+        [
+          [
+            288,
+            7
+          ]
+        ],
+        [
+          [
+            288,
+            15
+          ]
+        ],
+        [
+          [
+            177,
+            11
+          ],
+          [
+            232,
+            7
+          ]
+        ],
+        [
+          [
+            5,
+            10
+          ],
+          [
+            34,
+            15
+          ],
+          [
+            114,
+            6
+          ],
+          [
+            175,
+            13
+          ],
+          [
+            182,
+            1
+          ]
+        ],
+        [
+          [
+            24,
+            3
+          ],
+          [
+            54,
+            7
+          ],
+          [
+            58,
+            15
+          ],
+          [
+            111,
+            6
+          ],
+          [
+            136,
+            3
+          ],
+          [
+            150,
+            2
+          ],
+          [
+            153,
+            2
+          ],
+          [
+            154,
+            13
+          ],
+          [
+            234,
+            11
+          ],
+          [
+            238,
+            5
+          ],
+          [
+            239,
+            2
+          ],
+          [
+            258,
+            8
+          ]
+        ]
+      ],
+      "conditional_laws": 32,
+      "law_hashes": [
+        "9b7ef79c6c14ae35376f70687bbbde4b9c72cb28f6834ecd35e84e417714f542",
+        "9b7ef79c6c14ae35376f70687bbbde4b9c72cb28f6834ecd35e84e417714f542",
+        "456a370c6957eb83f48870e94649792deb1b252edc4865b411773c010976e5a7",
+        "456a370c6957eb83f48870e94649792deb1b252edc4865b411773c010976e5a7",
+        "26e4874f393a8794c9126e26303fc92ad0ff016c417d5fa706f27094816c923a",
+        "26e4874f393a8794c9126e26303fc92ad0ff016c417d5fa706f27094816c923a",
+        "9b7ef79c6c14ae35376f70687bbbde4b9c72cb28f6834ecd35e84e417714f542",
+        "9b7ef79c6c14ae35376f70687bbbde4b9c72cb28f6834ecd35e84e417714f542",
+        "456a370c6957eb83f48870e94649792deb1b252edc4865b411773c010976e5a7",
+        "456a370c6957eb83f48870e94649792deb1b252edc4865b411773c010976e5a7",
+        "57bce2268b5e9f65df330fed96c2ab7c6ccb22f08377ba965a7f88c9dbe40a81",
+        "57bce2268b5e9f65df330fed96c2ab7c6ccb22f08377ba965a7f88c9dbe40a81",
+        "9b7ef79c6c14ae35376f70687bbbde4b9c72cb28f6834ecd35e84e417714f542",
+        "9b7ef79c6c14ae35376f70687bbbde4b9c72cb28f6834ecd35e84e417714f542",
+        "e26f6129608c1ac4515ed7eafc8db9dde0c84aa5af3f31c2ca1ee73713a06ba8",
+        "e26f6129608c1ac4515ed7eafc8db9dde0c84aa5af3f31c2ca1ee73713a06ba8",
+        "d9adc94c8b6aae31b0cdd09f3078751e9ff062837678e8794de9f36b4a3d9064",
+        "d9adc94c8b6aae31b0cdd09f3078751e9ff062837678e8794de9f36b4a3d9064",
+        "8a34abb06cdeb5a527e1e521dfc7a62443ef836bab6862ca5485456a93a59168",
+        "8a34abb06cdeb5a527e1e521dfc7a62443ef836bab6862ca5485456a93a59168",
+        "e26f6129608c1ac4515ed7eafc8db9dde0c84aa5af3f31c2ca1ee73713a06ba8",
+        "e26f6129608c1ac4515ed7eafc8db9dde0c84aa5af3f31c2ca1ee73713a06ba8",
+        "80019c3573fc0bb7767970466c9b10f134586d814c6818595e6a6e00689970f4",
+        "80019c3573fc0bb7767970466c9b10f134586d814c6818595e6a6e00689970f4",
+        "9b7ef79c6c14ae35376f70687bbbde4b9c72cb28f6834ecd35e84e417714f542",
+        "9b7ef79c6c14ae35376f70687bbbde4b9c72cb28f6834ecd35e84e417714f542",
+        "c7e03cd0ae7f458edb732bb7f3382d70c8ea005042dd4f251abb032d443c09c2",
+        "c7e03cd0ae7f458edb732bb7f3382d70c8ea005042dd4f251abb032d443c09c2",
+        "e86aa7809ce57b5fe67f8f724e0e8d435192a67451fc6878c1beb835c2f2544c",
+        "e86aa7809ce57b5fe67f8f724e0e8d435192a67451fc6878c1beb835c2f2544c",
+        "273e2e81c15c7252ec4503b6104e7e423f494ed298a2e7246da7d29fda66106c",
+        "273e2e81c15c7252ec4503b6104e7e423f494ed298a2e7246da7d29fda66106c"
+      ],
+      "scope": "Compared to the prior shared-phase algorithm; not an independent large-state proof"
+    },
+    {
+      "case": "cultivation_d3",
+      "certificate": {
+        "wire_projections": 15,
+        "record_and_annotation_operations": 96
+      },
+      "scheduling": {
+        "moved_operations": 0,
+        "moved_t": 0,
+        "measurement_crossings": 0,
+        "deferred_records": 0,
+        "stop_gate": "RX",
+        "permutation_sha256": "ed9ca918c8ebc3b7abd8a57e55166c031703baf3f5dd256daea0302c8c78674b",
+        "scheduled_source_sha256": "13db33369e1a53291089b550ee767372a74e3968f1f83224991701645be7daf2"
+      }
+    },
+    {
+      "case": "cultivation_d5",
+      "certificate": {
+        "wire_projections": 42,
+        "record_and_annotation_operations": 408
+      },
+      "scheduling": {
+        "moved_operations": 0,
+        "moved_t": 0,
+        "measurement_crossings": 0,
+        "deferred_records": 0,
+        "stop_gate": "RX",
+        "permutation_sha256": "2b5d8fd5f46d03a102744bffb691d2bb444fa62db2792feded92a537596311ca",
+        "scheduled_source_sha256": "1083ba6918c1b59267b70e3363c9cd8c84ce636741ade96b375a5a884343d73c"
+      }
+    },
+    {
+      "case": "bt81_scored",
+      "certificate": {
+        "wire_projections": 405,
+        "record_and_annotation_operations": 1044
+      },
+      "scheduling": {
+        "moved_operations": 102,
+        "moved_t": 42,
+        "measurement_crossings": 23868,
+        "deferred_records": 243,
+        "stop_gate": "END",
+        "permutation_sha256": "2acab362eeec15f93cc50eeab4b8cb6c7414f43bcd198c5e8a370fac55b195d5",
+        "scheduled_source_sha256": "8371767d34672cea7407a3cb84c224cff23136fea7cd799d55efd99ab590112c"
+      },
+      "histories": [
+        [],
+        [
+          [
+            0,
+            1
+          ]
+        ],
+        [
+          [
+            8164,
+            1
+          ]
+        ],
+        [
+          [
+            8164,
+            7
+          ]
+        ],
+        [
+          [
+            8164,
+            15
+          ]
+        ],
+        [
+          [
+            16328,
+            1
+          ]
+        ],
+        [
+          [
+            16328,
+            7
+          ]
+        ],
+        [
+          [
+            16328,
+            15
+          ]
+        ],
+        [
+          [
+            24491,
+            1
+          ]
+        ],
+        [
+          [
+            11387,
+            11
+          ],
+          [
+            14857,
+            7
+          ]
+        ],
+        [
+          [
+            375,
+            6
+          ],
+          [
+            2238,
+            10
+          ],
+          [
+            7350,
+            15
+          ],
+          [
+            11679,
+            2
+          ],
+          [
+            20445,
+            13
+          ]
+        ],
+        [
+          [
+            454,
+            9
+          ],
+          [
+            1537,
+            15
+          ],
+          [
+            3508,
+            8
+          ],
+          [
+            3770,
+            4
+          ],
+          [
+            8740,
+            3
+          ],
+          [
+            9626,
+            7
+          ],
+          [
+            9795,
+            15
+          ],
+          [
+            9908,
+            6
+          ],
+          [
+            15038,
+            3
+          ],
+          [
+            15345,
+            2
+          ],
+          [
+            21855,
+            2
+          ],
+          [
+            24143,
+            13
+          ]
+        ]
+      ],
+      "conditional_laws": 24,
+      "law_hashes": [
+        "f6bc506ce8fc496b6856414531c32e89729e8f0ed476d2a68f7a3ccaaa3dc81e",
+        "67f8bcb15ec5ba5dcca0f28d6163c83451dd6458b4dcf30309ae83a2f4398550",
+        "9033ae1985b6f5bc136c29bdd913a1ca7d82c02f8d41507f96b1dc373eed6dc1",
+        "2c3cb7caa14600e270e63a5ed8712701d426ec3c322079d04dce987b76e20437",
+        "0b8e5f3d45baf4bd16ea5a59a5b7df0f33dc08b14647fafc0f76b126e265c5ec",
+        "7aefc7d246b41b613c3c1c263dd122049bcedf427108b17fccf7c9e28bf609a2",
+        "6c3be95e9f81d44ef71f55993848b0f72ed977eef429a5a82f2b9a5a60961bdd",
+        "852132d0fc26e3ed2fd5460a304e8044b9e215cd1c77af126a4d6e455260707e",
+        "b0e79e45e2bb830df1efa5f70302b6d7d789e91abdaf648b583990dd04373015",
+        "cf6ed2cf9ac6ae50028b097823ca034847156cc9a5e73d51f4882f7e8beead68",
+        "a97303b7b34432ac77f2cef2890d54a0a32b55736bec815ac9f8317baad713b1",
+        "84380adc76abca7a5962d1a276242cf742fb01ce7e806173da86ad365e23a8a3",
+        "fd9c22c85a032b8107485ccc858b383f9a23557944523db142ad5289315a116a",
+        "32af79ff931a0f3dd39988e03d4d45c88b1863dcc2db199a161ba8ac100cce75",
+        "970e00bb7aea90fafec266a418c77ad688d7249a28dbe90f2ffcc153ba5f97d4",
+        "7caa8e68dd4e0b485e2486c9844deec2a77d9ea38593aa147db463f61fd8f2f6",
+        "11e6a00b3cb053b443c1beb9e079db5724dbde40fa1395d22d7cbc699027c992",
+        "b6b1dcacef7202dcd2dcb3ca90cb8bf2d2239442bcc084b6d5806979c21b23ec",
+        "cd3d1758fadbf41704f320aa115a9badd1a68f1584c2bd49bb6af976d7ff7cef",
+        "6775e4fead4e4f013c422d51718a2c7ec88c3cf4dfec083839a7b4e31afd17ab",
+        "a56ff01bedab666fb3aede4ab13637964283429886371c6c57e1c4c88e3aa23c",
+        "6aa66e0b499c0a0d0e20c6c3a564c7b2b7fea9db2b9c11c346808e0dae9e7c06",
+        "990f55ef617d6e541133477ec954380c319b35c8d6b13c4ee71bbeefd8675bc7",
+        "29c1c78f75c77ce4312b5699b3a6ea6fccf5c14d412877610a1eaecfbdda1e42"
+      ],
+      "scope": "Compared to the prior shared-phase algorithm; not an independent large-state proof"
+    },
+    {
+      "case": "bt27_scored_all_gates_0.0001",
+      "certificate": {
+        "wire_projections": 135,
+        "record_and_annotation_operations": 351
+      },
+      "scheduling": {
+        "moved_operations": 204,
+        "moved_t": 42,
+        "measurement_crossings": 14688,
+        "deferred_records": 81,
+        "stop_gate": "END",
+        "permutation_sha256": "1ec7f0f1976c9354b810c2896650f523292afdd4e86ad733cb51ebde29311669",
+        "scheduled_source_sha256": "e67eb97b458cb001aa07178d27329bed96ac35b4f0d72f422f5635de14466423"
+      },
+      "histories": [
+        [],
+        [
+          [
+            0,
+            1
+          ]
+        ],
+        [
+          [
+            0,
+            3
+          ]
+        ],
+        [
+          [
+            1427,
+            1
+          ]
+        ],
+        [
+          [
+            1427,
+            7
+          ]
+        ],
+        [
+          [
+            1427,
+            15
+          ]
+        ],
+        [
+          [
+            2854,
+            1
+          ]
+        ],
+        [
+          [
+            2854,
+            7
+          ]
+        ],
+        [
+          [
+            2854,
+            15
+          ]
+        ],
+        [
+          [
+            4280,
+            1
+          ]
+        ],
+        [
+          [
+            2846,
+            3
+          ],
+          [
+            3714,
+            7
+          ]
+        ],
+        [
+          [
+            93,
+            10
+          ],
+          [
+            559,
+            15
+          ],
+          [
+            1837,
+            2
+          ],
+          [
+            2801,
+            13
+          ],
+          [
+            2919,
+            1
+          ]
+        ],
+        [
+          [
+            384,
+            3
+          ],
+          [
+            877,
+            7
+          ],
+          [
+            942,
+            15
+          ],
+          [
+            1781,
+            6
+          ],
+          [
+            2185,
+            1
+          ],
+          [
+            2406,
+            2
+          ],
+          [
+            2448,
+            1
+          ],
+          [
+            2477,
+            13
+          ],
+          [
+            3759,
+            11
+          ],
+          [
+            3817,
+            5
+          ],
+          [
+            3836,
+            2
+          ],
+          [
+            4143,
+            1
+          ]
+        ]
+      ],
+      "conditional_laws": 26,
+      "law_hashes": [
+        "cd052a475f29d508afb8c2ef9a74037e273f79d2b20aa3c65828ca65662f1119",
+        "b57f854da00b993795c1741581067d5b86f08f4a355c1b3b39eed300e52ff971",
+        "907de61847ea0add3ee99cea99683331075e317108d46cd63247718aa241c16e",
+        "da0a43370f99bd6f54e60b49d4863352055ed3b3e42c8a721847cf6e17b33e69",
+        "62fdd1bddb1ad03e536e4f215622dc4e8ae63314d8deddf91d01b9abf6c7342a",
+        "a84bc880f756ddcdd7a28fdfb239e56ec0cb6456d685c948193aec8eaa57a201",
+        "ef7b5d9d61a2b197641c7f5198d89abb7a2b422de491732cf7f5da59c92bc5fc",
+        "4c6c1d6ce655dc5f26606a5f3a117f169a80bbf72d9f7223121cb1e1ab7463ef",
+        "31709bb56a5d8564eca47ce35c1f122a8e98f63ff3cd6c6ad55d0b595861fbf0",
+        "37df08a4cec6550421213a1d5bb8fc385c9e223eb57243b47b7cca97b082b6bb",
+        "01ba216d214f242763f6cc2e10ba84acda0c9fbf8a31efe34a534a3023e0ff96",
+        "f620971f4af76f84149292ecf366f8499ff47123f91e5fd752fc430a57b35604",
+        "ca229e8e1e7b68809399afb0d194d23b3046e2f35c9c88fb7a0c4b076ee5ff3e",
+        "03379b3686302486cf083475934680408a490868c663e23d6a4b6793ae04816c",
+        "9afc709e26c584e58648ab33f9d2726a46ddbcfaf59e4b96077b8a5c8bf65b37",
+        "1bc30aafb4eb7a2d0d5b7e7bea159737855c86a9a102c6295bb1c3687bbe9ae8",
+        "8ea90396e0ea83191a318474aff296aaf26cb9e3ddb7f9fbedf05a0b2241886c",
+        "708910c63aaae169f4fe452eb51809de9366e972ed7b41000ccefd8d569c7a7d",
+        "4530b0af279f9a188179d28705d70eb7a9962def1cb7257aff15f8ba688dcc4f",
+        "7b24cdd6def8dfe1051e21ebae1fa7189458ca639f5420e91c41e82804ef9ee6",
+        "6782413498e2e19eb4d7f09e00422ebb3d069762b17df6b47b86a2ae7b1aeeaf",
+        "5c1ecc5b877a821ada2968d1fe4956318ab980aaeff3d3ff04cdb5a7a2e49c75",
+        "2cfcf08aee1e8279c3c68abb86856259189dc1ff5ee96bd98f6830d2cab5a3be",
+        "07c1650d5a2901745007261a768bcc3a35949bcbcc4a1321b05ffdb2e911b51d",
+        "b226d637e56e0b0dfe6be777c45f475e678ec8d52766404d02a7e6cfb15713a4",
+        "690010ca4d41b7d2e092b5061dd17c804ab09ef00694496b0ebd00c2337768cf"
+      ],
+      "scope": "Compared to the prior shared-phase algorithm; not an independent large-state proof"
+    },
+    {
+      "case": "bt27_scored_all_gates_0.001",
+      "certificate": {
+        "wire_projections": 135,
+        "record_and_annotation_operations": 351
+      },
+      "scheduling": {
+        "moved_operations": 204,
+        "moved_t": 42,
+        "measurement_crossings": 14688,
+        "deferred_records": 81,
+        "stop_gate": "END",
+        "permutation_sha256": "1ec7f0f1976c9354b810c2896650f523292afdd4e86ad733cb51ebde29311669",
+        "scheduled_source_sha256": "b86900db4bbb5fe54891c76291a28c044a351f46929c4b7ba23a5b48309b6b47"
+      },
+      "histories": [
+        [],
+        [
+          [
+            0,
+            1
+          ]
+        ],
+        [
+          [
+            0,
+            3
+          ]
+        ],
+        [
+          [
+            1427,
+            1
+          ]
+        ],
+        [
+          [
+            1427,
+            7
+          ]
+        ],
+        [
+          [
+            1427,
+            15
+          ]
+        ],
+        [
+          [
+            2854,
+            1
+          ]
+        ],
+        [
+          [
+            2854,
+            7
+          ]
+        ],
+        [
+          [
+            2854,
+            15
+          ]
+        ],
+        [
+          [
+            4280,
+            1
+          ]
+        ],
+        [
+          [
+            2846,
+            3
+          ],
+          [
+            3714,
+            7
+          ]
+        ],
+        [
+          [
+            93,
+            10
+          ],
+          [
+            559,
+            15
+          ],
+          [
+            1837,
+            2
+          ],
+          [
+            2801,
+            13
+          ],
+          [
+            2919,
+            1
+          ]
+        ],
+        [
+          [
+            384,
+            3
+          ],
+          [
+            877,
+            7
+          ],
+          [
+            942,
+            15
+          ],
+          [
+            1781,
+            6
+          ],
+          [
+            2185,
+            1
+          ],
+          [
+            2406,
+            2
+          ],
+          [
+            2448,
+            1
+          ],
+          [
+            2477,
+            13
+          ],
+          [
+            3759,
+            11
+          ],
+          [
+            3817,
+            5
+          ],
+          [
+            3836,
+            2
+          ],
+          [
+            4143,
+            1
+          ]
+        ]
+      ],
+      "conditional_laws": 26,
+      "law_hashes": [
+        "cd052a475f29d508afb8c2ef9a74037e273f79d2b20aa3c65828ca65662f1119",
+        "b57f854da00b993795c1741581067d5b86f08f4a355c1b3b39eed300e52ff971",
+        "907de61847ea0add3ee99cea99683331075e317108d46cd63247718aa241c16e",
+        "da0a43370f99bd6f54e60b49d4863352055ed3b3e42c8a721847cf6e17b33e69",
+        "62fdd1bddb1ad03e536e4f215622dc4e8ae63314d8deddf91d01b9abf6c7342a",
+        "a84bc880f756ddcdd7a28fdfb239e56ec0cb6456d685c948193aec8eaa57a201",
+        "ef7b5d9d61a2b197641c7f5198d89abb7a2b422de491732cf7f5da59c92bc5fc",
+        "4c6c1d6ce655dc5f26606a5f3a117f169a80bbf72d9f7223121cb1e1ab7463ef",
+        "31709bb56a5d8564eca47ce35c1f122a8e98f63ff3cd6c6ad55d0b595861fbf0",
+        "37df08a4cec6550421213a1d5bb8fc385c9e223eb57243b47b7cca97b082b6bb",
+        "01ba216d214f242763f6cc2e10ba84acda0c9fbf8a31efe34a534a3023e0ff96",
+        "f620971f4af76f84149292ecf366f8499ff47123f91e5fd752fc430a57b35604",
+        "ca229e8e1e7b68809399afb0d194d23b3046e2f35c9c88fb7a0c4b076ee5ff3e",
+        "03379b3686302486cf083475934680408a490868c663e23d6a4b6793ae04816c",
+        "9afc709e26c584e58648ab33f9d2726a46ddbcfaf59e4b96077b8a5c8bf65b37",
+        "1bc30aafb4eb7a2d0d5b7e7bea159737855c86a9a102c6295bb1c3687bbe9ae8",
+        "8ea90396e0ea83191a318474aff296aaf26cb9e3ddb7f9fbedf05a0b2241886c",
+        "708910c63aaae169f4fe452eb51809de9366e972ed7b41000ccefd8d569c7a7d",
+        "4530b0af279f9a188179d28705d70eb7a9962def1cb7257aff15f8ba688dcc4f",
+        "7b24cdd6def8dfe1051e21ebae1fa7189458ca639f5420e91c41e82804ef9ee6",
+        "6782413498e2e19eb4d7f09e00422ebb3d069762b17df6b47b86a2ae7b1aeeaf",
+        "5c1ecc5b877a821ada2968d1fe4956318ab980aaeff3d3ff04cdb5a7a2e49c75",
+        "2cfcf08aee1e8279c3c68abb86856259189dc1ff5ee96bd98f6830d2cab5a3be",
+        "07c1650d5a2901745007261a768bcc3a35949bcbcc4a1321b05ffdb2e911b51d",
+        "b226d637e56e0b0dfe6be777c45f475e678ec8d52766404d02a7e6cfb15713a4",
+        "690010ca4d41b7d2e092b5061dd17c804ab09ef00694496b0ebd00c2337768cf"
+      ],
+      "scope": "Compared to the prior shared-phase algorithm; not an independent large-state proof"
+    },
+    {
+      "case": "bt27_scored_all_gates_0.01",
+      "certificate": {
+        "wire_projections": 135,
+        "record_and_annotation_operations": 351
+      },
+      "scheduling": {
+        "moved_operations": 204,
+        "moved_t": 42,
+        "measurement_crossings": 14688,
+        "deferred_records": 81,
+        "stop_gate": "END",
+        "permutation_sha256": "1ec7f0f1976c9354b810c2896650f523292afdd4e86ad733cb51ebde29311669",
+        "scheduled_source_sha256": "d34f446c1e0b09037bb5cc1eea75b97e44740810c24f446f8077d74e48b73946"
+      },
+      "histories": [
+        [],
+        [
+          [
+            0,
+            1
+          ]
+        ],
+        [
+          [
+            0,
+            3
+          ]
+        ],
+        [
+          [
+            1427,
+            1
+          ]
+        ],
+        [
+          [
+            1427,
+            7
+          ]
+        ],
+        [
+          [
+            1427,
+            15
+          ]
+        ],
+        [
+          [
+            2854,
+            1
+          ]
+        ],
+        [
+          [
+            2854,
+            7
+          ]
+        ],
+        [
+          [
+            2854,
+            15
+          ]
+        ],
+        [
+          [
+            4280,
+            1
+          ]
+        ],
+        [
+          [
+            2846,
+            3
+          ],
+          [
+            3714,
+            7
+          ]
+        ],
+        [
+          [
+            93,
+            10
+          ],
+          [
+            559,
+            15
+          ],
+          [
+            1837,
+            2
+          ],
+          [
+            2801,
+            13
+          ],
+          [
+            2919,
+            1
+          ]
+        ],
+        [
+          [
+            384,
+            3
+          ],
+          [
+            877,
+            7
+          ],
+          [
+            942,
+            15
+          ],
+          [
+            1781,
+            6
+          ],
+          [
+            2185,
+            1
+          ],
+          [
+            2406,
+            2
+          ],
+          [
+            2448,
+            1
+          ],
+          [
+            2477,
+            13
+          ],
+          [
+            3759,
+            11
+          ],
+          [
+            3817,
+            5
+          ],
+          [
+            3836,
+            2
+          ],
+          [
+            4143,
+            1
+          ]
+        ]
+      ],
+      "conditional_laws": 26,
+      "law_hashes": [
+        "cd052a475f29d508afb8c2ef9a74037e273f79d2b20aa3c65828ca65662f1119",
+        "b57f854da00b993795c1741581067d5b86f08f4a355c1b3b39eed300e52ff971",
+        "907de61847ea0add3ee99cea99683331075e317108d46cd63247718aa241c16e",
+        "da0a43370f99bd6f54e60b49d4863352055ed3b3e42c8a721847cf6e17b33e69",
+        "62fdd1bddb1ad03e536e4f215622dc4e8ae63314d8deddf91d01b9abf6c7342a",
+        "a84bc880f756ddcdd7a28fdfb239e56ec0cb6456d685c948193aec8eaa57a201",
+        "ef7b5d9d61a2b197641c7f5198d89abb7a2b422de491732cf7f5da59c92bc5fc",
+        "4c6c1d6ce655dc5f26606a5f3a117f169a80bbf72d9f7223121cb1e1ab7463ef",
+        "31709bb56a5d8564eca47ce35c1f122a8e98f63ff3cd6c6ad55d0b595861fbf0",
+        "37df08a4cec6550421213a1d5bb8fc385c9e223eb57243b47b7cca97b082b6bb",
+        "01ba216d214f242763f6cc2e10ba84acda0c9fbf8a31efe34a534a3023e0ff96",
+        "f620971f4af76f84149292ecf366f8499ff47123f91e5fd752fc430a57b35604",
+        "ca229e8e1e7b68809399afb0d194d23b3046e2f35c9c88fb7a0c4b076ee5ff3e",
+        "03379b3686302486cf083475934680408a490868c663e23d6a4b6793ae04816c",
+        "9afc709e26c584e58648ab33f9d2726a46ddbcfaf59e4b96077b8a5c8bf65b37",
+        "1bc30aafb4eb7a2d0d5b7e7bea159737855c86a9a102c6295bb1c3687bbe9ae8",
+        "8ea90396e0ea83191a318474aff296aaf26cb9e3ddb7f9fbedf05a0b2241886c",
+        "708910c63aaae169f4fe452eb51809de9366e972ed7b41000ccefd8d569c7a7d",
+        "4530b0af279f9a188179d28705d70eb7a9962def1cb7257aff15f8ba688dcc4f",
+        "7b24cdd6def8dfe1051e21ebae1fa7189458ca639f5420e91c41e82804ef9ee6",
+        "6782413498e2e19eb4d7f09e00422ebb3d069762b17df6b47b86a2ae7b1aeeaf",
+        "5c1ecc5b877a821ada2968d1fe4956318ab980aaeff3d3ff04cdb5a7a2e49c75",
+        "2cfcf08aee1e8279c3c68abb86856259189dc1ff5ee96bd98f6830d2cab5a3be",
+        "07c1650d5a2901745007261a768bcc3a35949bcbcc4a1321b05ffdb2e911b51d",
+        "b226d637e56e0b0dfe6be777c45f475e678ec8d52766404d02a7e6cfb15713a4",
+        "690010ca4d41b7d2e092b5061dd17c804ab09ef00694496b0ebd00c2337768cf"
+      ],
+      "scope": "Compared to the prior shared-phase algorithm; not an independent large-state proof"
+    },
+    {
+      "case": "bt27_direct_x_all_gates_0.001",
+      "certificate": {
+        "wire_projections": 135,
+        "record_and_annotation_operations": 351
+      },
+      "scheduling": {
+        "moved_operations": 0,
+        "moved_t": 0,
+        "measurement_crossings": 0,
+        "deferred_records": 81,
+        "stop_gate": "END",
+        "permutation_sha256": "71d48b1106f4ad51b5fb2e3986b7827016545df0d15d3ac1994f0cb864bd3ec6",
+        "scheduled_source_sha256": "cab83699d9780b078d57cfcbfe24c681d664f3bcd9090cd7a0d470e8951630b1"
+      }
+    }
+  ]
+}

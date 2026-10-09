@@ -30,12 +30,18 @@ class Block:
     index: int
     sites: tuple[int, ...]
     readout_probability: float | None = None
+    alternatives: tuple[Any, ...] = ()
 
     @property
     def wires(self) -> set[int]:
         if self.node.gate.name in ANNOTATIONS | {"MPAD"}:
             return set()
-        return {t.value for t in self.node.targets if not t.is_rec}
+        return {
+            t.value
+            for node in (self.node, *self.alternatives)
+            for t in node.targets
+            if not t.is_rec
+        }
 
 
 class DeferredPhase:
@@ -45,13 +51,20 @@ class DeferredPhase:
         site = 0
         for index, node in enumerate(clifft.parse(source).nodes):
             gate = node.gate.name
+            if gate == "ELSE_CORRELATED_ERROR":
+                blocks[-1].alternatives += (node,)
+                continue
             if gate == "READOUT_NOISE":
                 blocks[-1].readout_probability = node.arg
                 blocks[-1].sites += (site,)
                 site += 1
                 continue
             count = (
-                len(node.targets) // (2 if gate.endswith("2") else 1) if gate in PAULI_NOISE else 0
+                1
+                if gate == "CORRELATED_ERROR"
+                else len(node.targets) // (2 if gate.endswith("2") else 1)
+                if gate in PAULI_NOISE
+                else 0
             )
             blocks.append(Block(node, index, tuple(range(site, site + count))))
             site += count
@@ -105,6 +118,7 @@ class DeferredPhase:
                 gate, targets = line.split(" ", 1)
                 line = f"{gate}({block.readout_probability:.17g}) {targets}"
             lines.append(line)
+            lines.extend(instruction_text(node, records) for node in block.alternatives)
             records += record_count(block.node)
             site_order.extend(block.sites)
         self.scheduled_source = "\n".join(lines) + "\n"

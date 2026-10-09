@@ -717,6 +717,56 @@ native exporter; use a fresh output path such as
 separates the demonstrated entry capability from synthesis expansion, remaining
 large-circuit validation limits, and substantial per-shot host overhead.
 
+## Automatic conditional reduction assessment
+
+`conditional_phase_frontend.py` accepts a complete raw circuit from all-zero
+input. It uses dependency-based phase discovery, chains certified Clifford
+exits, transports one surviving Pauli rotation when supported, and preserves
+an ordinary conditional continuation otherwise. It has no protocol labels,
+code matrices, history cache, or backend timing heuristic. Use the existing
+HIR optimizer on its complete output before lowering.
+
+Adjacent correlated-error alternatives are kept as one categorical noise
+location and one scheduling block, including the union of their physical
+supports. The implementation remains a Python research host before native
+execution.
+
+The factory panel is exported by the independent benchmark worktree at local
+commit `1bcbf960`; its `research/conditional_clifford/BENCHMARK_HANDOFF.md`
+documents regeneration. Pass the exported directory and that checkout below.
+The validator verifies pinned reference file contents and preserves the
+independent rational D/E oracle. It feeds original physical circuits to the
+new frontend, including separate coarse-syndrome and state-probe circuits.
+
+```bash
+env OMP_NUM_THREADS=1 .venv/bin/python \
+  tools/profile/validate_conditional_phase_frontend.py \
+  --output /tmp/conditional-frontend-validation.json
+env OMP_NUM_THREADS=1 .venv/bin/python \
+  tools/profile/validate_factory_frontend.py \
+  --benchmark-dir /tmp/clifft-factory-benchmarks-20261009 \
+  --reference-checkout /path/to/quadcycle-factory-study \
+  --merlin-checkout /path/to/pinned/merlin --tail-limit 32 \
+  --output /tmp/factory-frontend-validation.json
+env OMP_NUM_THREADS=1 taskset -c 0 .venv/bin/python \
+  tools/profile/study_factory_frontend.py \
+  --benchmark-dir /tmp/clifft-factory-benchmarks-20261009 \
+  --merlin-checkout /path/to/pinned/merlin --shots 128 \
+  --output /tmp/factory-frontend-study.json
+```
+
+The timing driver uses a fresh child process for each backend and input. It
+compares ordinary optimized Clifft, per-shot fault materialization, optional
+initial Clifford-prefix sampling, this frontend, and Merlin where supported.
+A width budget is checked before dense allocation. Whole-process peak RSS
+includes Python/import/input costs and is not coefficient-array memory alone.
+Every attempted history counts, including width failures; finite record/parity
+moment comparisons are bug checks rather than full distribution certificates.
+Run the preceding deferred-phase validator as a regression after changing the
+scheduler. See the
+[assessment](../../research/conditional_clifford/FACTORY_FRONTEND_ASSESSMENT.md)
+for results, validation scope, and remaining applicability limits.
+
 ## Probability queries
 
 `profile_probability` uses a unitary-only circuit because measurements,
