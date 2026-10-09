@@ -55,6 +55,16 @@ architecture cannot support it:
 - For test changes, follow
   [Writing Tests](docs/development/contributing.md#writing-tests).
 
+## Acknowledgments and References
+
+Each acknowledgment should complete the sentence "Clifft benefited from this
+work through..." with a concrete algorithm, implementation, design influence,
+validation method, or reused artifact. When introducing a substantive influence,
+update `docs/acknowledgments.md` and, where appropriate, the README summary.
+Distinguish direct use from inspiration, link the relevant paper, software, or
+other source, and preserve citations beside the technical discussion. A paper is
+not required; the specific contribution is.
+
 ## Git and AI-Assisted Contribution Rules
 
 - Never commit directly to `main`; use a feature branch.

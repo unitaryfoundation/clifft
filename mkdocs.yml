@@ -133,6 +133,7 @@ nav:
     - Compiler IR Reference: reference/compiler-ir.md
     - Optimization Passes: reference/passes.md
     - Python API: reference/python-api.md
+    - Acknowledgments and References: acknowledgments.md
   - Development:
     - Contributing: development/contributing.md
     - Building from Source: development/building.md

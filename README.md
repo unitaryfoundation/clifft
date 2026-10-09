@@ -135,6 +135,32 @@ web-based [interactive playground](https://unitaryfoundation.github.io/clifft/pl
 See [Circuit Inputs](https://unitaryfoundation.github.io/clifft/stable/guide/circuit-inputs/)
 for installation commands, minimal examples, and current limitations.
 
+## Acknowledgments
+
+Clifft has benefited from the following research and software:
+
+- [Stim](https://github.com/quantumlib/Stim) for its circuit format, sampling
+  interfaces, original tableau foundation, and independent validation.
+- [SOFT and SymFT](https://github.com/haoliri0/SOFT) for generalized-stabilizer
+  simulation, cultivation circuits, symbolic sampling, adaptive coordinate
+  planning, and inspiration for packed execution.
+- [Tsim](https://github.com/QuEraComputing/tsim) for Stim-compatible universal
+  simulation design and open code and data enabling comparisons.
+- [SqaleSim](https://arxiv.org/abs/2509.13247) for motivating the leakage/loss
+  instrument design and providing a five-level neutral-atom model and examples.
+- [deltakit-stim](https://github.com/Deltakit/deltakit-stim) for inspiring
+  configurable leakage partner effects.
+- [TOHPE](https://doi.org/10.22331/q-2025-09-16-1860) for T-count reduction in
+  the phase-polynomial optimizer.
+- [Pauli Frame Sparse Representation](https://arxiv.org/abs/2603.14670) for
+  the importance-sampling approach used in cultivation analysis.
+- [Magic-state cultivation](https://github.com/Strilanc/magic-state-cultivation)
+  for protocols, circuits, data, and analysis tools used in examples and benchmarks.
+- [xoshiro256++](https://prng.di.unimi.it/) for the sampling random-number generator.
+
+See [Acknowledgments and references](https://unitaryfoundation.github.io/clifft/stable/acknowledgments/)
+for the specific contributions and associated papers, software, and artifacts.
+
 ## Citation
 
 If you use Clifft in your work, please cite the arXiv [preprint](https://arxiv.org/abs/2604.27058) below.
