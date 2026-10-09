@@ -1,0 +1,252 @@
+{
+  "unitary_density_errors": [
+    4.440892098500626e-16,
+    7.77219136219107e-16,
+    3.885780586188048e-16,
+    1.6694606560866683e-16,
+    1.1102230246251565e-16,
+    1.666697594177704e-16,
+    2.359294727694805e-16,
+    3.3309806193512543e-16,
+    2.7760845150087214e-16,
+    2.220446049250313e-16,
+    1.3877787807814457e-16,
+    1.9550773709762748e-16,
+    1.1102230246251565e-15,
+    1.9437529190381492e-16,
+    1.6653345369377348e-16,
+    1.943923425810972e-16,
+    9.436960044396785e-16,
+    2.7755575615628914e-16,
+    1.5266660753281799e-16,
+    1.388034748321957e-16,
+    8.326672684688674e-17,
+    3.3306690738754696e-16,
+    5.551115123125783e-16,
+    4.44228809671666e-16,
+    3.3309284142068395e-16,
+    1.9035020587936212e-16,
+    2.220590936863805e-16,
+    4.718447854656915e-16,
+    1.6782945342419286e-16,
+    2.7755575615628914e-16,
+    3.885780586188048e-16,
+    5.551115123125783e-16,
+    1.6655277155208093e-16,
+    4.441129963386452e-16,
+    2.220446049250313e-16,
+    2.498259418400374e-16,
+    2.221104705896052e-16,
+    3.053852808838169e-16,
+    2.222579186112306e-16,
+    1.7554167342883506e-16,
+    4.441221463454345e-16,
+    3.3309862204509535e-16,
+    2.221104705896052e-16,
+    3.3306691371655296e-16,
+    1.943484313104729e-16,
+    7.216449660063518e-16,
+    2.2204967217207046e-16,
+    1.5265872755618677e-16
+  ],
+  "empty_continuation_checked": true,
+  "expectation_error": 0.0,
+  "instrument_record_errors": [
+    2.220446049250313e-16,
+    2.220446049250313e-16,
+    2.220446049250313e-16,
+    2.220446049250313e-16,
+    2.7755575615628914e-16,
+    2.7755575615628914e-16,
+    1.1102230246251565e-16,
+    1.1102230246251565e-16
+  ],
+  "frontend": [
+    {
+      "case": "ccz",
+      "eligible": true,
+      "checks": [
+        {
+          "branches": 1,
+          "instrument_error": 9.538699019624399e-17,
+          "record_error": 3.885780586188048e-16
+        }
+      ]
+    },
+    {
+      "case": "observed",
+      "eligible": true,
+      "checks": [
+        {
+          "branches": 2,
+          "instrument_error": 6.947562107041945e-17,
+          "record_error": 1.1796119636642288e-16
+        },
+        {
+          "branches": 2,
+          "instrument_error": 4.2073750163139715e-17,
+          "record_error": 1.3877787807814457e-16
+        },
+        {
+          "branches": 2,
+          "instrument_error": 4.177767360805209e-17,
+          "record_error": 9.020562075079397e-17
+        },
+        {
+          "branches": 2,
+          "instrument_error": 6.947562107041945e-17,
+          "record_error": 1.1102230246251565e-16
+        },
+        {
+          "branches": 2,
+          "instrument_error": 4.16423974613979e-17,
+          "record_error": 1.6653345369377348e-16
+        },
+        {
+          "branches": 2,
+          "instrument_error": 4.177767360805209e-17,
+          "record_error": 1.1102230246251565e-16
+        }
+      ]
+    },
+    {
+      "case": "later_magic",
+      "eligible": true,
+      "checks": [
+        {
+          "branches": 1,
+          "instrument_error": 5.594315114139762e-17,
+          "record_error": 1.3877787807814457e-16
+        }
+      ]
+    },
+    {
+      "case": "carrier",
+      "eligible": false,
+      "checks": [
+        {
+          "branches": 2,
+          "instrument_error": 5.551115123125783e-17,
+          "record_error": 1.3877787807814457e-16
+        }
+      ]
+    },
+    {
+      "case": "unsupported",
+      "eligible": false,
+      "checks": [
+        {
+          "branches": 1,
+          "instrument_error": 0.0,
+          "record_error": 1.1102230246251565e-16
+        }
+      ]
+    },
+    {
+      "case": "ccz_renamed",
+      "eligible": true,
+      "checks": [
+        {
+          "branches": 1,
+          "instrument_error": 1.285278522267606e-16,
+          "record_error": 4.440892098500626e-16
+        }
+      ]
+    },
+    {
+      "case": "observed_renamed",
+      "eligible": true,
+      "checks": [
+        {
+          "branches": 2,
+          "instrument_error": 6.973502068242161e-17,
+          "record_error": 1.1796119636642288e-16
+        },
+        {
+          "branches": 2,
+          "instrument_error": 4.291468873614597e-17,
+          "record_error": 1.3877787807814457e-16
+        },
+        {
+          "branches": 2,
+          "instrument_error": 4.2207643840401616e-17,
+          "record_error": 9.020562075079397e-17
+        },
+        {
+          "branches": 2,
+          "instrument_error": 6.973502068242161e-17,
+          "record_error": 1.1102230246251565e-16
+        },
+        {
+          "branches": 2,
+          "instrument_error": 4.177767360805209e-17,
+          "record_error": 1.6653345369377348e-16
+        },
+        {
+          "branches": 2,
+          "instrument_error": 4.8696008501999263e-17,
+          "record_error": 1.1102230246251565e-16
+        }
+      ]
+    },
+    {
+      "case": "later_magic_renamed",
+      "eligible": true,
+      "checks": [
+        {
+          "branches": 1,
+          "instrument_error": 2.0816681711721685e-17,
+          "record_error": 1.3877787807814457e-16
+        }
+      ]
+    },
+    {
+      "case": "carrier_renamed",
+      "eligible": false,
+      "checks": [
+        {
+          "branches": 2,
+          "instrument_error": 5.551115123125783e-17,
+          "record_error": 1.3877787807814457e-16
+        }
+      ]
+    },
+    {
+      "case": "unsupported_renamed",
+      "eligible": false,
+      "checks": [
+        {
+          "branches": 1,
+          "instrument_error": 0.0,
+          "record_error": 1.1102230246251565e-16
+        }
+      ]
+    }
+  ],
+  "frontend_exact_trace_checks": 28,
+  "rejected": [
+    {
+      "case": "measured_prefix",
+      "reason": "Native fragment worker failed: Reusable prefix must be unmeasured and deterministic\n"
+    },
+    {
+      "case": "noisy_prefix",
+      "reason": "Native fragment worker failed: Expected materialized Pauli faults and a complete frame\n"
+    },
+    {
+      "case": "live_tail_noise",
+      "reason": "Native fragment worker failed: Expected materialized Pauli faults and a complete frame\n"
+    },
+    {
+      "case": "wider_tail",
+      "reason": "Native fragment worker failed: Continuation exceeds the prepared physical width\n"
+    }
+  ],
+  "source_hashes": {
+    "validate_prefix_trace_reuse.py": "e68f103e1d374f3b0f4f43276656e0b782de27d25f575dfceee7fce00670766f",
+    "prefix_trace_reuse.py": "bb21a65b0fae446801194c1125bec856db86456ad9dc9137e2cb4a7ec6a888dd",
+    "profile_prefix_trace_reuse.cpp": "65cc1a048d5b265f86283c6c90c1d4e65d5225572540854247bac38ffef9b6fb"
+  },
+  "worker_sha256": "a428e7548786bb0cc666f288b928bc211b56837f7593b1e6e2f8b1467fcc2b25",
+  "exporter_sha256": "0d9ee042f7d9e6a7dcde2b9aa7dc0c26e54375c396bb091af1888383bcb97898"
+}

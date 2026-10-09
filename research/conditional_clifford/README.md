@@ -19,7 +19,15 @@ Success criterion: extend the practically simulable circuit range, including
 cases whose ordinary active width is prohibitive. This mode need not replace
 ordinary Clifft or outperform it on every supported circuit.
 
-Latest study: [fixed-preparation compilation reuse](COMPILED_PREFIX_REUSE.md)
+Latest study: [preparation rendering and parsed/traced prefix reuse](PREFIX_TRACE_REUSE.md)
+avoids rebuilding the original preparation and measures native fragment
+composition. Direct emission saves about 0.7-0.8 ms per factory/D/E shot;
+traced-prefix reuse adds a small D/E benefit and none on the larger factory.
+Exact full-HIR comparisons preserve the final state frame and all records.
+The continuation and its planning remain the main next reuse targets; the
+single-rotation carrier is unchanged.
+
+The preceding [fixed-preparation compilation reuse](COMPILED_PREFIX_REUSE.md)
 optimizes the invariant preparation once while retaining fresh per-shot faults,
 records, corrections, and continuation. Complete-shot cost falls by 1.79x on
 the noisy factory, 3.51x on D, and 4.08x on E in paired local measurements,

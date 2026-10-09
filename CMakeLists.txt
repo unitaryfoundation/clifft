@@ -302,6 +302,12 @@ else()
     # Profiling tool (opt-in, not part of default or coverage builds)
     option(CLIFFT_BUILD_PROFILER "Build profiling harnesses" OFF)
     if(CLIFFT_BUILD_PROFILER)
+        add_executable(profile_prefix_trace_reuse tools/profile/profile_prefix_trace_reuse.cpp)
+        target_link_libraries(profile_prefix_trace_reuse PRIVATE clifft_core)
+        target_include_directories(profile_prefix_trace_reuse PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/src
+            ${CMAKE_CURRENT_BINARY_DIR}/generated
+        )
         add_executable(export_optimized_prefix tools/profile/export_optimized_prefix.cpp)
         target_link_libraries(export_optimized_prefix PRIVATE clifft_core)
         target_include_directories(export_optimized_prefix PRIVATE

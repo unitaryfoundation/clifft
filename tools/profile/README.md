@@ -830,6 +830,53 @@ On the study VM, the generic `perf` launcher lacked matching kernel tools;
 See the [assessment](../../research/conditional_clifford/COMPILED_PREFIX_REUSE.md)
 for ablations, correctness scope, and the remaining per-shot planning cost.
 
+## Parsed and traced prefix reuse
+
+`PreparedPhase` in `prefix_trace_reuse.py` directly emits the stored optimized
+preparation and reuses its known gate count and wire mapping. This preserves
+the preceding frontend's conditional source and routes while avoiding the
+reconstruction and reparsing of the larger original preparation. It can feed
+the existing Python compiler without using the native diagnostic below.
+
+`profile_prefix_trace_reuse` is a persistent research worker comparing fresh
+compilation, reuse of the parsed prefix, and composition of separately traced
+prefix/continuation HIR. The prefix must be unmeasured and deterministic; all
+Pauli faults must already be materialized. Composition transforms signed tail
+axes through the prefix's inverse frame and preserves the complete final
+physical frame. No production tracer, planner, or executor changes are needed.
+
+```bash
+cmake --build build-profile --target profile_prefix_trace_reuse -j2
+env OMP_NUM_THREADS=1 .venv/bin/python \
+  tools/profile/validate_prefix_trace_reuse.py \
+  --exporter build-profile/export_optimized_prefix \
+  --worker build-profile/profile_prefix_trace_reuse \
+  --output /tmp/prefix-trace-validation.json
+env OMP_NUM_THREADS=1 taskset -c 0 .venv/bin/python \
+  tools/profile/study_prefix_trace_reuse.py \
+  --benchmark-dir /tmp/clifft-factory-benchmarks-20261009 \
+  --merlin-checkout /path/to/pinned/merlin --shots 128 \
+  --exporter build-profile/export_optimized_prefix \
+  --worker build-profile/profile_prefix_trace_reuse \
+  --output /tmp/prefix-trace-study.json
+```
+
+Regenerate the opt-in CMake configuration first if the worker target is absent.
+The exporter and Python dependencies are the same as the preceding study.
+Small validation checks complete native states and record laws against Aer,
+original-source record/state instruments, and unsupported-interface rejection.
+
+The timing driver alternates rendering and compilation order for matched
+histories/seeds. Exact full-HIR comparisons and parity audits run separately
+from timed requests. Reported complete costs include the worker IPC boundary;
+they are paired within this harness and should not be directly subtracted
+from the earlier Python-only costs. Width is checked before dense allocation.
+`--cases`, `--shots`, and `--max-width` bound the panel. Native memory comes
+from Linux VmHWM rather than the Python parent's inherited child-process peak.
+See the [assessment](../../research/conditional_clifford/PREFIX_TRACE_REUSE.md)
+for the limited benefit of prefix-only tracing reuse and remaining continuation
+and planning costs.
+
 ## Probability queries
 
 `profile_probability` uses a unitary-only circuit because measurements,
