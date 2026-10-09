@@ -71,7 +71,7 @@ Distillation/cultivation use their circuit noise models at p=0.001. BT uses
 synthetic Pauli noise through preparation, phase and decoder, with ideal
 scoring tails. D/E retain the supplied diagnostic noise weights; these are
 not uniform p=0.001 models. Factory limitations from
-[the original assessment](FACTORY_FRONTEND_ASSESSMENT.md) still apply.
+[the benchmark scope and evidence](REPRODUCING.md) still apply.
 Raw input text and hashes are retained with each case.
 
 ## Width and complete sampling cost
@@ -228,8 +228,7 @@ shots these screens catch only gross discrepancies. They do not validate
 rare logical error rates, certify all possible fault/outcome histories, or
 prove equality of a large complete output distribution. The earlier independent
 small Stim/Aer checks, D/E exact probability references, and large BT/factory
-checks remain relevant; see [coordinate reuse](PLANNER_COORDINATE_REUSE.md)
-and [the original frontend assessment](FACTORY_FRONTEND_ASSESSMENT.md).
+checks remain relevant; see [the retained validation evidence](REPRODUCING.md#evidence-retained-for-review).
 
 ## Decision and next useful feedback loop
 
@@ -256,6 +255,10 @@ structure can be the correct outcome, so its role should be an explicit
 negative control.
 
 ## Reproduction and retained data
+
+For replay directly from the checked-in circuit inputs, without the original
+temporary directories, use [the current review instructions](REPRODUCING.md).
+The following is the original generator-based survey command.
 
 Build the existing opt-in `profile_prefix_trace_reuse` and
 `export_optimized_prefix` targets. With the pinned inputs available:

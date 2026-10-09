@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import gzip
 import hashlib
 import json
 import os
@@ -35,7 +36,31 @@ from study_shared_phase_specialization import features
 import clifft
 
 
+def retained_panel(index_path: Path) -> dict[str, dict[str, str]]:
+    index = json.loads(index_path.read_text())
+    result = {}
+    for filename, metadata in index["artifacts"].items():
+        data = (index_path.parent / filename).read_bytes()
+        if hashlib.sha256(data).hexdigest() != metadata["sha256"]:
+            raise ValueError("Retained artifact hash differs")
+        rows = json.loads(gzip.decompress(data))
+        if set(rows) != set(metadata["cases"]):
+            raise ValueError("Retained artifact case list differs")
+        for name, row in rows.items():
+            digest = hashlib.sha256(row["source"].encode()).hexdigest()
+            if digest != row["source_sha256"] or digest != index["cases"][name]["source_sha256"]:
+                raise ValueError("Retained circuit hash differs")
+            if name in result:
+                raise ValueError("Repeated retained circuit")
+            result[name] = {k: row[k] for k in ("family", "source", "origin")}
+    if set(result) != set(index["cases"]):
+        raise ValueError("Retained survey is incomplete")
+    return result
+
+
 def panel(args: Any) -> dict[str, dict[str, str]]:
+    if args.retained_survey is not None:
+        return retained_panel(args.retained_survey)
     available = sources(args)
     groups = {
         "factory": [
@@ -290,8 +315,16 @@ def run_child(command: list[str], timeout: float) -> dict[str, Any]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    for name in ("benchmark-dir", "merlin-checkout", "native-worker", "exporter", "output"):
+    for name in ("native-worker", "exporter", "output"):
         parser.add_argument("--" + name, type=Path, required=True)
+    for name in ("benchmark-dir", "merlin-checkout", "retained-survey"):
+        parser.add_argument("--" + name, type=Path)
+    parser.add_argument(
+        "--backends",
+        nargs="+",
+        choices=("ordinary", "combined", "merlin"),
+        default=["ordinary", "combined", "merlin"],
+    )
     parser.add_argument("--shots", type=int, default=128)
     parser.add_argument("--seed", type=int, default=271053)
     parser.add_argument("--max-width", type=int, default=12)
@@ -305,6 +338,8 @@ def main() -> None:
             "Require at least eight shots, a width budget at most sixteen and positive timeout"
         )
     if args.worker:
+        if args.source is None:
+            parser.error("A worker requires --source")
         source = args.source.read_text()
         before = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * 1024
         row = combined(source, args) if args.worker == "combined" else baseline(source, args)
@@ -314,6 +349,15 @@ def main() -> None:
         )
         print(json.dumps(row), flush=True)
         return
+    if args.retained_survey is None and (
+        args.benchmark_dir is None or args.merlin_checkout is None
+    ):
+        parser.error("Provide --retained-survey or both generator input paths")
+    if len(set(args.backends)) != len(args.backends):
+        parser.error("Backend choices must be distinct")
+    inputs = panel(args)
+    if args.cases and set(args.cases) - inputs.keys():
+        parser.error("Unknown cases: " + ", ".join(sorted(set(args.cases) - inputs.keys())))
     root = Path(__file__).resolve().parents[2]
     paths = [
         *Path(__file__).parent.glob("*.py"),
@@ -337,8 +381,12 @@ def main() -> None:
         "exporter_sha256": hashlib.sha256(args.exporter.read_bytes()).hexdigest(),
         "cases": {},
     }
+    if args.retained_survey is not None:
+        result["retained_index_sha256"] = hashlib.sha256(
+            args.retained_survey.read_bytes()
+        ).hexdigest()
     with tempfile.TemporaryDirectory(prefix="clifft-capability-") as directory:
-        for name, entry in panel(args).items():
+        for name, entry in inputs.items():
             if args.cases and name not in args.cases:
                 continue
             source = entry["source"]
@@ -357,7 +405,7 @@ def main() -> None:
                 "backends": {},
             }
             result["cases"][name] = item
-            for backend in ("ordinary", "combined", "merlin"):
+            for backend in args.backends:
                 command = [
                     sys.executable,
                     str(Path(__file__).resolve()),
@@ -379,15 +427,21 @@ def main() -> None:
                     "exporter",
                     "output",
                 ):
-                    command += ["--" + key.replace("_", "-"), str(getattr(args, key).resolve())]
+                    value = getattr(args, key)
+                    if value is not None:
+                        command += ["--" + key.replace("_", "-"), str(value.resolve())]
                 row = run_child(command, args.timeout)
                 item["backends"][backend] = row
                 print(name, backend, row["status"], row.get("seconds_per_shot"), flush=True)
                 args.output.write_text(json.dumps(result, indent=2) + "\n")
-            candidate = item["backends"]["combined"]
-            for backend in ("ordinary", "merlin"):
-                row = item["backends"][backend]
-                if row["status"] != "sampled" or candidate["status"] != "sampled":
+            candidate = item["backends"].get("combined")
+            for backend, row in item["backends"].items():
+                if (
+                    backend == "combined"
+                    or candidate is None
+                    or row["status"] != "sampled"
+                    or candidate["status"] != "sampled"
+                ):
                     continue
                 a, b = np.array(candidate["feature_means"]), np.array(row["feature_means"])
                 variance = (
