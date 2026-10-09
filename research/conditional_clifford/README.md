@@ -19,7 +19,18 @@ Success criterion: extend the practically simulable circuit range, including
 cases whose ordinary active width is prohibitive. This mode need not replace
 ordinary Clifft or outperform it on every supported circuit.
 
-Latest study: [coordinate reuse during planning](PLANNER_COORDINATE_REUSE.md)
+Latest study: [the broader capability survey](CAPABILITY_SURVEY.md) freezes
+the combined prototype across 33 complete protocol variants and controls.
+All sample within width 12; nine exceed that budget under ordinary Clifft.
+These include noisy BT81 (width 87 to 0 scored or 3-7 direct X) and noise-free
+BT81 (56 to 0 or 6). Ordinary Clifft is faster on all 24 cases within its
+budget. Cultivation d5 stays at width ten; actual multi-region chaining still
+appears only in small controls. All 230 stress audits, 83 full recompilation
+checks, and 40 independent small instruments pass. This is the stopping point
+for compilation tuning; the next useful structural test is an independently
+supplied hard circuit with interacting non-Clifford regions.
+
+The preceding [coordinate reuse during planning](PLANNER_COORDINATE_REUSE.md)
 finds that most repeated queries are identity Paulis and many frames survive
 only one query. A general identity shortcut reduces complete factory shot time
 from 12.41 to 9.55 ms and BT direct-X from 2.75 to 2.52 ms. Lazy inverse images
