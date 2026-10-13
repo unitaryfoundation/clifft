@@ -8,8 +8,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 Clifft 0.12.0 extends leakage and loss modeling with status probes and configurable effects on gate partners, adds two default compiler passes that find smaller active states, and introduces opt-in CPU batch tuning. See [Richer Noise Models, Smaller Active States](https://unitaryfoundation.github.io/clifft/stable/updates/smaller-active-states/) for examples.
 
-The matched single-core campaign using 0.12.0rc1 and 0.11.0rc1 records QEC throughput changes from -1.16% to +1.90% across seven workloads, with no established release-wide speedup. The noiseless, fixed-input 16-bit Draper adder gains about 33,050x sampling throughput with the new compiler defaults and independently calibrated batching; compilation is excluded and measured separately. See [Performance](https://unitaryfoundation.github.io/clifft/stable/guide/performance/) for results, comparisons with SymFT, xtim, and Stim, and measurement details.
-
 Thanks to Daniel Gaskins (@danielgaskins) for removing the unused permissive Qiskit converter and simplifying the reference-test infrastructure.
 
 ### Added

@@ -136,10 +136,18 @@ It adds `a=37449` to `b=18724`, preserving `a` and returning `b=56173`.
 The new defaults eliminate the dense-state growth for these prepared basis
 inputs. The table compares pass selections on the same
 [published RC](https://github.com/unitaryfoundation/clifft/releases/tag/v0.12.0rc1),
-with optional active-width scheduling disabled. It measures state size. The
-fixture is also available in
-[clifft-bench](https://github.com/unitaryfoundation/clifft-bench/pull/67)
-for compilation and sampling measurements.
+with optional active-width scheduling disabled.
+
+The official
+[clifft-bench results](https://github.com/unitaryfoundation/clifft-bench/blob/59f78d280c5fcb90f42cc75cfd73ff3f004ad4e8/results/release-v1/release-v1-20261009-192718/cases.csv)
+show a roughly **33,050x** sampling speedup for this noiseless fixed input,
+with compilation falling from **3.41 to 2.06 ms**. This compares `0.12.0rc1`
+with `0.11.0rc1` on one pinned CPU, with scheduling enabled and independently
+calibrated batch sizes of 1024 and 1, respectively. Sampling rates exclude
+compilation, calibration, and warmup.
+
+![Fixed-input 16-bit Draper adder gains about 33,050x sampling throughput, with compilation falling from 3.41 to 2.06 ms and peak active width from 15 to 0](../assets/performance/draper-adder-light.png#only-light)
+![Fixed-input 16-bit Draper adder gains about 33,050x sampling throughput, with compilation falling from 3.41 to 2.06 ms and peak active width from 15 to 0](../assets/performance/draper-adder-dark.png#only-dark)
 
 Tests check relative phases and correlated measurement records against
 independent Qiskit Aer and Stim references where applicable, including noisy
@@ -182,8 +190,7 @@ for the report fields and reproducibility details.
 ## Release benchmarks
 
 The official clifft-bench campaign found QEC throughput essentially unchanged
-from 0.11: -1.16% to +1.90% across seven workloads. The fixed-input Draper adder
-gained about 33,050x sampling throughput with compilation measured separately.
-These compare the published RCs with scheduling and independently calibrated
-batching. See [Performance](../guide/performance.md) for the results and
-comparisons with SymFT, xtim, and Stim.
+from 0.11: -1.16% to +1.90% across seven workloads, using the published RCs
+with scheduling and independently calibrated batching. See
+[Performance](../guide/performance.md) for the results and comparisons with
+SymFT, xtim, and Stim.

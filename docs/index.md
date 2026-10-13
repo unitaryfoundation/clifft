@@ -115,9 +115,6 @@ reports a reusable batch size for longer CPU sampling jobs. Read
 [Richer Noise Models, Smaller Active States](updates/smaller-active-states.md)
 for examples of the new capabilities.
 
-The updated [benchmarks](guide/performance.md) cover seven QEC workloads,
-comparisons with SymFT, xtim, and Stim, and the fixed-input Draper adder.
-
 The new default passes can change compiled plans and fixed-seed samples while
 preserving distributions. See the
 [full release notes](https://github.com/unitaryfoundation/clifft/blob/main/CHANGELOG.md)

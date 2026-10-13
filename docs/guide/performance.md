@@ -80,26 +80,6 @@ These small differences do not establish a release-wide speedup. Both versions
 use their own default compiler passes followed by the opt-in scheduler and
 independently calibrated batching.
 
-### Prepared-basis arithmetic
-
-The fixed-input 16-bit Draper adder demonstrates a larger compiler gain:
-the new passes reduce peak active width from **15 to 0**. The circuit adds
-`37449 + 18724` on 32 qubits with no noise or postselection.
-
-![Fixed-input 16-bit Draper adder gains about 33,050x sampling throughput, with compilation falling from 3.41 to 2.06 ms and peak active width from 15 to 0](../assets/performance/draper-adder-light.png#only-light)
-![Fixed-input 16-bit Draper adder gains about 33,050x sampling throughput, with compilation falling from 3.41 to 2.06 ms and peak active width from 15 to 0](../assets/performance/draper-adder-dark.png#only-dark)
-
-Sampling rises from **6.58 thousand to 217.6 million shots/s**, about
-**33,050x**, while compilation falls from **3.41 to 2.06 ms**. Sampling rates
-exclude compilation, calibration, and warmup. The selected batch size changes
-from 1 to 1024, so the ratio measures the full release configuration.
-These results apply to this prepared basis input; the adder is reported
-separately from QEC and excluded from historical medians. See the pinned
-[case table](https://github.com/unitaryfoundation/clifft-bench/blob/59f78d280c5fcb90f42cc75cfd73ff3f004ad4e8/results/release-v1/release-v1-20261009-192718/cases.csv)
-for compilation and batch settings, and the
-[release post](../updates/smaller-active-states.md#simplify-arbitrary-angle-rotations)
-for the pass-by-pass width comparison.
-
 ## Performance over time
 
 Clifft's compiler-like structure provides several independent places to make
