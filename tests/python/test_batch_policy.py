@@ -26,8 +26,8 @@ def test_postselected_auto_replays_explicit_capacity_across_threads(
         source += f"H {targets}\nT {targets}\nH {targets}\nEXP_VAL Z0\nM {targets}"
     program = clifft.compile(source, postselection_mask=[1], hir_passes=None)
     assert program.peak_active_width == width
-    shots = 65_537 if width == 0 else 1025
-    capacity = 2048 if width == 0 else 256 if width < 5 else 1
+    shots = 1025
+    capacity = 256 if width < 5 else 1
     sample: Any = clifft.sample_k_survivors if fixed_faults else clifft.sample_survivors
     options = {"k": 1} if fixed_faults else {}
     explicit = sample(

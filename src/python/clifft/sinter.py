@@ -64,10 +64,9 @@ class PerfectionistSampler(sinter.Sampler):
             are capped, not rejected. This is separate from Sinter's
             ``max_batch_size``, which defaults to 1024 in Sinter 1.15. Increase
             that limit to use larger native batches. Use 1 for scalar execution
-            or ``"auto"`` for Clifft's core policy: postselected width-0 plans
-            need at least 65,536 attempts for packing, widths 1-4 use up to
-            256 lanes, and widths 5 and above stay scalar. Shot and memory
-            limits also apply.
+            or ``"auto"`` for Clifft's core policy. See the CPU Execution and
+            Tuning guide for the automatic selection rules:
+            https://unitaryfoundation.github.io/clifft/guide/cpu-execution/#packed-batch-sampling
     """
 
     batch_size: int | Literal["auto"] = 1024

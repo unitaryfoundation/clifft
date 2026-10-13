@@ -183,24 +183,22 @@ The default `batch_size="auto"` considers packed execution only when:
 | --- | --- |
 | No post-selection, width 0-4 | 2048 lanes |
 | No post-selection, width 5 | Up to 1024 lanes; sustained work stays scalar |
-| Post-selected, width 0, fewer than 65,536 shots | Scalar |
-| Post-selected, width 0, at least 65,536 shots | 2048 lanes |
-| Post-selected, width 1-4 | 256 lanes |
+| Post-selected, width 0-4 | 256 lanes |
 | Width above 5, or post-selected width 5 | Scalar |
 
 Capacities are also bounded by the requested shots and memory budgets. These
 rules apply to ordinary and fixed-fault survivor sampling, with either aggregate
-counts or retained rows. Smaller active-state batches preserve more cross-shot
-parallelism in short requests. Classical postselection retains a larger minimum
-request because early rejection can make small packed batches slower than scalar
-execution. These are conservative empirical rules, not predictions of survival
-probability or guarantees of the fastest configuration on every CPU.
+counts or retained rows. Smaller batches preserve more cross-shot parallelism
+in short requests. These are empirical defaults, not guarantees of the fastest
+configuration on every CPU. When early detectors reject most shots, automatic
+packed execution can be slower than scalar execution. Use `batch_size=1` to
+require scalar execution, or benchmark alternatives with `batch_size="tune"`.
+Tuning adds calibration work; reuse its selected settings for repeated calls.
 
 The policy chooses batch boundaries independently of the requested thread count.
 Changing `threads` alone therefore preserves seeded rows and survivor order.
-Eligible post-selected calls now use packed random streams instead of the former
-scalar default, so their seeded results can change. Pass `batch_size=1` to retain
-the former scalar strategy.
+Scalar and packed execution use different random streams, so changing the
+batch size can change seeded results.
 
 Set `batch_size=1` to require scalar execution. A positive integer requests a
 capacity of up to 2048 lanes, bounded by the shot count and safety limits:

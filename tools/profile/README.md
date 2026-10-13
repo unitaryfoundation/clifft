@@ -176,7 +176,7 @@ repetition, and the JSON retains individual timings and survivor counts.
 ```bash
 uv run python tools/profile/benchmark_postselection.py \
     tests/fixtures/surface_d7_r7_p001.stim \
-    --shots 2048 65535 65536 200000 --threads 1 4 8 \
+    --shots 1024 2048 65536 200000 --threads 1 4 8 \
     --calls 8 --outputs both --output results/postselection.json
 ```
 
@@ -187,3 +187,8 @@ retained rows in cross-host comparisons. The shot count printed is per call;
 `--calls` repeats that public request within each timing interval. Compare
 attempted-shot throughput and survival rates separately. This is a performance
 driver, not a statistical correctness test or a promise of portable speedups.
+
+Selected M4 Pro measurements, including early-rejection regressions, are in
+[measurements/postselection-m4.json](measurements/postselection-m4.json). The file records
+raw repetitions and source revision; explicit capacities permit comparing
+policy choices independently of the automatic default.

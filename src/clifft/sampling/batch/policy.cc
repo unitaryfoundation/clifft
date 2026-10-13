@@ -144,15 +144,12 @@ BatchExecutionPolicy resolve_batch_execution_policy(
     }
     uint32_t max_capacity = kDefaultMaxAutoBatchShots;
     if (plan.has_postselection()) {
-        if (plan.peak_active_width() >= 5 ||
-            (plan.peak_active_width() == 0 && shots < kDefaultMinPostselectedClassicalShots)) {
+        if (plan.peak_active_width() >= 5) {
             return {};
         }
         // Capacity must not depend on workers: batch boundaries define seeded
         // streams, while worker count only controls their scheduling.
-        if (plan.peak_active_width() != 0) {
-            max_capacity = kDefaultMaxPostselectedActiveBatchShots;
-        }
+        max_capacity = kDefaultMaxPostselectedBatchShots;
     }
     if (plan.peak_active_width() > 5 ||
         (plan.peak_active_width() == 5 && plan.estimated_width_five_batch_lane_work(output_mode) >

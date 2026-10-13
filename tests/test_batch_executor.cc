@@ -578,11 +578,12 @@ TEST_CASE("Postselected automatic capacity preserves request boundaries across w
         uint32_t capacity;
     };
     const std::array cases{
-        Case{0, 65535, 1},  Case{0, 65536, 2048}, Case{0, 65537, 2048}, Case{1, 0, 1},
-        Case{1, 63, 1},     Case{1, 64, 64},      Case{1, 255, 255},    Case{1, 256, 256},
-        Case{1, 257, 256},  Case{1, 65536, 256},  Case{2, 1025, 256},   Case{3, 1025, 256},
-        Case{4, 1025, 256}, Case{4, 65536, 256},  Case{5, 1025, 1},     Case{5, 65536, 1},
-        Case{6, 65536, 1},
+        Case{0, 0, 1},       Case{0, 63, 1},      Case{0, 64, 64},    Case{0, 255, 255},
+        Case{0, 256, 256},   Case{0, 257, 256},   Case{0, 1024, 256}, Case{0, 65535, 256},
+        Case{0, 65536, 256}, Case{0, 65537, 256}, Case{1, 0, 1},      Case{1, 63, 1},
+        Case{1, 64, 64},     Case{1, 255, 255},   Case{1, 256, 256},  Case{1, 257, 256},
+        Case{1, 65536, 256}, Case{2, 1025, 256},  Case{3, 1025, 256}, Case{4, 1025, 256},
+        Case{4, 65536, 256}, Case{5, 1025, 1},    Case{5, 65536, 1},  Case{6, 65536, 1},
     };
     for (const auto& test : cases) {
         std::string circuit = "X_ERROR(0.25) 8\nM 8\nDETECTOR rec[-1]\n";

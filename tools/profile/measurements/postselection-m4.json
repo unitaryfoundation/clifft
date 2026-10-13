@@ -1,0 +1,448 @@
+{
+  "description": "Selected policy comparisons, including known regressions; not a complete workload survey.",
+  "source_revision": "331acc3592693c96174d7d273ea35676f1d19199",
+  "hardware": "Apple M4 Pro, 10 performance and 4 efficiency cores, 48 GiB, AC power, unpinned",
+  "method": "Warmed public calls; capacities shuffled each repetition; compilation excluded; result allocation and destruction included; all expanded detectors selected.",
+  "driver": "tools/profile/benchmark_postselection.py",
+  "external_fixture_revision": "unitaryfoundation/clifft-bench@e5e9b3d51d73a199152b8521493aebea5a6cd4d6",
+  "cases": [
+    {
+      "clifft": "0.10.2.dev47+gb01242f7a.d20261013",
+      "isa": "neon",
+      "python": "3.14.5",
+      "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+      "circuit": "tests/fixtures/surface_d7_r7_p001.stim",
+      "source_sha256": "30d1940101d70e05a63f0d2f877756ffaeaba7e8e17e94cd2ea40fce04b99583",
+      "width": 0,
+      "detectors": 336,
+      "shots_per_call": 1024,
+      "calls": 64,
+      "threads": 1,
+      "keep_records": false,
+      "fixed_k": null,
+      "herald": null,
+      "measurements": [
+        {
+          "requested_batch_size": 1,
+          "effective_batch_size": 1,
+          "policy_workers": 1,
+          "seconds": [
+            0.07693287543952465,
+            0.07754791714251041,
+            0.07740916591137648,
+            0.07699862495064735,
+            0.07679091626778245,
+            0.07815787522122264,
+            0.07708912482485175
+          ],
+          "median_seconds": 0.07708912482485175,
+          "passed_shots": [
+            5686,
+            5783,
+            5839,
+            5797,
+            5781,
+            5855,
+            5826
+          ]
+        },
+        {
+          "requested_batch_size": 256,
+          "effective_batch_size": 256,
+          "policy_workers": 1,
+          "seconds": [
+            0.018375958781689405,
+            0.01803174987435341,
+            0.020012832712382078,
+            0.018008332699537277,
+            0.01869875006377697,
+            0.01762537518516183,
+            0.017794291954487562
+          ],
+          "median_seconds": 0.01803174987435341,
+          "passed_shots": [
+            5679,
+            5611,
+            5792,
+            5756,
+            5704,
+            5752,
+            5802
+          ]
+        },
+        {
+          "requested_batch_size": 2048,
+          "effective_batch_size": 1024,
+          "policy_workers": 1,
+          "seconds": [
+            0.0105360415764153,
+            0.010529750026762486,
+            0.010195625014603138,
+            0.010459833778440952,
+            0.010651000309735537,
+            0.01014962512999773,
+            0.010215708054602146
+          ],
+          "median_seconds": 0.010459833778440952,
+          "passed_shots": [
+            5679,
+            5730,
+            5821,
+            5681,
+            5703,
+            5699,
+            5771
+          ]
+        }
+      ]
+    },
+    {
+      "clifft": "0.10.2.dev47+gb01242f7a.d20261013",
+      "isa": "neon",
+      "python": "3.14.5",
+      "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+      "circuit": "msc_d3_inject_cultivate_p1e-3.stim (external fixture)",
+      "source_sha256": "90a7d841e003e5ee38137cd9a3eb6529bb552e49c424bc6b0932a27d97cdb41f",
+      "width": 4,
+      "detectors": 20,
+      "shots_per_call": 2048,
+      "calls": 64,
+      "threads": 4,
+      "keep_records": true,
+      "fixed_k": null,
+      "herald": null,
+      "measurements": [
+        {
+          "requested_batch_size": 1,
+          "effective_batch_size": 1,
+          "policy_workers": 4,
+          "seconds": [
+            0.023883916903287172,
+            0.0240516671910882,
+            0.02383666578680277,
+            0.023721042089164257,
+            0.024055957794189453
+          ],
+          "median_seconds": 0.023883916903287172,
+          "passed_shots": [
+            90188,
+            90410,
+            89936,
+            89752,
+            90298
+          ]
+        },
+        {
+          "requested_batch_size": 256,
+          "effective_batch_size": 256,
+          "policy_workers": 4,
+          "seconds": [
+            0.012741667218506336,
+            0.012717875186353922,
+            0.012628958094865084,
+            0.012453250121325254,
+            0.01317266607657075
+          ],
+          "median_seconds": 0.012717875186353922,
+          "passed_shots": [
+            89941,
+            89944,
+            90188,
+            90141,
+            89854
+          ]
+        },
+        {
+          "requested_batch_size": 2048,
+          "effective_batch_size": 2048,
+          "policy_workers": 1,
+          "seconds": [
+            0.03579608304426074,
+            0.03600533399730921,
+            0.0352529170922935,
+            0.035725665744394064,
+            0.03642750019207597
+          ],
+          "median_seconds": 0.03579608304426074,
+          "passed_shots": [
+            89998,
+            90050,
+            90030,
+            89584,
+            89931
+          ]
+        }
+      ]
+    },
+    {
+      "clifft": "0.10.2.dev47+gb01242f7a.d20261013",
+      "isa": "neon",
+      "python": "3.14.5",
+      "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+      "circuit": "tests/fixtures/surface_d7_r7_p001.stim",
+      "source_sha256": "c27ee7f313396b3c655c47e7cb03224a72b0947d1a2567e7be834ea4fcf3863e",
+      "width": 0,
+      "detectors": 337,
+      "shots_per_call": 2048,
+      "calls": 64,
+      "threads": 1,
+      "keep_records": true,
+      "fixed_k": null,
+      "herald": 0.999,
+      "measurements": [
+        {
+          "requested_batch_size": 1,
+          "effective_batch_size": 1,
+          "policy_workers": 1,
+          "seconds": [
+            0.05449183424934745,
+            0.052921457681804895,
+            0.053148041013628244,
+            0.05346112512052059,
+            0.05354666709899902,
+            0.055341833271086216,
+            0.051982583943754435
+          ],
+          "median_seconds": 0.05346112512052059,
+          "passed_shots": [
+            9,
+            16,
+            16,
+            9,
+            16,
+            13,
+            12
+          ]
+        },
+        {
+          "requested_batch_size": 256,
+          "effective_batch_size": 256,
+          "policy_workers": 1,
+          "seconds": [
+            0.06776604196056724,
+            0.05711812525987625,
+            0.05715270806103945,
+            0.05832020798698068,
+            0.05541208293288946,
+            0.056116458028554916,
+            0.055262207984924316
+          ],
+          "median_seconds": 0.05711812525987625,
+          "passed_shots": [
+            10,
+            11,
+            19,
+            13,
+            11,
+            8,
+            9
+          ]
+        },
+        {
+          "requested_batch_size": 2048,
+          "effective_batch_size": 2048,
+          "policy_workers": 1,
+          "seconds": [
+            0.04269516607746482,
+            0.042257375083863735,
+            0.042171250097453594,
+            0.04115441581234336,
+            0.041739916894584894,
+            0.041512791998684406,
+            0.04289404209703207
+          ],
+          "median_seconds": 0.042171250097453594,
+          "passed_shots": [
+            8,
+            9,
+            15,
+            12,
+            16,
+            15,
+            5
+          ]
+        }
+      ]
+    },
+    {
+      "clifft": "0.10.2.dev47+gb01242f7a.d20261013",
+      "isa": "neon",
+      "python": "3.14.5",
+      "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+      "circuit": "tests/fixtures/surface_d7_r7_p001.stim",
+      "source_sha256": "c27ee7f313396b3c655c47e7cb03224a72b0947d1a2567e7be834ea4fcf3863e",
+      "width": 0,
+      "detectors": 337,
+      "shots_per_call": 65536,
+      "calls": 8,
+      "threads": 1,
+      "keep_records": false,
+      "fixed_k": null,
+      "herald": 0.999,
+      "measurements": [
+        {
+          "requested_batch_size": 1,
+          "effective_batch_size": 1,
+          "policy_workers": 1,
+          "seconds": [
+            0.21590208308771253,
+            0.22677937475964427,
+            0.21372366696596146,
+            0.21819275012239814,
+            0.22775354189798236,
+            0.23014208301901817,
+            0.22334649972617626
+          ],
+          "median_seconds": 0.22334649972617626,
+          "passed_shots": [
+            42,
+            34,
+            47,
+            45,
+            49,
+            42,
+            43
+          ]
+        },
+        {
+          "requested_batch_size": 256,
+          "effective_batch_size": 256,
+          "policy_workers": 1,
+          "seconds": [
+            0.24490929208695889,
+            0.22842820780351758,
+            0.2307742079719901,
+            0.22044041706249118,
+            0.21796587528660893,
+            0.21950433403253555,
+            0.2291048327460885
+          ],
+          "median_seconds": 0.22842820780351758,
+          "passed_shots": [
+            42,
+            53,
+            43,
+            51,
+            51,
+            44,
+            61
+          ]
+        },
+        {
+          "requested_batch_size": 2048,
+          "effective_batch_size": 2048,
+          "policy_workers": 1,
+          "seconds": [
+            0.1656151246279478,
+            0.188186916988343,
+            0.16291279112920165,
+            0.15927437506616116,
+            0.16166566731408238,
+            0.16001304192468524,
+            0.16288233315572143
+          ],
+          "median_seconds": 0.16288233315572143,
+          "passed_shots": [
+            43,
+            50,
+            40,
+            40,
+            47,
+            42,
+            58
+          ]
+        }
+      ]
+    },
+    {
+      "clifft": "0.10.2.dev47+gb01242f7a.d20261013",
+      "isa": "neon",
+      "python": "3.14.5",
+      "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+      "circuit": "tests/fixtures/surface_d7_r7_p001.stim",
+      "source_sha256": "c27ee7f313396b3c655c47e7cb03224a72b0947d1a2567e7be834ea4fcf3863e",
+      "width": 0,
+      "detectors": 337,
+      "shots_per_call": 65536,
+      "calls": 8,
+      "threads": 8,
+      "keep_records": false,
+      "fixed_k": null,
+      "herald": 0.999,
+      "measurements": [
+        {
+          "requested_batch_size": 1,
+          "effective_batch_size": 1,
+          "policy_workers": 8,
+          "seconds": [
+            0.03135641710832715,
+            0.03100216668099165,
+            0.03144025010988116,
+            0.03081637481227517,
+            0.03172158310189843,
+            0.031227957922965288,
+            0.03110904200002551
+          ],
+          "median_seconds": 0.031227957922965288,
+          "passed_shots": [
+            42,
+            34,
+            47,
+            45,
+            49,
+            42,
+            43
+          ]
+        },
+        {
+          "requested_batch_size": 256,
+          "effective_batch_size": 256,
+          "policy_workers": 8,
+          "seconds": [
+            0.032563500106334686,
+            0.03287083422765136,
+            0.032419292256236076,
+            0.03262654133141041,
+            0.033776416908949614,
+            0.032518415711820126,
+            0.032909625209867954
+          ],
+          "median_seconds": 0.03262654133141041,
+          "passed_shots": [
+            42,
+            53,
+            43,
+            51,
+            51,
+            44,
+            61
+          ]
+        },
+        {
+          "requested_batch_size": 2048,
+          "effective_batch_size": 2048,
+          "policy_workers": 8,
+          "seconds": [
+            0.02493866579607129,
+            0.02462850045412779,
+            0.02454562485218048,
+            0.02457604231312871,
+            0.02449933299794793,
+            0.024736457969993353,
+            0.024646333418786526
+          ],
+          "median_seconds": 0.02462850045412779,
+          "passed_shots": [
+            43,
+            50,
+            40,
+            40,
+            47,
+            42,
+            58
+          ]
+        }
+      ]
+    }
+  ]
+}
