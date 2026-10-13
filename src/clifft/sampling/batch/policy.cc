@@ -142,17 +142,24 @@ BatchExecutionPolicy resolve_batch_execution_policy(
     if (shots < kDefaultMinAutoBatchShots) {
         return {};
     }
-    // A static plan does not predict survivor lifetimes portably enough to
-    // choose packed execution without an explicit user request.
+    uint32_t max_capacity = kDefaultMaxAutoBatchShots;
     if (plan.has_postselection()) {
-        return {};
+        if (plan.peak_active_width() >= 5 ||
+            (plan.peak_active_width() == 0 && shots < kDefaultMinPostselectedClassicalShots)) {
+            return {};
+        }
+        // Capacity must not depend on workers: batch boundaries define seeded
+        // streams, while worker count only controls their scheduling.
+        if (plan.peak_active_width() != 0) {
+            max_capacity = kDefaultMaxPostselectedActiveBatchShots;
+        }
     }
     if (plan.peak_active_width() > 5 ||
         (plan.peak_active_width() == 5 && plan.estimated_width_five_batch_lane_work(output_mode) >
                                               kDefaultMaxWidthFiveBatchLaneWork)) {
         return {};
     }
-    uint32_t capacity = std::min(shots, kDefaultMaxAutoBatchShots);
+    uint32_t capacity = std::min(shots, max_capacity);
     while (capacity >= kDefaultMinAutoBatchShots) {
         if (interleaved_batch_state_bytes(plan.peak_active_width(), capacity) >
             kDefaultBatchStateBudget) {

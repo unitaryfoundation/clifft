@@ -1,0 +1,95 @@
+"""Automatic postselection must preserve seeded output across worker budgets."""
+
+import math
+from typing import Any
+
+import numpy as np
+import pytest
+import stim
+from conftest import binomial_tolerance
+
+import clifft
+
+
+@pytest.mark.parametrize("width", range(6))
+@pytest.mark.parametrize("fixed_faults", [False, True])
+@pytest.mark.parametrize("keep_records", [False, True])
+def test_postselected_auto_replays_explicit_capacity_across_threads(
+    width: int, fixed_faults: bool, keep_records: bool
+) -> None:
+    source = (
+        "X_ERROR(0.25) 6\nX_ERROR(0.375) 7\nM 6 7\n"
+        "DETECTOR rec[-2]\nOBSERVABLE_INCLUDE(0) rec[-1]\n"
+    )
+    if width:
+        targets = " ".join(map(str, range(width)))
+        source += f"H {targets}\nT {targets}\nH {targets}\nEXP_VAL Z0\nM {targets}"
+    program = clifft.compile(source, postselection_mask=[1], hir_passes=None)
+    assert program.peak_active_width == width
+    shots = 65_537 if width == 0 else 1025
+    capacity = 2048 if width == 0 else 256 if width < 5 else 1
+    sample: Any = clifft.sample_k_survivors if fixed_faults else clifft.sample_survivors
+    options = {"k": 1} if fixed_faults else {}
+    explicit = sample(
+        program,
+        shots,
+        seed=927,
+        threads=1,
+        batch_size=capacity,
+        keep_records=keep_records,
+        **options,
+    )
+    assert 0 < explicit.passed_shots < shots
+    assert explicit.logical_errors > 0
+    for threads in (1, 4):
+        automatic = sample(
+            program,
+            shots,
+            seed=927,
+            threads=threads,
+            keep_records=keep_records,
+            **options,
+        )
+        for field in ("total_shots", "passed_shots", "discards", "logical_errors"):
+            assert getattr(automatic, field) == getattr(explicit, field)
+        for field in ("measurements", "detectors", "observables", "exp_vals", "observable_ones"):
+            np.testing.assert_array_equal(getattr(automatic, field), getattr(explicit, field))
+        rows = automatic.passed_shots if keep_records else 0
+        assert automatic.measurements.shape == (rows, program.num_measurements)
+        assert not np.any(automatic.detectors)
+        if keep_records:
+            np.testing.assert_array_equal(
+                automatic.observable_ones, automatic.observables.sum(axis=0)
+            )
+
+
+def test_bulk_postselected_auto_matches_stim_with_expanded_detector_mask() -> None:
+    circuit = stim.Circuit("""
+        REPEAT 3 {
+            R 0
+            X_ERROR(0.1) 0
+            M 0
+            DETECTOR rec[-1]
+        }
+        X_ERROR(0.375) 1
+        M 1
+        OBSERVABLE_INCLUDE(0) rec[-1]
+    """)
+    source = str(circuit)
+    hir = clifft.trace(clifft.parse(source))
+    assert hir.num_detectors == circuit.num_detectors == 3
+    assert source.count("DETECTOR") == 1
+    program = clifft.compile(source, postselection_mask=[1] * hir.num_detectors)
+    assert program.peak_active_width == 0
+    shots = 65_537
+    reference = circuit.compile_detector_sampler(seed=928).sample(shots, append_observables=True)
+    accepted = ~np.any(reference[:, : circuit.num_detectors], axis=1)
+    reference_pass = float(np.mean(accepted))
+    reference_error = float(np.mean(accepted & reference[:, -1]))
+    result = clifft.sample_survivors(program, shots, seed=929, threads=4, keep_records=True)
+    for actual, expected in (
+        (result.passed_shots / shots, reference_pass),
+        (result.logical_errors / shots, reference_error),
+    ):
+        assert abs(actual - expected) < math.sqrt(2) * binomial_tolerance(expected, shots)
+    assert not np.any(result.detectors)

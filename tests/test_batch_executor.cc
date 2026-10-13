@@ -7,6 +7,7 @@
 #include "clifft/util/fault_sampling.h"
 #include "clifft/util/shot_seed.h"
 
+#include <algorithm>
 #include <array>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
@@ -461,9 +462,10 @@ TEST_CASE("Packed capacity policy bounds worker state footprint") {
     const std::array<uint8_t, 1> postselection{1};
     const ExecutablePlan postselected = compile_batch_test_plan(postselection);
     REQUIRE(postselected.has_postselection());
+    REQUIRE(postselected.peak_active_width() == 1);
     REQUIRE(resolve_batch_execution_policy(postselected, 4096, 1, 1, BatchOutputMode::Rows,
                                            std::nullopt)
-                .lane_capacity == 1);
+                .lane_capacity == 256);
     REQUIRE(resolve_batch_execution_policy(postselected, 4096, 1, 1, BatchOutputMode::Rows,
                                            uint32_t{65})
                 .lane_capacity == 65);
@@ -567,6 +569,63 @@ TEST_CASE("Packed capacity policy bounds worker state footprint") {
                                            BatchSamplingMode::Ordinary,
                                            clifft::sampling::kDefaultBatchWorkerBudget)
                 .lane_capacity == 1);
+}
+
+TEST_CASE("Postselected automatic capacity preserves request boundaries across worker budgets") {
+    struct Case {
+        uint32_t width;
+        uint32_t shots;
+        uint32_t capacity;
+    };
+    const std::array cases{
+        Case{0, 65535, 1},  Case{0, 65536, 2048}, Case{0, 65537, 2048}, Case{1, 0, 1},
+        Case{1, 63, 1},     Case{1, 64, 64},      Case{1, 255, 255},    Case{1, 256, 256},
+        Case{1, 257, 256},  Case{1, 65536, 256},  Case{2, 1025, 256},   Case{3, 1025, 256},
+        Case{4, 1025, 256}, Case{4, 65536, 256},  Case{5, 1025, 1},     Case{5, 65536, 1},
+        Case{6, 65536, 1},
+    };
+    for (const auto& test : cases) {
+        std::string circuit = "X_ERROR(0.25) 8\nM 8\nDETECTOR rec[-1]\n";
+        for (uint32_t qubit = 0; qubit < test.width; ++qubit) {
+            const std::string target = std::to_string(qubit);
+            circuit += "H " + target + "\nT " + target + "\n";
+        }
+        const std::array<uint8_t, 1> mask{1};
+        const ExecutablePlan plan(clifft::sampling::plan_sampling(
+            clifft::trace(clifft::parse(circuit)), {.postselection_mask = mask}));
+        REQUIRE(plan.has_postselection());
+        REQUIRE(plan.peak_active_width() == test.width);
+        for (const auto output : {BatchOutputMode::Rows, BatchOutputMode::AggregateSurvivors}) {
+            for (const auto mode : {BatchSamplingMode::Ordinary, BatchSamplingMode::FixedFaults}) {
+                for (const uint32_t workers : {1, 4, 16}) {
+                    CAPTURE(test.width, test.shots, output, mode, workers);
+                    const auto policy = resolve_batch_execution_policy(plan, test.shots, workers, 1,
+                                                                       output, std::nullopt, mode);
+                    REQUIRE(policy.lane_capacity == test.capacity);
+                    if (test.capacity > 1) {
+                        REQUIRE(
+                            policy.worker_count ==
+                            std::min(workers, (test.shots + test.capacity - 1) / test.capacity));
+                        REQUIRE(resolve_batch_execution_policy(
+                                    plan, test.shots, workers, 1, output, std::nullopt, mode,
+                                    clifft::sampling::kDefaultBatchWorkerBudget)
+                                    .lane_capacity == 1);
+                    }
+                    REQUIRE(resolve_batch_execution_policy(plan, test.shots, workers, 2, output,
+                                                           std::nullopt, mode)
+                                .lane_capacity == 1);
+                    if (test.shots != 0) {
+                        REQUIRE(resolve_batch_execution_policy(plan, test.shots, workers, 1, output,
+                                                               uint32_t{2048}, mode)
+                                    .lane_capacity == std::min(test.shots, uint32_t{2048}));
+                        REQUIRE(resolve_batch_execution_policy(plan, test.shots, workers, 1, output,
+                                                               uint32_t{1}, mode)
+                                    .lane_capacity == 1);
+                    }
+                }
+            }
+        }
+    }
 }
 
 TEST_CASE("Packed capacity policy limits workers to available batches") {

@@ -162,3 +162,28 @@ perf script -i perf-compile.data > profile.linux-perf.txt
 Use `perf annotate -i perf-compile.data --stdio --symbol=<symbol>` to inspect
 one hot function's generated assembly, and `perf stat -d <command>` for
 hardware-counter totals.
+
+## Postselection policy comparisons
+
+`benchmark_postselection.py` times the Python survivor APIs with full detector
+masks, including detectors expanded from `REPEAT` blocks. It reports the actual
+static automatic capacity and worker count through zero-budget tuning. Explicit
+capacities are clamped as in the core policy. All cases use cross-shot layouts;
+compilation and warmup are outside timing, while public-call setup, result
+allocation, and destruction are included. Capacities are interleaved for each
+repetition, and the JSON retains individual timings and survivor counts.
+
+```bash
+uv run python tools/profile/benchmark_postselection.py \
+    tests/fixtures/surface_d7_r7_p001.stim \
+    --shots 2048 65535 65536 200000 --threads 1 4 8 \
+    --calls 8 --outputs both --output results/postselection.json
+```
+
+Use `--herald 0.999` to add an independent first detector that rejects most
+attempts, or `--fixed-k 1` for conditioned sampling. Supply active-width fixtures
+to compare the 256-lane postselection policy, and keep both short requests and
+retained rows in cross-host comparisons. The shot count printed is per call;
+`--calls` repeats that public request within each timing interval. Compare
+attempted-shot throughput and survival rates separately. This is a performance
+driver, not a statistical correctness test or a promise of portable speedups.

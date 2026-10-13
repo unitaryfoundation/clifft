@@ -15,6 +15,13 @@ class ExecutablePlan;
 // Largest lane capacity considered by automatic packed selection.
 inline constexpr uint32_t kDefaultMaxAutoBatchShots = 2048;
 
+// Smaller active batches leave parallel work in short postselected requests.
+inline constexpr uint32_t kDefaultMaxPostselectedActiveBatchShots = 256;
+
+// Classical postselection needs enough batches to amortize masked dead lanes
+// without reducing cross-shot parallelism on short requests.
+inline constexpr uint32_t kDefaultMinPostselectedClassicalShots = 64 * 1024;
+
 // Hard lane-capacity ceiling for explicit packed requests.
 inline constexpr uint32_t kMaxExplicitBatchShots = 2048;
 
