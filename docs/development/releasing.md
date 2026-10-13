@@ -147,7 +147,7 @@ prose and checked-in rendered assets.
    the results/reporting PR in `clifft-bench` before copying its outputs here.
 3. Copy the consumed light/dark figure pairs from `reporting/figures/web/` into
    `docs/assets/performance/`, using the reporting guide's copy command. The README uses the
-   Clifft-only throughput figure; the Performance guide uses the combined Clifft/SymFT figure. Update
+   Clifft-only throughput figure; the Performance guide uses the combined simulator figure. Update
    `docs/guide/performance.md` and any release-specific excerpts in `README.md`, `docs/index.md`, or
    `docs/updates/`. Keep methodology and raw-result links pinned to the merged `clifft-bench` commit;
    reader-facing labels may use the target final version while the evidence retains the exact

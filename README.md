@@ -77,7 +77,7 @@ usually associated with specialized Clifford tools.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/unitaryfoundation/clifft/main/docs/assets/performance/clifft-throughput-dark.png">
-  <img src="https://raw.githubusercontent.com/unitaryfoundation/clifft/main/docs/assets/performance/clifft-throughput-light.png" alt="Clifft v0.11 attempted shots per second across six near-Clifford workloads">
+  <img src="https://raw.githubusercontent.com/unitaryfoundation/clifft/main/docs/assets/performance/clifft-throughput-light.png" alt="Clifft v0.12 attempted shots per second across seven QEC workloads">
 </picture>
 
 See the [Performance guide](https://unitaryfoundation.github.io/clifft/stable/guide/performance/)

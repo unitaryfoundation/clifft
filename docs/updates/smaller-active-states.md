@@ -178,3 +178,12 @@ reported numeric batch size on later calls with the same workload and settings
 to avoid recalibrating. See
 [CPU Execution and Tuning](../guide/cpu-execution.md#budgeted-batch-calibration)
 for the report fields and reproducibility details.
+
+## Release benchmarks
+
+The official clifft-bench campaign found QEC throughput essentially unchanged
+from 0.11: -1.16% to +1.90% across seven workloads. The fixed-input Draper adder
+gained about 33,050x sampling throughput with compilation measured separately.
+These compare the published RCs with scheduling and independently calibrated
+batching. See [Performance](../guide/performance.md) for the results and
+comparisons with SymFT, xtim, and Stim.
