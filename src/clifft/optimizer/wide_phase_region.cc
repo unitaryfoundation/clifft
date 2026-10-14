@@ -91,7 +91,7 @@ std::optional<Rewrite> try_region(const HirModule& hir, size_t start, const Know
             if (!required.commutes(axis.view()) || std::ranges::any_of(axes, [&](const auto& g) {
                     return !axis.view().commutes(g.view());
                 })) {
-                return std::nullopt;
+                break;
             }
             auto reduced = fixed.reduce_body(axis);
             auto mask = coordinates(reduced, rows);
@@ -113,7 +113,7 @@ std::optional<Rewrite> try_region(const HirModule& hir, size_t start, const Know
             residual.right_multiply(unsigned_axis.view());
             const auto negative = fixed.eigenvalue(residual);
             if (!negative) {
-                return std::nullopt;
+                break;
             }
             residual.set_sign(residual.sign() ^ *negative);
             required.insert(std::move(residual));
@@ -122,7 +122,9 @@ std::optional<Rewrite> try_region(const HirModule& hir, size_t start, const Know
                 coefficient = -coefficient;
             budget.add(terms, mask, coefficient);
         }
-        if (end == start)
+        // A narrow prefix must retain the ordinary collector's ability to
+        // pull observers back from later in the region.
+        if (axes.size() <= 64)
             return std::nullopt;
         if (!core_fits(terms, axes.size(), budget))
             return std::nullopt;

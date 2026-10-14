@@ -383,6 +383,73 @@ TEST_CASE("Phase expansion reads pending Clifford corrections only once", "[opti
     REQUIRE(hir.final_tableau == expected.final_tableau);
 }
 
+TEST_CASE("Wide phase collection stops at noncommuting rotations", "[optimizer]") {
+    for (uint32_t width : {65, 128}) {
+        for (bool constraint_boundary : {false, true}) {
+            CAPTURE(width, constraint_boundary);
+            std::string targets;
+            for (uint32_t q = 0; q < width; ++q)
+                targets += " " + std::to_string(q);
+            const auto ancilla = std::to_string(width);
+            std::string source = "H" + targets + "\nT" + targets + "\n";
+            if (constraint_boundary) {
+                // Use the fixed ancilla to equate the first two rotation axes.
+                source += "CX " + ancilla + " 0\nT 0\nCX " + ancilla + " 0\n";
+                for (uint32_t q = 1; q < width; ++q)
+                    source += "T " + std::to_string(q) + "\n";
+            } else {
+                source += "T" + targets + "\n";
+            }
+            const auto suffix =
+                constraint_boundary ? "H " + ancilla + "\nT " + ancilla + "\n" : "T 0\n";
+            source += "H" + targets + "\n" + suffix;
+            const auto expected =
+                trace(parse("H" + targets + "\nS" + targets + "\nH" + targets + "\n" + suffix));
+            auto hir = trace(parse(source));
+            PhasePolynomialPass pass;
+            pass.run(hir);
+            REQUIRE(pass.wide_rewrites() == 1);
+            REQUIRE(hir.num_t_gates() == 1);
+            REQUIRE(hir.ops.size() == expected.ops.size());
+            REQUIRE(hir.mask_view(hir.ops[0]) == expected.mask_view(expected.ops[0]));
+            REQUIRE(hir.ops[0].is_dagger() == expected.ops[0].is_dagger());
+            REQUIRE(hir.final_tableau == expected.final_tableau);
+        }
+    }
+}
+
+TEST_CASE("Wide phase fallback retains narrow observer pullbacks", "[optimizer]") {
+    for (const auto* observer : {"M 2", "CX rec[-1] 2", "EXP_VAL Z2", "X_ERROR(0.25) 2"}) {
+        CAPTURE(observer);
+        std::string source = "H 2\nM 2\nH 0 1\nT 0\nT 0\nT 1\n";
+        source += std::string(observer) + "\nT 1\n";
+        for (uint32_t q = 3; q < 67; ++q) {
+            const auto target = std::to_string(q) + "\n";
+            source += "H " + target + "T " + target;
+        }
+        auto hir = trace(parse(source));
+        auto expected = hir;
+        PhasePolynomialPass narrow({64});
+        narrow.run(expected);
+        REQUIRE(expected.num_t_gates() == 64);
+        PhasePolynomialPass wide;
+        wide.run(hir);
+        REQUIRE(wide.wide_attempts() > 0);
+        REQUIRE(wide.wide_rewrites() == 0);
+        REQUIRE(wide.pauli_pullbacks() == narrow.pauli_pullbacks());
+        REQUIRE(hir.num_t_gates() == 64);
+        REQUIRE(hir.num_measurements == expected.num_measurements);
+        REQUIRE(hir.ops.size() == expected.ops.size());
+        REQUIRE(hir.final_tableau == expected.final_tableau);
+        for (size_t i = 0; i < hir.ops.size(); ++i) {
+            REQUIRE(hir.ops[i].op_type() == expected.ops[i].op_type());
+            if (hir.ops[i].op_type() != OpType::NOISE) {
+                REQUIRE(hir.mask_view(hir.ops[i]) == expected.mask_view(expected.ops[i]));
+            }
+        }
+    }
+}
+
 TEST_CASE("Wide phase budgets preserve the ordinary fallback and completed candidates",
           "[optimizer]") {
     const uint32_t width = 65;
