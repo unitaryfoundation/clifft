@@ -240,8 +240,9 @@ TEST_CASE("Packed rotation signs prepare only the requested lanes") {
                 CAPTURE(pattern, lanes, sine);
                 std::vector<double> expected(kCapacity, 2.0);
                 std::vector<double> actual(kCapacity, 2.0);
-                prepare_interleaved_rotation_sines(expected, sine,
-                                                   std::span<const uint8_t>(unpacked).first(lanes));
+                for (uint32_t lane = 0; lane < lanes; ++lane) {
+                    expected[lane] = unpacked[lane] != 0 ? -sine : sine;
+                }
                 prepare_interleaved_rotation_sines(std::span<double>(actual).first(lanes), sine,
                                                    packed.column(0));
                 REQUIRE(actual == expected);

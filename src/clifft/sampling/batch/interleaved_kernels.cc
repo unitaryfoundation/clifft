@@ -190,15 +190,6 @@ void apply_interleaved_dynamic_fused_orbits(InterleavedBatchState& state,
 }  // namespace
 
 void prepare_interleaved_rotation_sines(std::span<double> output, double sine,
-                                        std::span<const uint8_t> signs) noexcept {
-    assert(output.size() >= signs.size() && "signed-sine output must cover every lane");
-    CLIFFT_OMP_SIMD
-    for (size_t lane = 0; lane < signs.size(); ++lane) {
-        output[lane] = signs[lane] != 0 ? -sine : sine;
-    }
-}
-
-void prepare_interleaved_rotation_sines(std::span<double> output, double sine,
                                         std::span<const uint64_t> signs) noexcept {
     assert((output.empty() || (output.size() - 1) / 64 < signs.size()) &&
            "packed signs must cover every output lane");
