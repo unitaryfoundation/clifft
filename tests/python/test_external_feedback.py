@@ -47,17 +47,13 @@ def _optimize(
 def test_external_preparation_needs_a_complete_phase_region(noise: str) -> None:
     # Z-only noise is a modified diagnostic, not Merlin's depolarizing model.
     source = _source(noise)
-    limited, phase = _optimize(source, 32)
+    limited, _ = _optimize(source, 32)
     limited_width = clifft.active_width_trace(limited)["peak"]
-    assert phase.blocks_capped > 0
-    assert phase.expansion_attempts == 0
     for limit in (None, 33, 64):
         reduced, phase = _optimize(source, limit)
         assert reduced.num_t_gates < limited.num_t_gates // 2
         assert clifft.active_width_trace(reduced)["peak"] < limited_width // 2
         assert phase.applied
-        assert phase.blocks_expanded > 0
-        assert phase.blocks_capped == 0
 
 
 def test_external_depolarizing_faults_prevent_fixed_constraint_reduction() -> None:

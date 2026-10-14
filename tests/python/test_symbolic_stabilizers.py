@@ -73,7 +73,7 @@ def _entangled_reference(kind: str, basis: str, angle: float = 0.137) -> tuple[s
 @pytest.mark.parametrize(
     "pass_name,angle", [("rotation", 0.137), ("rotation", 0.25), ("phase", 0.25)]
 )
-@pytest.mark.parametrize("axes", product("XYZ", repeat=3))
+@pytest.mark.parametrize("axes", list(product("XYZ", repeat=3)))
 def test_measured_rewrites_preserve_full_conditional_state(
     axes: tuple[str, ...], pass_name: str, angle: float
 ) -> None:

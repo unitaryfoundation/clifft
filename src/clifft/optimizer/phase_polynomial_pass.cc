@@ -19,18 +19,9 @@
 namespace clifft {
 namespace {
 
+using optimizer_detail::body_bit;
+using optimizer_detail::pivot_of;
 using optimizer_detail::write_axis;
-
-uint32_t pivot_of(const PauliString& axis) {
-    const uint32_t domain = axis.x().num_words() * 64;
-    const uint32_t x = axis.x().lowest_bit();
-    return x < domain ? x : domain + axis.z().lowest_bit();
-}
-
-bool body_bit(const PauliString& axis, uint32_t pivot) {
-    const uint32_t domain = axis.x().num_words() * 64;
-    return pivot < domain ? axis.x().bit_get(pivot) : axis.z().bit_get(pivot - domain);
-}
 
 PauliString product_axis(const std::vector<PauliString>& generators, uint64_t parity,
                          uint32_t width) {
@@ -463,6 +454,10 @@ void PhasePolynomialPass::run(HirModule& hir) {
                 narrow_options.max_variables = 64;
                 PhasePolynomialPass narrow(narrow_options);
                 narrow.run(hir);
+                blocks_examined_ += narrow.blocks_examined();
+                blocks_capped_ += narrow.blocks_capped();
+                expansion_attempts_ += narrow.expansion_attempts();
+                blocks_expanded_ += narrow.blocks_expanded();
                 blocks_reduced_ = narrow.blocks_reduced();
                 pauli_pullbacks_ = narrow.pauli_pullbacks();
                 output_t_count_ = hir.num_t_gates();

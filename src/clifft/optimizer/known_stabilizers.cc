@@ -9,16 +9,8 @@
 namespace clifft {
 namespace {
 
-uint32_t pivot_of(const PauliString& axis) {
-    const uint32_t domain = axis.x().num_words() * 64;
-    const uint32_t x = axis.x().lowest_bit();
-    return x < domain ? x : domain + axis.z().lowest_bit();
-}
-
-bool body_bit(const PauliString& axis, uint32_t pivot) {
-    const uint32_t domain = axis.x().num_words() * 64;
-    return pivot < domain ? axis.x().bit_get(pivot) : axis.z().bit_get(pivot - domain);
-}
+using optimizer_detail::body_bit;
+using optimizer_detail::pivot_of;
 
 bool identity(const PauliString& axis) {
     return axis.x().is_zero() && axis.z().is_zero();

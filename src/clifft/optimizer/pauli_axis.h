@@ -7,6 +7,17 @@
 
 namespace clifft::optimizer_detail {
 
+inline uint32_t pivot_of(const PauliString& axis) {
+    const uint32_t domain = axis.x().num_words() * 64;
+    const uint32_t x = axis.x().lowest_bit();
+    return x < domain ? x : domain + axis.z().lowest_bit();
+}
+
+inline bool body_bit(const PauliString& axis, uint32_t pivot) {
+    const uint32_t domain = axis.x().num_words() * 64;
+    return pivot < domain ? axis.x().bit_get(pivot) : axis.z().bit_get(pivot - domain);
+}
+
 inline PauliString copy_axis(PauliMaskView mask, uint32_t width) {
     PauliString axis(width);
     axis.mut_x().xor_with(mask.x());

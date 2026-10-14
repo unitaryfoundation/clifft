@@ -32,6 +32,7 @@ class PhasePolynomialPass : public HirPass {
     void run(HirModule& hir) override;
 
     size_t blocks_reduced() const { return blocks_reduced_; }
+    // Search effort includes rejected candidates and any narrow fallback rerun.
     size_t blocks_examined() const { return blocks_examined_; }
     size_t blocks_capped() const { return blocks_capped_; }
     size_t expansion_attempts() const { return expansion_attempts_; }

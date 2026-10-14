@@ -1,5 +1,6 @@
 """Multiword phase rewrites checked against exact independent joint probabilities."""
 
+import re
 from functools import lru_cache
 
 import numpy as np
@@ -46,8 +47,6 @@ def _source(width: int, seed: int, noise: float, shuffle: bool = True, readout: 
         lines += ["H 0 1", "S_DAG 0 1"]
     lines += ["MPP X0*Z1", "CX rec[-1] 1", "T_DAG 0", "MX 0 1"]
     permutation = rng.permutation(width + 1)
-    import re
-
     return "\n".join(
         " ".join(
             [

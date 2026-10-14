@@ -131,6 +131,7 @@ polynomial expansion.
 `max_wide_work` (default `50000000`) bounds deterministic work units shared by
 all optional attempts and both basis candidates in one pass. The units include
 polynomial updates, charged row operations, and an allowance for synthesis.
+Work units are not a wall-clock limit; their cost depends on the polynomial.
 `max_wide_terms` (default `200000`) bounds each polynomial's size. Setting either
 to zero disables the optional path. Exhaustion retains a completed valid
 candidate or falls back to the ordinary smaller-region policy. These limits
@@ -145,13 +146,11 @@ samples for a fixed random seed.
 
 After a run, `input_t_count`, `output_t_count`, `blocks_reduced` and
 `pauli_pullbacks` describe the accepted rewrite; `applied` reports acceptance.
-`blocks_examined` counts synthesis attempts and `blocks_capped` counts selected
-blocks split by a variable limit. `expansion_attempts` counts larger collection
-probes and `blocks_expanded` counts probes adopted for synthesis. These search
-counters remain available when no rewrite is accepted and reset on each run.
 `wide_attempts`, `wide_rewrites`, `wide_work`, and `wide_budget_exhausted` report
-the optional path; `wide_rewrites` counts accepted rewrites. All counters reset
-on each run.
+the optional search, including rejected candidates; `wide_rewrites` counts only
+accepted rewrites. C++ collection counters accumulate search effort across all
+attempts, including a narrow rerun after the width guard rejects a wide result.
+All counters reset on each run.
 {% endif %}
 
 {% if p['name'] == 'RotationSimplificationPass' %}

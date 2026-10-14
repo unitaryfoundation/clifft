@@ -1,21 +1,15 @@
 #include "clifft/optimizer/wide_phase_region.h"
 
+#include "clifft/optimizer/pauli_axis.h"
+
 #include <algorithm>
 #include <map>
 
 namespace clifft::phase_detail::wide {
 namespace {
 
-uint32_t pivot_of(const PauliString& p) {
-    const auto domain = p.x().num_words() * 64;
-    const auto x = p.x().lowest_bit();
-    return x < domain ? x : domain + p.z().lowest_bit();
-}
-
-bool body_bit(const PauliString& p, uint32_t i) {
-    const auto domain = p.x().num_words() * 64;
-    return i < domain ? p.x().bit_get(i) : p.z().bit_get(i - domain);
-}
+using optimizer_detail::body_bit;
+using optimizer_detail::pivot_of;
 
 PauliString product(const std::vector<PauliString>& axes, Mask mask, uint32_t width) {
     PauliString result(width);
@@ -204,7 +198,7 @@ std::optional<Rewrite> try_region(const HirModule& hir, size_t start, const Know
             (!best || is_better(aligned, *best))) {
             best = std::move(aligned);
         }
-    } catch (const std::length_error&) {
+    } catch (const SearchLimit&) {
         // The caller can still use a completed candidate or the ordinary path.
     }
     return best;

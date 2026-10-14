@@ -21,6 +21,9 @@ struct Less {
 };
 using Polynomial = std::map<Mask, uint8_t, Less>;
 
+// Only expected search limits may discard an optional candidate.
+struct SearchLimit {};
+
 struct Budget {
     size_t max_updates = 50000000;
     size_t max_terms = 200000;
@@ -30,7 +33,7 @@ struct Budget {
     void charge(size_t amount = 1) {
         if (exhausted || amount > max_updates - updates) {
             exhausted = true;
-            throw std::length_error("wide phase work budget exhausted");
+            throw SearchLimit{};
         }
         updates += amount;
     }
@@ -42,7 +45,7 @@ struct Budget {
         if (value) {
             if (found == p.end() && p.size() >= max_terms) {
                 exhausted = true;
-                throw std::length_error("wide phase term budget exhausted");
+                throw SearchLimit{};
             }
             p[monomial] = value;
         } else if (found != p.end()) {
@@ -170,7 +173,7 @@ struct Basis {
 
 inline Basis reduce_core(Polynomial& polynomial, uint32_t width, Budget& budget) {
     if (width > 128) {
-        throw std::length_error("phase variable budget exhausted");
+        throw SearchLimit{};
     }
     std::vector<Mask> generators;
     for (uint32_t j = 0; j < width; ++j) {
@@ -192,7 +195,7 @@ inline Basis reduce_core(Polynomial& polynomial, uint32_t width, Budget& budget)
     const auto core_width = static_cast<uint32_t>(columns.size());
     // Existing TOHPE synthesis retains its representation and work guards.
     if (core_width > 64) {
-        throw std::length_error("non-Clifford core exceeds existing synthesis representation");
+        throw SearchLimit{};
     }
     columns.insert(columns.end(), kernel.begin(), kernel.end());
     std::vector<Mask> matrix(width);
