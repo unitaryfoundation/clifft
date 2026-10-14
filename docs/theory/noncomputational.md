@@ -190,6 +190,14 @@ operations act, which measurements use the classifier, and when a site
 returns to the computational subspace. Those choices differ between shots, so
 one program compiled before sampling cannot describe every trajectory.
 
+Before sampling, an internal prepared request owns a snapshot of the model and
+the circuit with transition hooks and partner interactions expanded. Preparation
+validates annotation shapes, transition names, and model-dependent measurement
+contracts without drawing randomness or compiling a continuation. The request
+can be reused internally; each execution call owns its workers, random streams,
+and continuations. Width checks remain at continuation compilation, so an
+unreachable all-computational start cannot reject a valid request.
+
 `noncomp.sample` instead alternates execution with compilation when the
 sampled history requires it. The executor directly handles outcomes whose state
 update leaves the remaining program valid. When an outcome invalidates the
