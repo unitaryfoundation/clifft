@@ -12,6 +12,7 @@
 #include "clifft/optimizer/drop_non_unitary_pass.h"
 #include "clifft/optimizer/hir_pass_manager.h"
 #include "clifft/optimizer/pass_factory.h"
+#include "clifft/optimizer/pass_registry.h"
 #include "clifft/optimizer/peephole.h"
 #include "clifft/optimizer/phase_polynomial_pass.h"
 #include "clifft/optimizer/remove_noise_pass.h"
@@ -27,6 +28,7 @@
 #include "clifft/util/runtime_isa.h"
 #include "clifft/util/version.h"
 
+#include <array>
 #include <limits>
 #include <nanobind/nanobind.h>
 #include <nanobind/ndarray.h>
@@ -975,8 +977,58 @@ NB_MODULE(_clifft_core, m) {
             nb::arg("hir"), "Run all passes on the HIR module in sequence.");
 
     m.def(
-        "default_hir_pass_manager", []() { return clifft::default_hir_pass_manager(); },
-        nb::rv_policy::move, "Return an HirPassManager pre-loaded with the default passes.");
+        "default_hir_pass_manager",
+        [](nb::sequence overrides) {
+            if (nb::len(overrides) == 0) {
+                return nb::cast(clifft::default_hir_pass_manager(), nb::rv_policy::move);
+            }
+            std::array<nb::object, clifft::kNumRegisteredPasses> replacements;
+            const auto module = nb::module_::import_("clifft._clifft_core");
+            for (nb::handle pass : overrides) {
+                if (!nb::isinstance<clifft::HirPass>(pass)) {
+                    throw nb::type_error("overrides must contain HIR pass instances");
+                }
+                bool matched = false;
+                for (size_t i = 0; i < clifft::kNumRegisteredPasses; ++i) {
+                    const auto& info = clifft::kRegisteredPasses[i];
+                    if (!nb::isinstance(pass, module.attr(info.name.data()))) {
+                        continue;
+                    }
+                    if (!info.default_enabled) {
+                        throw std::invalid_argument(std::string(info.name) +
+                                                    " is not a default HIR pass");
+                    }
+                    if (replacements[i].is_valid()) {
+                        throw std::invalid_argument("Duplicate override for " +
+                                                    std::string(info.name));
+                    }
+                    replacements[i] = nb::borrow(pass);
+                    matched = true;
+                    break;
+                }
+                if (!matched) {
+                    throw std::invalid_argument("Override is not a registered default HIR pass");
+                }
+            }
+            auto result = nb::cast(clifft::HirPassManager{}, nb::rv_policy::move);
+            auto& manager = nb::cast<clifft::HirPassManager&>(result);
+            for (size_t i = 0; i < clifft::kNumRegisteredPasses; ++i) {
+                const auto& info = clifft::kRegisteredPasses[i];
+                if (replacements[i].is_valid()) {
+                    // add() retains each pass even if the caller clears the overrides list.
+                    result.attr("add")(replacements[i]);
+                } else if (info.default_enabled) {
+                    manager.add_pass(info.make());
+                }
+            }
+            return result;
+        },
+        nb::kw_only(), nb::arg("overrides") = nb::tuple(),
+        nb::sig("def default_hir_pass_manager(*, overrides: collections.abc.Sequence[HirPass] = "
+                "()) -> HirPassManager"),
+        "Return the default pipeline, replacing selected passes in their original slots.\n\n"
+        "Overrides must be instances of distinct default-enabled pass types. The manager\n"
+        "retains these instances; their statistics remain available after a run.");
 
     m.def(
         "active_width_trace",

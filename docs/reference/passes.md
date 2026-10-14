@@ -13,8 +13,23 @@ The default HIR pipeline:
 
 These passes are complementary; the default manager runs them in the order shown.
 
-Use `clifft.default_hir_pass_manager()` to get these defaults, or build a
-custom pipeline:
+Use `clifft.default_hir_pass_manager()` to get these defaults. To configure a
+default pass while retaining the rest of the pipeline:
+
+```python
+import clifft
+
+phase = clifft.PhasePolynomialPass(max_variables=64)
+pm = clifft.default_hir_pass_manager(overrides=[phase])
+program = clifft.compile("H 0\nT 0\nM 0", hir_passes=pm)
+```
+
+Each override replaces the corresponding pass in its original position,
+regardless of the order of `overrides`. The manager retains the supplied
+instances, so pass statistics such as `phase.output_t_count` remain accessible.
+Duplicate pass types and passes outside the default pipeline raise `ValueError`.
+
+For other pass choices or ordering, build a custom pipeline:
 
 ```python
 import clifft
