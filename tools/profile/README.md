@@ -9,22 +9,6 @@ strong-simulation costs for `perf` or another sampling profiler:
   `clifft::basis_probabilities()` over a batch of bitstrings.
 - `profile_sample` compiles a circuit once and repeatedly samples it through
   the public C++ path.
-- `profile_optimizer_allocations` counts allocations within the default HIR
-  optimizer, excluding parsing, tracing, planning, and execution.
-
-`profile_symbolic_stabilizers.py` measures measured CSS preparation, Pauli
-feedback, and stabilizer slicing through the complete default compiler pipeline.
-It includes faulty-preparation and readout controls, a phase-pass ablation, and
-independent Aer/Stim checks.
-
-Add `--wide` to time each default optimizer pass on rotated surface-code memory
-at distances 3, 11, and 21 with equally many rounds. These stress cases replace
-each depolarizing location with `R_Z(0.02)` on the same targets, retaining
-measurement flips and optionally the original Pauli noise. They measure pass
-time and rotation removals without lowering or sampling the wide state. The
-distance-21 cases can take several minutes; compare identical cases and build
-settings in separate environments. These are scaling probes, not validated
-fault-tolerant coherent-noise models.
 
 ## Build
 
@@ -35,11 +19,10 @@ the optimized code paths used for profiling.
 cmake -B build-profile \
   -DCMAKE_BUILD_TYPE=RelWithDebInfo \
   -DCLIFFT_BUILD_PROFILER=ON
-cmake --build build-profile --target profile_compile profile_probability profile_sample profile_optimizer_allocations -j$(nproc)
+cmake --build build-profile --target profile_compile profile_probability profile_sample -j$(nproc)
 ```
 
-`just profile-build` builds the timing harnesses. Build the allocation probe
-explicitly when needed.
+`just profile-build` builds the timing harnesses.
 
 ## Compilation
 
@@ -82,50 +65,6 @@ The scheduler reports `swept_ops` and `classification_probes` separately. The
 execution budget does not bound classification probes, which can grow
 quadratically for wide ready sets. The total compile time also includes
 parsing, production passes, planning, and executable preparation.
-
-### Optimizer allocations
-
-```bash
-./build-profile/profile_optimizer_allocations tests/fixtures/cultivation_d5.stim
-```
-
-The standalone probe replaces C++ `new` and `delete` only in its own executable.
-It counts requested payload bytes allocated during the single-threaded default
-HIR optimizer, including live output allocations. Peak live bytes exclude
-preexisting HIR storage, allocator metadata, and direct C allocation calls.
-This is an optimizer allocation measurement, not process RSS or isolated
-symbolic-analysis memory. Use the ordinary harness for timings; the probe's
-allocation headers change allocator behavior.
-
-### Measured preparation and feedback
-
-Run from the repository root with the development dependencies installed:
-
-```bash
-taskset -c 0 .venv/bin/python tools/profile/profile_symbolic_stabilizers.py \
-  --repeats 11 --shots 65536 --corpus --small-batches \
-  --output /tmp/symbolic-stabilizers.json
-```
-
-The JSON output includes circuits, optimized T counts, active widths, action
-counts, plans, compilation stages, sampling throughput, and independent
-validation results. `--small-batches` adds sampling timings for 1, 16, 256,
-and 4,096 shots; `--corpus` adds compilation of existing repository fixtures.
-Use `--skip-validation` when repeating timing-only runs. Compare builds in
-separate environments with the same inputs, retained outputs, thread count,
-and CPU affinity; alternate their execution order to limit timing drift.
-
-The Reed-Muller workload prepares a logical plus state using ten measured Z
-checks and Pauli feedback, then applies transversal T. It retains preparation
-records, logical outputs, and expectation probes. The slicing workload checks
-arbitrary-angle cancellation, unequal rotations, and sign-changing faults.
-The 45-qubit transversal-CCZ case is a compilation scaling control without a
-decoder, acceptance rule, or fault-tolerant ancilla preparation.
-
-For a fresh compilation, compare compilation plus sampling time at the desired
-shot count. When reusing a compiled program, amortize compilation separately.
-The no-phase ablation distinguishes reductions enabled by HIR optimization
-from facts already exploited by the sampling planner.
 
 ## Sampling
 
@@ -198,98 +137,16 @@ changed with `--batches`; scalar (`1`) and `auto` are always required. Use
 coefficient-state lifetimes. They exercise the automatic work cutoff without
 assuming that peak width alone predicts whether batching is profitable.
 
-## External measured preparation
+## External circuit fixtures
 
-`profile_external_feedback.py` compares the default policy with explicit phase
-ceilings of 32 and 64. It records individual pass times, cap and expansion
-counters, T counts, and peak active width. At width at most 16 it also records
-full compilation and the first sampling batch, including executor preparation.
-Larger circuits use `trace`, HIR passes, and `active_width_trace` only.
+The Merlin BT27 and direct-X BT81 fixture headers contain their pinned upstream
+revision and construction recipes. BT81's added logical X measurements use no
+postselection or inverse logical scoring gate. Keep the original record order
+when regenerating either fixture.
 
-The checked-in `tests/fixtures/merlin_bt27.stim` is the unmodified circuit from
-[Merlin](https://github.com/mark-koch/merlin) revision
-`097380fac1a3968ca47925146e211fe990f4c396`, generated by
-`benchmarks/protocols/code_switching.py` with
-`build_code_switching_case("bt27", p_phys=0, target_scoring=False)`. Supplying
-that checkout verifies the fixture and adds BT81 and original inverse-logical-CCZ
-target scoring. The Z-only variant replaces pre-CCZ depolarization and is a
-modified diagnostic workload. Zero events in the target-scoring sample are
-only a sanity check; the test suite separately checks decoded logical outputs
-and a syndrome jointly against Aer and an exact convolution of Stim fault maps.
-
-The direct-X `tests/fixtures/merlin_bt81_direct_x.stim` uses the same pinned
-generator with `build_code_switching_case("bt81", p_phys=0,
-target_scoring=False).circuit`. Expand each RX, M, and MX instruction into
-one-target instructions in its original target order. Append MX measurements
-of logical output qubits `0, 1, 2, 81, 82, 83, 162, 163, 164`, in that order,
-then `OBSERVABLE_INCLUDE(i) rec[-(9-i)]` for `i = 0..8`. This adds direct X
-readout without an inverse logical scoring gate or postselection. The profiler
-verifies that construction against the fixture when given `--merlin-checkout`;
-no Clifft research branch is required. Excluding comments and retaining the
-final newline, its SHA-256 is
-`2db837e4ab23eb30288da1b7983b929c25a84c6bca5c9ea810c71f61b2c6262a`.
-
-```bash
-taskset -c 0 .venv/bin/python tools/profile/profile_external_feedback.py \
-  --merlin-checkout /path/to/pinned/merlin \
-  --repeats 5 --shots 256 --output /tmp/external-feedback.json
-```
-
-The optional `--ibm-input` accepts a generated gauging control. The reviewed d3
-input comes from [IBM gauging](https://github.com/IBM/gauging_clifford_measurement)
-revision `ce90c09c239b2173612c22cc12a2bbf5a7356680`: call `ColorCode(3)`,
-`unitary_prep(3, basis="Y")`, `mid_circ_meas(3, basis="Y")`, `stab(3)`, then
-`mid_circ_meas(3, basis="Y")`. Follow the upstream conversion convention by
-replacing S/S_DAG with T/T_DAG and omitting empty-target Clifford operations.
-This control currently has no reduction; its blocker is unresolved.
-
-Use matching Release build settings, one pinned worker, and separate Python
-environments when comparing revisions. The profiler also includes Reed-Muller,
-stabilizer slicing, the CCZ skeleton, cultivation, coherent memory, and
-measurement barriers as controls. Results are local measurements, not portable
-performance targets.
-
-BT81's natural phase support has 87 variables. The default policy can collect
-that region with two-word coordinates after the ordinary 64-variable attempt
-is capped. The pinned direct-X fixture has no postselection or inverse logical
-scoring gate. It reduces from 648 T gates / execution width 56 to 23 / 6;
-preparation without final readout has width nine. These are static results with
-all 405 records preserved. They do not require per-history specialization.
-
-The static analysis recovers all 243 fixed data stabilizers. The complete
-non-Clifford polynomial has six cubic terms on nine variables, with Clifford
-corrections retained after peephole fusion. Widening alone produced 145 T gates;
-output alignment made the existing synthesis guard admit the smaller
-representation.
-
-The optional path shares work limits across its original and output-aligned
-basis candidates, retains the existing synthesis and cost guards, and falls
-back on unsupported cores, regions, or exhausted budgets. Unresolved symbolic
-signs and general noisy reductions remain separate questions. Set
-`max_variables=64` to compare the earlier policy. Equivalent circuit
-presentations may produce different T counts or widths because synthesis and
-squeezing are heuristics.
-
-Local validation on an EPYC 9554P, pinned to one CPU, compared the default
-policy with `max_variables=64`. Five compile trials and ten warmed sampling
-trials gave the following medians; memory is peak native compiler process RSS.
-
-| Direct-X BT81 | 64-variable policy | Bounded 128-variable policy |
-| --- | --- | --- |
-| T count / preparation width / execution width | 648 / 87 / 56 | 23 / 9 / 6 |
-| Complete compilation | 104 ms | 1.00 s |
-| Peak compiler RSS | 12.6 MiB | 15.1 MiB |
-| 256 shots on one thread | Not attempted at width 56 | 1.66 ms |
-
-All 11 tested presentations (qubit relabeling, commuting-gate reordering, and
-equivalent Clifford/CCZ decompositions) retained a reduction, at 23-31 T gates
-and execution widths 6-7. Independent Aer logical-output and Stim preparation
-record-support checks passed. Small exact Aer checks also cover joint records,
-feedback, noisy readout, word boundaries, and budget fallback. Unsuccessful
-wide attempts on noisy BT27/BT81 and irreducible synthetic controls added
-approximately 0.1-1.3 ms of HIR optimization time. The high-noise surface-code
-control sampled 10,000 shots in 25.14 ms with the 64-variable policy and
-25.21 ms with the default policy.
+Use matching Release build settings and CPU affinity when comparing compiler
+revisions. Large unreduced fixtures should be inspected with `trace`, HIR passes,
+and `active_width_trace` without constructing an exponential statevector.
 
 ## Probability queries
 

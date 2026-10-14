@@ -7,7 +7,6 @@
 # Append MX for 0, 1, 2, 81, 82, 83, 162, 163, 164 in that order, followed by
 # OBSERVABLE_INCLUDE(i) rec[-(9-i)] for i = 0..8.
 # No postselection or inverse logical scoring gate.
-# Reproduce with tools/profile/profile_external_feedback.py --merlin-checkout PATH.
 # Source SHA-256: 2db837e4ab23eb30288da1b7983b929c25a84c6bca5c9ea810c71f61b2c6262a
 RX 0
 RX 1
