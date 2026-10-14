@@ -237,12 +237,48 @@ stabilizer slicing, the CCZ skeleton, cultivation, coherent memory, and
 measurement barriers as controls. Results are local measurements, not portable
 performance targets.
 
-BT81's natural phase support has 87 variables, beyond the 64-bit parity
-representation. The bounded policy reports cap hits and keeps small synthesis
-blocks there. A separate follow-up should evaluate multiword parity keys and
-sparse cubic algebra on that 87-variable case with explicit work budgets and
-the existing rewrite cost guards. No conditional corrections or execution
-architecture changes are needed for the current policy.
+BT81's natural phase support has 87 variables. The default policy can collect
+that region with two-word coordinates after the ordinary 64-variable attempt
+is capped. The pinned direct-X fixture has no postselection or inverse logical
+scoring gate. It reduces from 648 T gates / execution width 56 to 23 / 6;
+preparation without final readout has width nine. These are static results with
+all 405 records preserved. They do not require per-history specialization.
+
+The prior comparison with the pinned research reducer recovered all 243 fixed
+data stabilizers and matched the complete polynomial: six cubic terms on nine
+variables, with Clifford corrections retained after peephole fusion. Widening
+alone produced 145 T gates; output alignment made the existing synthesis guard
+admit the smaller representation. The direct-X fixture records the research
+revision and source hash in its header.
+
+The optional path shares work limits across its original and output-aligned
+basis candidates, retains the existing synthesis and cost guards, and falls
+back on unsupported cores, regions, or exhausted budgets. Unresolved symbolic
+signs and general noisy reductions remain separate questions. Set
+`max_variables=64` to compare the earlier policy. Equivalent circuit
+presentations may produce different T counts or widths because synthesis and
+squeezing are heuristics.
+
+Local validation on an EPYC 9554P, pinned to one CPU, compared the default
+policy with `max_variables=64`. Five compile trials and ten warmed sampling
+trials gave the following medians; memory is peak native compiler process RSS.
+
+| Direct-X BT81 | 64-variable policy | Bounded 128-variable policy |
+| --- | --- | --- |
+| T count / preparation width / execution width | 648 / 87 / 56 | 23 / 9 / 6 |
+| Complete compilation | 104 ms | 1.00 s |
+| Peak compiler RSS | 12.6 MiB | 15.1 MiB |
+| 256 shots on one thread | Not attempted at width 56 | 1.66 ms |
+
+All 11 tested presentations (qubit relabeling, commuting-gate reordering, and
+equivalent Clifford/CCZ decompositions) retained a reduction, at 23-31 T gates
+and execution widths 6-7. Independent Aer logical-output and Stim preparation
+record-support checks passed. Small exact Aer checks also cover joint records,
+feedback, noisy readout, word boundaries, and budget fallback. Unsuccessful
+wide attempts on noisy BT27/BT81 and irreducible synthetic controls added
+approximately 0.1-1.3 ms of HIR optimization time. The refreshed high-noise
+surface-code control sampled 10,000 shots in 25.14 versus 25.21 ms; the earlier
+sampling slowdown is not an outstanding defect of this pass.
 
 ## Probability queries
 

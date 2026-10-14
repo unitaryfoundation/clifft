@@ -82,6 +82,19 @@ extraction, and Clifford correction.
 - [Author's implementation](https://github.com/VivienVandaele/quantum-circuit-optimization),
   with the [revision used for validation](https://github.com/VivienVandaele/quantum-circuit-optimization/blob/231e6fe9f92d5bb1ebf7459c2a9233f5e74d148e/src/t_opt.rs#L79).
 
+## Merlin
+
+Merlin's code-switching generator supplied the pinned BT27 fixture used to
+validate measurement-feedback constraint recovery and bounded phase-region
+expansion. Its BT81 generator also supplies the direct-X fixture used to validate
+87-variable phase collection, basis selection, and measurement-aware squeezing.
+Clifft reuses these benchmark circuits;
+the static optimizer does not implement Merlin's per-history specialization.
+The [profiling guide](https://github.com/unitaryfoundation/clifft/blob/main/tools/profile/README.md#external-measured-preparation)
+records the generator revision, modifications, and independent checks.
+
+- [Merlin code-switching generator at the pinned revision](https://github.com/mark-koch/merlin/blob/097380fac1a3968ca47925146e211fe990f4c396/benchmarks/protocols/code_switching.py).
+
 ## Triorthogonal circuits
 
 Matthew Cha of Riverlane assembled the triorthogonal circuit collection used

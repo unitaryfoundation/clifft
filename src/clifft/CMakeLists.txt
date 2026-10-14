@@ -13,6 +13,7 @@ add_library(clifft_core STATIC
     optimizer/commutation.cc
     optimizer/peephole.cc
     optimizer/pass_factory.cc
+    optimizer/wide_phase_region.cc
     optimizer/phase_polynomial.cc
     optimizer/tohpe.cc
     optimizer/known_stabilizers.cc

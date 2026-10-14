@@ -41,6 +41,7 @@ def cases(merlin: Path | None, ibm: Path | None) -> dict[str, str]:
 
     source = bt27_source()
     result = {
+        "bt81_direct_x": (FIXTURE.parent / "merlin_bt81_direct_x.stim").read_text(),
         "bt27_ideal": source,
         "bt27_depolarizing": pre_ccz_noise(source, "DEPOLARIZE1(0.001)"),
         "bt27_modified_z_only": pre_ccz_noise(source, "Z_ERROR(0.001)"),
@@ -123,6 +124,10 @@ def profile(source: str, limit: int | None, repeats: int, shots: int) -> dict[st
                 "blocks_capped",
                 "expansion_attempts",
                 "blocks_expanded",
+                "wide_attempts",
+                "wide_rewrites",
+                "wide_work",
+                "wide_budget_exhausted",
             )
             if hasattr(phase, name)
         },

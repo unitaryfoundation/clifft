@@ -138,7 +138,7 @@ def test_native_phase_reduction_handles_quadratic_and_cubic_cores(
     assert_statevectors_equiv(clifft.get_statevector(program), unitary_reference(source))
 
 
-@pytest.mark.parametrize("cap", [0, 1, 2, 3, 4, 32, 64])
+@pytest.mark.parametrize("cap", [0, 1, 2, 3, 4, 32, 64, 65, 128])
 def test_phase_reduction_variable_limits_preserve_unitaries(cap: int) -> None:
     source = "\n".join(["H 0 1 2 3", *_identity_parities(), *_parity_instructions(15)])
     phase = clifft.PhasePolynomialPass(max_variables=cap)
@@ -150,7 +150,7 @@ def test_phase_reduction_variable_limits_preserve_unitaries(cap: int) -> None:
     assert_statevectors_equiv(clifft.get_statevector(program), unitary_reference(source))
 
 
-@pytest.mark.parametrize("cap", [-1, 65, 2**32])
+@pytest.mark.parametrize("cap", [-1, 129, 2**32])
 def test_phase_reduction_rejects_out_of_range_variable_limits(cap: int) -> None:
     with pytest.raises(ValueError, match="max_variables"):
         clifft.PhasePolynomialPass(max_variables=cap)

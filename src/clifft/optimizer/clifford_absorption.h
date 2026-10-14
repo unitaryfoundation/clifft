@@ -19,6 +19,10 @@ class CliffordAbsorption {
         return inverse_ ? inverse_->apply(axis.view()) : axis;
     }
 
+    PauliString read(const PauliString& axis) const {
+        return inverse_ ? inverse_->apply(axis.view()) : axis;
+    }
+
     void absorb(const PauliString& axis, uint8_t coefficient) {
         assert(coefficient == 2 || coefficient == 4 || coefficient == 6);
         if (!forward_) {

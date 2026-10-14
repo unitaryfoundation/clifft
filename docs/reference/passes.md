@@ -114,14 +114,27 @@ circuits with an all-zero input; prior scheduling across noise causes it to skip
 the circuit.
 
 `max_variables` is a hard ceiling on independent phase variables analyzed
-together (default `64`, range `0` to `64`; zero disables the pass). Circuits can
-have more qubits than this limit. Collection starts at `min(32, max_variables)`.
-When that limit splits a region, the pass tries one collection up to the ceiling
-before synthesis. It uses the larger block only if collection reaches a natural
-boundary; otherwise synthesis keeps the smaller blocks and expansion is
-suppressed across the remaining capped chunks. A natural boundary or an emitted
-non-T operation permits expansion again. Explicit limits are never exceeded;
-`max_variables=32` disables expansion.
+together (default `128`, range `0` to `128`; zero disables the pass). Circuits
+can have more physical qubits than this limit. Collection starts at
+`min(32, max_variables)`, then tries a complete region up to 64 variables.
+`max_variables=32` disables expansion; `max_variables=64` retains the single-word
+policy.
+
+If the 64-variable attempt is capped, the pass can try a complete contiguous
+commuting T region using two-word coordinates. This optional path keeps an
+ordinary-basis candidate and tries one basis derived from the final Clifford
+tableau. It crosses no measurement, feedback, noise, or instrument boundaries.
+Synthesis still supports at most 64 core variables and searches at most 128 odd
+parity terms. A signature-rank precheck rejects unsupported cores before cubic
+polynomial expansion.
+
+`max_wide_work` (default `50000000`) bounds deterministic work units shared by
+all optional attempts and both basis candidates in one pass. The units include
+polynomial updates, charged row operations, and an allowance for synthesis.
+`max_wide_terms` (default `200000`) bounds each polynomial's size. Setting either
+to zero disables the optional path. Exhaustion retains a completed valid
+candidate or falls back to the ordinary smaller-region policy. These limits
+control compiler effort and do not change the execution representation.
 
 Larger complete regions can uncover additional reductions, at extra compilation
 cost. The pass rejects rewrites that increase T count
@@ -136,6 +149,9 @@ After a run, `input_t_count`, `output_t_count`, `blocks_reduced` and
 blocks split by a variable limit. `expansion_attempts` counts larger collection
 probes and `blocks_expanded` counts probes adopted for synthesis. These search
 counters remain available when no rewrite is accepted and reset on each run.
+`wide_attempts`, `wide_rewrites`, `wide_work`, and `wide_budget_exhausted` report
+the optional path; `wide_rewrites` counts accepted rewrites. All counters reset
+on each run.
 {% endif %}
 
 {% if p['name'] == 'RotationSimplificationPass' %}

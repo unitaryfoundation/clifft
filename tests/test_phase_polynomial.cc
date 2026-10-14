@@ -1,5 +1,6 @@
 #include "clifft/optimizer/phase_polynomial.h"
 #include "clifft/optimizer/tohpe.h"
+#include "clifft/optimizer/wide_phase_polynomial.h"
 
 #include <algorithm>
 #include <bit>
@@ -280,4 +281,85 @@ TEST_CASE("TOHPE bounds large searches and keeps irreducible cubic phases", "[op
     }
     REQUIRE(tohpe(large, 8) == large);
     REQUIRE(tohpe({}, 0).empty());
+}
+
+TEST_CASE("Multiword phase algebra agrees with single word finite differences", "[optimizer]") {
+    std::mt19937_64 rng(61713);
+    for (uint32_t width : {1, 4, 17, 64}) {
+        for (unsigned trial = 0; trial < 8; ++trial) {
+            Polynomial narrow;
+            wide::Polynomial large;
+            wide::Budget budget;
+            const auto domain = width == 64 ? ~uint64_t{0} : (uint64_t{1} << width) - 1;
+            for (unsigned term = 0; term < 20; ++term) {
+                const auto mask = rng() & domain;
+                const int coefficient = rng() % 8;
+                add_parity(narrow, mask, coefficient);
+                wide::add_parity(large, wide::Mask{mask}, coefficient, budget);
+            }
+            const auto expected = clifford_kernel(narrow, width);
+            const auto actual = wide::clifford_kernel(large, width, budget);
+            REQUIRE(actual.size() == expected.size());
+            for (size_t j = 0; j < actual.size(); ++j) {
+                REQUIRE(actual[j].w[0] == expected[j]);
+                REQUIRE(actual[j].w[1] == 0);
+            }
+        }
+    }
+}
+
+TEST_CASE("Multiword phase synthesis preserves phases across word boundaries", "[optimizer]") {
+    std::mt19937_64 rng(918);
+    for (uint32_t width : {65, 87, 128}) {
+        for (unsigned trial = 0; trial < 8; ++trial) {
+            wide::Budget budget;
+            wide::Polynomial terms, original;
+            const std::vector<uint32_t> active{0,  1,         2,         31,       32,
+                                               63, width - 3, width - 2, width - 1};
+            for (auto q : active)
+                budget.add(terms, wide::bit(q), rng() % 8);
+            for (unsigned term = 0; term < 12; ++term) {
+                wide::Mask mask;
+                for (auto q : active)
+                    if (rng() & 1)
+                        mask |= wide::bit(q);
+                budget.add(terms, mask, rng() % 8);
+            }
+            for (uint32_t q = 0; q < width; ++q) {
+                budget.add(terms, wide::bit(q), 2 * (rng() % 4));
+                budget.add(terms, wide::bit(q) | wide::bit(rng() % width), 2 * (rng() % 4));
+            }
+            REQUIRE(wide::core_fits(terms, width, budget));
+            for (const auto& [mask, coefficient] : terms) {
+                wide::add_parity(original, mask, coefficient, budget);
+            }
+            auto reduced = original;
+            const auto basis = wide::reduce_core(reduced, width, budget);
+            REQUIRE(basis.core_width <= active.size());
+            const auto output = wide::synthesize(terms, reduced, basis, budget);
+            for (unsigned sample = 0; sample < 256; ++sample) {
+                wide::Mask x;
+                x.w[0] = rng();
+                x.w[1] = rng();
+                wide::Mask y;
+                for (uint32_t j = 0; j < width; ++j) {
+                    y.bit_set(j, (basis.parities[j] & x).popcount() & 1);
+                }
+                unsigned expected = 0, actual = 0;
+                for (const auto& [mask, coefficient] : original) {
+                    if ((mask & x) == mask)
+                        expected += coefficient;
+                }
+                for (const auto& [mask, coefficient] : output) {
+                    if ((mask & y).popcount() & 1)
+                        actual += coefficient;
+                }
+                REQUIRE((actual & 7) == (expected & 7));
+            }
+            wide::Polynomial irreducible;
+            for (uint32_t j = 0; j < 65; ++j)
+                budget.add(irreducible, wide::bit(j), 1);
+            REQUIRE_FALSE(wide::core_fits(irreducible, width, budget));
+        }
+    }
 }

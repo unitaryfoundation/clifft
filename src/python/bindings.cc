@@ -843,13 +843,25 @@ NB_MODULE(_clifft_core, m) {
         "Run after peephole fusion and before squeezing or scheduling.")
         .def(
             "__init__",
-            [](clifft::PhasePolynomialPass* self, int64_t max_variables) {
-                if (max_variables < 0 || max_variables > 64) {
-                    throw std::invalid_argument("max_variables must be between zero and 64");
+            [](clifft::PhasePolynomialPass* self, int64_t max_variables, int64_t max_wide_work,
+               int64_t max_wide_terms) {
+                if (max_variables < 0 || max_variables > 128) {
+                    throw std::invalid_argument("max_variables must be between zero and 128");
                 }
-                new (self) clifft::PhasePolynomialPass({static_cast<uint32_t>(max_variables)});
+                if (max_wide_work < 0 || max_wide_terms < 0) {
+                    throw std::invalid_argument("wide phase budgets must be nonnegative");
+                }
+                new (self) clifft::PhasePolynomialPass({static_cast<uint32_t>(max_variables),
+                                                        static_cast<size_t>(max_wide_work),
+                                                        static_cast<size_t>(max_wide_terms)});
             },
-            nb::arg("max_variables") = int64_t{64})
+            nb::arg("max_variables") = int64_t{128}, nb::kw_only(),
+            nb::arg("max_wide_work") = int64_t{50000000},
+            nb::arg("max_wide_terms") = int64_t{200000})
+        .def_prop_ro("wide_attempts", &clifft::PhasePolynomialPass::wide_attempts)
+        .def_prop_ro("wide_rewrites", &clifft::PhasePolynomialPass::wide_rewrites)
+        .def_prop_ro("wide_work", &clifft::PhasePolynomialPass::wide_work)
+        .def_prop_ro("wide_budget_exhausted", &clifft::PhasePolynomialPass::wide_budget_exhausted)
         .def_prop_ro("blocks_reduced", &clifft::PhasePolynomialPass::blocks_reduced)
         .def_prop_ro("blocks_examined", &clifft::PhasePolynomialPass::blocks_examined)
         .def_prop_ro("blocks_capped", &clifft::PhasePolynomialPass::blocks_capped)

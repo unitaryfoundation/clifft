@@ -3,6 +3,7 @@
 #include "clifft/optimizer/active_width_analysis.h"
 #include "clifft/optimizer/known_stabilizers.h"
 #include "clifft/optimizer/phase_polynomial_pass.h"
+#include "clifft/optimizer/wide_phase_region.h"
 
 #include "instrument_test_helpers.h"
 #include "test_helpers.h"
@@ -288,7 +289,7 @@ TEST_CASE("Phase pass respects disabling and prior noise scheduling", "[optimize
     REQUIRE_FALSE(pass.applied());
     REQUIRE(hir.num_t_gates() == 16);
     REQUIRE(hir.logical_noise_prefix.size() == hir.ops.size());
-    REQUIRE_THROWS_AS(PhasePolynomialPass(PhasePolynomialOptions{65}), std::invalid_argument);
+    REQUIRE_THROWS_AS(PhasePolynomialPass(PhasePolynomialOptions{129}), std::invalid_argument);
 }
 
 TEST_CASE("Phase pass clears statistics between runs", "[optimizer]") {
@@ -310,7 +311,7 @@ TEST_CASE("Phase pass clears statistics between runs", "[optimizer]") {
 
 TEST_CASE("Phase expansion respects explicit limits and the representation ceiling",
           "[optimizer]") {
-    for (uint32_t width : {33, 48, 64, 65}) {
+    for (uint32_t width : {33, 48, 64, 65, 87, 128, 129}) {
         CAPTURE(width);
         HirModule original(width, 2 * width);
         original.final_tableau.emplace(width);
@@ -329,7 +330,7 @@ TEST_CASE("Phase expansion respects explicit limits and the representation ceili
         PhasePolynomialPass adaptive;
         adaptive.run(original);
         REQUIRE(adaptive.expansion_attempts() > 0);
-        if (width <= 64) {
+        if (width <= 128) {
             REQUIRE(adaptive.blocks_expanded() == 1);
             REQUIRE(adaptive.blocks_capped() == 0);
             REQUIRE(original.num_t_gates() == 0);
@@ -357,17 +358,17 @@ TEST_CASE("Phase expansion respects explicit limits and the representation ceili
 TEST_CASE("Phase expansion reads pending Clifford corrections only once", "[optimizer]") {
     std::string source = "H 0\nT 0\nT 0\nH 0\nT 0\n";
     std::string reference = "H 0\nS 0\nH 0\nT 0\n";
-    for (uint32_t q = 1; q <= 40; ++q) {
+    for (uint32_t q = 1; q <= 70; ++q) {
         const auto target = std::to_string(q) + "\n";
         source += "H " + target;
         reference += "H " + target + "S " + target + "H " + target;
     }
     for (uint32_t repeat = 0; repeat < 2; ++repeat) {
-        for (uint32_t q = 1; q <= 40; ++q) {
+        for (uint32_t q = 1; q <= 70; ++q) {
             source += "T " + std::to_string(q) + "\n";
         }
     }
-    for (uint32_t q = 1; q <= 40; ++q) {
+    for (uint32_t q = 1; q <= 70; ++q) {
         source += "H " + std::to_string(q) + "\n";
     }
     auto hir = trace(parse(source));
@@ -380,4 +381,74 @@ TEST_CASE("Phase expansion reads pending Clifford corrections only once", "[opti
     REQUIRE(hir.mask_view(hir.ops[0]) == expected.mask_view(expected.ops[0]));
     REQUIRE(hir.ops[0].is_dagger() == expected.ops[0].is_dagger());
     REQUIRE(hir.final_tableau == expected.final_tableau);
+}
+
+TEST_CASE("Wide phase budgets preserve the ordinary fallback and completed candidates",
+          "[optimizer]") {
+    const uint32_t width = 65;
+    HirModule original(width, 2 * width);
+    original.final_tableau.emplace(width);
+    for (uint32_t repeat = 0; repeat < 2; ++repeat) {
+        for (uint32_t q = 0; q < width; ++q) {
+            original.append_tgate(false,
+                                  [&](MutablePauliMaskView mask) { mask.x().bit_set(q, true); });
+            original.source_map.push_back({q + repeat * width});
+        }
+    }
+    for (auto options :
+         {PhasePolynomialOptions{128, 0, 200000}, PhasePolynomialOptions{128, 1, 200000},
+          PhasePolynomialOptions{128, 50000000, 1}}) {
+        auto limited = original;
+        PhasePolynomialPass pass(options);
+        pass.run(limited);
+        REQUIRE(pass.wide_rewrites() == 0);
+        REQUIRE(limited.num_t_gates() == original.num_t_gates());
+        REQUIRE(limited.final_tableau == original.final_tableau);
+        REQUIRE(limited.source_map == original.source_map);
+        for (size_t i = 0; i < original.ops.size(); ++i) {
+            REQUIRE(limited.mask_view(limited.ops[i]) == original.mask_view(original.ops[i]));
+        }
+    }
+    auto without_output = original;
+    without_output.final_tableau.reset();
+    phase_detail::wide::Budget budget;
+    const KnownStabilizers fixed(width);
+    const optimizer_detail::CliffordAbsorption frame;
+    const auto baseline =
+        phase_detail::wide::try_region(without_output, 0, fixed, frame, 128, budget);
+    REQUIRE(baseline);
+    REQUIRE(baseline->t_count == 0);
+    const auto completed_work = budget.updates;
+    auto kept = original;
+    PhasePolynomialPass limited({128, completed_work, 200000});
+    limited.run(kept);
+    REQUIRE(limited.wide_budget_exhausted());
+    REQUIRE(limited.wide_rewrites() == 1);
+    REQUIRE(kept.num_t_gates() == 0);
+    auto unlimited = original;
+    PhasePolynomialPass{}.run(unlimited);
+    REQUIRE(kept.final_tableau == unlimited.final_tableau);
+}
+
+TEST_CASE("Wide phase work allowance is shared across separated regions", "[optimizer]") {
+    HirModule hir(65, 261);
+    hir.final_tableau.emplace(65);
+    for (uint32_t region = 0; region < 2; ++region) {
+        for (uint32_t repeat = 0; repeat < 2; ++repeat) {
+            for (uint32_t q = 0; q < 65; ++q) {
+                hir.append_tgate(false,
+                                 [&](MutablePauliMaskView mask) { mask.x().bit_set(q, true); });
+            }
+        }
+        if (region == 0) {
+            test::append_measure(hir, 0, 1, false, MeasRecordIdx{0});
+            hir.num_measurements = 1;
+        }
+    }
+    PhasePolynomialPass pass({128, 1, 200000});
+    pass.run(hir);
+    REQUIRE(pass.wide_attempts() == 1);
+    REQUIRE(pass.wide_budget_exhausted());
+    REQUIRE(pass.wide_work() <= 1);
+    REQUIRE(pass.wide_rewrites() == 0);
 }

@@ -9,9 +9,12 @@ namespace clifft {
 
 struct PhasePolynomialOptions {
     // Bounds the cubic phase algebra. Collection starts at min 32 and this cap,
-    // expanding once when a larger complete region fits. Zero disables the pass.
-    // At most 64 independent commuting axes can be represented in one region.
-    uint32_t max_variables = 64;
+    // trying a complete region up to 64 before an optional multiword attempt.
+    // Zero disables the pass. Synthesis retains a 64-variable core limit.
+    uint32_t max_variables = 128;
+    // Shared by all optional attempts in one pass, including both bases.
+    size_t max_wide_work = 50000000;
+    size_t max_wide_terms = 200000;
 };
 
 // Reduces commuting T rotations using Pauli constraints proved from the complete
@@ -36,10 +39,18 @@ class PhasePolynomialPass : public HirPass {
     size_t pauli_pullbacks() const { return pauli_pullbacks_; }
     size_t input_t_count() const { return input_t_count_; }
     size_t output_t_count() const { return output_t_count_; }
+    size_t wide_attempts() const { return wide_attempts_; }
+    size_t wide_rewrites() const { return wide_rewrites_; }
+    size_t wide_work() const { return wide_work_; }
+    bool wide_budget_exhausted() const { return wide_budget_exhausted_; }
     bool applied() const { return blocks_reduced_ != 0; }
 
   private:
     PhasePolynomialOptions options_;
+    size_t wide_attempts_ = 0;
+    size_t wide_rewrites_ = 0;
+    size_t wide_work_ = 0;
+    bool wide_budget_exhausted_ = false;
     size_t blocks_reduced_ = 0;
     size_t blocks_examined_ = 0;
     size_t blocks_capped_ = 0;
