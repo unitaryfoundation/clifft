@@ -102,11 +102,24 @@ def _reference(noise: float, readout: float = 0, rotated: bool = False) -> np.nd
     return np.asarray(result.data()["probabilities"])
 
 
+@pytest.mark.parametrize("width", [33, 64, 65])
+def test_default_phase_expands_within_one_word(width: int) -> None:
+    targets = " ".join(map(str, range(width)))
+    hir = clifft.trace(clifft.parse(f"H {targets}\nT {targets}\nT {targets}\n"))
+    phase = clifft.PhasePolynomialPass()
+    manager = clifft.HirPassManager()
+    manager.add(phase)
+    manager.run(hir)
+    assert hir.num_t_gates == (0 if width <= 64 else 2 * width)
+    assert phase.wide_attempts == 0
+    assert phase.wide_work == 0
+
+
 @pytest.mark.parametrize("width,seed", [(65, 0), (87, 7), (128, 2), (129, 3)])
 def test_wide_phase_preserves_exact_joint_records(width: int, seed: int) -> None:
     noise = 0
     source = _source(width, seed, noise, shuffle=width <= 128)
-    phase = clifft.PhasePolynomialPass()
+    phase = clifft.PhasePolynomialPass(max_variables=128)
     manager = clifft.HirPassManager()
     for pass_ in (clifft.PeepholeFusionPass(), phase, clifft.StatevectorSqueezePass()):
         manager.add(pass_)
@@ -127,7 +140,7 @@ def test_wide_phase_preserves_exact_joint_records(width: int, seed: int) -> None
 )
 def test_wide_phase_budget_fallback_preserves_joint_records(budget: dict[str, int]) -> None:
     source = _source(65, 4, 0, shuffle=False)
-    phase = clifft.PhasePolynomialPass(**budget)
+    phase = clifft.PhasePolynomialPass(max_variables=128, **budget)
     manager = clifft.HirPassManager()
     for pass_ in (clifft.PeepholeFusionPass(), phase, clifft.StatevectorSqueezePass()):
         manager.add(pass_)
@@ -145,7 +158,7 @@ def test_wide_phase_budget_fallback_preserves_joint_records(budget: dict[str, in
 def test_wide_phase_preserves_noisy_feedback_records(
     sampling_mode: SamplingMode, readout: float
 ) -> None:
-    phase = clifft.PhasePolynomialPass()
+    phase = clifft.PhasePolynomialPass(max_variables=128)
     manager = clifft.HirPassManager()
     for pass_ in (clifft.PeepholeFusionPass(), phase, clifft.StatevectorSqueezePass()):
         manager.add(pass_)
@@ -160,7 +173,7 @@ def test_wide_phase_reduces_direct_readout_preparation() -> None:
     from pathlib import Path
 
     source = (Path(__file__).parents[1] / "fixtures/merlin_bt81_direct_x.stim").read_text()
-    phase = clifft.PhasePolynomialPass()
+    phase = clifft.PhasePolynomialPass(max_variables=128)
     manager = clifft.HirPassManager()
     for pass_ in (clifft.PeepholeFusionPass(), phase, clifft.StatevectorSqueezePass()):
         manager.add(pass_)
@@ -172,6 +185,6 @@ def test_wide_phase_reduces_direct_readout_preparation() -> None:
     lines = source.splitlines()
     last_t = max(i for i, line in enumerate(lines) if line.startswith(("T ", "T_DAG ")))
     first_readout = next(i for i in range(last_t + 1, len(lines)) if lines[i].startswith("M"))
-    preparation = clifft.compile("\n".join(lines[:first_readout]))
+    preparation = clifft.compile("\n".join(lines[:first_readout]), hir_passes=manager)
     assert preparation.num_measurements == 162
     assert preparation.peak_active_width == 9

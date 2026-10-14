@@ -114,14 +114,15 @@ circuits with an all-zero input; prior scheduling across noise causes it to skip
 the circuit.
 
 `max_variables` is a hard ceiling on independent phase variables analyzed
-together (default `128`, range `0` to `128`; zero disables the pass). Circuits
+together (default `64`, range `0` to `128`; zero disables the pass). Circuits
 can have more physical qubits than this limit. Collection starts at
 `min(32, max_variables)`, then tries a complete region up to 64 variables.
-`max_variables=32` disables expansion; `max_variables=64` retains the single-word
-policy.
+`max_variables=32` disables expansion. Fixed-constraint recovery through
+measurement and feedback remains enabled with the default 64-variable ceiling.
 
-If the 64-variable attempt is capped, the pass can try a complete contiguous
-commuting T region using two-word coordinates. This optional path keeps an
+Set `max_variables=128` explicitly to enable wider collection. If the 64-variable
+attempt is capped, the pass can try a complete contiguous commuting T region
+using two-word coordinates. This optional path keeps an
 ordinary-basis candidate and tries one basis derived from the final Clifford
 tableau. It crosses no measurement, feedback, noise, or instrument boundaries.
 Synthesis still supports at most 64 core variables and searches at most 128 odd
@@ -132,6 +133,8 @@ polynomial expansion.
 all optional attempts and both basis candidates in one pass. The units include
 polynomial updates, charged row operations, and an allowance for synthesis.
 Work units are not a wall-clock limit; their cost depends on the polynomial.
+Wide search can add substantial compilation time even when it finds no benefit,
+so it is disabled by default.
 `max_wide_terms` (default `200000`) bounds each polynomial's size. Setting either
 to zero disables the optional path. Exhaustion retains a completed valid
 candidate or falls back to the ordinary smaller-region policy. These limits

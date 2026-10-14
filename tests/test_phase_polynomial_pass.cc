@@ -327,7 +327,14 @@ TEST_CASE("Phase expansion respects explicit limits and the representation ceili
         REQUIRE(limited.blocks_capped() > 0);
         REQUIRE(limited.expansion_attempts() == 0);
         REQUIRE(bounded.num_t_gates() == original.num_t_gates());
-        PhasePolynomialPass adaptive;
+        auto default_result = original;
+        PhasePolynomialPass default_pass;
+        default_pass.run(default_result);
+        REQUIRE(default_pass.expansion_attempts() > 0);
+        REQUIRE(default_pass.wide_attempts() == 0);
+        REQUIRE(default_pass.wide_work() == 0);
+        REQUIRE(default_result.num_t_gates() == (width <= 64 ? 0 : 2 * width));
+        PhasePolynomialPass adaptive({128});
         adaptive.run(original);
         REQUIRE(adaptive.expansion_attempts() > 0);
         if (width <= 128) {
@@ -373,7 +380,7 @@ TEST_CASE("Phase expansion reads pending Clifford corrections only once", "[opti
     }
     auto hir = trace(parse(source));
     const auto expected = trace(parse(reference));
-    PhasePolynomialPass pass;
+    PhasePolynomialPass pass({128});
     pass.run(hir);
     REQUIRE(pass.blocks_reduced() == 2);
     REQUIRE(pass.blocks_expanded() == 1);
@@ -406,7 +413,7 @@ TEST_CASE("Wide phase collection stops at noncommuting rotations", "[optimizer]"
             const auto expected =
                 trace(parse("H" + targets + "\nS" + targets + "\nH" + targets + "\n" + suffix));
             auto hir = trace(parse(source));
-            PhasePolynomialPass pass;
+            PhasePolynomialPass pass({128});
             pass.run(hir);
             REQUIRE(pass.wide_rewrites() == 1);
             REQUIRE(hir.num_t_gates() == 1);
@@ -432,7 +439,7 @@ TEST_CASE("Wide phase fallback retains narrow observer pullbacks", "[optimizer]"
         PhasePolynomialPass narrow({64});
         narrow.run(expected);
         REQUIRE(expected.num_t_gates() == 64);
-        PhasePolynomialPass wide;
+        PhasePolynomialPass wide({128});
         wide.run(hir);
         REQUIRE(wide.wide_attempts() > 0);
         REQUIRE(wide.wide_rewrites() == 0);
@@ -493,7 +500,7 @@ TEST_CASE("Wide phase budgets preserve the ordinary fallback and completed candi
     REQUIRE(limited.wide_rewrites() == 1);
     REQUIRE(kept.num_t_gates() == 0);
     auto unlimited = original;
-    PhasePolynomialPass{}.run(unlimited);
+    PhasePolynomialPass({128}).run(unlimited);
     REQUIRE(kept.final_tableau == unlimited.final_tableau);
 }
 

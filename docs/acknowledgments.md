@@ -90,8 +90,9 @@ expansion. Its BT81 generator also supplies the direct-X fixture used to validat
 87-variable phase collection, basis selection, and measurement-aware squeezing.
 Clifft reuses these benchmark circuits;
 the static optimizer does not implement Merlin's per-history specialization.
-The [profiling guide](https://github.com/unitaryfoundation/clifft/blob/main/tools/profile/README.md#external-measured-preparation)
-records the generator revision, modifications, and independent checks.
+The [BT27](https://github.com/unitaryfoundation/clifft/blob/main/tests/fixtures/merlin_bt27.stim)
+and [BT81](https://github.com/unitaryfoundation/clifft/blob/main/tests/fixtures/merlin_bt81_direct_x.stim)
+fixture headers record the generator revision and construction recipes.
 
 - [Merlin code-switching generator at the pinned revision](https://github.com/mark-koch/merlin/blob/097380fac1a3968ca47925146e211fe990f4c396/benchmarks/protocols/code_switching.py).
 
