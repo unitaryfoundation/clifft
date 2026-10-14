@@ -1,3 +1,4 @@
+#include "clifft/sampling/batch/bits.h"
 #include "clifft/sampling/batch/interleaved_kernels.h"
 #include "clifft/sampling/kernels.h"
 #include "clifft/util/numeric.h"
@@ -28,6 +29,7 @@ using clifft::sampling::interleaved_expectation_values;
 using clifft::sampling::interleaved_measurement_probabilities;
 using clifft::sampling::InterleavedBatchState;
 using clifft::sampling::measurement_probabilities;
+using clifft::sampling::PackedBitColumns;
 using clifft::sampling::prepare_interleaved_rotation_sines;
 using clifft::sampling::prepare_promotion;
 using clifft::sampling::prepare_rotation;
@@ -152,12 +154,16 @@ TEST_CASE("Interleaved batch state retains aligned storage across resets") {
 }
 
 TEST_CASE("Interleaved batch rotations match independent scalar lanes") {
-    constexpr uint32_t kLanes = 17;
+    constexpr uint32_t kLanes = 65;
     constexpr double kHalfTurns = 0.137;
     std::vector<uint8_t> signs(kLanes);
+    PackedBitColumns packed_signs(1, kLanes);
     std::vector<double> signed_sines(kLanes);
     for (uint32_t lane = 0; lane < kLanes; ++lane) {
         signs[lane] = static_cast<uint8_t>((lane % 3) == 1);
+        if (signs[lane] != 0) {
+            packed_signs.set_bit(0, lane);
+        }
     }
 
     for (uint32_t active_width = 1; active_width <= 5; ++active_width) {
@@ -175,7 +181,7 @@ TEST_CASE("Interleaved batch rotations match independent scalar lanes") {
             InterleavedBatchState batch(active_width, active_width, kLanes);
             load_batch(batch, inputs);
             const auto rotation = prepare_rotation(pauli, active_width, kHalfTurns);
-            prepare_interleaved_rotation_sines(signed_sines, rotation.sine, signs);
+            prepare_interleaved_rotation_sines(signed_sines, rotation.sine, packed_signs.column(0));
             apply_interleaved_rotation(batch, rotation, signed_sines);
 
             for (uint32_t lane = 0; lane < kLanes; ++lane) {
@@ -189,20 +195,24 @@ TEST_CASE("Interleaved batch rotations match independent scalar lanes") {
 }
 
 TEST_CASE("Interleaved batch promotion matches independent scalar lanes") {
-    constexpr uint32_t kLanes = 17;
+    constexpr uint32_t kLanes = 129;
     std::vector<uint8_t> signs(kLanes);
+    PackedBitColumns packed_signs(1, kLanes);
     std::vector<double> signed_sines(kLanes);
     std::vector<std::vector<std::complex<double>>> inputs;
     inputs.reserve(kLanes);
     for (uint32_t lane = 0; lane < kLanes; ++lane) {
         signs[lane] = static_cast<uint8_t>((lane & 1U) != 0);
+        if (signs[lane] != 0) {
+            packed_signs.set_bit(0, lane);
+        }
         inputs.push_back(lane_state(4, lane));
     }
 
     InterleavedBatchState batch(5, 4, kLanes);
     load_batch(batch, inputs);
     const auto promotion = prepare_promotion(-0.283);
-    prepare_interleaved_rotation_sines(signed_sines, promotion.sine, signs);
+    prepare_interleaved_rotation_sines(signed_sines, promotion.sine, packed_signs.column(0));
     apply_interleaved_promotion(batch, promotion, signed_sines);
     REQUIRE(batch.active_width() == 5);
 
@@ -212,6 +222,33 @@ TEST_CASE("Interleaved batch promotion matches independent scalar lanes") {
         apply_promotion(expected, promotion, signs[lane] != 0);
         require_lane_matches(batch, lane, expected);
     }
+}
+
+TEST_CASE("Packed rotation signs prepare only the requested lanes") {
+    constexpr uint32_t kCapacity = 129;
+    for (uint32_t pattern : {0U, 1U, 2U}) {
+        PackedBitColumns packed(1, kCapacity);
+        std::vector<uint8_t> unpacked(kCapacity);
+        for (uint32_t lane = 0; lane < kCapacity; ++lane) {
+            unpacked[lane] = static_cast<uint8_t>(pattern == 1 || (pattern == 2 && lane % 3 == 1));
+            if (unpacked[lane] != 0) {
+                packed.set_bit(0, lane);
+            }
+        }
+        for (uint32_t lanes : {129U, 128U, 127U, 65U, 64U, 63U, 1U, 0U}) {
+            for (double sine : {0.137, -0.283}) {
+                CAPTURE(pattern, lanes, sine);
+                std::vector<double> expected(kCapacity, 2.0);
+                std::vector<double> actual(kCapacity, 2.0);
+                prepare_interleaved_rotation_sines(expected, sine,
+                                                   std::span<const uint8_t>(unpacked).first(lanes));
+                prepare_interleaved_rotation_sines(std::span<double>(actual).first(lanes), sine,
+                                                   packed.column(0));
+                REQUIRE(actual == expected);
+            }
+        }
+    }
+    prepare_interleaved_rotation_sines(std::span<double>{}, 0.137, std::span<const uint64_t>{});
 }
 
 TEST_CASE("Interleaved fused rotations match independent scalar lanes") {

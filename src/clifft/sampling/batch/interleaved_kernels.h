@@ -14,6 +14,11 @@ namespace clifft::sampling {
 void prepare_interleaved_rotation_sines(std::span<double> output, double sine,
                                         std::span<const uint8_t> signs) noexcept;
 
+// The output span selects the active lanes, including after compaction. Packed
+// signs can retain the executor's full capacity without an intermediate unpack.
+void prepare_interleaved_rotation_sines(std::span<double> output, double sine,
+                                        std::span<const uint64_t> signs) noexcept;
+
 void apply_interleaved_rotation(InterleavedBatchState& state, const PreparedRotation& rotation,
                                 std::span<const double> signed_sines) noexcept;
 

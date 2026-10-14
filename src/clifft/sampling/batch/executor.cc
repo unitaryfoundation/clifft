@@ -358,11 +358,8 @@ void BatchExecutor::execute_actions() noexcept {
 
 void BatchExecutor::execute_action(const ExecutablePlan::ExecuteRotation& action) noexcept {
     const std::span<const uint64_t> signs = evaluate(action.sign);
-    for (uint32_t lane = 0; lane < active_lanes(); ++lane) {
-        lane_bytes_[lane] = static_cast<uint8_t>(lane_bit(signs, lane));
-    }
-    prepare_interleaved_rotation_sines(signed_sines_, action.rotation.sine,
-                                       std::span<const uint8_t>(lane_bytes_).first(active_lanes()));
+    prepare_interleaved_rotation_sines(std::span<double>(signed_sines_).first(active_lanes()),
+                                       action.rotation.sine, signs);
     apply_interleaved_rotation(state_, action.rotation, signed_sines_);
 }
 
@@ -406,11 +403,8 @@ void BatchExecutor::execute_action(
 
 void BatchExecutor::execute_action(const ExecutablePlan::ExecutePromotion& action) noexcept {
     const std::span<const uint64_t> signs = evaluate(action.sign);
-    for (uint32_t lane = 0; lane < active_lanes(); ++lane) {
-        lane_bytes_[lane] = static_cast<uint8_t>(lane_bit(signs, lane));
-    }
-    prepare_interleaved_rotation_sines(signed_sines_, action.promotion.sine,
-                                       std::span<const uint8_t>(lane_bytes_).first(active_lanes()));
+    prepare_interleaved_rotation_sines(std::span<double>(signed_sines_).first(active_lanes()),
+                                       action.promotion.sine, signs);
     apply_interleaved_promotion(state_, action.promotion, signed_sines_);
 }
 

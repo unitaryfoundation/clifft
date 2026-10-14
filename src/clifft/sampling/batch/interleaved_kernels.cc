@@ -198,6 +198,16 @@ void prepare_interleaved_rotation_sines(std::span<double> output, double sine,
     }
 }
 
+void prepare_interleaved_rotation_sines(std::span<double> output, double sine,
+                                        std::span<const uint64_t> signs) noexcept {
+    assert((output.empty() || (output.size() - 1) / 64 < signs.size()) &&
+           "packed signs must cover every output lane");
+    CLIFFT_OMP_SIMD
+    for (size_t lane = 0; lane < output.size(); ++lane) {
+        output[lane] = ((signs[lane >> 6] >> (lane & 63)) & uint64_t{1}) != 0 ? -sine : sine;
+    }
+}
+
 void apply_interleaved_rotation(InterleavedBatchState& state, const PreparedRotation& rotation,
                                 std::span<const double> signed_sines) noexcept {
     assert(state.active_width() == rotation.pauli.active_width &&
