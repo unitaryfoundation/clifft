@@ -3,7 +3,6 @@
 #include "clifft/optimizer/tohpe.h"
 #include "clifft/util/bitmask.h"
 
-#include <algorithm>
 #include <bit>
 #include <cassert>
 #include <cstdint>
@@ -26,8 +25,6 @@ struct Budget {
     size_t max_updates = 50000000;
     size_t max_terms = 200000;
     size_t updates = 0;
-    size_t peak_terms = 0;
-    size_t synthesis_input_t = 0;
     bool exhausted = false;
 
     void charge(size_t amount = 1) {
@@ -51,7 +48,6 @@ struct Budget {
         } else if (found != p.end()) {
             p.erase(found);
         }
-        peak_terms = std::max(peak_terms, p.size());
     }
 };
 
@@ -264,7 +260,6 @@ inline Polynomial synthesize(const Polynomial& terms, const Polynomial& reduced,
             columns.push_back(parity);
         }
     }
-    budget.synthesis_input_t = columns.size();
     // Precharge a conservative bound for the existing bounded TOHPE search.
     // Its guard skips the cubic search above 128 columns.
     if (columns.size() > basis.core_width && columns.size() <= 128) {

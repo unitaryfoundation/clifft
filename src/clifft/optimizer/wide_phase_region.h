@@ -12,7 +12,6 @@ namespace clifft::phase_detail::wide {
 
 struct Rewrite {
     size_t end;
-    uint32_t support_width;
     uint32_t core_width;
     size_t t_count;
     std::vector<std::pair<PauliString, uint8_t>> phases;

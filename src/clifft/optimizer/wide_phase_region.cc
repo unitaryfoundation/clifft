@@ -43,12 +43,22 @@ Mask coordinates(PauliString& body, const std::map<uint32_t, Row>& rows) {
     return result;
 }
 
+bool is_beneficial(const Rewrite& candidate, size_t input_t_count, size_t support_width) {
+    return candidate.t_count < input_t_count ||
+           (candidate.t_count == input_t_count && candidate.core_width < support_width);
+}
+
+bool is_better(const Rewrite& candidate, const Rewrite& incumbent) {
+    return candidate.t_count < incumbent.t_count ||
+           (candidate.t_count == incumbent.t_count && candidate.core_width < incumbent.core_width);
+}
+
 Rewrite synthesize_region(const Polynomial& terms, Polynomial polynomial,
                           const std::vector<PauliString>& axes, size_t end, uint32_t width,
                           Budget& budget) {
     auto basis = reduce_core(polynomial, axes.size(), budget);
     const auto synthesis = synthesize(terms, polynomial, basis, budget);
-    Rewrite result{end, static_cast<uint32_t>(axes.size()), basis.core_width, 0, {}};
+    Rewrite result{end, basis.core_width, 0, {}};
     std::vector<PauliString> transformed;
     for (auto parity : basis.parities) {
         budget.charge((parity.popcount() + 1) * ((width + 63) / 64));
@@ -120,8 +130,7 @@ std::optional<Rewrite> try_region(const HirModule& hir, size_t start, const Know
             add_parity(polynomial, mask, coefficient, budget);
         }
         best = synthesize_region(terms, polynomial, axes, end, hir.num_qubits, budget);
-        if (best->t_count > end - start ||
-            (best->t_count == end - start && best->core_width == axes.size())) {
+        if (!is_beneficial(*best, end - start, axes.size())) {
             best.reset();
         }
         if (!hir.final_tableau)
@@ -189,10 +198,8 @@ std::optional<Rewrite> try_region(const HirModule& hir, size_t start, const Know
         }
         auto aligned = synthesize_region(aligned_terms, std::move(aligned_polynomial), preferred,
                                          end, hir.num_qubits, budget);
-        if (aligned.t_count <= end - start &&
-            (aligned.t_count < end - start || aligned.core_width < axes.size()) &&
-            (!best || aligned.t_count < best->t_count ||
-             (aligned.t_count == best->t_count && aligned.core_width < best->core_width))) {
+        if (is_beneficial(aligned, end - start, axes.size()) &&
+            (!best || is_better(aligned, *best))) {
             best = std::move(aligned);
         }
     } catch (const std::length_error&) {
