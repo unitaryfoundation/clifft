@@ -174,9 +174,7 @@ def test_wide_phase_reduces_direct_readout_preparation() -> None:
 
     source = (Path(__file__).parents[1] / "fixtures/merlin_bt81_direct_x.stim").read_text()
     phase = clifft.PhasePolynomialPass(max_variables=128)
-    manager = clifft.HirPassManager()
-    for pass_ in (clifft.PeepholeFusionPass(), phase, clifft.StatevectorSqueezePass()):
-        manager.add(pass_)
+    manager = clifft.default_hir_pass_manager(overrides=[phase])
     program = clifft.compile(source, hir_passes=manager)
     assert phase.wide_rewrites == 1
     assert phase.output_t_count == 23

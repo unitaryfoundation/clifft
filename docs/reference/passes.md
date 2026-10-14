@@ -13,13 +13,13 @@ The default HIR pipeline:
 
 These passes are complementary; the default manager runs them in the order shown.
 
-Use `clifft.default_hir_pass_manager()` to get these defaults. To configure a
-default pass while retaining the rest of the pipeline:
+Use `clifft.default_hir_pass_manager()` to get these defaults. To opt into
+128-variable phase collection while retaining the rest of the pipeline:
 
 ```python
 import clifft
 
-phase = clifft.PhasePolynomialPass(max_variables=64)
+phase = clifft.PhasePolynomialPass(max_variables=128)
 pm = clifft.default_hir_pass_manager(overrides=[phase])
 program = clifft.compile("H 0\nT 0\nM 0", hir_passes=pm)
 ```
@@ -84,6 +84,12 @@ record can leave the sign uncertain, preventing the corresponding rewrite.
 Measurements and resets can recover useful facts after earlier non-Clifford
 work, including in later regions of the circuit. Constraints must also hold
 for the noiseless reference; postselection supplies no additional facts.
+
+These are static rewrites shared by all shots. Unresolved affine signs do not
+produce conditional rewrites or per-history specialization. To disable recovered
+constraint rewrites, omit both passes from a custom `HirPassManager`, or use
+`hir_passes=None` to disable all HIR optimization. Equivalent plans preserve
+output distributions but do not guarantee historical fixed-seed samples.
 
 ---
 
