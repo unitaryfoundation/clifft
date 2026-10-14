@@ -86,25 +86,27 @@ def test_empty_overrides_preserve_defaults(empty: object) -> None:
     assert actual.as_dict() == expected.as_dict()
 
 
-def test_multiple_overrides_preserve_defaults_and_ignore_argument_order() -> None:
+@pytest.mark.parametrize("seed", [5000, 5001, 5002, 5004])
+def test_default_configured_override_matches_default_pipeline(seed: int) -> None:
+    source = random_dense_clifford_t_circuit(4, 80, seed)
+    expected = clifft.trace(clifft.parse(source))
+    actual = clifft.trace(clifft.parse(source))
+    clifft.default_hir_pass_manager().run(expected)
+    clifft.default_hir_pass_manager(overrides=[clifft.PhasePolynomialPass()]).run(actual)
+    assert actual.as_dict() == expected.as_dict()
+
+
+def test_multiple_overrides_ignore_argument_order() -> None:
     phase = clifft.PhasePolynomialPass(max_variables=0)
     peephole = clifft.PeepholeFusionPass()
     manager = clifft.default_hir_pass_manager(overrides=(phase, peephole))
     source = "H 0 1\nT 0\nT_DAG 0\nT 0\nT 1\nH 0 1\nM 0 1"
-    actual = clifft.trace(clifft.parse(source))
-    expected = clifft.trace(clifft.parse(source))
-    manual = clifft.HirPassManager()
-    manual.add(clifft.PeepholeFusionPass())
-    manual.add(clifft.PhasePolynomialPass(max_variables=0))
-    manual.add(clifft.RotationSimplificationPass())
-    manual.add(clifft.StatevectorSqueezePass())
-    manual.run(expected)
-    manager.run(actual)
+    hir = clifft.trace(clifft.parse(source))
+    manager.run(hir)
 
     assert peephole.cancellations == 1
     assert phase.input_t_count == 2
-    assert actual.as_dict() == expected.as_dict()
-    assert clifft.lower(actual).peak_active_width == 1
+    assert clifft.lower(hir).peak_active_width == 1
 
 
 def test_overrides_retain_each_instance_until_manager_is_deleted() -> None:
