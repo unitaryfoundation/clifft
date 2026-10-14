@@ -217,6 +217,18 @@ modified diagnostic workload. Zero events in the target-scoring sample are
 only a sanity check; the test suite separately checks decoded logical outputs
 and a syndrome jointly against Aer and an exact convolution of Stim fault maps.
 
+The direct-X `tests/fixtures/merlin_bt81_direct_x.stim` uses the same pinned
+generator with `build_code_switching_case("bt81", p_phys=0,
+target_scoring=False).circuit`. Expand each RX, M, and MX instruction into
+one-target instructions in its original target order. Append MX measurements
+of logical output qubits `0, 1, 2, 81, 82, 83, 162, 163, 164`, in that order,
+then `OBSERVABLE_INCLUDE(i) rec[-(9-i)]` for `i = 0..8`. This adds direct X
+readout without an inverse logical scoring gate or postselection. The profiler
+verifies that construction against the fixture when given `--merlin-checkout`;
+no Clifft research branch is required. Excluding comments and retaining the
+final newline, its SHA-256 is
+`2db837e4ab23eb30288da1b7983b929c25a84c6bca5c9ea810c71f61b2c6262a`.
+
 ```bash
 taskset -c 0 .venv/bin/python tools/profile/profile_external_feedback.py \
   --merlin-checkout /path/to/pinned/merlin \
@@ -244,12 +256,11 @@ scoring gate. It reduces from 648 T gates / execution width 56 to 23 / 6;
 preparation without final readout has width nine. These are static results with
 all 405 records preserved. They do not require per-history specialization.
 
-The prior comparison with the pinned research reducer recovered all 243 fixed
-data stabilizers and matched the complete polynomial: six cubic terms on nine
-variables, with Clifford corrections retained after peephole fusion. Widening
-alone produced 145 T gates; output alignment made the existing synthesis guard
-admit the smaller representation. The direct-X fixture records the research
-revision and source hash in its header.
+The static analysis recovers all 243 fixed data stabilizers. The complete
+non-Clifford polynomial has six cubic terms on nine variables, with Clifford
+corrections retained after peephole fusion. Widening alone produced 145 T gates;
+output alignment made the existing synthesis guard admit the smaller
+representation.
 
 The optional path shares work limits across its original and output-aligned
 basis candidates, retains the existing synthesis and cost guards, and falls
@@ -276,9 +287,9 @@ and execution widths 6-7. Independent Aer logical-output and Stim preparation
 record-support checks passed. Small exact Aer checks also cover joint records,
 feedback, noisy readout, word boundaries, and budget fallback. Unsuccessful
 wide attempts on noisy BT27/BT81 and irreducible synthetic controls added
-approximately 0.1-1.3 ms of HIR optimization time. The refreshed high-noise
-surface-code control sampled 10,000 shots in 25.14 versus 25.21 ms; the earlier
-sampling slowdown is not an outstanding defect of this pass.
+approximately 0.1-1.3 ms of HIR optimization time. The high-noise surface-code
+control sampled 10,000 shots in 25.14 ms with the 64-variable policy and
+25.21 ms with the default policy.
 
 ## Probability queries
 

@@ -1,6 +1,13 @@
-# Merlin code switching at 097380fac1a3968ca47925146e211fe990f4c396.
-# Direct X readout variant frozen at Clifft dbbc8865fe2babe0855ea28024790c509ff44463.
+# Merlin BT81 code switching, noiseless with direct logical X readout.
+# Generator: https://github.com/mark-koch/merlin
+# Revision: 097380fac1a3968ca47925146e211fe990f4c396
+# benchmarks/protocols/code_switching.py
+# build_code_switching_case("bt81", p_phys=0, target_scoring=False).circuit
+# Expand RX, M, and MX into one-target instructions in the original order.
+# Append MX for 0, 1, 2, 81, 82, 83, 162, 163, 164 in that order, followed by
+# OBSERVABLE_INCLUDE(i) rec[-(9-i)] for i = 0..8.
 # No postselection or inverse logical scoring gate.
+# Reproduce with tools/profile/profile_external_feedback.py --merlin-checkout PATH.
 # Source SHA-256: 2db837e4ab23eb30288da1b7983b929c25a84c6bca5c9ea810c71f61b2c6262a
 RX 0
 RX 1

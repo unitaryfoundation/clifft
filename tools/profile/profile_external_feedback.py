@@ -1,7 +1,8 @@
 """Reproduce bounded phase-limit experiments on pinned external generators.
 
-The checked-in BT27 fixture does not require Merlin. Supply the pinned checkout
-for BT81 and original target-scoring cases, and --ibm-input for a gauging control.
+The checked-in BT27 and direct-X BT81 fixtures do not require Merlin. Supply the
+pinned checkout to verify them and add other BT81 and target-scoring cases,
+and --ibm-input for a gauging control.
 Large unreduced circuits are inspected without lowering or dense execution.
 """
 
@@ -36,6 +37,22 @@ def pre_ccz_noise(source: str, gate: str) -> str:
     return "\n".join(lines) + "\n"
 
 
+def bt81_direct_x_source(generator: Any) -> str:
+    pair = generator.make_bbt_pair("bt81")
+    source = generator.build_code_switching_case(pair, p_phys=0, target_scoring=False).circuit
+    lines: list[str] = []
+    for line in source.splitlines():
+        words = line.split()
+        if words[0] in {"RX", "M", "MX"}:
+            lines.extend(f"{words[0]} {qubit}" for qubit in words[1:])
+        else:
+            lines.append(line)
+    outputs = [block * pair.source.n + q for block in range(3) for q in range(pair.source.k)]
+    lines.extend(f"MX {q}" for q in outputs)
+    lines.extend(f"OBSERVABLE_INCLUDE({i}) rec[-{len(outputs) - i}]" for i in range(len(outputs)))
+    return "\n".join(lines) + "\n"
+
+
 def cases(merlin: Path | None, ibm: Path | None) -> dict[str, str]:
     from profile_symbolic_stabilizers import ccz_factory
 
@@ -63,6 +80,13 @@ def cases(merlin: Path | None, ibm: Path | None) -> dict[str, str]:
         assert (
             build("bt27", p_phys=0.001, target_scoring=False).circuit == result["bt27_depolarizing"]
         )
+        bt81_fixture = (
+            "\n".join(
+                line for line in result["bt81_direct_x"].splitlines() if not line.startswith("#")
+            )
+            + "\n"
+        )
+        assert bt81_direct_x_source(generator) == bt81_fixture
         result["bt27_target_scoring"] = build("bt27", p_phys=0, target_scoring=True).circuit
         for p, name in ((0, "ideal"), (0.001, "depolarizing")):
             result[f"bt81_{name}"] = build("bt81", p_phys=p, target_scoring=False).circuit
