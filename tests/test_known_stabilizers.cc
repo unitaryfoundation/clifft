@@ -87,14 +87,52 @@ TEST_CASE("Resets recover constraints after non Clifford work", "[optimizer]") {
 TEST_CASE("Affine analysis budgets lose knowledge and allow subsequent recovery", "[optimizer]") {
     SymbolicStabilizerOptions options;
     options.max_expression_terms = 1;
-    REQUIRE_FALSE(final_eigenvalue("X_ERROR(0.2) 0\nX_ERROR(0.3) 0", "Z", options));
-    REQUIRE(final_eigenvalue("X_ERROR(0.2) 0\nX_ERROR(0.3) 0\nR 0", "Z", options) == false);
+    const std::string cancellation =
+        "H 1 2\nM 1 2\nCX rec[-2] 0\nCX rec[-1] 0\nCX rec[-2] 0\nCX rec[-1] 0";
+    REQUIRE(final_eigenvalue(cancellation, "ZII") == false);
+    REQUIRE_FALSE(final_eigenvalue(cancellation, "ZII", options));
+    REQUIRE(final_eigenvalue(cancellation + "\nR 0", "ZII", options) == false);
     options.max_record_entries = 1;
     REQUIRE_FALSE(final_eigenvalue("H 0 1\nM 0 1\nCX rec[-2] 0\nCX rec[-1] 1", "ZI", options));
     REQUIRE(final_eigenvalue("H 0 1\nM 0 1\nCX rec[-1] 1", "IZ", options) == false);
     options.max_row_products = 0;
     REQUIRE_FALSE(final_eigenvalue("E(0.2) X0 X1", "ZZ", options));
     REQUIRE(final_eigenvalue("R_X(0.137) 0\nR 0", "Z", options) == false);
+}
+
+TEST_CASE("Anticommuting measurements preserve spectators when reduction is capped",
+          "[optimizer]") {
+    SymbolicStabilizerOptions options;
+    options.max_row_products = 0;
+    const std::string source = "MY 0\nCX rec[-1] 0\nI 1";
+    REQUIRE(final_eigenvalue(source, "IZ") == false);
+    REQUIRE(final_eigenvalue(source, "IZ", options) == false);
+    REQUIRE(final_eigenvalue(source, "YI", options) == false);
+}
+
+TEST_CASE("Oversized symbolic expressions do not hide later fixed products", "[optimizer]") {
+    // The first two data rows have signs a+b+c and a+d+e. Eliminating a
+    // overflows three terms; the later rows still share a single sign f.
+    const std::string source =
+        "H 4 5 6 7 8 9\nM 4 5 6 7 8 9\n"
+        "CX rec[-6] 0\nCX rec[-5] 0\nCX rec[-4] 0\n"
+        "CX rec[-6] 1\nCX rec[-3] 1\nCX rec[-2] 1\n"
+        "CX rec[-1] 2\nCX rec[-1] 3\nX_ERROR(0.2) 4 5 6 7 8 9";
+    SymbolicStabilizerOptions options;
+    options.max_expression_terms = 3;
+    REQUIRE(final_eigenvalue(source, "IIZZIIIIII") == false);
+    REQUIRE(final_eigenvalue(source, "IIZZIIIIII", options) == false);
+    options.max_row_products = 1;
+    REQUIRE_FALSE(final_eigenvalue(source, "IIZZIIIIII", options));
+}
+
+TEST_CASE("Constant facts survive the symbolic elimination work limit", "[optimizer]") {
+    const std::string source = "H 0\nM 0\nCX rec[-1] 1\nCX rec[-1] 2\nI 3";
+    SymbolicStabilizerOptions options;
+    options.max_row_products = 0;
+    REQUIRE(final_eigenvalue(source, "IZZI") == false);
+    REQUIRE_FALSE(final_eigenvalue(source, "IZZI", options));
+    REQUIRE(final_eigenvalue(source, "IIIZ", options) == false);
 }
 
 TEST_CASE("Fixed lookahead snapshots cannot learn constraints from future measurements",

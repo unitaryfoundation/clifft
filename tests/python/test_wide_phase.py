@@ -154,6 +154,70 @@ def test_wide_phase_budget_fallback_preserves_joint_records(budget: dict[str, in
     )
 
 
+def test_wide_phase_cost_fallback_preserves_joint_records() -> None:
+    from qiskit import QuantumCircuit
+    from qiskit_aer import AerSimulator
+
+    measured = " ".join(map(str, range(1, 65)))
+    padding = " ".join(map(str, range(4, 65)))
+    phases = [
+        "TPP " + "*".join(f"Z{q + 1}" for q in range(3) if mask >> q & 1) for mask in range(1, 8)
+    ]
+    source = "\n".join(
+        [
+            f"MX {measured}",
+            f"M {measured}",
+            f"T {padding}",
+            *phases,
+            "TPP X0",
+            f"T {padding}",
+            "M 0 1 2 3",
+            "R_Z(0.137) 0",
+            "T 65",
+            "T 65",
+        ]
+    )
+    phase = clifft.PhasePolynomialPass(max_variables=128)
+    manager = clifft.HirPassManager()
+    manager.add(phase)
+    program = clifft.compile(source, hir_passes=manager)
+    assert phase.wide_attempts == 1
+    assert phase.wide_rewrites == 0
+    assert not phase.wide_budget_exhausted
+    assert phase.input_t_count == 132
+    assert phase.output_t_count == 129
+    assert program.peak_active_width == 1
+
+    # Each flag has two independent random measurements followed by diagonal
+    # phases. Its last Z readout repeats its second record. Only X0 affects
+    # the remaining data qubit, giving an independent one-qubit Aer oracle.
+    reference = QuantumCircuit(1)
+    reference.h(0)
+    reference.t(0)
+    reference.h(0)
+    reference.save_probabilities()
+    result = AerSimulator(method="statevector", max_parallel_threads=1).run(reference).result()
+    probabilities = np.asarray(result.data()["probabilities"])
+    prefixes = np.random.default_rng(552).integers(0, 2, size=(4, 128), dtype=np.uint8)
+    records = np.array(
+        [
+            np.concatenate((prefix, [outcome], prefix[64:67]))
+            for prefix in prefixes
+            for outcome in (0, 1)
+        ],
+        dtype=np.uint8,
+    )
+    np.testing.assert_allclose(
+        clifft.record_probabilities(program, records, return_log=True),
+        np.tile(np.log(probabilities) - 128 * np.log(2), len(prefixes)),
+        rtol=0,
+        atol=2e-12,
+    )
+    inconsistent = records[:1].copy()
+    inconsistent[0, 129] ^= 1
+    assert np.isneginf(clifft.record_probabilities(program, inconsistent, return_log=True)[0])
+
+
 @pytest.mark.parametrize("readout", [0, 0.17])
 def test_wide_phase_preserves_noisy_feedback_records(
     sampling_mode: SamplingMode, readout: float

@@ -3,11 +3,13 @@
 #include "clifft/optimizer/active_width_analysis.h"
 #include "clifft/optimizer/known_stabilizers.h"
 #include "clifft/optimizer/phase_polynomial_pass.h"
+#include "clifft/optimizer/symbolic_stabilizers.h"
 #include "clifft/optimizer/wide_phase_region.h"
 
 #include "instrument_test_helpers.h"
 #include "test_helpers.h"
 
+#include <algorithm>
 #include <catch2/catch_test_macros.hpp>
 #include <stdexcept>
 #include <string>
@@ -330,7 +332,7 @@ TEST_CASE("Phase expansion respects explicit limits and the representation ceili
         auto default_result = original;
         PhasePolynomialPass default_pass;
         default_pass.run(default_result);
-        REQUIRE(default_pass.expansion_attempts() > 0);
+        REQUIRE(default_pass.expansion_attempts() == 1);
         REQUIRE(default_pass.wide_attempts() == 0);
         REQUIRE(default_pass.wide_work() == 0);
         REQUIRE(default_result.num_t_gates() == (width <= 64 ? 0 : 2 * width));
@@ -502,6 +504,68 @@ TEST_CASE("Wide phase budgets preserve the ordinary fallback and completed candi
     auto unlimited = original;
     PhasePolynomialPass({128}).run(unlimited);
     REQUIRE(kept.final_tableau == unlimited.final_tableau);
+}
+
+TEST_CASE("Wide phase cost rejection retains ordinary rewrites", "[optimizer]") {
+    std::string measured, padding;
+    for (uint32_t q = 1; q < 65; ++q) {
+        measured += " " + std::to_string(q);
+        if (q >= 4)
+            padding += " " + std::to_string(q);
+    }
+    // The measured Z axes add support without active work. Replacing all
+    // seven nonempty Z parities and X0 with seven mixed parities saves a T
+    // gate but makes all seven rotations act on the active qubit.
+    const auto source = "MX" + measured + "\nM" + measured + "\nT" + padding +
+                        "\nTPP Z1\nTPP Z2\nTPP Z1*Z2\nTPP Z3\nTPP Z1*Z3\n"
+                        "TPP Z2*Z3\nTPP Z1*Z2*Z3\nTPP X0\nT" +
+                        padding + "\nM 0 1 2 3\nR_Z(0.137) 0\nT 65\nT 65\n";
+    auto hir = trace(parse(source));
+    SymbolicStabilizers known(hir);
+    size_t start = 0;
+    while (hir.ops[start].op_type() != OpType::T_GATE) {
+        known.advance(hir, hir.ops[start++]);
+    }
+    phase_detail::wide::Budget budget;
+    const optimizer_detail::CliffordAbsorption frame;
+    const auto candidate =
+        phase_detail::wide::try_region(hir, start, known.fixed_constraints(), frame, 128, budget);
+    REQUIRE(candidate);
+    REQUIRE(candidate->t_count == 7);
+    REQUIRE(std::ranges::count_if(candidate->phases, [](const auto& term) {
+                return (term.second & 1) && term.first.x().bit_get(0);
+            }) == 7);
+
+    auto expected = hir;
+    PhasePolynomialPass narrow({64});
+    narrow.run(expected);
+    REQUIRE(expected.num_t_gates() == 129);
+    PhasePolynomialPass wide({128});
+    wide.run(hir);
+    REQUIRE(wide.wide_attempts() == 1);
+    REQUIRE_FALSE(wide.wide_budget_exhausted());
+    REQUIRE(wide.wide_rewrites() == 0);
+    // The completed wide candidate is counted even though the cost guard
+    // rejects it; the returned result and statistics belong to the rerun.
+    REQUIRE(wide.blocks_expanded() == narrow.blocks_expanded() + 1);
+    REQUIRE(wide.blocks_reduced() == narrow.blocks_reduced());
+    REQUIRE(wide.output_t_count() == narrow.output_t_count());
+    REQUIRE(hir.num_t_gates() == expected.num_t_gates());
+    REQUIRE(hir.num_measurements == expected.num_measurements);
+    REQUIRE(hir.source_map == expected.source_map);
+    REQUIRE(hir.final_tableau == expected.final_tableau);
+    REQUIRE(hir.ops.size() == expected.ops.size());
+    for (size_t i = 0; i < hir.ops.size(); ++i) {
+        REQUIRE(hir.ops[i].op_type() == expected.ops[i].op_type());
+        REQUIRE(hir.ops[i].flags() == expected.ops[i].flags());
+        REQUIRE(hir.mask_view(hir.ops[i]) == expected.mask_view(expected.ops[i]));
+        if (hir.ops[i].op_type() == OpType::MEASURE) {
+            REQUIRE(hir.ops[i].meas_record_idx() == expected.ops[i].meas_record_idx());
+        }
+        if (hir.ops[i].op_type() == OpType::PHASE_ROTATION) {
+            REQUIRE(hir.ops[i].alpha() == expected.ops[i].alpha());
+        }
+    }
 }
 
 TEST_CASE("Wide phase work allowance is shared across separated regions", "[optimizer]") {

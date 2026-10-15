@@ -163,9 +163,7 @@ After a run, `input_t_count`, `output_t_count`, `blocks_reduced` and
 `pauli_pullbacks` describe the accepted rewrite; `applied` reports acceptance.
 `wide_attempts`, `wide_rewrites`, `wide_work`, and `wide_budget_exhausted` report
 the optional search, including rejected candidates; `wide_rewrites` counts only
-accepted rewrites. C++ collection counters accumulate search effort across all
-attempts, including a narrow rerun after the width guard rejects a wide result.
-All counters reset on each run.
+accepted rewrites. All counters reset on each run.
 {% endif %}
 
 {% if p['name'] == 'RotationSimplificationPass' %}

@@ -91,7 +91,11 @@ const KnownStabilizers& SymbolicStabilizers::fixed_constraints() {
             }
         }
         if (capped) {
-            break;
+            if (products == options_.max_row_products) {
+                break;
+            }
+            // An oversized expression need not hide independent later facts.
+            continue;
         }
         if (independent) {
             continue;
@@ -269,7 +273,12 @@ void SymbolicStabilizers::advance(const HirModule& hir, const HeisenbergOp& op) 
             auto axis = copy_axis(hir.mask_view(op), hir.num_qubits);
             bool capped = false;
             auto outcome = affine_eigenvalue(axis, capped);
-            if (capped) {
+            // Anticommutation proves this outcome is not in the known group.
+            // Even if reduction hit a limit, intersection can retain spectators.
+            // Only capped queries need this scan; deterministic queries stay cheap.
+            if (capped && std::ranges::all_of(rows_, [&](const auto& entry) {
+                    return axis.view().commutes(entry.second.axis.view());
+                })) {
                 forget();
             }
             if (!outcome) {
