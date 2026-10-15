@@ -16,11 +16,16 @@ struct SymbolicStabilizerOptions {
     size_t max_row_products = 4096;
 };
 
-// Forward facts have affine eigenvalue signs. Only their fixed subgroup can
-// justify rewrites shared by every trajectory and the noiseless reference.
-// Atoms denote physical outcomes and faults, with no assumed independence.
-// They never escape into a sampling plan, whose branch symbols use a different
-// coordinate-dependent outcome convention.
+// Tracks Pauli stabilizer constraints as a circuit advances, including signs
+// that depend on measurement outcomes and feedback. Extracts fixed-sign
+// constraints for compile-time rewrites shared by every trajectory and the
+// noiseless reference.
+//
+// An affine Boolean expression s represents eigenvalue (-1)^s. Its symbols
+// denote physical measurement outcomes and readout-error flips, with no assumed
+// independence. Pauli faults remove affected constraints instead of adding
+// fault symbols. Analysis symbols remain local to compilation: sampling-plan
+// branches use a different, coordinate-dependent outcome convention.
 class SymbolicStabilizers {
   public:
     explicit SymbolicStabilizers(const HirModule& hir, SymbolicStabilizerOptions options = {});
@@ -64,7 +69,7 @@ class SymbolicStabilizers {
     std::map<uint32_t, Row> rows_;
     std::map<uint32_t, Record> records_;
     // Uses follow emitted classical operations even when rotations are moved.
-    // This schedule survives discarded facts and requires O(feedback records) storage.
+    // This schedule survives discarded constraints and uses O(feedback records) storage.
     std::map<uint32_t, size_t> remaining_uses_;
     std::optional<Feedback> feedback_;
     KnownStabilizers fixed_;

@@ -12,7 +12,8 @@ namespace clifft {
 // to justify compile-time rewrites shared by all trajectories. Each operator
 // stabilizes every reachable state and the noiseless reference used for syndrome
 // normalization. Ordinary factored-state bookkeeping can also retain stabilizers
-// whose signs depend on the sampled trajectory. An empty group means no knowledge.
+// whose signs depend on the sampled trajectory. An empty group means no known
+// nontrivial constraints.
 class KnownStabilizers {
   public:
     KnownStabilizers() = default;
@@ -29,7 +30,7 @@ class KnownStabilizers {
     // Required rewrite constraints are exact and have no inference budget.
     void insert(PauliString axis);
     void intersect(PauliStringView axis);
-    // Lookahead only discards entry facts; it never learns from future operations.
+    // Lookahead only discards entry constraints; it never learns from future operations.
     void advance(const HirModule& hir, const HeisenbergOp& op);
 
   private:

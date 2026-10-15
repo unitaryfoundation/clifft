@@ -226,7 +226,7 @@ class Rewriter {
             } else if (type == OpType::NOISE) {
                 // Moving this site before the phase prefix must preserve the
                 // relations already used. Later relations are checked against
-                // the entry knowledge after applying this channel.
+                // the entry constraints after applying this channel.
                 const auto& channels =
                     hir().noise_sites[static_cast<uint32_t>(op.noise_site_idx())].channels;
                 for (const auto& channel : channels) {

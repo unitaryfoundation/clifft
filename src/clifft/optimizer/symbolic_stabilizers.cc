@@ -60,7 +60,7 @@ const KnownStabilizers& SymbolicStabilizers::fixed_constraints() {
         return fixed_;
     }
     fixed_.rows_.clear();
-    // Preserve cheap constant facts even when symbolic elimination is capped.
+    // Preserve known fixed-sign constraints even when symbolic elimination is capped.
     for (const auto& [pivot, row] : rows_) {
         if (row.sign.terms().empty()) {
             auto axis = row.axis;
@@ -94,7 +94,7 @@ const KnownStabilizers& SymbolicStabilizers::fixed_constraints() {
             if (products == options_.max_row_products) {
                 break;
             }
-            // An oversized expression need not hide independent later facts.
+            // An oversized expression need not hide independent later constraints.
             continue;
         }
         if (independent) {
@@ -220,7 +220,8 @@ void SymbolicStabilizers::assign_record(uint32_t record, AffineBool value) {
         return;
     }
     if (records_.size() == options_.max_record_entries && !records_.contains(record)) {
-        // Hidden reset slots follow visible slots numerically, not temporally.
+        // Evict by measurement age: hidden reset slots follow visible slots
+        // numerically, not temporally.
         auto oldest = std::ranges::min_element(records_, {},
                                                [](const auto& entry) { return entry.second.age; });
         records_.erase(oldest);

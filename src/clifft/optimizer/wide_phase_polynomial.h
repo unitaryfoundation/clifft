@@ -19,6 +19,12 @@ struct Less {
         return a.w[1] != b.w[1] ? a.w[1] < b.w[1] : a.w[0] < b.w[0];
     }
 };
+// Sparse coefficients modulo eight, indexed by masks of Boolean variables.
+// In an expanded polynomial, {0b0101, 4} means 4*x0*x2. Linear coefficients
+// are arbitrary, quadratic coefficients are even, and cubic ones are multiples
+// of four. The same storage holds XOR parity terms during collection and in
+// synthesis results: there, {0b0101, 4} means 4*(x0 XOR x2).
+// Zero coefficients are omitted in both representations.
 using Polynomial = std::map<Mask, uint8_t, Less>;
 
 // Only expected search limits may discard an optional candidate.

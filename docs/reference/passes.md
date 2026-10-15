@@ -76,26 +76,18 @@ for how continuations are compiled and resumed.
 
 ## Constraints from Measurement and Feedback
 
-`PhasePolynomialPass` and `RotationSimplificationPass` track constraints whose
-signs depend on measurement records, but authorize rewrites only when those
-signs become fixed. Measuring a Pauli and applying anticommuting Pauli feedback
-using its physical outcome can recover such a constraint. A corrupted readout
-record can leave the sign uncertain, preventing the corresponding rewrite.
-Measurements and resets can recover useful facts after earlier non-Clifford
-work, including in later regions of the circuit. Constraints must also hold
-for the noiseless reference; postselection supplies no additional facts.
+`PhasePolynomialPass` and `RotationSimplificationPass` recover fixed-sign
+stabilizer constraints through measurement and feedback, including after earlier
+non-Clifford work. Constraints must hold for every trajectory and the noiseless
+reference; postselection supplies no additional constraints. See
+[Stabilizer-Based Optimization](../theory/stabilizer-optimization.md) for the
+analysis and reduction principles.
 
 These are static rewrites shared by all shots. Unresolved affine signs do not
 produce conditional rewrites or per-history specialization. To disable recovered
 constraint rewrites, omit both passes from a custom `HirPassManager`, or use
 `hir_passes=None` to disable all HIR optimization. Equivalent plans preserve
 output distributions but do not guarantee historical fixed-seed samples.
-
-Merlin's [phase-polynomial treatment of measured QEC circuits](https://arxiv.org/abs/2610.06811)
-motivated this investigation of fixed constraints and complete phase regions.
-See the [Merlin acknowledgment](../acknowledgments.md#merlin) for the distinction
-between that design influence, reused benchmark circuits, and Clifft's static
-implementation.
 
 ---
 
