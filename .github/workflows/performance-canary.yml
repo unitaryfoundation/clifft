@@ -190,14 +190,18 @@ jobs:
               --benchmark_out_format=json
           }
 
+          # Select the same workloads that the trusted fork reporter accepts.
+          canary_filter="$(python3 tools/ci/benchmark_canary.py filter)"
           # Consume process-wide first-use effects before collecting any evidence.
           run_benchmarks \
-            canary-bin/base canary-results/warmup-base.json '.*' 1 0.1 0.1
+            canary-bin/base canary-results/warmup-base.json "$canary_filter" 1 0.1 0.1
           run_benchmarks \
-            canary-bin/head canary-results/warmup-head.json '.*' 1 0.1 0.1
+            canary-bin/head canary-results/warmup-head.json "$canary_filter" 1 0.1 0.1
 
-          ./canary-bin/base --benchmark_list_tests=true > canary-results/base-benchmarks.txt
-          ./canary-bin/head --benchmark_list_tests=true > canary-results/head-benchmarks.txt
+          ./canary-bin/base --benchmark_filter="$canary_filter" \
+            --benchmark_list_tests=true > canary-results/base-benchmarks.txt
+          ./canary-bin/head --benchmark_filter="$canary_filter" \
+            --benchmark_list_tests=true > canary-results/head-benchmarks.txt
           LC_ALL=C sort -u canary-results/{base,head}-benchmarks.txt > canary-results/benchmarks.txt
           mapfile -t benchmarks < canary-results/benchmarks.txt
           if (( ${#benchmarks[@]} == 0 )); then

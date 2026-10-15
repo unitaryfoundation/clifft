@@ -147,6 +147,8 @@ void phase_clifford_regions(benchmark::State& state, int64_t size) {
     }
 }
 
+// Forty independent axes repeatedly exhaust the default 32-variable cap,
+// exposing collection costs across many rank-limited regions.
 void phase_rank_limited_region(benchmark::State& state, int64_t size) {
     HirModule original(40, static_cast<size_t>(size));
     for (int64_t i = 0; i < size; ++i) {

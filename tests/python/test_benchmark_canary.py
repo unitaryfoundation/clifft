@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -27,6 +28,11 @@ REPOSITORY = "unitaryfoundation/clifft"
 HEAD_REPOSITORY = "contributor/clifft"
 BASE_SHA = "1" * 40
 HEAD_SHA = "2" * 40
+
+
+def _selected_workloads(pattern: str) -> list[str]:
+    registered = re.findall(r'->Name\("([^"]+)"\)', benchmark_canary.BENCHMARK_SOURCE.read_text())
+    return [name for name in registered if re.search(pattern, name)]
 
 
 def _write_results(
@@ -77,7 +83,9 @@ def _write_fork_evidence(path: Path) -> Path:
     ):
         directory = path / directory_name
         directory.mkdir()
-        for index, name in enumerate(benchmark_canary.DISPLAY_NAMES, start=1):
+        for index, name in enumerate(
+            _selected_workloads(benchmark_canary.benchmark_filter()), start=1
+        ):
             _write_results(directory / f"{name}.json", {name: index * 100.0 * multiplier})
     benchmark_canary.write_manifest(
         path / "manifest.json",
@@ -96,6 +104,35 @@ def _write_fork_evidence(path: Path) -> Path:
         compiler="Example compiler",
     )
     return path
+
+
+def test_canary_filter_selects_one_large_case_per_phase_workload(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(sys, "argv", ["benchmark_canary.py", "filter"])
+    benchmark_canary.main()
+    pattern = capsys.readouterr().out.strip()
+    selected = set(_selected_workloads(pattern))
+
+    assert selected == benchmark_canary.DISPLAY_NAMES.keys()
+    assert {name for name in selected if name.startswith("phase_")} == {
+        "phase_measurement_barriers_4096",
+        "phase_clifford_regions_4096",
+        "phase_rank_limited_region_32000",
+    }
+    assert re.search(pattern, "phase_rank_limited_region_32000")
+    for name in (
+        "phase_measurement_barriers_256",
+        "phase_measurement_barriers_1024",
+        "phase_clifford_regions_256",
+        "phase_clifford_regions_1024",
+        "phase_rank_limited_region_2000",
+        "phase_rank_limited_region_4096",
+        "phase_rank_limited_region_16384",
+        "phase_rank_limited_region_320000",
+        "prefix_phase_rank_limited_region_32000",
+    ):
+        assert not re.search(pattern, name)
 
 
 def test_report_classifies_paired_changes(tmp_path: Path) -> None:
@@ -229,14 +266,35 @@ def test_inconclusive_summary_retains_improvements() -> None:
     assert "1 benchmark comparison was inconclusive." in summary
 
 
-def test_report_links_workload_name_to_source_rationale(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize(
+    ("name", "label", "rationale"),
+    [
+        ("squeeze_parallel_t_8192", "Squeeze 8192 T gates", "// Expansion-only suffixes"),
+        (
+            "phase_measurement_barriers_4096",
+            "Phase pass, 4,096 measurement barriers",
+            "// Unsupported observers",
+        ),
+        (
+            "phase_clifford_regions_4096",
+            "Phase pass, 4,096 Clifford regions",
+            "// Repeated Clifford extraction",
+        ),
+        (
+            "phase_rank_limited_region_32000",
+            "Phase pass, 32,000 rank-limited rotations",
+            "// Forty independent axes",
+        ),
+    ],
+)
+def test_report_links_workload_name_to_source_rationale(
+    monkeypatch: pytest.MonkeyPatch, name: str, label: str, rationale: str
+) -> None:
     monkeypatch.setenv("GITHUB_SERVER_URL", "https://github.example")
     monkeypatch.setenv("GITHUB_REPOSITORY", "unitaryfoundation/clifft")
     source_lines = benchmark_canary.BENCHMARK_SOURCE.read_text().splitlines()
     rationale_line = next(
-        index
-        for index, line in enumerate(source_lines, start=1)
-        if line.startswith("// Expansion-only suffixes")
+        index for index, line in enumerate(source_lines, start=1) if line.startswith(rationale)
     )
     source_links = benchmark_canary._benchmark_source_links("abcdef0")
     assert benchmark_canary.DISPLAY_NAMES.keys() <= source_links.keys()
@@ -244,7 +302,7 @@ def test_report_links_workload_name_to_source_rationale(monkeypatch: pytest.Monk
         linked_line = int(source_link.rsplit("#L", 1)[1])
         assert source_lines[linked_line - 1].startswith("//")
     comparison = benchmark_canary.Comparison(
-        name="squeeze_parallel_t_8192",
+        name=name,
         base_ns=100.0,
         head_ns=100.0,
         change=0.0,
@@ -272,7 +330,7 @@ def test_report_links_workload_name_to_source_rationale(monkeypatch: pytest.Monk
         f"benchmarks/clifft_benchmarks.cc#L{rationale_line}"
     )
     assert "<summary>View 1 benchmark result</summary>" in report
-    assert f"| [Squeeze 8192 T gates]({expected_link}) |" in report
+    assert f"| [{label}]({expected_link}) |" in report
 
 
 def test_failure_report_uses_succinct_heading() -> None:
@@ -351,6 +409,12 @@ def test_fork_report_validates_evidence_and_uses_base_workloads(
     assert "Runner CPU: ` Example CPU `" in report
     assert "Workloads and fixtures come from the base revision for fork isolation." in report
     assert "[View workflow run](https://github.example/run/456)" in report
+    for label in (
+        "Phase pass, 4,096 measurement barriers",
+        "Phase pass, 4,096 Clifford regions",
+        "Phase pass, 32,000 rank-limited rotations",
+    ):
+        assert f"| [{label}](" in report
 
 
 def test_fork_report_rejects_manifest_not_bound_to_run(tmp_path: Path) -> None:

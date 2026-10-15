@@ -29,8 +29,12 @@ MAX_RESULT_BYTES = 1024 * 1024
 MAX_BENCHMARK_ROWS = 100
 BENCHMARK_SOURCE = Path(__file__).resolve().parents[2] / "benchmarks" / "clifft_benchmarks.cc"
 
+# The producer filter and trusted fork validation share this workload contract.
 DISPLAY_NAMES = {
     "squeeze_parallel_t_8192": "Squeeze 8192 T gates",
+    "phase_measurement_barriers_4096": "Phase pass, 4,096 measurement barriers",
+    "phase_clifford_regions_4096": "Phase pass, 4,096 Clifford regions",
+    "phase_rank_limited_region_32000": "Phase pass, 32,000 rank-limited rotations",
     "compile_plan_cultivation_d5": "Compile/plan cultivation d5",
     "compile_schedule_plan_coherent_d5_r5": "Compile+schedule+plan, coherent QEC d5/r5",
     "schedule_pass_coherent_d5_r5": "Schedule pass, coherent QEC d5/r5",
@@ -52,6 +56,10 @@ TIME_UNIT_TO_NS = {
     "ms": 1e6,
     "s": 1e9,
 }
+
+
+def benchmark_filter() -> str:
+    return "^(" + "|".join(re.escape(name) for name in DISPLAY_NAMES) + ")$"
 
 
 @dataclass(frozen=True)
@@ -293,7 +301,7 @@ def _benchmark_source_links(head_sha: str) -> dict[str, str]:
 
     lines = BENCHMARK_SOURCE.read_text().splitlines()
     function_lines = {}
-    function_pattern = re.compile(r"^void ([a-z0-9_]+)\(benchmark::State& state\) \{$")
+    function_pattern = re.compile(r"^void ([a-z0-9_]+)\(benchmark::State& state(?:, [^)]*)?\) \{$")
     for index, line in enumerate(lines):
         match = function_pattern.match(line)
         if not match:
@@ -305,7 +313,9 @@ def _benchmark_source_links(head_sha: str) -> dict[str, str]:
             comment_index -= 1
         function_lines[match.group(1)] = source_line
 
-    registration_pattern = re.compile(r'^BENCHMARK\(([a-z0-9_]+)\)->Name\("([^"]+)"\);$')
+    registration_pattern = re.compile(
+        r'^BENCHMARK(?:_CAPTURE)?\(([a-z0-9_]+)(?:, [^)]*)?\)->Name\("([^"]+)"\);$'
+    )
     links = {}
     for line in lines:
         match = registration_pattern.match(line)
@@ -688,6 +698,7 @@ def _add_common_arguments(parser: argparse.ArgumentParser) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
+    subparsers.add_parser("filter", help="Print the Google Benchmark filter for canary workloads")
 
     failure_parser = subparsers.add_parser("failure")
     _add_common_arguments(failure_parser)
@@ -735,7 +746,9 @@ def main() -> None:
     fork_report_parser.add_argument("--run-id", type=int, required=True)
     args = parser.parse_args()
 
-    if args.command == "failure":
+    if args.command == "filter":
+        print(benchmark_filter())
+    elif args.command == "failure":
         content = render_failure(
             base_label=args.base_label,
             base_sha=args.base_sha,

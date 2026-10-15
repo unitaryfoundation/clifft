@@ -4,6 +4,29 @@
 With `CLIFFT_ENABLE_CUDA=ON`, `clifft_cuda_bench` adds CPU-versus-CUDA sampling
 and CUDA sampler construction cases. Both use Google Benchmark.
 
+## CPU canary and phase scaling
+
+The PR canary selects workloads from `DISPLAY_NAMES` in
+`tools/ci/benchmark_canary.py`. The same list supplies report labels and the
+trusted fork reporter's workload allowlist. Add new canary cases there as well
+as registering them in `clifft_benchmarks.cc`.
+
+The canary runs one large case from each phase workload: 4,096 measurement
+barriers, 4,096 Clifford regions, and 32,000 rank-limited rotations. The full
+ten-case phase size sweep remains available for local scaling investigations:
+
+```bash
+cmake -S benchmarks -B build/canary -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build/canary --target clifft_benchmarks -j
+./build/canary/clifft_benchmarks --benchmark_filter='^phase_' \
+    --benchmark_min_time=0.5s --benchmark_repetitions=3
+```
+
+To run only the workloads selected by CI, use
+`--benchmark_filter="$(python3 tools/ci/benchmark_canary.py filter)"` instead.
+The canary compares each selected size against the base revision independently;
+it does not fit a scaling curve.
+
 ## CUDA driver
 
 Build with a CUDA toolkit; running the CUDA cases also requires a compatible
