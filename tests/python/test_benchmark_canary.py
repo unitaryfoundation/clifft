@@ -30,9 +30,8 @@ BASE_SHA = "1" * 40
 HEAD_SHA = "2" * 40
 
 
-def _selected_workloads(pattern: str) -> list[str]:
-    registered = re.findall(r'->Name\("([^"]+)"\)', benchmark_canary.BENCHMARK_SOURCE.read_text())
-    return [name for name in registered if re.search(pattern, name)]
+def _registered_workloads() -> list[str]:
+    return re.findall(r'->Name\("([^"]+)"\)', benchmark_canary.BENCHMARK_SOURCE.read_text())
 
 
 def _write_results(
@@ -83,9 +82,7 @@ def _write_fork_evidence(path: Path) -> Path:
     ):
         directory = path / directory_name
         directory.mkdir()
-        for index, name in enumerate(
-            _selected_workloads(benchmark_canary.benchmark_filter()), start=1
-        ):
+        for index, name in enumerate(_registered_workloads(), start=1):
             _write_results(directory / f"{name}.json", {name: index * 100.0 * multiplier})
     benchmark_canary.write_manifest(
         path / "manifest.json",
@@ -104,35 +101,6 @@ def _write_fork_evidence(path: Path) -> Path:
         compiler="Example compiler",
     )
     return path
-
-
-def test_canary_filter_selects_one_large_case_per_phase_workload(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    monkeypatch.setattr(sys, "argv", ["benchmark_canary.py", "filter"])
-    benchmark_canary.main()
-    pattern = capsys.readouterr().out.strip()
-    selected = set(_selected_workloads(pattern))
-
-    assert selected == benchmark_canary.DISPLAY_NAMES.keys()
-    assert {name for name in selected if name.startswith("phase_")} == {
-        "phase_measurement_barriers_4096",
-        "phase_clifford_regions_4096",
-        "phase_rank_limited_region_32000",
-    }
-    assert re.search(pattern, "phase_rank_limited_region_32000")
-    for name in (
-        "phase_measurement_barriers_256",
-        "phase_measurement_barriers_1024",
-        "phase_clifford_regions_256",
-        "phase_clifford_regions_1024",
-        "phase_rank_limited_region_2000",
-        "phase_rank_limited_region_4096",
-        "phase_rank_limited_region_16384",
-        "phase_rank_limited_region_320000",
-        "prefix_phase_rank_limited_region_32000",
-    ):
-        assert not re.search(pattern, name)
 
 
 def test_report_classifies_paired_changes(tmp_path: Path) -> None:
@@ -399,7 +367,7 @@ def test_fork_report_validates_evidence_and_uses_base_workloads(
         run_url="https://github.example/run/456",
     )
 
-    workload_count = len(benchmark_canary.DISPLAY_NAMES)
+    workload_count = len(_registered_workloads())
     assert (
         f"**Possible regression detected:** {workload_count} of {workload_count} "
         "benchmarks were at least 10% slower." in report
@@ -459,11 +427,41 @@ def test_fork_report_rejects_base_revision_not_bound_to_artifact(tmp_path: Path)
         )
 
 
-def test_fork_report_rejects_unexpected_workload_files(tmp_path: Path) -> None:
+def test_fork_report_accepts_workloads_independent_of_display_labels(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     evidence = _write_fork_evidence(tmp_path / "evidence")
-    _write_results(evidence / "base-first" / "invented.json", {"invented": 100.0})
+    for leg in ("base-first", "head-first", "head-second", "base-second"):
+        _write_results(evidence / leg / "new_workload.json", {"new_workload": 100.0})
+    monkeypatch.setattr(
+        benchmark_canary, "DISPLAY_NAMES", {"only_in_newer_main": "A newer workload"}
+    )
 
-    with pytest.raises(ValueError, match="unexpected file set"):
+    report = benchmark_canary.render_fork_report(
+        evidence,
+        expected_repository=REPOSITORY,
+        expected_pr_number=123,
+        expected_base_label="main",
+        expected_base_sha=BASE_SHA,
+        expected_head_repository=HEAD_REPOSITORY,
+        expected_head_sha=HEAD_SHA,
+        expected_run_id=456,
+        run_url="https://github.example/run/456",
+    )
+
+    assert "| new_workload | 100 ns | 100 ns | +0.0% | No material change |" in report
+    assert "A newer workload" not in report
+
+
+@pytest.mark.parametrize("legs", [("base-first",), ("base-first", "base-second")])
+def test_fork_report_rejects_inconsistent_workload_sets(
+    tmp_path: Path, legs: tuple[str, ...]
+) -> None:
+    evidence = _write_fork_evidence(tmp_path / "evidence")
+    for leg in legs:
+        _write_results(evidence / leg / "new_workload.json", {"new_workload": 100.0})
+
+    with pytest.raises(ValueError, match="different (benchmarks|workloads)"):
         benchmark_canary.render_fork_report(
             evidence,
             expected_repository=REPOSITORY,
@@ -475,6 +473,50 @@ def test_fork_report_rejects_unexpected_workload_files(tmp_path: Path) -> None:
             expected_run_id=456,
             run_url="https://github.example/run/456",
         )
+
+
+@pytest.mark.parametrize(
+    ("filename", "name", "error"),
+    [
+        ("bad-name.json", "bad-name", "invalid filename"),
+        ("notes.txt", "new_workload", "invalid filename"),
+        ("new_workload.json", "another_workload", "does not match its filename"),
+        ("new_workload.json", "[link](https://example.invalid)", "does not match its filename"),
+    ],
+)
+def test_fork_results_reject_malformed_workload_names(
+    tmp_path: Path, filename: str, name: str, error: str
+) -> None:
+    _write_results(tmp_path / filename, {name: 100.0})
+
+    with pytest.raises(ValueError, match=error):
+        benchmark_canary._validate_fork_results(tmp_path, 3)
+
+
+@pytest.mark.parametrize("count", [0, benchmark_canary.MAX_BENCHMARK_FILES + 1])
+def test_fork_results_reject_invalid_file_counts(tmp_path: Path, count: int) -> None:
+    for index in range(count):
+        (tmp_path / f"workload_{index}.json").write_text("{}")
+
+    with pytest.raises(ValueError, match="invalid file count"):
+        benchmark_canary._validate_fork_results(tmp_path, 3)
+
+
+def test_fork_results_reject_multiple_workloads_in_one_file(tmp_path: Path) -> None:
+    _write_results(tmp_path / "one.json", {"one": 100.0, "two": 200.0})
+
+    with pytest.raises(ValueError, match="does not match its filename"):
+        benchmark_canary._validate_fork_results(tmp_path, 3)
+
+
+def test_fork_results_reject_incomplete_repetitions(tmp_path: Path) -> None:
+    path = _write_results(tmp_path / "one.json", {"one": 100.0})
+    payload = json.loads(path.read_text())
+    payload["benchmarks"].pop(0)
+    path.write_text(json.dumps(payload))
+
+    with pytest.raises(ValueError, match="unexpected repetition count"):
+        benchmark_canary._validate_fork_results(tmp_path, 3)
 
 
 def test_fork_report_rejects_multiline_environment_text(tmp_path: Path) -> None:

@@ -26,10 +26,11 @@ CANARY_MIN_TIME = 0.5
 CANARY_WARMUP_TIME = 0.2
 MAX_MANIFEST_BYTES = 16 * 1024
 MAX_RESULT_BYTES = 1024 * 1024
+MAX_BENCHMARK_FILES = 100
 MAX_BENCHMARK_ROWS = 100
 BENCHMARK_SOURCE = Path(__file__).resolve().parents[2] / "benchmarks" / "clifft_benchmarks.cc"
 
-# The producer filter and trusted fork validation share this workload contract.
+# Optional labels; benchmark registration determines which workloads run.
 DISPLAY_NAMES = {
     "squeeze_parallel_t_8192": "Squeeze 8192 T gates",
     "phase_measurement_barriers_4096": "Phase pass, 4,096 measurement barriers",
@@ -56,10 +57,6 @@ TIME_UNIT_TO_NS = {
     "ms": 1e6,
     "s": 1e9,
 }
-
-
-def benchmark_filter() -> str:
-    return "^(" + "|".join(re.escape(name) for name in DISPLAY_NAMES) + ")$"
 
 
 @dataclass(frozen=True)
@@ -608,25 +605,23 @@ def _load_fork_manifest(
 
 
 def _validate_fork_results(path: Path, repetitions: int) -> None:
-    expected_names = set(DISPLAY_NAMES)
-    expected_files = {f"{name}.json" for name in expected_names}
     if path.is_symlink() or not path.is_dir():
         raise ValueError(f"benchmark evidence directory is missing: {path.name}")
     entries = list(path.iterdir())
-    if {entry.name for entry in entries} != expected_files:
-        raise ValueError(f"benchmark evidence has an unexpected file set: {path.name}")
+    if not 1 <= len(entries) <= MAX_BENCHMARK_FILES:
+        raise ValueError(f"benchmark evidence has an invalid file count: {path.name}")
     for result_path in entries:
+        if not re.fullmatch(r"[a-z0-9_]+\.json", result_path.name):
+            raise ValueError(f"benchmark evidence has an invalid filename: {result_path.name}")
         if result_path.is_symlink() or not result_path.is_file():
             raise ValueError(f"benchmark evidence is not a regular file: {result_path.name}")
         if result_path.stat().st_size > MAX_RESULT_BYTES:
             raise ValueError(f"benchmark evidence is too large: {result_path.name}")
-
-    estimates = parse_google_benchmarks(path)
-    if set(estimates) != expected_names:
-        raise ValueError(f"benchmark evidence has an unexpected workload set: {path.name}")
-    for name, estimate in estimates.items():
-        if estimate.sample_count != repetitions:
-            raise ValueError(f"benchmark {name!r} has an unexpected repetition count")
+        estimates = parse_google_benchmarks(result_path)
+        if set(estimates) != {result_path.stem}:
+            raise ValueError(f"benchmark name does not match its filename: {result_path.name}")
+        if estimates[result_path.stem].sample_count != repetitions:
+            raise ValueError(f"benchmark {result_path.stem!r} has an unexpected repetition count")
 
 
 def render_fork_report(
@@ -661,7 +656,7 @@ def render_fork_report(
         _validate_fork_results(result_directory, CANARY_REPETITIONS)
     comparisons, added, removed = compare_runs(*result_directories)
     if added or removed:
-        raise ValueError("fork benchmark evidence changed the trusted workload set")
+        raise ValueError("fork benchmark runs contain different workloads")
     return render_report(
         comparisons,
         base_label=expected_base_label,
@@ -698,7 +693,6 @@ def _add_common_arguments(parser: argparse.ArgumentParser) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
-    subparsers.add_parser("filter", help="Print the Google Benchmark filter for canary workloads")
 
     failure_parser = subparsers.add_parser("failure")
     _add_common_arguments(failure_parser)
@@ -746,9 +740,7 @@ def main() -> None:
     fork_report_parser.add_argument("--run-id", type=int, required=True)
     args = parser.parse_args()
 
-    if args.command == "filter":
-        print(benchmark_filter())
-    elif args.command == "failure":
+    if args.command == "failure":
         content = render_failure(
             base_label=args.base_label,
             base_sha=args.base_sha,
