@@ -1,9 +1,15 @@
 # Merlin BT81 code switching, noiseless with direct logical X readout.
-# Generator: https://github.com/mark-koch/merlin
+# Generator: https://github.com/mark-koch/merlin-sim
+# Authors: Serban Cercelescu, Mark Koch, and Arthur Pesah.
+# Paper: https://arxiv.org/abs/2610.06811
+# SPDX-License-Identifier: Apache-2.0
+# License text: ../../LICENSE.
+# Upstream license: https://github.com/mark-koch/merlin-sim/blob/01b8f34e94d3cf92d5a5a1d5165c6a586f7cedb5/LICENCE
 # Revision: 097380fac1a3968ca47925146e211fe990f4c396
 # benchmarks/protocols/code_switching.py
 # build_code_switching_case("bt81", p_phys=0, target_scoring=False).circuit
-# Expand RX, M, and MX into one-target instructions in the original order.
+# Clifft modifications: expand RX, M, and MX into one-target instructions
+# in the original order.
 # Append MX for 0, 1, 2, 81, 82, 83, 162, 163, 164 in that order, followed by
 # OBSERVABLE_INCLUDE(i) rec[-(9-i)] for i = 0..8.
 # No postselection or inverse logical scoring gate.

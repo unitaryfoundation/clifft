@@ -152,6 +152,9 @@ Clifft has benefited from the following research and software:
   configurable leakage partner effects.
 - [TOHPE](https://doi.org/10.22331/q-2025-09-16-1860) for T-count reduction in
   the phase-polynomial optimizer.
+- [Merlin](https://arxiv.org/abs/2610.06811) for code-switching benchmark circuits
+  and the affine-support, cubic-phase viewpoint that motivated extending static
+  optimization to measured preparations and complete phase regions.
 - [Pauli Frame Sparse Representation](https://arxiv.org/abs/2603.14670) for
   the importance-sampling approach used in cultivation analysis.
 - [Magic-state cultivation](https://github.com/Strilanc/magic-state-cultivation)

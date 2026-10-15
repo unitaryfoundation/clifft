@@ -1,8 +1,14 @@
 # Merlin BT27 code switching, noiseless and without inverse target scoring.
-# Generator: https://github.com/mark-koch/merlin
+# Generator: https://github.com/mark-koch/merlin-sim
+# Authors: Serban Cercelescu, Mark Koch, and Arthur Pesah.
+# Paper: https://arxiv.org/abs/2610.06811
+# SPDX-License-Identifier: Apache-2.0
+# License text: ../../LICENSE.
+# Upstream license: https://github.com/mark-koch/merlin-sim/blob/01b8f34e94d3cf92d5a5a1d5165c6a586f7cedb5/LICENCE
 # Revision: 097380fac1a3968ca47925146e211fe990f4c396
 # benchmarks/protocols/code_switching.py
 # build_code_switching_case("bt27", p_phys=0, target_scoring=False).circuit
+# Generated circuit unchanged; attribution header added by Clifft.
 RX 0 1 2 3 4 5 6 7 8 9 10 27 28 29 30 31 32 33 34 35 36 37 54 55 56 57 58 59 60 61 62 63 64 81 82 83 84 85 86 87 88 89 90 99 100 101 102 103 104 105 106 107 108 117 118 119 120 121 122 123 124 125 126
 CX 26 25
 CX 26 24

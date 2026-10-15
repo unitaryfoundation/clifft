@@ -84,17 +84,33 @@ extraction, and Clifford correction.
 
 ## Merlin
 
-Merlin's code-switching generator supplied the pinned BT27 fixture used to
-validate measurement-feedback constraint recovery and bounded phase-region
-expansion. Its BT81 generator also supplies the direct-X fixture used to validate
-87-variable phase collection, basis selection, and measurement-aware squeezing.
-Clifft reuses these benchmark circuits;
-the static optimizer does not implement Merlin's per-history specialization.
+Serban Cercelescu, Mark Koch, and Arthur Pesah's Merlin paper and simulator
+motivated extending Clifft's existing phase-polynomial optimization to measured
+code-switching preparations. Their description of states using affine support
+and cubic phase polynomials informed the investigation of fixed constraints
+recovered after measurement and feedback, and of cancellations visible only
+across complete phase regions. This motivated the bounded region expansion and
+basis-selection work in Clifft's static optimizer. Clifft uses its own Pauli
+constraint analysis and TOHPE synthesis; this pass does not implement Merlin's
+DCP simulator or per-history specialization.
+
+Clifft also directly reuses circuits from Merlin's code-switching generator.
+The BT27 fixture validates measurement-feedback constraint recovery and bounded
+phase-region expansion. The modified direct-X BT81 fixture validates 87-variable
+phase collection, basis selection, and measurement-aware squeezing.
 The [BT27](https://github.com/unitaryfoundation/clifft/blob/main/tests/fixtures/merlin_bt27.stim)
 and [BT81](https://github.com/unitaryfoundation/clifft/blob/main/tests/fixtures/merlin_bt81_direct_x.stim)
-fixture headers record the generator revision and construction recipes.
+fixture headers record the pinned generator revision, construction recipes,
+and modifications. These generated circuits are included under Apache-2.0;
+the headers also pin Merlin's upstream license revision.
 
-- [Merlin code-switching generator at the pinned revision](https://github.com/mark-koch/merlin/blob/097380fac1a3968ca47925146e211fe990f4c396/benchmarks/protocols/code_switching.py).
+- Serban Cercelescu, Mark Koch, and Arthur Pesah,
+  ["Polynomial-time simulation of non-Clifford quantum error correction"](https://arxiv.org/abs/2610.06811)
+  (2026), especially Sections II-III on affine-support phase-polynomial states
+  and their evolution, and Section VI on quantum error correction.
+- [Merlin source](https://github.com/mark-koch/merlin-sim),
+  [code-switching generator at the pinned revision](https://github.com/mark-koch/merlin-sim/blob/097380fac1a3968ca47925146e211fe990f4c396/benchmarks/protocols/code_switching.py),
+  and [Apache-2.0 license](https://github.com/mark-koch/merlin-sim/blob/01b8f34e94d3cf92d5a5a1d5165c6a586f7cedb5/LICENCE).
 
 ## Triorthogonal circuits
 

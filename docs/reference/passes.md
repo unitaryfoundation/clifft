@@ -91,6 +91,12 @@ constraint rewrites, omit both passes from a custom `HirPassManager`, or use
 `hir_passes=None` to disable all HIR optimization. Equivalent plans preserve
 output distributions but do not guarantee historical fixed-seed samples.
 
+Merlin's [phase-polynomial treatment of measured QEC circuits](https://arxiv.org/abs/2610.06811)
+motivated this investigation of fixed constraints and complete phase regions.
+See the [Merlin acknowledgment](../acknowledgments.md#merlin) for the distinction
+between that design influence, reused benchmark circuits, and Clifft's static
+implementation.
+
 ---
 
 ## HIR Passes
