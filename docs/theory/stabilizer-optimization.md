@@ -1,13 +1,66 @@
-# Stabilizer-Based Optimization
+# Optimization for Simulation
+
+Clifft compiles a circuit once so that repeated sampling does less work. Its
+default optimization passes rewrite the simulator's internal representation
+while preserving joint measurement-record distributions. Extra compilation
+effort can therefore pay off over many shots.
+
+## Cost Model
+
+Clifft stores non-Clifford interference in a dense array of $2^k$ amplitudes,
+where **active width** $k$ counts active stabilizer coordinates, not physical
+qubits. Clifford structure stays outside this array; measurements can shrink it.
+See the [state factorization](overview.md#symbolic-clifford-coordinates) for
+the underlying representation.
+
+Peak width sets the exponential coefficient-storage cost, $O(2^{k_{\max}})$.
+Sampling work also depends on how many operations process a large active array.
+A useful structural estimate is
+
+$$
+W = \sum_{a \in \mathcal{A}_{\mathrm{dense}}} 2^{k(a)},
+$$
+
+where $\mathcal{A}_{\mathrm{dense}}$ contains operations that process the dense
+state, and $k(a)$ is the width of the array they process. This is a cost proxy;
+actual runtime also depends on kernels, memory traffic, and classical work.
+
+![Active-width curves for a three-qubit circuit. Fusion removes an operation at width two, reducing estimated work from 16 to 12. Squeezing reduces peak width from two to one and estimated work to 8.](../assets/theory/optimization-profile-light.svg#only-light)
+![Active-width curves for a three-qubit circuit. Fusion removes an operation at width two, reducing estimated work from 16 to 12. Squeezing reduces peak width from two to one and estimated work to 8.](../assets/theory/optimization-profile-dark.svg#only-dark)
+
+Starting from $|000\rangle$, two $X_0X_1$ rotations fuse across a commuting
+$X_1X_2$ rotation. This removes work without changing peak width. Moving the
+commuting $Z_1Z_2$ measurement before the $X_1X_2$ rotation then reduces the
+peak. The curves use operation order within each rewritten circuit; they are
+not timing measurements. Here rotations process the width after the operation,
+and active measurements process the width before collapse.
+
+## What the Passes Do
+
+| Pass family | How it reduces simulation cost |
+|---|---|
+| Peephole fusion | Combine or cancel compatible rotations and remove phases consumed by measurements. |
+| Phase-polynomial and rotation simplification | Use algebra and known state constraints to remove non-Clifford work. |
+| Statevector squeezing | Move measurements earlier and expanding rotations later where dependencies allow, shortening active lifetimes. |
+| Active-width scheduling (opt-in) | Search legal operation orders, preferring lower peak width, then lower estimated dense work. |
+
+These HIR rewrites run after Clifford tracing and before active-coordinate
+planning. They complement the planner's coordinate choices and the executable
+builder's kernel fusion; see [Software Architecture](architecture.md).
+The [pass reference](../reference/passes.md) lists defaults, configuration,
+search budgets, and restrictions for continuation-based sampling. Larger
+search budgets trade compilation time for opportunities to reduce sampling
+cost, without guaranteeing an optimal result.
+
+## Stabilizer-Based Simplification
 
 Clifft can simplify rotations using stabilizer constraints on the states that
 reach them. Measurement and feedback can restore these constraints after
 non-Clifford gates have removed them. `PhasePolynomialPass` and
 `RotationSimplificationPass` use this information during HIR optimization,
-before sampling plans are built. Their rewrites apply to every shot and preserve
-joint measurement-record distributions.
+before sampling plans are built. Their rewrites apply to every shot.
 
-## Recovering Fixed Constraints
+### Recovering Fixed Constraints
 
 `SymbolicStabilizers` tracks Pauli operators whose eigenvalues are known either
 as fixed signs or as expressions in measurement outcomes. Each sign is
@@ -26,7 +79,7 @@ has eigenvalue `+1`. The analysis finds such combinations by eliminating the
 Boolean symbols while preserving Pauli multiplication phases. It exposes the
 result through `KnownStabilizers`, which stores only fixed-sign constraints.
 
-## Simplifying Rotations
+### Simplifying Rotations
 
 Fixed constraints can identify rotation axes with the same action on the
 reachable states. The rotation-simplification pass uses these relations to
@@ -54,7 +107,7 @@ Clifft uses its own static constraint analysis and
 [Merlin acknowledgment](../acknowledgments.md#merlin) for the design influence
 and reused validation circuits.
 
-## Conservative Analysis and Bounded Search
+### Conservative Analysis and Bounded Search
 
 Constraints must hold for every trajectory and the noiseless reference used
 for syndrome normalization. For Pauli noise, the analysis retains only

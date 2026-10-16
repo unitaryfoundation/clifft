@@ -80,7 +80,7 @@ for how continuations are compiled and resumed.
 stabilizer constraints through measurement and feedback, including after earlier
 non-Clifford work. Constraints must hold for every trajectory and the noiseless
 reference; postselection supplies no additional constraints. See
-[Stabilizer-Based Optimization](../theory/stabilizer-optimization.md) for the
+[Optimization for Simulation](../theory/stabilizer-optimization.md) for the
 analysis and reduction principles.
 
 These are static rewrites shared by all shots. Unresolved affine signs do not

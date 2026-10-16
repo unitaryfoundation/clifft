@@ -52,7 +52,7 @@ The phase-polynomial and rotation-simplification passes recover stabilizer
 constraints through measurement and feedback, then use only fixed-sign
 constraints to justify static rewrites shared by all shots. This analysis stays
 local to compilation; it adds no conditional execution or runtime analysis.
-See [Stabilizer-Based Optimization](stabilizer-optimization.md) for the principles
+See [Optimization for Simulation](stabilizer-optimization.md) for the principles
 and [Optimization Passes](../reference/passes.md) for configuration and limits.
 
 ### Semantic Planning

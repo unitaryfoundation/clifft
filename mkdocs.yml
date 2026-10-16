@@ -126,7 +126,7 @@ nav:
   - Theory:
     - Overview: theory/overview.md
     - Architecture: theory/architecture.md
-    - Stabilizer-Based Optimization: theory/stabilizer-optimization.md
+    - Optimization for Simulation: theory/stabilizer-optimization.md
     - Basis-State Probabilities: theory/basis_probabilities.md
     - Noncomputational States: theory/noncomputational.md
   - Reference:
