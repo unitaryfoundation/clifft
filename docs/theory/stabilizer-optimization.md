@@ -25,17 +25,39 @@ where $\mathcal{A}_{\mathrm{dense}}$ contains operations that process the dense
 state, and $k(a)$ is the width of the array they process. This is a cost proxy;
 actual runtime also depends on kernels, memory traffic, and classical work.
 
+Clifft reduces this cost by finding equivalent circuits that require less
+simulation work. For example, consider this three-qubit circuit, starting from
+$|000\rangle$. In Clifft's Stim-like syntax, rotation angles are in half-turns:
+
+```text
+R_XX(0.125) 0 1
+R_XX(0.25) 1 2
+R_XX(0.125) 0 1
+MPP Z1*Z2 Z2
+```
+
+[Open this circuit in the explorer]({{ playground_url }}?code=EofQGmAUAMB0CMAmArASgATXfAUKCMsKG86ie4UcSam2OAsgApPoBa8AVG4u%2BUA).
+To reproduce the stages below, use **Passes** to disable all passes, enable
+only `PeepholeFusionPass`, then also enable `StatevectorSqueezePass`.
+
 ![Active-width curves for a three-qubit circuit. Fusion removes an operation at width two, reducing estimated work from 16 to 12. Squeezing reduces peak width from two to one and estimated work to 8.](../assets/theory/optimization-profile-light.svg#only-light)
 ![Active-width curves for a three-qubit circuit. Fusion removes an operation at width two, reducing estimated work from 16 to 12. Squeezing reduces peak width from two to one and estimated work to 8.](../assets/theory/optimization-profile-dark.svg#only-dark)
 
-Starting from $|000\rangle$, two $X_0X_1$ rotations fuse across a commuting
-$X_1X_2$ rotation. This removes work without changing peak width. Moving the
-commuting $Z_1Z_2$ measurement before the $X_1X_2$ rotation then reduces the
-peak. The curves use operation order within each rewritten circuit; they are
-not timing measurements. Here rotations process the width after the operation,
+All three rotations use only $X$ axes, so they commute. The first and third
+therefore fuse into one `R_XX(0.25) 0 1`, removing work without changing peak
+width. The $Z_1Z_2$ measurement also commutes with the $X_1X_2$ rotation:
+the anticommutation signs on qubits 1 and 2 cancel. Moving this measurement
+before that rotation then reduces the peak.
+
+The curves use operation order within each rewritten circuit; they are not
+timing measurements. Here rotations process the width after the operation,
 and active measurements process the width before collapse.
 
 ## What the Passes Do
+
+In practice, Clifft works like a compiler: a sequence of passes rewrites the
+circuit to reduce simulation cost, with each pass targeting different
+opportunities.
 
 | Pass family | How it reduces simulation cost |
 |---|---|
@@ -54,9 +76,11 @@ cost, without guaranteeing an optimal result.
 
 ## Stabilizer-Based Simplification
 
-Clifft can simplify rotations using stabilizer constraints on the states that
-reach them. Measurement and feedback can restore these constraints after
-non-Clifford gates have removed them. `PhasePolynomialPass` and
+Starting from the circuit's known all-zero input state, Clifft tracks which
+stabilizer constraints hold across all trajectories. These constraints let it
+replace rotations with simpler operations that have the same action on the
+reachable states. Measurement and feedback can restore useful constraints
+after non-Clifford gates have removed them. `PhasePolynomialPass` and
 `RotationSimplificationPass` use this information during HIR optimization,
 before sampling plans are built. Their rewrites apply to every shot.
 
