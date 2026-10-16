@@ -19,7 +19,6 @@
 #include "clifft/noncomp/interaction.h"
 #include "clifft/noncomp/rewriter.h"
 #include "clifft/noncomp/status_walk.h"
-#include "clifft/noncomp/transition_hooks.h"
 #include "clifft/noncomp/transition_instrument.h"
 #include "clifft/optimizer/hir_pass_manager.h"
 #include "clifft/optimizer/pass_registry.h"
@@ -40,7 +39,6 @@
 #include <span>
 #include <stdexcept>
 #include <string>
-#include <unordered_set>
 #include <vector>
 
 namespace clifft {
@@ -75,70 +73,20 @@ struct AnnotationChannel {
 };
 
 [[nodiscard]] AnnotationChannel resolve_annotation(const AstNode& node,
-                                                   const NonComputationalModel& model,
-                                                   uint32_t op_index) {
+                                                   const NonComputationalModel& model) {
     if (node.gate == GateType::LEAKAGE_INTERACTION) {
         return AnnotationChannel::for_leakage(
             interaction_arguments(node.gate, node.args).spread_probability);
     }
     if (is_inline_noncomputational_annotation(node.gate)) {
-        const double p = inline_transition_probability(node.gate, node.args, op_index,
-                                                       "sample_noncomputational");
-        return node.gate == GateType::LEAKAGE ? AnnotationChannel::for_leakage(p)
-                                              : AnnotationChannel::for_loss(p);
+        assert(node.args.size() == 1 && "preparation validates inline transition arguments");
+        return node.gate == GateType::LEAKAGE ? AnnotationChannel::for_leakage(node.args[0])
+                                              : AnnotationChannel::for_loss(node.args[0]);
     }
-    if (node.gate != GateType::LEVEL_TRANSITION) {
-        throw std::invalid_argument("sample_noncomputational: unsupported annotation '" +
-                                    std::string(gate_name(node.gate)) + "' at op " +
-                                    std::to_string(op_index));
-    }
+    assert(node.gate == GateType::LEVEL_TRANSITION && "preparation validates annotation kinds");
     const TransitionInstrument* instrument = model.transition_named(node.tag);
-    if (instrument == nullptr) {
-        throw std::invalid_argument("sample_noncomputational: LEVEL_TRANSITION[" + node.tag +
-                                    "] at op " + std::to_string(op_index) +
-                                    " does not name a transition in the model");
-    }
+    assert(instrument != nullptr && "preparation resolves named transitions");
     return AnnotationChannel::for_instrument(*instrument);
-}
-
-// Resolving validates the inline arguments or transition name; the remaining
-// checks enforce the target shape expected by the driver and rewriter.
-void validate_annotation(const AstNode& node, const NonComputationalModel& model, uint32_t op_index,
-                         uint32_t num_qubits) {
-    if (is_noncomputational_interaction(node.gate)) {
-        (void)validate_interaction(node, op_index, num_qubits, "sample_noncomputational");
-        return;
-    }
-    if (is_noncomputational_herald(node.gate)) {
-        validate_herald_arguments(node, op_index, "sample_noncomputational");
-    } else {
-        (void)resolve_annotation(node, model, op_index);
-    }
-    if (node.targets.empty()) {
-        throw std::invalid_argument(
-            "sample_noncomputational: annotation '" + std::string(gate_name(node.gate)) +
-            "' at op " + std::to_string(op_index) + " requires at least one qubit target");
-    }
-    std::unordered_set<uint32_t> seen_qubits;
-    for (const Target& target : node.targets) {
-        if (target.is_rec() || target.has_pauli() || target.is_inverted()) {
-            throw std::invalid_argument("sample_noncomputational: annotation '" +
-                                        std::string(gate_name(node.gate)) + "' at op " +
-                                        std::to_string(op_index) + " requires plain qubit targets");
-        }
-        if (target.value() >= num_qubits) {
-            throw std::invalid_argument("sample_noncomputational: annotation '" +
-                                        std::string(gate_name(node.gate)) + "' target qubit " +
-                                        std::to_string(target.value()) + " is out of range at op " +
-                                        std::to_string(op_index));
-        }
-        if (!seen_qubits.insert(target.value()).second) {
-            throw std::invalid_argument("sample_noncomputational: annotation '" +
-                                        std::string(gate_name(node.gate)) +
-                                        "' repeats target qubit " + std::to_string(target.value()) +
-                                        " at op " + std::to_string(op_index));
-        }
-    }
 }
 
 // Draw one qubit's initial level. If floating-point rounding leaves the draw
@@ -265,7 +213,7 @@ void extend_classical_outcomes(const Circuit& annotated, TrajectoryEvents& event
                         }
                         outcome = seen->second;
                     } else {
-                        const AnnotationChannel channel = resolve_annotation(node, model, op_index);
+                        const AnnotationChannel channel = resolve_annotation(node, model);
                         switch (channel.kind) {
                             case AnnotationChannelKind::Instrument: {
                                 const double total = channel.instrument->column_sum(source);
@@ -486,115 +434,14 @@ SamplingCompiledContinuation compile_sampling_continuation(
     };
 }
 
-// Validate the circuit features that require model-wide knowledge. If the
-// model can ever leak or lose a qubit, parity measurements are unsupported and
-// ordinary measurements require a classifier.
-void validate_model_contract(const Circuit& annotated, const NonComputationalModel& model) {
-    // Determine whether the model can ever produce a noncomputational qubit.
-    bool noncomp_capable = false;
-    for (const Level l : kAllLevels) {
-        if (!is_computational(l) && model.initial_probability(l) > 0.0) {
-            noncomp_capable = true;
-            break;
-        }
-    }
-    if (!noncomp_capable) {
-        for (uint32_t i = 0; i < static_cast<uint32_t>(annotated.nodes.size()); ++i) {
-            const AstNode& node = annotated.nodes[i];
-            if (is_inline_noncomputational_annotation(node.gate) && !node.args.empty() &&
-                node.args[0] > 0.0) {
-                noncomp_capable = true;
-                break;
-            }
-            if (node.gate == GateType::LEVEL_TRANSITION) {
-                const TransitionInstrument* instr = model.transition_named(node.tag);
-                if (instr == nullptr) {
-                    // Unresolvable tags were rejected by the annotation
-                    // validation loop that runs before this helper; the
-                    // null check is defensive for direct callers.
-                    continue;
-                }
-                for (const Level src : kAllLevels) {
-                    if (!is_computational(src)) {
-                        continue;
-                    }
-                    for (const Level dst : kAllLevels) {
-                        if (!is_computational(dst) && instr->prob(dst, src) > 0.0) {
-                            noncomp_capable = true;
-                            break;
-                        }
-                    }
-                    if (noncomp_capable) {
-                        break;
-                    }
-                }
-            }
-            if (noncomp_capable) {
-                break;
-            }
-        }
-    }
-
-    if (!noncomp_capable) {
-        return;
-    }
-
-    // A parity measurement has no defined result once an operand leaves the
-    // computational subspace.
-    for (uint32_t i = 0; i < static_cast<uint32_t>(annotated.nodes.size()); ++i) {
-        const AstNode& node = annotated.nodes[i];
-        // MPP has MULTI arity; MXX/MYY/MZZ desugar to MPP at parse time.
-        if (node.gate == GateType::MPP) {
-            throw std::invalid_argument(
-                "sample_noncomputational: parity measurement 'MPP' at op " + std::to_string(i) +
-                " is not supported under a model that can leak or lose qubits;"
-                " expand the parity readout into an explicit ancilla circuit");
-        }
-    }
-
-    // A physical-qubit measurement needs a classifier for any leaked or lost
-    // operand. MPAD and status probes only append classical record bits.
-    if (model.classifier() == nullptr) {
-        for (const AstNode& node : annotated.nodes) {
-            if (is_physical_measurement(node.gate)) {
-                throw std::invalid_argument(
-                    "sample_noncomputational: this model can leak or lose qubits and the circuit"
-                    " measures; a classifier is required to define what a measurement of a leaked"
-                    " or lost qubit reads");
-            }
-        }
-    }
-}
-
-Circuit prepare_trajectory_circuit(const Circuit& circuit, const NonComputationalModel& model) {
-    Circuit annotated = expand_transition_hooks(circuit, model);
-    for (uint32_t op_index = 0; op_index < static_cast<uint32_t>(annotated.nodes.size());
-         ++op_index) {
-        const AstNode& node = annotated.nodes[op_index];
-        if (is_noncomputational_annotation(node.gate)) {
-            validate_annotation(node, model, op_index, annotated.num_qubits);
-        }
-        if (is_measurement(node.gate) && node.gate != GateType::MPP && node.targets.size() != 1) {
-            throw std::invalid_argument(
-                "sample_noncomputational: measurement '" + std::string(gate_name(node.gate)) +
-                "' at op " + std::to_string(op_index) + " carries " +
-                std::to_string(node.targets.size()) + " targets; the parser" +
-                " emits one measurement node per target and the rewrite's" +
-                " record accounting relies on that shape; split the node" +
-                " into single-target measurements");
-        }
-    }
-    validate_model_contract(annotated, model);
-    return annotated;
-}
-
 }  // namespace
 
-NonComputationalSample run_trajectory_driver(const Circuit& circuit,
-                                             const NonComputationalModel& model, uint32_t shots,
-                                             const SeedRoot& root,
-                                             std::optional<uint32_t> max_active_width_cap,
+NonComputationalSample run_trajectory_driver(const PreparedNonComputationalRequest& request,
+                                             uint32_t shots, const SeedRoot& root,
                                              uint32_t threads) {
+    const Circuit& circuit = request.circuit();
+    const NonComputationalModel& model = request.model();
+    const auto max_active_width_cap = request.requirements().max_active_width;
     NonComputationalSample result;
     result.shots = shots;
     result.num_qubits = circuit.num_qubits;
@@ -603,7 +450,7 @@ NonComputationalSample run_trajectory_driver(const Circuit& circuit,
     result.num_observables = circuit.num_observables;
     const MeasurementClassifier* classifier = model.classifier();
     const bool ternary = classifier != nullptr && classifier->has_herald();
-    const Circuit annotated = prepare_trajectory_circuit(circuit, model);
+    const Circuit& annotated = circuit;
     if (shots == 0) {
         return result;
     }
@@ -707,7 +554,7 @@ NonComputationalSample run_trajectory_driver(const Circuit& circuit,
             }
             const auto [op_index, qubit] = continuation->site_targets[site];
             const AstNode& node = annotated.nodes[op_index];
-            const AnnotationChannel channel = resolve_annotation(node, model, op_index);
+            const AnnotationChannel channel = resolve_annotation(node, model);
 
             assert(trap.source <= 1 && "the executor reports a computational source as G or E");
             const Level source = static_cast<Level>(trap.source);
