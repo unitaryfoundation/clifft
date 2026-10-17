@@ -5,6 +5,9 @@
 #include "clifft/optimizer/phase_polynomial_pass.h"
 #include "clifft/optimizer/symbolic_stabilizers.h"
 #include "clifft/optimizer/wide_phase_region.h"
+#include "clifft/sampling/executable_plan.h"
+#include "clifft/sampling/planner.h"
+#include "clifft/sampling/sampler.h"
 
 #include "instrument_test_helpers.h"
 #include "sampling_equivalence_helpers.h"
@@ -687,4 +690,203 @@ TEST_CASE("Wide phase rewrite chains into narrow observer pullback", "[optimizer
     REQUIRE(pass.output_t_count() == 0);
     REQUIRE(hir.num_t_gates() == 0);
     REQUIRE(analyze_active_width(hir).peak_width == 0);
+}
+
+TEST_CASE("Postselected single-record detector recovers stabilizer across upstream noise",
+          "[optimizer]") {
+    const std::string source =
+        "RX 0\n"
+        "R 1 2\n"
+        "CX 0 1 0 2\n"
+        "DEPOLARIZE1(0.15) 0 1 2\n"
+        "T 0 1\n"
+        "T_DAG 1 2\n"
+        "CX 0 1 0 2\n"
+        "MX 0\n"
+        "M 1 2\n"
+        "DETECTOR rec[-2]\n"
+        "DETECTOR rec[-1]\n"
+        "OBSERVABLE_INCLUDE(0) rec[-3]\n";
+
+    auto unpostselected = trace(parse(source));
+    PhasePolynomialPass pass_unpostselected;
+    pass_unpostselected.run(unpostselected);
+    REQUIRE(pass_unpostselected.output_t_count() > 0);
+
+    auto postselected = trace(parse(source));
+    postselected.postselection_mask = {1, 1};
+    postselected.expected_detectors = {0, 0};
+    PhasePolynomialPass pass_postselected;
+    pass_postselected.run(postselected);
+    REQUIRE(pass_postselected.applied());
+    REQUIRE(pass_postselected.output_t_count() == 0);
+    REQUIRE(postselected.num_t_gates() == 0);
+    REQUIRE(analyze_active_width(postselected).peak_width == 0);
+
+    const std::vector<uint8_t> mask = {1, 1};
+    const std::vector<uint8_t> expected = {0, 0};
+    const sampling::ExecutablePlan opt_plan(
+        sampling::plan_sampling(postselected, {mask, expected, {}}));
+    const sampling::ExecutablePlan ref_plan(
+        sampling::plan_sampling(trace(parse(source)), {mask, expected, {}}));
+    REQUIRE(opt_plan.peak_active_width() == 0);
+    REQUIRE(ref_plan.peak_active_width() == 1);
+
+    const auto opt_res = sampling::sample_survivors(opt_plan, 8192, uint64_t{4242});
+    const auto ref_res = sampling::sample_survivors(ref_plan, 8192, uint64_t{4242});
+    REQUIRE(opt_res.passed_shots == ref_res.passed_shots);
+    REQUIRE(opt_res.logical_errors == ref_res.logical_errors);
+}
+
+TEST_CASE("Postselected detector respects expected parity and rejects noisy readout or barriers",
+          "[optimizer]") {
+    SECTION("Expected parity one flips recovered constraint sign") {
+        // Under Z0*Z1 = -1, Z1 = -Z0 on surviving shots, so T(Z0) and T(Z1) = T(-Z0) = T_dag(Z0)
+        // cancel.
+        const std::string source =
+            "RX 0\n"
+            "R 1\n"
+            "X 1\n"
+            "CX 0 1\n"
+            "DEPOLARIZE1(0.1) 0 1\n"
+            "T 0 1\n"
+            "CX 0 1\n"
+            "MX 0\n"
+            "M 1\n"
+            "DETECTOR rec[-1]\n";
+        auto hir = trace(parse(source));
+        hir.postselection_mask = {1};
+        hir.expected_detectors = {1};
+        PhasePolynomialPass pass;
+        pass.run(hir);
+        REQUIRE(pass.applied());
+        REQUIRE(pass.output_t_count() == 0);
+        REQUIRE(analyze_active_width(hir).peak_width == 0);
+    }
+
+    SECTION("Readout noise prevents postselected constraint inference") {
+        const std::string source =
+            "RX 0\n"
+            "R 1\n"
+            "CX 0 1\n"
+            "DEPOLARIZE1(0.1) 0 1\n"
+            "T 0\n"
+            "T_DAG 1\n"
+            "CX 0 1\n"
+            "MX 0\n"
+            "M(0.05) 1\n"
+            "DETECTOR rec[-1]\n";
+        auto hir = trace(parse(source));
+        hir.postselection_mask = {1};
+        hir.expected_detectors = {0};
+        PhasePolynomialPass pass;
+        pass.run(hir);
+        REQUIRE(!pass.applied());
+        REQUIRE(pass.output_t_count() == 2);
+    }
+
+    SECTION("Anticommuting intermediate operation prevents postselected constraint inference") {
+        const std::string source =
+            "RX 0\n"
+            "R 1\n"
+            "CX 0 1\n"
+            "DEPOLARIZE1(0.1) 0 1\n"
+            "T 0\n"
+            "T_DAG 1\n"
+            "CX 0 1\n"
+            "X_ERROR(0.05) 1\n"
+            "MX 0\n"
+            "M 1\n"
+            "DETECTOR rec[-1]\n";
+        auto hir = trace(parse(source));
+        hir.postselection_mask = {1};
+        hir.expected_detectors = {0};
+        PhasePolynomialPass pass;
+        pass.run(hir);
+        REQUIRE(!pass.applied());
+        REQUIRE(pass.output_t_count() == 2);
+    }
+
+    SECTION("Multi-record detector does not infer single-record constraint") {
+        const std::string source =
+            "RX 0\n"
+            "R 1 2\n"
+            "CX 0 1 0 2\n"
+            "DEPOLARIZE1(0.1) 0 1 2\n"
+            "T 0\n"
+            "T_DAG 1\n"
+            "CX 0 1 0 2\n"
+            "MX 0\n"
+            "M 1 2\n"
+            "DETECTOR rec[-2] rec[-1]\n";
+        auto hir = trace(parse(source));
+        hir.postselection_mask = {1};
+        hir.expected_detectors = {0};
+        PhasePolynomialPass pass;
+        pass.run(hir);
+        REQUIRE(!pass.applied());
+        REQUIRE(pass.output_t_count() == 2);
+    }
+
+    SECTION("Upstream postselected measurement recovers forward stabilizer") {
+        const std::string source =
+            "RX 0\n"
+            "R 1 2\n"
+            "CX 0 1\n"
+            "DEPOLARIZE1(0.1) 0 1\n"
+            "CX 0 2 1 2\n"
+            "M 2\n"
+            "DETECTOR rec[-1]\n"
+            "T 0\n"
+            "T_DAG 1\n"
+            "CX 0 1\n"
+            "MX 0\n";
+        auto unselected = trace(parse(source));
+        PhasePolynomialPass pass_unselected;
+        pass_unselected.run(unselected);
+        REQUIRE(!pass_unselected.applied());
+        REQUIRE(pass_unselected.output_t_count() == 2);
+
+        auto selected = trace(parse(source));
+        selected.postselection_mask = {1};
+        selected.expected_detectors = {0};
+        PhasePolynomialPass pass_selected;
+        pass_selected.run(selected);
+        REQUIRE(pass_selected.applied());
+        REQUIRE(pass_selected.output_t_count() == 0);
+        REQUIRE(analyze_active_width(selected).peak_width == 0);
+    }
+
+    SECTION("Difference detector unit propagation recovers second-round constraint") {
+        const std::string source =
+            "RX 0\n"
+            "R 1 2\n"
+            "CX 0 1\n"
+            "M 1\n"
+            "DETECTOR rec[-1]\n"
+            "DEPOLARIZE1(0.1) 0 1 2\n"
+            "CX 0 2\n"
+            "T 0\n"
+            "T_DAG 2\n"
+            "CX 0 2\n"
+            "MX 0\n"
+            "M 2\n"
+            "DETECTOR rec[-3] rec[-1]\n";
+        auto partial = trace(parse(source));
+        partial.postselection_mask = {0, 1};
+        partial.expected_detectors = {0, 0};
+        PhasePolynomialPass pass_partial;
+        pass_partial.run(partial);
+        REQUIRE(!pass_partial.applied());
+        REQUIRE(pass_partial.output_t_count() == 2);
+
+        auto both = trace(parse(source));
+        both.postselection_mask = {1, 1};
+        both.expected_detectors = {0, 0};
+        PhasePolynomialPass pass_both;
+        pass_both.run(both);
+        REQUIRE(pass_both.applied());
+        REQUIRE(pass_both.output_t_count() == 0);
+        REQUIRE(analyze_active_width(both).peak_width == 0);
+    }
 }

@@ -78,9 +78,11 @@ for how continuations are compiled and resumed.
 
 `PhasePolynomialPass` and `RotationSimplificationPass` recover fixed-sign
 stabilizer constraints through measurement and feedback, including after earlier
-non-Clifford work. Constraints must hold for every trajectory and the noiseless
-reference; postselection supplies no additional constraints. See
-[Optimization for Simulation](../theory/stabilizer-optimization.md) for the
+non-Clifford work. Constraints in `SymbolicStabilizers` must hold for every
+trajectory and the noiseless reference; `PhasePolynomialPass` can additionally
+recover region-entry constraints from postselected single-record detectors
+without readout noise when their measurements commute back to the region entry.
+See [Optimization for Simulation](../theory/stabilizer-optimization.md) for the
 analysis and reduction principles.
 
 These are static rewrites shared by all shots. Unresolved affine signs do not
@@ -111,11 +113,14 @@ Pauli measurements, expectation-value probes and classically controlled Pauli
 gates can move before a phase prefix only when their conjugated axes remain
 Paulis and all required constraints survive. Pauli noise can cross only when
 its nonzero-probability channels commute with that prefix and preserve those
-constraints. These must hold on every trajectory and the noiseless reference,
-so even probability-one noise discards affected constraints. Instruments clear
-all constraints; postselection supplies none. Use this pass only on complete
-circuits with an all-zero input; prior scheduling across noise causes it to skip
-the circuit.
+constraints. Without postselection, forward-tracked constraints must hold on
+every trajectory and the noiseless reference, so even probability-one noise
+discards affected constraints. When compiling with postselected detectors,
+noiseless measurements whose outcomes are fixed by postselection (directly or by
+unit propagation across difference detectors) supply forward and commuting
+lookahead constraints for surviving trajectories.
+Instruments clear all constraints. Use this pass only on complete circuits with
+an all-zero input; prior scheduling across noise causes it to skip the circuit.
 
 `max_variables` is a hard ceiling on independent phase variables analyzed
 together (default `64`, range `0` to `128`; zero disables the pass). Circuits
