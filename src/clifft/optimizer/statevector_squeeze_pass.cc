@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <optional>
 #include <vector>
 
 namespace clifft {
@@ -12,6 +13,36 @@ namespace {
 
 bool is_expansion(const HeisenbergOp& op) {
     return op.op_type() == OpType::T_GATE || op.op_type() == OpType::PHASE_ROTATION;
+}
+
+bool is_quantum_observer(OpType type) {
+    return type == OpType::MEASURE || type == OpType::EXP_VAL || type == OpType::INSTRUMENT;
+}
+
+bool is_quantum_or_observer(OpType type) {
+    return type != OpType::DETECTOR && type != OpType::OBSERVABLE && type != OpType::READOUT_NOISE;
+}
+
+bool operation_supports_final_state_queries(OpType type) {
+    return type == OpType::T_GATE || type == OpType::PHASE_ROTATION || type == OpType::EXP_VAL;
+}
+
+bool ends_with_quantum_observer(const HirModule& hir) {
+    bool supports_state_queries = true;
+    std::optional<size_t> last_observer;
+    size_t last_quantum_end = 0;
+    for (size_t i = 0; i < hir.ops.size(); ++i) {
+        const OpType type = hir.ops[i].op_type();
+        supports_state_queries &= operation_supports_final_state_queries(type);
+        if (is_quantum_observer(type)) {
+            last_observer = i;
+        }
+        if (is_quantum_or_observer(type)) {
+            last_quantum_end = i + 1;
+        }
+    }
+    return !supports_state_queries && last_observer.has_value() &&
+           *last_observer + 1 == last_quantum_end;
 }
 
 bool can_bypass_to(const HirModule& hir, size_t moving, size_t target) {
@@ -33,6 +64,7 @@ bool can_bypass_to(const HirModule& hir, size_t moving, size_t target) {
 void StatevectorSqueezePass::run(HirModule& hir) {
     bool has_sm = hir.source_map.size() == hir.ops.size();
     bool has_lnp = hir.has_logical_noise_prefix();
+    const bool can_elide_post_observer = ends_with_quantum_observer(hir);
 
     // EXP_VAL acts as a hard barrier via can_swap(), so neither sweep
     // will move operations across an expectation value probe.
@@ -127,6 +159,37 @@ void StatevectorSqueezePass::run(HirModule& hir) {
             }
             if (i == 0)
                 break;
+        }
+    }
+
+    if (can_elide_post_observer) {
+        size_t last_non_expansion_quantum = 0;
+        for (size_t i = 0; i < hir.ops.size(); ++i) {
+            if (is_quantum_or_observer(hir.ops[i].op_type()) && !is_expansion(hir.ops[i])) {
+                last_non_expansion_quantum = i + 1;
+            }
+        }
+        size_t write = last_non_expansion_quantum;
+        for (size_t read = last_non_expansion_quantum; read < hir.ops.size(); ++read) {
+            if (!is_expansion(hir.ops[read])) {
+                if (write != read) {
+                    hir.ops[write] = hir.ops[read];
+                    if (has_sm) {
+                        hir.source_map[write] = std::move(hir.source_map[read]);
+                    }
+                    if (has_lnp) {
+                        hir.logical_noise_prefix[write] = hir.logical_noise_prefix[read];
+                    }
+                }
+                ++write;
+            }
+        }
+        hir.ops.erase(hir.ops.begin() + static_cast<std::ptrdiff_t>(write), hir.ops.end());
+        if (has_sm) {
+            hir.source_map.resize(write);
+        }
+        if (has_lnp) {
+            hir.logical_noise_prefix.resize(write);
         }
     }
 }

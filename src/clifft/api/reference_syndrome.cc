@@ -1,5 +1,6 @@
 #include "clifft/api/reference_syndrome.h"
 
+#include "clifft/optimizer/pass_factory.h"
 #include "clifft/optimizer/remove_noise_pass.h"
 #include "clifft/sampling/planner.h"
 #include "clifft/sampling/sampler.h"
@@ -9,10 +10,15 @@ namespace clifft {
 ReferenceSyndrome compute_reference_syndrome(const HirModule& hir) {
     ReferenceSyndrome ref;
 
+    const bool had_noise = !hir.noise_sites.empty() || !hir.readout_noise.empty();
+
     // Make a clean copy and strip all noise
     HirModule clean_hir = hir;
     RemoveNoisePass strip;
     strip.run(clean_hir);
+    if (had_noise || clean_hir.num_t_gates() > 0) {
+        default_hir_pass_manager().run(clean_hir);
+    }
 
     // Compile without postselection or expected parities.
     sampling::ExecutablePlan clean_program(sampling::plan_sampling(clean_hir));
