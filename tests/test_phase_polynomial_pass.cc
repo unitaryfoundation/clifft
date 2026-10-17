@@ -673,6 +673,13 @@ TEST_CASE("Phase pass elides synthesized rotations after pulling back final obse
     REQUIRE(hir.ops.size() == 2);
     REQUIRE(hir.ops[0].op_type() == OpType::MEASURE);
     REQUIRE(hir.ops[1].op_type() == OpType::DETECTOR);
+
+    // Unreduced rotations are left intact when phase synthesis makes no reduction.
+    auto unreduced = trace(parse("H 0 1\nT 0 1\nM 0\n"));
+    PhasePolynomialPass unreduced_pass;
+    unreduced_pass.run(unreduced);
+    REQUIRE(!unreduced_pass.applied());
+    REQUIRE(unreduced.num_t_gates() == 2);
 }
 
 TEST_CASE("Wide phase rewrite chains into narrow observer pullback", "[optimizer]") {
