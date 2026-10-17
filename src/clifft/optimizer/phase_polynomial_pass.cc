@@ -136,17 +136,12 @@ class Rewriter {
             if (hir().ops[i].op_type() == OpType::T_GATE) {
                 const KnownStabilizers* postselected = nullptr;
                 const KnownStabilizers& entry = prepare_entry(i, postselected);
-                const uint32_t effective_max_variables =
-                    (max_variables_ >= 64 && wide_budget_.max_updates && wide_budget_.max_terms &&
-                     !known_.postselected_records().empty())
-                        ? std::max(max_variables_, uint32_t{128})
-                        : max_variables_;
-                const auto initial_limit = std::min(effective_max_variables, uint32_t{32});
+                const auto initial_limit = std::min(max_variables_, uint32_t{32});
                 auto block = collect(i, initial_limit, entry, postselected);
-                if (block.capped && initial_limit < effective_max_variables && allow_expansion_) {
+                if (block.capped && initial_limit < max_variables_ && allow_expansion_) {
                     ++expansion_attempts;
-                    auto expanded = collect(i, std::min(effective_max_variables, uint32_t{64}),
-                                            entry, postselected);
+                    auto expanded =
+                        collect(i, std::min(max_variables_, uint32_t{64}), entry, postselected);
                     if (!expanded.capped) {
                         block = std::move(expanded);
                         ++blocks_expanded;
@@ -154,11 +149,11 @@ class Rewriter {
                         // Keep bounded synthesis for an oversized region. A
                         // later split is not evidence that expanding will help.
                         allow_expansion_ = false;
-                        if (effective_max_variables > 64 && !wide_budget_.exhausted &&
+                        if (max_variables_ > 64 && !wide_budget_.exhausted &&
                             wide_budget_.max_updates && wide_budget_.max_terms) {
                             ++wide_attempts;
                             auto wide = phase_detail::wide::try_region(
-                                hir(), i, entry, cliffords_, effective_max_variables, wide_budget_);
+                                hir(), i, entry, cliffords_, max_variables_, wide_budget_);
                             if (wide) {
                                 emit_wide(i, *wide);
                                 ++blocks_examined;
@@ -228,6 +223,12 @@ class Rewriter {
             const HeisenbergOp& op = hir().ops[m];
             if (op.op_type() == OpType::INSTRUMENT) {
                 break;
+            }
+            if (op.op_type() == OpType::EXP_VAL) {
+                if (!commutes_with_prefix(hir(), start, m, hir().mask_view(op))) {
+                    break;
+                }
+                continue;
             }
             if (op.op_type() != OpType::MEASURE) {
                 continue;

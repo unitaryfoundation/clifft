@@ -11,7 +11,7 @@ struct PhasePolynomialOptions {
     // Bounds the cubic phase algebra. Collection starts at min 32 and this cap,
     // trying a complete region up to 64 before an optional multiword attempt.
     // Zero disables the pass. Synthesis retains a 64-variable core limit.
-    uint32_t max_variables = 64;
+    uint32_t max_variables = 128;
     // Shared by all optional attempts in one pass, including both bases.
     size_t max_wide_work = 50000000;
     size_t max_wide_terms = 200000;

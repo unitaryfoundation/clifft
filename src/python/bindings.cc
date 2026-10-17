@@ -872,7 +872,7 @@ NB_MODULE(_clifft_core, m) {
                                                         static_cast<size_t>(max_wide_work),
                                                         static_cast<size_t>(max_wide_terms)});
             },
-            nb::arg("max_variables") = int64_t{64}, nb::kw_only(),
+            nb::arg("max_variables") = int64_t{128}, nb::kw_only(),
             nb::arg("max_wide_work") = int64_t{50000000},
             nb::arg("max_wide_terms") = int64_t{200000})
         .def_prop_ro("wide_attempts", &clifft::PhasePolynomialPass::wide_attempts)
