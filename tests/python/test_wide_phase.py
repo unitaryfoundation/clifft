@@ -106,13 +106,21 @@ def _reference(noise: float, readout: float = 0, rotated: bool = False) -> np.nd
 def test_default_phase_expands_within_one_word(width: int) -> None:
     targets = " ".join(map(str, range(width)))
     hir = clifft.trace(clifft.parse(f"H {targets}\nT {targets}\nT {targets}\n"))
-    phase = clifft.PhasePolynomialPass()
+    phase = clifft.PhasePolynomialPass(max_variables=64)
     manager = clifft.HirPassManager()
     manager.add(phase)
     manager.run(hir)
     assert hir.num_t_gates == (0 if width <= 64 else 2 * width)
     assert phase.wide_attempts == 0
     assert phase.wide_work == 0
+
+    default_hir = clifft.trace(clifft.parse(f"H {targets}\nT {targets}\nT {targets}\n"))
+    default_phase = clifft.PhasePolynomialPass()
+    default_manager = clifft.HirPassManager()
+    default_manager.add(default_phase)
+    default_manager.run(default_hir)
+    assert default_hir.num_t_gates == 0
+    assert bool(default_phase.wide_rewrites) == (width > 64)
 
 
 @pytest.mark.parametrize("width,seed", [(65, 0), (87, 7), (128, 2), (129, 3)])

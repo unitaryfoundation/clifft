@@ -333,14 +333,14 @@ TEST_CASE("Phase expansion respects explicit limits and the representation ceili
         REQUIRE(limited.blocks_capped() > 0);
         REQUIRE(limited.expansion_attempts() == 0);
         REQUIRE(bounded.num_t_gates() == original.num_t_gates());
-        auto default_result = original;
-        PhasePolynomialPass default_pass;
-        default_pass.run(default_result);
-        REQUIRE(default_pass.expansion_attempts() == 1);
-        REQUIRE(default_pass.wide_attempts() == 0);
-        REQUIRE(default_pass.wide_work() == 0);
-        REQUIRE(default_result.num_t_gates() == (width <= 64 ? 0 : 2 * width));
-        PhasePolynomialPass adaptive({128});
+        auto one_word = original;
+        PhasePolynomialPass narrow({64});
+        narrow.run(one_word);
+        REQUIRE(narrow.expansion_attempts() == 1);
+        REQUIRE(narrow.wide_attempts() == 0);
+        REQUIRE(narrow.wide_work() == 0);
+        REQUIRE(one_word.num_t_gates() == (width <= 64 ? 0 : 2 * width));
+        PhasePolynomialPass adaptive;
         adaptive.run(original);
         REQUIRE(adaptive.expansion_attempts() > 0);
         if (width <= 128) {
@@ -366,6 +366,21 @@ TEST_CASE("Phase expansion respects explicit limits and the representation ceili
         REQUIRE(adaptive.expansion_attempts() == 0);
         REQUIRE(adaptive.blocks_expanded() == 0);
     }
+
+    // Explicit max_variables ceilings between 64 and 127 are honored even when
+    // unrelated postselected detectors are present.
+    std::string targets_66;
+    for (uint32_t q = 0; q < 66; ++q) {
+        targets_66 += " " + std::to_string(q);
+    }
+    auto capped_postselected = trace(parse("H" + targets_66 + "\nT" + targets_66 + "\nT" +
+                                           targets_66 + "\nM 66\nDETECTOR rec[-1]\n"));
+    capped_postselected.postselection_mask = {1};
+    capped_postselected.expected_detectors = {0};
+    PhasePolynomialPass pass_65({65});
+    pass_65.run(capped_postselected);
+    REQUIRE(pass_65.wide_rewrites() == 0);
+    REQUIRE(capped_postselected.num_t_gates() == 132);
 }
 
 TEST_CASE("Phase expansion reads pending Clifford corrections only once", "[optimizer]") {
@@ -895,5 +910,43 @@ TEST_CASE("Postselected detector respects expected parity and rejects noisy read
         REQUIRE(pass_both.applied());
         REQUIRE(pass_both.output_t_count() == 0);
         REQUIRE(analyze_active_width(both).peak_width == 0);
+    }
+
+    SECTION("Intervening expectation probe blocks lookahead only when affected by prefix") {
+        const std::string noncommuting_probe =
+            "H 0 1\n"
+            "DEPOLARIZE1(0.05) 1\n"
+            "T 0\n"
+            "CX 1 0\n"
+            "T_DAG 0\n"
+            "CX 1 0\n"
+            "EXP_VAL X0\n"
+            "M 1\n"
+            "DETECTOR rec[-1]\n";
+        auto blocked = trace(parse(noncommuting_probe));
+        blocked.postselection_mask = {1};
+        blocked.expected_detectors = {0};
+        PhasePolynomialPass pass_blocked;
+        pass_blocked.run(blocked);
+        REQUIRE(!pass_blocked.applied());
+        REQUIRE(pass_blocked.output_t_count() == 2);
+
+        const std::string commuting_probe =
+            "H 0 1\n"
+            "DEPOLARIZE1(0.05) 1\n"
+            "T 0\n"
+            "CX 1 0\n"
+            "T_DAG 0\n"
+            "CX 1 0\n"
+            "EXP_VAL Z0\n"
+            "M 1\n"
+            "DETECTOR rec[-1]\n";
+        auto allowed = trace(parse(commuting_probe));
+        allowed.postselection_mask = {1};
+        allowed.expected_detectors = {0};
+        PhasePolynomialPass pass_allowed;
+        pass_allowed.run(allowed);
+        REQUIRE(pass_allowed.applied());
+        REQUIRE(pass_allowed.output_t_count() == 0);
     }
 }
