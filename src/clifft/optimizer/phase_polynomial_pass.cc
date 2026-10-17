@@ -413,7 +413,6 @@ class Rewriter {
         const bool elide_post_observer = (reduced_polynomial || elide_unreduced_post_observer_) &&
                                          final_observer_end_ && block.end >= *final_observer_end_ &&
                                          !block.observers.empty();
-        const size_t output_count = elide_post_observer ? 0 : synthesized_count;
         if (!reduced_polynomial && !elide_post_observer) {
             return false;
         }
@@ -464,7 +463,8 @@ class Rewriter {
                 cliffords_.absorb(axis, static_cast<uint8_t>(clifford));
             }
         }
-        assert(written == output_count);
+        assert(written == (elide_post_observer ? 0 : synthesized_count));
+        static_cast<void>(written);
         ++blocks_reduced;
         pauli_pullbacks += block.observers.size();
         return true;
