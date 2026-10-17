@@ -152,42 +152,59 @@ nb::ndarray<nb::numpy, T, nb::c_contig> vec_to_numpy(std::vector<T> vec,
 }
 
 clifft::HirModule prepare_circuit_for_lowering(const clifft::Circuit& circuit,
+                                               std::span<const uint8_t> postselection_mask,
                                                bool normalize_syndromes,
                                                clifft::HirPassManager* hir_passes,
                                                std::vector<uint8_t>& expected_detectors,
                                                std::vector<uint8_t>& expected_observables) {
-    clifft::HirModule hir = clifft::trace(circuit);
-    if (hir_passes != nullptr) {
-        hir_passes->run(hir);
-    }
-    if (!normalize_syndromes) {
-        return hir;
-    }
-    if (!expected_detectors.empty() || !expected_observables.empty()) {
+    if (normalize_syndromes && (!expected_detectors.empty() || !expected_observables.empty())) {
         throw std::invalid_argument(
             "Cannot provide expected parities when normalize_syndromes=True");
     }
-    auto reference = clifft::compute_reference_syndrome(hir);
-    expected_detectors = std::move(reference.detectors);
-    expected_observables = std::move(reference.observables);
+    clifft::HirModule hir = clifft::trace(circuit);
+    const bool has_postselection =
+        std::ranges::any_of(postselection_mask, [](uint8_t flag) { return flag != 0; });
+    const bool reference_before_passes = normalize_syndromes && has_postselection;
+    if (reference_before_passes) {
+        auto reference = clifft::compute_reference_syndrome(hir);
+        expected_detectors = std::move(reference.detectors);
+        expected_observables = std::move(reference.observables);
+    }
+    if (has_postselection) {
+        hir.postselection_mask.assign(postselection_mask.begin(), postselection_mask.end());
+        hir.expected_detectors = expected_detectors;
+    }
+    if (hir_passes != nullptr) {
+        hir_passes->run(hir);
+    }
+    if (normalize_syndromes && !reference_before_passes) {
+        auto reference = clifft::compute_reference_syndrome(hir);
+        expected_detectors = std::move(reference.detectors);
+        expected_observables = std::move(reference.observables);
+    }
     return hir;
 }
 
-clifft::HirModule prepare_hir_for_lowering(const std::string& stim_text, bool normalize_syndromes,
+clifft::HirModule prepare_hir_for_lowering(const std::string& stim_text,
+                                           std::span<const uint8_t> postselection_mask,
+                                           bool normalize_syndromes,
                                            clifft::HirPassManager* hir_passes,
                                            std::vector<uint8_t>& expected_detectors,
                                            std::vector<uint8_t>& expected_observables) {
-    return prepare_circuit_for_lowering(clifft::parse(stim_text), normalize_syndromes, hir_passes,
-                                        expected_detectors, expected_observables);
+    return prepare_circuit_for_lowering(clifft::parse(stim_text), postselection_mask,
+                                        normalize_syndromes, hir_passes, expected_detectors,
+                                        expected_observables);
 }
 
-clifft::HirModule prepare_qasm2_for_lowering(const std::string& qasm_text, bool normalize_syndromes,
+clifft::HirModule prepare_qasm2_for_lowering(const std::string& qasm_text,
+                                             std::span<const uint8_t> postselection_mask,
+                                             bool normalize_syndromes,
                                              clifft::HirPassManager* hir_passes,
                                              std::vector<uint8_t>& expected_detectors,
                                              std::vector<uint8_t>& expected_observables) {
     clifft::Qasm2Import imported = clifft::parse_qasm2(qasm_text);
-    return prepare_circuit_for_lowering(imported.circuit, normalize_syndromes, hir_passes,
-                                        expected_detectors, expected_observables);
+    return prepare_circuit_for_lowering(imported.circuit, postselection_mask, normalize_syndromes,
+                                        hir_passes, expected_detectors, expected_observables);
 }
 
 // Lower-case names for active_width_trace()'s per-op 'effects' list. Python
@@ -855,7 +872,7 @@ NB_MODULE(_clifft_core, m) {
                                                         static_cast<size_t>(max_wide_work),
                                                         static_cast<size_t>(max_wide_terms)});
             },
-            nb::arg("max_variables") = int64_t{64}, nb::kw_only(),
+            nb::arg("max_variables") = int64_t{128}, nb::kw_only(),
             nb::arg("max_wide_work") = int64_t{50000000},
             nb::arg("max_wide_terms") = int64_t{200000})
         .def_prop_ro("wide_attempts", &clifft::PhasePolynomialPass::wide_attempts)
@@ -1144,19 +1161,21 @@ NB_MODULE(_clifft_core, m) {
         "_prepare_hir_for_lowering",
         [](const std::string& stim_text, std::vector<uint8_t> expected_detectors,
            std::vector<uint8_t> expected_observables, bool normalize_syndromes,
-           clifft::HirPassManager* hir_passes) {
+           clifft::HirPassManager* hir_passes, std::vector<uint8_t> postselection_mask) {
             clifft::HirModule hir;
             {
                 nb::gil_scoped_release release;
-                hir = prepare_hir_for_lowering(stim_text, normalize_syndromes, hir_passes,
-                                               expected_detectors, expected_observables);
+                hir =
+                    prepare_hir_for_lowering(stim_text, postselection_mask, normalize_syndromes,
+                                             hir_passes, expected_detectors, expected_observables);
             }
             return nb::make_tuple(std::move(hir), std::move(expected_detectors),
                                   std::move(expected_observables));
         },
         nb::arg("stim_text"), nb::arg("expected_detectors") = std::vector<uint8_t>{},
         nb::arg("expected_observables") = std::vector<uint8_t>{},
-        nb::arg("normalize_syndromes") = false, nb::arg("hir_passes") = nb::none());
+        nb::arg("normalize_syndromes") = false, nb::arg("hir_passes") = nb::none(),
+        nb::arg("postselection_mask") = std::vector<uint8_t>{});
 
     m.def(
         "compile",
@@ -1165,8 +1184,8 @@ NB_MODULE(_clifft_core, m) {
            bool normalize_syndromes, clifft::HirPassManager* hir_passes) {
             nb::gil_scoped_release release;
             clifft::HirModule hir =
-                prepare_hir_for_lowering(stim_text, normalize_syndromes, hir_passes,
-                                         expected_detectors, expected_observables);
+                prepare_hir_for_lowering(stim_text, postselection_mask, normalize_syndromes,
+                                         hir_passes, expected_detectors, expected_observables);
 
             return clifft::sampling::ExecutablePlan(clifft::sampling::plan_sampling(
                 hir, {postselection_mask, expected_detectors, expected_observables}));
@@ -1201,8 +1220,8 @@ NB_MODULE(_clifft_core, m) {
            bool normalize_syndromes, clifft::HirPassManager* hir_passes) {
             nb::gil_scoped_release release;
             clifft::HirModule hir =
-                prepare_qasm2_for_lowering(qasm_text, normalize_syndromes, hir_passes,
-                                           expected_detectors, expected_observables);
+                prepare_qasm2_for_lowering(qasm_text, postselection_mask, normalize_syndromes,
+                                           hir_passes, expected_detectors, expected_observables);
 
             return clifft::sampling::ExecutablePlan(clifft::sampling::plan_sampling(
                 hir, {postselection_mask, expected_detectors, expected_observables}));

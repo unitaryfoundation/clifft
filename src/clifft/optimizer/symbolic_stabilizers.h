@@ -16,10 +16,13 @@ struct SymbolicStabilizerOptions {
     size_t max_row_products = 4096;
 };
 
+[[nodiscard]] std::map<uint32_t, bool> collect_postselected_records(const HirModule& hir);
+
 // Tracks Pauli stabilizer constraints as a circuit advances, including signs
 // that depend on measurement outcomes and feedback. Extracts fixed-sign
 // constraints for compile-time rewrites shared by every trajectory and the
-// noiseless reference.
+// noiseless reference, or by every surviving trajectory when postselection
+// metadata is present on the module.
 //
 // An affine Boolean expression s represents eigenvalue (-1)^s. Its symbols
 // denote physical measurement outcomes and readout-error flips, with no assumed
@@ -34,6 +37,9 @@ class SymbolicStabilizers {
     // The reference remains valid until advance; callers modifying a lookahead
     // group take a copy. Fixed groups have no records or inference budgets.
     [[nodiscard]] const KnownStabilizers& fixed_constraints();
+    [[nodiscard]] const std::map<uint32_t, bool>& postselected_records() const noexcept {
+        return postselected_records_;
+    }
     void advance(const HirModule& hir, const HeisenbergOp& op);
 
   private:
@@ -71,6 +77,7 @@ class SymbolicStabilizers {
     // Uses follow emitted classical operations even when rotations are moved.
     // This schedule survives discarded constraints and uses O(feedback records) storage.
     std::map<uint32_t, size_t> remaining_uses_;
+    std::map<uint32_t, bool> postselected_records_;
     std::optional<Feedback> feedback_;
     KnownStabilizers fixed_;
     bool fixed_valid_ = false;

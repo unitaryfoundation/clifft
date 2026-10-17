@@ -1,6 +1,11 @@
 #include "clifft/api/reference_syndrome.h"
 
+#include "clifft/optimizer/hir_pass_manager.h"
+#include "clifft/optimizer/peephole.h"
+#include "clifft/optimizer/phase_polynomial_pass.h"
 #include "clifft/optimizer/remove_noise_pass.h"
+#include "clifft/optimizer/rotation_simplification_pass.h"
+#include "clifft/optimizer/statevector_squeeze_pass.h"
 #include "clifft/sampling/planner.h"
 #include "clifft/sampling/sampler.h"
 
@@ -9,10 +14,22 @@ namespace clifft {
 ReferenceSyndrome compute_reference_syndrome(const HirModule& hir) {
     ReferenceSyndrome ref;
 
+    const bool had_noise = !hir.noise_sites.empty() || !hir.readout_noise.empty();
+
     // Make a clean copy and strip all noise
     HirModule clean_hir = hir;
+    clean_hir.postselection_mask.clear();
+    clean_hir.expected_detectors.clear();
     RemoveNoisePass strip;
     strip.run(clean_hir);
+    if ((had_noise || clean_hir.num_t_gates() > 64) && clean_hir.num_t_gates() > 0) {
+        HirPassManager passes;
+        passes.add_pass(std::make_unique<PeepholeFusionPass>());
+        passes.add_pass(std::make_unique<PhasePolynomialPass>(PhasePolynomialOptions{128}));
+        passes.add_pass(std::make_unique<RotationSimplificationPass>());
+        passes.add_pass(std::make_unique<StatevectorSqueezePass>());
+        passes.run(clean_hir);
+    }
 
     // Compile without postselection or expected parities.
     sampling::ExecutablePlan clean_program(sampling::plan_sampling(clean_hir));

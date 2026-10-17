@@ -6,6 +6,7 @@
 #include "clifft/optimizer/phase_polynomial.h"
 #include "clifft/optimizer/symbolic_stabilizers.h"
 #include "clifft/optimizer/wide_phase_region.h"
+#include "clifft/util/symplectic.h"
 
 #include <algorithm>
 #include <bit>
@@ -40,6 +41,66 @@ size_t last_t_end(const HirModule& hir) {
     return static_cast<size_t>(last.base() - hir.ops.begin());
 }
 
+bool is_quantum_or_observer(OpType type) {
+    return type != OpType::DETECTOR && type != OpType::OBSERVABLE && type != OpType::READOUT_NOISE;
+}
+
+bool operation_supports_final_state_queries(OpType type) {
+    return type == OpType::T_GATE || type == OpType::PHASE_ROTATION || type == OpType::EXP_VAL;
+}
+
+std::optional<size_t> final_observer_end(const HirModule& hir) {
+    for (size_t i = hir.ops.size(); i > 0; --i) {
+        const OpType type = hir.ops[i - 1].op_type();
+        if (!is_quantum_or_observer(type)) {
+            continue;
+        }
+        if (type == OpType::MEASURE || type == OpType::INSTRUMENT) {
+            return i;
+        }
+        if (type == OpType::EXP_VAL) {
+            for (size_t j = 0; j < i; ++j) {
+                if (!operation_supports_final_state_queries(hir.ops[j].op_type())) {
+                    return i;
+                }
+            }
+        }
+        return std::nullopt;
+    }
+    return std::nullopt;
+}
+
+bool commutes_with_prefix(const HirModule& hir, size_t start, size_t end, PauliMaskView target) {
+    for (size_t i = start; i < end; ++i) {
+        const HeisenbergOp& op = hir.ops[i];
+        const OpType type = op.op_type();
+        if (type == OpType::INSTRUMENT) {
+            return false;
+        }
+        if (op.has_mask()) {
+            const PauliMaskView other = hir.mask_view(op);
+            if (anti_commute(target.x(), target.z(), other.x(), other.z())) {
+                return false;
+            }
+        } else if (type == OpType::NOISE) {
+            const uint32_t site_idx = static_cast<uint32_t>(op.noise_site_idx());
+            if (site_idx >= hir.noise_sites.size()) {
+                return false;
+            }
+            for (const NoiseChannel& channel : hir.noise_sites[site_idx].channels) {
+                if (channel.prob <= 0.0) {
+                    continue;
+                }
+                const PauliMaskView other = hir.noise_channel_masks.at(channel.mask);
+                if (anti_commute(target.x(), target.z(), other.x(), other.z())) {
+                    return false;
+                }
+            }
+        }
+    }
+    return true;
+}
+
 using optimizer_detail::CliffordAbsorption;
 
 struct Observer {
@@ -60,21 +121,27 @@ struct Block {
 
 class Rewriter {
   public:
-    Rewriter(const HirModule& input, PhasePolynomialOptions options)
+    Rewriter(const HirModule& input, PhasePolynomialOptions options,
+             bool elide_unreduced_post_observer = false)
         : input_(input),
           max_variables_(options.max_variables),
           wide_budget_{options.max_wide_work, options.max_wide_terms},
           analysis_end_(last_t_end(input)),
+          final_observer_end_(final_observer_end(input)),
+          elide_unreduced_post_observer_(elide_unreduced_post_observer),
           known_(input, analysis_end_) {}
 
     std::optional<HirModule> run() {
         for (size_t i = 0; i < hir().ops.size();) {
             if (hir().ops[i].op_type() == OpType::T_GATE) {
+                const KnownStabilizers* postselected = nullptr;
+                const KnownStabilizers& entry = prepare_entry(i, postselected);
                 const auto initial_limit = std::min(max_variables_, uint32_t{32});
-                auto block = collect(i, initial_limit);
+                auto block = collect(i, initial_limit, entry, postselected);
                 if (block.capped && initial_limit < max_variables_ && allow_expansion_) {
                     ++expansion_attempts;
-                    auto expanded = collect(i, std::min(max_variables_, uint32_t{64}));
+                    auto expanded =
+                        collect(i, std::min(max_variables_, uint32_t{64}), entry, postselected);
                     if (!expanded.capped) {
                         block = std::move(expanded);
                         ++blocks_expanded;
@@ -86,8 +153,7 @@ class Rewriter {
                             wide_budget_.max_updates && wide_budget_.max_terms) {
                             ++wide_attempts;
                             auto wide = phase_detail::wide::try_region(
-                                hir(), i, known_.fixed_constraints(), cliffords_, max_variables_,
-                                wide_budget_);
+                                hir(), i, entry, cliffords_, max_variables_, wide_budget_);
                             if (wide) {
                                 emit_wide(i, *wide);
                                 ++blocks_examined;
@@ -145,6 +211,61 @@ class Rewriter {
 
     const HirModule& hir() const { return candidate_ ? *candidate_ : input_; }
 
+    const KnownStabilizers& prepare_entry(size_t start, const KnownStabilizers*& postselected) {
+        postselected = nullptr;
+        const KnownStabilizers& fixed = known_.fixed_constraints();
+        const auto& postselected_records = known_.postselected_records();
+        if (postselected_records.empty()) {
+            return fixed;
+        }
+        bool copied = false;
+        for (size_t m = start; m < hir().ops.size(); ++m) {
+            const HeisenbergOp& op = hir().ops[m];
+            if (op.op_type() == OpType::INSTRUMENT) {
+                break;
+            }
+            if (op.op_type() == OpType::EXP_VAL) {
+                if (!commutes_with_prefix(hir(), start, m, hir().mask_view(op))) {
+                    break;
+                }
+                continue;
+            }
+            if (op.op_type() != OpType::MEASURE) {
+                continue;
+            }
+            const auto it = postselected_records.find(static_cast<uint32_t>(op.meas_record_idx()));
+            if (it == postselected_records.end()) {
+                continue;
+            }
+            const PauliMaskView mask = hir().mask_view(op);
+            if (!commutes_with_prefix(hir(), start, m, mask)) {
+                continue;
+            }
+            auto axis = cliffords_.read(mask, hir().num_qubits);
+            axis.set_sign(axis.sign() ^ it->second);
+            const KnownStabilizers& current_fixed = copied ? lookahead_fixed_ : fixed;
+            if (!current_fixed.commutes(axis.view())) {
+                continue;
+            }
+            if (!copied) {
+                lookahead_fixed_ = fixed;
+                lookahead_postselected_ = KnownStabilizers{};
+                copied = true;
+            }
+            if (!lookahead_postselected_.eigenvalue(axis).has_value()) {
+                lookahead_postselected_.insert(axis);
+            }
+            if (!lookahead_fixed_.eigenvalue(axis).has_value()) {
+                lookahead_fixed_.insert(std::move(axis));
+            }
+        }
+        if (!copied) {
+            return fixed;
+        }
+        postselected = &lookahead_postselected_;
+        return lookahead_fixed_;
+    }
+
     void start_candidate(size_t start) {
         if (candidate_) {
             return;
@@ -163,22 +284,24 @@ class Rewriter {
         }
     }
 
-    Block collect(size_t start, uint32_t variable_limit) {
+    Block collect(size_t start, uint32_t variable_limit, const KnownStabilizers& entry,
+                  const KnownStabilizers* postselected) {
         Block block{start, {}, {}, {}, {}, {}, {}};
         // Entry coordinates stay fixed while barriers remove relations that
         // cannot hold after moving those operations ahead of the phase block.
-        auto available = known_.fixed_constraints();
+        auto available = entry;
         std::map<uint32_t, Row> rows;
         for (size_t i = start; i < hir().ops.size(); ++i) {
             const auto& op = hir().ops[i];
             const auto type = op.op_type();
             if (type == OpType::T_GATE) {
                 auto axis = cliffords_.read(hir().mask_view(op), hir().num_qubits);
-                auto reduced = known_.fixed_constraints().reduce_body(axis);
+                auto reduced = entry.reduce_body(axis);
                 // An entry stabilizer commutes with every constraint derived
                 // from that same group, without a second basis scan.
                 const bool entry_stabilizer = reduced.x().is_zero() && reduced.z().is_zero();
-                if (std::ranges::any_of(block.generators,
+                if ((postselected && !postselected->commutes(axis.view())) ||
+                    std::ranges::any_of(block.generators,
                                         [&](const PauliString& generator) {
                                             return !axis.view().commutes(generator.view());
                                         }) ||
@@ -283,11 +406,15 @@ class Rewriter {
             block.polynomial, static_cast<uint32_t>(block.generators.size()));
         const auto synthesis =
             phase_detail::synthesize_parities(block.original_terms, block.polynomial, basis);
-        const size_t output_count = std::ranges::count_if(
-            synthesis, [](const auto& term) { return (term.second & 1) != 0; });
-        if (output_count > block.rotations.size() ||
-            (output_count == block.rotations.size() &&
-             basis.core_width == block.generators.size())) {
+        const size_t synthesized_count = static_cast<size_t>(std::ranges::count_if(
+            synthesis, [](const auto& term) { return (term.second & 1) != 0; }));
+        const bool reduced_polynomial = synthesized_count < block.rotations.size() ||
+                                        (synthesized_count == block.rotations.size() &&
+                                         basis.core_width < block.generators.size());
+        const bool elide_post_observer = (reduced_polynomial || elide_unreduced_post_observer_) &&
+                                         final_observer_end_ && block.end >= *final_observer_end_ &&
+                                         !block.observers.empty();
+        if (!reduced_polynomial && !elide_post_observer) {
             return false;
         }
         start_candidate(start);
@@ -307,7 +434,7 @@ class Rewriter {
             }
         }
         std::vector<uint32_t> sources;
-        if (!hir().source_map.empty()) {
+        if (!hir().source_map.empty() && !elide_post_observer) {
             for (size_t index : block.rotations) {
                 const auto& original = hir().source_map[index];
                 sources.insert(sources.end(), original.begin(), original.end());
@@ -321,13 +448,15 @@ class Rewriter {
             int clifford = coefficient;
             if (coefficient & 1) {
                 const bool dagger = coefficient >= 5;
-                auto& op = candidate_->ops[block.rotations[written++]];
-                candidate_->demote_to_tgate(op, dagger);
-                write_axis(candidate_->mask_at(op), axis);
-                output_.push_back(op);
-                known_.advance(hir(), op);
-                if (!hir().source_map.empty()) {
-                    sources_.push_back(sources);
+                if (!elide_post_observer) {
+                    auto& op = candidate_->ops[block.rotations[written++]];
+                    candidate_->demote_to_tgate(op, dagger);
+                    write_axis(candidate_->mask_at(op), axis);
+                    output_.push_back(op);
+                    known_.advance(hir(), op);
+                    if (!hir().source_map.empty()) {
+                        sources_.push_back(sources);
+                    }
                 }
                 clifford = (coefficient - (dagger ? -1 : 1)) & 7;
             }
@@ -335,7 +464,8 @@ class Rewriter {
                 cliffords_.absorb(axis, static_cast<uint8_t>(clifford));
             }
         }
-        assert(written == output_count);
+        assert(written == (elide_post_observer ? 0 : synthesized_count));
+        static_cast<void>(written);
         ++blocks_reduced;
         pauli_pullbacks += block.observers.size();
         return true;
@@ -397,11 +527,15 @@ class Rewriter {
     uint32_t max_variables_;
     phase_detail::wide::Budget wide_budget_;
     size_t analysis_end_;
+    std::optional<size_t> final_observer_end_;
+    bool elide_unreduced_post_observer_ = false;
     bool allow_expansion_ = true;
     CliffordAbsorption cliffords_;
     // Follow emitted operations: absorbed Cliffords live in cliffords_, so their
     // effects reach this analysis through the transformed subsequent operands.
     SymbolicStabilizers known_;
+    KnownStabilizers lookahead_fixed_;
+    KnownStabilizers lookahead_postselected_;
     std::vector<HeisenbergOp> output_;
     std::vector<std::vector<uint32_t>> sources_;
 };
@@ -439,6 +573,21 @@ void PhasePolynomialPass::run(HirModule& hir) {
     if (!candidate) {
         return;
     }
+    size_t follow_up_reduced = 0;
+    size_t follow_up_pullbacks = 0;
+    if (rewriter.wide_rewrites && candidate->num_t_gates() > 0) {
+        Rewriter follow_up(*candidate, PhasePolynomialOptions{64, 0, 0},
+                           /*elide_unreduced_post_observer=*/true);
+        if (auto refined = follow_up.run()) {
+            candidate = std::move(refined);
+            follow_up_reduced = follow_up.blocks_reduced;
+            follow_up_pullbacks = follow_up.pauli_pullbacks;
+            blocks_examined_ += follow_up.blocks_examined;
+            blocks_capped_ += follow_up.blocks_capped;
+            expansion_attempts_ += follow_up.expansion_attempts;
+            blocks_expanded_ += follow_up.blocks_expanded;
+        }
+    }
     const auto after = analyze_active_width(*candidate);
     // This is a local structural guard, not a prediction of later scheduling
     // or hardware throughput.
@@ -452,6 +601,8 @@ void PhasePolynomialPass::run(HirModule& hir) {
             if (rewriter.wide_rewrites) {
                 auto narrow_options = options_;
                 narrow_options.max_variables = 64;
+                narrow_options.max_wide_work = 0;
+                narrow_options.max_wide_terms = 0;
                 PhasePolynomialPass narrow(narrow_options);
                 narrow.run(hir);
                 blocks_examined_ += narrow.blocks_examined();
@@ -466,8 +617,8 @@ void PhasePolynomialPass::run(HirModule& hir) {
         }
     }
     wide_rewrites_ = rewriter.wide_rewrites;
-    blocks_reduced_ = rewriter.blocks_reduced;
-    pauli_pullbacks_ = rewriter.pauli_pullbacks;
+    blocks_reduced_ = rewriter.blocks_reduced + follow_up_reduced;
+    pauli_pullbacks_ = rewriter.pauli_pullbacks + follow_up_pullbacks;
     output_t_count_ = candidate->num_t_gates();
     hir = std::move(*candidate);
 }

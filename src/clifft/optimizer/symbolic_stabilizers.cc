@@ -21,12 +21,121 @@ using optimizer_detail::copy_axis;
 
 }  // namespace
 
+std::map<uint32_t, bool> collect_postselected_records(const HirModule& hir) {
+    std::map<uint32_t, bool> records;
+    if (std::ranges::none_of(hir.postselection_mask, [](uint8_t flag) { return flag != 0; })) {
+        return records;
+    }
+    const size_t total_records =
+        static_cast<size_t>(hir.num_measurements) + hir.num_hidden_measurements;
+    std::vector<uint32_t> write_counts(total_records, 0);
+    std::vector<bool> noisy_readout(total_records, false);
+    for (const HeisenbergOp& op : hir.ops) {
+        if (op.op_type() == OpType::MEASURE) {
+            const uint32_t rec = static_cast<uint32_t>(op.meas_record_idx());
+            if (rec < total_records) {
+                ++write_counts[rec];
+            }
+        } else if (op.op_type() == OpType::READOUT_NOISE) {
+            const uint32_t idx = static_cast<uint32_t>(op.readout_noise_idx());
+            if (idx < hir.readout_noise.size()) {
+                const ReadoutNoiseEntry& entry = hir.readout_noise[idx];
+                if ((entry.prob_zero_to_one > 0.0 || entry.prob_one_to_zero > 0.0) &&
+                    entry.meas_idx < total_records) {
+                    noisy_readout[entry.meas_idx] = true;
+                }
+            }
+        }
+    }
+
+    struct PostselectedDetector {
+        std::vector<uint32_t> targets;
+        bool expected = false;
+    };
+    std::vector<PostselectedDetector> detectors;
+    uint32_t detector_index = 0;
+    for (const HeisenbergOp& op : hir.ops) {
+        if (op.op_type() != OpType::DETECTOR) {
+            continue;
+        }
+        const uint32_t targets_index = static_cast<uint32_t>(op.detector_idx());
+        const bool postselected = detector_index < hir.postselection_mask.size() &&
+                                  hir.postselection_mask[detector_index] != 0;
+        const bool expected = detector_index < hir.expected_detectors.size() &&
+                              hir.expected_detectors[detector_index] != 0;
+        ++detector_index;
+        if (!postselected || targets_index >= hir.detector_targets.size()) {
+            continue;
+        }
+        const auto& raw_targets = hir.detector_targets[targets_index];
+        if (raw_targets.empty()) {
+            continue;
+        }
+        std::vector<uint32_t> targets = raw_targets;
+        std::ranges::sort(targets);
+        std::vector<uint32_t> reduced;
+        reduced.reserve(targets.size());
+        for (uint32_t rec : targets) {
+            if (!reduced.empty() && reduced.back() == rec) {
+                reduced.pop_back();
+            } else {
+                reduced.push_back(rec);
+            }
+        }
+        if (reduced.empty()) {
+            continue;
+        }
+        if (std::ranges::any_of(reduced, [&](uint32_t rec) {
+                return rec >= total_records || write_counts[rec] != 1 || noisy_readout[rec];
+            })) {
+            continue;
+        }
+        detectors.push_back(PostselectedDetector{std::move(reduced), expected});
+    }
+
+    std::vector<bool> conflicting(total_records, false);
+    bool changed = true;
+    while (changed) {
+        changed = false;
+        for (const auto& det : detectors) {
+            if (std::ranges::any_of(det.targets, [&](uint32_t r) { return conflicting[r]; })) {
+                continue;
+            }
+            bool parity = det.expected;
+            uint32_t unknown_count = 0;
+            uint32_t unknown_rec = 0;
+            for (uint32_t rec : det.targets) {
+                const auto it = records.find(rec);
+                if (it != records.end()) {
+                    parity ^= it->second;
+                } else {
+                    ++unknown_count;
+                    unknown_rec = rec;
+                }
+            }
+            if (unknown_count == 0) {
+                if (parity) {
+                    for (uint32_t rec : det.targets) {
+                        records.erase(rec);
+                        conflicting[rec] = true;
+                    }
+                    changed = true;
+                }
+            } else if (unknown_count == 1) {
+                records.emplace(unknown_rec, parity);
+                changed = true;
+            }
+        }
+    }
+    return records;
+}
+
 SymbolicStabilizers::SymbolicStabilizers(const HirModule& hir, SymbolicStabilizerOptions options)
     : SymbolicStabilizers(hir, hir.ops.size(), options) {}
 
 SymbolicStabilizers::SymbolicStabilizers(const HirModule& hir, size_t end,
                                          SymbolicStabilizerOptions options)
-    : options_(options) {
+    : options_(options), postselected_records_(collect_postselected_records(hir)) {
     assert(end <= hir.ops.size());
     for (size_t i = 0; i < end; ++i) {
         if (hir.ops[i].op_type() == OpType::CONDITIONAL_PAULI) {
@@ -263,7 +372,10 @@ void SymbolicStabilizers::advance(const HirModule& hir, const HeisenbergOp& op) 
             break;
         case OpType::MEASURE: {
             const auto record = static_cast<uint32_t>(op.meas_record_idx());
-            if (!remaining_uses_.contains(record)) {
+            const auto postselected = !postselected_records_.empty()
+                                          ? postselected_records_.find(record)
+                                          : postselected_records_.end();
+            if (!remaining_uses_.contains(record) && postselected == postselected_records_.end()) {
                 // An outcome never used for feedback is a private sign, just
                 // like a fault event. Keep only its commuting subgroup.
                 if (!rows_.empty()) {
@@ -283,13 +395,17 @@ void SymbolicStabilizers::advance(const HirModule& hir, const HeisenbergOp& op) 
                 forget();
             }
             if (!outcome) {
-                outcome = fresh_symbol();
+                outcome = postselected != postselected_records_.end()
+                              ? std::optional{AffineBool(postselected->second)}
+                              : fresh_symbol();
                 intersect(axis.view());
                 if (outcome && !insert_row(Row{std::move(axis), *outcome})) {
                     forget();
                 }
+            } else if (postselected != postselected_records_.end()) {
+                outcome = AffineBool(postselected->second);
             }
-            if (outcome) {
+            if (outcome && remaining_uses_.contains(record)) {
                 assign_record(record, std::move(*outcome));
             }
             break;

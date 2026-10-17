@@ -11,7 +11,7 @@ struct PhasePolynomialOptions {
     // Bounds the cubic phase algebra. Collection starts at min 32 and this cap,
     // trying a complete region up to 64 before an optional multiword attempt.
     // Zero disables the pass. Synthesis retains a 64-variable core limit.
-    uint32_t max_variables = 64;
+    uint32_t max_variables = 128;
     // Shared by all optional attempts in one pass, including both bases.
     size_t max_wide_work = 50000000;
     size_t max_wide_terms = 200000;
@@ -25,7 +25,8 @@ struct PhasePolynomialOptions {
 // Pauli measurements, expectation probes and classically controlled Pauli gates
 // can cross a phase prefix only if their conjugates remain Paulis and preserve
 // each used constraint.
-// No relation is inferred from postselection.
+// Postselected single-record detectors without readout noise can also supply
+// constraints when their measurements commute back to the region entry.
 class PhasePolynomialPass : public HirPass {
   public:
     explicit PhasePolynomialPass(PhasePolynomialOptions options = {});
