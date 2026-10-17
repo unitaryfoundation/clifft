@@ -495,3 +495,91 @@ def test_known_phase_constraints_preserve_forced_faults(
     )
     samples = importance_sampling_mode.sample_k(program, shots=16384, k=k, seed=893)
     assert_joint_distribution(samples.measurements, expected)
+
+
+def test_postselected_single_record_detector_recovers_phase_constraint(
+    sampling_mode: SamplingMode,
+) -> None:
+    source = "\n".join(
+        [
+            "H 0",
+            "DEPOLARIZE1(0.05) 0 1",
+            "T 0",
+            "CX 1 0",
+            "T_DAG 0",
+            "CX 1 0",
+            "M 1",
+            "DETECTOR rec[-1]",
+            "H 0",
+            "M 0",
+            "OBSERVABLE_INCLUDE(0) rec[-1]",
+        ]
+    )
+    unselected_phase = clifft.PhasePolynomialPass()
+    unselected = sampling_mode.compile(source, hir_passes=_manager(unselected_phase))
+    assert not unselected_phase.applied
+    assert unselected.peak_active_width == 1
+
+    selected_phase = clifft.PhasePolynomialPass()
+    selected = sampling_mode.compile(
+        source,
+        hir_passes=_manager(selected_phase),
+        postselection_mask=[1],
+    )
+    assert selected_phase.applied
+    assert selected_phase.output_t_count == 0
+    assert selected.peak_active_width == 0
+
+    reference = sampling_mode.compile(source, hir_passes=None, postselection_mask=[1])
+    opt_survivors = sampling_mode.sample_survivors(selected, shots=8192, seed=901)
+    ref_survivors = sampling_mode.sample_survivors(reference, shots=8192, seed=901)
+    assert opt_survivors.passed_shots == ref_survivors.passed_shots
+    np.testing.assert_array_equal(opt_survivors.observables, ref_survivors.observables)
+
+
+def test_postselected_upstream_and_difference_detectors_recover_phase_constraints(
+    sampling_mode: SamplingMode,
+) -> None:
+    source = "\n".join(
+        [
+            "RX 0",
+            "R 1 2 3",
+            "X 1",
+            "CX 0 1",
+            "DEPOLARIZE1(0.05) 0 1",
+            "CX 0 2 1 2",
+            "M 2",
+            "DETECTOR rec[-1]",
+            "DEPOLARIZE1(0.05) 3",
+            "CX 0 3",
+            "T 0 1",
+            "T_DAG 0",
+            "T 3",
+            "CX 0 3 0 1",
+            "MX 0",
+            "M 3",
+            "DETECTOR rec[-3] rec[-1]",
+            "OBSERVABLE_INCLUDE(0) rec[-2]",
+        ]
+    )
+    selected_phase = clifft.PhasePolynomialPass()
+    selected = sampling_mode.compile(
+        source,
+        hir_passes=_manager(selected_phase),
+        postselection_mask=[1, 1],
+        normalize_syndromes=True,
+    )
+    assert selected_phase.applied
+    assert selected_phase.output_t_count == 0
+    assert selected.peak_active_width == 0
+
+    reference = sampling_mode.compile(
+        source,
+        hir_passes=None,
+        postselection_mask=[1, 1],
+        normalize_syndromes=True,
+    )
+    opt_survivors = sampling_mode.sample_survivors(selected, shots=8192, seed=902)
+    ref_survivors = sampling_mode.sample_survivors(reference, shots=8192, seed=902)
+    assert opt_survivors.passed_shots == ref_survivors.passed_shots
+    np.testing.assert_array_equal(opt_survivors.observables, ref_survivors.observables)

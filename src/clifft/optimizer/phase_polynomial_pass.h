@@ -25,7 +25,8 @@ struct PhasePolynomialOptions {
 // Pauli measurements, expectation probes and classically controlled Pauli gates
 // can cross a phase prefix only if their conjugates remain Paulis and preserve
 // each used constraint.
-// No relation is inferred from postselection.
+// Postselected single-record detectors without readout noise can also supply
+// constraints when their measurements commute back to the region entry.
 class PhasePolynomialPass : public HirPass {
   public:
     explicit PhasePolynomialPass(PhasePolynomialOptions options = {});

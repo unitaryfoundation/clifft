@@ -155,6 +155,7 @@ def compile(
         expected_observables if expected_observables is not None else [],
         normalize_syndromes,
         hir_passes,
+        postselection_mask if postselection_mask is not None else [],
     )
     hir = cast(HirModule, prepared[0])
     detectors = cast(list[int], prepared[1])
