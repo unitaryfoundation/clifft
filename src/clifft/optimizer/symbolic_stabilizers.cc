@@ -372,7 +372,9 @@ void SymbolicStabilizers::advance(const HirModule& hir, const HeisenbergOp& op) 
             break;
         case OpType::MEASURE: {
             const auto record = static_cast<uint32_t>(op.meas_record_idx());
-            const auto postselected = postselected_records_.find(record);
+            const auto postselected = !postselected_records_.empty()
+                                          ? postselected_records_.find(record)
+                                          : postselected_records_.end();
             if (!remaining_uses_.contains(record) && postselected == postselected_records_.end()) {
                 // An outcome never used for feedback is a private sign, just
                 // like a fault event. Keep only its commuting subgroup.
