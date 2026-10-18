@@ -441,8 +441,7 @@ struct ExactShotOutcome {
     uint64_t visible_records = 0;
     uint64_t detectors = 0;
     uint64_t observables = 0;
-
-    auto operator<=>(const ExactShotOutcome&) const = default;
+    std::vector<double> exp_vals{};
 };
 
 struct ExactOutcomeEntry {
@@ -462,23 +461,83 @@ struct ExactPlanDistribution {
     size_t reachable_trajectories = 0;
 };
 
-inline void canonicalize_outcome_entries(std::vector<ExactOutcomeEntry>& entries) {
-    std::ranges::sort(entries, [](const ExactOutcomeEntry& a, const ExactOutcomeEntry& b) {
-        return a.outcome < b.outcome;
-    });
-    size_t write = 0;
-    for (size_t read = 0; read < entries.size();) {
-        ExactShotOutcome key = entries[read].outcome;
-        double sum = 0.0;
-        while (read < entries.size() && entries[read].outcome == key) {
-            sum += entries[read].probability;
-            ++read;
-        }
-        if (sum > 1e-15) {
-            entries[write++] = ExactOutcomeEntry{key, sum};
+inline int compare_outcomes(const ExactShotOutcome& a, const ExactShotOutcome& b,
+                            double exp_val_tolerance = 1e-9) {
+    if (a.visible_records != b.visible_records) {
+        return a.visible_records < b.visible_records ? -1 : 1;
+    }
+    if (a.detectors != b.detectors) {
+        return a.detectors < b.detectors ? -1 : 1;
+    }
+    if (a.observables != b.observables) {
+        return a.observables < b.observables ? -1 : 1;
+    }
+    if (a.exp_vals.size() != b.exp_vals.size()) {
+        return a.exp_vals.size() < b.exp_vals.size() ? -1 : 1;
+    }
+    for (size_t i = 0; i < a.exp_vals.size(); ++i) {
+        if (std::abs(a.exp_vals[i] - b.exp_vals[i]) > exp_val_tolerance) {
+            return a.exp_vals[i] < b.exp_vals[i] ? -1 : 1;
         }
     }
-    entries.resize(write);
+    return 0;
+}
+
+inline void canonicalize_outcome_entries(std::vector<ExactOutcomeEntry>& entries,
+                                         double exp_val_tolerance = 1e-9) {
+    std::ranges::sort(entries, [](const ExactOutcomeEntry& a, const ExactOutcomeEntry& b) {
+        return std::tie(a.outcome.visible_records, a.outcome.detectors, a.outcome.observables,
+                        a.outcome.exp_vals) < std::tie(b.outcome.visible_records,
+                                                       b.outcome.detectors, b.outcome.observables,
+                                                       b.outcome.exp_vals);
+    });
+
+    std::vector<ExactOutcomeEntry> merged;
+    merged.reserve(entries.size());
+
+    for (size_t i = 0; i < entries.size();) {
+        size_t block_end = i + 1;
+        while (block_end < entries.size() &&
+               entries[block_end].outcome.visible_records == entries[i].outcome.visible_records &&
+               entries[block_end].outcome.detectors == entries[i].outcome.detectors &&
+               entries[block_end].outcome.observables == entries[i].outcome.observables) {
+            ++block_end;
+        }
+
+        const size_t cluster_start = merged.size();
+        for (size_t j = i; j < block_end; ++j) {
+            if (entries[j].probability <= 1e-15) {
+                continue;
+            }
+            bool found = false;
+            for (size_t k = cluster_start; k < merged.size(); ++k) {
+                if (compare_outcomes(merged[k].outcome, entries[j].outcome, exp_val_tolerance) ==
+                    0) {
+                    const double new_prob = merged[k].probability + entries[j].probability;
+                    for (size_t e = 0; e < merged[k].outcome.exp_vals.size(); ++e) {
+                        merged[k].outcome.exp_vals[e] =
+                            (merged[k].outcome.exp_vals[e] * merged[k].probability +
+                             entries[j].outcome.exp_vals[e] * entries[j].probability) /
+                            new_prob;
+                    }
+                    merged[k].probability = new_prob;
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                merged.push_back(entries[j]);
+            }
+        }
+
+        std::sort(merged.begin() + static_cast<std::ptrdiff_t>(cluster_start), merged.end(),
+                  [exp_val_tolerance](const ExactOutcomeEntry& a, const ExactOutcomeEntry& b) {
+                      return compare_outcomes(a.outcome, b.outcome, exp_val_tolerance) < 0;
+                  });
+        i = block_end;
+    }
+
+    entries = std::move(merged);
 }
 
 inline bool distributions_equal(const ExactPlanDistribution& a, const ExactPlanDistribution& b,
@@ -491,22 +550,25 @@ inline bool distributions_equal(const ExactPlanDistribution& a, const ExactPlanD
         return false;
     }
     for (uint32_t e = 0; e < a.num_exp_vals; ++e) {
-        if (std::abs(a.kept_exp_vals[e] - b.kept_exp_vals[e]) > tolerance) {
+        if (std::abs(a.kept_exp_vals[e] - b.kept_exp_vals[e]) > tolerance ||
+            std::abs(a.unconditional_exp_vals[e] - b.unconditional_exp_vals[e]) > tolerance) {
             return false;
         }
     }
     size_t i = 0;
     size_t j = 0;
     while (i < a.kept_outcomes.size() || j < b.kept_outcomes.size()) {
-        if (j == b.kept_outcomes.size() ||
-            (i < a.kept_outcomes.size() &&
-             a.kept_outcomes[i].outcome < b.kept_outcomes[j].outcome)) {
+        const int cmp = (j == b.kept_outcomes.size()) ? -1
+                        : (i == a.kept_outcomes.size())
+                            ? 1
+                            : compare_outcomes(a.kept_outcomes[i].outcome,
+                                               b.kept_outcomes[j].outcome, tolerance);
+        if (cmp < 0) {
             if (a.kept_outcomes[i].probability > tolerance) {
                 return false;
             }
             ++i;
-        } else if (i == a.kept_outcomes.size() ||
-                   b.kept_outcomes[j].outcome < a.kept_outcomes[i].outcome) {
+        } else if (cmp > 0) {
             if (b.kept_outcomes[j].probability > tolerance) {
                 return false;
             }
@@ -534,28 +596,35 @@ inline void require_distributions_equal(const ExactPlanDistribution& a,
     for (uint32_t e = 0; e < a.num_exp_vals; ++e) {
         CAPTURE(e);
         REQUIRE_THAT(a.kept_exp_vals[e], Catch::Matchers::WithinAbs(b.kept_exp_vals[e], tolerance));
+        REQUIRE_THAT(a.unconditional_exp_vals[e],
+                     Catch::Matchers::WithinAbs(b.unconditional_exp_vals[e], tolerance));
     }
     size_t i = 0;
     size_t j = 0;
     while (i < a.kept_outcomes.size() || j < b.kept_outcomes.size()) {
-        if (j == b.kept_outcomes.size() ||
-            (i < a.kept_outcomes.size() &&
-             a.kept_outcomes[i].outcome < b.kept_outcomes[j].outcome)) {
+        const int cmp = (j == b.kept_outcomes.size()) ? -1
+                        : (i == a.kept_outcomes.size())
+                            ? 1
+                            : compare_outcomes(a.kept_outcomes[i].outcome,
+                                               b.kept_outcomes[j].outcome, tolerance);
+        if (cmp < 0) {
             CAPTURE(a.kept_outcomes[i].outcome.visible_records,
-                    a.kept_outcomes[i].outcome.detectors, a.kept_outcomes[i].outcome.observables);
+                    a.kept_outcomes[i].outcome.detectors, a.kept_outcomes[i].outcome.observables,
+                    a.kept_outcomes[i].outcome.exp_vals);
             REQUIRE_THAT(a.kept_outcomes[i].probability,
                          Catch::Matchers::WithinAbs(0.0, tolerance));
             ++i;
-        } else if (i == a.kept_outcomes.size() ||
-                   b.kept_outcomes[j].outcome < a.kept_outcomes[i].outcome) {
+        } else if (cmp > 0) {
             CAPTURE(b.kept_outcomes[j].outcome.visible_records,
-                    b.kept_outcomes[j].outcome.detectors, b.kept_outcomes[j].outcome.observables);
+                    b.kept_outcomes[j].outcome.detectors, b.kept_outcomes[j].outcome.observables,
+                    b.kept_outcomes[j].outcome.exp_vals);
             REQUIRE_THAT(0.0,
                          Catch::Matchers::WithinAbs(b.kept_outcomes[j].probability, tolerance));
             ++j;
         } else {
             CAPTURE(a.kept_outcomes[i].outcome.visible_records,
-                    a.kept_outcomes[i].outcome.detectors, a.kept_outcomes[i].outcome.observables);
+                    a.kept_outcomes[i].outcome.detectors, a.kept_outcomes[i].outcome.observables,
+                    a.kept_outcomes[i].outcome.exp_vals);
             REQUIRE_THAT(a.kept_outcomes[i].probability,
                          Catch::Matchers::WithinAbs(b.kept_outcomes[j].probability, tolerance));
             ++i;
@@ -806,8 +875,12 @@ inline ExactPlanDistribution evaluate_conditional_distribution(
             if ((det_bits & prepared.postselected_detector_mask) != 0) {
                 dist.discarded_probability += weight;
             } else {
-                dist.kept_outcomes.push_back(
-                    ExactOutcomeEntry{ExactShotOutcome{vis_bits, det_bits, obs_bits}, weight});
+                std::vector<double> shot_exp_vals(
+                    prepared.executor.exp_vals().begin(),
+                    prepared.executor.exp_vals().begin() + plan.num_exp_vals);
+                dist.kept_outcomes.push_back(ExactOutcomeEntry{
+                    ExactShotOutcome{vis_bits, det_bits, obs_bits, std::move(shot_exp_vals)},
+                    weight});
                 for (uint32_t e = 0; e < plan.num_exp_vals; ++e) {
                     dist.kept_exp_vals[e] += weight * prepared.executor.exp_vals()[e];
                 }

@@ -182,6 +182,17 @@ class TestDefaultOptimizerStatisticalEquivalence:
         cls._assert_joint_and_pairwise_match(base_result.measurements, opt_result.measurements)
         cls._assert_joint_and_pairwise_match(base_result.detectors, opt_result.detectors)
         cls._assert_joint_and_pairwise_match(base_result.observables, opt_result.observables)
+        # Place detectors and observables first so cross-correlations with
+        # measurements are always covered by the pairwise window even on
+        # wide measurement records, and small-width circuits check the full
+        # joint (detectors, observables, measurements) histogram.
+        base_combined = np.hstack(
+            [base_result.detectors, base_result.observables, base_result.measurements]
+        )
+        opt_combined = np.hstack(
+            [opt_result.detectors, opt_result.observables, opt_result.measurements]
+        )
+        cls._assert_joint_and_pairwise_match(base_combined, opt_combined)
 
     def test_joint_and_pairwise_checker_rejects_correlation_mismatch(self) -> None:
         """Negative control: two circuits with 0.5 column marginals but different correlations."""
@@ -194,6 +205,25 @@ class TestDefaultOptimizerStatisticalEquivalence:
         self._assert_marginals_match(corr_res.measurements, indep_res.measurements)
         with pytest.raises(AssertionError, match="Pairwise XOR"):
             self._assert_joint_and_pairwise_match(corr_res.measurements, indep_res.measurements)
+
+        # Cross-array negative control: each individual output array (measurements,
+        # detectors, observables) has identical distribution, but detector vs
+        # observable correlation differs when DETECTOR references rec[-2] vs rec[-1].
+        det_same = clifft.compile(
+            "H 0 1\nM 0 1\nDETECTOR rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]\n",
+            hir_passes=None,
+        )
+        det_wrong = clifft.compile(
+            "H 0 1\nM 0 1\nDETECTOR rec[-2]\nOBSERVABLE_INCLUDE(0) rec[-1]\n",
+            hir_passes=None,
+        )
+        same_res = clifft.sample(det_same, 4_000, seed=7)
+        wrong_res = clifft.sample(det_wrong, 4_000, seed=7)
+        self._assert_joint_and_pairwise_match(same_res.measurements, wrong_res.measurements)
+        self._assert_joint_and_pairwise_match(same_res.detectors, wrong_res.detectors)
+        self._assert_joint_and_pairwise_match(same_res.observables, wrong_res.observables)
+        with pytest.raises(AssertionError, match="Pairwise XOR"):
+            self._assert_sample_results_match(same_res, wrong_res)
 
     @pytest.mark.parametrize("seed", _SEEDS)
     @pytest.mark.parametrize("circuit_kind", ["star", "commutation", "uncomputation"])

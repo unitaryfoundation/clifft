@@ -172,6 +172,47 @@ TEST_CASE("Exact distribution checker detects a dropped logical noise prefix acr
     REQUIRE_FALSE(distributions_equal(dist_orig, dist_buggy));
 }
 
+TEST_CASE("Exact distribution checker detects illegal measurement movement across EXP_VAL",
+          "[pass_equivalence][optimizer]") {
+    // Before M 0, qubit 0 is in |+>, so EXP_VAL Z0 is deterministically 0 on
+    // both measurement branches. Moving M 0 ahead of EXP_VAL Z0 collapses the
+    // state first so EXP_VAL Z0 becomes +1 on m0=0 and -1 on m0=1. The kept
+    // average is 0 in both circuits, so only per-outcome EXP_VAL tracking
+    // catches the illegal reorder.
+    const HirModule probe_before_measure = parse_and_trace(
+        "H 0\n"
+        "EXP_VAL Z0\n"
+        "M 0\n");
+    const HirModule measure_before_probe = parse_and_trace(
+        "H 0\n"
+        "M 0\n"
+        "EXP_VAL Z0\n");
+
+    const ExactPlanDistribution dist_before = compute_exact_hir_distribution(probe_before_measure);
+    const ExactPlanDistribution dist_after = compute_exact_hir_distribution(measure_before_probe);
+
+    REQUIRE_THAT(dist_before.kept_exp_vals[0], Catch::Matchers::WithinAbs(0.0, 1e-12));
+    REQUIRE_THAT(dist_after.kept_exp_vals[0], Catch::Matchers::WithinAbs(0.0, 1e-12));
+    REQUIRE_FALSE(distributions_equal(dist_before, dist_after));
+
+    // Even when the collapsing operation is a hidden reset R 0 on an entangled
+    // partner (so no visible record bit distinguishes the two branches), the
+    // distinct per-trajectory EXP_VAL values (+1 and -1 vs 0) remain separated.
+    const HirModule probe_before_reset = parse_and_trace(
+        "H 0\n"
+        "CX 0 1\n"
+        "EXP_VAL Z1\n"
+        "R 0\n");
+    const HirModule reset_before_probe = parse_and_trace(
+        "H 0\n"
+        "CX 0 1\n"
+        "R 0\n"
+        "EXP_VAL Z1\n");
+
+    REQUIRE_FALSE(distributions_equal(compute_exact_hir_distribution(probe_before_reset),
+                                      compute_exact_hir_distribution(reset_before_probe)));
+}
+
 // =============================================================================
 // Planted-structure and boundary-hazard exact equivalence for individual passes
 // =============================================================================
