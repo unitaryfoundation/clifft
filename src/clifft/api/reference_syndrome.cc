@@ -20,12 +20,13 @@ ReferenceSyndrome compute_reference_syndrome(const HirModule& hir) {
     HirModule clean_hir = hir;
     clean_hir.postselection_mask.clear();
     clean_hir.expected_detectors.clear();
+    clean_hir.expected_observables.clear();
     RemoveNoisePass strip;
     strip.run(clean_hir);
     if ((had_noise || clean_hir.num_t_gates() > 64) && clean_hir.num_t_gates() > 0) {
         HirPassManager passes;
         passes.add_pass(std::make_unique<PeepholeFusionPass>());
-        passes.add_pass(std::make_unique<PhasePolynomialPass>(PhasePolynomialOptions{128}));
+        passes.add_pass(std::make_unique<PhasePolynomialPass>());
         passes.add_pass(std::make_unique<RotationSimplificationPass>());
         passes.add_pass(std::make_unique<StatevectorSqueezePass>());
         passes.run(clean_hir);

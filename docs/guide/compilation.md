@@ -157,6 +157,12 @@ clifft.default_hir_pass_manager().run(hir)
 program = clifft.lower(hir)
 ```
 
+When optimizing for survivor sampling or normalized syndromes, pass
+`postselection_mask`, `normalize_syndromes`, `expected_detectors`, or
+`expected_observables` to `clifft.trace()`. The resulting `HirModule` carries
+those settings through HIR optimization and into `clifft.lower(hir)`
+automatically.
+
 Internally, lowering first creates a semantic sampling plan that selects active
 coordinates and records expressions, rotations, measurements, width
 transitions, and outputs. Executable preparation then creates the immutable

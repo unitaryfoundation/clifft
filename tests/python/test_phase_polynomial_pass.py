@@ -640,3 +640,53 @@ def test_postselected_circuit_honors_explicit_max_variables_cap() -> None:
     clifft.compile(source, hir_passes=default_manager, postselection_mask=[1])
     assert default_phase.wide_rewrites == 1
     assert default_phase.output_t_count == 0
+
+
+def test_trace_and_lower_propagate_postselection_contract() -> None:
+    source = "\n".join(
+        [
+            "H 0 2",
+            "X 1",
+            "DEPOLARIZE1(0.05) 1",
+            "T 0",
+            "CX 1 0",
+            "T_DAG 0",
+            "CX 1 0",
+            "S_DAG 0",
+            "M 1",
+            "DETECTOR rec[-1]",
+            "MX 0 2",
+            "OBSERVABLE_INCLUDE(0) rec[-2] rec[-1]",
+        ]
+    )
+    hir = clifft.trace(
+        clifft.parse(source),
+        postselection_mask=[1],
+        normalize_syndromes=True,
+    )
+    assert hir.postselection_mask == [1]
+    assert hir.expected_detectors == [1]
+    assert hir.expected_observables == [0]
+
+    phase = clifft.PhasePolynomialPass()
+    _manager(phase).run(hir)
+    assert phase.applied
+    assert phase.output_t_count == 0
+
+    with pytest.raises(ValueError, match="postselection_mask omits detectors"):
+        clifft.lower(hir, postselection_mask=[])
+    with pytest.raises(ValueError, match="postselection_mask omits detectors"):
+        clifft.lower(hir, postselection_mask=[0])
+    with pytest.raises(ValueError, match="expected_detectors conflicts"):
+        clifft.lower(hir, expected_detectors=[0])
+
+    lowered = clifft.lower(hir)
+    compiled = clifft.compile(
+        source,
+        postselection_mask=[1],
+        normalize_syndromes=True,
+    )
+    low_survivors = clifft.sample_survivors(lowered, shots=2048, seed=904)
+    cmp_survivors = clifft.sample_survivors(compiled, shots=2048, seed=904)
+    assert low_survivors.passed_shots == cmp_survivors.passed_shots
+    np.testing.assert_array_equal(low_survivors.observables, cmp_survivors.observables)

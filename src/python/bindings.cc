@@ -171,10 +171,9 @@ clifft::HirModule prepare_circuit_for_lowering(const clifft::Circuit& circuit,
         expected_detectors = std::move(reference.detectors);
         expected_observables = std::move(reference.observables);
     }
-    if (has_postselection) {
-        hir.postselection_mask.assign(postselection_mask.begin(), postselection_mask.end());
-        hir.expected_detectors = expected_detectors;
-    }
+    hir.postselection_mask.assign(postselection_mask.begin(), postselection_mask.end());
+    hir.expected_detectors = expected_detectors;
+    hir.expected_observables = expected_observables;
     if (hir_passes != nullptr) {
         hir_passes->run(hir);
     }
@@ -182,6 +181,8 @@ clifft::HirModule prepare_circuit_for_lowering(const clifft::Circuit& circuit,
         auto reference = clifft::compute_reference_syndrome(hir);
         expected_detectors = std::move(reference.detectors);
         expected_observables = std::move(reference.observables);
+        hir.expected_detectors = expected_detectors;
+        hir.expected_observables = expected_observables;
     }
     return hir;
 }
@@ -764,6 +765,12 @@ NB_MODULE(_clifft_core, m) {
         .def_prop_ro("num_observables",
                      [](const clifft::HirModule& h) { return h.num_observables; })
         .def_prop_ro("num_exp_vals", [](const clifft::HirModule& h) { return h.num_exp_vals; })
+        .def_rw("postselection_mask", &clifft::HirModule::postselection_mask,
+                "Optional list of uint8 flags, one per detector, marking postselected detectors.")
+        .def_rw("expected_detectors", &clifft::HirModule::expected_detectors,
+                "Optional noiseless reference parities for detectors.")
+        .def_rw("expected_observables", &clifft::HirModule::expected_observables,
+                "Optional noiseless reference parities for observables.")
         .def_prop_ro(
             "source_map",
             [](const clifft::HirModule& h) {
@@ -832,14 +839,36 @@ NB_MODULE(_clifft_core, m) {
 
     m.def(
         "trace",
-        [](const clifft::Circuit& circuit) {
+        [](const clifft::Circuit& circuit, std::vector<uint8_t> postselection_mask,
+           std::vector<uint8_t> expected_detectors, std::vector<uint8_t> expected_observables,
+           bool normalize_syndromes) {
             nb::gil_scoped_release release;
-            return clifft::trace(circuit);
+            if (normalize_syndromes &&
+                (!expected_detectors.empty() || !expected_observables.empty())) {
+                throw std::invalid_argument(
+                    "Cannot provide expected parities when normalize_syndromes=True");
+            }
+            clifft::HirModule hir = clifft::trace(circuit);
+            if (normalize_syndromes) {
+                auto reference = clifft::compute_reference_syndrome(hir);
+                expected_detectors = std::move(reference.detectors);
+                expected_observables = std::move(reference.observables);
+            }
+            hir.postselection_mask = std::move(postselection_mask);
+            hir.expected_detectors = std::move(expected_detectors);
+            hir.expected_observables = std::move(expected_observables);
+            return hir;
         },
-        nb::arg("circuit"),
+        nb::arg("circuit"), nb::arg("postselection_mask") = std::vector<uint8_t>{},
+        nb::arg("expected_detectors") = std::vector<uint8_t>{},
+        nb::arg("expected_observables") = std::vector<uint8_t>{},
+        nb::arg("normalize_syndromes") = false,
         "Trace a parsed circuit through the Clifford front-end to produce the "
         "Heisenberg IR. Single-qubit rotations within 1e-12 half-turns of a "
-        "Clifford angle are canonicalized.");
+        "Clifford angle are canonicalized. Optional postselection_mask, "
+        "expected_detectors, expected_observables, and normalize_syndromes "
+        "settings are recorded on the returned HirModule for HIR optimization "
+        "passes and lower().");
 
     nb::class_<clifft::HirPass>(m, "HirPass", "Abstract base class for HIR optimization passes.");
 
@@ -1145,23 +1174,35 @@ NB_MODULE(_clifft_core, m) {
 
     m.def(
         "lower",
-        [](const clifft::HirModule& hir, std::vector<uint8_t> postselection_mask,
-           std::vector<uint8_t> expected_detectors, std::vector<uint8_t> expected_observables) {
+        [](const clifft::HirModule& hir, std::optional<std::vector<uint8_t>> postselection_mask,
+           std::optional<std::vector<uint8_t>> expected_detectors,
+           std::optional<std::vector<uint8_t>> expected_observables) {
             nb::gil_scoped_release release;
+            constexpr uint8_t kZeroFlag = 0;
+            auto to_span = [&](const std::optional<std::vector<uint8_t>>& opt) {
+                if (!opt.has_value()) {
+                    return std::span<const uint8_t>{};
+                }
+                if (opt->empty()) {
+                    return std::span<const uint8_t>(&kZeroFlag, 1);
+                }
+                return std::span<const uint8_t>(*opt);
+            };
             return clifft::sampling::ExecutablePlan(clifft::sampling::plan_sampling(
-                hir, {postselection_mask, expected_detectors, expected_observables}));
+                hir, {to_span(postselection_mask), to_span(expected_detectors),
+                      to_span(expected_observables)}));
         },
-        nb::arg("hir"), nb::arg("postselection_mask") = std::vector<uint8_t>{},
-        nb::arg("expected_detectors") = std::vector<uint8_t>{},
-        nb::arg("expected_observables") = std::vector<uint8_t>{},
+        nb::arg("hir"), nb::arg("postselection_mask") = nb::none(),
+        nb::arg("expected_detectors") = nb::none(), nb::arg("expected_observables") = nb::none(),
         "Lower a Heisenberg IR module to an executable sampling program.\n\n"
         "Args:\n"
         "    hir: The Heisenberg IR module to lower.\n"
         "    postselection_mask: Optional list of uint8 flags, one per detector.\n"
-        "        Detectors where mask[i] != 0 become post-selection checks\n"
-        "        that abort the shot early if their parity is non-zero.\n"
+        "        Defaults to hir.postselection_mask when None.\n"
         "    expected_detectors: Optional noiseless reference parities for detectors.\n"
-        "    expected_observables: Optional noiseless reference parities for observables.\n");
+        "        Defaults to hir.expected_detectors when None.\n"
+        "    expected_observables: Optional noiseless reference parities for observables.\n"
+        "        Defaults to hir.expected_observables when None.\n");
 
     m.def(
         "_prepare_hir_for_lowering",

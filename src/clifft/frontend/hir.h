@@ -466,10 +466,11 @@ struct HirModule {
     // noise clears this mapping; NOISE ops retain their relative order.
     std::vector<uint32_t> logical_noise_prefix;
 
-    // Optional detector postselection and reference-parity metadata for
-    // postselection-aware HIR optimization passes. Parallel to DETECTOR ops.
+    // Optional detector postselection and reference-parity metadata carried
+    // across HIR optimization and lowering.
     std::vector<uint8_t> postselection_mask;
     std::vector<uint8_t> expected_detectors;
+    std::vector<uint8_t> expected_observables;
 
     std::optional<Tableau> final_tableau;
 
