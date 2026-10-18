@@ -997,4 +997,374 @@ inline ExactEquivalenceStats check_exact_equivalent(
     return stats;
 }
 
+// ---------------------------------------------------------------------------
+// Planted-structure circuit scaffolds and boundary-hazard mutators
+// ---------------------------------------------------------------------------
+//
+// Uniform random circuits rarely trigger algebraic HIR passes or active-width
+// schedulers and quickly converge toward high-entropy distributions where subtle
+// sign or correlation bugs wash out. These generators instead plant specific
+// algebraic structures (commuting phase pairs, stabilizer-equivalent rotations,
+// classical-feedback steering, and multi-round syndrome checks) inside a
+// matched Clifford interferometer with deterministic noiseless check detectors,
+// then inject targeted boundary hazards (Pauli/correlated noise, readout noise,
+// resets, EXP_VAL barriers, and postselection).
+
+enum class PlantedScaffoldKind : uint8_t {
+    PhaseSandwich,
+    StabilizerReducedPhase,
+    FeedbackAndReset,
+    MultiRoundSchedule,
+};
+
+struct HazardConfig {
+    bool pauli_noise = false;
+    bool correlated_noise = false;
+    bool readout_noise = false;
+    bool resets = false;
+    bool exp_val = false;
+    bool postselect_check_detectors = false;
+};
+
+struct PlantedCircuit {
+    std::vector<std::string> lines;
+    // Indices of detectors that represent stabilizer parity checks (and are
+    // therefore suitable for postselection without rejecting the entire space).
+    std::vector<uint32_t> check_detectors;
+};
+
+inline PlantedCircuit generate_planted_scaffold(PlantedScaffoldKind kind,
+                                                clifft::Xoshiro256PlusPlus& rng,
+                                                uint32_t num_qubits = 4) {
+    assert(num_qubits >= 3 && "planted scaffolds require at least 3 qubits");
+    static const double kAngles[] = {0.125, 0.25, 0.375, 0.5};
+    PlantedCircuit out;
+
+    switch (kind) {
+        case PlantedScaffoldKind::PhaseSandwich: {
+            for (uint32_t q = 0; q < num_qubits; ++q) {
+                out.lines.push_back("H " + std::to_string(q));
+                if ((rng() & 1U) != 0) {
+                    out.lines.push_back("S " + std::to_string(q));
+                }
+            }
+            std::vector<std::pair<uint32_t, uint32_t>> cnot_ladder;
+            for (uint32_t step = 0; step < num_qubits; ++step) {
+                const uint32_t c = static_cast<uint32_t>(rng() % num_qubits);
+                const uint32_t t =
+                    (c + 1 + static_cast<uint32_t>(rng() % (num_qubits - 1))) % num_qubits;
+                cnot_ladder.emplace_back(c, t);
+                out.lines.push_back("CX " + std::to_string(c) + " " + std::to_string(t));
+            }
+
+            // Plant 3 commuting phase pairs separated by diagonal operations
+            // and optional X frame flips (which negate the Pauli rotation sign).
+            for (int pair = 0; pair < 3; ++pair) {
+                const uint32_t q = static_cast<uint32_t>(rng() % num_qubits);
+                const uint32_t other = (q + 1) % num_qubits;
+                const uint32_t mode = static_cast<uint32_t>(rng() % 4);
+                const bool negate_second = (rng() & 1U) != 0;
+
+                if (mode == 0) {
+                    out.lines.push_back("T " + std::to_string(q));
+                } else if (mode == 1) {
+                    out.lines.push_back("T_DAG " + std::to_string(q));
+                } else if (mode == 2) {
+                    out.lines.push_back("T " + std::to_string(q));
+                } else {
+                    const double alpha = kAngles[rng() % std::size(kAngles)];
+                    out.lines.push_back("R_Z(" + std::to_string(alpha) + ") " + std::to_string(q));
+                }
+
+                // Intervening commuting diagonal work on other qubits.
+                out.lines.push_back("CZ " + std::to_string(q) + " " + std::to_string(other));
+                out.lines.push_back((rng() & 1U) ? ("T " + std::to_string(other))
+                                                 : ("S " + std::to_string(other)));
+
+                if (negate_second) {
+                    out.lines.push_back("X " + std::to_string(q));
+                }
+                if (mode == 0) {
+                    out.lines.push_back("T " + std::to_string(q));
+                } else if (mode == 1) {
+                    out.lines.push_back("T_DAG " + std::to_string(q));
+                } else if (mode == 2) {
+                    out.lines.push_back("T_DAG " + std::to_string(q));
+                } else {
+                    const double alpha = kAngles[rng() % std::size(kAngles)];
+                    out.lines.push_back("R_Z(" + std::to_string(-alpha) + ") " + std::to_string(q));
+                }
+                if (negate_second) {
+                    out.lines.push_back("X " + std::to_string(q));
+                }
+            }
+
+            for (auto it = cnot_ladder.rbegin(); it != cnot_ladder.rend(); ++it) {
+                out.lines.push_back("CX " + std::to_string(it->first) + " " +
+                                    std::to_string(it->second));
+            }
+            for (uint32_t q = 0; q < num_qubits; ++q) {
+                out.lines.push_back("H " + std::to_string(q));
+                out.lines.push_back("M " + std::to_string(q));
+            }
+            out.lines.push_back("DETECTOR rec[-1] rec[-2]");
+            if (num_qubits >= 3) {
+                out.lines.push_back("DETECTOR rec[-2] rec[-3]");
+            }
+            out.lines.push_back("OBSERVABLE_INCLUDE(0) rec[-1] rec[-" + std::to_string(num_qubits) +
+                                "]");
+            break;
+        }
+
+        case PlantedScaffoldKind::StabilizerReducedPhase: {
+            // Prepare qubit 0 and 1 in a Bell state (+X0*X1, +Z0*Z1) and keep
+            // qubit 2 in |0> (+Z2), then verify the Z0*Z1 stabilizer check.
+            out.lines.push_back("H 0");
+            out.lines.push_back("CX 0 1");
+            out.lines.push_back("MPP Z0*Z1");
+            out.lines.push_back("DETECTOR rec[-1]");
+            out.check_detectors.push_back(0);
+
+            // Conjugate the stabilizers through a Clifford entangler.
+            out.lines.push_back("CX 1 2");
+            if (num_qubits >= 4) {
+                out.lines.push_back("H 3");
+                out.lines.push_back("CX 3 0");
+            }
+
+            // Plant both T/TPP pairs and arbitrary-angle rotations whose axes
+            // differ by the known stabilizers Z0*Z1 and Z2 so both
+            // PhasePolynomialPass and RotationSimplificationPass reduce them.
+            out.lines.push_back("T 0");
+            out.lines.push_back((rng() & 1U) ? "T_DAG 1" : "T 1");
+            out.lines.push_back("TPP Z0*Z2");
+            out.lines.push_back((rng() & 1U) ? "TPP_DAG Z1*Z2" : "TPP Z1*Z2");
+            out.lines.push_back("R_PAULI(0.25) Z0*Z1*Z2");
+            if (num_qubits >= 4) {
+                out.lines.push_back("R_Z(0.375) 3");
+                out.lines.push_back("R_PAULI(-0.375) Z0*Z1*Z3");
+            }
+
+            // Uncompute entangler and measure in interferometer basis.
+            if (num_qubits >= 4) {
+                out.lines.push_back("CX 3 0");
+                out.lines.push_back("H 3");
+            }
+            out.lines.push_back("CX 1 2");
+            out.lines.push_back("CX 0 1");
+            out.lines.push_back("H 0");
+            for (uint32_t q = 0; q < num_qubits; ++q) {
+                out.lines.push_back("M " + std::to_string(q));
+            }
+            out.lines.push_back("DETECTOR rec[-" + std::to_string(num_qubits) + "]");
+            out.lines.push_back("DETECTOR rec[-" + std::to_string(num_qubits - 1) + "]");
+            out.lines.push_back("OBSERVABLE_INCLUDE(0) rec[-1] rec[-" + std::to_string(num_qubits) +
+                                "]");
+            break;
+        }
+
+        case PlantedScaffoldKind::FeedbackAndReset: {
+            // Prepare entangled ancilla-data pairs, measure ancilla with MR/MX,
+            // steer data qubits via classical feedback, then apply phase gates
+            // that interact with the symbolic feedback frame and duplicate checks.
+            out.lines.push_back("H 0");
+            out.lines.push_back("CX 0 1");
+            out.lines.push_back("H 2");
+            out.lines.push_back("CZ 1 2");
+
+            out.lines.push_back("MR 0");
+            out.lines.push_back("CX rec[-1] 1");
+            // After MR 0 and CX rec[-1] 1, both qubit 0 and qubit 1 are in |0>.
+            out.lines.push_back("T 1");
+            out.lines.push_back("R_Z(0.25) 2");
+            out.lines.push_back("CX 2 0");
+            out.lines.push_back("T 0");
+            out.lines.push_back("T_DAG 2");
+            out.lines.push_back("CX 2 0");
+
+            // Extract duplicate parity check on ancilla 0.
+            out.lines.push_back("CX 1 0");
+            out.lines.push_back("M 0");
+            out.lines.push_back("DETECTOR rec[-1]");
+            out.check_detectors.push_back(0);
+
+            if ((rng() & 1U) != 0) {
+                out.lines.push_back("CZ rec[-1] 2");
+            } else {
+                out.lines.push_back("CX rec[-1] 2");
+            }
+
+            out.lines.push_back("H 2");
+            for (uint32_t q = 1; q < num_qubits; ++q) {
+                out.lines.push_back("M " + std::to_string(q));
+            }
+            out.lines.push_back("DETECTOR rec[-1] rec[-2]");
+            out.lines.push_back("OBSERVABLE_INCLUDE(0) rec[-1] rec[-2]");
+            break;
+        }
+
+        case PlantedScaffoldKind::MultiRoundSchedule: {
+            // Two-stage cultivation-style schedule on {0, 1} and {2, 3}:
+            //   1. Qubit 2 undergoes a non-Clifford rotation and ancilla parity
+            //      extraction onto qubit 3, but their measurements are placed at
+            //      the end of the circuit in program order so StatevectorSqueezePass
+            //      bubbles them earlier (reducing peak width from 3 to 2).
+            //   2. Qubits 0 and 1 start in |00> and execute R_PAULI X0*X1 followed
+            //      by R_PAULI Z0*Y1 and MPP Y0*Y1. Because MPP Y0*Y1 anticommutes
+            //      with Z0*Y1, StatevectorSqueezePass cannot move MPP Y0*Y1 past
+            //      Z0*Y1, whereas ActiveWidthSchedulePass swaps the two commuting
+            //      rotations so MPP Y0*Y1 collapses Z0*Y1 before X0*X1 executes
+            //      (reducing peak width further from 2 to 1).
+            const uint32_t anc = num_qubits > 3 ? 3 : 2;
+            out.lines.push_back("H 2");
+            out.lines.push_back("T 2");
+            if (anc != 2) {
+                out.lines.push_back("CX 2 " + std::to_string(anc));
+            }
+            out.lines.push_back("R_Z(0.25) 2");
+
+            out.lines.push_back("R_PAULI(0.25) X0*X1");
+            out.lines.push_back("R_PAULI(0.375) Z0*Y1");
+            out.lines.push_back("MPP Y0*Y1");
+            out.lines.push_back("MY 0");
+            out.lines.push_back("M 1");
+
+            out.lines.push_back("H 2");
+            out.lines.push_back("M 2");
+            if (anc != 2) {
+                out.lines.push_back("M " + std::to_string(anc));
+                out.lines.push_back("DETECTOR rec[-1]");
+                out.check_detectors.push_back(0);
+            }
+            out.lines.push_back("DETECTOR rec[-2] rec[-3]");
+            out.lines.push_back("OBSERVABLE_INCLUDE(0) rec[-1] rec[-2] rec[-4]");
+            break;
+        }
+    }
+
+    return out;
+}
+
+inline std::vector<std::string> inject_boundary_hazards(const PlantedCircuit& planted,
+                                                        const HazardConfig& config,
+                                                        clifft::Xoshiro256PlusPlus& rng,
+                                                        uint32_t num_qubits = 4) {
+    static const double kNoiseProbs[] = {0.05, 0.1, 0.2};
+    std::vector<std::string> mutated;
+    mutated.reserve(planted.lines.size() + 12);
+
+    uint32_t pauli_injected = 0;
+    uint32_t correlated_injected = 0;
+    uint32_t readout_injected = 0;
+    uint32_t reset_injected = 0;
+    uint32_t exp_val_injected = 0;
+
+    for (size_t i = 0; i < planted.lines.size(); ++i) {
+        std::string line = planted.lines[i];
+        const bool is_measure =
+            line.starts_with("M ") || line.starts_with("MX ") || line.starts_with("MR ");
+        const bool is_phase = line.starts_with("T ") || line.starts_with("T_DAG ") ||
+                              line.starts_with("R_Z(") || line.starts_with("R_PAULI(") ||
+                              line.starts_with("TPP");
+
+        if (config.pauli_noise && is_phase &&
+            (line.starts_with("R_PAULI(0.375)") || (pauli_injected < 2 && (rng() % 2 == 0)))) {
+            const double p = kNoiseProbs[rng() % std::size(kNoiseProbs)];
+            if (line.starts_with("R_PAULI(0.375)")) {
+                if ((rng() & 1U) == 0) {
+                    mutated.push_back("X_ERROR(" + std::to_string(p) + ") 0");
+                } else {
+                    mutated.push_back("Z_ERROR(" + std::to_string(p) + ") 1");
+                }
+            } else {
+                const uint32_t q = static_cast<uint32_t>(rng() % num_qubits);
+                const uint32_t kind = static_cast<uint32_t>(rng() % 3);
+                if (kind == 0) {
+                    mutated.push_back("X_ERROR(" + std::to_string(p) + ") " + std::to_string(q));
+                } else if (kind == 1) {
+                    mutated.push_back("Z_ERROR(" + std::to_string(p) + ") " + std::to_string(q));
+                } else {
+                    mutated.push_back("PAULI_CHANNEL_1(" + std::to_string(p) + ", 0, " +
+                                      std::to_string(p) + ") " + std::to_string(q));
+                }
+            }
+            ++pauli_injected;
+        }
+
+        if (config.correlated_noise && is_phase && correlated_injected < 1 && (rng() % 2 == 0)) {
+            const uint32_t q0 = static_cast<uint32_t>(rng() % num_qubits);
+            const uint32_t q1 = (q0 + 1) % num_qubits;
+            const double p = kNoiseProbs[rng() % std::size(kNoiseProbs)];
+            mutated.push_back("CORRELATED_ERROR(" + std::to_string(p) + ") X" + std::to_string(q0) +
+                              " Z" + std::to_string(q1));
+            mutated.push_back("ELSE_CORRELATED_ERROR(" + std::to_string(p) + ") Z" +
+                              std::to_string(q0) + " X" + std::to_string(q1));
+            ++correlated_injected;
+        }
+
+        if (config.exp_val && is_phase && exp_val_injected < 2 && (rng() % 2 == 0)) {
+            const uint32_t q0 = static_cast<uint32_t>(rng() % num_qubits);
+            const uint32_t q1 = (q0 + 1) % num_qubits;
+            if ((rng() & 1U) != 0) {
+                mutated.push_back("EXP_VAL Z" + std::to_string(q0));
+            } else {
+                mutated.push_back("EXP_VAL X" + std::to_string(q0) + "*Z" + std::to_string(q1));
+            }
+            ++exp_val_injected;
+        }
+
+        if (config.readout_noise && is_measure && readout_injected < 2) {
+            const double p = kNoiseProbs[rng() % std::size(kNoiseProbs)];
+            if ((rng() & 1U) != 0 && (line.starts_with("M ") || line.starts_with("MR "))) {
+                const size_t space = line.find(' ');
+                line = line.substr(0, space) + "(" + std::to_string(p) + ")" + line.substr(space);
+                mutated.push_back(line);
+            } else {
+                mutated.push_back(line);
+                const double p10 = kNoiseProbs[rng() % std::size(kNoiseProbs)];
+                mutated.push_back("READOUT_NOISE(" + std::to_string(p) + ", " +
+                                  std::to_string(p10) + ") rec[-1]");
+            }
+            ++readout_injected;
+            continue;
+        }
+
+        mutated.push_back(line);
+
+        if (config.resets && line.starts_with("M ") && reset_injected < 1 &&
+            i + 2 < planted.lines.size()) {
+            const std::string target = line.substr(2);
+            mutated.push_back("R " + target);
+            ++reset_injected;
+        }
+    }
+
+    // Guarantee that requested hazards were actually injected even if the random
+    // coin flips skipped earlier opportunities.
+    if (config.pauli_noise && pauli_injected == 0) {
+        mutated.insert(mutated.begin(), "X_ERROR(0.1) 0");
+    }
+    if (config.correlated_noise && correlated_injected == 0) {
+        mutated.insert(mutated.begin(), "ELSE_CORRELATED_ERROR(0.1) Z0 X1");
+        mutated.insert(mutated.begin(), "CORRELATED_ERROR(0.1) X0 Z1");
+    }
+    if (config.exp_val && exp_val_injected == 0) {
+        mutated.push_back("EXP_VAL Z0");
+    }
+    if (config.readout_noise && readout_injected == 0) {
+        for (size_t i = 0; i < mutated.size(); ++i) {
+            if (mutated[i].starts_with("M ") || mutated[i].starts_with("MR ")) {
+                mutated.insert(mutated.begin() + static_cast<std::ptrdiff_t>(i + 1),
+                               "READOUT_NOISE(0.1, 0.2) rec[-1]");
+                break;
+            }
+        }
+    }
+    if (config.resets && reset_injected == 0) {
+        mutated.insert(mutated.begin(), "R 0");
+    }
+
+    return mutated;
+}
+
 }  // namespace clifft::test
