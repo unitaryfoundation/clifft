@@ -1115,10 +1115,12 @@ inline PlantedCircuit generate_planted_scaffold(PlantedScaffoldKind kind,
 
     switch (kind) {
         case PlantedScaffoldKind::PhaseSandwich: {
+            std::vector<bool> has_s(num_qubits, false);
             for (uint32_t q = 0; q < num_qubits; ++q) {
                 out.lines.push_back("H " + std::to_string(q));
                 if ((rng() & 1U) != 0) {
                     out.lines.push_back("S " + std::to_string(q));
+                    has_s[q] = true;
                 }
             }
             std::vector<std::pair<uint32_t, uint32_t>> cnot_ladder;
@@ -1130,13 +1132,15 @@ inline PlantedCircuit generate_planted_scaffold(PlantedScaffoldKind kind,
                 out.lines.push_back("CX " + std::to_string(c) + " " + std::to_string(t));
             }
 
-            // Plant 3 commuting phase pairs separated by diagonal operations
-            // and optional X frame flips (which negate the Pauli rotation sign).
+            // Plant 3 commuting phase pairs separated by commuting diagonal
+            // operations on another qubit and optional X frame flips (which
+            // negate the Pauli rotation sign).
             for (int pair = 0; pair < 3; ++pair) {
                 const uint32_t q = static_cast<uint32_t>(rng() % num_qubits);
                 const uint32_t other = (q + 1) % num_qubits;
                 const uint32_t mode = static_cast<uint32_t>(rng() % 4);
                 const bool negate_second = (rng() & 1U) != 0;
+                const double alpha = kAngles[rng() % std::size(kAngles)];
 
                 if (mode == 0) {
                     out.lines.push_back("T " + std::to_string(q));
@@ -1145,14 +1149,13 @@ inline PlantedCircuit generate_planted_scaffold(PlantedScaffoldKind kind,
                 } else if (mode == 2) {
                     out.lines.push_back("T " + std::to_string(q));
                 } else {
-                    const double alpha = kAngles[rng() % std::size(kAngles)];
                     out.lines.push_back("R_Z(" + std::to_string(alpha) + ") " + std::to_string(q));
                 }
 
-                // Intervening commuting diagonal work on other qubits.
+                // Intervening commuting diagonal work on `other` so the two
+                // rotations on `q` are non-adjacent in HIR.
                 out.lines.push_back("CZ " + std::to_string(q) + " " + std::to_string(other));
-                out.lines.push_back((rng() & 1U) ? ("T " + std::to_string(other))
-                                                 : ("S " + std::to_string(other)));
+                out.lines.push_back("T " + std::to_string(other));
 
                 if (negate_second) {
                     out.lines.push_back("X " + std::to_string(q));
@@ -1164,12 +1167,16 @@ inline PlantedCircuit generate_planted_scaffold(PlantedScaffoldKind kind,
                 } else if (mode == 2) {
                     out.lines.push_back("T_DAG " + std::to_string(q));
                 } else {
-                    const double alpha = kAngles[rng() % std::size(kAngles)];
-                    out.lines.push_back("R_Z(" + std::to_string(-alpha) + ") " + std::to_string(q));
+                    const double second_alpha = negate_second ? alpha : -alpha;
+                    out.lines.push_back("R_Z(" + std::to_string(second_alpha) + ") " +
+                                        std::to_string(q));
                 }
                 if (negate_second) {
                     out.lines.push_back("X " + std::to_string(q));
                 }
+
+                out.lines.push_back("T_DAG " + std::to_string(other));
+                out.lines.push_back("CZ " + std::to_string(q) + " " + std::to_string(other));
             }
 
             for (auto it = cnot_ladder.rbegin(); it != cnot_ladder.rend(); ++it) {
@@ -1177,6 +1184,9 @@ inline PlantedCircuit generate_planted_scaffold(PlantedScaffoldKind kind,
                                     std::to_string(it->second));
             }
             for (uint32_t q = 0; q < num_qubits; ++q) {
+                if (has_s[q]) {
+                    out.lines.push_back("S_DAG " + std::to_string(q));
+                }
                 out.lines.push_back("H " + std::to_string(q));
                 out.lines.push_back("M " + std::to_string(q));
             }
@@ -1249,10 +1259,11 @@ inline PlantedCircuit generate_planted_scaffold(PlantedScaffoldKind kind,
             out.lines.push_back("CX rec[-1] 1");
             // After MR 0 and CX rec[-1] 1, both qubit 0 and qubit 1 are in |0>.
             out.lines.push_back("T 1");
-            out.lines.push_back("R_Z(0.25) 2");
             out.lines.push_back("CX 2 0");
             out.lines.push_back("T 0");
+            out.lines.push_back("R_Z(0.25) 0");
             out.lines.push_back("T_DAG 2");
+            out.lines.push_back("R_Z(-0.25) 2");
             out.lines.push_back("CX 2 0");
 
             // Extract duplicate parity check on ancilla 0.
@@ -1279,9 +1290,10 @@ inline PlantedCircuit generate_planted_scaffold(PlantedScaffoldKind kind,
         case PlantedScaffoldKind::MultiRoundSchedule: {
             // Two-stage cultivation-style schedule on {0, 1} and {2, 3}:
             //   1. Qubit 2 undergoes a non-Clifford rotation and ancilla parity
-            //      extraction onto qubit 3, but their measurements are placed at
-            //      the end of the circuit in program order so StatevectorSqueezePass
-            //      bubbles them earlier (reducing peak width from 3 to 2).
+            //      extraction onto qubit 3, but their uncomputation and
+            //      measurements are placed at the end of the circuit in program
+            //      order so StatevectorSqueezePass bubbles them earlier
+            //      (reducing peak width from 3 to 2).
             //   2. Qubits 0 and 1 start in |00> and execute R_PAULI X0*X1 followed
             //      by R_PAULI Z0*Y1 and MPP Y0*Y1. Because MPP Y0*Y1 anticommutes
             //      with Z0*Y1, StatevectorSqueezePass cannot move MPP Y0*Y1 past
@@ -1302,6 +1314,9 @@ inline PlantedCircuit generate_planted_scaffold(PlantedScaffoldKind kind,
             out.lines.push_back("MY 0");
             out.lines.push_back("M 1");
 
+            if (anc != 2) {
+                out.lines.push_back("CX 2 " + std::to_string(anc));
+            }
             out.lines.push_back("H 2");
             out.lines.push_back("M 2");
             if (anc != 2) {
