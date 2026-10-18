@@ -12,6 +12,7 @@
 #include "clifft/sampling/planner.h"
 #include "clifft/util/xoshiro.h"
 
+#include "dense_circuit_oracle.h"
 #include "sampling_equivalence_helpers.h"
 
 #include <catch2/catch_test_macros.hpp>
@@ -61,6 +62,96 @@ OwnedPlanOptions build_plan_options(const HirModule& hir, const PlantedCircuit& 
 }
 
 }  // namespace
+
+// =============================================================================
+// Analytic calibration of the dense Schrodinger oracle and HIR evaluator
+// =============================================================================
+
+TEST_CASE("Dense Schrodinger oracle and HIR evaluator match closed form analytic probabilities",
+          "[pass_equivalence][optimizer]") {
+    SECTION("entangled Bell-pair reset marginalizes hidden record and resets only target qubit") {
+        const std::string source =
+            "H 0\n"
+            "CX 0 1\n"
+            "R 0\n"
+            "CX 1 0\n"
+            "M 0 1\n";
+        const Circuit circuit = clifft::parse(source);
+        const HirModule hir = clifft::trace(circuit);
+
+        const ExactPlanDistribution dense = compute_dense_circuit_distribution(circuit);
+        const ExactPlanDistribution exact = compute_exact_hir_distribution(hir);
+        require_distributions_equal(dense, exact);
+
+        REQUIRE(exact.kept_outcomes.size() == 2);
+        REQUIRE(exact.kept_outcomes[0].outcome.visible_records == 0b00);
+        REQUIRE_THAT(exact.kept_outcomes[0].probability, Catch::Matchers::WithinAbs(0.5, 1e-12));
+        REQUIRE(exact.kept_outcomes[1].outcome.visible_records == 0b11);
+        REQUIRE_THAT(exact.kept_outcomes[1].probability, Catch::Matchers::WithinAbs(0.5, 1e-12));
+    }
+
+    SECTION("repeated asymmetric readout noise composes before classical feedback") {
+        // Qubit 0 is prepared in |1>. M(0.1) flips 1->0 with prob 0.1 (leaving
+        // 0 w.p. 0.1, 1 w.p. 0.9). READOUT_NOISE(0.25, 0.4) then flips 0->1 w.p.
+        // 0.25 and 1->0 w.p. 0.4, so final rec[0] is:
+        //   P(rec[0] = 0) = 0.1 * 0.75 + 0.9 * 0.40 = 0.435
+        //   P(rec[0] = 1) = 0.1 * 0.25 + 0.9 * 0.60 = 0.565
+        // CX rec[-1] 1 copies rec[0] onto qubit 1, so only (00) and (11) occur.
+        const std::string source =
+            "X 0\n"
+            "M(0.1) 0\n"
+            "READOUT_NOISE(0.25, 0.4) rec[-1]\n"
+            "CX rec[-1] 1\n"
+            "M 1\n"
+            "DETECTOR rec[-1] rec[-2]\n";
+        const Circuit circuit = clifft::parse(source);
+        const HirModule hir = clifft::trace(circuit);
+
+        const ExactPlanDistribution dense = compute_dense_circuit_distribution(circuit);
+        const ExactPlanDistribution exact = compute_exact_hir_distribution(hir);
+        require_distributions_equal(dense, exact);
+
+        REQUIRE(exact.kept_outcomes.size() == 2);
+        REQUIRE(exact.kept_outcomes[0].outcome.visible_records == 0b00);
+        REQUIRE(exact.kept_outcomes[0].outcome.detectors == 0);
+        REQUIRE_THAT(exact.kept_outcomes[0].probability, Catch::Matchers::WithinAbs(0.435, 1e-12));
+        REQUIRE(exact.kept_outcomes[1].outcome.visible_records == 0b11);
+        REQUIRE(exact.kept_outcomes[1].outcome.detectors == 0);
+        REQUIRE_THAT(exact.kept_outcomes[1].probability, Catch::Matchers::WithinAbs(0.565, 1e-12));
+    }
+
+    SECTION("mid-circuit postselection preserves suffix interferometer and EXP_VAL weights") {
+        const std::string source =
+            "H 0\n"
+            "X_ERROR(0.2) 1\n"
+            "M 1\n"
+            "DETECTOR rec[-1]\n"
+            "T 0\n"
+            "T 0\n"
+            "S_DAG 0\n"
+            "H 0\n"
+            "EXP_VAL Z0\n"
+            "M 0\n";
+        const Circuit circuit = clifft::parse(source);
+        const HirModule hir = clifft::trace(circuit);
+        const uint8_t postselect[] = {1};
+        const clifft::sampling::SamplingPlanOptions options{
+            .postselection_mask = postselect,
+        };
+
+        const ExactPlanDistribution dense = compute_dense_circuit_distribution(circuit, options);
+        const ExactPlanDistribution exact = compute_exact_hir_distribution(hir, options);
+        require_distributions_equal(dense, exact);
+
+        REQUIRE_THAT(exact.discarded_probability, Catch::Matchers::WithinAbs(0.2, 1e-12));
+        REQUIRE_THAT(exact.kept_exp_vals[0], Catch::Matchers::WithinAbs(0.8, 1e-12));
+        REQUIRE(exact.kept_outcomes.size() == 1);
+        REQUIRE(exact.kept_outcomes[0].outcome.visible_records == 0b00);
+        REQUIRE_THAT(exact.kept_outcomes[0].probability, Catch::Matchers::WithinAbs(0.8, 1e-12));
+        REQUIRE_THAT(exact.kept_outcomes[0].outcome.exp_vals[0],
+                     Catch::Matchers::WithinAbs(1.0, 1e-12));
+    }
+}
 
 // =============================================================================
 // Negative and mutation controls
