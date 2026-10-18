@@ -599,10 +599,10 @@ TEST_CASE(
             clifft::test::generate_noisy_source(circuit_rng, num_qubits, num_ops);
         const HirModule original = clifft::trace(clifft::parse(source));
         CAPTURE(trial, num_qubits, num_ops, source);
-        // Bound the exponential record enumeration. The exact checker also
-        // requires no hidden measurements or readout noise.
-        if (original.num_measurements > 8 || original.num_hidden_measurements > 0 ||
-            !original.readout_noise.empty()) {
+        // Bound exponential record and readout-flip enumeration.
+        if (original.num_measurements + original.num_hidden_measurements +
+                original.readout_noise.size() >
+            8) {
             ++skipped;
             continue;
         }

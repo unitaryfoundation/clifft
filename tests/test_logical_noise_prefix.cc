@@ -532,14 +532,11 @@ TEST_CASE(
         const std::string source = generate_noisy_source(circuit_rng, num_qubits, num_ops);
         const HirModule original = clifft::trace(clifft::parse(source));
         CAPTURE(trial, num_qubits, num_ops, source);
-        // A high measurement count makes the exact check's per-record
-        // enumeration (2^num_visible_records replays per realization)
-        // expensive; that cost buys nothing this test needs, so skip it. A
-        // plain R or a noisy measurement disqualifies a trial outright: the
-        // former lowers to a hidden measurement and the latter to a
-        // READOUT_NOISE action, and check_exact_equivalent requires neither.
-        if (original.num_measurements > 8 || original.num_hidden_measurements > 0 ||
-            !original.readout_noise.empty()) {
+        // A high total of measurements, hidden resets, and readout-noise flips
+        // makes exhaustive branch enumeration expensive; bound the exponent.
+        if (original.num_measurements + original.num_hidden_measurements +
+                original.readout_noise.size() >
+            8) {
             ++skipped;
             continue;
         }
