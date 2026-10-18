@@ -461,8 +461,7 @@ struct ExactPlanDistribution {
     size_t reachable_trajectories = 0;
 };
 
-inline int compare_outcomes(const ExactShotOutcome& a, const ExactShotOutcome& b,
-                            double exp_val_tolerance = 1e-9) {
+inline int compare_classical_outcomes(const ExactShotOutcome& a, const ExactShotOutcome& b) {
     if (a.visible_records != b.visible_records) {
         return a.visible_records < b.visible_records ? -1 : 1;
     }
@@ -472,25 +471,31 @@ inline int compare_outcomes(const ExactShotOutcome& a, const ExactShotOutcome& b
     if (a.observables != b.observables) {
         return a.observables < b.observables ? -1 : 1;
     }
-    if (a.exp_vals.size() != b.exp_vals.size()) {
-        return a.exp_vals.size() < b.exp_vals.size() ? -1 : 1;
+    return 0;
+}
+
+inline bool exp_vals_within_tolerance(std::span<const double> a, std::span<const double> b,
+                                      double tolerance = 1e-9) {
+    if (a.size() != b.size()) {
+        return false;
     }
-    for (size_t i = 0; i < a.exp_vals.size(); ++i) {
-        if (std::abs(a.exp_vals[i] - b.exp_vals[i]) > exp_val_tolerance) {
-            return a.exp_vals[i] < b.exp_vals[i] ? -1 : 1;
+    for (size_t i = 0; i < a.size(); ++i) {
+        if (std::abs(a[i] - b[i]) > tolerance) {
+            return false;
         }
     }
-    return 0;
+    return true;
 }
 
 inline void canonicalize_outcome_entries(std::vector<ExactOutcomeEntry>& entries,
                                          double exp_val_tolerance = 1e-9) {
-    std::ranges::sort(entries, [](const ExactOutcomeEntry& a, const ExactOutcomeEntry& b) {
+    auto strict_less = [](const ExactOutcomeEntry& a, const ExactOutcomeEntry& b) {
         return std::tie(a.outcome.visible_records, a.outcome.detectors, a.outcome.observables,
                         a.outcome.exp_vals) < std::tie(b.outcome.visible_records,
                                                        b.outcome.detectors, b.outcome.observables,
                                                        b.outcome.exp_vals);
-    });
+    };
+    std::ranges::sort(entries, strict_less);
 
     std::vector<ExactOutcomeEntry> merged;
     merged.reserve(entries.size());
@@ -498,9 +503,7 @@ inline void canonicalize_outcome_entries(std::vector<ExactOutcomeEntry>& entries
     for (size_t i = 0; i < entries.size();) {
         size_t block_end = i + 1;
         while (block_end < entries.size() &&
-               entries[block_end].outcome.visible_records == entries[i].outcome.visible_records &&
-               entries[block_end].outcome.detectors == entries[i].outcome.detectors &&
-               entries[block_end].outcome.observables == entries[i].outcome.observables) {
+               compare_classical_outcomes(entries[block_end].outcome, entries[i].outcome) == 0) {
             ++block_end;
         }
 
@@ -511,8 +514,8 @@ inline void canonicalize_outcome_entries(std::vector<ExactOutcomeEntry>& entries
             }
             bool found = false;
             for (size_t k = cluster_start; k < merged.size(); ++k) {
-                if (compare_outcomes(merged[k].outcome, entries[j].outcome, exp_val_tolerance) ==
-                    0) {
+                if (exp_vals_within_tolerance(merged[k].outcome.exp_vals,
+                                              entries[j].outcome.exp_vals, exp_val_tolerance)) {
                     const double new_prob = merged[k].probability + entries[j].probability;
                     for (size_t e = 0; e < merged[k].outcome.exp_vals.size(); ++e) {
                         merged[k].outcome.exp_vals[e] =
@@ -531,13 +534,89 @@ inline void canonicalize_outcome_entries(std::vector<ExactOutcomeEntry>& entries
         }
 
         std::sort(merged.begin() + static_cast<std::ptrdiff_t>(cluster_start), merged.end(),
-                  [exp_val_tolerance](const ExactOutcomeEntry& a, const ExactOutcomeEntry& b) {
-                      return compare_outcomes(a.outcome, b.outcome, exp_val_tolerance) < 0;
-                  });
+                  strict_less);
         i = block_end;
     }
 
     entries = std::move(merged);
+}
+
+// Order-independent comparison of probe-outcome slices sharing the same
+// classical outcome `(visible_records, detectors, observables)`. Groups entries
+// in `slice_a U slice_b` whose probe vectors are within `tolerance` in L_inf
+// norm and verifies that each group has matching probability mass and matching
+// weighted probe values in `slice_a` and `slice_b`.
+inline bool classical_outcome_slices_equal(std::span<const ExactOutcomeEntry> slice_a,
+                                           std::span<const ExactOutcomeEntry> slice_b,
+                                           uint32_t num_exp_vals, double tolerance = 1e-9) {
+    const size_t na = slice_a.size();
+    const size_t nb = slice_b.size();
+    const size_t total = na + nb;
+    if (total == 0) {
+        return true;
+    }
+
+    auto entry_at = [&](size_t idx) -> const ExactOutcomeEntry& {
+        return idx < na ? slice_a[idx] : slice_b[idx - na];
+    };
+
+    std::vector<uint8_t> visited(total, 0);
+    std::vector<size_t> queue;
+    queue.reserve(total);
+
+    for (size_t start = 0; start < total; ++start) {
+        if (visited[start] != 0) {
+            continue;
+        }
+        visited[start] = 1;
+        queue.clear();
+        queue.push_back(start);
+
+        for (size_t head = 0; head < queue.size(); ++head) {
+            const size_t u = queue[head];
+            const auto& u_exp = entry_at(u).outcome.exp_vals;
+            for (size_t v = 0; v < total; ++v) {
+                if (visited[v] == 0 &&
+                    exp_vals_within_tolerance(u_exp, entry_at(v).outcome.exp_vals, tolerance)) {
+                    visited[v] = 1;
+                    queue.push_back(v);
+                }
+            }
+        }
+
+        double prob_a = 0.0;
+        double prob_b = 0.0;
+        std::vector<double> weighted_a(num_exp_vals, 0.0);
+        std::vector<double> weighted_b(num_exp_vals, 0.0);
+
+        for (size_t idx : queue) {
+            const ExactOutcomeEntry& entry = entry_at(idx);
+            if (idx < na) {
+                prob_a += entry.probability;
+                for (uint32_t e = 0; e < num_exp_vals; ++e) {
+                    weighted_a[e] += entry.probability * entry.outcome.exp_vals[e];
+                }
+            } else {
+                prob_b += entry.probability;
+                for (uint32_t e = 0; e < num_exp_vals; ++e) {
+                    weighted_b[e] += entry.probability * entry.outcome.exp_vals[e];
+                }
+            }
+        }
+
+        if (std::abs(prob_a - prob_b) > tolerance) {
+            return false;
+        }
+        if (prob_a > tolerance && prob_b > tolerance) {
+            for (uint32_t e = 0; e < num_exp_vals; ++e) {
+                if (std::abs(weighted_a[e] / prob_a - weighted_b[e] / prob_b) > tolerance) {
+                    return false;
+                }
+            }
+        }
+    }
+
+    return true;
 }
 
 inline bool distributions_equal(const ExactPlanDistribution& a, const ExactPlanDistribution& b,
@@ -550,8 +629,7 @@ inline bool distributions_equal(const ExactPlanDistribution& a, const ExactPlanD
         return false;
     }
     for (uint32_t e = 0; e < a.num_exp_vals; ++e) {
-        if (std::abs(a.kept_exp_vals[e] - b.kept_exp_vals[e]) > tolerance ||
-            std::abs(a.unconditional_exp_vals[e] - b.unconditional_exp_vals[e]) > tolerance) {
+        if (std::abs(a.kept_exp_vals[e] - b.kept_exp_vals[e]) > tolerance) {
             return false;
         }
     }
@@ -561,25 +639,55 @@ inline bool distributions_equal(const ExactPlanDistribution& a, const ExactPlanD
         const int cmp = (j == b.kept_outcomes.size()) ? -1
                         : (i == a.kept_outcomes.size())
                             ? 1
-                            : compare_outcomes(a.kept_outcomes[i].outcome,
-                                               b.kept_outcomes[j].outcome, tolerance);
+                            : compare_classical_outcomes(a.kept_outcomes[i].outcome,
+                                                         b.kept_outcomes[j].outcome);
         if (cmp < 0) {
-            if (a.kept_outcomes[i].probability > tolerance) {
+            size_t i_end = i + 1;
+            while (i_end < a.kept_outcomes.size() &&
+                   compare_classical_outcomes(a.kept_outcomes[i_end].outcome,
+                                              a.kept_outcomes[i].outcome) == 0) {
+                ++i_end;
+            }
+            if (!classical_outcome_slices_equal(
+                    std::span<const ExactOutcomeEntry>(a.kept_outcomes).subspan(i, i_end - i), {},
+                    a.num_exp_vals, tolerance)) {
                 return false;
             }
-            ++i;
+            i = i_end;
         } else if (cmp > 0) {
-            if (b.kept_outcomes[j].probability > tolerance) {
+            size_t j_end = j + 1;
+            while (j_end < b.kept_outcomes.size() &&
+                   compare_classical_outcomes(b.kept_outcomes[j_end].outcome,
+                                              b.kept_outcomes[j].outcome) == 0) {
+                ++j_end;
+            }
+            if (!classical_outcome_slices_equal(
+                    {}, std::span<const ExactOutcomeEntry>(b.kept_outcomes).subspan(j, j_end - j),
+                    a.num_exp_vals, tolerance)) {
                 return false;
             }
-            ++j;
+            j = j_end;
         } else {
-            if (std::abs(a.kept_outcomes[i].probability - b.kept_outcomes[j].probability) >
-                tolerance) {
+            size_t i_end = i + 1;
+            while (i_end < a.kept_outcomes.size() &&
+                   compare_classical_outcomes(a.kept_outcomes[i_end].outcome,
+                                              a.kept_outcomes[i].outcome) == 0) {
+                ++i_end;
+            }
+            size_t j_end = j + 1;
+            while (j_end < b.kept_outcomes.size() &&
+                   compare_classical_outcomes(b.kept_outcomes[j_end].outcome,
+                                              b.kept_outcomes[j].outcome) == 0) {
+                ++j_end;
+            }
+            if (!classical_outcome_slices_equal(
+                    std::span<const ExactOutcomeEntry>(a.kept_outcomes).subspan(i, i_end - i),
+                    std::span<const ExactOutcomeEntry>(b.kept_outcomes).subspan(j, j_end - j),
+                    a.num_exp_vals, tolerance)) {
                 return false;
             }
-            ++i;
-            ++j;
+            i = i_end;
+            j = j_end;
         }
     }
     return true;
@@ -596,41 +704,8 @@ inline void require_distributions_equal(const ExactPlanDistribution& a,
     for (uint32_t e = 0; e < a.num_exp_vals; ++e) {
         CAPTURE(e);
         REQUIRE_THAT(a.kept_exp_vals[e], Catch::Matchers::WithinAbs(b.kept_exp_vals[e], tolerance));
-        REQUIRE_THAT(a.unconditional_exp_vals[e],
-                     Catch::Matchers::WithinAbs(b.unconditional_exp_vals[e], tolerance));
     }
-    size_t i = 0;
-    size_t j = 0;
-    while (i < a.kept_outcomes.size() || j < b.kept_outcomes.size()) {
-        const int cmp = (j == b.kept_outcomes.size()) ? -1
-                        : (i == a.kept_outcomes.size())
-                            ? 1
-                            : compare_outcomes(a.kept_outcomes[i].outcome,
-                                               b.kept_outcomes[j].outcome, tolerance);
-        if (cmp < 0) {
-            CAPTURE(a.kept_outcomes[i].outcome.visible_records,
-                    a.kept_outcomes[i].outcome.detectors, a.kept_outcomes[i].outcome.observables,
-                    a.kept_outcomes[i].outcome.exp_vals);
-            REQUIRE_THAT(a.kept_outcomes[i].probability,
-                         Catch::Matchers::WithinAbs(0.0, tolerance));
-            ++i;
-        } else if (cmp > 0) {
-            CAPTURE(b.kept_outcomes[j].outcome.visible_records,
-                    b.kept_outcomes[j].outcome.detectors, b.kept_outcomes[j].outcome.observables,
-                    b.kept_outcomes[j].outcome.exp_vals);
-            REQUIRE_THAT(0.0,
-                         Catch::Matchers::WithinAbs(b.kept_outcomes[j].probability, tolerance));
-            ++j;
-        } else {
-            CAPTURE(a.kept_outcomes[i].outcome.visible_records,
-                    a.kept_outcomes[i].outcome.detectors, a.kept_outcomes[i].outcome.observables,
-                    a.kept_outcomes[i].outcome.exp_vals);
-            REQUIRE_THAT(a.kept_outcomes[i].probability,
-                         Catch::Matchers::WithinAbs(b.kept_outcomes[j].probability, tolerance));
-            ++i;
-            ++j;
-        }
-    }
+    REQUIRE(distributions_equal(a, b, tolerance));
 }
 
 // Rewrites a SamplingPlan into a replayable form where:

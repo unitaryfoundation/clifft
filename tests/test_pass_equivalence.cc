@@ -408,6 +408,71 @@ TEST_CASE("Exact distribution checker detects record reset readout and postselec
     }
 }
 
+TEST_CASE("Exact distribution checker handles near-tie probe vectors and postselected probes",
+          "[pass_equivalence][optimizer]") {
+    SECTION("order-independent probe matching across tolerance boundary") {
+        // Coordinate 0 differs by 0.75e-9 (<= 1e-9) in dist_a and by 1.25e-9
+        // (> 1e-9) in dist_b, while corresponding entries between dist_a and
+        // dist_b differ by at most 0.5e-9. Comparison within the shared
+        // classical-outcome group must not depend on tolerant sort order.
+        ExactPlanDistribution dist_a;
+        dist_a.num_visible_records = 1;
+        dist_a.num_exp_vals = 2;
+        dist_a.kept_exp_vals = {0.375e-9, 0.0};
+        dist_a.kept_outcomes = {
+            ExactOutcomeEntry{ExactShotOutcome{0, 0, 0, {0.0, 1.0}}, 0.5},
+            ExactOutcomeEntry{ExactShotOutcome{0, 0, 0, {0.75e-9, -1.0}}, 0.5},
+        };
+        canonicalize_outcome_entries(dist_a.kept_outcomes);
+
+        ExactPlanDistribution dist_b;
+        dist_b.num_visible_records = 1;
+        dist_b.num_exp_vals = 2;
+        dist_b.kept_exp_vals = {0.625e-9, 0.0};
+        dist_b.kept_outcomes = {
+            ExactOutcomeEntry{ExactShotOutcome{0, 0, 0, {0.0, 1.0}}, 0.5},
+            ExactOutcomeEntry{ExactShotOutcome{0, 0, 0, {1.25e-9, -1.0}}, 0.5},
+        };
+        canonicalize_outcome_entries(dist_b.kept_outcomes);
+
+        require_distributions_equal(dist_a, dist_b);
+    }
+
+    SECTION("postselection ignores unobservable EXP_VAL differences on rejected shots") {
+        // When DETECTOR rec[-1] is postselected to 0, only the m0=0 survivor
+        // (where qubit 0 is already in |0>) is observable. Inserting R 0 before
+        // EXP_VAL Z0 changes the rejected m0=1 branch from -1 to +1 without
+        // affecting any surviving trajectory.
+        const Circuit without_reset = clifft::parse(
+            "H 0\n"
+            "M 0\n"
+            "DETECTOR rec[-1]\n"
+            "EXP_VAL Z0\n");
+        const Circuit with_reset = clifft::parse(
+            "H 0\n"
+            "M 0\n"
+            "DETECTOR rec[-1]\n"
+            "R 0\n"
+            "EXP_VAL Z0\n");
+        const HirModule hir_without_reset = clifft::trace(without_reset);
+        const HirModule hir_with_reset = clifft::trace(with_reset);
+
+        const uint8_t postselected_mask[] = {1};
+        const clifft::sampling::SamplingPlanOptions postselected{
+            .postselection_mask = postselected_mask,
+        };
+        require_distributions_equal(compute_exact_hir_distribution(hir_without_reset, postselected),
+                                    compute_exact_hir_distribution(hir_with_reset, postselected));
+        require_distributions_equal(compute_dense_circuit_distribution(without_reset, postselected),
+                                    compute_dense_circuit_distribution(with_reset, postselected));
+
+        // Without postselection, the m0=1 branch is kept and the two circuits
+        // must be distinguished.
+        REQUIRE_FALSE(distributions_equal(compute_exact_hir_distribution(hir_without_reset),
+                                          compute_exact_hir_distribution(hir_with_reset)));
+    }
+}
+
 // =============================================================================
 // Paired positive + boundary-hazard barrier verification
 // =============================================================================
