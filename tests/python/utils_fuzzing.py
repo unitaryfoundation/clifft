@@ -305,3 +305,195 @@ def generate_uncomputation_ladder(
     lines.append(f"M {all_qubits}")
 
     return "\n".join(lines)
+
+
+def generate_planted_hazard_circuit(kind: str, seed: int) -> str:
+    """Generate a planted algebraic scaffold with boundary hazards.
+
+    Unlike uniform random Clifford+T circuits, which rarely trigger algebraic
+    identities, these scaffolds plant exact phase cancellations, stabilizer-
+    reduced CNOT+phase blocks, mid-circuit reset/feedback chains, and multi-
+    round commuting rotation schedules inside a Clifford interferometer, then
+    inject Pauli noise, correlated errors, readout noise, resets, detectors,
+    and observables around the reducible region.
+
+    Args:
+        kind: One of "phase_sandwich", "stabilizer_reduced", "feedback_reset",
+            or "multi_round_schedule".
+        seed: PRNG seed for reproducibility.
+
+    Returns:
+        Circuit string in .stim format.
+    """
+    rng = np.random.default_rng(seed)
+    probs = [0.03, 0.06, 0.1]
+    p_pauli = float(rng.choice(probs))
+    p_readout = float(rng.choice(probs))
+    p_corr = float(rng.choice(probs))
+
+    if kind == "phase_sandwich":
+        middle_choices = [
+            ["T 0", "T 0", "S_DAG 0", "T 1", "T_DAG 1"],
+            ["R_Z(0.125) 0", "R_Z(0.375) 0", "S_DAG 0", "R_Z(0.25) 2", "R_Z(-0.25) 2"],
+            ["TPP Z0*Z1", "TPP Z0*Z1", "R_PAULI(-0.5) Z0*Z1", "T 2", "T_DAG 2"],
+        ]
+        middle = middle_choices[int(rng.integers(0, len(middle_choices)))]
+        lines = [
+            "H 0 1 2",
+            "CX 0 1",
+            "CX 1 2",
+            f"X_ERROR({p_pauli}) 0",
+            "CX 0 1",
+            "H 2",
+            "CX 1 2",
+            *middle,
+            f"CORRELATED_ERROR({p_corr}) X0 Z1",
+            f"ELSE_CORRELATED_ERROR({p_corr}) Z1 X2",
+            "CX 1 2",
+            "H 2",
+            "CX 0 1",
+            "CX 1 2",
+            "CX 0 1",
+            "H 0 1 2",
+            f"M({p_readout}) 0",
+            "M 1 2 3",
+            "DETECTOR rec[-4] rec[-3]",
+            "DETECTOR rec[-2] rec[-1]",
+            "OBSERVABLE_INCLUDE(0) rec[-4] rec[-2]",
+        ]
+        return "\n".join(lines)
+
+    if kind == "stabilizer_reduced":
+        # Qubits 2 and 3 remain in |00> across the CNOT+T gadget, so z_0 ^ z_2
+        # and z_1 ^ z_3 collapse to single-qubit phases on qubits 0 and 1.
+        lines = [
+            "H 0 1",
+            f"Z_ERROR({p_pauli}) 0",
+            "CX 0 2",
+            "T 2",
+            "CX 0 2",
+            "T 0",
+            "S_DAG 0",
+            "CX 1 3",
+            "T 3",
+            "CX 1 3",
+            "T_DAG 1",
+            f"PAULI_CHANNEL_1({p_pauli}, 0, {p_pauli}) 1",
+            "CX 0 1",
+            "T 1",
+            "CX 0 1",
+            "T_DAG 1",
+            "CX 0 1",
+            "H 0 1",
+            f"M({p_readout}) 0",
+            "M 1 2 3",
+            f"READOUT_NOISE({p_readout}, {p_pauli}) rec[-3]",
+            "DETECTOR rec[-2]",
+            "DETECTOR rec[-1]",
+            "OBSERVABLE_INCLUDE(0) rec[-4] rec[-3]",
+        ]
+        return "\n".join(lines)
+
+    if kind == "feedback_reset":
+        fb_gate = "CZ" if rng.random() < 0.5 else "CX"
+        lines = [
+            "H 0",
+            "CX 0 1",
+            "H 2",
+            "CZ 1 2",
+            f"MR({p_readout}) 0",
+            "CX rec[-1] 1",
+            f"X_ERROR({p_pauli}) 1",
+            "T 1",
+            "R_Z(0.25) 2",
+            "CX 2 0",
+            "T 0",
+            "T_DAG 2",
+            "CX 2 0",
+            "CX 1 0",
+            "M 0",
+            f"READOUT_NOISE({p_readout}, {p_pauli}) rec[-1]",
+            "DETECTOR rec[-1]",
+            f"{fb_gate} rec[-1] 2",
+            "R 0",
+            "H 2",
+            "M 1 2 3",
+            "DETECTOR rec[-3] rec[-2]",
+            "OBSERVABLE_INCLUDE(0) rec[-3] rec[-2]",
+        ]
+        return "\n".join(lines)
+
+    if kind == "multi_round_schedule":
+        lines = [
+            "H 2",
+            "T 2",
+            "CX 2 3",
+            "R_Z(0.25) 2",
+            "R_PAULI(0.25) X0*X1",
+            f"X_ERROR({p_pauli}) 0",
+            "R_PAULI(0.375) Z0*Y1",
+            "MPP Y0*Y1",
+            "MY 0",
+            f"M({p_readout}) 1",
+            "H 2",
+            "M 2 3",
+            "DETECTOR rec[-1]",
+            "DETECTOR rec[-3] rec[-4]",
+            "OBSERVABLE_INCLUDE(0) rec[-2] rec[-3] rec[-5]",
+        ]
+        return "\n".join(lines)
+
+    raise ValueError(f"Unknown planted hazard circuit kind: {kind!r}")
+
+
+def generate_planted_unitary_circuit(kind: str, seed: int) -> str:
+    """Generate a noiseless planted unitary scaffold for Qiskit Aer validation."""
+    rng = np.random.default_rng(seed)
+
+    if kind == "phase_sandwich":
+        middle_choices = [
+            ["T 0", "T 0", "S_DAG 0", "T 1", "T_DAG 1"],
+            ["R_Z(0.125) 0", "R_Z(0.375) 0", "S_DAG 0", "R_Z(0.25) 2", "R_Z(-0.25) 2"],
+            ["R_PAULI(0.25) Z0*Z1", "R_PAULI(0.25) Z0*Z1", "R_PAULI(-0.5) Z0*Z1", "T 2", "T_DAG 2"],
+        ]
+        middle = middle_choices[int(rng.integers(0, len(middle_choices)))]
+        lines = [
+            "H 0 1 2",
+            "CX 0 1",
+            "CX 1 2",
+            "CX 0 1",
+            "H 2",
+            "CX 1 2",
+            *middle,
+            "CX 1 2",
+            "H 2",
+            "CX 0 1",
+            "CX 1 2",
+            "CX 0 1",
+            "H 0 1 2",
+        ]
+        return "\n".join(lines)
+
+    if kind == "stabilizer_reduced":
+        alpha = float(rng.choice([0.125, 0.25, 0.375]))
+        lines = [
+            "H 0 1",
+            "CX 0 2",
+            "T 2",
+            "CX 0 2",
+            "T 0",
+            "S_DAG 0",
+            "CX 1 3",
+            f"R_Z({alpha}) 3",
+            "CX 1 3",
+            f"R_Z({-alpha}) 1",
+            "CX 0 1",
+            "T 1",
+            "CX 0 1",
+            "T_DAG 1",
+            "CX 0 1",
+            "H 0 1",
+        ]
+        return "\n".join(lines)
+
+    raise ValueError(f"Unknown planted unitary circuit kind: {kind!r}")
