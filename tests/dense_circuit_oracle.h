@@ -626,9 +626,7 @@ inline ExactPlanDistribution compute_dense_circuit_distribution(
     dist.num_detectors = circuit.num_detectors;
     dist.num_observables = circuit.num_observables;
     dist.num_exp_vals = circuit.num_exp_vals;
-    dist.unconditional_exp_vals.assign(circuit.num_exp_vals, 0.0);
     dist.kept_exp_vals.assign(circuit.num_exp_vals, 0.0);
-    dist.reachable_trajectories = active.size();
 
     uint64_t postselected_mask = 0;
     for (size_t d = 0; d < options.postselection_mask.size() && d < circuit.num_detectors; ++d) {
@@ -654,10 +652,6 @@ inline ExactPlanDistribution compute_dense_circuit_distribution(
                                     ? static_cast<uint8_t>(options.expected_observables[o] & 1U)
                                     : 0U;
             obs_bits |= static_cast<uint64_t>((br.observables[o] ^ ref) & 1U) << o;
-        }
-
-        for (uint32_t e = 0; e < circuit.num_exp_vals; ++e) {
-            dist.unconditional_exp_vals[e] += br.probability * br.exp_vals[e];
         }
 
         if ((det_bits & postselected_mask) != 0) {

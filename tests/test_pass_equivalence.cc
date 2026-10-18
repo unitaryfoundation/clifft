@@ -5,6 +5,7 @@
 #include "clifft/optimizer/active_width_schedule_pass.h"
 #include "clifft/optimizer/hir_pass_manager.h"
 #include "clifft/optimizer/pass_factory.h"
+#include "clifft/optimizer/pass_registry.h"
 #include "clifft/optimizer/peephole.h"
 #include "clifft/optimizer/phase_polynomial_pass.h"
 #include "clifft/optimizer/rotation_simplification_pass.h"
@@ -75,9 +76,9 @@ double max_visible_record_probability(const ExactPlanDistribution& dist) {
 void assert_noiseless_scaffold_polarization(const ExactPlanDistribution& dist,
                                             const PlantedCircuit& planted) {
     // A uniform distribution over m >= 3 visible records has max probability
-    // 2^-m <= 0.125. Our interferometer scaffolds concentrate probability mass
-    // onto at most 4 outcomes (max probability >= 0.25 >= 2 * 2^-m), ensuring
-    // passes are not tested on maximally mixed distributions.
+    // 2^-m <= 0.125. Our interferometer scaffolds keep the modal visible record
+    // probability at or above 2 * 2^-m so passes are not tested on flat,
+    // maximally mixed output distributions.
     REQUIRE(dist.num_visible_records >= 3);
     const double uniform_prob = 1.0 / static_cast<double>(1ULL << dist.num_visible_records);
     REQUIRE(max_visible_record_probability(dist) >= 2.0 * uniform_prob - 1e-9);
@@ -493,9 +494,9 @@ TEST_CASE("Paired scaffolds verify rewrites fire when legal and stop at boundary
         HirModule legal_hir = clifft::trace(legal_circuit);
         PeepholeFusionPass legal_pass;
         legal_pass.run(legal_hir);
-        REQUIRE(legal_pass.fusions() == 1);
         require_distributions_equal(compute_dense_circuit_distribution(legal_circuit),
                                     compute_exact_hir_distribution(legal_hir));
+        REQUIRE(legal_pass.fusions() == 1);
 
         const std::string probe_barrier_source =
             "H 0\n"
@@ -508,9 +509,9 @@ TEST_CASE("Paired scaffolds verify rewrites fire when legal and stop at boundary
         HirModule probe_hir = clifft::trace(probe_circuit);
         PeepholeFusionPass probe_pass;
         probe_pass.run(probe_hir);
-        REQUIRE(probe_pass.fusions() == 0);
         require_distributions_equal(compute_dense_circuit_distribution(probe_circuit),
                                     compute_exact_hir_distribution(probe_hir));
+        REQUIRE(probe_pass.fusions() == 0);
 
         const std::string reset_barrier_source =
             "H 0\n"
@@ -524,9 +525,9 @@ TEST_CASE("Paired scaffolds verify rewrites fire when legal and stop at boundary
         HirModule reset_hir = clifft::trace(reset_circuit);
         PeepholeFusionPass reset_pass;
         reset_pass.run(reset_hir);
-        REQUIRE(reset_pass.fusions() == 0);
         require_distributions_equal(compute_dense_circuit_distribution(reset_circuit),
                                     compute_exact_hir_distribution(reset_hir));
+        REQUIRE(reset_pass.fusions() == 0);
     }
 
     SECTION(
@@ -546,9 +547,9 @@ TEST_CASE("Paired scaffolds verify rewrites fire when legal and stop at boundary
         HirModule legal_hir = clifft::trace(legal_circuit);
         RotationSimplificationPass legal_pass;
         legal_pass.run(legal_hir);
-        REQUIRE(legal_pass.rotations_removed() == 2);
         require_distributions_equal(compute_dense_circuit_distribution(legal_circuit),
                                     compute_exact_hir_distribution(legal_hir));
+        REQUIRE(legal_pass.rotations_removed() == 2);
 
         // Preparing qubit 1 in |+> via RX 1 invalidates the Z1 = +1 stabilizer
         // assumption, so the two rotations must not cancel.
@@ -565,9 +566,9 @@ TEST_CASE("Paired scaffolds verify rewrites fire when legal and stop at boundary
         HirModule rx_hir = clifft::trace(rx_circuit);
         RotationSimplificationPass rx_pass;
         rx_pass.run(rx_hir);
-        REQUIRE(rx_pass.rotations_removed() == 0);
         require_distributions_equal(compute_dense_circuit_distribution(rx_circuit),
                                     compute_exact_hir_distribution(rx_hir));
+        REQUIRE(rx_pass.rotations_removed() == 0);
 
         // Injecting X_ERROR(0.2) 1 before the gadget also invalidates the static
         // Z1 = +1 stabilizer assumption across trajectories.
@@ -584,9 +585,9 @@ TEST_CASE("Paired scaffolds verify rewrites fire when legal and stop at boundary
         HirModule noise_hir = clifft::trace(noise_circuit);
         RotationSimplificationPass noise_pass;
         noise_pass.run(noise_hir);
-        REQUIRE(noise_pass.rotations_removed() == 0);
         require_distributions_equal(compute_dense_circuit_distribution(noise_circuit),
                                     compute_exact_hir_distribution(noise_hir));
+        REQUIRE(noise_pass.rotations_removed() == 0);
     }
 
     SECTION("StatevectorSqueezePass bubbles independent measurement but stops at EXP_VAL barrier") {
@@ -604,10 +605,10 @@ TEST_CASE("Paired scaffolds verify rewrites fire when legal and stop at boundary
         HirModule legal_squeezed = legal_orig;
         StatevectorSqueezePass squeeze;
         squeeze.run(legal_squeezed);
-        REQUIRE(clifft::sampling::plan_sampling(legal_orig).peak_active_width == 2);
-        REQUIRE(clifft::sampling::plan_sampling(legal_squeezed).peak_active_width == 1);
         require_distributions_equal(compute_dense_circuit_distribution(legal_circuit),
                                     compute_exact_hir_distribution(legal_squeezed));
+        REQUIRE(clifft::sampling::plan_sampling(legal_orig).peak_active_width == 2);
+        REQUIRE(clifft::sampling::plan_sampling(legal_squeezed).peak_active_width == 1);
 
         const std::string barrier_source =
             "H 0\n"
@@ -622,15 +623,36 @@ TEST_CASE("Paired scaffolds verify rewrites fire when legal and stop at boundary
         const Circuit barrier_circuit = clifft::parse(barrier_source);
         HirModule barrier_squeezed = clifft::trace(barrier_circuit);
         squeeze.run(barrier_squeezed);
-        REQUIRE(clifft::sampling::plan_sampling(barrier_squeezed).peak_active_width == 2);
         require_distributions_equal(compute_dense_circuit_distribution(barrier_circuit),
                                     compute_exact_hir_distribution(barrier_squeezed));
+        REQUIRE(clifft::sampling::plan_sampling(barrier_squeezed).peak_active_width == 2);
     }
 }
 
 // =============================================================================
 // Planted-structure and boundary-hazard exact equivalence for individual passes
 // =============================================================================
+
+namespace {
+
+void assert_requested_hazards_present(const PlantedCircuit& planted, const HazardConfig& hazards,
+                                      const HirModule& hir) {
+    REQUIRE(!planted.hazard_slots.empty());
+    if (hazards.pauli_noise || hazards.correlated_noise) {
+        REQUIRE(!hir.noise_sites.empty());
+    }
+    if (hazards.readout_noise) {
+        REQUIRE(!hir.readout_noise.empty());
+    }
+    if (hazards.resets) {
+        REQUIRE(hir.num_hidden_measurements > 0);
+    }
+    if (hazards.exp_val) {
+        REQUIRE(hir.num_exp_vals > 0);
+    }
+}
+
+}  // namespace
 
 TEST_CASE("PeepholeFusionPass preserves exact distributions across planted scaffolds and hazards",
           "[pass_equivalence][optimizer]") {
@@ -662,6 +684,7 @@ TEST_CASE("PeepholeFusionPass preserves exact distributions across planted scaff
 
                 const Circuit circuit = clifft::parse(source);
                 const HirModule original = clifft::trace(circuit);
+                assert_requested_hazards_present(planted, hazards, original);
                 HirModule optimized = original;
                 PeepholeFusionPass pass;
                 pass.run(optimized);
@@ -720,6 +743,7 @@ TEST_CASE("PhasePolynomialPass preserves exact distributions across planted scaf
 
                 const Circuit circuit = clifft::parse(source);
                 const HirModule original = clifft::trace(circuit);
+                assert_requested_hazards_present(planted, hazards, original);
                 HirModule optimized = original;
                 PhasePolynomialPass pass;
                 pass.run(optimized);
@@ -783,6 +807,7 @@ TEST_CASE(
 
                 const Circuit circuit = clifft::parse(source);
                 const HirModule original = clifft::trace(circuit);
+                assert_requested_hazards_present(planted, hazards, original);
                 HirModule optimized = original;
                 RotationSimplificationPass pass;
                 pass.run(optimized);
@@ -846,6 +871,7 @@ TEST_CASE("Squeeze and schedule passes preserve exact distributions across hazar
 
                 const Circuit circuit = clifft::parse(source);
                 const HirModule original = clifft::trace(circuit);
+                assert_requested_hazards_present(planted, hazards, original);
                 const OwnedPlanOptions owned =
                     build_plan_options(original, planted, hazards.postselect_check_detectors);
                 const auto options = owned.as_span_options();
@@ -925,6 +951,7 @@ TEST_CASE(
 
                 const Circuit circuit = clifft::parse(source);
                 const HirModule original = clifft::trace(circuit);
+                assert_requested_hazards_present(planted, hazards, original);
                 const OwnedPlanOptions owned =
                     build_plan_options(original, planted, hazards.postselect_check_detectors);
                 const auto options = owned.as_span_options();
@@ -939,49 +966,24 @@ TEST_CASE(
                 const uint32_t base_peak =
                     clifft::sampling::plan_sampling(original, options).peak_active_width;
 
-                // Step-by-step pass bisection: verify against the independent
-                // dense Schrodinger oracle after each individual pass so any
-                // divergence is immediately localized to the offending pass.
+                // Step-by-step pass bisection across the registered default HIR
+                // pipeline plus ActiveWidthSchedulePass: verify against the
+                // independent dense Schrodinger oracle after each individual
+                // pass so any divergence is immediately localized.
                 HirModule staged = original;
-                {
-                    PeepholeFusionPass p1;
-                    p1.run(staged);
-                    CAPTURE("after PeepholeFusionPass (stage 1)");
+                for (const auto& info : kRegisteredPasses) {
+                    if (!info.default_enabled) {
+                        continue;
+                    }
+                    info.make()->run(staged);
+                    CAPTURE(info.name);
                     require_distributions_equal(dense_dist,
                                                 compute_exact_hir_distribution(staged, options));
                 }
                 {
-                    PhasePolynomialPass p2;
-                    p2.run(staged);
-                    CAPTURE("after PhasePolynomialPass");
-                    require_distributions_equal(dense_dist,
-                                                compute_exact_hir_distribution(staged, options));
-                }
-                {
-                    RotationSimplificationPass p3;
-                    p3.run(staged);
-                    CAPTURE("after RotationSimplificationPass");
-                    require_distributions_equal(dense_dist,
-                                                compute_exact_hir_distribution(staged, options));
-                }
-                {
-                    PeepholeFusionPass p4;
-                    p4.run(staged);
-                    CAPTURE("after PeepholeFusionPass (stage 2)");
-                    require_distributions_equal(dense_dist,
-                                                compute_exact_hir_distribution(staged, options));
-                }
-                {
-                    StatevectorSqueezePass p5;
-                    p5.run(staged);
-                    CAPTURE("after StatevectorSqueezePass");
-                    require_distributions_equal(dense_dist,
-                                                compute_exact_hir_distribution(staged, options));
-                }
-                {
-                    ActiveWidthSchedulePass p6;
-                    p6.run(staged);
-                    CAPTURE("after ActiveWidthSchedulePass");
+                    ActiveWidthSchedulePass scheduler;
+                    scheduler.run(staged);
+                    CAPTURE("active_width_schedule");
                     require_distributions_equal(dense_dist,
                                                 compute_exact_hir_distribution(staged, options));
                 }

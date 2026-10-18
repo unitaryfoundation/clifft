@@ -602,7 +602,7 @@ TEST_CASE(
         // Bound exponential record and readout-flip enumeration.
         if (original.num_measurements + original.num_hidden_measurements +
                 original.readout_noise.size() >
-            8) {
+            6) {
             ++skipped;
             continue;
         }

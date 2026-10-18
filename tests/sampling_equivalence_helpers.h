@@ -456,9 +456,7 @@ struct ExactPlanDistribution {
     uint32_t num_exp_vals = 0;
     double discarded_probability = 0.0;
     std::vector<ExactOutcomeEntry> kept_outcomes;
-    std::vector<double> unconditional_exp_vals;
     std::vector<double> kept_exp_vals;
-    size_t reachable_trajectories = 0;
 };
 
 inline int compare_classical_outcomes(const ExactShotOutcome& a, const ExactShotOutcome& b) {
@@ -548,7 +546,8 @@ inline void canonicalize_outcome_entries(std::vector<ExactOutcomeEntry>& entries
 // weighted probe values in `slice_a` and `slice_b`.
 inline bool classical_outcome_slices_equal(std::span<const ExactOutcomeEntry> slice_a,
                                            std::span<const ExactOutcomeEntry> slice_b,
-                                           uint32_t num_exp_vals, double tolerance = 1e-9) {
+                                           uint32_t num_exp_vals, double tolerance = 1e-9,
+                                           std::string* mismatch_detail = nullptr) {
     const size_t na = slice_a.size();
     const size_t nb = slice_b.size();
     const size_t total = na + nb;
@@ -559,6 +558,7 @@ inline bool classical_outcome_slices_equal(std::span<const ExactOutcomeEntry> sl
     auto entry_at = [&](size_t idx) -> const ExactOutcomeEntry& {
         return idx < na ? slice_a[idx] : slice_b[idx - na];
     };
+    const ExactShotOutcome& ref_outcome = entry_at(0).outcome;
 
     std::vector<uint8_t> visited(total, 0);
     std::vector<size_t> queue;
@@ -605,11 +605,30 @@ inline bool classical_outcome_slices_equal(std::span<const ExactOutcomeEntry> sl
         }
 
         if (std::abs(prob_a - prob_b) > tolerance) {
+            if (mismatch_detail != nullptr) {
+                *mismatch_detail =
+                    "outcome(records=" + std::to_string(ref_outcome.visible_records) +
+                    " detectors=" + std::to_string(ref_outcome.detectors) +
+                    " observables=" + std::to_string(ref_outcome.observables) +
+                    ") cluster probability mismatch: prob_a=" + std::to_string(prob_a) +
+                    " vs prob_b=" + std::to_string(prob_b);
+            }
             return false;
         }
         if (prob_a > tolerance && prob_b > tolerance) {
             for (uint32_t e = 0; e < num_exp_vals; ++e) {
-                if (std::abs(weighted_a[e] / prob_a - weighted_b[e] / prob_b) > tolerance) {
+                const double mean_a = weighted_a[e] / prob_a;
+                const double mean_b = weighted_b[e] / prob_b;
+                if (std::abs(mean_a - mean_b) > tolerance) {
+                    if (mismatch_detail != nullptr) {
+                        *mismatch_detail =
+                            "outcome(records=" + std::to_string(ref_outcome.visible_records) +
+                            " detectors=" + std::to_string(ref_outcome.detectors) +
+                            " observables=" + std::to_string(ref_outcome.observables) +
+                            ") exp_val[" + std::to_string(e) +
+                            "] mismatch: mean_a=" + std::to_string(mean_a) +
+                            " vs mean_b=" + std::to_string(mean_b);
+                    }
                     return false;
                 }
             }
@@ -620,7 +639,7 @@ inline bool classical_outcome_slices_equal(std::span<const ExactOutcomeEntry> sl
 }
 
 inline bool distributions_equal(const ExactPlanDistribution& a, const ExactPlanDistribution& b,
-                                double tolerance = 1e-9) {
+                                double tolerance = 1e-9, std::string* mismatch_detail = nullptr) {
     if (a.num_visible_records != b.num_visible_records || a.num_detectors != b.num_detectors ||
         a.num_observables != b.num_observables || a.num_exp_vals != b.num_exp_vals) {
         return false;
@@ -650,7 +669,7 @@ inline bool distributions_equal(const ExactPlanDistribution& a, const ExactPlanD
             }
             if (!classical_outcome_slices_equal(
                     std::span<const ExactOutcomeEntry>(a.kept_outcomes).subspan(i, i_end - i), {},
-                    a.num_exp_vals, tolerance)) {
+                    a.num_exp_vals, tolerance, mismatch_detail)) {
                 return false;
             }
             i = i_end;
@@ -663,7 +682,7 @@ inline bool distributions_equal(const ExactPlanDistribution& a, const ExactPlanD
             }
             if (!classical_outcome_slices_equal(
                     {}, std::span<const ExactOutcomeEntry>(b.kept_outcomes).subspan(j, j_end - j),
-                    a.num_exp_vals, tolerance)) {
+                    a.num_exp_vals, tolerance, mismatch_detail)) {
                 return false;
             }
             j = j_end;
@@ -683,7 +702,7 @@ inline bool distributions_equal(const ExactPlanDistribution& a, const ExactPlanD
             if (!classical_outcome_slices_equal(
                     std::span<const ExactOutcomeEntry>(a.kept_outcomes).subspan(i, i_end - i),
                     std::span<const ExactOutcomeEntry>(b.kept_outcomes).subspan(j, j_end - j),
-                    a.num_exp_vals, tolerance)) {
+                    a.num_exp_vals, tolerance, mismatch_detail)) {
                 return false;
             }
             i = i_end;
@@ -705,7 +724,10 @@ inline void require_distributions_equal(const ExactPlanDistribution& a,
         CAPTURE(e);
         REQUIRE_THAT(a.kept_exp_vals[e], Catch::Matchers::WithinAbs(b.kept_exp_vals[e], tolerance));
     }
-    REQUIRE(distributions_equal(a, b, tolerance));
+    std::string mismatch_detail;
+    const bool matched = distributions_equal(a, b, tolerance, &mismatch_detail);
+    INFO(mismatch_detail);
+    REQUIRE(matched);
 }
 
 // Rewrites a SamplingPlan into a replayable form where:
@@ -864,7 +886,6 @@ inline ExactPlanDistribution evaluate_conditional_distribution(
     dist.num_detectors = plan.num_detectors;
     dist.num_observables = plan.num_observables;
     dist.num_exp_vals = plan.num_exp_vals;
-    dist.unconditional_exp_vals.assign(plan.num_exp_vals, 0.0);
     dist.kept_exp_vals.assign(plan.num_exp_vals, 0.0);
 
     const size_t num_raw_patterns = size_t{1} << total_records;
@@ -913,7 +934,6 @@ inline ExactPlanDistribution evaluate_conditional_distribution(
                 continue;
             }
 
-            ++dist.reachable_trajectories;
             total_probability += weight;
 
             uint64_t vis_bits = 0;
@@ -941,10 +961,6 @@ inline ExactPlanDistribution evaluate_conditional_distribution(
                     static_cast<uint8_t>(
                         std::popcount(prepared.observable_flip_mask[o] & rho_bits) & 1);
                 obs_bits |= static_cast<uint64_t>(bit) << o;
-            }
-
-            for (uint32_t e = 0; e < plan.num_exp_vals; ++e) {
-                dist.unconditional_exp_vals[e] += weight * prepared.executor.exp_vals()[e];
             }
 
             if ((det_bits & prepared.postselected_detector_mask) != 0) {
@@ -987,7 +1003,6 @@ inline ExactPlanDistribution compute_exact_plan_distribution(
     total.num_detectors = plan.num_detectors;
     total.num_observables = plan.num_observables;
     total.num_exp_vals = plan.num_exp_vals;
-    total.unconditional_exp_vals.assign(plan.num_exp_vals, 0.0);
     total.kept_exp_vals.assign(plan.num_exp_vals, 0.0);
 
     std::vector<size_t> digit(num_sites, 0);
@@ -1011,10 +1026,8 @@ inline ExactPlanDistribution compute_exact_plan_distribution(
         if (noise_weight > 0.0) {
             const ExactPlanDistribution cond =
                 evaluate_conditional_distribution(prepared, realization);
-            total.reachable_trajectories += cond.reachable_trajectories;
             total.discarded_probability += noise_weight * cond.discarded_probability;
             for (uint32_t e = 0; e < plan.num_exp_vals; ++e) {
-                total.unconditional_exp_vals[e] += noise_weight * cond.unconditional_exp_vals[e];
                 total.kept_exp_vals[e] += noise_weight * cond.kept_exp_vals[e];
             }
             for (const ExactOutcomeEntry& entry : cond.kept_outcomes) {
@@ -1041,27 +1054,13 @@ inline ExactPlanDistribution compute_exact_hir_distribution(
     return compute_exact_plan_distribution(clifft::sampling::plan_sampling(hir, options));
 }
 
-inline void check_unconditional_exact_equivalent(
-    const HirModule& original, const HirModule& optimized,
-    const clifft::sampling::SamplingPlanOptions& options = {}, double tolerance = 1e-9) {
-    const ExactPlanDistribution dist_a = compute_exact_hir_distribution(original, options);
-    const ExactPlanDistribution dist_b = compute_exact_hir_distribution(optimized, options);
-    require_distributions_equal(dist_a, dist_b, tolerance);
-}
-
-struct ExactEquivalenceStats {
-    size_t realizations = 0;
-    size_t records = 0;
-    size_t reachable = 0;
-};
-
 // Compare full visible record probabilities, reachability, detectors,
 // observables, postselection, and expectation values for the same fixed
 // quantum noise outcomes. Supports hidden reset records and readout noise by
 // marginalizing over hidden records and readout flips within each realization.
-inline ExactEquivalenceStats check_exact_equivalent(
-    const HirModule& original, const HirModule& reordered, clifft::Xoshiro256PlusPlus& rng,
-    size_t max_realizations = 16, const clifft::sampling::SamplingPlanOptions& options = {}) {
+inline void check_exact_equivalent(const HirModule& original, const HirModule& reordered,
+                                   clifft::Xoshiro256PlusPlus& rng, size_t max_realizations = 16,
+                                   const clifft::sampling::SamplingPlanOptions& options = {}) {
     const clifft::sampling::SamplingPlan plan_a =
         clifft::sampling::plan_sampling(original, options);
     const clifft::sampling::SamplingPlan plan_b =
@@ -1089,19 +1088,13 @@ inline ExactEquivalenceStats check_exact_equivalent(
     PreparedReplayPlan prepared_a(plan_a);
     PreparedReplayPlan prepared_b(plan_b);
 
-    const uint32_t num_visible_records = plan_a.num_visible_records;
-    const size_t num_record_patterns = size_t{1} << num_visible_records;
     std::vector<std::optional<size_t>> realization(num_sites);
-    ExactEquivalenceStats stats;
 
     auto run_realization = [&]() {
-        ++stats.realizations;
-        stats.records += num_record_patterns;
         const ExactPlanDistribution dist_a =
             evaluate_conditional_distribution(prepared_a, realization);
         const ExactPlanDistribution dist_b =
             evaluate_conditional_distribution(prepared_b, realization);
-        stats.reachable += dist_a.kept_outcomes.size();
         require_distributions_equal(dist_a, dist_b, 1e-9);
     };
 
@@ -1141,8 +1134,6 @@ inline ExactEquivalenceStats check_exact_equivalent(
             run_realization();
         }
     }
-
-    return stats;
 }
 
 // ---------------------------------------------------------------------------
@@ -1155,8 +1146,9 @@ inline ExactEquivalenceStats check_exact_equivalent(
 // algebraic structures (commuting phase pairs, stabilizer-equivalent rotations,
 // classical-feedback steering, and multi-round syndrome checks) inside a
 // matched Clifford interferometer with deterministic noiseless check detectors,
-// then inject targeted boundary hazards (Pauli/correlated noise, readout noise,
-// resets, EXP_VAL barriers, and postselection).
+// and record explicit mid-pair hazard slots so boundary hazards (Pauli and
+// correlated noise, readout noise, resets, EXP_VAL barriers, and postselection)
+// land directly between operations that passes attempt to fuse or reorder.
 
 enum class PlantedScaffoldKind : uint8_t {
     PhaseSandwich,
@@ -1174,11 +1166,21 @@ struct HazardConfig {
     bool postselect_check_detectors = false;
 };
 
+struct PlantedHazardSlot {
+    size_t line_index = 0;
+    uint32_t target_qubit = 0;
+    uint32_t partner_qubit = 1;
+    char anticommuting_pauli = 'X';
+};
+
 struct PlantedCircuit {
     std::vector<std::string> lines;
     // Indices of detectors that represent stabilizer parity checks (and are
     // therefore suitable for postselection without rejecting the entire space).
     std::vector<uint32_t> check_detectors;
+    // Line positions inside planted rotation pairs where boundary hazards
+    // should be injected to test pass barrier handling.
+    std::vector<PlantedHazardSlot> hazard_slots;
 };
 
 inline PlantedCircuit generate_planted_scaffold(PlantedScaffoldKind kind,
@@ -1190,14 +1192,38 @@ inline PlantedCircuit generate_planted_scaffold(PlantedScaffoldKind kind,
 
     switch (kind) {
         case PlantedScaffoldKind::PhaseSandwich: {
+            // Qubit 0 starts in |+> and executes a planted phase pair straddling
+            // a dedicated mid-pair hazard slot before the CNOT entangler ladder,
+            // so qubit 0 is in a pure state at the hazard slot (non-zero
+            // <Y0> expectation) while pairs 1 and 2 inside the ladder remain
+            // unblocked and always fuse or cancel.
+            out.lines.push_back("H 0");
             std::vector<bool> has_s(num_qubits, false);
-            for (uint32_t q = 0; q < num_qubits; ++q) {
+            for (uint32_t q = 1; q < num_qubits; ++q) {
                 out.lines.push_back("H " + std::to_string(q));
                 if ((rng() & 1U) != 0) {
                     out.lines.push_back("S " + std::to_string(q));
                     has_s[q] = true;
                 }
             }
+
+            // Pair 0 on qubit 0 (separated by commuting T 1 / T_DAG 1 on qubit 1)
+            // with the mid-pair hazard slot placed directly between the two
+            // rotations on qubit 0.
+            {
+                const bool cancel_pair = (rng() & 1U) != 0;
+                out.lines.push_back("T 0");
+                out.lines.push_back("T 1");
+                out.hazard_slots.push_back(PlantedHazardSlot{
+                    .line_index = out.lines.size(),
+                    .target_qubit = 0,
+                    .partner_qubit = 1,
+                    .anticommuting_pauli = 'X',
+                });
+                out.lines.push_back(cancel_pair ? "T_DAG 0" : "T 0");
+                out.lines.push_back("T_DAG 1");
+            }
+
             std::vector<std::pair<uint32_t, uint32_t>> cnot_ladder;
             for (uint32_t step = 0; step < num_qubits; ++step) {
                 const uint32_t c = static_cast<uint32_t>(rng() % num_qubits);
@@ -1207,10 +1233,10 @@ inline PlantedCircuit generate_planted_scaffold(PlantedScaffoldKind kind,
                 out.lines.push_back("CX " + std::to_string(c) + " " + std::to_string(t));
             }
 
-            // Plant 3 commuting phase pairs separated by commuting diagonal
-            // operations on another qubit and optional X frame flips (which
-            // negate the Pauli rotation sign).
-            for (int pair = 0; pair < 3; ++pair) {
+            // Plant 2 unblocked commuting phase pairs inside the CNOT ladder
+            // separated by commuting diagonal operations on another qubit and
+            // optional X frame flips (which negate the Pauli rotation sign).
+            for (int pair = 0; pair < 2; ++pair) {
                 const uint32_t q = static_cast<uint32_t>(rng() % num_qubits);
                 const uint32_t other = (q + 1) % num_qubits;
                 const uint32_t mode = static_cast<uint32_t>(rng() % 4);
@@ -1227,8 +1253,6 @@ inline PlantedCircuit generate_planted_scaffold(PlantedScaffoldKind kind,
                     out.lines.push_back("R_Z(" + std::to_string(alpha) + ") " + std::to_string(q));
                 }
 
-                // Intervening commuting diagonal work on `other` so the two
-                // rotations on `q` are non-adjacent in HIR.
                 out.lines.push_back("CZ " + std::to_string(q) + " " + std::to_string(other));
                 out.lines.push_back("T " + std::to_string(other));
 
@@ -1275,7 +1299,7 @@ inline PlantedCircuit generate_planted_scaffold(PlantedScaffoldKind kind,
         }
 
         case PlantedScaffoldKind::StabilizerReducedPhase: {
-            // Prepare qubit 0 and 1 in a Bell state (+X0*X1, +Z0*Z1) and keep
+            // Prepare qubits 0 and 1 in a Bell state (+X0*X1, +Z0*Z1) and keep
             // qubit 2 in |0> (+Z2), then verify the Z0*Z1 stabilizer check.
             out.lines.push_back("H 0");
             out.lines.push_back("CX 0 1");
@@ -1283,32 +1307,39 @@ inline PlantedCircuit generate_planted_scaffold(PlantedScaffoldKind kind,
             out.lines.push_back("DETECTOR rec[-1]");
             out.check_detectors.push_back(0);
 
-            // Conjugate the stabilizers through a Clifford entangler.
-            out.lines.push_back("CX 1 2");
             if (num_qubits >= 4) {
                 out.lines.push_back("H 3");
-                out.lines.push_back("CX 3 0");
             }
 
-            // Plant both T/TPP pairs and arbitrary-angle rotations whose axes
-            // differ by the known stabilizers Z0*Z1 and Z2 so both
+            // Plant unblocked T/TPP pairs and arbitrary-angle rotations whose
+            // axes differ by the active stabilizers +Z0*Z1 and +Z2 so both
             // PhasePolynomialPass and RotationSimplificationPass reduce them.
             out.lines.push_back("T 0");
             out.lines.push_back((rng() & 1U) ? "T_DAG 1" : "T 1");
             out.lines.push_back("TPP Z0*Z2");
             out.lines.push_back((rng() & 1U) ? "TPP_DAG Z1*Z2" : "TPP Z1*Z2");
             out.lines.push_back("R_PAULI(0.25) Z0*Z1*Z2");
+
+            // Plant a second stabilizer-equivalent pair straddling a mid-pair
+            // hazard slot so any injected noise, probe, or reset between the
+            // two halves blocks reduction across the hazard.
+            const uint32_t probe_q = num_qubits >= 4 ? 3 : 0;
+            out.lines.push_back("R_Z(0.375) " + std::to_string(probe_q));
+            out.hazard_slots.push_back(PlantedHazardSlot{
+                .line_index = out.lines.size(),
+                .target_qubit = probe_q,
+                .partner_qubit = 1,
+                .anticommuting_pauli = 'X',
+            });
             if (num_qubits >= 4) {
-                out.lines.push_back("R_Z(0.375) 3");
                 out.lines.push_back("R_PAULI(-0.375) Z0*Z1*Z3");
+            } else {
+                out.lines.push_back("R_PAULI(-0.375) Z1*Z2");
             }
 
-            // Uncompute entangler and measure in interferometer basis.
             if (num_qubits >= 4) {
-                out.lines.push_back("CX 3 0");
                 out.lines.push_back("H 3");
             }
-            out.lines.push_back("CX 1 2");
             out.lines.push_back("CX 0 1");
             out.lines.push_back("H 0");
             for (uint32_t q = 0; q < num_qubits; ++q) {
@@ -1322,9 +1353,10 @@ inline PlantedCircuit generate_planted_scaffold(PlantedScaffoldKind kind,
         }
 
         case PlantedScaffoldKind::FeedbackAndReset: {
-            // Prepare entangled ancilla-data pairs, measure ancilla with MR/MX,
-            // steer data qubits via classical feedback, then apply phase gates
-            // that interact with the symbolic feedback frame and duplicate checks.
+            // Prepare entangled ancilla-data pairs, measure ancilla with MR,
+            // steer data qubits via classical feedback so qubits 0 and 1 are in
+            // |0> and qubit 2 is in |+>, then apply both an unblocked ancilla
+            // phase gadget and a hazard-straddling rotation pair on qubit 2.
             out.lines.push_back("H 0");
             out.lines.push_back("CX 0 1");
             out.lines.push_back("H 2");
@@ -1332,14 +1364,23 @@ inline PlantedCircuit generate_planted_scaffold(PlantedScaffoldKind kind,
 
             out.lines.push_back("MR 0");
             out.lines.push_back("CX rec[-1] 1");
-            // After MR 0 and CX rec[-1] 1, both qubit 0 and qubit 1 are in |0>.
+            out.lines.push_back("CZ rec[-1] 2");
+            // After feedback, qubits 0 and 1 are in |0> and qubit 2 is in |+>.
             out.lines.push_back("T 1");
             out.lines.push_back("CX 2 0");
             out.lines.push_back("T 0");
-            out.lines.push_back("R_Z(0.25) 0");
             out.lines.push_back("T_DAG 2");
-            out.lines.push_back("R_Z(-0.25) 2");
             out.lines.push_back("CX 2 0");
+
+            // Second pair on qubit 2 straddling the mid-pair hazard slot.
+            out.lines.push_back("R_Z(0.25) 2");
+            out.hazard_slots.push_back(PlantedHazardSlot{
+                .line_index = out.lines.size(),
+                .target_qubit = 2,
+                .partner_qubit = 1,
+                .anticommuting_pauli = 'X',
+            });
+            out.lines.push_back("R_Z(-0.25) 2");
 
             // Extract duplicate parity check on ancilla 0.
             out.lines.push_back("CX 1 0");
@@ -1378,12 +1419,24 @@ inline PlantedCircuit generate_planted_scaffold(PlantedScaffoldKind kind,
             const uint32_t anc = num_qubits > 3 ? 3 : 2;
             out.lines.push_back("H 2");
             out.lines.push_back("T 2");
+            out.hazard_slots.push_back(PlantedHazardSlot{
+                .line_index = out.lines.size(),
+                .target_qubit = 2,
+                .partner_qubit = anc,
+                .anticommuting_pauli = 'X',
+            });
             if (anc != 2) {
                 out.lines.push_back("CX 2 " + std::to_string(anc));
             }
             out.lines.push_back("R_Z(0.25) 2");
 
             out.lines.push_back("R_PAULI(0.25) X0*X1");
+            out.hazard_slots.push_back(PlantedHazardSlot{
+                .line_index = out.lines.size(),
+                .target_qubit = 0,
+                .partner_qubit = 1,
+                .anticommuting_pauli = 'Z',
+            });
             out.lines.push_back("R_PAULI(0.375) Z0*Y1");
             out.lines.push_back("MPP Y0*Y1");
             out.lines.push_back("MY 0");
@@ -1411,70 +1464,60 @@ inline PlantedCircuit generate_planted_scaffold(PlantedScaffoldKind kind,
 inline std::vector<std::string> inject_boundary_hazards(const PlantedCircuit& planted,
                                                         const HazardConfig& config,
                                                         clifft::Xoshiro256PlusPlus& rng,
-                                                        uint32_t num_qubits = 4) {
+                                                        uint32_t /*num_qubits*/ = 4) {
     static const double kNoiseProbs[] = {0.05, 0.1, 0.2};
     std::vector<std::string> mutated;
     mutated.reserve(planted.lines.size() + 12);
 
-    uint32_t pauli_injected = 0;
-    uint32_t correlated_injected = 0;
     uint32_t readout_injected = 0;
     uint32_t reset_injected = 0;
-    uint32_t exp_val_injected = 0;
 
-    for (size_t i = 0; i < planted.lines.size(); ++i) {
-        std::string line = planted.lines[i];
-        const bool is_measure =
-            line.starts_with("M ") || line.starts_with("MX ") || line.starts_with("MR ");
-        const bool is_phase = line.starts_with("T ") || line.starts_with("T_DAG ") ||
-                              line.starts_with("R_Z(") || line.starts_with("R_PAULI(") ||
-                              line.starts_with("TPP");
-
-        if (config.pauli_noise && is_phase &&
-            (line.starts_with("R_PAULI(0.375)") || (pauli_injected < 2 && (rng() % 2 == 0)))) {
+    auto inject_slot_hazards = [&](size_t line_idx) {
+        for (size_t s = 0; s < planted.hazard_slots.size(); ++s) {
+            const PlantedHazardSlot& slot = planted.hazard_slots[s];
+            if (slot.line_index != line_idx) {
+                continue;
+            }
             const double p = kNoiseProbs[rng() % std::size(kNoiseProbs)];
-            if (line.starts_with("R_PAULI(0.375)")) {
-                if ((rng() & 1U) == 0) {
-                    mutated.push_back("X_ERROR(" + std::to_string(p) + ") 0");
-                } else {
-                    mutated.push_back("Z_ERROR(" + std::to_string(p) + ") 1");
-                }
-            } else {
-                const uint32_t q = static_cast<uint32_t>(rng() % num_qubits);
-                const uint32_t kind = static_cast<uint32_t>(rng() % 3);
-                if (kind == 0) {
-                    mutated.push_back("X_ERROR(" + std::to_string(p) + ") " + std::to_string(q));
-                } else if (kind == 1) {
-                    mutated.push_back("Z_ERROR(" + std::to_string(p) + ") " + std::to_string(q));
+            const std::string q_str = std::to_string(slot.target_qubit);
+            const std::string partner_str = std::to_string(slot.partner_qubit);
+
+            if (config.pauli_noise) {
+                if (slot.anticommuting_pauli == 'Z') {
+                    mutated.push_back(((rng() & 1U) == 0)
+                                          ? ("X_ERROR(" + std::to_string(p) + ") 0")
+                                          : ("Z_ERROR(" + std::to_string(p) + ") 1"));
+                } else if ((rng() & 1U) == 0) {
+                    mutated.push_back("X_ERROR(" + std::to_string(p) + ") " + q_str);
                 } else {
                     mutated.push_back("PAULI_CHANNEL_1(" + std::to_string(p) + ", 0, " +
-                                      std::to_string(p) + ") " + std::to_string(q));
+                                      std::to_string(p) + ") " + q_str);
                 }
             }
-            ++pauli_injected;
-        }
-
-        if (config.correlated_noise && is_phase && correlated_injected < 1 && (rng() % 2 == 0)) {
-            const uint32_t q0 = static_cast<uint32_t>(rng() % num_qubits);
-            const uint32_t q1 = (q0 + 1) % num_qubits;
-            const double p = kNoiseProbs[rng() % std::size(kNoiseProbs)];
-            mutated.push_back("CORRELATED_ERROR(" + std::to_string(p) + ") X" + std::to_string(q0) +
-                              " Z" + std::to_string(q1));
-            mutated.push_back("ELSE_CORRELATED_ERROR(" + std::to_string(p) + ") Z" +
-                              std::to_string(q0) + " X" + std::to_string(q1));
-            ++correlated_injected;
-        }
-
-        if (config.exp_val && is_phase && exp_val_injected < 2 && (rng() % 2 == 0)) {
-            const uint32_t q0 = static_cast<uint32_t>(rng() % num_qubits);
-            const uint32_t q1 = (q0 + 1) % num_qubits;
-            if ((rng() & 1U) != 0) {
-                mutated.push_back("EXP_VAL Z" + std::to_string(q0));
-            } else {
-                mutated.push_back("EXP_VAL X" + std::to_string(q0) + "*Z" + std::to_string(q1));
+            if (config.correlated_noise && s == 0) {
+                mutated.push_back("CORRELATED_ERROR(" + std::to_string(p) + ") X" + q_str + " Z" +
+                                  partner_str);
+                mutated.push_back("ELSE_CORRELATED_ERROR(" + std::to_string(p) + ") Y" + q_str +
+                                  " X" + partner_str);
             }
-            ++exp_val_injected;
+            if (config.exp_val && s == 0) {
+                mutated.push_back("EXP_VAL Y" + q_str);
+            }
+            if (config.resets && reset_injected == 0 && s == 0) {
+                mutated.push_back("R " + q_str);
+                mutated.push_back("H " + q_str);
+                ++reset_injected;
+            }
         }
+    };
+
+    for (size_t i = 0; i < planted.lines.size(); ++i) {
+        inject_slot_hazards(i);
+
+        std::string line = planted.lines[i];
+        const bool is_measure = line.starts_with("M ") || line.starts_with("MX ") ||
+                                line.starts_with("MY ") || line.starts_with("MR ") ||
+                                line.starts_with("MPP ");
 
         if (config.readout_noise && is_measure && readout_injected < 2) {
             const double p = kNoiseProbs[rng() % std::size(kNoiseProbs)];
@@ -1493,38 +1536,6 @@ inline std::vector<std::string> inject_boundary_hazards(const PlantedCircuit& pl
         }
 
         mutated.push_back(line);
-
-        if (config.resets && line.starts_with("M ") && reset_injected < 1 &&
-            i + 2 < planted.lines.size()) {
-            const std::string target = line.substr(2);
-            mutated.push_back("R " + target);
-            ++reset_injected;
-        }
-    }
-
-    // Guarantee that requested hazards were actually injected even if the random
-    // coin flips skipped earlier opportunities.
-    if (config.pauli_noise && pauli_injected == 0) {
-        mutated.insert(mutated.begin(), "X_ERROR(0.1) 0");
-    }
-    if (config.correlated_noise && correlated_injected == 0) {
-        mutated.insert(mutated.begin(), "ELSE_CORRELATED_ERROR(0.1) Z0 X1");
-        mutated.insert(mutated.begin(), "CORRELATED_ERROR(0.1) X0 Z1");
-    }
-    if (config.exp_val && exp_val_injected == 0) {
-        mutated.push_back("EXP_VAL Z0");
-    }
-    if (config.readout_noise && readout_injected == 0) {
-        for (size_t i = 0; i < mutated.size(); ++i) {
-            if (mutated[i].starts_with("M ") || mutated[i].starts_with("MR ")) {
-                mutated.insert(mutated.begin() + static_cast<std::ptrdiff_t>(i + 1),
-                               "READOUT_NOISE(0.1, 0.2) rec[-1]");
-                break;
-            }
-        }
-    }
-    if (config.resets && reset_injected == 0) {
-        mutated.insert(mutated.begin(), "R 0");
     }
 
     return mutated;

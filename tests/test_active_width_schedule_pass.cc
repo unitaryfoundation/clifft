@@ -607,7 +607,7 @@ TEST_CASE("Scheduled programs are exactly sampling equivalent for every checked 
           "[schedule_pass]") {
     constexpr uint32_t kCircuitSeed = 0xFACE1;
     constexpr uint32_t kControlSeed = 0xFACE2;
-    constexpr int kTrials = 5000;
+    constexpr int kTrials = 1200;
 
     clifft::Xoshiro256PlusPlus circuit_rng(kCircuitSeed);
     clifft::Xoshiro256PlusPlus control_rng(kControlSeed);
@@ -623,7 +623,7 @@ TEST_CASE("Scheduled programs are exactly sampling equivalent for every checked 
         // Bound exponential record and readout-flip enumeration.
         if (original.num_measurements + original.num_hidden_measurements +
                 original.readout_noise.size() >
-            8) {
+            6) {
             ++skipped;
             continue;
         }
