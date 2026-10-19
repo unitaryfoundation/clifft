@@ -45,7 +45,7 @@ struct OwnedPlanOptions {
     }
 };
 
-OwnedPlanOptions build_plan_options(const HirModule& hir, const PlantedCircuit& planted,
+OwnedPlanOptions build_plan_options(HirModule& hir, const PlantedCircuit& planted,
                                     bool postselect_checks) {
     OwnedPlanOptions owned;
     if (hir.num_detectors == 0 && hir.num_observables == 0) {
@@ -60,6 +60,9 @@ OwnedPlanOptions build_plan_options(const HirModule& hir, const PlantedCircuit& 
             }
         }
     }
+    hir.postselection_mask = owned.postselection_mask;
+    hir.expected_detectors = owned.reference.detectors;
+    hir.expected_observables = owned.reference.observables;
     return owned;
 }
 
@@ -408,6 +411,43 @@ TEST_CASE("Exact distribution checker detects record reset readout and postselec
             distributions_equal(compute_exact_hir_distribution(hir, with_postselection),
                                 compute_exact_hir_distribution(hir, without_postselection)));
     }
+
+    SECTION("illegal postselected lookahead across prefix-anticommuting EXP_VAL") {
+        // Postselected DETECTOR rec[-1] forces the downstream M 1 outcome to 0
+        // (Z1 = +1), under which T 0 and CX 1 0; T_DAG 0; CX 1 0 cancel on the
+        // surviving branch. However, EXP_VAL X0 is evaluated before M 1 projects
+        // Z1, when the state is still entangled across Z1 = +1 (where <X0> = 1)
+        // and Z1 = -1 (where <X0> = 0), giving <X0> = 0.5. Folding the rotations
+        // across EXP_VAL X0 preserves all classical measurement/detector outcomes
+        // while corrupting the surviving probe expectation from 0.5 to 1.0.
+        const Circuit circuit = clifft::parse(
+            "H 0 1\n"
+            "DEPOLARIZE1(0.05) 1\n"
+            "T 0\n"
+            "CX 1 0\n"
+            "T_DAG 0\n"
+            "CX 1 0\n"
+            "EXP_VAL X0\n"
+            "M 1\n"
+            "DETECTOR rec[-1]\n"
+            "H 0\n"
+            "M 0\n");
+        const Circuit illegally_folded = clifft::parse(
+            "H 0 1\n"
+            "DEPOLARIZE1(0.05) 1\n"
+            "EXP_VAL X0\n"
+            "M 1\n"
+            "DETECTOR rec[-1]\n"
+            "H 0\n"
+            "M 0\n");
+        const uint8_t postselected_mask[] = {1};
+        const clifft::sampling::SamplingPlanOptions postselected{
+            .postselection_mask = postselected_mask,
+        };
+        REQUIRE_FALSE(distributions_equal(
+            compute_dense_circuit_distribution(circuit, postselected),
+            compute_exact_hir_distribution(clifft::trace(illegally_folded), postselected)));
+    }
 }
 
 TEST_CASE("Exact distribution checker handles near-tie probe vectors and postselected probes",
@@ -628,6 +668,203 @@ TEST_CASE("Paired scaffolds verify rewrites fire when legal and stop at boundary
                                     compute_exact_hir_distribution(barrier_squeezed));
         REQUIRE(clifft::sampling::plan_sampling(barrier_squeezed).peak_active_width == 2);
     }
+
+    SECTION(
+        "PhasePolynomialPass recovers postselected constraints when legal and stops at boundary "
+        "hazards") {
+        const uint8_t postselected_mask[] = {1};
+        const clifft::sampling::SamplingPlanOptions postselected{
+            .postselection_mask = postselected_mask,
+        };
+
+        // Positive 1: postselected lookahead crosses a prefix-commuting EXP_VAL Z0
+        // probe and folds T 0 against CX 1 0; T_DAG 0; CX 1 0 under Z1 = +1.
+        const Circuit commuting_probe_circuit = clifft::parse(
+            "H 0 1\n"
+            "DEPOLARIZE1(0.05) 1\n"
+            "T 0\n"
+            "CX 1 0\n"
+            "T_DAG 0\n"
+            "CX 1 0\n"
+            "EXP_VAL Z0\n"
+            "M 1\n"
+            "DETECTOR rec[-1]\n"
+            "H 0\n"
+            "M 0\n");
+        HirModule commuting_probe_hir = clifft::trace(commuting_probe_circuit);
+        commuting_probe_hir.postselection_mask = {1};
+        PhasePolynomialPass commuting_probe_pass;
+        commuting_probe_pass.run(commuting_probe_hir);
+        require_distributions_equal(
+            compute_dense_circuit_distribution(commuting_probe_circuit, postselected),
+            compute_exact_hir_distribution(commuting_probe_hir, postselected));
+        REQUIRE(commuting_probe_pass.blocks_reduced() == 1);
+        REQUIRE(commuting_probe_pass.output_t_count() == 0);
+
+        // Positive 2: upstream postselected measurement M 1 unit-propagates
+        // through a 2-record difference detector DETECTOR rec[-3] rec[-1] to
+        // recover the second-round stabilizer and fold the phase gadget.
+        const uint8_t postselected_both_mask[] = {1, 1};
+        const clifft::sampling::SamplingPlanOptions postselected_both{
+            .postselection_mask = postselected_both_mask,
+        };
+        const Circuit unit_prop_circuit = clifft::parse(
+            "RX 0\n"
+            "R 1 2\n"
+            "CX 0 1\n"
+            "M 1\n"
+            "DETECTOR rec[-1]\n"
+            "DEPOLARIZE1(0.1) 0 1 2\n"
+            "CX 0 2\n"
+            "T 0\n"
+            "T_DAG 2\n"
+            "CX 0 2\n"
+            "MX 0\n"
+            "M 2\n"
+            "DETECTOR rec[-3] rec[-1]\n");
+        HirModule unit_prop_hir = clifft::trace(unit_prop_circuit);
+        unit_prop_hir.postselection_mask = {1, 1};
+        PhasePolynomialPass unit_prop_pass;
+        unit_prop_pass.run(unit_prop_hir);
+        require_distributions_equal(
+            compute_dense_circuit_distribution(unit_prop_circuit, postselected_both),
+            compute_exact_hir_distribution(unit_prop_hir, postselected_both));
+        REQUIRE(unit_prop_pass.blocks_reduced() == 1);
+        REQUIRE(unit_prop_pass.output_t_count() == 0);
+
+        // Negative 1: prefix-anticommuting EXP_VAL X0 blocks lookahead to M 1.
+        const Circuit anticommuting_probe_circuit = clifft::parse(
+            "H 0 1\n"
+            "DEPOLARIZE1(0.05) 1\n"
+            "T 0\n"
+            "CX 1 0\n"
+            "T_DAG 0\n"
+            "CX 1 0\n"
+            "EXP_VAL X0\n"
+            "M 1\n"
+            "DETECTOR rec[-1]\n"
+            "H 0\n"
+            "M 0\n");
+        HirModule anticommuting_probe_hir = clifft::trace(anticommuting_probe_circuit);
+        anticommuting_probe_hir.postselection_mask = {1};
+        PhasePolynomialPass anticommuting_probe_pass;
+        anticommuting_probe_pass.run(anticommuting_probe_hir);
+        require_distributions_equal(
+            compute_dense_circuit_distribution(anticommuting_probe_circuit, postselected),
+            compute_exact_hir_distribution(anticommuting_probe_hir, postselected));
+        REQUIRE(anticommuting_probe_pass.blocks_reduced() == 0);
+        REQUIRE(anticommuting_probe_pass.output_t_count() == 2);
+
+        // Negative 2: readout noise on M(0.2) 1 decouples the postselected
+        // detector bit from the pre-measurement Z1 eigenvalue.
+        const Circuit readout_noise_circuit = clifft::parse(
+            "H 0 1\n"
+            "DEPOLARIZE1(0.05) 1\n"
+            "T 0\n"
+            "CX 1 0\n"
+            "T_DAG 0\n"
+            "CX 1 0\n"
+            "M(0.2) 1\n"
+            "DETECTOR rec[-1]\n"
+            "H 0\n"
+            "M 0\n");
+        HirModule readout_noise_hir = clifft::trace(readout_noise_circuit);
+        readout_noise_hir.postselection_mask = {1};
+        PhasePolynomialPass readout_noise_pass;
+        readout_noise_pass.run(readout_noise_hir);
+        require_distributions_equal(
+            compute_dense_circuit_distribution(readout_noise_circuit, postselected),
+            compute_exact_hir_distribution(readout_noise_hir, postselected));
+        REQUIRE(readout_noise_pass.blocks_reduced() == 0);
+        REQUIRE(readout_noise_pass.output_t_count() == 2);
+
+        // Negative 3: anticommuting Pauli noise X_ERROR(0.2) 1 between the phase
+        // block and M 1 prevents lookahead from pulling Z1 = +1 back to entry.
+        const Circuit pauli_noise_circuit = clifft::parse(
+            "H 0 1\n"
+            "DEPOLARIZE1(0.05) 1\n"
+            "T 0\n"
+            "CX 1 0\n"
+            "T_DAG 0\n"
+            "CX 1 0\n"
+            "X_ERROR(0.2) 1\n"
+            "M 1\n"
+            "DETECTOR rec[-1]\n"
+            "H 0\n"
+            "M 0\n");
+        HirModule pauli_noise_hir = clifft::trace(pauli_noise_circuit);
+        pauli_noise_hir.postselection_mask = {1};
+        PhasePolynomialPass pauli_noise_pass;
+        pauli_noise_pass.run(pauli_noise_hir);
+        require_distributions_equal(
+            compute_dense_circuit_distribution(pauli_noise_circuit, postselected),
+            compute_exact_hir_distribution(pauli_noise_hir, postselected));
+        REQUIRE(pauli_noise_pass.blocks_reduced() == 0);
+        REQUIRE(pauli_noise_pass.output_t_count() == 2);
+
+        // Negative 4: mid-circuit reset R 1 before M 1 acts as an instrument
+        // barrier that stops postselected lookahead.
+        const Circuit reset_barrier_circuit = clifft::parse(
+            "H 0 1\n"
+            "DEPOLARIZE1(0.05) 1\n"
+            "T 0\n"
+            "CX 1 0\n"
+            "T_DAG 0\n"
+            "CX 1 0\n"
+            "R 1\n"
+            "M 1\n"
+            "DETECTOR rec[-1]\n"
+            "H 0\n"
+            "M 0\n");
+        HirModule reset_barrier_hir = clifft::trace(reset_barrier_circuit);
+        reset_barrier_hir.postselection_mask = {1};
+        PhasePolynomialPass reset_barrier_pass;
+        reset_barrier_pass.run(reset_barrier_hir);
+        require_distributions_equal(
+            compute_dense_circuit_distribution(reset_barrier_circuit, postselected),
+            compute_exact_hir_distribution(reset_barrier_hir, postselected));
+        REQUIRE(reset_barrier_pass.blocks_reduced() == 0);
+        REQUIRE(reset_barrier_pass.output_t_count() == 2);
+    }
+
+    SECTION(
+        "Post-observer rotation elision fires after terminal measurement and stops at trailing "
+        "EXP_VAL") {
+        // When M 0 is the final observer in the module and commutes with the
+        // synthesized phase polynomial on X0, PhasePolynomialPass pulls M 0
+        // ahead of the phase block and elides the remaining post-observer T_DAG.
+        const Circuit terminal_meas_circuit = clifft::parse(
+            "H 0\n"
+            "T 0\n"
+            "T 0\n"
+            "T 0\n"
+            "M 0\n");
+        HirModule terminal_meas_hir = clifft::trace(terminal_meas_circuit);
+        PhasePolynomialPass terminal_meas_pass;
+        terminal_meas_pass.run(terminal_meas_hir);
+        require_distributions_equal(compute_dense_circuit_distribution(terminal_meas_circuit),
+                                    compute_exact_hir_distribution(terminal_meas_hir));
+        REQUIRE(terminal_meas_pass.blocks_reduced() == 1);
+        REQUIRE(terminal_meas_pass.output_t_count() == 0);
+
+        // Appending a trailing EXP_VAL Y0 after H 0 extends final_observer_end_
+        // past the phase block so the synthesized rotation is preserved.
+        const Circuit trailing_probe_circuit = clifft::parse(
+            "H 0\n"
+            "T 0\n"
+            "T 0\n"
+            "T 0\n"
+            "M 0\n"
+            "H 0\n"
+            "EXP_VAL Y0\n");
+        HirModule trailing_probe_hir = clifft::trace(trailing_probe_circuit);
+        PhasePolynomialPass trailing_probe_pass;
+        trailing_probe_pass.run(trailing_probe_hir);
+        require_distributions_equal(compute_dense_circuit_distribution(trailing_probe_circuit),
+                                    compute_exact_hir_distribution(trailing_probe_hir));
+        REQUIRE(trailing_probe_pass.blocks_reduced() == 1);
+        REQUIRE(trailing_probe_pass.output_t_count() == 1);
+    }
 }
 
 // =============================================================================
@@ -684,15 +921,15 @@ TEST_CASE("PeepholeFusionPass preserves exact distributions across planted scaff
                 CAPTURE(static_cast<int>(scaffold), h_idx, trial, source);
 
                 const Circuit circuit = clifft::parse(source);
-                const HirModule original = clifft::trace(circuit);
+                HirModule original = clifft::trace(circuit);
                 assert_requested_hazards_present(planted, hazards, original);
+                const OwnedPlanOptions owned = build_plan_options(original, planted, false);
                 HirModule optimized = original;
                 PeepholeFusionPass pass;
                 pass.run(optimized);
 
                 scaffold_rewrites += pass.fusions() + pass.cancellations();
 
-                const OwnedPlanOptions owned = build_plan_options(original, planted, false);
                 const auto options = owned.as_span_options();
                 const ExactPlanDistribution dense_dist =
                     compute_dense_circuit_distribution(circuit, options);
@@ -724,7 +961,10 @@ TEST_CASE("PhasePolynomialPass preserves exact distributions across planted scaf
         {.correlated_noise = true},
         {.readout_noise = true},
         {.resets = true, .exp_val = true},
-        {.pauli_noise = true, .readout_noise = true, .exp_val = true},
+        {.pauli_noise = true,
+         .readout_noise = true,
+         .exp_val = true,
+         .postselect_check_detectors = true},
     };
     const PlantedScaffoldKind scaffolds[] = {
         PlantedScaffoldKind::StabilizerReducedPhase,
@@ -743,8 +983,10 @@ TEST_CASE("PhasePolynomialPass preserves exact distributions across planted scaf
                 CAPTURE(static_cast<int>(scaffold), h_idx, trial, source);
 
                 const Circuit circuit = clifft::parse(source);
-                const HirModule original = clifft::trace(circuit);
+                HirModule original = clifft::trace(circuit);
                 assert_requested_hazards_present(planted, hazards, original);
+                const OwnedPlanOptions owned =
+                    build_plan_options(original, planted, hazards.postselect_check_detectors);
                 HirModule optimized = original;
                 PhasePolynomialPass pass;
                 pass.run(optimized);
@@ -754,7 +996,6 @@ TEST_CASE("PhasePolynomialPass preserves exact distributions across planted scaf
                     scaffold_t_saved += pass.input_t_count() - pass.output_t_count();
                 }
 
-                const OwnedPlanOptions owned = build_plan_options(original, planted, false);
                 const auto options = owned.as_span_options();
                 const ExactPlanDistribution dense_dist =
                     compute_dense_circuit_distribution(circuit, options);
@@ -807,8 +1048,10 @@ TEST_CASE(
                 CAPTURE(static_cast<int>(scaffold), h_idx, trial, source);
 
                 const Circuit circuit = clifft::parse(source);
-                const HirModule original = clifft::trace(circuit);
+                HirModule original = clifft::trace(circuit);
                 assert_requested_hazards_present(planted, hazards, original);
+                const OwnedPlanOptions owned =
+                    build_plan_options(original, planted, hazards.postselect_check_detectors);
                 HirModule optimized = original;
                 RotationSimplificationPass pass;
                 pass.run(optimized);
@@ -816,8 +1059,6 @@ TEST_CASE(
                 scaffold_regions += pass.regions_reduced();
                 scaffold_removed += pass.rotations_removed();
 
-                const OwnedPlanOptions owned =
-                    build_plan_options(original, planted, hazards.postselect_check_detectors);
                 const auto options = owned.as_span_options();
                 const ExactPlanDistribution dense_dist =
                     compute_dense_circuit_distribution(circuit, options);
@@ -871,7 +1112,7 @@ TEST_CASE("Squeeze and schedule passes preserve exact distributions across hazar
                 CAPTURE(static_cast<int>(scaffold), h_idx, trial, source);
 
                 const Circuit circuit = clifft::parse(source);
-                const HirModule original = clifft::trace(circuit);
+                HirModule original = clifft::trace(circuit);
                 assert_requested_hazards_present(planted, hazards, original);
                 const OwnedPlanOptions owned =
                     build_plan_options(original, planted, hazards.postselect_check_detectors);
@@ -951,7 +1192,7 @@ TEST_CASE(
                 CAPTURE(static_cast<int>(scaffold), h_idx, trial, source);
 
                 const Circuit circuit = clifft::parse(source);
-                const HirModule original = clifft::trace(circuit);
+                HirModule original = clifft::trace(circuit);
                 assert_requested_hazards_present(planted, hazards, original);
                 const OwnedPlanOptions owned =
                     build_plan_options(original, planted, hazards.postselect_check_detectors);
@@ -1115,7 +1356,7 @@ TEST_CASE("Every registered pass is covered by planted equivalence or explicitly
             CAPTURE(h_idx, source);
 
             const Circuit circuit = clifft::parse(source);
-            const HirModule original = clifft::trace(circuit);
+            HirModule original = clifft::trace(circuit);
             const OwnedPlanOptions owned = build_plan_options(
                 original, planted, hazard_configs[h_idx].postselect_check_detectors);
             const auto options = owned.as_span_options();

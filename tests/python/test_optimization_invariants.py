@@ -374,3 +374,81 @@ class TestDefaultOptimizerStatisticalEquivalence:
 
         self._assert_sample_results_match(base_result, default_result)
         self._assert_sample_results_match(base_result, scheduled_result)
+
+    @classmethod
+    def _assert_survivor_results_match(cls, base_result: Any, opt_result: Any) -> None:
+        assert base_result.total_shots == opt_result.total_shots
+        total_shots = int(base_result.total_shots)
+        base_pass_rate = float(base_result.passed_shots) / total_shots
+        opt_pass_rate = float(opt_result.passed_shots) / total_shots
+        p_pooled = (base_pass_rate + opt_pass_rate) / 2.0
+        tol = cross_binomial_tolerance(p_pooled, total_shots, sigma=5.5)
+        diff = abs(base_pass_rate - opt_pass_rate)
+        assert diff < tol, (
+            f"Survivor pass rate mismatch: base={base_pass_rate:.4f}, "
+            f"opt={opt_pass_rate:.4f}, diff={diff:.4f}, tol={tol:.4f}"
+        )
+
+        common = min(int(base_result.passed_shots), int(opt_result.passed_shots))
+        assert common > 1_000
+        base_m = base_result.measurements[:common]
+        opt_m = opt_result.measurements[:common]
+        base_d = base_result.detectors[:common]
+        opt_d = opt_result.detectors[:common]
+        base_o = base_result.observables[:common]
+        opt_o = opt_result.observables[:common]
+        base_ev = base_result.exp_vals[:common]
+        opt_ev = opt_result.exp_vals[:common]
+
+        cls._assert_joint_and_pairwise_match(base_m, opt_m)
+        cls._assert_joint_and_pairwise_match(base_d, opt_d)
+        cls._assert_joint_and_pairwise_match(base_o, opt_o)
+        base_combined = np.hstack([base_d, base_o, base_m])
+        opt_combined = np.hstack([opt_d, opt_o, opt_m])
+        cls._assert_joint_and_pairwise_match(base_combined, opt_combined)
+        cls._assert_exp_vals_match(base_combined, base_ev, opt_combined, opt_ev)
+
+    @pytest.mark.parametrize("seed", _SEEDS)
+    def test_postselected_noisy_phase_reduction(self, seed: int) -> None:
+        """Postselected phase-constraint recovery preserves survivor rates and joint moments."""
+        circuit = """
+        H 0 1 2
+        DEPOLARIZE1(0.08) 1 2
+        T 0
+        CX 1 0
+        T_DAG 0
+        CX 1 0
+        EXP_VAL Z0
+        M 1
+        DETECTOR rec[-1]
+        T 2
+        EXP_VAL X2
+        Z_ERROR(0.05) 0 2
+        H 0 2
+        M 0
+        M(0.04) 2
+        DETECTOR rec[-1]
+        OBSERVABLE_INCLUDE(0) rec[-2]
+        """
+        mask = [1, 0]
+        base = clifft.compile(circuit, hir_passes=None, postselection_mask=mask)
+        default_opt = clifft.compile(circuit, postselection_mask=mask)
+        scheduled_opt = clifft.compile(
+            circuit,
+            hir_passes=default_scheduled_passes(),
+            postselection_mask=mask,
+        )
+
+        assert default_opt.peak_active_width < base.peak_active_width
+        assert scheduled_opt.peak_active_width <= default_opt.peak_active_width
+
+        base_res = clifft.sample_survivors(base, _STAT_SHOTS, seed=seed + 500, keep_records=True)
+        default_res = clifft.sample_survivors(
+            default_opt, _STAT_SHOTS, seed=seed + 600, keep_records=True
+        )
+        scheduled_res = clifft.sample_survivors(
+            scheduled_opt, _STAT_SHOTS, seed=seed + 700, keep_records=True
+        )
+
+        self._assert_survivor_results_match(base_res, default_res)
+        self._assert_survivor_results_match(base_res, scheduled_res)
