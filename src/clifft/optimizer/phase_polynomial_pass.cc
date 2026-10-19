@@ -203,6 +203,8 @@ class Rewriter {
     size_t expansion_attempts = 0;
     size_t blocks_expanded = 0;
 
+    bool has_postselected_records() const { return !known_.postselected_records().empty(); }
+
   private:
     struct Row {
         PauliString body;
@@ -219,13 +221,15 @@ class Rewriter {
             return fixed;
         }
         bool copied = false;
+        bool prefix_measurements_commute = true;
         for (size_t m = start; m < hir().ops.size(); ++m) {
             const HeisenbergOp& op = hir().ops[m];
             if (op.op_type() == OpType::INSTRUMENT) {
                 break;
             }
             if (op.op_type() == OpType::EXP_VAL) {
-                if (!commutes_with_prefix(hir(), start, m, hir().mask_view(op))) {
+                if (!prefix_measurements_commute ||
+                    !commutes_with_prefix(hir(), start, m, hir().mask_view(op))) {
                     break;
                 }
                 continue;
@@ -233,12 +237,11 @@ class Rewriter {
             if (op.op_type() != OpType::MEASURE) {
                 continue;
             }
-            const auto it = postselected_records.find(static_cast<uint32_t>(op.meas_record_idx()));
-            if (it == postselected_records.end()) {
-                continue;
-            }
             const PauliMaskView mask = hir().mask_view(op);
-            if (!commutes_with_prefix(hir(), start, m, mask)) {
+            const bool mask_commutes = commutes_with_prefix(hir(), start, m, mask);
+            prefix_measurements_commute = prefix_measurements_commute && mask_commutes;
+            const auto it = postselected_records.find(static_cast<uint32_t>(op.meas_record_idx()));
+            if (it == postselected_records.end() || !mask_commutes) {
                 continue;
             }
             auto axis = cliffords_.read(mask, hir().num_qubits);
@@ -620,6 +623,9 @@ void PhasePolynomialPass::run(HirModule& hir) {
     blocks_reduced_ = rewriter.blocks_reduced + follow_up_reduced;
     pauli_pullbacks_ = rewriter.pauli_pullbacks + follow_up_pullbacks;
     output_t_count_ = candidate->num_t_gates();
+    if (rewriter.has_postselected_records() && !candidate->pre_postselection_hir) {
+        candidate->pre_postselection_hir = std::make_shared<const HirModule>(std::move(hir));
+    }
     hir = std::move(*candidate);
 }
 

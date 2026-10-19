@@ -125,6 +125,8 @@ class Rewriter {
     size_t rotations_removed = 0;
     bool needs_cost_guard = false;
 
+    bool has_postselected_records() const { return !known_.postselected_records().empty(); }
+
   private:
     size_t collect(size_t end) {
         while (end < input_.ops.size() && terms_.size() < options_.max_region_ops &&
@@ -294,6 +296,9 @@ void RotationSimplificationPass::run(HirModule& hir) {
     }
     regions_reduced_ = rewriter.regions_reduced;
     rotations_removed_ = rewriter.rotations_removed;
+    if (rewriter.has_postselected_records() && !candidate->pre_postselection_hir) {
+        candidate->pre_postselection_hir = std::make_shared<const HirModule>(std::move(hir));
+    }
     hir = std::move(*candidate);
 }
 

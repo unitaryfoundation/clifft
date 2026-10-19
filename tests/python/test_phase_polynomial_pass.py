@@ -690,3 +690,88 @@ def test_trace_and_lower_propagate_postselection_contract() -> None:
     cmp_survivors = clifft.sample_survivors(compiled, shots=2048, seed=904)
     assert low_survivors.passed_shots == cmp_survivors.passed_shots
     np.testing.assert_array_equal(low_survivors.observables, cmp_survivors.observables)
+
+
+@pytest.mark.parametrize(
+    "intervening_meas,expect_reduced,expected_ev",
+    [("MX 0", False, 1.0 / 3.0), ("M 1", True, 1.0)],
+)
+def test_postselected_lookahead_preserves_measurement_conditioned_exp_val(
+    sampling_mode: SamplingMode,
+    intervening_meas: str,
+    expect_reduced: bool,
+    expected_ev: float,
+) -> None:
+    source = "\n".join(
+        [
+            "H 0 1",
+            "Z_ERROR(0.1) 1",
+            "T 0",
+            "CX 1 0",
+            "T_DAG 0",
+            "CX 1 0",
+            intervening_meas,
+            "EXP_VAL Z1",
+            "M 1",
+            "DETECTOR rec[-1]",
+        ]
+    )
+    phase = clifft.PhasePolynomialPass()
+    optimized = sampling_mode.compile(
+        source,
+        hir_passes=_manager(phase),
+        postselection_mask=[1],
+        normalize_syndromes=False,
+    )
+    assert phase.applied == expect_reduced
+    assert phase.output_t_count == (0 if expect_reduced else 2)
+    default_prog = sampling_mode.compile(
+        source,
+        postselection_mask=[1],
+        normalize_syndromes=False,
+    )
+    reference = sampling_mode.compile(
+        source,
+        hir_passes=None,
+        postselection_mask=[1],
+        normalize_syndromes=False,
+    )
+    for prog in (optimized, default_prog, reference):
+        survivors = sampling_mode.sample_survivors(prog, shots=512, seed=905, keep_records=True)
+        assert survivors.passed_shots > 0
+        np.testing.assert_allclose(survivors.exp_vals, expected_ev, atol=1e-12)
+
+
+def test_postselected_specialization_preserves_public_reference_syndrome() -> None:
+    source = "\n".join(
+        [
+            "H 0",
+            "X 1",
+            "X_ERROR(0.1) 1",
+            "T 0",
+            "CX 1 0",
+            "T_DAG 0",
+            "CX 1 0",
+            "T 0",
+            "CX 1 0",
+            "T_DAG 0",
+            "CX 1 0",
+            "M 1",
+            "DETECTOR rec[-1]",
+            "MX 0",
+            "OBSERVABLE_INCLUDE(0) rec[-1]",
+        ]
+    )
+    for pass_ in (clifft.PhasePolynomialPass(), clifft.RotationSimplificationPass()):
+        hir = clifft.trace(clifft.parse(source), postselection_mask=[1])
+        expected = clifft.compute_reference_syndrome(hir)
+        assert expected == {"detectors": [1], "observables": [1]}
+        assert hir.num_t_gates == 4
+        manager = clifft.HirPassManager()
+        manager.add(pass_)
+        manager.run(hir)
+        assert hir.num_t_gates == 0
+        assert clifft.compute_reference_syndrome(hir) == expected
+        hir.postselection_mask = []
+        with pytest.raises(ValueError, match="postselection_mask omits detectors"):
+            clifft.lower(hir)

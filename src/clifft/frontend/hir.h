@@ -20,6 +20,7 @@
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <stdexcept>
 #include <vector>
@@ -471,6 +472,11 @@ struct HirModule {
     std::vector<uint8_t> postselection_mask;
     std::vector<uint8_t> expected_detectors;
     std::vector<uint8_t> expected_observables;
+
+    // Pre-specialization snapshot retained when an optimization pass rewrites
+    // ops under postselection_mask so compute_reference_syndrome() can still
+    // evaluate the un-postselected noiseless trajectory.
+    std::shared_ptr<const HirModule> pre_postselection_hir;
 
     std::optional<Tableau> final_tableau;
 

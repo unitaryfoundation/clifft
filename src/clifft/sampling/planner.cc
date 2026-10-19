@@ -530,29 +530,31 @@ void process_instrument(const HirModule& hir, const HeisenbergOp& op, uint32_t n
 SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
     if (options.postselection_mask.empty()) {
         options.postselection_mask = hir.postselection_mask;
-    } else if (!hir.postselection_mask.empty()) {
-        for (uint32_t d = 0; d < hir.num_detectors; ++d) {
-            if (option_bit(hir.postselection_mask, d) &&
-                !option_bit(options.postselection_mask, d)) {
-                throw std::invalid_argument(
-                    "sampling planner postselection_mask omits detectors assumed by HIR");
-            }
-        }
     }
     if (options.expected_detectors.empty()) {
         options.expected_detectors = hir.expected_detectors;
-    } else if (!hir.postselection_mask.empty()) {
+    }
+    if (options.expected_observables.empty()) {
+        options.expected_observables = hir.expected_observables;
+    }
+    for (const HirModule* assumed : {&hir, hir.pre_postselection_hir.get()}) {
+        if (!assumed || assumed->postselection_mask.empty()) {
+            continue;
+        }
         for (uint32_t d = 0; d < hir.num_detectors; ++d) {
-            if (option_bit(hir.postselection_mask, d) &&
-                option_bit(hir.expected_detectors, d) !=
-                    option_bit(options.expected_detectors, d)) {
+            if (!option_bit(assumed->postselection_mask, d)) {
+                continue;
+            }
+            if (!option_bit(options.postselection_mask, d)) {
+                throw std::invalid_argument(
+                    "sampling planner postselection_mask omits detectors assumed by HIR");
+            }
+            if (option_bit(assumed->expected_detectors, d) !=
+                option_bit(options.expected_detectors, d)) {
                 throw std::invalid_argument(
                     "sampling planner expected_detectors conflicts with postselected HIR");
             }
         }
-    }
-    if (options.expected_observables.empty()) {
-        options.expected_observables = hir.expected_observables;
     }
 
     NoiseSigns noise_signs(hir);

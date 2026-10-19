@@ -802,6 +802,30 @@ TEST_CASE("Paired scaffolds verify rewrites fire when legal and stop at boundary
         REQUIRE(pauli_noise_pass.blocks_reduced() == 0);
         REQUIRE(pauli_noise_pass.output_t_count() == 2);
 
+        // Positive 3: an intervening measurement M 1 that commutes with the
+        // prefix does not condition the pre-probe state across the rotations,
+        // so lookahead across EXP_VAL Z1 remains valid.
+        const Circuit commuting_meas_probe_circuit = clifft::parse(
+            "H 0 1\n"
+            "Z_ERROR(0.1) 1\n"
+            "T 0\n"
+            "CX 1 0\n"
+            "T_DAG 0\n"
+            "CX 1 0\n"
+            "M 1\n"
+            "EXP_VAL Z1\n"
+            "M 1\n"
+            "DETECTOR rec[-1]\n");
+        HirModule commuting_meas_probe_hir = clifft::trace(commuting_meas_probe_circuit);
+        commuting_meas_probe_hir.postselection_mask = {1};
+        PhasePolynomialPass commuting_meas_probe_pass;
+        commuting_meas_probe_pass.run(commuting_meas_probe_hir);
+        require_distributions_equal(
+            compute_dense_circuit_distribution(commuting_meas_probe_circuit, postselected),
+            compute_exact_hir_distribution(commuting_meas_probe_hir, postselected));
+        REQUIRE(commuting_meas_probe_pass.blocks_reduced() == 1);
+        REQUIRE(commuting_meas_probe_pass.output_t_count() == 0);
+
         // Negative 4: mid-circuit reset R 1 before M 1 acts as an instrument
         // barrier that stops postselected lookahead.
         const Circuit reset_barrier_circuit = clifft::parse(
@@ -825,6 +849,70 @@ TEST_CASE("Paired scaffolds verify rewrites fire when legal and stop at boundary
             compute_exact_hir_distribution(reset_barrier_hir, postselected));
         REQUIRE(reset_barrier_pass.blocks_reduced() == 0);
         REQUIRE(reset_barrier_pass.output_t_count() == 2);
+
+        // Negative 5: even when EXP_VAL Z1 commutes with the prefix, an
+        // intervening prefix-anticommuting measurement MX 0 conditions the
+        // entangled state before the probe (<Z1> = 1/3 on surviving shots), so
+        // lookahead must not fold the rotations across EXP_VAL Z1.
+        const Circuit conditioned_probe_circuit = clifft::parse(
+            "H 0 1\n"
+            "Z_ERROR(0.1) 1\n"
+            "T 0\n"
+            "CX 1 0\n"
+            "T_DAG 0\n"
+            "CX 1 0\n"
+            "MX 0\n"
+            "EXP_VAL Z1\n"
+            "M 1\n"
+            "DETECTOR rec[-1]\n");
+        HirModule conditioned_probe_hir = clifft::trace(conditioned_probe_circuit);
+        conditioned_probe_hir.postselection_mask = {1};
+        PhasePolynomialPass conditioned_probe_pass;
+        conditioned_probe_pass.run(conditioned_probe_hir);
+        const ExactPlanDistribution conditioned_oracle =
+            compute_dense_circuit_distribution(conditioned_probe_circuit, postselected);
+        require_distributions_equal(conditioned_oracle, compute_exact_hir_distribution(
+                                                            conditioned_probe_hir, postselected));
+        REQUIRE(conditioned_probe_pass.blocks_reduced() == 0);
+        REQUIRE(conditioned_probe_pass.output_t_count() == 2);
+        REQUIRE_FALSE(conditioned_oracle.kept_outcomes.empty());
+        for (const ExactOutcomeEntry& entry : conditioned_oracle.kept_outcomes) {
+            REQUIRE(entry.outcome.exp_vals.size() == 1);
+            REQUIRE_THAT(entry.outcome.exp_vals[0], Catch::Matchers::WithinAbs(1.0 / 3.0, 1e-12));
+        }
+
+        // Reference syndrome preservation: when the noiseless trajectory lies
+        // outside the postselected subspace (M 1 = 1 without X_ERROR),
+        // compute_reference_syndrome() on postselection-specialized HIR must
+        // still evaluate the un-postselected noiseless reference.
+        const Circuit reference_subspace_circuit = clifft::parse(
+            "H 0\n"
+            "X 1\n"
+            "X_ERROR(0.1) 1\n"
+            "T 0\n"
+            "CX 1 0\n"
+            "T_DAG 0\n"
+            "CX 1 0\n"
+            "T 0\n"
+            "CX 1 0\n"
+            "T_DAG 0\n"
+            "CX 1 0\n"
+            "M 1\n"
+            "DETECTOR rec[-1]\n"
+            "MX 0\n"
+            "OBSERVABLE_INCLUDE(0) rec[-1]\n");
+        HirModule reference_subspace_hir = clifft::trace(reference_subspace_circuit);
+        reference_subspace_hir.postselection_mask = {1};
+        const ReferenceSyndrome ref_before = compute_reference_syndrome(reference_subspace_hir);
+        REQUIRE(ref_before.detectors == std::vector<uint8_t>{1});
+        REQUIRE(ref_before.observables == std::vector<uint8_t>{1});
+        PhasePolynomialPass reference_subspace_pass;
+        reference_subspace_pass.run(reference_subspace_hir);
+        REQUIRE(reference_subspace_pass.blocks_reduced() == 1);
+        REQUIRE(reference_subspace_hir.num_t_gates() == 0);
+        const ReferenceSyndrome ref_after = compute_reference_syndrome(reference_subspace_hir);
+        REQUIRE(ref_after.detectors == ref_before.detectors);
+        REQUIRE(ref_after.observables == ref_before.observables);
     }
 
     SECTION(

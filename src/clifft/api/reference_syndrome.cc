@@ -14,10 +14,12 @@ namespace clifft {
 ReferenceSyndrome compute_reference_syndrome(const HirModule& hir) {
     ReferenceSyndrome ref;
 
-    const bool had_noise = !hir.noise_sites.empty() || !hir.readout_noise.empty();
+    const HirModule& source_hir = hir.pre_postselection_hir ? *hir.pre_postselection_hir : hir;
+    const bool had_noise = !source_hir.noise_sites.empty() || !source_hir.readout_noise.empty();
 
     // Make a clean copy and strip all noise
-    HirModule clean_hir = hir;
+    HirModule clean_hir = source_hir;
+    clean_hir.pre_postselection_hir.reset();
     clean_hir.postselection_mask.clear();
     clean_hir.expected_detectors.clear();
     clean_hir.expected_observables.clear();
