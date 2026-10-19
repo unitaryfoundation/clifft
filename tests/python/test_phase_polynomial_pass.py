@@ -775,3 +775,86 @@ def test_postselected_specialization_preserves_public_reference_syndrome() -> No
         hir.postselection_mask = []
         with pytest.raises(ValueError, match="postselection_mask omits detectors"):
             clifft.lower(hir)
+
+
+@pytest.mark.parametrize("second_mask", [[1, 1], [0, 1]])
+@pytest.mark.parametrize(
+    "pass_factory,downstream_detector",
+    [
+        (clifft.PhasePolynomialPass, True),
+        (clifft.PhasePolynomialPass, False),
+        (clifft.RotationSimplificationPass, False),
+    ],
+)
+def test_successive_postselected_specializations_retain_cumulative_assumptions(
+    second_mask: list[int],
+    pass_factory: type,
+    downstream_detector: bool,
+) -> None:
+    if downstream_detector:
+        source = "\n".join(
+            [
+                "H 0 2",
+                "X_ERROR(0.2) 1 3",
+                "T 0",
+                "CX 1 0",
+                "T_DAG 0",
+                "CX 1 0",
+                "M 1",
+                "DETECTOR rec[-1]",
+                "T 2",
+                "CX 3 2",
+                "T_DAG 2",
+                "CX 3 2",
+                "M 3",
+                "DETECTOR rec[-1]",
+                "MX 0 2",
+            ]
+        )
+    else:
+        source = "\n".join(
+            [
+                "H 0 2",
+                "X_ERROR(0.2) 1 3",
+                "M 1",
+                "DETECTOR rec[-1]",
+                "T 0",
+                "CX 1 0",
+                "T_DAG 0",
+                "CX 1 0",
+                "M 3",
+                "DETECTOR rec[-1]",
+                "T 2",
+                "CX 3 2",
+                "T_DAG 2",
+                "CX 3 2",
+                "MX 0 2",
+            ]
+        )
+    hir = clifft.trace(clifft.parse(source), postselection_mask=[1, 0])
+    for mask, expected_t_count in (([1, 0], 2), (second_mask, 0)):
+        hir.postselection_mask = mask
+        manager = clifft.HirPassManager()
+        manager.add(pass_factory())
+        manager.run(hir)
+        assert hir.num_t_gates == expected_t_count
+
+    for weakened_mask in ([], [1, 0], [0, 1]):
+        hir.postselection_mask = weakened_mask
+        with pytest.raises(ValueError, match="postselection_mask omits detectors"):
+            clifft.lower(hir)
+
+    hir.postselection_mask = [1, 1]
+    hir.expected_detectors = [1, 0]
+    with pytest.raises(ValueError, match="expected_detectors conflicts"):
+        _manager(pass_factory()).run(hir)
+    with pytest.raises(ValueError, match="expected_detectors conflicts"):
+        clifft.lower(hir)
+
+    hir.expected_detectors = []
+    lowered = clifft.lower(hir)
+    reference = clifft.compile(source, postselection_mask=[1, 1], hir_passes=None)
+    low_survivors = clifft.sample_survivors(lowered, shots=1024, seed=906, keep_records=True)
+    ref_survivors = clifft.sample_survivors(reference, shots=1024, seed=906, keep_records=True)
+    assert low_survivors.passed_shots == ref_survivors.passed_shots
+    np.testing.assert_array_equal(low_survivors.measurements, ref_survivors.measurements)

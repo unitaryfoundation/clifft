@@ -913,6 +913,67 @@ TEST_CASE("Paired scaffolds verify rewrites fire when legal and stop at boundary
         const ReferenceSyndrome ref_after = compute_reference_syndrome(reference_subspace_hir);
         REQUIRE(ref_after.detectors == ref_before.detectors);
         REQUIRE(ref_after.observables == ref_before.observables);
+
+        // Cumulative specialization assumptions: optimizing successively under
+        // [1, 0] and then [1, 1] (or [0, 1]) retains both detector assumptions
+        // and the original un-specialized reference snapshot.
+        const Circuit successive_circuit = clifft::parse(
+            "H 0 2\n"
+            "X 1 3\n"
+            "X_ERROR(0.2) 1 3\n"
+            "T 0\n"
+            "CX 1 0\n"
+            "T_DAG 0\n"
+            "CX 1 0\n"
+            "M 1\n"
+            "DETECTOR rec[-1]\n"
+            "T 2\n"
+            "CX 3 2\n"
+            "T_DAG 2\n"
+            "CX 3 2\n"
+            "M 3\n"
+            "DETECTOR rec[-1]\n"
+            "MX 0 2\n");
+        for (const std::vector<uint8_t>& second_mask :
+             {std::vector<uint8_t>{1, 1}, std::vector<uint8_t>{0, 1}}) {
+            HirModule successive_hir = clifft::trace(successive_circuit);
+            const ReferenceSyndrome successive_ref_before =
+                compute_reference_syndrome(successive_hir);
+            REQUIRE(successive_ref_before.detectors == std::vector<uint8_t>{1, 1});
+
+            successive_hir.postselection_mask = {1, 0};
+            PhasePolynomialPass first_pass;
+            first_pass.run(successive_hir);
+            REQUIRE(successive_hir.num_t_gates() == 2);
+
+            successive_hir.postselection_mask = second_mask;
+            PhasePolynomialPass second_pass;
+            second_pass.run(successive_hir);
+            REQUIRE(successive_hir.num_t_gates() == 0);
+            REQUIRE(compute_reference_syndrome(successive_hir).detectors ==
+                    successive_ref_before.detectors);
+
+            successive_hir.postselection_mask = {1, 0};
+            REQUIRE_THROWS_AS(clifft::sampling::plan_sampling(successive_hir),
+                              std::invalid_argument);
+            successive_hir.postselection_mask = {0, 1};
+            REQUIRE_THROWS_AS(clifft::sampling::plan_sampling(successive_hir),
+                              std::invalid_argument);
+
+            successive_hir.postselection_mask = {1, 1};
+            successive_hir.expected_detectors = {1, 0};
+            REQUIRE_THROWS_AS(PhasePolynomialPass().run(successive_hir), std::invalid_argument);
+            REQUIRE_THROWS_AS(clifft::sampling::plan_sampling(successive_hir),
+                              std::invalid_argument);
+
+            successive_hir.expected_detectors.clear();
+            const clifft::sampling::SamplingPlanOptions both_postselected{
+                .postselection_mask = std::vector<uint8_t>{1, 1},
+            };
+            require_distributions_equal(
+                compute_dense_circuit_distribution(successive_circuit, both_postselected),
+                compute_exact_hir_distribution(successive_hir, both_postselected));
+        }
     }
 
     SECTION(

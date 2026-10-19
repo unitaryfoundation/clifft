@@ -22,6 +22,7 @@ using optimizer_detail::copy_axis;
 }  // namespace
 
 std::map<uint32_t, bool> collect_postselected_records(const HirModule& hir) {
+    hir.validate_postselection_assumptions();
     std::map<uint32_t, bool> records;
     if (std::ranges::none_of(hir.postselection_mask, [](uint8_t flag) { return flag != 0; })) {
         return records;

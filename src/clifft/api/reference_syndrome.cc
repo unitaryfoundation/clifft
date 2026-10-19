@@ -19,10 +19,7 @@ ReferenceSyndrome compute_reference_syndrome(const HirModule& hir) {
 
     // Make a clean copy and strip all noise
     HirModule clean_hir = source_hir;
-    clean_hir.pre_postselection_hir.reset();
-    clean_hir.postselection_mask.clear();
-    clean_hir.expected_detectors.clear();
-    clean_hir.expected_observables.clear();
+    clean_hir.clear_postselection_metadata();
     RemoveNoisePass strip;
     strip.run(clean_hir);
     if ((had_noise || clean_hir.num_t_gates() > 64) && clean_hir.num_t_gates() > 0) {

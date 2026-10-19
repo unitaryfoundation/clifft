@@ -478,6 +478,70 @@ struct HirModule {
     // evaluate the un-postselected noiseless trajectory.
     std::shared_ptr<const HirModule> pre_postselection_hir;
 
+    // Cumulative detector postselection assumptions across all specialization
+    // passes that have rewritten this module.
+    std::vector<uint8_t> assumed_postselection_mask;
+    std::vector<uint8_t> assumed_expected_detectors;
+
+    void clear_postselection_metadata() {
+        postselection_mask.clear();
+        expected_detectors.clear();
+        expected_observables.clear();
+        pre_postselection_hir.reset();
+        assumed_postselection_mask.clear();
+        assumed_expected_detectors.clear();
+    }
+
+    void validate_postselection_assumptions() const {
+        for (uint32_t d = 0; d < num_detectors; ++d) {
+            const bool assumed =
+                d < assumed_postselection_mask.size() && assumed_postselection_mask[d] != 0;
+            const bool current = d < postselection_mask.size() && postselection_mask[d] != 0;
+            if (assumed && (current || d < expected_detectors.size())) {
+                const bool assumed_expected =
+                    d < assumed_expected_detectors.size() && assumed_expected_detectors[d] != 0;
+                const bool current_expected =
+                    d < expected_detectors.size() && expected_detectors[d] != 0;
+                if (assumed_expected != current_expected) {
+                    throw std::invalid_argument(
+                        "sampling planner expected_detectors conflicts with postselected HIR");
+                }
+            }
+        }
+    }
+
+    void record_postselection_specialization(HirModule&& before) {
+        if (assumed_postselection_mask.size() < num_detectors) {
+            assumed_postselection_mask.resize(num_detectors, 0);
+        }
+        if (assumed_expected_detectors.size() < num_detectors) {
+            assumed_expected_detectors.resize(num_detectors, 0);
+        }
+        const auto merge_assumptions = [&](const std::vector<uint8_t>& mask,
+                                           const std::vector<uint8_t>& expected) {
+            for (uint32_t d = 0; d < num_detectors; ++d) {
+                if (d >= mask.size() || mask[d] == 0) {
+                    continue;
+                }
+                const uint8_t expected_bit = (d < expected.size() && expected[d] != 0) ? 1 : 0;
+                if (assumed_postselection_mask[d] != 0 &&
+                    assumed_expected_detectors[d] != expected_bit) {
+                    throw std::invalid_argument(
+                        "sampling planner expected_detectors conflicts with postselected HIR");
+                }
+                assumed_postselection_mask[d] = 1;
+                assumed_expected_detectors[d] = expected_bit;
+            }
+        };
+        merge_assumptions(before.assumed_postselection_mask, before.assumed_expected_detectors);
+        merge_assumptions(before.postselection_mask, before.expected_detectors);
+        if (!pre_postselection_hir) {
+            pre_postselection_hir = before.pre_postselection_hir
+                                        ? std::move(before.pre_postselection_hir)
+                                        : std::make_shared<const HirModule>(std::move(before));
+        }
+    }
+
     std::optional<Tableau> final_tableau;
 
     // Hidden measurement slot trace() assigned to the requested node's

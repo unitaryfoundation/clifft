@@ -537,25 +537,27 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
     if (options.expected_observables.empty()) {
         options.expected_observables = hir.expected_observables;
     }
-    for (const HirModule* assumed : {&hir, hir.pre_postselection_hir.get()}) {
-        if (!assumed || assumed->postselection_mask.empty()) {
-            continue;
+    const auto validate_assumptions = [&](std::span<const uint8_t> assumed_mask,
+                                          std::span<const uint8_t> assumed_expected) {
+        if (assumed_mask.empty()) {
+            return;
         }
         for (uint32_t d = 0; d < hir.num_detectors; ++d) {
-            if (!option_bit(assumed->postselection_mask, d)) {
+            if (!option_bit(assumed_mask, d)) {
                 continue;
             }
             if (!option_bit(options.postselection_mask, d)) {
                 throw std::invalid_argument(
                     "sampling planner postselection_mask omits detectors assumed by HIR");
             }
-            if (option_bit(assumed->expected_detectors, d) !=
-                option_bit(options.expected_detectors, d)) {
+            if (option_bit(assumed_expected, d) != option_bit(options.expected_detectors, d)) {
                 throw std::invalid_argument(
                     "sampling planner expected_detectors conflicts with postselected HIR");
             }
         }
-    }
+    };
+    validate_assumptions(hir.assumed_postselection_mask, hir.assumed_expected_detectors);
+    validate_assumptions(hir.postselection_mask, hir.expected_detectors);
 
     NoiseSigns noise_signs(hir);
 
