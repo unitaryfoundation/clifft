@@ -914,6 +914,24 @@ TEST_CASE("Paired scaffolds verify rewrites fire when legal and stop at boundary
         REQUIRE(ref_after.detectors == ref_before.detectors);
         REQUIRE(ref_after.observables == ref_before.observables);
 
+        // Coherent-rotation circuits with zero T_GATE ops must still run internal
+        // simplification passes inside compute_reference_syndrome() after noise
+        // stripping so cancelling PHASE_ROTATION pairs collapse to width 0.
+        std::string coherent_ref_source;
+        for (int q = 0; q < 24; ++q) {
+            const std::string qs = std::to_string(q);
+            coherent_ref_source += "H " + qs + "\n";
+            coherent_ref_source += "R_Z(0.07) " + qs + "\n";
+            coherent_ref_source += "X_ERROR(0.01) " + qs + "\n";
+            coherent_ref_source += "R_Z(-0.07) " + qs + "\n";
+            coherent_ref_source += "MX " + qs + "\n";
+            coherent_ref_source += "DETECTOR rec[-1]\n";
+        }
+        const HirModule coherent_ref_hir = clifft::trace(clifft::parse(coherent_ref_source));
+        REQUIRE(coherent_ref_hir.num_t_gates() == 0);
+        const ReferenceSyndrome coherent_ref = compute_reference_syndrome(coherent_ref_hir);
+        REQUIRE(coherent_ref.detectors == std::vector<uint8_t>(24, 0));
+
         // Cumulative specialization assumptions: optimizing successively under
         // [1, 0] and then [1, 1] (or [0, 1]) retains both detector assumptions
         // and the original un-specialized reference snapshot.
@@ -967,12 +985,9 @@ TEST_CASE("Paired scaffolds verify rewrites fire when legal and stop at boundary
                               std::invalid_argument);
 
             successive_hir.expected_detectors.clear();
-            const clifft::sampling::SamplingPlanOptions both_postselected{
-                .postselection_mask = std::vector<uint8_t>{1, 1},
-            };
             require_distributions_equal(
-                compute_dense_circuit_distribution(successive_circuit, both_postselected),
-                compute_exact_hir_distribution(successive_hir, both_postselected));
+                compute_dense_circuit_distribution(successive_circuit, postselected_both),
+                compute_exact_hir_distribution(successive_hir, postselected_both));
         }
     }
 
@@ -2276,7 +2291,7 @@ TEST_CASE("Varied pass sequences preserve exact distributions across hazards",
         CAPTURE(trial, static_cast<int>(scaffold), source);
 
         const Circuit circuit = clifft::parse(source);
-        const HirModule original = clifft::trace(circuit);
+        HirModule original = clifft::trace(circuit);
         const OwnedPlanOptions owned =
             build_plan_options(original, planted, hazards.postselect_check_detectors);
         const auto options = owned.as_span_options();

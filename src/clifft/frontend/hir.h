@@ -504,7 +504,7 @@ struct HirModule {
                     d < expected_detectors.size() && expected_detectors[d] != 0;
                 if (assumed_expected != current_expected) {
                     throw std::invalid_argument(
-                        "sampling planner expected_detectors conflicts with postselected HIR");
+                        "expected_detectors conflicts with postselected HIR");
                 }
             }
         }
@@ -527,7 +527,7 @@ struct HirModule {
                 if (assumed_postselection_mask[d] != 0 &&
                     assumed_expected_detectors[d] != expected_bit) {
                     throw std::invalid_argument(
-                        "sampling planner expected_detectors conflicts with postselected HIR");
+                        "expected_detectors conflicts with postselected HIR");
                 }
                 assumed_postselection_mask[d] = 1;
                 assumed_expected_detectors[d] = expected_bit;

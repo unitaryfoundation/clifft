@@ -9,20 +9,24 @@
 #include "clifft/sampling/planner.h"
 #include "clifft/sampling/sampler.h"
 
+#include <algorithm>
+
 namespace clifft {
 
 ReferenceSyndrome compute_reference_syndrome(const HirModule& hir) {
     ReferenceSyndrome ref;
 
     const HirModule& source_hir = hir.pre_postselection_hir ? *hir.pre_postselection_hir : hir;
-    const bool had_noise = !source_hir.noise_sites.empty() || !source_hir.readout_noise.empty();
 
     // Make a clean copy and strip all noise
     HirModule clean_hir = source_hir;
     clean_hir.clear_postselection_metadata();
     RemoveNoisePass strip;
     strip.run(clean_hir);
-    if ((had_noise || clean_hir.num_t_gates() > 64) && clean_hir.num_t_gates() > 0) {
+    const bool has_non_clifford = std::ranges::any_of(clean_hir.ops, [](const HeisenbergOp& op) {
+        return op.op_type() == OpType::T_GATE || op.op_type() == OpType::PHASE_ROTATION;
+    });
+    if (has_non_clifford) {
         HirPassManager passes;
         passes.add_pass(std::make_unique<PeepholeFusionPass>());
         passes.add_pass(std::make_unique<PhasePolynomialPass>());

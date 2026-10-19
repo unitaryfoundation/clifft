@@ -118,7 +118,9 @@ every trajectory and the noiseless reference, so even probability-one noise
 discards affected constraints. When compiling with postselected detectors,
 noiseless measurements whose outcomes are fixed by postselection (directly or by
 unit propagation across difference detectors) supply forward and commuting
-lookahead constraints for surviving trajectories.
+lookahead constraints for surviving trajectories, stopping before any
+expectation-value probe that anticommutes with the prefix or follows an earlier
+measurement that anticommutes with the prefix.
 Instruments clear all constraints. Use this pass only on complete circuits with
 an all-zero input; prior scheduling across noise causes it to skip the circuit.
 
@@ -133,9 +135,7 @@ When `max_variables > 64` and the 64-variable attempt is capped, the pass can
 try a complete contiguous commuting T region up to `max_variables` using
 two-word coordinates. This path keeps an
 ordinary-basis candidate and tries one basis derived from the final Clifford
-tableau. It crosses no measurement, feedback, or instrument boundaries, and
-crosses Pauli noise only when its channels commute with the region and preserve
-the constraints used.
+tableau. It crosses no measurement, feedback, noise, or instrument boundaries.
 Synthesis still supports at most 64 core variables and searches at most 128 odd
 parity terms. A signature-rank precheck rejects unsupported cores before cubic
 polynomial expansion.

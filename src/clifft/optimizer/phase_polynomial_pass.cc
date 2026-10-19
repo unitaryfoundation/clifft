@@ -221,6 +221,7 @@ class Rewriter {
             return fixed;
         }
         bool copied = false;
+        const bool has_exp_vals = hir().num_exp_vals > 0;
         bool prefix_measurements_commute = true;
         for (size_t m = start; m < hir().ops.size(); ++m) {
             const HeisenbergOp& op = hir().ops[m];
@@ -237,11 +238,17 @@ class Rewriter {
             if (op.op_type() != OpType::MEASURE) {
                 continue;
             }
-            const PauliMaskView mask = hir().mask_view(op);
-            const bool mask_commutes = commutes_with_prefix(hir(), start, m, mask);
-            prefix_measurements_commute = prefix_measurements_commute && mask_commutes;
             const auto it = postselected_records.find(static_cast<uint32_t>(op.meas_record_idx()));
-            if (it == postselected_records.end() || !mask_commutes) {
+            if (it == postselected_records.end()) {
+                if (has_exp_vals && prefix_measurements_commute) {
+                    prefix_measurements_commute =
+                        commutes_with_prefix(hir(), start, m, hir().mask_view(op));
+                }
+                continue;
+            }
+            const PauliMaskView mask = hir().mask_view(op);
+            if (!commutes_with_prefix(hir(), start, m, mask)) {
+                prefix_measurements_commute = false;
                 continue;
             }
             auto axis = cliffords_.read(mask, hir().num_qubits);
