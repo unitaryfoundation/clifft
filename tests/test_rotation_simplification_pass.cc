@@ -4,6 +4,7 @@
 #include "clifft/optimizer/rotation_simplification_pass.h"
 
 #include "instrument_test_helpers.h"
+#include "sampling_equivalence_helpers.h"
 
 #include <catch2/catch_test_macros.hpp>
 #include <stdexcept>
@@ -124,4 +125,34 @@ TEST_CASE("Rotation simplification stops scanning rotations when no stabilizers 
     REQUIRE_FALSE(pass.applied());
     REQUIRE(pass.regions_examined() == 1);
     REQUIRE(hir.ops.size() == 201);
+}
+
+TEST_CASE("Rotation simplification preserves exact distribution across remainder classes",
+          "[optimizer]") {
+    // Combine signed stabilizer aliasing, pi/2 + pi/4 remainder extraction into
+    // Clifford + T_GATE, and conjugation across EXP_VAL, NOISE, MEASURE, and
+    // CONDITIONAL_PAULI.
+    auto hir =
+        trace(parse("X 2\n"
+                    "H 0 1\n"
+                    "CX 0 1\n"
+                    "R_PAULI(0.31) Z0*Z2\n"
+                    "R_PAULI(1.06) Z1\n"
+                    "R_PAULI(-0.19) Z0\n"
+                    "R_PAULI(0.94) Z1*Z2\n"
+                    "EXP_VAL X0*Y1\n"
+                    "DEPOLARIZE1(0.05) 0 1\n"
+                    "MX 0\n"
+                    "CX rec[-1] 1\n"
+                    "CZ rec[-1] 1\n"
+                    "R_PAULI(0.41) Z2\n"
+                    "EXP_VAL Z1*Z2\n"
+                    "M 1 2"));
+    const auto baseline = hir;
+    RotationSimplificationPass pass;
+    pass.run(hir);
+    REQUIRE(pass.applied());
+    REQUIRE(pass.rotations_removed() >= 3);
+    Xoshiro256PlusPlus rng(0x707A7101);
+    test::check_exact_equivalent(baseline, hir, rng);
 }

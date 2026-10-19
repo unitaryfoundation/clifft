@@ -13,10 +13,11 @@ import pytest
 from conftest import (
     assert_statevectors_equiv,
     cross_binomial_tolerance,
-    random_clifford_t_circuit,
-    random_dense_clifford_t_circuit,
 )
-from utils_conformance import default_scheduled_passes, unitary_reference
+from utils_conformance import (
+    default_scheduled_passes,
+    unitary_reference,
+)
 from utils_fuzzing import (
     generate_planted_hazard_circuit,
     generate_planted_unitary_circuit,
@@ -39,43 +40,7 @@ def _clifft_statevector(circuit_str: str, **compile_kwargs: Any) -> np.ndarray:
 
 
 class TestDefaultHirStatevectorEquivalence:
-    """Check that the default HIR pipeline preserves noiseless statevectors.
-
-    For small noiseless Clifford+T circuits, expand both the unoptimized and
-    HIR-optimized factored states to dense 2^n statevectors and compare their
-    phase-aligned amplitudes. This validates algebraic correctness up to global
-    phase regardless of active/dormant geometry changes.
-    """
-
-    @pytest.mark.parametrize("seed", _SEEDS)
-    def test_random_clifford_t_5q(self, seed: int) -> None:
-        circuit = random_clifford_t_circuit(5, 40, seed=seed)
-        base_sv = _clifft_statevector(circuit, hir_passes=None)
-        opt_sv = _clifft_statevector(
-            circuit,
-            hir_passes=clifft.default_hir_pass_manager(),
-        )
-        assert_statevectors_equiv(opt_sv, base_sv)
-
-    @pytest.mark.parametrize("seed", _SEEDS)
-    def test_dense_clifford_t_4q(self, seed: int) -> None:
-        circuit = random_dense_clifford_t_circuit(4, 50, seed=seed)
-        base_sv = _clifft_statevector(circuit, hir_passes=None)
-        opt_sv = _clifft_statevector(
-            circuit,
-            hir_passes=clifft.default_hir_pass_manager(),
-        )
-        assert_statevectors_equiv(opt_sv, base_sv)
-
-    @pytest.mark.parametrize("seed", _SEEDS)
-    def test_dense_clifford_t_8q(self, seed: int) -> None:
-        circuit = random_dense_clifford_t_circuit(8, 60, seed=seed)
-        base_sv = _clifft_statevector(circuit, hir_passes=None)
-        opt_sv = _clifft_statevector(
-            circuit,
-            hir_passes=clifft.default_hir_pass_manager(),
-        )
-        assert_statevectors_equiv(opt_sv, base_sv)
+    """Check that the default and scheduled HIR pipelines preserve planted unitary statevectors."""
 
     @pytest.mark.parametrize("seed", _SEEDS)
     @pytest.mark.parametrize("scaffold_kind", ["phase_sandwich", "stabilizer_reduced"])

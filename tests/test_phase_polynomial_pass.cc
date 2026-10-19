@@ -7,6 +7,7 @@
 #include "clifft/optimizer/wide_phase_region.h"
 
 #include "instrument_test_helpers.h"
+#include "sampling_equivalence_helpers.h"
 #include "test_helpers.h"
 
 #include <algorithm>
@@ -589,4 +590,50 @@ TEST_CASE("Wide phase work allowance is shared across separated regions", "[opti
     REQUIRE(pass.wide_budget_exhausted());
     REQUIRE(pass.wide_work() <= 1);
     REQUIRE(pass.wide_rewrites() == 0);
+}
+
+TEST_CASE("Phase pass pulls back expectation values and preserves stabilizers across them",
+          "[optimizer]") {
+    auto hir =
+        trace(parse("H 0\n"
+                    "T 0\n"
+                    "T 0\n"
+                    "EXP_VAL X0\n"
+                    "CX 1 0\n"
+                    "T 0\n"
+                    "CX 1 0\n"
+                    "EXP_VAL Y0*Z1\n"
+                    "M 0 1"));
+    const auto baseline = hir;
+    PhasePolynomialPass pass;
+    pass.run(hir);
+    REQUIRE(pass.applied());
+    REQUIRE(pass.pauli_pullbacks() >= 1);
+    REQUIRE(hir.num_t_gates() == 1);
+    Xoshiro256PlusPlus rng(0x51A5E01);
+    test::check_exact_equivalent(baseline, hir, rng);
+}
+
+TEST_CASE("Phase pass synthesizes quadratic Clifford remainder terms with exact equivalence",
+          "[optimizer]") {
+    // On |++>, four copies of exp(-i pi/8 Z0*Z1) accumulate a c=4 parity term
+    // that synthesizes into a quadratic CZ Clifford remainder and conjugates
+    // downstream X measurements into X*Z observables.
+    auto hir =
+        trace(parse("H 0 1\n"
+                    "CX 0 1\nT 1\nCX 0 1\n"
+                    "CX 0 1\nT 1\nCX 0 1\n"
+                    "CX 0 1\nT 1\nCX 0 1\n"
+                    "CX 0 1\nT 1\nCX 0 1\n"
+                    "T 0\n"
+                    "EXP_VAL X0\n"
+                    "EXP_VAL X1\n"
+                    "MX 0 1"));
+    const auto baseline = hir;
+    PhasePolynomialPass pass;
+    pass.run(hir);
+    REQUIRE(pass.applied());
+    REQUIRE(hir.num_t_gates() == 1);
+    Xoshiro256PlusPlus rng(0x51A5E02);
+    test::check_exact_equivalent(baseline, hir, rng);
 }

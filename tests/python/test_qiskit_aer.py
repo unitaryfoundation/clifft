@@ -87,6 +87,14 @@ class TestQiskitStatevectorOracle(_StatevectorBackendMixin):
         qiskit_sv = unitary_reference(circuit)
         assert_statevectors_equiv(clifft_sv, qiskit_sv, msg=f"{num_qubits}q seed={seed}\n{circuit}")
 
+    @pytest.mark.parametrize("seed", range(5))
+    def test_random_clifford_t_5q_depth40(self, seed: int) -> None:
+        """Random 5-qubit Clifford+T circuits at depth 40 match Qiskit across compiler profiles."""
+        circuit = random_clifford_t_circuit(5, depth=40, seed=seed)
+        clifft_sv = self.statevector(circuit)
+        qiskit_sv = unitary_reference(circuit)
+        assert_statevectors_equiv(clifft_sv, qiskit_sv, msg=f"5q depth=40 seed={seed}\n{circuit}")
+
     @pytest.mark.parametrize("seed", range(3))
     def test_random_clifford_t_medium(self, seed: int) -> None:
         """Random Clifford+T circuits at 6 qubits match Qiskit."""
@@ -169,6 +177,14 @@ class TestDenseCliffordTFuzzer(_StatevectorBackendMixin):
             clifft_sv, qiskit_sv, msg=f"dense {num_qubits}q seed={seed}\n{circuit}"
         )
 
+    @pytest.mark.parametrize("seed", range(5))
+    def test_dense_entanglement_4q_depth50(self, seed: int) -> None:
+        """Dense 4-qubit Clifford+T circuits at depth 50 match Qiskit across compiler profiles."""
+        circuit = random_dense_clifford_t_circuit(4, depth=50, seed=seed)
+        clifft_sv = self.statevector(circuit)
+        qiskit_sv = unitary_reference(circuit)
+        assert_statevectors_equiv(clifft_sv, qiskit_sv, msg=f"dense 4q depth=50 seed={seed}")
+
     @pytest.mark.parametrize("seed", range(3))
     def test_dense_entanglement_medium(self, seed: int) -> None:
         """Dense Clifford+T at 6 qubits match Qiskit."""
@@ -176,6 +192,14 @@ class TestDenseCliffordTFuzzer(_StatevectorBackendMixin):
         clifft_sv = self.statevector(circuit)
         qiskit_sv = unitary_reference(circuit)
         assert_statevectors_equiv(clifft_sv, qiskit_sv, msg=f"dense 6q seed={seed}")
+
+    @pytest.mark.parametrize("seed", range(5))
+    def test_dense_entanglement_8q_depth60(self, seed: int) -> None:
+        """Dense 8-qubit Clifford+T circuits at depth 60 match Qiskit across compiler profiles."""
+        circuit = random_dense_clifford_t_circuit(8, depth=60, seed=seed)
+        clifft_sv = self.statevector(circuit)
+        qiskit_sv = unitary_reference(circuit)
+        assert_statevectors_equiv(clifft_sv, qiskit_sv, msg=f"dense 8q depth=60 seed={seed}")
 
     @pytest.mark.parametrize("seed", range(3))
     def test_deep_phase_accumulation(self, seed: int) -> None:
