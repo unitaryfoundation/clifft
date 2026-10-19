@@ -70,7 +70,6 @@ TEST_CASE("Noncomputational preparation owns its inputs across copies and moves"
     const auto actual = request.sample(129, 43);
     require_same_observations(actual, expected);
     REQUIRE(actual.final_status == expected.final_status);
-    REQUIRE(request.report().strategy == NonComputationalStrategy::Trajectory);
 }
 
 TEST_CASE("Noncomputational preparation keeps execution state local to each call") {
@@ -102,9 +101,12 @@ TEST_CASE("Noncomputational output requirements preserve records and subsequent 
     const auto expected = sample_noncomputational(make_circuit(), make_model(), 129, 43);
     const PreparedNonComputationalRequest request(make_circuit(), make_model(),
                                                   {.final_status = false});
-    const auto actual = request.sample(129, 43);
-    require_same_observations(actual, expected);
-    REQUIRE(actual.final_status.empty());
+    for (const uint32_t threads : {1u, 3u}) {
+        const auto actual = request.sample(129, 43, threads);
+        require_same_observations(actual, expected);
+        REQUIRE(actual.final_status.empty());
+        REQUIRE(actual.final_status.capacity() == 0);
+    }
     REQUIRE_FALSE(expected.final_status.empty());
 }
 
@@ -119,7 +121,7 @@ TEST_CASE("Noncomputational preparation rejects invalid requests before executio
     SECTION("malformed inline probability") {
         circuit = parse("LEAKAGE(0.2) 0");
         circuit.nodes.front().args.clear();
-        message = "LEAKAGE";
+        message = "requires exactly one argument";
     }
     SECTION("multi-target measurement") {
         circuit = parse("M 0");

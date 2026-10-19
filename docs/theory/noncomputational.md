@@ -190,14 +190,6 @@ operations act, which measurements use the classifier, and when a site
 returns to the computational subspace. Those choices differ between shots, so
 one program compiled before sampling cannot describe every trajectory.
 
-Before sampling, an internal prepared request owns a snapshot of the model and
-the circuit with transition hooks and partner interactions expanded. Preparation
-validates annotation shapes, transition names, and model-dependent measurement
-contracts without drawing randomness or compiling a continuation. The request
-can be reused internally; each execution call owns its workers, random streams,
-and continuations. Width checks remain at continuation compilation, so an
-unreachable all-computational start cannot reject a valid request.
-
 `noncomp.sample` instead alternates execution with compilation when the
 sampled history requires it. The executor directly handles outcomes whose state
 update leaves the remaining program valid. When an outcome invalidates the
@@ -210,6 +202,11 @@ already executed, changes the remaining operations to match the new
 trajectory, and resumes after the transition. Jumps whose source is already
 noncomputational are sampled as classical status changes while this
 continuation is constructed.
+
+Before execution, preparation expands transition hooks and partner interactions
+and validates annotations and model-dependent measurement contracts, even for
+zero shots. Active-width limits are checked when a continuation is compiled,
+so an unreachable all-computational start cannot reject a valid request.
 
 The prepared transition action holds only the source-dependent total
 jump rates, the separate weights for `g` and `e` destinations, and one

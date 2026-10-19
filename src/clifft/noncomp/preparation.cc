@@ -6,6 +6,7 @@
 #include "clifft/noncomp/transition_hooks.h"
 #include "clifft/util/shot_seed.h"
 
+#include <cassert>
 #include <stdexcept>
 #include <string>
 #include <unordered_set>
@@ -65,7 +66,8 @@ void validate_annotation(const AstNode& node, const NonComputationalModel& model
 // model can ever leak or lose a qubit, parity measurements are unsupported and
 // ordinary measurements require a classifier.
 void validate_model_contract(const Circuit& annotated, const NonComputationalModel& model) {
-    // Determine whether the model can ever produce a noncomputational qubit.
+    // Interactions only spread existing leakage, so they cannot make an
+    // otherwise computational request noncomputational on their own.
     bool noncomp_capable = false;
     for (const Level l : kAllLevels) {
         if (!is_computational(l) && model.initial_probability(l) > 0.0) {
@@ -83,12 +85,7 @@ void validate_model_contract(const Circuit& annotated, const NonComputationalMod
             }
             if (node.gate == GateType::LEVEL_TRANSITION) {
                 const TransitionInstrument* instr = model.transition_named(node.tag);
-                if (instr == nullptr) {
-                    // Unresolvable tags were rejected by the annotation
-                    // validation loop that runs before this helper; the
-                    // null check is defensive for direct callers.
-                    continue;
-                }
+                assert(instr != nullptr && "annotation validation resolves transition names");
                 for (const Level src : kAllLevels) {
                     if (!is_computational(src)) {
                         continue;
@@ -173,16 +170,14 @@ Circuit prepare_circuit(const Circuit& circuit, const NonComputationalModel& mod
 PreparedNonComputationalRequest::PreparedNonComputationalRequest(
     const Circuit& circuit, const NonComputationalModel& model,
     NonComputationalRequirements requirements)
-    : model_(model), circuit_(prepare_circuit(circuit, model_)), requirements_(requirements) {}
+    : model_(model),
+      annotated_circuit_(prepare_circuit(circuit, model_)),
+      requirements_(requirements) {}
 
 NonComputationalSample PreparedNonComputationalRequest::sample(uint32_t shots,
                                                                std::optional<uint64_t> seed,
                                                                uint32_t threads) const {
-    auto result = run_trajectory_driver(*this, shots, make_seed_root(shots, seed), threads);
-    if (!requirements_.final_status) {
-        result.final_status.clear();
-    }
-    return result;
+    return run_trajectory_driver(*this, shots, make_seed_root(shots, seed), threads);
 }
 
 }  // namespace clifft

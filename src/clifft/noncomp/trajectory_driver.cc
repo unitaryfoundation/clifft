@@ -439,43 +439,44 @@ SamplingCompiledContinuation compile_sampling_continuation(
 NonComputationalSample run_trajectory_driver(const PreparedNonComputationalRequest& request,
                                              uint32_t shots, const SeedRoot& root,
                                              uint32_t threads) {
-    const Circuit& circuit = request.circuit();
+    const Circuit& annotated = request.annotated_circuit();
     const NonComputationalModel& model = request.model();
     const auto max_active_width_cap = request.requirements().max_active_width;
     NonComputationalSample result;
     result.shots = shots;
-    result.num_qubits = circuit.num_qubits;
-    result.num_measurements = circuit.num_measurements;
-    result.num_detectors = circuit.num_detectors;
-    result.num_observables = circuit.num_observables;
+    result.num_qubits = annotated.num_qubits;
+    result.num_measurements = annotated.num_measurements;
+    result.num_detectors = annotated.num_detectors;
+    result.num_observables = annotated.num_observables;
     const MeasurementClassifier* classifier = model.classifier();
     const bool ternary = classifier != nullptr && classifier->has_herald();
-    const Circuit& annotated = circuit;
     if (shots == 0) {
         return result;
     }
 
     const size_t shot_count = shots;
-    result.measurements.resize(shot_count * circuit.num_measurements);
-    result.detectors.resize(shot_count * circuit.num_detectors);
-    result.observables.resize(shot_count * circuit.num_observables);
-    result.final_status.resize(shot_count * circuit.num_qubits);
-    result.heralds.resize(shot_count * circuit.num_measurements);
+    result.measurements.resize(shot_count * annotated.num_measurements);
+    result.detectors.resize(shot_count * annotated.num_detectors);
+    result.observables.resize(shot_count * annotated.num_observables);
+    if (request.requirements().final_status) {
+        result.final_status.resize(shot_count * annotated.num_qubits);
+    }
+    result.heralds.resize(shot_count * annotated.num_measurements);
 
     const InstrumentTraceOptions instrument_options = instrument_trace_options(model);
     TrajectoryEvents no_events;
-    no_events.initial_status.assign(circuit.num_qubits, QubitStatus::Computational);
+    no_events.initial_status.assign(annotated.num_qubits, QubitStatus::Computational);
     auto run_shot = [&](TrajectoryWorker& worker, uint32_t shot) {
         const auto driver_words = derive_state(root, shot, kTrajectoryDriverDomain);
         Xoshiro256PlusPlus driver_rng(0);
         driver_rng.seed_full(driver_words[0], driver_words[1], driver_words[2], driver_words[3]);
 
         TrajectoryEvents events;
-        events.initial_status.reserve(circuit.num_qubits);
+        events.initial_status.reserve(annotated.num_qubits);
         std::vector<Level> initial_levels;
-        initial_levels.reserve(circuit.num_qubits);
+        initial_levels.reserve(annotated.num_qubits);
         bool needs_shot_specific_start = false;
-        for (uint32_t qubit = 0; qubit < circuit.num_qubits; ++qubit) {
+        for (uint32_t qubit = 0; qubit < annotated.num_qubits; ++qubit) {
             const Level level = draw_initial_level(model, driver_rng);
             initial_levels.push_back(level);
             events.initial_status.push_back(status_for(level));
@@ -609,18 +610,22 @@ NonComputationalSample run_trajectory_driver(const PreparedNonComputationalReque
         const std::span<const uint8_t> measurements = executor->visible_records();
         std::copy(
             measurements.begin(), measurements.end(),
-            result.measurements.begin() + static_cast<size_t>(shot) * circuit.num_measurements);
+            result.measurements.begin() + static_cast<size_t>(shot) * annotated.num_measurements);
         const std::span<const uint8_t> detectors = executor->detectors();
         std::copy(detectors.begin(), detectors.end(),
-                  result.detectors.begin() + static_cast<size_t>(shot) * circuit.num_detectors);
+                  result.detectors.begin() + static_cast<size_t>(shot) * annotated.num_detectors);
         const std::span<const uint8_t> observables = executor->observables();
-        std::copy(observables.begin(), observables.end(),
-                  result.observables.begin() + static_cast<size_t>(shot) * circuit.num_observables);
+        std::copy(
+            observables.begin(), observables.end(),
+            result.observables.begin() + static_cast<size_t>(shot) * annotated.num_observables);
         executor->return_to_root_plan();
-        std::copy(continuation->final_status.begin(), continuation->final_status.end(),
-                  result.final_status.begin() + static_cast<size_t>(shot) * circuit.num_qubits);
+        if (request.requirements().final_status) {
+            std::copy(
+                continuation->final_status.begin(), continuation->final_status.end(),
+                result.final_status.begin() + static_cast<size_t>(shot) * annotated.num_qubits);
+        }
         for (const auto& [slot, flag] : herald_flags) {
-            result.heralds[static_cast<size_t>(shot) * circuit.num_measurements + slot] = flag;
+            result.heralds[static_cast<size_t>(shot) * annotated.num_measurements + slot] = flag;
         }
     };
     run_shot_ranges(

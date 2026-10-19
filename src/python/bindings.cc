@@ -29,6 +29,7 @@
 #include "clifft/util/version.h"
 
 #include <array>
+#include <cassert>
 #include <limits>
 #include <nanobind/nanobind.h>
 #include <nanobind/ndarray.h>
@@ -225,6 +226,8 @@ const char* width_effect_to_str(clifft::WidthEffect effect) {
 }  // namespace
 
 nb::tuple noncomp_sample_to_python(clifft::NonComputationalSample r, uint32_t shots) {
+    assert(r.final_status.size() == static_cast<size_t>(shots) * r.num_qubits &&
+           "the public sampler requires a full final-status array");
     // These values match Python's QubitStatus enum, including the distinct
     // leaked substates.
     std::vector<uint8_t> status(r.final_status.size());
