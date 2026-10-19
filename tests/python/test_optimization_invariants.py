@@ -177,6 +177,122 @@ class TestDefaultOptimizerStatisticalEquivalence:
                     f"diff={diff:.4f}, tol={tol:.4f}"
                 )
 
+    @staticmethod
+    def _assert_bounded_moment_match(
+        mean_a: float,
+        mean_b: float,
+        shots: int,
+        label: str,
+        *,
+        sigma: float = 5.5,
+    ) -> None:
+        """Compare sample means of random variables bounded in [-1, 1].
+
+        For any Y in [-1, 1], Z = (1 + Y) / 2 lies in [0, 1], so by the
+        Bhatia-Davis inequality Var(Z) <= E[Z](1 - E[Z]) and
+        StdErr(Y_bar_a - Y_bar_b) <= 2 * StdErr(Bernoulli(E[Z])).
+        """
+        p_pooled = float(np.clip((mean_a + mean_b + 2.0) / 4.0, 0.0, 1.0))
+        tol = max(2.0 * cross_binomial_tolerance(p_pooled, shots, sigma=sigma), 1e-9)
+        diff = abs(mean_a - mean_b)
+        assert diff < tol, (
+            f"EXP_VAL {label}: base={mean_a:.4f}, opt={mean_b:.4f}, "
+            f"diff={diff:.4f}, tol={tol:.4f}"
+        )
+
+    @classmethod
+    def _assert_exp_vals_match(
+        cls,
+        base_classical: np.ndarray,
+        base_ev: np.ndarray,
+        opt_classical: np.ndarray,
+        opt_ev: np.ndarray,
+        *,
+        sigma: float = 5.5,
+    ) -> None:
+        """Compare probe values and their joint correlations with classical outputs."""
+        assert base_ev.shape == opt_ev.shape
+        shots, num_probes = base_ev.shape
+        if num_probes == 0:
+            return
+
+        # Per-probe first and second moments distinguish constant 0 probes from
+        # +/-1 probes with zero mean (e.g., H 0; EXP_VAL Z0; M 0 vs H 0; M 0; EXP_VAL Z0).
+        for p in range(num_probes):
+            cls._assert_bounded_moment_match(
+                float(np.mean(base_ev[:, p])),
+                float(np.mean(opt_ev[:, p])),
+                shots,
+                f"mean[{p}]",
+                sigma=sigma,
+            )
+            cls._assert_bounded_moment_match(
+                float(np.mean(base_ev[:, p] ** 2)),
+                float(np.mean(opt_ev[:, p] ** 2)),
+                shots,
+                f"second_moment[{p}]",
+                sigma=sigma,
+            )
+
+        pair_probes = min(num_probes, 16)
+        for p1 in range(pair_probes):
+            for p2 in range(p1 + 1, pair_probes):
+                cls._assert_bounded_moment_match(
+                    float(np.mean(base_ev[:, p1] * base_ev[:, p2])),
+                    float(np.mean(opt_ev[:, p1] * opt_ev[:, p2])),
+                    shots,
+                    f"probe_corr[{p1},{p2}]",
+                    sigma=sigma,
+                )
+
+        cols = base_classical.shape[1]
+        pair_cols = min(cols, 16)
+        for c in range(pair_cols):
+            base_spin = 1.0 - 2.0 * base_classical[:, c].astype(np.float64)
+            opt_spin = 1.0 - 2.0 * opt_classical[:, c].astype(np.float64)
+            for p in range(num_probes):
+                cls._assert_bounded_moment_match(
+                    float(np.mean(base_spin * base_ev[:, p])),
+                    float(np.mean(opt_spin * opt_ev[:, p])),
+                    shots,
+                    f"classical_probe_corr[col={c},probe={p}]",
+                    sigma=sigma,
+                )
+
+        if 0 < cols <= 8:
+            weights = 1 << np.arange(cols, dtype=np.int64)
+            base_keys = base_classical.astype(np.int64) @ weights
+            opt_keys = opt_classical.astype(np.int64) @ weights
+            num_bins = 1 << cols
+            for p in range(num_probes):
+                base_slice_mean = (
+                    np.bincount(base_keys, weights=base_ev[:, p], minlength=num_bins) / shots
+                )
+                opt_slice_mean = (
+                    np.bincount(opt_keys, weights=opt_ev[:, p], minlength=num_bins) / shots
+                )
+                base_slice_sq = (
+                    np.bincount(base_keys, weights=base_ev[:, p] ** 2, minlength=num_bins) / shots
+                )
+                opt_slice_sq = (
+                    np.bincount(opt_keys, weights=opt_ev[:, p] ** 2, minlength=num_bins) / shots
+                )
+                for bitstring in range(num_bins):
+                    cls._assert_bounded_moment_match(
+                        float(base_slice_mean[bitstring]),
+                        float(opt_slice_mean[bitstring]),
+                        shots,
+                        f"joint_slice_mean[bits={bitstring:#0{cols + 2}b},probe={p}]",
+                        sigma=sigma,
+                    )
+                    cls._assert_bounded_moment_match(
+                        float(base_slice_sq[bitstring]),
+                        float(opt_slice_sq[bitstring]),
+                        shots,
+                        f"joint_slice_sq[bits={bitstring:#0{cols + 2}b},probe={p}]",
+                        sigma=sigma,
+                    )
+
     @classmethod
     def _assert_sample_results_match(cls, base_result: Any, opt_result: Any) -> None:
         cls._assert_joint_and_pairwise_match(base_result.measurements, opt_result.measurements)
@@ -193,6 +309,9 @@ class TestDefaultOptimizerStatisticalEquivalence:
             [opt_result.detectors, opt_result.observables, opt_result.measurements]
         )
         cls._assert_joint_and_pairwise_match(base_combined, opt_combined)
+        cls._assert_exp_vals_match(
+            base_combined, base_result.exp_vals, opt_combined, opt_result.exp_vals
+        )
 
     def test_joint_and_pairwise_checker_rejects_correlation_mismatch(self) -> None:
         """Negative control: two circuits with 0.5 column marginals but different correlations."""
@@ -224,6 +343,26 @@ class TestDefaultOptimizerStatisticalEquivalence:
         self._assert_joint_and_pairwise_match(same_res.observables, wrong_res.observables)
         with pytest.raises(AssertionError, match="Pairwise XOR"):
             self._assert_sample_results_match(same_res, wrong_res)
+
+        # EXP_VAL probe negative controls:
+        # 1. Moving EXP_VAL Z0 across M 0 on |+> changes per-shot probe values from
+        #    always 0.0 to +/-1.0 (while keeping measurement marginals at 0.5 and
+        #    unconditional probe mean near 0.0).
+        probe_before_meas = clifft.compile("H 0\nEXP_VAL Z0\nM 0\n", hir_passes=None)
+        probe_after_meas = clifft.compile("H 0\nM 0\nEXP_VAL Z0\n", hir_passes=None)
+        before_res = clifft.sample(probe_before_meas, 4_000, seed=19)
+        after_res = clifft.sample(probe_after_meas, 4_000, seed=20)
+        self._assert_joint_and_pairwise_match(before_res.measurements, after_res.measurements)
+        with pytest.raises(AssertionError, match="EXP_VAL"):
+            self._assert_sample_results_match(before_res, after_res)
+
+        # 2. Flipping the state between M 0 and EXP_VAL Z0 preserves both the
+        #    measurement distribution (50/50) and the marginal probe distribution
+        #    (+/-1.0 with 50/50 probability), but negates their joint correlation.
+        probe_flipped = clifft.compile("H 0\nM 0\nX 0\nEXP_VAL Z0\n", hir_passes=None)
+        flipped_res = clifft.sample(probe_flipped, 4_000, seed=21)
+        with pytest.raises(AssertionError, match="EXP_VAL classical_probe_corr"):
+            self._assert_sample_results_match(after_res, flipped_res)
 
     @pytest.mark.parametrize("seed", _SEEDS)
     @pytest.mark.parametrize("circuit_kind", ["star", "commutation", "uncomputation"])
@@ -258,6 +397,7 @@ class TestDefaultOptimizerStatisticalEquivalence:
         default_opt = clifft.compile(circuit)
         scheduled_opt = clifft.compile(circuit, hir_passes=default_scheduled_passes())
 
+        assert base.num_exp_vals > 0
         assert default_opt.peak_active_width <= base.peak_active_width
         assert scheduled_opt.peak_active_width <= default_opt.peak_active_width
         if scaffold_kind == "multi_round_schedule":

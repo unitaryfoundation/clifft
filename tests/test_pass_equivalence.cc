@@ -966,24 +966,17 @@ TEST_CASE(
                 const uint32_t base_peak =
                     clifft::sampling::plan_sampling(original, options).peak_active_width;
 
-                // Step-by-step pass bisection across the registered default HIR
-                // pipeline plus ActiveWidthSchedulePass: verify against the
-                // independent dense Schrodinger oracle after each individual
-                // pass so any divergence is immediately localized.
+                // Step-by-step pass bisection across every equivalence-preserving
+                // pass in kRegisteredPasses (both default-enabled and optional):
+                // verify against the independent dense Schrodinger oracle after
+                // each individual pass so any divergence is immediately localized.
                 HirModule staged = original;
                 for (const auto& info : kRegisteredPasses) {
-                    if (!info.default_enabled) {
+                    if (info.name == "RemoveNoisePass" || info.name == "DropNonUnitaryPass") {
                         continue;
                     }
                     info.make()->run(staged);
                     CAPTURE(info.name);
-                    require_distributions_equal(dense_dist,
-                                                compute_exact_hir_distribution(staged, options));
-                }
-                {
-                    ActiveWidthSchedulePass scheduler;
-                    scheduler.run(staged);
-                    CAPTURE("active_width_schedule");
                     require_distributions_equal(dense_dist,
                                                 compute_exact_hir_distribution(staged, options));
                 }
@@ -1009,4 +1002,133 @@ TEST_CASE(
     }
 
     REQUIRE(width_improvements >= 20);
+}
+
+namespace {
+
+struct RegisteredPassEquivalenceSpec {
+    std::string_view name;
+    PlantedScaffoldKind primary_scaffold;
+    bool (*run_and_did_rewrite)(HirModule&);
+};
+
+bool run_peephole_for_registry(HirModule& hir) {
+    PeepholeFusionPass pass;
+    pass.run(hir);
+    return (pass.fusions() + pass.cancellations()) > 0;
+}
+
+bool run_phase_poly_for_registry(HirModule& hir) {
+    PhasePolynomialPass pass;
+    pass.run(hir);
+    return pass.blocks_reduced() > 0;
+}
+
+bool run_rotation_simplification_for_registry(HirModule& hir) {
+    RotationSimplificationPass pass;
+    pass.run(hir);
+    return (pass.regions_reduced() + pass.rotations_removed()) > 0;
+}
+
+bool run_squeeze_for_registry(HirModule& hir) {
+    const OwnedPlanOptions before_owned = build_plan_options(hir, {}, false);
+    const uint32_t before_peak =
+        clifft::sampling::plan_sampling(hir, before_owned.as_span_options()).peak_active_width;
+    StatevectorSqueezePass pass;
+    pass.run(hir);
+    const OwnedPlanOptions after_owned = build_plan_options(hir, {}, false);
+    const uint32_t after_peak =
+        clifft::sampling::plan_sampling(hir, after_owned.as_span_options()).peak_active_width;
+    return after_peak < before_peak;
+}
+
+bool run_active_width_schedule_for_registry(HirModule& hir) {
+    StatevectorSqueezePass squeeze;
+    squeeze.run(hir);
+    ActiveWidthSchedulePass scheduler;
+    scheduler.run(hir);
+    return scheduler.applied();
+}
+
+constexpr RegisteredPassEquivalenceSpec kEquivalenceVerifiedPasses[] = {
+    {.name = "PeepholeFusionPass",
+     .primary_scaffold = PlantedScaffoldKind::PhaseSandwich,
+     .run_and_did_rewrite = run_peephole_for_registry},
+    {.name = "PhasePolynomialPass",
+     .primary_scaffold = PlantedScaffoldKind::PhaseSandwich,
+     .run_and_did_rewrite = run_phase_poly_for_registry},
+    {.name = "RotationSimplificationPass",
+     .primary_scaffold = PlantedScaffoldKind::StabilizerReducedPhase,
+     .run_and_did_rewrite = run_rotation_simplification_for_registry},
+    {.name = "StatevectorSqueezePass",
+     .primary_scaffold = PlantedScaffoldKind::MultiRoundSchedule,
+     .run_and_did_rewrite = run_squeeze_for_registry},
+    {.name = "ActiveWidthSchedulePass",
+     .primary_scaffold = PlantedScaffoldKind::MultiRoundSchedule,
+     .run_and_did_rewrite = run_active_width_schedule_for_registry},
+};
+
+// Passes whose specification intentionally alters circuit semantics (stripping
+// noise or non-unitary operations) and therefore cannot preserve sampling
+// distributions.
+constexpr std::string_view kDestructiveRegisteredPasses[] = {
+    "RemoveNoisePass",
+    "DropNonUnitaryPass",
+};
+
+}  // namespace
+
+TEST_CASE("Every registered pass is covered by planted equivalence or explicitly exempted",
+          "[pass_equivalence][optimizer]") {
+    for (const auto& info : kRegisteredPasses) {
+        const auto* verified_it = std::find_if(
+            std::begin(kEquivalenceVerifiedPasses), std::end(kEquivalenceVerifiedPasses),
+            [&](const RegisteredPassEquivalenceSpec& spec) { return spec.name == info.name; });
+        const bool is_verified = verified_it != std::end(kEquivalenceVerifiedPasses);
+        const bool is_destructive = std::find(std::begin(kDestructiveRegisteredPasses),
+                                              std::end(kDestructiveRegisteredPasses),
+                                              info.name) != std::end(kDestructiveRegisteredPasses);
+
+        INFO("Pass '" << info.name
+                      << "' in kRegisteredPasses must be added to kEquivalenceVerifiedPasses in "
+                         "tests/test_pass_equivalence.cc with a planted scaffold that triggers "
+                         "its rewrite metric and a paired hazard-barrier SECTION (or to "
+                         "kDestructiveRegisteredPasses if it intentionally alters semantics).");
+        REQUIRE(is_verified != is_destructive);
+    }
+
+    clifft::Xoshiro256PlusPlus rng(0x578099);
+    const HazardConfig hazard_configs[] = {
+        {},
+        {.pauli_noise = true, .resets = true, .exp_val = true},
+        {.readout_noise = true, .postselect_check_detectors = true},
+    };
+
+    for (const RegisteredPassEquivalenceSpec& spec : kEquivalenceVerifiedPasses) {
+        CAPTURE(spec.name);
+        size_t rewrites = 0;
+        for (size_t h_idx = 0; h_idx < std::size(hazard_configs); ++h_idx) {
+            const PlantedCircuit planted = generate_planted_scaffold(spec.primary_scaffold, rng, 4);
+            const std::string source =
+                join_lines(inject_boundary_hazards(planted, hazard_configs[h_idx], rng, 4));
+            CAPTURE(h_idx, source);
+
+            const Circuit circuit = clifft::parse(source);
+            const HirModule original = clifft::trace(circuit);
+            const OwnedPlanOptions owned = build_plan_options(
+                original, planted, hazard_configs[h_idx].postselect_check_detectors);
+            const auto options = owned.as_span_options();
+            const ExactPlanDistribution dense_dist =
+                compute_dense_circuit_distribution(circuit, options);
+
+            HirModule optimized = original;
+            if (spec.run_and_did_rewrite(optimized)) {
+                ++rewrites;
+            }
+            require_distributions_equal(dense_dist,
+                                        compute_exact_hir_distribution(optimized, options));
+        }
+        INFO("Registered pass '" << spec.name << "' did not fire on its primary planted scaffold.");
+        REQUIRE(rewrites > 0);
+    }
 }

@@ -81,7 +81,12 @@ modes and let new modes inherit applicable tests.
 
 Check that each test exercises the behavior it claims to cover. Configuration
 alone may not establish this: optimization can remove relevant work, and
-execution policies can select a different path.
+execution policies can select a different path. When adding an HIR optimization
+pass to `kRegisteredPasses` (including optional passes with
+`default_enabled = false`), register it in `tests/test_pass_equivalence.cc` with
+a planted scaffold where its rewrite metric fires, a paired positive/negative
+hazard-barrier case (`EXP_VAL`, Pauli and readout noise, resets, and feedback),
+and an exact distribution check against the dense reference oracle.
 
 When testing parallel execution, provide enough work for multiple workers to
 contribute without asserting a particular scheduling outcome. Keep resource use
