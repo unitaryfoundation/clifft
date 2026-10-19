@@ -409,37 +409,140 @@ class TestDefaultOptimizerStatisticalEquivalence:
         cls._assert_exp_vals_match(base_combined, base_ev, opt_combined, opt_ev)
 
     @pytest.mark.parametrize("seed", _SEEDS)
-    def test_postselected_noisy_phase_reduction(self, seed: int) -> None:
-        """Postselected phase-constraint recovery preserves survivor rates and joint moments."""
-        circuit = """
-        H 0 1 2
-        DEPOLARIZE1(0.08) 1 2
-        T 0
-        CX 1 0
-        T_DAG 0
-        CX 1 0
-        EXP_VAL Z0
-        M 1
-        DETECTOR rec[-1]
-        T 2
-        EXP_VAL X2
-        Z_ERROR(0.05) 0 2
-        H 0 2
-        M 0
-        M(0.04) 2
-        DETECTOR rec[-1]
-        OBSERVABLE_INCLUDE(0) rec[-2]
-        """
-        mask = [1, 0]
-        base = clifft.compile(circuit, hir_passes=None, postselection_mask=mask)
-        default_opt = clifft.compile(circuit, postselection_mask=mask)
+    @pytest.mark.parametrize(
+        "topology",
+        [
+            "downstream_lookahead",
+            "intervening_meas_probe",
+            "upstream_difference_detector",
+            "noiseless_outside_subspace",
+        ],
+    )
+    def test_postselected_noisy_phase_reduction(self, topology: str, seed: int) -> None:
+        """Postselected phase reductions preserve survivor rates, probes, and references."""
+        if topology == "downstream_lookahead":
+            circuit = """
+            H 0 1 2
+            DEPOLARIZE1(0.08) 1 2
+            T 0
+            CX 1 0
+            T_DAG 0
+            CX 1 0
+            EXP_VAL Z0
+            M 1
+            DETECTOR rec[-1]
+            T 2
+            EXP_VAL X2
+            Z_ERROR(0.05) 0 2
+            H 0 2
+            M 0
+            M(0.04) 2
+            DETECTOR rec[-1]
+            OBSERVABLE_INCLUDE(0) rec[-2]
+            """
+            mask = [1, 0]
+            normalize = False
+        elif topology == "intervening_meas_probe":
+            # Intervening MX 0 before EXP_VAL Z1 conditions the pre-probe state
+            # so the lookahead guard blocks folding across EXP_VAL Z1 while a
+            # later post-probe gadget still folds under DETECTOR rec[-1].
+            circuit = """
+            H 0 1 2
+            Z_ERROR(0.1) 1
+            T 0
+            CX 1 0
+            T_DAG 0
+            CX 1 0
+            MX 0
+            EXP_VAL Z1
+            T 2
+            CX 1 2
+            T_DAG 2
+            CX 1 2
+            M 1
+            DETECTOR rec[-1]
+            H 2
+            M 2
+            DETECTOR rec[-1]
+            OBSERVABLE_INCLUDE(0) rec[-1]
+            """
+            mask = [1, 0]
+            normalize = False
+        elif topology == "upstream_difference_detector":
+            circuit = """
+            H 0
+            X 1 2
+            M 1
+            DETECTOR rec[-1]
+            DEPOLARIZE1(0.08) 1 2
+            T 0
+            CX 2 0
+            T_DAG 0
+            CX 2 0
+            EXP_VAL Z2
+            M 2
+            DETECTOR rec[-2] rec[-1]
+            EXP_VAL Y0
+            MX 0
+            OBSERVABLE_INCLUDE(0) rec[-1]
+            """
+            mask = [1, 1]
+            normalize = True
+        else:
+            # Noiseless trajectory has M 1 == 1 (outside the raw DETECTOR == 0
+            # postselected subspace), while X_ERROR(0.25) 1 populates the M 1 == 0
+            # survivor subspace.
+            circuit = """
+            H 0
+            X 1
+            X_ERROR(0.25) 1
+            T 0
+            CX 1 0
+            T_DAG 0
+            CX 1 0
+            T 0
+            CX 1 0
+            T_DAG 0
+            CX 1 0
+            EXP_VAL Z1
+            M 1
+            DETECTOR rec[-1]
+            MX 0
+            OBSERVABLE_INCLUDE(0) rec[-1]
+            """
+            mask = [1]
+            normalize = False
+
+        if topology in ("upstream_difference_detector", "noiseless_outside_subspace"):
+            hir = clifft.trace(
+                clifft.parse(circuit),
+                postselection_mask=mask,
+                normalize_syndromes=normalize,
+            )
+            ref_before = clifft.compute_reference_syndrome(hir)
+            clifft.default_hir_pass_manager().run(hir)
+            assert clifft.compute_reference_syndrome(hir) == ref_before
+
+        base = clifft.compile(
+            circuit,
+            hir_passes=None,
+            postselection_mask=mask,
+            normalize_syndromes=normalize,
+        )
+        default_opt = clifft.compile(
+            circuit,
+            postselection_mask=mask,
+            normalize_syndromes=normalize,
+        )
         scheduled_opt = clifft.compile(
             circuit,
             hir_passes=default_scheduled_passes(),
             postselection_mask=mask,
+            normalize_syndromes=normalize,
         )
 
-        assert default_opt.peak_active_width < base.peak_active_width
+        if topology != "intervening_meas_probe":
+            assert default_opt.peak_active_width < base.peak_active_width
         assert scheduled_opt.peak_active_width <= default_opt.peak_active_width
 
         base_res = clifft.sample_survivors(base, _STAT_SHOTS, seed=seed + 500, keep_records=True)

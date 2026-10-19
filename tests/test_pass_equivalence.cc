@@ -1300,6 +1300,38 @@ TEST_CASE(
                 // pass in kRegisteredPasses (both default-enabled and optional):
                 // verify against the independent dense Schrodinger oracle after
                 // each individual pass so any divergence is immediately localized.
+                HirModule clean_unoptimized = clifft::trace(circuit);
+                RemoveNoisePass().run(clean_unoptimized);
+                const ExactPlanDistribution noiseless_dist =
+                    compute_exact_hir_distribution(clean_unoptimized);
+                auto assert_deterministic_reference = [&](const HirModule& module) {
+                    const ReferenceSyndrome ref = compute_reference_syndrome(module);
+                    for (uint32_t d = 0; d < module.num_detectors; ++d) {
+                        uint64_t seen_mask = 0;
+                        for (const ExactOutcomeEntry& entry : noiseless_dist.kept_outcomes) {
+                            if (entry.probability > 1e-12) {
+                                seen_mask |= 1ULL << ((entry.outcome.detectors >> d) & 1ULL);
+                            }
+                        }
+                        if (seen_mask == 1ULL || seen_mask == 2ULL) {
+                            const uint8_t expected_bit = (seen_mask == 2ULL) ? 1 : 0;
+                            REQUIRE(ref.detectors.at(d) == expected_bit);
+                        }
+                    }
+                    for (uint32_t o = 0; o < module.num_observables; ++o) {
+                        uint64_t seen_mask = 0;
+                        for (const ExactOutcomeEntry& entry : noiseless_dist.kept_outcomes) {
+                            if (entry.probability > 1e-12) {
+                                seen_mask |= 1ULL << ((entry.outcome.observables >> o) & 1ULL);
+                            }
+                        }
+                        if (seen_mask == 1ULL || seen_mask == 2ULL) {
+                            const uint8_t expected_bit = (seen_mask == 2ULL) ? 1 : 0;
+                            REQUIRE(ref.observables.at(o) == expected_bit);
+                        }
+                    }
+                };
+
                 HirModule staged = original;
                 for (const auto& info : kRegisteredPasses) {
                     if (info.name == "RemoveNoisePass" || info.name == "DropNonUnitaryPass") {
@@ -1309,6 +1341,7 @@ TEST_CASE(
                     CAPTURE(info.name);
                     require_distributions_equal(dense_dist,
                                                 compute_exact_hir_distribution(staged, options));
+                    assert_deterministic_reference(staged);
                 }
 
                 HirModule optimized = original;
@@ -1323,6 +1356,7 @@ TEST_CASE(
                     ++scaffold_width_improvements;
                 }
 
+                assert_deterministic_reference(optimized);
                 check_exact_equivalent(original, optimized, control_rng, 16, options);
                 require_distributions_equal(dense_dist,
                                             compute_exact_hir_distribution(optimized, options));
@@ -1332,6 +1366,315 @@ TEST_CASE(
     }
 
     REQUIRE(width_improvements >= 20);
+}
+
+TEST_CASE(
+    "Randomized postselected circuits with interleaved measurements feedback and probes match "
+    "dense oracle",
+    "[pass_equivalence][optimizer][schedule_pass]") {
+    clifft::Xoshiro256PlusPlus rng(0x576101);
+    clifft::Xoshiro256PlusPlus control_rng(0x576102);
+
+    static constexpr const char* kProbeAxes[] = {
+        "Z0", "X0",    "Y0",    "Z1",    "X1",    "Y1",    "Z2",
+        "X2", "Z0*Z1", "X0*Z1", "Y0*Z1", "X0*X1", "Z1*Z2", "X0*Z2",
+    };
+    static constexpr const char* kInterveningMeasurements[] = {
+        "MX 0", "MY 0", "M 0", "M 1", "M 2", "MX 2", "MPP X0*Z2", "MPP Z0*Z2",
+    };
+
+    size_t witness_postselected_phase_reduced = 0;
+    size_t witness_postselected_rotation_reduced = 0;
+    size_t witness_intervening_meas_probe_blocked = 0;
+    size_t witness_noiseless_outside_subspace = 0;
+
+    for (int trial = 0; trial < 48; ++trial) {
+        const uint32_t upstream_mode = static_cast<uint32_t>(trial % 4);
+        const uint32_t phase_mode = static_cast<uint32_t>((trial / 4) % 3);
+        const uint32_t window_mode = static_cast<uint32_t>(trial % 6);
+        const bool flip_check_qubit = ((trial / 2) & 1) != 0;
+
+        std::vector<std::string> lines;
+        lines.push_back("H 0");
+        if ((rng() & 1U) != 0) {
+            lines.push_back("H 2");
+        }
+        if (flip_check_qubit) {
+            // Put the noiseless trajectory in |1> on qubit 1 while X_ERROR
+            // populates the |0> branch with probability 0.25.
+            lines.push_back("X 1");
+        }
+        lines.push_back("X_ERROR(0.25) 1");
+        if ((rng() & 1U) != 0) {
+            lines.push_back("Z_ERROR(0.1) 0");
+        }
+
+        uint32_t num_measurements = 0;
+        uint32_t num_detectors = 0;
+        int upstream_check_meas = -1;
+
+        // Stage 1: optional upstream measurement, detector, and feedback.
+        if (upstream_mode == 1) {
+            // Upstream postselected measurement on qubit 1.
+            lines.push_back("M 1");
+            upstream_check_meas = static_cast<int>(num_measurements++);
+            lines.push_back("DETECTOR rec[-1]");
+            ++num_detectors;
+        } else if (upstream_mode == 2) {
+            // Upstream postselected measurement followed by noise on qubit 1,
+            // paired with a downstream 2-record difference detector.
+            lines.push_back("M 1");
+            upstream_check_meas = static_cast<int>(num_measurements++);
+            lines.push_back("DETECTOR rec[-1]");
+            ++num_detectors;
+            lines.push_back("X_ERROR(0.2) 1");
+        } else if (upstream_mode == 3) {
+            // Upstream measurement on qubit 2 driving classical feedback before
+            // the phase region.
+            lines.push_back((rng() & 1U) ? "MX 2" : "M 2");
+            ++num_measurements;
+            lines.push_back((rng() & 1U) ? "CX rec[-1] 0" : "CZ rec[-1] 0");
+        }
+
+        // Stage 2: planted phase or arbitrary-angle rotation block whose
+        // reduction depends on the Z1 eigenvalue on surviving trajectories.
+        const bool negate_pair = (trial % 5) == 1;
+        if (phase_mode == 0) {
+            lines.push_back("T 0");
+            lines.push_back("CX 1 0");
+            lines.push_back(negate_pair ? "T 0" : "T_DAG 0");
+            lines.push_back("CX 1 0");
+            if ((trial & 1) == 0) {
+                lines.push_back("T 0");
+                lines.push_back("CX 1 0");
+                lines.push_back(negate_pair ? "T 0" : "T_DAG 0");
+                lines.push_back("CX 1 0");
+            }
+        } else if (phase_mode == 1) {
+            lines.push_back("T 0");
+            lines.push_back("CX 1 0");
+            lines.push_back(negate_pair ? "T 0" : "T_DAG 0");
+            lines.push_back("CX 1 0");
+            lines.push_back("TPP Z0*Z2");
+            lines.push_back(negate_pair ? "TPP Z0*Z1*Z2" : "TPP_DAG Z0*Z1*Z2");
+        } else {
+            lines.push_back("R_Z(0.375) 0");
+            lines.push_back("CX 1 0");
+            lines.push_back(negate_pair ? "R_Z(0.375) 0" : "R_Z(-0.375) 0");
+            lines.push_back("CX 1 0");
+            lines.push_back("R_Z(0.125) 0");
+            lines.push_back("CX 1 0");
+            lines.push_back(negate_pair ? "R_Z(0.125) 0" : "R_Z(-0.125) 0");
+            lines.push_back("CX 1 0");
+        }
+
+        // Stage 3: interleaved lookahead window between the phase block and
+        // the downstream postselected detector.
+        const std::string probe1 = kProbeAxes[rng() % std::size(kProbeAxes)];
+        const std::string probe2 = kProbeAxes[rng() % std::size(kProbeAxes)];
+        const std::string inter_meas =
+            kInterveningMeasurements[trial % std::size(kInterveningMeasurements)];
+
+        if (window_mode == 0) {
+            // phase -> intervening measurement -> probe -> postselected M 1
+            lines.push_back(inter_meas);
+            ++num_measurements;
+            lines.push_back("EXP_VAL " + probe1);
+        } else if (window_mode == 1) {
+            // phase -> probe -> intervening measurement -> probe -> postselected M 1
+            lines.push_back("EXP_VAL " + probe1);
+            lines.push_back(inter_meas);
+            ++num_measurements;
+            lines.push_back("EXP_VAL " + probe2);
+        } else if (window_mode == 2) {
+            // phase -> intervening measurement -> feedback -> probe -> postselected M 1
+            lines.push_back((rng() & 1U) ? "M 2" : "MX 0");
+            ++num_measurements;
+            lines.push_back((rng() & 1U) ? "CZ rec[-1] 0" : "CX rec[-1] 2");
+            lines.push_back("EXP_VAL " + probe1);
+        } else if (window_mode == 3) {
+            // phase -> Pauli noise -> probe -> postselected M 1
+            lines.push_back((rng() & 1U) ? "Z_ERROR(0.15) 1" : "X_ERROR(0.15) 1");
+            lines.push_back("EXP_VAL " + probe1);
+        } else if (window_mode == 4) {
+            // phase -> commuting measurement -> readout noise -> probe -> postselected M 1
+            lines.push_back("M 2");
+            ++num_measurements;
+            lines.push_back("READOUT_NOISE(0.15, 0.05) rec[-1]");
+            lines.push_back("EXP_VAL " + probe1);
+        } else {
+            // phase -> probe -> mid-circuit reset on spectator -> postselected M 1
+            lines.push_back("EXP_VAL " + probe1);
+            lines.push_back("R 2");
+            lines.push_back("H 2");
+        }
+
+        // Stage 4: downstream postselected measurement and detector.
+        const bool noisy_postselected_readout = (trial % 9) == 8;
+        if (noisy_postselected_readout) {
+            lines.push_back("M(0.15) 1");
+        } else {
+            lines.push_back("M 1");
+        }
+        const int downstream_check_meas = static_cast<int>(num_measurements++);
+        if (upstream_mode == 2 && upstream_check_meas >= 0) {
+            const int offset = downstream_check_meas - upstream_check_meas + 1;
+            lines.push_back("DETECTOR rec[-1] rec[-" + std::to_string(offset) + "]");
+        } else {
+            lines.push_back("DETECTOR rec[-1]");
+        }
+        ++num_detectors;
+
+        // Stage 5: terminal measurements, trailing probe, and observable.
+        lines.push_back("MX 0");
+        ++num_measurements;
+        lines.push_back("M 2");
+        ++num_measurements;
+        if ((rng() & 1U) != 0) {
+            lines.push_back("EXP_VAL " + std::string(kProbeAxes[rng() % std::size(kProbeAxes)]));
+        }
+        lines.push_back("OBSERVABLE_INCLUDE(0) rec[-2]");
+
+        const std::string source = join_lines(lines);
+        const Circuit circuit = clifft::parse(source);
+
+        HirModule clean_unoptimized = clifft::trace(circuit);
+        RemoveNoisePass().run(clean_unoptimized);
+        const ExactPlanDistribution noiseless_dist =
+            compute_exact_hir_distribution(clean_unoptimized);
+        auto assert_deterministic_reference = [&](const HirModule& module) {
+            const ReferenceSyndrome ref = compute_reference_syndrome(module);
+            bool any_checked = false;
+            for (uint32_t d = 0; d < module.num_detectors; ++d) {
+                uint64_t seen_mask = 0;
+                for (const ExactOutcomeEntry& entry : noiseless_dist.kept_outcomes) {
+                    if (entry.probability > 1e-12) {
+                        seen_mask |= 1ULL << ((entry.outcome.detectors >> d) & 1ULL);
+                    }
+                }
+                if (seen_mask == 1ULL || seen_mask == 2ULL) {
+                    const uint8_t expected_bit = (seen_mask == 2ULL) ? 1 : 0;
+                    REQUIRE(ref.detectors.at(d) == expected_bit);
+                    any_checked = true;
+                }
+            }
+            for (uint32_t o = 0; o < module.num_observables; ++o) {
+                uint64_t seen_mask = 0;
+                for (const ExactOutcomeEntry& entry : noiseless_dist.kept_outcomes) {
+                    if (entry.probability > 1e-12) {
+                        seen_mask |= 1ULL << ((entry.outcome.observables >> o) & 1ULL);
+                    }
+                }
+                if (seen_mask == 1ULL || seen_mask == 2ULL) {
+                    const uint8_t expected_bit = (seen_mask == 2ULL) ? 1 : 0;
+                    REQUIRE(ref.observables.at(o) == expected_bit);
+                    any_checked = true;
+                }
+            }
+            REQUIRE(any_checked);
+        };
+
+        for (bool normalize : {false, true}) {
+            CAPTURE(trial, upstream_mode, phase_mode, window_mode, flip_check_qubit, normalize,
+                    source);
+
+            HirModule original = clifft::trace(circuit);
+            const ReferenceSyndrome ref_before = compute_reference_syndrome(original);
+            const std::vector<uint8_t> postselection_mask(num_detectors, 1);
+            const std::vector<uint8_t> expected_detectors =
+                normalize ? ref_before.detectors : std::vector<uint8_t>{};
+            const std::vector<uint8_t> expected_observables =
+                normalize ? ref_before.observables : std::vector<uint8_t>{};
+
+            original.postselection_mask = postselection_mask;
+            original.expected_detectors = expected_detectors;
+            original.expected_observables = expected_observables;
+
+            const clifft::sampling::SamplingPlanOptions options{
+                .postselection_mask = postselection_mask,
+                .expected_detectors = expected_detectors,
+                .expected_observables = expected_observables,
+            };
+
+            const ExactPlanDistribution dense_dist =
+                compute_dense_circuit_distribution(circuit, options);
+            REQUIRE(dense_dist.discarded_probability < 1.0 - 1e-6);
+            require_distributions_equal(dense_dist,
+                                        compute_exact_hir_distribution(original, options));
+
+            // Check witness conditions against un-postselected optimization.
+            HirModule unpostselected = clifft::trace(circuit);
+            PhasePolynomialPass unpost_phase;
+            unpost_phase.run(unpostselected);
+
+            HirModule post_phase_hir = original;
+            PhasePolynomialPass post_phase;
+            post_phase.run(post_phase_hir);
+            require_distributions_equal(dense_dist,
+                                        compute_exact_hir_distribution(post_phase_hir, options));
+            assert_deterministic_reference(post_phase_hir);
+
+            if (post_phase.output_t_count() < unpost_phase.output_t_count()) {
+                ++witness_postselected_phase_reduced;
+            }
+
+            if (window_mode <= 2 && post_phase.output_t_count() == post_phase.input_t_count() &&
+                post_phase.input_t_count() > 0) {
+                // Verify whether removing EXP_VAL ops would allow the postselected
+                // phase reduction to fire, witnessing that the probe/measurement
+                // lookahead guard actively blocked an unsafe rewrite.
+                HirModule without_probes = original;
+                std::erase_if(without_probes.ops, [](const HeisenbergOp& op) {
+                    return op.op_type() == OpType::EXP_VAL;
+                });
+                without_probes.num_exp_vals = 0;
+                without_probes.source_map.clear();
+                PhasePolynomialPass probe_free_phase;
+                probe_free_phase.run(without_probes);
+                if (probe_free_phase.output_t_count() < post_phase.output_t_count()) {
+                    ++witness_intervening_meas_probe_blocked;
+                }
+            }
+
+            HirModule unpost_rot_hir = clifft::trace(circuit);
+            RotationSimplificationPass unpost_rot;
+            unpost_rot.run(unpost_rot_hir);
+
+            HirModule post_rot_hir = original;
+            RotationSimplificationPass post_rot;
+            post_rot.run(post_rot_hir);
+            require_distributions_equal(dense_dist,
+                                        compute_exact_hir_distribution(post_rot_hir, options));
+            assert_deterministic_reference(post_rot_hir);
+
+            if (post_rot.rotations_removed() > unpost_rot.rotations_removed()) {
+                ++witness_postselected_rotation_reduced;
+            }
+
+            const bool noiseless_rejected =
+                !normalize && std::ranges::any_of(ref_before.detectors,
+                                                  [](uint8_t parity) { return parity != 0; });
+            if (noiseless_rejected &&
+                (post_phase.blocks_reduced() > 0 || post_rot.rotations_removed() > 0)) {
+                ++witness_noiseless_outside_subspace;
+            }
+
+            // Full pipeline + scheduler equivalence and reference preservation.
+            HirModule pipeline_hir = original;
+            HirPassManager pm = default_hir_pass_manager();
+            pm.add_pass(std::make_unique<ActiveWidthSchedulePass>());
+            pm.run(pipeline_hir);
+            require_distributions_equal(dense_dist,
+                                        compute_exact_hir_distribution(pipeline_hir, options));
+            assert_deterministic_reference(pipeline_hir);
+            check_exact_equivalent(original, pipeline_hir, control_rng, 8, options);
+        }
+    }
+
+    REQUIRE(witness_postselected_phase_reduced >= 6);
+    REQUIRE(witness_postselected_rotation_reduced >= 4);
+    REQUIRE(witness_intervening_meas_probe_blocked >= 4);
+    REQUIRE(witness_noiseless_outside_subspace >= 6);
 }
 
 namespace {

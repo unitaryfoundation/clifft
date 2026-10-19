@@ -1337,6 +1337,21 @@ inline PlantedCircuit generate_planted_scaffold(PlantedScaffoldKind kind,
                 out.lines.push_back("R_PAULI(-0.375) Z1*Z2");
             }
 
+            // Downstream lookahead gadget: when Pauli noise is injected on
+            // qubit 2 at the second hazard slot, static +Z2 is lost before the
+            // gadget and can only be recovered via lookahead to the downstream
+            // postselected M 2 check detector.
+            out.hazard_slots.push_back(PlantedHazardSlot{
+                .line_index = out.lines.size(),
+                .target_qubit = 2,
+                .partner_qubit = 0,
+                .anticommuting_pauli = 'X',
+            });
+            out.lines.push_back("T 0");
+            out.lines.push_back("CX 2 0");
+            out.lines.push_back("T_DAG 0");
+            out.lines.push_back("CX 2 0");
+
             if (num_qubits >= 4) {
                 out.lines.push_back("H 3");
             }
@@ -1346,7 +1361,8 @@ inline PlantedCircuit generate_planted_scaffold(PlantedScaffoldKind kind,
                 out.lines.push_back("M " + std::to_string(q));
             }
             out.lines.push_back("DETECTOR rec[-" + std::to_string(num_qubits) + "]");
-            out.lines.push_back("DETECTOR rec[-" + std::to_string(num_qubits - 1) + "]");
+            out.lines.push_back("DETECTOR rec[-" + std::to_string(num_qubits - 2) + "]");
+            out.check_detectors.push_back(2);
             out.lines.push_back("OBSERVABLE_INCLUDE(0) rec[-1] rec[-" + std::to_string(num_qubits) +
                                 "]");
             break;
