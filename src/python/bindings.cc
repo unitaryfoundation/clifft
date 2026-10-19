@@ -1178,7 +1178,7 @@ NB_MODULE(_clifft_core, m) {
            std::optional<std::vector<uint8_t>> expected_detectors,
            std::optional<std::vector<uint8_t>> expected_observables) {
             nb::gil_scoped_release release;
-            constexpr uint8_t kZeroFlag = 0;
+            static constexpr uint8_t kZeroFlag = 0;
             auto to_span = [&](const std::optional<std::vector<uint8_t>>& opt) {
                 if (!opt.has_value()) {
                     return std::span<const uint8_t>{};
