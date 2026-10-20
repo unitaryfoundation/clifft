@@ -157,20 +157,25 @@ clifft::HirModule prepare_circuit_for_lowering(const clifft::Circuit& circuit,
                                                clifft::HirPassManager* hir_passes,
                                                std::vector<uint8_t>& expected_detectors,
                                                std::vector<uint8_t>& expected_observables) {
-    clifft::HirModule hir = clifft::trace(circuit);
-    if (hir_passes != nullptr) {
-        hir_passes->run(hir);
-    }
-    if (!normalize_syndromes) {
-        return hir;
-    }
-    if (!expected_detectors.empty() || !expected_observables.empty()) {
+    if (normalize_syndromes && (!expected_detectors.empty() || !expected_observables.empty())) {
         throw std::invalid_argument(
             "Cannot provide expected parities when normalize_syndromes=True");
     }
-    auto reference = clifft::compute_reference_syndrome(hir);
-    expected_detectors = std::move(reference.detectors);
-    expected_observables = std::move(reference.observables);
+    clifft::HirModule hir = clifft::trace(circuit);
+    const bool has_noise = !hir.noise_sites.empty() || !hir.readout_noise.empty();
+    if (normalize_syndromes && has_noise) {
+        auto reference = clifft::compute_reference_syndrome(hir);
+        expected_detectors = std::move(reference.detectors);
+        expected_observables = std::move(reference.observables);
+    }
+    if (hir_passes != nullptr) {
+        hir_passes->run(hir);
+    }
+    if (normalize_syndromes && !has_noise) {
+        auto reference = clifft::compute_reference_syndrome(hir);
+        expected_detectors = std::move(reference.detectors);
+        expected_observables = std::move(reference.observables);
+    }
     return hir;
 }
 

@@ -1256,3 +1256,18 @@ TEST_CASE("Peephole: S absorption on wide multi-word Pauli axes", "[optimizer]")
         REQUIRE(hir.final_tableau == reference.final_tableau);
     }
 }
+
+TEST_CASE("Squeeze pass elides expansions that cross the final quantum observer", "[optimizer]") {
+    auto crossed = hir_from("H 0\nT 0\nM 1\nDETECTOR rec[-1]\n");
+    StatevectorSqueezePass squeeze;
+    squeeze.run(crossed);
+    REQUIRE(crossed.num_t_gates() == 0);
+    REQUIRE(crossed.ops.size() == 2);
+    REQUIRE(crossed.ops[0].op_type() == OpType::MEASURE);
+    REQUIRE(crossed.ops[1].op_type() == OpType::DETECTOR);
+
+    // Rotations already placed after the final observer on entry are retained.
+    auto trailing = hir_from("M 1\nH 0\nT 0\n");
+    squeeze.run(trailing);
+    REQUIRE(trailing.num_t_gates() == 1);
+}

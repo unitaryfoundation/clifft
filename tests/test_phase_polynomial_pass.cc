@@ -643,3 +643,48 @@ TEST_CASE("Phase pass synthesizes quadratic Clifford remainder terms with exact 
     Xoshiro256PlusPlus rng(0x51A5E02);
     test::check_exact_equivalent(baseline, hir, rng);
 }
+
+TEST_CASE("Phase pass elides synthesized rotations after pulling back final observers",
+          "[optimizer]") {
+    HirModule hir(4, 17);
+    hir.final_tableau.emplace(4);
+    for (uint32_t term = 1; term <= 16; ++term) {
+        const uint32_t parity = term == 16 ? 15 : term;
+        test::append_tgate(hir, parity, 0, false);
+        hir.source_map.push_back({term});
+    }
+    test::append_measure(hir, 15, 0, false, MeasRecordIdx{0});
+    hir.num_measurements = 1;
+    hir.source_map.push_back({17});
+    hir.detector_targets.push_back({0});
+    hir.ops.push_back(HeisenbergOp::make_detector(DetectorIdx{0}));
+    hir.source_map.push_back({18});
+
+    PhasePolynomialPass pass;
+    pass.run(hir);
+    REQUIRE(pass.applied());
+    REQUIRE(pass.pauli_pullbacks() == 1);
+    REQUIRE(pass.output_t_count() == 0);
+    REQUIRE(hir.num_t_gates() == 0);
+    REQUIRE(analyze_active_width(hir).peak_width == 0);
+    REQUIRE(hir.ops.size() == 2);
+    REQUIRE(hir.ops[0].op_type() == OpType::MEASURE);
+    REQUIRE(hir.ops[1].op_type() == OpType::DETECTOR);
+}
+
+TEST_CASE("Wide phase rewrite chains into narrow observer pullback", "[optimizer]") {
+    std::string targets;
+    for (uint32_t q = 1; q < 66; ++q) {
+        targets += " " + std::to_string(q);
+    }
+    const std::string source =
+        "H 0" + targets + "\nT 0" + targets + "\nT" + targets + "\nM 0\nT_DAG 0\nMX 0\n";
+    auto hir = trace(parse(source));
+    PhasePolynomialPass pass({128});
+    pass.run(hir);
+    REQUIRE(pass.wide_rewrites() == 1);
+    REQUIRE(pass.pauli_pullbacks() >= 1);
+    REQUIRE(pass.output_t_count() == 0);
+    REQUIRE(hir.num_t_gates() == 0);
+    REQUIRE(analyze_active_width(hir).peak_width == 0);
+}
