@@ -184,9 +184,9 @@ If you use Clifft in your work, please cite the arXiv [preprint](https://arxiv.o
 See the [building from source](https://unitaryfoundation.github.io/clifft/stable/development/building/) guide for build
 instructions.
 
-Follow current priorities in the
+Follow current priorities and release plans in the public
 [Clifft development project](https://github.com/orgs/unitaryfoundation/projects/35).
-See [planning and triage](docs/development/planning.md) for the workflow.
+Its README describes the planning and triage workflow.
 
 ## AI Acknowledgement
 

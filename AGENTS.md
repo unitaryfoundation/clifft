@@ -4,8 +4,17 @@ This file records repository-specific constraints that are easy to miss from
 the code alone. Use `README.md`, `docs/development/`, and `just --list` for
 project orientation and routine build, test, and contribution instructions.
 
-When managing issues, pull requests, or project priorities, follow
-[Planning and Triage](docs/development/planning.md).
+## Project Planning
+
+Use the [Clifft development project](https://github.com/orgs/unitaryfoundation/projects/35)
+and its README for current priorities and the planning workflow.
+
+- When asked to manage planning, read the live project and relevant issue/PR
+  discussions. Apply the maintainer's agreed priorities and verify saved changes.
+- Keep priority and order in project fields, and goals, evidence, and acceptance
+  criteria in issues. Avoid duplicating the backlog in repository documentation.
+- Check existing membership and linked PRs before adding items. Keep bugs in
+  their owning track with the `bug` label; prioritize them by impact and evidence.
 
 ## Source of Truth and Architecture Changes
 
