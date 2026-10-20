@@ -253,6 +253,11 @@ def test_inconclusive_summary_retains_improvements() -> None:
             "Phase pass, 32,000 rank-limited rotations",
             "// Forty independent axes",
         ),
+        (
+            "phase_postselection_4096",
+            "Phase pass, 4,096 postselected lookahead regions",
+            "// Postselection lookahead must stop",
+        ),
     ],
 )
 def test_report_links_workload_name_to_source_rationale(

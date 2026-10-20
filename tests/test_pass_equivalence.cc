@@ -2269,6 +2269,10 @@ TEST_CASE("Varied pass sequences preserve exact distributions across hazards",
         {},
         {.pauli_noise = true, .readout_noise = true, .exp_val = true},
         {.correlated_noise = true, .resets = true, .postselect_check_detectors = true},
+        {.pauli_noise = true,
+         .readout_noise = true,
+         .exp_val = true,
+         .postselect_check_detectors = true},
     };
 
     std::vector<const PassInfo*> non_destructive_passes;
@@ -2281,16 +2285,51 @@ TEST_CASE("Varied pass sequences preserve exact distributions across hazards",
         }
     }
 
-    for (int trial = 0; trial < 24; ++trial) {
+    size_t postselection_specializations = 0;
+
+    for (int trial = 0; trial < 32; ++trial) {
         const PlantedScaffoldKind scaffold =
             scaffolds[static_cast<size_t>(trial) % std::size(scaffolds)];
         const HazardConfig& hazards =
-            hazard_configs[static_cast<size_t>(trial) % std::size(hazard_configs)];
+            hazard_configs[(static_cast<size_t>(trial) / std::size(scaffolds)) %
+                           std::size(hazard_configs)];
         const PlantedCircuit planted = generate_planted_scaffold(scaffold, rng, 4);
         const std::string source = join_lines(inject_boundary_hazards(planted, hazards, rng, 4));
         CAPTURE(trial, static_cast<int>(scaffold), source);
 
         const Circuit circuit = clifft::parse(source);
+        HirModule clean_unoptimized = clifft::trace(circuit);
+        RemoveNoisePass().run(clean_unoptimized);
+        const ExactPlanDistribution noiseless_dist =
+            compute_exact_hir_distribution(clean_unoptimized);
+        auto assert_deterministic_reference = [&](const HirModule& module) {
+            const ReferenceSyndrome ref = compute_reference_syndrome(module);
+            for (uint32_t d = 0; d < module.num_detectors; ++d) {
+                uint64_t seen_mask = 0;
+                for (const ExactOutcomeEntry& entry : noiseless_dist.kept_outcomes) {
+                    if (entry.probability > 1e-12) {
+                        seen_mask |= 1ULL << ((entry.outcome.detectors >> d) & 1ULL);
+                    }
+                }
+                if (seen_mask == 1ULL || seen_mask == 2ULL) {
+                    const uint8_t expected_bit = (seen_mask == 2ULL) ? 1 : 0;
+                    REQUIRE(ref.detectors.at(d) == expected_bit);
+                }
+            }
+            for (uint32_t o = 0; o < module.num_observables; ++o) {
+                uint64_t seen_mask = 0;
+                for (const ExactOutcomeEntry& entry : noiseless_dist.kept_outcomes) {
+                    if (entry.probability > 1e-12) {
+                        seen_mask |= 1ULL << ((entry.outcome.observables >> o) & 1ULL);
+                    }
+                }
+                if (seen_mask == 1ULL || seen_mask == 2ULL) {
+                    const uint8_t expected_bit = (seen_mask == 2ULL) ? 1 : 0;
+                    REQUIRE(ref.observables.at(o) == expected_bit);
+                }
+            }
+        };
+
         HirModule original = clifft::trace(circuit);
         const OwnedPlanOptions owned =
             build_plan_options(original, planted, hazards.postselect_check_detectors);
@@ -2323,8 +2362,132 @@ TEST_CASE("Varied pass sequences preserve exact distributions across hazards",
             }
             require_distributions_equal(dense_dist,
                                         compute_exact_hir_distribution(candidate, options));
+            assert_deterministic_reference(candidate);
         }
 
+        if (candidate.pre_postselection_hir != nullptr) {
+            ++postselection_specializations;
+        }
         check_exact_equivalent(original, candidate, control_rng, 16, options);
+    }
+
+    REQUIRE(postselection_specializations >= 4);
+}
+
+TEST_CASE("Multiword postselected circuits preserve survivor distributions across word boundaries",
+          "[pass_equivalence][optimizer]") {
+    const uint32_t layouts[][3] = {
+        {63, 64, 65},
+        {63, 127, 128},
+    };
+    const uint8_t postselect_mask[] = {1};
+    const uint8_t expected_dets[] = {0};
+    const clifft::sampling::SamplingPlanOptions options{
+        .postselection_mask = postselect_mask,
+        .expected_detectors = expected_dets,
+    };
+
+    auto make_forward_recovery = [](uint32_t q0, uint32_t q1, uint32_t q2) {
+        const std::string s0 = std::to_string(q0);
+        const std::string s1 = std::to_string(q1);
+        const std::string s2 = std::to_string(q2);
+        return "H " + s0 + "\nCX " + s0 + " " + s1 + "\nDEPOLARIZE1(0.1) " + s0 + " " + s1 +
+               "\nCX " + s0 + " " + s2 + " " + s1 + " " + s2 + "\nM " + s2 +
+               "\nDETECTOR rec[-1]\nT " + s0 + "\nT_DAG " + s1 + "\nCX " + s0 + " " + s1 + "\nMX " +
+               s0 + "\nM " + s1 + "\nOBSERVABLE_INCLUDE(0) rec[-2]\n";
+    };
+
+    auto make_lookahead = [](uint32_t q0, uint32_t q1, uint32_t q2) {
+        const std::string s0 = std::to_string(q0);
+        const std::string s1 = std::to_string(q1);
+        const std::string s2 = std::to_string(q2);
+        return "H " + s0 + "\nX_ERROR(0.2) " + s1 + "\nZ_ERROR(0.1) " + s0 + "\nTPP Z" + s0 + "*Z" +
+               s2 + "\nTPP_DAG Z" + s0 + "*Z" + s1 + "*Z" + s2 + "\nEXP_VAL Z" + s0 + "\nM " + s1 +
+               "\nDETECTOR rec[-1]\nMX " + s0 + "\nM " + s2 + "\nOBSERVABLE_INCLUDE(0) rec[-2]\n";
+    };
+
+    auto make_blocking_probe = [](uint32_t q0, uint32_t q1, uint32_t q2) {
+        const std::string s0 = std::to_string(q0);
+        const std::string s1 = std::to_string(q1);
+        const std::string s2 = std::to_string(q2);
+        return "H " + s0 + " " + s1 + "\nZ_ERROR(0.1) " + s1 + "\nT " + s0 + "\nCX " + s1 + " " +
+               s0 + "\nT_DAG " + s0 + "\nCX " + s1 + " " + s0 + "\nMX " + s0 + "\nEXP_VAL Z" + s1 +
+               "\nM " + s1 + "\nM " + s2 + "\nDETECTOR rec[-2]\nOBSERVABLE_INCLUDE(0) rec[-3]\n";
+    };
+
+    const ExactPlanDistribution dense_forward =
+        compute_dense_circuit_distribution(clifft::parse(make_forward_recovery(0, 1, 2)), options);
+    const ExactPlanDistribution dense_lookahead =
+        compute_dense_circuit_distribution(clifft::parse(make_lookahead(0, 1, 2)), options);
+    const ExactPlanDistribution dense_blocked =
+        compute_dense_circuit_distribution(clifft::parse(make_blocking_probe(0, 1, 2)), options);
+
+    for (const auto& layout : layouts) {
+        const uint32_t q0 = layout[0];
+        const uint32_t q1 = layout[1];
+        const uint32_t q2 = layout[2];
+        CAPTURE(q0, q1, q2);
+
+        for (bool is_lookahead : {false, true}) {
+            const std::string source =
+                is_lookahead ? make_lookahead(q0, q1, q2) : make_forward_recovery(q0, q1, q2);
+            const ExactPlanDistribution& expected_dist =
+                is_lookahead ? dense_lookahead : dense_forward;
+
+            HirModule unpost = clifft::trace(clifft::parse(source));
+            PhasePolynomialPass unpost_pass;
+            unpost_pass.run(unpost);
+            REQUIRE(unpost_pass.output_t_count() > 0);
+
+            HirModule post = clifft::trace(clifft::parse(source));
+            post.postselection_mask = {1};
+            post.expected_detectors = {0};
+            require_distributions_equal(expected_dist,
+                                        compute_exact_hir_distribution(post, options));
+
+            HirModule phase_opt = post;
+            PhasePolynomialPass post_pass;
+            post_pass.run(phase_opt);
+            REQUIRE(post_pass.applied());
+            REQUIRE(post_pass.output_t_count() == 0);
+            require_distributions_equal(expected_dist,
+                                        compute_exact_hir_distribution(phase_opt, options));
+
+            HirModule full_opt = post;
+            run_full_hir_pipeline(full_opt);
+            require_distributions_equal(expected_dist,
+                                        compute_exact_hir_distribution(full_opt, options));
+        }
+
+        // Intervening measurement + probe must block lookahead across multiword masks.
+        const std::string blocked_source = make_blocking_probe(q0, q1, q2);
+        HirModule blocked_hir = clifft::trace(clifft::parse(blocked_source));
+        blocked_hir.postselection_mask = {1};
+        blocked_hir.expected_detectors = {0};
+        require_distributions_equal(dense_blocked,
+                                    compute_exact_hir_distribution(blocked_hir, options));
+
+        HirModule blocked_phase = blocked_hir;
+        PhasePolynomialPass blocked_pass;
+        blocked_pass.run(blocked_phase);
+        REQUIRE(!blocked_pass.applied());
+        REQUIRE(blocked_pass.output_t_count() == 2);
+        require_distributions_equal(dense_blocked,
+                                    compute_exact_hir_distribution(blocked_phase, options));
+
+        HirModule without_probe = blocked_hir;
+        std::erase_if(without_probe.ops,
+                      [](const HeisenbergOp& op) { return op.op_type() == OpType::EXP_VAL; });
+        without_probe.num_exp_vals = 0;
+        without_probe.source_map.clear();
+        PhasePolynomialPass probe_free_pass;
+        probe_free_pass.run(without_probe);
+        REQUIRE(probe_free_pass.applied());
+        REQUIRE(probe_free_pass.output_t_count() == 0);
+
+        HirModule blocked_full = blocked_hir;
+        run_full_hir_pipeline(blocked_full);
+        require_distributions_equal(dense_blocked,
+                                    compute_exact_hir_distribution(blocked_full, options));
     }
 }

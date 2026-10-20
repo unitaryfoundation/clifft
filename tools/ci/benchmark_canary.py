@@ -36,6 +36,7 @@ DISPLAY_NAMES = {
     "phase_measurement_barriers_4096": "Phase pass, 4,096 measurement barriers",
     "phase_clifford_regions_4096": "Phase pass, 4,096 Clifford regions",
     "phase_rank_limited_region_32000": "Phase pass, 32,000 rank-limited rotations",
+    "phase_postselection_4096": "Phase pass, 4,096 postselected lookahead regions",
     "compile_plan_cultivation_d5": "Compile/plan cultivation d5",
     "compile_schedule_plan_coherent_d5_r5": "Compile+schedule+plan, coherent QEC d5/r5",
     "schedule_pass_coherent_d5_r5": "Schedule pass, coherent QEC d5/r5",

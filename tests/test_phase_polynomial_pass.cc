@@ -698,12 +698,15 @@ TEST_CASE("Phase pass elides synthesized rotations after pulling back final obse
 }
 
 TEST_CASE("Wide phase rewrite chains into narrow observer pullback", "[optimizer]") {
+    Xoshiro256PlusPlus rng(0x51A5E03);
     std::string targets;
     for (uint32_t q = 1; q < 66; ++q) {
         targets += " " + std::to_string(q);
     }
     const std::string source =
         "H 0" + targets + "\nT 0" + targets + "\nT" + targets + "\nM 0\nT_DAG 0\nMX 0\n";
+    const std::string analytic_ref =
+        "H 0" + targets + "\nT 0\nS" + targets + "\nM 0\nT_DAG 0\nMX 0\n";
     auto hir = trace(parse(source));
     PhasePolynomialPass pass({128});
     pass.run(hir);
@@ -712,6 +715,58 @@ TEST_CASE("Wide phase rewrite chains into narrow observer pullback", "[optimizer
     REQUIRE(pass.output_t_count() == 0);
     REQUIRE(hir.num_t_gates() == 0);
     REQUIRE(analyze_active_width(hir).peak_width == 0);
+    test::check_exact_equivalent(trace(parse(analytic_ref)), hir, rng);
+
+    // Combine a 4-bit vanishing parity cube on {0, 1, 2, 3}, 63 spectator
+    // T-pairs on 4..66, and a quadratic remainder on {0, 1} before noisy
+    // mid-circuit probes, feedback, and narrow rotation cancellation.
+    std::string all_qubits = "0 1 2 3";
+    std::string spectator_qubits;
+    for (uint32_t q = 4; q < 67; ++q) {
+        all_qubits += " " + std::to_string(q);
+        spectator_qubits += " " + std::to_string(q);
+    }
+    std::string cube_lines;
+    for (uint32_t mask = 1; mask < 16; ++mask) {
+        std::string product;
+        for (uint32_t bit = 0; bit < 4; ++bit) {
+            if ((mask >> bit) & 1U) {
+                if (!product.empty()) {
+                    product += "*";
+                }
+                product += "Z" + std::to_string(bit);
+            }
+        }
+        cube_lines += "TPP " + product + "\n";
+    }
+    const std::string suffix =
+        "M 0\n"
+        "EXP_VAL Z1\n"
+        "T_DAG 0 1\n"
+        "EXP_VAL X0\n"
+        "MX 0 1\n"
+        "DETECTOR rec[-1] rec[-2]\n"
+        "OBSERVABLE_INCLUDE(0) rec[-3]\n";
+    const std::string chained_source = "H " + all_qubits +
+                                       "\n"
+                                       "Z_ERROR(0.15) 1\n" +
+                                       cube_lines + "T 0 1" + spectator_qubits + "\nT" +
+                                       spectator_qubits + "\n" + suffix;
+    const std::string chained_ref = "H " + all_qubits +
+                                    "\n"
+                                    "Z_ERROR(0.15) 1\n"
+                                    "T 0 1\n"
+                                    "S" +
+                                    spectator_qubits + "\n" + suffix;
+
+    auto chained_hir = trace(parse(chained_source));
+    PhasePolynomialPass chained_pass({128});
+    chained_pass.run(chained_hir);
+    REQUIRE(chained_pass.wide_rewrites() == 1);
+    REQUIRE(chained_pass.pauli_pullbacks() >= 2);
+    REQUIRE(chained_pass.output_t_count() == 0);
+    REQUIRE(analyze_active_width(chained_hir).peak_width == 0);
+    test::check_exact_equivalent(trace(parse(chained_ref)), chained_hir, rng);
 }
 
 TEST_CASE("Postselected single-record detector recovers stabilizer across upstream noise",

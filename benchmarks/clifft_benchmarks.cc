@@ -163,6 +163,31 @@ void phase_rank_limited_region(benchmark::State& state, int64_t size) {
         benchmark::DoNotOptimize(hir.ops.size());
     }
 }
+
+template <typename Module>
+void enable_first_detector_postselection(Module& hir) {
+    if constexpr (requires { hir.postselection_mask = {1}; }) {
+        hir.postselection_mask = {1};
+    }
+}
+
+// Postselection lookahead must stop once no eligible measurements remain in the
+// bounded horizon, rather than scanning the remaining suffix on every region.
+void phase_postselection(benchmark::State& state, int64_t size) {
+    std::string source = "H 0\nM 1\nDETECTOR rec[-1]\n";
+    for (int64_t i = 0; i < size; ++i) {
+        source += "T 0\nH 0\n";
+    }
+    source += "M 0\n";
+    auto original = trace(parse(source));
+    enable_first_detector_postselection(original);
+    for ([[maybe_unused]] auto _ : state) {
+        auto hir = original;
+        PhasePolynomialPass pass;
+        pass.run(hir);
+        benchmark::DoNotOptimize(hir.ops.size());
+    }
+}
 #endif
 
 // Cultivation combines parsing, optimization, postselection planning, and
@@ -426,6 +451,7 @@ BENCHMARK(squeeze_parallel_t)->Name("squeeze_parallel_t_8192");
 BENCHMARK_CAPTURE(phase_measurement_barriers, 4096, 4096)->Name("phase_measurement_barriers_4096");
 BENCHMARK_CAPTURE(phase_clifford_regions, 4096, 4096)->Name("phase_clifford_regions_4096");
 BENCHMARK_CAPTURE(phase_rank_limited_region, 32000, 32000)->Name("phase_rank_limited_region_32000");
+BENCHMARK_CAPTURE(phase_postselection, 4096, 4096)->Name("phase_postselection_4096");
 #endif
 BENCHMARK(compile_plan_cultivation_d5)->Name("compile_plan_cultivation_d5");
 #ifdef CLIFFT_BENCHMARK_HAS_ACTIVE_WIDTH
