@@ -9,6 +9,7 @@
 #include "clifft/noncomp/transition_instrument.h"
 
 #include <algorithm>
+#include <cassert>
 #include <cstdint>
 #include <map>
 #include <optional>
@@ -165,9 +166,10 @@ void process_ordinary_node(const AstNode& node, uint32_t op_index,
 
 }  // namespace
 
-ContinuationRewrite rewrite_continuation(const Circuit& annotated, const TrajectoryEvents& events,
-                                         bool force_last_traceout,
+ContinuationRewrite rewrite_continuation(const ResolvedNonComputationalCircuit& resolved,
+                                         const TrajectoryEvents& events, bool force_last_traceout,
                                          const NonComputationalModel& model) {
+    const Circuit& annotated = resolved.circuit();
     if (events.initial_status.size() != annotated.num_qubits) {
         throw std::invalid_argument("rewrite_continuation: events carry " +
                                     std::to_string(events.initial_status.size()) +
@@ -213,13 +215,13 @@ ContinuationRewrite rewrite_continuation(const Circuit& annotated, const Traject
     for (uint32_t op_index = 0; op_index < annotated.nodes.size(); ++op_index) {
         const AstNode& original = annotated.nodes[op_index];
         std::optional<AstNode> spreading;
-        if (is_noncomputational_interaction(original.gate)) {
-            const PartnerEffect effect =
-                validate_interaction(original, op_index, status.size(), "rewrite");
-            if (!interaction_applies(original, status)) {
+        const auto& annotation = resolved.operation(op_index).annotation;
+        if (const auto* interaction = std::get_if<ResolvedInteraction>(&annotation)) {
+            const PartnerEffect& effect = interaction->effect;
+            if (!interaction->applies(status)) {
                 continue;
             }
-            const Target partner = original.targets[1];
+            const Target partner = Target::qubit(interaction->partner);
             if (effect.has_pauli()) {
                 out.nodes.push_back(AstNode{GateType::PAULI_CHANNEL_1,
                                             {partner},
@@ -237,39 +239,21 @@ ContinuationRewrite rewrite_continuation(const Circuit& annotated, const Traject
         const AstNode& node = spreading.has_value() ? *spreading : original;
         const GateType gate = node.gate;
 
-        if (is_noncomputational_herald(gate)) {
-            validate_herald_arguments(node, op_index, "rewrite");
-            // Direct callers can bypass the driver's AST validation. Require
-            // the parser's single-target shape to preserve record accounting.
-            const std::string location =
-                "rewrite: " + std::string(gate_name(gate)) + " at op " + std::to_string(op_index);
-            if (node.targets.size() != 1) {
-                throw std::invalid_argument(location + " requires exactly one plain qubit target");
-            }
-            const Target target = node.targets[0];
-            if (target.is_rec() || target.has_pauli() || target.is_inverted()) {
-                throw std::invalid_argument(location + " requires a plain qubit target");
-            }
-            if (target.value() >= status.size()) {
-                throw std::invalid_argument(location + " target qubit " +
-                                            std::to_string(target.value()) + " is out of range");
-            }
-            const QubitStatus current = status[target.value()];
-            const bool detected =
-                gate == GateType::HERALD_LEAKAGE_EVENT ? is_leaked(current) : is_lost(current);
+        if (const auto* probe = std::get_if<ResolvedStatusProbe>(&annotation)) {
+            const QubitStatus current = status[probe->qubit];
+            const bool detected = probe->source_status == InteractionSource::Leaked
+                                      ? is_leaked(current)
+                                      : is_lost(current);
             out.nodes.push_back(mpad_op(detected ? 1 : 0));
             ++slot;
             continue;
         }
 
         if (is_noncomputational_annotation(gate)) {
+            const ResolvedTransition channel = resolved.transition(op_index);
             for (const Target& target : node.targets) {
                 const uint32_t qubit = target.value();
-                if (qubit >= status.size()) {
-                    throw std::invalid_argument("rewrite_continuation: operand qubit " +
-                                                std::to_string(qubit) + " is out of range at op " +
-                                                std::to_string(op_index));
-                }
+                assert(qubit < status.size());
                 const QubitStatus pre = status[qubit];
 
                 if (!is_computational(pre)) {
@@ -324,21 +308,14 @@ ContinuationRewrite rewrite_continuation(const Circuit& annotated, const Traject
                 // LEVEL_TRANSITION[tag] can fire when either column_sum(G) or
                 // column_sum(E) is nonzero. These exact 0.0 comparisons match
                 // frontend.cc.
-                if (is_inline_noncomputational_annotation(gate)) {
-                    if (inline_transition_probability(gate, node.args, op_index,
-                                                      "rewrite_continuation") == 0.0) {
+                if (channel.kind == TransitionChannelKind::Instrument) {
+                    const auto& instrument = resolved.instrument(channel.instrument);
+                    if (instrument.column_sum(Level::G) == 0.0 &&
+                        instrument.column_sum(Level::E) == 0.0) {
                         continue;
                     }
-                } else {
-                    const TransitionInstrument* instr = model.transition_named(node.tag);
-                    if (instr == nullptr) {
-                        throw std::invalid_argument(
-                            "rewrite_continuation: unknown transition tag '" + node.tag +
-                            "' at op " + std::to_string(op_index));
-                    }
-                    if (instr->column_sum(Level::G) == 0.0 && instr->column_sum(Level::E) == 0.0) {
-                        continue;
-                    }
+                } else if (channel.probability == 0.0) {
+                    continue;
                 }
 
                 // Keep one runtime instrument for this computational target.
@@ -395,6 +372,13 @@ ContinuationRewrite rewrite_continuation(const Circuit& annotated, const Traject
 
     result.final_status = std::move(status);
     return result;
+}
+
+ContinuationRewrite rewrite_continuation(const Circuit& annotated, const TrajectoryEvents& events,
+                                         bool force_last_traceout,
+                                         const NonComputationalModel& model) {
+    const ResolvedNonComputationalCircuit resolved(annotated, model, "rewrite_continuation");
+    return rewrite_continuation(resolved, events, force_last_traceout, model);
 }
 
 }  // namespace clifft

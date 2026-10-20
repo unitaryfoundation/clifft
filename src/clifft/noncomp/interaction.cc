@@ -2,7 +2,6 @@
 
 #include "clifft/util/numeric.h"
 
-#include <cassert>
 #include <stdexcept>
 #include <string>
 
@@ -90,16 +89,6 @@ PartnerEffect validate_interaction(const AstNode& node, uint32_t op_index, size_
     } catch (const std::invalid_argument& e) {
         throw std::invalid_argument(context + ": " + e.what());
     }
-}
-
-bool interaction_applies(const AstNode& node, std::span<const QubitStatus> status) {
-    assert(node.targets.size() == 2);
-    const auto source = node.targets[0].value();
-    const auto partner = node.targets[1].value();
-    assert(source < status.size() && partner < status.size());
-    const bool matches = node.gate == GateType::LEAKAGE_INTERACTION ? is_leaked(status[source])
-                                                                    : is_lost(status[source]);
-    return matches && is_computational(status[partner]);
 }
 
 }  // namespace clifft

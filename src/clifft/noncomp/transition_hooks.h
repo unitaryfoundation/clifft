@@ -14,8 +14,15 @@
 #include "clifft/circuit/circuit.h"
 #include "clifft/noncomp/model.h"
 
+#include <cstdint>
+#include <optional>
+#include <vector>
+
 namespace clifft {
 
-Circuit expand_transition_hooks(const Circuit& circuit, const NonComputationalModel& model);
+// When requested, generated_by records each generated node's physical-gate
+// index in the expanded circuit; original nodes have no parent.
+Circuit expand_transition_hooks(const Circuit& circuit, const NonComputationalModel& model,
+                                std::vector<std::optional<uint32_t>>* generated_by = nullptr);
 
 }  // namespace clifft

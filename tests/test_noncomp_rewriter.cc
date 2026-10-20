@@ -800,6 +800,7 @@ TEST_CASE("rewrite_continuation: unknown transition tag throws") {
     TrajectoryEvents events;
     events.initial_status = {QubitStatus::Computational};
     Circuit annotated = expand_transition_hooks(c, model);
-    REQUIRE_THROWS_WITH(rewrite_continuation(annotated, events, false, model),
-                        ContainsSubstring("unknown transition tag 'nosuch'"));
+    REQUIRE_THROWS_WITH(
+        rewrite_continuation(annotated, events, false, model),
+        ContainsSubstring("LEVEL_TRANSITION[nosuch] at op 0 does not name a transition"));
 }

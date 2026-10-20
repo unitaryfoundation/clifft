@@ -5,6 +5,7 @@
 #include "clifft/noncomp/status_walk.h"
 
 #include <stdexcept>
+#include <utility>
 
 namespace clifft {
 
@@ -22,14 +23,26 @@ bool has_enabled_partner_effect(const NonComputationalModel& model, GateType gat
 }
 }  // namespace
 
-Circuit expand_transition_hooks(const Circuit& circuit, const NonComputationalModel& model) {
+Circuit expand_transition_hooks(const Circuit& circuit, const NonComputationalModel& model,
+                                std::vector<std::optional<uint32_t>>* generated_by) {
     const auto& hooks = model.transition_hooks();
 
     Circuit out = circuit.metadata_only_copy();
     out.nodes.reserve(circuit.nodes.size() * 2);
+    if (generated_by != nullptr) {
+        generated_by->clear();
+        generated_by->reserve(circuit.nodes.size() * 2);
+    }
+    auto append = [&](AstNode node, std::optional<uint32_t> parent) {
+        out.nodes.push_back(std::move(node));
+        if (generated_by != nullptr) {
+            generated_by->push_back(parent);
+        }
+    };
 
     for (const AstNode& node : circuit.nodes) {
-        out.nodes.push_back(node);
+        const auto gate_index = static_cast<uint32_t>(out.nodes.size());
+        append(node, std::nullopt);
         if (supports_partner_effect(node.gate) && has_enabled_partner_effect(model, node.gate)) {
             const auto operands = qubit_operands(node);
             if (operands.size() == 2 && operands[0].role == OperandRole::Physical &&
@@ -46,11 +59,12 @@ Circuit expand_transition_hooks(const Circuit& circuit, const NonComputationalMo
                         if (leakage) {
                             args.push_back(effect->spread_probability);
                         }
-                        out.nodes.push_back(AstNode{
-                            leakage ? GateType::LEAKAGE_INTERACTION : GateType::LOSS_INTERACTION,
-                            {node.targets[source], node.targets[1 - source]},
-                            std::move(args),
-                            node.source_line});
+                        append(AstNode{leakage ? GateType::LEAKAGE_INTERACTION
+                                               : GateType::LOSS_INTERACTION,
+                                       {node.targets[source], node.targets[1 - source]},
+                                       std::move(args),
+                                       node.source_line},
+                               gate_index);
                     }
                 }
             } else if (operands.size() != 1 || operands[0].role != OperandRole::Feedback) {
@@ -68,11 +82,12 @@ Circuit expand_transition_hooks(const Circuit& circuit, const NonComputationalMo
             if (operand.role != OperandRole::Physical) {
                 continue;
             }
-            out.nodes.push_back(AstNode{GateType::LEVEL_TRANSITION,
-                                        {Target::qubit(operand.qubit)},
-                                        {},
-                                        node.source_line,
-                                        hook->second});
+            append(AstNode{GateType::LEVEL_TRANSITION,
+                           {Target::qubit(operand.qubit)},
+                           {},
+                           node.source_line,
+                           hook->second},
+                   gate_index);
         }
     }
     return out;

@@ -45,50 +45,6 @@ namespace clifft {
 
 namespace {
 
-enum class AnnotationChannelKind { Instrument, Leakage, Loss };
-
-// The channel described by one transition annotation: a named instrument for
-// LEVEL_TRANSITION or an inline probability for LEAKAGE/LOSS.
-struct AnnotationChannel {
-    [[nodiscard]] static AnnotationChannel for_instrument(const TransitionInstrument& instrument) {
-        return AnnotationChannel(AnnotationChannelKind::Instrument, &instrument, 0.0);
-    }
-
-    [[nodiscard]] static AnnotationChannel for_leakage(double probability) {
-        return AnnotationChannel(AnnotationChannelKind::Leakage, nullptr, probability);
-    }
-
-    [[nodiscard]] static AnnotationChannel for_loss(double probability) {
-        return AnnotationChannel(AnnotationChannelKind::Loss, nullptr, probability);
-    }
-
-    AnnotationChannelKind kind;
-    const TransitionInstrument* instrument;
-    double probability;
-
-  private:
-    AnnotationChannel(AnnotationChannelKind kind_in, const TransitionInstrument* instrument_in,
-                      double probability_in)
-        : kind(kind_in), instrument(instrument_in), probability(probability_in) {}
-};
-
-[[nodiscard]] AnnotationChannel resolve_annotation(const AstNode& node,
-                                                   const NonComputationalModel& model) {
-    if (node.gate == GateType::LEAKAGE_INTERACTION) {
-        return AnnotationChannel::for_leakage(
-            interaction_arguments(node.gate, node.args).spread_probability);
-    }
-    if (is_inline_noncomputational_annotation(node.gate)) {
-        assert(node.args.size() == 1 && "preparation validates inline transition arguments");
-        return node.gate == GateType::LEAKAGE ? AnnotationChannel::for_leakage(node.args[0])
-                                              : AnnotationChannel::for_loss(node.args[0]);
-    }
-    assert(node.gate == GateType::LEVEL_TRANSITION && "preparation validates annotation kinds");
-    const TransitionInstrument* instrument = model.transition_named(node.tag);
-    assert(instrument != nullptr && "preparation resolves named transitions");
-    return AnnotationChannel::for_instrument(*instrument);
-}
-
 // Draw one qubit's initial level. If floating-point rounding leaves the draw
 // just past the accumulated total, return the last level with nonzero
 // probability.
@@ -156,8 +112,10 @@ Level draw_from_column(const TransitionInstrument& instrument, Level source,
 // instead of appending: a trap at op 2 can make op 3 driver-resolvable even
 // if op 5 was already sampled, changing the required order from [op 5] to
 // [op 3, op 5]. The rewriter consumes this vector sequentially.
-void extend_classical_outcomes(const Circuit& annotated, TrajectoryEvents& events,
-                               const NonComputationalModel& model, Xoshiro256PlusPlus& rng) {
+void extend_classical_outcomes(const ResolvedNonComputationalCircuit& resolved,
+                               TrajectoryEvents& events, const NonComputationalModel& model,
+                               Xoshiro256PlusPlus& rng) {
+    const Circuit& annotated = resolved.circuit();
     std::map<AnnotationTarget, Level> jump_dest;
     for (const ResolvedJump& jump : events.jumps) {
         jump_dest.emplace(jump.target, jump.destination_level);
@@ -178,9 +136,10 @@ void extend_classical_outcomes(const Circuit& annotated, TrajectoryEvents& event
         if (is_noncomputational_herald(gate)) {
             continue;
         }
-        if (is_noncomputational_interaction(gate)) {
-            if (interaction_applies(node, status)) {
-                const uint32_t partner = node.targets[1].value();
+        if (const auto* interaction =
+                std::get_if<ResolvedInteraction>(&resolved.operation(op_index).annotation)) {
+            if (interaction->applies(status)) {
+                const uint32_t partner = interaction->partner;
                 const auto jump = jump_dest.find({op_index, partner});
                 if (jump != jump_dest.end()) {
                     status[partner] = status_for(jump->second);
@@ -213,22 +172,22 @@ void extend_classical_outcomes(const Circuit& annotated, TrajectoryEvents& event
                         }
                         outcome = seen->second;
                     } else {
-                        const AnnotationChannel channel = resolve_annotation(node, model);
+                        const ResolvedTransition channel = resolved.transition(op_index);
                         switch (channel.kind) {
-                            case AnnotationChannelKind::Instrument: {
-                                const double total = channel.instrument->column_sum(source);
+                            case TransitionChannelKind::Instrument: {
+                                const auto& instrument = resolved.instrument(channel.instrument);
+                                const double total = instrument.column_sum(source);
                                 if (rng.next_double() < total) {
-                                    outcome.destination =
-                                        draw_from_column(*channel.instrument, source, rng,
-                                                         [](Level) { return true; });
+                                    outcome.destination = draw_from_column(
+                                        instrument, source, rng, [](Level) { return true; });
                                 }
                                 break;
                             }
-                            case AnnotationChannelKind::Leakage:
+                            case TransitionChannelKind::Leakage:
                                 // LEAKAGE is a no-op on every noncomputational source
                                 // and spends no draw.
                                 break;
-                            case AnnotationChannelKind::Loss:
+                            case TransitionChannelKind::Loss:
                                 // LOSS can move a leaked qubit to Lost. An already-lost
                                 // qubit records a no-op without spending a draw.
                                 if (!is_lost(pre) && rng.next_double() < channel.probability) {
@@ -439,7 +398,8 @@ SamplingCompiledContinuation compile_sampling_continuation(
 NonComputationalSample run_trajectory_driver(const PreparedNonComputationalRequest& request,
                                              uint32_t shots, const SeedRoot& root,
                                              uint32_t threads) {
-    const Circuit& annotated = request.annotated_circuit();
+    const auto& resolved = request.resolved_circuit();
+    const Circuit& annotated = resolved.circuit();
     const NonComputationalModel& model = request.model();
     const auto max_active_width_cap = request.requirements().max_active_width;
     NonComputationalSample result;
@@ -505,8 +465,8 @@ NonComputationalSample run_trajectory_driver(const PreparedNonComputationalReque
         std::optional<SamplingCompiledContinuation> shot_start;
         const SamplingCompiledContinuation* continuation = nullptr;
         if (needs_shot_specific_start) {
-            extend_classical_outcomes(annotated, events, model, driver_rng);
-            ContinuationRewrite rewrite = rewrite_continuation(annotated, events, false, model);
+            extend_classical_outcomes(resolved, events, model, driver_rng);
+            ContinuationRewrite rewrite = rewrite_continuation(resolved, events, false, model);
             const std::vector<uint8_t> flags = flags_for(rewrite);
             shot_start.emplace(compile_sampling_continuation(std::move(rewrite), flags,
                                                              instrument_options,
@@ -515,7 +475,7 @@ NonComputationalSample run_trajectory_driver(const PreparedNonComputationalReque
         } else {
             if (!worker.shared_start.has_value()) {
                 ContinuationRewrite rewrite =
-                    rewrite_continuation(annotated, no_events, false, model);
+                    rewrite_continuation(resolved, no_events, false, model);
                 assert(rewrite.classified_measurements.empty() &&
                        "the shared initial continuation has no classified measurements");
                 worker.shared_start.emplace(
@@ -554,36 +514,36 @@ NonComputationalSample run_trajectory_driver(const PreparedNonComputationalReque
                     "sample_noncomputational: sampling trap site id is out of range");
             }
             const auto [op_index, qubit] = continuation->site_targets[site];
-            const AstNode& node = annotated.nodes[op_index];
-            const AnnotationChannel channel = resolve_annotation(node, model);
+            const ResolvedTransition channel = resolved.transition(op_index);
 
             assert(trap.source <= 1 && "the executor reports a computational source as G or E");
             const Level source = static_cast<Level>(trap.source);
             Level destination = source;
             switch (channel.kind) {
-                case AnnotationChannelKind::Instrument:
+                case TransitionChannelKind::Instrument: {
+                    const auto& instrument = resolved.instrument(channel.instrument);
                     if (trap.destination_pending) {
-                        destination = draw_from_column(*channel.instrument, source, driver_rng,
+                        destination = draw_from_column(instrument, source, driver_rng,
                                                        [](Level) { return true; });
                     } else {
                         destination =
-                            draw_from_column(*channel.instrument, source, driver_rng,
+                            draw_from_column(instrument, source, driver_rng,
                                              [](Level level) { return !is_computational(level); });
                     }
                     break;
-                case AnnotationChannelKind::Leakage:
+                }
+                case TransitionChannelKind::Leakage:
                     destination = source == Level::G ? Level::LeakG : Level::LeakE;
                     break;
-                case AnnotationChannelKind::Loss:
+                case TransitionChannelKind::Loss:
                     destination = Level::Lost;
                     break;
             }
 
             events.jumps.push_back({{op_index, qubit}, destination});
-            extend_classical_outcomes(annotated, events, model, driver_rng);
+            extend_classical_outcomes(resolved, events, model, driver_rng);
             const bool force = trap.destination_pending;
-            ContinuationRewrite next_rewrite =
-                rewrite_continuation(annotated, events, force, model);
+            ContinuationRewrite next_rewrite = rewrite_continuation(resolved, events, force, model);
             const std::vector<uint8_t> next_flags = flags_for(next_rewrite);
             auto next =
                 std::make_unique<SamplingCompiledContinuation>(compile_sampling_continuation(

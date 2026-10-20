@@ -2,6 +2,7 @@
 
 #include "clifft/circuit/circuit.h"
 #include "clifft/noncomp/model.h"
+#include "clifft/noncomp/resolution.h"
 #include "clifft/noncomp/sample.h"
 
 #include <cstdint>
@@ -22,7 +23,10 @@ class PreparedNonComputationalRequest {
     PreparedNonComputationalRequest(const Circuit& circuit, const NonComputationalModel& model,
                                     NonComputationalRequirements requirements = {});
 
-    [[nodiscard]] const Circuit& annotated_circuit() const { return annotated_circuit_; }
+    [[nodiscard]] const Circuit& annotated_circuit() const { return resolved_circuit_.circuit(); }
+    [[nodiscard]] const ResolvedNonComputationalCircuit& resolved_circuit() const {
+        return resolved_circuit_;
+    }
     [[nodiscard]] const NonComputationalModel& model() const { return model_; }
     [[nodiscard]] const NonComputationalRequirements& requirements() const { return requirements_; }
 
@@ -31,7 +35,7 @@ class PreparedNonComputationalRequest {
 
   private:
     NonComputationalModel model_;
-    Circuit annotated_circuit_;
+    ResolvedNonComputationalCircuit resolved_circuit_;
     NonComputationalRequirements requirements_;
 };
 

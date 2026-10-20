@@ -29,6 +29,7 @@
 
 #include "clifft/circuit/circuit.h"
 #include "clifft/noncomp/model.h"
+#include "clifft/noncomp/resolution.h"
 
 #include <compare>
 #include <cstddef>
@@ -112,7 +113,12 @@ struct ContinuationRewrite {
     std::vector<QubitStatus> final_status;
 };
 
-// Rewrite `annotated` (the hook-expanded circuit) for `events`. The portion
+// Reuse preparation's decoded annotations across all continuations.
+ContinuationRewrite rewrite_continuation(const ResolvedNonComputationalCircuit& resolved,
+                                         const TrajectoryEvents& events, bool force_last_traceout,
+                                         const NonComputationalModel& model);
+
+// Resolve and rewrite `annotated` (the hook-expanded circuit) for `events`. The portion
 // through the last recorded jump keeps the same compiled prefix as the code
 // that encountered that jump; only the later suffix is changed. Recorded
 // jumps must match transition annotations in the circuit, and

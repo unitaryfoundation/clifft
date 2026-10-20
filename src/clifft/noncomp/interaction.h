@@ -44,6 +44,5 @@ PartnerEffect interaction_arguments(GateType gate, std::span<const double> args)
 // their ordered source and partner operands.
 PartnerEffect validate_interaction(const AstNode& node, uint32_t op_index, size_t num_qubits,
                                    std::string_view caller);
-bool interaction_applies(const AstNode& node, std::span<const QubitStatus> status);
 
 }  // namespace clifft
