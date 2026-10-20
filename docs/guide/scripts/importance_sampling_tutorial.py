@@ -111,6 +111,7 @@ def run_stratified_is(
 
     prog_probe = clifft.compile(
         circuit_text,
+        normalize_syndromes=True,
         hir_passes=clifft.default_hir_pass_manager(),
     )
     # Today we compile once to discover the detector count, then again with an
@@ -121,10 +122,7 @@ def run_stratified_is(
 
     prog = clifft.compile(
         circuit_text,
-        # These protocols define all-zero ideal parities independently of
-        # the random choices made by a reference simulation.
-        expected_detectors=[0] * num_det,
-        expected_observables=[0] * prog_probe.num_observables,
+        normalize_syndromes=True,
         postselection_mask=mask,
         hir_passes=clifft.default_hir_pass_manager(),
     )

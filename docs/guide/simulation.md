@@ -168,30 +168,45 @@ reference, which may differ from the protocol's intended acceptance condition.
 Coherent error rotations remain in the reference circuit: an ordinary unitary
 gate does not identify whether it implements the protocol or an error. When
 building a circuit with coherent errors, retain its intended ideal counterpart
-and derive the reference from that circuit:
+and derive the reference from that circuit.
 
-```python
-import clifft
+??? example "Derive references from an ideal circuit"
 
-ideal = "RX 0\nMX 0\nDETECTOR rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]"
-with_errors = (
-    "RX 0\nR_Z(0.02) 0\nMX 0\nDETECTOR rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]"
-)
-reference = clifft.compute_reference_syndrome(clifft.trace(clifft.parse(ideal)))
-program = clifft.compile(
-    with_errors,
-    expected_detectors=reference["detectors"],
-    expected_observables=reference["observables"],
-    postselection_mask=[1],
-)
-assert reference == {"detectors": [0], "observables": [0]}
-```
+    Here the intended circuit prepares and measures `|+>`. The added `R_Z`
+    rotation models a coherent error, so it belongs only in the circuit being
+    sampled.
 
-The ideal circuit must have fixed detector and observable parities with the
-same output ordering as the circuit with errors. Preserve it before injecting
-errors or fusing gates; Clifft cannot recover that distinction from a combined
-rotation. If the intended reference values are already known, supply them
-directly as in the [importance-sampling tutorial](importance-sampling-tutorial.md).
+    ```python
+    import clifft
+
+    ideal = """
+        RX 0
+        MX 0
+        DETECTOR rec[-1]
+        OBSERVABLE_INCLUDE(0) rec[-1]
+    """
+    with_errors = """
+        RX 0
+        R_Z(0.02) 0
+        MX 0
+        DETECTOR rec[-1]
+        OBSERVABLE_INCLUDE(0) rec[-1]
+    """
+    reference = clifft.compute_reference_syndrome(clifft.trace(clifft.parse(ideal)))
+    program = clifft.compile(
+        with_errors,
+        expected_detectors=reference["detectors"],
+        expected_observables=reference["observables"],
+        postselection_mask=[1],
+    )
+    assert reference == {"detectors": [0], "observables": [0]}
+    ```
+
+    The ideal circuit must have fixed detector and observable parities with the
+    same output ordering as the circuit with errors. Preserve it before injecting
+    errors or fusing gates; Clifft cannot recover that distinction from a combined
+    rotation. If the intended reference values are already known, supply them
+    directly through `expected_detectors` and `expected_observables`.
 
 ### Expectation values
 
