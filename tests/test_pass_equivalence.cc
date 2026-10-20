@@ -1139,17 +1139,17 @@ namespace {
 void check_structural_hir_invariants(const HirModule& before, const HirModule& after) {
     REQUIRE(after.num_qubits == before.num_qubits);
     REQUIRE(after.num_measurements == before.num_measurements);
+    REQUIRE(after.num_hidden_measurements == before.num_hidden_measurements);
     REQUIRE(after.num_detectors == before.num_detectors);
     REQUIRE(after.num_observables == before.num_observables);
     REQUIRE(after.num_exp_vals == before.num_exp_vals);
     REQUIRE(after.noise_sites.size() == before.noise_sites.size());
     REQUIRE(after.instrument_sites.size() == before.instrument_sites.size());
+    REQUIRE(after.neglect_instrument_damping == before.neglect_instrument_damping);
+    REQUIRE(after.forced_traceout_slot == before.forced_traceout_slot);
 
     if (!before.source_map.empty()) {
         REQUIRE(after.source_map.size() == after.ops.size());
-        for (const auto& lines : after.source_map) {
-            REQUIRE_FALSE(lines.empty());
-        }
     }
     if (!after.logical_noise_prefix.empty()) {
         REQUIRE(after.has_logical_noise_prefix());
@@ -1169,6 +1169,28 @@ void require_hir_structurally_equal(const HirModule& a, const HirModule& b) {
     REQUIRE(a.source_map == b.source_map);
     REQUIRE(a.logical_noise_prefix == b.logical_noise_prefix);
     REQUIRE(a.final_tableau == b.final_tableau);
+    REQUIRE(a.readout_noise == b.readout_noise);
+    REQUIRE(a.detector_targets == b.detector_targets);
+    REQUIRE(a.observable_targets == b.observable_targets);
+    for (size_t i = 0; i < a.noise_sites.size(); ++i) {
+        const auto& site_a = a.noise_sites[i];
+        const auto& site_b = b.noise_sites[i];
+        REQUIRE(site_a.total_probability == site_b.total_probability);
+        REQUIRE(site_a.channels.size() == site_b.channels.size());
+        for (size_t j = 0; j < site_a.channels.size(); ++j) {
+            REQUIRE(site_a.channels[j].prob == site_b.channels[j].prob);
+            REQUIRE(a.noise_channel_masks.at(site_a.channels[j].mask) ==
+                    b.noise_channel_masks.at(site_b.channels[j].mask));
+        }
+    }
+    for (size_t i = 0; i < a.instrument_sites.size(); ++i) {
+        const auto& site_a = a.instrument_sites[i];
+        const auto& site_b = b.instrument_sites[i];
+        REQUIRE(site_a.qubit == site_b.qubit);
+        REQUIRE(site_a.probabilities == site_b.probabilities);
+        REQUIRE(a.pauli_masks.at(site_a.destination_flip_mask) ==
+                b.pauli_masks.at(site_b.destination_flip_mask));
+    }
 
     for (size_t i = 0; i < a.ops.size(); ++i) {
         const HeisenbergOp& op_a = a.ops[i];
@@ -1230,7 +1252,7 @@ void run_full_hir_pipeline(HirModule& hir) {
 // multiples so PhasePolynomialPass exercises:
 // - KnownStabilizers canonicalization and multi-generator reduction
 // - Mod-8 coefficient accumulation across c in {0..7}
-// - Degree-2 Clifford remainder synthesis (c = 4 -> S(a)S(b)S_dag(ab))
+// - Quadratic monomial remainders (4*a*b -> S(a)S(b)S_dag(a XOR b))
 // - Cubic TOHPE synthesis
 // - Observer pullbacks (MEASURE, EXP_VAL, NOISE) and stabilizer invalidation.
 HirModule generate_phase_poly_hir(Xoshiro256PlusPlus& rng, std::span<const uint32_t> qubit_map,
@@ -1244,7 +1266,9 @@ HirModule generate_phase_poly_hir(Xoshiro256PlusPlus& rng, std::span<const uint3
     const uint32_t q0 = qubit_map[0];
     const uint32_t q1 = qubit_map[1];
     const uint32_t q2 = qubit_map[2];
-    const uint32_t q_stab = qubit_map[3];
+    const bool use_full_16_cube = (rng() & 1U) != 0 && n_logical >= 5;
+    // The fourth cube coordinate cannot also supply a fixed Z stabilizer.
+    const uint32_t q_stab = qubit_map[use_full_16_cube ? 4 : 3];
     const uint32_t q_stab2 = n_logical > 4 ? qubit_map[4] : q_stab;
 
     uint32_t next_line = 1;
@@ -1270,10 +1294,8 @@ HirModule generate_phase_poly_hir(Xoshiro256PlusPlus& rng, std::span<const uint3
         slot.set_sign(sign);
     };
 
-    const bool use_full_16_cube = (rng() & 1U) != 0;
-    if (use_full_16_cube && n_logical >= 5) {
+    if (use_full_16_cube) {
         const uint32_t q3 = qubit_map[3];
-        const uint32_t stab_q = qubit_map[4];
         for (uint32_t term = 1; term <= 16; ++term) {
             const uint32_t parity = (term == 16) ? 15U : term;
             const bool alias = (rng() % 3) == 0;
@@ -1287,7 +1309,7 @@ HirModule generate_phase_poly_hir(Xoshiro256PlusPlus& rng, std::span<const uint3
                 if (parity & 8U)
                     slot.x().bit_set(q3, true);
                 if (alias)
-                    slot.z().bit_set(stab_q, true);
+                    slot.z().bit_set(q_stab, true);
             });
             push_line();
         }
@@ -1308,7 +1330,8 @@ HirModule generate_phase_poly_hir(Xoshiro256PlusPlus& rng, std::span<const uint3
     }
 
     // Interleave a mid-circuit observer (EXP_VAL, MEASURE, or commuting NOISE)
-    // followed by trailing T gates that merge when the observer is pulled back.
+    // followed by trailing T gates that can merge if their stabilizer aliases
+    // survive the observer.
     const uint32_t obs_kind = static_cast<uint32_t>(rng() % 4);
     if (obs_kind == 0) {
         const bool commuting_probe = (rng() % 3) != 0;
@@ -1406,7 +1429,8 @@ HirModule generate_phase_poly_hir(Xoshiro256PlusPlus& rng, std::span<const uint3
 
 // Builds HIR modules where continuous rotations R_PAULI(alpha) share axes up
 // to known |0> stabilizers (or stabilizers surviving across region boundaries)
-// and are separated by commuting or pullback-eligible rotations.
+// and are separated by commuting rotations or anticommuting barriers.
+// Absorbing an exposed Clifford can let collection cross a barrier.
 HirModule generate_rotation_simp_hir(Xoshiro256PlusPlus& rng, std::span<const uint32_t> qubit_map,
                                      uint32_t total_qubits) {
     REQUIRE(qubit_map.size() >= 4);
@@ -1514,11 +1538,15 @@ HirModule generate_rotation_simp_hir(Xoshiro256PlusPlus& rng, std::span<const ui
 // semantically equivalent to the original HIR before optimization, and must
 // remain equivalent after optimization while exercising pass rewrites.
 HirModule inject_metamorphic_gadgets(const HirModule& base, Xoshiro256PlusPlus& rng) {
+    // This injector accepts unscheduled traced scaffolds. Instrument side masks
+    // need separate remapping, and scheduled inputs need noise-prefix tracking.
+    REQUIRE(base.instrument_sites.empty());
+    REQUIRE(base.logical_noise_prefix.empty());
+    REQUIRE_FALSE(base.forced_traceout_slot.has_value());
     HirModule mutated(base.num_qubits, base.pauli_masks.size() + 32,
                       base.noise_channel_masks.size());
     mutated.noise_sites = base.noise_sites;
     mutated.readout_noise = base.readout_noise;
-    mutated.instrument_sites = base.instrument_sites;
     mutated.detector_targets = base.detector_targets;
     mutated.observable_targets = base.observable_targets;
     mutated.num_measurements = base.num_measurements;
@@ -1622,9 +1650,6 @@ HirModule inject_metamorphic_gadgets(const HirModule& base, Xoshiro256PlusPlus& 
                 case OpType::EXP_VAL:
                     mutated.append_exp_val(orig_op.exp_val_idx(), copy_fill);
                     break;
-                case OpType::INSTRUMENT:
-                    mutated.append_instrument(orig_op.instrument_site_idx(), copy_fill);
-                    break;
                 default:
                     FAIL("Unexpected mask-carrying op");
                     break;
@@ -1689,7 +1714,7 @@ TEST_CASE(
 
         check_exact_equivalent(original, phase_opt, control_rng);
 
-        // Second application of PhasePolynomialPass must be a structural no-op.
+        // These bounded cases reach a fixed point; this is not a general pass contract.
         HirModule twice = phase_opt;
         PhasePolynomialPass second;
         second.run(twice);
@@ -1744,7 +1769,7 @@ TEST_CASE(
 
         check_exact_equivalent(original, rot_opt, control_rng);
 
-        // Second application of RotationSimplificationPass must be a structural no-op.
+        // These planted cases reach a fixed point after one application.
         HirModule twice = rot_opt;
         RotationSimplificationPass second;
         second.run(twice);

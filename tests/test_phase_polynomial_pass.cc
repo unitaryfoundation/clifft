@@ -616,16 +616,14 @@ TEST_CASE("Phase pass pulls back expectation values and preserves stabilizers ac
 
 TEST_CASE("Phase pass synthesizes quadratic Clifford remainder terms with exact equivalence",
           "[optimizer]") {
-    // On |++>, four copies of exp(-i pi/8 Z0*Z1) accumulate a c=4 parity term
-    // that synthesizes into a quadratic CZ Clifford remainder and conjugates
-    // downstream X measurements into X*Z observables.
+    // Establish both basis generators before adding 2*(a XOR b). Its quadratic
+    // monomial has coefficient 4 modulo 8. The X probes rewind to Z axes that
+    // do not commute with the synthesized Clifford correction.
     auto hir =
         trace(parse("H 0 1\n"
+                    "T 0 1\n"
                     "CX 0 1\nT 1\nCX 0 1\n"
                     "CX 0 1\nT 1\nCX 0 1\n"
-                    "CX 0 1\nT 1\nCX 0 1\n"
-                    "CX 0 1\nT 1\nCX 0 1\n"
-                    "T 0\n"
                     "EXP_VAL X0\n"
                     "EXP_VAL X1\n"
                     "MX 0 1"));
@@ -633,7 +631,15 @@ TEST_CASE("Phase pass synthesizes quadratic Clifford remainder terms with exact 
     PhasePolynomialPass pass;
     pass.run(hir);
     REQUIRE(pass.applied());
-    REQUIRE(hir.num_t_gates() == 1);
+    REQUIRE(hir.num_t_gates() == 2);
+    for (const auto& op : hir.ops) {
+        if (op.op_type() == OpType::EXP_VAL || op.op_type() == OpType::MEASURE) {
+            const auto mask = hir.mask_view(op);
+            REQUIRE(mask.x().popcount() == 1);
+            REQUIRE(mask.z().popcount() == 1);
+            REQUIRE(mask.sign());
+        }
+    }
     Xoshiro256PlusPlus rng(0x51A5E02);
     test::check_exact_equivalent(baseline, hir, rng);
 }

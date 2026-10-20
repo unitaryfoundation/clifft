@@ -127,11 +127,11 @@ TEST_CASE("Rotation simplification stops scanning rotations when no stabilizers 
     REQUIRE(hir.ops.size() == 201);
 }
 
-TEST_CASE("Rotation simplification preserves exact distribution across remainder classes",
+TEST_CASE("Rotation simplification absorbs signed Clifford rotations across observers",
           "[optimizer]") {
-    // Combine signed stabilizer aliasing, pi/2 + pi/4 remainder extraction into
-    // Clifford + T_GATE, and conjugation across EXP_VAL, NOISE, MEASURE, and
-    // CONDITIONAL_PAULI.
+    // Signed aliases sum to -0.5 and 0.12 half-turns. Absorbing the Clifford
+    // must conjugate downstream probes, noise, measurements, and feedback
+    // while preserving the continuous remainder.
     auto hir =
         trace(parse("X 2\n"
                     "H 0 1\n"
@@ -155,4 +155,25 @@ TEST_CASE("Rotation simplification preserves exact distribution across remainder
     REQUIRE(pass.rotations_removed() >= 3);
     Xoshiro256PlusPlus rng(0x707A7101);
     test::check_exact_equivalent(baseline, hir, rng);
+}
+
+TEST_CASE("Rotation simplification extends a region only after its barrier is removed",
+          "[optimizer]") {
+    for (bool cancels : {false, true}) {
+        CAPTURE(cancels);
+        // The first pair anticommutes with the last rotation. Only cancellation
+        // lets collection extend and use the still-known Z0 to reduce that axis.
+        auto hir = trace(parse(std::string("H 0\nR_Z(0.137) 0\nR_PAULI(") +
+                               (cancels ? "-0.137" : "-0.113") +
+                               ") Z0*Z1\nR_PAULI(0.25) X0*X1\nEXP_VAL Z1\nM 0 1"));
+        const auto baseline = hir;
+        RotationSimplificationPass pass;
+        pass.run(hir);
+        REQUIRE(pass.applied());
+        REQUIRE(pass.regions_examined() == (cancels ? 1 : 2));
+        REQUIRE(pass.rotations_removed() == (cancels ? 2 : 1));
+        REQUIRE(hir.num_t_gates() == 1);
+        Xoshiro256PlusPlus rng(0x707A7102);
+        test::check_exact_equivalent(baseline, hir, rng);
+    }
 }
