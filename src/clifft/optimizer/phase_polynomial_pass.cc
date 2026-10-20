@@ -70,6 +70,24 @@ std::optional<size_t> final_observer_end(const HirModule& hir) {
     return std::nullopt;
 }
 
+constexpr size_t kMaxPostselectionLookaheadOps = 256;
+
+std::vector<size_t> collect_postselected_measure_indices(
+    const HirModule& hir, const std::map<uint32_t, bool>& postselected_records) {
+    std::vector<size_t> indices;
+    if (postselected_records.empty()) {
+        return indices;
+    }
+    for (size_t i = 0; i < hir.ops.size(); ++i) {
+        const HeisenbergOp& op = hir.ops[i];
+        if (op.op_type() == OpType::MEASURE &&
+            postselected_records.contains(static_cast<uint32_t>(op.meas_record_idx()))) {
+            indices.push_back(i);
+        }
+    }
+    return indices;
+}
+
 bool commutes_with_prefix(const HirModule& hir, size_t start, size_t end, PauliMaskView target) {
     for (size_t i = start; i < end; ++i) {
         const HeisenbergOp& op = hir.ops[i];
@@ -129,7 +147,9 @@ class Rewriter {
           analysis_end_(last_t_end(input)),
           final_observer_end_(final_observer_end(input)),
           elide_unreduced_post_observer_(elide_unreduced_post_observer),
-          known_(input, analysis_end_) {}
+          known_(input, analysis_end_),
+          postselected_measure_indices_(
+              collect_postselected_measure_indices(input, known_.postselected_records())) {}
 
     std::optional<HirModule> run() {
         for (size_t i = 0; i < hir().ops.size();) {
@@ -216,14 +236,23 @@ class Rewriter {
     const KnownStabilizers& prepare_entry(size_t start, const KnownStabilizers*& postselected) {
         postselected = nullptr;
         const KnownStabilizers& fixed = known_.fixed_constraints();
-        const auto& postselected_records = known_.postselected_records();
-        if (postselected_records.empty()) {
+        while (next_postselected_idx_ < postselected_measure_indices_.size() &&
+               postselected_measure_indices_[next_postselected_idx_] < start) {
+            ++next_postselected_idx_;
+        }
+        if (next_postselected_idx_ == postselected_measure_indices_.size()) {
             return fixed;
         }
+        const size_t lookahead_end = std::min(postselected_measure_indices_.back() + 1,
+                                              start + kMaxPostselectionLookaheadOps);
+        if (postselected_measure_indices_[next_postselected_idx_] >= lookahead_end) {
+            return fixed;
+        }
+        const auto& postselected_records = known_.postselected_records();
         bool copied = false;
         const bool has_exp_vals = hir().num_exp_vals > 0;
         bool prefix_measurements_commute = true;
-        for (size_t m = start; m < hir().ops.size(); ++m) {
+        for (size_t m = start; m < lookahead_end; ++m) {
             const HeisenbergOp& op = hir().ops[m];
             if (op.op_type() == OpType::INSTRUMENT) {
                 break;
@@ -544,6 +573,8 @@ class Rewriter {
     // Follow emitted operations: absorbed Cliffords live in cliffords_, so their
     // effects reach this analysis through the transformed subsequent operands.
     SymbolicStabilizers known_;
+    std::vector<size_t> postselected_measure_indices_;
+    size_t next_postselected_idx_ = 0;
     KnownStabilizers lookahead_fixed_;
     KnownStabilizers lookahead_postselected_;
     std::vector<HeisenbergOp> output_;
