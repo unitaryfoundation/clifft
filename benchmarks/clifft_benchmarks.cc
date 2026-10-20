@@ -351,6 +351,8 @@ void sample_early_rejection(benchmark::State& state) {
 
 // Coherent QEC protects production squeeze decisions and coefficient-state
 // execution at width 13, beyond the width-10 workloads above.
+// Raw parities match this fixture's zero ideal reference. Automatic reference
+// sampling would retain its injected R_Z errors and choose a random syndrome.
 void sample_coherent_d5(benchmark::State& state) {
     const auto plan = compile_circuit(fixture("coherent_d5_r5.stim"));
     if (plan.peak_active_width() != 13) {

@@ -14,8 +14,9 @@ struct ReferenceSyndrome {
 };
 
 /// Compute the noiseless reference syndrome for an HirModule.
-/// Strips all noise from a copy of the HIR, lowers it, and runs one
-/// deterministic shot to extract the expected detector/observable parities.
+/// Strips stochastic and readout noise from a copy of the HIR and samples one
+/// shot at seed 0. This does not check determinism; coherent rotations remain.
+/// For coherent errors, pass the intended ideal circuit's HIR instead.
 [[nodiscard]] ReferenceSyndrome compute_reference_syndrome(const HirModule& hir);
 
 }  // namespace clifft

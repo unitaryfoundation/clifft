@@ -43,6 +43,14 @@ other Clifford workload coverage.
 
 ## Fixtures
 
+The native canary in `benchmarks/clifft_benchmarks.cc` samples the coherent-QEC
+fixture using raw detector and observable parities. Its intended ideal surface
+code has all-zero reference parities, so no normalization is needed. The
+fixture's `R_Z` rotations are injected coherent errors; automatic reference
+sampling would retain them. Keep the intended ideal circuit when generating
+such workloads and use its reference if nonzero offsets are needed. Do not
+infer which rotations are errors from their gate names in an arbitrary circuit.
+
 Pre-generated circuit files live in `fixtures/`:
 
 - **`qv20_seed42.stim`** — 20-qubit Quantum Volume circuit (seed=42) in Stim-superset

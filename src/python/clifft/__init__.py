@@ -319,6 +319,10 @@ def compile(
     parities. Detectors and observables are then XOR-normalized so
     that 0 means 'matches noiseless reference' and 1 means 'error'.
 
+    Reference sampling removes stochastic and readout noise without checking
+    determinism. Coherent error rotations remain; for these errors, supply
+    expected parities from the intended ideal circuit instead.
+
     Args:
         stim_text: Circuit text in the format selected by ``input_format``.
         postselection_mask: Optional list of uint8 flags, one per detector.

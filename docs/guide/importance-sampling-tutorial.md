@@ -83,7 +83,6 @@ with open("docs/guide/circuits/circuit_d3_t_gate_p0.001.stim") as f:
 # Magic state cultivation discards any shot where a detector fires.
 prog_probe = clifft.compile(
     circuit_text,
-    normalize_syndromes=True,
     hir_passes=clifft.default_hir_pass_manager(),
 )
 num_det = prog_probe.num_detectors
@@ -93,7 +92,8 @@ mask = [1] * num_det  # one flag per detector
 # Compile with postselection
 prog = clifft.compile(
     circuit_text,
-    normalize_syndromes=True,
+    expected_detectors=[0] * num_det,
+    expected_observables=[0] * prog_probe.num_observables,
     postselection_mask=mask,
     hir_passes=clifft.default_hir_pass_manager(),
 )
@@ -108,6 +108,12 @@ print(f"Noise sites:    {len(site_probs)}")       # 518
 print(f"All uniform:    {len(np.unique(site_probs)) == 1}")  # True
 print(f"Site prob:      {site_probs[0]}")         # 0.001
 ```
+
+These cultivation protocols have known all-zero ideal detector and observable
+parities, so we supply those references explicitly. This makes postselection
+depend on the protocol's intended checks rather than a sampled reference shot.
+For circuits with coherent errors, derive references from the intended ideal
+circuit; see [reference selection](simulation.md#detectors-and-observables).
 
 The `noise_site_probabilities` property returns a 1D array covering all
 fault sites: quantum noise sites (multi-channel Pauli errors) followed
