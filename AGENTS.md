@@ -4,6 +4,9 @@ This file records repository-specific constraints that are easy to miss from
 the code alone. Use `README.md`, `docs/development/`, and `just --list` for
 project orientation and routine build, test, and contribution instructions.
 
+When managing issues, pull requests, or project priorities, follow
+[Planning and Triage](docs/development/planning.md).
+
 ## Source of Truth and Architecture Changes
 
 Use `src/clifft/`, `tests/`, `docs/`, and `README.md` as the source of truth.

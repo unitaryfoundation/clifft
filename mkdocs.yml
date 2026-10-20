@@ -137,6 +137,7 @@ nav:
     - Acknowledgments and References: acknowledgments.md
   - Development:
     - Contributing: development/contributing.md
+    - Planning and Triage: development/planning.md
     - Building from Source: development/building.md
     - Experimental:
       - HIP Backend: development/hip-backend.md

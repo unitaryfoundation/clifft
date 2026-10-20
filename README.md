@@ -184,6 +184,10 @@ If you use Clifft in your work, please cite the arXiv [preprint](https://arxiv.o
 See the [building from source](https://unitaryfoundation.github.io/clifft/stable/development/building/) guide for build
 instructions.
 
+Follow current priorities in the
+[Clifft development project](https://github.com/orgs/unitaryfoundation/projects/35).
+See [planning and triage](docs/development/planning.md) for the workflow.
+
 ## AI Acknowledgement
 
 We used generative AI tools during parts of the research, software-development,

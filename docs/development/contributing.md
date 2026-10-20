@@ -9,6 +9,11 @@ Clifft is developed at [unitaryfoundation/clifft](https://github.com/unitaryfoun
 - **Bugs:** Use the [bug report template](https://github.com/unitaryfoundation/clifft/issues/new?template=bug_report.yml) with a minimal reproducer.
 - **Feature requests:** Use the [feature request template](https://github.com/unitaryfoundation/clifft/issues/new?template=feature_request.yml).
 
+For current priorities, see the
+[Clifft development project](https://github.com/orgs/unitaryfoundation/projects/35).
+The [planning and triage guide](planning.md) explains tracks, bug triage, release
+scope, and project maintenance.
+
 ## Development Workflow
 
 1. Fork the repository and create a feature branch
