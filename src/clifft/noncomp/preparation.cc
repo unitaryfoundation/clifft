@@ -29,15 +29,17 @@ void validate_model_contract(const ResolvedNonComputationalCircuit& resolved,
     }
     if (!noncomp_capable) {
         for (uint32_t i = 0; i < static_cast<uint32_t>(annotated.nodes.size()); ++i) {
-            const AstNode& node = annotated.nodes[i];
-            if (is_inline_noncomputational_annotation(node.gate) &&
-                resolved.transition(i).probability > 0.0) {
-                noncomp_capable = true;
-                break;
+            const auto* channel =
+                std::get_if<ResolvedTransition>(&resolved.operation(i).annotation);
+            if (channel == nullptr) {
+                continue;
             }
-            if (node.gate == GateType::LEVEL_TRANSITION) {
-                const TransitionInstrument& instr =
-                    resolved.instrument(resolved.transition(i).instrument);
+            if (const auto* leakage = std::get_if<LeakageTransition>(channel)) {
+                noncomp_capable = leakage->probability > 0.0;
+            } else if (const auto* loss = std::get_if<LossTransition>(channel)) {
+                noncomp_capable = loss->probability > 0.0;
+            } else if (const auto* id = std::get_if<TransitionId>(channel)) {
+                const TransitionInstrument& instr = resolved.instrument(*id);
                 for (const Level src : kAllLevels) {
                     if (!is_computational(src)) {
                         continue;

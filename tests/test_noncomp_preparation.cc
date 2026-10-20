@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/generators/catch_generators.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 #include <future>
 #include <optional>
@@ -122,6 +123,34 @@ TEST_CASE("Noncomputational preparation rejects invalid requests before executio
         circuit = parse("LEAKAGE(0.2) 0");
         circuit.nodes.front().args.clear();
         message = "requires exactly one argument";
+    }
+    SECTION("malformed transition targets") {
+        const std::string instruction =
+            GENERATE("LEAKAGE(0.2)", "LOSS(0.2)", "LEVEL_TRANSITION[recover]");
+        circuit = parse(instruction + " 0");
+        auto& targets = circuit.nodes.front().targets;
+        SECTION("out of range") {
+            targets = {Target::qubit(1)};
+            message = "target qubit 1 is out of range at op 0";
+        }
+        SECTION("repeated qubit") {
+            targets.push_back(Target::qubit(0));
+            message = "repeats target qubit 0 at op 0";
+        }
+        SECTION("record reference") {
+            targets = {Target::rec(0)};
+            message = "at op 0 requires plain qubit targets";
+        }
+        SECTION("Pauli target") {
+            targets = {Target::pauli(0, Target::kPauliX)};
+            message = "at op 0 requires plain qubit targets";
+        }
+        SECTION("inverted target") {
+            targets = {Target::qubit(0).inverted()};
+            message = "at op 0 requires plain qubit targets";
+        }
+        message = "sample_noncomputational: annotation '" +
+                  std::string(gate_name(circuit.nodes.front().gate)) + "' " + message;
     }
     SECTION("multi-target measurement") {
         circuit = parse("M 0");

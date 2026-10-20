@@ -19,13 +19,15 @@ struct TransitionId {
     constexpr auto operator<=>(const TransitionId&) const = default;
 };
 
-enum class TransitionChannelKind { Instrument, Leakage, Loss };
-
-struct ResolvedTransition {
-    TransitionChannelKind kind;
-    double probability = 0.0;
-    TransitionId instrument{};
+struct LeakageTransition {
+    double probability;
 };
+
+struct LossTransition {
+    double probability;
+};
+
+using ResolvedTransition = std::variant<TransitionId, LeakageTransition, LossTransition>;
 
 struct ResolvedInteraction {
     uint32_t source;

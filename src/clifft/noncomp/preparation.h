@@ -23,7 +23,6 @@ class PreparedNonComputationalRequest {
     PreparedNonComputationalRequest(const Circuit& circuit, const NonComputationalModel& model,
                                     NonComputationalRequirements requirements = {});
 
-    [[nodiscard]] const Circuit& annotated_circuit() const { return resolved_circuit_.circuit(); }
     [[nodiscard]] const ResolvedNonComputationalCircuit& resolved_circuit() const {
         return resolved_circuit_;
     }

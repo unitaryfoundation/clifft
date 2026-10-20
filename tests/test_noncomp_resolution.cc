@@ -45,16 +45,16 @@ TEST_CASE("Noncomputational resolution preserves generated and explicit operatio
     CHECK(leaked.source == 5);
     CHECK(leaked.partner == 2);
     CHECK(leaked.source_status == InteractionSource::Leaked);
-    CHECK(resolved.transition(3).kind == TransitionChannelKind::Leakage);
-    CHECK(resolved.transition(3).probability == 0.1);
-    CHECK(resolved.transition(0).probability == 0.25);
+    CHECK(std::get<LeakageTransition>(resolved.transition(3)).probability == 0.1);
+    CHECK(std::get<LeakageTransition>(resolved.transition(0)).probability == 0.25);
 
-    const auto hooked = resolved.transition(5).instrument;
-    CHECK(resolved.transition(6).instrument == hooked);
-    CHECK(resolved.transition(9).instrument == hooked);
-    CHECK(resolved.transition(8).instrument != hooked);
+    const auto hooked = std::get<TransitionId>(resolved.transition(5));
+    CHECK(std::get<TransitionId>(resolved.transition(6)) == hooked);
+    CHECK(std::get<TransitionId>(resolved.transition(9)) == hooked);
+    CHECK(std::get<TransitionId>(resolved.transition(8)) != hooked);
     CHECK(resolved.instrument(hooked).prob(Level::LeakG, Level::E) == 1);
-    CHECK(resolved.instrument(resolved.transition(8).instrument).prob(Level::Lost, Level::G) == 1);
+    CHECK(resolved.instrument(std::get<TransitionId>(resolved.transition(8)))
+              .prob(Level::Lost, Level::G) == 1);
     const auto& probe = std::get<ResolvedStatusProbe>(resolved.operation(10).annotation);
     CHECK(probe.qubit == 5);
     CHECK(probe.source_status == InteractionSource::Lost);
@@ -74,7 +74,8 @@ TEST_CASE("Resolved channels own their values after inputs and prior copies are 
                                                  std::nullopt, {});
         return ResolvedNonComputationalCircuit(std::move(copy));
     }();
-    CHECK(resolved.instrument(resolved.transition(0).instrument).prob(Level::LeakE, Level::G) == 1);
+    CHECK(resolved.instrument(std::get<TransitionId>(resolved.transition(0)))
+              .prob(Level::LeakE, Level::G) == 1);
 
     // Resolution owns the transition; rewriting only needs the remaining
     // classifier and policy from this model, which deliberately has no tags.

@@ -308,14 +308,22 @@ ContinuationRewrite rewrite_continuation(const ResolvedNonComputationalCircuit& 
                 // LEVEL_TRANSITION[tag] can fire when either column_sum(G) or
                 // column_sum(E) is nonzero. These exact 0.0 comparisons match
                 // frontend.cc.
-                if (channel.kind == TransitionChannelKind::Instrument) {
-                    const auto& instrument = resolved.instrument(channel.instrument);
+                if (const auto* id = std::get_if<TransitionId>(&channel)) {
+                    const auto& instrument = resolved.instrument(*id);
                     if (instrument.column_sum(Level::G) == 0.0 &&
                         instrument.column_sum(Level::E) == 0.0) {
                         continue;
                     }
-                } else if (channel.probability == 0.0) {
-                    continue;
+                } else if (const auto* leakage = std::get_if<LeakageTransition>(&channel)) {
+                    if (leakage->probability == 0.0) {
+                        continue;
+                    }
+                } else {
+                    const auto* loss = std::get_if<LossTransition>(&channel);
+                    assert(loss != nullptr);
+                    if (loss->probability == 0.0) {
+                        continue;
+                    }
                 }
 
                 // Keep one runtime instrument for this computational target.

@@ -173,27 +173,22 @@ void extend_classical_outcomes(const ResolvedNonComputationalCircuit& resolved,
                         outcome = seen->second;
                     } else {
                         const ResolvedTransition channel = resolved.transition(op_index);
-                        switch (channel.kind) {
-                            case TransitionChannelKind::Instrument: {
-                                const auto& instrument = resolved.instrument(channel.instrument);
-                                const double total = instrument.column_sum(source);
-                                if (rng.next_double() < total) {
-                                    outcome.destination = draw_from_column(
-                                        instrument, source, rng, [](Level) { return true; });
-                                }
-                                break;
+                        if (const auto* id = std::get_if<TransitionId>(&channel)) {
+                            const auto& instrument = resolved.instrument(*id);
+                            const double total = instrument.column_sum(source);
+                            if (rng.next_double() < total) {
+                                outcome.destination = draw_from_column(instrument, source, rng,
+                                                                       [](Level) { return true; });
                             }
-                            case TransitionChannelKind::Leakage:
-                                // LEAKAGE is a no-op on every noncomputational source
-                                // and spends no draw.
-                                break;
-                            case TransitionChannelKind::Loss:
-                                // LOSS can move a leaked qubit to Lost. An already-lost
-                                // qubit records a no-op without spending a draw.
-                                if (!is_lost(pre) && rng.next_double() < channel.probability) {
-                                    outcome.destination = Level::Lost;
-                                }
-                                break;
+                        } else if (const auto* loss = std::get_if<LossTransition>(&channel)) {
+                            // An already-lost qubit records a no-op without spending a draw.
+                            if (!is_lost(pre) && rng.next_double() < loss->probability) {
+                                outcome.destination = Level::Lost;
+                            }
+                        } else {
+                            // LEAKAGE is a no-op on every noncomputational source
+                            // and spends no draw.
+                            assert(std::holds_alternative<LeakageTransition>(channel));
                         }
                     }
                     ordered.push_back(outcome);
@@ -519,25 +514,21 @@ NonComputationalSample run_trajectory_driver(const PreparedNonComputationalReque
             assert(trap.source <= 1 && "the executor reports a computational source as G or E");
             const Level source = static_cast<Level>(trap.source);
             Level destination = source;
-            switch (channel.kind) {
-                case TransitionChannelKind::Instrument: {
-                    const auto& instrument = resolved.instrument(channel.instrument);
-                    if (trap.destination_pending) {
-                        destination = draw_from_column(instrument, source, driver_rng,
-                                                       [](Level) { return true; });
-                    } else {
-                        destination =
-                            draw_from_column(instrument, source, driver_rng,
-                                             [](Level level) { return !is_computational(level); });
-                    }
-                    break;
+            if (const auto* id = std::get_if<TransitionId>(&channel)) {
+                const auto& instrument = resolved.instrument(*id);
+                if (trap.destination_pending) {
+                    destination = draw_from_column(instrument, source, driver_rng,
+                                                   [](Level) { return true; });
+                } else {
+                    destination = draw_from_column(instrument, source, driver_rng, [](Level level) {
+                        return !is_computational(level);
+                    });
                 }
-                case TransitionChannelKind::Leakage:
-                    destination = source == Level::G ? Level::LeakG : Level::LeakE;
-                    break;
-                case TransitionChannelKind::Loss:
-                    destination = Level::Lost;
-                    break;
+            } else if (std::holds_alternative<LeakageTransition>(channel)) {
+                destination = source == Level::G ? Level::LeakG : Level::LeakE;
+            } else {
+                assert(std::holds_alternative<LossTransition>(channel));
+                destination = Level::Lost;
             }
 
             events.jumps.push_back({{op_index, qubit}, destination});

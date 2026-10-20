@@ -87,10 +87,11 @@ ResolvedNonComputationalCircuit::ResolvedNonComputationalCircuit(
             if (is_noncomputational_herald(node.gate)) {
                 validate_herald_arguments(node, op_index, caller);
             } else if (is_inline_noncomputational_annotation(node.gate)) {
-                op.annotation = ResolvedTransition{
-                    node.gate == GateType::LEAKAGE ? TransitionChannelKind::Leakage
-                                                   : TransitionChannelKind::Loss,
-                    inline_transition_probability(node.gate, node.args, op_index, caller)};
+                const double probability =
+                    inline_transition_probability(node.gate, node.args, op_index, caller);
+                op.annotation = node.gate == GateType::LEAKAGE
+                                    ? ResolvedTransition{LeakageTransition{probability}}
+                                    : ResolvedTransition{LossTransition{probability}};
             } else if (node.gate == GateType::LEVEL_TRANSITION) {
                 auto it = instrument_ids.find(node.tag);
                 if (it == instrument_ids.end()) {
@@ -104,8 +105,7 @@ ResolvedNonComputationalCircuit::ResolvedNonComputationalCircuit(
                     instruments_.push_back(*instrument);
                     it = instrument_ids.emplace(node.tag, id).first;
                 }
-                op.annotation =
-                    ResolvedTransition{TransitionChannelKind::Instrument, 0.0, it->second};
+                op.annotation = ResolvedTransition{it->second};
             } else {
                 throw std::invalid_argument(std::string(caller) + ": unsupported annotation '" +
                                             std::string(gate_name(node.gate)) + "' at op " +
@@ -131,7 +131,7 @@ ResolvedTransition ResolvedNonComputationalCircuit::transition(uint32_t op_index
     }
     const auto* interaction = std::get_if<ResolvedInteraction>(&annotation);
     assert(interaction != nullptr && interaction->source_status == InteractionSource::Leaked);
-    return {TransitionChannelKind::Leakage, interaction->effect.spread_probability};
+    return LeakageTransition{interaction->effect.spread_probability};
 }
 
 }  // namespace clifft
