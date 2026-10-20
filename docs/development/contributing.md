@@ -16,6 +16,10 @@ Clifft is developed at [unitaryfoundation/clifft](https://github.com/unitaryfoun
 3. Run pre-commit checks before committing
 4. Open a pull request against `main`
 
+When changing a semantic contract modeled in the
+[Lean mathematical companion](https://github.com/unitaryfoundation/clifft/blob/main/lean/README.md),
+update its formalization and C++ correspondence documentation in the same pull request.
+
 ## Contributor Agreement
 
 By submitting a pull request, you confirm that:
