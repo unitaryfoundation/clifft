@@ -145,9 +145,9 @@ Although upstream faults mix stabilizer signs across unconditional shots,
 postselection discards trajectories with the rejected measurement outcome,
 projecting all survivors back into a definite Pauli eigenspace. When a later
 postselected measurement commutes with the intervening prefix (and no
-intervening expectation-value probe depends on a non-commuting prefix), its
-surviving eigenvalue already holds at region entry and can be used via bounded
-lookahead.
+intervening expectation-value probe depends on a non-commuting prefix),
+conditioning on the accepted outcome allows the corresponding projector to be
+moved to region entry via bounded lookahead.
 
 The analysis bounds symbolic expressions, retained records, and elimination
 work. Reaching a limit can lose a constraint and miss an optimization;
