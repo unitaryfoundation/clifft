@@ -46,6 +46,7 @@ jobs:
         uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
+          cache-dependency-glob: uv.lock
           python-version: "3.12"
 
       - name: Check uv lockfile
@@ -108,6 +109,7 @@ jobs:
         uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
+          cache-dependency-glob: uv.lock
           python-version: "3.12"
 
       - name: Install Python binding build dependencies
@@ -158,6 +160,7 @@ jobs:
         uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
+          cache-dependency-glob: uv.lock
           python-version: "3.12"
 
       - name: Install Python binding build dependencies
@@ -238,6 +241,7 @@ jobs:
         uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
+          cache-dependency-glob: uv.lock
           python-version: "3.12"
 
       - name: Configure C++ build
@@ -269,21 +273,13 @@ jobs:
                   flags = set(line.split(":", 1)[1].split())
                   break
 
-          avx2_required = [{"avx2"}, {"bmi2"}, {"fma"}]
           # The AVX-512 kernel TU is compiled with -mavx512f -mavx512dq on
           # top of the AVX2 flags, so it needs the AVX2 set plus both.
-          avx512_required = avx2_required + [{"avx512f"}, {"avx512dq"}]
-
-          def check(isa: str, required: list[set[str]]) -> bool:
-              missing = ["|".join(sorted(g)) for g in required if not (g & flags)]
-              if missing:
-                  print(f"::notice::Skipping forced {isa} tests; missing CPU flags: {' '.join(missing)}")
-              return not missing
-
-          avx2_supported = check("AVX2", avx2_required)
-          avx512_supported = check("AVX-512", avx512_required)
+          avx512_required = [{"avx2"}, {"bmi2"}, {"fma"}, {"avx512f"}, {"avx512dq"}]
+          avx512_supported = all(g & flags for g in avx512_required)
+          if not avx512_supported:
+              print("::notice::Default ISA already exercises AVX2 on this runner; skipping forced AVX2 re-run")
           with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
-              fh.write(f"avx2_supported={str(avx2_supported).lower()}\n")
               fh.write(f"avx512_supported={str(avx512_supported).lower()}\n")
           PY
 
@@ -311,27 +307,14 @@ jobs:
             --timeout 300
         shell: bash
 
+      # Auto-detect selects AVX-512 when available and AVX2 otherwise, so
+      # forcing AVX2 is only distinct from the default-ISA run on AVX-512
+      # hosts. Deterministic AVX-512 coverage on a fixed CPU model runs in
+      # the release-cpp-smoke SDE steps below.
       - name: Run C++ tests (avx2 ISA)
-        if: matrix.isa == 'default' && steps.isa_check.outputs.avx2_supported == 'true'
-        env:
-          CLIFFT_FORCE_ISA: avx2
-        run: |
-          ctest --test-dir build \
-            --build-config ${{ env.CMAKE_BUILD_TYPE }} \
-            --output-on-failure \
-            --parallel \
-            --label-exclude expensive \
-            --timeout 300
-        shell: bash
-
-      # Supplemental host-dependent coverage: runner CPU models vary, so
-      # this leg only runs when the runner happens to support AVX-512.
-      # The deterministic AVX-512 check is the SDE smoke in
-      # release-cpp-smoke, which executes on a fixed emulated CPU model.
-      - name: Run C++ tests (avx512 ISA)
         if: matrix.isa == 'default' && steps.isa_check.outputs.avx512_supported == 'true'
         env:
-          CLIFFT_FORCE_ISA: avx512
+          CLIFFT_FORCE_ISA: avx2
         run: |
           ctest --test-dir build \
             --build-config ${{ env.CMAKE_BUILD_TYPE }} \
@@ -445,6 +428,7 @@ jobs:
         uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
+          cache-dependency-glob: uv.lock
           python-version: "3.12"
 
       # assert() stays active in the optimized extension so the full
@@ -639,6 +623,7 @@ jobs:
         uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
+          cache-dependency-glob: uv.lock
           python-version: "3.12"
 
       - name: Build sdist
@@ -801,6 +786,7 @@ jobs:
         uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
+          cache-dependency-glob: uv.lock
           python-version: "3.12"
 
       - name: Setup MSVC dev environment

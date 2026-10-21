@@ -7,11 +7,17 @@ from typing import Any
 
 import numpy as np
 import pytest
-from utils_conformance import SamplingMode, assert_joint_distribution, expectation_atol
+from utils_conformance import (
+    CpuSamplingMode,
+    SamplingMode,
+    assert_joint_distribution,
+    expectation_atol,
+)
 
 import clifft
 
 PROBES = ["".join(axes) for axes in product("IXYZ", repeat=2) if axes != ("I", "I")]
+_DEFAULT_SAMPLING_MODE = CpuSamplingMode("automatic", "auto")
 Outcome = tuple[tuple[int, ...], float] | None
 
 
@@ -162,13 +168,7 @@ def _assert_joint_outcomes(
     assert_joint_distribution(encoded, probabilities)
 
 
-@pytest.mark.parametrize("profile", ["unoptimized", "phase", "default"])
-@pytest.mark.parametrize("difference", [False, True], ids=["single-record", "difference"])
-@pytest.mark.parametrize("readout", [0.0, 0.17], ids=["ideal-readout", "noisy-readout"])
-@pytest.mark.parametrize("selected_parity", [0, 1], ids=["select-zero", "select-one"])
-@pytest.mark.parametrize("position", ["between", "before", "after"])
-@pytest.mark.parametrize("probe", PROBES)
-def test_postselected_phase_probes_match_joint_branch_oracle(
+def _check_probe(
     sampling_mode: SamplingMode,
     probe: str,
     position: str,
@@ -198,3 +198,48 @@ def test_postselected_phase_probes_match_joint_branch_oracle(
             assert not phase.applied and phase.output_t_count == 2
     result = sampling_mode.sample_survivors(program, 2048, seed=974, keep_records=True)
     _assert_joint_outcomes(result, expected, sampling_mode)
+
+
+@pytest.mark.parametrize("profile", ["unoptimized", "phase", "default"])
+@pytest.mark.parametrize("difference", [False, True], ids=["single-record", "difference"])
+@pytest.mark.parametrize("readout", [0.0, 0.17], ids=["ideal-readout", "noisy-readout"])
+@pytest.mark.parametrize("selected_parity", [0, 1], ids=["select-zero", "select-one"])
+@pytest.mark.parametrize("position", ["between", "before", "after"])
+@pytest.mark.parametrize("probe", PROBES)
+def test_postselected_phase_probes_match_joint_branch_oracle(
+    probe: str,
+    position: str,
+    selected_parity: int,
+    readout: float,
+    difference: bool,
+    profile: str,
+) -> None:
+    _check_probe(
+        _DEFAULT_SAMPLING_MODE,
+        probe,
+        position,
+        selected_parity,
+        readout,
+        difference,
+        profile,
+    )
+
+
+@pytest.mark.parametrize(
+    "probe,position,selected_parity,readout,difference",
+    [
+        ("ZI", "before", 0, 0.0, False),
+        ("XI", "before", 1, 0.0, False),
+        ("ZZ", "between", 0, 0.17, True),
+        ("XZ", "after", 1, 0.17, True),
+    ],
+)
+def test_postselected_phase_probes_across_sampling_modes(
+    sampling_mode: SamplingMode,
+    probe: str,
+    position: str,
+    selected_parity: int,
+    readout: float,
+    difference: bool,
+) -> None:
+    _check_probe(sampling_mode, probe, position, selected_parity, readout, difference, "default")
