@@ -1,5 +1,10 @@
 #pragma once
 
+// Resolves leakage and loss annotations once during preparation so trajectory
+// sampling and continuation rewriting share their interpretation without
+// reparsing tags or arguments. An owned expanded circuit and instrument table
+// keep operation identities stable across rewrites and copies.
+
 #include "clifft/circuit/circuit.h"
 #include "clifft/noncomp/model.h"
 

@@ -35,9 +35,9 @@ void validate_model_contract(const ResolvedNonComputationalCircuit& resolved,
                 continue;
             }
             if (const auto* leakage = std::get_if<LeakageTransition>(channel)) {
-                noncomp_capable = leakage->probability > 0.0;
+                noncomp_capable = noncomp_capable || leakage->probability > 0.0;
             } else if (const auto* loss = std::get_if<LossTransition>(channel)) {
-                noncomp_capable = loss->probability > 0.0;
+                noncomp_capable = noncomp_capable || loss->probability > 0.0;
             } else if (const auto* id = std::get_if<TransitionId>(channel)) {
                 const TransitionInstrument& instr = resolved.instrument(*id);
                 for (const Level src : kAllLevels) {
