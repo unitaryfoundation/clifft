@@ -3,6 +3,7 @@
 #include "clifft/circuit/parser.h"
 #include "clifft/circuit/qasm2_parser.h"
 #include "clifft/frontend/frontend.h"
+#include "clifft/noncomp/fixed.h"
 #include "clifft/noncomp/level.h"
 #include "clifft/noncomp/model.h"
 #include "clifft/noncomp/policy.h"
@@ -243,8 +244,10 @@ const char* width_effect_to_str(clifft::WidthEffect effect) {
 
 }  // namespace
 
-nb::tuple noncomp_sample_to_python(clifft::NonComputationalSample r, uint32_t shots) {
-    assert(r.final_status.size() == static_cast<size_t>(shots) * r.num_qubits &&
+nb::tuple noncomp_sample_to_python(clifft::NonComputationalSample r, uint32_t shots,
+                                   bool require_final_status = true) {
+    assert((!require_final_status ||
+            r.final_status.size() == static_cast<size_t>(shots) * r.num_qubits) &&
            "the public sampler requires a full final-status array");
     // These values match Python's QubitStatus enum, including the distinct
     // leaked substates.
@@ -255,7 +258,10 @@ nb::tuple noncomp_sample_to_python(clifft::NonComputationalSample r, uint32_t sh
     auto meas = vec_to_numpy(std::move(r.measurements), {shots, r.num_measurements});
     auto det = vec_to_numpy(std::move(r.detectors), {shots, r.num_detectors});
     auto obs = vec_to_numpy(std::move(r.observables), {shots, r.num_observables});
-    auto fs = vec_to_numpy(std::move(status), {shots, r.num_qubits});
+    nb::object fs = nb::none();
+    if (require_final_status || !status.empty()) {
+        fs = nb::cast(vec_to_numpy(std::move(status), {shots, r.num_qubits}));
+    }
     auto her = vec_to_numpy(std::move(r.heralds), {shots, r.num_measurements});
     return nb::make_tuple(meas, det, obs, fs, her, r.num_qubits, r.num_measurements,
                           r.num_detectors, r.num_observables);
@@ -266,6 +272,51 @@ nb::tuple noncomp_sample_to_python(clifft::NonComputationalSample r, uint32_t sh
 // clifft.noncomp Python wrapper. The model is an opaque handle.
 void register_noncomp(nb::module_& m) {
     nb::class_<clifft::NonComputationalModel>(m, "_NonComputationalModel");
+
+    // Internal entry point for distributional validation and benchmarks. The
+    // public noncomp wrapper continues to use the trajectory sampler.
+    nb::class_<clifft::FixedNonComputationalProgram>(m, "_FixedNonComputationalProgram")
+        .def(
+            "sample",
+            [](const clifft::FixedNonComputationalProgram& program, uint32_t shots,
+               std::optional<uint64_t> seed, uint32_t threads) {
+                clifft::NonComputationalSample result;
+                {
+                    nb::gil_scoped_release release;
+                    result = program.sample(shots, seed, threads);
+                }
+                return noncomp_sample_to_python(std::move(result), shots,
+                                                program.returns_final_status());
+            },
+            nb::arg("shots"), nb::arg("seed") = nb::none(), nb::arg("threads") = 1)
+        .def_prop_ro("metrics", [](const clifft::FixedNonComputationalProgram& program) {
+            const auto& metrics = program.metrics();
+            nb::dict result;
+            result["preparation_compilations"] = metrics.preparation_compilations;
+            result["peak_active_width"] = metrics.peak_active_width;
+            result["quantum_noise_inputs"] = metrics.quantum_noise_inputs;
+            result["readout_inputs"] = metrics.readout_inputs;
+            result["classical_workspace_bytes"] = metrics.classical_workspace_bytes;
+            return result;
+        });
+    m.def(
+        "_prepare_noncomputational_fixed",
+        [](const clifft::Circuit& circuit, const clifft::NonComputationalModel& model,
+           bool final_status, std::optional<uint32_t> max_active_width) -> nb::object {
+            auto result = [&] {
+                nb::gil_scoped_release release;
+                return clifft::prepare_fixed_noncomputational(
+                    clifft::PreparedNonComputationalRequest(
+                        circuit, model,
+                        {.final_status = final_status, .max_active_width = max_active_width}));
+            }();
+            if (auto* program = std::get_if<clifft::FixedNonComputationalProgram>(&result)) {
+                return nb::cast(std::move(*program));
+            }
+            return nb::none();
+        },
+        nb::arg("circuit"), nb::arg("model"), nb::arg("final_status") = false,
+        nb::arg("max_active_width") = nb::none());
 
     m.def(
         "_build_noncomp_model",

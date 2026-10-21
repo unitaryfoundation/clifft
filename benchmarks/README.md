@@ -24,6 +24,23 @@ cmake --build build/canary --target clifft_benchmarks -j
 Use `--benchmark_list_tests=true` to inspect the suite or
 `--benchmark_filter='^phase_'` to run only the phase cases.
 
+## Noncomputational scalar comparison
+
+`noncomp_fixed.py` compares the internal scalar fixed path with trajectories on
+surface-code circuits with inline leakage, full partner depolarization, and
+label-independent readout. Both return all records, heralds, and detailed final
+status; a final restoring reset erases leaked labels. It reports preparation
+separately from repeated fixed sampling, plus active width and classical input
+workspace. Trajectory times include their ordinary per-call preparation.
+
+```bash
+python benchmarks/noncomp_fixed.py --distances 3 5 --shots 1000
+```
+
+Use an optimized installed Clifft build. These timings do not compare against
+deltakit-stim or measure packed execution. The workspace metric excludes the
+immutable plan and quantum coefficient/scratch buffers.
+
 ## CUDA driver
 
 Build with a CUDA toolkit; running the CUDA cases also requires a compatible

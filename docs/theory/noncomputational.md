@@ -188,7 +188,7 @@ symbolic-coordinate executor.
 With noncomputational transitions, the sampled history can change which later
 operations act, which measurements use the classifier, and when a site
 returns to the computational subspace. Those choices differ between shots, so
-one program compiled before sampling cannot describe every trajectory.
+in general one program compiled before sampling cannot describe every trajectory.
 
 `noncomp.sample` instead alternates execution with compilation when the
 sampled history requires it. The executor directly handles outcomes whose state
@@ -226,6 +226,53 @@ instrument. No status checks or topology discovery enter ordinary execution.
 Each continuation still uses Clifft's normal compiler and symbolic-coordinate
 architecture. Clifford operations, coordinate planning, and symbolic
 dependencies are resolved before execution resumes.
+
+### Internal fixed execution
+
+The internal scalar fixed path in `noncomp/fixed.h` prepares one program for a
+conservative subset. The public `noncomp.sample` entry point continues to use
+trajectories. Fixed preparation consumes the shared resolved circuit and
+returns either an owned program or a structured rejection reason.
+
+The initial subset starts in `g` and uses state-independent inline leakage and
+loss. It accepts leaked readouts only when the classifier does not distinguish
+`leak_g` from `leak_e` at that operation. Detailed final status requires every
+remaining leaked label to have been erased, for example by a restoring reset.
+Nonzero named transitions, spreading, and unsupported gate/channel pairs are
+rejected. Zero-probability and unreachable interactions do not block eligibility.
+
+Inactive sites retain quantum slots as unobserved auxiliaries. For an auxiliary
+`A`, live partner `B`, arbitrary environment, and any two-site unitary `U`, full
+depolarization `D_B` gives
+
+```text
+Tr_A[D_B(U rho U_dagger)] = I_B/2 tensor Tr_AB(rho).
+```
+
+Thus a retained two-site gate is exact when its generated partner effect fully
+depolarizes the live operand in every reachable inactive/live direction. Local
+auxiliary operations disappear under partial trace. The representation also
+admits non-Cliffords, subject to the actual candidate's active-width limit.
+
+The classical event schedule is independent of quantum measurement outcomes
+in this subset. Each worker preallocates status, noise, readout, and herald
+buffers, then fills them before quantum execution. An externally supplied
+readout input gives a flip for each possible hidden outcome; the executor
+chooses the flip when that outcome becomes available. Reset correction uses
+the hidden result, while feedback and output parities consume the reported
+record. Herald selection and its placeholder bit preserve their joint law.
+
+Ordinary noise is masked using the whole original operation's active operands.
+Correlated-error chains retain shared branch selection, including branches
+whose Pauli factors act only on auxiliaries. Input sites remain in emitted
+order: this path traces directly into the sampling planner without HIR passes
+that could merge or remove conditioned noise. Coordinate planning, expression
+dependency discovery, and executable fusion still happen before sampling.
+The resulting plan contains no instruments or continuation path. Copies share
+immutable prepared data; sampling calls own their workers and RNG streams.
+When no status transition is possible, preparation binds the readout channels
+statically and uses the ordinary executor's noise sampler without classical
+status/input buffers.
 
 ## Active-width cost
 

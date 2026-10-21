@@ -49,7 +49,7 @@ class _Op:
     prob: float = 0.0
 
 
-_GATE_1Q = {"H", "S", "X", "Y", "Z"}
+_GATE_1Q = {"H", "S", "X", "Y", "Z", "T", "T_DAG"}
 
 
 def parse_circuit(text: str) -> tuple[list[_Op], int]:
@@ -151,11 +151,14 @@ def enumerate_exact(
     transitions: dict[str, list[list[float]]],
     classifier: list[list[float]],
     damping: str = "exact",
+    depolarize_partner: bool = False,
 ) -> ExactDistribution:
     """Exact record/status distribution for `text` under the given model.
 
     `classifier` is P[symbol][level] with two symbols; computational
     measurements are faithful Born readouts (identity columns required).
+    With ``depolarize_partner``, a dropped CX with one inactive operand
+    applies a uniform I/X/Y/Z mixture to its live partner.
     """
     assert damping in ("exact", "neglect")
     assert len(classifier) == 2
@@ -195,7 +198,13 @@ def enumerate_exact(
 
             if op.kind == "gate":
                 if noncomp:
-                    nxt.append(br)  # the whole operation drops
+                    if depolarize_partner and op.gate == "CX" and len(noncomp) == 1:
+                        partner = next(q for q in op.targets if q not in noncomp)
+                        for pauli in ("I", "X", "Y", "Z"):
+                            state = oracle.apply_1q(br.state, pauli, partner, n)
+                            nxt.append(_Branch(br.weight / 4, state, br.status, br.record))
+                    else:
+                        nxt.append(br)  # the whole operation drops
                     continue
                 if op.gate == "CX":
                     state = oracle.apply_cx(br.state, op.targets[0], op.targets[1], n)

@@ -149,7 +149,7 @@ Clifft has benefited from the following research and software:
 - [SqaleSim](https://arxiv.org/abs/2509.13247) for motivating the leakage/loss
   instrument design and providing a five-level neutral-atom model and examples.
 - [deltakit-stim](https://github.com/Deltakit/deltakit-stim) for inspiring
-  configurable leakage partner effects.
+  configurable leakage partner effects and status-conditioned fixed execution.
 - [TOHPE](https://doi.org/10.22331/q-2025-09-16-1860) for T-count reduction in
   the phase-polynomial optimizer.
 - [Merlin](https://arxiv.org/abs/2610.06811) for code-switching benchmark circuits

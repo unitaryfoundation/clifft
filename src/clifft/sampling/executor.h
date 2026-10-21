@@ -35,6 +35,14 @@ struct ForcedTraceOut {
     uint8_t source = 0;
 };
 
+// A pre-drawn readout channel chooses its flip only after the unreported
+// record is available. This keeps reset corrections tied to the quantum
+// outcome while later feedback sees the reported value.
+struct ReadoutNoiseInput {
+    bool flip_zero = false;
+    bool flip_one = false;
+};
+
 // Holds the dense active-coordinate coefficients, Boolean symbols carrying
 // stochastic frame dependencies, visible and hidden records, measurement RNG,
 // and numerical-dust telemetry for repeated shots. The plan must outlive the
@@ -61,6 +69,11 @@ class Executor {
     // Use caller-supplied Boolean values for every Presampled symbol in
     // ascending SymbolId order. This path consumes no quantum-noise RNG draws.
     void run_shot(std::span<const uint8_t> presampled_values) noexcept;
+
+    // Supply every quantum-noise symbol and readout site in plan order.
+    // The caller validates and allocates inputs before entering hot execution.
+    void run_shot(std::span<const uint8_t> presampled_values,
+                  std::span<const ReadoutNoiseInput> readout_inputs) noexcept;
 
     // Draw one exact conditioned set of fault sites, choose a Pauli channel
     // within each selected quantum site, and force selected readout flips.
@@ -109,12 +122,13 @@ class Executor {
     [[nodiscard]] uint64_t dust_clamps() const { return dust_clamps_; }
 
   private:
-    // Selects the complete per-shot policy at compile time. Keeping the four
+    // Selects the complete per-shot policy at compile time. Keeping these
     // supported modes named prevents unsupported combinations of record,
     // noise, and fixed-fault behavior from reaching the action loop.
     enum class ShotMode : uint8_t {
         SampleNoise,
         UsePresampledNoise,
+        UseExternalInputs,
         FixedFaultCount,
         ReplayRecords,
     };
@@ -231,6 +245,7 @@ class Executor {
 
     // Fixed-fault-count sampling supplies its selected circuit sites here.
     std::span<const uint32_t> forced_fault_sites_;
+    std::span<const ReadoutNoiseInput> readout_inputs_;
     uint32_t forced_fault_cursor_ = 0;
     uint32_t next_noise_site_ = 0;
     uint32_t next_noise_action_ = 0;

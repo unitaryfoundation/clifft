@@ -40,6 +40,8 @@ GATES_1Q: dict[str, npt.NDArray[np.complex128]] = {
     "Z": np.array([[1, 0], [0, -1]], dtype=complex),
     "H": np.array([[1, 1], [1, -1]], dtype=complex) / np.sqrt(2),
     "S": np.array([[1, 0], [0, 1j]], dtype=complex),
+    "T": np.diag([1, np.exp(1j * np.pi / 4)]),
+    "T_DAG": np.diag([1, np.exp(-1j * np.pi / 4)]),
 }
 
 

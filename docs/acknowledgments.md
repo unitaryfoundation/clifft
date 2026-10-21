@@ -64,11 +64,15 @@ back-action.
 ## deltakit-stim
 
 Riverlane's deltakit-stim inspired Clifft's configurable leakage partner effects,
-including partner noise and leakage spreading. The
+including partner noise and leakage spreading. Its binary leakage ledger and
+status-conditioned Pauli randomization also informed the scalar fixed execution
+path: Clifft prepares classical status/noise inputs for a shared quantum plan,
+with separate readout handling to preserve its classifier correlations. The
 [partner-interactions guide](guide/partner-interactions.md) describes Clifft's
 model and API.
 
 - [deltakit-stim source and documentation](https://github.com/Deltakit/deltakit-stim).
+- [Leakage frame implementation](https://github.com/Deltakit/deltakit-stim/blob/adbcf7ed2fc229e643f53e9d581161ce3d616f87/src/stim/simulators/frame_simulator.inl#L203).
 
 ## TOHPE
 

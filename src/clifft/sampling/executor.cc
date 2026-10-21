@@ -106,6 +106,18 @@ void Executor::run_shot(std::span<const uint8_t> presampled_values) noexcept {
     (void)execute_actions_for_backend<ShotMode::UsePresampledNoise>({});
 }
 
+void Executor::run_shot(std::span<const uint8_t> presampled_values,
+                        std::span<const ReadoutNoiseInput> readout_inputs) noexcept {
+    plan_ = root_plan_;
+    assert(!plan_->has_instruments_ && "external inputs require a fixed plan");
+    assert(readout_inputs.size() == plan_->num_readout_noise_sites_);
+    reset_shot();
+    assign_presampled_values(presampled_values);
+    readout_inputs_ = readout_inputs;
+    (void)execute_actions_for_backend<ShotMode::UseExternalInputs>({});
+    readout_inputs_ = {};
+}
+
 void Executor::run_shot(KFaultSampler& fault_sampler) noexcept {
     plan_ = root_plan_;
     assert(fault_sampler.num_sites() ==
@@ -556,7 +568,10 @@ void Executor::execute_action(const ExecutablePlan::ExecuteReadoutNoise& action,
         assert(records_[action.record] == static_cast<uint8_t>(source) &&
                "readout source must match the current record value");
         bool flip = false;
-        if constexpr (Mode == ShotMode::FixedFaultCount) {
+        if constexpr (Mode == ShotMode::UseExternalInputs) {
+            const ReadoutNoiseInput& input = readout_inputs_[action.site];
+            flip = source ? input.flip_one : input.flip_zero;
+        } else if constexpr (Mode == ShotMode::FixedFaultCount) {
             const uint32_t fault_site =
                 static_cast<uint32_t>(plan_->noise_sites_.size()) + action.site;
             assert((forced_fault_cursor_ >= forced_fault_sites_.size() ||
