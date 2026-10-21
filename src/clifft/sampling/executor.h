@@ -42,9 +42,11 @@ struct ForcedTraceOut {
 // overwrites it.
 class Executor {
   public:
+    // Aggregate callers can omit probe evaluation and its output storage.
     explicit Executor(const ExecutablePlan& plan, uint64_t seed = 0,
                       uint32_t intra_shot_workers = 1,
-                      uint32_t intra_shot_min_active_width = kDefaultIntraShotMinActiveWidth);
+                      uint32_t intra_shot_min_active_width = kDefaultIntraShotMinActiveWidth,
+                      bool keep_exp_vals = true);
 
     // Replace the deterministic seed with OS entropy before executing shots.
     void reseed_from_entropy() { rng_.seed_from_entropy(); }

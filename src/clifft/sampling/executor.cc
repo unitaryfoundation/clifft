@@ -64,7 +64,7 @@ uint32_t resolve_intra_shot_workers(const ExecutablePlan& plan, uint32_t request
 }  // namespace
 
 Executor::Executor(const ExecutablePlan& plan, uint64_t seed, uint32_t intra_shot_workers,
-                   uint32_t intra_shot_min_active_width)
+                   uint32_t intra_shot_min_active_width, bool keep_exp_vals)
     : root_plan_(&plan),
       plan_(&plan),
       state_(plan.peak_active_width_, plan.initial_active_width_,
@@ -75,7 +75,7 @@ Executor::Executor(const ExecutablePlan& plan, uint64_t seed, uint32_t intra_sho
       records_(static_cast<size_t>(plan.num_visible_records_) + plan.num_hidden_records_, 0),
       detectors_(plan.num_detectors_, 0),
       observables_(plan.num_observables_, 0),
-      exp_vals_(plan.num_exp_vals_, 0.0),
+      exp_vals_(keep_exp_vals ? plan.num_exp_vals_ : 0, 0.0),
       forced_record_mask_(records_.size(), 0),
       forced_record_values_(records_.size(), 0),
       rng_(seed),
@@ -590,6 +590,9 @@ void Executor::execute_action(const ExecutablePlan::ExecuteObservable& action,
 
 void Executor::execute_action(const ExecutablePlan::ExecuteExpectation& action,
                               std::span<const uint8_t>, ReplayResult&) noexcept {
+    if (exp_vals_.empty()) {
+        return;
+    }
     assert(action.exp_val < exp_vals_.size() && "expectation slot must be preallocated");
     if (!action.active.has_value()) {
         // Outputs are overwritten instead of cleared at each shot. This store

@@ -10,7 +10,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 import stim
-from utils_conformance import SMALL_CIRCUIT_SHOTS, SamplingMode
+from utils_conformance import SMALL_CIRCUIT_SHOTS, CpuSamplingMode, SamplingMode
 
 import clifft
 
@@ -144,6 +144,55 @@ def test_expectation_probes_are_available_through_public_api(
 
     assert program.num_exp_vals == 2
     np.testing.assert_allclose(result.exp_vals, [[0.0, 1.0]] * SMALL_CIRCUIT_SHOTS, atol=1e-12)
+
+
+@pytest.mark.parametrize("postselect", [False, True])
+@pytest.mark.parametrize("fixed_faults", [False, True])
+def test_aggregate_probes_preserve_seeded_counts(
+    importance_sampling_mode: CpuSamplingMode, postselect: bool, fixed_faults: bool
+) -> None:
+    mode = importance_sampling_mode
+    program = mode.compile(
+        "H 0 1 2 3 4\nT 0 1 2 3 4\nEXP_VAL X0*X1*X2*X3*X4\n"
+        "X_ERROR(0.2) 5\nM(0.1) 5\nCX rec[-1] 4\nEXP_VAL Z5 X5\n"
+        "M 0\nDETECTOR rec[-1]\nH 4\nM 4\n"
+        "OBSERVABLE_INCLUDE(0) rec[-1]\nEXP_VAL Z4",
+        postselection_mask=[1] if postselect else None,
+    )
+    assert program.peak_active_width == 5
+    assert program.num_exp_vals == 4
+    shots = 257
+    if fixed_faults:
+        retained = mode.sample_k_survivors(program, shots, k=1, seed=731, keep_records=True)
+        aggregate = mode.sample_k_survivors(program, shots, k=1, seed=731)
+    else:
+        retained = mode.sample_survivors(program, shots, seed=731, keep_records=True)
+        aggregate = mode.sample_survivors(program, shots, seed=731)
+
+    assert aggregate.total_shots == retained.total_shots == shots
+    assert aggregate.passed_shots == retained.passed_shots
+    assert aggregate.logical_errors == retained.logical_errors
+    np.testing.assert_array_equal(aggregate.observable_ones, retained.observable_ones)
+    assert aggregate.measurements.shape == (0, 3)
+    assert aggregate.detectors.shape == (0, 1)
+    assert aggregate.observables.shape == (0, 1)
+    assert aggregate.exp_vals.shape == (0, 4)
+    if postselect:
+        assert 0 < retained.passed_shots < shots
+        np.testing.assert_array_equal(retained.detectors, 0)
+    else:
+        assert retained.passed_shots == shots
+    assert 0 < retained.logical_errors < retained.passed_shots
+    assert retained.logical_errors == retained.observables.sum()
+    expected = np.column_stack(
+        (
+            np.full(retained.passed_shots, 2**-2.5),
+            np.zeros(retained.passed_shots),
+            1 - 2 * retained.measurements[:, 2].astype(int),
+        )
+    )
+    np.testing.assert_allclose(retained.exp_vals[:, [0, 2, 3]], expected, atol=1e-12)
+    np.testing.assert_allclose(np.abs(retained.exp_vals[:, 1]), 1.0, atol=1e-12)
 
 
 def test_noise_readout_feedback_and_syndrome_share_one_symbolic_record(

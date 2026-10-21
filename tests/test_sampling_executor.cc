@@ -24,6 +24,7 @@
 #include <complex>
 #include <cstdint>
 #include <limits>
+#include <memory>
 #include <numbers>
 #include <optional>
 #include <span>
@@ -1531,6 +1532,73 @@ TEST_CASE("Sampling continuation preserves fused rotation prefixes") {
                      Catch::Matchers::WithinAbs(expected.real_data()[basis], 1e-12));
         REQUIRE_THAT(executor.state().imag_data()[basis],
                      Catch::Matchers::WithinAbs(expected.imag_data()[basis], 1e-12));
+    }
+}
+
+TEST_CASE("Sampling executor can omit probes without changing seeded trajectories") {
+    const auto hir = clifft::trace(clifft::parse(R"(
+        H 0
+        T 0
+        EXP_VAL X0
+        X_ERROR(0.2) 1
+        M(0.1) 1
+        CX rec[-1] 0
+        EXP_VAL X0 X1
+        H 0
+        M 0
+        OBSERVABLE_INCLUDE(0) rec[-1]
+        EXP_VAL Z0
+        H 2
+        M 2
+        DETECTOR rec[-1]
+        H 3
+        T 3
+        EXP_VAL X3
+    )"));
+    for (const bool postselect : {false, true}) {
+        const std::array<uint8_t, 1> mask{static_cast<uint8_t>(postselect)};
+        const ExecutablePlan plan(
+            clifft::sampling::plan_sampling(hir, {.postselection_mask = mask}));
+        REQUIRE(plan.num_exp_vals() == 5);
+        for (const bool fixed_faults : {false, true}) {
+            CAPTURE(postselect, fixed_faults);
+            Executor retained(plan, 731);
+            Executor omitted(plan, 731, 1, clifft::kDefaultIntraShotMinActiveWidth, false);
+            const auto distribution = std::make_shared<const clifft::KFaultDistribution>(
+                plan.noise_site_probabilities(), 1);
+            clifft::KFaultSampler retained_faults(distribution);
+            clifft::KFaultSampler omitted_faults(distribution);
+            for (uint32_t shot = 0; shot < 100; ++shot) {
+                if (fixed_faults) {
+                    retained.run_shot(retained_faults);
+                    omitted.run_shot(omitted_faults);
+                } else {
+                    retained.run_shot();
+                    omitted.run_shot();
+                }
+                REQUIRE(omitted.exp_vals().empty());
+                REQUIRE(omitted.discarded() == retained.discarded());
+                REQUIRE(std::ranges::equal(omitted.visible_records(), retained.visible_records()));
+                REQUIRE(std::ranges::equal(omitted.symbols(), retained.symbols()));
+                REQUIRE(std::ranges::equal(omitted.detectors(), retained.detectors()));
+                REQUIRE(std::ranges::equal(omitted.observables(), retained.observables()));
+                REQUIRE(std::ranges::equal(omitted.state().real(), retained.state().real()));
+                REQUIRE(std::ranges::equal(omitted.state().imag(), retained.state().imag()));
+                REQUIRE(omitted.dust_clamps() == retained.dust_clamps());
+                if (!retained.discarded()) {
+                    REQUIRE_THAT(retained.exp_vals()[0],
+                                 Catch::Matchers::WithinAbs(std::numbers::sqrt2 / 2, 1e-12));
+                    REQUIRE_THAT(retained.exp_vals()[1],
+                                 Catch::Matchers::WithinAbs(std::numbers::sqrt2 / 2, 1e-12));
+                    REQUIRE(retained.exp_vals()[2] == 0.0);
+                    REQUIRE_THAT(retained.exp_vals()[3],
+                                 Catch::Matchers::WithinAbs(
+                                     1.0 - 2.0 * retained.visible_records()[1], 1e-12));
+                    REQUIRE_THAT(retained.exp_vals()[4],
+                                 Catch::Matchers::WithinAbs(std::numbers::sqrt2 / 2, 1e-12));
+                }
+            }
+        }
     }
 }
 

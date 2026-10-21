@@ -29,6 +29,11 @@ Clifford-Pauli-frame factorization, adaptive stabilizer-coordinate planning, and
 direct multi-coordinate kernels. SymFT's packed cross-shot execution also
 inspired Clifft's packed sampling path.
 
+SymFT's [counts-focused CPU optimization work](https://github.com/haoliri0/SOFT/pull/19)
+also motivated skipping unused expectation probes in Clifft's scalar aggregate
+sampling. This is a Clifft-specific adaptation; SymFT's compiled CPU path falls
+back for circuits with expectation probes.
+
 The [method provenance](theory/overview.md#method-provenance) describes this
 lineage and the implementation boundaries. The [symbolic sampling](updates/symbolic-sampling.md)
 and [packed sampling](updates/packed-sampling.md) updates explain the adaptations.
