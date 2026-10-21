@@ -138,9 +138,16 @@ the noiseless reference used for syndrome normalization. For Pauli noise, the
 forward analysis retains only constraints commuting with each possible fault,
 including products unaffected by a shared fault. Instruments clear the analysis
 state. When compiling with detector postselection, `SymbolicStabilizers` and
-`PhasePolynomialPass` also recover forward and commuting lookahead constraints
-from noiseless measurements whose outcomes are fixed by postselected detectors
-(including via unit propagation across difference detectors).
+`PhasePolynomialPass` also recover constraints from noiseless measurements
+whose outcomes are fixed on surviving shots (directly by a single-record
+detector or by unit propagation across two-record difference detectors).
+Although upstream faults mix stabilizer signs across unconditional shots,
+postselection discards trajectories with the rejected measurement outcome,
+projecting all survivors back into a definite Pauli eigenspace. When a later
+postselected measurement commutes with the intervening prefix (and no
+intervening expectation-value probe depends on a non-commuting prefix), its
+surviving eigenvalue already holds at region entry and can be used via bounded
+lookahead.
 
 The analysis bounds symbolic expressions, retained records, and elimination
 work. Reaching a limit can lose a constraint and miss an optimization;

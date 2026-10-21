@@ -16,11 +16,12 @@ namespace clifft {
 ReferenceSyndrome compute_reference_syndrome(const HirModule& hir) {
     ReferenceSyndrome ref;
 
-    const HirModule& source_hir = hir.pre_postselection_hir ? *hir.pre_postselection_hir : hir;
+    const HirModule& source_hir =
+        hir.postselection.pre_postselection_hir ? *hir.postselection.pre_postselection_hir : hir;
 
     // Make a clean copy and strip all noise
     HirModule clean_hir = source_hir;
-    clean_hir.clear_postselection_metadata();
+    clean_hir.postselection.clear();
     RemoveNoisePass strip;
     strip.run(clean_hir);
     const bool has_non_clifford = std::ranges::any_of(clean_hir.ops, [](const HeisenbergOp& op) {

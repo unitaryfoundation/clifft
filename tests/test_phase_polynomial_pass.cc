@@ -375,8 +375,8 @@ TEST_CASE("Phase expansion respects explicit limits and the representation ceili
     }
     auto capped_postselected = trace(parse("H" + targets_66 + "\nT" + targets_66 + "\nT" +
                                            targets_66 + "\nM 66\nDETECTOR rec[-1]\n"));
-    capped_postselected.postselection_mask = {1};
-    capped_postselected.expected_detectors = {0};
+    capped_postselected.postselection.mask = {1};
+    capped_postselected.postselection.expected_detectors = {0};
     PhasePolynomialPass pass_65({65});
     pass_65.run(capped_postselected);
     REQUIRE(pass_65.wide_rewrites() == 0);
@@ -791,8 +791,8 @@ TEST_CASE("Postselected single-record detector recovers stabilizer across upstre
     REQUIRE(pass_unpostselected.output_t_count() > 0);
 
     auto postselected = trace(parse(source));
-    postselected.postselection_mask = {1, 1};
-    postselected.expected_detectors = {0, 0};
+    postselected.postselection.mask = {1, 1};
+    postselected.postselection.expected_detectors = {0, 0};
     PhasePolynomialPass pass_postselected;
     pass_postselected.run(postselected);
     REQUIRE(pass_postselected.applied());
@@ -832,8 +832,8 @@ TEST_CASE("Postselected detector respects expected parity and rejects noisy read
             "M 1\n"
             "DETECTOR rec[-1]\n";
         auto hir = trace(parse(source));
-        hir.postselection_mask = {1};
-        hir.expected_detectors = {1};
+        hir.postselection.mask = {1};
+        hir.postselection.expected_detectors = {1};
         PhasePolynomialPass pass;
         pass.run(hir);
         REQUIRE(pass.applied());
@@ -854,8 +854,8 @@ TEST_CASE("Postselected detector respects expected parity and rejects noisy read
             "M(0.05) 1\n"
             "DETECTOR rec[-1]\n";
         auto hir = trace(parse(source));
-        hir.postselection_mask = {1};
-        hir.expected_detectors = {0};
+        hir.postselection.mask = {1};
+        hir.postselection.expected_detectors = {0};
         PhasePolynomialPass pass;
         pass.run(hir);
         REQUIRE(!pass.applied());
@@ -876,8 +876,8 @@ TEST_CASE("Postselected detector respects expected parity and rejects noisy read
             "M 1\n"
             "DETECTOR rec[-1]\n";
         auto hir = trace(parse(source));
-        hir.postselection_mask = {1};
-        hir.expected_detectors = {0};
+        hir.postselection.mask = {1};
+        hir.postselection.expected_detectors = {0};
         PhasePolynomialPass pass;
         pass.run(hir);
         REQUIRE(!pass.applied());
@@ -897,8 +897,8 @@ TEST_CASE("Postselected detector respects expected parity and rejects noisy read
             "M 1 2\n"
             "DETECTOR rec[-2] rec[-1]\n";
         auto hir = trace(parse(source));
-        hir.postselection_mask = {1};
-        hir.expected_detectors = {0};
+        hir.postselection.mask = {1};
+        hir.postselection.expected_detectors = {0};
         PhasePolynomialPass pass;
         pass.run(hir);
         REQUIRE(!pass.applied());
@@ -925,8 +925,8 @@ TEST_CASE("Postselected detector respects expected parity and rejects noisy read
         REQUIRE(pass_unselected.output_t_count() == 2);
 
         auto selected = trace(parse(source));
-        selected.postselection_mask = {1};
-        selected.expected_detectors = {0};
+        selected.postselection.mask = {1};
+        selected.postselection.expected_detectors = {0};
         PhasePolynomialPass pass_selected;
         pass_selected.run(selected);
         REQUIRE(pass_selected.applied());
@@ -950,16 +950,16 @@ TEST_CASE("Postselected detector respects expected parity and rejects noisy read
             "M 2\n"
             "DETECTOR rec[-3] rec[-1]\n";
         auto partial = trace(parse(source));
-        partial.postselection_mask = {0, 1};
-        partial.expected_detectors = {0, 0};
+        partial.postselection.mask = {0, 1};
+        partial.postselection.expected_detectors = {0, 0};
         PhasePolynomialPass pass_partial;
         pass_partial.run(partial);
         REQUIRE(!pass_partial.applied());
         REQUIRE(pass_partial.output_t_count() == 2);
 
         auto both = trace(parse(source));
-        both.postselection_mask = {1, 1};
-        both.expected_detectors = {0, 0};
+        both.postselection.mask = {1, 1};
+        both.postselection.expected_detectors = {0, 0};
         PhasePolynomialPass pass_both;
         pass_both.run(both);
         REQUIRE(pass_both.applied());
@@ -979,8 +979,8 @@ TEST_CASE("Postselected detector respects expected parity and rejects noisy read
             "M 1\n"
             "DETECTOR rec[-1]\n";
         auto blocked = trace(parse(noncommuting_probe));
-        blocked.postselection_mask = {1};
-        blocked.expected_detectors = {0};
+        blocked.postselection.mask = {1};
+        blocked.postselection.expected_detectors = {0};
         PhasePolynomialPass pass_blocked;
         pass_blocked.run(blocked);
         REQUIRE(!pass_blocked.applied());
@@ -997,8 +997,8 @@ TEST_CASE("Postselected detector respects expected parity and rejects noisy read
             "M 1\n"
             "DETECTOR rec[-1]\n";
         auto allowed = trace(parse(commuting_probe));
-        allowed.postselection_mask = {1};
-        allowed.expected_detectors = {0};
+        allowed.postselection.mask = {1};
+        allowed.postselection.expected_detectors = {0};
         PhasePolynomialPass pass_allowed;
         pass_allowed.run(allowed);
         REQUIRE(pass_allowed.applied());

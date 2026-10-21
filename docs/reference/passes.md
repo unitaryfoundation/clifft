@@ -113,16 +113,13 @@ Pauli measurements, expectation-value probes and classically controlled Pauli
 gates can move before a phase prefix only when their conjugated axes remain
 Paulis and all required constraints survive. Pauli noise can cross only when
 its nonzero-probability channels commute with that prefix and preserve those
-constraints. Without postselection, forward-tracked constraints must hold on
-every trajectory and the noiseless reference, so even probability-one noise
-discards affected constraints. When compiling with postselected detectors,
-noiseless measurements whose outcomes are fixed by postselection (directly or by
-unit propagation across difference detectors) supply forward and commuting
-lookahead constraints for surviving trajectories, stopping before any
-expectation-value probe that anticommutes with the prefix or follows an earlier
-measurement that anticommutes with the prefix.
-Instruments clear all constraints. Use this pass only on complete circuits with
-an all-zero input; prior scheduling across noise causes it to skip the circuit.
+constraints. Forward constraints must hold on every trajectory and the noiseless
+reference, so even probability-one noise discards affected constraints;
+postselected noiseless measurements additionally supply forward and commuting
+lookahead constraints on surviving trajectories (stopping before probes affected
+by the prefix). Instruments clear all constraints. Use this pass only on
+complete circuits with an all-zero input; prior scheduling across noise causes
+it to skip the circuit.
 
 `max_variables` is a hard ceiling on independent phase variables analyzed
 together (default `128`, range `0` to `128`; zero disables the pass). Circuits

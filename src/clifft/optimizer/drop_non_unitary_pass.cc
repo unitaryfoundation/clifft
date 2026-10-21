@@ -49,7 +49,7 @@ void DropNonUnitaryPass::run(HirModule& hir) {
     hir.readout_noise.clear();
     hir.detector_targets.clear();
     hir.observable_targets.clear();
-    hir.clear_postselection_metadata();
+    hir.postselection.clear();
     hir.noise_channel_masks = PauliMaskArena{};
     // Noise positions are irrelevant once all noise has been removed.
     hir.logical_noise_prefix.clear();

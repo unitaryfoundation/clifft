@@ -60,9 +60,9 @@ OwnedPlanOptions build_plan_options(HirModule& hir, const PlantedCircuit& plante
             }
         }
     }
-    hir.postselection_mask = owned.postselection_mask;
-    hir.expected_detectors = owned.reference.detectors;
-    hir.expected_observables = owned.reference.observables;
+    hir.postselection.mask = owned.postselection_mask;
+    hir.postselection.expected_detectors = owned.reference.detectors;
+    hir.postselection.expected_observables = owned.reference.observables;
     return owned;
 }
 
@@ -692,7 +692,7 @@ TEST_CASE("Paired scaffolds verify rewrites fire when legal and stop at boundary
             "H 0\n"
             "M 0\n");
         HirModule commuting_probe_hir = clifft::trace(commuting_probe_circuit);
-        commuting_probe_hir.postselection_mask = {1};
+        commuting_probe_hir.postselection.mask = {1};
         PhasePolynomialPass commuting_probe_pass;
         commuting_probe_pass.run(commuting_probe_hir);
         require_distributions_equal(
@@ -723,7 +723,7 @@ TEST_CASE("Paired scaffolds verify rewrites fire when legal and stop at boundary
             "M 2\n"
             "DETECTOR rec[-3] rec[-1]\n");
         HirModule unit_prop_hir = clifft::trace(unit_prop_circuit);
-        unit_prop_hir.postselection_mask = {1, 1};
+        unit_prop_hir.postselection.mask = {1, 1};
         PhasePolynomialPass unit_prop_pass;
         unit_prop_pass.run(unit_prop_hir);
         require_distributions_equal(
@@ -746,7 +746,7 @@ TEST_CASE("Paired scaffolds verify rewrites fire when legal and stop at boundary
             "H 0\n"
             "M 0\n");
         HirModule anticommuting_probe_hir = clifft::trace(anticommuting_probe_circuit);
-        anticommuting_probe_hir.postselection_mask = {1};
+        anticommuting_probe_hir.postselection.mask = {1};
         PhasePolynomialPass anticommuting_probe_pass;
         anticommuting_probe_pass.run(anticommuting_probe_hir);
         require_distributions_equal(
@@ -769,7 +769,7 @@ TEST_CASE("Paired scaffolds verify rewrites fire when legal and stop at boundary
             "H 0\n"
             "M 0\n");
         HirModule readout_noise_hir = clifft::trace(readout_noise_circuit);
-        readout_noise_hir.postselection_mask = {1};
+        readout_noise_hir.postselection.mask = {1};
         PhasePolynomialPass readout_noise_pass;
         readout_noise_pass.run(readout_noise_hir);
         require_distributions_equal(
@@ -793,7 +793,7 @@ TEST_CASE("Paired scaffolds verify rewrites fire when legal and stop at boundary
             "H 0\n"
             "M 0\n");
         HirModule pauli_noise_hir = clifft::trace(pauli_noise_circuit);
-        pauli_noise_hir.postselection_mask = {1};
+        pauli_noise_hir.postselection.mask = {1};
         PhasePolynomialPass pauli_noise_pass;
         pauli_noise_pass.run(pauli_noise_hir);
         require_distributions_equal(
@@ -817,7 +817,7 @@ TEST_CASE("Paired scaffolds verify rewrites fire when legal and stop at boundary
             "M 1\n"
             "DETECTOR rec[-1]\n");
         HirModule commuting_meas_probe_hir = clifft::trace(commuting_meas_probe_circuit);
-        commuting_meas_probe_hir.postselection_mask = {1};
+        commuting_meas_probe_hir.postselection.mask = {1};
         PhasePolynomialPass commuting_meas_probe_pass;
         commuting_meas_probe_pass.run(commuting_meas_probe_hir);
         require_distributions_equal(
@@ -841,7 +841,7 @@ TEST_CASE("Paired scaffolds verify rewrites fire when legal and stop at boundary
             "H 0\n"
             "M 0\n");
         HirModule reset_barrier_hir = clifft::trace(reset_barrier_circuit);
-        reset_barrier_hir.postselection_mask = {1};
+        reset_barrier_hir.postselection.mask = {1};
         PhasePolynomialPass reset_barrier_pass;
         reset_barrier_pass.run(reset_barrier_hir);
         require_distributions_equal(
@@ -866,7 +866,7 @@ TEST_CASE("Paired scaffolds verify rewrites fire when legal and stop at boundary
             "M 1\n"
             "DETECTOR rec[-1]\n");
         HirModule conditioned_probe_hir = clifft::trace(conditioned_probe_circuit);
-        conditioned_probe_hir.postselection_mask = {1};
+        conditioned_probe_hir.postselection.mask = {1};
         PhasePolynomialPass conditioned_probe_pass;
         conditioned_probe_pass.run(conditioned_probe_hir);
         const ExactPlanDistribution conditioned_oracle =
@@ -902,7 +902,7 @@ TEST_CASE("Paired scaffolds verify rewrites fire when legal and stop at boundary
             "MX 0\n"
             "OBSERVABLE_INCLUDE(0) rec[-1]\n");
         HirModule reference_subspace_hir = clifft::trace(reference_subspace_circuit);
-        reference_subspace_hir.postselection_mask = {1};
+        reference_subspace_hir.postselection.mask = {1};
         const ReferenceSyndrome ref_before = compute_reference_syndrome(reference_subspace_hir);
         REQUIRE(ref_before.detectors == std::vector<uint8_t>{1});
         REQUIRE(ref_before.observables == std::vector<uint8_t>{1});
@@ -959,32 +959,32 @@ TEST_CASE("Paired scaffolds verify rewrites fire when legal and stop at boundary
                 compute_reference_syndrome(successive_hir);
             REQUIRE(successive_ref_before.detectors == std::vector<uint8_t>{1, 1});
 
-            successive_hir.postselection_mask = {1, 0};
+            successive_hir.postselection.mask = {1, 0};
             PhasePolynomialPass first_pass;
             first_pass.run(successive_hir);
             REQUIRE(successive_hir.num_t_gates() == 2);
 
-            successive_hir.postselection_mask = second_mask;
+            successive_hir.postselection.mask = second_mask;
             PhasePolynomialPass second_pass;
             second_pass.run(successive_hir);
             REQUIRE(successive_hir.num_t_gates() == 0);
             REQUIRE(compute_reference_syndrome(successive_hir).detectors ==
                     successive_ref_before.detectors);
 
-            successive_hir.postselection_mask = {1, 0};
+            successive_hir.postselection.mask = {1, 0};
             REQUIRE_THROWS_AS(clifft::sampling::plan_sampling(successive_hir),
                               std::invalid_argument);
-            successive_hir.postselection_mask = {0, 1};
+            successive_hir.postselection.mask = {0, 1};
             REQUIRE_THROWS_AS(clifft::sampling::plan_sampling(successive_hir),
                               std::invalid_argument);
 
-            successive_hir.postselection_mask = {1, 1};
-            successive_hir.expected_detectors = {1, 0};
+            successive_hir.postselection.mask = {1, 1};
+            successive_hir.postselection.expected_detectors = {1, 0};
             REQUIRE_THROWS_AS(PhasePolynomialPass().run(successive_hir), std::invalid_argument);
             REQUIRE_THROWS_AS(clifft::sampling::plan_sampling(successive_hir),
                               std::invalid_argument);
 
-            successive_hir.expected_detectors.clear();
+            successive_hir.postselection.expected_detectors.clear();
             require_distributions_equal(
                 compute_dense_circuit_distribution(successive_circuit, postselected_both),
                 compute_exact_hir_distribution(successive_hir, postselected_both));
@@ -1662,9 +1662,9 @@ TEST_CASE(
             const std::vector<uint8_t> expected_observables =
                 normalize ? ref_before.observables : std::vector<uint8_t>{};
 
-            original.postselection_mask = postselection_mask;
-            original.expected_detectors = expected_detectors;
-            original.expected_observables = expected_observables;
+            original.postselection.mask = postselection_mask;
+            original.postselection.expected_detectors = expected_detectors;
+            original.postselection.expected_observables = expected_observables;
 
             const clifft::sampling::SamplingPlanOptions options{
                 .postselection_mask = postselection_mask,
@@ -2365,7 +2365,7 @@ TEST_CASE("Varied pass sequences preserve exact distributions across hazards",
             assert_deterministic_reference(candidate);
         }
 
-        if (candidate.pre_postselection_hir != nullptr) {
+        if (candidate.postselection.pre_postselection_hir != nullptr) {
             ++postselection_specializations;
         }
         check_exact_equivalent(original, candidate, control_rng, 16, options);
@@ -2440,8 +2440,8 @@ TEST_CASE("Multiword postselected circuits preserve survivor distributions acros
             REQUIRE(unpost_pass.output_t_count() > 0);
 
             HirModule post = clifft::trace(clifft::parse(source));
-            post.postselection_mask = {1};
-            post.expected_detectors = {0};
+            post.postselection.mask = {1};
+            post.postselection.expected_detectors = {0};
             require_distributions_equal(expected_dist,
                                         compute_exact_hir_distribution(post, options));
 
@@ -2462,8 +2462,8 @@ TEST_CASE("Multiword postselected circuits preserve survivor distributions acros
         // Intervening measurement + probe must block lookahead across multiword masks.
         const std::string blocked_source = make_blocking_probe(q0, q1, q2);
         HirModule blocked_hir = clifft::trace(clifft::parse(blocked_source));
-        blocked_hir.postselection_mask = {1};
-        blocked_hir.expected_detectors = {0};
+        blocked_hir.postselection.mask = {1};
+        blocked_hir.postselection.expected_detectors = {0};
         require_distributions_equal(dense_blocked,
                                     compute_exact_hir_distribution(blocked_hir, options));
 

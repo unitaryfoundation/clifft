@@ -171,9 +171,9 @@ clifft::HirModule prepare_circuit_for_lowering(const clifft::Circuit& circuit,
         expected_detectors = std::move(reference.detectors);
         expected_observables = std::move(reference.observables);
     }
-    hir.postselection_mask.assign(postselection_mask.begin(), postselection_mask.end());
-    hir.expected_detectors = expected_detectors;
-    hir.expected_observables = expected_observables;
+    hir.postselection.mask.assign(postselection_mask.begin(), postselection_mask.end());
+    hir.postselection.expected_detectors = expected_detectors;
+    hir.postselection.expected_observables = expected_observables;
     if (hir_passes != nullptr) {
         hir_passes->run(hir);
     }
@@ -181,8 +181,8 @@ clifft::HirModule prepare_circuit_for_lowering(const clifft::Circuit& circuit,
         auto reference = clifft::compute_reference_syndrome(hir);
         expected_detectors = std::move(reference.detectors);
         expected_observables = std::move(reference.observables);
-        hir.expected_detectors = expected_detectors;
-        hir.expected_observables = expected_observables;
+        hir.postselection.expected_detectors = expected_detectors;
+        hir.postselection.expected_observables = expected_observables;
     }
     return hir;
 }
@@ -765,12 +765,26 @@ NB_MODULE(_clifft_core, m) {
         .def_prop_ro("num_observables",
                      [](const clifft::HirModule& h) { return h.num_observables; })
         .def_prop_ro("num_exp_vals", [](const clifft::HirModule& h) { return h.num_exp_vals; })
-        .def_rw("postselection_mask", &clifft::HirModule::postselection_mask,
-                "Optional list of uint8 flags, one per detector, marking postselected detectors.")
-        .def_rw("expected_detectors", &clifft::HirModule::expected_detectors,
-                "Optional noiseless reference parities for detectors.")
-        .def_rw("expected_observables", &clifft::HirModule::expected_observables,
-                "Optional noiseless reference parities for observables.")
+        .def_prop_rw(
+            "postselection_mask", [](const clifft::HirModule& h) { return h.postselection.mask; },
+            [](clifft::HirModule& h, std::vector<uint8_t> v) {
+                h.postselection.mask = std::move(v);
+            },
+            "Optional list of uint8 flags, one per detector, marking postselected detectors.")
+        .def_prop_rw(
+            "expected_detectors",
+            [](const clifft::HirModule& h) { return h.postselection.expected_detectors; },
+            [](clifft::HirModule& h, std::vector<uint8_t> v) {
+                h.postselection.expected_detectors = std::move(v);
+            },
+            "Optional noiseless reference parities for detectors.")
+        .def_prop_rw(
+            "expected_observables",
+            [](const clifft::HirModule& h) { return h.postselection.expected_observables; },
+            [](clifft::HirModule& h, std::vector<uint8_t> v) {
+                h.postselection.expected_observables = std::move(v);
+            },
+            "Optional noiseless reference parities for observables.")
         .def_prop_ro(
             "source_map",
             [](const clifft::HirModule& h) {
@@ -854,9 +868,9 @@ NB_MODULE(_clifft_core, m) {
                 expected_detectors = std::move(reference.detectors);
                 expected_observables = std::move(reference.observables);
             }
-            hir.postselection_mask = std::move(postselection_mask);
-            hir.expected_detectors = std::move(expected_detectors);
-            hir.expected_observables = std::move(expected_observables);
+            hir.postselection.mask = std::move(postselection_mask);
+            hir.postselection.expected_detectors = std::move(expected_detectors);
+            hir.postselection.expected_observables = std::move(expected_observables);
             return hir;
         },
         nb::arg("circuit"), nb::arg("postselection_mask") = std::vector<uint8_t>{},

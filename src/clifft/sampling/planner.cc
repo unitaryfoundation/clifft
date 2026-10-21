@@ -529,13 +529,13 @@ void process_instrument(const HirModule& hir, const HeisenbergOp& op, uint32_t n
 
 SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
     if (options.postselection_mask.empty()) {
-        options.postselection_mask = hir.postselection_mask;
+        options.postselection_mask = hir.postselection.mask;
     }
     if (options.expected_detectors.empty()) {
-        options.expected_detectors = hir.expected_detectors;
+        options.expected_detectors = hir.postselection.expected_detectors;
     }
     if (options.expected_observables.empty()) {
-        options.expected_observables = hir.expected_observables;
+        options.expected_observables = hir.postselection.expected_observables;
     }
     const auto validate_assumptions = [&](std::span<const uint8_t> assumed_mask,
                                           std::span<const uint8_t> assumed_expected) {
@@ -556,8 +556,9 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
             }
         }
     };
-    validate_assumptions(hir.assumed_postselection_mask, hir.assumed_expected_detectors);
-    validate_assumptions(hir.postselection_mask, hir.expected_detectors);
+    validate_assumptions(hir.postselection.assumed_mask,
+                         hir.postselection.assumed_expected_detectors);
+    validate_assumptions(hir.postselection.mask, hir.postselection.expected_detectors);
 
     NoiseSigns noise_signs(hir);
 

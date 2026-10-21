@@ -166,8 +166,8 @@ void phase_rank_limited_region(benchmark::State& state, int64_t size) {
 
 template <typename Module>
 void enable_first_detector_postselection(Module& hir) {
-    if constexpr (requires { hir.postselection_mask = {1}; }) {
-        hir.postselection_mask = {1};
+    if constexpr (requires { hir.postselection.mask = {1}; }) {
+        hir.postselection.mask = {1};
     }
 }
 

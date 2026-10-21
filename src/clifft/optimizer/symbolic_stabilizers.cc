@@ -22,9 +22,9 @@ using optimizer_detail::copy_axis;
 }  // namespace
 
 std::map<uint32_t, bool> collect_postselected_records(const HirModule& hir) {
-    hir.validate_postselection_assumptions();
+    hir.postselection.validate_assumptions(hir.num_detectors);
     std::map<uint32_t, bool> records;
-    if (std::ranges::none_of(hir.postselection_mask, [](uint8_t flag) { return flag != 0; })) {
+    if (std::ranges::none_of(hir.postselection.mask, [](uint8_t flag) { return flag != 0; })) {
         return records;
     }
     const size_t total_records =
@@ -60,10 +60,10 @@ std::map<uint32_t, bool> collect_postselected_records(const HirModule& hir) {
             continue;
         }
         const uint32_t targets_index = static_cast<uint32_t>(op.detector_idx());
-        const bool postselected = detector_index < hir.postselection_mask.size() &&
-                                  hir.postselection_mask[detector_index] != 0;
-        const bool expected = detector_index < hir.expected_detectors.size() &&
-                              hir.expected_detectors[detector_index] != 0;
+        const bool postselected = detector_index < hir.postselection.mask.size() &&
+                                  hir.postselection.mask[detector_index] != 0;
+        const bool expected = detector_index < hir.postselection.expected_detectors.size() &&
+                              hir.postselection.expected_detectors[detector_index] != 0;
         ++detector_index;
         if (!postselected || targets_index >= hir.detector_targets.size()) {
             continue;

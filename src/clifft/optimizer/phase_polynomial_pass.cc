@@ -595,7 +595,7 @@ void PhasePolynomialPass::run(HirModule& hir) {
     blocks_reduced_ = pauli_pullbacks_ = 0;
     blocks_examined_ = blocks_capped_ = expansion_attempts_ = blocks_expanded_ = 0;
     input_t_count_ = output_t_count_ = hir.num_t_gates();
-    hir.validate_postselection_assumptions();
+    hir.postselection.validate_assumptions(hir.num_detectors);
     if (options_.max_variables == 0 || input_t_count_ == 0 ||
         !hir.logical_noise_prefix_matches_schedule()) {
         return;
@@ -663,7 +663,7 @@ void PhasePolynomialPass::run(HirModule& hir) {
     pauli_pullbacks_ = rewriter.pauli_pullbacks + follow_up_pullbacks;
     output_t_count_ = candidate->num_t_gates();
     if (rewriter.has_postselected_records()) {
-        candidate->record_postselection_specialization(std::move(hir));
+        candidate->postselection.record_specialization(std::move(hir));
     }
     hir = std::move(*candidate);
 }
