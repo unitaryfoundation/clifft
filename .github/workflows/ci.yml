@@ -10,6 +10,9 @@ permissions:
 
 env:
   CLIFFT_LINUX_WHEEL_CLANG_VERSION: "22.1.8.1"
+  # setup-uv omits the uv version from its cache key; keep one constant for
+  # both version and cache-suffix so uv cache-format bumps rotate the key.
+  CLIFFT_UV_VERSION: "0.13.4"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -42,15 +45,13 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # setup-uv omits the uv version from its cache key; bump version and
-      # cache-suffix together so uv cache-format changes rotate the key.
       - name: Setup uv and Python
         uses: astral-sh/setup-uv@v6
         with:
-          version: "0.13.4"
+          version: ${{ env.CLIFFT_UV_VERSION }}
           enable-cache: true
           cache-dependency-glob: uv.lock
-          cache-suffix: "0.13.4"
+          cache-suffix: ${{ env.CLIFFT_UV_VERSION }}
           python-version: "3.12"
 
       - name: Check uv lockfile
@@ -109,15 +110,13 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # setup-uv omits the uv version from its cache key; bump version and
-      # cache-suffix together so uv cache-format changes rotate the key.
       - name: Setup uv and Python
         uses: astral-sh/setup-uv@v6
         with:
-          version: "0.13.4"
+          version: ${{ env.CLIFFT_UV_VERSION }}
           enable-cache: true
           cache-dependency-glob: uv.lock
-          cache-suffix: "0.13.4"
+          cache-suffix: ${{ env.CLIFFT_UV_VERSION }}
           python-version: "3.12"
 
       - name: Install Python binding build dependencies
@@ -164,15 +163,13 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # setup-uv omits the uv version from its cache key; bump version and
-      # cache-suffix together so uv cache-format changes rotate the key.
       - name: Setup uv and Python
         uses: astral-sh/setup-uv@v6
         with:
-          version: "0.13.4"
+          version: ${{ env.CLIFFT_UV_VERSION }}
           enable-cache: true
           cache-dependency-glob: uv.lock
-          cache-suffix: "0.13.4"
+          cache-suffix: ${{ env.CLIFFT_UV_VERSION }}
           python-version: "3.12"
 
       - name: Install Python binding build dependencies
@@ -249,15 +246,13 @@ jobs:
           save: ${{ github.ref == 'refs/heads/main' && matrix.isa == 'default' }}
           evict-old-files: job
 
-      # setup-uv omits the uv version from its cache key; bump version and
-      # cache-suffix together so uv cache-format changes rotate the key.
       - name: Setup uv and Python
         uses: astral-sh/setup-uv@v6
         with:
-          version: "0.13.4"
+          version: ${{ env.CLIFFT_UV_VERSION }}
           enable-cache: true
           cache-dependency-glob: uv.lock
-          cache-suffix: "0.13.4"
+          cache-suffix: ${{ env.CLIFFT_UV_VERSION }}
           python-version: "3.12"
 
       - name: Configure C++ build
@@ -440,15 +435,13 @@ jobs:
             --timeout 300
         shell: bash
 
-      # setup-uv omits the uv version from its cache key; bump version and
-      # cache-suffix together so uv cache-format changes rotate the key.
       - name: Setup uv and Python
         uses: astral-sh/setup-uv@v6
         with:
-          version: "0.13.4"
+          version: ${{ env.CLIFFT_UV_VERSION }}
           enable-cache: true
           cache-dependency-glob: uv.lock
-          cache-suffix: "0.13.4"
+          cache-suffix: ${{ env.CLIFFT_UV_VERSION }}
           python-version: "3.12"
 
       # assert() stays active in the optimized extension so the full
@@ -639,15 +632,13 @@ jobs:
           save: ${{ github.ref == 'refs/heads/main' }}
           evict-old-files: job
 
-      # setup-uv omits the uv version from its cache key; bump version and
-      # cache-suffix together so uv cache-format changes rotate the key.
       - name: Setup uv and Python
         uses: astral-sh/setup-uv@v6
         with:
-          version: "0.13.4"
+          version: ${{ env.CLIFFT_UV_VERSION }}
           enable-cache: true
           cache-dependency-glob: uv.lock
-          cache-suffix: "0.13.4"
+          cache-suffix: ${{ env.CLIFFT_UV_VERSION }}
           python-version: "3.12"
 
       - name: Build sdist
@@ -699,6 +690,10 @@ jobs:
       - name: Setup uv and Python
         uses: astral-sh/setup-uv@v6
         with:
+          version: ${{ env.CLIFFT_UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+          cache-suffix: ${{ env.CLIFFT_UV_VERSION }}
           python-version: "3.12"
 
       - name: Export locked test dependencies
@@ -806,15 +801,13 @@ jobs:
           save: ${{ github.ref == 'refs/heads/main' }}
           evict-old-files: job
 
-      # setup-uv omits the uv version from its cache key; bump version and
-      # cache-suffix together so uv cache-format changes rotate the key.
       - name: Setup uv and Python
         uses: astral-sh/setup-uv@v6
         with:
-          version: "0.13.4"
+          version: ${{ env.CLIFFT_UV_VERSION }}
           enable-cache: true
           cache-dependency-glob: uv.lock
-          cache-suffix: "0.13.4"
+          cache-suffix: ${{ env.CLIFFT_UV_VERSION }}
           python-version: "3.12"
 
       - name: Setup MSVC dev environment
