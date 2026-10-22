@@ -159,7 +159,14 @@ class FixedBuilder {
         // planning and the executable lowering still fuses quantum actions.
         ++data_->metrics.preparation_compilations;
         const HirModule hir = trace(lowered_);
-        sampling::SamplingPlan plan = sampling::plan_sampling(hir);
+        sampling::SamplingPlan plan;
+        try {
+            plan = sampling::plan_sampling(hir);
+        } catch (const std::overflow_error&) {
+            // The fixed candidate can exceed the planner's width limit even
+            // when optimized trajectory continuations fit within it.
+            return reject(FixedNonComputationalReason::ActiveWidth);
+        }
         if (request_.requirements().max_active_width.has_value() &&
             plan.peak_active_width > *request_.requirements().max_active_width) {
             return reject(FixedNonComputationalReason::ActiveWidth);
@@ -465,9 +472,9 @@ std::optional<FixedNonComputationalRejection> FixedBuilder::lower() {
                 return reachable_[operand.qubit] == kComputational;
             });
             if (!all_live) {
-                // Parsed local gates are split into one node per target.
-                // An unsplit node instead has whole-operation drop semantics.
-                if (gate_arity(node.gate) == GateArity::SINGLE) {
+                // Products and grouped local gates have whole-operation drop
+                // semantics; physical pairs can instead use partner channels.
+                if (gate_arity(node.gate) != GateArity::PAIR) {
                     return reject(FixedNonComputationalReason::UnsupportedOperation);
                 }
                 if (operands.size() != 2 || !supports_partner_effect(node.gate)) {

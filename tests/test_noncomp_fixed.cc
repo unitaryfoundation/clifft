@@ -3,6 +3,7 @@
 #include "clifft/noncomp/fixed.h"
 #include "clifft/sampling/executor.h"
 #include "clifft/sampling/planner.h"
+#include "clifft/util/numeric.h"
 
 #include "noncomp_test_helpers.h"
 
@@ -210,6 +211,11 @@ TEST_CASE("Fixed noncomputational rejects requests whose observable contract nee
         circuit = parse("MPP Z0*Z1");
         reason = FixedNonComputationalReason::UnsupportedOperation;
     }
+    SECTION("unsupported Pauli product unitary") {
+        const auto gate = GENERATE("SPP", "SPP_DAG", "TPP", "TPP_DAG", "R_PAULI(0.125)");
+        circuit = parse(std::string("LOSS(1) 0\n") + gate + " X0*X1");
+        reason = FixedNonComputationalReason::UnsupportedOperation;
+    }
     SECTION("initial mixed state") {
         noise = NonComputationalModel::from_spec({0.5, 0.5, 0, 0, 0}, {}, std::nullopt, {});
         circuit = parse("H 0");
@@ -226,6 +232,15 @@ TEST_CASE("Fixed noncomputational rejects requests whose observable contract nee
     SECTION("width cap") {
         circuit = parse("H 0\nT 0\nM 0");
         requirements.max_active_width = 0;
+        reason = FixedNonComputationalReason::ActiveWidth;
+    }
+    SECTION("planner width limit") {
+        std::string text;
+        for (uint32_t qubit = 0; qubit < kDenseActiveWidthLimit; ++qubit) {
+            const auto q = std::to_string(qubit);
+            text += "H " + q + "\nT " + q + "\nT " + q + "\n";
+        }
+        circuit = parse(text);
         reason = FixedNonComputationalReason::ActiveWidth;
     }
     const auto result = prepare_fixed_noncomputational(

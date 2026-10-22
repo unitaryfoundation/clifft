@@ -170,6 +170,132 @@ def test_fixed_rejections_leave_public_trajectory_sampling_available():
     assert noncomp.sample(text, model, shots=16, seed=2).measurements.shape == (16, 1)
 
 
+@pytest.mark.parametrize(("qubits", "cap"), [(5, 4), (64, 4), (64, None)])
+def test_fixed_width_rejection_leaves_optimized_trajectories_available(
+    qubits, cap, noncomp_sampling_api
+):
+    # Each raw pair promotes a coordinate; trajectory fusion combines it into
+    # a Clifford. Include measurements so successful fallback checks a result.
+    text = "\n".join(f"H {q}\nT {q}\nT {q}\nS_DAG {q}\nH {q}" for q in range(qubits))
+    text += "\nM " + " ".join(map(str, range(qubits)))
+    model = noncomp.Model()
+    assert (
+        _clifft_core._prepare_noncomputational_fixed(
+            _clifft_core.parse(text), model._handle, max_active_width=cap
+        )
+        is None
+    )
+    result = noncomp_sampling_api(text, model, shots=32, seed=5, max_active_width=cap)
+    np.testing.assert_array_equal(result.measurements, np.zeros((32, qubits), dtype=np.uint8))
+
+
+@pytest.mark.parametrize("gate", ["SPP", "SPP_DAG", "TPP", "TPP_DAG", "R_PAULI(0.125)"])
+def test_fixed_pauli_product_rejection_preserves_trajectory_result(gate, noncomp_sampling_api):
+    text = f"LOSS(1) 0\n{gate} X0*X1\nM 1"
+    model = noncomp.Model(classifier=noncomp.Classifier(CLASSIFIER))
+    assert (
+        _clifft_core._prepare_noncomputational_fixed(_clifft_core.parse(text), model._handle)
+        is None
+    )
+    result = noncomp_sampling_api(text, model, shots=32, seed=8)
+    assert not result.measurements.any()
+
+
+@pytest.mark.parametrize(
+    ("transition", "interaction"),
+    [("LEAKAGE", "LEAKAGE_INTERACTION(0.1,0.2,0.3,0)"), ("LOSS", "LOSS_INTERACTION(0.1,0.2,0.3)")],
+)
+@pytest.mark.parametrize("probability", [0.0, 0.4, 1.0])
+@pytest.mark.parametrize("measurement", ["M", "MX"])
+def test_fixed_explicit_partner_channel_matches_stim(
+    transition, interaction, probability, measurement
+):
+    model = noncomp.Model(classifier=noncomp.Classifier(CLASSIFIER))
+    prefix = "H 1\nCX 1 2\n"
+    suffix = f"{measurement} 1 2"
+    text = f"{prefix}{transition}({probability}) 0\n{interaction} 0 1\n{suffix}"
+    # q0 starts unentangled, so the status-conditioned channel has these
+    # unconditional Pauli weights on the live half of the Bell pair.
+    reference = stim.Circuit(
+        f"{prefix}PAULI_CHANNEL_1("
+        f"{0.1 * probability},{0.2 * probability},{0.3 * probability}) 1\n{suffix}"
+    )
+    actual = sample(prepare(text, model)).measurements
+    expected = reference.compile_sampler(seed=13).sample(16000)
+    assert (
+        dense.tvd(dense.empirical_record_probs(actual), dense.empirical_record_probs(expected))
+        < 0.025
+    )
+
+
+@pytest.mark.parametrize(
+    ("transition", "interaction"),
+    [("LEAKAGE", "LOSS_INTERACTION(1,0,0)"), ("LOSS", "LEAKAGE_INTERACTION(1,0,0,0)")],
+)
+def test_fixed_explicit_interaction_requires_matching_source_status(transition, interaction):
+    text = f"{transition}(1) 0\n{interaction} 0 1\nM 1"
+    model = noncomp.Model(classifier=noncomp.Classifier(CLASSIFIER))
+    assert not sample(prepare(text, model), shots=32).measurements.any()
+
+
+@pytest.mark.parametrize("status", ["leaked", "lost"])
+@pytest.mark.parametrize("source_operand", [0, 1])
+def test_fixed_gate_specific_partner_rule_matches_stim(status, source_operand):
+    model = noncomp.Model(
+        classifier=noncomp.Classifier(CLASSIFIER),
+        interactions=[
+            noncomp.InteractionRule(
+                gate="CZ", source_operand=source_operand, source_status=status, effect=DEPOLARIZE
+            )
+        ],
+    )
+    transition = "LEAKAGE" if status == "leaked" else "LOSS"
+    operands = "0 1" if source_operand == 0 else "1 0"
+    text = f"H 1\nCX 1 2\n{transition}(1) 0\nCZ {operands}\nMX 1 2"
+    actual = sample(prepare(text, model)).measurements
+    expected = (
+        stim.Circuit("H 1\nCX 1 2\nDEPOLARIZE1(0.75) 1\nMX 1 2")
+        .compile_sampler(seed=13)
+        .sample(16000)
+    )
+    assert (
+        dense.tvd(dense.empirical_record_probs(actual), dense.empirical_record_probs(expected))
+        < 0.025
+    )
+    # The override must not make other physical gates eligible.
+    assert (
+        _clifft_core._prepare_noncomputational_fixed(
+            _clifft_core.parse(text.replace("CZ", "CX")), model._handle
+        )
+        is None
+    )
+
+
+@pytest.mark.parametrize("dynamic", [False, True], ids=["static-inputs", "dynamic-inputs"])
+def test_fixed_python_sampling_is_reproducible_across_worker_counts(dynamic):
+    model = noncomp.Model(
+        classifier=noncomp.Classifier(
+            [[1, 0, 0.2, 0.2, 0.2], [0, 1, 0.3, 0.3, 0.3], [0, 0, 0.5, 0.5, 0.5]]
+        ),
+        gate_partner_effects={"leaked": DEPOLARIZE},
+    )
+    probability = 0.4 if dynamic else 0
+    text = (
+        f"H 0\nT 0\nCX 0 1\nLEAKAGE({probability}) 0\nCX 0 1\nM 0\n"
+        "HERALD_LEAKAGE_EVENT 0\nCX rec[-2] 2\nR 0\nM 1 2\n"
+        "DETECTOR rec[-1] rec[-4]\nOBSERVABLE_INCLUDE(0) rec[-1]"
+    )
+    program = prepare(text, model, final_status=True)
+    before = program.metrics
+    assert (before["classical_workspace_bytes"] > 0) == dynamic
+    expected = sample(program, shots=1025, seed=12)
+    for workers in (2, 3):
+        actual = sample(program, shots=1025, seed=12, threads=workers)
+        for field in ("measurements", "heralds", "detectors", "observables", "final_status"):
+            np.testing.assert_array_equal(getattr(actual, field), getattr(expected, field))
+    assert program.metrics == before
+
+
 def test_fixed_later_readout_noise_consumes_reported_record():
     model = noncomp.Model(classifier=noncomp.Classifier([[1, 0, 0, 0, 0], [0, 1, 1, 1, 1]]))
     text = "LEAKAGE(1) 0\nMR 0\nREADOUT_NOISE(1,0) rec[-1]\nCX rec[-1] 1\nM 0 1"
