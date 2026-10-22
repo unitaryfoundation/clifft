@@ -1563,7 +1563,8 @@ TEST_CASE("Sampling executor can omit probes without changing seeded trajectorie
         for (const bool fixed_faults : {false, true}) {
             CAPTURE(postselect, fixed_faults);
             Executor retained(plan, 731);
-            Executor omitted(plan, 731, 1, clifft::kDefaultIntraShotMinActiveWidth, false);
+            Executor omitted(plan, 731, 1, clifft::kDefaultIntraShotMinActiveWidth,
+                             clifft::sampling::BatchOutputMode::AggregateSurvivors);
             const auto distribution = std::make_shared<const clifft::KFaultDistribution>(
                 plan.noise_site_probabilities(), 1);
             clifft::KFaultSampler retained_faults(distribution);

@@ -64,9 +64,10 @@ uint32_t resolve_intra_shot_workers(const ExecutablePlan& plan, uint32_t request
 }  // namespace
 
 Executor::Executor(const ExecutablePlan& plan, uint64_t seed, uint32_t intra_shot_workers,
-                   uint32_t intra_shot_min_active_width, bool keep_exp_vals)
+                   uint32_t intra_shot_min_active_width, BatchOutputMode output_mode)
     : root_plan_(&plan),
       plan_(&plan),
+      output_mode_(output_mode),
       state_(plan.peak_active_width_, plan.initial_active_width_,
              resolve_intra_shot_workers(plan, intra_shot_workers, intra_shot_min_active_width),
              intra_shot_min_active_width),
@@ -75,7 +76,7 @@ Executor::Executor(const ExecutablePlan& plan, uint64_t seed, uint32_t intra_sho
       records_(static_cast<size_t>(plan.num_visible_records_) + plan.num_hidden_records_, 0),
       detectors_(plan.num_detectors_, 0),
       observables_(plan.num_observables_, 0),
-      exp_vals_(keep_exp_vals ? plan.num_exp_vals_ : 0, 0.0),
+      exp_vals_(output_mode == BatchOutputMode::Rows ? plan.num_exp_vals_ : 0, 0.0),
       forced_record_mask_(records_.size(), 0),
       forced_record_values_(records_.size(), 0),
       rng_(seed),
@@ -590,7 +591,7 @@ void Executor::execute_action(const ExecutablePlan::ExecuteObservable& action,
 
 void Executor::execute_action(const ExecutablePlan::ExecuteExpectation& action,
                               std::span<const uint8_t>, ReplayResult&) noexcept {
-    if (exp_vals_.empty()) {
+    if (output_mode_ == BatchOutputMode::AggregateSurvivors) {
         return;
     }
     assert(action.exp_val < exp_vals_.size() && "expectation slot must be preallocated");

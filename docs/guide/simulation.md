@@ -94,9 +94,11 @@ The result includes aggregate survivor information:
 - `logical_errors`: number of logical errors among survivors
 - `observable_ones`: per-observable error counts
 
-By default, the per-shot arrays are empty. Pass `keep_records=True` to retain
-measurement, detector, observable, and expectation-value rows for each
-survivor.
+By default, the per-shot arrays are empty, and `EXP_VAL` probe values are not
+included in the aggregate statistics. CPU scalar and packed execution also skip
+evaluating these probes when `keep_records=False`, avoiding their evaluation cost
+even with an empty postselection mask. Pass `keep_records=True` to retain measurement,
+detector, observable, and expectation-value rows for each survivor.
 
 Marked detectors are checked during execution. Clifft discards a shot as soon
 as it can determine that the shot fails, avoiding later work that cannot

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "clifft/sampling/batch/policy.h"
 #include "clifft/sampling/executable_plan.h"
 #include "clifft/sampling/state.h"
 #include "clifft/util/config.h"
@@ -46,7 +47,7 @@ class Executor {
     explicit Executor(const ExecutablePlan& plan, uint64_t seed = 0,
                       uint32_t intra_shot_workers = 1,
                       uint32_t intra_shot_min_active_width = kDefaultIntraShotMinActiveWidth,
-                      bool keep_exp_vals = true);
+                      BatchOutputMode output_mode = BatchOutputMode::Rows);
 
     // Replace the deterministic seed with OS entropy before executing shots.
     void reseed_from_entropy() { rng_.seed_from_entropy(); }
@@ -214,6 +215,7 @@ class Executor {
     // release whichever continuation was current when it threw.
     const ExecutablePlan* root_plan_;
     const ExecutablePlan* plan_;
+    const BatchOutputMode output_mode_;
 
     // Capacity is allocated before ordinary dispatch and reused across shots.
     State state_;
