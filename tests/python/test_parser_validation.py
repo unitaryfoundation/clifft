@@ -52,6 +52,11 @@ def read_circuit(request, tmp_path):
         "R_XX(0.125)",
         "R_YY(0.125)",
         "R_ZZ(0.125)",
+        "MXX",
+        "MYY",
+        "MZZ",
+        "DEPOLARIZE2(0.1)",
+        "PAULI_CHANNEL_2(" + ",".join(["0.1"] + ["0"] * 14) + ")",
     ],
 )
 @pytest.mark.parametrize("targets", ["0 0", "0 1 2 2"])
@@ -63,6 +68,60 @@ def test_duplicate_physical_pair_rejected(gate, targets, read_circuit):
 def test_duplicate_pair_inside_repeat_rejected(read_circuit):
     with pytest.raises(clifft.ParseError, match="Line 3: .*requires distinct qubit targets"):
         read_circuit("H 0\nREPEAT 2 {\nCX 0 0\n}\nM 0")
+
+
+@pytest.mark.parametrize(
+    "gate",
+    ["DEPOLARIZE3(0.1)", "PAULI_CHANNEL_3(" + ",".join(["0.1"] + ["0"] * 62) + ")"],
+)
+@pytest.mark.parametrize("targets", ["0 0 1", "0 1 0", "0 1 1", "0 1 2 3 4 3"])
+def test_duplicate_noise_triple_rejected(gate, targets, read_circuit):
+    with pytest.raises(clifft.ParseError, match="Line 2: .*requires distinct qubit targets"):
+        read_circuit(f"H 0\n{gate} {targets}\nM 0")
+
+
+@pytest.mark.parametrize("width", [1, 2, 3])
+@pytest.mark.parametrize("position", [0, -1])
+@pytest.mark.parametrize("probability", ["-0.1", "1.1"])
+def test_pauli_channel_checks_every_probability(width, position, probability, read_circuit):
+    probabilities = ["0"] * (4**width - 1)
+    probabilities[position] = probability
+    targets = " ".join(map(str, range(width)))
+    with pytest.raises(clifft.ParseError, match="Line 2: .*probabilities must be finite"):
+        read_circuit(f"H 0\nPAULI_CHANNEL_{width}({','.join(probabilities)}) {targets}\nM 0")
+
+
+@pytest.mark.parametrize("width", [1, 2, 3])
+def test_pauli_channel_rejects_excess_total_probability(width, read_circuit):
+    probabilities = ["0"] * (4**width - 1)
+    probabilities[0], probabilities[-1] = "0.5", "0.75"
+    targets = " ".join(map(str, range(width)))
+    with pytest.raises(clifft.ParseError, match="Line 2: .*probabilities must sum to at most 1"):
+        read_circuit(f"H 0\nPAULI_CHANNEL_{width}({','.join(probabilities)}) {targets}\nM 0")
+
+
+@pytest.mark.parametrize(
+    ("gate", "targets"),
+    [
+        ("M", "0"),
+        ("MZ", "0"),
+        ("MX", "0"),
+        ("MY", "0"),
+        ("MR", "0"),
+        ("MRZ", "0"),
+        ("MRX", "0"),
+        ("MRY", "0"),
+        ("MPAD", "0"),
+        ("MPP", "X0*Z1"),
+        ("MXX", "0 1"),
+        ("MYY", "0 1"),
+        ("MZZ", "0 1"),
+    ],
+)
+@pytest.mark.parametrize("arguments", ["-0.1", "1.1", "0.1,0.2"])
+def test_inline_measurement_noise_rejects_invalid_arguments(gate, targets, arguments, read_circuit):
+    with pytest.raises(clifft.ParseError, match="Line 2: .*probability"):
+        read_circuit(f"H 0\n{gate}({arguments}) {targets}")
 
 
 @pytest.mark.parametrize("probability", ["-0.1", "1.1"])
@@ -106,8 +165,40 @@ def test_nonfinite_correlated_probability_rejected(probability, prefix, read_cir
         "E(0) X0\nELSE_CORRELATED_ERROR(1) Y0\nM 0",
         "E(1) X0\nELSE_CORRELATED_ERROR(0) Y0\nM 0",
         "E(1) X0\nELSE_CORRELATED_ERROR(1) Y0\nM 0",
+        "M(0) 0\nM(1) 0\nMR(1) 0\nM 0",
+        "H 0\nMX(0) 0\nMX(1) 0\nMRX(1) 0\nMX 0",
+        "H 0\nS 0\nMY(0) 0\nMY(1) 0\nMRY(1) 0\nMY 0",
+        "MPAD(0) 0 1\nMPAD(1) 0 1",
+        "MPP(0) Z0*Z1\nMPP(1) Z0*Z1",
+        "H 0 1 2\nMXX(0) 0 1 0 2\nMXX(1) 0 1 0 2",
+        "H 0 1\nS 0 1\nMYY(0) 0 1\nMYY(1) 0 1",
+        "MZZ(0) 0 1\nMZZ(1) 0 1",
+        "PAULI_CHANNEL_1(0,0,0) 0\nM 0\nPAULI_CHANNEL_1(0.25,0.75,0) 0\nM 0",
+        "PAULI_CHANNEL_2(" + ",".join(["0"] * 15) + ") 0 1\nM 0 1",
+        "PAULI_CHANNEL_2(" + ",".join(["0"] * 4 + ["1"] + ["0"] * 10) + ") 0 1\nM 0 1",
+        "DEPOLARIZE2(0) 0 1 0 2\nM 0 1 2",
     ],
-    ids=["reuse-qubit", "cx-feedback", "cz-feedback", "p00", "p01", "p10", "p11"],
+    ids=[
+        "reuse-qubit",
+        "cx-feedback",
+        "cz-feedback",
+        "p00",
+        "p01",
+        "p10",
+        "p11",
+        "mz-noise",
+        "mx-noise",
+        "my-noise",
+        "mpad-noise",
+        "mpp-noise",
+        "mxx-noise",
+        "myy-noise",
+        "mzz-noise",
+        "pauli1",
+        "pauli2-zero",
+        "pauli2-certain",
+        "noise-reuse",
+    ],
 )
 def valid_boundary_circuit(request):
     text = request.param
@@ -129,3 +220,24 @@ def test_valid_boundaries_sample_noncomp_like_stim(
     source = clifft.parse(text) if parsed else text
     result = noncomp_sampling_api(source, noncomp.Model(), shots=32, seed=3)
     np.testing.assert_array_equal(result.measurements, expected)
+
+
+@pytest.fixture(params=[0, 1])
+def three_qubit_channel_boundary(request):
+    probabilities = ["0"] * 63
+    probabilities[20] = str(request.param)  # XXX in lexicographic I/X/Y/Z order.
+    text = f"PAULI_CHANNEL_3({','.join(probabilities)}) 0 1 2 0 3 4\nM 0 1 2 3 4"
+    expected = [0, request.param, request.param, request.param, request.param]
+    return text, expected
+
+
+def test_three_qubit_channel_boundaries(three_qubit_channel_boundary, sampling_mode):
+    text, expected = three_qubit_channel_boundary
+    result = sampling_mode.sample(sampling_mode.compile(text), shots=32, seed=3)
+    np.testing.assert_array_equal(result.measurements, np.tile(expected, (32, 1)))
+
+
+def test_three_qubit_channel_boundaries_noncomp(three_qubit_channel_boundary, noncomp_sampling_api):
+    text, expected = three_qubit_channel_boundary
+    result = noncomp_sampling_api(text, noncomp.Model(), shots=32, seed=3)
+    np.testing.assert_array_equal(result.measurements, np.tile(expected, (32, 1)))
