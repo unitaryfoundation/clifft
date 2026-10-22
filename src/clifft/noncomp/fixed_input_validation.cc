@@ -1,6 +1,7 @@
 #include "clifft/noncomp/fixed_input_validation.h"
 
 #include <stdexcept>
+#include <variant>
 
 namespace clifft::detail {
 

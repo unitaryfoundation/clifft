@@ -344,8 +344,9 @@ std::optional<FixedNonComputationalRejection> FixedBuilder::lower() {
     }
 
     const auto operands = checked_operands(node, resolved_.circuit().num_qubits);
-    // Rejection is shared with trajectories. Dropped physical gates instead
-    // follow the retained-auxiliary proof below and cannot be dropped here.
+    // Keep fixed eligibility aligned with future shared-policy rejections.
+    // Dropped physical gates follow the retained-auxiliary proof below and
+    // cannot be dropped here.
     for (const auto& operand : operands) {
         for (size_t i = 0; i < kStatusBits.size(); ++i) {
             if ((reachable_[operand.qubit] & kStatusBits[i]) != 0 &&
