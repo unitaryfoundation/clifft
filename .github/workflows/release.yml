@@ -185,15 +185,14 @@ jobs:
         if: matrix.os == 'ubuntu-24.04' && matrix.arch == 'x86_64'
         run: PYTHON=$(pwd)/.smoke-venv/bin/python .github/scripts/wheel_smoke.sh sde skx avx512 pass avx512 intra-shot
 
-      # The cp312-abi3 wheel is the only build per platform, so its
-      # packaging contract is forward compatibility: it must install and
-      # run on interpreters newer than the 3.12 it was built with. Bump
-      # the version below when a newer stable CPython is supported.
+      # The cp312-abi3 wheel must work on interpreters newer than the 3.12
+      # it was built with. Checking core functionality on both 3.14 and 3.15
+      # catches interpreter-specific compatibility issues in the release artifact.
       - name: Setup uv (Linux x86_64 wheel only)
         if: matrix.os == 'ubuntu-24.04' && matrix.arch == 'x86_64'
         uses: astral-sh/setup-uv@v6
 
-      - name: Verify abi3 wheel on CPython 3.14 (Linux x86_64 wheel only)
+      - name: Verify core abi3 wheel on CPython 3.14 (Linux x86_64 wheel only)
         if: matrix.os == 'ubuntu-24.04' && matrix.arch == 'x86_64'
         run: |
           uv venv --python 3.14 .abi3-venv
