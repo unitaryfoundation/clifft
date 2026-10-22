@@ -193,12 +193,21 @@ jobs:
         if: matrix.os == 'ubuntu-24.04' && matrix.arch == 'x86_64'
         uses: astral-sh/setup-uv@v6
 
-      - name: Verify abi3 wheel on newest stable CPython (Linux x86_64 wheel only)
+      - name: Verify abi3 wheel on CPython 3.14 (Linux x86_64 wheel only)
         if: matrix.os == 'ubuntu-24.04' && matrix.arch == 'x86_64'
         run: |
           uv venv --python 3.14 .abi3-venv
-          uv pip install --python .abi3-venv/bin/python wheelhouse/*.whl
+          uv pip install --python .abi3-venv/bin/python \
+            --only-binary :all: wheelhouse/*.whl
           .abi3-venv/bin/python .github/scripts/artifact_smoke.py --expect-python 3.14
+
+      - name: Verify core abi3 wheel on CPython 3.15 (Linux x86_64 wheel only)
+        if: matrix.os == 'ubuntu-24.04' && matrix.arch == 'x86_64'
+        run: |
+          uv venv --python 3.15 .abi3-core-venv
+          uv pip install --python .abi3-core-venv/bin/python \
+            --only-binary :all: wheelhouse/*.whl
+          .abi3-core-venv/bin/python .github/scripts/artifact_smoke.py --expect-python 3.15
 
       - uses: actions/upload-artifact@v4
         with:

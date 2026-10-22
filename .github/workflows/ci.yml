@@ -653,7 +653,7 @@ jobs:
       - name: Assert the wheel is stable-ABI (cp312-abi3)
         run: ls wheelhouse/clifft-*cp312-abi3*.whl
 
-      - name: Install the wheel and Sinter extra on the newest stable CPython
+      - name: Install the wheel and Sinter extra on CPython 3.14
         run: |
           uv venv --python 3.14 .abi3-venv
           for wheel in wheelhouse/*.whl; do
@@ -661,8 +661,19 @@ jobs:
               --only-binary :all: "${wheel}[sinter]"
           done
 
-      - name: Run the packaging smoke
+      - name: Run the CPython 3.14 packaging smoke
         run: .abi3-venv/bin/python .github/scripts/artifact_smoke.py --expect-python 3.14
+
+      # Keep the newest interpreter smoke independent of optional integrations
+      # until their dependencies publish compatible binary wheels.
+      - name: Install the core wheel on CPython 3.15
+        run: |
+          uv venv --python 3.15 .abi3-core-venv
+          uv pip install --python .abi3-core-venv/bin/python \
+            --only-binary :all: wheelhouse/*.whl
+
+      - name: Run the CPython 3.15 core packaging smoke
+        run: .abi3-core-venv/bin/python .github/scripts/artifact_smoke.py --expect-python 3.15
 
       # The suite adds interpreter-behavior coverage for the wrapper; PRs
       # get the focused smoke above. Test dependencies install at their
