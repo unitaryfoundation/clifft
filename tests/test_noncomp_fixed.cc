@@ -9,6 +9,7 @@
 #include <array>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/generators/catch_generators.hpp>
+#include <catch2/matchers/catch_matchers_string.hpp>
 #include <cmath>
 #include <future>
 #include <string>
@@ -194,6 +195,21 @@ TEST_CASE("Fixed noncomputational rejects requests whose observable contract nee
         circuit = parse("LOSS(0.1) 0\nCX 0 1\nM 1");
         reason = FixedNonComputationalReason::PartnerChannel;
     }
+    SECTION("explicit spreading") {
+        circuit = parse("LEAKAGE(1) 0\nLEAKAGE_INTERACTION(0.25,0.25,0.25,0.1) 0 1");
+        reason = FixedNonComputationalReason::Spreading;
+    }
+    SECTION("model configured spreading") {
+        noise =
+            NonComputationalModel::from_spec(test::pure_initial_state(Level::G), {}, std::nullopt,
+                                             {}, {PartnerEffect{{0.25, 0.25, 0.25}, 0.1}, {}}, {});
+        circuit = parse("LEAKAGE(1) 0\nCX 0 1");
+        reason = FixedNonComputationalReason::Spreading;
+    }
+    SECTION("unsupported parity measurement") {
+        circuit = parse("MPP Z0*Z1");
+        reason = FixedNonComputationalReason::UnsupportedOperation;
+    }
     SECTION("initial mixed state") {
         noise = NonComputationalModel::from_spec({0.5, 0.5, 0, 0, 0}, {}, std::nullopt, {});
         circuit = parse("H 0");
@@ -216,4 +232,80 @@ TEST_CASE("Fixed noncomputational rejects requests whose observable contract nee
         PreparedNonComputationalRequest(circuit, noise, requirements));
     REQUIRE(std::holds_alternative<FixedNonComputationalRejection>(result));
     CHECK(std::get<FixedNonComputationalRejection>(result).reason == reason);
+}
+
+TEST_CASE("Fixed noncomputational validates every consumed correlated branch") {
+    const size_t branch = GENERATE(size_t{0}, size_t{1}, size_t{2});
+    auto circuit = parse(
+        "CORRELATED_ERROR(0.2) X0\nELSE_CORRELATED_ERROR(0.3) X0\n"
+        "ELSE_CORRELATED_ERROR(0) X0\nM 0");
+    circuit.nodes[branch].targets = {Target::pauli(1, Target::kPauliX)};
+    const PreparedNonComputationalRequest request(circuit, model());
+    CHECK_THROWS_WITH(prepare_fixed_noncomputational(request),
+                      Catch::Matchers::ContainsSubstring("operand is out of range"));
+}
+
+TEST_CASE("Fixed noncomputational rejects malformed readout targets before lowering") {
+    const auto target = GENERATE(Target::qubit(0), Target::rec(0).inverted(),
+                                 Target{Target::rec(0).bits | Target::kPauliX});
+    auto circuit = parse("M 0\nREADOUT_NOISE(1) rec[-1]");
+    circuit.nodes[1].targets = {target};
+    const PreparedNonComputationalRequest request(circuit, model());
+    CHECK_THROWS_WITH(prepare_fixed_noncomputational(request),
+                      Catch::Matchers::ContainsSubstring("plain record targets"));
+}
+
+TEST_CASE("Fixed noncomputational rejects grouped operations with whole node drop semantics") {
+    const bool reset = GENERATE(false, true);
+    auto circuit = parse(reset ? "X 1\nLOSS(1) 0\nR 0\nR 1\nM 1" : "LEAKAGE(1) 0\nX 0\nX 1\nM 1");
+    const size_t group = reset ? 2 : 1;
+    circuit.nodes[group].targets.push_back(Target::qubit(1));
+    circuit.nodes.erase(circuit.nodes.begin() + group + 1);
+    const PreparedNonComputationalRequest request(circuit, model(), {.final_status = false});
+    const auto result = prepare_fixed_noncomputational(request);
+    REQUIRE(std::holds_alternative<FixedNonComputationalRejection>(result));
+    const auto& rejection = std::get<FixedNonComputationalRejection>(result);
+    CHECK(rejection.reason == FixedNonComputationalReason::UnsupportedOperation);
+    CHECK(rejection.operation == group);
+    CHECK(rejection.source_line == group + 1);
+    const auto fallback = request.sample(16, 3);
+    for (const auto bit : fallback.measurements) {
+        CHECK(bit == reset);
+    }
+}
+
+TEST_CASE("Fixed noncomputational accepts grouped operations without whole node drops") {
+    const bool reset = GENERATE(false, true);
+    auto circuit = parse(reset ? "X 1\nLOSS(1) 0\nR 0\nR 1\nM 1" : "LEAKAGE(0) 0\nX 0\nX 1\nM 1");
+    const size_t group = reset ? 2 : 1;
+    circuit.nodes[group].targets.push_back(Target::qubit(1));
+    circuit.nodes.erase(circuit.nodes.begin() + group + 1);
+    const PreparedNonComputationalRequest request(circuit, model(false, true));
+    const auto result = prepare_fixed_noncomputational(request);
+    REQUIRE(std::holds_alternative<FixedNonComputationalProgram>(result));
+    same(std::get<FixedNonComputationalProgram>(result).sample(16, 3), request.sample(16, 3));
+}
+
+TEST_CASE("Fixed noncomputational permits unreachable spreading") {
+    const auto noise =
+        NonComputationalModel::from_spec(test::pure_initial_state(Level::G), {}, std::nullopt, {},
+                                         {PartnerEffect{{0.25, 0.25, 0.25}, 0.1}, {}}, {});
+    const auto circuit = GENERATE("LEAKAGE(0) 0\nCX 0 1", "LEAKAGE(1) 0 1\nCX 0 1");
+    const auto program = fixed(circuit, noise);
+    CHECK(program.sample(1, 9).num_qubits == 2);
+}
+
+TEST_CASE("Fixed noncomputational rejection identifies the expanded hook node") {
+    auto transition = test::zero_transition_matrix();
+    transition[0][0] = 0.1;
+    const auto noise = NonComputationalModel::from_spec(test::pure_initial_state(Level::G),
+                                                        {{"H", transition}}, std::nullopt, {});
+    const PreparedNonComputationalRequest request(parse("X 0\nH 0"), noise);
+    const auto result = prepare_fixed_noncomputational(request);
+    REQUIRE(std::holds_alternative<FixedNonComputationalRejection>(result));
+    const auto& rejection = std::get<FixedNonComputationalRejection>(result);
+    CHECK(rejection.reason == FixedNonComputationalReason::NamedTransition);
+    REQUIRE(rejection.operation == 2);
+    CHECK(request.resolved_circuit().operation(*rejection.operation).generated_by == 1);
+    CHECK(rejection.source_line == 2);
 }

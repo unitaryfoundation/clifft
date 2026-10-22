@@ -99,6 +99,16 @@ uint8_t after_reset(uint8_t states, bool restores_lost) {
            ((states & kLost) != 0 ? (restores_lost ? kComputational : kLost) : 0);
 }
 
+std::vector<QubitOperand> checked_operands(const AstNode& node, uint32_t num_qubits) {
+    auto operands = qubit_operands(node);
+    for (const auto& operand : operands) {
+        if (operand.qubit >= num_qubits) {
+            throw std::invalid_argument("fixed noncomputational operand is out of range");
+        }
+    }
+    return operands;
+}
+
 }  // namespace
 
 namespace detail {
@@ -172,6 +182,12 @@ class FixedBuilder {
                 cumulative += outcome.probability;
                 step.outcomes.push_back(
                     {symbol_to_input[sampling::index(outcome.symbol)], cumulative});
+            }
+            if (!step.outcomes.empty()) {
+                // Match the ordinary executor's declared event probability
+                // even when summing channel weights accumulates roundoff.
+                step.outcomes.back().cumulative_probability =
+                    plan.presampled_noise_sites[site].total_probability;
             }
         }
         if (!data_->dynamic_inputs) {
@@ -300,12 +316,7 @@ std::optional<FixedNonComputationalRejection> FixedBuilder::lower() {
         return std::nullopt;
     }
 
-    const auto operands = qubit_operands(node);
-    for (const auto& operand : operands) {
-        if (operand.qubit >= reachable_.size()) {
-            throw std::invalid_argument("fixed noncomputational operand is out of range");
-        }
-    }
+    const auto operands = checked_operands(node, resolved_.circuit().num_qubits);
     if (node.gate == GateType::READOUT_NOISE) {
         if (node.args.size() != 1 && node.args.size() != 2) {
             throw std::invalid_argument(
@@ -316,6 +327,10 @@ std::optional<FixedNonComputationalRejection> FixedBuilder::lower() {
                 "fixed noncomputational readout probabilities must lie in [0, 1]");
         }
         for (const Target& target : node.targets) {
+            if (!target.is_rec() || target.is_inverted() || target.has_pauli()) {
+                throw std::invalid_argument(
+                    "fixed noncomputational readout requires plain record targets");
+            }
             const ReadoutChannel channel{node.args[0],
                                          node.args.size() == 1 ? node.args[0] : node.args[1], 0.0};
             const uint32_t input = append_readout(target.value(), node.source_line);
@@ -333,7 +348,9 @@ std::optional<FixedNonComputationalRejection> FixedBuilder::lower() {
         lowered_.nodes.push_back(node);
         while (operation_ + 1 < resolved_.circuit().nodes.size() &&
                resolved_.circuit().nodes[operation_ + 1].gate == GateType::ELSE_CORRELATED_ERROR) {
-            lowered_.nodes.push_back(resolved_.circuit().nodes[++operation_]);
+            const auto& branch = resolved_.circuit().nodes[++operation_];
+            checked_operands(branch, resolved_.circuit().num_qubits);
+            lowered_.nodes.push_back(branch);
         }
         return std::nullopt;
     }
@@ -421,9 +438,17 @@ std::optional<FixedNonComputationalRejection> FixedBuilder::lower() {
         return std::nullopt;
     }
     if (is_reset(node.gate)) {
+        const bool restore = model_.policy().reset_restores_lost;
+        // A lost operand drops the whole unsplit AST node in trajectories.
+        // Independent resets would incorrectly restore its live partners.
+        if (operands.size() > 1 && !restore &&
+            std::ranges::any_of(operands, [&](const auto& operand) {
+                return (reachable_[operand.qubit] & kLost) != 0;
+            })) {
+            return reject(FixedNonComputationalReason::UnsupportedOperation);
+        }
         lowered_.nodes.push_back(node);
         for (const auto& operand : operands) {
-            const bool restore = model_.policy().reset_restores_lost;
             data_->inputs.emplace_back(ResetInput{operand.qubit, restore});
             reachable_[operand.qubit] = after_reset(reachable_[operand.qubit], restore);
         }
@@ -435,11 +460,16 @@ std::optional<FixedNonComputationalRejection> FixedBuilder::lower() {
         return std::nullopt;
     }
     if (is_unitary(node.gate)) {
-        if (gate_arity(node.gate) != GateArity::SINGLE && operands.size() > 1) {
+        if (operands.size() > 1) {
             const bool all_live = std::ranges::all_of(operands, [&](const auto& operand) {
                 return reachable_[operand.qubit] == kComputational;
             });
             if (!all_live) {
+                // Parsed local gates are split into one node per target.
+                // An unsplit node instead has whole-operation drop semantics.
+                if (gate_arity(node.gate) == GateArity::SINGLE) {
+                    return reject(FixedNonComputationalReason::UnsupportedOperation);
+                }
                 if (operands.size() != 2 || !supports_partner_effect(node.gate)) {
                     return reject(FixedNonComputationalReason::PartnerChannel);
                 }
@@ -449,9 +479,14 @@ std::optional<FixedNonComputationalRejection> FixedBuilder::lower() {
                     }
                     for (const auto status : {InteractionSource::Leaked, InteractionSource::Lost}) {
                         const uint8_t bit = status == InteractionSource::Leaked ? kLeaked : kLost;
-                        if ((reachable_[operands[source].qubit] & bit) != 0 &&
-                            !full_depolarization(
-                                model_.partner_effect(node.gate, source, status))) {
+                        if ((reachable_[operands[source].qubit] & bit) == 0) {
+                            continue;
+                        }
+                        const auto* effect = model_.partner_effect(node.gate, source, status);
+                        if (effect != nullptr && effect->spread_probability != 0.0) {
+                            return reject(FixedNonComputationalReason::Spreading);
+                        }
+                        if (!full_depolarization(effect)) {
                             return reject(FixedNonComputationalReason::PartnerChannel);
                         }
                     }

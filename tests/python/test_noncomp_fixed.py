@@ -224,3 +224,66 @@ def test_fixed_static_inputs_keep_asymmetric_readout_and_reset_semantics():
     result = sample(program)
     np.testing.assert_allclose(result.measurements.mean(axis=0), [0.6, 0.2], atol=0.02)
     assert not result.final_status.any()
+
+
+@pytest.mark.parametrize(
+    ("text", "restore_lost"),
+    [
+        pytest.param(
+            "LEAKAGE(0.4) 0\nM 0\nCX rec[-1] 1\nM 1\nHERALD_LEAKAGE_EVENT 0\nR 0",
+            False,
+            id="herald-feedback-and-status-probe",
+        ),
+        pytest.param(
+            "H 0\nT 0\nCX 0 2\nLOSS(0.35) 0\nCX 0 1\nMX 1\nM 2\nHERALD_LOSS_EVENT 0\nR 0",
+            False,
+            id="non-clifford-partner-and-persistent-loss",
+        ),
+        pytest.param(
+            "H 0\nLOSS(0.4) 0\nMRX !0\nREADOUT_NOISE(0.25,0.1) rec[-1]\nCX rec[-1] 1\nM 0 1",
+            True,
+            id="inverted-reset-readout-and-feedback",
+        ),
+        pytest.param(
+            "LEAKAGE(0.4) 0\nCORRELATED_ERROR(0.3) X0\nELSE_CORRELATED_ERROR(0.4) X1\n"
+            "DEPOLARIZE2(0.7) 0 1\nM 1\nHERALD_LEAKAGE_EVENT 0\nR 0",
+            False,
+            id="correlated-branch-and-whole-operation-noise",
+        ),
+        pytest.param(
+            "LOSS(0.4) 3\nDEPOLARIZE3(1) 0 1 2\nM 0 1 2\nHERALD_LOSS_EVENT 3",
+            False,
+            id="certain-three-qubit-noise",
+        ),
+    ],
+)
+def test_fixed_joint_output_contract_matches_trajectories(text, restore_lost, noncomp_sampling_api):
+    model = noncomp.Model(
+        classifier=noncomp.Classifier(
+            [[1, 0, 0.2, 0.2, 0.2], [0, 1, 0.3, 0.3, 0.3], [0, 0, 0.5, 0.5, 0.5]]
+        ),
+        reset_restores_lost=restore_lost,
+        gate_partner_effects={"leaked": DEPOLARIZE, "lost": DEPOLARIZE},
+    )
+    text += "\nDETECTOR rec[-1] rec[-2]\nOBSERVABLE_INCLUDE(0) rec[-1]"
+    program = prepare(text, model, final_status=True)
+    actual = sample(program)
+    expected = noncomp_sampling_api(text, model, shots=16000, seed=71)
+
+    def joint(result):
+        return dense.empirical_record_probs(
+            np.concatenate(
+                [
+                    result.measurements,
+                    result.heralds,
+                    result.detectors,
+                    result.observables,
+                    result.final_status,
+                ],
+                axis=1,
+            )
+        )
+
+    # Compare the full joint law; matching marginals can hide broken feedback
+    # or correlations between the reported record and the status sidecars.
+    assert dense.tvd(joint(actual), joint(expected)) < 0.04

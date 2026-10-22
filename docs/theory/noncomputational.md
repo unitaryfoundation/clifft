@@ -229,10 +229,8 @@ dependencies are resolved before execution resumes.
 
 ### Internal fixed execution
 
-The internal scalar fixed path in `noncomp/fixed.h` prepares one program for a
-conservative subset. The public `noncomp.sample` entry point continues to use
-trajectories. Fixed preparation consumes the shared resolved circuit and
-returns either an owned program or a structured rejection reason.
+The internal fixed path reuses one compiled program for a conservative subset.
+The public `noncomp.sample` entry point continues to use trajectories.
 
 The initial subset starts in `g` and uses state-independent inline leakage and
 loss. It accepts leaked readouts only when the classifier does not distinguish
@@ -254,25 +252,16 @@ depolarizes the live operand in every reachable inactive/live direction. Local
 auxiliary operations disappear under partial trace. The representation also
 admits non-Cliffords, subject to the actual candidate's active-width limit.
 
-The classical event schedule is independent of quantum measurement outcomes
-in this subset. Each worker preallocates status, noise, readout, and herald
-buffers, then fills them before quantum execution. An externally supplied
-readout input gives a flip for each possible hidden outcome; the executor
-chooses the flip when that outcome becomes available. Reset correction uses
-the hidden result, while feedback and output parities consume the reported
-record. Herald selection and its placeholder bit preserve their joint law.
+Status transitions in this subset are independent of quantum measurement
+outcomes. Readout still distinguishes the hidden quantum result from the
+reported value: reset correction uses the hidden result, while feedback,
+detectors, and observables consume the reported record. A heralded readout
+retains its jointly sampled herald and uniform placeholder bit.
 
 Ordinary noise is masked using the whole original operation's active operands.
 Correlated-error chains retain shared branch selection, including branches
-whose Pauli factors act only on auxiliaries. Input sites remain in emitted
-order: this path traces directly into the sampling planner without HIR passes
-that could merge or remove conditioned noise. Coordinate planning, expression
-dependency discovery, and executable fusion still happen before sampling.
-The resulting plan contains no instruments or continuation path. Copies share
-immutable prepared data; sampling calls own their workers and RNG streams.
-When no status transition is possible, preparation binds the readout channels
-statically and uses the ordinary executor's noise sampler without classical
-status/input buffers.
+whose Pauli factors act only on auxiliaries: selecting such a branch still
+suppresses later branches acting on live sites.
 
 ## Active-width cost
 

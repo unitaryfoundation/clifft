@@ -28,6 +28,8 @@ enum class FixedNonComputationalReason {
 
 struct FixedNonComputationalRejection {
     FixedNonComputationalReason reason;
+    // Index in the hook-expanded resolved circuit, including generated nodes.
+    // The resolved operation's generated_by identifies its originating gate.
     std::optional<uint32_t> operation;
     uint32_t source_line = 0;
 };

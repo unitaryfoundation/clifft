@@ -245,10 +245,12 @@ class Executor {
 
     // Fixed-fault-count sampling supplies its selected circuit sites here.
     std::span<const uint32_t> forced_fault_sites_;
-    std::span<const ReadoutNoiseInput> readout_inputs_;
     uint32_t forced_fault_cursor_ = 0;
     uint32_t next_noise_site_ = 0;
     uint32_t next_noise_action_ = 0;
+
+    // Borrowed only while a shot uses externally supplied readout channels.
+    std::span<const ReadoutNoiseInput> readout_inputs_;
 
     // RNG position deliberately persists across shots.
     Xoshiro256PlusPlus rng_;
