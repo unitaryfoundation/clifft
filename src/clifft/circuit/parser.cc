@@ -373,7 +373,10 @@ class Parser {
                 throw ParseError(name + " probability must be finite and lie in [0, 1]", line_num);
             }
         }
-        if (gate == GateType::CORRELATED_ERROR || gate == GateType::ELSE_CORRELATED_ERROR) {
+        if (gate == GateType::X_ERROR || gate == GateType::Y_ERROR || gate == GateType::Z_ERROR ||
+            gate == GateType::DEPOLARIZE1 || gate == GateType::DEPOLARIZE2 ||
+            gate == GateType::DEPOLARIZE3 || gate == GateType::CORRELATED_ERROR ||
+            gate == GateType::ELSE_CORRELATED_ERROR) {
             const std::string name{clifft::gate_name(gate)};
             if (args.size() != 1) {
                 throw ParseError(name + " requires exactly 1 probability argument", line_num);

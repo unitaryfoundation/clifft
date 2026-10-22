@@ -47,6 +47,15 @@ _TRIPLE_NOISE_GATES = [
 
 _PAULI_CHANNEL_WIDTHS = [1, 2, 3]
 
+_SINGLE_PROBABILITY_NOISE = [
+    ("X_ERROR", "0"),
+    ("Y_ERROR", "0"),
+    ("Z_ERROR", "0"),
+    ("DEPOLARIZE1", "0"),
+    ("DEPOLARIZE2", "0 1"),
+    ("DEPOLARIZE3", "0 1 2"),
+]
+
 _INLINE_MEASUREMENTS = [
     ("M", "0"),
     ("MZ", "0"),
@@ -136,6 +145,19 @@ def test_pauli_channel_regression_coverage(gate_metadata):
     assert_gate_coverage(expected, [f"PAULI_CHANNEL_{width}" for width in _PAULI_CHANNEL_WIDTHS])
 
 
+def test_single_probability_noise_regression_coverage(gate_metadata):
+    expected = {
+        name
+        for name, traits in gate_metadata.items()
+        if traits["noise"] and traits["arity"] != "multi" and not name.startswith("PAULI_CHANNEL_")
+    }
+    assert_gate_coverage(
+        expected,
+        [gate for gate, _ in _SINGLE_PROBABILITY_NOISE],
+        {"READOUT_NOISE": "Accepts one or two probabilities; validated separately."},
+    )
+
+
 def test_correlated_error_regression_coverage(gate_metadata):
     expected = {
         name
@@ -198,6 +220,40 @@ def test_pauli_channel_rejects_excess_total_probability(width, read_circuit):
     targets = " ".join(map(str, range(width)))
     with pytest.raises(clifft.ParseError, match="Line 2: .*probabilities must sum to at most 1"):
         read_circuit(f"H 0\nPAULI_CHANNEL_{width}({','.join(probabilities)}) {targets}\nM 0")
+
+
+@pytest.mark.parametrize(("gate", "targets"), _SINGLE_PROBABILITY_NOISE)
+@pytest.mark.parametrize("arguments", ["", "()", "(0.1,0.2)"])
+def test_single_probability_noise_requires_one_argument(gate, targets, arguments, read_circuit):
+    with pytest.raises(clifft.ParseError, match=f"Line 2: {gate} requires exactly 1 probability"):
+        read_circuit(f"H 0\n{gate}{arguments} {targets}\nM 0")
+
+
+@pytest.mark.parametrize(("gate", "targets"), _SINGLE_PROBABILITY_NOISE)
+@pytest.mark.parametrize("probability", ["-0.1", "1.5"])
+def test_single_probability_noise_rejects_invalid_probability(
+    gate, targets, probability, read_circuit
+):
+    with pytest.raises(clifft.ParseError, match=f"Line 2: {gate} probability must be finite"):
+        read_circuit(f"H 0\n{gate}({probability}) {targets}\nM 0")
+
+
+@pytest.mark.parametrize(("gate", "targets"), _SINGLE_PROBABILITY_NOISE)
+@pytest.mark.parametrize("probability", ["nan", "inf", "-inf", "1e999"])
+def test_single_probability_noise_rejects_nonfinite_probability(
+    gate, targets, probability, read_circuit
+):
+    with pytest.raises(clifft.ParseError, match="Line 2:"):
+        read_circuit(f"H 0\n{gate}({probability}) {targets}\nM 0")
+
+
+@pytest.mark.parametrize(("gate", "targets"), _SINGLE_PROBABILITY_NOISE)
+@pytest.mark.parametrize("probability", [0, 1])
+def test_single_probability_noise_accepts_endpoints(gate, targets, probability, read_circuit):
+    text = f"H 0\n{gate}({probability}) {targets}\nM 0"
+    if gate != "DEPOLARIZE3":  # Stim has no three-qubit depolarizing instruction.
+        stim.Circuit(text)
+    read_circuit(text)
 
 
 @pytest.mark.parametrize(("gate", "targets"), _INLINE_MEASUREMENTS)
