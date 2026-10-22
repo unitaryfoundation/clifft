@@ -1,5 +1,6 @@
 #include "clifft/api/reference_syndrome.h"
 #include "clifft/circuit/circuit.h"
+#include "clifft/circuit/gate_data.h"
 #include "clifft/circuit/parser.h"
 #include "clifft/circuit/qasm2_parser.h"
 #include "clifft/frontend/frontend.h"
@@ -404,6 +405,36 @@ NB_MODULE(_clifft_core, m) {
     m.def("_num_gate_types", []() {
         return static_cast<int>(sizeof(clifft::detail::kGateTraitsData) /
                                 sizeof(clifft::detail::kGateTraitsData[0]));
+    });
+    // Tests use metadata to detect missing cases while keeping their behavior oracles explicit.
+    m.def("_gate_metadata", []() {
+        nb::dict metadata;
+        for (const auto& traits : clifft::detail::kGateTraitsData) {
+            nb::dict entry;
+            switch (traits.arity) {
+                case clifft::GateArity::SINGLE:
+                    entry["arity"] = "single";
+                    break;
+                case clifft::GateArity::PAIR:
+                    entry["arity"] = "pair";
+                    break;
+                case clifft::GateArity::TRIPLE:
+                    entry["arity"] = "triple";
+                    break;
+                case clifft::GateArity::MULTI:
+                    entry["arity"] = "multi";
+                    break;
+                case clifft::GateArity::ANNOTATION:
+                    entry["arity"] = "annotation";
+                    break;
+            }
+            entry["unitary"] = traits.unitary;
+            entry["noise"] = traits.noise;
+            entry["physical_measurement"] = traits.physical_measurement;
+            entry["identity_noop"] = traits.identity_noop;
+            metadata[nb::str(traits.name.data(), traits.name.size())] = entry;
+        }
+        return metadata;
     });
 
     nb::enum_<clifft::GateType>(m, "GateType", "Quantum gate types")

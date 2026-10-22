@@ -191,6 +191,11 @@ class TestEnumBindingCompleteness:
             "A new GateType was added in gate_data.h but not bound in bindings.cc."
         )
 
+    def test_gate_metadata_covers_all_gate_types(self) -> None:
+        from clifft._clifft_core import _gate_metadata
+
+        assert set(_gate_metadata()) == set(clifft.GateType.__members__)
+
 
 class TestAstNodeAnnotations:
     """AstNode.tag and annotation GateType binding tests."""
