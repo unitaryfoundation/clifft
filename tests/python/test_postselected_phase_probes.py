@@ -8,7 +8,7 @@ from typing import Any
 import numpy as np
 import pytest
 from utils_conformance import (
-    CpuSamplingMode,
+    CPU_SAMPLING_MODES,
     SamplingMode,
     assert_joint_distribution,
     expectation_atol,
@@ -17,7 +17,7 @@ from utils_conformance import (
 import clifft
 
 PROBES = ["".join(axes) for axes in product("IXYZ", repeat=2) if axes != ("I", "I")]
-_DEFAULT_SAMPLING_MODE = CpuSamplingMode("automatic", "auto")
+_DEFAULT_SAMPLING_MODE = next(mode for mode in CPU_SAMPLING_MODES if mode.name == "automatic")
 Outcome = tuple[tuple[int, ...], float] | None
 
 
@@ -226,12 +226,12 @@ def test_postselected_phase_probes_match_joint_branch_oracle(
 
 
 @pytest.mark.parametrize(
-    "probe,position,selected_parity,readout,difference",
+    "probe,position,selected_parity,readout,difference,profile",
     [
-        ("ZI", "before", 0, 0.0, False),
-        ("XI", "before", 1, 0.0, False),
-        ("ZZ", "between", 0, 0.17, True),
-        ("XZ", "after", 1, 0.17, True),
+        ("ZI", "before", 0, 0.0, False, "phase"),
+        ("XI", "before", 1, 0.0, False, "default"),
+        ("YI", "between", 0, 0.17, True, "default"),
+        ("YZ", "after", 1, 0.17, True, "default"),
     ],
 )
 def test_postselected_phase_probes_across_sampling_modes(
@@ -241,5 +241,6 @@ def test_postselected_phase_probes_across_sampling_modes(
     selected_parity: int,
     readout: float,
     difference: bool,
+    profile: str,
 ) -> None:
-    _check_probe(sampling_mode, probe, position, selected_parity, readout, difference, "default")
+    _check_probe(sampling_mode, probe, position, selected_parity, readout, difference, profile)

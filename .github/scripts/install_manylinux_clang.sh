@@ -14,7 +14,7 @@ readonly openmp_root="/opt/clifft-openmp"
 # The static manylinux compiler intentionally reuses the image's libstdc++ and
 # libgcc. Install only the matching OpenMP development/runtime package here so
 # auditwheel can bundle the non-policy runtime into the repaired wheel.
-dnf install -y --setopt=timeout=30 --setopt=retries=3 libomp-devel
+dnf install -y libomp-devel
 manylinux-install-clang -v "${clang_version}"
 
 mapfile -t omp_headers < <(rpm -ql libomp-devel | awk '/\/omp\.h$/ { print }')
