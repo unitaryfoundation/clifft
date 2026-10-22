@@ -139,6 +139,24 @@ def test_compile_rejects_unknown_input_format() -> None:
         clifft.compile("H 0", input_format="qasm3")  # type: ignore[arg-type]
 
 
+@pytest.mark.parametrize("api", ["parse", "parse_file", "compile"])
+@pytest.mark.parametrize("operands", ["q[0], q[0]", "q, q", "q[1], q"])
+def test_qasm2_duplicate_physical_operands_rejected(
+    api: str, operands: str, tmp_path: Path
+) -> None:
+    """Register expansion must reject collisions before reaching the compiler."""
+    source = f"OPENQASM 2.0;\nqreg q[2];\nCX {operands};"
+    with pytest.raises(clifft.ParseError, match="Line 3: .*same qubit twice"):
+        if api == "parse":
+            clifft.parse_qasm2(source)
+        elif api == "parse_file":
+            path = tmp_path / "circuit.qasm"
+            path.write_text(source)
+            clifft.parse_qasm2_file(str(path))
+        else:
+            clifft.compile(source, input_format="qasm2")
+
+
 @pytest.mark.parametrize(
     "statement",
     [

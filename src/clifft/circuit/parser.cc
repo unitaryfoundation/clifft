@@ -349,11 +349,14 @@ class Parser {
         if (gate == GateType::PAULI_CHANNEL_3 && args.size() != 63) {
             throw ParseError("PAULI_CHANNEL_3 requires exactly 63 arguments", line_num);
         }
-        if ((gate == GateType::CORRELATED_ERROR || gate == GateType::ELSE_CORRELATED_ERROR) &&
-            args.size() != 1) {
-            throw ParseError(
-                std::string(clifft::gate_name(gate)) + " requires exactly 1 probability argument",
-                line_num);
+        if (gate == GateType::CORRELATED_ERROR || gate == GateType::ELSE_CORRELATED_ERROR) {
+            const std::string name{clifft::gate_name(gate)};
+            if (args.size() != 1) {
+                throw ParseError(name + " requires exactly 1 probability argument", line_num);
+            }
+            if (!is_probability(args[0])) {
+                throw ParseError(name + " probability must be finite and lie in [0, 1]", line_num);
+            }
         }
 
         // Validate argument counts for parameterized rotations.
@@ -900,6 +903,12 @@ class Parser {
                         }
                     }
 
+                    if (is_unitary(gate) && !t0.is_rec() && !t1.is_rec() &&
+                        t0.value() == t1.value()) {
+                        throw ParseError("Gate " + std::string(gate_name(gate)) +
+                                             " requires distinct qubit targets",
+                                         line_num);
+                    }
                     if (is_noncomputational_interaction(gate) &&
                         (t0.has_pauli() || t1.has_pauli() || t0.value() == t1.value())) {
                         throw ParseError("Interaction requires distinct plain qubit targets",
