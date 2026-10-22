@@ -2,6 +2,8 @@
 
 #include "clifft/noncomp/numeric.h"
 
+#include <algorithm>
+#include <cassert>
 #include <cmath>
 #include <cstdint>
 #include <stdexcept>
@@ -78,6 +80,33 @@ double MeasurementClassifier::prob(uint8_t symbol_idx, Level level) const {
                                     std::to_string(num_symbols_) + ")");
     }
     return matrix_flat_[static_cast<size_t>(symbol_idx) * kNumLevels + static_cast<size_t>(level)];
+}
+
+ClassifiedReadoutChannel classified_readout_channel(const MeasurementClassifier* classifier,
+                                                    GateType gate, QubitStatus status,
+                                                    bool inverted) {
+    if (is_computational(status)) {
+        if (classifier == nullptr || (gate != GateType::M && gate != GateType::MR)) {
+            return {};
+        }
+        double p01 = classifier->prob(1, Level::G);
+        double p10 = classifier->prob(0, Level::E);
+        if (inverted) {
+            std::swap(p01, p10);
+        }
+        return {p01, p10, 0.0};
+    }
+    assert(classifier != nullptr);
+    const Level level = noncomp_level(status);
+    const double herald = classifier->has_herald()
+                              ? classifier->prob(MeasurementClassifier::kHeraldSymbol, level)
+                              : 0.0;
+    double q =
+        herald < 1.0 ? std::clamp(classifier->prob(1, level) / (1.0 - herald), 0.0, 1.0) : 0.5;
+    if (inverted) {
+        q = 1.0 - q;
+    }
+    return {q, 1.0 - q, herald};
 }
 
 }  // namespace clifft

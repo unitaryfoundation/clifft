@@ -582,7 +582,11 @@ void validate_instrument_probabilities(const InstrumentProbabilities& probabilit
 
 }  // namespace
 
-HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instruments) {
+HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instruments,
+                TraceInputOrigins* input_origins) {
+    if (input_origins != nullptr) {
+        *input_origins = {};
+    }
     // Avoid an accidental multi-gigabyte tableau allocation. This
     // conservative safety ceiling is far above practical circuit sizes.
     if (circuit.num_qubits > 65536) {
@@ -615,6 +619,7 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
     for (size_t node_index = 0; node_index < circuit.nodes.size(); ++node_index) {
         const auto& node = circuit.nodes[node_index];
         const size_t ops_before = hir.ops.size();
+        const size_t origin_node = node_index;
 
         switch (node.gate) {
             // Single-qubit Cliffords
@@ -1299,6 +1304,11 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                                          std::string(gate_name(node.gate)));
         }
 
+        if (input_origins != nullptr) {
+            // A correlated chain produces one site rooted at its first node.
+            input_origins->noise_nodes.resize(hir.noise_sites.size(), origin_node);
+            input_origins->readout_nodes.resize(hir.readout_noise.size(), origin_node);
+        }
         // Source map: append one entry per op produced by this node.
         const size_t ops_after = hir.ops.size();
         for (size_t i = ops_before; i < ops_after; ++i) {

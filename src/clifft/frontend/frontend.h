@@ -24,6 +24,7 @@
 #include <map>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace clifft {
 
@@ -49,6 +50,14 @@ struct InstrumentTraceOptions {
     std::optional<size_t> forced_traceout_node;
 };
 
+// Optional preparation-time identities for callers that supply external noise
+// and readout inputs. Entries index the traced circuit's nodes, not source
+// lines: repeated instructions and multiple channels on one record stay distinct.
+struct TraceInputOrigins {
+    std::vector<size_t> noise_nodes;
+    std::vector<size_t> readout_nodes;
+};
+
 // Trace a circuit through the Front-End, producing a HirModule.
 //
 // This is the main entry point for the Front-End. It:
@@ -70,6 +79,7 @@ struct InstrumentTraceOptions {
 // 65536-qubit safety ceiling. Pauli mask storage is otherwise sized at
 // runtime.
 [[nodiscard]] HirModule trace(const Circuit& circuit,
-                              const InstrumentTraceOptions* instruments = nullptr);
+                              const InstrumentTraceOptions* instruments = nullptr,
+                              TraceInputOrigins* input_origins = nullptr);
 
 }  // namespace clifft

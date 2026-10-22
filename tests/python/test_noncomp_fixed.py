@@ -303,6 +303,36 @@ def test_fixed_later_readout_noise_consumes_reported_record():
     np.testing.assert_array_equal(result.measurements, np.tile([1, 0, 1], (32, 1)))
 
 
+@pytest.mark.parametrize("dynamic", [False, True], ids=["static-inputs", "dynamic-inputs"])
+def test_fixed_channels_on_one_record_preserve_order_and_detector_snapshots(dynamic):
+    model = noncomp.Model(classifier=noncomp.Classifier(CLASSIFIER))
+    text = (
+        f"LEAKAGE({int(dynamic)}) 2\nM 0\nREADOUT_NOISE(1,0) rec[-1]\n"
+        "DETECTOR rec[-1]\nREADOUT_NOISE(0,1) rec[-1]\nCX rec[-1] 1\nM 1\n"
+        "OBSERVABLE_INCLUDE(0) rec[-2]\nR 2"
+    )
+    result = sample(prepare(text, model, final_status=True), shots=32)
+    assert not result.measurements.any()
+    assert result.detectors.all()
+    assert not result.observables.any()
+    assert not result.final_status.any()
+
+
+@pytest.mark.parametrize("width", [1, 2, 3])
+@pytest.mark.parametrize("probability", [0, 1])
+def test_fixed_noise_groups_bind_empty_and_live_sites_separately(width, probability):
+    probabilities = [str(probability)] + ["0"] * (4**width - 2)
+    targets = " ".join(map(str, range(2 * width)))
+    text = (
+        f"LEAKAGE(1) 0\nPAULI_CHANNEL_{width}({','.join(probabilities)}) {targets}\n"
+        f"M {width - 1} {2 * width - 1}"
+    )
+    model = noncomp.Model(classifier=noncomp.Classifier([[1, 0, 1, 1, 1], [0, 1, 0, 0, 0]]))
+    result = sample(prepare(text, model), shots=32)
+    # The first outcome is X on the last operand; only the second group is live.
+    np.testing.assert_array_equal(result.measurements, np.tile([0, probability], (32, 1)))
+
+
 @pytest.mark.parametrize(
     ("noise", "physical_noise"),
     [
@@ -380,6 +410,33 @@ def test_fixed_static_inputs_keep_asymmetric_readout_and_reset_semantics():
             "LOSS(0.4) 3\nDEPOLARIZE3(1) 0 1 2\nM 0 1 2\nHERALD_LOSS_EVENT 3",
             False,
             id="certain-three-qubit-noise",
+        ),
+        pytest.param(
+            "LEAKAGE(0.4) 0\nM 0\nM 0\nMR 0",
+            False,
+            id="repeated-classified-readouts-and-restoration",
+        ),
+        pytest.param(
+            "H 0\nLEAKAGE(0.4) 0\nSWAP 0 1\nM 0 1\nR 0 1",
+            False,
+            id="swap-with-an-inactive-source",
+        ),
+        pytest.param(
+            "LOSS(0.4) 0\nLOSS_INTERACTION(0.1,0.2,0.3) 0 1\nLEAKAGE(0.3) 2\n"
+            "LEAKAGE_INTERACTION(0.2,0.1,0.1,0) 2 1\nM 1\nHERALD_LOSS_EVENT 0\nR 2",
+            False,
+            id="explicit-partial-partner-effects",
+        ),
+        pytest.param(
+            "H 0\nLEAKAGE(0.3) 0\nCX 0 1 0 2\nM 1 2\nR 0",
+            False,
+            id="reused-source-across-physical-pairs",
+        ),
+        pytest.param(
+            "LEAKAGE(0) 0\nM 0\nREADOUT_NOISE(0.2,0.1) rec[-1]\nDETECTOR rec[-1]\n"
+            "READOUT_NOISE(0.4,0.3) rec[-1]\nCX rec[-1] 1\nM 1",
+            False,
+            id="static-ordered-readout-channels",
         ),
     ],
 )

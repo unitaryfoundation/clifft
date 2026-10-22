@@ -1,6 +1,7 @@
 #include "clifft/circuit/parser.h"
 #include "clifft/frontend/frontend.h"
 #include "clifft/noncomp/fixed.h"
+#include "clifft/noncomp/fixed_input_validation.h"
 #include "clifft/sampling/executor.h"
 #include "clifft/sampling/planner.h"
 #include "clifft/util/numeric.h"
@@ -47,6 +48,63 @@ void same(const NonComputationalSample& a, const NonComputationalSample& b) {
 }
 
 }  // namespace
+
+TEST_CASE("Fixed input bindings distinguish repeated lines and channels on the same record") {
+    const Circuit circuit = parse(
+        "REPEAT 2 {\nX_ERROR(0.2) 0\nM 0\n"
+        "READOUT_NOISE(0.3) rec[-1]\nREADOUT_NOISE(0.4) rec[-1]\n}\n"
+        "E(0.1) X0\nELSE_CORRELATED_ERROR(0.2) Y0");
+    REQUIRE(circuit.nodes[0].source_line == circuit.nodes[4].source_line);
+    TraceInputOrigins origins;
+    const HirModule hir = trace(circuit, nullptr, &origins);
+    auto plan = sampling::plan_sampling(hir);
+    const std::vector<size_t> noise_nodes{0, 4, 8};
+    const std::vector<detail::FixedReadoutSite> readout_sites{{2, 0}, {3, 0}, {6, 1}, {7, 1}};
+    REQUIRE(origins.noise_nodes == noise_nodes);
+    REQUIRE(origins.readout_nodes == std::vector<size_t>{2, 3, 6, 7});
+    REQUIRE_NOTHROW(
+        detail::validate_fixed_input_bindings(noise_nodes, readout_sites, origins, hir, plan));
+
+    const std::string mutation =
+        GENERATE("traced noise order", "traced readout order", "missing traced site",
+                 "planned noise order", "planned readout order", "missing planned identity",
+                 "wrong record", "extra readout", "missing readout");
+    CAPTURE(mutation);
+    std::vector<size_t> readout_actions;
+    for (size_t i = 0; i < plan.actions.size(); ++i) {
+        if (std::holds_alternative<sampling::ApplyReadoutNoise>(plan.actions[i].action)) {
+            readout_actions.push_back(i);
+        }
+    }
+    REQUIRE(readout_actions.size() == 4);
+    auto& first = std::get<sampling::ApplyReadoutNoise>(plan.actions[readout_actions[0]].action);
+    auto& second = std::get<sampling::ApplyReadoutNoise>(plan.actions[readout_actions[1]].action);
+    REQUIRE(first.record == second.record);
+    if (mutation == "traced noise order") {
+        std::swap(origins.noise_nodes[0], origins.noise_nodes[1]);
+    } else if (mutation == "traced readout order") {
+        std::swap(origins.readout_nodes[0], origins.readout_nodes[1]);
+    } else if (mutation == "missing traced site") {
+        origins.readout_nodes.pop_back();
+    } else if (mutation == "planned noise order") {
+        std::swap(plan.presampled_noise_sites[0].source_site,
+                  plan.presampled_noise_sites[1].source_site);
+    } else if (mutation == "planned readout order") {
+        std::swap(first.source_site, second.source_site);
+    } else if (mutation == "missing planned identity") {
+        first.source_site.reset();
+    } else if (mutation == "wrong record") {
+        first.record = sampling::RecordSlot{1};
+    } else if (mutation == "extra readout") {
+        const auto duplicate = plan.actions[readout_actions[0]];
+        plan.actions.push_back(duplicate);
+    } else {
+        plan.actions.erase(plan.actions.begin() + readout_actions[0]);
+    }
+    CHECK_THROWS_AS(
+        detail::validate_fixed_input_bindings(noise_nodes, readout_sites, origins, hir, plan),
+        std::logic_error);
+}
 
 TEST_CASE("External readout inputs preserve reset correction and feed later records") {
     const auto plan = sampling::plan_sampling(

@@ -5,6 +5,7 @@
 #include "test_helpers.h"
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/generators/catch_generators.hpp>
 #include <catch2/matchers/catch_matchers.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
@@ -21,6 +22,39 @@ using clifft::test::classifier_matrix_with_column;
 using clifft::test::opaque_infinity;
 using clifft::test::opaque_nan;
 using clifft::test::RawProbabilityMatrix;
+
+TEST_CASE("Classified readout applies computational confusion only in the Z basis") {
+    using clifft::GateType;
+    const auto gate = GENERATE(GateType::M, GateType::MR, GateType::MX, GateType::MRX, GateType::MY,
+                               GateType::MRY);
+    const bool inverted = GENERATE(false, true);
+    const auto classifier =
+        MeasurementClassifier::from_matrix({{0.8, 0.4, 0.5, 0.5, 0.5}, {0.2, 0.6, 0.5, 0.5, 0.5}});
+    const auto channel = clifft::classified_readout_channel(
+        &classifier, gate, clifft::QubitStatus::Computational, inverted);
+    const bool z_basis = gate == GateType::M || gate == GateType::MR;
+    CHECK(channel.p01 == (z_basis ? (inverted ? 0.4 : 0.2) : 0.0));
+    CHECK(channel.p10 == (z_basis ? (inverted ? 0.2 : 0.4) : 0.0));
+    CHECK(channel.herald == 0.0);
+    const auto ideal = clifft::classified_readout_channel(
+        nullptr, gate, clifft::QubitStatus::Computational, inverted);
+    CHECK(ideal.p01 == 0.0);
+    CHECK(ideal.p10 == 0.0);
+}
+
+TEST_CASE("Classified readout preserves conditional herald probabilities and inversion") {
+    const auto level = GENERATE(Level::LeakG, Level::LeakE, Level::Lost);
+    const bool inverted = GENERATE(false, true);
+    const bool always_herald = GENERATE(false, true);
+    const auto classifier = MeasurementClassifier::from_matrix(classifier_matrix_with_column(
+        level, always_herald ? std::vector<double>{0, 0, 1} : std::vector<double>{0.2, 0.3, 0.5}));
+    const auto channel = clifft::classified_readout_channel(&classifier, clifft::GateType::MRY,
+                                                            clifft::status_for(level), inverted);
+    CHECK(channel.herald == (always_herald ? 1.0 : 0.5));
+    const double probability = always_herald ? 0.5 : (inverted ? 0.4 : 0.6);
+    CHECK_THAT(channel.p01, WithinAbs(probability, 1e-14));
+    CHECK_THAT(channel.p10, WithinAbs(1.0 - probability, 1e-14));
+}
 
 // Construction validation
 

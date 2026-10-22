@@ -345,6 +345,7 @@ PlanningRequirements inspect_planning_requirements(const HirModule& hir, NoiseSi
 void initialize_site_metadata(const HirModule& hir, SamplingPlan& plan) {
     plan.presampled_noise_sites.resize(hir.noise_sites.size());
     for (uint32_t site = 0; site < hir.noise_sites.size(); ++site) {
+        plan.presampled_noise_sites[site].source_site = site;
         plan.presampled_noise_sites[site].total_probability =
             hir.noise_sites[site].total_probability;
     }
@@ -708,7 +709,7 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
                     plan,
                     PlannedAction{active_width, active_width,
                                   ApplyReadoutNoise{flip, source, record, entry.prob_zero_to_one,
-                                                    entry.prob_one_to_zero}},
+                                                    entry.prob_one_to_zero, entry_index}},
                     source_lines);
                 PlanningRecord& updated = records[index(record)];
                 updated.value = source ^ AffineBool::symbol(flip);

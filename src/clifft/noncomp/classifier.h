@@ -17,6 +17,7 @@
 // a computational readout is a real Born measurement whose record can
 // at most be misreported (readout confusion), not heralded away.
 
+#include "clifft/circuit/gate_data.h"
 #include "clifft/noncomp/level.h"
 
 #include <cstddef>
@@ -55,5 +56,18 @@ class MeasurementClassifier {
     // Row-major flat storage: matrix_flat_[symbol * kNumLevels + level].
     std::vector<double> matrix_flat_;
 };
+
+// On a noncomputational site these flips replace either hidden quantum bit
+// with the classified bit, conditional on no herald. Heralded slots instead
+// receive a fair placeholder. Computational confusion applies only in Z.
+struct ClassifiedReadoutChannel {
+    double p01 = 0.0;
+    double p10 = 0.0;
+    double herald = 0.0;
+};
+
+ClassifiedReadoutChannel classified_readout_channel(const MeasurementClassifier* classifier,
+                                                    GateType gate, QubitStatus status,
+                                                    bool inverted);
 
 }  // namespace clifft

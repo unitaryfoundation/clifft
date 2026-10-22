@@ -1,6 +1,7 @@
 #include "clifft/noncomp/fixed.h"
 
 #include "clifft/frontend/frontend.h"
+#include "clifft/noncomp/fixed_input_validation.h"
 #include "clifft/noncomp/status_walk.h"
 #include "clifft/sampling/executor.h"
 #include "clifft/sampling/planner.h"
@@ -25,6 +26,9 @@ namespace {
 constexpr uint8_t kComputational = 1;
 constexpr uint8_t kLeaked = 2;
 constexpr uint8_t kLost = 4;
+constexpr std::array<QubitStatus, 3> kRepresentativeStatuses{QubitStatus::Computational,
+                                                             QubitStatus::LeakG, QubitStatus::Lost};
+constexpr std::array<uint8_t, 3> kStatusBits{kComputational, kLeaked, kLost};
 
 struct TransitionInput {
     uint32_t qubit;
@@ -34,7 +38,7 @@ struct TransitionInput {
 
 struct ResetInput {
     uint32_t qubit;
-    bool restores_lost;
+    std::array<uint8_t, 3> destinations;
 };
 
 struct NoiseOutcome {
@@ -49,11 +53,7 @@ struct NoiseInput {
     std::vector<NoiseOutcome> outcomes;
 };
 
-struct ReadoutChannel {
-    double p01 = 0.0;
-    double p10 = 0.0;
-    double herald = 0.0;
-};
+using ReadoutChannel = ClassifiedReadoutChannel;
 
 struct ReadoutInput {
     uint32_t input;
@@ -94,9 +94,26 @@ uint8_t after_transition(uint8_t states, const TransitionInput& transition) {
     return states;
 }
 
-uint8_t after_reset(uint8_t states, bool restores_lost) {
-    return ((states & (kComputational | kLeaked)) != 0 ? kComputational : 0) |
-           ((states & kLost) != 0 ? (restores_lost ? kComputational : kLost) : 0);
+ResetInput reset_input(uint32_t qubit, GateType gate, const NonComputationalPolicy& policy) {
+    ResetInput input{qubit, {}};
+    for (size_t i = 0; i < kRepresentativeStatuses.size(); ++i) {
+        const auto destination =
+            normal_post_op_status(kRepresentativeStatuses[i], gate, OperandRole::Physical, policy);
+        input.destinations[i] = is_computational(destination) ? kComputational
+                                : is_leaked(destination)      ? kLeaked
+                                                              : kLost;
+    }
+    return input;
+}
+
+uint8_t after_reset(uint8_t states, const ResetInput& input) {
+    uint8_t result = 0;
+    for (size_t i = 0; i < kStatusBits.size(); ++i) {
+        if ((states & kStatusBits[i]) != 0) {
+            result |= input.destinations[i];
+        }
+    }
+    return result;
 }
 
 std::vector<QubitOperand> checked_operands(const AstNode& node, uint32_t num_qubits) {
@@ -158,7 +175,8 @@ class FixedBuilder {
         // could combine or erase them. The planner still performs coordinate
         // planning and the executable lowering still fuses quantum actions.
         ++data_->metrics.preparation_compilations;
-        const HirModule hir = trace(lowered_);
+        TraceInputOrigins input_origins;
+        const HirModule hir = trace(lowered_, nullptr, &input_origins);
         sampling::SamplingPlan plan;
         try {
             plan = sampling::plan_sampling(hir);
@@ -171,10 +189,8 @@ class FixedBuilder {
             plan.peak_active_width > *request_.requirements().max_active_width) {
             return reject(FixedNonComputationalReason::ActiveWidth);
         }
-        if (!plan.instrument_distributions.empty() ||
-            plan.presampled_noise_sites.size() != noise_steps_.size()) {
-            throw std::logic_error("fixed noncomputational lowering lost a noise-site identity");
-        }
+        detail::validate_fixed_input_bindings(noise_nodes_, readout_sites_, input_origins, hir,
+                                              plan);
         std::vector<uint32_t> symbol_to_input(plan.symbols.size(), 0);
         uint32_t input = 0;
         for (uint32_t symbol = 0; symbol < plan.symbols.size(); ++symbol) {
@@ -246,12 +262,14 @@ class FixedBuilder {
     uint32_t append_readout(uint32_t record, uint32_t source_line) {
         // A nonzero placeholder keeps the ordered record-dependent symbol.
         // Execution supplies the actual channel for each shot.
+        readout_sites_.push_back({lowered_.nodes.size(), record});
         lowered_.nodes.push_back(
             {GateType::READOUT_NOISE, {Target::rec(record)}, {0.5, 0.5}, source_line});
         return readout_count_++;
     }
 
     void append_noise(AstNode node, NoiseInput input) {
+        noise_nodes_.push_back(lowered_.nodes.size());
         lowered_.nodes.push_back(std::move(node));
         noise_steps_.push_back(data_->inputs.size());
         data_->inputs.emplace_back(std::move(input));
@@ -266,6 +284,8 @@ class FixedBuilder {
     Circuit lowered_;
     std::shared_ptr<detail::FixedNonComputationalData> data_;
     std::vector<size_t> noise_steps_;
+    std::vector<size_t> noise_nodes_;
+    std::vector<detail::FixedReadoutSite> readout_sites_;
     uint32_t operation_ = std::numeric_limits<uint32_t>::max();
     uint32_t record_ = 0;
     uint32_t readout_count_ = 0;
@@ -324,6 +344,17 @@ std::optional<FixedNonComputationalRejection> FixedBuilder::lower() {
     }
 
     const auto operands = checked_operands(node, resolved_.circuit().num_qubits);
+    // Rejection is shared with trajectories. Dropped physical gates instead
+    // follow the retained-auxiliary proof below and cannot be dropped here.
+    for (const auto& operand : operands) {
+        for (size_t i = 0; i < kStatusBits.size(); ++i) {
+            if ((reachable_[operand.qubit] & kStatusBits[i]) != 0 &&
+                operand_action(node.gate, kRepresentativeStatuses[i], model_.policy()) ==
+                    OperandAction::Reject) {
+                return reject(FixedNonComputationalReason::UnsupportedOperation);
+            }
+        }
+    }
     if (node.gate == GateType::READOUT_NOISE) {
         if (node.args.size() != 1 && node.args.size() != 2) {
             throw std::invalid_argument(
@@ -350,6 +381,7 @@ std::optional<FixedNonComputationalRejection> FixedBuilder::lower() {
         // Retain the entire mutually exclusive chain, including factors on
         // auxiliaries. A branch acting only on an auxiliary still suppresses
         // later ELSE branches on live sites.
+        noise_nodes_.push_back(lowered_.nodes.size());
         noise_steps_.push_back(data_->inputs.size());
         data_->inputs.emplace_back(NoiseInput{});
         lowered_.nodes.push_back(node);
@@ -365,11 +397,19 @@ std::optional<FixedNonComputationalRejection> FixedBuilder::lower() {
         throw std::invalid_argument("ELSE_CORRELATED_ERROR must follow CORRELATED_ERROR");
     }
     if (is_noise_gate(node.gate)) {
-        size_t group = 1;
-        if (node.gate == GateType::DEPOLARIZE2 || node.gate == GateType::PAULI_CHANNEL_2) {
-            group = 2;
-        } else if (node.gate == GateType::DEPOLARIZE3 || node.gate == GateType::PAULI_CHANNEL_3) {
-            group = 3;
+        size_t group;
+        switch (gate_arity(node.gate)) {
+            case GateArity::SINGLE:
+                group = 1;
+                break;
+            case GateArity::PAIR:
+                group = 2;
+                break;
+            case GateArity::TRIPLE:
+                group = 3;
+                break;
+            default:
+                return reject(FixedNonComputationalReason::UnsupportedOperation);
         }
         if (node.targets.size() % group != 0) {
             throw std::invalid_argument("fixed noncomputational noise has incomplete operands");
@@ -416,48 +456,36 @@ std::optional<FixedNonComputationalRejection> FixedBuilder::lower() {
                 ReadoutInput{input, record_, std::nullopt, {invert, invert, invert}});
         }
         std::array<ReadoutChannel, 3> channels{};
-        if (classifier != nullptr) {
-            if (node.gate == GateType::M || node.gate == GateType::MR) {
-                channels[0] = {classifier->prob(1, Level::G), classifier->prob(0, Level::E), 0.0};
-                if (inverted) {
-                    std::swap(channels[0].p01, channels[0].p10);
-                }
-            }
-            for (size_t category = 1; category < 3; ++category) {
-                const Level level = category == 1 ? Level::LeakG : Level::Lost;
-                const double herald = classifier->has_herald() ? classifier->prob(2, level) : 0.0;
-                double q = herald < 1.0
-                               ? std::clamp(classifier->prob(1, level) / (1.0 - herald), 0.0, 1.0)
-                               : 0.5;
-                if (inverted) {
-                    q = 1.0 - q;
-                }
-                channels[category] = {q, 1.0 - q, herald};
+        for (size_t category = 0; category < channels.size(); ++category) {
+            if (classifier != nullptr || category == 0) {
+                channels[category] = classified_readout_channel(
+                    classifier, node.gate, kRepresentativeStatuses[category], inverted);
             }
         }
         const uint32_t input = append_readout(record_, node.source_line);
         data_->inputs.emplace_back(ReadoutInput{input, record_++, qubit, channels});
         if (is_measure_reset(node.gate)) {
-            const bool restore = model_.policy().reset_restores_lost;
-            data_->inputs.emplace_back(ResetInput{qubit, restore});
-            reachable_[qubit] = after_reset(reachable_[qubit], restore);
+            const auto reset = reset_input(qubit, node.gate, model_.policy());
+            data_->inputs.emplace_back(reset);
+            reachable_[qubit] = after_reset(reachable_[qubit], reset);
         }
         return std::nullopt;
     }
     if (is_reset(node.gate)) {
-        const bool restore = model_.policy().reset_restores_lost;
         // A lost operand drops the whole unsplit AST node in trajectories.
         // Independent resets would incorrectly restore its live partners.
-        if (operands.size() > 1 && !restore &&
-            std::ranges::any_of(operands, [&](const auto& operand) {
-                return (reachable_[operand.qubit] & kLost) != 0;
+        if (operands.size() > 1 && std::ranges::any_of(operands, [&](const auto& operand) {
+                return (reachable_[operand.qubit] & kLost) != 0 &&
+                       operand_action(node.gate, QubitStatus::Lost, model_.policy()) ==
+                           OperandAction::Drop;
             })) {
             return reject(FixedNonComputationalReason::UnsupportedOperation);
         }
         lowered_.nodes.push_back(node);
         for (const auto& operand : operands) {
-            data_->inputs.emplace_back(ResetInput{operand.qubit, restore});
-            reachable_[operand.qubit] = after_reset(reachable_[operand.qubit], restore);
+            const auto reset = reset_input(operand.qubit, node.gate, model_.policy());
+            data_->inputs.emplace_back(reset);
+            reachable_[operand.qubit] = after_reset(reachable_[operand.qubit], reset);
         }
         return std::nullopt;
     }
@@ -546,7 +574,7 @@ struct FixedWorker {
                             status[step.qubit] = step.loss ? kLost : kLeaked;
                         }
                     } else if constexpr (std::is_same_v<T, ResetInput>) {
-                        status[step.qubit] = after_reset(status[step.qubit], step.restores_lost);
+                        status[step.qubit] = after_reset(status[step.qubit], step);
                     } else if constexpr (std::is_same_v<T, NoiseInput>) {
                         if (step.inactive_source &&
                             status[*step.inactive_source] != step.source_status) {

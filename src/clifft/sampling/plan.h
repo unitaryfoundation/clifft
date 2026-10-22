@@ -195,6 +195,9 @@ struct ApplyReadoutNoise {
     RecordSlot record{};
     double prob_zero_to_one = 0.0;
     double prob_one_to_zero = 0.0;
+    // HIR readout-table identity for preparation-time external input binding.
+    // Executable lowering does not retain it.
+    std::optional<uint32_t> source_site = std::nullopt;
 };
 
 // Circuit outputs are XOR parities of measurement-record snapshots. A detector
@@ -319,6 +322,8 @@ struct PresampledNoiseSite {
     // still uses the ordered outcome probabilities for channel selection.
     double total_probability = 0.0;
     std::vector<PresampledNoiseOutcome> outcomes;
+    // HIR noise-table identity; absent for manually constructed plans.
+    std::optional<uint32_t> source_site = std::nullopt;
 };
 
 // Plan-owned copy of one HIR instrument distribution. Source and destination

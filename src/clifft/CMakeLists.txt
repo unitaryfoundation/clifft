@@ -65,6 +65,7 @@ add_library(clifft_core STATIC
     noncomp/preparation.cc
     noncomp/resolution.cc
     noncomp/fixed.cc
+    noncomp/fixed_input_validation.cc
     noncomp/trajectory_driver.cc
     noncomp/sample.cc
 )

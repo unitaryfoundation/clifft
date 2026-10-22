@@ -69,21 +69,15 @@ const MeasurementClassifier& classifier_for(const NonComputationalModel& model, 
 // true 1. Only the record bit changes; the qubit still collapses to its true
 // state. Identity columns add no node. An inverted target reports the
 // complement bit, so its two error probabilities are swapped.
-void append_computational_confusion(Circuit& out, const NonComputationalModel& model, bool inverted,
-                                    uint32_t slot) {
-    const MeasurementClassifier* classifier = model.classifier();
-    if (classifier == nullptr) {
-        return;
-    }
-    double p01 = classifier->prob(1, Level::G);  // true 0 misread as 1
-    double p10 = classifier->prob(0, Level::E);  // true 1 misread as 0
-    if (inverted) {
-        std::swap(p01, p10);
-    }
-    if (p01 == 0.0 && p10 == 0.0) {
+void append_computational_confusion(Circuit& out, const NonComputationalModel& model, GateType gate,
+                                    bool inverted, uint32_t slot) {
+    const auto channel =
+        classified_readout_channel(model.classifier(), gate, QubitStatus::Computational, inverted);
+    if (channel.p01 == 0.0 && channel.p10 == 0.0) {
         return;  // identity columns: no draw, no node
     }
-    out.nodes.push_back(AstNode{GateType::READOUT_NOISE, {Target::rec(slot)}, {p01, p10}, 0});
+    out.nodes.push_back(
+        AstNode{GateType::READOUT_NOISE, {Target::rec(slot)}, {channel.p01, channel.p10}, 0});
 }
 
 // Process one ordinary circuit operation: apply the policy, replace
@@ -118,19 +112,9 @@ void process_ordinary_node(const AstNode& node, uint32_t op_index,
             // inversion complements the record bit but not the herald flag. If
             // the classifier always heralds, the temporary bit is irrelevant,
             // so use 0.5.
-            double flip;
-            if (ternary) {
-                const double p_herald =
-                    classifier.prob(MeasurementClassifier::kHeraldSymbol, classified_level);
-                const double denom = 1.0 - p_herald;
-                flip = denom > 0.0 ? classifier.prob(1, classified_level) / denom : 0.5;
-                flip = std::min(1.0, std::max(0.0, flip));
-            } else {
-                flip = classifier.prob(1, classified_level);
-            }
-            if (inverted) {
-                flip = 1.0 - flip;
-            }
+            const double flip = classified_readout_channel(&classifier, gate,
+                                                           status_for(classified_level), inverted)
+                                    .p01;
 
             std::optional<size_t> noise_node;
             if (!ternary && (flip == 0.0 || flip == 1.0)) {
@@ -150,11 +134,8 @@ void process_ordinary_node(const AstNode& node, uint32_t op_index,
             classified_measurements.push_back({slot, classified_level, noise_node});
         } else {
             out.nodes.push_back(node);
-            // The classifier's computational columns apply to Z-basis
-            // level readouts (M, MR); other measurement bases are not
-            // level readouts and carry no confusion.
-            if (gate == GateType::M || gate == GateType::MR) {
-                append_computational_confusion(out, model, node.targets.front().is_inverted(),
+            if (is_physical_measurement(gate)) {
+                append_computational_confusion(out, model, gate, node.targets.front().is_inverted(),
                                                slot);
             }
         }
