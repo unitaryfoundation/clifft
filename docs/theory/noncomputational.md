@@ -227,41 +227,69 @@ Each continuation still uses Clifft's normal compiler and symbolic-coordinate
 architecture. Clifford operations, coordinate planning, and symbolic
 dependencies are resolved before execution resumes.
 
-### Internal fixed execution
+### Fixed execution
 
-The internal fixed path reuses one compiled program for a conservative subset.
-The public `noncomp.sample` entry point continues to use trajectories.
+Some leakage and loss models admit a single compiled program in place of the
+full continuation approach. Clifft can identify requests where the sampled
+status history changes only classical noise and readout inputs to that program.
+This *fixed execution* avoids recompiling after each jump, making repeated
+sampling much faster. Eligibility follows from the circuit, model, and requested
+outputs, so the choice of representation can be transparent to users.
 
-The initial subset starts in `g` and uses state-independent inline leakage and
-loss. It accepts leaked readouts only when the classifier does not distinguish
-`leak_g` from `leak_e` at that operation. Detailed final status requires every
-remaining leaked label to have been erased, for example by a restoring reset.
-Nonzero named transitions, spreading, and unsupported gate/channel pairs are
-rejected. Zero-probability and unreachable interactions do not block eligibility.
+The initial supported subset starts each site in `g` and uses state-independent
+inline leakage and loss. Equal jump rates from `g` and `e` make the no-jump
+operator proportional to the identity, as above. The status ledger can therefore
+be sampled independently of the coherent state. When a site leaks, its hidden
+`leak_g` or `leak_e` label can be summed out if both classifier columns agree at
+every reachable leaked readout. If detailed final status is requested, a later
+reset or loss must also erase that label before the end of the circuit.
 
-Inactive sites retain quantum slots as unobserved auxiliaries. For an auxiliary
-`A`, live partner `B`, arbitrary environment, and any two-site unitary `U`, full
-depolarization `D_B` gives
+The quantum representation keeps an inactive site's slot as an unobserved
+auxiliary instead of removing it after the jump. This slot is a mathematical
+device for representing the reduced state of the computational sites; it does
+not assign coherent dynamics to the physical leaked or lost carrier. Local
+unitaries on the auxiliary leave that reduced state unchanged under partial
+trace, so they can remain in the compiled program.
 
-```text
-Tr_A[D_B(U rho U_dagger)] = I_B/2 tensor Tr_AB(rho).
-```
+Two-site gates can also remain when their partner effect completely depolarizes
+the computational operand, with no leakage spreading. Let $A$ be the auxiliary,
+$B$ its computational partner, and $E$ the rest of the system, including any
+entangled sites. For any two-site unitary $U_{AB}$ and complete depolarization
+$\mathcal D_B$,
 
-Thus a retained two-site gate is exact when its generated partner effect fully
-depolarizes the live operand in every reachable inactive/live direction. Local
-auxiliary operations disappear under partial trace. The representation also
-admits non-Cliffords, subject to the actual candidate's active-width limit.
+$$
+\operatorname{Tr}_A\!\left[
+\mathcal D_B\!\left(U_{AB}\rho_{ABE}U_{AB}^{\dagger}\right)
+\right]
+=
+\frac{I_B}{2}\otimes\operatorname{Tr}_{AB}(\rho_{ABE}).
+$$
 
-Status transitions in this subset are independent of quantum measurement
-outcomes. Readout still distinguishes the hidden quantum result from the
-reported value: reset correction uses the hidden result, while feedback,
-detectors, and observables consume the reported record. A heralded readout
-retains its jointly sampled herald and uniform placeholder bit.
+The same reduced state results from dropping the gate and applying only the
+partner effect. This identity lets the compiler retain the gate for all shots
+when full depolarization applies in every reachable inactive/computational
+direction. Standalone Pauli partner interactions can use arbitrary Pauli
+probabilities: their status conditions select classical noise inputs without
+changing the compiled gates. Non-Clifford gates fit the same representation,
+subject to the compiled program's active-width limit.
 
-Ordinary noise is masked using the whole original operation's active operands.
-Correlated-error chains retain shared branch selection, including branches
-whose Pauli factors act only on auxiliaries: selecting such a branch still
-suppresses later branches acting on live sites.
+Single-site measurements and resets preserve the distinction between the hidden
+quantum outcome and the reported result. On a computational site, reset correction
+uses the hidden outcome; feedback, detectors, and observables use the reported
+record. On an inactive site, the classifier supplies the reported result
+independently of the auxiliary outcome. A restoring reset prepares the site in
+the requested basis and returns it to the computational ledger. Heralded
+readouts preserve the joint distribution of the herald and its uniform
+placeholder bit.
+
+Ordinary Pauli noise applies when all of the original operation's operands are
+computational. Correlated-error chains preserve their shared branch selection:
+a branch acting only on auxiliaries still suppresses later branches on
+computational sites. These choices affect the sampled noise inputs, while the
+quantum program stays fixed.
+
+Fixed execution is currently internal. Automatic selection through the public
+API is being added separately; `noncomp.sample` currently uses continuations.
 
 ## Active-width cost
 
