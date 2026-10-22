@@ -583,9 +583,9 @@ void validate_instrument_probabilities(const InstrumentProbabilities& probabilit
 }  // namespace
 
 HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instruments,
-                TraceInputOrigins* input_origins) {
-    if (input_origins != nullptr) {
-        *input_origins = {};
+                TraceSiteOrigins* site_origins) {
+    if (site_origins != nullptr) {
+        *site_origins = {};
     }
     // Avoid an accidental multi-gigabyte tableau allocation. This
     // conservative safety ceiling is far above practical circuit sizes.
@@ -1304,10 +1304,10 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                                          std::string(gate_name(node.gate)));
         }
 
-        if (input_origins != nullptr) {
+        if (site_origins != nullptr) {
             // A correlated chain produces one site rooted at its first node.
-            input_origins->noise_nodes.resize(hir.noise_sites.size(), origin_node);
-            input_origins->readout_nodes.resize(hir.readout_noise.size(), origin_node);
+            site_origins->noise_nodes.resize(hir.noise_sites.size(), origin_node);
+            site_origins->readout_nodes.resize(hir.readout_noise.size(), origin_node);
         }
         // Source map: append one entry per op produced by this node.
         const size_t ops_after = hir.ops.size();

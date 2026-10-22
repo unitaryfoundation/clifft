@@ -7,7 +7,7 @@ namespace clifft::detail {
 
 void validate_fixed_input_bindings(std::span<const size_t> noise_nodes,
                                    std::span<const FixedReadoutSite> readout_sites,
-                                   const TraceInputOrigins& origins, const HirModule& hir,
+                                   const TraceSiteOrigins& origins, const HirModule& hir,
                                    const sampling::SamplingPlan& plan) {
     if (!plan.instrument_distributions.empty() || hir.noise_sites.size() != noise_nodes.size() ||
         origins.noise_nodes.size() != noise_nodes.size() ||

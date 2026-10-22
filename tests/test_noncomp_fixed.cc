@@ -55,7 +55,7 @@ TEST_CASE("Fixed input bindings distinguish repeated lines and channels on the s
         "READOUT_NOISE(0.3) rec[-1]\nREADOUT_NOISE(0.4) rec[-1]\n}\n"
         "E(0.1) X0\nELSE_CORRELATED_ERROR(0.2) Y0");
     REQUIRE(circuit.nodes[0].source_line == circuit.nodes[4].source_line);
-    TraceInputOrigins origins;
+    TraceSiteOrigins origins;
     const HirModule hir = trace(circuit, nullptr, &origins);
     auto plan = sampling::plan_sampling(hir);
     const std::vector<size_t> noise_nodes{0, 4, 8};

@@ -50,10 +50,11 @@ struct InstrumentTraceOptions {
     std::optional<size_t> forced_traceout_node;
 };
 
-// Optional preparation-time identities for callers that supply external noise
-// and readout inputs. Entries index the traced circuit's nodes, not source
-// lines: repeated instructions and multiple channels on one record stay distinct.
-struct TraceInputOrigins {
+// Optional source-node maps for the HIR noise and readout tables. Each vector
+// is indexed by its HIR table and contains indices into the traced circuit.
+// Node indices distinguish expanded repeats and separate channels targeting
+// the same record. These maps describe the trace result before HIR transformations.
+struct TraceSiteOrigins {
     std::vector<size_t> noise_nodes;
     std::vector<size_t> readout_nodes;
 };
@@ -80,6 +81,6 @@ struct TraceInputOrigins {
 // runtime.
 [[nodiscard]] HirModule trace(const Circuit& circuit,
                               const InstrumentTraceOptions* instruments = nullptr,
-                              TraceInputOrigins* input_origins = nullptr);
+                              TraceSiteOrigins* site_origins = nullptr);
 
 }  // namespace clifft

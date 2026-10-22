@@ -19,7 +19,7 @@ struct FixedReadoutSite {
 // identity, particularly for consecutive channels on the same record.
 void validate_fixed_input_bindings(std::span<const size_t> noise_nodes,
                                    std::span<const FixedReadoutSite> readout_sites,
-                                   const TraceInputOrigins& origins, const HirModule& hir,
+                                   const TraceSiteOrigins& origins, const HirModule& hir,
                                    const sampling::SamplingPlan& plan);
 
 }  // namespace clifft::detail
