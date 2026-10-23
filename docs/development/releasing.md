@@ -127,6 +127,13 @@ curated rather than generated directly from the changelog. Link to the
 most relevant new documentation or tutorial, and include a link to the
 full changelog.
 
+When adding a development post, add it to `docs/updates/index.md` and the
+Development Blog navigation in `mkdocs.yml`, newest first, with its title and
+date. Keep the index as the first entry in that navigation so
+`/stable/updates/` remains the blog landing page across releases. Use relative
+links to posts so readers stay within their selected documentation version.
+Review `docs/acknowledgments.md` for the release's research and software credits.
+
 ### 4. Refresh performance reporting (when applicable)
 
 Do this when a release has new, reviewed benchmark results; an ordinary release does not need to
@@ -196,8 +203,16 @@ Then verify the hosted docs and Playground:
 - `https://unitaryfoundation.github.io/clifft/<version>/` exists.
 - For the newest release, `https://unitaryfoundation.github.io/clifft/stable/`
   shows the new release docs.
+- [Development Blog](https://unitaryfoundation.github.io/clifft/stable/updates/)
+  loads the index with dated posts, newest first. The Development Blog navigation
+  opens this index, and its article links work.
+- [Acknowledgments and References](https://unitaryfoundation.github.io/clifft/stable/acknowledgments/)
+  includes the current research and software credits, including Merlin.
 - `https://unitaryfoundation.github.io/clifft/playground/?url=<raw-stim-url>`
   still loads a remote circuit.
+
+Complete these checks after deployment and before publishing external posts
+that link to the stable documentation.
 
 ## Documentation versions
 
