@@ -2,6 +2,7 @@
 
 #include "clifft/sampling/batch/bits.h"
 
+#include <cassert>
 #include <cstddef>
 #include <cstdint>
 #include <span>
@@ -20,9 +21,39 @@ class ExecutablePlan;
 // and readout columns follow execution-site order, as in Executor::run_shot.
 class BatchExternalInputs {
   public:
+    // Borrow the fixed storage once when filling many shots. Start from clear()
+    // and set the true inputs; unset bits remain zero. Same lifetime as the
+    // owner's storage, like MutableBitColumnsView.
+    class MutableView {
+      public:
+        void set_noise(uint32_t input, uint32_t lane) const noexcept {
+            assert(input < noise_columns_ && "external noise input must belong to the plan");
+            bits_.set_bit(input, lane);
+        }
+        void set_readout_zero(uint32_t site, uint32_t lane) const noexcept {
+            assert(site < readout_sites_ && "external readout input must belong to the plan");
+            bits_.set_bit(noise_columns_ + size_t{2} * site, lane);
+        }
+        void set_readout_one(uint32_t site, uint32_t lane) const noexcept {
+            assert(site < readout_sites_ && "external readout input must belong to the plan");
+            bits_.set_bit(noise_columns_ + size_t{2} * site + 1, lane);
+        }
+
+      private:
+        friend class BatchExternalInputs;
+        MutableView(MutableBitColumnsView bits, uint32_t noise_columns, uint32_t readout_sites)
+            : bits_(bits), noise_columns_(noise_columns), readout_sites_(readout_sites) {}
+        MutableBitColumnsView bits_;
+        uint32_t noise_columns_;
+        uint32_t readout_sites_;
+    };
+
     BatchExternalInputs(const ExecutablePlan& plan, uint32_t lane_capacity);
 
     void clear() noexcept { bits_.clear(); }
+    [[nodiscard]] MutableView mutable_view() noexcept {
+        return {bits_.mutable_view(), noise_columns_, readout_sites_};
+    }
     [[nodiscard]] std::span<uint64_t> noise(uint32_t input) noexcept;
     // Flip bits for a source record of zero or one. Selection happens at the
     // readout action, after any earlier channels have updated that record.

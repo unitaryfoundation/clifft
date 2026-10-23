@@ -127,7 +127,7 @@ TEST_CASE("External readout inputs preserve reset correction and feed later reco
 TEST_CASE("Fixed noncomputational repeated leaked readouts are independent of the survivor") {
     const auto program = fixed("H 0\nCX 0 1\nLEAKAGE(1) 0\nM 0 0 1", model());
     const uint32_t shots = 16000;
-    const auto result = program.sample(shots, 12);
+    const auto result = program.sample(shots, 12).output;
     std::array<uint32_t, 8> counts{};
     for (uint32_t s = 0; s < shots; ++s) {
         const auto* row = result.measurements.data() + s * 3;
@@ -152,7 +152,7 @@ TEST_CASE("Fixed noncomputational reset reports classifier values before restori
     const auto program = fixed("LEAKAGE(1) 0\n" + gate + (inverted ? "0" : " 0") +
                                    "\nCX rec[-1] 1\n" + measurement + " 0\nM 1",
                                constant_one, true);
-    const auto result = program.sample(64, 5);
+    const auto result = program.sample(64, 5).output;
     for (size_t s = 0; s < result.shots; ++s) {
         CHECK(result.measurements[s * 3] == !inverted);
         CHECK(result.measurements[s * 3 + 1] == 0);
@@ -166,7 +166,7 @@ TEST_CASE("Fixed noncomputational ternary readout preserves the joint herald dis
         "LEAKAGE(1) 0\nM 0\nCX rec[-1] 1\nM 1\n"
         "DETECTOR rec[-1] rec[-2]\nOBSERVABLE_INCLUDE(0) rec[-1]",
         model(true));
-    const auto result = program.sample(16000, 71);
+    const auto result = program.sample(16000, 71).output;
     std::array<uint32_t, 4> counts{};
     for (size_t s = 0; s < result.shots; ++s) {
         ++counts[result.measurements[s * 2] + 2 * result.heralds[s * 2]];
@@ -187,7 +187,7 @@ TEST_CASE(
     const auto program = fixed(std::string(event) + "(1) " + std::to_string(source) +
                                    "\nCX 0 1\nM " + std::to_string(1 - source),
                                model());
-    const auto result = program.sample(6000, 32);
+    const auto result = program.sample(6000, 32).output;
     size_t ones = 0;
     for (const auto bit : result.measurements) {
         ones += bit;
@@ -199,7 +199,7 @@ TEST_CASE("Fixed noncomputational distinguishes ordinary dropped noise from corr
     const auto noise =
         GENERATE("DEPOLARIZE2(1) 0 1", "CORRELATED_ERROR(1) X0\nELSE_CORRELATED_ERROR(1) X1");
     const auto program = fixed(std::string("LEAKAGE(1) 0\n") + noise + "\nM 1", model());
-    const auto result = program.sample(128, 9);
+    const auto result = program.sample(128, 9).output;
     for (const auto bit : result.measurements) {
         CHECK(bit == 0);
     }
@@ -208,7 +208,7 @@ TEST_CASE("Fixed noncomputational distinguishes ordinary dropped noise from corr
 TEST_CASE("Fixed noncomputational preserves non Clifford probabilities with erased labels") {
     const auto program = fixed("H 0\nT 0\nH 0\nLEAKAGE(0.3) 1\nM 0\nR 1", model(), true);
     CHECK(program.metrics().peak_active_width > 0);
-    const auto result = program.sample(10000, 72);
+    const auto result = program.sample(10000, 72).output;
     size_t ones = 0;
     for (const auto bit : result.measurements) {
         ones += bit;
@@ -222,12 +222,13 @@ TEST_CASE("Fixed noncomputational programs own their plan and share no mutable s
         "H 0\nCX 0 1\nLEAKAGE(0.3) 0\nLOSS(0.2) 1\n"
         "CX 0 1\nM 0\nHERALD_LOSS_EVENT 1\nR 0\nM 1",
         model(true), true);
-    const auto expected = program.sample(1025, 123);
+    const auto expected = program.sample(1025, 123, 1, 65).output;
     auto copy = program;
-    auto future = std::async(std::launch::async, [&] { return copy.sample(1025, 123, 3); });
-    same(expected, program.sample(1025, 123, 2));
+    auto future =
+        std::async(std::launch::async, [&] { return copy.sample(1025, 123, 3, 65).output; });
+    same(expected, program.sample(1025, 123, 2, 65).output);
     same(expected, future.get());
-    const auto empty = program.sample(0);
+    const auto empty = program.sample(0).output;
     CHECK(empty.measurements.empty());
     CHECK(empty.num_measurements == 3);
     CHECK(program.metrics().preparation_compilations == 1);
@@ -356,7 +357,8 @@ TEST_CASE("Fixed noncomputational accepts grouped operations without whole node 
     const PreparedNonComputationalRequest request(circuit, model(false, true));
     const auto result = prepare_fixed_noncomputational(request);
     REQUIRE(std::holds_alternative<FixedNonComputationalProgram>(result));
-    same(std::get<FixedNonComputationalProgram>(result).sample(16, 3), request.sample(16, 3));
+    same(std::get<FixedNonComputationalProgram>(result).sample(16, 3).output,
+         request.sample(16, 3));
 }
 
 TEST_CASE("Fixed noncomputational permits unreachable spreading") {
@@ -365,7 +367,7 @@ TEST_CASE("Fixed noncomputational permits unreachable spreading") {
                                          {PartnerEffect{{0.25, 0.25, 0.25}, 0.1}, {}}, {});
     const auto circuit = GENERATE("LEAKAGE(0) 0\nCX 0 1", "LEAKAGE(1) 0 1\nCX 0 1");
     const auto program = fixed(circuit, noise);
-    CHECK(program.sample(1, 9).num_qubits == 2);
+    CHECK(program.sample(1, 9).output.num_qubits == 2);
 }
 
 TEST_CASE("Fixed noncomputational rejection identifies the expanded hook node") {

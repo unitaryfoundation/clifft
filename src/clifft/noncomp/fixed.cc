@@ -3,6 +3,7 @@
 #include "clifft/frontend/frontend.h"
 #include "clifft/noncomp/fixed_input_validation.h"
 #include "clifft/noncomp/status_walk.h"
+#include "clifft/sampling/batch/executor.h"
 #include "clifft/sampling/executor.h"
 #include "clifft/sampling/planner.h"
 #include "clifft/util/numeric.h"
@@ -239,9 +240,9 @@ class FixedBuilder {
         data_->metrics.peak_active_width = plan.peak_active_width;
         data_->metrics.quantum_noise_inputs = input;
         data_->metrics.readout_inputs = readout_count_;
+        data_->metrics.packed_noise_carriers = data_->plan->num_batch_noise_carriers();
         data_->metrics.classical_workspace_bytes =
-            reachable_.size() + input + readout_count_ * sizeof(sampling::ReadoutNoiseInput) +
-            lowered_.num_measurements;
+            reachable_.size() + input + readout_count_ * sizeof(sampling::ReadoutNoiseInput);
         if (!data_->dynamic_inputs) {
             data_->inputs = std::vector<InputStep>{};
             data_->metrics.quantum_noise_inputs = 0;
@@ -544,77 +545,144 @@ std::optional<FixedNonComputationalRejection> FixedBuilder::lower() {
     return reject(FixedNonComputationalReason::UnsupportedOperation);
 }
 
+// Both execution paths consume the same classical walk and per-shot RNG stream.
+// The sink changes only where the already sampled Boolean inputs are stored.
+template <typename Inputs>
+void prepare_inputs(const detail::FixedNonComputationalData& data, Xoshiro256PlusPlus& rng,
+                    std::span<uint8_t> status, std::span<uint8_t> heralds,
+                    Inputs& inputs) noexcept {
+    std::ranges::fill(status, kComputational);
+    for (const auto& input : data.inputs) {
+        std::visit(
+            [&](const auto& step) noexcept {
+                using T = std::decay_t<decltype(step)>;
+                if constexpr (std::is_same_v<T, TransitionInput>) {
+                    const uint8_t before = status[step.qubit];
+                    const bool affected = step.loss ? before != kLost : before == kComputational;
+                    if (affected && rng.next_double() < step.probability) {
+                        status[step.qubit] = step.loss ? kLost : kLeaked;
+                    }
+                } else if constexpr (std::is_same_v<T, ResetInput>) {
+                    status[step.qubit] = after_reset(status[step.qubit], step);
+                } else if constexpr (std::is_same_v<T, NoiseInput>) {
+                    if (step.inactive_source &&
+                        status[*step.inactive_source] != step.source_status) {
+                        return;
+                    }
+                    for (const uint32_t target : step.active_targets) {
+                        if (status[target] != kComputational) {
+                            return;
+                        }
+                    }
+                    const double draw = rng.next_double();
+                    for (const auto& outcome : step.outcomes) {
+                        if (draw < outcome.cumulative_probability) {
+                            inputs.activate_noise(outcome.input);
+                            break;
+                        }
+                    }
+                } else if constexpr (std::is_same_v<T, ReadoutInput>) {
+                    const uint8_t current = step.qubit ? status[*step.qubit] : kComputational;
+                    const size_t category = current == kComputational ? 0
+                                            : current == kLeaked      ? 1
+                                                                      : 2;
+                    const auto& channel = step.channels[category];
+                    const bool herald = channel.herald > 0.0 && rng.next_double() < channel.herald;
+                    if (herald) {
+                        heralds[step.record] = 1;
+                    }
+                    const double draw = rng.next_double();
+                    inputs.set_readout(step.input, {draw < (herald ? 0.5 : channel.p01),
+                                                    draw < (herald ? 0.5 : channel.p10)});
+                } else if constexpr (std::is_same_v<T, ProbeInput>) {
+                    const bool value = status[step.qubit] == step.status;
+                    inputs.set_readout(step.input, {value, value});
+                }
+            },
+            input);
+    }
+}
+
+struct ScalarInputSink {
+    std::span<uint8_t> noise;
+    std::span<sampling::ReadoutNoiseInput> readout;
+
+    void activate_noise(uint32_t input) noexcept { noise[input] = 1; }
+    void set_readout(uint32_t input, sampling::ReadoutNoiseInput value) noexcept {
+        readout[input] = value;
+    }
+};
+
+struct PackedInputSink {
+    sampling::BatchExternalInputs::MutableView inputs;
+    uint32_t lane;
+
+    void activate_noise(uint32_t input) noexcept { inputs.set_noise(input, lane); }
+    void set_readout(uint32_t input, sampling::ReadoutNoiseInput value) noexcept {
+        if (value.flip_zero) {
+            inputs.set_readout_zero(input, lane);
+        }
+        if (value.flip_one) {
+            inputs.set_readout_one(input, lane);
+        }
+    }
+};
+
+template <typename Inputs>
+void prepare_shot(const detail::FixedNonComputationalData& data, const SeedRoot& root,
+                  uint32_t shot, std::span<uint8_t> status, Inputs& inputs,
+                  NonComputationalSample& result) noexcept {
+    const auto seed = derive_state(root, shot, kFixedNonComputationalInputDomain);
+    Xoshiro256PlusPlus rng(0);
+    rng.seed_full(seed[0], seed[1], seed[2], seed[3]);
+    // Each global row is written once, so no batch-sized status/herald copy is
+    // needed. The quantum executor consumes the separate packed input columns.
+    const auto heralds =
+        std::span(result.heralds)
+            .subspan(static_cast<size_t>(shot) * result.num_measurements, result.num_measurements);
+    prepare_inputs(data, rng, status, heralds, inputs);
+    if (data.final_status) {
+        for (uint32_t qubit = 0; qubit < result.num_qubits; ++qubit) {
+            assert(status[qubit] != kLeaked);
+            result.final_status[static_cast<size_t>(shot) * result.num_qubits + qubit] =
+                status[qubit] == kLost ? QubitStatus::Lost : QubitStatus::Computational;
+        }
+    }
+}
+
 struct FixedWorker {
     explicit FixedWorker(const detail::FixedNonComputationalData& data)
         : executor(*data.plan),
           status(data.dynamic_inputs ? data.dimensions.num_qubits : 0),
           noise(data.metrics.quantum_noise_inputs),
-          readout(data.metrics.readout_inputs),
-          heralds(data.dynamic_inputs ? data.dimensions.num_measurements : 0) {}
+          readout(data.metrics.readout_inputs) {}
 
     sampling::Executor executor;
     std::vector<uint8_t> status;
     std::vector<uint8_t> noise;
     std::vector<sampling::ReadoutNoiseInput> readout;
-    std::vector<uint8_t> heralds;
+    uint64_t shots = 0;
+};
 
-    void prepare_inputs(const detail::FixedNonComputationalData& data,
-                        Xoshiro256PlusPlus& rng) noexcept {
-        std::fill(status.begin(), status.end(), kComputational);
-        std::fill(noise.begin(), noise.end(), 0);
-        std::fill(heralds.begin(), heralds.end(), 0);
-        for (const auto& input : data.inputs) {
-            std::visit(
-                [&](const auto& step) noexcept {
-                    using T = std::decay_t<decltype(step)>;
-                    if constexpr (std::is_same_v<T, TransitionInput>) {
-                        const uint8_t before = status[step.qubit];
-                        const bool affected =
-                            step.loss ? before != kLost : before == kComputational;
-                        if (affected && rng.next_double() < step.probability) {
-                            status[step.qubit] = step.loss ? kLost : kLeaked;
-                        }
-                    } else if constexpr (std::is_same_v<T, ResetInput>) {
-                        status[step.qubit] = after_reset(status[step.qubit], step);
-                    } else if constexpr (std::is_same_v<T, NoiseInput>) {
-                        if (step.inactive_source &&
-                            status[*step.inactive_source] != step.source_status) {
-                            return;
-                        }
-                        for (const uint32_t target : step.active_targets) {
-                            if (status[target] != kComputational) {
-                                return;
-                            }
-                        }
-                        const double draw = rng.next_double();
-                        for (const auto& outcome : step.outcomes) {
-                            if (draw < outcome.cumulative_probability) {
-                                noise[outcome.input] = 1;
-                                break;
-                            }
-                        }
-                    } else if constexpr (std::is_same_v<T, ReadoutInput>) {
-                        const uint8_t current = step.qubit ? status[*step.qubit] : kComputational;
-                        const size_t category = current == kComputational ? 0
-                                                : current == kLeaked      ? 1
-                                                                          : 2;
-                        const auto& channel = step.channels[category];
-                        const bool herald =
-                            channel.herald > 0.0 && rng.next_double() < channel.herald;
-                        if (herald) {
-                            heralds[step.record] = 1;
-                        }
-                        const double draw = rng.next_double();
-                        readout[step.input] = {draw < (herald ? 0.5 : channel.p01),
-                                               draw < (herald ? 0.5 : channel.p10)};
-                    } else if constexpr (std::is_same_v<T, ProbeInput>) {
-                        const bool value = status[step.qubit] == step.status;
-                        readout[step.input] = {value, value};
-                    }
-                },
-                input);
+sampling::BatchSamplingMode sampling_mode(const detail::FixedNonComputationalData& data) {
+    return data.dynamic_inputs ? sampling::BatchSamplingMode::ExternalInputs
+                               : sampling::BatchSamplingMode::Ordinary;
+}
+
+struct PackedFixedWorker {
+    PackedFixedWorker(const detail::FixedNonComputationalData& data, uint32_t capacity)
+        : executor(*data.plan, capacity, sampling::BatchOutputMode::Rows, sampling_mode(data)),
+          status(data.dynamic_inputs ? data.dimensions.num_qubits : 0) {
+        if (data.dynamic_inputs) {
+            inputs.emplace(*data.plan, capacity);
         }
     }
+
+    sampling::BatchExecutor executor;
+    std::vector<uint8_t> status;
+    std::optional<sampling::BatchExternalInputs> inputs;
+    uint64_t shots = 0;
+    uint64_t batches = 0;
 };
 
 }  // namespace
@@ -641,12 +709,20 @@ prepare_fixed_noncomputational(const PreparedNonComputationalRequest& request) {
         std::get<std::shared_ptr<const detail::FixedNonComputationalData>>(std::move(result)));
 }
 
-NonComputationalSample FixedNonComputationalProgram::sample(uint32_t shots,
-                                                            std::optional<uint64_t> seed,
-                                                            uint32_t threads) const {
+FixedNonComputationalResult FixedNonComputationalProgram::sample(
+    uint32_t shots, std::optional<uint64_t> seed, uint32_t threads,
+    std::optional<uint32_t> batch_size) const {
     const auto& data = *data_;
     const auto& dimensions = data.dimensions;
-    NonComputationalSample result;
+    const uint32_t shot_workers = resolve_shot_worker_count(shots, threads);
+    const uint64_t driver_bytes = data.dynamic_inputs ? dimensions.num_qubits : 0;
+    const auto policy = sampling::resolve_batch_execution_policy(
+        *data.plan, shots, shot_workers, 1, sampling::BatchOutputMode::Rows, batch_size,
+        sampling_mode(data), driver_bytes);
+    FixedNonComputationalResult run;
+    auto& result = run.output;
+    auto& metrics = run.metrics;
+    metrics.batch_size = policy.lane_capacity;
     result.shots = shots;
     result.num_qubits = dimensions.num_qubits;
     result.num_measurements = dimensions.num_measurements;
@@ -654,7 +730,7 @@ NonComputationalSample FixedNonComputationalProgram::sample(uint32_t shots,
     result.num_observables = dimensions.num_observables;
     const SeedRoot root = make_seed_root(shots, seed);
     if (shots == 0) {
-        return result;
+        return run;
     }
     result.measurements.resize(static_cast<size_t>(shots) * dimensions.num_measurements);
     result.heralds.resize(result.measurements.size());
@@ -663,16 +739,77 @@ NonComputationalSample FixedNonComputationalProgram::sample(uint32_t shots,
     if (data.final_status) {
         result.final_status.resize(static_cast<size_t>(shots) * dimensions.num_qubits);
     }
-    run_shot_ranges(
-        shots, threads, [&](uint32_t) { return std::make_unique<FixedWorker>(data); },
-        [&](const std::unique_ptr<FixedWorker>& worker, ShotRange range) {
+    if (policy.lane_capacity > 1) {
+        metrics.packed_worker_bytes = sampling::batch_detail::batch_worker_storage_bytes(
+                                          *data.plan, policy.lane_capacity,
+                                          sampling::BatchOutputMode::Rows, sampling_mode(data)) +
+                                      driver_bytes;
+        const auto quantum_seed = derive_state(root, 0, kFixedNonComputationalExecutorDomain);
+        const SeedRoot quantum_root{
+            {quantum_seed[0], quantum_seed[1], quantum_seed[2], quantum_seed[3]}};
+        const auto workers = run_shot_ranges(
+            shots, policy.worker_count,
+            [&](uint32_t) {
+                return std::make_unique<PackedFixedWorker>(data, policy.lane_capacity);
+            },
+            [&](const std::unique_ptr<PackedFixedWorker>& worker, ShotRange range) noexcept {
+                for (uint32_t first = range.begin; first < range.end;) {
+                    const uint32_t count = std::min(policy.lane_capacity, range.end - first);
+                    if (data.dynamic_inputs) {
+                        worker->inputs->clear();
+                        const auto view = worker->inputs->mutable_view();
+                        for (uint32_t lane = 0; lane < count; ++lane) {
+                            PackedInputSink inputs{view, lane};
+                            prepare_shot(data, root, first + lane, worker->status, inputs, result);
+                        }
+                        worker->executor.run_batch(quantum_root, first, count, *worker->inputs);
+                    } else {
+                        worker->executor.run_batch(quantum_root, first, count);
+                    }
+                    assert(worker->executor.surviving_shots() == count);
+                    for (uint32_t lane = 0; lane < count; ++lane) {
+                        const uint32_t shot = first + lane;
+                        assert(worker->executor.shot_index(lane) == shot);
+                        for (uint32_t record = 0; record < dimensions.num_measurements; ++record) {
+                            result.measurements[static_cast<size_t>(shot) *
+                                                    dimensions.num_measurements +
+                                                record] =
+                                worker->executor.measurement(lane, record);
+                        }
+                        for (uint32_t detector = 0; detector < dimensions.num_detectors;
+                             ++detector) {
+                            result.detectors[static_cast<size_t>(shot) * dimensions.num_detectors +
+                                             detector] = worker->executor.detector(lane, detector);
+                        }
+                        for (uint32_t observable = 0; observable < dimensions.num_observables;
+                             ++observable) {
+                            result.observables[static_cast<size_t>(shot) *
+                                                   dimensions.num_observables +
+                                               observable] =
+                                worker->executor.observable(lane, observable);
+                        }
+                    }
+                    worker->shots += count;
+                    ++worker->batches;
+                    first += count;
+                }
+            },
+            policy.lane_capacity);
+        metrics.workers = static_cast<uint32_t>(workers.size());
+        for (const auto& worker : workers) {
+            metrics.packed_shots += worker->shots;
+            metrics.packed_batches += worker->batches;
+        }
+        return run;
+    }
+    const auto workers = run_shot_ranges(
+        shots, shot_workers, [&](uint32_t) { return std::make_unique<FixedWorker>(data); },
+        [&](const std::unique_ptr<FixedWorker>& worker, ShotRange range) noexcept {
             for (uint32_t shot = range.begin; shot < range.end; ++shot) {
                 if (data.dynamic_inputs) {
-                    const auto input_seed =
-                        derive_state(root, shot, kFixedNonComputationalInputDomain);
-                    Xoshiro256PlusPlus rng(0);
-                    rng.seed_full(input_seed[0], input_seed[1], input_seed[2], input_seed[3]);
-                    worker->prepare_inputs(data, rng);
+                    std::ranges::fill(worker->noise, 0);
+                    ScalarInputSink inputs{worker->noise, worker->readout};
+                    prepare_shot(data, root, shot, worker->status, inputs, result);
                 }
                 const auto quantum_seed =
                     derive_state(root, shot, kFixedNonComputationalExecutorDomain);
@@ -691,19 +828,14 @@ NonComputationalSample FixedNonComputationalProgram::sample(uint32_t shots,
                 copy(worker->executor.visible_records(), result.measurements);
                 copy(worker->executor.detectors(), result.detectors);
                 copy(worker->executor.observables(), result.observables);
-                copy(worker->heralds, result.heralds);
-                if (data.final_status && data.dynamic_inputs) {
-                    for (uint32_t qubit = 0; qubit < dimensions.num_qubits; ++qubit) {
-                        assert(worker->status[qubit] != kLeaked);
-                        result.final_status[static_cast<size_t>(shot) * dimensions.num_qubits +
-                                            qubit] = worker->status[qubit] == kLost
-                                                         ? QubitStatus::Lost
-                                                         : QubitStatus::Computational;
-                    }
-                }
             }
+            worker->shots += range.end - range.begin;
         });
-    return result;
+    metrics.workers = static_cast<uint32_t>(workers.size());
+    for (const auto& worker : workers) {
+        metrics.scalar_shots += worker->shots;
+    }
+    return run;
 }
 
 }  // namespace clifft
