@@ -90,7 +90,6 @@ def main():
                 for batch_size in batch_sizes:
                     name = f"fixed_{batch_size}"
                     times[name] = []
-                    program.sample(1, 0, batch_size=batch_size)
                     calls.append(
                         (
                             name,
@@ -104,7 +103,6 @@ def main():
                     )
                 if not args.skip_trajectories:
                     times["trajectory"] = []
-                    noncomp.sample(circuit, model, shots=1, seed=0)
                     calls.append(
                         (
                             "trajectory",
@@ -113,6 +111,9 @@ def main():
                             ),
                         )
                     )
+                # Shot count and threads must match to warm the measured execution policy.
+                for _, call in calls:
+                    call(0)
                 for repetition in range(args.repetitions):
                     for name, call in calls[:: 1 if repetition % 2 == 0 else -1]:
                         start = time.perf_counter()
