@@ -421,6 +421,9 @@ TEST_CASE("Packed external readout follows survivors through intermediate compac
     for (uint32_t shots : {capacity, 65u, 0u, capacity}) {
         CAPTURE(shots);
         inputs.clear();
+        // Inactive lanes and word padding must not enter the compacted outputs.
+        std::ranges::fill(inputs.readout_zero(0), ~uint64_t{0});
+        std::ranges::fill(inputs.readout_one(0), ~uint64_t{0});
         for (uint32_t lane = 0; lane < shots; ++lane) {
             set(inputs.noise(0), lane, lane % 8 != 0);
             set(inputs.noise(1), lane, ((lane / 8) & 1) != 0);
@@ -444,6 +447,72 @@ TEST_CASE("Packed external readout follows survivors through intermediate compac
         }
         REQUIRE(std::ranges::equal(inputs.readout_zero(0), before_zero));
         REQUIRE(std::ranges::equal(inputs.readout_one(0), before_one));
+    }
+}
+
+TEST_CASE("Packed external aggregate counts match analytic survivors and row outputs") {
+    const uint32_t reject_every = GENERATE(0u, 3u, 1u);
+    CAPTURE(reject_every);
+    const auto hir =
+        clifft::trace(clifft::parse("X_ERROR(0.5) 0\nM 0\nDETECTOR rec[-1]\n"
+                                    "X_ERROR(0.2) 1\nM(0.3) 1\nOBSERVABLE_INCLUDE(0) rec[-1]\n"
+                                    "X_ERROR(0.4) 2\nM(0.5) 2\nOBSERVABLE_INCLUDE(1) rec[-1]\n"));
+    const std::array<uint8_t, 1> mask{1};
+    const ExecutablePlan plan(plan_sampling(hir, {.postselection_mask = mask}));
+    REQUIRE(plan.peak_active_width() == 0);
+    REQUIRE(plan.num_presampled_symbols() == 3);
+    REQUIRE(plan.num_readout_noise_sites() == 2);
+    REQUIRE(plan.num_observables() == 2);
+    constexpr uint32_t capacity = 129;
+    BatchExternalInputs inputs(plan, capacity);
+    BatchExecutor rows(plan, capacity, BatchOutputMode::Rows, BatchSamplingMode::ExternalInputs);
+    BatchExecutor aggregate(plan, capacity, BatchOutputMode::AggregateSurvivors,
+                            BatchSamplingMode::ExternalInputs);
+    const auto root = clifft::make_seed_root(1024, uint64_t{63});
+    for (uint32_t shots : {capacity, 65u, 0u, 1u, capacity}) {
+        CAPTURE(shots);
+        inputs.clear();
+        uint32_t expected_survivors = 0;
+        uint32_t expected_errors = 0;
+        std::array<uint64_t, 2> expected_ones{};
+        for (uint32_t lane = 0; lane < shots; ++lane) {
+            const bool rejected = reject_every != 0 && lane % reject_every == 0;
+            set(inputs.noise(0), lane, rejected);
+            bool any_observable = false;
+            for (uint32_t site = 0; site < 2; ++site) {
+                const bool source = ((lane >> site) & 1) != 0;
+                const uint32_t channel = ((lane >> (site + 1)) + site) % 4;
+                set(inputs.noise(site + 1), lane, source);
+                set_channel(inputs, site, lane, channel);
+                const bool outcome = reported(source, channel);
+                expected_ones[site] += !rejected && outcome;
+                any_observable |= outcome;
+            }
+            expected_survivors += !rejected;
+            expected_errors += !rejected && any_observable;
+        }
+        rows.run_batch(root, 100, shots, inputs);
+        aggregate.run_batch(root, 100, shots, inputs);
+        // Aggregation must count a sparse live mask without final row compaction.
+        REQUIRE_FALSE(aggregate.compacted_during_execution());
+        REQUIRE(rows.surviving_shots() == expected_survivors);
+        REQUIRE(aggregate.surviving_shots() == expected_survivors);
+        std::array<uint64_t, 2> row_ones{};
+        uint32_t row_errors = 0;
+        for (uint32_t lane = 0; lane < rows.surviving_shots(); ++lane) {
+            bool any_observable = false;
+            for (uint32_t observable = 0; observable < 2; ++observable) {
+                const bool outcome = rows.observable(lane, observable);
+                row_ones[observable] += outcome;
+                any_observable |= outcome;
+            }
+            row_errors += any_observable;
+        }
+        std::array<uint64_t, 2> aggregate_ones{};
+        REQUIRE(aggregate.accumulate_survivor_counts(aggregate_ones) == expected_errors);
+        REQUIRE(row_errors == expected_errors);
+        REQUIRE(row_ones == expected_ones);
+        REQUIRE(aggregate_ones == expected_ones);
     }
 }
 
