@@ -147,8 +147,8 @@ nav:
     - Releasing: development/releasing.md
   - Development Blog:
     - Overview: updates/index.md
-    - "v0.12.0 (October 2026): Richer Noise Models, Smaller Active States": updates/smaller-active-states.md
-    - "v0.11.0 (September 2026): Less Work per Shot": updates/less-work-per-shot.md
-    - "v0.10.0 (September 2026): Packed Sampling": updates/packed-sampling.md
-    - "v0.9.0 (August 2026): Parallel Sampling": updates/parallel-sampling.md
-    - "v0.8.0 (August 2026): Symbolic Sampling": updates/symbolic-sampling.md
+    - "v0.12.0: Richer Noise Models, Smaller Active States": updates/smaller-active-states.md
+    - "v0.11.0: Less Work per Shot": updates/less-work-per-shot.md
+    - "v0.10.0: Packed Sampling": updates/packed-sampling.md
+    - "v0.9.0: Parallel Sampling": updates/parallel-sampling.md
+    - "v0.8.0: Symbolic Sampling": updates/symbolic-sampling.md

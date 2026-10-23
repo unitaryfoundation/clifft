@@ -128,8 +128,11 @@ most relevant new documentation or tutorial, and include a link to the
 full changelog.
 
 When adding a development post, add it to `docs/updates/index.md` and the
-Development Blog navigation in `mkdocs.yml`, newest first, with its title and
-date. Keep the index as the first entry in that navigation so
+Development Blog navigation in `mkdocs.yml`, newest release first. Keep the
+release version in the post title and put the full release date below it,
+labeled "Release date" (for example, "October 13, 2026"). Use the same date in
+the index's "Release date" column and confirm it matches the final release.
+Keep the index as the first entry in that navigation so
 `/stable/updates/` remains the blog landing page across releases. Use relative
 links to posts so readers stay within their selected documentation version.
 Review `docs/acknowledgments.md` for the release's research and software credits.
@@ -204,8 +207,9 @@ Then verify the hosted docs and Playground:
 - For the newest release, `https://unitaryfoundation.github.io/clifft/stable/`
   shows the new release docs.
 - [Development Blog](https://unitaryfoundation.github.io/clifft/stable/updates/)
-  loads the index with dated posts, newest first. The Development Blog navigation
-  opens this index, and its article links work.
+  loads the index with full release dates, newest release first. The Development
+  Blog navigation opens this index, and its article links work. Each post's
+  release date matches its index entry and the GitHub Release.
 - [Acknowledgments and References](https://unitaryfoundation.github.io/clifft/stable/acknowledgments/)
   includes the current research and software credits, including Merlin.
 - `https://unitaryfoundation.github.io/clifft/playground/?url=<raw-stim-url>`
