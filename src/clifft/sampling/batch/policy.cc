@@ -1,12 +1,17 @@
 #include "clifft/sampling/batch/policy.h"
 
-#include "clifft/sampling/batch/bits.h"
-#include "clifft/sampling/batch/interleaved_state.h"
 #include "clifft/sampling/executable_plan.h"
 #include "clifft/util/numeric.h"
 
+#if !defined(__EMSCRIPTEN__)
+#include "clifft/sampling/batch/bits.h"
+#include "clifft/sampling/batch/external_inputs.h"
+#include "clifft/sampling/batch/interleaved_state.h"
+#endif
+
 #include <algorithm>
 #include <bit>
+#include <limits>
 #include <stdexcept>
 
 namespace clifft::sampling {
@@ -23,6 +28,7 @@ namespace {
 
 }  // namespace
 
+#if !defined(__EMSCRIPTEN__)
 namespace batch_detail {
 
 BatchWorkerStorageLayout batch_worker_storage_layout(const ExecutablePlan& plan,
@@ -49,6 +55,12 @@ BatchWorkerStorageLayout batch_worker_storage_layout(const ExecutablePlan& plan,
     layout.observable_columns = plan.num_observables();
     layout.forced_readout_columns =
         sampling_mode == BatchSamplingMode::FixedFaults ? plan.num_readout_noise_sites() : 0;
+    if (sampling_mode == BatchSamplingMode::ExternalInputs) {
+        if (plan.num_readout_noise_sites() > std::numeric_limits<size_t>::max() / 2) {
+            throw std::length_error("packed external readout column count exceeds size_t range");
+        }
+        layout.forced_readout_columns = size_t{2} * plan.num_readout_noise_sites();
+    }
     layout.exp_value_entries = output_mode == BatchOutputMode::Rows
                                    ? static_cast<uint64_t>(plan.num_exp_vals()) * lane_capacity
                                    : 0;
@@ -92,10 +104,16 @@ uint64_t batch_worker_storage_bytes(const ExecutablePlan& plan, uint32_t lane_ca
     add_entries(layout.probability_zero_entries, sizeof(double));
     add_entries(layout.probability_one_entries, sizeof(double));
     add_entries(layout.lane_value_entries, sizeof(double));
+    // External workers retain the caller's input buffer as well as the readout
+    // copy whose lane order follows intermediate survivor compaction.
+    if (sampling_mode == BatchSamplingMode::ExternalInputs) {
+        bytes = saturating_add_u64(bytes, BatchExternalInputs::storage_bytes(plan, lane_capacity));
+    }
     return bytes;
 }
 
 }  // namespace batch_detail
+#endif
 
 BatchExecutionPolicy resolve_batch_execution_policy(
     const ExecutablePlan& plan, uint32_t shots, uint32_t shot_workers, uint32_t intra_shot_workers,

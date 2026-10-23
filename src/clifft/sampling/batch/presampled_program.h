@@ -55,10 +55,14 @@ class BatchPresampledProgram {
         std::span<const uint32_t> expression_terms,
         std::span<const uint32_t> expression_term_begins,
         std::span<const uint8_t> bound_presampled_symbols);
-    void validate(size_t num_noise_outcomes, size_t num_expression_registers) const noexcept;
+    void validate(size_t num_noise_outcomes, size_t num_expression_registers,
+                  size_t num_presampled_inputs) const noexcept;
 
     uint32_t num_carriers_ = 0;
     std::vector<OutcomeAssignments> outcome_assignments_;
+    // The same linear carrier map for caller-supplied symbols, including
+    // symbols without a noise distribution. Entries follow Presampled order.
+    std::vector<OutcomeAssignments> input_assignments_;
     std::vector<uint32_t> assigned_carriers_;
     std::vector<uint32_t> initialization_level_offsets_;
     std::vector<InitializeExpression> initializations_;

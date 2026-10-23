@@ -1,6 +1,7 @@
 #pragma once
 
 #include "clifft/sampling/batch/bits.h"
+#include "clifft/sampling/batch/external_inputs.h"
 #include "clifft/sampling/batch/interleaved_kernels.h"
 #include "clifft/sampling/batch/interleaved_state.h"
 #include "clifft/sampling/batch/policy.h"
@@ -37,6 +38,12 @@ class BatchExecutor {
     void run_batch(const SeedRoot& root, uint32_t first_shot, uint32_t shots,
                    KFaultSampler& fault_sampler) noexcept;
 
+    // Inputs must belong to this plan and have this worker's lane capacity.
+    // Every noise/readout site is externally supplied; quantum measurements
+    // still use the batch RNG. Padding and inactive input lanes are ignored.
+    void run_batch(const SeedRoot& root, uint32_t first_shot, uint32_t shots,
+                   const BatchExternalInputs& inputs) noexcept;
+
     [[nodiscard]] uint32_t surviving_shots() const noexcept { return live_count_; }
     [[nodiscard]] bool compacted_during_execution() const noexcept {
         return compacted_during_execution_;
@@ -58,6 +65,7 @@ class BatchExecutor {
 
     void reset_batch(const SeedRoot& root, uint32_t first_shot, uint32_t shots) noexcept;
     void sample_presampled_noise() noexcept;
+    void assign_external_inputs(const BatchExternalInputs& inputs) noexcept;
     void assign_forced_faults(KFaultSampler& fault_sampler) noexcept;
     struct NoiseSiteActivator;
     void initialize_expression_registers() noexcept;

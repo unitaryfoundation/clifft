@@ -41,7 +41,13 @@ std::vector<BatchTuningCandidate> batch_tuning_candidates(
         candidates.push_back({policy, static_cast<uint32_t>(minimum), max_probe_shots});
     };
     append(baseline);
-    if (candidates.empty() || !kPackedBatchExecutionAvailable || intra_shot_workers > 1) {
+#if defined(__EMSCRIPTEN__)
+    (void)shot_workers;
+    (void)intra_shot_workers;
+    (void)sampling_mode;
+    (void)additional_worker_bytes;
+#else
+    if (candidates.empty() || intra_shot_workers > 1) {
         return candidates;
     }
     for (const uint32_t size : std::array<uint32_t, 5>{1, 64, 256, 1024, 2048}) {
@@ -59,6 +65,7 @@ std::vector<BatchTuningCandidate> batch_tuning_candidates(
         }
         append({capacity, workers});
     }
+#endif
     return candidates;
 }
 

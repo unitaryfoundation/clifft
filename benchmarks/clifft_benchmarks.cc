@@ -20,15 +20,23 @@
 #include "clifft/optimizer/phase_polynomial_pass.h"
 #endif
 
+#if __has_include("clifft/sampling/batch/external_inputs.h")
+#define CLIFFT_BENCHMARK_HAS_EXTERNAL_INPUTS
+#include "clifft/sampling/batch/executor.h"
+#include "clifft/sampling/executor.h"
+#endif
+
 #include <array>
 #include <benchmark/benchmark.h>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <optional>
+#include <span>
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 using namespace clifft;
 
@@ -445,6 +453,88 @@ void sample_exp_val(benchmark::State& state) {
         benchmark::DoNotOptimize(result);
     }
 }
+
+#ifdef CLIFFT_BENCHMARK_HAS_EXTERNAL_INPUTS
+// Time reusable execution only. Input generation, preparation, and output
+// materialization belong to the eventual end-to-end noncomputational benchmark.
+template <bool Packed>
+void external_inputs(benchmark::State& state, bool surface) {
+    std::string text;
+    for (uint32_t round = 0; round < 64; ++round) {
+        text += "H 0\nT 0\nZ_ERROR(0.1) 0\nH 0\nM(0.1) 0\nR 0\n";
+    }
+    const auto plan =
+        surface ? compile_circuit(fixture("surface_d7_r7_p001.stim")) : compile_text(text);
+    if (surface ? plan.num_batch_noise_carriers() == 0 : plan.peak_active_width() == 0) {
+        state.SkipWithError("external input benchmark did not select the expected execution path");
+        return;
+    }
+    constexpr uint32_t shots = 256;
+    const auto root = make_seed_root(shots, uint64_t{831});
+    sampling::BatchExternalInputs inputs(plan, shots);
+    std::vector<uint8_t> noise(static_cast<size_t>(shots) * plan.num_presampled_symbols());
+    std::vector<sampling::ReadoutNoiseInput> readout(static_cast<size_t>(shots) *
+                                                     plan.num_readout_noise_sites());
+    Xoshiro256PlusPlus rng(81);
+    const auto set_bit = [](std::span<uint64_t> column, uint32_t lane) {
+        column[lane >> 6] |= uint64_t{1} << (lane & 63);
+    };
+    for (uint32_t lane = 0; lane < shots; ++lane) {
+        for (uint32_t input = 0; input < plan.num_presampled_symbols(); ++input) {
+            const bool value = rng() % 100 == 0;
+            noise[static_cast<size_t>(lane) * plan.num_presampled_symbols() + input] = value;
+            if (value) {
+                set_bit(inputs.noise(input), lane);
+            }
+        }
+        for (uint32_t site = 0; site < plan.num_readout_noise_sites(); ++site) {
+            const bool zero = rng() % 100 == 0;
+            const bool one = rng() % 100 == 0;
+            readout[static_cast<size_t>(lane) * plan.num_readout_noise_sites() + site] = {zero,
+                                                                                          one};
+            if (zero) {
+                set_bit(inputs.readout_zero(site), lane);
+            }
+            if (one) {
+                set_bit(inputs.readout_one(site), lane);
+            }
+        }
+    }
+    if constexpr (Packed) {
+        sampling::BatchExecutor executor(plan, shots, sampling::BatchOutputMode::Rows,
+                                         sampling::BatchSamplingMode::ExternalInputs);
+        for ([[maybe_unused]] auto _ : state) {
+            executor.run_batch(root, 0, shots, inputs);
+            benchmark::DoNotOptimize(executor.measurement(shots - 1, 0));
+        }
+    } else {
+        sampling::Executor executor(plan, 831);
+        for ([[maybe_unused]] auto _ : state) {
+            for (uint32_t lane = 0; lane < shots; ++lane) {
+                executor.run_shot(std::span(noise).subspan(
+                                      static_cast<size_t>(lane) * plan.num_presampled_symbols(),
+                                      plan.num_presampled_symbols()),
+                                  std::span(readout).subspan(
+                                      static_cast<size_t>(lane) * plan.num_readout_noise_sites(),
+                                      plan.num_readout_noise_sites()));
+                benchmark::DoNotOptimize(executor.visible_records());
+            }
+        }
+    }
+    state.SetItemsProcessed(state.iterations() * shots);
+    state.counters["active_width"] = plan.peak_active_width();
+    state.counters["noise_carriers"] = plan.num_batch_noise_carriers();
+}
+
+BENCHMARK_CAPTURE(external_inputs<false>, surface_scalar, true)
+    ->Name("external_inputs_surface_d7_scalar_256_shots");
+BENCHMARK_CAPTURE(external_inputs<true>, surface_packed, true)
+    ->Name("external_inputs_surface_d7_packed_256_shots");
+BENCHMARK_CAPTURE(external_inputs<false>, nonclifford_scalar, false)
+    ->Name("external_inputs_nonclifford_scalar_256_shots");
+BENCHMARK_CAPTURE(external_inputs<true>, nonclifford_packed, false)
+    ->Name("external_inputs_nonclifford_packed_256_shots");
+#endif
 
 BENCHMARK(squeeze_parallel_t)->Name("squeeze_parallel_t_8192");
 #ifdef CLIFFT_BENCHMARK_HAS_PHASE_POLYNOMIAL

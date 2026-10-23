@@ -24,6 +24,16 @@ cmake --build build/canary --target clifft_benchmarks -j
 Use `--benchmark_list_tests=true` to inspect the suite or
 `--benchmark_filter='^phase_'` to run only the phase cases.
 
+## External input execution
+
+`--benchmark_filter='^external_inputs_'` compares reusable scalar and packed
+execution for identical supplied noise/readout columns in 256-shot batches.
+The surface-code case exercises optimized presampled carriers; the repeated
+T-gate case exercises active quantum state and ordinary noise propagation.
+Preparation, input generation, and copying results out of the executor are
+excluded. These are primitive throughput measurements, not end-to-end leak/loss
+sampling or deltakit-stim comparisons.
+
 ## Noncomputational scalar comparison
 
 `noncomp_fixed.py` compares the internal scalar fixed path with trajectories on

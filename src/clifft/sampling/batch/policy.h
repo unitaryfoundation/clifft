@@ -46,10 +46,11 @@ enum class BatchOutputMode : uint8_t {
     AggregateSurvivors,
 };
 
-// Selects ordinary Bernoulli noise or conditioned fixed-fault storage.
+// Selects the source of noise and the corresponding retained readout storage.
 enum class BatchSamplingMode : uint8_t {
     Ordinary,
     FixedFaults,
+    ExternalInputs,
 };
 
 namespace batch_detail {
@@ -176,21 +177,27 @@ struct BatchWorkerStorageLayout {
     size_t lane_value_entries = 0;
 };
 
+// Wasm omits packed storage implementations; reject accidental callers at
+// compile time instead of depending on linker dead-code removal.
+#if !defined(__EMSCRIPTEN__)
 [[nodiscard]] BatchWorkerStorageLayout batch_worker_storage_layout(const ExecutablePlan& plan,
                                                                    uint32_t lane_capacity,
                                                                    BatchOutputMode output_mode,
                                                                    BatchSamplingMode sampling_mode);
 
+// Includes one BatchExternalInputs buffer when using external input mode.
 [[nodiscard]] uint64_t batch_worker_storage_bytes(const ExecutablePlan& plan,
                                                   uint32_t lane_capacity,
                                                   BatchOutputMode output_mode,
                                                   BatchSamplingMode sampling_mode);
+#endif
 
 }  // namespace batch_detail
 
 // Resolve deterministic lane boundaries first, then cap automatic workers by
 // the aggregate retained-memory budget. Callers include wrapper-owned scratch
-// that is not part of BatchExecutor in additional_worker_bytes.
+// that is not part of BatchExecutor in additional_worker_bytes, excluding the
+// BatchExternalInputs buffer already counted in external input mode.
 [[nodiscard]] BatchExecutionPolicy resolve_batch_execution_policy(
     const ExecutablePlan& plan, uint32_t shots, uint32_t shot_workers, uint32_t intra_shot_workers,
     BatchOutputMode output_mode, std::optional<uint32_t> requested_batch_size,

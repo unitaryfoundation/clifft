@@ -32,6 +32,7 @@ add_library(clifft_core STATIC
     sampling/pauli_preparation.cc
     sampling/batch/bits.cc
     sampling/batch/executor.cc
+    sampling/batch/external_inputs.cc
     sampling/batch/policy.cc
     sampling/batch/tuning.cc
     sampling/batch/presampled_program.cc

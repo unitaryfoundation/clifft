@@ -671,7 +671,8 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::validate_executable_plan
                                               output_.expression_register_constants_.size());
     if (output_.batch_presampled_program_.has_value()) {
         output_.batch_presampled_program_->validate(output_.noise_outcomes_.size(),
-                                                    output_.expression_register_constants_.size());
+                                                    output_.expression_register_constants_.size(),
+                                                    output_.presampled_symbols_.size());
     }
     const size_t num_records =
         static_cast<size_t>(output_.num_visible_records_) + output_.num_hidden_records_;
