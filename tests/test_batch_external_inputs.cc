@@ -286,6 +286,101 @@ TEST_CASE("Packed external inputs retain non Clifford probabilities and feedback
     }
 }
 
+TEST_CASE("Packed external carriers compose with readout reset and non Clifford feedback") {
+    const bool mixed_bindings = GENERATE(false, true);
+    CAPTURE(mixed_bindings);
+    constexpr uint32_t rounds = 40;
+    std::string circuit;
+    for (uint32_t round = 0; round < rounds; ++round) {
+        circuit += "DEPOLARIZE1(0.75) 0\nM(0.2) 0\nCX rec[-1] 1\n";
+    }
+    circuit +=
+        "MR(0.2) 0\nM 0\nH 1\nT 1\nH 1\nEXP_VAL Z1\n"
+        "M(0.2) 1\nCX rec[-1] 2\nM 2\nDETECTOR rec[-2] rec[-1]\n"
+        "OBSERVABLE_INCLUDE(0) rec[-1]\n";
+    auto source = plan_sampling(clifft::trace(clifft::parse(circuit)));
+    const auto first_readout = std::ranges::find(source.symbols, SymbolKind::Readout);
+    REQUIRE(first_readout != source.symbols.end());
+    REQUIRE(static_cast<size_t>(first_readout - source.symbols.begin()) <
+            index(source.presampled_noise_sites.back().outcomes.front().symbol));
+    if (mixed_bindings) {
+        std::erase_if(source.presampled_noise_sites,
+                      [](const auto& site) { return *site.source_site % 2 == 0; });
+    }
+    const ExecutablePlan plan(source);
+    REQUIRE(plan.num_batch_noise_carriers() > 0);
+    REQUIRE(plan.peak_active_width() > 0);
+    REQUIRE(plan.num_presampled_symbols() == 3 * rounds);
+    REQUIRE(plan.num_unbound_presampled_symbols() == (mixed_bindings ? 3 * rounds / 2 : 0));
+    REQUIRE(plan.num_readout_noise_sites() == rounds + 2);
+    REQUIRE(plan.num_visible_records() == rounds + 4);
+    REQUIRE(plan.num_exp_vals() == 1);
+
+    constexpr uint32_t capacity = 129;
+    constexpr uint32_t shots = 4096;
+    BatchExternalInputs inputs(plan, capacity);
+    BatchExecutor batch(plan, capacity, BatchOutputMode::Rows, BatchSamplingMode::ExternalInputs);
+    const auto root = clifft::make_seed_root(shots, uint64_t{627});
+    const auto noise = [](uint32_t input, uint32_t shot) {
+        return (((shot * 37 + input * 11) >> (input % 8)) & 1) != 0;
+    };
+    const auto channel = [](uint32_t site, uint32_t shot) {
+        return ((shot >> (site % 7)) + site) % 4;
+    };
+    uint32_t random_flips = 0;
+    uint32_t random_shots = 0;
+    std::array<uint32_t, 2> feedback_counts{};
+    for (uint32_t first = 0; first < shots; first += capacity) {
+        const uint32_t count = std::min(capacity, shots - first);
+        inputs.clear();
+        for (uint32_t lane = 0; lane < count; ++lane) {
+            for (uint32_t input = 0; input < plan.num_presampled_symbols(); ++input) {
+                set(inputs.noise(input), lane, noise(input, first + lane));
+            }
+            for (uint32_t site = 0; site < plan.num_readout_noise_sites(); ++site) {
+                set_channel(inputs, site, lane, channel(site, first + lane));
+            }
+        }
+        batch.run_batch(root, first, count, inputs);
+        REQUIRE(batch.surviving_shots() == count);
+        for (uint32_t lane = 0; lane < count; ++lane) {
+            const uint32_t shot = first + lane;
+            CAPTURE(shot);
+            bool quantum = false;
+            bool feedback = false;
+            for (uint32_t round = 0; round < rounds; ++round) {
+                quantum ^= noise(3 * round, shot) ^ noise(3 * round + 1, shot);
+                const bool record = reported(quantum, channel(round, shot));
+                REQUIRE(batch.measurement(lane, round) == record);
+                feedback ^= record;
+            }
+            REQUIRE(batch.measurement(lane, rounds) == reported(quantum, channel(rounds, shot)));
+            REQUIRE_FALSE(batch.measurement(lane, rounds + 1));
+            // Feedback prepares |0> or |1>. H T H rotates its Bloch vector
+            // by pi/4 about X, leaving Z expectation +/- 1/sqrt(2).
+            ++feedback_counts[feedback];
+            REQUIRE_THAT(batch.exp_val(lane, 0),
+                         Catch::Matchers::WithinAbs((feedback ? -1 : 1) * std::sqrt(0.5), 1e-12));
+            const uint32_t final_channel = channel(rounds + 1, shot);
+            const bool record = batch.measurement(lane, rounds + 2);
+            if (final_channel < 2) {
+                random_flips += record != reported(feedback, final_channel);
+                ++random_shots;
+            } else {
+                REQUIRE(record == reported(false, final_channel));
+            }
+            REQUIRE(batch.measurement(lane, rounds + 3) == record);
+            REQUIRE_FALSE(batch.detector(lane, 0));
+            REQUIRE(batch.observable(lane, 0) == record);
+        }
+    }
+    REQUIRE(feedback_counts[0] > shots / 4);
+    REQUIRE(feedback_counts[1] > shots / 4);
+    REQUIRE(random_shots == shots / 2);
+    REQUIRE_THAT(static_cast<double>(random_flips) / random_shots,
+                 Catch::Matchers::WithinAbs((1 - std::sqrt(0.5)) / 2, 0.04));
+}
+
 TEST_CASE("Packed external noise and readout consume no measurement randomness") {
     const auto noisy = compile("DEPOLARIZE1(0.75) 0\nM(0.4) 0\nH 1\nM 1\n");
     const auto clean = compile("M 0\nH 1\nM 1\n");
