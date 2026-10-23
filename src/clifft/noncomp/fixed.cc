@@ -4,6 +4,7 @@
 #include "clifft/noncomp/fixed_input_validation.h"
 #include "clifft/noncomp/status_walk.h"
 #include "clifft/sampling/batch/executor.h"
+#include "clifft/sampling/batch/output.h"
 #include "clifft/sampling/executor.h"
 #include "clifft/sampling/planner.h"
 #include "clifft/util/numeric.h"
@@ -14,9 +15,12 @@
 #include <array>
 #include <cassert>
 #include <limits>
+#include <optional>
+#include <span>
 #include <stdexcept>
 #include <type_traits>
 #include <utility>
+#include <variant>
 #include <vector>
 
 namespace clifft {
@@ -744,6 +748,8 @@ FixedNonComputationalResult FixedNonComputationalProgram::sample(
                                           *data.plan, policy.lane_capacity,
                                           sampling::BatchOutputMode::Rows, sampling_mode(data)) +
                                       driver_bytes;
+        // Derive a fixed-execution root because BatchExecutor supplies its own
+        // domain and rehashes this root with each global batch start.
         const auto quantum_seed = derive_state(root, 0, kFixedNonComputationalExecutorDomain);
         const SeedRoot quantum_root{
             {quantum_seed[0], quantum_seed[1], quantum_seed[2], quantum_seed[3]}};
@@ -770,24 +776,8 @@ FixedNonComputationalResult FixedNonComputationalProgram::sample(
                     for (uint32_t lane = 0; lane < count; ++lane) {
                         const uint32_t shot = first + lane;
                         assert(worker->executor.shot_index(lane) == shot);
-                        for (uint32_t record = 0; record < dimensions.num_measurements; ++record) {
-                            result.measurements[static_cast<size_t>(shot) *
-                                                    dimensions.num_measurements +
-                                                record] =
-                                worker->executor.measurement(lane, record);
-                        }
-                        for (uint32_t detector = 0; detector < dimensions.num_detectors;
-                             ++detector) {
-                            result.detectors[static_cast<size_t>(shot) * dimensions.num_detectors +
-                                             detector] = worker->executor.detector(lane, detector);
-                        }
-                        for (uint32_t observable = 0; observable < dimensions.num_observables;
-                             ++observable) {
-                            result.observables[static_cast<size_t>(shot) *
-                                                   dimensions.num_observables +
-                                               observable] =
-                                worker->executor.observable(lane, observable);
-                        }
+                        sampling::batch_detail::copy_batch_lane(result, worker->executor, lane,
+                                                                shot, *data.plan);
                     }
                     worker->shots += count;
                     ++worker->batches;
