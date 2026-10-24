@@ -128,10 +128,37 @@ def test_cpu_replay_rejects_incomplete_or_extra_records(record: list[int]) -> No
         _replay_record(program, record)
 
 
-@pytest.mark.parametrize("value", [-1, 2, 256, 0.5, -0.5, 1.5, "0"])
+@pytest.mark.parametrize(
+    "value",
+    [
+        -1,
+        2,
+        256,
+        0.5,
+        -0.5,
+        1.5,
+        0.0,
+        1.0,
+        pytest.param(np.float32(0), id="numpy-float32-zero"),
+        pytest.param(np.float64(1), id="numpy-float64-one"),
+        pytest.param("0", id="string-zero"),
+        pytest.param("1", id="string-one"),
+        pytest.param(b"0", id="bytes-zero"),
+        pytest.param(b"1", id="bytes-one"),
+    ],
+)
 def test_cpu_replay_rejects_non_boolean_values(value: Any) -> None:
     with pytest.raises((ValueError, TypeError)):
         _replay_record(clifft.compile("M 0"), [value])
+
+
+@pytest.mark.parametrize("record_type", [int, bool, np.uint8, np.int64])
+@pytest.mark.parametrize("value", [0, 1])
+def test_cpu_replay_accepts_boolean_and_integer_bits(record_type: Any, value: int) -> None:
+    program = clifft.compile("X 0\nM 0" if value else "M 0")
+    result = _replay_record(program, [record_type(value)])
+    assert result["reachable"]
+    assert result["log_probability"] == 0
 
 
 @pytest.mark.parametrize("source", ["X_ERROR(0.25) 0\nM 0", "M(0.25) 0"])
