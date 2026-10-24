@@ -15,7 +15,8 @@ from typing import Any
 
 import stim
 
-from clifft import _clifft_core, noncomp
+import clifft
+from clifft import noncomp
 
 
 def circuit_text(distance, rounds, rate, variant, event="LEAKAGE"):
@@ -77,7 +78,7 @@ def main():
     for distance in args.distances:
         for variant in args.variants:
             for rate in args.rates:
-                circuit = _clifft_core.parse(
+                circuit = clifft.parse(
                     circuit_text(distance, args.rounds, rate, variant, args.event)
                 )
                 start = time.perf_counter()
@@ -114,6 +115,7 @@ def main():
                                 threads=args.threads,
                                 execution="trajectory",
                                 final_status=True,
+                                collect_stats=True,
                             ),
                         )
                     )
@@ -125,8 +127,7 @@ def main():
                         start = time.perf_counter()
                         result = call(repetition)
                         times[name].append(time.perf_counter() - start)
-                        if name != "trajectory":
-                            stats[name] = asdict(result.stats)
+                        stats[name] = asdict(result.stats)
                 medians = {name: statistics.median(values) for name, values in times.items()}
                 print(
                     json.dumps(

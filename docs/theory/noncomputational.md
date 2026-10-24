@@ -291,9 +291,6 @@ a branch acting only on auxiliaries still suppresses later branches on
 computational sites. These choices affect the sampled noise inputs, while the
 quantum program stays fixed.
 
-Fixed execution is currently internal. Automatic selection through the public
-API is being added separately; `noncomp.sample` currently uses continuations.
-
 ## Active-width cost
 
 With the default exact damping policy, the simulation is exact for this hybrid

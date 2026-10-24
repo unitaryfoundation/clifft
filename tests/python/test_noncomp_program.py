@@ -38,6 +38,54 @@ def same_rows(left, right):
         np.testing.assert_array_equal(getattr(left, name), getattr(right, name), err_msg=name)
 
 
+@pytest.mark.parametrize("execution", ["auto", "fixed", "trajectory"])
+def test_public_convenience_preserves_positional_arguments(execution):
+    text = "H 0\nT 0\nH 0\nM 0"
+    noise = model()
+    positional = noncomp.sample(
+        text,
+        noise,
+        129,
+        31,
+        1,
+        2,
+        execution=execution,
+        final_status=True,
+        batch_size=1,
+        collect_stats=True,
+    )
+    keyword = noncomp.sample(
+        text,
+        noise,
+        shots=129,
+        seed=31,
+        max_active_width=1,
+        threads=2,
+        execution=execution,
+        final_status=True,
+        batch_size=1,
+        collect_stats=True,
+    )
+    same_rows(positional, keyword)
+    assert positional.shots == 129
+    assert positional.stats is not None
+    assert keyword.stats is not None
+    assert positional.stats.workers == keyword.stats.workers == 2
+    assert positional.stats.peak_active_width == keyword.stats.peak_active_width == 1
+    with pytest.raises(ValueError, match="active_width"):
+        noncomp.sample(text, noise, 129, 31, 0, 2, execution=execution)
+
+
+def test_shared_api_forwards_positional_width_to_preparation(noncomp_sampling_api):
+    text = "H 0\nT 0\nH 0\nM 0"
+    noise = model()
+    positional = noncomp_sampling_api(text, noise, 65, 31, 1)
+    keyword = noncomp_sampling_api(text, noise, shots=65, seed=31, max_active_width=1)
+    same_rows(positional, keyword)
+    with pytest.raises(ValueError, match="active_width"):
+        noncomp_sampling_api(text, noise, 65, 31, 0)
+
+
 @pytest.mark.parametrize("batch_size", [1, 65, "auto"])
 def test_public_default_selects_fixed_and_preserves_result_shape(public_sample, batch_size):
     text = "LEAKAGE(0.4) 0\nM 0\nDETECTOR rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]"

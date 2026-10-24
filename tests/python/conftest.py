@@ -80,7 +80,14 @@ def noncomp_sampling_api(
     Fixed selection and packed execution are asserted in dedicated tests.
     """
 
-    def sample(*args: Any, **kwargs: Any) -> clifft.noncomp.NonComputationalSample:
+    def sample(
+        circuit: clifft.Circuit | str,
+        model: clifft.noncomp.Model,
+        shots: int,
+        seed: int | None = None,
+        max_active_width: int | None = None,
+        **kwargs: Any,
+    ) -> clifft.noncomp.NonComputationalSample:
         if "threads" in kwargs:
             raise TypeError("threads is selected by noncomp_sampling_api")
         api, workers = request.param
@@ -89,12 +96,12 @@ def noncomp_sampling_api(
         kwargs.setdefault("execution", "trajectory" if api == "trajectory" else "auto")
         if api == "prepared":
             options = {
-                key: kwargs.pop(key)
-                for key in ("final_status", "execution", "max_active_width")
-                if key in kwargs
+                key: kwargs.pop(key) for key in ("final_status", "execution") if key in kwargs
             }
-            return clifft.noncomp.compile(*args[:2], **options).sample(*args[2:], **kwargs)
-        return clifft.noncomp.sample(*args, **kwargs)
+            return clifft.noncomp.compile(
+                circuit, model, max_active_width=max_active_width, **options
+            ).sample(shots, seed, **kwargs)
+        return clifft.noncomp.sample(circuit, model, shots, seed, max_active_width, **kwargs)
 
     return sample
 

@@ -39,8 +39,25 @@ def test_noisy_continuations_preserve_spectators_and_seeded_rows(annotation, dam
     classifier = noncomp.Classifier([[1, 0, 1, 0, 0.3], [0, 1, 0, 1, 0.4], [0, 0, 0, 0, 0.3]])
     model = noncomp.Model(classifier=classifier, damping=damping)
     shots = 8192
-    serial = noncomp.sample(circuit, model, shots=shots, seed=23, threads=1, final_status=True)
-    parallel = noncomp.sample(circuit, model, shots=shots, seed=23, threads=3, final_status=True)
+
+    def sample(threads):
+        result = noncomp.sample(
+            circuit,
+            model,
+            shots=shots,
+            seed=23,
+            threads=threads,
+            final_status=True,
+            execution="trajectory",
+            collect_stats=True,
+        )
+        assert result.stats is not None
+        assert result.stats.trajectory_shots == shots
+        assert result.stats.continuation_compilations > 0
+        return result
+
+    serial = sample(1)
+    parallel = sample(3)
     for field in ("measurements", "detectors", "observables", "final_status", "heralds"):
         np.testing.assert_array_equal(
             getattr(serial, field), getattr(parallel, field), err_msg=field
