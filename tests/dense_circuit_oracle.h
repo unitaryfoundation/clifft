@@ -507,6 +507,46 @@ inline ExactPlanDistribution compute_dense_circuit_distribution(
                 break;
             }
 
+            case GateType::DEPOLARIZE2:
+            case GateType::PAULI_CHANNEL_2: {
+                const uint64_t first = uint64_t{1} << node.targets[0].value();
+                const uint64_t second = uint64_t{1} << node.targets[1].value();
+                const PauliSpec paulis_first[] = {
+                    {}, {first, 0, false}, {first, first, false}, {0, first, false}};
+                const PauliSpec paulis_second[] = {
+                    {}, {second, 0, false}, {second, second, false}, {0, second, false}};
+                std::vector<std::pair<PauliSpec, double>> channels;
+                double total = 0;
+                for (uint32_t a = 0; a < 4; ++a) {
+                    for (uint32_t b = 0; b < 4; ++b) {
+                        if (a == 0 && b == 0)
+                            continue;
+                        const double p = node.gate == GateType::DEPOLARIZE2
+                                             ? node.args[0] / 15
+                                             : node.args[4 * a + b - 1];
+                        total += p;
+                        channels.push_back(
+                            {{paulis_first[a].x_mask | paulis_second[b].x_mask,
+                              paulis_first[a].z_mask | paulis_second[b].z_mask, false},
+                             p});
+                    }
+                }
+                channels.push_back({{}, std::max(0.0, 1 - total)});
+                next_active.clear();
+                for (const auto& br : active) {
+                    for (const auto& [spec, p] : channels) {
+                        if (p <= 0)
+                            continue;
+                        auto child = br;
+                        child.psi = apply_pauli_spec(br.psi, circuit.num_qubits, spec);
+                        child.probability *= p;
+                        next_active.push_back(std::move(child));
+                    }
+                }
+                active.swap(next_active);
+                break;
+            }
+
             case GateType::CORRELATED_ERROR: {
                 std::vector<std::pair<PauliSpec, double>> channels;
                 double remaining = 1.0;

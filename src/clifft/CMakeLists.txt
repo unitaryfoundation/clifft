@@ -8,6 +8,9 @@ add_library(clifft_core STATIC
     tableau/tableau.cc
     frontend/frontend.cc
     optimizer/hir_pass_manager.cc
+    optimizer/global_reconstruction.cc
+    optimizer/reconstruction_noise.cc
+    optimizer/reconstruction_lowering.cc
     optimizer/active_width_analysis.cc
     optimizer/drop_non_unitary_pass.cc
     optimizer/commutation.cc
@@ -48,6 +51,7 @@ add_library(clifft_core STATIC
     sampling/sampler.cc
     sampling/state.cc
     api/basis_probabilities.cc
+    api/program.cc
     api/reference_syndrome.cc
     api/statevector.cc
     util/fault_sampling.cc

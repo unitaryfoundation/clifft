@@ -87,6 +87,58 @@ options, result statistics, and search-budget limits, and the
 [theoretical overview](../theory/overview.md#hir-optimization) for why ordering
 affects active width.
 
+## Global reconstruction for sampling
+
+For repeated CPU sampling, `reconstruction=True` opts in to a bounded compiler
+that can reduce active width beyond the ordinary HIR passes. It works from the
+supplied circuit, including supported noise, without a ZX dependency or a
+circuit-family lookup. It is currently useful on magic-state cultivation
+circuits; eligibility alone does not guarantee a runtime improvement.
+
+```python
+import clifft
+
+program = clifft.compile("H 0\nT 0\nH 0\nM 0", reconstruction=True)
+print(program.reconstruction_info(keep_records=True))
+result = clifft.sample(program, shots=100, seed=42)
+```
+
+Compilation prepares up to two extra plans: one retaining the joint law of all
+measurement records, detectors, and observables, and one retaining detectors
+and observables. `sample()` uses the first; `sample_survivors()` chooses based on
+`keep_records`. Output order, reference parities, correlations, and acceptance
+probability are preserved. There is no per-fault compilation or plan cache.
+
+The circuit and API call determine what must be preserved. `EXP_VAL` probes
+disable reconstruction. Exact state/probability queries, replay, and
+`sample_k`/`sample_k_survivors` use the original executable, preserving their
+existing restrictions and original fault sites. The smaller sampling state is
+an internal representation of the requested distribution; it makes no claim
+that the circuit's physical output state is a stabilizer state.
+
+`reconstruction_info(keep_records=...)` reports `selected`, `fallback_reason`,
+the selected `peak_active_width` and `num_actions`, and
+`original_peak_active_width`. Existing properties such as `num_qubits`,
+`peak_active_width`, and `noise_site_probabilities`, plus `inspect()`, continue
+to describe the original executable. If a candidate is unsupported, exceeds a
+compiler limit, or does not strictly lower peak width, ordinary sampling uses
+the original. Clifford circuits already at width zero skip the search.
+
+Reconstruction currently supports Clifford+T circuits with Pauli measurements,
+resets, record-controlled Pauli feedback, and supported categorical Pauli and
+symmetric readout noise. General rotations, instruments, and asymmetric
+readout noise fall back. Custom HIR passes that change the distribution, such
+as `RemoveNoisePass`, also force fallback. Reconstructed HIR uses its own
+default optimization pipeline; `hir_passes` configures the original pipeline.
+
+This option adds compilation time and plan storage. Compare total time at your
+shot count, particularly for circuits with early postselection: reconstructed
+checks currently occur at the end. Lower width does not ensure faster sampling.
+Seeded results repeat with the same compiled program and execution settings,
+but may differ when reconstruction or the requested output contract changes.
+The option is off by default and applies to the regular CPU compiler;
+`lower(hir)` and experimental GPU compilation prepare only the supplied HIR.
+
 ## Inspect or customize the pipeline
 
 The following APIs are intended for power users working on compiler behavior,

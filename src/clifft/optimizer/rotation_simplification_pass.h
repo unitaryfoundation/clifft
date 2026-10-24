@@ -22,6 +22,7 @@ class RotationSimplificationPass : public HirPass {
   public:
     explicit RotationSimplificationPass(RotationSimplificationOptions options = {});
     void run(HirModule& hir) override;
+    bool preserves_sampling_distribution() const override { return true; }
 
     size_t regions_examined() const { return regions_examined_; }
     size_t regions_reduced() const { return regions_reduced_; }

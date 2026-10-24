@@ -74,6 +74,62 @@ search budgets, and restrictions for continuation-based sampling. Larger
 search budgets trade compilation time for opportunities to reduce sampling
 cost, without guaranteeing an optimal result.
 
+## Closed-Output Global Reconstruction
+
+The `reconstruct_global_sampling` compiler constructs a smaller problem for a
+specified joint output law. It is separate from the ordinary HIR pass registry
+and enabled with `clifft.compile(..., reconstruction=True)`. Its virtual state
+is not the source circuit's physical conditional state. The `Program` owner
+retains the original executable for state queries, exact probabilities, and
+original fault-site conditioning. Expectation probes and unsupported source
+operations make reconstruction ineligible. No separate preservation flag is
+required: the source circuit and requested API determine the contract.
+
+The compiler defers measurements into record ancillas and keeps discarded reset
+wires as an explicit environment. It replaces T rotations with Clifford
+gadgets, dresses their axes with available input stabilizers, and folds the
+gadget projections into the input state after checking full projection rank.
+A native Clifford frame and a linear X-support basis then remove fixed-zero
+coordinates. Forgotten commuting measurements and a dependency-respecting
+schedule reduce peak active width. This formulation and scheduling were
+informed by [Tsim's reconstruction work](https://github.com/QuEraComputing/tsim/pull/203).
+
+The reconstructed representation owns its output layout and retains affine
+functions of categorical noise variables. A separate, backend-independent
+`compress_reconstruction_noise` transformation maps each entire channel through
+a parity basis and convolves independent channels with the same image support,
+preserving correlations. Its result contains compressed channels and remapped
+operation signs. `lower_global_reconstruction` uses this result to emit ordinary
+HIR noise, measurements, feedback, rotations, and outputs for the existing
+planner and executor; it does not require the source circuit. All tableau and
+commutation work occurs during compilation. These transformations preserve the
+joint output law and its postselection mass; they do not preserve original
+fault identities after channel convolution.
+
+The retained-record contract also includes detectors and observables. These
+cannot always be reconstructed from final records alone: a detector can consume
+a record before a later `READOUT_NOISE` changes it. Output declarations retain
+their original public order, and lowering copies the reference parities and
+postselection mask supplied by the original pipeline. It does not choose a new
+reference shot.
+
+Resource limits bound source operations, dilation qubits, noise variables,
+outputs, scheduling work, channel support and convolution work, and lowering
+mask storage. An exceeded limit or unsupported operation produces an explicit
+fallback reason. The parser still diagnoses malformed source input. The
+compiler representation and lowering are tested independently of public
+sampling-plan selection. Each reconstructed HIR runs the default HIR pipeline,
+then is selected only if its peak active width is strictly lower than the
+original plan's. This avoids retaining wider candidates but is not a runtime
+profitability guarantee. Selected detector checks currently remain at the end
+in public order; this implementation does not add earlier rejection points.
+
+Both output variants are prepared during compilation and reused without
+per-fault specialization or runtime topology analysis. Explicit HIR passes
+that intentionally change the distribution, including `RemoveNoisePass` and
+`DropNonUnitaryPass`, disable source-level reconstruction. Unknown C++ passes
+must certify sampling-distribution preservation before it can be used.
+
 ## Stabilizer-Based Simplification
 
 Starting from the circuit's known all-zero input state, Clifft tracks which

@@ -24,6 +24,7 @@ void apply_pauli_to_tableau(Tableau& tab, MaskView x_v, MaskView z_v);
 class PeepholeFusionPass : public HirPass {
   public:
     void run(HirModule& hir) override;
+    bool preserves_sampling_distribution() const override { return true; }
 
     /// Statistics from the last run.
     size_t cancellations() const { return cancellations_; }

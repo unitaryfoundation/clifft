@@ -308,6 +308,8 @@ def compile(
     normalize_syndromes: bool = False,
     hir_passes: HirPassManager | None | _DefaultPasses = _DEFAULT_PASSES,
     input_format: Literal["stim", "qasm2"] = "stim",
+    *,
+    reconstruction: bool = False,
 ) -> Program:
     """Compile a quantum circuit string to an executable sampling program.
 
@@ -336,6 +338,15 @@ def compile(
             Defaults to ``default_hir_pass_manager()``. Pass ``None`` to skip.
         input_format: ``"stim"`` for Clifft's Stim-compatible syntax or
             ``"qasm2"`` for the supported unitary OpenQASM 2 subset.
+        reconstruction: Opt in to bounded global reconstruction for ordinary
+            CPU sampling. Compilation prepares separate joint-output plans for
+            retained records and survivor counts, selecting each only when it
+            reduces peak active width. Unsupported cases use the original plan;
+            inspect ``program.reconstruction_info(keep_records=...)`` for details.
+            State queries, exact probabilities, and fixed-fault sampling always
+            use the original plan. Reconstruction preserves output distributions,
+            not physical states or seed-by-seed equivalence to the original.
+            It adds compilation time and storage and may not improve runtime.
     """
     if isinstance(hir_passes, _DefaultPasses):
         hir_passes = default_hir_pass_manager()
@@ -352,6 +363,7 @@ def compile(
         expected_observables if expected_observables is not None else [],
         normalize_syndromes,
         hir_passes,
+        reconstruction=reconstruction,
     )
 
 

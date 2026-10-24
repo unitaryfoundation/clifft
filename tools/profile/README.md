@@ -139,6 +139,34 @@ assuming that peak width alone predicts whether batching is profitable.
 
 ## External circuit fixtures
 
+### Global reconstruction
+
+`profile_reconstruction.py` measures compilation once and repeated survivor
+sampling through the public CPU API. Run each configuration in a fresh process
+and use matching shot counts, batch sizes, and CPU affinity:
+
+```bash
+python3 tools/profile/profile_reconstruction.py \
+  tests/fixtures/reconstruction_msc_d5.stim --postselect --shots 8192
+python3 tools/profile/profile_reconstruction.py \
+  tests/fixtures/reconstruction_msc_d5.stim --postselect --shots 8192 --schedule
+python3 tools/profile/profile_reconstruction.py \
+  tests/fixtures/reconstruction_msc_d5.stim --postselect --shots 8192 --reconstruction
+```
+
+Each JSON row includes setup time, repeated sampling times per attempted shot,
+acceptance and logical-error counts, selected-plan diagnostics, and process
+peak RSS after compilation and sampling. RSS includes Python and compiler
+scratch; it is not a measurement of executor coefficients alone. Noise
+generation and requested output production remain inside the timed API calls.
+Use `--keep-records`, `--batch-size 65`, or omit `--postselect` to compare the
+other output and execution contracts. Reconstructed checks currently remain
+at the end, so these measurements contain no extra early-check optimization.
+
+Compare setup plus sampling at the intended shot count. Include small Clifford
+and non-reducing controls: a declined candidate still costs compilation time.
+The lower-width selection rule is not a general performance guarantee.
+
 The Merlin BT27 and direct-X BT81 fixture headers contain their pinned upstream
 revision and construction recipes. BT81's added logical X measurements use no
 postselection or inverse logical scoring gate. Keep the original record order

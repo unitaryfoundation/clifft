@@ -17,6 +17,7 @@ These boundaries have different responsibilities:
 | HIR | Circuit operations expressed in the Heisenberg frame | Active-coordinate and kernel choices |
 | `SamplingPlan` | Symbols, affine dependencies, active-coordinate actions, width transitions, and outputs | CPU instruction-set selection, descriptor layout, and target-specific fusion |
 | `ExecutablePlan` | Immutable descriptors, dependency tables, fused actions, and kernels prepared for one execution target | Per-shot state and runtime topology analysis |
+| `Program` | Original CPU executable and optional reconstructed sampling variants, selected by the requested output contract | Per-fault plan caches and runtime compilation |
 | `Executor` | Mutable coefficients, symbols, expression registers, records, outputs, scratch space, and RNG state | Tableau evolution, coordinate planning, and dependency discovery |
 
 The [Theoretical Overview](overview.md) explains the state factorization and
@@ -34,6 +35,7 @@ implementation moved from that design to the pipeline described here.
 | `src/clifft/circuit/` | Circuit AST, parser, and target encoding |
 | `src/clifft/frontend/` | Clifford tracing and Heisenberg IR construction |
 | `src/clifft/optimizer/` | HIR optimization passes |
+| `src/clifft/api/` | Program ownership, output-contract selection, and exact queries |
 | `src/clifft/sampling/` | Semantic planning, executable preparation, shot execution, and kernels |
 | `src/clifft/noncomp/` | Leakage/loss trajectory planning and continuation handling |
 | `src/python/` | Python API via nanobind |
@@ -132,10 +134,25 @@ browser sampling consumes the prepared scalar executable.
 
 ## Python Bindings
 
-`clifft.compile()` returns a `Program` backed by an `ExecutablePlan`.
+`clifft.compile()` returns a `Program` owning the original `ExecutablePlan`.
 `clifft.sample()`, survivor sampling, fixed-fault sampling, and exact queries
 all consume that same type. One compiled program can be reused for many calls
 and shot counts.
+
+With `reconstruction=True`, compilation also prepares bounded reconstructed
+plans for joint records/detectors/observables and for detectors/observables.
+`sample()` selects the first; `sample_survivors()` selects according to
+`keep_records`. Each uses the original plan when its candidate is ineligible
+or fails to lower peak active width. Selection is an immutable pointer choice
+before execution; no topology planning or plan creation occurs during sampling.
+
+The reconstructed representation preserves the requested joint output law,
+including postselection mass, but does not represent the physical conditional
+state or original fault-site identities. State and exact-probability queries,
+replay, and fixed-fault sampling therefore always consume the original plan.
+Existing `Program` metadata and inspection also describe the original plan;
+`reconstruction_info(keep_records=...)` describes ordinary sampling selection.
+Experimental GPU and WebAssembly paths still prepare a single executable.
 
 `clifft.get_statevector(program)` expands an eligible pure-state program into
 the full physical-qubit state vector for debugging and validation. The result

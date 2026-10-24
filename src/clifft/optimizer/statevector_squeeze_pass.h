@@ -14,6 +14,7 @@ namespace clifft {
 class StatevectorSqueezePass : public HirPass {
   public:
     void run(HirModule& hir) override;
+    bool preserves_sampling_distribution() const override { return true; }
 };
 
 }  // namespace clifft

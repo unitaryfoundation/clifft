@@ -145,7 +145,8 @@ Clifft has benefited from the following research and software:
   simulation, cultivation circuits, symbolic sampling, adaptive coordinate
   planning, and inspiration for packed execution.
 - [Tsim](https://github.com/QuEraComputing/tsim) for Stim-compatible universal
-  simulation design and open code and data enabling comparisons.
+  simulation design, closed-output reconstruction and scheduling ideas, and
+  open code and data enabling comparisons.
 - [SqaleSim](https://arxiv.org/abs/2509.13247) for motivating the leakage/loss
   instrument design and providing a five-level neutral-atom model and examples.
 - [deltakit-stim](https://github.com/Deltakit/deltakit-stim) for inspiring
