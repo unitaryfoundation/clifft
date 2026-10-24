@@ -22,6 +22,25 @@
 
 namespace clifft {
 
+// Optional driver-level evidence. Preparation fields describe the owned program,
+// while execution fields describe this sampling call. No per-gate instrumentation.
+struct NonComputationalSamplingStats {
+    uint64_t preparation_compilations = 0;
+    uint64_t initial_compilations = 0;
+    uint64_t continuation_compilations = 0;
+    uint64_t fixed_shots = 0;
+    uint64_t trajectory_shots = 0;
+    uint64_t scalar_shots = 0;
+    uint64_t packed_shots = 0;
+    uint64_t packed_batches = 0;
+    uint32_t batch_size = 1;
+    uint32_t workers = 0;
+    uint64_t packed_worker_bytes = 0;
+    std::optional<uint32_t> peak_active_width;
+    double preparation_seconds = 0;
+    double sampling_seconds = 0;
+};
+
 // Aggregated result of a noncomputational sampling run.
 struct NonComputationalSample {
     uint32_t shots = 0;
@@ -47,6 +66,7 @@ struct NonComputationalSample {
     // rides here. All zeros when the classifier has two symbols or the model
     // has no classifier.
     std::vector<uint8_t> heralds;
+    std::optional<NonComputationalSamplingStats> stats;
 };
 
 // Throws std::invalid_argument when the trajectory policy rejects an

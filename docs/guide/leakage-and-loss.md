@@ -13,11 +13,12 @@ status alongside its ordinary coherent simulation. A computational site
 remains in the quantum state and can be in a superposition or entangled; a
 leaked or lost site occupies one definite noncomputational level in each shot.
 
-Ordinary Clifft compiles a circuit once and then samples the same program
-repeatedly. A noncomputational jump can change which later operations are
-skipped, which measurements use the classifier, and whether a site is
-restored. One program compiled before sampling cannot describe every shot, so
-`noncomp.sample` rewrites and compiles the remaining circuit as jumps occur.
+`noncomp.sample` automatically chooses an exact fixed plan when the circuit,
+model, and requested outputs permit it. Such plans compile once and can sample
+shots in packed batches, including supported non-Clifford circuits. Other
+requests use general trajectories, rewriting and compiling continuations as
+jumps change subsequent operations. Both strategies preserve the same model
+and output semantics.
 
 This page is the API walkthrough. The model and its simulation semantics
 are described in [Noncomputational States](../theory/noncomputational.md).
@@ -50,8 +51,8 @@ on `g` or `e` prepares the corresponding computational basis state; later
 evolution may put the site in a superposition or entangle it with other sites.
 
 `noncomp.sample` returns the usual measurement, detector, and observable
-arrays, plus `final_status` for each circuit site and `heralds` for each
-measurement.
+arrays and `heralds` for each measurement. Detailed `final_status` is opt-in;
+it is `None` unless `final_status=True` is requested.
 
 ### A minimal model
 
@@ -81,7 +82,7 @@ model = noncomp.Model(
     classifier=classifier,
 )
 
-r = noncomp.sample("M 0", model, shots=20_000, seed=1)
+r = noncomp.sample("M 0", model, shots=20_000, seed=1, final_status=True)
 
 # final_status: (shots, num_qubits) of QubitStatus values.
 status = r.final_status[:, 0]
@@ -308,7 +309,7 @@ model = noncomp.Model(
     classifier=noncomp.Classifier([[1, 0, 1, 0, 0], [0, 1, 0, 1, 1]]),
 )
 
-r = noncomp.sample("H 0\nCX 0 1\nS 0\nM 0\nM 1", model, shots=20_000, seed=2)
+r = noncomp.sample("H 0\nCX 0 1\nS 0\nM 0\nM 1", model, shots=20_000, seed=2, final_status=True)
 
 survivor = r.measurements[:, 1]
 assert abs(survivor.mean() - 0.5) < 0.01  # the survivor's Z readout is unbiased
@@ -431,15 +432,97 @@ semantics and active-width cost are described in
   meets a circuit containing any physical-qubit measurement. This is a
   model-level capability check, not a per-site reachability analysis.
 
-## Why there is no compile step
+## Automatic execution and reusable preparation
 
-Ordinary Clifft separates `compile()` from `sample()` because the same compiled
-program can execute every shot. Here the executable depends on the model and
-on each shot's jump outcomes. When a jump changes the remaining operations,
-`noncomp.sample` builds a continuation for the events observed so far. The
-continuation reproduces the executed prefix, changes the remaining operations,
-and resumes the shot after the jump. `noncomp.sample` therefore takes the
-circuit and model together and compiles internally.
+Existing `noncomp.sample(circuit, model, ...)` calls automatically select an
+execution strategy. To reuse preparation, keep a program:
+
+```python
+from clifft import noncomp
+
+model = noncomp.Model(
+    classifier=noncomp.Classifier([[1, 0, 0.5, 0.5, 0.5], [0, 1, 0.5, 0.5, 0.5]])
+)
+program = noncomp.compile("H 0\nLEAKAGE(0.01) 0\nM 0", model)
+assert program.strategy == "fixed"
+print(program.explain())
+
+result = program.sample(shots=10_000, seed=42, collect_stats=True)
+assert result.final_status is None
+assert result.stats is not None
+assert result.stats.packed_shots == 10_000
+assert result.stats.continuation_compilations == 0
+second = program.sample(shots=10_000, seed=43)
+assert second.stats is None
+```
+
+Preparation owns the circuit/model snapshot and draws no shot randomness.
+Each sampling call owns its workers and RNG, so a program can be reused
+concurrently. The convenience function repeats preparation on each call;
+there is no cross-call cache.
+
+| Option | Behavior |
+| --- | --- |
+| `execution="auto"` | Select an exact supported fixed plan, otherwise use trajectories. |
+| `execution="fixed"` | Require fixed execution; reject unsupported requests during preparation. |
+| `execution="trajectory"` | Force the general trajectory driver. |
+| `final_status=False` | Omit detailed status; `result.final_status` is `None`. |
+| `final_status=True` | Return existing `QubitStatus` values; unresolved leaked labels can require trajectories. |
+| `batch_size="auto"` | Use shared batching heuristics for fixed execution, scalar execution for trajectories. |
+| `batch_size=1` | Use scalar execution, including a compile-once fixed plan when eligible. |
+| `batch_size=N`, N > 1 | Request packing under existing capacity limits; reject if the selected strategy is trajectory. |
+
+Strategy and final-status requirements are fixed by `compile`; batch size and
+cross-shot `threads` are sampling options. The default remains one worker.
+Timing-based `"tune"`, survivor/importance sampling, and custom pass managers
+are not supported by this API.
+
+The initial fixed subset supports ground-state initialization, inline leakage
+and loss, supported readout/reset/feedback, and reachable inactive/live gates
+with full partner depolarization. Non-Cliffords can qualify. Named transitions,
+spreading, level-sensitive classifiers, and other unsupported combinations
+fall back. Default loss with an identity partner effect can therefore still
+use trajectories. Eligibility depends on the whole request, including output
+requirements. Detailed status can remain eligible if restoring resets erase
+the unresolved leaked labels. See the
+[fixed representation](../theory/noncomputational.md#fixed-execution)
+for the exactness argument.
+
+`program.explain()` formats the selected strategy, fallback reason, available
+source locations, and known width/storage estimates without running shots.
+Actual capacity and worker storage are resolved at sampling time. With
+`collect_stats=True`, `result.stats` includes executed shot/batch counts and
+initial/continuation compilation counts. Preparation counts and timing describe
+the owned program and are not repeated work on each call. Sampling timing
+includes native worker setup and output collection, excluding Python conversion.
+Detailed field definitions are in
+[NonComputationalStats](../reference/python-api.md#clifft.noncomp.NonComputationalStats).
+
+With `max_active_width`, automatic selection can reject an over-cap fixed
+candidate and retain trajectories. Each continuation must still fit the cap;
+an error may therefore arise during sampling. Invalid circuit/model contracts
+always raise instead of silently triggering fallback.
+
+### Migration from earlier releases
+
+Detailed final status is now opt-in. Add `final_status=True` to existing calls
+that consume it. Measurements, raw detector/observable parities, heralds,
+`symbols()`, and three-array unpacking keep their meanings. Omitted status
+cannot be recovered by accessing the result later.
+
+Automatic selection can change seeded rows. For the previous execution path,
+use `execution="trajectory", final_status=True`. With a fixed program, seed,
+shot count, and batch configuration, worker count and scheduling do not change
+rows. Different strategies, batch configurations, or status requests can
+produce different rows with the same correct joint distribution.
+
+## Trajectory continuations
+
+A prepared trajectory program validates and resolves the circuit/model once,
+but can still compile during sampling. When a jump changes the remaining
+operations, the driver builds a continuation for the events observed so far.
+The continuation reproduces the executed prefix, changes the remaining
+operations, and resumes the shot after the jump.
 
 Each continuation uses the default optimization passes that preserve
 measurement-record order and explicitly opt in to instrument-prefix stability.
@@ -456,7 +539,7 @@ forced, hidden trace-out measurement. Moving another measurement across that
 collapse can change correlations. Record-order preservation is necessary but
 not sufficient for resuming a shot: recompiling the remainder must also
 reproduce the executable-plan prefix already consumed, because `resume()`
-reuses the existing executor state directly. `noncomp.sample`
+reuses the existing executor state directly. The trajectory driver
 therefore uses a fixed internal pipeline and validates each recompiled prefix
 before resuming. It does not currently accept custom pass managers. The theory page
 explains

@@ -190,6 +190,7 @@ class FixedBuilder {
             // when optimized trajectory continuations fit within it.
             return reject(FixedNonComputationalReason::ActiveWidth);
         }
+        candidate_width_ = plan.peak_active_width;
         if (request_.requirements().max_active_width.has_value() &&
             plan.peak_active_width > *request_.requirements().max_active_width) {
             return reject(FixedNonComputationalReason::ActiveWidth);
@@ -259,9 +260,10 @@ class FixedBuilder {
   private:
     FixedNonComputationalRejection reject(FixedNonComputationalReason reason) const {
         if (operation_ < resolved_.circuit().nodes.size()) {
-            return {reason, operation_, resolved_.circuit().nodes[operation_].source_line};
+            return {reason, operation_, resolved_.circuit().nodes[operation_].source_line,
+                    data_->metrics.preparation_compilations, candidate_width_};
         }
-        return {reason, std::nullopt, 0};
+        return {reason, std::nullopt, 0, data_->metrics.preparation_compilations, candidate_width_};
     }
 
     uint32_t append_readout(uint32_t record, uint32_t source_line) {
@@ -294,6 +296,7 @@ class FixedBuilder {
     uint32_t operation_ = std::numeric_limits<uint32_t>::max();
     uint32_t record_ = 0;
     uint32_t readout_count_ = 0;
+    std::optional<uint32_t> candidate_width_;
 };
 
 std::optional<FixedNonComputationalRejection> FixedBuilder::lower() {

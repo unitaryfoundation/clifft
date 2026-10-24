@@ -471,7 +471,10 @@ def test_fixed_joint_output_contract_matches_trajectories(
     text += "\nDETECTOR rec[-1] rec[-2]\nOBSERVABLE_INCLUDE(0) rec[-1]"
     program = prepare(text, model, final_status=True)
     actual = fixed_sample(program)
-    expected = noncomp_sampling_api(text, model, shots=16000, seed=71)
+    expected = noncomp_sampling_api(
+        text, model, shots=16000, seed=71, execution="trajectory", collect_stats=True
+    )
+    assert expected.stats.trajectory_shots == 16000
 
     def joint(result):
         return dense.empirical_record_probs(

@@ -69,9 +69,9 @@ continuation compatible with an already-running executor. Trajectory passes
 must also opt in to instrument-prefix stability: changing the circuit after an
 instrument may not change optimized output through that instrument. The
 runtime checks each recompiled prefix before resuming. For this reason,
-`clifft.noncomp.sample` uses a fixed internal
+the noncomputational trajectory driver uses a fixed internal
 pipeline and does not currently accept custom pass managers. See
-[Leakage and Loss](../guide/leakage-and-loss.md#why-there-is-no-compile-step)
+[Leakage and Loss](../guide/leakage-and-loss.md#trajectory-continuations)
 for how continuations are compiled and resumed.
 
 ## Constraints from Measurement and Feedback

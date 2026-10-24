@@ -61,16 +61,33 @@ def statevector_from_circuit() -> Callable[[str], npt.NDArray[np.complex128]]:
     return statevector
 
 
-@pytest.fixture(params=[1, 2], ids=["1-worker", "2-workers"])
+@pytest.fixture(
+    params=[(api, workers) for api in ("auto", "prepared", "trajectory") for workers in (1, 2)],
+    ids=[
+        f"{api}-{workers}-workers"
+        for api in ("auto", "prepared", "trajectory")
+        for workers in (1, 2)
+    ],
+)
 def noncomp_sampling_api(
     request: pytest.FixtureRequest,
 ) -> Callable[..., clifft.noncomp.NonComputationalSample]:
-    """Run shared trajectory assertions with bounded cross-shot worker counts."""
+    """Exercise shared semantics through convenience, prepared, and forced paths."""
 
     def sample(*args: Any, **kwargs: Any) -> clifft.noncomp.NonComputationalSample:
         if "threads" in kwargs:
             raise TypeError("threads is selected by noncomp_sampling_api")
-        kwargs["threads"] = request.param
+        api, workers = request.param
+        kwargs["threads"] = workers
+        kwargs.setdefault("final_status", True)
+        kwargs.setdefault("execution", "trajectory" if api == "trajectory" else "auto")
+        if api == "prepared":
+            options = {
+                key: kwargs.pop(key)
+                for key in ("final_status", "execution", "max_active_width")
+                if key in kwargs
+            }
+            return clifft.noncomp.compile(*args[:2], **options).sample(*args[2:], **kwargs)
         return clifft.noncomp.sample(*args, **kwargs)
 
     return sample

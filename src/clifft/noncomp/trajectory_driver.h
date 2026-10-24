@@ -21,7 +21,7 @@
 namespace clifft {
 
 NonComputationalSample run_trajectory_driver(const PreparedNonComputationalRequest& request,
-                                             uint32_t shots, const SeedRoot& root,
-                                             uint32_t threads);
+                                             uint32_t shots, const SeedRoot& root, uint32_t threads,
+                                             bool collect_stats = false);
 
 }  // namespace clifft

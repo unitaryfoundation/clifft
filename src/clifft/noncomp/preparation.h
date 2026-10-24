@@ -30,7 +30,7 @@ class PreparedNonComputationalRequest {
     [[nodiscard]] const NonComputationalRequirements& requirements() const { return requirements_; }
 
     NonComputationalSample sample(uint32_t shots, std::optional<uint64_t> seed = std::nullopt,
-                                  uint32_t threads = 1) const;
+                                  uint32_t threads = 1, bool collect_stats = false) const;
 
   private:
     NonComputationalModel model_;

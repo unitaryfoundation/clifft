@@ -1,7 +1,7 @@
 """Compare scalar and packed fixed execution with trajectories on matching outputs.
 
-Run against an optimized local Clifft build. This uses private validation
-bindings; it is not a public prepared-program API or a timing assertion.
+Run against an optimized local Clifft build. Measurements use the public
+prepared-program API; this is not a timing assertion.
 """
 
 import argparse
@@ -9,6 +9,7 @@ import json
 import statistics
 import time
 from collections.abc import Callable
+from dataclasses import asdict
 from functools import partial
 from typing import Any
 
@@ -80,10 +81,8 @@ def main():
                     circuit_text(distance, args.rounds, rate, variant, args.event)
                 )
                 start = time.perf_counter()
-                program = _clifft_core._prepare_noncomputational_fixed(circuit, model._handle, True)
+                program = noncomp.compile(circuit, model, final_status=True, execution="fixed")
                 preparation = time.perf_counter() - start
-                if program is None:
-                    raise RuntimeError("benchmark request unexpectedly rejected fixed execution")
                 times: dict[str, list[float]] = {}
                 stats = {}
                 calls: list[tuple[str, Callable[[int], Any]]] = []
@@ -98,6 +97,7 @@ def main():
                                 args.shots,
                                 threads=args.threads,
                                 batch_size=batch_size,
+                                collect_stats=True,
                             ),
                         )
                     )
@@ -107,7 +107,13 @@ def main():
                         (
                             "trajectory",
                             lambda seed: noncomp.sample(
-                                circuit, model, shots=args.shots, seed=seed, threads=args.threads
+                                circuit,
+                                model,
+                                shots=args.shots,
+                                seed=seed,
+                                threads=args.threads,
+                                execution="trajectory",
+                                final_status=True,
                             ),
                         )
                     )
@@ -120,7 +126,7 @@ def main():
                         result = call(repetition)
                         times[name].append(time.perf_counter() - start)
                         if name != "trajectory":
-                            stats[name] = result[1]
+                            stats[name] = asdict(result.stats)
                 medians = {name: statistics.median(values) for name, values in times.items()}
                 print(
                     json.dumps(
@@ -135,7 +141,6 @@ def main():
                             "preparation_seconds": preparation,
                             "seconds": medians,
                             "execution": stats,
-                            **program.metrics,
                         }
                     ),
                     flush=True,
