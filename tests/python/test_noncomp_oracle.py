@@ -111,6 +111,7 @@ def test_inline_leakage_matches_exact_enumerator(noncomp_sampling_api):
         classifier=classifier_matrix,
     )
     assert reference.dropped_mass < 1e-12
+    reference.require_precision(smallest_probability=BAND, relative_tolerance=1e-6)
 
     result = noncomp_sampling_api(
         circuit,
@@ -278,6 +279,7 @@ def test_two_site_exact_damping_composition_matches_enumerator(noncomp_sampling_
         damping="exact",
     )
     assert reference.dropped_mass < 1e-12
+    reference.require_precision(smallest_probability=BAND, relative_tolerance=1e-6)
 
     model = noncomp.Model(
         initial_state=[1.0, 0.0, 0.0, 0.0, 0.0],

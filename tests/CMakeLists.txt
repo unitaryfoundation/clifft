@@ -40,6 +40,7 @@ add_executable(clifft_tests
     test_schedule_dependence.cc
     test_active_width_schedule_pass.cc
     test_pass_equivalence.cc
+    test_rare_probability_validation.cc
     test_importance_sampling.cc
     test_runtime_isa.cc
     test_shot_parallel.cc

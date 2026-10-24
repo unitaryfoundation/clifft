@@ -76,6 +76,7 @@ def test_fixed_joint_distribution_matches_dense_physical_model(text, fixed_sampl
         depolarize_partner=True,
     )
     assert expected.dropped_mass < 1e-10
+    expected.require_precision(smallest_probability=0.025, relative_tolerance=1e-6)
     program = prepare(text, model)
     before = program.metrics
     result = fixed_sample(program)

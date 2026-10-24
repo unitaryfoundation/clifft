@@ -25,6 +25,7 @@ lost=4.
 
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass
 
@@ -118,6 +119,26 @@ class ExactDistribution:
         self.noncomp_level_probs: list[dict[int, float]] = []
         self.dropped_mass = 0.0
 
+    def require_precision(self, *, smallest_probability: float, relative_tolerance: float) -> None:
+        """Refuse to certify a signal hidden by truncated mass.
+
+        This bounds pruning error only; fixtures must independently justify
+        arithmetic accuracy and choose their comparison tolerance.
+        """
+        if not (math.isfinite(smallest_probability) and 0 < smallest_probability <= 1):
+            raise ValueError("smallest_probability must be finite and in (0, 1]")
+        if not (math.isfinite(relative_tolerance) and 0 < relative_tolerance < 1):
+            raise ValueError("relative_tolerance must be finite and in (0, 1)")
+        budget = smallest_probability * relative_tolerance
+        if budget == 0:
+            raise ValueError("precision budget underflows; choose a representable signal")
+        if not math.isfinite(self.dropped_mass) or not 0 <= self.dropped_mass <= budget:
+            raise AssertionError(
+                f"inconclusive reference: omitted_bound={self.dropped_mass:.17e} "
+                f"exceeds budget={budget:.17e}; smallest_probability={smallest_probability:.17e} "
+                f"relative_tolerance={relative_tolerance:.17e}"
+            )
+
     def _absorb(self, branch: _Branch, num_qubits: int) -> None:
         if not self.noncomp_level_probs:
             self.noncomp_level_probs = [{} for _ in range(num_qubits)]
@@ -152,14 +173,19 @@ def enumerate_exact(
     classifier: list[list[float]],
     damping: str = "exact",
     depolarize_partner: bool = False,
+    prune_probability: float = _PRUNE_EPS,
 ) -> ExactDistribution:
     """Exact record/status distribution for `text` under the given model.
 
     `classifier` is P[symbol][level] with two symbols; computational
     measurements are faithful Born readouts (identity columns required).
     With ``depolarize_partner``, a dropped CX with one inactive operand
-    applies a uniform I/X/Y/Z mixture to its live partner.
+    applies a uniform I/X/Y/Z mixture to its live partner. ``prune_probability``
+    cuts joint branch weights; zero retains all positive representable weights.
+    Use ``require_precision`` before using the result to resolve a rare signal.
     """
+    if not (math.isfinite(prune_probability) and 0 <= prune_probability < 1):
+        raise ValueError("prune_probability must be finite and in [0, 1)")
     assert damping in ("exact", "neglect")
     assert len(classifier) == 2
     assert (
@@ -363,8 +389,11 @@ def enumerate_exact(
         # Prune and cap.
         kept = []
         for br in nxt:
-            if br.weight < _PRUNE_EPS:
-                result.dropped_mass += br.weight
+            if not math.isfinite(br.weight) or br.weight < 0:
+                raise AssertionError(f"invalid branch weight: {br.weight}")
+            if br.weight < prune_probability:
+                if br.weight > 0:
+                    result.dropped_mass = math.nextafter(result.dropped_mass + br.weight, math.inf)
             else:
                 kept.append(br)
         branches = kept
