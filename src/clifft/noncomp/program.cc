@@ -148,6 +148,8 @@ std::string NonComputationalProgram::explain() const {
         out << "Fixed fallback reason: " << describe_rejection(*data_->rejection) << '\n';
     } else if (data_->requested == NonComputationalExecution::Trajectory) {
         out << "Trajectory execution was explicitly requested.\n";
+    } else if (data_->requested == NonComputationalExecution::Fixed) {
+        out << "Fixed execution was explicitly requested.\n";
     }
     if (data_->requirements.max_active_width) {
         out << "Active-width cap: " << *data_->requirements.max_active_width << '\n';

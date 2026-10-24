@@ -322,6 +322,10 @@ class NonComputationalStats:
     continuation compilations count plans built after a trap. Worker sharing can
     change compilation counts without changing seeded outputs.
 
+    Shot counters satisfy ``scalar_shots + packed_shots == fixed_shots +
+    trajectory_shots == result.shots``. All trajectory shots count as scalar;
+    fixed shots may use either scalar or packed execution.
+
     ``peak_active_width`` is the fixed plan's width or the maximum width compiled
     during this trajectory call; it is ``None`` if no trajectory was compiled.
     ``packed_worker_bytes`` estimates retained packed buffers per worker, excluding

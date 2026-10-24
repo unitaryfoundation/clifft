@@ -72,7 +72,13 @@ def statevector_from_circuit() -> Callable[[str], npt.NDArray[np.complex128]]:
 def noncomp_sampling_api(
     request: pytest.FixtureRequest,
 ) -> Callable[..., clifft.noncomp.NonComputationalSample]:
-    """Exercise shared semantics through convenience, prepared, and forced paths."""
+    """Check API consistency through convenience, prepared, and forced paths.
+
+    Full final status is requested by default to preserve the shared status
+    assertions. Auto and prepared cases may therefore select trajectories;
+    the parameter IDs identify API configurations, not selected strategies.
+    Fixed selection and packed execution are asserted in dedicated tests.
+    """
 
     def sample(*args: Any, **kwargs: Any) -> clifft.noncomp.NonComputationalSample:
         if "threads" in kwargs:
