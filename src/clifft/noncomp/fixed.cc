@@ -180,8 +180,7 @@ class FixedBuilder {
         // could combine or erase them. The planner still performs coordinate
         // planning and the executable lowering still fuses quantum actions.
         ++data_->metrics.preparation_compilations;
-        TraceSiteOrigins site_origins;
-        const HirModule hir = trace(lowered_, nullptr, &site_origins);
+        const HirModule hir = trace(lowered_);
         sampling::SamplingPlan plan;
         try {
             plan = sampling::plan_sampling(hir);
@@ -194,8 +193,7 @@ class FixedBuilder {
             plan.peak_active_width > *request_.requirements().max_active_width) {
             return reject(FixedNonComputationalReason::ActiveWidth);
         }
-        detail::validate_fixed_input_bindings(noise_nodes_, readout_sites_, site_origins, hir,
-                                              plan);
+        detail::validate_fixed_input_bindings(noise_nodes_, readout_sites_, hir, plan);
         std::vector<uint32_t> symbol_to_input(plan.symbols.size(), 0);
         uint32_t input = 0;
         for (uint32_t symbol = 0; symbol < plan.symbols.size(); ++symbol) {
