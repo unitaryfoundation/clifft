@@ -82,6 +82,32 @@ def define_env(env: Any) -> None:
     # When a new pass is added in C++, add it here too.
     passes = [
         {
+            "name": "ZxSpacetimePass",
+            "kind": "HIR",
+            "default_enabled": False,
+            "preserves_record_order": False,
+            "preserves_instrument_prefix": False,
+            "python_name": "ZxSpacetimePass",
+            "summary": "Rewrites the circuit through ZX calculus when that narrows the state.",
+            "detail": (
+                "Builds a single-copy parametric ZX diagram of the traced HIR over "
+                "measurement outcomes and noise bits, reduces it with zxparam's "
+                "rewrite rules, and reads it back as Pauli rotations and measurements "
+                "on fresh lines, following Tsim's reader and greedy scheduler. "
+                "Noise-dependent signs are carried by dormant sign lines, so the "
+                "qubit count grows while the active width falls. "
+                "The rewrite is kept only if its planned peak active width after the "
+                "default passes is strictly lower than the input's; otherwise, or "
+                "when the circuit is outside the lowering (for example, "
+                "expectation-value probes or leakage and loss instruments) or "
+                "exceeds a limit, the HIR is left unchanged and `reason` says why. "
+                "It preserves the distribution of records, detectors and observables "
+                "and keeps every noise location, but not the quantum state, so "
+                "final-state queries are unavailable afterwards. "
+                "It needs the traced HIR: run it before every other pass."
+            ),
+        },
+        {
             "name": "PeepholeFusionPass",
             "kind": "HIR",
             "default_enabled": True,

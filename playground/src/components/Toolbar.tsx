@@ -139,11 +139,18 @@ export function Toolbar({
     return () => document.removeEventListener("mousedown", handleClick);
   }, [shotsOpen, passesOpen, examplesOpen, recentsOpen]);
 
+  // Passes run in the order listed, so keep registry order: some passes,
+  // such as ZxSpacetimePass, need the traced HIR and must run first.
   const togglePass = (name: string) => {
-    const current = passConfig.hir;
-    const next = current.includes(name)
-      ? current.filter((n) => n !== name)
-      : [...current, name];
+    const enabled = new Set(passConfig.hir);
+    if (enabled.has(name)) {
+      enabled.delete(name);
+    } else {
+      enabled.add(name);
+    }
+    const next = availablePasses
+      .filter((p) => p.kind === "hir" && enabled.has(p.name))
+      .map((p) => p.name);
     onPassConfigChange({ hir: next });
   };
 
@@ -278,6 +285,11 @@ export function Toolbar({
                         {p.name === "ActiveWidthSchedulePass" && (
                           <small className="passes-description">
                             May speed up repeated sampling; adds compilation time.
+                          </small>
+                        )}
+                        {p.name === "ZxSpacetimePass" && (
+                          <small className="passes-description">
+                            May narrow the active state; drops the final state.
                           </small>
                         )}
                       </span>

@@ -145,7 +145,12 @@ Clifft has benefited from the following research and software:
   simulation, cultivation circuits, symbolic sampling, adaptive coordinate
   planning, and inspiration for packed execution.
 - [Tsim](https://github.com/QuEraComputing/tsim) for Stim-compatible universal
-  simulation design and open code and data enabling comparisons.
+  simulation design, open code and data enabling comparisons, and the PBC
+  reader and greedy scheduler ported in the ZX lowering.
+- [zxparam](https://pypi.org/project/zxparam/) for the parametric ZX rewrite
+  rules ported in the ZX lowering and the fixtures that pin them.
+- [QuiZX](https://github.com/zxcalc/quizx) for the layout of the single-copy ZX
+  graph and its constraint log.
 - [SqaleSim](https://arxiv.org/abs/2509.13247) for motivating the leakage/loss
   instrument design and providing a five-level neutral-atom model and examples.
 - [deltakit-stim](https://github.com/Deltakit/deltakit-stim) for inspiring

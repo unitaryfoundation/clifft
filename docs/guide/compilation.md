@@ -87,6 +87,33 @@ options, result statistics, and search-budget limits, and the
 [theoretical overview](../theory/overview.md#hir-optimization) for why ordering
 affects active width.
 
+## ZX spacetime lowering
+
+The opt-in `ZxSpacetimePass` rewrites the circuit through ZX calculus into
+Pauli rotations and measurements on fresh qubits. Unlike reordering, this can
+drop a qubit's state as soon as no later measurement needs it, which lowers the
+peak active width of circuits such as magic-state cultivation. The pass keeps
+the rewrite only when it is narrower. It preserves measurement, detector and
+observable distributions but not the quantum state, so final-state queries are
+unavailable afterwards. Add it before every other pass:
+
+```python
+import clifft
+
+pm = clifft.HirPassManager()
+zx = clifft.ZxSpacetimePass()
+pm.add(zx)
+pm.add(clifft.PeepholeFusionPass())
+pm.add(clifft.PhasePolynomialPass())
+pm.add(clifft.RotationSimplificationPass())
+pm.add(clifft.StatevectorSqueezePass())
+program = clifft.compile("H 0\nT 0\nH 0\nM 0", hir_passes=pm)
+print(zx.applied, zx.reason)
+```
+
+See [Optimization Passes](../reference/passes.md#zxspacetimepass) for its
+limits and result statistics.
+
 ## Inspect or customize the pipeline
 
 The following APIs are intended for power users working on compiler behavior,

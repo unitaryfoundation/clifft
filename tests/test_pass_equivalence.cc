@@ -10,8 +10,10 @@
 #include "clifft/optimizer/phase_polynomial_pass.h"
 #include "clifft/optimizer/rotation_simplification_pass.h"
 #include "clifft/optimizer/statevector_squeeze_pass.h"
+#include "clifft/optimizer/zx_spacetime_pass.h"
 #include "clifft/sampling/planner.h"
 #include "clifft/util/xoshiro.h"
+#include "clifft/zx/rewrite.h"
 
 #include "dense_circuit_oracle.h"
 #include "sampling_equivalence_helpers.h"
@@ -1322,6 +1324,129 @@ TEST_CASE("Squeeze and schedule passes preserve exact distributions across hazar
 }
 
 TEST_CASE(
+    "ZxSpacetimePass rewrites preserve exact distributions across planted scaffolds and hazards",
+    "[pass_equivalence][zx]") {
+    clifft::Xoshiro256PlusPlus rng(0x578051);
+    clifft::Xoshiro256PlusPlus control_rng(0x578052);
+
+    const HazardConfig hazard_configs[] = {
+        {},
+        {.pauli_noise = true},
+        {.correlated_noise = true},
+        {.readout_noise = true},
+        {.resets = true},
+        {.pauli_noise = true,
+         .readout_noise = true,
+         .resets = true,
+         .postselect_check_detectors = true},
+        {.resets = true, .exp_val = true},
+    };
+    const PlantedScaffoldKind scaffolds[] = {
+        PlantedScaffoldKind::PhaseSandwich,
+        PlantedScaffoldKind::FeedbackAndReset,
+        PlantedScaffoldKind::MultiRoundSchedule,
+    };
+
+    for (PlantedScaffoldKind scaffold : scaffolds) {
+        size_t rewrites = 0;
+        size_t realization_checks = 0;
+        for (size_t h_idx = 0; h_idx < std::size(hazard_configs); ++h_idx) {
+            const HazardConfig& hazards = hazard_configs[h_idx];
+            for (int trial = 0; trial < 4; ++trial) {
+                const PlantedCircuit planted = generate_planted_scaffold(scaffold, rng, 4);
+                const std::string source =
+                    join_lines(inject_boundary_hazards(planted, hazards, rng, 4));
+                CAPTURE(static_cast<int>(scaffold), h_idx, trial, source);
+
+                const Circuit circuit = clifft::parse(source);
+                HirModule original = clifft::trace(circuit);
+                assert_requested_hazards_present(planted, hazards, original);
+                const OwnedPlanOptions owned =
+                    build_plan_options(original, planted, hazards.postselect_check_detectors);
+                const auto options = owned.as_span_options();
+                const ExactPlanDistribution dense_dist =
+                    compute_dense_circuit_distribution(circuit, options);
+                if (h_idx == 0) {
+                    assert_noiseless_scaffold_polarization(dense_dist, planted);
+                }
+
+                std::string reason;
+                const auto rewritten = zx::rewrite_hir(original, {}, &reason);
+                if (hazards.exp_val) {
+                    // Probes name physical qubits, which the rewrite replaces.
+                    REQUIRE_FALSE(rewritten);
+                    REQUIRE(reason == "expectation-value probes name physical qubits");
+                    continue;
+                }
+                if (!rewritten) {
+                    // Asymmetric readout noise that feedback reads is outside the
+                    // lowering; nothing else may be.
+                    REQUIRE(reason == "feedback reads a record with asymmetric readout noise");
+                    continue;
+                }
+                ++rewrites;
+                REQUIRE_FALSE(rewritten->final_tableau.has_value());
+                require_distributions_equal(dense_dist,
+                                            compute_exact_hir_distribution(*rewritten, options));
+                // A readout flip that feedback reads becomes an extra noise site,
+                // so per-realization comparison needs matching sites.
+                if (rewritten->noise_sites.size() == original.noise_sites.size()) {
+                    check_exact_equivalent(original, *rewritten, control_rng, 16, options);
+                    ++realization_checks;
+                }
+            }
+        }
+        CAPTURE(static_cast<int>(scaffold));
+        REQUIRE(rewrites >= 16);
+        REQUIRE(realization_checks >= 8);
+    }
+}
+
+TEST_CASE("ZxSpacetimePass rewrites through noise resets and feedback but stops at EXP_VAL",
+          "[pass_equivalence][zx]") {
+    // Qubit 2 starts in |0>, so its first record is the X error plus the
+    // readout flip, which feedback copies to qubit 3; X 3 then negates that
+    // record. The rewrite must carry constant and noise-dependent signs.
+    const std::string legal_source =
+        "H 0\n"
+        "T 0\n"
+        "H 0\n"
+        "X 0\n"
+        "T 0\n"
+        "H 0\n"
+        "CX 0 1\n"
+        "X_ERROR(0.2) 2\n"
+        "M(0.1) 2\n"
+        "CX rec[-1] 3\n"
+        "R 2\n"
+        "H 2\n"
+        "T 2\n"
+        "H 2\n"
+        "X 3\n"
+        "M 0 1 2 3\n";
+    const Circuit legal_circuit = clifft::parse(legal_source);
+    const HirModule legal_hir = clifft::trace(legal_circuit);
+    std::string reason;
+    const auto rewritten = zx::rewrite_hir(legal_hir, {}, &reason);
+    INFO(reason);
+    REQUIRE(rewritten);
+    require_distributions_equal(compute_dense_circuit_distribution(legal_circuit),
+                                compute_exact_hir_distribution(*rewritten));
+
+    const std::string probe_source = legal_source + "EXP_VAL Z0\n";
+    const Circuit probe_circuit = clifft::parse(probe_source);
+    HirModule probe_hir = clifft::trace(probe_circuit);
+    const size_t num_ops = probe_hir.ops.size();
+    ZxSpacetimePass pass;
+    pass.run(probe_hir);
+    REQUIRE_FALSE(pass.applied());
+    REQUIRE(pass.reason() == "expectation-value probes name physical qubits");
+    REQUIRE(probe_hir.ops.size() == num_ops);
+    require_distributions_equal(compute_dense_circuit_distribution(probe_circuit),
+                                compute_exact_hir_distribution(probe_hir));
+}
+
+TEST_CASE(
     "Full optimizer and scheduler pipeline preserves exact distributions across planted corpus",
     "[pass_equivalence][optimizer][schedule_pass]") {
     clifft::Xoshiro256PlusPlus rng(0x578041);
@@ -1799,6 +1924,18 @@ bool run_active_width_schedule_for_registry(HirModule& hir) {
     return scheduler.applied();
 }
 
+// ZxSpacetimePass keeps a rewrite only where it narrows the plan, which few
+// small scaffolds allow; rewrite unconditionally so the lowering itself is
+// checked on every scaffold it accepts.
+bool run_zx_spacetime_for_registry(HirModule& hir) {
+    auto rewritten = zx::rewrite_hir(hir, {}, nullptr);
+    if (!rewritten) {
+        return false;
+    }
+    hir = std::move(*rewritten);
+    return true;
+}
+
 constexpr RegisteredPassEquivalenceSpec kEquivalenceVerifiedPasses[] = {
     {.name = "PeepholeFusionPass",
      .primary_scaffold = PlantedScaffoldKind::PhaseSandwich,
@@ -1815,6 +1952,9 @@ constexpr RegisteredPassEquivalenceSpec kEquivalenceVerifiedPasses[] = {
     {.name = "ActiveWidthSchedulePass",
      .primary_scaffold = PlantedScaffoldKind::MultiRoundSchedule,
      .run_and_did_rewrite = run_active_width_schedule_for_registry},
+    {.name = "ZxSpacetimePass",
+     .primary_scaffold = PlantedScaffoldKind::FeedbackAndReset,
+     .run_and_did_rewrite = run_zx_spacetime_for_registry},
 };
 
 // Passes whose specification intentionally alters circuit semantics (stripping
