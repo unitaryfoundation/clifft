@@ -1,6 +1,7 @@
 #include "clifft/sampling/sampler.h"
 
 #include "clifft/sampling/batch/executor.h"
+#include "clifft/sampling/batch/output.h"
 #include "clifft/sampling/batch/policy.h"
 #include "clifft/sampling/batch/tuning.h"
 #include "clifft/sampling/executor.h"
@@ -166,23 +167,6 @@ size_t checked_output_size(uint32_t shots, size_t stride) {
     return static_cast<size_t>(shots) * stride;
 }
 
-template <typename Output>
-void copy_batch_lane(Output& output, const BatchExecutor& executor, uint32_t lane, uint32_t shot,
-                     const ExecutablePlan& plan) noexcept {
-    for (uint32_t record = 0; record < plan.num_visible_records(); ++record) {
-        output.measurements[static_cast<size_t>(shot) * plan.num_visible_records() + record] =
-            static_cast<uint8_t>(executor.measurement(lane, record));
-    }
-    for (uint32_t detector = 0; detector < plan.num_detectors(); ++detector) {
-        output.detectors[static_cast<size_t>(shot) * plan.num_detectors() + detector] =
-            static_cast<uint8_t>(executor.detector(lane, detector));
-    }
-    for (uint32_t observable = 0; observable < plan.num_observables(); ++observable) {
-        output.observables[static_cast<size_t>(shot) * plan.num_observables() + observable] =
-            static_cast<uint8_t>(executor.observable(lane, observable));
-    }
-}
-
 void copy_batch_expectations(std::span<double> output, const BatchExecutor& executor,
                              uint32_t num_exp_vals) noexcept {
     if (num_exp_vals == 0) {
@@ -293,7 +277,7 @@ SamplingResult sample_fixed_batches(const ExecutablePlan& plan, uint32_t shots,
                        "fixed-row batch must retain every shot");
                 for (uint32_t lane = 0; lane < batch; ++lane) {
                     const uint32_t shot = executor.shot_index(lane);
-                    copy_batch_lane(result, executor, lane, shot, plan);
+                    batch_detail::copy_batch_lane(result, executor, lane, shot, plan);
                 }
                 copy_batch_expectations(result.exp_vals, executor, plan.num_exp_vals());
                 offset += batch;
@@ -426,7 +410,7 @@ SamplingSurvivorResult sample_surviving_batches(const ExecutablePlan& plan, uint
                     counts.logical_errors += static_cast<uint32_t>(logical_error);
                     const uint32_t shot = executor.shot_index(lane);
                     survived[shot] = 1;
-                    copy_batch_lane(result, executor, lane, shot, plan);
+                    batch_detail::copy_batch_lane(result, executor, lane, shot, plan);
                 }
                 copy_batch_expectations(result.exp_vals, executor, plan.num_exp_vals());
                 offset += batch;

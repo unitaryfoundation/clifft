@@ -280,16 +280,27 @@ void register_noncomp(nb::module_& m) {
         .def(
             "sample",
             [](const clifft::FixedNonComputationalProgram& program, uint32_t shots,
-               std::optional<uint64_t> seed, uint32_t threads) {
-                clifft::NonComputationalSample result;
+               std::optional<uint64_t> seed, uint32_t threads, const BatchOption& batch_size) {
+                const auto capacity = parse_positive_uint32_option(batch_size, "batch_size");
+                clifft::FixedNonComputationalResult result;
                 {
                     nb::gil_scoped_release release;
-                    result = program.sample(shots, seed, threads);
+                    result = program.sample(shots, seed, threads, capacity);
                 }
-                return noncomp_sample_to_python(std::move(result), shots,
-                                                program.returns_final_status());
+                const auto& metrics = result.metrics;
+                nb::dict stats;
+                stats["batch_size"] = metrics.batch_size;
+                stats["workers"] = metrics.workers;
+                stats["scalar_shots"] = metrics.scalar_shots;
+                stats["packed_shots"] = metrics.packed_shots;
+                stats["packed_batches"] = metrics.packed_batches;
+                stats["packed_worker_bytes"] = metrics.packed_worker_bytes;
+                return nb::make_tuple(noncomp_sample_to_python(std::move(result.output), shots,
+                                                               program.returns_final_status()),
+                                      stats);
             },
-            nb::arg("shots"), nb::arg("seed") = nb::none(), nb::arg("threads") = 1)
+            nb::arg("shots"), nb::arg("seed") = nb::none(), nb::arg("threads") = 1, nb::kw_only(),
+            nb::arg("batch_size") = BatchOption{std::string{"auto"}})
         .def_prop_ro("metrics", [](const clifft::FixedNonComputationalProgram& program) {
             const auto& metrics = program.metrics();
             nb::dict result;
@@ -297,6 +308,7 @@ void register_noncomp(nb::module_& m) {
             result["peak_active_width"] = metrics.peak_active_width;
             result["quantum_noise_inputs"] = metrics.quantum_noise_inputs;
             result["readout_inputs"] = metrics.readout_inputs;
+            result["packed_noise_carriers"] = metrics.packed_noise_carriers;
             result["classical_workspace_bytes"] = metrics.classical_workspace_bytes;
             return result;
         });

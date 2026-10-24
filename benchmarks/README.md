@@ -34,22 +34,29 @@ Preparation, input generation, and copying results out of the executor are
 excluded. These are primitive throughput measurements, not end-to-end leak/loss
 sampling or deltakit-stim comparisons.
 
-## Noncomputational scalar comparison
+## Noncomputational fixed execution
 
-`noncomp_fixed.py` compares the internal scalar fixed path with trajectories on
+`noncomp_fixed.py` compares internal scalar and packed fixed execution with trajectories on
 surface-code circuits with inline leakage, full partner depolarization, and
 label-independent readout. Both return all records, heralds, and detailed final
 status; a final restoring reset erases leaked labels. It reports preparation
-separately from repeated fixed sampling, plus active width and classical input
-workspace. Trajectory times include their ordinary per-call preparation.
+separately from repeated fixed sampling, plus active width, actual batch/worker
+counts, and retained packed worker bytes. Fixed sampling includes worker setup,
+status/input generation, quantum execution, and all output materialization.
+Trajectory times include their ordinary per-call preparation.
 
 ```bash
-python benchmarks/noncomp_fixed.py --distances 3 5 --shots 1000
+python benchmarks/noncomp_fixed.py --distances 3 5 --shots 1000 --batch-sizes 1 65 auto
+python benchmarks/noncomp_fixed.py --distances 7 --shots 10000 --threads 4 --skip-trajectories
+python benchmarks/noncomp_fixed.py --distances 3 --shots 1000 --event LOSS
 ```
 
-Use an optimized installed Clifft build. These timings do not compare against
-deltakit-stim or measure packed execution. The workspace metric excludes the
-immutable plan and quantum coefficient/scratch buffers.
+Use an optimized installed Clifft build. Calls alternate forward/reverse order
+and report medians; there are no timing assertions. `--variants` includes
+`clifford`, `s`, `t`, and `rotation`. These timings do not establish deltakit-stim
+parity. Retained packed worker bytes include executor state, external inputs,
+and driver scratch; they exclude the immutable plan, result arrays, and allocator
+bookkeeping. The scalar classical workspace metric excludes executor storage.
 
 ## CUDA driver
 
