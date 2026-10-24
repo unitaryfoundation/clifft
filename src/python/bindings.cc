@@ -1738,7 +1738,7 @@ NB_MODULE(_clifft_core, m) {
 
     m.def(
         "_replay_record",
-        [](const clifft::sampling::ExecutablePlan& program, std::vector<uint8_t> forced_records) {
+        [](const clifft::sampling::ExecutablePlan& program, std::vector<nb::object> record_values) {
             // Replay is conditional on presampled symbols and can stop at a
             // postselection boundary. Neither is a complete record oracle.
             if (program.num_presampled_symbols() != 0 || program.has_readout_noise() ||
@@ -1749,16 +1749,25 @@ NB_MODULE(_clifft_core, m) {
             }
             const size_t expected =
                 static_cast<size_t>(program.num_visible_records()) + program.num_hidden_records();
-            if (forced_records.size() != expected) {
+            if (record_values.size() != expected) {
                 throw std::invalid_argument(
                     "forced_records must supply one value per record, visible followed by "
                     "hidden; expected " +
-                    std::to_string(expected) + ", got " + std::to_string(forced_records.size()));
+                    std::to_string(expected) + ", got " + std::to_string(record_values.size()));
             }
-            for (uint8_t value : forced_records) {
-                if (value > 1) {
+            std::vector<uint8_t> forced_records;
+            forced_records.reserve(expected);
+            for (nb::handle value : record_values) {
+                // Use the integer protocol so coercible strings and floats cannot become bits.
+                nb::object index = nb::steal<nb::object>(PyNumber_Index(value.ptr()));
+                if (!index.is_valid()) {
+                    throw nb::python_error();
+                }
+                uint8_t bit;
+                if (!nb::try_cast(index, bit) || bit > 1) {
                     throw std::invalid_argument("forced_records entries must be 0 or 1");
                 }
+                forced_records.push_back(bit);
             }
             clifft::sampling::ReplayResult result;
             {
