@@ -211,8 +211,8 @@ def test_herald_prefix_is_reproducible_across_continuations_and_workers():
         READOUT_NOISE(0, 0.4) rec[-1]
         OBSERVABLE_INCLUDE(0) rec[-3]
     """
-    one = noncomp.sample(circuit, noncomp.Model(), shots=257, seed=79, threads=1)
-    two = noncomp.sample(circuit, noncomp.Model(), shots=257, seed=79, threads=2)
+    one = noncomp.sample(circuit, noncomp.Model(), shots=257, seed=79, threads=1, final_status=True)
+    two = noncomp.sample(circuit, noncomp.Model(), shots=257, seed=79, threads=2, final_status=True)
     for field in ("measurements", "detectors", "observables", "heralds", "final_status"):
         np.testing.assert_array_equal(getattr(one, field), getattr(two, field))
     np.testing.assert_array_equal(one.observables[:, 0], one.measurements[:, 0])

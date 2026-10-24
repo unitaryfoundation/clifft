@@ -32,6 +32,8 @@ struct FixedNonComputationalRejection {
     // The resolved operation's generated_by identifies its originating gate.
     std::optional<uint32_t> operation;
     uint32_t source_line = 0;
+    uint64_t preparation_compilations = 0;
+    std::optional<uint32_t> peak_active_width;
 };
 
 struct FixedNonComputationalMetrics {

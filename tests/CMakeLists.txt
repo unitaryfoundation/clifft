@@ -50,6 +50,7 @@ add_executable(clifft_tests
     test_noncomp_interactions.cc
     test_noncomp_model.cc
     test_noncomp_preparation.cc
+    test_noncomp_program.cc
     test_noncomp_resolution.cc
     test_noncomp_fixed.cc
     test_noncomp_status_walk.cc

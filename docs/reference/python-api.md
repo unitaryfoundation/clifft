@@ -88,6 +88,12 @@ directional overrides, and circuit annotation ordering.
 
 ::: clifft.noncomp.sample
 
+::: clifft.noncomp.compile
+
+::: clifft.noncomp.NonComputationalProgram
+
+::: clifft.noncomp.NonComputationalStats
+
 ::: clifft.noncomp.Model
 
 ::: clifft.noncomp.PartnerEffect

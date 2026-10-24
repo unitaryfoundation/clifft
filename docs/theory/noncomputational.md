@@ -234,7 +234,10 @@ full continuation approach. Clifft can identify requests where the sampled
 status history changes only classical noise and readout inputs to that program.
 This *fixed execution* avoids recompiling after each jump, making repeated
 sampling much faster. Eligibility follows from the circuit, model, and requested
-outputs, so the choice of representation can be transparent to users.
+outputs. `noncomp.sample` and `noncomp.compile` select it automatically when
+supported; `execution="fixed"` and `execution="trajectory"` provide overrides.
+Detailed final status is opt-in because distinguishing the leaked labels can
+require the general trajectory representation.
 
 The initial supported subset starts each site in `g` and uses state-independent
 inline leakage and loss. Equal jump rates from `g` and `e` make the no-jump
@@ -287,9 +290,6 @@ computational. Correlated-error chains preserve their shared branch selection:
 a branch acting only on auxiliaries still suppresses later branches on
 computational sites. These choices affect the sampled noise inputs, while the
 quantum program stays fixed.
-
-Fixed execution is currently internal. Automatic selection through the public
-API is being added separately; `noncomp.sample` currently uses continuations.
 
 ## Active-width cost
 

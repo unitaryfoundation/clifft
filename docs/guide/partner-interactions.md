@@ -46,7 +46,7 @@ model = noncomp.Model(
         "leaked": noncomp.PartnerEffect(pauli=(0.25, 0.25, 0.25)),
     },
 )
-result = noncomp.sample("LEAKAGE(1) 0\nCX 0 1\nM 1", model, shots=4096, seed=1)
+result = noncomp.sample("LEAKAGE(1) 0\nCX 0 1\nM 1", model, shots=4096, seed=1, final_status=True)
 assert abs(result.measurements[:, 0].mean() - 0.5) < 0.04
 assert (result.final_status[:, 0] == noncomp.QubitStatus.LEAK_G).all()
 assert (result.final_status[:, 1] == noncomp.QubitStatus.COMPUTATIONAL).all()
@@ -186,6 +186,7 @@ result = noncomp.sample(
     model,
     shots=16,
     seed=2,
+    final_status=True,
 )
 assert result.measurements.all()
 assert (result.final_status[:, 1] == noncomp.QubitStatus.LEAK_E).all()

@@ -1,6 +1,6 @@
 """Noncomputational (leakage/loss) sampling.
 
-Samples five-level leakage/loss trajectories using Clifft's executor:
+Samples five-level leakage/loss models with automatic fixed or trajectory execution:
 
     import clifft
     from clifft import noncomp
@@ -12,7 +12,7 @@ Samples five-level leakage/loss trajectories using Clifft's executor:
     )
     r = noncomp.sample("H 0\\nCX 0 1\\nS 0\\nM 0\\nM 1\\n", model, shots=1000, seed=7)
     r.measurements   # np.uint8 [shots, num_measurements]
-    r.final_status   # np.uint8 [shots, num_qubits], values in QubitStatus
+    r.final_status   # None unless final_status=True is requested
 
 This API supports exactly the built-in five-level set: ``Level.G``, ``Level.E``,
 ``Level.LEAK_G``, ``Level.LEAK_E``, and ``Level.LOST``. Matrix rows and columns
@@ -29,7 +29,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import IntEnum
 from math import isfinite
-from typing import Callable, Iterator, Literal
+from typing import Any, Iterator, Literal, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -44,8 +44,11 @@ __all__ = [
     "Level",
     "Model",
     "NonComputationalSample",
+    "NonComputationalProgram",
+    "NonComputationalStats",
     "QubitStatus",
     "sample",
+    "compile",
 ]
 
 Matrix = Sequence[Sequence[float]]
@@ -174,7 +177,7 @@ class InteractionRule:
 
 
 class Model:
-    """A noncomputational trajectory model over the built-in five-level set.
+    """A leakage and loss model over the built-in five-level set.
 
     Args:
         initial_state: probability per level, ``P(level)``, summing to one.
@@ -309,12 +312,52 @@ class Model:
         return f"Model({', '.join(parts)})"
 
 
+@dataclass(frozen=True, slots=True)
+class NonComputationalStats:
+    """Optional evidence from preparation and one sampling call.
+
+    Preparation counts and time describe the owned program, including a rejected
+    fixed candidate; they are not repeated work on each prepared sample call.
+    Initial compilations count trajectory starting plans built during this call;
+    continuation compilations count plans built after a trap. Worker sharing can
+    change compilation counts without changing seeded outputs.
+
+    Shot counters satisfy ``scalar_shots + packed_shots == fixed_shots +
+    trajectory_shots == result.shots``. All trajectory shots count as scalar;
+    fixed shots may use either scalar or packed execution.
+
+    ``peak_active_width`` is the fixed plan's width or the maximum width compiled
+    during this trajectory call; it is ``None`` if no trajectory was compiled.
+    ``packed_worker_bytes`` estimates retained packed buffers per worker, excluding
+    immutable plans, result arrays, and allocator bookkeeping. It is zero for
+    scalar execution. Timings cover native preparation/sampling, excluding Python
+    parsing and result conversion. Counters are collected at driver boundaries.
+    """
+
+    strategy: Literal["fixed", "trajectory"]
+    fallback_reason: str | None
+    preparation_compilations: int
+    initial_compilations: int
+    continuation_compilations: int
+    fixed_shots: int
+    trajectory_shots: int
+    scalar_shots: int
+    packed_shots: int
+    packed_batches: int
+    batch_size: int
+    workers: int
+    packed_worker_bytes: int
+    peak_active_width: int | None
+    preparation_seconds: float
+    sampling_seconds: float
+
+
 class NonComputationalSample:
-    """Measurement results and final site statuses returned by ``sample()``.
+    """Sampling outputs with optional detailed final status and statistics.
 
     Attributes:
         measurements, detectors, observables: uint8 arrays, shape (shots, width).
-        final_status: uint8 array (shots, num_qubits) of
+        final_status: ``None`` unless requested, otherwise a uint8 array (shots, num_qubits) of
             [QubitStatus][clifft.noncomp.QubitStatus] values.
             Reports the definite noncomputational level per site and shot:
             ``LEAK_G`` and ``LEAK_E`` are individually distinguishable.
@@ -324,6 +367,8 @@ class NonComputationalSample:
         heralds: uint8 array (shots, num_measurements); 1 where the classifier
             sampled the herald (third) symbol for that slot, else 0.
         shots, num_qubits, num_measurements, num_detectors, num_observables: ints.
+        stats: [NonComputationalStats][clifft.noncomp.NonComputationalStats]
+            when ``collect_stats=True``, otherwise ``None``.
     """
 
     __slots__ = (
@@ -337,6 +382,7 @@ class NonComputationalSample:
         "num_measurements",
         "num_detectors",
         "num_observables",
+        "stats",
     )
 
     def __init__(
@@ -344,12 +390,14 @@ class NonComputationalSample:
         measurements: npt.NDArray[np.uint8],
         detectors: npt.NDArray[np.uint8],
         observables: npt.NDArray[np.uint8],
-        final_status: npt.NDArray[np.uint8],
+        final_status: npt.NDArray[np.uint8] | None,
         heralds: npt.NDArray[np.uint8],
         num_qubits: int,
         num_measurements: int,
         num_detectors: int,
         num_observables: int,
+        *,
+        stats: NonComputationalStats | None = None,
     ) -> None:
         self.measurements = measurements
         self.detectors = detectors
@@ -361,6 +409,7 @@ class NonComputationalSample:
         self.num_measurements = int(num_measurements)
         self.num_detectors = int(num_detectors)
         self.num_observables = int(num_observables)
+        self.stats = stats
 
     def symbols(self) -> npt.NDArray[np.uint8]:
         """Return measurement symbols, using 2 for heralded slots.
@@ -386,6 +435,99 @@ class NonComputationalSample:
         )
 
 
+class NonComputationalProgram:
+    """Reusable, immutable preparation of a leakage/loss sampling strategy.
+
+    Create with [compile][clifft.noncomp.compile]. The program owns circuit and
+    model snapshots. Each sample call owns its workers and RNG, so programs can
+    be reused concurrently. A trajectory program still compiles continuations
+    during sampling. Reading omitted final status never resamples a result.
+    """
+
+    __slots__ = ("_handle",)
+
+    def __init__(self, handle: Any) -> None:
+        self._handle = handle
+
+    @property
+    def strategy(self) -> Literal["fixed", "trajectory"]:
+        """Selected execution strategy, fixed for this prepared program."""
+        return cast(Literal["fixed", "trajectory"], self._handle.strategy)
+
+    def explain(self) -> str:
+        """Describe selection, fallback reasons, and known resource estimates.
+
+        Formatting is lazy and runs no shots. Locations identify representative
+        circuit lines and expanded operations when available. Batch capacity and
+        worker memory depend on sampling arguments and appear in result stats.
+        """
+        return str(self._handle.explain())
+
+    def sample(
+        self,
+        shots: int,
+        seed: int | None = None,
+        threads: int | Literal["auto"] = 1,
+        *,
+        batch_size: int | Literal["auto"] = "auto",
+        collect_stats: bool = False,
+    ) -> NonComputationalSample:
+        """Sample this program with fresh per-call workers and RNG.
+
+        ``batch_size="auto"`` uses conservative shared heuristics for a fixed
+        plan and scalar execution for trajectories. ``1`` forces scalar;
+        larger integers request packing under the existing capacity limits and
+        fail when the selected strategy is trajectory, including for zero shots.
+        Timing-based ``"tune"`` is not supported here yet.
+
+        ``threads`` selects cross-shot workers; ``"auto"`` uses hardware
+        concurrency. For a fixed seed, shot count, and batch configuration,
+        results are independent of worker count and scheduling. Different
+        strategies or batch configurations need not produce identical rows.
+        A missing seed uses fresh entropy; zero shots use none.
+        """
+        values, report = self._handle.sample(
+            shots, seed, threads, batch_size=batch_size, collect_stats=collect_stats
+        )
+        stats = None if report is None else NonComputationalStats(**report)
+        return NonComputationalSample(*values, stats=stats)
+
+
+def compile(
+    circuit: Circuit | str,
+    model: Model,
+    *,
+    final_status: bool = False,
+    execution: Literal["auto", "fixed", "trajectory"] = "auto",
+    max_active_width: int | None = None,
+) -> NonComputationalProgram:
+    """Prepare an owned sampling strategy without drawing shot randomness.
+
+    ``execution="auto"`` chooses a supported exact fixed plan when its width
+    fits; otherwise it retains a validated trajectory request. ``"fixed"``
+    requires fixed execution and raises with the rejection reason before
+    sampling. ``"trajectory"`` forces the general driver. Invalid circuit/model
+    contracts always raise rather than triggering optimization fallback.
+
+    ``final_status=True`` requests the existing detailed QubitStatus values and
+    can require trajectories when leaked labels remain unresolved. The default
+    omits that output. This requirement is fixed at preparation.
+
+    ``max_active_width`` caps the fixed candidate or each compiled trajectory
+    continuation. Under auto, an over-cap fixed candidate falls back; trajectory
+    width errors can still arise when sampling. Initial states, spreading,
+    classifiers, and partner channels outside the fixed subset use trajectories.
+    The existing noncomputational measurement restrictions remain in force.
+    """
+    if isinstance(circuit, str):
+        circuit = _clifft_core.parse(circuit)
+    return NonComputationalProgram(
+        _clifft_core._compile_noncomputational(
+            circuit, model._handle, final_status, execution, max_active_width
+        )
+    )
+
+
 def sample(
     circuit: Circuit | str,
     model: Model,
@@ -393,79 +535,41 @@ def sample(
     seed: int | None = None,
     max_active_width: int | None = None,
     threads: int | Literal["auto"] = 1,
+    *,
+    final_status: bool = False,
+    execution: Literal["auto", "fixed", "trajectory"] = "auto",
+    batch_size: int | Literal["auto"] = "auto",
+    collect_stats: bool = False,
 ) -> NonComputationalSample:
-    """Sample ``circuit`` under ``model`` for ``shots`` shots.
+    """Prepare and sample a circuit under a five-level leakage/loss model.
 
-    On a leaked or lost site, ``M``, ``MX``, ``MY``, ``MR``, ``MRX``, and
-    ``MRY`` sample the classifier without regard to measurement basis. A model
-    that can leak or lose sites requires a classifier when the circuit
-    measures a physical site. Parity measurements (``MPP``) and ``EXP_VAL``
-    probes are not supported with such models.
+    Equivalent to [compile][clifft.noncomp.compile] followed by
+    [NonComputationalProgram.sample][clifft.noncomp.NonComputationalProgram.sample].
+    Each call repeats preparation; reuse a compiled program to amortize it.
+    Existing positional arguments retain their meaning. Detailed final status
+    is opt-in: add ``final_status=True`` when consuming that output. Automatic
+    strategy selection can change seeded rows relative to older releases;
+    ``execution="trajectory", final_status=True`` preserves the prior path.
 
-    ``HERALD_LEAKAGE_EVENT`` and ``HERALD_LOSS_EVENT`` append nondestructive
-    status checks to the ordinary measurement record. They take no arguments;
-    use ``READOUT_NOISE`` to model probe errors. They require no classifier and
-    leave their entries in the classifier ``heralds`` sidecar zero.
-
-    ``LEAKAGE_INTERACTION`` and ``LOSS_INTERACTION`` apply conditional partner
-    effects without adding records. Model-generated interactions precede the
-    gate's level-transition hooks. Explicit annotations evaluate status at their
-    own expanded position and compose with generated effects.
-
-    Continuations are compiled with the default optimization passes that
-    preserve measurement-record order and instrument-prefix stability, omitting
-    [StatevectorSqueezePass][clifft.StatevectorSqueezePass]. Reordering can
-    change the placement of internal collapse outcomes relative to later
-    records. This API does not currently accept custom pass managers.
-
-    Args:
-        circuit: Parsed ``clifft.Circuit`` or Stim-format circuit string.
-        model: Leakage and loss model.
-        shots: Number of trajectories to sample.
-        seed: Seed for reproducible sampling. The same seed and arguments
-            produce identical results. When ``None``, each call uses fresh OS
-            entropy.
-        max_active_width: Optional cap on the peak active width of every compiled
-            continuation. The check is conservative because a continuation
-            may contain branches that the current shot will not take.
-        threads: Number of cross-shot workers. Defaults to 1. Pass ``"auto"``
-            to use the implementation-reported hardware concurrency. Seeded
-            results are identical for every worker count.
+    On an inactive site, M/MX/MY and their reset variants sample the classifier
+    independently of basis. A model capable of leakage/loss requires a
+    classifier for physical measurements and does not support MPP.
+    EXP_VAL is unsupported. Status probes append ordinary records without
+    classifier heralds. Feedback consumes reported bits; detectors and
+    observables retain raw parities without reference normalization.
 
     Returns:
-        [NonComputationalSample][clifft.noncomp.NonComputationalSample]
-        containing measurement, detector, observable, herald, and final-status
-        arrays.
+        Measurement, detector, observable, and herald arrays; optional detailed
+        final status and statistics. Three-array unpacking remains supported.
 
     Raises:
-        ValueError: If a model or circuit contract is violated, an annotation
-            is malformed, or a continuation exceeds ``max_active_width``.
+        ValueError: For invalid circuit/model contracts, unsupported forced
+            execution or batching, or an exceeded active-width cap.
     """
-    return _sample_with(
+    return compile(
         circuit,
         model,
-        shots,
-        seed,
-        max_active_width,
-        threads,
-        _clifft_core._sample_noncomputational,
-    )
-
-
-def _sample_with(
-    circuit: Circuit | str,
-    model: Model,
-    shots: int,
-    seed: int | None,
-    max_active_width: int | None,
-    threads: int | Literal["auto"],
-    sampler: Callable,
-) -> NonComputationalSample:
-    if isinstance(circuit, str):
-        circuit = _clifft_core.parse(circuit)
-    meas, det, obs, status, heralds, num_qubits, num_meas, num_det, num_obs = sampler(
-        circuit, model._handle, shots, seed, max_active_width, threads
-    )
-    return NonComputationalSample(
-        meas, det, obs, status, heralds, num_qubits, num_meas, num_det, num_obs
-    )
+        final_status=final_status,
+        execution=execution,
+        max_active_width=max_active_width,
+    ).sample(shots, seed, threads, batch_size=batch_size, collect_stats=collect_stats)
