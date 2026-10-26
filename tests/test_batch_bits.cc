@@ -135,7 +135,7 @@ constexpr uint8_t kSentinel = 0xAA;
 }  // namespace
 
 TEST_CASE("Transposed bit columns match per-bit reads") {
-    const size_t num_columns = GENERATE(0U, 1U, 7U, 63U, 64U, 65U, 130U, 385U);
+    const size_t num_columns = GENERATE(0U, 1U, 7U, 16U, 17U, 63U, 64U, 65U, 130U, 385U);
     const uint32_t lanes = GENERATE(1U, 63U, 64U, 65U, 100U, 2048U);
     CAPTURE(num_columns, lanes);
 

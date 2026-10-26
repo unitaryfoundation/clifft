@@ -91,6 +91,12 @@ void expand_bits_to_bytes(uint64_t word, size_t count, uint8_t* destination) noe
     }
 }
 
+// The 64x64 transpose costs the same for every tile, so it dominates tiles with
+// few columns. Direct extraction vectorizes across columns and measured faster
+// than the transpose up to about 24 columns at the x86-64-v2 baseline with both
+// clang and GCC.
+constexpr size_t kDirectCopyColumns = 16;
+
 }  // namespace
 
 size_t packed_word_count(uint32_t lanes) noexcept {
@@ -147,6 +153,16 @@ void transpose_bit_columns_to_rows(const PackedBitColumns& columns, size_t num_c
             const size_t ncols = std::min<size_t>(64, num_columns - c0);
             for (size_t j = 0; j < ncols; ++j) {
                 tile[j] = columns.column(c0 + j)[word];
+            }
+            if (ncols <= kDirectCopyColumns) {
+                for (size_t i = 0; i < count; ++i) {
+                    uint8_t* destination =
+                        output.data() + static_cast<size_t>(rows[first + i]) * stride + c0;
+                    for (size_t j = 0; j < ncols; ++j) {
+                        destination[j] = static_cast<uint8_t>((tile[j] >> i) & 1);
+                    }
+                }
+                continue;
             }
             std::fill(tile + ncols, tile + 64, uint64_t{0});
             transpose_tile_64x64(tile);
