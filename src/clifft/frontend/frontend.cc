@@ -974,7 +974,10 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                     if (!hidden && target.is_inverted()) {
                         ReadoutNoiseIdx idx{static_cast<uint32_t>(hir.readout_noise.size())};
                         hir.readout_noise.push_back(
-                            {this_meas, static_cast<uint32_t>(node_index), 1.0, 1.0});
+                            {.meas_idx = this_meas,
+                             .prob_zero_to_one = 1.0,
+                             .prob_one_to_zero = 1.0,
+                             .source_node = static_cast<uint32_t>(node_index)});
                         hir.append_readout_noise(idx);
                     }
                 }
@@ -1259,8 +1262,10 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                     double p01 = node.args.empty() ? 0.0 : node.args[0];
                     double p10 = node.args.size() > 1 ? node.args[1] : p01;
                     ReadoutNoiseIdx idx{static_cast<uint32_t>(hir.readout_noise.size())};
-                    hir.readout_noise.push_back(
-                        {abs_meas_idx, static_cast<uint32_t>(node_index), p01, p10});
+                    hir.readout_noise.push_back({.meas_idx = abs_meas_idx,
+                                                 .prob_zero_to_one = p01,
+                                                 .prob_one_to_zero = p10,
+                                                 .source_node = static_cast<uint32_t>(node_index)});
                     hir.append_readout_noise(idx);
                 }
                 break;
