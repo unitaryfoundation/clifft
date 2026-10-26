@@ -1,5 +1,6 @@
 #pragma once
 
+#include "clifft/sampling/batch/bits.h"
 #include "clifft/sampling/batch/executor.h"
 #include "clifft/sampling/executable_plan.h"
 
@@ -8,21 +9,19 @@
 
 namespace clifft::sampling::batch_detail {
 
+// Scatters the finalized lanes of one batch into row-major result vectors, one
+// row per shot index. Transposing whole columns reads each packed word once
+// instead of once per lane.
 template <typename Output>
-void copy_batch_lane(Output& output, const BatchExecutor& executor, uint32_t lane, uint32_t shot,
+void copy_batch_rows(Output& output, const BatchExecutor& executor,
                      const ExecutablePlan& plan) noexcept {
-    for (uint32_t record = 0; record < plan.num_visible_records(); ++record) {
-        output.measurements[static_cast<size_t>(shot) * plan.num_visible_records() + record] =
-            static_cast<uint8_t>(executor.measurement(lane, record));
-    }
-    for (uint32_t detector = 0; detector < plan.num_detectors(); ++detector) {
-        output.detectors[static_cast<size_t>(shot) * plan.num_detectors() + detector] =
-            static_cast<uint8_t>(executor.detector(lane, detector));
-    }
-    for (uint32_t observable = 0; observable < plan.num_observables(); ++observable) {
-        output.observables[static_cast<size_t>(shot) * plan.num_observables() + observable] =
-            static_cast<uint8_t>(executor.observable(lane, observable));
-    }
+    const std::span<const uint32_t> rows = executor.shot_indices();
+    transpose_bit_columns_to_rows(executor.record_columns(), plan.num_visible_records(), rows,
+                                  output.measurements, plan.num_visible_records());
+    transpose_bit_columns_to_rows(executor.detector_columns(), plan.num_detectors(), rows,
+                                  output.detectors, plan.num_detectors());
+    transpose_bit_columns_to_rows(executor.observable_columns(), plan.num_observables(), rows,
+                                  output.observables, plan.num_observables());
 }
 
 }  // namespace clifft::sampling::batch_detail

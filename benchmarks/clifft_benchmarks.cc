@@ -454,6 +454,17 @@ void sample_exp_val(benchmark::State& state) {
     }
 }
 
+// One record, detector, and observable per shot. The output copy sees three
+// one-column tables, the opposite regime from the surface-code rows.
+void sample_narrow_output(benchmark::State& state) {
+    const auto plan =
+        compile_text("X_ERROR(0.01) 0\nM 0\nDETECTOR rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]\n");
+    for ([[maybe_unused]] auto _ : state) {
+        auto result = sampling::sample(plan, 100000, 0);
+        benchmark::DoNotOptimize(result);
+    }
+}
+
 #ifdef CLIFFT_BENCHMARK_HAS_EXTERNAL_INPUTS
 // Time reusable execution only. Input generation, preparation, and output
 // materialization belong to the eventual end-to-end noncomputational benchmark.
@@ -558,5 +569,6 @@ BENCHMARK(sample_surface_d7)->Name("sample_surface_d7_r7_10000_shots");
 BENCHMARK(sample_surface_d5_high_noise)->Name("sample_surface_d5_r5_high_noise_10000_shots");
 BENCHMARK(sample_surface_d11)->Name("sample_surface_d11_r11_1000_shots");
 BENCHMARK(sample_exp_val)->Name("sample_exp_val_20q_200_probes_100000_shots");
+BENCHMARK(sample_narrow_output)->Name("sample_narrow_output_100000_shots");
 
 }  // namespace

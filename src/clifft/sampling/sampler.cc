@@ -275,10 +275,7 @@ SamplingResult sample_fixed_batches(const ExecutablePlan& plan, uint32_t shots,
                 run_batch(worker, root, offset, batch);
                 assert(executor.surviving_shots() == batch &&
                        "fixed-row batch must retain every shot");
-                for (uint32_t lane = 0; lane < batch; ++lane) {
-                    const uint32_t shot = executor.shot_index(lane);
-                    batch_detail::copy_batch_lane(result, executor, lane, shot, plan);
-                }
+                batch_detail::copy_batch_rows(result, executor, plan);
                 copy_batch_expectations(result.exp_vals, executor, plan.num_exp_vals());
                 offset += batch;
             }
@@ -410,8 +407,8 @@ SamplingSurvivorResult sample_surviving_batches(const ExecutablePlan& plan, uint
                     counts.logical_errors += static_cast<uint32_t>(logical_error);
                     const uint32_t shot = executor.shot_index(lane);
                     survived[shot] = 1;
-                    batch_detail::copy_batch_lane(result, executor, lane, shot, plan);
                 }
+                batch_detail::copy_batch_rows(result, executor, plan);
                 copy_batch_expectations(result.exp_vals, executor, plan.num_exp_vals());
                 offset += batch;
             }

@@ -115,4 +115,13 @@ class PackedBitColumns {
 [[nodiscard]] uint64_t low_lane_mask(uint32_t bits) noexcept;
 void fill_low_lane_mask(std::span<uint64_t> output, uint32_t lanes) noexcept;
 
+// Writes bit(column, lane) for columns [0, num_columns) and lanes
+// [0, rows.size()) to output[rows[lane] * stride + column] as a 0 or 1 byte.
+// rows holds one output row index per lane. Works in 64-lane by 64-column
+// tiles so each packed word is read once and each row segment is written
+// contiguously; never allocates.
+void transpose_bit_columns_to_rows(const PackedBitColumns& columns, size_t num_columns,
+                                   std::span<const uint32_t> rows, std::span<uint8_t> output,
+                                   size_t stride) noexcept;
+
 }  // namespace clifft::sampling
