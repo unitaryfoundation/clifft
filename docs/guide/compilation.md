@@ -51,9 +51,10 @@ as described in [reference selection](simulation.md#detectors-and-observables).
 values; it does not recompute the reference per call.
 
 Circuits containing `LEAKAGE`, `LOSS`, or `LEVEL_TRANSITION` annotations, or the
-status probes `HERALD_LEAKAGE_EVENT` and `HERALD_LOSS_EVENT`, take a
-trajectory-specific path. Pass the circuit and model to
-`clifft.noncomp.sample()` rather than compiling one fixed program first; see
+status probes `HERALD_LEAKAGE_EVENT` and `HERALD_LOSS_EVENT`, use the
+noncomputational API. Pass the circuit and model to `clifft.noncomp.sample()`,
+or reuse preparation with `clifft.noncomp.compile()`. It automatically selects
+fixed execution or general trajectories; see
 [Leakage and Loss](leakage-and-loss.md).
 
 ## Active-width scheduling

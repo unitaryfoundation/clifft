@@ -36,7 +36,7 @@ sampling or deltakit-stim comparisons.
 
 ## Noncomputational fixed execution
 
-`noncomp_fixed.py` compares internal scalar and packed fixed execution with trajectories on
+`noncomp_fixed.py` compares public prepared scalar and packed fixed execution with forced trajectories on
 surface-code circuits with inline leakage, full partner depolarization, and
 label-independent readout. Both return all records, heralds, and detailed final
 status; a final restoring reset erases leaked labels. It reports preparation

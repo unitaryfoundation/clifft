@@ -61,17 +61,47 @@ def statevector_from_circuit() -> Callable[[str], npt.NDArray[np.complex128]]:
     return statevector
 
 
-@pytest.fixture(params=[1, 2], ids=["1-worker", "2-workers"])
+@pytest.fixture(
+    params=[(api, workers) for api in ("auto", "prepared", "trajectory") for workers in (1, 2)],
+    ids=[
+        f"{api}-{workers}-workers"
+        for api in ("auto", "prepared", "trajectory")
+        for workers in (1, 2)
+    ],
+)
 def noncomp_sampling_api(
     request: pytest.FixtureRequest,
 ) -> Callable[..., clifft.noncomp.NonComputationalSample]:
-    """Run shared trajectory assertions with bounded cross-shot worker counts."""
+    """Check API consistency through convenience, prepared, and forced paths.
 
-    def sample(*args: Any, **kwargs: Any) -> clifft.noncomp.NonComputationalSample:
+    Full final status is requested by default to preserve the shared status
+    assertions. Auto and prepared cases may therefore select trajectories;
+    the parameter IDs identify API configurations, not selected strategies.
+    Fixed selection and packed execution are asserted in dedicated tests.
+    """
+
+    def sample(
+        circuit: clifft.Circuit | str,
+        model: clifft.noncomp.Model,
+        shots: int,
+        seed: int | None = None,
+        max_active_width: int | None = None,
+        **kwargs: Any,
+    ) -> clifft.noncomp.NonComputationalSample:
         if "threads" in kwargs:
             raise TypeError("threads is selected by noncomp_sampling_api")
-        kwargs["threads"] = request.param
-        return clifft.noncomp.sample(*args, **kwargs)
+        api, workers = request.param
+        kwargs["threads"] = workers
+        kwargs.setdefault("final_status", True)
+        kwargs.setdefault("execution", "trajectory" if api == "trajectory" else "auto")
+        if api == "prepared":
+            options = {
+                key: kwargs.pop(key) for key in ("final_status", "execution") if key in kwargs
+            }
+            return clifft.noncomp.compile(
+                circuit, model, max_active_width=max_active_width, **options
+            ).sample(shots, seed, **kwargs)
+        return clifft.noncomp.sample(circuit, model, shots, seed, max_active_width, **kwargs)
 
     return sample
 

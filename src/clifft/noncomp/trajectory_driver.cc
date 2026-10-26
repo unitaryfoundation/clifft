@@ -215,11 +215,17 @@ struct SamplingCompiledContinuation {
 };
 
 struct TrajectoryWorker {
+    explicit TrajectoryWorker(bool collect_stats) {
+        if (collect_stats) {
+            stats.emplace();
+        }
+    }
     // The start shared by shots whose initial levels are all G remains lazy:
     // other initial levels can make it unreachable, including when compiling it
     // would exceed the active-width cap.
     std::optional<SamplingCompiledContinuation> shared_start;
     std::optional<sampling::Executor> shared_start_executor;
+    std::optional<NonComputationalSamplingStats> stats;
 };
 
 // Build the HIR pass pipeline from default passes that preserve measurement
@@ -357,13 +363,24 @@ void enforce_sampling_active_width_cap(const sampling::SamplingPlan& plan,
 SamplingCompiledContinuation compile_sampling_continuation(
     ContinuationRewrite rewrite, const std::vector<uint8_t>& herald_flags,
     const InstrumentTraceOptions& instrument_options, std::optional<uint32_t> max_active_width_cap,
-    std::span<const Level> initial_levels) {
+    std::span<const Level> initial_levels, TrajectoryWorker& worker, bool initial) {
     Circuit patched = std::move(rewrite.circuit);
     patch_heralded_measurements(patched, rewrite.classified_measurements, herald_flags);
     prepend_initial_excited_preparations(patched, initial_levels, rewrite.forced_traceout_node);
+    if (worker.stats) {
+        if (initial) {
+            ++worker.stats->initial_compilations;
+        } else {
+            ++worker.stats->continuation_compilations;
+        }
+    }
     TracedContinuation traced =
         trace_continuation(std::move(patched), rewrite.forced_traceout_node, instrument_options);
     sampling::SamplingPlan plan = sampling::plan_sampling(traced.hir);
+    if (worker.stats) {
+        worker.stats->peak_active_width =
+            std::max(worker.stats->peak_active_width.value_or(0), plan.peak_active_width);
+    }
     if (max_active_width_cap.has_value() && plan.peak_active_width > *max_active_width_cap) {
         // Source provenance is retained only on the exceptional diagnostic
         // path; successful continuations can be numerous and do not need it.
@@ -391,13 +408,16 @@ SamplingCompiledContinuation compile_sampling_continuation(
 }  // namespace
 
 NonComputationalSample run_trajectory_driver(const PreparedNonComputationalRequest& request,
-                                             uint32_t shots, const SeedRoot& root,
-                                             uint32_t threads) {
+                                             uint32_t shots, const SeedRoot& root, uint32_t threads,
+                                             bool collect_stats) {
     const auto& resolved = request.resolved_circuit();
     const Circuit& annotated = resolved.circuit();
     const NonComputationalModel& model = request.model();
     const auto max_active_width_cap = request.requirements().max_active_width;
     NonComputationalSample result;
+    if (collect_stats) {
+        result.stats.emplace();
+    }
     result.shots = shots;
     result.num_qubits = annotated.num_qubits;
     result.num_measurements = annotated.num_measurements;
@@ -463,9 +483,9 @@ NonComputationalSample run_trajectory_driver(const PreparedNonComputationalReque
             extend_classical_outcomes(resolved, events, model, driver_rng);
             ContinuationRewrite rewrite = rewrite_continuation(resolved, events, false, model);
             const std::vector<uint8_t> flags = flags_for(rewrite);
-            shot_start.emplace(compile_sampling_continuation(std::move(rewrite), flags,
-                                                             instrument_options,
-                                                             max_active_width_cap, initial_levels));
+            shot_start.emplace(
+                compile_sampling_continuation(std::move(rewrite), flags, instrument_options,
+                                              max_active_width_cap, initial_levels, worker, true));
             continuation = &*shot_start;
         } else {
             if (!worker.shared_start.has_value()) {
@@ -473,9 +493,9 @@ NonComputationalSample run_trajectory_driver(const PreparedNonComputationalReque
                     rewrite_continuation(resolved, no_events, false, model);
                 assert(rewrite.classified_measurements.empty() &&
                        "the shared initial continuation has no classified measurements");
-                worker.shared_start.emplace(
-                    compile_sampling_continuation(std::move(rewrite), {}, instrument_options,
-                                                  max_active_width_cap, initial_levels));
+                worker.shared_start.emplace(compile_sampling_continuation(
+                    std::move(rewrite), {}, instrument_options, max_active_width_cap,
+                    initial_levels, worker, true));
             }
             continuation = &*worker.shared_start;
         }
@@ -539,7 +559,7 @@ NonComputationalSample run_trajectory_driver(const PreparedNonComputationalReque
             auto next =
                 std::make_unique<SamplingCompiledContinuation>(compile_sampling_continuation(
                     std::move(next_rewrite), next_flags, instrument_options, max_active_width_cap,
-                    initial_levels));
+                    initial_levels, worker, false));
 
             std::optional<sampling::ForcedTraceOut> forced_trace_out;
             if (force) {
@@ -579,13 +599,30 @@ NonComputationalSample run_trajectory_driver(const PreparedNonComputationalReque
             result.heralds[static_cast<size_t>(shot) * annotated.num_measurements + slot] = flag;
         }
     };
-    run_shot_ranges(
-        shots, threads, [](uint32_t) { return std::make_unique<TrajectoryWorker>(); },
+    const auto workers = run_shot_ranges(
+        shots, threads, [&](uint32_t) { return std::make_unique<TrajectoryWorker>(collect_stats); },
         [&](const std::unique_ptr<TrajectoryWorker>& worker, ShotRange range) {
             for (uint32_t shot = range.begin; shot < range.end; ++shot) {
                 run_shot(*worker, shot);
             }
+            if (worker->stats) {
+                worker->stats->trajectory_shots += range.end - range.begin;
+            }
         });
+    if (result.stats) {
+        auto& stats = *result.stats;
+        stats.workers = static_cast<uint32_t>(workers.size());
+        for (const auto& worker : workers) {
+            stats.initial_compilations += worker->stats->initial_compilations;
+            stats.continuation_compilations += worker->stats->continuation_compilations;
+            stats.trajectory_shots += worker->stats->trajectory_shots;
+            if (worker->stats->peak_active_width) {
+                stats.peak_active_width = std::max(stats.peak_active_width.value_or(0),
+                                                   *worker->stats->peak_active_width);
+            }
+        }
+        stats.scalar_shots = stats.trajectory_shots;
+    }
 
     return result;
 }
