@@ -325,7 +325,9 @@ class NonComputationalStats:
     ``packed_shots``, ``batch_size``, and ``workers`` describe batching and
     parallelism. Shot counters satisfy ``scalar_shots + packed_shots ==
     fixed_shots + trajectory_shots == result.shots``. Trajectories run scalar;
-    fixed execution can run scalar or packed.
+    fixed execution can run scalar or packed. ``packed_classical_shots`` counts
+    shots whose dynamic status/noise/readout inputs were generated across a batch.
+    It is zero for static inputs, scalar execution, and trajectories.
 
     ``initial_compilations`` counts trajectory starting plans built during the
     call; ``continuation_compilations`` counts recompilations after a trap.
@@ -359,6 +361,7 @@ class NonComputationalStats:
     peak_active_width: int | None
     preparation_seconds: float
     sampling_seconds: float
+    packed_classical_shots: int = 0
 
 
 class NonComputationalSample:

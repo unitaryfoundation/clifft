@@ -197,11 +197,12 @@ struct BatchWorkerStorageLayout {
 // Resolve deterministic lane boundaries first, then cap automatic workers by
 // the aggregate retained-memory budget. Callers include wrapper-owned scratch
 // that is not part of BatchExecutor in additional_worker_bytes, excluding the
-// BatchExternalInputs buffer already counted in external input mode.
+// BatchExternalInputs buffer already counted in external input mode. Bit columns
+// scale with each candidate capacity rather than charging the maximum upfront.
 [[nodiscard]] BatchExecutionPolicy resolve_batch_execution_policy(
     const ExecutablePlan& plan, uint32_t shots, uint32_t shot_workers, uint32_t intra_shot_workers,
     BatchOutputMode output_mode, std::optional<uint32_t> requested_batch_size,
     BatchSamplingMode sampling_mode = BatchSamplingMode::Ordinary,
-    uint64_t additional_worker_bytes = 0);
+    uint64_t additional_worker_bytes = 0, uint64_t additional_worker_bit_columns = 0);
 
 }  // namespace clifft::sampling

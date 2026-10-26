@@ -36,6 +36,8 @@ struct NonComputationalSamplingStats {
     uint64_t trajectory_shots = 0;
     uint64_t scalar_shots = 0;
     uint64_t packed_shots = 0;
+    // Dynamic input generation executed across packed lanes, excluding static plans.
+    uint64_t packed_classical_shots = 0;
     uint64_t packed_batches = 0;
     uint32_t batch_size = 1;
     uint32_t workers = 0;

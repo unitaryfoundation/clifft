@@ -26,6 +26,18 @@ class BatchExternalInputs {
     // owner's storage, like MutableBitColumnsView.
     class MutableView {
       public:
+        [[nodiscard]] std::span<uint64_t> noise(uint32_t input) const noexcept {
+            assert(input < noise_columns_);
+            return bits_.column(input);
+        }
+        [[nodiscard]] std::span<uint64_t> readout_zero(uint32_t site) const noexcept {
+            assert(site < readout_sites_);
+            return bits_.column(noise_columns_ + size_t{2} * site);
+        }
+        [[nodiscard]] std::span<uint64_t> readout_one(uint32_t site) const noexcept {
+            assert(site < readout_sites_);
+            return bits_.column(noise_columns_ + size_t{2} * site + 1);
+        }
         void set_noise(uint32_t input, uint32_t lane) const noexcept {
             assert(input < noise_columns_ && "external noise input must belong to the plan");
             bits_.set_bit(input, lane);

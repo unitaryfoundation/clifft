@@ -578,3 +578,23 @@ TEST_CASE("Packed unbound symbols require external input mode") {
     REQUIRE_NOTHROW(
         BatchExecutor(plan, 65, BatchOutputMode::Rows, BatchSamplingMode::ExternalInputs));
 }
+
+TEST_CASE("Packed driver bit columns participate in capacity and worker budgets") {
+    const auto plan = compile("X_ERROR(0.5) 0\nM(0.5) 0\n");
+    constexpr uint64_t columns = 40000;
+    const auto policy =
+        resolve_batch_execution_policy(plan, 65536, 64, 1, BatchOutputMode::Rows, std::nullopt,
+                                       BatchSamplingMode::ExternalInputs, 17, columns);
+    REQUIRE(policy.lane_capacity == 1024);
+    const auto bytes =
+        batch_detail::batch_worker_storage_bytes(plan, policy.lane_capacity, BatchOutputMode::Rows,
+                                                 BatchSamplingMode::ExternalInputs) +
+        17 + columns * packed_word_count(policy.lane_capacity) * sizeof(uint64_t);
+    CHECK(bytes <= kDefaultBatchWorkerBudget);
+    CHECK(bytes * policy.worker_count <= kDefaultBatchTotalWorkerBudget);
+    CHECK(bytes * (policy.worker_count + 1) > kDefaultBatchTotalWorkerBudget);
+    const auto serial =
+        resolve_batch_execution_policy(plan, 65536, 1, 1, BatchOutputMode::Rows, std::nullopt,
+                                       BatchSamplingMode::ExternalInputs, 17, columns);
+    CHECK(serial.lane_capacity == policy.lane_capacity);
+}

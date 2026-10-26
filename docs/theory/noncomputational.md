@@ -297,6 +297,26 @@ a branch acting only on auxiliaries still suppresses later branches on
 computational sites. These choices affect the sampled noise inputs, while the
 quantum program stays fixed.
 
+Packed fixed execution also compiles the classical input program. It advances
+computational, leaked, and lost masks across a batch, generates rare events with
+sparse sampling, and supplies whole noise/readout columns to the quantum plan.
+Status checks retain their circuit order. Classifier heralds and conditional bit
+values are sampled jointly, and a categorical noise site selects at most one
+outcome, including correlated-error chains.
+
+This path is automatic when fixed execution uses packed batches, including
+eligible non-Clifford circuits. `collect_stats=True` reports actual use through
+`packed_classical_shots`; a static plan with no possible status change continues
+to use ordinary noise sampling and reports zero for this counter. Scalar execution
+remains available with `batch_size=1`. Packed status and scratch columns participate
+in the shared worker-memory budget.
+
+Packed classical sampling uses its own domain-separated random stream addressed
+by the global batch start. For a fixed seed, shot count, and batch configuration,
+worker count and scheduling do not change results. Its rows need not match scalar
+execution, other batch capacities, or an earlier sampling algorithm; the joint
+output distribution is unchanged.
+
 ## Active-width cost
 
 With the default exact damping policy, the simulation is exact for this hybrid
