@@ -582,6 +582,11 @@ void prepare_inputs(const detail::FixedNonComputationalData& data, Xoshiro256Plu
                         }
                     }
                     const double draw = rng.next_double();
+                    // Keep the draw even for an empty channel to preserve the input stream.
+                    if (step.outcomes.empty() ||
+                        draw >= step.outcomes.back().cumulative_probability) {
+                        return;
+                    }
                     for (const auto& outcome : step.outcomes) {
                         if (draw < outcome.cumulative_probability) {
                             inputs.activate_noise(outcome.input);

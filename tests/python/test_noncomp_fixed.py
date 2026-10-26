@@ -50,6 +50,38 @@ def fixed_sample(request):
     return partial(sample, batch_size=request.param)
 
 
+@pytest.mark.parametrize("batch_size", [1, 65], ids=["scalar", "packed"])
+@pytest.mark.parametrize(
+    "probabilities",
+    [(0, 0, 0), (1, 0, 0), (0, 1, 0), (0, 0, 1), (0.125, 0.25, 0.5), (0.25, 0.25, 0.5)],
+)
+def test_fixed_public_pauli_channel_preserves_joint_outcomes(probabilities, batch_size):
+    channel = "PAULI_CHANNEL_1(" + ",".join(map(str, probabilities)) + ") 0\n"
+    bell = "H 0\nCX 0 1\n"
+    decode = "CX 0 1\nH 0\nM 0 1\n"
+    # The spectator transition forces external-input generation without changing
+    # the Bell experiment, which makes every Pauli outcome observable.
+    text = bell + "LEAKAGE(1) 2\n" + channel + decode + "R 2"
+    model = noncomp.Model(classifier=noncomp.Classifier(CLASSIFIER))
+    program = noncomp.compile(text, model, final_status=True)
+    assert program.strategy == "fixed"
+    result = program.sample(8192, seed=73, batch_size=batch_size, collect_stats=True)
+    assert result.stats is not None
+    assert result.stats.batch_size == batch_size
+    assert result.stats.fixed_shots == result.shots
+    assert result.stats.packed_shots == (result.shots if batch_size > 1 else 0)
+    actual = np.bincount(result.measurements @ np.array([1, 2]), minlength=4) / result.shots
+    px, py, pz = probabilities
+    expected = np.array([1 - px - py - pz, pz, px, py])
+    if np.count_nonzero(expected) == 1:
+        np.testing.assert_array_equal(actual, expected)
+    else:
+        np.testing.assert_allclose(actual, expected, atol=0.02)
+    reference = stim.Circuit(bell + channel + decode).compile_sampler(seed=74).sample(result.shots)
+    reference_joint = np.bincount(reference @ np.array([1, 2]), minlength=4) / result.shots
+    np.testing.assert_allclose(actual, reference_joint, atol=0.025)
+
+
 @pytest.mark.parametrize(
     "text",
     [

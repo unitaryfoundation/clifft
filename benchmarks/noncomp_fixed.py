@@ -19,12 +19,12 @@ import clifft
 from clifft import noncomp
 
 
-def circuit_text(distance, rounds, rate, variant, event="LEAKAGE"):
+def circuit_text(distance, rounds, rate, variant, event="LEAKAGE", noise_rate=0.001):
     source = stim.Circuit.generated(
         "surface_code:rotated_memory_z",
         distance=distance,
         rounds=rounds,
-        after_clifford_depolarization=0.001,
+        after_clifford_depolarization=noise_rate,
     ).flattened()
     lines = []
     inserted = False
@@ -50,6 +50,7 @@ def main():
     parser.add_argument("--distances", type=int, nargs="+", default=[3, 5])
     parser.add_argument("--rounds", type=int, default=3)
     parser.add_argument("--rates", type=float, nargs="+", default=[0, 0.001, 0.003])
+    parser.add_argument("--noise-rate", type=float, default=0.001)
     parser.add_argument(
         "--variants",
         nargs="+",
@@ -64,6 +65,8 @@ def main():
     parser.add_argument("--skip-trajectories", action="store_true")
     args = parser.parse_args()
     batch_sizes = [int(value) if value != "auto" else value for value in args.batch_sizes]
+    if not 0 <= args.noise_rate <= 1:
+        parser.error("noise-rate must be between zero and one")
     if (
         args.shots <= 0
         or args.repetitions <= 0
@@ -79,7 +82,7 @@ def main():
         for variant in args.variants:
             for rate in args.rates:
                 circuit = clifft.parse(
-                    circuit_text(distance, args.rounds, rate, variant, args.event)
+                    circuit_text(distance, args.rounds, rate, variant, args.event, args.noise_rate)
                 )
                 start = time.perf_counter()
                 program = noncomp.compile(circuit, model, final_status=True, execution="fixed")
@@ -137,6 +140,7 @@ def main():
                             "variant": variant,
                             "event": args.event,
                             "rate": rate,
+                            "noise_rate": args.noise_rate,
                             "shots": args.shots,
                             "threads": args.threads,
                             "preparation_seconds": preparation,

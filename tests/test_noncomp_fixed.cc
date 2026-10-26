@@ -6,6 +6,7 @@
 #include "clifft/sampling/executor.h"
 #include "clifft/sampling/planner.h"
 #include "clifft/util/numeric.h"
+#include "clifft/util/shot_seed.h"
 
 #include "dense_circuit_oracle.h"
 #include "noncomp_test_helpers.h"
@@ -17,6 +18,8 @@
 #include <catch2/matchers/catch_matchers_string.hpp>
 #include <cmath>
 #include <future>
+#include <iomanip>
+#include <sstream>
 #include <string>
 
 using namespace clifft;
@@ -51,6 +54,57 @@ void same(const NonComputationalSample& a, const NonComputationalSample& b) {
 }
 
 }  // namespace
+
+TEST_CASE("Fixed noncomputational noise respects cumulative probability boundaries") {
+    const uint32_t capacity = GENERATE(1, 65);
+    const bool empty_prefix = GENERATE(false, true);
+    constexpr uint32_t shots = 65;
+    constexpr uint64_t seed = 123;
+    const auto state =
+        derive_state(make_seed_root(shots, seed), 0, kFixedNonComputationalInputDomain);
+    Xoshiro256PlusPlus rng;
+    rng.seed_full(state[0], state[1], state[2], state[3]);
+    // A certain spectator leak enables dynamic inputs and consumes the first
+    // draw. An empty noise site must still consume its draw to preserve replay.
+    (void)rng.next_double();
+    if (empty_prefix) {
+        (void)rng.next_double();
+    }
+    const double draw = rng.next_double();
+    REQUIRE(draw > 0.0);
+    REQUIRE(draw < 1.0);
+
+    struct Case {
+        const char* name;
+        std::array<double, 3> probabilities;
+        uint8_t outcome;
+    };
+    const std::array cases{
+        Case{"first boundary", {draw, (1.0 - draw) / 2, 0}, 3},
+        Case{"middle boundary", {draw / 2, draw / 2, (1.0 - draw) / 2}, 1},
+        Case{"total boundary", {draw / 4, draw / 4, draw / 2}, 0},
+        Case{"below total", {0, 0, std::nextafter(draw, 1.0)}, 1},
+        Case{"above total", {0, 0, std::nextafter(draw, 0.0)}, 0},
+    };
+    for (const auto& test : cases) {
+        DYNAMIC_SECTION(test.name) {
+            std::ostringstream text;
+            text << std::setprecision(17) << "H 0\nCX 0 1\nLEAKAGE(1) 2\n";
+            if (empty_prefix) {
+                text << "PAULI_CHANNEL_1(0,0,0) 0\n";
+            }
+            text << "PAULI_CHANNEL_1(" << test.probabilities[0] << ',' << test.probabilities[1]
+                 << ',' << test.probabilities[2] << ") 0\nCX 0 1\nH 0\nM 0 1";
+            const auto program = fixed(text.str(), model());
+            REQUIRE(program.metrics().classical_workspace_bytes > 0);
+            const auto run = program.sample(shots, seed, 1, capacity);
+            REQUIRE(run.metrics.batch_size == capacity);
+            // Bell decoding distinguishes every Pauli without quantum randomness:
+            // I -> 00, X -> 01, Y -> 11, Z -> 10 in record order.
+            CHECK(run.output.measurements[0] + 2 * run.output.measurements[1] == test.outcome);
+        }
+    }
+}
 
 TEST_CASE("Fixed peephole fusion preserves externally selected noise and readout branches") {
     const auto circuit = parse(
