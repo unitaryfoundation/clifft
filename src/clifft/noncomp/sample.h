@@ -22,12 +22,16 @@
 
 namespace clifft {
 
-// Optional driver-level evidence. Preparation fields describe the owned program,
-// while execution fields describe this sampling call. No per-gate instrumentation.
+// Optional performance diagnostics returned with a sample: actual batching,
+// trajectory recompilation, and resource use. NonComputationalProgram combines
+// the selected driver's counters with preparation data. No per-gate profiling.
 struct NonComputationalSamplingStats {
+    // Preparation belongs to the program; initial and continuation counts belong
+    // to this call. Fixed execution has no initial or continuation compilations.
     uint64_t preparation_compilations = 0;
     uint64_t initial_compilations = 0;
     uint64_t continuation_compilations = 0;
+    // All trajectory shots are scalar; fixed shots can be scalar or packed.
     uint64_t fixed_shots = 0;
     uint64_t trajectory_shots = 0;
     uint64_t scalar_shots = 0;

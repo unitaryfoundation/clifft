@@ -190,7 +190,7 @@ operations act, which measurements use the classifier, and when a site
 returns to the computational subspace. Those choices differ between shots, so
 in general one program compiled before sampling cannot describe every trajectory.
 
-`noncomp.sample` instead alternates execution with compilation when the
+The general trajectory driver alternates execution with compilation when the
 sampled history requires it. The executor directly handles outcomes whose state
 update leaves the remaining program valid. When an outcome invalidates the
 compiled remainder -- for example, when a computational site becomes

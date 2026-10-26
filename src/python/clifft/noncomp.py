@@ -314,24 +314,33 @@ class Model:
 
 @dataclass(frozen=True, slots=True)
 class NonComputationalStats:
-    """Optional evidence from preparation and one sampling call.
+    """Performance diagnostics for one sampling call, enabled by ``collect_stats=True``.
 
-    Preparation counts and time describe the owned program, including a rejected
-    fixed candidate; they are not repeated work on each prepared sample call.
-    Initial compilations count trajectory starting plans built during this call;
-    continuation compilations count plans built after a trap. Worker sharing can
-    change compilation counts without changing seeded outputs.
+    Use this report to check whether shots ran in packed batches, how much
+    trajectory recompilation occurred, and which resources the call used.
+    ``program.explain()`` describes the strategy chosen before sampling; these
+    counters describe actual execution. Without collection, ``result.stats`` is
+    ``None``. Collection does not change sampled results.
 
-    Shot counters satisfy ``scalar_shots + packed_shots == fixed_shots +
-    trajectory_shots == result.shots``. All trajectory shots count as scalar;
-    fixed shots may use either scalar or packed execution.
+    ``packed_shots``, ``batch_size``, and ``workers`` describe batching and
+    parallelism. Shot counters satisfy ``scalar_shots + packed_shots ==
+    fixed_shots + trajectory_shots == result.shots``. Trajectories run scalar;
+    fixed execution can run scalar or packed.
+
+    ``initial_compilations`` counts trajectory starting plans built during the
+    call; ``continuation_compilations`` counts recompilations after a trap.
+    Both are zero for fixed execution. ``preparation_compilations`` and
+    ``preparation_seconds`` instead describe the program's earlier preparation,
+    including a rejected fixed candidate; they are not repeated work per call.
+    Worker sharing can change compilation counts without changing sampled rows.
 
     ``peak_active_width`` is the fixed plan's width or the maximum width compiled
     during this trajectory call; it is ``None`` if no trajectory was compiled.
     ``packed_worker_bytes`` estimates retained packed buffers per worker, excluding
     immutable plans, result arrays, and allocator bookkeeping. It is zero for
     scalar execution. Timings cover native preparation/sampling, excluding Python
-    parsing and result conversion. Counters are collected at driver boundaries.
+    parsing and result conversion. Collection uses driver and batch boundaries,
+    with no per-gate profiling.
     """
 
     strategy: Literal["fixed", "trajectory"]
@@ -547,9 +556,7 @@ def sample(
     [NonComputationalProgram.sample][clifft.noncomp.NonComputationalProgram.sample].
     Each call repeats preparation; reuse a compiled program to amortize it.
     Existing positional arguments retain their meaning. Detailed final status
-    is opt-in: add ``final_status=True`` when consuming that output. Automatic
-    strategy selection can change seeded rows relative to older releases;
-    ``execution="trajectory", final_status=True`` preserves the prior path.
+    is opt-in: add ``final_status=True`` when consuming that output.
 
     On an inactive site, M/MX/MY and their reset variants sample the classifier
     independently of basis. A model capable of leakage/loss requires a

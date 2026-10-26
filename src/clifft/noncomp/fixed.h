@@ -36,6 +36,7 @@ struct FixedNonComputationalRejection {
     std::optional<uint32_t> peak_active_width;
 };
 
+// Immutable preparation data for fixed-plan inspection and workspace accounting.
 struct FixedNonComputationalMetrics {
     uint64_t preparation_compilations = 0;
     uint32_t peak_active_width = 0;
@@ -46,8 +47,9 @@ struct FixedNonComputationalMetrics {
     size_t classical_workspace_bytes = 0;
 };
 
-// Per-call evidence for validation and benchmarks, separate from immutable
-// preparation metrics. Shot counters are collected from executed worker ranges.
+// Actual fixed-worker execution counts and storage for one sample call.
+// NonComputationalProgram maps these into the shared sampling stats report;
+// fixed-driver tests and benchmarks can also inspect them directly.
 struct FixedNonComputationalSamplingMetrics {
     uint32_t batch_size = 1;
     uint32_t workers = 0;

@@ -58,8 +58,8 @@ including hidden measurements introduced by the compiler. In particular,
 when it resumes a trapped transition. Moving another measurement across that
 collapse can change quantum correlations.
 
-`clifft.noncomp.sample` therefore applies only passes that are enabled by
-default, preserve measurement-record order, and preserve instrument prefixes.
+The noncomputational trajectory driver uses only passes that are enabled by
+default and preserve both measurement-record order and instrument prefixes.
 Its HIR pipeline uses `PeepholeFusionPass` but omits
 `PhasePolynomialPass`, `RotationSimplificationPass`, `StatevectorSqueezePass`
 and `ActiveWidthSchedulePass`.
