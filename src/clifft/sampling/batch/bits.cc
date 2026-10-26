@@ -2,6 +2,10 @@
 
 #include <algorithm>
 #include <bit>
+#include <cassert>
+#include <cstddef>
+#include <cstdint>
+#include <cstring>
 #include <limits>
 #include <stdexcept>
 #include <utility>
@@ -47,6 +51,46 @@ uint32_t count_lane_bits(std::span<const uint64_t> bits, uint32_t lanes) noexcep
 }
 #endif
 
+// In-place transpose of a 64x64 bit matrix stored as 64 words, so that bit j of
+// tile[i] afterwards equals bit i of the original tile[j]. Each step swaps the
+// off-diagonal blocks of every 2j x 2j sub-matrix.
+void transpose_tile_64x64(uint64_t* tile) noexcept {
+    uint64_t mask = 0x00000000FFFFFFFFULL;
+    for (unsigned j = 32; j != 0; j >>= 1, mask ^= mask << j) {
+        for (unsigned k = 0; k < 64; k = ((k | j) + 1) & ~j) {
+            const uint64_t t = ((tile[k] >> j) ^ tile[k | j]) & mask;
+            tile[k | j] ^= t;
+            tile[k] ^= t << j;
+        }
+    }
+}
+
+// Returns eight bytes whose byte k is bit k of the low byte of bits, so a
+// little-endian store writes one 0/1 output byte per bit.
+uint64_t spread_byte_bits(uint64_t bits) noexcept {
+    const uint64_t spread = ((bits & 0xFF) * 0x0101010101010101ULL) & 0x8040201008040201ULL;
+    return ((spread + 0x7F7F7F7F7F7F7F7FULL) >> 7) & 0x0101010101010101ULL;
+}
+
+// Writes the low count bits of word to destination as 0/1 bytes.
+void expand_bits_to_bytes(uint64_t word, size_t count, uint8_t* destination) noexcept {
+    if constexpr (std::endian::native == std::endian::little) {
+        size_t offset = 0;
+        for (; offset + 8 <= count; offset += 8) {
+            const uint64_t bytes = spread_byte_bits(word >> offset);
+            std::memcpy(destination + offset, &bytes, 8);
+        }
+        if (offset < count) {
+            const uint64_t bytes = spread_byte_bits(word >> offset);
+            std::memcpy(destination + offset, &bytes, count - offset);
+        }
+    } else {
+        for (size_t bit = 0; bit < count; ++bit) {
+            destination[bit] = static_cast<uint8_t>((word >> bit) & 1);
+        }
+    }
+}
+
 }  // namespace
 
 size_t packed_word_count(uint32_t lanes) noexcept {
@@ -76,6 +120,43 @@ void fill_low_lane_mask(std::span<uint64_t> output, uint32_t lanes) noexcept {
         output[word] = low_lane_mask(remaining);
     }
     std::fill(output.begin() + static_cast<std::ptrdiff_t>(live_words), output.end(), uint64_t{0});
+}
+
+void transpose_bit_columns_to_rows(const PackedBitColumns& columns, size_t num_columns,
+                                   std::span<const uint32_t> rows, std::span<uint8_t> output,
+                                   size_t stride) noexcept {
+    assert(num_columns <= columns.num_columns() &&
+           "transposed column count must not exceed the packed columns");
+    const size_t lanes = rows.size();
+    if (num_columns == 0 || lanes == 0) {
+        return;
+    }
+    assert(packed_word_count(static_cast<uint32_t>(lanes)) <= columns.column(0).size() &&
+           "transposed lanes must fit the packed lane capacity");
+#ifndef NDEBUG
+    for (const uint32_t row : rows) {
+        assert(static_cast<size_t>(row) * stride + num_columns <= output.size() &&
+               "transposed rows must lie within the output");
+    }
+#endif
+    uint64_t tile[64];
+    for (size_t first = 0; first < lanes; first += 64) {
+        const size_t count = std::min<size_t>(64, lanes - first);
+        const size_t word = first >> 6;
+        for (size_t c0 = 0; c0 < num_columns; c0 += 64) {
+            const size_t ncols = std::min<size_t>(64, num_columns - c0);
+            for (size_t j = 0; j < ncols; ++j) {
+                tile[j] = columns.column(c0 + j)[word];
+            }
+            std::fill(tile + ncols, tile + 64, uint64_t{0});
+            transpose_tile_64x64(tile);
+            for (size_t i = 0; i < count; ++i) {
+                uint8_t* destination =
+                    output.data() + static_cast<size_t>(rows[first + i]) * stride + c0;
+                expand_bits_to_bytes(tile[i], ncols, destination);
+            }
+        }
+    }
 }
 
 PackedBitColumns::PackedBitColumns(size_t columns, uint32_t lane_capacity)

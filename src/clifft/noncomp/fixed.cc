@@ -774,12 +774,12 @@ FixedNonComputationalResult FixedNonComputationalProgram::sample(
                         worker->executor.run_batch(quantum_root, first, count);
                     }
                     assert(worker->executor.surviving_shots() == count);
+#ifndef NDEBUG
                     for (uint32_t lane = 0; lane < count; ++lane) {
-                        const uint32_t shot = first + lane;
-                        assert(worker->executor.shot_index(lane) == shot);
-                        sampling::batch_detail::copy_batch_lane(result, worker->executor, lane,
-                                                                shot, *data.plan);
+                        assert(worker->executor.shot_index(lane) == first + lane);
                     }
+#endif
+                    sampling::batch_detail::copy_batch_rows(result, worker->executor, *data.plan);
                     worker->shots += count;
                     ++worker->batches;
                     first += count;

@@ -785,6 +785,11 @@ uint32_t BatchExecutor::shot_index(uint32_t lane) const noexcept {
     return shot_indices_[lane];
 }
 
+std::span<const uint32_t> BatchExecutor::shot_indices() const noexcept {
+    assert(active_lanes() == live_count_ && "batch outputs require finalized live lanes");
+    return std::span<const uint32_t>(shot_indices_.data(), live_count_);
+}
+
 bool BatchExecutor::measurement(uint32_t lane, uint32_t record) const noexcept {
     assert(lane < live_count_ && record < plan_->num_visible_records_ &&
            "measurement output must be visible and live");

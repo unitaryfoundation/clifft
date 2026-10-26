@@ -4,6 +4,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/generators/catch_generators.hpp>
 #include <cstdint>
+#include <span>
 #include <vector>
 
 using clifft::sampling::fill_low_lane_mask;
@@ -11,6 +12,7 @@ using clifft::sampling::MutableBitColumnsView;
 using clifft::sampling::packed_bit_columns_storage_bytes;
 using clifft::sampling::packed_word_count;
 using clifft::sampling::PackedBitColumns;
+using clifft::sampling::transpose_bit_columns_to_rows;
 
 TEST_CASE("Packed batch columns preserve lane boundaries") {
     for (uint32_t lanes : std::array<uint32_t, 7>{1, 2, 63, 64, 65, 127, 128}) {
@@ -117,4 +119,98 @@ TEST_CASE("Packed batch low masks clear padding") {
     REQUIRE(words[0] == ~uint64_t{0});
     REQUIRE(words[1] == 1);
     REQUIRE(words[2] == 0);
+}
+
+namespace {
+
+uint64_t splitmix64(uint64_t& state) {
+    uint64_t z = (state += 0x9E3779B97F4A7C15ULL);
+    z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ULL;
+    z = (z ^ (z >> 27)) * 0x94D049BB133111EBULL;
+    return z ^ (z >> 31);
+}
+
+constexpr uint8_t kSentinel = 0xAA;
+
+}  // namespace
+
+TEST_CASE("Transposed bit columns match per-bit reads") {
+    const size_t num_columns = GENERATE(0U, 1U, 7U, 63U, 64U, 65U, 130U, 385U);
+    const uint32_t lanes = GENERATE(1U, 63U, 64U, 65U, 100U, 2048U);
+    CAPTURE(num_columns, lanes);
+
+    PackedBitColumns columns(num_columns, lanes);
+    uint64_t state = (static_cast<uint64_t>(num_columns) << 32) | lanes;
+    for (size_t column = 0; column < num_columns; ++column) {
+        for (uint32_t lane = 0; lane < lanes; ++lane) {
+            if ((splitmix64(state) & 3) == 0) {
+                columns.set_bit(column, lane);
+            }
+        }
+    }
+
+    // 37 is coprime with every lane count above, so this permutes the rows.
+    std::vector<uint32_t> rows(lanes);
+    for (uint32_t lane = 0; lane < lanes; ++lane) {
+        rows[lane] = (lane * 37) % lanes;
+    }
+    const size_t stride = num_columns + 3;
+    std::vector<uint8_t> output(static_cast<size_t>(lanes) * stride, kSentinel);
+
+    transpose_bit_columns_to_rows(columns, num_columns, rows, output, stride);
+
+    for (uint32_t lane = 0; lane < lanes; ++lane) {
+        const size_t row_start = static_cast<size_t>(rows[lane]) * stride;
+        for (size_t column = 0; column < num_columns; ++column) {
+            REQUIRE(output[row_start + column] == static_cast<uint8_t>(columns.bit(column, lane)));
+        }
+        for (size_t padding = num_columns; padding < stride; ++padding) {
+            REQUIRE(output[row_start + padding] == kSentinel);
+        }
+    }
+}
+
+TEST_CASE("Transposed bit columns ignore lanes beyond the requested rows") {
+    constexpr uint32_t lane_capacity = 128;
+    constexpr uint32_t live_lanes = 70;
+    constexpr uint32_t output_rows = 100;
+    constexpr size_t num_columns = 70;
+    constexpr size_t stride = num_columns + 3;
+
+    PackedBitColumns columns(num_columns, lane_capacity);
+    uint64_t state = 12345;
+    for (size_t column = 0; column < num_columns; ++column) {
+        for (uint32_t lane = 0; lane < lane_capacity; ++lane) {
+            if ((splitmix64(state) & 1) == 0) {
+                columns.set_bit(column, lane);
+            }
+        }
+    }
+    // Lanes 70..127 are set in every column so stale bits would be visible.
+    for (size_t column = 0; column < num_columns; ++column) {
+        for (uint32_t lane = live_lanes; lane < lane_capacity; ++lane) {
+            columns.set_bit(column, lane);
+        }
+    }
+
+    std::vector<uint32_t> rows(live_lanes);
+    for (uint32_t lane = 0; lane < live_lanes; ++lane) {
+        rows[lane] = (lane * 37) % live_lanes;
+    }
+    std::vector<uint8_t> output(static_cast<size_t>(output_rows) * stride, kSentinel);
+
+    transpose_bit_columns_to_rows(columns, num_columns, rows, output, stride);
+
+    for (uint32_t lane = 0; lane < live_lanes; ++lane) {
+        const size_t row_start = static_cast<size_t>(rows[lane]) * stride;
+        for (size_t column = 0; column < num_columns; ++column) {
+            REQUIRE(output[row_start + column] == static_cast<uint8_t>(columns.bit(column, lane)));
+        }
+        for (size_t padding = num_columns; padding < stride; ++padding) {
+            REQUIRE(output[row_start + padding] == kSentinel);
+        }
+    }
+    for (size_t index = static_cast<size_t>(live_lanes) * stride; index < output.size(); ++index) {
+        REQUIRE(output[index] == kSentinel);
+    }
 }
