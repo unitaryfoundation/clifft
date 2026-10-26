@@ -276,6 +276,12 @@ probabilities: their status conditions select classical noise inputs without
 changing the compiled gates. Non-Clifford gates fit the same representation,
 subject to the compiled program's active-width limit.
 
+Before checking that limit, fixed execution applies peephole fusion to cancel
+or combine non-Clifford gates. This pass preserves the individual noise outcomes
+and readout sites without relying on their probabilities: a status history can
+suppress even a nominally certain noise event. Other HIR passes are not yet
+enabled for fixed execution.
+
 Single-site measurements and resets preserve the distinction between the hidden
 quantum outcome and the reported result. On a computational site, reset correction
 uses the hidden outcome; feedback, detectors, and observables use the reported

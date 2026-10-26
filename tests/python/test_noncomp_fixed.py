@@ -58,6 +58,7 @@ def fixed_sample(request):
         "H 0\nCX 0 1\nLEAKAGE(0.37) 0\nCX 0 1\nM 0 1",
         "H 1\nT 1\nCX 1 2\nLEAKAGE(0.31) 0\nCX 0 1\nH 1 2\nM 0 1 2",
         "H 0\nCX 0 1\nLOSS(0.41) 1\nCX 0 1\nT 0\nH 0\nM 0 1",
+        "H 0\nT 0\nT 0\nCX 0 1\nLOSS(0.41) 1\nCX 0 1\nH 0\nM 0 1",
         "H 0\nLEAKAGE(0.43) 0\nMR 0\nH 0\nT 0\nH 0\nM 0",
         "H 0\nCX 0 1\nLEAKAGE(0.29) 0\nLOSS(0.31) 0\nR 0\nCX 0 1\nM 0 1",
         "H 0\nT 0\nCX 0 1\nLEAKAGE(0.34) 0\nT_DAG 0\nH 0\nR 0\nCX 0 1\nM 0 1",
@@ -185,22 +186,16 @@ def test_fixed_rejections_leave_public_trajectory_sampling_available():
     assert noncomp.sample(text, model, shots=16, seed=2).measurements.shape == (16, 1)
 
 
-@pytest.mark.parametrize(("qubits", "cap"), [(5, 4), (64, 4), (64, None)])
-def test_fixed_width_rejection_leaves_optimized_trajectories_available(
-    qubits, cap, noncomp_sampling_api
-):
-    # Each raw pair promotes a coordinate; trajectory fusion combines it into
-    # a Clifford. Include measurements so successful fallback checks a result.
+@pytest.mark.parametrize("qubits", [5, 64])
+def test_fixed_fuses_phase_pairs_before_enforcing_width_limits(qubits, fixed_sample):
+    # The raw circuit exceeds even the planner limit at 64 qubits, but each
+    # pair is Clifford and the optimized program needs no active coordinates.
     text = "\n".join(f"H {q}\nT {q}\nT {q}\nS_DAG {q}\nH {q}" for q in range(qubits))
     text += "\nM " + " ".join(map(str, range(qubits)))
     model = noncomp.Model()
-    assert (
-        _clifft_core._prepare_noncomputational_fixed(
-            _clifft_core.parse(text), model._handle, max_active_width=cap
-        )
-        is None
-    )
-    result = noncomp_sampling_api(text, model, shots=32, seed=5, max_active_width=cap)
+    program = prepare(text, model, max_active_width=0)
+    assert program.metrics["peak_active_width"] == 0
+    result = fixed_sample(program, shots=32, seed=5)
     np.testing.assert_array_equal(result.measurements, np.zeros((32, qubits), dtype=np.uint8))
 
 
@@ -568,7 +563,7 @@ def test_fixed_automatic_batch_policy_reports_executed_work(dynamic, shots):
 
 
 def test_fixed_automatic_batching_falls_back_for_wider_non_clifford_states():
-    text = "H 0 1 2 3 4 5\nT 0 1 2 3 4 5\nLOSS(0.3) 6\nM 0 1 2 3 4 5 6"
+    text = "H 0 1 2 3 4 5\nT 0 1 2 3 4 5\nLOSS(0.3) 6\nH 0 1 2 3 4 5\nM 0 1 2 3 4 5 6"
     model = noncomp.Model(classifier=noncomp.Classifier(CLASSIFIER))
     program = prepare(text, model, final_status=True)
     assert program.metrics["peak_active_width"] == 6

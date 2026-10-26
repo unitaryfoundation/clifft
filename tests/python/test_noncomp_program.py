@@ -232,8 +232,45 @@ def test_validation_errors_are_not_optimization_fallbacks(public_sample, executi
         noncomp.compile("EXP_VAL Z0", model(), execution=execution)
 
 
+@pytest.mark.parametrize("batch_size", [1, 65])
+def test_public_fixed_fusion_preserves_status_conditioned_certain_noise(public_sample, batch_size):
+    text = (
+        "H 1\nT 1\nT 1\nS_DAG 1\nH 1\nLOSS(0.4) 0\n"
+        "PAULI_CHANNEL_2(0,0,0,0,1,0,0,0,0,0,0,0,0,0,0) 0 1\n"
+        "MR 1\nHERALD_LOSS_EVENT 0\nCX rec[-2] 2\nM 1 2\n"
+        "DETECTOR rec[-1] rec[-4]\nOBSERVABLE_INCLUDE(0) rec[-1]\nM 0"
+    )
+    noise = noncomp.Model(
+        classifier=noncomp.Classifier([[1, 0, 0.3, 0.3, 0], [0, 1, 0.7, 0.7, 0], [0, 0, 0, 0, 1]])
+    )
+    result = public_sample(
+        text,
+        noise,
+        shots=257,
+        seed=73,
+        max_active_width=0,
+        final_status=True,
+        batch_size=batch_size,
+        collect_stats=True,
+    )
+    assert result.stats is not None
+    assert result.stats.strategy == "fixed"
+    assert result.stats.peak_active_width == 0
+    assert result.stats.fixed_shots == 257
+    assert result.stats.packed_shots == (257 if batch_size > 1 else 0)
+    lost = result.measurements[:, 1]
+    assert lost.any() and not lost.all()
+    np.testing.assert_array_equal(result.measurements[:, 0], 1 - lost)
+    np.testing.assert_array_equal(result.measurements[:, 3], 1 - lost)
+    assert not result.measurements[:, 2].any()
+    assert not result.detectors.any()
+    np.testing.assert_array_equal(result.observables[:, 0], 1 - lost)
+    np.testing.assert_array_equal(result.heralds[:, 4], lost)
+    np.testing.assert_array_equal(result.final_status[:, 0] == noncomp.QubitStatus.LOST, lost)
+
+
 def test_public_width_fallback_counts_discarded_preparation_and_keeps_lazy_trajectory():
-    text = "H 0\nT 0\nT_DAG 0\nH 0\nM 0"
+    text = "H 0\nT 0\nH 0\nM 0"
     program = noncomp.compile(text, model(), max_active_width=0)
     explanation = program.explain()
     assert program.strategy == "trajectory"
@@ -245,11 +282,8 @@ def test_public_width_fallback_counts_discarded_preparation_and_keeps_lazy_traje
     assert empty.stats.preparation_compilations == 1
     assert empty.stats.initial_compilations == 0
     assert empty.stats.peak_active_width is None
-    result = program.sample(65, seed=9, collect_stats=True)
-    assert result.stats is not None
-    assert result.stats.initial_compilations == 1
-    assert result.stats.peak_active_width == 0
-    assert not result.measurements.any()
+    with pytest.raises(ValueError, match="exceeds max_active_width"):
+        program.sample(65, seed=9, collect_stats=True)
     assert program.explain() == explanation
     with pytest.raises(ValueError, match="active_width"):
         noncomp.compile(text, model(), execution="fixed", max_active_width=0)
