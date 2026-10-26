@@ -2,11 +2,14 @@
 #include "clifft/frontend/frontend.h"
 #include "clifft/noncomp/fixed.h"
 #include "clifft/noncomp/fixed_input_validation.h"
+#include "clifft/optimizer/peephole.h"
 #include "clifft/sampling/executor.h"
 #include "clifft/sampling/planner.h"
 #include "clifft/util/numeric.h"
 
+#include "dense_circuit_oracle.h"
 #include "noncomp_test_helpers.h"
+#include "sampling_equivalence_helpers.h"
 
 #include <array>
 #include <catch2/catch_test_macros.hpp>
@@ -48,6 +51,51 @@ void same(const NonComputationalSample& a, const NonComputationalSample& b) {
 }
 
 }  // namespace
+
+TEST_CASE("Fixed peephole fusion preserves externally selected noise and readout branches") {
+    const auto circuit = parse(
+        "H 0\nT 0\nT 0\nX_ERROR(1) 0\nS_DAG 0\nH 0\nMR 0\n"
+        "READOUT_NOISE(0.5,0.5) rec[-1]\nCX rec[-1] 1\n"
+        "PAULI_CHANNEL_1(0.2,0.1,0.7) 1\nM 0 1\n"
+        "READOUT_NOISE(0.5,0.5) rec[-1]\n"
+        "DETECTOR rec[-1] rec[-3]\nOBSERVABLE_INCLUDE(0) rec[-2]");
+    const auto original = trace(circuit);
+    auto optimized = original;
+    PeepholeFusionPass pass;
+    pass.run(optimized);
+    REQUIRE(pass.fusions() == 1);
+    REQUIRE(sampling::plan_sampling(original).peak_active_width == 1);
+    REQUIRE(sampling::plan_sampling(optimized).peak_active_width == 0);
+    const std::vector<size_t> noise_nodes{3, 9};
+    const std::vector<detail::FixedReadoutSite> readout_sites{{7, 0}, {12, 2}};
+    detail::validate_fixed_input_bindings(noise_nodes, readout_sites, optimized,
+                                          sampling::plan_sampling(optimized));
+
+    // The optimizer sees placeholder readout probabilities. Check every joint
+    // assignment of the external flip bits after optimization, including the
+    // asymmetric channels that would be invalid to move across feedback/reset.
+    for (unsigned bits = 0; bits < 16; ++bits) {
+        CAPTURE(bits);
+        auto before = original;
+        auto after = optimized;
+        auto reference = circuit;
+        for (size_t site = 0; site < readout_sites.size(); ++site) {
+            const double p01 = (bits >> (2 * site)) & 1;
+            const double p10 = (bits >> (2 * site + 1)) & 1;
+            before.readout_noise[site].prob_zero_to_one = p01;
+            before.readout_noise[site].prob_one_to_zero = p10;
+            after.readout_noise[site].prob_zero_to_one = p01;
+            after.readout_noise[site].prob_one_to_zero = p10;
+            reference.nodes[readout_sites[site].node].args = {p01, p10};
+        }
+        Xoshiro256PlusPlus rng(83);
+        // Enumerates the no-fault branch even at probability one, as required
+        // when an inactive operand suppresses an otherwise certain event.
+        test::check_exact_equivalent(before, after, rng);
+        test::require_distributions_equal(test::compute_dense_circuit_distribution(reference),
+                                          test::compute_exact_hir_distribution(after));
+    }
+}
 
 TEST_CASE("Fixed input bindings distinguish repeated lines and channels on the same record") {
     const Circuit circuit = parse(
@@ -296,7 +344,7 @@ TEST_CASE("Fixed noncomputational rejects requests whose observable contract nee
         reason = FixedNonComputationalReason::NamedTransition;
     }
     SECTION("width cap") {
-        circuit = parse("H 0\nT 0\nM 0");
+        circuit = parse("H 0\nT 0\nH 0\nM 0");
         requirements.max_active_width = 0;
         reason = FixedNonComputationalReason::ActiveWidth;
     }
@@ -304,7 +352,7 @@ TEST_CASE("Fixed noncomputational rejects requests whose observable contract nee
         std::string text;
         for (uint32_t qubit = 0; qubit < kDenseActiveWidthLimit; ++qubit) {
             const auto q = std::to_string(qubit);
-            text += "H " + q + "\nT " + q + "\nT " + q + "\n";
+            text += "H " + q + "\nT " + q + "\n";
         }
         circuit = parse(text);
         reason = FixedNonComputationalReason::ActiveWidth;

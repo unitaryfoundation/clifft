@@ -3,6 +3,7 @@
 #include "clifft/frontend/frontend.h"
 #include "clifft/noncomp/fixed_input_validation.h"
 #include "clifft/noncomp/status_walk.h"
+#include "clifft/optimizer/peephole.h"
 #include "clifft/sampling/batch/executor.h"
 #include "clifft/sampling/batch/output.h"
 #include "clifft/sampling/executor.h"
@@ -176,11 +177,12 @@ class FixedBuilder {
             return reject(FixedNonComputationalReason::DetailedLeakedStatus);
         }
 
-        // Bind status-conditioned sites before any probability-based rewrite
-        // could combine or erase them. The planner still performs coordinate
-        // planning and the executable lowering still fuses quantum actions.
         ++data_->metrics.preparation_compilations;
-        const HirModule hir = trace(lowered_);
+        HirModule hir = trace(lowered_);
+        // Status can suppress even a probability-one event. Peephole fusion
+        // preserves each noise outcome and readout site without assuming its
+        // probability, so their external inputs remain valid after rewriting.
+        PeepholeFusionPass{}.run(hir);
         sampling::SamplingPlan plan;
         try {
             plan = sampling::plan_sampling(hir);
