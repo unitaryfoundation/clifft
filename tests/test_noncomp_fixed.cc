@@ -55,20 +55,24 @@ TEST_CASE("Fixed input bindings distinguish repeated lines and channels on the s
         "READOUT_NOISE(0.3) rec[-1]\nREADOUT_NOISE(0.4) rec[-1]\n}\n"
         "E(0.1) X0\nELSE_CORRELATED_ERROR(0.2) Y0");
     REQUIRE(circuit.nodes[0].source_line == circuit.nodes[4].source_line);
-    TraceSiteOrigins origins;
-    const HirModule hir = trace(circuit, nullptr, &origins);
+    HirModule hir = trace(circuit);
     auto plan = sampling::plan_sampling(hir);
     const std::vector<size_t> noise_nodes{0, 4, 8};
     const std::vector<detail::FixedReadoutSite> readout_sites{{2, 0}, {3, 0}, {6, 1}, {7, 1}};
-    REQUIRE(origins.noise_nodes == noise_nodes);
-    REQUIRE(origins.readout_nodes == std::vector<size_t>{2, 3, 6, 7});
-    REQUIRE_NOTHROW(
-        detail::validate_fixed_input_bindings(noise_nodes, readout_sites, origins, hir, plan));
+    REQUIRE(hir.noise_sites.size() == noise_nodes.size());
+    REQUIRE(hir.readout_noise.size() == readout_sites.size());
+    for (size_t i = 0; i < noise_nodes.size(); ++i) {
+        REQUIRE(hir.noise_sites[i].source_node == noise_nodes[i]);
+    }
+    for (size_t i = 0; i < readout_sites.size(); ++i) {
+        REQUIRE(hir.readout_noise[i].source_node == readout_sites[i].node);
+    }
+    REQUIRE_NOTHROW(detail::validate_fixed_input_bindings(noise_nodes, readout_sites, hir, plan));
 
-    const std::string mutation =
-        GENERATE("traced noise order", "traced readout order", "missing traced site",
-                 "planned noise order", "planned readout order", "missing planned identity",
-                 "wrong record", "extra readout", "missing readout");
+    const std::string mutation = GENERATE(
+        "traced noise order", "traced readout order", "missing traced site", "planned noise order",
+        "planned readout order", "missing planned identity", "wrong record", "extra readout",
+        "missing readout", "missing traced noise identity", "missing traced readout identity");
     CAPTURE(mutation);
     std::vector<size_t> readout_actions;
     for (size_t i = 0; i < plan.actions.size(); ++i) {
@@ -81,11 +85,15 @@ TEST_CASE("Fixed input bindings distinguish repeated lines and channels on the s
     auto& second = std::get<sampling::ApplyReadoutNoise>(plan.actions[readout_actions[1]].action);
     REQUIRE(first.record == second.record);
     if (mutation == "traced noise order") {
-        std::swap(origins.noise_nodes[0], origins.noise_nodes[1]);
+        std::swap(hir.noise_sites[0].source_node, hir.noise_sites[1].source_node);
     } else if (mutation == "traced readout order") {
-        std::swap(origins.readout_nodes[0], origins.readout_nodes[1]);
+        std::swap(hir.readout_noise[0].source_node, hir.readout_noise[1].source_node);
     } else if (mutation == "missing traced site") {
-        origins.readout_nodes.pop_back();
+        hir.readout_noise.pop_back();
+    } else if (mutation == "missing traced noise identity") {
+        hir.noise_sites[0].source_node = NoiseSite{}.source_node;
+    } else if (mutation == "missing traced readout identity") {
+        hir.readout_noise[0].source_node = ReadoutNoiseEntry{}.source_node;
     } else if (mutation == "planned noise order") {
         std::swap(plan.presampled_noise_sites[0].source_site,
                   plan.presampled_noise_sites[1].source_site);
@@ -101,9 +109,8 @@ TEST_CASE("Fixed input bindings distinguish repeated lines and channels on the s
     } else {
         plan.actions.erase(plan.actions.begin() + readout_actions[0]);
     }
-    CHECK_THROWS_AS(
-        detail::validate_fixed_input_bindings(noise_nodes, readout_sites, origins, hir, plan),
-        std::logic_error);
+    CHECK_THROWS_AS(detail::validate_fixed_input_bindings(noise_nodes, readout_sites, hir, plan),
+                    std::logic_error);
 }
 
 TEST_CASE("External readout inputs preserve reset correction and feed later records") {

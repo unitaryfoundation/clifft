@@ -55,6 +55,9 @@ enum class ObservableIdx : uint32_t {};
 /// Index into the expectation value record (absolute position)
 enum class ExpValIdx : uint32_t {};
 
+// Directly constructed or synthesized sites may have no single source node.
+inline constexpr uint32_t kUnknownSourceNode = ~uint32_t{0};
+
 // =============================================================================
 // Noise Channel Structures
 // =============================================================================
@@ -75,6 +78,8 @@ struct NoiseChannel {
 struct NoiseSite {
     double total_probability = 0.0;
     std::vector<NoiseChannel> channels;
+    // Original node in the traced circuit; independent of later HIR ordering.
+    uint32_t source_node = kUnknownSourceNode;
 
     [[nodiscard]] bool operator==(const NoiseSite&) const = default;
 };
@@ -87,6 +92,9 @@ struct ReadoutNoiseEntry {
     uint32_t meas_idx;        // Absolute measurement index to potentially flip
     double prob_zero_to_one;  // Flip probability when the recorded bit is 0
     double prob_one_to_zero;  // Flip probability when the recorded bit is 1
+    // Original traced circuit node. Declared last so positional initializers
+    // that predate it keep their meaning.
+    uint32_t source_node = kUnknownSourceNode;
 
     [[nodiscard]] bool is_symmetric() const { return prob_zero_to_one == prob_one_to_zero; }
     [[nodiscard]] bool operator==(const ReadoutNoiseEntry&) const = default;
