@@ -478,7 +478,8 @@ struct ExactComparisonBudget {
 inline void add_omitted_probability(double& bound, double probability) {
     REQUIRE(clifft::is_finite_non_negative(probability));
     if (probability > 0.0) {
-        bound = std::nextafter(bound + probability, std::numeric_limits<double>::infinity());
+        // A finite direction avoids nonfinite constants under -ffast-math.
+        bound = std::nextafter(bound + probability, std::numeric_limits<double>::max());
     }
 }
 

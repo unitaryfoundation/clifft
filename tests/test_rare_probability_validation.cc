@@ -3,10 +3,10 @@
 
 #include "dense_circuit_oracle.h"
 #include "sampling_equivalence_helpers.h"
+#include "test_helpers.h"
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/generators/catch_generators.hpp>
-#include <limits>
 #include <numbers>
 
 using namespace clifft;
@@ -66,6 +66,18 @@ TEST_CASE("Unrepresentable reference probabilities fail instead of losing suppor
                         "inconclusive reference: invalid or underflowed probability product");
 }
 
+TEST_CASE("Omitted mass bounds round upward under optimized arithmetic", "[rare_probability]") {
+    const double probability = GENERATE(1e-20, 0.125);
+    double bound = 0.0;
+    add_omitted_probability(bound, probability);
+    REQUIRE(bound > probability);
+    const double previous = bound;
+    add_omitted_probability(bound, 0.0);
+    REQUIRE(bound == previous);
+    add_omitted_probability(bound, probability);
+    REQUIRE(bound > 2.0 * probability);
+}
+
 TEST_CASE("Rare probe clusters retain conditional expectation checks", "[rare_probability]") {
     auto reference = rare_distribution(1e-20);
     auto actual = reference;
@@ -83,13 +95,13 @@ TEST_CASE("Exact comparison rejects invalid distributions even when both agree",
           "[rare_probability]") {
     auto invalid = rare_distribution(1e-20);
     SECTION("nonfinite probability") {
-        invalid.kept_outcomes.back().probability = std::numeric_limits<double>::quiet_NaN();
+        invalid.kept_outcomes.back().probability = opaque_nan();
     }
     SECTION("infinite conditional expectation") {
-        invalid.kept_outcomes.back().outcome.exp_vals[0] = std::numeric_limits<double>::infinity();
+        invalid.kept_outcomes.back().outcome.exp_vals[0] = opaque_infinity();
     }
     SECTION("nonfinite weighted expectation") {
-        invalid.kept_exp_vals[0] = std::numeric_limits<double>::quiet_NaN();
+        invalid.kept_exp_vals[0] = opaque_nan();
     }
     SECTION("negative probability") {
         invalid.kept_outcomes.back().probability = -1e-20;
