@@ -164,6 +164,8 @@ void FixedClassicalProgram::prepare(const SeedRoot& root, uint32_t first, uint32
                                     sampling::BatchExternalInputs& inputs,
                                     NonComputationalSample& output) const noexcept {
     assert(workspace.qubits_ == qubits_ && count <= workspace.capacity_);
+    assert(uint64_t{first} + count <= output.shots);
+    assert(output.final_status.empty() || output.num_qubits == qubits_);
     workspace.bits_.clear();
     inputs.clear();
     const auto bits = workspace.bits_.mutable_view();
@@ -230,11 +232,12 @@ void FixedClassicalProgram::prepare(const SeedRoot& root, uint32_t first, uint32
                         lost[word] = next_lost;
                     }
                 } else if constexpr (std::is_same_v<T, Condition>) {
-                    std::ranges::copy(live, condition.begin());
                     if (step.source) {
                         const auto source =
                             bits.column(size_t{2} * *step.source + (step.source_status == kLost));
                         std::ranges::copy(source, condition.begin());
+                    } else {
+                        std::ranges::copy(live, condition.begin());
                     }
                     for (uint32_t operand = step.begin; operand < step.begin + step.count;
                          ++operand) {

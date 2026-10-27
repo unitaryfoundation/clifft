@@ -581,7 +581,7 @@ TEST_CASE("Packed unbound symbols require external input mode") {
 
 TEST_CASE("Packed driver bit columns participate in capacity and worker budgets") {
     const auto plan = compile("X_ERROR(0.5) 0\nM(0.5) 0\n");
-    constexpr uint64_t columns = 40000;
+    constexpr uint64_t columns = 40001;
     const auto policy =
         resolve_batch_execution_policy(plan, 65536, 64, 1, BatchOutputMode::Rows, std::nullopt,
                                        BatchSamplingMode::ExternalInputs, 17, columns);
@@ -589,7 +589,7 @@ TEST_CASE("Packed driver bit columns participate in capacity and worker budgets"
     const auto bytes =
         batch_detail::batch_worker_storage_bytes(plan, policy.lane_capacity, BatchOutputMode::Rows,
                                                  BatchSamplingMode::ExternalInputs) +
-        17 + columns * packed_word_count(policy.lane_capacity) * sizeof(uint64_t);
+        17 + packed_bit_columns_storage_bytes(columns, policy.lane_capacity);
     CHECK(bytes <= kDefaultBatchWorkerBudget);
     CHECK(bytes * policy.worker_count <= kDefaultBatchTotalWorkerBudget);
     CHECK(bytes * (policy.worker_count + 1) > kDefaultBatchTotalWorkerBudget);
@@ -597,4 +597,36 @@ TEST_CASE("Packed driver bit columns participate in capacity and worker budgets"
         resolve_batch_execution_policy(plan, 65536, 1, 1, BatchOutputMode::Rows, std::nullopt,
                                        BatchSamplingMode::ExternalInputs, 17, columns);
     CHECK(serial.lane_capacity == policy.lane_capacity);
+}
+
+TEST_CASE("Packed driver page rounding changes capacity and worker budget decisions") {
+    const auto plan = compile("X_ERROR(0.5) 0\nM(0.5) 0\n");
+    constexpr uint32_t capacity = 2048;
+    constexpr uint64_t columns = 7;
+    const uint64_t logical = columns * packed_word_count(capacity) * sizeof(uint64_t);
+    const uint64_t allocated = packed_bit_columns_storage_bytes(columns, capacity);
+    REQUIRE(allocated > logical);
+    const auto executor_bytes = batch_detail::batch_worker_storage_bytes(
+        plan, capacity, BatchOutputMode::Rows, BatchSamplingMode::ExternalInputs);
+    const bool aggregate_limit = GENERATE(false, true);
+    CAPTURE(aggregate_limit);
+    const uint64_t extra =
+        (aggregate_limit ? kDefaultBatchTotalWorkerBudget / 9 : kDefaultBatchWorkerBudget) -
+        executor_bytes - logical;
+    const auto policy =
+        resolve_batch_execution_policy(plan, 65536, 64, 1, BatchOutputMode::Rows, std::nullopt,
+                                       BatchSamplingMode::ExternalInputs, extra, columns);
+    REQUIRE(policy.lane_capacity > 1);
+    if (!aggregate_limit) {
+        CHECK(policy.lane_capacity < capacity);
+    } else {
+        CHECK(policy.lane_capacity == capacity);
+        CHECK(policy.worker_count == 8);
+    }
+    const uint64_t actual =
+        batch_detail::batch_worker_storage_bytes(plan, policy.lane_capacity, BatchOutputMode::Rows,
+                                                 BatchSamplingMode::ExternalInputs) +
+        extra + packed_bit_columns_storage_bytes(columns, policy.lane_capacity);
+    CHECK(actual <= kDefaultBatchWorkerBudget);
+    CHECK(actual * policy.worker_count <= kDefaultBatchTotalWorkerBudget);
 }

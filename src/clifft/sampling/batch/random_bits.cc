@@ -30,6 +30,7 @@ void sample_bernoulli_bits(const PreparedBernoulli& distribution,
                            std::span<const uint64_t> eligible, std::span<uint64_t> output,
                            uint32_t lanes, Xoshiro256PlusPlus& rng) noexcept {
     assert(eligible.size() == output.size() && uint64_t{lanes} <= output.size() * 64);
+    assert(eligible.empty() || eligible.data() != output.data());
     const double probability = distribution.probability();
     std::ranges::fill(output, uint64_t{0});
     if (probability == 0.0) {

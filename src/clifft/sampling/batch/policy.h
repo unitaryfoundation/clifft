@@ -198,7 +198,7 @@ struct BatchWorkerStorageLayout {
 // the aggregate retained-memory budget. Callers include wrapper-owned scratch
 // that is not part of BatchExecutor in additional_worker_bytes, excluding the
 // BatchExternalInputs buffer already counted in external input mode. Bit columns
-// scale with each candidate capacity rather than charging the maximum upfront.
+// form one page-rounded allocation that scales with each candidate capacity.
 [[nodiscard]] BatchExecutionPolicy resolve_batch_execution_policy(
     const ExecutablePlan& plan, uint32_t shots, uint32_t shot_workers, uint32_t intra_shot_workers,
     BatchOutputMode output_mode, std::optional<uint32_t> requested_batch_size,

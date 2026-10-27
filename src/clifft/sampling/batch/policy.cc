@@ -187,8 +187,7 @@ BatchExecutionPolicy resolve_batch_execution_policy(
             batch_detail::batch_worker_storage_bytes(plan, capacity, output_mode, sampling_mode),
             saturating_add_u64(
                 additional_worker_bytes,
-                saturating_multiply_u64(additional_worker_bit_columns,
-                                        uint64_t{sizeof(uint64_t)} * packed_word_count(capacity))));
+                packed_bit_columns_storage_bytes(additional_worker_bit_columns, capacity)));
         if (worker_bytes <= kDefaultBatchWorkerBudget) {
             const uint32_t requested_workers = batch_worker_count(shots, shot_workers, capacity);
             const uint64_t memory_workers = std::max<uint64_t>(

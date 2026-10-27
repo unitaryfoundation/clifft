@@ -32,6 +32,7 @@ TEST_CASE("Packed Bernoulli sampling preserves endpoints masks and reuse") {
     const std::array<uint64_t, 3> empty{};
     sample_bernoulli_bits(distribution, empty, result, 0, rng);
     CHECK(result == empty);
+    sample_bernoulli_bits(distribution, {}, {}, 0, rng);
 }
 
 TEST_CASE("Packed Bernoulli events have the independent joint law") {

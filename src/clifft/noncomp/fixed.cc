@@ -187,10 +187,6 @@ class FixedBuilder {
                     plan.presampled_noise_sites[site].total_probability;
             }
         }
-        if (data_->dynamic_inputs) {
-            data_->classical.emplace(data_->inputs, data_->dimensions.num_qubits, input,
-                                     readout_count_, data_->dimensions.num_measurements);
-        }
         if (!data_->dynamic_inputs) {
             // With no possible status change, bind ordinary readout channels
             // once and reuse the executor's sparse quantum-noise sampling.
@@ -213,6 +209,12 @@ class FixedBuilder {
         data_->plan.emplace(plan);
         if (data_->plan->num_readout_noise_sites() != readout_count_) {
             throw std::logic_error("fixed noncomputational lowering lost a readout-site identity");
+        }
+        // Validate the quantum plan first so invalid compiler-produced channels
+        // retain the planner's site-specific diagnostic.
+        if (data_->dynamic_inputs) {
+            data_->classical.emplace(data_->inputs, data_->dimensions.num_qubits, input,
+                                     readout_count_, data_->dimensions.num_measurements);
         }
         data_->metrics.peak_active_width = plan.peak_active_width;
         data_->metrics.quantum_noise_inputs = input;
@@ -710,7 +712,7 @@ FixedNonComputationalResult FixedNonComputationalProgram::sample(
             sampling::batch_detail::batch_worker_storage_bytes(*data.plan, policy.lane_capacity,
                                                                sampling::BatchOutputMode::Rows,
                                                                sampling_mode(data)) +
-            driver_columns * sampling::packed_word_count(policy.lane_capacity) * sizeof(uint64_t);
+            sampling::packed_bit_columns_storage_bytes(driver_columns, policy.lane_capacity);
         // Derive a fixed-execution root because BatchExecutor supplies its own
         // domain and rehashes this root with each global batch start.
         const auto quantum_seed = derive_state(root, 0, kFixedNonComputationalExecutorDomain);
