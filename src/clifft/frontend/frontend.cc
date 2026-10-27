@@ -3,6 +3,7 @@
 #include "clifft/tableau/tableau.h"
 #include "clifft/util/numeric.h"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <initializer_list>
@@ -208,7 +209,11 @@ double sum_noise_probabilities(const NoiseSite& site) {
     for (const NoiseChannel& channel : site.channels) {
         total_probability += channel.prob;
     }
-    return total_probability;
+    // Each channel probability is validated individually and the channels sum to at most
+    // one in exact arithmetic, but the floating-point sum can exceed one by an ulp (a
+    // correlated chain whose last ELSE link has probability one is the known case) and the
+    // plan validator checks the declared total strictly.
+    return std::min(total_probability, 1.0);
 }
 
 double represented_depolarizing_probability(double probability, double outcome_count) {

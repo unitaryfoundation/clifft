@@ -1549,6 +1549,24 @@ TEST_CASE("Frontend: correlated identity link consumes chain probability", "[fro
     CHECK(mask.z() == 0);
 }
 
+TEST_CASE("Frontend: correlated chain total is clamped to one", "[frontend][noise]") {
+    // Folded sequentially in round-to-nearest double arithmetic, these links
+    // sum one ulp above one even though the chain is exhaustive.
+    auto circuit = parse(
+        "E(0.08) X0\n"
+        "ELSE_CORRELATED_ERROR(0.45) Z0\n"
+        "ELSE_CORRELATED_ERROR(1) X1");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.noise_sites.size() == 1);
+    const auto& site = hir.noise_sites[0];
+    REQUIRE(site.channels.size() == 3);
+    CHECK(site.channels[0].prob == Catch::Approx(0.08));
+    CHECK(site.channels[1].prob == Catch::Approx(0.414));
+    CHECK(site.channels[2].prob == Catch::Approx(0.506));
+    CHECK(site.total_probability == 1.0);
+}
+
 TEST_CASE("Frontend: stray else correlated error is rejected", "[frontend][noise]") {
     Circuit circuit;
     circuit.num_qubits = 1;
