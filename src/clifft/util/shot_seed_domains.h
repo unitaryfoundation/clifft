@@ -16,5 +16,6 @@ inline constexpr uint64_t kTrajectoryDriverDomain = 0x11;
 inline constexpr uint64_t kTrajectoryExecutorDomain = 0x12;
 inline constexpr uint64_t kFixedNonComputationalInputDomain = 0x21;
 inline constexpr uint64_t kFixedNonComputationalExecutorDomain = 0x22;
+inline constexpr uint64_t kFixedNonComputationalBatchInputDomain = 0x23;
 
 }  // namespace clifft

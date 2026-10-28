@@ -19,6 +19,11 @@ class MutableBitColumnsView {
   public:
     MutableBitColumnsView() = default;
 
+    [[nodiscard]] std::span<uint64_t> column(size_t column) const noexcept {
+        assert(column < columns_ && "packed bit column index must be in range");
+        return {words_ + column * word_capacity_, word_capacity_};
+    }
+
     [[nodiscard]] bool bit(size_t column, uint32_t lane) const noexcept {
         return ((words_[word_index(column, lane)] >> (lane & 63)) & uint64_t{1}) != 0;
     }

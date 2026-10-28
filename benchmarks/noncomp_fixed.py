@@ -11,6 +11,7 @@ import time
 from collections.abc import Callable
 from dataclasses import asdict
 from functools import partial
+from itertools import product
 from typing import Any
 
 import stim
@@ -19,23 +20,48 @@ import clifft
 from clifft import noncomp
 
 
-def circuit_text(distance, rounds, rate, variant, event="LEAKAGE"):
+def circuit_text(
+    distance,
+    rounds,
+    rate,
+    variant,
+    event="LEAKAGE",
+    noise_rate=0.001,
+    non_clifford_data_qubits=0,
+    non_clifford_rounds=1,
+):
     source = stim.Circuit.generated(
         "surface_code:rotated_memory_z",
         distance=distance,
         rounds=rounds,
-        after_clifford_depolarization=0.001,
+        after_clifford_depolarization=noise_rate,
     ).flattened()
     lines = []
-    inserted = False
+    data = next(instruction.targets_copy() for instruction in source if instruction.name == "M")
+    if not 0 <= non_clifford_data_qubits <= len(data):
+        raise ValueError("non-Clifford data-qubit count exceeds this circuit's data qubits")
+    selected = " ".join(str(target.value) for target in data[:non_clifford_data_qubits])
+    inserted_rounds = 0
+    start_round = True
     for instruction in source:
         if instruction.name in {"QUBIT_COORDS", "SHIFT_COORDS"}:
             continue
         lines.append(str(instruction))
-        if instruction.name == "H" and variant != "clifford" and not inserted:
-            gate = {"s": "S", "t": "T", "rotation": "R_Z(0.173)"}[variant]
-            lines.append(f"{gate} {instruction.targets_copy()[0].value}")
-            inserted = True
+        if instruction.name == "H" and start_round:
+            start_round = False
+            if variant != "clifford" and inserted_rounds < non_clifford_rounds:
+                gate = {"s": "S", "t": "T", "rotation": "R_Z(0.173)"}[variant]
+                if non_clifford_data_qubits and inserted_rounds == 0:
+                    lines.append(f"H {selected}")
+                targets = (
+                    selected
+                    if non_clifford_data_qubits
+                    else str(instruction.targets_copy()[0].value)
+                )
+                lines.append(f"{gate} {targets}")
+                inserted_rounds += 1
+        if instruction.name == "MR":
+            start_round = True
         if instruction.name == "CX":
             targets = " ".join(str(target.value) for target in instruction.targets_copy())
             lines.append(f"{event}({rate}) {targets}")
@@ -50,12 +76,21 @@ def main():
     parser.add_argument("--distances", type=int, nargs="+", default=[3, 5])
     parser.add_argument("--rounds", type=int, default=3)
     parser.add_argument("--rates", type=float, nargs="+", default=[0, 0.001, 0.003])
+    parser.add_argument("--noise-rate", type=float, default=0.001)
     parser.add_argument(
         "--variants",
         nargs="+",
         choices=["clifford", "s", "t", "rotation"],
         default=["clifford", "t", "rotation"],
     )
+    parser.add_argument(
+        "--non-clifford-data-qubits",
+        type=int,
+        nargs="+",
+        default=[0],
+        help="Magic-state data qubits; 0 keeps the single-ancilla case.",
+    )
+    parser.add_argument("--non-clifford-rounds", type=int, default=1)
     parser.add_argument("--shots", type=int, default=1000)
     parser.add_argument("--repetitions", type=int, default=3)
     parser.add_argument("--batch-sizes", nargs="+", default=["1", "65", "auto"])
@@ -64,6 +99,10 @@ def main():
     parser.add_argument("--skip-trajectories", action="store_true")
     args = parser.parse_args()
     batch_sizes = [int(value) if value != "auto" else value for value in args.batch_sizes]
+    if args.non_clifford_rounds < 1 or any(value < 0 for value in args.non_clifford_data_qubits):
+        parser.error("non-Clifford rounds must be positive and data-qubit counts nonnegative")
+    if not 0 <= args.noise_rate <= 1:
+        parser.error("noise-rate must be between zero and one")
     if (
         args.shots <= 0
         or args.repetitions <= 0
@@ -75,77 +114,89 @@ def main():
         classifier=noncomp.Classifier([[1, 0, 0.5, 0.5, 0.5], [0, 1, 0.5, 0.5, 0.5]]),
         gate_partner_effects={"leaked": effect, "lost": effect},
     )
-    for distance in args.distances:
-        for variant in args.variants:
-            for rate in args.rates:
-                circuit = clifft.parse(
-                    circuit_text(distance, args.rounds, rate, variant, args.event)
-                )
-                start = time.perf_counter()
-                program = noncomp.compile(circuit, model, final_status=True, execution="fixed")
-                preparation = time.perf_counter() - start
-                times: dict[str, list[float]] = {}
-                stats = {}
-                calls: list[tuple[str, Callable[[int], Any]]] = []
-                for batch_size in batch_sizes:
-                    name = f"fixed_{batch_size}"
-                    times[name] = []
-                    calls.append(
-                        (
-                            name,
-                            partial(
-                                program.sample,
-                                args.shots,
-                                threads=args.threads,
-                                batch_size=batch_size,
-                                collect_stats=True,
-                            ),
-                        )
-                    )
-                if not args.skip_trajectories:
-                    times["trajectory"] = []
-                    calls.append(
-                        (
-                            "trajectory",
-                            lambda seed: noncomp.sample(
-                                circuit,
-                                model,
-                                shots=args.shots,
-                                seed=seed,
-                                threads=args.threads,
-                                execution="trajectory",
-                                final_status=True,
-                                collect_stats=True,
-                            ),
-                        )
-                    )
-                # Shot count and threads must match to warm the measured execution policy.
-                for _, call in calls:
-                    call(0)
-                for repetition in range(args.repetitions):
-                    for name, call in calls[:: 1 if repetition % 2 == 0 else -1]:
-                        start = time.perf_counter()
-                        result = call(repetition)
-                        times[name].append(time.perf_counter() - start)
-                        stats[name] = asdict(result.stats)
-                medians = {name: statistics.median(values) for name, values in times.items()}
-                print(
-                    json.dumps(
-                        {
-                            "distance": distance,
-                            "rounds": args.rounds,
-                            "variant": variant,
-                            "event": args.event,
-                            "rate": rate,
-                            "shots": args.shots,
-                            "threads": args.threads,
-                            "preparation_seconds": preparation,
-                            "seconds": medians,
-                            "execution": stats,
-                        }
+    for distance, variant, rate, data_qubits in product(
+        args.distances, args.variants, args.rates, args.non_clifford_data_qubits
+    ):
+        circuit = clifft.parse(
+            circuit_text(
+                distance,
+                args.rounds,
+                rate,
+                variant,
+                args.event,
+                args.noise_rate,
+                data_qubits,
+                args.non_clifford_rounds,
+            )
+        )
+        start = time.perf_counter()
+        program = noncomp.compile(circuit, model, final_status=True, execution="fixed")
+        preparation = time.perf_counter() - start
+        times: dict[str, list[float]] = {}
+        stats = {}
+        calls: list[tuple[str, Callable[[int], Any]]] = []
+        for batch_size in batch_sizes:
+            name = f"fixed_{batch_size}"
+            times[name] = []
+            calls.append(
+                (
+                    name,
+                    partial(
+                        program.sample,
+                        args.shots,
+                        threads=args.threads,
+                        batch_size=batch_size,
+                        collect_stats=True,
                     ),
-                    flush=True,
                 )
+            )
+        if not args.skip_trajectories:
+            times["trajectory"] = []
+            calls.append(
+                (
+                    "trajectory",
+                    lambda seed: noncomp.sample(
+                        circuit,
+                        model,
+                        shots=args.shots,
+                        seed=seed,
+                        threads=args.threads,
+                        execution="trajectory",
+                        final_status=True,
+                        collect_stats=True,
+                    ),
+                )
+            )
+        # Shot count and threads must match to warm the measured execution policy.
+        for _, call in calls:
+            call(0)
+        for repetition in range(args.repetitions):
+            for name, call in calls[:: 1 if repetition % 2 == 0 else -1]:
+                start = time.perf_counter()
+                result = call(repetition)
+                times[name].append(time.perf_counter() - start)
+                stats[name] = asdict(result.stats)
+        medians = {name: statistics.median(values) for name, values in times.items()}
+        print(
+            json.dumps(
+                {
+                    "distance": distance,
+                    "rounds": args.rounds,
+                    "variant": variant,
+                    "event": args.event,
+                    "rate": rate,
+                    "noise_rate": args.noise_rate,
+                    "non_clifford_data_qubits": data_qubits,
+                    "non_clifford_rounds": args.non_clifford_rounds,
+                    "shots": args.shots,
+                    "threads": args.threads,
+                    "preparation_seconds": preparation,
+                    "seconds": medians,
+                    "execution": stats,
+                }
+            ),
+            flush=True,
+        )
 
 
 if __name__ == "__main__":

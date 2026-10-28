@@ -314,6 +314,7 @@ void register_noncomp(nb::module_& m) {
                     fields["trajectory_shots"] = stats.trajectory_shots;
                     fields["scalar_shots"] = stats.scalar_shots;
                     fields["packed_shots"] = stats.packed_shots;
+                    fields["packed_classical_shots"] = stats.packed_classical_shots;
                     fields["packed_batches"] = stats.packed_batches;
                     fields["batch_size"] = stats.batch_size;
                     fields["workers"] = stats.workers;
@@ -373,6 +374,7 @@ void register_noncomp(nb::module_& m) {
                 stats["workers"] = metrics.workers;
                 stats["scalar_shots"] = metrics.scalar_shots;
                 stats["packed_shots"] = metrics.packed_shots;
+                stats["packed_classical_shots"] = metrics.packed_classical_shots;
                 stats["packed_batches"] = metrics.packed_batches;
                 stats["packed_worker_bytes"] = metrics.packed_worker_bytes;
                 return nb::make_tuple(noncomp_sample_to_python(std::move(result.output), shots,

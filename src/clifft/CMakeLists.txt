@@ -33,6 +33,7 @@ add_library(clifft_core STATIC
     sampling/batch/bits.cc
     sampling/batch/executor.cc
     sampling/batch/external_inputs.cc
+    sampling/batch/random_bits.cc
     sampling/batch/policy.cc
     sampling/batch/tuning.cc
     sampling/batch/presampled_program.cc
@@ -67,6 +68,7 @@ add_library(clifft_core STATIC
     noncomp/program.cc
     noncomp/resolution.cc
     noncomp/fixed.cc
+    noncomp/fixed_classical.cc
     noncomp/fixed_input_validation.cc
     noncomp/trajectory_driver.cc
     noncomp/sample.cc

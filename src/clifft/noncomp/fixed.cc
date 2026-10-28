@@ -1,6 +1,7 @@
 #include "clifft/noncomp/fixed.h"
 
 #include "clifft/frontend/frontend.h"
+#include "clifft/noncomp/fixed_classical.h"
 #include "clifft/noncomp/fixed_input_validation.h"
 #include "clifft/noncomp/status_walk.h"
 #include "clifft/optimizer/peephole.h"
@@ -27,54 +28,20 @@
 namespace clifft {
 namespace {
 
-// Runtime values contain one bit; analysis uses unions of reachable values.
-// A leaked value deliberately carries no claim about the hidden G/E label.
-constexpr uint8_t kComputational = 1;
-constexpr uint8_t kLeaked = 2;
-constexpr uint8_t kLost = 4;
+using detail::InputStep;
+using detail::kComputational;
+using detail::kLeaked;
+using detail::kLost;
+using detail::kStatusBits;
+using detail::NoiseInput;
+using detail::NoiseOutcome;
+using detail::ProbeInput;
+using detail::ReadoutChannel;
+using detail::ReadoutInput;
+using detail::ResetInput;
+using detail::TransitionInput;
 constexpr std::array<QubitStatus, 3> kRepresentativeStatuses{QubitStatus::Computational,
                                                              QubitStatus::LeakG, QubitStatus::Lost};
-constexpr std::array<uint8_t, 3> kStatusBits{kComputational, kLeaked, kLost};
-
-struct TransitionInput {
-    uint32_t qubit;
-    double probability;
-    bool loss;
-};
-
-struct ResetInput {
-    uint32_t qubit;
-    std::array<uint8_t, 3> destinations;
-};
-
-struct NoiseOutcome {
-    uint32_t input;
-    double cumulative_probability;
-};
-
-struct NoiseInput {
-    std::vector<uint32_t> active_targets;
-    std::optional<uint32_t> inactive_source;
-    uint8_t source_status = 0;
-    std::vector<NoiseOutcome> outcomes;
-};
-
-using ReadoutChannel = ClassifiedReadoutChannel;
-
-struct ReadoutInput {
-    uint32_t input;
-    uint32_t record;
-    std::optional<uint32_t> qubit;
-    std::array<ReadoutChannel, 3> channels;
-};
-
-struct ProbeInput {
-    uint32_t input;
-    uint32_t qubit;
-    uint8_t status;
-};
-
-using InputStep = std::variant<TransitionInput, ResetInput, NoiseInput, ReadoutInput, ProbeInput>;
 
 bool full_depolarization(const PartnerEffect* effect) {
     return effect != nullptr && effect->spread_probability == 0.0 &&
@@ -140,6 +107,7 @@ struct FixedNonComputationalData {
     bool final_status = false;
     bool dynamic_inputs = false;
     std::vector<InputStep> inputs;
+    std::optional<FixedClassicalProgram> classical;
     std::optional<sampling::ExecutablePlan> plan;
     FixedNonComputationalMetrics metrics;
 };
@@ -241,6 +209,12 @@ class FixedBuilder {
         data_->plan.emplace(plan);
         if (data_->plan->num_readout_noise_sites() != readout_count_) {
             throw std::logic_error("fixed noncomputational lowering lost a readout-site identity");
+        }
+        // Validate the quantum plan first so invalid compiler-produced channels
+        // retain the planner's site-specific diagnostic.
+        if (data_->dynamic_inputs) {
+            data_->classical.emplace(data_->inputs, data_->dimensions.num_qubits, input,
+                                     readout_count_, data_->dimensions.num_measurements);
         }
         data_->metrics.peak_active_width = plan.peak_active_width;
         data_->metrics.quantum_noise_inputs = input;
@@ -552,8 +526,8 @@ std::optional<FixedNonComputationalRejection> FixedBuilder::lower() {
     return reject(FixedNonComputationalReason::UnsupportedOperation);
 }
 
-// Both execution paths consume the same classical walk and per-shot RNG stream.
-// The sink changes only where the already sampled Boolean inputs are stored.
+// The scalar reference retains its per-shot RNG schedule. Packed execution
+// compiles these same ordered descriptors into operations across shot masks.
 template <typename Inputs>
 void prepare_inputs(const detail::FixedNonComputationalData& data, Xoshiro256PlusPlus& rng,
                     std::span<uint8_t> status, std::span<uint8_t> heralds,
@@ -620,21 +594,6 @@ struct ScalarInputSink {
     }
 };
 
-struct PackedInputSink {
-    sampling::BatchExternalInputs::MutableView inputs;
-    uint32_t lane;
-
-    void activate_noise(uint32_t input) noexcept { inputs.set_noise(input, lane); }
-    void set_readout(uint32_t input, sampling::ReadoutNoiseInput value) noexcept {
-        if (value.flip_zero) {
-            inputs.set_readout_zero(input, lane);
-        }
-        if (value.flip_one) {
-            inputs.set_readout_one(input, lane);
-        }
-    }
-};
-
 template <typename Inputs>
 void prepare_shot(const detail::FixedNonComputationalData& data, const SeedRoot& root,
                   uint32_t shot, std::span<uint8_t> status, Inputs& inputs,
@@ -678,15 +637,15 @@ sampling::BatchSamplingMode sampling_mode(const detail::FixedNonComputationalDat
 
 struct PackedFixedWorker {
     PackedFixedWorker(const detail::FixedNonComputationalData& data, uint32_t capacity)
-        : executor(*data.plan, capacity, sampling::BatchOutputMode::Rows, sampling_mode(data)),
-          status(data.dynamic_inputs ? data.dimensions.num_qubits : 0) {
+        : executor(*data.plan, capacity, sampling::BatchOutputMode::Rows, sampling_mode(data)) {
         if (data.dynamic_inputs) {
+            classical.emplace(data.dimensions.num_qubits, capacity);
             inputs.emplace(*data.plan, capacity);
         }
     }
 
     sampling::BatchExecutor executor;
-    std::vector<uint8_t> status;
+    std::optional<detail::FixedClassicalWorkspace> classical;
     std::optional<sampling::BatchExternalInputs> inputs;
     uint64_t shots = 0;
     uint64_t batches = 0;
@@ -722,10 +681,12 @@ FixedNonComputationalResult FixedNonComputationalProgram::sample(
     const auto& data = *data_;
     const auto& dimensions = data.dimensions;
     const uint32_t shot_workers = resolve_shot_worker_count(shots, threads);
-    const uint64_t driver_bytes = data.dynamic_inputs ? dimensions.num_qubits : 0;
+    const uint64_t driver_columns =
+        data.dynamic_inputs ? detail::FixedClassicalWorkspace::bit_columns(dimensions.num_qubits)
+                            : 0;
     const auto policy = sampling::resolve_batch_execution_policy(
         *data.plan, shots, shot_workers, 1, sampling::BatchOutputMode::Rows, batch_size,
-        sampling_mode(data), driver_bytes);
+        sampling_mode(data), 0, driver_columns);
     FixedNonComputationalResult run;
     auto& result = run.output;
     auto& metrics = run.metrics;
@@ -747,10 +708,11 @@ FixedNonComputationalResult FixedNonComputationalProgram::sample(
         result.final_status.resize(static_cast<size_t>(shots) * dimensions.num_qubits);
     }
     if (policy.lane_capacity > 1) {
-        metrics.packed_worker_bytes = sampling::batch_detail::batch_worker_storage_bytes(
-                                          *data.plan, policy.lane_capacity,
-                                          sampling::BatchOutputMode::Rows, sampling_mode(data)) +
-                                      driver_bytes;
+        metrics.packed_worker_bytes =
+            sampling::batch_detail::batch_worker_storage_bytes(*data.plan, policy.lane_capacity,
+                                                               sampling::BatchOutputMode::Rows,
+                                                               sampling_mode(data)) +
+            sampling::packed_bit_columns_storage_bytes(driver_columns, policy.lane_capacity);
         // Derive a fixed-execution root because BatchExecutor supplies its own
         // domain and rehashes this root with each global batch start.
         const auto quantum_seed = derive_state(root, 0, kFixedNonComputationalExecutorDomain);
@@ -765,12 +727,8 @@ FixedNonComputationalResult FixedNonComputationalProgram::sample(
                 for (uint32_t first = range.begin; first < range.end;) {
                     const uint32_t count = std::min(policy.lane_capacity, range.end - first);
                     if (data.dynamic_inputs) {
-                        worker->inputs->clear();
-                        const auto view = worker->inputs->mutable_view();
-                        for (uint32_t lane = 0; lane < count; ++lane) {
-                            PackedInputSink inputs{view, lane};
-                            prepare_shot(data, root, first + lane, worker->status, inputs, result);
-                        }
+                        data.classical->prepare(root, first, count, *worker->classical,
+                                                *worker->inputs, result);
                         worker->executor.run_batch(quantum_root, first, count, *worker->inputs);
                     } else {
                         worker->executor.run_batch(quantum_root, first, count);
@@ -791,6 +749,8 @@ FixedNonComputationalResult FixedNonComputationalProgram::sample(
         metrics.workers = static_cast<uint32_t>(workers.size());
         for (const auto& worker : workers) {
             metrics.packed_shots += worker->shots;
+            if (data.dynamic_inputs)
+                metrics.packed_classical_shots += worker->shots;
             metrics.packed_batches += worker->batches;
         }
         return run;

@@ -26,6 +26,11 @@
 #include "clifft/sampling/executor.h"
 #endif
 
+#if __has_include("clifft/noncomp/program.h")
+#define CLIFFT_BENCHMARK_HAS_NONCOMP_PROGRAM
+#include "clifft/noncomp/program.h"
+#endif
+
 #include <array>
 #include <benchmark/benchmark.h>
 #include <cstdint>
@@ -466,8 +471,8 @@ void sample_narrow_output(benchmark::State& state) {
 }
 
 #ifdef CLIFFT_BENCHMARK_HAS_EXTERNAL_INPUTS
-// Time reusable execution only. Input generation, preparation, and output
-// materialization belong to the eventual end-to-end noncomputational benchmark.
+// Isolate reusable quantum execution; sample_fixed_leakage_surface below also
+// measures dynamic input generation, worker setup, and output materialization.
 template <bool Packed>
 void external_inputs(benchmark::State& state, bool surface) {
     std::string text;
@@ -545,6 +550,57 @@ BENCHMARK_CAPTURE(external_inputs<false>, nonclifford_scalar, false)
     ->Name("external_inputs_nonclifford_scalar_256_shots");
 BENCHMARK_CAPTURE(external_inputs<true>, nonclifford_packed, false)
     ->Name("external_inputs_nonclifford_packed_256_shots");
+#endif
+
+#ifdef CLIFFT_BENCHMARK_HAS_NONCOMP_PROGRAM
+// Reuse the quantum preparation, but include the classical input walk and all
+// per-call allocation and row output costs paid by a prepared-program user.
+void sample_fixed_leakage_surface(benchmark::State& state) {
+    const auto source = parse_file(fixture("surface_d7_r7_p001.stim"));
+    auto circuit = source.metadata_only_copy();
+    for (const auto& node : source.nodes) {
+        circuit.nodes.push_back(node);
+        if (node.gate == GateType::CX) {
+            for (const auto target : node.targets) {
+                circuit.nodes.push_back({GateType::LEAKAGE, {target}, {0.001}});
+            }
+        }
+    }
+    const PartnerEffect depolarize{.pauli = {0.25, 0.25, 0.25}};
+    const auto model = NonComputationalModel::from_spec(
+        {1, 0, 0, 0, 0}, {}, {{{1, 0, 0.5, 0.5, 0.5}, {0, 1, 0.5, 0.5, 0.5}}}, {},
+        {.leaked = depolarize, .lost = depolarize}, {});
+    const NonComputationalProgram program(circuit, model);
+    if (program.strategy() != NonComputationalExecution::Fixed) {
+        state.SkipWithError("leakage benchmark did not select fixed execution");
+        return;
+    }
+    constexpr uint32_t shots = 2048;
+    {
+        const auto warmup = program.sample(shots, 831, 1, shots, true);
+        if (!warmup.stats || warmup.stats->packed_shots != shots ||
+            warmup.stats->batch_size != shots || warmup.stats->peak_active_width != 0) {
+            state.SkipWithError("leakage benchmark did not select the expected packed path");
+            return;
+        }
+        // Older revisions generate inputs per shot and do not expose this counter.
+#if __has_include("clifft/noncomp/fixed_classical.h")
+        if (warmup.stats->packed_classical_shots != shots) {
+            state.SkipWithError("leakage benchmark did not generate dynamic packed inputs");
+            return;
+        }
+#endif
+        state.counters["batch_size"] = warmup.stats->batch_size;
+        state.counters["active_width"] = *warmup.stats->peak_active_width;
+    }
+    for ([[maybe_unused]] auto _ : state) {
+        auto result = program.sample(shots, 831, 1, shots);
+        benchmark::DoNotOptimize(result);
+    }
+    state.SetItemsProcessed(state.iterations() * shots);
+}
+
+BENCHMARK(sample_fixed_leakage_surface)->Name("sample_fixed_leakage_surface_d7_2048_shots");
 #endif
 
 BENCHMARK(squeeze_parallel_t)->Name("squeeze_parallel_t_8192");

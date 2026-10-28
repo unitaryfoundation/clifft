@@ -28,6 +28,9 @@ def prepare(text, model, **kwargs):
 def sample(program, shots=16000, seed=43, threads=1, *, batch_size="auto"):
     values, stats = program.sample(shots, seed, threads, batch_size=batch_size)
     assert stats["scalar_shots"] + stats["packed_shots"] == shots
+    assert stats["packed_classical_shots"] == (
+        stats["packed_shots"] if program.metrics["classical_workspace_bytes"] else 0
+    )
     if batch_size == 1 or shots <= 1:
         assert stats["scalar_shots"] == shots
         assert stats["packed_batches"] == 0
@@ -351,6 +354,8 @@ def test_fixed_noise_groups_bind_empty_and_live_sites_separately(width, probabil
     [
         ("X_ERROR(0.3) 1", "X_ERROR(0.3) 1"),
         ("DEPOLARIZE1(0.4) 1", "DEPOLARIZE1(0.4) 1"),
+        # Parsing splits single-qubit noise; inactive targets do not suppress live ones.
+        ("DEPOLARIZE1(0.4) 0 1 2", "DEPOLARIZE1(0.4) 1 2"),
         ("PAULI_CHANNEL_1(0.1,0.2,0.3) 1", "PAULI_CHANNEL_1(0.1,0.2,0.3) 1"),
         ("DEPOLARIZE2(0.7) 0 1", ""),
         ("DEPOLARIZE3(0.7) 0 1 2", ""),
@@ -517,16 +522,12 @@ def test_packed_fixed_composes_status_noise_readout_and_non_clifford_execution(r
     assert (before["packed_noise_carriers"] > 0) == (rounds == 40)
     assert before["peak_active_width"] > 0
     shots = 2051
-    scalar = sample(program, shots=shots, seed=52, batch_size=1)
-    for capacity in (64, 65, 129, "auto"):
+    for capacity in (1, 64, 65, 129, "auto"):
         result = sample(program, shots=shots, seed=52, threads=3, batch_size=capacity)
-        assert result.stats["packed_shots"] == shots
-        # Until the final T experiment, all quantum outcomes are fixed by the
-        # supplied Pauli inputs. The shared per-shot input stream must therefore
-        # reproduce these records and sidecars exactly across batch boundaries.
-        np.testing.assert_array_equal(result.measurements[:, :-1], scalar.measurements[:, :-1])
-        np.testing.assert_array_equal(result.heralds, scalar.heralds)
-        np.testing.assert_array_equal(result.final_status, scalar.final_status)
+        assert result.stats["packed_classical_shots"] == (shots if capacity != 1 else 0)
+        # Each execution configuration must satisfy the same per-row relations
+        # and joint laws, even though packed classical inputs use their own RNG.
+        assert not result.final_status.any()
         records = result.measurements[:, :-1].reshape(shots, rounds, 6)
         np.testing.assert_array_equal(records[:, :, 0] ^ records[:, :, 1], records[:, :, 2])
         assert not records[:, :, 5].any()  # The reset follows the classified MR result.
@@ -573,7 +574,12 @@ def test_fixed_automatic_batching_falls_back_for_wider_non_clifford_states():
     assert result.stats["workers"] == 3
     forced = sample(program, shots=129, threads=3, batch_size=65)
     assert forced.stats["packed_shots"] == 129
-    np.testing.assert_array_equal(result.final_status, forced.final_status)
+    assert forced.stats["packed_classical_shots"] == 129
+    np.testing.assert_array_equal(forced.final_status[:, :6], result.final_status[:, :6])
+    assert abs((forced.final_status[:, 6] == noncomp.QubitStatus.LOST).mean() - 0.3) < 0.15
+    repeated = sample(program, shots=129, threads=1, batch_size=65)
+    for field in ("measurements", "heralds", "detectors", "observables", "final_status"):
+        np.testing.assert_array_equal(getattr(forced, field), getattr(repeated, field))
 
 
 @pytest.mark.parametrize("batch_size", [0, -1, 2**32, "tune", "invalid"])

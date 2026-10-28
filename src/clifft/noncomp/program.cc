@@ -183,6 +183,7 @@ NonComputationalSample NonComputationalProgram::sample(uint32_t shots, std::opti
             stats.fixed_shots = run.metrics.scalar_shots + run.metrics.packed_shots;
             stats.scalar_shots = run.metrics.scalar_shots;
             stats.packed_shots = run.metrics.packed_shots;
+            stats.packed_classical_shots = run.metrics.packed_classical_shots;
             stats.packed_batches = run.metrics.packed_batches;
             stats.batch_size = run.metrics.batch_size;
             stats.workers = run.metrics.workers;
