@@ -1,4 +1,6 @@
-# Packed Sampling in Clifft (v0.10.0, September 2026)
+# Packed Sampling in Clifft (v0.10.0)
+
+**Release date:** September 3, 2026
 
 Version 0.8.0 rebuilt Clifft around symbolic-coordinate sampling. Version
 0.9.0 restored multicore execution, letting one worker budget run many shots
