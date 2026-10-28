@@ -1,5 +1,6 @@
 #include "clifft/circuit/parser.h"
 #include "clifft/frontend/frontend.h"
+#include "clifft/sampling/batch/bits.h"
 #include "clifft/sampling/batch/tuning.h"
 #include "clifft/sampling/planner.h"
 #include "clifft/sampling/sampler.h"
@@ -288,6 +289,43 @@ TEST_CASE("Batch tuning deduplicates clipped capacities and respects total worke
                                                      BatchSamplingMode::Ordinary,
                                                      kDefaultBatchWorkerBudget / 2, {1, 16});
     REQUIRE(constrained.size() == 1);
+}
+
+TEST_CASE("Batch tuning charges page rounded classical workspace at each capacity") {
+    const auto plan = compile_tuning_plan("M 0");
+    constexpr uint32_t capacity = 64;
+    constexpr uint64_t columns = 7;
+    const auto executor_bytes = batch_detail::batch_worker_storage_bytes(
+        plan, capacity, BatchOutputMode::Rows, BatchSamplingMode::ExternalInputs);
+    const auto column_bytes = packed_bit_columns_storage_bytes(columns, capacity);
+    REQUIRE(column_bytes > columns * sizeof(uint64_t));
+    const auto extra = kDefaultBatchWorkerBudget - executor_bytes - column_bytes + 1;
+    const auto candidates =
+        batch_tuning_candidates(plan, 10000, 1, 1, BatchOutputMode::Rows,
+                                BatchSamplingMode::ExternalInputs, extra, {1, 1}, columns);
+    REQUIRE(candidates.size() == 1);
+    CHECK(candidates.front().policy.lane_capacity == 1);
+
+    constexpr uint32_t workers = 9;
+    const auto total_extra =
+        kDefaultBatchTotalWorkerBudget / workers - executor_bytes - columns * sizeof(uint64_t);
+    const auto total_limited = batch_tuning_candidates(
+        plan, 100000, workers, 1, BatchOutputMode::Rows, BatchSamplingMode::ExternalInputs,
+        total_extra, {1, workers}, columns);
+    REQUIRE(total_limited.size() == 1);
+}
+
+TEST_CASE("Batch tuning bounds herald and final status probe outputs") {
+    const auto plan = compile_tuning_plan("M 0");
+    constexpr uint64_t sidecar_bytes = 1024 * 1024;
+    const auto candidates =
+        batch_tuning_candidates(plan, 10000, 1, 1, BatchOutputMode::Rows,
+                                BatchSamplingMode::Ordinary, 0, {1, 1}, 0, sidecar_bytes);
+    REQUIRE(candidates.size() == 1);
+    CHECK(candidates.front().max_probe_shots == 7);
+    CHECK(batch_tuning_candidates(plan, 10000, 1, 1, BatchOutputMode::Rows,
+                                  BatchSamplingMode::Ordinary, 0, {1, 1}, 0, 8 * sidecar_bytes)
+              .empty());
 }
 
 TEST_CASE("Batch tuning validates budgets even for empty sampling calls") {

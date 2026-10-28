@@ -15,6 +15,7 @@
 #include "clifft/circuit/circuit.h"
 #include "clifft/noncomp/level.h"
 #include "clifft/noncomp/model.h"
+#include "clifft/sampling/results.h"
 
 #include <cstdint>
 #include <optional>
@@ -73,6 +74,8 @@ struct NonComputationalSample {
     // has no classifier.
     std::vector<uint8_t> heralds;
     std::optional<NonComputationalSamplingStats> stats;
+    // Calibration is reported independently of optional production statistics.
+    std::optional<sampling::BatchTuningReport> batch_tuning;
 };
 
 // Throws std::invalid_argument when the trajectory policy rejects an

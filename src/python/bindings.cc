@@ -287,14 +287,19 @@ void register_noncomp(nb::module_& m) {
             "sample",
             [](const clifft::NonComputationalProgram& program, uint32_t shots,
                std::optional<uint64_t> seed, const ThreadOption& threads,
-               const BatchOption& batch_size, bool collect_stats) {
+               const BatchOption& batch_size, bool collect_stats,
+               std::optional<double> tuning_budget_seconds) {
                 const uint32_t thread_count = parse_thread_option(threads);
-                const auto capacity = parse_positive_uint32_option(batch_size, "batch_size");
+                const auto [capacity, tuning_budget] =
+                    parse_batch_option(batch_size, tuning_budget_seconds);
                 clifft::NonComputationalSample result;
                 {
                     nb::gil_scoped_release release;
-                    result = program.sample(shots, seed, thread_count, capacity, collect_stats);
+                    result = program.sample(shots, seed, thread_count, capacity, collect_stats,
+                                            tuning_budget);
                 }
+                warn_if_batch_tuning_inconclusive(result.batch_tuning);
+                nb::object tuning = nb::cast(std::move(result.batch_tuning));
                 nb::object report = nb::none();
                 if (result.stats) {
                     const auto& stats = *result.stats;
@@ -326,12 +331,12 @@ void register_noncomp(nb::module_& m) {
                 }
                 return nb::make_tuple(noncomp_sample_to_python(std::move(result), shots,
                                                                program.returns_final_status()),
-                                      report);
+                                      report, tuning);
             },
             nb::arg("shots"), nb::arg("seed") = nb::none(),
             nb::arg("threads") = ThreadOption{int64_t{1}}, nb::kw_only(),
             nb::arg("batch_size") = BatchOption{std::string{"auto"}},
-            nb::arg("collect_stats") = false);
+            nb::arg("collect_stats") = false, nb::arg("tuning_budget_seconds") = nb::none());
     m.def(
         "_compile_noncomputational",
         [](const clifft::Circuit& circuit, const clifft::NonComputationalModel& model,

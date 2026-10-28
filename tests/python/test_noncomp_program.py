@@ -209,7 +209,7 @@ def test_public_zero_shots_keep_contract_without_execution(public_sample, execut
 
 
 @pytest.mark.parametrize("shots", [0, 1, 65])
-@pytest.mark.parametrize("batch_size", [0, -1, 2**32, "tune", "bad", 1.5])
+@pytest.mark.parametrize("batch_size", [0, -1, 2**32, "bad", 1.5])
 def test_public_rejects_invalid_batch_options(public_sample, shots, batch_size):
     with pytest.raises((TypeError, ValueError), match="batch_size|incompatible"):
         public_sample("M 0", model(), shots=shots, batch_size=batch_size)

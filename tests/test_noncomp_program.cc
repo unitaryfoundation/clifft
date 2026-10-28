@@ -6,6 +6,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/generators/catch_generators.hpp>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <utility>
 
@@ -61,4 +62,22 @@ TEST_CASE("Noncomputational programs retain owned preparation across copies and 
     CHECK(actual.stats->preparation_seconds == expected.stats->preparation_seconds);
     CHECK(actual.stats->fixed_shots == expected.stats->fixed_shots);
     CHECK(actual.stats->trajectory_shots == expected.stats->trajectory_shots);
+}
+
+TEST_CASE("Noncomputational tuning reports empty calls and validates C++ options") {
+    const auto model =
+        NonComputationalModel::from_spec(test::pure_initial_state(Level::G), {},
+                                         {{{1, 0, 0.5, 0.5, 0.5}, {0, 1, 0.5, 0.5, 0.5}}}, {});
+    const auto circuit = parse("LOSS(0.2) 0\nM 0");
+    const NonComputationalProgram program(circuit, model);
+    const auto empty = program.sample(0, std::nullopt, 1, std::nullopt, false, 0.1);
+    REQUIRE(empty.batch_tuning);
+    CHECK(empty.batch_tuning->stop_reason == "zero_shots");
+    CHECK(empty.batch_tuning->trial_shots == 0);
+    CHECK_FALSE(empty.stats);
+    REQUIRE_THROWS_AS(program.sample(0, 42, 1, 64, false, 0.1), std::invalid_argument);
+    REQUIRE_THROWS_AS(program.sample(0, 42, 1, std::nullopt, false, -1), std::invalid_argument);
+
+    const NonComputationalProgram trajectory(circuit, model, NonComputationalExecution::Trajectory);
+    REQUIRE_THROWS_AS(trajectory.sample(0, 42, 1, std::nullopt, false, 0), std::invalid_argument);
 }

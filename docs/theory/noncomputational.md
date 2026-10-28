@@ -317,6 +317,9 @@ worker count and scheduling do not change results. Its rows need not match scala
 execution, other batch capacities, or an earlier sampling algorithm; the joint
 output distribution is unchanged.
 
+See [batch tuning](../guide/leakage-and-loss.md#tuning-batch-size) for measured
+capacity selection and calibration costs.
+
 ## Active-width cost
 
 With the default exact damping policy, the simulation is exact for this hybrid

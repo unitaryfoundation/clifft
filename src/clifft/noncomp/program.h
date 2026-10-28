@@ -34,7 +34,8 @@ class NonComputationalProgram {
     NonComputationalSample sample(uint32_t shots, std::optional<uint64_t> seed = std::nullopt,
                                   uint32_t threads = 1,
                                   std::optional<uint32_t> batch_size = std::nullopt,
-                                  bool collect_stats = false) const;
+                                  bool collect_stats = false,
+                                  std::optional<double> tuning_budget_seconds = std::nullopt) const;
 
   private:
     std::shared_ptr<const detail::NonComputationalProgramData> data_;

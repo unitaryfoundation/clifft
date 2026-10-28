@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <vector>
 
@@ -17,10 +18,14 @@ struct BatchTuningCandidate {
     uint32_t max_probe_shots;
 };
 
+void validate_batch_tuning_options(std::optional<uint32_t> batch_size,
+                                   std::optional<double> tuning_budget_seconds);
+
 [[nodiscard]] std::vector<BatchTuningCandidate> batch_tuning_candidates(
     const ExecutablePlan& plan, uint32_t shots, uint32_t shot_workers, uint32_t intra_shot_workers,
     BatchOutputMode output_mode, BatchSamplingMode sampling_mode, uint64_t additional_worker_bytes,
-    BatchExecutionPolicy baseline);
+    BatchExecutionPolicy baseline, uint64_t additional_worker_bit_columns = 0,
+    uint64_t additional_output_row_bytes = 0);
 
 // The clock and probe factory are injected so budget and selection behavior can
 // be tested without depending on machine load or the speed of a particular CPU.
