@@ -354,6 +354,8 @@ def test_fixed_noise_groups_bind_empty_and_live_sites_separately(width, probabil
     [
         ("X_ERROR(0.3) 1", "X_ERROR(0.3) 1"),
         ("DEPOLARIZE1(0.4) 1", "DEPOLARIZE1(0.4) 1"),
+        # Parsing splits single-qubit noise; inactive targets do not suppress live ones.
+        ("DEPOLARIZE1(0.4) 0 1 2", "DEPOLARIZE1(0.4) 1 2"),
         ("PAULI_CHANNEL_1(0.1,0.2,0.3) 1", "PAULI_CHANNEL_1(0.1,0.2,0.3) 1"),
         ("DEPOLARIZE2(0.7) 0 1", ""),
         ("DEPOLARIZE3(0.7) 0 1 2", ""),

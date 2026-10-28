@@ -58,6 +58,29 @@ TEST_CASE("Packed Bernoulli events have the independent joint law") {
           8 * std::sqrt(both * (1 - both) / pair_trials) + 2 / pair_trials);
 }
 
+TEST_CASE("Sparse Bernoulli events retain their rate on eligible lanes") {
+    const double probability = GENERATE(0.001, 0.02);
+    const PreparedBernoulli distribution(probability);
+    REQUIRE(distribution.inverse_hazard() > 0.0);
+    Xoshiro256PlusPlus rng(93);
+    const std::array<uint64_t, 2> eligible{0x5555555555555555ULL, 1};
+    std::array<uint64_t, 2> result{};
+    constexpr uint32_t batches = 16384;
+    uint64_t total = 0, outside = 0;
+    for (uint32_t batch = 0; batch < batches; ++batch) {
+        sample_bernoulli_bits(distribution, eligible, result, 65, rng);
+        for (size_t word = 0; word < result.size(); ++word) {
+            total += std::popcount(result[word]);
+            outside |= result[word] & ~eligible[word];
+        }
+    }
+    CHECK(outside == 0);
+    // Thinning must retain probability p per eligible lane, including across gaps.
+    const double trials = batches * double(std::popcount(eligible[0]) + std::popcount(eligible[1]));
+    CHECK(std::abs(total / trials - probability) <
+          7 * std::sqrt(probability * (1 - probability) / trials) + 1 / trials);
+}
+
 TEST_CASE("Packed Bernoulli rejects invalid prepared probabilities") {
     for (double probability : {-0.1, 1.1, std::numeric_limits<double>::infinity(),
                                std::numeric_limits<double>::quiet_NaN()}) {
