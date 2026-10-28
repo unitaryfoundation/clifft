@@ -1,6 +1,7 @@
 """Validate circuit text at public Python entry points before execution."""
 
 import numpy as np
+import numpy.typing as npt
 import pytest
 import stim
 
@@ -350,6 +351,42 @@ def test_valid_boundaries_sample_noncomp_like_stim(
     source = clifft.parse(text) if parsed else text
     result = noncomp_sampling_api(source, noncomp.Model(), shots=32, seed=3)
     np.testing.assert_array_equal(result.measurements, expected)
+
+
+# Folded sequentially in double arithmetic, this exhaustive chain's channel
+# probabilities sum one ulp above one. Exactly one branch fires per shot.
+ROUNDING_CHAIN = (
+    "E(0.08) X0\n" "ELSE_CORRELATED_ERROR(0.45) Z0\n" "ELSE_CORRELATED_ERROR(1) X1\n" "M 0 1"
+)
+ROUNDING_CHAIN_SHOTS = 1024
+
+
+def _check_rounding_chain_rows(measurements: npt.ArrayLike) -> None:
+    rows = np.asarray(measurements, dtype=np.uint8)
+    assert rows.shape == (ROUNDING_CHAIN_SHOTS, 2)
+    # At most one branch fires, so the two flips never coincide.
+    assert not np.any(rows[:, 0] & rows[:, 1])
+    for column, probability in ((0, 0.08), (1, 0.92 * 0.55)):
+        tolerance = 6.0 * np.sqrt(probability * (1.0 - probability) / ROUNDING_CHAIN_SHOTS)
+        assert abs(rows[:, column].mean() - probability) <= tolerance
+
+
+def test_rounding_chain_samples(sampling_mode):
+    program = sampling_mode.compile(ROUNDING_CHAIN)
+    result = sampling_mode.sample(program, shots=ROUNDING_CHAIN_SHOTS, seed=3)
+    _check_rounding_chain_rows(result.measurements)
+
+
+@pytest.mark.parametrize("execution", ["trajectory", "fixed"])
+def test_rounding_chain_samples_noncomp(execution, noncomp_sampling_api):
+    result = noncomp_sampling_api(
+        ROUNDING_CHAIN,
+        noncomp.Model(),
+        shots=ROUNDING_CHAIN_SHOTS,
+        seed=3,
+        execution=execution,
+    )
+    _check_rounding_chain_rows(result.measurements)
 
 
 @pytest.fixture(params=[0, 1])
