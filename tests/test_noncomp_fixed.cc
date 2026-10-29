@@ -52,6 +52,14 @@ void same(const NonComputationalSample& a, const NonComputationalSample& b) {
 
 }  // namespace
 
+TEST_CASE("Fixed sampling rejects zero batch capacity through shared policy validation") {
+    const auto program = fixed("LOSS(0.1) 0\nM 0", model());
+    for (uint32_t shots : {0, 65}) {
+        REQUIRE_THROWS_WITH(program.sample(shots, 42, 1, 0),
+                            Catch::Matchers::ContainsSubstring("batch_size must be a positive"));
+    }
+}
+
 TEST_CASE("Fixed peephole fusion preserves externally selected noise and readout branches") {
     const auto circuit = parse(
         "H 0\nT 0\nT 0\nX_ERROR(1) 0\nS_DAG 0\nH 0\nMR 0\n"

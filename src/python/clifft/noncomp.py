@@ -501,6 +501,9 @@ class NonComputationalProgram:
         ``"tune"`` calibrates fixed execution before each call, using a soft
         ``tuning_budget_seconds`` deadline (default 0.25 seconds). Probes include
         classical inputs, worker setup, quantum execution, and output generation.
+        Workers are constructed once per candidate and reused across probes.
+        Selection estimates setup and first-use costs once, plus execution time
+        for ``shots``; report throughput excludes separately recorded setup.
         Their shots and randomness are separate from the returned production rows.
         Trajectory programs reject tuning, including for zero shots. Zero shots
         and a zero budget run no probes; a zero budget uses the auto policy.

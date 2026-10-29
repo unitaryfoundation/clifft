@@ -5,6 +5,7 @@
 #include "clifft/util/shot_seed.h"
 
 #include <algorithm>
+#include <cassert>
 #include <cstdint>
 #include <optional>
 #include <span>
@@ -29,11 +30,15 @@ void validate_batch_tuning_options(std::optional<uint32_t> batch_size,
 
 // The clock and probe factory are injected so budget and selection behavior can
 // be tested without depending on machine load or the speed of a particular CPU.
+// production_shots amortizes setup and first use over one call when choosing a
+// capacity. Unset preserves throughput-only selection for ordinary sampling.
 template <typename Now, typename MakeProbe>
 BatchTuningReport sweep_batch_candidates(std::span<const BatchTuningCandidate> candidates,
                                          BatchExecutionPolicy baseline, uint32_t intra_shot_workers,
                                          double budget_seconds, const SeedRoot& calibration_root,
-                                         Now&& now, MakeProbe&& make_probe) {
+                                         Now&& now, MakeProbe&& make_probe,
+                                         std::optional<uint32_t> production_shots = std::nullopt) {
+    assert(!production_shots || *production_shots > 0);
     const double start = now();
     BatchTuningReport report;
     report.batch_size = baseline.lane_capacity;
@@ -42,7 +47,7 @@ BatchTuningReport sweep_batch_candidates(std::span<const BatchTuningCandidate> c
     report.intra_shot_workers = intra_shot_workers;
     report.stop_reason = "completed";
     report.trials.reserve(candidates.size());
-    double best_rate = 0;
+    double best_selection_rate = 0;
     double best_packed_rate_per_worker = 0;
     uint32_t smallest_measured_packed_capacity = 0;
     size_t measured_candidates = 0;
@@ -117,8 +122,18 @@ BatchTuningReport sweep_batch_candidates(std::span<const BatchTuningCandidate> c
                         ? trial.batch_size
                         : std::min(smallest_measured_packed_capacity, trial.batch_size);
             }
-            if (rate > best_rate) {
-                best_rate = rate;
+            // Preallocated buffers can incur page faults on their first use.
+            // Charge this excess once, not once per chunk or once per shot.
+            const double first_use_seconds =
+                trial.used_warmup()
+                    ? 0.0
+                    : std::max(0.0, trial.warmup_seconds - trial.warmup_shots / rate);
+            const double selection_rate =
+                production_shots ? *production_shots / (trial.setup_seconds + first_use_seconds +
+                                                        *production_shots / rate)
+                                 : rate;
+            if (selection_rate > best_selection_rate) {
+                best_selection_rate = selection_rate;
                 report.batch_size = trial.batch_size;
                 report.shot_workers = trial.shot_workers;
             }

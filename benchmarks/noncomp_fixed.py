@@ -23,6 +23,14 @@ import clifft
 from clifft import noncomp
 
 
+def estimated_call_seconds(trial, shots):
+    rate = trial.shots_per_second
+    if rate <= 0:
+        return None
+    first_use = 0 if trial.used_warmup else max(0, trial.warmup_seconds - trial.warmup_shots / rate)
+    return trial.setup_seconds + first_use + shots / rate
+
+
 def circuit_text(
     distance,
     rounds,
@@ -202,6 +210,20 @@ def main():
                             "trial_shots": report.trial_shots,
                             "stop_reason": report.stop_reason,
                             "sufficient_measurements": report.sufficient_measurements,
+                            "trials": [
+                                {
+                                    "batch_size": trial.batch_size,
+                                    "shot_workers": trial.shot_workers,
+                                    "setup_seconds": trial.setup_seconds,
+                                    "warmup_seconds": trial.warmup_seconds,
+                                    "warmup_shots": trial.warmup_shots,
+                                    "shots_per_second": trial.shots_per_second,
+                                    "estimated_call_seconds": estimated_call_seconds(
+                                        trial, args.shots
+                                    ),
+                                }
+                                for trial in report.trials
+                            ],
                         }
                     )
         medians = {name: statistics.median(values) for name, values in times.items()}

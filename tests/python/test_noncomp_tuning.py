@@ -37,6 +37,12 @@ def same_rows(left, right):
         np.testing.assert_array_equal(getattr(left, field), getattr(right, field), err_msg=field)
 
 
+def estimated_call_seconds(trial, shots):
+    rate = trial.shots_per_second
+    first_use = 0 if trial.used_warmup else max(0, trial.warmup_seconds - trial.warmup_shots / rate)
+    return trial.setup_seconds + first_use + shots / rate
+
+
 @pytest.mark.parametrize("dynamic", [False, True])
 @pytest.mark.parametrize("final_status", [False, True])
 @pytest.mark.parametrize("threads", [1, 3])
@@ -59,6 +65,11 @@ def test_tuning_replays_all_production_outputs_at_the_selected_capacity(
     assert report.trial_shots == sum(t.shots + t.warmup_shots for t in report.trials)
     assert report.batch_size == result.stats.batch_size
     assert report.batch_size in {1, 64, 256, 1024, 2048}
+    if report.sufficient_measurements:
+        measured = [trial for trial in report.trials if trial.shots_per_second > 0]
+        best = min(measured, key=lambda trial: estimated_call_seconds(trial, 4097))
+        assert report.batch_size == best.batch_size
+        assert report.shot_workers == best.shot_workers
     assert result.stats.fixed_shots == 4097
     assert result.stats.scalar_shots + result.stats.packed_shots == 4097
     assert result.stats.packed_classical_shots == (result.stats.packed_shots if dynamic else 0)

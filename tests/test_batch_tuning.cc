@@ -11,6 +11,7 @@
 #include <array>
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/generators/catch_generators.hpp>
 #include <set>
 
 using namespace clifft::sampling;
@@ -85,6 +86,45 @@ TEST_CASE("Batch tuning reports budget exhaustion when only the baseline can be 
     REQUIRE(report.trials.front().shots_per_second() > 0);
     REQUIRE_FALSE(report.sufficient_measurements);
     REQUIRE(report.stop_reason == "budget_exhausted");
+}
+
+TEST_CASE("Batch tuning amortizes setup over the requested production call") {
+    const bool first_use = GENERATE(false, true);
+    const std::array<BatchTuningCandidate, 2> candidates{{{{1, 1}, 1, 4096}, {{64, 1}, 64, 4096}}};
+    for (const auto production_shots :
+         {std::optional<uint32_t>{}, std::optional<uint32_t>{65}, std::optional<uint32_t>{10000}}) {
+        CAPTURE(production_shots.value_or(0));
+        double clock = 0;
+        std::array<uint32_t, 2> constructions{};
+        uint32_t largest_packed_probe = 0;
+        const auto report = sweep_batch_candidates(
+            candidates, candidates.front().policy, 1, 0.25, clifft::seed_root_from_seed(42),
+            [&] { return clock; },
+            [&](BatchExecutionPolicy policy) {
+                const bool packed = policy.lane_capacity > 1;
+                ++constructions[packed];
+                clock += packed && !first_use ? 0.02 : 0.0001;
+                return [&, packed, first = true](uint32_t shots, uint64_t) mutable {
+                    if (packed && first && first_use) {
+                        clock += 0.02;
+                    }
+                    first = false;
+                    if (packed) {
+                        largest_packed_probe = std::max(largest_packed_probe, shots);
+                    }
+                    // Even one packed batch exceeds the chunk-growth threshold.
+                    // Its one-time setup must still amortize over production.
+                    clock += shots / (packed ? 32000.0 : 10000.0);
+                };
+            },
+            production_shots);
+        REQUIRE(report.sufficient_measurements);
+        REQUIRE(report.batch_size == (production_shots == 65 ? 1 : 64));
+        REQUIRE(constructions == std::array<uint32_t, 2>{1, 1});
+        REQUIRE(largest_packed_probe == 64);
+        REQUIRE(report.trials.back().setup_seconds == Catch::Approx(first_use ? 0.0001 : 0.02));
+        REQUIRE(report.trials.back().shots_per_second() == Catch::Approx(32000));
+    }
 }
 
 TEST_CASE("Batch tuning can compare first probes without steady state measurements") {

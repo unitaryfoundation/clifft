@@ -470,6 +470,16 @@ next_result = program.sample(10000, seed=43, batch_size=result.batch_tuning.batc
 Calibration has a soft time budget, defaulting to 0.25 seconds; an individual
 probe can overrun it. The returned `clifft.BatchTuningReport` records the selected
 capacity, timings, and discarded trial shots even without `collect_stats=True`.
+Each candidate constructs workers once, recorded in `trial.setup_seconds`, then
+reuses them across probes. `trial.shots_per_second` excludes that setup but
+includes classical input generation, quantum execution, and result allocation
+and copying. Selection estimates call time by adding setup to
+`requested_shots / shots_per_second`, plus any first-probe cost above steady
+throughput. This charges construction and first-use costs, such as touching
+preallocated pages, once for the requested workload. If only the first probe
+was measured, its throughput is used without adding a first-use surcharge.
+Ordinary CPU tuning continues to select by throughput alone.
+
 Candidate workers obey the shared memory budgets, including packed classical
 storage, and probe output storage is bounded, including heralds and requested
 final statuses. A zero budget uses auto without probes; zero shots also skip
