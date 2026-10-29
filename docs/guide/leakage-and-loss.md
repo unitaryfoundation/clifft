@@ -442,28 +442,36 @@ there is no cross-call cache.
 | `execution="trajectory"` | Force the general trajectory driver. |
 | `final_status=False` | Omit detailed status; `result.final_status` is `None`. |
 | `final_status=True` | Return existing `QubitStatus` values; unresolved leaked labels can require trajectories. |
-| `batch_size="auto"` | Use shared batching heuristics for fixed execution, scalar execution for trajectories. |
-| `batch_size="tune"` | Calibrate fixed execution for this call; reject if the selected strategy is trajectory. |
-| `batch_size=1` | Use scalar execution, including a compile-once fixed plan when eligible. |
-| `batch_size=N`, N > 1 | Request packing under existing capacity limits; reject if the selected strategy is trajectory. |
+| `batch_size="auto"` | Choose a batch size automatically; trajectories run one shot at a time. |
+| `batch_size="tune"` | Try several batch sizes to find a faster setting. Available only for fixed execution. |
+| `batch_size=1` | Process shots individually. Fixed execution still reuses its compiled program. |
+| `batch_size=N`, N > 1 | Request up to N shots per batch. Available only for fixed execution. |
 
 Strategy and final-status requirements are fixed by `compile`; batch size and
 cross-shot `threads` are sampling options. The default remains one worker.
 Survivor/importance sampling and custom pass managers are not supported by
 this API.
 
+Leave `batch_size="auto"` for normal use. Clifft chooses whether to process shots
+individually or in batches based on your circuit, shot count, and memory needs,
+without spending time on trial runs. For repeated sampling of the same circuit,
+`batch_size="tune"` can help find a faster setting, as shown below.
+
+Changing the batch size can change individual samples, even with the same seed.
+With the same program, seed, shot count, and batch size, changing `threads`
+does not change the results.
+
 ### Tuning batch size
 
-For fixed execution, `batch_size="tune"` measures several capacities before
-sampling. It times the complete sampling work, including classical inputs,
-worker setup, quantum execution, and output generation. This can find useful
-packed configurations beyond the conservative active-width cutoff in `"auto"`.
-The default auto policy and fixed-execution eligibility are unchanged.
+For fixed execution, `batch_size="tune"` tries several batch sizes and chooses
+one based on the estimated time to produce your requested samples. Tuning adds
+time to the call, so reuse the chosen batch size on later calls to benefit
+without repeating the trials:
 
 <!--pytest-codeblocks:cont-->
 ```python
 result = program.sample(10000, seed=42, batch_size="tune", tuning_budget_seconds=0.25)
-# Reuse the selected capacity without paying for another calibration.
+# Reuse the chosen batch size without repeating the trials.
 next_result = program.sample(10000, seed=43, batch_size=result.batch_tuning.batch_size)
 ```
 

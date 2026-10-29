@@ -563,7 +563,7 @@ def test_fixed_automatic_batch_policy_reports_executed_work(dynamic, shots):
         assert (parallel.stats["packed_worker_bytes"] > 0) == (expected_capacity > 1)
 
 
-def test_fixed_automatic_batching_falls_back_for_wider_non_clifford_states():
+def test_fixed_automatic_batching_retains_scalar_with_little_classical_work():
     text = "H 0 1 2 3 4 5\nT 0 1 2 3 4 5\nLOSS(0.3) 6\nH 0 1 2 3 4 5\nM 0 1 2 3 4 5 6"
     model = noncomp.Model(classifier=noncomp.Classifier(CLASSIFIER))
     program = prepare(text, model, final_status=True)
