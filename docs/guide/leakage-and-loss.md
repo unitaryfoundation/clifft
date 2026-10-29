@@ -456,8 +456,8 @@ checks are:
 
 A few other operations also require trajectories when a target can be
 noncomputational, such as multi-qubit Pauli-product gates (`SPP`, `TPP`,
-`R_PAULI`) and multi-target resets (`R 0 1`) when `reset_restores_lost=False`.
-Call `program.explain()` to see the selected strategy and any fallback reason.
+`R_PAULI`). Call `program.explain()` to see the selected strategy and any
+fallback reason.
 
 !!! tip "Why two-qubit gates need full partner depolarization for fixed execution"
     Fixed execution keeps two-qubit gates in the compiled quantum circuit even
