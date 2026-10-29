@@ -74,7 +74,7 @@ struct FixedNonComputationalData;
 
 class FixedNonComputationalProgram {
   public:
-    // Unset batch_size uses the shared automatic policy; one forces scalar.
+    // Unset batch_size accounts for quantum and classical work; one forces scalar.
     // A tuning budget calibrates instead and requires batch_size to be unset.
     FixedNonComputationalResult sample(
         uint32_t shots, std::optional<uint64_t> seed = std::nullopt, uint32_t threads = 1,

@@ -601,6 +601,34 @@ void sample_fixed_leakage_surface(benchmark::State& state) {
 }
 
 BENCHMARK(sample_fixed_leakage_surface)->Name("sample_fixed_leakage_surface_d7_2048_shots");
+
+// Protect automatic selection where packed classical work repays a wider
+// non-Clifford state. Older policies execute the same workload scalarly.
+void sample_fixed_nonclifford_auto(benchmark::State& state) {
+    const auto circuit = parse(
+        "H 0 1 2 3 4 5\nT 0 1 2 3 4 5\nLOSS(0.001) 6\n"
+        "REPEAT 256 {\nX_ERROR(0.001) 6\nM 6\n}\n"
+        "H 0 1 2 3 4 5\nM 0 1 2 3 4 5");
+    const auto model = NonComputationalModel::from_spec(
+        {1, 0, 0, 0, 0}, {}, {{{1, 0, 0.5, 0.5, 0.5}, {0, 1, 0.5, 0.5, 0.5}}}, {}, {}, {});
+    const NonComputationalProgram program(circuit, model);
+    constexpr uint32_t shots = 2048;
+    const auto warmup = program.sample(shots, 831, 1, std::nullopt, true);
+    if (program.strategy() != NonComputationalExecution::Fixed || !warmup.stats ||
+        warmup.stats->peak_active_width != 6) {
+        state.SkipWithError("non-Clifford benchmark did not retain the expected fixed plan");
+        return;
+    }
+    state.counters["batch_size"] = warmup.stats->batch_size;
+    state.counters["active_width"] = *warmup.stats->peak_active_width;
+    for ([[maybe_unused]] auto _ : state) {
+        auto result = program.sample(shots, 831);
+        benchmark::DoNotOptimize(result);
+    }
+    state.SetItemsProcessed(state.iterations() * shots);
+}
+
+BENCHMARK(sample_fixed_nonclifford_auto)->Name("sample_fixed_nonclifford_auto_2048_shots");
 #endif
 
 BENCHMARK(squeeze_parallel_t)->Name("squeeze_parallel_t_8192");

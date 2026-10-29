@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <array>
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/generators/catch_generators.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 #include <cstdint>
@@ -569,6 +570,68 @@ TEST_CASE("Packed capacity policy bounds worker state footprint") {
                                            BatchSamplingMode::Ordinary,
                                            clifft::sampling::kDefaultBatchWorkerBudget)
                 .lane_capacity == 1);
+}
+
+TEST_CASE("External input work can justify wider automatic packing") {
+    const uint32_t width = GENERATE(5, 6, 8, 9);
+    SamplingPlan source;
+    source.num_qubits = width;
+    source.initial_active_width = width;
+    source.peak_active_width = width;
+    source.num_exp_vals = 200;
+    for (uint32_t probe = 0; probe < source.num_exp_vals; ++probe) {
+        source.actions.push_back(
+            PlannedAction{width, width,
+                          WriteExpectationValue{ActiveExpectation{ActivePauli{1, 0}, AffineBool{}},
+                                                ExpValSlot{probe}}});
+    }
+    const ExecutablePlan sustained(source);
+    const auto capacity = [&](BatchSamplingMode mode, uint64_t inputs) {
+        return resolve_batch_execution_policy(sustained, 4097, 1, 1, BatchOutputMode::Rows,
+                                              std::nullopt, mode, 0, 0, inputs)
+            .lane_capacity;
+    };
+    CHECK(capacity(BatchSamplingMode::Ordinary, 100000) == 1);
+    CHECK(capacity(BatchSamplingMode::FixedFaults, 100000) == 1);
+    CHECK(capacity(BatchSamplingMode::ExternalInputs, 0) == 1);
+    CHECK(capacity(BatchSamplingMode::ExternalInputs, 1) == 1);
+    CHECK((capacity(BatchSamplingMode::ExternalInputs, 100000) > 1) == (width <= 8));
+
+    source.num_detectors = 1;
+    source.actions.push_back(
+        PlannedAction{width, width, WriteDetector{RecordParity{}, DetectorSlot{0}, true}});
+    const ExecutablePlan postselected(source);
+    CHECK(resolve_batch_execution_policy(postselected, 4097, 1, 1, BatchOutputMode::Rows,
+                                         std::nullopt, BatchSamplingMode::ExternalInputs, 0, 0,
+                                         100000)
+              .lane_capacity == 1);
+}
+
+TEST_CASE("Wider automatic external packing retains shot and memory limits") {
+    const ExecutablePlan plan(clifft::sampling::plan_sampling(clifft::trace(
+        clifft::parse("H 0 1 2 3 4 5\nT 0 1 2 3 4 5\nH 0 1 2 3 4 5\nM 0 1 2 3 4 5"))));
+    REQUIRE(plan.peak_active_width() == 6);
+    const auto resolve = [&](uint32_t shots, uint32_t workers, uint64_t columns,
+                             std::optional<uint32_t> requested = std::nullopt) {
+        return resolve_batch_execution_policy(plan, shots, workers, 1, BatchOutputMode::Rows,
+                                              requested, BatchSamplingMode::ExternalInputs, 0,
+                                              columns, 10000);
+    };
+    for (uint32_t shots : {0, 1, 63}) {
+        CHECK(resolve(shots, 3, 0).lane_capacity == 1);
+    }
+    for (uint32_t shots : {64, 65, 129, 4097}) {
+        const auto serial = resolve(shots, 1, 0);
+        const auto parallel = resolve(shots, 16, 0);
+        REQUIRE(serial.lane_capacity >= 64);
+        CHECK(serial.lane_capacity <= shots);
+        CHECK(parallel.lane_capacity == serial.lane_capacity);
+    }
+    // Page-rounded classical scratch is live alongside the quantum buffers.
+    CHECK(resolve(4097, 16, 200000).lane_capacity < resolve(4097, 16, 0).lane_capacity);
+    CHECK(resolve(4097, 16, 2000000).lane_capacity == 1);
+    CHECK(resolve(4097, 16, 0, 1).lane_capacity == 1);
+    CHECK(resolve(4097, 16, 0, 65).lane_capacity == 65);
 }
 
 TEST_CASE("Postselected automatic capacity preserves request boundaries across worker budgets") {

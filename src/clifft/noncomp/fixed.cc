@@ -833,7 +833,7 @@ FixedNonComputationalResult FixedNonComputationalProgram::sample(
     const uint32_t shot_workers = resolve_shot_worker_count(shots, threads);
     auto policy = sampling::resolve_batch_execution_policy(
         *data.plan, shots, shot_workers, 1, sampling::BatchOutputMode::Rows, batch_size,
-        sampling_mode(data), 0, classical_bit_columns(data));
+        sampling_mode(data), 0, classical_bit_columns(data), data.inputs.size());
     if (policy.lane_capacity == 1) {
         policy.worker_count = shot_workers;
     }

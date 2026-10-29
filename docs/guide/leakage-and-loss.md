@@ -442,7 +442,7 @@ there is no cross-call cache.
 | `execution="trajectory"` | Force the general trajectory driver. |
 | `final_status=False` | Omit detailed status; `result.final_status` is `None`. |
 | `final_status=True` | Return existing `QubitStatus` values; unresolved leaked labels can require trajectories. |
-| `batch_size="auto"` | Use shared batching heuristics for fixed execution, scalar execution for trajectories. |
+| `batch_size="auto"` | Choose fixed batching from quantum/classical work and memory limits; use scalar execution for trajectories. |
 | `batch_size="tune"` | Calibrate fixed execution for this call; reject if the selected strategy is trajectory. |
 | `batch_size=1` | Use scalar execution, including a compile-once fixed plan when eligible. |
 | `batch_size=N`, N > 1 | Request packing under existing capacity limits; reject if the selected strategy is trajectory. |
@@ -452,13 +452,23 @@ cross-shot `threads` are sampling options. The default remains one worker.
 Survivor/importance sampling and custom pass managers are not supported by
 this API.
 
+Automatic batching uses compiled work estimates and performs no timing probes.
+For fixed plans with dynamic classical inputs, it can select packing through
+active width eight when quantum work is small relative to the per-shot input
+walk. Sustained quantum work, wider states, requests below 64 shots, or memory
+limits can retain scalar execution. Static-input plans use the ordinary batching
+policy. These are conservative performance heuristics; explicit capacities and
+tuning can find useful packing outside the automatic range. Changing capacity
+can change seeded rows; the same configuration remains reproducible across
+worker counts.
+
 ### Tuning batch size
 
 For fixed execution, `batch_size="tune"` measures several capacities before
 sampling. It times the complete sampling work, including classical inputs,
 worker setup, quantum execution, and output generation. This can find useful
-packed configurations beyond the conservative active-width cutoff in `"auto"`.
-The default auto policy and fixed-execution eligibility are unchanged.
+packed configurations beyond the conservative workload limits in `"auto"`.
+Tuning does not change fixed-execution eligibility.
 
 <!--pytest-codeblocks:cont-->
 ```python
