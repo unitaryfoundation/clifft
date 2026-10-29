@@ -21,6 +21,9 @@ namespace {
 #if !defined(__EMSCRIPTEN__)
 // Admission limits for classical-heavy fixed workloads, not a prediction of
 // kernel timing. Wider or sustained quantum work still needs explicit tuning.
+// The factor was validated with an unweighted scalar input-step count, including
+// resets and explicit status probes but excluding final-status output writes.
+// Retuning must account for the workload's mix of cheap and expensive steps.
 constexpr uint32_t kMaxExternalInputBatchWidth = 8;
 constexpr uint64_t kMaxBatchLaneWorkPerExternalInput = 16;
 
