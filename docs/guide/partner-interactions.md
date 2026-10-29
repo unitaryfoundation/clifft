@@ -1,39 +1,41 @@
 # Partner Effects from Leakage and Loss
 
-When a physical gate encounters a leaked or lost operand, Clifft drops the
-gate. By default, its computational partner is unchanged. Some effective noise
-models instead assign a residual disturbance to that partner: control pulses
-can still affect it even though the intended two-qubit operation cannot act.
+When a two-qubit gate touches a leaked or lost qubit, Clifft skips the gate. By
+default, a computational partner qubit is left untouched. On real hardware,
+however, the drive pulses for that gate can still disturb the computational
+partner or cause it to leak as well.
 
-Configure those residual effects with `noncomp.PartnerEffect`. It combines a
-single-qubit Pauli channel with an optional leakage attempt on the partner.
-The original noncomputational operand retains its status. Leakage spreading
-can affect later gates and measurements in the same shot.
+`noncomp.PartnerEffect` models this disturbance as single-qubit Pauli noise and
+optional leakage spreading on the computational partner. The originally leaked
+or lost qubit keeps its status, while any spread leakage persists and can affect
+later gates and measurements in the same shot.
 
-Start with the [Leakage and Loss guide](leakage-and-loss.md) for the five-level
-model, classifiers, and sampling results.
+Start with [Leakage and Loss](leakage-and-loss.md) for the five-level model,
+classifiers, and sampling API.
 
 ## Choose where effects apply
 
 | Need | Configuration |
 |------|---------------|
 | The same effect across physical two-qubit gates | `Model(gate_partner_effects={...})` |
-| A different effect for one gate type and direction | `Model(interactions=[InteractionRule(...)])` |
-| An effect at an individual circuit position | `LEAKAGE_INTERACTION(...)` or `LOSS_INTERACTION(...)` |
+| A different effect for a specific gate or operand direction | `Model(interactions=[InteractionRule(...)])` |
+| An effect at an individual circuit line | `LEAKAGE_INTERACTION(...)` or `LOSS_INTERACTION(...)` |
 
-Model settings expand into conditional circuit annotations. Explicit
-annotations execute at their own positions and compose with generated ones.
-They do not override or suppress another instruction.
+`gate_partner_effects` and `interactions` attach automatically to physical
+two-qubit gates in the circuit. `LEAKAGE_INTERACTION` and `LOSS_INTERACTION` are
+explicit circuit instructions that run where you place them, in addition to any
+model-configured gate effects.
 
 ## Model-wide defaults
 
-Defaults are keyed by `"leaked"` or `"lost"`. `"leaked"` matches either
-`LEAK_G` or `LEAK_E`. Each configured default applies in both operand
-directions, provided the partner is computational. An omitted status has no
-partner effect.
+Pass `gate_partner_effects` to `noncomp.Model` with keys `"leaked"` (matching
+either `LEAK_G` or `LEAK_E`) and/or `"lost"`. Each default applies regardless of
+whether the leaked or lost qubit is the first or second operand of a two-qubit
+gate, whenever the other operand is computational. Omitted keys leave the
+partner unchanged.
 
-This model fully depolarizes the computational partner of a leaked operand.
-It leaves loss interactions at the default drop behavior:
+This example fully depolarizes the computational partner whenever a two-qubit
+gate touches a leaked qubit, while leaving lost-qubit encounters as no-ops:
 
 ```python
 from clifft import noncomp
@@ -52,47 +54,43 @@ assert (result.final_status[:, 0] == noncomp.QubitStatus.LEAK_G).all()
 assert (result.final_status[:, 1] == noncomp.QubitStatus.COMPUTATIONAL).all()
 ```
 
-The classifier is required because this circuit can leak and measures a
-physical qubit. Interaction annotations themselves add no measurement slots
-and need no classifier. Existing status probes can observe spreading without
-a classifier.
+Full partner depolarization (`pauli=(0.25, 0.25, 0.25)` with
+`spread_probability=0`) is also required on two-qubit gates that can encounter a
+leaked or lost qubit if you want Clifft's compile-once
+[fixed execution](leakage-and-loss.md#fixed-execution-vs-trajectories) strategy.
 
 ### Probability conventions
 
-`PartnerEffect` accepts keyword arguments:
+`PartnerEffect` takes two optional keyword arguments:
 
 | Argument | Meaning | Default |
 |----------|---------|---------|
-| `pauli=(px, py, pz)` | Mutually exclusive X, Y, and Z probabilities on the partner | `(0, 0, 0)` |
-| `spread_probability=p` | Probability of leaking the partner after the Pauli channel | `0` |
+| `pauli=(px, py, pz)` | Mutually exclusive X, Y, and Z error probabilities on the partner | `(0, 0, 0)` |
+| `spread_probability=p` | Probability that the partner leaks after the Pauli step | `0` |
 
-The identity probability is `1 - px - py - pz`. All probabilities must be
-finite and in `[0, 1]`, and the three Pauli probabilities must sum to at most
-one. The spreading probability is separate from this sum: a shot can undergo
-both a Pauli error and a leakage event.
+`px + py + pz` must be at most `1`, leaving `1 - px - py - pz` as the no-error
+probability. `spread_probability` is an independent draw in `[0, 1]` applied
+after the Pauli channel, so a partner can receive a Pauli error and then leak on
+the same gate.
 
-Full depolarization has equal I, X, Y, and Z probabilities, so use
-`pauli=(0.25, 0.25, 0.25)`. In Stim's `DEPOLARIZE1(p)` convention this is
-`p=0.75`; `p=1` always chooses a nonidentity Pauli and is a different channel.
-More generally, `DEPOLARIZE1(p)` corresponds to `pauli=(p/3, p/3, p/3)`.
+For full single-qubit depolarization (equal I, X, Y, and Z probabilities), pass
+`pauli=(0.25, 0.25, 0.25)`. In Stim's `DEPOLARIZE1(p)` parameterization that
+corresponds to `p=0.75` (more generally, `DEPOLARIZE1(p)` corresponds to
+`pauli=(p/3, p/3, p/3)`).
 
-Spreading uses the existing source-preserving `LEAKAGE(p)` channel on the
-partner: `g -> leak_g` and `e -> leak_e`. These are the partner's levels
-after its Pauli channel, not a copy of the original leaked operand's level.
-The original leaked operand stays leaked. The leakage event applies the
-quantum jump's collapse to any entangled partners as usual.
-
-Spreading is supported only for a leaked source. A lost-source effect with a
-nonzero `spread_probability` is rejected. `PartnerEffect()` is a zero effect;
-omitting configuration or specifying zero effects preserves default seeded
-results.
+Leakage spreading applies the same `g -> leak_g`, `e -> leak_e` jump as
+`LEAKAGE(p)`, evaluated on the partner's state *after* the Pauli channel rather
+than copying the source qubit's leaked level. The source qubit remains leaked,
+and only `"leaked"` effects support `spread_probability > 0` (`"lost"` effects
+with nonzero spreading raise `ValueError`).
 
 ## Specific rules replace defaults
 
-`InteractionRule` selects a gate type, the source's operand position, and its
-status. Its `effect` replaces the **entire** matching default. It does not
-inherit omitted components from that default. A zero effect disables the
-default for that particular gate, direction, and status.
+Use `InteractionRule` when a particular gate or operand direction behaves
+differently from `gate_partner_effects`. A matching rule **replaces** the
+model-wide default for that `(gate, source_operand, source_status)` combination
+rather than merging fields, so `effect=PartnerEffect()` disables the default for
+that case:
 
 ```python
 from clifft import noncomp
@@ -120,53 +118,55 @@ model = noncomp.Model(
 )
 ```
 
-For `CX 2 5`, the first rule applies when qubit 2 is leaked and qubit 5 is
-computational. The second applies when qubit 5 is leaked and qubit 2 is
-computational. `source_operand` is a position within each ordered pair,
-either 0 or 1; it is not a physical qubit ID. The same convention applies to
-symmetric gates such as `CZ`.
+`source_operand` is the operand index within each two-qubit pair (`0` for the
+first qubit, `1` for the second), not a qubit ID. On `CX 2 5`,
+`source_operand=0` matches when control qubit `2` is leaked and target qubit `5`
+is computational; `source_operand=1` matches the reverse. Symmetric gates such
+as `CZ` use the same written operand order (`0` and `1`).
 
-Gate aliases are canonicalized. Two rules for `CX` and `CNOT` with the same
-direction and status conflict and are rejected. Different directions or
-statuses are independent. `PartnerEffect` and `InteractionRule` are immutable,
-and `Model` copies the supplied configuration when constructed.
+Gate aliases share rules: `"CX"` and `"CNOT"` refer to the same gate, so
+defining rules for both with the same `source_operand` and `source_status`
+raises `ValueError`.
 
 ### Supported gates
 
-Defaults and rules apply to native two-qubit unitary gates, including
-`CX`, `CY`, `CZ`, swap gates, square-root Pauli-pair gates, and the
-parameterized `R_XX`, `R_YY`, and `R_ZZ` rotations. A rule for a rotation
-applies to every angle. Both operands must be physical qubit targets.
+Defaults and rules apply to physical two-qubit unitary gates, including `CX`,
+`CY`, `CZ`, swap gates, square-root Pauli-pair gates, and parameterized
+`R_XX`, `R_YY`, and `R_ZZ` rotations (across all angles).
 
-Noise instructions, measurements, identity no-ops, and record-controlled
-virtual feedback do not trigger effects. Neither do single-qubit gates or
-multi-target Pauli-product gates such as `SPP` and `R_PAULI`, even when a
-particular product contains two qubits.
+They do **not** apply to:
 
-`CH`, `CCX`, and `CCZ` are decomposed during parsing. Their resulting
-constituent gates follow the configured rules; the original names cannot key
-an interaction rule. Consequently, different physical decompositions can
-produce different leakage models. Specify the circuit at the gate level
-appropriate for the modeled hardware.
+- single-qubit gates, measurements, noise instructions, or identity no-ops;
+- classical feedback such as `CX rec[-1] 0` (both operands must be physical
+  qubits);
+- multi-target Pauli-product gates such as `SPP` and `R_PAULI`, even when a
+  product contains two qubits; or
+- composite gates that decompose during parsing (`CH`, `CCX`, `CCZ`). Rules
+  cannot name `CH`, `CCX`, or `CCZ` directly, and instead apply to the
+  elementary two-qubit gates produced by their decomposition. If decomposition
+  choice affects your hardware noise model, write the circuit using the target
+  hardware's native two-qubit gates.
 
-A swap gate touching a noncomputational operand is also dropped, followed by
-any configured partner effect. It does not transport the leaked or lost
-carrier to the other site.
+A swap gate touching a leaked or lost qubit is skipped like any other two-qubit
+gate and then applies any configured partner effect; it does not move the leaked
+or lost state to the other site.
 
 ## Explicit circuit annotations
 
-The circuit instructions expose the same effects at individual positions:
+Use `LEAKAGE_INTERACTION` and `LOSS_INTERACTION` directly in a circuit to apply
+a partner effect at an individual position (with or without a preceding gate):
 
 ```text
 LEAKAGE_INTERACTION(px, py, pz, spread_probability) source partner
 LOSS_INTERACTION(px, py, pz) source partner
 ```
 
-The first executes only when `source` is leaked and `partner` is
-computational; the second requires a lost source and a computational partner.
-All arguments are required. Targets must be distinct plain qubit indices.
-Multiple pairs are processed in written order, so spreading from one pair
-can change a later pair's condition. An annotation need not follow a gate.
+`LEAKAGE_INTERACTION` fires when `source` is leaked and `partner` is
+computational; `LOSS_INTERACTION` fires when `source` is lost and `partner` is
+computational. All probability arguments are required, and each
+`(source, partner)` pair must name two distinct plain qubit indices. Multiple
+pairs on one line run left to right, so leakage spreading in one pair can affect
+a later pair on the same line.
 
 ```python
 from clifft import noncomp
@@ -193,66 +193,56 @@ assert (result.final_status[:, 1] == noncomp.QubitStatus.LEAK_E).all()
 assert (result.final_status[:, 3] == noncomp.QubitStatus.COMPUTATIONAL).all()
 ```
 
-The X error takes qubit 1 from `g` to `e` before the certain leakage event,
-so it ends in `LEAK_E`. Qubit 3 receives an X error but remains computational.
-The two interaction instructions produce no records: the four visible bits
-come from the two status probes and two measurements.
+Here the certain X error flips qubit 1 from `g` to `e` before the certain
+leakage jump, leaving it in `LEAK_E`. Qubit 3 receives an X error and stays
+computational. Interaction instructions append no measurement records (the four
+bits in `result.measurements` come from `HERALD_LEAKAGE_EVENT 0 1` and `M 1 3`).
 
-These annotations require `noncomp.sample`. Ordinary `clifft.compile` rejects
-them, just as it rejects `LEAKAGE` and `LOSS`.
+Standalone `LEAKAGE_INTERACTION` (with `spread_probability=0`) and
+`LOSS_INTERACTION` instructions support arbitrary `(px, py, pz)` probabilities
+in compile-once
+[fixed execution](leakage-and-loss.md#fixed-execution-vs-trajectories). Like
+`LEAKAGE` and `LOSS`, these instructions require `clifft.noncomp`; ordinary
+`clifft.compile` rejects them.
 
 ## Ordering with level-transition hooks
 
-Each physical gate expands in this order:
+Model partner effects check whether an operand was **already** leaked or lost
+entering a two-qubit gate, whereas gate transition hooks
+(`Model(transitions={"CX": ...})`) model leakage or loss **caused by** that
+gate. Around each physical two-qubit gate, Clifft therefore evaluates:
 
-1. The physical gate itself.
-2. Model-generated interaction annotations.
-3. Model-generated `LEVEL_TRANSITION` hooks, in operand order.
-4. The next handwritten circuit instruction.
+1. **The gate or its model partner effect:** if both operands are computational,
+   the gate runs normally; if one operand is leaked or lost and the other is
+   computational, the gate is skipped and the matching partner effect runs
+   (Pauli noise first, then leakage spreading); if both operands are
+   noncomputational, the gate is skipped with no computational partner to
+   disturb.
+2. **Automatic gate transition hooks** (`transitions={"CX": ...}`), in operand
+   order. Hooks still run when the gate was skipped, and see any new leakage
+   caused by step 1.
+3. **Subsequent instructions** written on later lines of the circuit.
 
-If both operands enter computational, the physical gate executes and its
-generated interaction annotations have no effect. If exactly one operand is
-noncomputational, the gate drops and the matching partner effect applies:
-Pauli noise first, then spreading. If both operands are noncomputational,
-there is no computational partner to affect.
+!!! important "Explicit interaction instructions run after a gate's transition hooks"
+    Writing `LEAKAGE_INTERACTION` on the line after `CX 2 5` places it at
+    step 3, **after** any `transitions={"CX": T}` hooks on qubits 2 and 5:
 
-Post-gate transition hooks execute even when the physical gate was dropped.
-They see any status changes caused by spreading. Leakage first introduced by
-those hooks affects subsequent interactions.
+    ```text
+    CX 2 5
+    # automatic LEVEL_TRANSITION[CX] hooks on 2 and 5 run here
+    LEAKAGE_INTERACTION(0.25, 0.25, 0.25, 0) 2 5
+    ```
 
-!!! important "Handwritten annotations see their own circuit position"
-    An explicit annotation immediately below a gate executes **after that
-    gate's automatic level-transition hooks**. It can see leakage that was
-    absent when the physical gate acted. Clifft does not move the annotation
-    ahead of those hooks or attach it implicitly to the gate.
-
-For example, with `transitions={"CX": T}`, this source:
-
-```text
-CX 2 5
-LEAKAGE_INTERACTION(0.25, 0.25, 0.25, 0) 2 5
-```
-
-has the following order after hook expansion, assuming no model partner
-effects were configured:
-
-```text
-CX 2 5
-LEVEL_TRANSITION[CX] 2
-LEVEL_TRANSITION[CX] 5
-LEAKAGE_INTERACTION(0.25, 0.25, 0.25, 0) 2 5
-```
-
-If a hook leaks qubit 2 and leaves qubit 5 computational, the explicit
-interaction depolarizes qubit 5. A model-generated interaction at that same
-gate would have run before the hook and seen both operands computational.
+    That handwritten instruction can react to leakage just created by the `CX`
+    hook, whereas a model-configured `gate_partner_effects` or `InteractionRule`
+    on `CX` runs at step 1 and reacts only to leakage that existed *before*
+    `CX 2 5`.
 
 ### Control transition placement explicitly
 
-For individual positions, give the transition a non-gate name, such as
-`"after_cx"`, and write both annotations in the desired order. The following
-example makes the difference deterministic. Its transition leaks `g` but
-leaves `e` computational:
+When you need explicit control over ordering at a single circuit site, give the
+transition a custom non-gate name (such as `"after_cx"`) and write
+`LEVEL_TRANSITION[after_cx]` and `LEAKAGE_INTERACTION` in the order you want:
 
 ```python
 import numpy as np
@@ -283,51 +273,47 @@ assert noncomp.sample(before, model, shots=16, seed=3).measurements.all()
 assert not noncomp.sample(after, model, shots=16, seed=3).measurements.any()
 ```
 
-In `before`, both operands are computational when the interaction annotation
-runs, so it does nothing. In `after`, qubit 0 has leaked; the annotation flips
-qubit 1 from `e` to `g`. A specific model interaction rule is the convenient
-way to request the before-hook placement for every occurrence of a gate type.
+In `before`, both qubits are still computational when `LEAKAGE_INTERACTION`
+runs, so qubit 1 stays in `1`. In `after`, `LEVEL_TRANSITION[after_cx]` leaks
+qubit 0 first, so `LEAKAGE_INTERACTION` flips qubit 1 to `0`. To get the
+before-transition order automatically across every `CX`, configure
+`gate_partner_effects` or an `InteractionRule` on the model instead.
 
 ### Mixing explicit and generated effects
 
-Explicit instructions always execute as written. A model default or specific
-rule does not disable an explicit annotation, and an explicit annotation does
-not replace a model-generated effect. Users who mix both paths must account
-for their sequential composition.
+Explicit `LEAKAGE_INTERACTION` and `LOSS_INTERACTION` instructions do not
+override `gate_partner_effects` or `InteractionRule` entries. If both are
+present at the same gate, their effects apply in sequence: for example, a
+model-configured X error of `0.2` followed by an explicit X error of `0.3` gives
+a net X flip probability of `0.38` while the partner stays computational (or no
+second effect if the first step leaked the partner). Avoid configuring the same
+physical disturbance through both mechanisms.
 
-For example, a generated X channel with probability 0.2 followed by an
-explicit X channel with probability 0.3 gives a net X probability of 0.38,
-provided the partner remains computational. If the first annotation leaks
-the partner, the second has no effect on that shot. Full depolarization can
-mask accidental duplication, so avoid configuring the same intended effect
-through both paths.
+## Multi-qubit noise vs. partner effects
 
-## Ordinary noise keeps its existing policy
-
-`gate_partner_effects` describes residual effects of physical two-qubit
-unitary gates. Noise instructions do not trigger replacement partner effects.
-Their existing noncomputational behavior is unchanged:
+`gate_partner_effects` and `InteractionRule` attach only to physical two-qubit
+unitary gates, not to noise instructions. Ordinary noise instructions keep their
+standard behavior when a target is leaked or lost:
 
 | Noise instruction | Behavior on a leaked or lost target |
 |-------------------|--------------------------------------|
-| `DEPOLARIZE2/3`, `PAULI_CHANNEL_2/3` | Drop the whole affected pair or triple, including noise on computational partners |
-| `E` / `CORRELATED_ERROR` and `ELSE_CORRELATED_ERROR` | Retain chain conditioning; Pauli factors act on computational operands and are inert on noncomputational sites |
-| Single-qubit noise | Drop on noncomputational sites; keep on computational sites |
+| `DEPOLARIZE2/3`, `PAULI_CHANNEL_2/3` | Skipped for the entire pair or triple, including computational partners |
+| `E` / `CORRELATED_ERROR` and `ELSE_CORRELATED_ERROR` | Chain probabilities stay intact; Pauli terms act on computational targets and do nothing on leaked or lost targets |
+| Single-qubit noise (`DEPOLARIZE1`, `X_ERROR`, ...) | Skipped on leaked or lost targets; applied as usual on computational targets |
 
-This is an effective-model convention: ordinary gate-noise parameters
-characterized with two computational operands need not describe an interaction
-with a leaked or absent carrier. Configure the residual physical disturbance
-through partner effects. The simulator does not infer an association between
-a noise instruction and the gate written before it.
+Two-qubit gate noise such as `DEPOLARIZE2` placed after `CX 0 1` is therefore
+skipped whenever qubit 0 or 1 is leaked or lost; Clifft does not automatically
+convert it into single-qubit noise on the surviving partner. Use
+`gate_partner_effects` or `InteractionRule` to model how a skipped two-qubit
+gate disturbs its computational partner.
 
-The correlated-error exception matters. `E(p) X0 X1` can still flip
-computational qubit 1 when qubit 0 is leaked. The same XX probability encoded
-in `PAULI_CHANNEL_2` is dropped as a whole in that situation. Noise
-representations equivalent in the computational subspace can therefore differ
-after leakage. Choose and retain the representation that expresses the
-intended noncomputational model.
+Note the difference between `PAULI_CHANNEL_2` and `CORRELATED_ERROR`:
+`E(p) X0 X1` still flips computational qubit 1 when qubit 0 is leaked, whereas
+an `XX` term inside `PAULI_CHANNEL_2` on `0 1` is skipped altogether. Two noise
+encodings that are equivalent on ordinary qubits can therefore behave
+differently once leakage or loss occurs.
 
-## Acknowledgements
+## Acknowledgments
 
 Clifft's leakage partner effects were inspired by
 [deltakit-stim](https://github.com/Deltakit/deltakit-stim).
