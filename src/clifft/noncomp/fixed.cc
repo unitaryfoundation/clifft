@@ -7,6 +7,7 @@
 #include "clifft/optimizer/peephole.h"
 #include "clifft/sampling/batch/executor.h"
 #include "clifft/sampling/batch/output.h"
+#include "clifft/sampling/batch/tuning.h"
 #include "clifft/sampling/executor.h"
 #include "clifft/sampling/planner.h"
 #include "clifft/util/numeric.h"
@@ -16,6 +17,7 @@
 #include <algorithm>
 #include <array>
 #include <cassert>
+#include <chrono>
 #include <limits>
 #include <optional>
 #include <span>
@@ -675,18 +677,40 @@ prepare_fixed_noncomputational(const PreparedNonComputationalRequest& request) {
         std::get<std::shared_ptr<const detail::FixedNonComputationalData>>(std::move(result)));
 }
 
-FixedNonComputationalResult FixedNonComputationalProgram::sample(
-    uint32_t shots, std::optional<uint64_t> seed, uint32_t threads,
-    std::optional<uint32_t> batch_size) const {
-    const auto& data = *data_;
+namespace {
+
+uint64_t classical_bit_columns(const detail::FixedNonComputationalData& data) {
+    return data.dynamic_inputs
+               ? detail::FixedClassicalWorkspace::bit_columns(data.dimensions.num_qubits)
+               : 0;
+}
+
+struct FixedWorkers {
+    FixedWorkers(const detail::FixedNonComputationalData& data,
+                 sampling::BatchExecutionPolicy policy) {
+        if (policy.lane_capacity > 1) {
+            packed.reserve(policy.worker_count);
+            for (uint32_t i = 0; i < policy.worker_count; ++i) {
+                packed.push_back(std::make_unique<PackedFixedWorker>(data, policy.lane_capacity));
+            }
+        } else {
+            scalar.reserve(policy.worker_count);
+            for (uint32_t i = 0; i < policy.worker_count; ++i) {
+                scalar.push_back(std::make_unique<FixedWorker>(data));
+            }
+        }
+    }
+
+    std::vector<std::unique_ptr<FixedWorker>> scalar;
+    std::vector<std::unique_ptr<PackedFixedWorker>> packed;
+};
+
+FixedNonComputationalResult sample_fixed_configured(const detail::FixedNonComputationalData& data,
+                                                    uint32_t shots, std::optional<uint64_t> seed,
+                                                    sampling::BatchExecutionPolicy policy,
+                                                    FixedWorkers& prepared_workers) {
     const auto& dimensions = data.dimensions;
-    const uint32_t shot_workers = resolve_shot_worker_count(shots, threads);
-    const uint64_t driver_columns =
-        data.dynamic_inputs ? detail::FixedClassicalWorkspace::bit_columns(dimensions.num_qubits)
-                            : 0;
-    const auto policy = sampling::resolve_batch_execution_policy(
-        *data.plan, shots, shot_workers, 1, sampling::BatchOutputMode::Rows, batch_size,
-        sampling_mode(data), 0, driver_columns);
+    const uint64_t driver_columns = classical_bit_columns(data);
     FixedNonComputationalResult run;
     auto& result = run.output;
     auto& metrics = run.metrics;
@@ -720,10 +744,13 @@ FixedNonComputationalResult FixedNonComputationalProgram::sample(
             {quantum_seed[0], quantum_seed[1], quantum_seed[2], quantum_seed[3]}};
         const auto workers = run_shot_ranges(
             shots, policy.worker_count,
-            [&](uint32_t) {
-                return std::make_unique<PackedFixedWorker>(data, policy.lane_capacity);
+            [&](uint32_t i) {
+                auto* worker = prepared_workers.packed[i].get();
+                worker->shots = 0;
+                worker->batches = 0;
+                return worker;
             },
-            [&](const std::unique_ptr<PackedFixedWorker>& worker, ShotRange range) noexcept {
+            [&](const auto& worker, ShotRange range) noexcept {
                 for (uint32_t first = range.begin; first < range.end;) {
                     const uint32_t count = std::min(policy.lane_capacity, range.end - first);
                     if (data.dynamic_inputs) {
@@ -756,8 +783,13 @@ FixedNonComputationalResult FixedNonComputationalProgram::sample(
         return run;
     }
     const auto workers = run_shot_ranges(
-        shots, shot_workers, [&](uint32_t) { return std::make_unique<FixedWorker>(data); },
-        [&](const std::unique_ptr<FixedWorker>& worker, ShotRange range) noexcept {
+        shots, policy.worker_count,
+        [&](uint32_t i) {
+            auto* worker = prepared_workers.scalar[i].get();
+            worker->shots = 0;
+            return worker;
+        },
+        [&](const auto& worker, ShotRange range) noexcept {
             for (uint32_t shot = range.begin; shot < range.end; ++shot) {
                 if (data.dynamic_inputs) {
                     std::ranges::fill(worker->noise, 0);
@@ -788,6 +820,69 @@ FixedNonComputationalResult FixedNonComputationalProgram::sample(
     for (const auto& worker : workers) {
         metrics.scalar_shots += worker->shots;
     }
+    return run;
+}
+
+}  // namespace
+
+FixedNonComputationalResult FixedNonComputationalProgram::sample(
+    uint32_t shots, std::optional<uint64_t> seed, uint32_t threads,
+    std::optional<uint32_t> batch_size, std::optional<double> tuning_budget_seconds) const {
+    sampling::batch_detail::validate_batch_tuning_options(batch_size, tuning_budget_seconds);
+    const auto& data = *data_;
+    const uint32_t shot_workers = resolve_shot_worker_count(shots, threads);
+    auto policy = sampling::resolve_batch_execution_policy(
+        *data.plan, shots, shot_workers, 1, sampling::BatchOutputMode::Rows, batch_size,
+        sampling_mode(data), 0, classical_bit_columns(data));
+    if (policy.lane_capacity == 1) {
+        policy.worker_count = shot_workers;
+    }
+    std::optional<sampling::BatchTuningReport> tuning;
+    if (tuning_budget_seconds) {
+        const auto start = std::chrono::steady_clock::now();
+        const auto now = [&] {
+            return std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+        };
+        tuning.emplace();
+        tuning->batch_size = policy.lane_capacity;
+        tuning->baseline_batch_size = policy.lane_capacity;
+        tuning->shot_workers = policy.worker_count;
+        if (shots == 0) {
+            tuning->stop_reason = "zero_shots";
+        } else if (*tuning_budget_seconds == 0) {
+            tuning->stop_reason = "zero_budget";
+        } else {
+            const uint64_t sidecar_row_bytes =
+                uint64_t{data.dimensions.num_measurements} +
+                (data.final_status ? uint64_t{data.dimensions.num_qubits} * sizeof(QubitStatus)
+                                   : 0);
+            const auto candidates = sampling::batch_detail::batch_tuning_candidates(
+                *data.plan, shots, shot_workers, 1, sampling::BatchOutputMode::Rows,
+                sampling_mode(data), 0, policy, classical_bit_columns(data), sidecar_row_bytes);
+            if (candidates.size() < 2) {
+                tuning->stop_reason = "single_candidate";
+            } else {
+                const SeedRoot calibration_root = make_seed_root(shots, seed);
+                auto make_probe = [&](sampling::BatchExecutionPolicy probe_policy) {
+                    // Production constructs workers once per call. Keep them
+                    // across probe chunks and charge setup once at that scale.
+                    return [&, probe_policy, workers = FixedWorkers(data, probe_policy)](
+                               uint32_t count, uint64_t trial_seed) mutable {
+                        (void)sample_fixed_configured(data, count, trial_seed, probe_policy,
+                                                      workers);
+                    };
+                };
+                const double remaining = std::max(0.0, *tuning_budget_seconds - now());
+                tuning = sampling::batch_detail::sweep_batch_candidates(
+                    candidates, policy, 1, remaining, calibration_root, now, make_probe, shots);
+                policy = {tuning->batch_size, tuning->shot_workers};
+            }
+        }
+        tuning->elapsed_seconds = now();
+    }
+    FixedWorkers workers(data, policy);
+    auto run = sample_fixed_configured(data, shots, seed, policy, workers);
+    run.output.batch_tuning = std::move(tuning);
     return run;
 }
 

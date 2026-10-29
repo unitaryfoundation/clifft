@@ -1,5 +1,7 @@
 #include "clifft/noncomp/program.h"
 
+#include "clifft/sampling/batch/tuning.h"
+
 #include <chrono>
 #include <sstream>
 #include <stdexcept>
@@ -166,17 +168,18 @@ std::string NonComputationalProgram::explain() const {
     return out.str();
 }
 
-NonComputationalSample NonComputationalProgram::sample(uint32_t shots, std::optional<uint64_t> seed,
-                                                       uint32_t threads,
-                                                       std::optional<uint32_t> batch_size,
-                                                       bool collect_stats) const {
+NonComputationalSample NonComputationalProgram::sample(
+    uint32_t shots, std::optional<uint64_t> seed, uint32_t threads,
+    std::optional<uint32_t> batch_size, bool collect_stats,
+    std::optional<double> tuning_budget_seconds) const {
     if (batch_size && *batch_size == 0) {
         throw std::invalid_argument("batch_size must be a positive integer or 'auto'");
     }
+    sampling::batch_detail::validate_batch_tuning_options(batch_size, tuning_budget_seconds);
     const auto start = collect_stats ? Clock::now() : Clock::time_point{};
     NonComputationalSample result;
     if (const auto* fixed = std::get_if<FixedNonComputationalProgram>(&data_->implementation)) {
-        auto run = fixed->sample(shots, seed, threads, batch_size);
+        auto run = fixed->sample(shots, seed, threads, batch_size, tuning_budget_seconds);
         result = std::move(run.output);
         if (collect_stats) {
             auto& stats = result.stats.emplace();
@@ -191,6 +194,10 @@ NonComputationalSample NonComputationalProgram::sample(uint32_t shots, std::opti
             stats.peak_active_width = fixed->metrics().peak_active_width;
         }
     } else {
+        if (tuning_budget_seconds) {
+            throw std::invalid_argument(
+                "batch_size='tune' requires fixed execution; selected strategy is trajectory");
+        }
         if (batch_size.value_or(1) > 1) {
             throw std::invalid_argument(
                 "batch_size greater than 1 requires fixed execution; selected strategy is "

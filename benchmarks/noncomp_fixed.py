@@ -2,10 +2,13 @@
 
 Run against an optimized local Clifft build. Measurements use the public
 prepared-program API; this is not a timing assertion.
+With --batch-sizes tune, reported call times include calibration; the tuning
+reports list its cost and selected capacity for each measured repetition.
 """
 
 import argparse
 import json
+import math
 import statistics
 import time
 from collections.abc import Callable
@@ -18,6 +21,14 @@ import stim
 
 import clifft
 from clifft import noncomp
+
+
+def estimated_call_seconds(trial, shots):
+    rate = trial.shots_per_second
+    if rate <= 0:
+        return None
+    first_use = 0 if trial.used_warmup else max(0, trial.warmup_seconds - trial.warmup_shots / rate)
+    return trial.setup_seconds + first_use + shots / rate
 
 
 def circuit_text(
@@ -94,11 +105,20 @@ def main():
     parser.add_argument("--shots", type=int, default=1000)
     parser.add_argument("--repetitions", type=int, default=3)
     parser.add_argument("--batch-sizes", nargs="+", default=["1", "65", "auto"])
+    parser.add_argument("--tuning-budget-seconds", type=float)
     parser.add_argument("--threads", type=int, default=1)
     parser.add_argument("--event", choices=["LEAKAGE", "LOSS"], default="LEAKAGE")
     parser.add_argument("--skip-trajectories", action="store_true")
     args = parser.parse_args()
-    batch_sizes = [int(value) if value != "auto" else value for value in args.batch_sizes]
+    batch_sizes = [
+        int(value) if value not in {"auto", "tune"} else value for value in args.batch_sizes
+    ]
+    if args.tuning_budget_seconds is not None and (
+        "tune" not in batch_sizes
+        or not math.isfinite(args.tuning_budget_seconds)
+        or args.tuning_budget_seconds < 0
+    ):
+        parser.error("tuning-budget-seconds requires tune and must be finite and nonnegative")
     if args.non_clifford_rounds < 1 or any(value < 0 for value in args.non_clifford_data_qubits):
         parser.error("non-Clifford rounds must be positive and data-qubit counts nonnegative")
     if not 0 <= args.noise_rate <= 1:
@@ -134,6 +154,7 @@ def main():
         preparation = time.perf_counter() - start
         times: dict[str, list[float]] = {}
         stats = {}
+        tuning: dict[str, list[dict[str, Any]]] = {}
         calls: list[tuple[str, Callable[[int], Any]]] = []
         for batch_size in batch_sizes:
             name = f"fixed_{batch_size}"
@@ -147,6 +168,9 @@ def main():
                         threads=args.threads,
                         batch_size=batch_size,
                         collect_stats=True,
+                        tuning_budget_seconds=(
+                            args.tuning_budget_seconds if batch_size == "tune" else None
+                        ),
                     ),
                 )
             )
@@ -176,6 +200,32 @@ def main():
                 result = call(repetition)
                 times[name].append(time.perf_counter() - start)
                 stats[name] = asdict(result.stats)
+                if result.batch_tuning is not None:
+                    report = result.batch_tuning
+                    tuning.setdefault(name, []).append(
+                        {
+                            "batch_size": report.batch_size,
+                            "shot_workers": report.shot_workers,
+                            "elapsed_seconds": report.elapsed_seconds,
+                            "trial_shots": report.trial_shots,
+                            "stop_reason": report.stop_reason,
+                            "sufficient_measurements": report.sufficient_measurements,
+                            "trials": [
+                                {
+                                    "batch_size": trial.batch_size,
+                                    "shot_workers": trial.shot_workers,
+                                    "setup_seconds": trial.setup_seconds,
+                                    "warmup_seconds": trial.warmup_seconds,
+                                    "warmup_shots": trial.warmup_shots,
+                                    "shots_per_second": trial.shots_per_second,
+                                    "estimated_call_seconds": estimated_call_seconds(
+                                        trial, args.shots
+                                    ),
+                                }
+                                for trial in report.trials
+                            ],
+                        }
+                    )
         medians = {name: statistics.median(values) for name, values in times.items()}
         print(
             json.dumps(
@@ -193,6 +243,7 @@ def main():
                     "preparation_seconds": preparation,
                     "seconds": medians,
                     "execution": stats,
+                    "tuning": tuning,
                 }
             ),
             flush=True,

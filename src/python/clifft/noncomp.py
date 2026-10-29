@@ -35,7 +35,7 @@ import numpy as np
 import numpy.typing as npt
 
 import clifft._clifft_core as _clifft_core
-from clifft._clifft_core import Circuit
+from clifft._clifft_core import BatchTuningReport, Circuit
 
 __all__ = [
     "Classifier",
@@ -328,6 +328,8 @@ class NonComputationalStats:
     fixed execution can run scalar or packed. ``packed_classical_shots`` counts
     shots whose dynamic status/noise/readout inputs were generated across a batch.
     It is zero for static inputs, scalar execution, and trajectories.
+    Calibration shots appear only in ``result.batch_tuning``; ``sampling_seconds``
+    includes calibration time when tuning is requested.
 
     ``initial_compilations`` counts trajectory starting plans built during the
     call; ``continuation_compilations`` counts recompilations after a trap.
@@ -381,6 +383,8 @@ class NonComputationalSample:
         shots, num_qubits, num_measurements, num_detectors, num_observables: ints.
         stats: [NonComputationalStats][clifft.noncomp.NonComputationalStats]
             when ``collect_stats=True``, otherwise ``None``.
+        batch_tuning: a ``clifft.BatchTuningReport`` when ``batch_size="tune"``,
+            independently of ``collect_stats``; otherwise ``None``.
     """
 
     __slots__ = (
@@ -395,6 +399,7 @@ class NonComputationalSample:
         "num_detectors",
         "num_observables",
         "stats",
+        "batch_tuning",
     )
 
     def __init__(
@@ -410,6 +415,7 @@ class NonComputationalSample:
         num_observables: int,
         *,
         stats: NonComputationalStats | None = None,
+        batch_tuning: BatchTuningReport | None = None,
     ) -> None:
         self.measurements = measurements
         self.detectors = detectors
@@ -422,6 +428,7 @@ class NonComputationalSample:
         self.num_detectors = int(num_detectors)
         self.num_observables = int(num_observables)
         self.stats = stats
+        self.batch_tuning = batch_tuning
 
     def symbols(self) -> npt.NDArray[np.uint8]:
         """Return measurement symbols, using 2 for heralded slots.
@@ -481,8 +488,9 @@ class NonComputationalProgram:
         seed: int | None = None,
         threads: int | Literal["auto"] = 1,
         *,
-        batch_size: int | Literal["auto"] = "auto",
+        batch_size: int | Literal["auto", "tune"] = "auto",
         collect_stats: bool = False,
+        tuning_budget_seconds: float | None = None,
     ) -> NonComputationalSample:
         """Sample this program with fresh per-call workers and RNG.
 
@@ -490,7 +498,20 @@ class NonComputationalProgram:
         plan and scalar execution for trajectories. ``1`` forces scalar;
         larger integers request packing under the existing capacity limits and
         fail when the selected strategy is trajectory, including for zero shots.
-        Timing-based ``"tune"`` is not supported here yet.
+        ``"tune"`` calibrates fixed execution before each call, using a soft
+        ``tuning_budget_seconds`` deadline (default 0.25 seconds). Probes include
+        classical inputs, worker setup, quantum execution, and output generation.
+        Workers are constructed once per candidate and reused across probes.
+        Selection estimates setup and first-use costs once, plus execution time
+        for ``shots``; report throughput excludes separately recorded setup.
+        Their shots and randomness are separate from the returned production rows.
+        Trajectory programs reject tuning, including for zero shots. Zero shots
+        and a zero budget run no probes; a zero budget uses the auto policy.
+
+        The tuning report is always available as ``result.batch_tuning``. Timing
+        can select different configurations between calls. Reuse its ``batch_size``
+        as an explicit integer to avoid repeated calibration and replay that
+        configuration. Tuning never mutates or caches state on this program.
 
         ``threads`` selects cross-shot workers; ``"auto"`` uses hardware
         concurrency. For a fixed seed, shot count, and batch configuration,
@@ -498,11 +519,16 @@ class NonComputationalProgram:
         strategies or batch configurations need not produce identical rows.
         A missing seed uses fresh entropy; zero shots use none.
         """
-        values, report = self._handle.sample(
-            shots, seed, threads, batch_size=batch_size, collect_stats=collect_stats
+        values, report, tuning = self._handle.sample(
+            shots,
+            seed,
+            threads,
+            batch_size=batch_size,
+            collect_stats=collect_stats,
+            tuning_budget_seconds=tuning_budget_seconds,
         )
         stats = None if report is None else NonComputationalStats(**report)
-        return NonComputationalSample(*values, stats=stats)
+        return NonComputationalSample(*values, stats=stats, batch_tuning=tuning)
 
 
 def compile(
@@ -550,8 +576,9 @@ def sample(
     *,
     final_status: bool = False,
     execution: Literal["auto", "fixed", "trajectory"] = "auto",
-    batch_size: int | Literal["auto"] = "auto",
+    batch_size: int | Literal["auto", "tune"] = "auto",
     collect_stats: bool = False,
+    tuning_budget_seconds: float | None = None,
 ) -> NonComputationalSample:
     """Prepare and sample a circuit under a five-level leakage/loss model.
 
@@ -582,4 +609,11 @@ def sample(
         final_status=final_status,
         execution=execution,
         max_active_width=max_active_width,
-    ).sample(shots, seed, threads, batch_size=batch_size, collect_stats=collect_stats)
+    ).sample(
+        shots,
+        seed,
+        threads,
+        batch_size=batch_size,
+        collect_stats=collect_stats,
+        tuning_budget_seconds=tuning_budget_seconds,
+    )

@@ -443,13 +443,54 @@ there is no cross-call cache.
 | `final_status=False` | Omit detailed status; `result.final_status` is `None`. |
 | `final_status=True` | Return existing `QubitStatus` values; unresolved leaked labels can require trajectories. |
 | `batch_size="auto"` | Use shared batching heuristics for fixed execution, scalar execution for trajectories. |
+| `batch_size="tune"` | Calibrate fixed execution for this call; reject if the selected strategy is trajectory. |
 | `batch_size=1` | Use scalar execution, including a compile-once fixed plan when eligible. |
 | `batch_size=N`, N > 1 | Request packing under existing capacity limits; reject if the selected strategy is trajectory. |
 
 Strategy and final-status requirements are fixed by `compile`; batch size and
 cross-shot `threads` are sampling options. The default remains one worker.
-Timing-based `"tune"`, survivor/importance sampling, and custom pass managers
-are not supported by this API.
+Survivor/importance sampling and custom pass managers are not supported by
+this API.
+
+### Tuning batch size
+
+For fixed execution, `batch_size="tune"` measures several capacities before
+sampling. It times the complete sampling work, including classical inputs,
+worker setup, quantum execution, and output generation. This can find useful
+packed configurations beyond the conservative active-width cutoff in `"auto"`.
+The default auto policy and fixed-execution eligibility are unchanged.
+
+<!--pytest-codeblocks:cont-->
+```python
+result = program.sample(10000, seed=42, batch_size="tune", tuning_budget_seconds=0.25)
+# Reuse the selected capacity without paying for another calibration.
+next_result = program.sample(10000, seed=43, batch_size=result.batch_tuning.batch_size)
+```
+
+Calibration has a soft time budget, defaulting to 0.25 seconds; an individual
+probe can overrun it. The returned `clifft.BatchTuningReport` records the selected
+capacity, timings, and discarded trial shots even without `collect_stats=True`.
+Each candidate constructs workers once, recorded in `trial.setup_seconds`, then
+reuses them across probes. `trial.shots_per_second` excludes that setup but
+includes classical input generation, quantum execution, and result allocation
+and copying. Selection estimates call time by adding setup to
+`requested_shots / shots_per_second`, plus any first-probe cost above steady
+throughput. This charges construction and first-use costs, such as touching
+preallocated pages, once for the requested workload. If only the first probe
+was measured, its throughput is used without adding a first-use surcharge.
+Ordinary CPU tuning continues to select by throughput alone.
+
+Candidate workers obey the shared memory budgets, including packed classical
+storage, and probe output storage is bounded, including heralds and requested
+final statuses. A zero budget uses auto without probes; zero shots also skip
+calibration. Inconclusive measurements warn and use auto. Trajectory programs
+reject `"tune"`, just as they reject an explicit packed capacity.
+
+Tuning is per call and leaves the prepared program unchanged. Its overhead can
+exceed the time saved on a short call, so reuse the reported capacity for repeated
+workloads. Trial shots never enter the returned results or advance their random
+streams. Timing can select a different capacity on another call; pin the reported
+capacity to replay results for the same seed and shot count.
 
 ### Fixed eligibility
 
