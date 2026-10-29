@@ -54,11 +54,11 @@ assert (result.final_status[:, 0] == noncomp.QubitStatus.LEAK_G).all()
 assert (result.final_status[:, 1] == noncomp.QubitStatus.COMPUTATIONAL).all()
 ```
 
-Full partner depolarization (`pauli=(0.25, 0.25, 0.25)` with
-`spread_probability=0`) is also required on two-qubit gates that can encounter a
-leaked or lost qubit paired with a computational qubit if you want Clifft's
-compile-once [fixed execution](leakage-and-loss.md#fixed-execution-vs-trajectories)
-strategy.
+To use Clifft's compile-once
+[fixed execution](leakage-and-loss.md#fixed-execution-vs-trajectories), two-qubit
+gates that can pair a leaked or lost qubit with a computational partner must
+configure full partner depolarization (`pauli=(0.25, 0.25, 0.25)` with
+`spread_probability=0`).
 
 ### Probability conventions
 

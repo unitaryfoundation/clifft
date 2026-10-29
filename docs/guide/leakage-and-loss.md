@@ -387,14 +387,14 @@ rates behave:
   when `g` and `e` have different total jump rates ($p_g \neq p_e$). When a
   qubit in superposition survives a transition without jumping, its state shifts
   slightly toward the less leaky level. `"exact"` simulates that shift
-  accurately, but a transition may need one additional active coordinate,
-  increasing active width by one and doubling the $2^k$ active-state size.
-  Transitions reuse existing active coordinates when possible. Gates such as
-  `SWAP` can move the affected state elsewhere, so damping the same physical
-  qubit again can add more width. `"neglect"` skips the no-jump update to avoid
-  that extra width, introducing an error of order
-  $\lvert p_g - p_e \rvert$ at each transition. When $p_g = p_e$, as in
-  `LEAKAGE(p)` and `LOSS(p)`, there is no state bias and both settings are
+  accurately, which can increase the active width $k$ by one (doubling the
+  $2^k$ active-state size) when the affected superposition is not already in the
+  active state. Transitions reuse existing active-state axes when possible,
+  though intervening gates (such as `SWAP` or basis changes on entangled qubits)
+  can cause later transitions on the same physical qubit to add width again.
+  `"neglect"` skips the no-jump update to avoid that extra width, introducing an
+  error of order $\lvert p_g - p_e \rvert$ at each transition. When $p_g = p_e$,
+  as in `LEAKAGE(p)` and `LOSS(p)`, there is no state bias and both settings are
   exact.
 
 ## Compiling and execution
@@ -438,25 +438,26 @@ and output semantics:
   five-level model by stepping through one shot at a time and recompiling the
   remaining circuit whenever a jump changes later operations.
 
-By default (`execution="auto"`), `noncomp.compile()` selects an exact supported
-fixed plan when possible and uses trajectories otherwise. The table summarizes
-the main eligibility checks; operation support and the statuses that can occur
-at each circuit position also matter.
+By default (`execution="auto"`), `noncomp.compile()` uses fixed execution when
+possible and falls back to trajectories otherwise. Eligibility is checked
+against the qubit statuses that can actually reach each circuit position, so
+unused model rules or unreachable pairings do not force trajectories. The main
+checks are:
 
 | Requirement for `"fixed"` | Uses `"trajectory"` when... |
 | --- | --- |
 | All qubits start in `g` (`initial_state` omitted or `[1, 0, 0, 0, 0]`) | `initial_state` puts nonzero probability on `e`, `leak_g`, `leak_e`, or `lost` |
-| Transitions use inline `LEAKAGE(p)`, `LOSS(p)`, or all-zero named matrices | A nonzero named transition matrix is invoked, explicitly or through a gate hook; unused matrices do not prevent fixed execution |
-| No leakage spreading can occur | A partner effect with `spread_probability > 0` can encounter a leaked source and a computational partner; unreachable effects do not prevent fixed execution |
-| **Full partner depolarization** `PartnerEffect(pauli=(0.25, 0.25, 0.25))` whenever a two-qubit gate can pair a leaked or lost qubit with a computational qubit | Such a pairing uses the default no-op (drop) or partial Pauli noise; when both operands are noncomputational, there is no computational partner to depolarize |
+| Active transitions use inline `LEAKAGE(p)` and `LOSS(p)` | Circuit invokes a nonzero named `transitions` matrix (via `LEVEL_TRANSITION[...]` or a gate hook) |
+| No reachable leakage spreading (`spread_probability == 0`) | A partner effect with `spread_probability > 0` can see a leaked source paired with a computational partner |
+| **Full partner depolarization** `PartnerEffect(pauli=(0.25, 0.25, 0.25))` wherever a two-qubit gate can pair a leaked or lost qubit with a computational one | Such a pairing uses the default no-op (drop) or partial Pauli noise |
 | Classifier treats `leak_g` and `leak_e` identically at every leaked measurement | Classifier assigns different probabilities to `leak_g` and `leak_e` on a qubit that can be leaked when measured |
 | `final_status=False`, or resets/loss clear any leaked state before circuit end | `final_status=True` and a qubit could end the circuit leaked (since `final_status` distinguishes `LEAK_G` from `LEAK_E`) |
 | Compiled fixed program fits within `max_active_width` | Fixed program exceeds `max_active_width` (Clifft falls back to trajectories, where each compiled continuation must still fit within `max_active_width`) |
 
-Other operations can also require trajectories. For example, multi-qubit Pauli-product
-gates such as `SPP`, `TPP`, and `R_PAULI` do not support fixed execution when
-a target can be leaked or lost, even with full partner depolarization configured.
-Use `program.explain()` to inspect the selected strategy and any fallback reason.
+A few other operations also require trajectories when a target can be
+noncomputational, such as multi-qubit Pauli-product gates (`SPP`, `TPP`,
+`R_PAULI`) and multi-target resets (`R 0 1`) when `reset_restores_lost=False`.
+Call `program.explain()` to see the selected strategy and any fallback reason.
 
 !!! tip "Why two-qubit gates need full partner depolarization for fixed execution"
     Fixed execution keeps two-qubit gates in the compiled quantum circuit even
