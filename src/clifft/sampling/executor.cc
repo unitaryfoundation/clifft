@@ -1,5 +1,9 @@
 #include "clifft/sampling/executor.h"
 
+#ifdef CLIFFT_NONCOMP_REPLAY_TESTING
+#include "noncomp_replay_hooks.h"
+#endif
+
 #include "clifft/util/fault_sampling.h"
 #include "clifft/util/intra_shot_parallel.h"
 #include "clifft/util/noise_sampling.h"
@@ -495,6 +499,15 @@ void Executor::execute_action(const ExecutablePlan::ExecuteActiveMeasurement& ac
             forced_record_mask_[action.record] = 0;
         } else {
             branch = sample_active_branch(probabilities);
+#ifdef CLIFFT_NONCOMP_REPLAY_TESTING
+            if (test::noncomp_replay) {
+                const double masses[] = {probabilities.for_branch(correction),
+                                         probabilities.for_branch(!correction)};
+                branch =
+                    (test::noncomp_replay->choose(test::ReplayChoice::Measurement, masses) != 0) ^
+                    correction;
+            }
+#endif
         }
     }
     assign_symbol(action.branch, branch);
@@ -532,6 +545,14 @@ void Executor::execute_action(const ExecutablePlan::ExecuteDormantMeasurement& a
             forced_record_mask_[action.record] = 0;
         } else {
             branch = sample_dormant_branch();
+#ifdef CLIFFT_NONCOMP_REPLAY_TESTING
+            if (test::noncomp_replay) {
+                const double masses[] = {0.5, 0.5};
+                branch =
+                    (test::noncomp_replay->choose(test::ReplayChoice::Measurement, masses) != 0) ^
+                    correction;
+            }
+#endif
         }
     }
     assign_symbol(action.branch, branch);
@@ -637,6 +658,15 @@ void Executor::finish_instrument_fire(uint32_t site, uint32_t destination_flip, 
                           distribution.p_computational_dest[source][1]) {
         destination = 1;
     }
+#ifdef CLIFFT_NONCOMP_REPLAY_TESTING
+    if (test::noncomp_replay) {
+        const auto& p = distribution.p_computational_dest[source];
+        const double masses[] = {p[0], p[1], distribution.p_fire[source] - p[0] - p[1]};
+        const unsigned selected =
+            test::noncomp_replay->choose(test::ReplayChoice::DestinationPartition, masses);
+        destination = selected < 2 ? static_cast<int>(selected) : -1;
+    }
+#endif
     if (destination < 0) {
         trap_instrument(site, source, false);
     } else if (destination != source) {
@@ -651,7 +681,16 @@ void Executor::execute_instrument(
     const InstrumentDistribution& distribution = plan_->instrument_distributions_[action.site];
     assign_symbol(action.destination_flip, false);
     const uint8_t source = static_cast<uint8_t>(evaluate(action.sign));
-    if (rng_.next_double() < distribution.p_fire[source]) {
+    bool fire = rng_.next_double() < distribution.p_fire[source];
+#ifdef CLIFFT_NONCOMP_REPLAY_TESTING
+    if (test::noncomp_replay) {
+        const double masses[] = {source == 0 ? distribution.p_fire[0] : 0,
+                                 source == 1 ? distribution.p_fire[1] : 0,
+                                 1 - distribution.p_fire[source]};
+        fire = test::noncomp_replay->choose(test::ReplayChoice::Source, masses) != 2;
+    }
+#endif
+    if (fire) {
         finish_instrument_fire(action.site, action.destination_flip, source, distribution);
     }
 }
@@ -662,6 +701,15 @@ void Executor::execute_instrument(
            "instrument action must reference a prepared distribution");
     const InstrumentDistribution& distribution = plan_->instrument_distributions_[action.site];
     const double mass = distribution.p_fire[0] + distribution.p_fire[1];
+#ifdef CLIFFT_NONCOMP_REPLAY_TESTING
+    if (test::noncomp_replay) {
+        const double masses[] = {distribution.p_fire[0], distribution.p_fire[1], 2 - mass};
+        const auto source = test::noncomp_replay->choose(test::ReplayChoice::Source, masses);
+        if (source < 2)
+            trap_instrument(action.site, static_cast<uint8_t>(source), true);
+        return;
+    }
+#endif
     if (rng_.next_double() * 2.0 >= mass) {
         return;
     }
@@ -712,6 +760,14 @@ void Executor::execute_quantum_instrument(const Action& action) noexcept {
     } else if (draw < fire_zero + fire_one) {
         fired_source = 1;
     }
+#ifdef CLIFFT_NONCOMP_REPLAY_TESTING
+    if (test::noncomp_replay) {
+        const double masses[] = {fire_zero, fire_one, total - fire_zero - fire_one};
+        const auto source = test::noncomp_replay->choose(test::ReplayChoice::Source, masses);
+        fired_source =
+            source < 2 ? std::optional<uint8_t>(static_cast<uint8_t>(source)) : std::nullopt;
+    }
+#endif
 
     if (!fired_source.has_value()) {
         const double factor_zero = std::sqrt(1.0 - distribution.p_fire[static_cast<uint8_t>(sign)]);

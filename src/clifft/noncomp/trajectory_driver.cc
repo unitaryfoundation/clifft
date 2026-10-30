@@ -14,6 +14,10 @@
 
 #include "clifft/noncomp/trajectory_driver.h"
 
+#ifdef CLIFFT_NONCOMP_REPLAY_TESTING
+#include "noncomp_replay_hooks.h"
+#endif
+
 #include "clifft/frontend/frontend.h"
 #include "clifft/noncomp/instrument_options.h"
 #include "clifft/noncomp/interaction.h"
@@ -86,6 +90,16 @@ Level draw_from_column(const TransitionInstrument& instrument, Level source,
             "sample_noncomputational: destination draw over an empty column (source level '" +
             std::string(level_name(source)) + "')");
     }
+#ifdef CLIFFT_NONCOMP_REPLAY_TESTING
+    if (test::noncomp_replay) {
+        std::array<double, 5> masses{};
+        for (const Level to : kAllLevels)
+            if (admit(to))
+                masses[static_cast<size_t>(to)] = instrument.prob(to, source);
+        return static_cast<Level>(
+            test::noncomp_replay->choose(test::ReplayChoice::Destination, masses));
+    }
+#endif
     const double u = rng.next_double() * mass;
     double acc = 0.0;
     std::optional<Level> last_positive;
@@ -367,6 +381,10 @@ SamplingCompiledContinuation compile_sampling_continuation(
     Circuit patched = std::move(rewrite.circuit);
     patch_heralded_measurements(patched, rewrite.classified_measurements, herald_flags);
     prepend_initial_excited_preparations(patched, initial_levels, rewrite.forced_traceout_node);
+#ifdef CLIFFT_NONCOMP_REPLAY_TESTING
+    if (test::noncomp_replay)
+        test::noncomp_replay->append_probes(patched);
+#endif
     if (worker.stats) {
         if (initial) {
             ++worker.stats->initial_compilations;
@@ -589,6 +607,10 @@ NonComputationalSample run_trajectory_driver(const PreparedNonComputationalReque
         std::copy(
             observables.begin(), observables.end(),
             result.observables.begin() + static_cast<size_t>(shot) * annotated.num_observables);
+#ifdef CLIFFT_NONCOMP_REPLAY_TESTING
+        if (test::noncomp_replay)
+            test::noncomp_replay->inspect(executor->exp_vals(), continuation->final_status);
+#endif
         executor->return_to_root_plan();
         if (request.requirements().final_status) {
             std::copy(

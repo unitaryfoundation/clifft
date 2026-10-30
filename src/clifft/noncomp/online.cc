@@ -1,5 +1,9 @@
 #include "clifft/noncomp/online.h"
 
+#ifdef CLIFFT_NONCOMP_REPLAY_TESTING
+#include "noncomp_replay_hooks.h"
+#endif
+
 #include "clifft/noncomp/online_state.h"
 #include "clifft/tableau/tableau.h"
 #include "clifft/util/shot_parallel.h"
@@ -348,6 +352,15 @@ class OnlineWorker {
     }
 
     Level destination(const TransitionInstrument& instrument, Level source) noexcept {
+#ifdef CLIFFT_NONCOMP_REPLAY_TESTING
+        if (test::noncomp_replay) {
+            std::array<double, 5> masses{};
+            for (Level dest : kAllLevels)
+                masses[static_cast<size_t>(dest)] = instrument.prob(dest, source);
+            return static_cast<Level>(
+                test::noncomp_replay->choose(test::ReplayChoice::Destination, masses));
+        }
+#endif
         double draw = rng.next_double() * instrument.column_sum(source);
         Level last = source;
         for (Level dest : kAllLevels) {
@@ -379,8 +392,15 @@ class OnlineWorker {
             const double fire_g = populations.zero <= dust ? 0 : pg * populations.zero;
             const double fire_e = populations.one <= dust ? 0 : pe * populations.one;
             const double draw = rng.next_double() * populations.total();
-            if (draw < fire_g + fire_e) {
-                const bool source = draw >= fire_g;
+            unsigned selected = draw < fire_g ? 0 : draw < fire_g + fire_e ? 1 : 2;
+#ifdef CLIFFT_NONCOMP_REPLAY_TESTING
+            if (test::noncomp_replay) {
+                const double masses[] = {fire_g, fire_e, populations.total() - fire_g - fire_e};
+                selected = test::noncomp_replay->choose(test::ReplayChoice::Source, masses);
+            }
+#endif
+            if (selected < 2) {
+                const bool source = selected != 0;
                 quantum.measure(p, rng, source);
                 land(q, destination(instrument, source ? Level::E : Level::G), source);
             } else if (model.policy().damping == DampingPolicy::Exact && pg != pe) {
@@ -410,8 +430,18 @@ class OnlineWorker {
         const bool y =
             node.gate == GateType::MY || node.gate == GateType::MRY || node.gate == GateType::RY;
         bool bit = false;
-        if (live)
-            bit = quantum.measure(mapped(q, x ? 'X' : y ? 'Y' : 'Z'), rng);
+        if (live) {
+            const auto p = mapped(q, x ? 'X' : y ? 'Y' : 'Z');
+            std::optional<bool> forced;
+#ifdef CLIFFT_NONCOMP_REPLAY_TESTING
+            if (test::noncomp_replay) {
+                const auto populations = quantum.populations(p);
+                const double masses[] = {populations.zero, populations.one};
+                forced = test::noncomp_replay->choose(test::ReplayChoice::Measurement, masses) != 0;
+            }
+#endif
+            bit = quantum.measure(p, rng, forced);
+        }
         if (!is_reset(node.gate)) {
             bool reported = bit ^ target.is_inverted();
             const auto channel =
@@ -647,6 +677,10 @@ class OnlineWorker {
         }
         peak_width = std::max(peak_width, quantum.peak);
         ++completed_shots;
+#ifdef CLIFFT_NONCOMP_REPLAY_TESTING
+        if (test::noncomp_replay)
+            test::noncomp_replay->inspect_online(quantum, status);
+#endif
     }
 };
 
