@@ -96,7 +96,7 @@ pip install clifft
 |---|---|
 | Linux `x86_64` with x86-64-v2 support | Supported |
 | Linux `aarch64` | Supported |
-| macOS `arm64` | Supported |
+| macOS 15+ `arm64` | Supported |
 | Windows `amd64` | Supported |
 
 All other platforms and CPU families should build from source. See the
