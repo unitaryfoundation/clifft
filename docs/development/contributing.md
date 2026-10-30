@@ -97,7 +97,7 @@ or `@pytest.mark.expensive` so CI runs their full workload in optimized builds;
 retain small representative checks in Debug.
 
 See [Exact comparisons and rare events](testing.md#exact-comparisons-and-rare-events)
-for probability tolerances and reference accuracy requirements.
+for an overview of rare-event validation.
 
 ## Running Tests
 

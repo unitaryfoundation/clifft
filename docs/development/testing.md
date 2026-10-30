@@ -87,18 +87,14 @@ than isolated implementation details.
 
 ## Exact comparisons and rare events
 
-Use known analytic probabilities to test rare outcomes. The C++ helpers use a
-relative tolerance so a missing rare outcome cannot hide within a fixed absolute
-tolerance.
+We test rare events with small circuits whose outcome probabilities are known
+analytically. Exact comparisons catch missing outcomes, incorrect probabilities,
+and incorrect expectation values even when the affected branch is extremely
+unlikely.
 
-Check how much probability the reference omitted before comparing results. Set
-`max_omitted_probability` in C++ or call `require_precision` in Python. Keep the
-allowance below the smallest probability under test times its relative tolerance.
-This checks pruning error only; verify floating-point accuracy separately.
-
-Use a zero measurement cutoff in the dense oracle only when roundoff cannot
-create false outcomes in the fixture. If the reference is not accurate enough,
-improve it or simplify the fixture instead of loosening the test's tolerance.
+Both the C++ and Python references track probability lost when branches are
+omitted. Tests check this against their required precision, and deliberately
+corrupted C++ results confirm that the comparisons detect errors.
 
 ## Layer-by-Layer C++ Unit Testing
 
