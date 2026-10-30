@@ -1,0 +1,200 @@
+[
+  {
+    "name": "surface_d5_loss0.001",
+    "shots_per_backend": 4096,
+    "max_z": 3.0202969869397247,
+    "failures": [],
+    "hybrid_us": 110.774793701,
+    "baseline_us": 5989.825842561913,
+    "hybrid_peak_width": 0,
+    "baseline_peak_width": 0,
+    "continuations": 10067
+  },
+  {
+    "name": "cultivation_d3_loss0",
+    "shots_per_backend": 20000,
+    "max_z": 2.179687837033055,
+    "failures": [],
+    "hybrid_us": 31.18362635,
+    "baseline_us": 1.0927180293947458,
+    "hybrid_peak_width": 4,
+    "baseline_peak_width": 4,
+    "continuations": 0
+  },
+  {
+    "name": "cultivation_d3_loss0.001",
+    "shots_per_backend": 16000,
+    "max_z": 2.646909587437501,
+    "failures": [],
+    "hybrid_us": 33.252803,
+    "baseline_us": 231.35546455159783,
+    "hybrid_peak_width": 6,
+    "baseline_peak_width": 6,
+    "continuations": 4063
+  },
+  {
+    "name": "cultivation_d5_loss0",
+    "shots_per_backend": 20000,
+    "max_z": 2.8440641262452084,
+    "failures": [],
+    "hybrid_us": 237.5595082,
+    "baseline_us": 14.613320864737034,
+    "hybrid_peak_width": 10,
+    "baseline_peak_width": 10,
+    "continuations": 0
+  },
+  {
+    "name": "cultivation_d5_loss0.001",
+    "shots_per_backend": 4096,
+    "max_z": 2.9888260433101896,
+    "failures": [],
+    "hybrid_us": 255.778345947,
+    "baseline_us": 10714.21202414058,
+    "hybrid_peak_width": 13,
+    "baseline_peak_width": 13,
+    "continuations": 4951
+  },
+  {
+    "name": "cultivation_d3_depol_partner",
+    "shots_per_backend": 16000,
+    "max_z": 2.9231841076916614,
+    "failures": [],
+    "hybrid_us": 33.678935625,
+    "baseline_us": 234.58176659187302,
+    "hybrid_peak_width": 6,
+    "baseline_peak_width": 6,
+    "continuations": 3955
+  },
+  {
+    "name": "neutral_two_row_matched",
+    "shots_per_backend": 12000,
+    "max_z": 2.9487158516005705,
+    "failures": [],
+    "hybrid_us": 32.9595349167,
+    "baseline_us": 274.74039637794095,
+    "hybrid_peak_width": 0,
+    "baseline_peak_width": 0,
+    "continuations": 12147,
+    "hybrid_decoded": {
+      "000": 1355,
+      "101": 1342,
+      "111": 1368,
+      "010": 1333,
+      "100": 44,
+      "110": 26,
+      "001": 34,
+      "011": 35,
+      "rejected": 6463
+    },
+    "reference_decoded": {
+      "111": 1357,
+      "101": 1350,
+      "000": 1349,
+      "010": 1346,
+      "110": 52,
+      "001": 34,
+      "011": 26,
+      "100": 39,
+      "rejected": 6447
+    }
+  },
+  {
+    "name": "neutral_two_row_exact",
+    "shots_per_backend": 12000,
+    "max_z": 3.081081191152459,
+    "failures": [],
+    "hybrid_us": 72.4796968333,
+    "baseline_us": 183.8613130773107,
+    "hybrid_peak_width": 9,
+    "baseline_peak_width": 9,
+    "continuations": 733,
+    "hybrid_decoded": {
+      "101": 1398,
+      "111": 1375,
+      "010": 1370,
+      "000": 1412,
+      "011": 38,
+      "001": 40,
+      "100": 43,
+      "110": 42,
+      "rejected": 6282
+    },
+    "reference_decoded": {
+      "101": 1310,
+      "000": 1481,
+      "111": 1404,
+      "010": 1351,
+      "001": 45,
+      "110": 35,
+      "100": 43,
+      "011": 32,
+      "rejected": 6299
+    }
+  },
+  {
+    "name": "neutral_two_row_ldu_matched",
+    "shots_per_backend": 12000,
+    "max_z": 3.191727679265525,
+    "failures": [],
+    "hybrid_us": 32.7710555,
+    "baseline_us": 624.861813771228,
+    "hybrid_peak_width": 0,
+    "baseline_peak_width": 0,
+    "continuations": 29128,
+    "hybrid_decoded": {
+      "010": 479,
+      "101": 501,
+      "000": 520,
+      "111": 500,
+      "011": 49,
+      "001": 51,
+      "110": 43,
+      "100": 32,
+      "rejected": 9825
+    },
+    "reference_decoded": {
+      "000": 485,
+      "101": 526,
+      "100": 34,
+      "001": 45,
+      "010": 509,
+      "111": 487,
+      "110": 52,
+      "011": 39,
+      "rejected": 9823
+    }
+  },
+  {
+    "name": "neutral_two_row_ldu_exact",
+    "shots_per_backend": 4096,
+    "max_z": 2.3657226925998756,
+    "failures": [],
+    "hybrid_us": 4848.1001333,
+    "baseline_us": 12967.343046966562,
+    "hybrid_peak_width": 18,
+    "baseline_peak_width": 18,
+    "continuations": 563,
+    "hybrid_decoded": {
+      "101": 181,
+      "011": 13,
+      "010": 211,
+      "000": 162,
+      "111": 165,
+      "100": 15,
+      "110": 12,
+      "001": 14,
+      "rejected": 3323
+    },
+    "reference_decoded": {
+      "101": 158,
+      "000": 162,
+      "010": 175,
+      "011": 18,
+      "111": 196,
+      "100": 19,
+      "001": 23,
+      "110": 16,
+      "rejected": 3329
+    }
+  }
+]

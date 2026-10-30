@@ -1,0 +1,134 @@
+[
+  {
+    "name": "surface_d5_loss0",
+    "description": "matched QDK loss; Pauli rates zero",
+    "circuit_sha256": "12a3ab8a829d4f4d47d91ede3085ef1e34505a65b943ae24978396ffafd981c8",
+    "model_sha256": "79ef7b18b7912fbcd4193d6fc5c35726cb87528ddbdaa720821f511c6bc6353e"
+  },
+  {
+    "name": "surface_d5_loss0.0001",
+    "description": "matched QDK loss; Pauli rates zero",
+    "circuit_sha256": "85b32e66fb62a1b9ce56db47fcd2e1261e08f3a6386dc8fc528a693e3e1d8438",
+    "model_sha256": "79ef7b18b7912fbcd4193d6fc5c35726cb87528ddbdaa720821f511c6bc6353e"
+  },
+  {
+    "name": "surface_d5_loss0.001",
+    "description": "matched QDK loss; Pauli rates zero",
+    "circuit_sha256": "ab0c71917a374ef59c0dba462dbb8d74dad98c9bc9486a4349688ad3dd752e94",
+    "model_sha256": "79ef7b18b7912fbcd4193d6fc5c35726cb87528ddbdaa720821f511c6bc6353e"
+  },
+  {
+    "name": "surface_d7_loss0",
+    "description": "matched QDK loss; Pauli rates zero",
+    "circuit_sha256": "82ce7bd97da31bdede300815b373ccd4cd11670c787e5ee2fd338ae829c9b176",
+    "model_sha256": "79ef7b18b7912fbcd4193d6fc5c35726cb87528ddbdaa720821f511c6bc6353e"
+  },
+  {
+    "name": "surface_d7_loss0.0001",
+    "description": "matched QDK loss; Pauli rates zero",
+    "circuit_sha256": "0c8027aa8bad805fb280ba706373148b9e9bcf967e86033b0aafbebe61e8e306",
+    "model_sha256": "79ef7b18b7912fbcd4193d6fc5c35726cb87528ddbdaa720821f511c6bc6353e"
+  },
+  {
+    "name": "surface_d7_loss0.001",
+    "description": "matched QDK loss; Pauli rates zero",
+    "circuit_sha256": "0bd64cb8cbacb196fc282ae7fab8bb4359d09413e190280184602234c371c4cd",
+    "model_sha256": "79ef7b18b7912fbcd4193d6fc5c35726cb87528ddbdaa720821f511c6bc6353e"
+  },
+  {
+    "name": "surface_d9_loss0",
+    "description": "matched QDK loss; Pauli rates zero",
+    "circuit_sha256": "b81ca6c4754386c12cb5cc00f7d0523b66243400f5c83981a81393903972b2bf",
+    "model_sha256": "79ef7b18b7912fbcd4193d6fc5c35726cb87528ddbdaa720821f511c6bc6353e"
+  },
+  {
+    "name": "surface_d9_loss0.0001",
+    "description": "matched QDK loss; Pauli rates zero",
+    "circuit_sha256": "2239e7be8f57e6afdcaf36bbf0cce665be0139db3ae77cabe1a442ff07c346e7",
+    "model_sha256": "79ef7b18b7912fbcd4193d6fc5c35726cb87528ddbdaa720821f511c6bc6353e"
+  },
+  {
+    "name": "surface_d9_loss0.001",
+    "description": "matched QDK loss; Pauli rates zero",
+    "circuit_sha256": "045ea0a9976a378bc7a72459e96c19ef823971e630d3340b27492426d2b4dd92",
+    "model_sha256": "79ef7b18b7912fbcd4193d6fc5c35726cb87528ddbdaa720821f511c6bc6353e"
+  },
+  {
+    "name": "surface_d11_loss0",
+    "description": "matched QDK loss; Pauli rates zero",
+    "circuit_sha256": "fde31f8b6532c005c933eb0c94dc4a307cd6bd6b43b31c2ef08310c43f2d026b",
+    "model_sha256": "79ef7b18b7912fbcd4193d6fc5c35726cb87528ddbdaa720821f511c6bc6353e"
+  },
+  {
+    "name": "surface_d11_loss0.0001",
+    "description": "matched QDK loss; Pauli rates zero",
+    "circuit_sha256": "bee1e550bbaaee1bd5de7574e0c3794176aaba3251cef4ca3a26ece957899d59",
+    "model_sha256": "79ef7b18b7912fbcd4193d6fc5c35726cb87528ddbdaa720821f511c6bc6353e"
+  },
+  {
+    "name": "surface_d11_loss0.001",
+    "description": "matched QDK loss; Pauli rates zero",
+    "circuit_sha256": "cb0ff57e5b9d43ec05129bdb475757da9d4a64881183d1c5dcc029572e02e178",
+    "model_sha256": "79ef7b18b7912fbcd4193d6fc5c35726cb87528ddbdaa720821f511c6bc6353e"
+  },
+  {
+    "name": "cultivation_d3_loss0",
+    "description": "explicit reusable ancilla parity readout; source noise channels at p=0.001; added loss after listed physical unitaries; Clifft semantics",
+    "circuit_sha256": "d7060f9d7f4ef5b735096fa9114f07d4d42ae3805f3e0085031b8b1a37816f2f",
+    "model_sha256": "79ef7b18b7912fbcd4193d6fc5c35726cb87528ddbdaa720821f511c6bc6353e"
+  },
+  {
+    "name": "cultivation_d3_loss0.001",
+    "description": "explicit reusable ancilla parity readout; source noise channels at p=0.001; added loss after listed physical unitaries; Clifft semantics",
+    "circuit_sha256": "9455f75d2dfaaddcb648b4e7288ce2173640ad41d98c5c7dd772eb57a08a7c00",
+    "model_sha256": "79ef7b18b7912fbcd4193d6fc5c35726cb87528ddbdaa720821f511c6bc6353e"
+  },
+  {
+    "name": "cultivation_d3_depol_partner",
+    "description": "fixed packed control",
+    "circuit_sha256": "9455f75d2dfaaddcb648b4e7288ce2173640ad41d98c5c7dd772eb57a08a7c00",
+    "model_sha256": "ac574fc542b416507f64b726dea69ced258337d08a596cff7a5f12a5057b5592"
+  },
+  {
+    "name": "cultivation_d5_loss0",
+    "description": "explicit reusable ancilla parity readout; source noise channels at p=0.001; added loss after listed physical unitaries; Clifft semantics",
+    "circuit_sha256": "0542e9de2d3437e8354ea10903ff26b6f1d9a62fd387aee28d0833bf9c9a64aa",
+    "model_sha256": "79ef7b18b7912fbcd4193d6fc5c35726cb87528ddbdaa720821f511c6bc6353e"
+  },
+  {
+    "name": "cultivation_d5_loss0.001",
+    "description": "explicit reusable ancilla parity readout; source noise channels at p=0.001; added loss after listed physical unitaries; Clifft semantics",
+    "circuit_sha256": "795cc6633438dd6756e2caba563e4bb47f33e6a8f628e65727050ae534fad54a",
+    "model_sha256": "79ef7b18b7912fbcd4193d6fc5c35726cb87528ddbdaa720821f511c6bc6353e"
+  },
+  {
+    "name": "cultivation_d5_depol_partner",
+    "description": "fixed packed control",
+    "circuit_sha256": "795cc6633438dd6756e2caba563e4bb47f33e6a8f628e65727050ae534fad54a",
+    "model_sha256": "ac574fc542b416507f64b726dea69ced258337d08a596cff7a5f12a5057b5592"
+  },
+  {
+    "name": "neutral_two_row_matched",
+    "description": "published schedule and repository five-level model",
+    "circuit_sha256": "f910190597adcc5f560684794d93b2a493c6efeaa33249b3d05f296062cf1b7d",
+    "model_sha256": "e3c1150ade871bc20fa292b8a32ceb2222d2c0e22ba2a6d6f6b2ff186bda7a9e"
+  },
+  {
+    "name": "neutral_two_row_exact",
+    "description": "published schedule and repository five-level model",
+    "circuit_sha256": "f910190597adcc5f560684794d93b2a493c6efeaa33249b3d05f296062cf1b7d",
+    "model_sha256": "8f0d7ec14cf3ad3f5feeed1f95df16c32c8e5f6493d55129c10e28bc9e40fe23"
+  },
+  {
+    "name": "neutral_two_row_ldu_matched",
+    "description": "published schedule and repository five-level model",
+    "circuit_sha256": "86a5193adead47e52840abf4a29e82b23c0b746008fe7884f382a1530dc3d419",
+    "model_sha256": "e3c1150ade871bc20fa292b8a32ceb2222d2c0e22ba2a6d6f6b2ff186bda7a9e"
+  },
+  {
+    "name": "neutral_two_row_ldu_exact",
+    "description": "published schedule and repository five-level model",
+    "circuit_sha256": "86a5193adead47e52840abf4a29e82b23c0b746008fe7884f382a1530dc3d419",
+    "model_sha256": "8f0d7ec14cf3ad3f5feeed1f95df16c32c8e5f6493d55129c10e28bc9e40fe23"
+  }
+]

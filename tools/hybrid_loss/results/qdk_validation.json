@@ -1,0 +1,38 @@
+[
+  {
+    "case": "lost_control",
+    "shots_per_backend": 20000,
+    "max_z": 0.4852140204916111,
+    "failures": []
+  },
+  {
+    "case": "bell_trace",
+    "shots_per_backend": 20000,
+    "max_z": 0.5518714226740373,
+    "failures": []
+  },
+  {
+    "case": "lost_target",
+    "shots_per_backend": 20000,
+    "max_z": 2.0415791510638894,
+    "failures": []
+  },
+  {
+    "case": "reset",
+    "shots_per_backend": 20000,
+    "max_z": 0.47284548137304416,
+    "failures": []
+  },
+  {
+    "case": "noncliff_before_loss",
+    "shots_per_backend": 20000,
+    "max_z": 1.959397456431454,
+    "failures": []
+  },
+  {
+    "case": "noncliff_after_loss",
+    "shots_per_backend": 20000,
+    "max_z": 1.3682624878898597,
+    "failures": []
+  }
+]

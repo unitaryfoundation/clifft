@@ -31,8 +31,8 @@ class State {
     void reset() noexcept;
     void reset_parallel(uint32_t workers, uint32_t min_active_width) noexcept;
 
-    // A continuation boundary may require a wider dense state than the plan
-    // that began the shot. Grow without changing live coefficients or the
+    // A continuation or online activation boundary may require a wider dense
+    // state than the initial allocation. Grow without changing live coefficients or the
     // initial configuration used by the next reset; ordinary dispatch never
     // calls this function.
     void ensure_capacity(uint32_t max_active_width);

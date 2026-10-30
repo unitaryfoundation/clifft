@@ -111,7 +111,7 @@ no_implicit_optional = true
 strict_equality = true
 
 [[tool.mypy.overrides]]
-module = ["numpy.*", "stim.*", "sinter.*", "pytest.*", "clifft", "clifft._clifft_core", "qiskit.*", "qiskit_aer.*", "matplotlib", "matplotlib.*", "griffe", "griffe.*"]
+module = ["numpy.*", "stim.*", "sinter.*", "pytest.*", "clifft", "clifft._clifft_core", "qiskit.*", "qiskit_aer.*", "qdk.*", "matplotlib", "matplotlib.*", "griffe", "griffe.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

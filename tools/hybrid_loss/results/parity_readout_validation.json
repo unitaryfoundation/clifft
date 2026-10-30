@@ -1,0 +1,16 @@
+[
+  {
+    "distance": 3,
+    "shots_per_variant": 50000,
+    "max_z": 2.2985813155811936,
+    "reference_version": "0.12.1.dev28+g49b568528",
+    "failures": []
+  },
+  {
+    "distance": 5,
+    "shots_per_variant": 50000,
+    "max_z": 2.3290735920468855,
+    "reference_version": "0.12.1.dev28+g49b568528",
+    "failures": []
+  }
+]

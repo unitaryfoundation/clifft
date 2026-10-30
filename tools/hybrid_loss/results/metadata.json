@@ -1,0 +1,37 @@
+{
+  "base_commit": "49b568528f5323627f16d06ad2ee73d9fec5598a",
+  "date_utc": "2026-10-29",
+  "clifft_reference": "0.12.1.dev28+g49b568528",
+  "qdk": "1.33.1",
+  "stim": "1.16.0",
+  "timing_python": "3.12.3 (main, Nov  6 2025, 13:44:16) [GCC 13.3.0]",
+  "cpu": "AMD EPYC 9554P VM",
+  "affinity": [
+    2
+  ],
+  "threads": 1,
+  "compiler": "Ubuntu clang 18.1.3",
+  "build": "Release -O3 -DNDEBUG -march=native ThinLTO",
+  "binary_sha256": "5a7a23dc994988d28b6782f57e98d116d7ef7c73e44114eb115549a67bc3812f",
+  "source_sha256": {
+    "compare.py": "1fdec408799d5d49eea0ef2929627aee2a0d88e21b7a1f8f9886bc5a62b6915d",
+    "hybrid.h": "0966089fdc9f698f856a9f11710504a1affe51f5454599ff2948b85276ef7392",
+    "validate_qdk.py": "8bb7ce15c6389a429a85a1b497910ef9c0b0471add1b777e5e05a3f44c830f4e",
+    "experiment.py": "b18bf128d4622912f32182739523816f027d7ef3837b72b3124c6d115c9a2550",
+    "CMakeLists.txt": "e7e7fe91968960a1b2aaba470d00841a05e8a78611330dceb4f089195a406e3f",
+    "README.md": "13dbf9d83d1c523b01f826922c8bf684104f074b2e3ae534050ed3744d276fe4",
+    "instrument_driver.py": "59e1bb74a59fa00914820d40b182480c8322e0d8834ebaac3d212a5f954839f8",
+    "summarize.py": "0c50c9b5509bc13d42dd7c94d96cf33f04f9b51868d9c613e5129f4f4d00fef0",
+    "validate.py": "9e364703524caebbed88ce576cc876aaa4415608f2df6b7cc215d3262fd17109",
+    "benchmark.py": "6a206c7d2d71b94203c25e3d201847bf3808a7dd6854cfd199f20de643b8de75",
+    "main.cc": "2653e8921e6456cc5f021a69a6d046afefa53082ab495ac2bdbb005247943ef4",
+    "hybrid.cc": "d0231bc426797b73584629c9d05156215f727a4f4db880cb0b70591517a2af84"
+  },
+  "coefficient_budget": 20,
+  "budget_storage_mib_including_scratch": 24,
+  "timing_method": "Three counts, three repetitions; slope of median endpoint times. Native output allocation included; binary-file writing excluded. QDK QIR per-call overhead removed by slope. Native prototype versus public Python APIs.",
+  "isolation": "Six headline hybrid cases were repeated after all other work stopped. Both QDK runs retained. Exploratory full sweep overlapped validation on another core; do not treat its timings as isolated headline measurements.",
+  "scope": "QDK comparison only the matched surface-loss subset. Cultivation uses explicit parity ancilla and p=0.001; its added loss and original Pauli-channel semantics are Clifft-specific. Neutral-atom comparisons retain both five-level models.",
+  "sanitizer_scope": "ASan, UBSan, and assertions on four representative cases. LeakSanitizer disabled because of sandbox ptrace restrictions.",
+  "integration": "Standalone experimental executor; no public API or automatic routing changes."
+}

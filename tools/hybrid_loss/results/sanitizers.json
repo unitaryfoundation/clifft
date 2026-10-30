@@ -1,0 +1,30 @@
+[
+  {
+    "case": "surface_d9_loss0.001",
+    "shots": 32,
+    "asan_ubsan_assertions": "passed",
+    "leak_sanitizer": "disabled: sandbox ptrace restriction",
+    "peak_width": 0
+  },
+  {
+    "case": "cultivation_d3_loss0.001",
+    "shots": 64,
+    "asan_ubsan_assertions": "passed",
+    "leak_sanitizer": "disabled: sandbox ptrace restriction",
+    "peak_width": 5
+  },
+  {
+    "case": "cultivation_d5_loss0.001",
+    "shots": 32,
+    "asan_ubsan_assertions": "passed",
+    "leak_sanitizer": "disabled: sandbox ptrace restriction",
+    "peak_width": 12
+  },
+  {
+    "case": "neutral_two_row_ldu_exact",
+    "shots": 4,
+    "asan_ubsan_assertions": "passed",
+    "leak_sanitizer": "disabled: sandbox ptrace restriction",
+    "peak_width": 17
+  }
+]

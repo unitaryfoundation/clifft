@@ -440,6 +440,7 @@ there is no cross-call cache.
 | `execution="auto"` | Select an exact supported fixed plan, otherwise use trajectories. |
 | `execution="fixed"` | Require fixed execution; reject unsupported requests during preparation. |
 | `execution="trajectory"` | Force the general trajectory driver. |
+| `execution="online"` | Evolve Clifford coordinates during each shot without continuation compilation. Explicit opt-in. |
 | `final_status=False` | Omit detailed status; `result.final_status` is `None`. |
 | `final_status=True` | Return existing `QubitStatus` values; unresolved leaked labels can require trajectories. |
 | `batch_size="auto"` | Choose a batch size automatically; trajectories run one shot at a time. |
@@ -540,6 +541,37 @@ batching. Preparation counts and timing refer to the program's preparation,
 not repeated work on each call. See
 [NonComputationalStats](../reference/python-api.md#clifft.noncomp.NonComputationalStats)
 for the counters, resource estimates, and timing definitions.
+
+### Online execution
+
+Use `execution="online"` to sample the same five-level model with runtime
+Clifford coordinates and a compact dense active state:
+
+```python
+program = noncomp.compile(circuit, model, execution="online", max_active_width=20)
+result = program.sample(shots=1000, seed=7, collect_stats=True)
+assert result.stats.online_shots == 1000
+assert result.stats.continuation_compilations == 0
+```
+
+This mode supports skip-gate loss, source-dependent transitions, exact no-fire
+damping, leakage spreading, arbitrary partner Pauli channels, classifiers,
+and mixed initial levels. It uses the existing result and final-status options.
+It currently rejects `MPP` and `U3` during preparation; use explicit ancilla
+readout for parity measurements and elementary rotations for `U3`.
+
+Online execution runs scalar shots, with independent workers selected by
+`threads`. `batch_size="auto"` or `1` is accepted; packed batches and tuning
+require fixed execution. A fixed seed and shot count give the same online rows
+across worker counts. Different execution modes need not produce the same rows.
+
+`max_active_width` is checked before active-state storage grows. Runtime width
+can differ from the compiled modes, since online execution does not run HIR
+optimization. `peak_active_width` reports the realized maximum, and
+`online_state_growths` reports coefficient-buffer growth across workers.
+Workers retain their capacity between shots. Automatic selection continues to
+choose fixed or trajectory execution; online may save continuation work but
+pays for Clifford-frame evolution in every shot.
 
 ### Trajectory continuations
 

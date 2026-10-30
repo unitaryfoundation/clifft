@@ -1,0 +1,284 @@
+{
+  "cultivation_d3_loss0.001": {
+    "mode": "trajectory",
+    "shots": 64,
+    "preparation_seconds": 0.00056663,
+    "sampling_seconds": 0.024518162,
+    "us_per_shot": 383.09628125,
+    "qubits": 16,
+    "measurements": 21,
+    "detectors": 20,
+    "observables": 1,
+    "peak_width": 5,
+    "continuations": 11,
+    "phases": {
+      "rewrite": {
+        "seconds": 0.000818784,
+        "calls": 12
+      },
+      "trace": {
+        "seconds": 0.001508879,
+        "calls": 12
+      },
+      "optimize": {
+        "seconds": 5.0147e-05,
+        "calls": 12
+      },
+      "plan": {
+        "seconds": 0.013806009,
+        "calls": 12
+      },
+      "prepare": {
+        "seconds": 0.003112737,
+        "calls": 12
+      },
+      "execute": {
+        "seconds": 0.000471739,
+        "calls": 75
+      },
+      "classical": {
+        "seconds": 0.000244871,
+        "calls": 11
+      },
+      "classify": {
+        "seconds": 7.1e-07,
+        "calls": 11
+      }
+    }
+  },
+  "cultivation_d5_loss0.001": {
+    "mode": "trajectory",
+    "shots": 64,
+    "preparation_seconds": 0.001392915,
+    "sampling_seconds": 0.753511349,
+    "us_per_shot": 11773.6148281,
+    "qubits": 43,
+    "measurements": 112,
+    "detectors": 107,
+    "observables": 1,
+    "peak_width": 12,
+    "continuations": 78,
+    "phases": {
+      "rewrite": {
+        "seconds": 0.029432786,
+        "calls": 79
+      },
+      "trace": {
+        "seconds": 0.048331682,
+        "calls": 79
+      },
+      "optimize": {
+        "seconds": 0.001544969,
+        "calls": 79
+      },
+      "plan": {
+        "seconds": 0.400777925,
+        "calls": 79
+      },
+      "prepare": {
+        "seconds": 0.208728976,
+        "calls": 79
+      },
+      "execute": {
+        "seconds": 0.012168942,
+        "calls": 142
+      },
+      "classical": {
+        "seconds": 0.010727012,
+        "calls": 78
+      },
+      "classify": {
+        "seconds": 1.5768e-05,
+        "calls": 78
+      }
+    }
+  },
+  "neutral_two_row_exact": {
+    "mode": "trajectory",
+    "shots": 64,
+    "preparation_seconds": 0.000229038,
+    "sampling_seconds": 0.015273388,
+    "us_per_shot": 238.6466875,
+    "qubits": 24,
+    "measurements": 20,
+    "detectors": 0,
+    "observables": 0,
+    "peak_width": 9,
+    "continuations": 5,
+    "phases": {
+      "rewrite": {
+        "seconds": 0.002219698,
+        "calls": 69
+      },
+      "trace": {
+        "seconds": 0.002686341,
+        "calls": 69
+      },
+      "optimize": {
+        "seconds": 6.2502e-05,
+        "calls": 69
+      },
+      "plan": {
+        "seconds": 0.004088474,
+        "calls": 69
+      },
+      "prepare": {
+        "seconds": 0.001164119,
+        "calls": 69
+      },
+      "execute": {
+        "seconds": 0.002114378,
+        "calls": 69
+      },
+      "classical": {
+        "seconds": 0.000839232,
+        "calls": 69
+      },
+      "classify": {
+        "seconds": 5.806e-06,
+        "calls": 69
+      }
+    }
+  },
+  "neutral_two_row_ldu_exact": {
+    "mode": "trajectory",
+    "shots": 64,
+    "preparation_seconds": 0.00024352,
+    "sampling_seconds": 0.786061486,
+    "us_per_shot": 12282.2107188,
+    "qubits": 24,
+    "measurements": 20,
+    "detectors": 0,
+    "observables": 0,
+    "peak_width": 18,
+    "continuations": 13,
+    "phases": {
+      "rewrite": {
+        "seconds": 0.002788933,
+        "calls": 77
+      },
+      "trace": {
+        "seconds": 0.003795731,
+        "calls": 77
+      },
+      "optimize": {
+        "seconds": 0.000119757,
+        "calls": 77
+      },
+      "plan": {
+        "seconds": 0.006237545,
+        "calls": 77
+      },
+      "prepare": {
+        "seconds": 0.002183052,
+        "calls": 77
+      },
+      "execute": {
+        "seconds": 0.759177031,
+        "calls": 77
+      },
+      "classical": {
+        "seconds": 0.000997669,
+        "calls": 77
+      },
+      "classify": {
+        "seconds": 1.7655e-05,
+        "calls": 77
+      }
+    }
+  },
+  "neutral_two_row_ldu_matched": {
+    "mode": "trajectory",
+    "shots": 64,
+    "preparation_seconds": 0.000206033,
+    "sampling_seconds": 0.046999514,
+    "us_per_shot": 734.36740625,
+    "qubits": 24,
+    "measurements": 20,
+    "detectors": 0,
+    "observables": 0,
+    "peak_width": 0,
+    "continuations": 169,
+    "phases": {
+      "rewrite": {
+        "seconds": 0.00829056,
+        "calls": 233
+      },
+      "trace": {
+        "seconds": 0.009263088,
+        "calls": 233
+      },
+      "optimize": {
+        "seconds": 0.000225394,
+        "calls": 233
+      },
+      "plan": {
+        "seconds": 0.014749715,
+        "calls": 233
+      },
+      "prepare": {
+        "seconds": 0.004415277,
+        "calls": 233
+      },
+      "execute": {
+        "seconds": 0.000210249,
+        "calls": 233
+      },
+      "classical": {
+        "seconds": 0.00250164,
+        "calls": 233
+      },
+      "classify": {
+        "seconds": 1.4491e-05,
+        "calls": 233
+      }
+    }
+  },
+  "surface_d7_loss0.001": {
+    "mode": "trajectory",
+    "shots": 64,
+    "preparation_seconds": 0.002981266,
+    "sampling_seconds": 4.21362541,
+    "us_per_shot": 65837.8970312,
+    "qubits": 118,
+    "measurements": 385,
+    "detectors": 0,
+    "observables": 0,
+    "peak_width": 0,
+    "continuations": 429,
+    "phases": {
+      "rewrite": {
+        "seconds": 0.250809402,
+        "calls": 430
+      },
+      "trace": {
+        "seconds": 0.481428277,
+        "calls": 430
+      },
+      "optimize": {
+        "seconds": 0.012813986,
+        "calls": 430
+      },
+      "plan": {
+        "seconds": 2.679801734,
+        "calls": 430
+      },
+      "prepare": {
+        "seconds": 0.365821488,
+        "calls": 430
+      },
+      "execute": {
+        "seconds": 0.008034697,
+        "calls": 493
+      },
+      "classical": {
+        "seconds": 0.098089773,
+        "calls": 429
+      },
+      "classify": {
+        "seconds": 0.000196229,
+        "calls": 429
+      }
+    }
+  }
+}

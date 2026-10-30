@@ -3,6 +3,7 @@
 #include "clifft/util/numeric.h"
 
 #include <bit>
+#include <cassert>
 #include <cmath>
 #include <complex>
 #include <numbers>
@@ -29,6 +30,12 @@ PreparedPauli prepare_pauli(ActivePauli pauli, uint32_t active_width) {
         throw std::invalid_argument("prepared Pauli has bits outside its active width");
     }
 
+    return prepare_pauli_unchecked(pauli, active_width);
+}
+
+PreparedPauli prepare_pauli_unchecked(ActivePauli pauli, uint32_t active_width) noexcept {
+    assert(active_width < kDenseActiveWidthLimit);
+    assert(((pauli.x | pauli.z) >> active_width) == 0);
     static constexpr std::complex<double> kIPowers[4] = {
         {1.0, 0.0}, {0.0, 1.0}, {-1.0, 0.0}, {0.0, -1.0}};
     const uint32_t overlap = std::popcount(pauli.x & pauli.z);
@@ -72,6 +79,15 @@ PreparedMeasurement prepare_measurement(ActivePauli pauli, uint32_t active_width
     if (!pivot_is_valid) {
         throw std::invalid_argument("prepared measurement pivot is outside Pauli support");
     }
+    return prepare_measurement_unchecked(pauli, active_width, pivot);
+}
+
+PreparedMeasurement prepare_measurement_unchecked(ActivePauli pauli, uint32_t active_width,
+                                                  uint32_t pivot) noexcept {
+    assert(active_width != 0 && pivot < active_width && !pauli.is_identity());
+    const auto prepared = prepare_pauli_unchecked(pauli, active_width);
+    const uint64_t pivot_bit = uint64_t{1} << pivot;
+    assert(((pauli.x ? pauli.x : pauli.z) & pivot_bit) != 0);
     return PreparedMeasurement{prepared, pivot, uint64_t{1} << (active_width - 1),
                                prepared.z & ~pivot_bit};
 }

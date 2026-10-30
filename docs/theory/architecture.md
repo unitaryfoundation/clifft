@@ -1,6 +1,6 @@
 # Software Architecture
 
-Clifft separates circuit analysis from repeated execution. Compilation does
+Clifft's compiled modes separate circuit analysis from repeated execution. Compilation does
 the tableau, coordinate, and dependency work once. Sampling then executes a
 fixed symbolic-coordinate program using preallocated state.
 
@@ -35,7 +35,7 @@ implementation moved from that design to the pipeline described here.
 | `src/clifft/frontend/` | Clifford tracing and Heisenberg IR construction |
 | `src/clifft/optimizer/` | HIR optimization passes |
 | `src/clifft/sampling/` | Semantic planning, executable preparation, shot execution, and kernels |
-| `src/clifft/noncomp/` | Leakage/loss trajectory planning and continuation handling |
+| `src/clifft/noncomp/` | Leakage/loss fixed, trajectory, and online execution |
 | `src/python/` | Python API via nanobind |
 | `src/wasm/` | Browser bindings for compilation, inspection, and sampling |
 
@@ -89,7 +89,7 @@ see [HIP Backend](../development/hip-backend.md) and
 [CUDA Backend](../development/cuda-backend.md).
 
 !!! important "Planning boundary"
-    Runtime kernels do not evolve tableaus, localize Paulis, analyze
+    Compiled executors and their kernels do not evolve tableaus, localize Paulis, analyze
     commutation, choose coordinates, or discover symbolic dependencies. Those
     decisions belong to compilation and executable preparation.
 
@@ -116,6 +116,36 @@ execution. A leakage or loss instrument may stop at an explicit boundary,
 prepare a trajectory-specific suffix, grow reusable storage if necessary, and
 resume without losing the live coefficients, records, symbols, or RNG
 position. See [Noncomputational States](noncomputational.md).
+
+## Online Noncomputational Execution
+
+The explicit `noncomp.compile(..., execution="online")` mode keeps the state as
+a Clifford frame around a dense active prefix and a dormant zero-state tail.
+It prepares immutable physical operations, local Clifford actions, rotation
+coefficients, and classifier channels. Each worker owns its inverse frame,
+active coefficients, status ledger, records, and scratch storage.
+
+Online dispatch updates Clifford coordinates as the physical history unfolds.
+It localizes mapped Paulis and removes coordinates after active measurements,
+reusing Clifft's dense rotation, measurement, and instrument kernels. This is
+a separate runtime contract from `ExecutablePlan` and `Executor`. It avoids
+rewriting and compiling a suffix after a state-dependent transition; it does
+not run HIR optimizations or mix compiled and online segments.
+
+All ordinary dispatch is allocation-free and exception-free. If an operation
+needs more active-state capacity, it saves the pending action and suspends
+before changing its frame or coefficients. The outer driver checks the width
+limit, grows storage, and completes that same action without drawing its
+outcome again. Capacity is retained across shots. Runtime width can differ
+from compiled width because the representations apply different reductions.
+
+The existing model, records, heralds, status sidecars, and per-shot seed
+derivation remain shared contracts. Backend comparisons require the same
+physical distributions, not identical random rows or coordinate arrays.
+Shared noncomputational tests exercise both modes; independent Stim and Aer
+checks cover Clifford frame signs, active rotations, and measurement
+compaction. Conditional instrument-state coverage should compare physical
+states and branch weights, rather than forcing a rare event to probability one.
 
 ## Execution Targets
 

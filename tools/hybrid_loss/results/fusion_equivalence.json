@@ -1,0 +1,52 @@
+[
+  {
+    "case": "surface_d5_loss0.001",
+    "shots": 4096,
+    "all_output_bytes_identical": true
+  },
+  {
+    "case": "cultivation_d3_loss0",
+    "shots": 20000,
+    "all_output_bytes_identical": true
+  },
+  {
+    "case": "cultivation_d3_loss0.001",
+    "shots": 16000,
+    "all_output_bytes_identical": true
+  },
+  {
+    "case": "cultivation_d5_loss0",
+    "shots": 20000,
+    "all_output_bytes_identical": true
+  },
+  {
+    "case": "cultivation_d5_loss0.001",
+    "shots": 4096,
+    "all_output_bytes_identical": true
+  },
+  {
+    "case": "cultivation_d3_depol_partner",
+    "shots": 16000,
+    "all_output_bytes_identical": true
+  },
+  {
+    "case": "neutral_two_row_matched",
+    "shots": 12000,
+    "all_output_bytes_identical": true
+  },
+  {
+    "case": "neutral_two_row_exact",
+    "shots": 12000,
+    "all_output_bytes_identical": true
+  },
+  {
+    "case": "neutral_two_row_ldu_matched",
+    "shots": 12000,
+    "all_output_bytes_identical": true
+  },
+  {
+    "case": "neutral_two_row_ldu_exact",
+    "shots": 4096,
+    "all_output_bytes_identical": true
+  }
+]

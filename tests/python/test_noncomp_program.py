@@ -38,7 +38,7 @@ def same_rows(left, right):
         np.testing.assert_array_equal(getattr(left, name), getattr(right, name), err_msg=name)
 
 
-@pytest.mark.parametrize("execution", ["auto", "fixed", "trajectory"])
+@pytest.mark.parametrize("execution", ["auto", "fixed", "trajectory", "online"])
 def test_public_convenience_preserves_positional_arguments(execution):
     text = "H 0\nT 0\nH 0\nM 0"
     noise = model()
@@ -186,7 +186,7 @@ def test_requested_leaked_status_preserves_bell_pair_correlation(public_sample):
     assert not restored.final_status.any()
 
 
-@pytest.mark.parametrize("execution", ["auto", "fixed", "trajectory"])
+@pytest.mark.parametrize("execution", ["auto", "fixed", "trajectory", "online"])
 @pytest.mark.parametrize("final_status", [False, True])
 def test_public_zero_shots_keep_contract_without_execution(public_sample, execution, final_status):
     result = public_sample(
@@ -224,7 +224,7 @@ def test_public_rejects_explicit_packing_for_trajectory_selection(public_sample,
         )
 
 
-@pytest.mark.parametrize("execution", ["auto", "fixed", "trajectory"])
+@pytest.mark.parametrize("execution", ["auto", "fixed", "trajectory", "online"])
 def test_validation_errors_are_not_optimization_fallbacks(public_sample, execution):
     with pytest.raises(ValueError, match="classifier is required"):
         public_sample("LEAKAGE(0.2) 0\nM 0", noncomp.Model(), shots=0, execution=execution)
@@ -295,7 +295,7 @@ def test_public_width_fallback_counts_discarded_preparation_and_keeps_lazy_traje
         lazy.sample(1)
 
 
-@pytest.mark.parametrize("execution", ["auto", "trajectory"])
+@pytest.mark.parametrize("execution", ["auto", "trajectory", "online"])
 def test_public_prepared_program_is_owned_reusable_and_concurrent(execution):
     matrix = [row[:] for row in CLASSIFIER]
     noise = noncomp.Model(classifier=noncomp.Classifier(matrix))
