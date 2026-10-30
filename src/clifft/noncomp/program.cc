@@ -1,7 +1,9 @@
 #include "clifft/noncomp/program.h"
 
+#include "clifft/noncomp/online.h"
 #include "clifft/sampling/batch/tuning.h"
 
+#include <cassert>
 #include <chrono>
 #include <sstream>
 #include <stdexcept>
@@ -12,7 +14,9 @@ namespace clifft {
 namespace detail {
 
 struct NonComputationalProgramData {
-    std::variant<PreparedNonComputationalRequest, FixedNonComputationalProgram> implementation;
+    std::variant<PreparedNonComputationalRequest, FixedNonComputationalProgram,
+                 OnlineNonComputationalProgram>
+        implementation;
     NonComputationalExecution requested;
     NonComputationalRequirements requirements;
     std::optional<FixedNonComputationalRejection> rejection;
@@ -76,7 +80,10 @@ std::shared_ptr<const detail::NonComputationalProgramData> prepare_program(
             .requested = execution,
             .requirements = requirements,
             .rejection = std::nullopt});
-    if (execution != NonComputationalExecution::Trajectory) {
+    if (execution == NonComputationalExecution::Online) {
+        data->implementation = OnlineNonComputationalProgram(
+            std::move(std::get<PreparedNonComputationalRequest>(data->implementation)));
+    } else if (execution != NonComputationalExecution::Trajectory) {
         // Validation is shared and errors propagate. Only an explicit fixed-path
         // rejection permits automatic fallback to the validated trajectory request.
         auto candidate = prepare_fixed_noncomputational(
@@ -98,6 +105,21 @@ std::shared_ptr<const detail::NonComputationalProgramData> prepare_program(
 }
 
 }  // namespace
+
+std::string_view noncomputational_execution_name(NonComputationalExecution execution) noexcept {
+    switch (execution) {
+        case NonComputationalExecution::Auto:
+            return "auto";
+        case NonComputationalExecution::Fixed:
+            return "fixed";
+        case NonComputationalExecution::Trajectory:
+            return "trajectory";
+        case NonComputationalExecution::Online:
+            return "online";
+    }
+    assert(false && "unknown noncomputational execution strategy");
+    return {};
+}
 
 std::string_view fixed_rejection_name(FixedNonComputationalReason reason) {
     switch (reason) {
@@ -128,6 +150,8 @@ NonComputationalProgram::NonComputationalProgram(const Circuit& circuit,
     : data_(prepare_program(circuit, model, execution, requirements)) {}
 
 NonComputationalExecution NonComputationalProgram::strategy() const {
+    if (std::holds_alternative<OnlineNonComputationalProgram>(data_->implementation))
+        return NonComputationalExecution::Online;
     return std::holds_alternative<FixedNonComputationalProgram>(data_->implementation)
                ? NonComputationalExecution::Fixed
                : NonComputationalExecution::Trajectory;
@@ -143,13 +167,14 @@ const std::optional<FixedNonComputationalRejection>& NonComputationalProgram::re
 
 std::string NonComputationalProgram::explain() const {
     std::ostringstream out;
-    out << "Execution: "
-        << (strategy() == NonComputationalExecution::Fixed ? "fixed" : "trajectory") << '\n';
+    out << "Execution: " << noncomputational_execution_name(strategy()) << '\n';
     out << "Final status: " << (returns_final_status() ? "requested" : "omitted") << '\n';
     if (data_->rejection) {
         out << "Fixed fallback reason: " << describe_rejection(*data_->rejection) << '\n';
     } else if (data_->requested == NonComputationalExecution::Trajectory) {
         out << "Trajectory execution was explicitly requested.\n";
+    } else if (data_->requested == NonComputationalExecution::Online) {
+        out << "Online execution was explicitly requested.\n";
     } else if (data_->requested == NonComputationalExecution::Fixed) {
         out << "Fixed execution was explicitly requested.\n";
     }
@@ -161,6 +186,9 @@ std::string NonComputationalProgram::explain() const {
         out << "Scalar input workspace: " << fixed->metrics().classical_workspace_bytes
             << " bytes per worker (excludes quantum executor and results).\n";
         out << "Batch capacity and packed worker storage are resolved by sample().\n";
+    } else if (strategy() == NonComputationalExecution::Online) {
+        out << "Clifford coordinates evolve online; no continuation compilation.\n";
+        out << "Active-state storage grows at explicit activation boundaries.\n";
     } else {
         out << "Continuations compile during sampling; width and storage depend on the path.\n";
     }
@@ -196,15 +224,21 @@ NonComputationalSample NonComputationalProgram::sample(
     } else {
         if (tuning_budget_seconds) {
             throw std::invalid_argument(
-                "batch_size='tune' requires fixed execution; selected strategy is trajectory");
+                "batch_size='tune' requires fixed execution; selected strategy is " +
+                std::string(noncomputational_execution_name(strategy())));
         }
         if (batch_size.value_or(1) > 1) {
             throw std::invalid_argument(
-                "batch_size greater than 1 requires fixed execution; selected strategy is "
-                "trajectory");
+                "batch_size greater than 1 requires fixed execution; selected strategy is " +
+                std::string(noncomputational_execution_name(strategy())));
         }
-        result = std::get<PreparedNonComputationalRequest>(data_->implementation)
-                     .sample(shots, seed, threads, collect_stats);
+        if (const auto* online =
+                std::get_if<OnlineNonComputationalProgram>(&data_->implementation)) {
+            result = online->sample(shots, seed, threads, collect_stats);
+        } else {
+            result = std::get<PreparedNonComputationalRequest>(data_->implementation)
+                         .sample(shots, seed, threads, collect_stats);
+        }
     }
     if (result.stats) {
         result.stats->preparation_compilations = data_->preparation_compilations;

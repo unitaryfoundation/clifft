@@ -4,6 +4,7 @@ import numpy as np
 import numpy.typing as npt
 import pytest
 import stim
+from utils_conformance import assert_joint_distribution
 
 import clifft
 from clifft import noncomp
@@ -345,19 +346,25 @@ def test_valid_boundaries_sample_like_stim(valid_boundary_circuit, sampling_mode
 
 @pytest.mark.parametrize("parsed", [False, True], ids=["text", "parsed"])
 def test_valid_boundaries_sample_noncomp_like_stim(
-    valid_boundary_circuit, parsed, noncomp_sampling_api
+    valid_boundary_circuit, parsed, noncomp_sampling_api, noncomp_sampling_config
 ):
     text, expected = valid_boundary_circuit
     source = clifft.parse(text) if parsed else text
+    online = noncomp_sampling_config[0] in ("online", "online-prepared")
+    parity_measurement = any(
+        line.startswith(("MPP(", "MXX(", "MYY(", "MZZ(")) for line in text.splitlines()
+    )
+    if online and parity_measurement:
+        with pytest.raises(ValueError, match="online execution does not support MPP"):
+            noncomp_sampling_api(source, noncomp.Model(), shots=32, seed=3)
+        return
     result = noncomp_sampling_api(source, noncomp.Model(), shots=32, seed=3)
     np.testing.assert_array_equal(result.measurements, expected)
 
 
 # Folded sequentially in double arithmetic, this exhaustive chain's channel
 # probabilities sum one ulp above one. Exactly one branch fires per shot.
-ROUNDING_CHAIN = (
-    "E(0.08) X0\n" "ELSE_CORRELATED_ERROR(0.45) Z0\n" "ELSE_CORRELATED_ERROR(1) X1\n" "M 0 1"
-)
+ROUNDING_CHAIN = "E(0.08) X0\nELSE_CORRELATED_ERROR(0.45) Z0\nELSE_CORRELATED_ERROR(1) X1\nM 0 1"
 ROUNDING_CHAIN_SHOTS = 1024
 
 
@@ -377,7 +384,7 @@ def test_rounding_chain_samples(sampling_mode):
     _check_rounding_chain_rows(result.measurements)
 
 
-@pytest.mark.parametrize("execution", ["trajectory", "fixed"])
+@pytest.mark.parametrize("execution", ["trajectory", "fixed", "online"])
 def test_rounding_chain_samples_noncomp(execution, noncomp_sampling_api):
     result = noncomp_sampling_api(
         ROUNDING_CHAIN,
@@ -387,6 +394,19 @@ def test_rounding_chain_samples_noncomp(execution, noncomp_sampling_api):
         execution=execution,
     )
     _check_rounding_chain_rows(result.measurements)
+
+
+@pytest.mark.parametrize("identity", ["", " X0*X0"])
+@pytest.mark.parametrize("prefix,gate", [("", "E"), ("E(0) Z0\n", "ELSE_CORRELATED_ERROR")])
+def test_identity_correlated_branch_consumes_probability(
+    identity, prefix, gate, noncomp_sampling_api
+):
+    text = f"{prefix}{gate}(0.6){identity}\nELSE_CORRELATED_ERROR(1) X0\nM 0"
+    result = noncomp_sampling_api(text, noncomp.Model(), shots=4096, seed=41)
+    # Stim's canonical empty branch and a folded Pauli identity have the same law.
+    reference = stim.Circuit(text.replace(" X0*X0", "")).compile_sampler(seed=7).sample(4096)
+    assert_joint_distribution(reference, [0.6, 0.4])
+    assert_joint_distribution(result.measurements, [0.6, 0.4])
 
 
 @pytest.fixture(params=[0, 1])

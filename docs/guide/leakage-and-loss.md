@@ -426,9 +426,9 @@ repeatedly, including concurrently from multiple threads. `noncomp.sample()`
 accepts all of the `compile()` and `sample()` options below and compiles on
 every call.
 
-### Fixed execution vs. trajectories
+### Execution strategies { #fixed-execution-vs-trajectories }
 
-Clifft has two execution strategies for leakage and loss, with identical model
+Clifft has three execution strategies for leakage and loss, with identical model
 and output semantics:
 
 - **Fixed execution (`strategy == "fixed"`):** compiles the quantum circuit
@@ -437,12 +437,17 @@ and output semantics:
 - **Trajectory execution (`strategy == "trajectory"`):** supports the full
   five-level model by stepping through one shot at a time and recompiling the
   remaining circuit whenever a jump changes later operations.
+- **Online execution (`strategy == "online"`):** handles leakage and loss as
+  each shot runs, avoiding recompilation when they change later operations.
+  Select it explicitly as described in [Online execution](#online-execution).
 
 By default (`execution="auto"`), `noncomp.compile()` uses fixed execution when
-possible and falls back to trajectories otherwise. Eligibility is checked
-against the qubit statuses that can actually reach each circuit position, so
-unused model rules or unreachable pairings do not force trajectories. The main
-checks are:
+possible and falls back to trajectories otherwise. Future releases may also
+select online execution automatically when it is expected to be fastest.
+
+Eligibility for fixed execution is checked against the qubit statuses that can
+actually reach each circuit position, so unused model rules or unreachable
+pairings do not force trajectories. The main checks are:
 
 | Requirement for `"fixed"` | Uses `"trajectory"` when... |
 | --- | --- |
@@ -454,7 +459,7 @@ checks are:
 | `final_status=False`, or resets/loss clear any leaked state before circuit end | `final_status=True` and a qubit could end the circuit leaked (since `final_status` distinguishes `LEAK_G` from `LEAK_E`) |
 | Compiled fixed program fits within `max_active_width` | Fixed program exceeds `max_active_width` (Clifft falls back to trajectories, where each compiled continuation must still fit within `max_active_width`) |
 
-A few other operations also require trajectories when a target can be
+Under automatic selection, a few other operations require trajectories when a target can be
 noncomputational, such as multi-qubit Pauli-product gates (`SPP`, `TPP`,
 `R_PAULI`). Call `program.explain()` to see the selected strategy and any
 fallback reason.
@@ -479,8 +484,8 @@ Options passed to `noncomp.compile()` (and forwarded by `noncomp.sample()`):
 | Argument | Default | Meaning |
 | --- | --- | --- |
 | `final_status` | `False` | When `True`, populate `result.final_status` with per-qubit `QubitStatus` values. |
-| `execution` | `"auto"` | `"auto"` selects `"fixed"` when eligible and `"trajectory"` otherwise; `"fixed"` raises `ValueError` if ineligible; `"trajectory"` forces trajectories. |
-| `max_active_width` | `None` | Cap on peak active width. Under `"auto"`, an over-cap fixed program falls back to trajectories; trajectory continuations exceeding the cap raise during sampling. |
+| `execution` | `"auto"` | `"auto"` selects `"fixed"` when eligible and `"trajectory"` otherwise; `"fixed"` raises `ValueError` if ineligible; `"trajectory"` forces trajectories; `"online"` selects online execution. |
+| `max_active_width` | `None` | Cap on peak active width. Under `"auto"`, an over-cap fixed program falls back to trajectories; trajectory continuations or online activations exceeding the cap raise during sampling. |
 
 Options passed to `program.sample()` (and `noncomp.sample()`):
 
@@ -495,8 +500,8 @@ Options passed to `program.sample()` (and `noncomp.sample()`):
 
 `batch_size` controls how many shots a worker processes together:
 
-- **`"auto"`** (default): choose a batch size automatically; trajectories run
-  one shot at a time.
+- **`"auto"`** (default): choose a batch size automatically; trajectory and
+  online execution run one shot at a time.
 - **`"tune"`**: try several batch sizes to find a faster setting. Available only
   for fixed execution.
 - **`1`**: process shots individually. Fixed execution still reuses its compiled
@@ -561,6 +566,41 @@ assert result.stats.continuation_compilations == 0
 
 See [`NonComputationalStats`](../reference/python-api.md#clifft.noncomp.NonComputationalStats)
 for all counter, memory, and timing fields.
+
+### Online execution
+
+Try `execution="online"` when leakage or loss causes frequent recompilation
+during trajectory sampling. For example, losing a qubit can remove later
+two-qubit gates. Online execution handles these changes as each shot runs,
+which can make sampling faster without changing your circuit or noise model.
+
+!!! important "Performance and memory tradeoff"
+    Online execution skips the compiler's [HIR optimization passes](../reference/passes.md).
+    Its active width can therefore be larger than with compiled execution, and
+    each extra active qubit doubles the dense-state storage. It also updates
+    the Clifford frame on every shot. Compare sampling time and
+    `result.stats.peak_active_width` for your circuit: avoiding recompilation
+    may save time while requiring more memory and dense-state work.
+
+```python
+from clifft import noncomp
+
+circuit = "H 0\nT 0\nLOSS(0.01) 0\nCX 0 1\nH 0\nM 0 1"
+model = noncomp.Model(
+    classifier=noncomp.Classifier([[1, 0, 0.5, 0.5, 0.5], [0, 1, 0.5, 0.5, 0.5]])
+)
+program = noncomp.compile(circuit, model, execution="online", max_active_width=20)
+result = program.sample(shots=1000, seed=7, collect_stats=True)
+assert result.stats.online_shots == 1000
+assert result.stats.continuation_compilations == 0
+```
+
+Online execution currently rejects `MPP` and `U3` during preparation; use
+explicit ancilla readout for parity measurements and elementary rotations for
+`U3`. Use `threads` to sample shots in parallel.
+
+Set `max_active_width` to limit dense-state growth; sampling raises an error
+if a shot needs more active qubits than the limit allows.
 
 ### Trajectory continuations
 

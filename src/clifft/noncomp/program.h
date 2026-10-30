@@ -11,7 +11,9 @@
 
 namespace clifft {
 
-enum class NonComputationalExecution { Auto, Fixed, Trajectory };
+enum class NonComputationalExecution { Auto, Fixed, Trajectory, Online };
+
+std::string_view noncomputational_execution_name(NonComputationalExecution execution) noexcept;
 
 std::string_view fixed_rejection_name(FixedNonComputationalReason reason);
 

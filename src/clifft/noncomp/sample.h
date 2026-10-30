@@ -35,6 +35,8 @@ struct NonComputationalSamplingStats {
     // All trajectory shots are scalar; fixed shots can be scalar or packed.
     uint64_t fixed_shots = 0;
     uint64_t trajectory_shots = 0;
+    uint64_t online_shots = 0;
+    uint64_t online_state_growths = 0;
     uint64_t scalar_shots = 0;
     uint64_t packed_shots = 0;
     // Dynamic input generation executed across packed lanes, excluding static plans.

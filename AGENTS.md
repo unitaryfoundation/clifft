@@ -36,22 +36,26 @@ architecture cannot support it:
   vendor, or patch Stim source.
 - **Allocation-free hot execution:** Executors must preallocate coefficient,
   record, symbolic-state, and scratch storage before entering hot dispatch or
-  kernels. The sanctioned exception is an explicit trap or continuation
-  boundary, where storage may grow but never shrink before dispatch resumes.
-  No allocation is allowed inside an ordinary dispatch loop or kernel.
+  kernels. The sanctioned exception is an explicit trap, continuation, or online
+  activation boundary, where storage may grow but never shrink before dispatch
+  resumes. No allocation is allowed inside an ordinary dispatch loop or kernel.
 - **Exception-free hot execution:** Validate external and compiler-produced
   inputs before entering hot execution. Use assertions rather than exceptions
   for internal preconditions in per-shot reset, ordinary dispatch, and kernels.
   Throwing validation remains appropriate during construction, planning,
-  lowering, and explicit trap or continuation boundaries.
+  lowering, and explicit trap, continuation, or online activation boundaries.
 - **Deterministic RNG:** Do not use `std::uniform_real_distribution`; its output
   is implementation-defined. Use `(rng() >> 11) * 0x1.0p-53` for `[0, 1)`.
-- **No runtime topology planning:** The compiler or planner must precompute
-  coordinate changes, Pauli pairings, phase behavior, active-width transitions,
-  and symbolic dependencies. The executor may apply compiler-precomputed
-  multi-coordinate active-Pauli actions directly, but runtime code must not
-  perform tableau evolution, commutation analysis, localization, or dependency
-  discovery.
+- **No runtime topology planning in compiled executors:** The compiler or planner
+  must precompute coordinate changes, Pauli pairings, phase behavior,
+  active-width transitions, and symbolic dependencies. The executor may apply
+  compiler-precomputed multi-coordinate active-Pauli actions directly, but
+  runtime code must not perform tableau evolution, commutation analysis,
+  localization, or dependency discovery. The explicitly selected
+  noncomputational online backend is a separate contract: it may evolve its
+  Clifford frame and active coordinates at runtime. Its ordinary dispatch
+  remains allocation-free and exception-free; coefficient storage may grow only
+  after suspension at an explicit activation boundary.
 
 ## Repository-Specific Source and Test Rules
 

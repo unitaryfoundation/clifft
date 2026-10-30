@@ -62,15 +62,24 @@ def statevector_from_circuit() -> Callable[[str], npt.NDArray[np.complex128]]:
 
 
 @pytest.fixture(
-    params=[(api, workers) for api in ("auto", "prepared", "trajectory") for workers in (1, 2)],
+    params=[
+        (api, workers)
+        for api in ("auto", "prepared", "trajectory", "online", "online-prepared")
+        for workers in (1, 2)
+    ],
     ids=[
         f"{api}-{workers}-workers"
-        for api in ("auto", "prepared", "trajectory")
+        for api in ("auto", "prepared", "trajectory", "online", "online-prepared")
         for workers in (1, 2)
     ],
 )
+def noncomp_sampling_config(request: pytest.FixtureRequest) -> tuple[str, int]:
+    return cast(tuple[str, int], request.param)
+
+
+@pytest.fixture
 def noncomp_sampling_api(
-    request: pytest.FixtureRequest,
+    noncomp_sampling_config: tuple[str, int],
 ) -> Callable[..., clifft.noncomp.NonComputationalSample]:
     """Check API consistency through convenience, prepared, and forced paths.
 
@@ -90,18 +99,38 @@ def noncomp_sampling_api(
     ) -> clifft.noncomp.NonComputationalSample:
         if "threads" in kwargs:
             raise TypeError("threads is selected by noncomp_sampling_api")
-        api, workers = request.param
+        api, workers = noncomp_sampling_config
         kwargs["threads"] = workers
         kwargs.setdefault("final_status", True)
-        kwargs.setdefault("execution", "trajectory" if api == "trajectory" else "auto")
-        if api == "prepared":
+        kwargs.setdefault(
+            "execution",
+            "online"
+            if api in ("online", "online-prepared")
+            else "trajectory"
+            if api == "trajectory"
+            else "auto",
+        )
+        online = kwargs["execution"] == "online"
+        if online:
+            kwargs.setdefault("collect_stats", True)
+        if api in ("prepared", "online-prepared"):
             options = {
                 key: kwargs.pop(key) for key in ("final_status", "execution") if key in kwargs
             }
-            return clifft.noncomp.compile(
+            program = clifft.noncomp.compile(
                 circuit, model, max_active_width=max_active_width, **options
-            ).sample(shots, seed, **kwargs)
-        return clifft.noncomp.sample(circuit, model, shots, seed, max_active_width, **kwargs)
+            )
+            if online:
+                assert program.strategy == "online"
+            result = program.sample(shots, seed, **kwargs)
+        else:
+            result = clifft.noncomp.sample(circuit, model, shots, seed, max_active_width, **kwargs)
+        if online and result.stats is not None:
+            assert result.stats.strategy == "online"
+            assert result.stats.online_shots == shots
+            assert result.stats.continuation_compilations == 0
+            assert result.stats.initial_compilations == 0
+        return result
 
     return sample
 

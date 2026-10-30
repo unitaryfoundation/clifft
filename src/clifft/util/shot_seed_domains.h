@@ -18,4 +18,6 @@ inline constexpr uint64_t kFixedNonComputationalInputDomain = 0x21;
 inline constexpr uint64_t kFixedNonComputationalExecutorDomain = 0x22;
 inline constexpr uint64_t kFixedNonComputationalBatchInputDomain = 0x23;
 
+inline constexpr uint64_t kOnlineNonComputationalDomain = 0x31;
+
 }  // namespace clifft

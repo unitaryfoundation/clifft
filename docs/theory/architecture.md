@@ -1,6 +1,6 @@
 # Software Architecture
 
-Clifft separates circuit analysis from repeated execution. Compilation does
+Clifft's compiled modes separate circuit analysis from repeated execution. Compilation does
 the tableau, coordinate, and dependency work once. Sampling then executes a
 fixed symbolic-coordinate program using preallocated state.
 
@@ -35,7 +35,7 @@ implementation moved from that design to the pipeline described here.
 | `src/clifft/frontend/` | Clifford tracing and Heisenberg IR construction |
 | `src/clifft/optimizer/` | HIR optimization passes |
 | `src/clifft/sampling/` | Semantic planning, executable preparation, shot execution, and kernels |
-| `src/clifft/noncomp/` | Leakage/loss trajectory planning and continuation handling |
+| `src/clifft/noncomp/` | Leakage/loss fixed, trajectory, and online execution |
 | `src/python/` | Python API via nanobind |
 | `src/wasm/` | Browser bindings for compilation, inspection, and sampling |
 
@@ -89,7 +89,7 @@ see [HIP Backend](../development/hip-backend.md) and
 [CUDA Backend](../development/cuda-backend.md).
 
 !!! important "Planning boundary"
-    Runtime kernels do not evolve tableaus, localize Paulis, analyze
+    Compiled executors and their kernels do not evolve tableaus, localize Paulis, analyze
     commutation, choose coordinates, or discover symbolic dependencies. Those
     decisions belong to compilation and executable preparation.
 
@@ -117,6 +117,18 @@ prepare a trajectory-specific suffix, grow reusable storage if necessary, and
 resume without losing the live coefficients, records, symbols, or RNG
 position. See [Noncomputational States](noncomputational.md).
 
+## Online Noncomputational Execution
+
+Most Clifft execution modes resolve the Clifford frame ahead of time. In some
+noncomputational simulations, leakage or loss changes downstream operations:
+for example, a two-qubit gate is skipped when one target is lost. Trajectory
+execution recompiles the remaining circuit to account for these changes. When
+many sites can leak or be lost, recompilation can dominate sampling time.
+Users can instead select `execution="online"`, which updates the Clifford frame
+during sampling and handles these changes as they occur. See
+[Online execution](../guide/leakage-and-loss.md#online-execution) for usage and
+performance tradeoffs.
+
 ## Execution Targets
 
 Architecture-specific kernels live in separate translation units compiled
@@ -125,6 +137,9 @@ the scalar reference path. Supported x86 builds can therefore select explicit
 AVX2 or AVX-512 kernels without allowing those instructions to leak into
 fallback execution on other CPUs. Apple arm64 builds use NEON kernels. Linux
 arm64, Windows, and WebAssembly builds use the scalar backend.
+
+The online noncomputational backend currently uses the portable scalar dense
+kernels on all platforms.
 
 WebAssembly follows the same HIR, `SamplingPlan`, and `ExecutablePlan`
 boundaries. The playground can inspect the semantic and prepared plans, while

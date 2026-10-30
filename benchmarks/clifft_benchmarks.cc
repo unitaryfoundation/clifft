@@ -631,6 +631,43 @@ void sample_fixed_nonclifford_auto(benchmark::State& state) {
 BENCHMARK(sample_fixed_nonclifford_auto)->Name("sample_fixed_nonclifford_auto_2048_shots");
 #endif
 
+#if __has_include("clifft/noncomp/online.h")
+// Skip-gate loss prevents fixed execution; reuse the surface fixture to track
+// online frame evolution with resets, Pauli noise, and detector output.
+void sample_online_loss_surface(benchmark::State& state) {
+    const auto source = parse_file(fixture("surface_d7_r7_p001.stim"));
+    auto circuit = source.metadata_only_copy();
+    for (const auto& node : source.nodes) {
+        circuit.nodes.push_back(node);
+        if (node.gate == GateType::CX) {
+            for (const auto target : node.targets) {
+                circuit.nodes.push_back({GateType::LOSS, {target}, {0.001}});
+            }
+        }
+    }
+    const auto model = NonComputationalModel::from_spec(
+        {1, 0, 0, 0, 0}, {}, {{{1, 0, 0.5, 0.5, 0.5}, {0, 1, 0.5, 0.5, 0.5}}}, {});
+    const NonComputationalProgram program(circuit, model, NonComputationalExecution::Online);
+    constexpr uint32_t shots = 64;
+    const auto warmup = program.sample(shots, 831, 1, std::nullopt, true);
+    if (program.strategy() != NonComputationalExecution::Online || !warmup.stats ||
+        warmup.stats->online_shots != shots || warmup.stats->continuation_compilations != 0 ||
+        warmup.stats->peak_active_width != 0 ||
+        warmup.measurements.size() != static_cast<size_t>(shots) * circuit.num_measurements ||
+        warmup.detectors.size() != static_cast<size_t>(shots) * circuit.num_detectors) {
+        state.SkipWithError("loss benchmark did not execute the expected online workload");
+        return;
+    }
+    for ([[maybe_unused]] auto _ : state) {
+        auto result = program.sample(shots, 831, 1);
+        benchmark::DoNotOptimize(result);
+    }
+    state.SetItemsProcessed(state.iterations() * shots);
+}
+
+BENCHMARK(sample_online_loss_surface)->Name("sample_online_loss_surface_d7_64_shots");
+#endif
+
 BENCHMARK(squeeze_parallel_t)->Name("squeeze_parallel_t_8192");
 #ifdef CLIFFT_BENCHMARK_HAS_PHASE_POLYNOMIAL
 BENCHMARK_CAPTURE(phase_measurement_barriers, 4096, 4096)->Name("phase_measurement_barriers_4096");

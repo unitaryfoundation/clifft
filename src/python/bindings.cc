@@ -278,9 +278,7 @@ void register_noncomp(nb::module_& m) {
     nb::class_<clifft::NonComputationalProgram>(m, "_NonComputationalProgram")
         .def_prop_ro("strategy",
                      [](const clifft::NonComputationalProgram& program) {
-                         return program.strategy() == clifft::NonComputationalExecution::Fixed
-                                    ? "fixed"
-                                    : "trajectory";
+                         return clifft::noncomputational_execution_name(program.strategy());
                      })
         .def("explain", &clifft::NonComputationalProgram::explain)
         .def(
@@ -305,9 +303,7 @@ void register_noncomp(nb::module_& m) {
                     const auto& stats = *result.stats;
                     nb::dict fields;
                     fields["strategy"] =
-                        program.strategy() == clifft::NonComputationalExecution::Fixed
-                            ? "fixed"
-                            : "trajectory";
+                        clifft::noncomputational_execution_name(program.strategy());
                     fields["fallback_reason"] =
                         program.rejection()
                             ? nb::cast(clifft::fixed_rejection_name(program.rejection()->reason))
@@ -317,6 +313,8 @@ void register_noncomp(nb::module_& m) {
                     fields["continuation_compilations"] = stats.continuation_compilations;
                     fields["fixed_shots"] = stats.fixed_shots;
                     fields["trajectory_shots"] = stats.trajectory_shots;
+                    fields["online_shots"] = stats.online_shots;
+                    fields["online_state_growths"] = stats.online_state_growths;
                     fields["scalar_shots"] = stats.scalar_shots;
                     fields["packed_shots"] = stats.packed_shots;
                     fields["packed_classical_shots"] = stats.packed_classical_shots;
@@ -349,8 +347,11 @@ void register_noncomp(nb::module_& m) {
                 strategy = clifft::NonComputationalExecution::Fixed;
             } else if (execution == "trajectory") {
                 strategy = clifft::NonComputationalExecution::Trajectory;
+            } else if (execution == "online") {
+                strategy = clifft::NonComputationalExecution::Online;
             } else {
-                throw std::invalid_argument("execution must be 'auto', 'fixed', or 'trajectory'");
+                throw std::invalid_argument(
+                    "execution must be 'auto', 'fixed', 'trajectory', or 'online'");
             }
             nb::gil_scoped_release release;
             return clifft::NonComputationalProgram(

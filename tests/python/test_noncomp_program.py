@@ -38,7 +38,7 @@ def same_rows(left, right):
         np.testing.assert_array_equal(getattr(left, name), getattr(right, name), err_msg=name)
 
 
-@pytest.mark.parametrize("execution", ["auto", "fixed", "trajectory"])
+@pytest.mark.parametrize("execution", ["auto", "fixed", "trajectory", "online"])
 def test_public_convenience_preserves_positional_arguments(execution):
     text = "H 0\nT 0\nH 0\nM 0"
     noise = model()
@@ -186,7 +186,7 @@ def test_requested_leaked_status_preserves_bell_pair_correlation(public_sample):
     assert not restored.final_status.any()
 
 
-@pytest.mark.parametrize("execution", ["auto", "fixed", "trajectory"])
+@pytest.mark.parametrize("execution", ["auto", "fixed", "trajectory", "online"])
 @pytest.mark.parametrize("final_status", [False, True])
 def test_public_zero_shots_keep_contract_without_execution(public_sample, execution, final_status):
     result = public_sample(
@@ -203,9 +203,29 @@ def test_public_zero_shots_keep_contract_without_execution(public_sample, execut
         assert result.final_status.shape == (0, 1)
     else:
         assert result.final_status is None
-    assert result.stats.fixed_shots == result.stats.trajectory_shots == 0
+    assert (
+        result.stats.fixed_shots == result.stats.trajectory_shots == result.stats.online_shots == 0
+    )
     assert result.stats.workers == result.stats.packed_batches == 0
     assert result.stats.initial_compilations == result.stats.continuation_compilations == 0
+    assert result.stats.peak_active_width == (0 if result.stats.strategy == "fixed" else None)
+
+
+@pytest.mark.parametrize("threads", [1, 2])
+@pytest.mark.parametrize("max_active_width", [0, 1])
+def test_online_width_limit_is_checked_at_activation(public_sample, threads, max_active_width):
+    text = "H 0 1\nT 0\nT 1\nM 0 1"
+    options = dict(execution="online", max_active_width=max_active_width, threads=threads)
+    empty = public_sample(text, model(), shots=0, collect_stats=True, **options)
+    assert empty.stats.peak_active_width is None
+    assert empty.stats.online_state_growths == 0
+    required = max_active_width + 1
+    with pytest.raises(
+        ValueError,
+        match=rf"online execution active width {required} exceeds .* "
+        rf"at circuit line {required + 1}",
+    ):
+        public_sample(text, model(), shots=129, seed=3, **options)
 
 
 @pytest.mark.parametrize("shots", [0, 1, 65])
@@ -224,7 +244,7 @@ def test_public_rejects_explicit_packing_for_trajectory_selection(public_sample,
         )
 
 
-@pytest.mark.parametrize("execution", ["auto", "fixed", "trajectory"])
+@pytest.mark.parametrize("execution", ["auto", "fixed", "trajectory", "online"])
 def test_validation_errors_are_not_optimization_fallbacks(public_sample, execution):
     with pytest.raises(ValueError, match="classifier is required"):
         public_sample("LEAKAGE(0.2) 0\nM 0", noncomp.Model(), shots=0, execution=execution)
@@ -295,7 +315,7 @@ def test_public_width_fallback_counts_discarded_preparation_and_keeps_lazy_traje
         lazy.sample(1)
 
 
-@pytest.mark.parametrize("execution", ["auto", "trajectory"])
+@pytest.mark.parametrize("execution", ["auto", "trajectory", "online"])
 def test_public_prepared_program_is_owned_reusable_and_concurrent(execution):
     matrix = [row[:] for row in CLASSIFIER]
     noise = noncomp.Model(classifier=noncomp.Classifier(matrix))

@@ -16,6 +16,7 @@ import numpy as np
 import pytest
 import utils_noncomp_enumerator as en
 from conftest import binomial_tolerance, noncomp_transition_matrix
+from utils_conformance import assert_joint_distribution
 
 from clifft import noncomp
 
@@ -191,3 +192,76 @@ def _run_and_compare(
 @pytest.mark.expensive
 def test_rep_code_round_tvd_reaches_shot_noise(noncomp_sampling_api):
     _run_and_compare(seed=21, sample_noncomp=noncomp_sampling_api)
+
+
+@pytest.mark.parametrize("damping", ["exact", "neglect"])
+def test_nonclifford_transitions_loss_and_reuse_match_dense_reference(
+    noncomp_sampling_api, damping
+):
+    # Interleave active-state evolution and status changes so agreement requires
+    # preserving the conditional quantum state, not just the event frequencies.
+    circuit = """
+H 0 1
+T 0
+CX 0 1
+LEVEL_TRANSITION[decay] 0
+LEAKAGE(0.17) 1
+CX 1 0
+T_DAG 1
+H 0
+M 0
+LEVEL_TRANSITION[decay] 0 1
+R 0
+H 0
+T 0
+CX 0 1
+LOSS(0.23) 1
+CX 1 0
+H 0 1
+M 0 1
+"""
+    transitions = {
+        "decay": noncomp_transition_matrix(
+            {
+                (Level.LEAK_G, Level.G): 0.08,
+                (Level.LEAK_E, Level.E): 0.37,
+                (Level.LOST, Level.E): 0.1,
+                (Level.E, Level.LEAK_G): 0.4,
+                (Level.G, Level.LEAK_E): 0.2,
+            }
+        )
+    }
+    classifier = _classifier_matrix()
+    reference = en.enumerate_exact(
+        circuit,
+        initial=[1, 0, 0, 0, 0],
+        transitions=transitions,
+        classifier=classifier,
+        damping=damping,
+    )
+    assert reference.dropped_mass < 1e-12
+    expected = np.zeros(8)
+    for record, probability in reference.record_probs.items():
+        expected[sum(bit << i for i, bit in enumerate(record))] = probability
+
+    shots = 12000
+    result = noncomp_sampling_api(
+        circuit,
+        noncomp.Model(
+            transitions=transitions,
+            classifier=noncomp.Classifier(classifier),
+            damping=damping,
+        ),
+        shots=shots,
+        seed=417,
+    )
+    assert_joint_distribution(result.measurements, expected)
+    for q, probabilities in enumerate(reference.noncomp_level_probs):
+        for level, status in (
+            (Level.LEAK_G, noncomp.QubitStatus.LEAK_G),
+            (Level.LEAK_E, noncomp.QubitStatus.LEAK_E),
+            (Level.LOST, noncomp.QubitStatus.LOST),
+        ):
+            probability = probabilities.get(level, 0.0)
+            observed = float((result.final_status[:, q] == status).mean())
+            assert abs(observed - probability) < binomial_tolerance(probability, shots)

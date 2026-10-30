@@ -1,6 +1,6 @@
 """Noncomputational (leakage/loss) sampling.
 
-Samples five-level leakage/loss models with automatic fixed or trajectory execution:
+Samples five-level leakage/loss models with fixed, trajectory, or online execution:
 
     import clifft
     from clifft import noncomp
@@ -324,7 +324,8 @@ class NonComputationalStats:
 
     ``packed_shots``, ``batch_size``, and ``workers`` describe batching and
     parallelism. Shot counters satisfy ``scalar_shots + packed_shots ==
-    fixed_shots + trajectory_shots == result.shots``. Trajectories run scalar;
+    fixed_shots + trajectory_shots + online_shots == result.shots``.
+    Trajectory and online execution run scalar;
     fixed execution can run scalar or packed. ``packed_classical_shots`` counts
     shots whose dynamic status/noise/readout inputs were generated across a batch.
     It is zero for static inputs, scalar execution, and trajectories.
@@ -333,13 +334,16 @@ class NonComputationalStats:
 
     ``initial_compilations`` counts trajectory starting plans built during the
     call; ``continuation_compilations`` counts recompilations after a trap.
-    Both are zero for fixed execution. ``preparation_compilations`` and
+    Both are zero for fixed and online execution. ``preparation_compilations`` and
     ``preparation_seconds`` instead describe the program's earlier preparation,
     including a rejected fixed candidate; they are not repeated work per call.
     Worker sharing can change compilation counts without changing sampled rows.
 
     ``peak_active_width`` is the fixed plan's width or the maximum width compiled
-    during this trajectory call; it is ``None`` if no trajectory was compiled.
+    during this trajectory call, or the realized maximum online width. It is
+    ``None`` for zero-shot trajectory or online calls. ``online_state_growths`` counts
+    coefficient-buffer growth boundaries across workers. Online workers retain
+    that storage across shots, so growth is not repeated for every shot.
     ``packed_worker_bytes`` estimates retained packed buffers per worker, excluding
     immutable plans, result arrays, and allocator bookkeeping. It is zero for
     scalar execution. Timings cover native preparation/sampling, excluding Python
@@ -347,7 +351,7 @@ class NonComputationalStats:
     with no per-gate profiling.
     """
 
-    strategy: Literal["fixed", "trajectory"]
+    strategy: Literal["fixed", "trajectory", "online"]
     fallback_reason: str | None
     preparation_compilations: int
     initial_compilations: int
@@ -364,6 +368,8 @@ class NonComputationalStats:
     preparation_seconds: float
     sampling_seconds: float
     packed_classical_shots: int = 0
+    online_shots: int = 0
+    online_state_growths: int = 0
 
 
 class NonComputationalSample:
@@ -469,9 +475,9 @@ class NonComputationalProgram:
         self._handle = handle
 
     @property
-    def strategy(self) -> Literal["fixed", "trajectory"]:
+    def strategy(self) -> Literal["fixed", "trajectory", "online"]:
         """Selected execution strategy, fixed for this prepared program."""
-        return cast(Literal["fixed", "trajectory"], self._handle.strategy)
+        return cast(Literal["fixed", "trajectory", "online"], self._handle.strategy)
 
     def explain(self) -> str:
         """Describe selection, fallback reasons, and known resource estimates.
@@ -495,9 +501,9 @@ class NonComputationalProgram:
         """Sample this program with fresh per-call workers and RNG.
 
         ``batch_size="auto"`` uses conservative shared heuristics for a fixed
-        plan and scalar execution for trajectories. ``1`` forces scalar;
+        plan and scalar execution for trajectory and online modes. ``1`` forces scalar;
         larger integers request packing under the existing capacity limits and
-        fail when the selected strategy is trajectory, including for zero shots.
+        fail for trajectory and online modes, including for zero shots.
         ``"tune"`` calibrates fixed execution before each call, using a soft
         ``tuning_budget_seconds`` deadline (default 0.25 seconds). Probes include
         classical inputs, worker setup, quantum execution, and output generation.
@@ -536,7 +542,7 @@ def compile(
     model: Model,
     *,
     final_status: bool = False,
-    execution: Literal["auto", "fixed", "trajectory"] = "auto",
+    execution: Literal["auto", "fixed", "trajectory", "online"] = "auto",
     max_active_width: int | None = None,
 ) -> NonComputationalProgram:
     """Prepare an owned sampling strategy without drawing shot randomness.
@@ -544,7 +550,10 @@ def compile(
     ``execution="auto"`` chooses a supported exact fixed plan when its width
     fits; otherwise it retains a validated trajectory request. ``"fixed"``
     requires fixed execution and raises with the rejection reason before
-    sampling. ``"trajectory"`` forces the general driver. Invalid circuit/model
+    sampling. ``"trajectory"`` forces the general compiled driver. ``"online"``
+    explicitly selects runtime Clifford coordinates with a compact active state,
+    without continuation compilation. Auto does not select online execution.
+    Invalid circuit/model
     contracts always raise rather than triggering optimization fallback.
 
     ``final_status=True`` requests the existing detailed QubitStatus values and
@@ -553,8 +562,11 @@ def compile(
 
     ``max_active_width`` caps the fixed candidate or each compiled trajectory
     continuation. Under auto, an over-cap fixed candidate falls back; trajectory
-    width errors can still arise when sampling. Initial states, spreading,
-    classifiers, and partner channels outside the fixed subset use trajectories.
+    width errors can still arise when sampling. Online execution checks the cap
+    before growing active-state storage; it may require a different width from
+    compiled modes because it does not apply HIR optimizations. Initial states,
+    spreading, classifiers, and partner channels outside the fixed subset can
+    use trajectory or online execution. Online currently rejects MPP and U3.
     The existing noncomputational measurement restrictions remain in force.
     """
     if isinstance(circuit, str):
@@ -575,7 +587,7 @@ def sample(
     threads: int | Literal["auto"] = 1,
     *,
     final_status: bool = False,
-    execution: Literal["auto", "fixed", "trajectory"] = "auto",
+    execution: Literal["auto", "fixed", "trajectory", "online"] = "auto",
     batch_size: int | Literal["auto", "tune"] = "auto",
     collect_stats: bool = False,
     tuning_budget_seconds: float | None = None,

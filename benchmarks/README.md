@@ -24,6 +24,13 @@ cmake --build build/canary --target clifft_benchmarks -j
 Use `--benchmark_list_tests=true` to inspect the suite or
 `--benchmark_filter='^phase_'` to run only the phase cases.
 
+`sample_online_loss_surface_d7_64_shots` exercises explicit online execution on
+the existing noisy d7/r7 surface-code fixture, with loss at rate 0.001 after each
+CX operand and default skip-gate partner behavior. It times prepared sampling
+on one worker, including worker setup and output allocation; preparation is
+excluded. An untimed check verifies online execution and zero continuations.
+This is a regression canary, not a comparison with another simulator.
+
 ## External input execution
 
 `--benchmark_filter='^external_inputs_'` compares reusable scalar and packed
