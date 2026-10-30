@@ -85,6 +85,17 @@ than isolated implementation details.
 
 * **Deterministic trajectory tests:** To test individual noisy trajectories without relying on statistical convergence, we inject deterministic Pauli errors such as `X_ERROR(1.0)` into entangled circuits. Clifft's detector and observable outputs are then compared directly against Stim's frame-tracking sampler ([`test_detector_oracle.py`](https://github.com/unitaryfoundation/clifft/blob/main/tests/python/test_detector_oracle.py)). These tests check that rewound frames, prepared symbolic actions, and detector updates produce the expected classical outcomes.
 
+## Exact comparisons and rare events
+
+We test rare events with small circuits whose outcome probabilities are known
+analytically. Exact comparisons catch missing outcomes, incorrect probabilities,
+and incorrect expectation values even when the affected branch is extremely
+unlikely.
+
+Both the C++ and Python references track probability lost when branches are
+omitted. Tests check this against their required precision, and deliberately
+corrupted C++ results confirm that the comparisons detect errors.
+
 ## Layer-by-Layer C++ Unit Testing
 
 The C++ core is unit-tested with `Catch2`. These tests target individual layers of the compiler and runtime so that failures can be localized before reaching the full Python integration suite.

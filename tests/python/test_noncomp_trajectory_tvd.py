@@ -172,7 +172,9 @@ def _run_and_compare(
     r = sample_noncomp(REP_CODE_ROUND, _model(INITIAL, TRANSITIONS), shots=SHOTS, seed=seed)
     empirical = en.empirical_record_probs(np.asarray(r.measurements))
 
-    band = _shot_noise_band(reference.record_probs, SHOTS) + reference.dropped_mass
+    sampling_band = _shot_noise_band(reference.record_probs, SHOTS)
+    reference.require_precision(smallest_probability=sampling_band, relative_tolerance=0.01)
+    band = sampling_band + reference.dropped_mass
     assert band < 0.05, "band too loose to be meaningful; raise SHOTS"
     distance = en.tvd(reference.record_probs, empirical)
     assert distance < band, f"TVD {distance:.4f} exceeds shot-noise band {band:.4f}"

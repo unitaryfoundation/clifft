@@ -10,6 +10,7 @@
 #include "clifft/sampling/plan.h"
 #include "clifft/sampling/planner.h"
 #include "clifft/sampling/sampler.h"
+#include "clifft/util/numeric.h"
 #include "clifft/util/xoshiro.h"
 
 #include <algorithm>
@@ -19,8 +20,12 @@
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <cmath>
 #include <cstdint>
+#include <iomanip>
+#include <limits>
 #include <optional>
 #include <span>
+#include <sstream>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -455,9 +460,46 @@ struct ExactPlanDistribution {
     uint32_t num_observables = 0;
     uint32_t num_exp_vals = 0;
     double discarded_probability = 0.0;
+    // An upper bound on deliberately omitted joint mass, separate from rejection.
+    double omitted_probability_bound = 0.0;
     std::vector<ExactOutcomeEntry> kept_outcomes;
     std::vector<double> kept_exp_vals;
 };
+
+// Probability accuracy is relative to each outcome, not to the whole law.
+// Rare fixtures must also bound omissions well below their smallest signal.
+struct ExactComparisonBudget {
+    double probability_relative = 1e-9;
+    double expectation_absolute = 1e-9;
+    double normalization_absolute = 1e-9;
+    double max_omitted_probability = 1e-15;
+};
+
+inline void add_omitted_probability(double& bound, double probability) {
+    REQUIRE(clifft::is_finite_non_negative(probability));
+    if (probability > 0.0) {
+        // A finite direction avoids nonfinite constants under -ffast-math.
+        bound = std::nextafter(bound + probability, std::numeric_limits<double>::max());
+    }
+}
+
+// A vanished positive product cannot certify support. Keep these small
+// enumerators in the representable range instead of silently treating it as zero.
+inline double checked_probability_product(double a, double b) {
+    const double result = a * b;
+    if (!clifft::is_finite_non_negative(a) || !clifft::is_finite_non_negative(b) ||
+        !clifft::is_finite_non_negative(result) || (a > 0.0 && b > 0.0 && result == 0.0)) {
+        throw std::runtime_error(
+            "inconclusive reference: invalid or underflowed probability product");
+    }
+    return result;
+}
+
+inline std::string precise_probability(double value) {
+    std::ostringstream out;
+    out << std::scientific << std::setprecision(17) << value;
+    return out.str();
+}
 
 inline int compare_classical_outcomes(const ExactShotOutcome& a, const ExactShotOutcome& b) {
     if (a.visible_records != b.visible_records) {
@@ -478,7 +520,8 @@ inline bool exp_vals_within_tolerance(std::span<const double> a, std::span<const
         return false;
     }
     for (size_t i = 0; i < a.size(); ++i) {
-        if (std::abs(a[i] - b[i]) > tolerance) {
+        if (!clifft::is_finite_robust(a[i]) || !clifft::is_finite_robust(b[i]) ||
+            std::abs(a[i] - b[i]) > tolerance) {
             return false;
         }
     }
@@ -487,6 +530,13 @@ inline bool exp_vals_within_tolerance(std::span<const double> a, std::span<const
 
 inline void canonicalize_outcome_entries(std::vector<ExactOutcomeEntry>& entries,
                                          double exp_val_tolerance = 1e-9) {
+    // Reject invalid values before sorting: NaNs do not define a strict ordering.
+    for (const auto& entry : entries) {
+        REQUIRE(clifft::is_finite_non_negative(entry.probability));
+        for (double value : entry.outcome.exp_vals) {
+            REQUIRE(clifft::is_finite_robust(value));
+        }
+    }
     auto strict_less = [](const ExactOutcomeEntry& a, const ExactOutcomeEntry& b) {
         return std::tie(a.outcome.visible_records, a.outcome.detectors, a.outcome.observables,
                         a.outcome.exp_vals) < std::tie(b.outcome.visible_records,
@@ -507,7 +557,7 @@ inline void canonicalize_outcome_entries(std::vector<ExactOutcomeEntry>& entries
 
         const size_t cluster_start = merged.size();
         for (size_t j = i; j < block_end; ++j) {
-            if (entries[j].probability <= 1e-15) {
+            if (entries[j].probability == 0.0) {
                 continue;
             }
             bool found = false;
@@ -517,9 +567,8 @@ inline void canonicalize_outcome_entries(std::vector<ExactOutcomeEntry>& entries
                     const double new_prob = merged[k].probability + entries[j].probability;
                     for (size_t e = 0; e < merged[k].outcome.exp_vals.size(); ++e) {
                         merged[k].outcome.exp_vals[e] =
-                            (merged[k].outcome.exp_vals[e] * merged[k].probability +
-                             entries[j].outcome.exp_vals[e] * entries[j].probability) /
-                            new_prob;
+                            merged[k].outcome.exp_vals[e] * (merged[k].probability / new_prob) +
+                            entries[j].outcome.exp_vals[e] * (entries[j].probability / new_prob);
                     }
                     merged[k].probability = new_prob;
                     found = true;
@@ -541,12 +590,14 @@ inline void canonicalize_outcome_entries(std::vector<ExactOutcomeEntry>& entries
 
 // Order-independent comparison of probe-outcome slices sharing the same
 // classical outcome `(visible_records, detectors, observables)`. Groups entries
-// in `slice_a U slice_b` whose probe vectors are within `tolerance` in L_inf
+// in `slice_a U slice_b` whose probe vectors are within the expectation tolerance in L_inf
 // norm and verifies that each group has matching probability mass and matching
 // weighted probe values in `slice_a` and `slice_b`.
 inline bool classical_outcome_slices_equal(std::span<const ExactOutcomeEntry> slice_a,
                                            std::span<const ExactOutcomeEntry> slice_b,
-                                           uint32_t num_exp_vals, double tolerance = 1e-9,
+                                           uint32_t num_exp_vals,
+                                           const ExactComparisonBudget& budget,
+                                           double omitted_bound,
                                            std::string* mismatch_detail = nullptr) {
     const size_t na = slice_a.size();
     const size_t nb = slice_b.size();
@@ -577,7 +628,8 @@ inline bool classical_outcome_slices_equal(std::span<const ExactOutcomeEntry> sl
             const auto& u_exp = entry_at(u).outcome.exp_vals;
             for (size_t v = 0; v < total; ++v) {
                 if (visited[v] == 0 &&
-                    exp_vals_within_tolerance(u_exp, entry_at(v).outcome.exp_vals, tolerance)) {
+                    exp_vals_within_tolerance(u_exp, entry_at(v).outcome.exp_vals,
+                                              budget.expectation_absolute)) {
                     visited[v] = 1;
                     queue.push_back(v);
                 }
@@ -593,41 +645,43 @@ inline bool classical_outcome_slices_equal(std::span<const ExactOutcomeEntry> sl
             const ExactOutcomeEntry& entry = entry_at(idx);
             if (idx < na) {
                 prob_a += entry.probability;
-                for (uint32_t e = 0; e < num_exp_vals; ++e) {
-                    weighted_a[e] += entry.probability * entry.outcome.exp_vals[e];
-                }
             } else {
                 prob_b += entry.probability;
-                for (uint32_t e = 0; e < num_exp_vals; ++e) {
-                    weighted_b[e] += entry.probability * entry.outcome.exp_vals[e];
-                }
             }
         }
 
-        if (std::abs(prob_a - prob_b) > tolerance) {
+        auto describe = [&]() {
+            return "outcome(records=" + std::to_string(ref_outcome.visible_records) +
+                   " detectors=" + std::to_string(ref_outcome.detectors) +
+                   " observables=" + std::to_string(ref_outcome.observables) +
+                   ") reference_probability=" + precise_probability(prob_a) +
+                   " actual_probability=" + precise_probability(prob_b);
+        };
+        if (std::abs(prob_a - prob_b) >
+            budget.probability_relative * std::max(prob_a, prob_b) + omitted_bound) {
             if (mismatch_detail != nullptr) {
-                *mismatch_detail =
-                    "outcome(records=" + std::to_string(ref_outcome.visible_records) +
-                    " detectors=" + std::to_string(ref_outcome.detectors) +
-                    " observables=" + std::to_string(ref_outcome.observables) +
-                    ") cluster probability mismatch: prob_a=" + std::to_string(prob_a) +
-                    " vs prob_b=" + std::to_string(prob_b);
+                *mismatch_detail = describe() + " cluster probability mismatch";
             }
             return false;
         }
-        if (prob_a > tolerance && prob_b > tolerance) {
+        if (prob_a > 0.0 && prob_b > 0.0) {
+            // Normalize weights before multiplying probes so tiny joint masses
+            // do not underflow away conditional information.
+            for (size_t idx : queue) {
+                const auto& entry = entry_at(idx);
+                auto& weighted = idx < na ? weighted_a : weighted_b;
+                const double fraction = entry.probability / (idx < na ? prob_a : prob_b);
+                for (uint32_t e = 0; e < num_exp_vals; ++e) {
+                    weighted[e] += fraction * entry.outcome.exp_vals[e];
+                }
+            }
             for (uint32_t e = 0; e < num_exp_vals; ++e) {
-                const double mean_a = weighted_a[e] / prob_a;
-                const double mean_b = weighted_b[e] / prob_b;
-                if (std::abs(mean_a - mean_b) > tolerance) {
+                if (std::abs(weighted_a[e] - weighted_b[e]) > budget.expectation_absolute) {
                     if (mismatch_detail != nullptr) {
                         *mismatch_detail =
-                            "outcome(records=" + std::to_string(ref_outcome.visible_records) +
-                            " detectors=" + std::to_string(ref_outcome.detectors) +
-                            " observables=" + std::to_string(ref_outcome.observables) +
-                            ") exp_val[" + std::to_string(e) +
-                            "] mismatch: mean_a=" + std::to_string(mean_a) +
-                            " vs mean_b=" + std::to_string(mean_b);
+                            describe() + " exp_val[" + std::to_string(e) +
+                            "] mismatch: reference=" + precise_probability(weighted_a[e]) +
+                            " actual=" + precise_probability(weighted_b[e]);
                     }
                     return false;
                 }
@@ -638,17 +692,96 @@ inline bool classical_outcome_slices_equal(std::span<const ExactOutcomeEntry> sl
     return true;
 }
 
-inline bool distributions_equal(const ExactPlanDistribution& a, const ExactPlanDistribution& b,
-                                double tolerance = 1e-9, std::string* mismatch_detail = nullptr) {
-    if (a.num_visible_records != b.num_visible_records || a.num_detectors != b.num_detectors ||
-        a.num_observables != b.num_observables || a.num_exp_vals != b.num_exp_vals) {
+inline bool distribution_is_valid(const ExactPlanDistribution& dist,
+                                  const ExactComparisonBudget& budget,
+                                  std::string* mismatch_detail) {
+    auto fail = [&](const std::string& why) {
+        if (mismatch_detail != nullptr)
+            *mismatch_detail = why;
+        return false;
+    };
+    if (dist.num_visible_records > 64 || dist.num_detectors > 64 || dist.num_observables > 64 ||
+        dist.kept_exp_vals.size() != dist.num_exp_vals ||
+        !clifft::is_finite_non_negative(dist.discarded_probability) ||
+        !clifft::is_finite_non_negative(dist.omitted_probability_bound)) {
+        return fail("invalid distribution dimensions or probability");
+    }
+    if (dist.omitted_probability_bound > budget.max_omitted_probability) {
+        return fail("inconclusive reference: omitted mass exceeds precision budget");
+    }
+    double mass = dist.discarded_probability;
+    std::vector<double> weighted(dist.num_exp_vals, 0.0);
+    const ExactShotOutcome* previous = nullptr;
+    auto fits = [](uint64_t bits, uint32_t width) { return width == 64 || (bits >> width) == 0; };
+    for (const auto& entry : dist.kept_outcomes) {
+        if (!clifft::is_finite_non_negative(entry.probability) ||
+            entry.outcome.exp_vals.size() != dist.num_exp_vals ||
+            !fits(entry.outcome.visible_records, dist.num_visible_records) ||
+            !fits(entry.outcome.detectors, dist.num_detectors) ||
+            !fits(entry.outcome.observables, dist.num_observables) ||
+            (previous != nullptr && compare_classical_outcomes(*previous, entry.outcome) > 0)) {
+            return fail("invalid outcome probability dimensions support or ordering");
+        }
+        mass += entry.probability;
+        for (uint32_t e = 0; e < dist.num_exp_vals; ++e) {
+            const double value = entry.outcome.exp_vals[e];
+            if (!clifft::is_finite_robust(value) ||
+                std::abs(value) > 1.0 + budget.expectation_absolute) {
+                return fail("invalid conditional expectation");
+            }
+            weighted[e] += entry.probability * value;
+        }
+        previous = &entry.outcome;
+    }
+    if (!clifft::is_finite_robust(mass) || mass > 1.0 + budget.normalization_absolute ||
+        mass + dist.omitted_probability_bound < 1.0 - budget.normalization_absolute) {
+        return fail("distribution normalization mismatch: retained_plus_rejected=" +
+                    precise_probability(mass));
+    }
+    for (uint32_t e = 0; e < dist.num_exp_vals; ++e) {
+        if (!clifft::is_finite_robust(dist.kept_exp_vals[e]) ||
+            std::abs(weighted[e] - dist.kept_exp_vals[e]) > budget.normalization_absolute) {
+            return fail("invalid weighted expectation total");
+        }
+    }
+    return true;
+}
+
+inline bool distributions_equal_impl(const ExactPlanDistribution& a, const ExactPlanDistribution& b,
+                                     const ExactComparisonBudget& budget, std::string& detail) {
+    const double omitted_bound = a.omitted_probability_bound + b.omitted_probability_bound;
+    std::string* mismatch_detail = &detail;
+    for (double value : {budget.probability_relative, budget.expectation_absolute,
+                         budget.normalization_absolute, budget.max_omitted_probability}) {
+        if (!clifft::is_finite_non_negative(value) || value >= 1.0) {
+            detail = "invalid comparison budget";
+            return false;
+        }
+    }
+    if (!distribution_is_valid(a, budget, mismatch_detail) ||
+        !distribution_is_valid(b, budget, mismatch_detail))
+        return false;
+    if (omitted_bound > budget.max_omitted_probability) {
+        detail = "inconclusive reference: combined omitted mass exceeds precision budget";
         return false;
     }
-    if (std::abs(a.discarded_probability - b.discarded_probability) > tolerance) {
+    if (a.num_visible_records != b.num_visible_records || a.num_detectors != b.num_detectors ||
+        a.num_observables != b.num_observables || a.num_exp_vals != b.num_exp_vals) {
+        detail = "distribution dimensions differ";
+        return false;
+    }
+    if (std::abs(a.discarded_probability - b.discarded_probability) >
+        budget.probability_relative * std::max(a.discarded_probability, b.discarded_probability) +
+            omitted_bound) {
+        detail = "discarded probability mismatch: reference_probability=" +
+                 precise_probability(a.discarded_probability) +
+                 " actual_probability=" + precise_probability(b.discarded_probability);
         return false;
     }
     for (uint32_t e = 0; e < a.num_exp_vals; ++e) {
-        if (std::abs(a.kept_exp_vals[e] - b.kept_exp_vals[e]) > tolerance) {
+        if (std::abs(a.kept_exp_vals[e] - b.kept_exp_vals[e]) >
+            budget.expectation_absolute + omitted_bound) {
+            detail = "weighted expectation mismatch";
             return false;
         }
     }
@@ -669,7 +802,7 @@ inline bool distributions_equal(const ExactPlanDistribution& a, const ExactPlanD
             }
             if (!classical_outcome_slices_equal(
                     std::span<const ExactOutcomeEntry>(a.kept_outcomes).subspan(i, i_end - i), {},
-                    a.num_exp_vals, tolerance, mismatch_detail)) {
+                    a.num_exp_vals, budget, omitted_bound, mismatch_detail)) {
                 return false;
             }
             i = i_end;
@@ -682,7 +815,7 @@ inline bool distributions_equal(const ExactPlanDistribution& a, const ExactPlanD
             }
             if (!classical_outcome_slices_equal(
                     {}, std::span<const ExactOutcomeEntry>(b.kept_outcomes).subspan(j, j_end - j),
-                    a.num_exp_vals, tolerance, mismatch_detail)) {
+                    a.num_exp_vals, budget, omitted_bound, mismatch_detail)) {
                 return false;
             }
             j = j_end;
@@ -702,7 +835,7 @@ inline bool distributions_equal(const ExactPlanDistribution& a, const ExactPlanD
             if (!classical_outcome_slices_equal(
                     std::span<const ExactOutcomeEntry>(a.kept_outcomes).subspan(i, i_end - i),
                     std::span<const ExactOutcomeEntry>(b.kept_outcomes).subspan(j, j_end - j),
-                    a.num_exp_vals, tolerance, mismatch_detail)) {
+                    a.num_exp_vals, budget, omitted_bound, mismatch_detail)) {
                 return false;
             }
             i = i_end;
@@ -712,22 +845,46 @@ inline bool distributions_equal(const ExactPlanDistribution& a, const ExactPlanD
     return true;
 }
 
-inline void require_distributions_equal(const ExactPlanDistribution& a,
-                                        const ExactPlanDistribution& b, double tolerance = 1e-9) {
-    REQUIRE(a.num_visible_records == b.num_visible_records);
-    REQUIRE(a.num_detectors == b.num_detectors);
-    REQUIRE(a.num_observables == b.num_observables);
-    REQUIRE(a.num_exp_vals == b.num_exp_vals);
-    REQUIRE_THAT(a.discarded_probability,
-                 Catch::Matchers::WithinAbs(b.discarded_probability, tolerance));
-    for (uint32_t e = 0; e < a.num_exp_vals; ++e) {
-        CAPTURE(e);
-        REQUIRE_THAT(a.kept_exp_vals[e], Catch::Matchers::WithinAbs(b.kept_exp_vals[e], tolerance));
+inline bool distributions_equal(const ExactPlanDistribution& a, const ExactPlanDistribution& b,
+                                const ExactComparisonBudget& budget,
+                                std::string* mismatch_detail = nullptr) {
+    std::string detail;
+    const bool equal = distributions_equal_impl(a, b, budget, detail);
+    if (mismatch_detail != nullptr) {
+        *mismatch_detail =
+            equal
+                ? ""
+                : detail + " contract=branch-relative probability_relative=" +
+                      precise_probability(budget.probability_relative) +
+                      " expectation_absolute=" + precise_probability(budget.expectation_absolute) +
+                      " normalization_absolute=" +
+                      precise_probability(budget.normalization_absolute) + " omitted_bound=" +
+                      precise_probability(a.omitted_probability_bound +
+                                          b.omitted_probability_bound) +
+                      " max_omitted_probability=" +
+                      precise_probability(budget.max_omitted_probability);
     }
+    return equal;
+}
+
+inline bool distributions_equal(const ExactPlanDistribution& a, const ExactPlanDistribution& b,
+                                double tolerance = 1e-9, std::string* mismatch_detail = nullptr) {
+    return distributions_equal(a, b, ExactComparisonBudget{tolerance, tolerance, tolerance},
+                               mismatch_detail);
+}
+
+inline void require_distributions_equal(const ExactPlanDistribution& a,
+                                        const ExactPlanDistribution& b,
+                                        const ExactComparisonBudget& budget) {
     std::string mismatch_detail;
-    const bool matched = distributions_equal(a, b, tolerance, &mismatch_detail);
+    const bool matched = distributions_equal(a, b, budget, &mismatch_detail);
     INFO(mismatch_detail);
     REQUIRE(matched);
+}
+
+inline void require_distributions_equal(const ExactPlanDistribution& a,
+                                        const ExactPlanDistribution& b, double tolerance = 1e-9) {
+    require_distributions_equal(a, b, ExactComparisonBudget{tolerance, tolerance, tolerance});
 }
 
 // Rewrites a SamplingPlan into a replayable form where:
@@ -914,7 +1071,7 @@ inline ExactPlanDistribution evaluate_conditional_distribution(
                 const double p_flip = src_one ? rs.prob_one_to_zero : rs.prob_zero_to_one;
                 const bool flipped = ((rho_bits >> j) & 1U) != 0;
                 const double p_step = flipped ? p_flip : (1.0 - p_flip);
-                readout_prob *= p_step;
+                readout_prob = checked_probability_product(readout_prob, p_step);
                 if (flipped) {
                     current_records[rs.record] ^= 1U;
                 }
@@ -929,10 +1086,12 @@ inline ExactPlanDistribution evaluate_conditional_distribution(
                 continue;
             }
 
-            const double weight = readout_prob * std::exp(replay.log_probability);
-            if (weight <= 0.0) {
-                continue;
+            const double born_probability = std::exp(replay.log_probability);
+            if (!clifft::is_finite_robust(replay.log_probability) || born_probability <= 0.0) {
+                throw std::runtime_error(
+                    "inconclusive replay: invalid or underflowed Born probability");
             }
+            const double weight = checked_probability_product(readout_prob, born_probability);
 
             total_probability += weight;
 
@@ -1015,10 +1174,12 @@ inline ExactPlanDistribution compute_exact_plan_distribution(
             const auto& site_info = plan.presampled_noise_sites[site];
             if (digit[site] == 0) {
                 realization[site] = std::nullopt;
-                noise_weight *= std::max(0.0, 1.0 - site_info.total_probability);
+                noise_weight = checked_probability_product(
+                    noise_weight, std::max(0.0, 1.0 - site_info.total_probability));
             } else {
                 realization[site] = digit[site] - 1;
-                noise_weight *= site_info.outcomes[digit[site] - 1].probability;
+                noise_weight = checked_probability_product(
+                    noise_weight, site_info.outcomes[digit[site] - 1].probability);
             }
         }
         sum_noise_weights += noise_weight;
@@ -1026,13 +1187,17 @@ inline ExactPlanDistribution compute_exact_plan_distribution(
         if (noise_weight > 0.0) {
             const ExactPlanDistribution cond =
                 evaluate_conditional_distribution(prepared, realization);
-            total.discarded_probability += noise_weight * cond.discarded_probability;
+            add_omitted_probability(
+                total.omitted_probability_bound,
+                checked_probability_product(noise_weight, cond.omitted_probability_bound));
+            total.discarded_probability +=
+                checked_probability_product(noise_weight, cond.discarded_probability);
             for (uint32_t e = 0; e < plan.num_exp_vals; ++e) {
                 total.kept_exp_vals[e] += noise_weight * cond.kept_exp_vals[e];
             }
             for (const ExactOutcomeEntry& entry : cond.kept_outcomes) {
-                total.kept_outcomes.push_back(
-                    ExactOutcomeEntry{entry.outcome, noise_weight * entry.probability});
+                total.kept_outcomes.push_back(ExactOutcomeEntry{
+                    entry.outcome, checked_probability_product(noise_weight, entry.probability)});
             }
         }
 

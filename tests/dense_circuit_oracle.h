@@ -183,7 +183,9 @@ struct TrajectoryBranch {
 inline void branch_projective_measurement(const TrajectoryBranch& branch, uint32_t num_qubits,
                                           const PauliSpec& spec, bool record_result,
                                           bool invert_record, const PauliSpec* reset_spec,
-                                          std::vector<TrajectoryBranch>& out) {
+                                          std::vector<TrajectoryBranch>& out,
+                                          double conditional_prune_threshold,
+                                          double& omitted_probability_bound) {
     const StateVec p_psi = apply_pauli_spec(branch.psi, num_qubits, spec);
     for (uint8_t b = 0; b < 2; ++b) {
         StateVec proj(branch.psi.size());
@@ -193,7 +195,11 @@ inline void branch_projective_measurement(const TrajectoryBranch& branch, uint32
             proj[i] = 0.5 * (branch.psi[i] + sign * p_psi[i]);
             norm_sq += std::norm(proj[i]);
         }
-        if (norm_sq <= 1e-15) {
+        REQUIRE(clifft::is_finite_non_negative(norm_sq));
+        REQUIRE(norm_sq <= 1.0 + 1e-9);
+        if (norm_sq <= conditional_prune_threshold) {
+            add_omitted_probability(omitted_probability_bound,
+                                    checked_probability_product(branch.probability, norm_sq));
             continue;
         }
         const double inv_norm = 1.0 / std::sqrt(norm_sq);
@@ -206,7 +212,8 @@ inline void branch_projective_measurement(const TrajectoryBranch& branch, uint32
 
         TrajectoryBranch child = branch;
         child.psi = std::move(proj);
-        child.probability *= norm_sq;
+        child.probability = checked_probability_product(child.probability, norm_sq);
+        REQUIRE(child.probability > 0.0);
         if (record_result) {
             child.records[child.next_meas++] = static_cast<uint8_t>(b ^ (invert_record ? 1U : 0U));
         }
@@ -219,8 +226,11 @@ inline void branch_projective_measurement(const TrajectoryBranch& branch, uint32
 // Evaluates the exact unconditional distribution of `circuit` by stepping a
 // dense 2^n statevector through `circuit.nodes` without using trace() or HIR.
 inline ExactPlanDistribution compute_dense_circuit_distribution(
-    const Circuit& circuit, const clifft::sampling::SamplingPlanOptions& options = {}) {
+    const Circuit& circuit, const clifft::sampling::SamplingPlanOptions& options = {},
+    double conditional_prune_threshold = 1e-18) {
     using namespace detail_dense_oracle;
+    REQUIRE(clifft::is_probability(conditional_prune_threshold));
+    double omitted_probability_bound = 0.0;
     REQUIRE(circuit.num_qubits <= 6);
     REQUIRE(circuit.num_measurements <= 64);
     REQUIRE(circuit.num_detectors <= 64);
@@ -431,7 +441,8 @@ inline ExactPlanDistribution compute_dense_circuit_distribution(
                     for (const TrajectoryBranch& br : active) {
                         branch_projective_measurement(
                             br, circuit.num_qubits, meas_spec, record_result, t.is_inverted(),
-                            do_reset ? &reset_spec : nullptr, next_active);
+                            do_reset ? &reset_spec : nullptr, next_active,
+                            conditional_prune_threshold, omitted_probability_bound);
                     }
                     active.swap(next_active);
                 }
@@ -443,8 +454,9 @@ inline ExactPlanDistribution compute_dense_circuit_distribution(
                 const PauliSpec unsigned_spec{spec.x_mask, spec.z_mask, false};
                 next_active.clear();
                 for (const TrajectoryBranch& br : active) {
-                    branch_projective_measurement(br, circuit.num_qubits, unsigned_spec, true,
-                                                  spec.neg_sign, nullptr, next_active);
+                    branch_projective_measurement(
+                        br, circuit.num_qubits, unsigned_spec, true, spec.neg_sign, nullptr,
+                        next_active, conditional_prune_threshold, omitted_probability_bound);
                 }
                 active.swap(next_active);
                 break;
@@ -487,18 +499,21 @@ inline ExactPlanDistribution compute_dense_circuit_distribution(
                     }
                     next_active.clear();
                     for (const TrajectoryBranch& br : active) {
-                        if (1.0 - total_p > 1e-15) {
+                        if (1.0 - total_p > 0.0) {
                             TrajectoryBranch no_err = br;
-                            no_err.probability *= (1.0 - total_p);
+                            no_err.probability =
+                                checked_probability_product(no_err.probability, (1.0 - total_p));
+                            REQUIRE(no_err.probability > 0.0);
                             next_active.push_back(std::move(no_err));
                         }
                         for (const auto& [spec, prob] : channels) {
-                            if (prob <= 1e-15) {
+                            if (prob <= 0.0) {
                                 continue;
                             }
                             TrajectoryBranch err = br;
                             err.psi = apply_pauli_spec(br.psi, circuit.num_qubits, spec);
-                            err.probability *= prob;
+                            err.probability = checked_probability_product(err.probability, prob);
+                            REQUIRE(err.probability > 0.0);
                             next_active.push_back(std::move(err));
                         }
                     }
@@ -513,13 +528,13 @@ inline ExactPlanDistribution compute_dense_circuit_distribution(
                 size_t chain_end = node_idx;
                 while (true) {
                     const AstNode& link = circuit.nodes[chain_end];
-                    const double abs_prob = link.args[0] * remaining;
+                    const double abs_prob = checked_probability_product(link.args[0], remaining);
                     if (abs_prob > 0.0 && !link.targets.empty()) {
                         PauliSpec spec = build_target_pauli_spec(link.targets);
                         spec.neg_sign = false;
                         channels.push_back({spec, abs_prob});
                     }
-                    remaining *= 1.0 - link.args[0];
+                    remaining = checked_probability_product(remaining, 1.0 - link.args[0]);
                     if (chain_end + 1 >= circuit.nodes.size() ||
                         circuit.nodes[chain_end + 1].gate != GateType::ELSE_CORRELATED_ERROR) {
                         break;
@@ -534,18 +549,21 @@ inline ExactPlanDistribution compute_dense_circuit_distribution(
                 }
                 next_active.clear();
                 for (const TrajectoryBranch& br : active) {
-                    if (1.0 - total_p > 1e-15) {
+                    if (1.0 - total_p > 0.0) {
                         TrajectoryBranch no_err = br;
-                        no_err.probability *= (1.0 - total_p);
+                        no_err.probability =
+                            checked_probability_product(no_err.probability, (1.0 - total_p));
+                        REQUIRE(no_err.probability > 0.0);
                         next_active.push_back(std::move(no_err));
                     }
                     for (const auto& [spec, prob] : channels) {
-                        if (prob <= 1e-15) {
+                        if (prob <= 0.0) {
                             continue;
                         }
                         TrajectoryBranch err = br;
                         err.psi = apply_pauli_spec(br.psi, circuit.num_qubits, spec);
-                        err.probability *= prob;
+                        err.probability = checked_probability_product(err.probability, prob);
+                        REQUIRE(err.probability > 0.0);
                         next_active.push_back(std::move(err));
                     }
                 }
@@ -562,15 +580,19 @@ inline ExactPlanDistribution compute_dense_circuit_distribution(
                     for (const TrajectoryBranch& br : active) {
                         const uint8_t cur_bit = br.records[rec_idx];
                         const double p_flip = (cur_bit == 0) ? p01 : p10;
-                        if (1.0 - p_flip > 1e-15) {
+                        if (1.0 - p_flip > 0.0) {
                             TrajectoryBranch keep = br;
-                            keep.probability *= (1.0 - p_flip);
+                            keep.probability =
+                                checked_probability_product(keep.probability, (1.0 - p_flip));
+                            REQUIRE(keep.probability > 0.0);
                             next_active.push_back(std::move(keep));
                         }
-                        if (p_flip > 1e-15) {
+                        if (p_flip > 0.0) {
                             TrajectoryBranch flip = br;
                             flip.records[rec_idx] ^= 1U;
-                            flip.probability *= p_flip;
+                            flip.probability =
+                                checked_probability_product(flip.probability, p_flip);
+                            REQUIRE(flip.probability > 0.0);
                             next_active.push_back(std::move(flip));
                         }
                     }
@@ -622,6 +644,7 @@ inline ExactPlanDistribution compute_dense_circuit_distribution(
     }
 
     ExactPlanDistribution dist;
+    dist.omitted_probability_bound = omitted_probability_bound;
     dist.num_visible_records = circuit.num_measurements;
     dist.num_detectors = circuit.num_detectors;
     dist.num_observables = circuit.num_observables;
@@ -637,6 +660,14 @@ inline ExactPlanDistribution compute_dense_circuit_distribution(
 
     double total_prob = 0.0;
     for (const TrajectoryBranch& br : active) {
+        REQUIRE(clifft::is_finite_non_negative(br.probability));
+        double norm = 0.0;
+        for (const auto& amplitude : br.psi) {
+            REQUIRE(clifft::is_finite_robust(amplitude.real()));
+            REQUIRE(clifft::is_finite_robust(amplitude.imag()));
+            norm += std::norm(amplitude);
+        }
+        REQUIRE_THAT(norm, Catch::Matchers::WithinAbs(1.0, 1e-9));
         total_prob += br.probability;
         uint64_t vis_bits = 0;
         for (uint32_t m = 0; m < circuit.num_measurements; ++m) {
@@ -665,7 +696,8 @@ inline ExactPlanDistribution compute_dense_circuit_distribution(
         }
     }
 
-    REQUIRE_THAT(total_prob, Catch::Matchers::WithinAbs(1.0, 1e-9));
+    REQUIRE_THAT(total_prob + dist.omitted_probability_bound,
+                 Catch::Matchers::WithinAbs(1.0, 1e-9));
     canonicalize_outcome_entries(dist.kept_outcomes);
     return dist;
 }

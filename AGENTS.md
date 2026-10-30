@@ -61,7 +61,9 @@ architecture cannot support it:
 
 - Keep source files ASCII-only: use `pi`, `|0>`, and `Schrodinger` rather than
   Unicode alternatives.
-- Comments should explain why, not restate what the code does.
+- Comments and docstrings should explain the reason for a decision in plain
+  sentences. Name the behavior and its consequence; define specialized terms
+  when needed. Omit comments that only restate the code.
 - Do not put issue numbers, task phases, or planning details in code comments
   or test names.
 - Catch2 `TEST_CASE` names must avoid special characters such as `[]`, `()`,
@@ -70,6 +72,11 @@ architecture cannot support it:
   behavior against Stim when those independent references apply.
 - For test changes, follow
   [Writing Tests](docs/development/contributing.md#writing-tests).
+- Keep `contributing.md` focused on the shared contribution workflow. Put
+  technical contracts and subsystem details in the relevant topic guide or
+  beside the implementation, and link to them from the contributor guide.
+- Update existing guidance instead of appending overlapping sections. Keep
+  release evidence and task-specific plans in issues and PRs.
 
 ## Acknowledgments and References
 
