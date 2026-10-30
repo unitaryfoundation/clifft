@@ -118,8 +118,9 @@ PreparedNonComputationalRequest::PreparedNonComputationalRequest(
 
 NonComputationalSample PreparedNonComputationalRequest::sample(uint32_t shots,
                                                                std::optional<uint64_t> seed,
-                                                               uint32_t threads) const {
-    return run_trajectory_driver(*this, shots, make_seed_root(shots, seed), threads);
+                                                               uint32_t threads,
+                                                               bool collect_stats) const {
+    return run_trajectory_driver(*this, shots, make_seed_root(shots, seed), threads, collect_stats);
 }
 
 }  // namespace clifft

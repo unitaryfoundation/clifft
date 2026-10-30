@@ -71,7 +71,7 @@ back-action.
 Riverlane's deltakit-stim inspired Clifft's configurable leakage partner effects,
 including partner noise and leakage spreading. Its binary leakage ledger and
 status-conditioned Pauli randomization also informed the fixed execution
-path: Clifft prepares classical status/noise inputs for a shared quantum plan,
+path: Clifft prepares packed classical status/noise columns for a shared quantum plan,
 with separate readout handling to preserve its classifier correlations. The
 [partner-interactions guide](guide/partner-interactions.md) describes Clifft's
 model and API.

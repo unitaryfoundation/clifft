@@ -13,6 +13,14 @@ namespace clifft {
 
 inline constexpr uint32_t kNoNoiseSite = std::numeric_limits<uint32_t>::max();
 
+// Number of silent equal-probability trials before the next event. Keep the
+// unbounded gap in floating point until the caller checks its remaining range.
+[[nodiscard]] inline double sample_geometric_gap(double inverse_hazard,
+                                                 double uniform_draw) noexcept {
+    assert(inverse_hazard > 0.0 && uniform_draw >= 0.0 && uniform_draw < 1.0);
+    return -std::log(1.0 - uniform_draw) * inverse_hazard;
+}
+
 // Converts one independent Bernoulli site into additive hazard space. The
 // clamp keeps a probability rounded to one finite and aligned with the finest
 // probability step of the repository's deterministic [0, 1) RNG conversion.

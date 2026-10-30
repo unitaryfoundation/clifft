@@ -8,6 +8,7 @@
 #include "clifft/noncomp/level.h"
 #include "clifft/noncomp/model.h"
 #include "clifft/noncomp/policy.h"
+#include "clifft/noncomp/program.h"
 #include "clifft/noncomp/sample.h"
 #include "clifft/optimizer/active_width_analysis.h"
 #include "clifft/optimizer/active_width_schedule_pass.h"
@@ -274,8 +275,93 @@ nb::tuple noncomp_sample_to_python(clifft::NonComputationalSample r, uint32_t sh
 void register_noncomp(nb::module_& m) {
     nb::class_<clifft::NonComputationalModel>(m, "_NonComputationalModel");
 
+    nb::class_<clifft::NonComputationalProgram>(m, "_NonComputationalProgram")
+        .def_prop_ro("strategy",
+                     [](const clifft::NonComputationalProgram& program) {
+                         return program.strategy() == clifft::NonComputationalExecution::Fixed
+                                    ? "fixed"
+                                    : "trajectory";
+                     })
+        .def("explain", &clifft::NonComputationalProgram::explain)
+        .def(
+            "sample",
+            [](const clifft::NonComputationalProgram& program, uint32_t shots,
+               std::optional<uint64_t> seed, const ThreadOption& threads,
+               const BatchOption& batch_size, bool collect_stats,
+               std::optional<double> tuning_budget_seconds) {
+                const uint32_t thread_count = parse_thread_option(threads);
+                const auto [capacity, tuning_budget] =
+                    parse_batch_option(batch_size, tuning_budget_seconds);
+                clifft::NonComputationalSample result;
+                {
+                    nb::gil_scoped_release release;
+                    result = program.sample(shots, seed, thread_count, capacity, collect_stats,
+                                            tuning_budget);
+                }
+                warn_if_batch_tuning_inconclusive(result.batch_tuning);
+                nb::object tuning = nb::cast(std::move(result.batch_tuning));
+                nb::object report = nb::none();
+                if (result.stats) {
+                    const auto& stats = *result.stats;
+                    nb::dict fields;
+                    fields["strategy"] =
+                        program.strategy() == clifft::NonComputationalExecution::Fixed
+                            ? "fixed"
+                            : "trajectory";
+                    fields["fallback_reason"] =
+                        program.rejection()
+                            ? nb::cast(clifft::fixed_rejection_name(program.rejection()->reason))
+                            : nb::none();
+                    fields["preparation_compilations"] = stats.preparation_compilations;
+                    fields["initial_compilations"] = stats.initial_compilations;
+                    fields["continuation_compilations"] = stats.continuation_compilations;
+                    fields["fixed_shots"] = stats.fixed_shots;
+                    fields["trajectory_shots"] = stats.trajectory_shots;
+                    fields["scalar_shots"] = stats.scalar_shots;
+                    fields["packed_shots"] = stats.packed_shots;
+                    fields["packed_classical_shots"] = stats.packed_classical_shots;
+                    fields["packed_batches"] = stats.packed_batches;
+                    fields["batch_size"] = stats.batch_size;
+                    fields["workers"] = stats.workers;
+                    fields["packed_worker_bytes"] = stats.packed_worker_bytes;
+                    fields["peak_active_width"] = stats.peak_active_width;
+                    fields["preparation_seconds"] = stats.preparation_seconds;
+                    fields["sampling_seconds"] = stats.sampling_seconds;
+                    report = std::move(fields);
+                }
+                return nb::make_tuple(noncomp_sample_to_python(std::move(result), shots,
+                                                               program.returns_final_status()),
+                                      report, tuning);
+            },
+            nb::arg("shots"), nb::arg("seed") = nb::none(),
+            nb::arg("threads") = ThreadOption{int64_t{1}}, nb::kw_only(),
+            nb::arg("batch_size") = BatchOption{std::string{"auto"}},
+            nb::arg("collect_stats") = false, nb::arg("tuning_budget_seconds") = nb::none());
+    m.def(
+        "_compile_noncomputational",
+        [](const clifft::Circuit& circuit, const clifft::NonComputationalModel& model,
+           bool final_status, const std::string& execution,
+           std::optional<uint32_t> max_active_width) {
+            clifft::NonComputationalExecution strategy;
+            if (execution == "auto") {
+                strategy = clifft::NonComputationalExecution::Auto;
+            } else if (execution == "fixed") {
+                strategy = clifft::NonComputationalExecution::Fixed;
+            } else if (execution == "trajectory") {
+                strategy = clifft::NonComputationalExecution::Trajectory;
+            } else {
+                throw std::invalid_argument("execution must be 'auto', 'fixed', or 'trajectory'");
+            }
+            nb::gil_scoped_release release;
+            return clifft::NonComputationalProgram(
+                circuit, model, strategy,
+                {.final_status = final_status, .max_active_width = max_active_width});
+        },
+        nb::arg("circuit"), nb::arg("model"), nb::arg("final_status") = false,
+        nb::arg("execution") = "auto", nb::arg("max_active_width") = nb::none());
+
     // Internal entry point for distributional validation and benchmarks. The
-    // public noncomp wrapper continues to use the trajectory sampler.
+    // direct fixed binding also exposes compiler-internal metrics.
     nb::class_<clifft::FixedNonComputationalProgram>(m, "_FixedNonComputationalProgram")
         .def(
             "sample",
@@ -293,6 +379,7 @@ void register_noncomp(nb::module_& m) {
                 stats["workers"] = metrics.workers;
                 stats["scalar_shots"] = metrics.scalar_shots;
                 stats["packed_shots"] = metrics.packed_shots;
+                stats["packed_classical_shots"] = metrics.packed_classical_shots;
                 stats["packed_batches"] = metrics.packed_batches;
                 stats["packed_worker_bytes"] = metrics.packed_worker_bytes;
                 return nb::make_tuple(noncomp_sample_to_python(std::move(result.output), shots,

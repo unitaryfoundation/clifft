@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/generators/catch_generators.hpp>
 #include <catch2/matchers/catch_matchers.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 #include <limits>
@@ -26,6 +27,30 @@ using clifft::test::ReferencePauli;
 using clifft::test::ReferenceTableau;
 using clifft::test::X;
 using clifft::test::Z;
+
+TEST_CASE("Front-End records origins for implicit readout and correlated noise sites",
+          "[frontend]") {
+    const std::string reset = GENERATE("MR", "MRX", "MRY");
+    const auto circuit = parse("REPEAT 2 {\nPAULI_CHANNEL_1(0,0,0) 0\n" + reset +
+                               " !0\nREADOUT_NOISE(0.2) rec[-1]\n}\n"
+                               "E(0.1) X0\nELSE_CORRELATED_ERROR(0.2) Y0");
+    REQUIRE(circuit.nodes[0].source_line == circuit.nodes[3].source_line);
+    const auto hir = trace(circuit);
+    REQUIRE(hir.noise_sites.size() == 3);
+    CHECK(hir.noise_sites[0].source_node == 0);
+    CHECK(hir.noise_sites[1].source_node == 3);
+    CHECK(hir.noise_sites[2].source_node == 6);
+    CHECK(hir.noise_sites[0].channels.empty());
+    CHECK(hir.noise_sites[1].channels.empty());
+    REQUIRE(hir.readout_noise.size() == 4);
+    CHECK(hir.readout_noise[0].source_node == 1);
+    CHECK(hir.readout_noise[1].source_node == 2);
+    CHECK(hir.readout_noise[2].source_node == 4);
+    CHECK(hir.readout_noise[3].source_node == 5);
+    const auto copy = hir;
+    CHECK(copy.noise_sites == hir.noise_sites);
+    CHECK(copy.readout_noise == hir.readout_noise);
+}
 
 // Reference channel masks for the noise tests. These are 2-qubit circuits,
 // so the low uint64_t word captures the full mask; comparisons go through
@@ -1522,6 +1547,24 @@ TEST_CASE("Frontend: correlated identity link consumes chain probability", "[fro
     auto mask = hir.noise_channel_masks.at(site.channels[0].mask);
     CHECK(mask.x() == 1);
     CHECK(mask.z() == 0);
+}
+
+TEST_CASE("Frontend: correlated chain total is clamped to one", "[frontend][noise]") {
+    // Folded sequentially in round-to-nearest double arithmetic, these links
+    // sum one ulp above one even though the chain is exhaustive.
+    auto circuit = parse(
+        "E(0.08) X0\n"
+        "ELSE_CORRELATED_ERROR(0.45) Z0\n"
+        "ELSE_CORRELATED_ERROR(1) X1");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.noise_sites.size() == 1);
+    const auto& site = hir.noise_sites[0];
+    REQUIRE(site.channels.size() == 3);
+    CHECK(site.channels[0].prob == Catch::Approx(0.08));
+    CHECK(site.channels[1].prob == Catch::Approx(0.414));
+    CHECK(site.channels[2].prob == Catch::Approx(0.506));
+    CHECK(site.total_probability == 1.0);
 }
 
 TEST_CASE("Frontend: stray else correlated error is rejected", "[frontend][noise]") {

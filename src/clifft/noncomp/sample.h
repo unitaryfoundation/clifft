@@ -15,12 +15,38 @@
 #include "clifft/circuit/circuit.h"
 #include "clifft/noncomp/level.h"
 #include "clifft/noncomp/model.h"
+#include "clifft/sampling/results.h"
 
 #include <cstdint>
 #include <optional>
 #include <vector>
 
 namespace clifft {
+
+// Optional performance diagnostics returned with a sample: actual batching,
+// trajectory recompilation, and resource use. NonComputationalProgram combines
+// the selected driver's counters with preparation data. No per-gate profiling.
+struct NonComputationalSamplingStats {
+    // Preparation belongs to the program; initial and continuation counts belong
+    // to this call. Fixed execution has no initial or continuation compilations.
+    uint64_t preparation_compilations = 0;
+    uint64_t initial_compilations = 0;
+    uint64_t continuation_compilations = 0;
+    // All trajectory shots are scalar; fixed shots can be scalar or packed.
+    uint64_t fixed_shots = 0;
+    uint64_t trajectory_shots = 0;
+    uint64_t scalar_shots = 0;
+    uint64_t packed_shots = 0;
+    // Dynamic input generation executed across packed lanes, excluding static plans.
+    uint64_t packed_classical_shots = 0;
+    uint64_t packed_batches = 0;
+    uint32_t batch_size = 1;
+    uint32_t workers = 0;
+    uint64_t packed_worker_bytes = 0;
+    std::optional<uint32_t> peak_active_width;
+    double preparation_seconds = 0;
+    double sampling_seconds = 0;
+};
 
 // Aggregated result of a noncomputational sampling run.
 struct NonComputationalSample {
@@ -47,6 +73,9 @@ struct NonComputationalSample {
     // rides here. All zeros when the classifier has two symbols or the model
     // has no classifier.
     std::vector<uint8_t> heralds;
+    std::optional<NonComputationalSamplingStats> stats;
+    // Calibration is reported independently of optional production statistics.
+    std::optional<sampling::BatchTuningReport> batch_tuning;
 };
 
 // Throws std::invalid_argument when the trajectory policy rejects an

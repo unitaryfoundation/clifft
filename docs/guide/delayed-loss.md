@@ -299,6 +299,7 @@ stochastic = noncomp.sample(
     stochastic_model,
     shots=10_000,
     seed=7,
+    final_status=True,
 )
 
 heralded = stochastic.heralds.any(axis=1)

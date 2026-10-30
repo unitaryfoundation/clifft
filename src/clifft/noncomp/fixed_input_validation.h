@@ -1,6 +1,6 @@
 #pragma once
 
-#include "clifft/frontend/frontend.h"
+#include "clifft/frontend/hir.h"
 #include "clifft/sampling/plan.h"
 
 #include <cstddef>
@@ -19,7 +19,6 @@ struct FixedReadoutSite {
 // identity, particularly for consecutive channels on the same record.
 void validate_fixed_input_bindings(std::span<const size_t> noise_nodes,
                                    std::span<const FixedReadoutSite> readout_sites,
-                                   const TraceSiteOrigins& origins, const HirModule& hir,
-                                   const sampling::SamplingPlan& plan);
+                                   const HirModule& hir, const sampling::SamplingPlan& plan);
 
 }  // namespace clifft::detail

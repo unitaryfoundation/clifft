@@ -275,10 +275,7 @@ SamplingResult sample_fixed_batches(const ExecutablePlan& plan, uint32_t shots,
                 run_batch(worker, root, offset, batch);
                 assert(executor.surviving_shots() == batch &&
                        "fixed-row batch must retain every shot");
-                for (uint32_t lane = 0; lane < batch; ++lane) {
-                    const uint32_t shot = executor.shot_index(lane);
-                    batch_detail::copy_batch_lane(result, executor, lane, shot, plan);
-                }
+                batch_detail::copy_batch_rows(result, executor, plan);
                 copy_batch_expectations(result.exp_vals, executor, plan.num_exp_vals());
                 offset += batch;
             }
@@ -410,8 +407,8 @@ SamplingSurvivorResult sample_surviving_batches(const ExecutablePlan& plan, uint
                     counts.logical_errors += static_cast<uint32_t>(logical_error);
                     const uint32_t shot = executor.shot_index(lane);
                     survived[shot] = 1;
-                    batch_detail::copy_batch_lane(result, executor, lane, shot, plan);
                 }
+                batch_detail::copy_batch_rows(result, executor, plan);
                 copy_batch_expectations(result.exp_vals, executor, plan.num_exp_vals());
                 offset += batch;
             }
@@ -454,14 +451,7 @@ Result sample_configured(const ExecutablePlan& plan, uint32_t shots, std::option
                          BatchSamplingMode sampling_mode, uint64_t additional_worker_bytes,
                          bool keep_records, MakeScalar&& make_scalar, MakePacked&& make_packed,
                          RunShot&& run_shot, RunBatch&& run_batch) {
-    if (tuning_budget_seconds.has_value()) {
-        if (batch_size.has_value()) {
-            throw std::invalid_argument("batch tuning requires automatic batch_size selection");
-        }
-        if (!is_finite_non_negative(*tuning_budget_seconds)) {
-            throw std::invalid_argument("tuning_budget_seconds must be finite and non-negative");
-        }
-    }
+    batch_detail::validate_batch_tuning_options(batch_size, tuning_budget_seconds);
     BatchExecutionPolicy policy = resolve_batch_execution_policy(
         plan, shots, layout.shot_workers, layout.intra_shot_workers, output_mode, batch_size,
         sampling_mode, additional_worker_bytes);

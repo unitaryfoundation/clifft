@@ -7,6 +7,7 @@ include(Catch)
 add_executable(clifft_tests
     test_bitmask.cc
     test_batch_bits.cc
+    test_batch_random_bits.cc
     test_batch_executor.cc
     test_batch_external_inputs.cc
     test_batch_tuning.cc
@@ -51,8 +52,10 @@ add_executable(clifft_tests
     test_noncomp_interactions.cc
     test_noncomp_model.cc
     test_noncomp_preparation.cc
+    test_noncomp_program.cc
     test_noncomp_resolution.cc
     test_noncomp_fixed.cc
+    test_noncomp_classical.cc
     test_noncomp_status_walk.cc
     test_noncomp_rewriter.cc
     test_noncomp_continuation.cc

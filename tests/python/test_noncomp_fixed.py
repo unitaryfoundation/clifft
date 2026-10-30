@@ -28,6 +28,9 @@ def prepare(text, model, **kwargs):
 def sample(program, shots=16000, seed=43, threads=1, *, batch_size="auto"):
     values, stats = program.sample(shots, seed, threads, batch_size=batch_size)
     assert stats["scalar_shots"] + stats["packed_shots"] == shots
+    assert stats["packed_classical_shots"] == (
+        stats["packed_shots"] if program.metrics["classical_workspace_bytes"] else 0
+    )
     if batch_size == 1 or shots <= 1:
         assert stats["scalar_shots"] == shots
         assert stats["packed_batches"] == 0
@@ -58,6 +61,7 @@ def fixed_sample(request):
         "H 0\nCX 0 1\nLEAKAGE(0.37) 0\nCX 0 1\nM 0 1",
         "H 1\nT 1\nCX 1 2\nLEAKAGE(0.31) 0\nCX 0 1\nH 1 2\nM 0 1 2",
         "H 0\nCX 0 1\nLOSS(0.41) 1\nCX 0 1\nT 0\nH 0\nM 0 1",
+        "H 0\nT 0\nT 0\nCX 0 1\nLOSS(0.41) 1\nCX 0 1\nH 0\nM 0 1",
         "H 0\nLEAKAGE(0.43) 0\nMR 0\nH 0\nT 0\nH 0\nM 0",
         "H 0\nCX 0 1\nLEAKAGE(0.29) 0\nLOSS(0.31) 0\nR 0\nCX 0 1\nM 0 1",
         "H 0\nT 0\nCX 0 1\nLEAKAGE(0.34) 0\nT_DAG 0\nH 0\nR 0\nCX 0 1\nM 0 1",
@@ -186,22 +190,16 @@ def test_fixed_rejections_leave_public_trajectory_sampling_available():
     assert noncomp.sample(text, model, shots=16, seed=2).measurements.shape == (16, 1)
 
 
-@pytest.mark.parametrize(("qubits", "cap"), [(5, 4), (64, 4), (64, None)])
-def test_fixed_width_rejection_leaves_optimized_trajectories_available(
-    qubits, cap, noncomp_sampling_api
-):
-    # Each raw pair promotes a coordinate; trajectory fusion combines it into
-    # a Clifford. Include measurements so successful fallback checks a result.
+@pytest.mark.parametrize("qubits", [5, 64])
+def test_fixed_fuses_phase_pairs_before_enforcing_width_limits(qubits, fixed_sample):
+    # The raw circuit exceeds even the planner limit at 64 qubits, but each
+    # pair is Clifford and the optimized program needs no active coordinates.
     text = "\n".join(f"H {q}\nT {q}\nT {q}\nS_DAG {q}\nH {q}" for q in range(qubits))
     text += "\nM " + " ".join(map(str, range(qubits)))
     model = noncomp.Model()
-    assert (
-        _clifft_core._prepare_noncomputational_fixed(
-            _clifft_core.parse(text), model._handle, max_active_width=cap
-        )
-        is None
-    )
-    result = noncomp_sampling_api(text, model, shots=32, seed=5, max_active_width=cap)
+    program = prepare(text, model, max_active_width=0)
+    assert program.metrics["peak_active_width"] == 0
+    result = fixed_sample(program, shots=32, seed=5)
     np.testing.assert_array_equal(result.measurements, np.zeros((32, qubits), dtype=np.uint8))
 
 
@@ -357,6 +355,8 @@ def test_fixed_noise_groups_bind_empty_and_live_sites_separately(width, probabil
     [
         ("X_ERROR(0.3) 1", "X_ERROR(0.3) 1"),
         ("DEPOLARIZE1(0.4) 1", "DEPOLARIZE1(0.4) 1"),
+        # Parsing splits single-qubit noise; inactive targets do not suppress live ones.
+        ("DEPOLARIZE1(0.4) 0 1 2", "DEPOLARIZE1(0.4) 1 2"),
         ("PAULI_CHANNEL_1(0.1,0.2,0.3) 1", "PAULI_CHANNEL_1(0.1,0.2,0.3) 1"),
         ("DEPOLARIZE2(0.7) 0 1", ""),
         ("DEPOLARIZE3(0.7) 0 1 2", ""),
@@ -459,8 +459,9 @@ def test_fixed_static_inputs_keep_asymmetric_readout_and_reset_semantics(fixed_s
         ),
     ],
 )
+@pytest.mark.parametrize("threads", [1, 2])
 def test_fixed_joint_output_contract_matches_trajectories(
-    text, restore_lost, noncomp_sampling_api, fixed_sample
+    text, restore_lost, threads, fixed_sample
 ):
     model = noncomp.Model(
         classifier=noncomp.Classifier(
@@ -472,7 +473,18 @@ def test_fixed_joint_output_contract_matches_trajectories(
     text += "\nDETECTOR rec[-1] rec[-2]\nOBSERVABLE_INCLUDE(0) rec[-1]"
     program = prepare(text, model, final_status=True)
     actual = fixed_sample(program)
-    expected = noncomp_sampling_api(text, model, shots=16000, seed=71)
+    expected = noncomp.sample(
+        text,
+        model,
+        shots=16000,
+        seed=71,
+        threads=threads,
+        final_status=True,
+        execution="trajectory",
+        collect_stats=True,
+    )
+    assert expected.stats is not None
+    assert expected.stats.trajectory_shots == 16000
 
     def joint(result):
         return dense.empirical_record_probs(
@@ -511,16 +523,12 @@ def test_packed_fixed_composes_status_noise_readout_and_non_clifford_execution(r
     assert (before["packed_noise_carriers"] > 0) == (rounds == 40)
     assert before["peak_active_width"] > 0
     shots = 2051
-    scalar = sample(program, shots=shots, seed=52, batch_size=1)
-    for capacity in (64, 65, 129, "auto"):
+    for capacity in (1, 64, 65, 129, "auto"):
         result = sample(program, shots=shots, seed=52, threads=3, batch_size=capacity)
-        assert result.stats["packed_shots"] == shots
-        # Until the final T experiment, all quantum outcomes are fixed by the
-        # supplied Pauli inputs. The shared per-shot input stream must therefore
-        # reproduce these records and sidecars exactly across batch boundaries.
-        np.testing.assert_array_equal(result.measurements[:, :-1], scalar.measurements[:, :-1])
-        np.testing.assert_array_equal(result.heralds, scalar.heralds)
-        np.testing.assert_array_equal(result.final_status, scalar.final_status)
+        assert result.stats["packed_classical_shots"] == (shots if capacity != 1 else 0)
+        # Each execution configuration must satisfy the same per-row relations
+        # and joint laws, even though packed classical inputs use their own RNG.
+        assert not result.final_status.any()
         records = result.measurements[:, :-1].reshape(shots, rounds, 6)
         np.testing.assert_array_equal(records[:, :, 0] ^ records[:, :, 1], records[:, :, 2])
         assert not records[:, :, 5].any()  # The reset follows the classified MR result.
@@ -556,8 +564,8 @@ def test_fixed_automatic_batch_policy_reports_executed_work(dynamic, shots):
         assert (parallel.stats["packed_worker_bytes"] > 0) == (expected_capacity > 1)
 
 
-def test_fixed_automatic_batching_falls_back_for_wider_non_clifford_states():
-    text = "H 0 1 2 3 4 5\nT 0 1 2 3 4 5\nLOSS(0.3) 6\nM 0 1 2 3 4 5 6"
+def test_fixed_automatic_batching_retains_scalar_with_little_classical_work():
+    text = "H 0 1 2 3 4 5\nT 0 1 2 3 4 5\nLOSS(0.3) 6\nH 0 1 2 3 4 5\nM 0 1 2 3 4 5 6"
     model = noncomp.Model(classifier=noncomp.Classifier(CLASSIFIER))
     program = prepare(text, model, final_status=True)
     assert program.metrics["peak_active_width"] == 6
@@ -567,7 +575,12 @@ def test_fixed_automatic_batching_falls_back_for_wider_non_clifford_states():
     assert result.stats["workers"] == 3
     forced = sample(program, shots=129, threads=3, batch_size=65)
     assert forced.stats["packed_shots"] == 129
-    np.testing.assert_array_equal(result.final_status, forced.final_status)
+    assert forced.stats["packed_classical_shots"] == 129
+    np.testing.assert_array_equal(forced.final_status[:, :6], result.final_status[:, :6])
+    assert abs((forced.final_status[:, 6] == noncomp.QubitStatus.LOST).mean() - 0.3) < 0.15
+    repeated = sample(program, shots=129, threads=1, batch_size=65)
+    for field in ("measurements", "heralds", "detectors", "observables", "final_status"):
+        np.testing.assert_array_equal(getattr(forced, field), getattr(repeated, field))
 
 
 @pytest.mark.parametrize("batch_size", [0, -1, 2**32, "tune", "invalid"])

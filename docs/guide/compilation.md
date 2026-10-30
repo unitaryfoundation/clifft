@@ -50,11 +50,12 @@ as described in [reference selection](simulation.md#detectors-and-observables).
 `sample_survivors()` applies the post-selection mask to the normalized detector
 values; it does not recompute the reference per call.
 
-Circuits containing `LEAKAGE`, `LOSS`, or `LEVEL_TRANSITION` annotations, or the
-status probes `HERALD_LEAKAGE_EVENT` and `HERALD_LOSS_EVENT`, take a
-trajectory-specific path. Pass the circuit and model to
-`clifft.noncomp.sample()` rather than compiling one fixed program first; see
-[Leakage and Loss](leakage-and-loss.md).
+Circuits containing `LEAKAGE`, `LOSS`, `LEVEL_TRANSITION`,
+`LEAKAGE_INTERACTION`, or `LOSS_INTERACTION` annotations, or the status checks
+`HERALD_LEAKAGE_EVENT` and `HERALD_LOSS_EVENT`, use the `clifft.noncomp` API.
+Pass the circuit and model to `clifft.noncomp.sample()`, or compile once for
+repeated sampling with `clifft.noncomp.compile()`. Clifft automatically selects
+fixed execution or trajectories; see [Leakage and Loss](leakage-and-loss.md).
 
 ## Active-width scheduling
 

@@ -333,7 +333,7 @@ void BatchExecutor::sample_presampled_noise() noexcept {
             const uint64_t total_draws = static_cast<uint64_t>(lanes) * end;
             uint64_t draw_index = 0;
             while (draw_index < total_draws) {
-                const double gap = -std::log(1.0 - rng.next_double()) * inverse_hazard;
+                const double gap = sample_geometric_gap(inverse_hazard, rng.next_double());
                 if (gap >= static_cast<double>(total_draws - draw_index)) {
                     break;
                 }
@@ -550,7 +550,7 @@ void BatchExecutor::execute_action(const ExecutablePlan::ExecuteReadoutNoise& ac
             uint64_t lane = 0;
             while (lane < active_lanes()) {
                 const double gap =
-                    -std::log(1.0 - rng_.next_double()) * action.batch_symmetric_inverse_hazard;
+                    sample_geometric_gap(action.batch_symmetric_inverse_hazard, rng_.next_double());
                 if (gap >= static_cast<double>(active_lanes() - lane)) {
                     break;
                 }
@@ -783,6 +783,11 @@ uint32_t BatchExecutor::shot_index(uint32_t lane) const noexcept {
     assert(lane < live_count_ && active_lanes() == live_count_ &&
            "batch outputs require finalized live lanes");
     return shot_indices_[lane];
+}
+
+std::span<const uint32_t> BatchExecutor::shot_indices() const noexcept {
+    assert(active_lanes() == live_count_ && "batch outputs require finalized live lanes");
+    return std::span<const uint32_t>(shot_indices_.data(), live_count_);
 }
 
 bool BatchExecutor::measurement(uint32_t lane, uint32_t record) const noexcept {

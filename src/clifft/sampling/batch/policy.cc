@@ -19,6 +19,14 @@ namespace clifft::sampling {
 namespace {
 
 #if !defined(__EMSCRIPTEN__)
+// Admission limits for classical-heavy fixed workloads, not a prediction of
+// kernel timing. Wider or sustained quantum work still needs explicit tuning.
+// The factor was validated with an unweighted scalar input-step count, including
+// resets and explicit status probes but excluding final-status output writes.
+// Retuning must account for the workload's mix of cheap and expensive steps.
+constexpr uint32_t kMaxExternalInputBatchWidth = 8;
+constexpr uint64_t kMaxBatchLaneWorkPerExternalInput = 16;
+
 [[nodiscard]] uint32_t batch_worker_count(uint32_t shots, uint32_t shot_workers,
                                           uint32_t lane_capacity) noexcept {
     const uint64_t batches = (static_cast<uint64_t>(shots) + lane_capacity - 1) / lane_capacity;
@@ -118,7 +126,8 @@ uint64_t batch_worker_storage_bytes(const ExecutablePlan& plan, uint32_t lane_ca
 BatchExecutionPolicy resolve_batch_execution_policy(
     const ExecutablePlan& plan, uint32_t shots, uint32_t shot_workers, uint32_t intra_shot_workers,
     BatchOutputMode output_mode, std::optional<uint32_t> requested_batch_size,
-    BatchSamplingMode sampling_mode, uint64_t additional_worker_bytes) {
+    BatchSamplingMode sampling_mode, uint64_t additional_worker_bytes,
+    uint64_t additional_worker_bit_columns, uint64_t external_input_steps) {
     if (requested_batch_size.has_value() && *requested_batch_size == 0) {
         throw std::invalid_argument("batch_size must be a positive integer or 'auto'");
     }
@@ -130,6 +139,8 @@ BatchExecutionPolicy resolve_batch_execution_policy(
     (void)output_mode;
     (void)sampling_mode;
     (void)additional_worker_bytes;
+    (void)additional_worker_bit_columns;
+    (void)external_input_steps;
     if (intra_shot_workers > 1 && requested_batch_size.value_or(1) > 1) {
         throw std::invalid_argument("packed batch_size is incompatible with intra-shot workers");
     }
@@ -169,9 +180,19 @@ BatchExecutionPolicy resolve_batch_execution_policy(
         // streams, while worker count only controls their scheduling.
         max_capacity = kDefaultMaxPostselectedBatchShots;
     }
-    if (plan.peak_active_width() > 5 ||
-        (plan.peak_active_width() == 5 && plan.estimated_width_five_batch_lane_work(output_mode) >
-                                              kDefaultMaxWidthFiveBatchLaneWork)) {
+    // Packed status/input generation can repay the wider quantum kernels, but
+    // merely having a transition says nothing about sustained coefficient work.
+    // Bound both width and total coefficient visits relative to scalar input
+    // steps; the existing memory limits still determine the batch capacity.
+    const bool amortizes_external_inputs =
+        sampling_mode == BatchSamplingMode::ExternalInputs && !plan.has_postselection() &&
+        external_input_steps != 0 && plan.peak_active_width() <= kMaxExternalInputBatchWidth &&
+        plan.estimated_batch_lane_work(output_mode) <=
+            saturating_multiply_u64(external_input_steps, kMaxBatchLaneWorkPerExternalInput);
+    if (!amortizes_external_inputs &&
+        (plan.peak_active_width() > 5 ||
+         (plan.peak_active_width() == 5 && plan.estimated_width_five_batch_lane_work(output_mode) >
+                                               kDefaultMaxWidthFiveBatchLaneWork))) {
         return {};
     }
     uint32_t capacity = std::min(shots, max_capacity);
@@ -183,7 +204,9 @@ BatchExecutionPolicy resolve_batch_execution_policy(
         }
         const uint64_t worker_bytes = saturating_add_u64(
             batch_detail::batch_worker_storage_bytes(plan, capacity, output_mode, sampling_mode),
-            additional_worker_bytes);
+            saturating_add_u64(
+                additional_worker_bytes,
+                packed_bit_columns_storage_bytes(additional_worker_bit_columns, capacity)));
         if (worker_bytes <= kDefaultBatchWorkerBudget) {
             const uint32_t requested_workers = batch_worker_count(shots, shot_workers, capacity);
             const uint64_t memory_workers = std::max<uint64_t>(

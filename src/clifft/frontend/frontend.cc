@@ -3,6 +3,7 @@
 #include "clifft/tableau/tableau.h"
 #include "clifft/util/numeric.h"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <initializer_list>
@@ -194,8 +195,10 @@ NoiseChannel rewind_pauli_targets(HirModule& hir, const Tableau& inverse,
     return NoiseChannel{h, prob};
 }
 
-void append_noise_site(HirModule& hir, NoiseSite site, double total_probability) {
+void append_noise_site(HirModule& hir, NoiseSite site, double total_probability,
+                       size_t source_node) {
     site.total_probability = total_probability;
+    site.source_node = static_cast<uint32_t>(source_node);
     NoiseSiteIdx idx{static_cast<uint32_t>(hir.noise_sites.size())};
     hir.noise_sites.push_back(std::move(site));
     hir.append_noise(idx);
@@ -206,7 +209,11 @@ double sum_noise_probabilities(const NoiseSite& site) {
     for (const NoiseChannel& channel : site.channels) {
         total_probability += channel.prob;
     }
-    return total_probability;
+    // Each channel probability is validated individually and the channels sum to at most
+    // one in exact arithmetic, but the floating-point sum can exceed one by an ulp (a
+    // correlated chain whose last ELSE link has probability one is the known case) and the
+    // plan validator checks the declared total strictly.
+    return std::min(total_probability, 1.0);
 }
 
 double represented_depolarizing_probability(double probability, double outcome_count) {
@@ -582,10 +589,9 @@ void validate_instrument_probabilities(const InstrumentProbabilities& probabilit
 
 }  // namespace
 
-HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instruments,
-                TraceSiteOrigins* site_origins) {
-    if (site_origins != nullptr) {
-        *site_origins = {};
+HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instruments) {
+    if (circuit.nodes.size() > kUnknownSourceNode) {
+        throw std::overflow_error("Circuit exceeds the HIR source-node index limit");
     }
     // Avoid an accidental multi-gigabyte tableau allocation. This
     // conservative safety ceiling is far above practical circuit sizes.
@@ -619,7 +625,6 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
     for (size_t node_index = 0; node_index < circuit.nodes.size(); ++node_index) {
         const auto& node = circuit.nodes[node_index];
         const size_t ops_before = hir.ops.size();
-        const size_t origin_node = node_index;
 
         switch (node.gate) {
             // Single-qubit Cliffords
@@ -973,7 +978,11 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
 
                     if (!hidden && target.is_inverted()) {
                         ReadoutNoiseIdx idx{static_cast<uint32_t>(hir.readout_noise.size())};
-                        hir.readout_noise.push_back({this_meas, 1.0, 1.0});
+                        hir.readout_noise.push_back(
+                            {.meas_idx = this_meas,
+                             .prob_zero_to_one = 1.0,
+                             .prob_one_to_zero = 1.0,
+                             .source_node = static_cast<uint32_t>(node_index)});
                         hir.append_readout_noise(idx);
                     }
                 }
@@ -1091,7 +1100,7 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                         node.gate == GateType::DEPOLARIZE1
                             ? represented_depolarizing_probability(prob, 3.0)
                             : prob;
-                    append_noise_site(hir, std::move(site), total_probability);
+                    append_noise_site(hir, std::move(site), total_probability, node_index);
                 }
                 break;
             }
@@ -1112,7 +1121,7 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                         }
                     }
                     const double total_probability = sum_noise_probabilities(site);
-                    append_noise_site(hir, std::move(site), total_probability);
+                    append_noise_site(hir, std::move(site), total_probability, node_index);
                 }
                 break;
             }
@@ -1139,7 +1148,7 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                         }
                     }
                     const double total_probability = sum_noise_probabilities(site);
-                    append_noise_site(hir, std::move(site), total_probability);
+                    append_noise_site(hir, std::move(site), total_probability, node_index);
                 }
                 break;
             }
@@ -1169,7 +1178,7 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                         }
                     }
                     const double total_probability = sum_noise_probabilities(site);
-                    append_noise_site(hir, std::move(site), total_probability);
+                    append_noise_site(hir, std::move(site), total_probability, node_index);
                 }
                 break;
             }
@@ -1200,7 +1209,7 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                     chain_end = next;
                 }
                 const double total_probability = sum_noise_probabilities(site);
-                append_noise_site(hir, std::move(site), total_probability);
+                append_noise_site(hir, std::move(site), total_probability, node_index);
                 node_index = chain_end;
                 break;
             }
@@ -1216,7 +1225,7 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                     uint32_t q2 = node.targets[i + 1].value();
                     NoiseSite site = make_depolarize2_noise_site(hir, inverse, q1, q2, prob);
                     append_noise_site(hir, std::move(site),
-                                      represented_depolarizing_probability(prob, 15.0));
+                                      represented_depolarizing_probability(prob, 15.0), node_index);
                 }
                 break;
             }
@@ -1229,7 +1238,7 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                     uint32_t q3 = node.targets[i + 2].value();
                     NoiseSite site = make_depolarize3_noise_site(hir, inverse, q1, q2, q3, prob);
                     append_noise_site(hir, std::move(site),
-                                      represented_depolarizing_probability(prob, 63.0));
+                                      represented_depolarizing_probability(prob, 63.0), node_index);
                 }
                 break;
             }
@@ -1258,7 +1267,10 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                     double p01 = node.args.empty() ? 0.0 : node.args[0];
                     double p10 = node.args.size() > 1 ? node.args[1] : p01;
                     ReadoutNoiseIdx idx{static_cast<uint32_t>(hir.readout_noise.size())};
-                    hir.readout_noise.push_back({abs_meas_idx, p01, p10});
+                    hir.readout_noise.push_back({.meas_idx = abs_meas_idx,
+                                                 .prob_zero_to_one = p01,
+                                                 .prob_one_to_zero = p10,
+                                                 .source_node = static_cast<uint32_t>(node_index)});
                     hir.append_readout_noise(idx);
                 }
                 break;
@@ -1304,11 +1316,6 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                                          std::string(gate_name(node.gate)));
         }
 
-        if (site_origins != nullptr) {
-            // A correlated chain produces one site rooted at its first node.
-            site_origins->noise_nodes.resize(hir.noise_sites.size(), origin_node);
-            site_origins->readout_nodes.resize(hir.readout_noise.size(), origin_node);
-        }
         // Source map: append one entry per op produced by this node.
         const size_t ops_after = hir.ops.size();
         for (size_t i = ops_before; i < ops_after; ++i) {

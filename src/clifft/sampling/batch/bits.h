@@ -19,6 +19,11 @@ class MutableBitColumnsView {
   public:
     MutableBitColumnsView() = default;
 
+    [[nodiscard]] std::span<uint64_t> column(size_t column) const noexcept {
+        assert(column < columns_ && "packed bit column index must be in range");
+        return {words_ + column * word_capacity_, word_capacity_};
+    }
+
     [[nodiscard]] bool bit(size_t column, uint32_t lane) const noexcept {
         return ((words_[word_index(column, lane)] >> (lane & 63)) & uint64_t{1}) != 0;
     }
@@ -114,5 +119,14 @@ class PackedBitColumns {
 [[nodiscard]] size_t packed_bit_columns_storage_bytes(size_t columns, uint32_t lane_capacity);
 [[nodiscard]] uint64_t low_lane_mask(uint32_t bits) noexcept;
 void fill_low_lane_mask(std::span<uint64_t> output, uint32_t lanes) noexcept;
+
+// Writes bit(column, lane) for columns [0, num_columns) and lanes
+// [0, rows.size()) to output[rows[lane] * stride + column] as a 0 or 1 byte.
+// rows holds one output row index per lane. Works in 64-lane by 64-column
+// tiles so each packed word is read once and each row segment is written
+// contiguously; never allocates.
+void transpose_bit_columns_to_rows(const PackedBitColumns& columns, size_t num_columns,
+                                   std::span<const uint32_t> rows, std::span<uint8_t> output,
+                                   size_t stride) noexcept;
 
 }  // namespace clifft::sampling

@@ -26,6 +26,11 @@
 #include "clifft/sampling/executor.h"
 #endif
 
+#if __has_include("clifft/noncomp/program.h")
+#define CLIFFT_BENCHMARK_HAS_NONCOMP_PROGRAM
+#include "clifft/noncomp/program.h"
+#endif
+
 #include <array>
 #include <benchmark/benchmark.h>
 #include <cstdint>
@@ -454,9 +459,20 @@ void sample_exp_val(benchmark::State& state) {
     }
 }
 
+// One record, detector, and observable per shot. The output copy sees three
+// one-column tables, the opposite regime from the surface-code rows.
+void sample_narrow_output(benchmark::State& state) {
+    const auto plan =
+        compile_text("X_ERROR(0.01) 0\nM 0\nDETECTOR rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]\n");
+    for ([[maybe_unused]] auto _ : state) {
+        auto result = sampling::sample(plan, 100000, 0);
+        benchmark::DoNotOptimize(result);
+    }
+}
+
 #ifdef CLIFFT_BENCHMARK_HAS_EXTERNAL_INPUTS
-// Time reusable execution only. Input generation, preparation, and output
-// materialization belong to the eventual end-to-end noncomputational benchmark.
+// Isolate reusable quantum execution; sample_fixed_leakage_surface below also
+// measures dynamic input generation, worker setup, and output materialization.
 template <bool Packed>
 void external_inputs(benchmark::State& state, bool surface) {
     std::string text;
@@ -536,6 +552,85 @@ BENCHMARK_CAPTURE(external_inputs<true>, nonclifford_packed, false)
     ->Name("external_inputs_nonclifford_packed_256_shots");
 #endif
 
+#ifdef CLIFFT_BENCHMARK_HAS_NONCOMP_PROGRAM
+// Reuse the quantum preparation, but include the classical input walk and all
+// per-call allocation and row output costs paid by a prepared-program user.
+void sample_fixed_leakage_surface(benchmark::State& state) {
+    const auto source = parse_file(fixture("surface_d7_r7_p001.stim"));
+    auto circuit = source.metadata_only_copy();
+    for (const auto& node : source.nodes) {
+        circuit.nodes.push_back(node);
+        if (node.gate == GateType::CX) {
+            for (const auto target : node.targets) {
+                circuit.nodes.push_back({GateType::LEAKAGE, {target}, {0.001}});
+            }
+        }
+    }
+    const PartnerEffect depolarize{.pauli = {0.25, 0.25, 0.25}};
+    const auto model = NonComputationalModel::from_spec(
+        {1, 0, 0, 0, 0}, {}, {{{1, 0, 0.5, 0.5, 0.5}, {0, 1, 0.5, 0.5, 0.5}}}, {},
+        {.leaked = depolarize, .lost = depolarize}, {});
+    const NonComputationalProgram program(circuit, model);
+    if (program.strategy() != NonComputationalExecution::Fixed) {
+        state.SkipWithError("leakage benchmark did not select fixed execution");
+        return;
+    }
+    constexpr uint32_t shots = 2048;
+    {
+        const auto warmup = program.sample(shots, 831, 1, shots, true);
+        if (!warmup.stats || warmup.stats->packed_shots != shots ||
+            warmup.stats->batch_size != shots || warmup.stats->peak_active_width != 0) {
+            state.SkipWithError("leakage benchmark did not select the expected packed path");
+            return;
+        }
+        // Older revisions generate inputs per shot and do not expose this counter.
+#if __has_include("clifft/noncomp/fixed_classical.h")
+        if (warmup.stats->packed_classical_shots != shots) {
+            state.SkipWithError("leakage benchmark did not generate dynamic packed inputs");
+            return;
+        }
+#endif
+        state.counters["batch_size"] = warmup.stats->batch_size;
+        state.counters["active_width"] = *warmup.stats->peak_active_width;
+    }
+    for ([[maybe_unused]] auto _ : state) {
+        auto result = program.sample(shots, 831, 1, shots);
+        benchmark::DoNotOptimize(result);
+    }
+    state.SetItemsProcessed(state.iterations() * shots);
+}
+
+BENCHMARK(sample_fixed_leakage_surface)->Name("sample_fixed_leakage_surface_d7_2048_shots");
+
+// Protect automatic selection where packed classical work repays a wider
+// non-Clifford state. Older policies execute the same workload scalarly.
+void sample_fixed_nonclifford_auto(benchmark::State& state) {
+    const auto circuit = parse(
+        "H 0 1 2 3 4 5\nT 0 1 2 3 4 5\nLOSS(0.001) 6\n"
+        "REPEAT 256 {\nX_ERROR(0.001) 6\nM 6\n}\n"
+        "H 0 1 2 3 4 5\nM 0 1 2 3 4 5");
+    const auto model = NonComputationalModel::from_spec(
+        {1, 0, 0, 0, 0}, {}, {{{1, 0, 0.5, 0.5, 0.5}, {0, 1, 0.5, 0.5, 0.5}}}, {}, {}, {});
+    const NonComputationalProgram program(circuit, model);
+    constexpr uint32_t shots = 2048;
+    const auto warmup = program.sample(shots, 831, 1, std::nullopt, true);
+    if (program.strategy() != NonComputationalExecution::Fixed || !warmup.stats ||
+        warmup.stats->peak_active_width != 6) {
+        state.SkipWithError("non-Clifford benchmark did not retain the expected fixed plan");
+        return;
+    }
+    state.counters["batch_size"] = warmup.stats->batch_size;
+    state.counters["active_width"] = *warmup.stats->peak_active_width;
+    for ([[maybe_unused]] auto _ : state) {
+        auto result = program.sample(shots, 831);
+        benchmark::DoNotOptimize(result);
+    }
+    state.SetItemsProcessed(state.iterations() * shots);
+}
+
+BENCHMARK(sample_fixed_nonclifford_auto)->Name("sample_fixed_nonclifford_auto_2048_shots");
+#endif
+
 BENCHMARK(squeeze_parallel_t)->Name("squeeze_parallel_t_8192");
 #ifdef CLIFFT_BENCHMARK_HAS_PHASE_POLYNOMIAL
 BENCHMARK_CAPTURE(phase_measurement_barriers, 4096, 4096)->Name("phase_measurement_barriers_4096");
@@ -558,5 +653,6 @@ BENCHMARK(sample_surface_d7)->Name("sample_surface_d7_r7_10000_shots");
 BENCHMARK(sample_surface_d5_high_noise)->Name("sample_surface_d5_r5_high_noise_10000_shots");
 BENCHMARK(sample_surface_d11)->Name("sample_surface_d11_r11_1000_shots");
 BENCHMARK(sample_exp_val)->Name("sample_exp_val_20q_200_probes_100000_shots");
+BENCHMARK(sample_narrow_output)->Name("sample_narrow_output_100000_shots");
 
 }  // namespace

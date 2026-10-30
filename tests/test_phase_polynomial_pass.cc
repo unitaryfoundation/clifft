@@ -221,7 +221,7 @@ TEST_CASE("Phase pass retains crossed noise sites and categorical probabilities"
     hir.noise_channel_masks = PauliMaskArena(4, 2);
     const auto first = test::claim_noise_channel_mask(hir, 1, 0);
     const auto second = test::claim_noise_channel_mask(hir, 2, 0);
-    hir.noise_sites.push_back({0.3, {{first, 0.1}, {second, 0.2}}});
+    hir.noise_sites.push_back({0.3, {{first, 0.1}, {second, 0.2}}, 6});
     hir.ops.insert(hir.ops.begin() + 8, HeisenbergOp::make_noise(NoiseSiteIdx{0}));
     hir.source_map.insert(hir.source_map.begin() + 8, {17});
     const auto sites = hir.noise_sites;
