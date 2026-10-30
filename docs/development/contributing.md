@@ -96,50 +96,8 @@ Mark measured high-cost sampling or fixture cases with Catch2 `[expensive]`
 or `@pytest.mark.expensive` so CI runs their full workload in optimized builds;
 retain small representative checks in Debug.
 
-#### Exact comparisons and rare events
-
-The C++ exact-distribution helpers compare each outcome's probability using a
-relative tolerance, including postselection's discarded mass. Conditional
-expectations have a separate absolute tolerance and are checked even on tiny
-positive branches. Aggregation retains every positive representable joint
-weight; an underflowed probability product fails instead of silently losing
-support. Invalid probabilities, nonfinite probes, and inconsistent normalization
-also fail.
-
-For a rare-event fixture, pass an `ExactComparisonBudget` with
-`max_omitted_probability` smaller than the smallest probability being tested
-times its relative tolerance. The comparator rejects an excessive combined
-omission bound as inconclusive. Otherwise that bound is added to each probability
-comparison's error allowance. It bounds deliberate truncation, not floating-point
-roundoff: use an independent analytic or higher-precision calculation to justify
-the fixture's arithmetic accuracy. A total-mass check near one cannot establish
-accuracy on rare branches.
-
-The dense circuit oracle's configurable cutoff applies to the **conditional**
-Born probability after normalization. Its default is `1e-18`. Omitted mass is
-accumulated using the incoming **joint** history weight and is reported separately
-from postselection. Pauli noise and readout branches have no positive-probability
-cutoff. The Python noncomputational enumerator instead prunes **joint** weights,
-defaults to `1e-12`, and reports `dropped_mass`. Rare fixtures can set
-`prune_probability=0` and must call `require_precision` with their smallest signal
-and relative tolerance before using the reference.
-
-The compact `[rare_probability]` C++ corpus uses stable closed-form Born
-probabilities and specified classical noise probabilities on at most two qubits.
-Its smallest two-measurement joint probability is about `6e-32`; each conditional
-probability is above the FP64 production dust threshold. Arithmetic tolerances
-are `1e-9` relative, with omission budgets at least ten times smaller. These
-fixtures use direct enumeration or replay rather than waiting for rare samples.
-`test_noncomp_enumerator_precision.py` similarly calibrates initial populations,
-loss, and source-conditioned transitions against analytic weights. Both belong
-in regular CI.
-
-Zero, numerical dust, and supported probabilities are separate cases. The
-reference-cutoff calibration covers FP64 and FP32 policies (`1e-18` and
-`3.6e-12` respectively); it does not claim to execute a GPU backend. Production
-FP32 and FP64 policies remain distinct, and joint probabilities may be much
-smaller than a conditional dust cutoff. Do not loosen tolerances to accommodate
-an inconclusive reference; improve the reference or narrow the claim.
+See [Exact comparisons and rare events](testing.md#exact-comparisons-and-rare-events)
+for probability tolerances and reference accuracy requirements.
 
 ## Running Tests
 

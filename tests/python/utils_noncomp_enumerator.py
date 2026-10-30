@@ -120,10 +120,11 @@ class ExactDistribution:
         self.dropped_mass = 0.0
 
     def require_precision(self, *, smallest_probability: float, relative_tolerance: float) -> None:
-        """Refuse to certify a signal hidden by truncated mass.
+        """Check that omitted branches are too small to affect this comparison.
 
-        This bounds pruning error only; fixtures must independently justify
-        arithmetic accuracy and choose their comparison tolerance.
+        Their total probability must not exceed ``smallest_probability`` times
+        ``relative_tolerance``. This check only covers branches removed during
+        enumeration. Tests must check floating-point accuracy separately.
         """
         if not (math.isfinite(smallest_probability) and 0 < smallest_probability <= 1):
             raise ValueError("smallest_probability must be finite and in (0, 1]")
