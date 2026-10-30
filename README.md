@@ -150,6 +150,8 @@ Clifft has benefited from the following research and software:
   instrument design and providing a five-level neutral-atom model and examples.
 - [deltakit-stim](https://github.com/Deltakit/deltakit-stim) for inspiring
   configurable leakage partner effects and status-conditioned fixed execution.
+- [Microsoft QDK](https://github.com/microsoft/qdk) for development comparisons
+  informing online Clifford-frame execution for leakage and loss.
 - [TOHPE](https://doi.org/10.22331/q-2025-09-16-1860) for T-count reduction in
   the phase-polynomial optimizer.
 - [Merlin](https://arxiv.org/abs/2610.06811) for code-switching benchmark circuits

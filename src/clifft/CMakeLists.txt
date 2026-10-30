@@ -66,6 +66,7 @@ add_library(clifft_core STATIC
     noncomp/rewriter.cc
     noncomp/preparation.cc
     noncomp/program.cc
+    noncomp/online.cc
     noncomp/resolution.cc
     noncomp/fixed.cc
     noncomp/fixed_classical.cc

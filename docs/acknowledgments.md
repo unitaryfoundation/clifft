@@ -44,6 +44,17 @@ and [packed sampling](updates/packed-sampling.md) updates explain the adaptation
   (2026).
 - [SOFT and SymFT source](https://github.com/haoliri0/SOFT).
 
+## Microsoft QDK
+
+QDK's skip-gate loss sampler supplied performance and differential-correctness
+comparisons during development of the online noncomputational backend. Its
+stabilizer-branching implementation informed the comparison between runtime
+Clifford-frame updates and ahead-of-time coordinate planning. The backend reuses
+Clifft's native Pauli representation and dense active-state kernels.
+
+- [Microsoft QDK](https://github.com/microsoft/qdk).
+- [Shared Clifford frame and sparse amplitudes](https://github.com/microsoft/qdk/blob/7660f71a2edfff7934a82c9bea97050fe96f0511/source/simulators/src/stabilizer_simulator/branching_state.rs).
+
 ## Tsim
 
 Tsim's Stim-compatible approach to universal noisy-circuit simulation informed
