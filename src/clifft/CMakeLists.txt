@@ -24,6 +24,7 @@ add_library(clifft_core STATIC
     optimizer/schedule_dependence.cc
     optimizer/active_width_schedule_pass.cc
     optimizer/statevector_squeeze_pass.cc
+    optimizer/zx_spacetime_pass.cc
     sampling/plan.cc
     sampling/plan_inspection.cc
     sampling/inspection_format.cc
@@ -56,6 +57,15 @@ add_library(clifft_core STATIC
     util/page_allocation.cc
     util/runtime_isa.cc
     util/xoshiro.cc
+    zx/canonical.cc
+    zx/emit.cc
+    zx/from_hir.cc
+    zx/graph.cc
+    zx/pbc.cc
+    zx/phase.cc
+    zx/rewrite.cc
+    zx/schedule.cc
+    zx/simplify.cc
     noncomp/interaction.cc
     noncomp/transition_instrument.cc
     noncomp/transition_hooks.cc

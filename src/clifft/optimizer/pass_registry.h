@@ -8,6 +8,7 @@
 #include "clifft/optimizer/remove_noise_pass.h"
 #include "clifft/optimizer/rotation_simplification_pass.h"
 #include "clifft/optimizer/statevector_squeeze_pass.h"
+#include "clifft/optimizer/zx_spacetime_pass.h"
 
 #include <cstddef>
 #include <memory>
@@ -69,7 +70,13 @@ std::unique_ptr<HirPass> make_hir() {
 // Single source of truth for all available optimization passes.
 // Each entry defines metadata AND the factory function used to construct it.
 inline const PassInfo kRegisteredPasses[] = {
-    // HIR passes
+    // HIR passes. The playground runs the passes a user enables in registry
+    // order, and the ZX rewrite must see the traced HIR.
+    {.name = "ZxSpacetimePass",
+     .default_enabled = false,
+     .record_order = kBreaksRecordOrder,
+     .instrument_prefix = kMayChangeInstrumentPrefix,
+     .make = make_hir<ZxSpacetimePass>},
     {.name = "PeepholeFusionPass",
      .default_enabled = true,
      .record_order = kPreservesRecordOrder,

@@ -212,4 +212,38 @@ construction and final analysis. For per-operation widths, use
 [`clifft.active_width_trace`](python-api.md#clifft.active_width_trace).
 {% endif %}
 
+{% if p['name'] == 'ZxSpacetimePass' %}
+It needs the traced HIR, so add it before every other pass:
+
+```python
+import clifft
+
+pm = clifft.HirPassManager()
+pm.add(clifft.ZxSpacetimePass())
+pm.add(clifft.PeepholeFusionPass())
+pm.add(clifft.PhasePolynomialPass())
+pm.add(clifft.RotationSimplificationPass())
+pm.add(clifft.StatevectorSqueezePass())
+```
+
+| Option | Default | Meaning |
+|---|---|---|
+| `max_qubits` | `4096` | Maximum qubits once every reset continues on a fresh qubit, and maximum qubits of the rewrite, sign lines included. Must be positive. |
+| `max_reduce_work` | `8388608` ($2^{23}$) | Maximum Hadamard-edge toggles spent reducing the diagram. Clifford-heavy circuits whose diagrams grow dense exceed it. Must be positive. |
+
+To decide, the pass runs the default passes and the sampling planner on both
+the input and the rewrite, so its compile cost includes those runs as well as
+the ZX reduction. After a run, `input_peak` and `result_peak` report the two
+planned peak active widths, `applied` reports whether the rewrite was kept, and
+`reason` says why it was not: for example, the rewrite is not narrower, the
+circuit has expectation-value probes, leakage or loss instruments, or no
+measurement records, or it exceeds one of the limits above.
+
+The rewritten circuit has more qubits: one line per independent sign that
+depends on noise, all dormant. A readout flip that feedback reads becomes a
+noise site, since it changes later signs; every other readout entry stays a
+classical flip. The rewrite has no source mapping, and fixed-seed samples
+differ from the standard pipeline.
+{% endif %}
+
 {% endfor %}

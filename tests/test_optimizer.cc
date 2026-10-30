@@ -880,7 +880,8 @@ TEST_CASE("Pass registry: trajectory compatibility requires both guarantees") {
     const std::vector<std::string_view> prefix_stable = {"PeepholeFusionPass"};
     const std::vector<std::string_view> may_change_prefix = {
         "StatevectorSqueezePass", "ActiveWidthSchedulePass", "RemoveNoisePass",
-        "DropNonUnitaryPass",     "PhasePolynomialPass",     "RotationSimplificationPass"};
+        "DropNonUnitaryPass",     "PhasePolynomialPass",     "RotationSimplificationPass",
+        "ZxSpacetimePass"};
 
     for (const auto& info : clifft::kRegisteredPasses) {
         const bool expected_stable =

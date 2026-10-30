@@ -158,6 +158,8 @@ directional overrides, and circuit annotation ordering.
 
 ## HIR Passes
 
+::: clifft.ZxSpacetimePass
+
 ::: clifft.PeepholeFusionPass
 
 ::: clifft.PhasePolynomialPass

@@ -46,6 +46,16 @@ add_library(clifft_core STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/schedule_dependence.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/active_width_schedule_pass.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/statevector_squeeze_pass.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/zx_spacetime_pass.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/zx/canonical.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/zx/emit.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/zx/from_hir.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/zx/graph.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/zx/pbc.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/zx/phase.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/zx/rewrite.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/zx/schedule.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/zx/simplify.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/sampling/plan.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/sampling/plan_inspection.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/sampling/inspection_format.cc
