@@ -60,14 +60,14 @@ use each one.
 
 ### Model leakage or loss
 
-- **My circuit includes leakage or loss.** Use `clifft.noncomp.sample()` for
-  supported noncomputational transitions. It accepts a circuit and model
-  together and automatically selects fixed execution or trajectories. Use
-  `clifft.noncomp.compile()` to reuse preparation. Detailed final status is
-  opt-in with `final_status=True`. See
+- **My circuit includes leakage or loss.** Pass a circuit and `noncomp.Model`
+  to `clifft.noncomp.sample()`, or compile once for repeated sampling with
+  `clifft.noncomp.compile()`. Clifft automatically selects compile-once fixed
+  execution when eligible and trajectories otherwise; pass `final_status=True`
+  when you also need end-of-shot per-qubit statuses. See
   [Leakage and Loss](../guide/leakage-and-loss.md) for the model and its limits,
   and [Partner Interactions](../guide/partner-interactions.md) to configure
-  effects on computational partners of leaked or lost operands.
+  effects on computational partners of leaked or lost qubits.
 
 ## 3. Choose performance options
 

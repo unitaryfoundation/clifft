@@ -40,13 +40,15 @@ worthwhile. Benchmark before overriding either decision.
 | `thread_layout` | `None` | Expert `(shot_workers, intra_shot_workers)` override. |
 | `intra_shot_min_active_width` | `None` | Expert threshold for enabling an explicit intra-shot layout. |
 
-The fixed-plan samplers above accept these controls. The leakage and loss API,
-`clifft.noncomp.sample()` and its prepared programs, accepts cross-shot `threads`
-and `batch_size="auto"` or a positive integer. Eligible fixed programs share the
-automatic batch policy; trajectory fallback runs scalar and rejects an explicit
-batch size greater than one. Noncomputational sampling does not yet support
-`"tune"` or intra-shot layouts. Exact probability queries and `get_statevector()`
-do not expose these sampling controls.
+The fixed-plan samplers above accept all five controls. For leakage and loss,
+`clifft.noncomp.sample()` and `NonComputationalProgram.sample()` accept
+cross-shot `threads`, `batch_size` (`"auto"`, `"tune"`, or a positive integer),
+and `tuning_budget_seconds`. Compile-once fixed execution supports batching and
+batch-size tuning, whereas trajectory execution runs one shot at a time
+(`batch_size=1`) and rejects `batch_size > 1` or `"tune"` (see
+[Leakage and Loss](leakage-and-loss.md#compiling-and-execution)). Intra-shot
+thread layouts are not supported by `clifft.noncomp`, and exact probability
+queries and `get_statevector()` do not expose these sampling controls.
 
 Three independent mechanisms are involved:
 

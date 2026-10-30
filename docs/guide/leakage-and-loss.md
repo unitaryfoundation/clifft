@@ -13,21 +13,19 @@ status alongside its ordinary coherent simulation. A computational site
 remains in the quantum state and can be in a superposition or entangled; a
 leaked or lost site occupies one definite noncomputational level in each shot.
 
-`noncomp.sample` automatically chooses an exact fixed plan when the circuit,
-model, and requested outputs permit it. Such plans compile once and can sample
-shots in packed batches, including supported non-Clifford circuits. Other
-requests use general trajectories, rewriting and compiling continuations as
-jumps change subsequent operations. Both strategies preserve the same model
-and output semantics.
+Use `clifft.noncomp.sample()` to simulate a circuit and model in one call, or
+`clifft.noncomp.compile()` to compile them once for repeated sampling.
 
-This page is the API walkthrough. The model and its simulation semantics
-are described in [Noncomputational States](../theory/noncomputational.md).
-The [Partner Interactions guide](partner-interactions.md) explains optional
-Pauli noise and leakage spreading onto computational partners.
-The [Delayed Loss tutorial](delayed-loss.md) introduces the API with a
-surface-code memory experiment. The advanced [Logical Shor Noise Sweep
-tutorial](neutral-atom-leakage.md) applies the complete five-level model to a
-published logical experiment.
+This page walks through the `clifft.noncomp` API. Related pages cover:
+
+- [Partner Interactions](partner-interactions.md): Pauli noise and leakage
+  spreading on computational qubits paired with a leaked or lost qubit.
+- [Noncomputational States](../theory/noncomputational.md): mathematical
+  definition of the five-level model, quantum-jump back-action, and fixed
+  execution.
+- Tutorials: [Delayed Loss in a Surface Code](delayed-loss.md) (introductory)
+  and [Logical Shor Noise Sweep](neutral-atom-leakage.md) (full five-level
+  neutral-atom model).
 
 ## A model and its outputs
 
@@ -50,10 +48,10 @@ state rather than occupying a known basis level. The statuses `LEAK_G`,
 on `g` or `e` prepares the corresponding computational basis state; later
 evolution may put the site in a superposition or entangle it with other sites.
 
-`noncomp.sample` returns the usual measurement, detector, and observable
-arrays and `heralds` for each measurement. Detailed `final_status` is opt-in;
-it is `None` unless `final_status=True` is requested.
-When updating existing calls that consume final status, add `final_status=True`.
+`noncomp.sample` returns the usual `measurements`, `detectors`, and
+`observables` arrays, plus a `heralds` array for each measurement slot. To
+also record each qubit's end-of-shot `QubitStatus`, pass `final_status=True`
+(by default, `result.final_status` is `None`).
 
 ### A minimal model
 
@@ -128,8 +126,8 @@ Omitting `initial_state` starts every site in `g`, which matches the standard
 Clifft convention that all qubits start in $\lvert 0 \rangle$. A model capable
 of leakage or loss requires a classifier whenever the circuit contains any
 physical-qubit measurement, even if the measured site cannot itself become
-noncomputational. `MPAD` and the status probes below are exempt because their
-record bits do not measure the site's computational state.
+noncomputational. `MPAD` and the status checks below are exempt because they do
+not perform a physical qubit measurement.
 
 ## Nondestructive status checks
 
@@ -143,13 +141,12 @@ qubit target appends one ordinary record bit, in target order:
 | `LEAK_G` or `LEAK_E` | 1 | 0 |
 | `LOST` | 0 | 1 |
 
-Status probes are perfect and take no arguments. Targets must be
-plain qubit indices without inversion.
-
-The result is available to `DETECTOR`, `OBSERVABLE_INCLUDE`, and record-controlled
-feedback. These probes require no classifier and leave the classifier `heralds`
-sidecar zero at their record slots. They report status at the time of the check,
-not the time of the underlying jump.
+These instructions take no probability arguments and accept plain qubit indices
+(no `!` target inversion). Their record bits work with `DETECTOR`,
+`OBSERVABLE_INCLUDE`, and classical feedback (`rec[...]`), require no
+classifier, and leave `result.heralds` set to `0` at those slots. Each check
+reports whether the qubit is leaked or lost at that point in the circuit, not
+when the jump happened.
 
 ```python
 from clifft import noncomp
@@ -174,8 +171,9 @@ assert result.observables.all()
 assert not result.heralds.any()
 ```
 
-To model detection errors, apply `READOUT_NOISE` to the probe's record bit.
-This example uses a 2% false-positive rate and a 5% false-negative rate:
+Status checks are noiseless by default. To model detection errors, apply
+`READOUT_NOISE` to the resulting record bit. For example, a 2% false-positive
+rate and a 5% false-negative rate:
 
 ```text
 HERALD_LEAKAGE_EVENT 0
@@ -183,10 +181,10 @@ READOUT_NOISE(0.02, 0.05) rec[-1]
 ```
 
 Use `READOUT_NOISE(0, p)` for missed detections only, or `READOUT_NOISE(p)` for
-symmetric errors. These errors affect the reported bit, leaving the site's
-quantum state and status unchanged.
+symmetric errors. `READOUT_NOISE` flips only the recorded bit; the qubit's
+quantum state and status are unchanged.
 
-Like transition annotations, status probes require `noncomp.sample`;
+Like transition annotations, status checks require `clifft.noncomp`;
 ordinary `clifft.compile` rejects them.
 
 ## Transitions: hooks and inline annotations
@@ -196,27 +194,22 @@ from one source level to one destination level. The destination may equal the
 source; a column's deficit below 1 is the no-jump probability.
 
 Transitions act as noise associated with specific circuit positions. There are
-three ways to place them:
+four ways to place them:
 
-- **Gate hooks.** A `transitions` key that names a gate, such as `"CZ"` or `"S"`,
-  evaluates its matrix after every occurrence of that gate. Keys naming
-  recognized instructions that cannot be hooked are rejected at model
-  construction. This includes noise channels and annotations, instructions
-  that never produce a circuit node (`MXX`/`MYY`/`MZZ`,
-  `CH`/`CCX`/`CCZ`), and identity no-ops. Use a hook to apply the same
-  transition after every occurrence of a gate.
-- **Inline references.** `LEVEL_TRANSITION[name] 0` evaluates the named matrix
-  from the `transitions` mapping on site 0 at that circuit position. Any
-  arbitrary transition name or hookable gate name can be referenced
-  explicitly. Use an inline reference at selected circuit positions or with a
-  transition whose name is not a gate.
-- **Inline leakage.** `LEAKAGE(p) 0` moves `g` to `leak_g` and `e` to
-  `leak_e` with probability `p`. An already leaked or lost site is unchanged.
-  Use it for the common source-preserving leakage channel without defining a
-  five-by-five matrix.
-- **Inline loss.** `LOSS(p) 0` loses the carrier at site 0 with probability
-  `p` from any occupied level. Use it for a self-contained loss probability
-  that needs no matrix in the model.
+- **Gate hooks.** Give a `transitions` entry the name of a physical gate, such
+  as `"CZ"` or `"S"`, to apply that matrix to each operand after every
+  occurrence of the gate. Noise instructions, annotations, identity no-ops, and
+  composite instructions that expand during parsing (`MXX`/`MYY`/`MZZ`,
+  `CH`/`CCX`/`CCZ`) cannot be hooked and raise `ValueError`.
+- **Inline references.** Write `LEVEL_TRANSITION[name] 0` in the circuit to
+  apply a named matrix from `Model(transitions={...})` to qubit 0 at that
+  specific line. Use this for custom transition names (such as `"idle_decay"`)
+  or one-off placements.
+- **Inline leakage.** Write `LEAKAGE(p) 0` in the circuit to move `g -> leak_g`
+  and `e -> leak_e` with probability `p` without defining a 5x5 matrix. An
+  already leaked or lost qubit is unchanged.
+- **Inline loss.** Write `LOSS(p) 0` in the circuit to move any occupied level
+  to `lost` with probability `p` without defining a 5x5 matrix.
 
 Gate hooks are shorthand for inline references. Before sampling, Clifft
 expands each hook into a `LEVEL_TRANSITION[name]` annotation for every physical
@@ -380,86 +373,149 @@ site's classified readout stays correlated with its entangled partner. The
 semantics and active-width cost are described in
 [Noncomputational States](../theory/noncomputational.md).
 
-## Policy knobs
+## Model policies
 
-- **`reset_restores_lost`** (default `False`): whether a reset on a lost site
-  re-prepares it or is dropped. A reset always restores a *leaked* site; a
-  measure-and-reset always produces its classifier record, while this option
-  controls only whether the reset half restores a lost site.
-- **`damping`** (default `"exact"`): source-dependent total jump rates on a
-  coherent site require no-jump back-action. Exact simulation may add one unit
-  of peak active width for each affected coherent site; each additional unit
-  doubles the active-state dimension. Repeated transition positions on a site
-  that remains active do not increase the width further. `"neglect"` omits
-  this cost and the no-jump back-action, introducing an error of order
-  $\lvert p_g - p_e \rvert$ per transition position. There is no error when
-  $p_g = p_e$, so `LEAKAGE(p)` and `LOSS(p)` are always exact. The cost doubles
-  with each additional unit of active width because the active-state dimension
-  is $2^k$.
-- **`seed`**: same contract as ordinary sampling: a fixed seed and execution
-  configuration are reproducible, `None` uses hardware entropy.
-- **`threads`** (default `1`): number of cross-shot workers. Use a positive
-  integer to bound resource use or `"auto"` for the implementation-reported
-  hardware concurrency.
-  With the same program, seed, shot count, and batch configuration, results
-  are independent of worker count. Each worker owns its executor and scratch
-  storage, so memory use grows with the worker count. Trajectory workers also
-  own any continuations they compile.
-- **`max_active_width`**: caps the compiled peak active width before allocating or
-  growing the state for that module.
-  The cap applies to each compiled module, including branches a given shot
-  never takes, so it is conservative.
+Two `noncomp.Model` options control how resets and state-dependent transition
+rates behave:
 
-## Automatic execution and reusable preparation
+- **`reset_restores_lost`** (default `False`): whether reset instructions
+  (`R`, `RX`, `RY`, and the reset half of `MR`, `MRX`, `MRY`) re-prepare a lost
+  site into the computational subspace. Resets always restore a *leaked* site,
+  and measure-and-reset instructions always record a classified measurement bit
+  even when the reset half is dropped.
+- **`damping`** (default `"exact"`): how Clifft handles the no-jump state update
+  when `g` and `e` have different total jump rates ($p_g \neq p_e$). When a
+  qubit in superposition survives a transition without jumping, its state shifts
+  slightly toward the less leaky level. `"exact"` simulates that shift
+  accurately, which can increase the active width $k$ by one (doubling the
+  $2^k$ active-state size) when the affected superposition is not already in the
+  active state. Transitions reuse existing active-state axes when possible,
+  though intervening gates (such as `SWAP` or basis changes on entangled qubits)
+  can cause later transitions on the same physical qubit to add width again.
+  `"neglect"` skips the no-jump update to avoid that extra width, introducing an
+  error of order $\lvert p_g - p_e \rvert$ at each transition. When $p_g = p_e$,
+  as in `LEAKAGE(p)` and `LOSS(p)`, there is no state bias and both settings are
+  exact.
 
-Existing `noncomp.sample(circuit, model, ...)` calls automatically select an
-execution strategy. To reuse preparation, keep a program:
+## Compiling and execution
+
+`noncomp.sample(circuit, model, ...)` compiles and samples in a single call.
+When running multiple shot counts, seeds, or worker settings against the same
+circuit and model, compile once with `noncomp.compile()` and reuse the returned
+`NonComputationalProgram`:
 
 ```python
 from clifft import noncomp
 
 model = noncomp.Model(
-    classifier=noncomp.Classifier([[1, 0, 0.5, 0.5, 0.5], [0, 1, 0.5, 0.5, 0.5]])
+    classifier=noncomp.Classifier([[1, 0, 0.5, 0.5, 0.5], [0, 1, 0.5, 0.5, 0.5]]),
+    gate_partner_effects={
+        "leaked": noncomp.PartnerEffect(pauli=(0.25, 0.25, 0.25)),
+    },
 )
-program = noncomp.compile("H 0\nLEAKAGE(0.01) 0\nM 0", model)
+program = noncomp.compile("H 0\nLEAKAGE(0.01) 0\nCX 0 1\nM 0 1", model)
 assert program.strategy == "fixed"
-print(program.explain())
 
 result = program.sample(shots=10_000, seed=42)
 assert result.final_status is None
-second = program.sample(shots=10_000, seed=43)
+second = program.sample(shots=10_000, seed=43, threads=2)
 ```
 
-Preparation owns the circuit/model snapshot and draws no shot randomness.
-Each sampling call owns its workers and RNG, so a program can be reused
-concurrently. The convenience function repeats preparation on each call;
-there is no cross-call cache.
+The compiled program stores a copy of the circuit and model and can be sampled
+repeatedly, including concurrently from multiple threads. `noncomp.sample()`
+accepts all of the `compile()` and `sample()` options below and compiles on
+every call.
 
-| Option | Behavior |
+### Fixed execution vs. trajectories
+
+Clifft has two execution strategies for leakage and loss, with identical model
+and output semantics:
+
+- **Fixed execution (`strategy == "fixed"`):** compiles the quantum circuit
+  once up front and can process shots in batches, including circuits with
+  non-Clifford gates.
+- **Trajectory execution (`strategy == "trajectory"`):** supports the full
+  five-level model by stepping through one shot at a time and recompiling the
+  remaining circuit whenever a jump changes later operations.
+
+By default (`execution="auto"`), `noncomp.compile()` uses fixed execution when
+possible and falls back to trajectories otherwise. Eligibility is checked
+against the qubit statuses that can actually reach each circuit position, so
+unused model rules or unreachable pairings do not force trajectories. The main
+checks are:
+
+| Requirement for `"fixed"` | Uses `"trajectory"` when... |
 | --- | --- |
-| `execution="auto"` | Select an exact supported fixed plan, otherwise use trajectories. |
-| `execution="fixed"` | Require fixed execution; reject unsupported requests during preparation. |
-| `execution="trajectory"` | Force the general trajectory driver. |
-| `final_status=False` | Omit detailed status; `result.final_status` is `None`. |
-| `final_status=True` | Return existing `QubitStatus` values; unresolved leaked labels can require trajectories. |
-| `batch_size="auto"` | Choose a batch size automatically; trajectories run one shot at a time. |
-| `batch_size="tune"` | Try several batch sizes to find a faster setting. Available only for fixed execution. |
-| `batch_size=1` | Process shots individually. Fixed execution still reuses its compiled program. |
-| `batch_size=N`, N > 1 | Request up to N shots per batch. Available only for fixed execution. |
+| All qubits start in `g` (`initial_state` omitted or `[1, 0, 0, 0, 0]`) | `initial_state` puts nonzero probability on `e`, `leak_g`, `leak_e`, or `lost` |
+| Active transitions use inline `LEAKAGE(p)` and `LOSS(p)` | Circuit invokes a nonzero named `transitions` matrix (via `LEVEL_TRANSITION[...]` or a gate hook) |
+| No reachable leakage spreading (`spread_probability == 0`) | A partner effect with `spread_probability > 0` can see a leaked source paired with a computational partner |
+| **Full partner depolarization** `PartnerEffect(pauli=(0.25, 0.25, 0.25))` wherever a two-qubit gate can pair a leaked or lost qubit with a computational one | Such a pairing uses the default no-op (drop) or partial Pauli noise |
+| Classifier treats `leak_g` and `leak_e` identically at every leaked measurement | Classifier assigns different probabilities to `leak_g` and `leak_e` on a qubit that can be leaked when measured |
+| `final_status=False`, or resets/loss clear any leaked state before circuit end | `final_status=True` and a qubit could end the circuit leaked (since `final_status` distinguishes `LEAK_G` from `LEAK_E`) |
+| Compiled fixed program fits within `max_active_width` | Fixed program exceeds `max_active_width` (Clifft falls back to trajectories, where each compiled continuation must still fit within `max_active_width`) |
 
-Strategy and final-status requirements are fixed by `compile`; batch size and
-cross-shot `threads` are sampling options. The default remains one worker.
-Survivor/importance sampling and custom pass managers are not supported by
-this API.
+A few other operations also require trajectories when a target can be
+noncomputational, such as multi-qubit Pauli-product gates (`SPP`, `TPP`,
+`R_PAULI`). Call `program.explain()` to see the selected strategy and any
+fallback reason.
 
-Leave `batch_size="auto"` for normal use. Clifft chooses whether to process shots
-individually or in batches based on your circuit, shot count, and memory needs,
-without spending time on trial runs. For repeated sampling of the same circuit,
-`batch_size="tune"` can help find a faster setting, as shown below.
+!!! tip "Why two-qubit gates need full partner depolarization for fixed execution"
+    Fixed execution keeps two-qubit gates in the compiled quantum circuit even
+    when one qubit has leaked or been lost. That produces the exact same result
+    as dropping the gate only when the computational partner is completely
+    depolarized (`pauli=(0.25, 0.25, 0.25)`). Standalone `LEAKAGE_INTERACTION`
+    and `LOSS_INTERACTION` instructions do not attach to a two-qubit gate and
+    support arbitrary Pauli probabilities in fixed execution. See
+    [Fixed execution](../theory/noncomputational.md#fixed-execution) for the
+    derivation.
+
+Invalid circuits or models always raise `ValueError` during `compile()`;
+automatic fallback applies only to valid requests outside the fixed subset.
+
+### Compilation and sampling options
+
+Options passed to `noncomp.compile()` (and forwarded by `noncomp.sample()`):
+
+| Argument | Default | Meaning |
+| --- | --- | --- |
+| `final_status` | `False` | When `True`, populate `result.final_status` with per-qubit `QubitStatus` values. |
+| `execution` | `"auto"` | `"auto"` selects `"fixed"` when eligible and `"trajectory"` otherwise; `"fixed"` raises `ValueError` if ineligible; `"trajectory"` forces trajectories. |
+| `max_active_width` | `None` | Cap on peak active width. Under `"auto"`, an over-cap fixed program falls back to trajectories; trajectory continuations exceeding the cap raise during sampling. |
+
+Options passed to `program.sample()` (and `noncomp.sample()`):
+
+| Argument | Default | Meaning |
+| --- | --- | --- |
+| `shots` | *(required)* | Number of shots to sample. |
+| `seed` | `None` | Integer seed for reproducible results, or `None` for hardware entropy. |
+| `threads` | `1` | Number of cross-shot CPU workers, or `"auto"` for hardware concurrency. Memory use grows with worker count. |
+| `batch_size` | `"auto"` | Batching mode (`"auto"`, `"tune"`, `1`, or `N > 1`); see below. |
+| `tuning_budget_seconds` | `None` | Soft time limit in seconds for `batch_size="tune"` trials (defaults to `0.25` s). |
+| `collect_stats` | `False` | Populate `result.stats` with a `NonComputationalStats` execution report. |
+
+`batch_size` controls how many shots a worker processes together:
+
+- **`"auto"`** (default): choose a batch size automatically; trajectories run
+  one shot at a time.
+- **`"tune"`**: try several batch sizes to find a faster setting. Available only
+  for fixed execution.
+- **`1`**: process shots individually. Fixed execution still reuses its compiled
+  program.
+- **`N` (`N > 1`)**: request up to `N` shots per batch. Available only for fixed
+  execution.
+
+Leave `batch_size="auto"` for normal use. Clifft chooses whether to process
+shots individually or in batches based on your circuit, shot count, and memory
+needs, without spending time on trial runs. For repeated sampling of the same
+circuit, `batch_size="tune"` can help find a faster setting, as shown below.
 
 Changing the batch size can change individual samples, even with the same seed.
 With the same program, seed, shot count, and batch size, changing `threads`
 does not change the results.
+
+Post-selected survivor sampling, fixed-fault importance sampling, intra-shot
+thread layouts, and custom optimization pass managers are not supported by
+`clifft.noncomp`.
 
 ### Tuning batch size
 
@@ -470,114 +526,81 @@ without repeating the trials:
 
 <!--pytest-codeblocks:cont-->
 ```python
-result = program.sample(10000, seed=42, batch_size="tune", tuning_budget_seconds=0.25)
+result = program.sample(10_000, seed=42, batch_size="tune", tuning_budget_seconds=0.25)
 # Reuse the chosen batch size without repeating the trials.
-next_result = program.sample(10000, seed=43, batch_size=result.batch_tuning.batch_size)
+next_result = program.sample(10_000, seed=43, batch_size=result.batch_tuning.batch_size)
 ```
 
-Calibration has a soft time budget, defaulting to 0.25 seconds; an individual
-probe can overrun it. The returned `clifft.BatchTuningReport` records the selected
-capacity, timings, and discarded trial shots even without `collect_stats=True`.
-Each candidate constructs workers once, recorded in `trial.setup_seconds`, then
-reuses them across probes. `trial.shots_per_second` excludes that setup but
-includes classical input generation, quantum execution, and result allocation
-and copying. Selection estimates call time by adding setup to
-`requested_shots / shots_per_second`, plus any first-probe cost above steady
-throughput. This charges construction and first-use costs, such as touching
-preallocated pages, once for the requested workload. If only the first probe
-was measured, its throughput is used without adding a first-use surcharge.
-Ordinary CPU tuning continues to select by throughput alone.
-
-Candidate workers obey the shared memory budgets, including packed classical
-storage, and probe output storage is bounded, including heralds and requested
-final statuses. A zero budget uses auto without probes; zero shots also skip
-calibration. Inconclusive measurements warn and use auto. Trajectory programs
-reject `"tune"`, just as they reject an explicit packed capacity.
-
-Tuning is per call and leaves the prepared program unchanged. Its overhead can
-exceed the time saved on a short call, so reuse the reported capacity for repeated
-workloads. Trial shots never enter the returned results or advance their random
-streams. Timing can select a different capacity on another call; pin the reported
-capacity to replay results for the same seed and shot count.
-
-### Fixed eligibility
-
-The initial fixed subset supports ground-state initialization, inline leakage
-and loss, supported readout/reset/feedback, and reachable inactive/live gates
-with full partner depolarization. Non-Cliffords can qualify. Named transitions,
-spreading, level-sensitive classifiers, and other unsupported combinations
-fall back. Default loss with an identity partner effect can therefore still
-use trajectories. Eligibility depends on the whole request, including output
-requirements. Detailed status can remain eligible if restoring resets erase
-the unresolved leaked labels. See
-[fixed execution](../theory/noncomputational.md#fixed-execution)
-for details on which circuits and noise combinations are eligible.
-
-With `max_active_width`, automatic selection can reject an over-cap fixed
-candidate and retain trajectories. Each continuation must still fit the cap;
-an error may therefore arise during sampling. Invalid circuit/model contracts
-always raise instead of silently triggering fallback.
+`tuning_budget_seconds` sets a soft time limit on the trial runs (defaulting to
+0.25 seconds), and `result.batch_tuning` records the chosen `batch_size` and
+timings. Trial shots are discarded and use a separate random stream, so they
+never enter your returned results. Because live timings can pick a different
+batch size on another run, pass the numeric `batch_size` explicitly when you
+need exact seeded replay. See
+[Budgeted batch calibration](cpu-execution.md#budgeted-batch-calibration) for
+more on how batch tuning works across Clifft.
 
 ### Inspecting execution
 
-`program.explain()` formats the selected strategy, fallback reason, available
-source locations, and known width/storage estimates without running shots.
-For performance investigations, pass `collect_stats=True` to see what actually
-ran: whether shots were packed, how many workers were used, and how often the
-trajectory driver compiled continuations.
+Call `program.explain()` to check which strategy was chosen, see the circuit
+line and reason if fixed execution fell back to trajectories, and view peak
+active width estimates without running any shots. To see what happened during a
+sampling run (such as how many shots ran in batches versus one at a time, how
+many workers were used, and how often trajectory execution recompiled), pass
+`collect_stats=True`:
 
 <!--pytest-codeblocks:cont-->
 ```python
+print(program.explain())
+
 result = program.sample(shots=10_000, seed=42, collect_stats=True)
 assert result.stats is not None
 assert result.stats.packed_shots == 10_000
 assert result.stats.continuation_compilations == 0
 ```
 
-These diagnostics are optional; ordinary calls leave `result.stats` as `None`.
-They help distinguish recompilation costs from scalar execution or limited
-batching. Preparation counts and timing refer to the program's preparation,
-not repeated work on each call. See
-[NonComputationalStats](../reference/python-api.md#clifft.noncomp.NonComputationalStats)
-for the counters, resource estimates, and timing definitions.
+See [`NonComputationalStats`](../reference/python-api.md#clifft.noncomp.NonComputationalStats)
+for all counter, memory, and timing fields.
 
 ### Trajectory continuations
 
-When a request is ineligible for fixed execution, or `execution="trajectory"`
-is requested, the prepared program may still compile during sampling.
-Preparation validates and resolves the circuit/model once. When a sampled
-jump changes subsequent operations, the driver compiles a continuation and
-resumes the shot after the jump. Reusing preparation does not eliminate these
-compilations; `continuation_compilations` reports how many occurred.
+When `program.strategy == "trajectory"`, `noncomp.compile()` validates the
+circuit and expands model hooks once, while quantum compilation still happens
+during `sample()`. Whenever a jump changes which later operations apply, the
+worker compiles a continuation for the remaining circuit and resumes the shot
+(`result.stats.continuation_compilations` counts how many occurred).
 
-Continuations must preserve the already-executed prefix and its measurement
-correlations. The trajectory driver therefore uses a restricted internal
-compiler pipeline and checks each prefix before resuming. See
+To resume mid-shot without disturbing earlier measurement correlations,
+trajectory execution uses a restricted internal compiler pipeline. See
 [Optimization Passes](../reference/passes.md#trajectory-safety-metadata)
 for the pass restrictions and
 [Noncomputational States](../theory/noncomputational.md#how-this-composes-with-clifft)
-for the execution model.
+for how continuations compose with Clifft's simulator.
 
 ## Limits
 
-- **Leakage mobility is not modeled.** Configurable
-  [partner effects](partner-interactions.md) support Pauli noise and spreading;
-  spreading leaves the original leaked operand leaked. Correlated transfer
-  that restores the source requires a joint transition and remains unsupported.
-- **Ordinary multi-qubit noise retains the drop policy.** `DEPOLARIZE2/3` and
-  `PAULI_CHANNEL_2/3` touching a noncomputational site drop as whole operations.
-  Correlated-error chains keep their existing exception. See the
-  [noise policy](partner-interactions.md#ordinary-noise-keeps-its-existing-policy)
-  before substituting otherwise equivalent noise representations.
-- **Coherent leakage is outside the trajectory model.** Jumps into a
-  noncomputational level are treated as incoherent, definite occupations.
-- **`MPP` is not supported** under a model that can leak or lose qubits:
-  a parity of levels outside the qubit subspace has no faithful single-bit
-  record. Expand the parity readout into an explicit ancilla circuit; the
-  ancilla's ladder gates then follow the configured partner-interaction policy.
-- **`EXP_VAL` is not supported.** `NonComputationalSample` has no
-  expectation-value output, so circuits containing these probes are rejected
-  before sampling.
-- **A classifier is required** whenever a model capable of leakage or loss
-  meets a circuit containing any physical-qubit measurement. This is a
-  model-level capability check, not a per-site reachability analysis.
+- **Leakage and loss do not move between sites.**
+  [Partner effects](partner-interactions.md) can apply Pauli noise or spread
+  leakage to a computational partner, but the original leaked qubit stays
+  leaked (and `SWAP` gates touching a leaked or lost site are dropped rather
+  than moving it). Processes where one qubit relaxes while transferring its
+  leakage to a neighbor are not supported.
+- **Multi-qubit Pauli noise channels drop as a whole.** `DEPOLARIZE2/3` and
+  `PAULI_CHANNEL_2/3` touching a leaked or lost site are skipped completely,
+  whereas `CORRELATED_ERROR` / `ELSE_CORRELATED_ERROR` chains still apply Pauli
+  terms to their remaining computational targets. Noise encodings that are
+  equivalent on ordinary qubits can therefore behave differently after leakage
+  or loss; see
+  [Multi-qubit noise vs. partner effects](partner-interactions.md#multi-qubit-noise-vs-partner-effects).
+- **Leakage is incoherent.** Jumps out of the computational subspace produce
+  definite classical occupations (`leak_g`, `leak_e`, or `lost`), not coherent
+  superpositions between computational and leaked levels.
+- **`MPP` is not supported** when the model can leak or lose qubits, because
+  multi-qubit parity has no well-defined single-bit classifier outcome once an
+  operand leaves the qubit subspace. Decompose parity checks into explicit
+  ancilla gates and single-qubit measurements instead.
+- **`EXP_VAL` is not supported.** Circuits containing `EXP_VAL` are rejected
+  before sampling because `clifft.noncomp` does not compute expectation values.
+- **Physical measurements require a classifier** whenever the model can produce
+  leakage or loss, even if the measured qubit itself never leaks or is lost in
+  the circuit.
