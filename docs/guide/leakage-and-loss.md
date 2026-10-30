@@ -548,6 +548,12 @@ Use `execution="online"` to sample the same five-level model with runtime
 Clifford coordinates and a compact dense active state:
 
 ```python
+from clifft import noncomp
+
+circuit = "H 0\nT 0\nLOSS(0.01) 0\nCX 0 1\nH 0\nM 0 1"
+model = noncomp.Model(
+    classifier=noncomp.Classifier([[1, 0, 0.5, 0.5, 0.5], [0, 1, 0.5, 0.5, 0.5]])
+)
 program = noncomp.compile(circuit, model, execution="online", max_active_width=20)
 result = program.sample(shots=1000, seed=7, collect_stats=True)
 assert result.stats.online_shots == 1000

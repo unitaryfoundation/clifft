@@ -73,8 +73,13 @@ def statevector_from_circuit() -> Callable[[str], npt.NDArray[np.complex128]]:
         for workers in (1, 2)
     ],
 )
+def noncomp_sampling_config(request: pytest.FixtureRequest) -> tuple[str, int]:
+    return cast(tuple[str, int], request.param)
+
+
+@pytest.fixture
 def noncomp_sampling_api(
-    request: pytest.FixtureRequest,
+    noncomp_sampling_config: tuple[str, int],
 ) -> Callable[..., clifft.noncomp.NonComputationalSample]:
     """Check API consistency through convenience, prepared, and forced paths.
 
@@ -94,13 +99,18 @@ def noncomp_sampling_api(
     ) -> clifft.noncomp.NonComputationalSample:
         if "threads" in kwargs:
             raise TypeError("threads is selected by noncomp_sampling_api")
-        api, workers = request.param
+        api, workers = noncomp_sampling_config
         kwargs["threads"] = workers
         kwargs.setdefault("final_status", True)
-        online = api in ("online", "online-prepared")
         kwargs.setdefault(
-            "execution", "online" if online else "trajectory" if api == "trajectory" else "auto"
+            "execution",
+            "online"
+            if api in ("online", "online-prepared")
+            else "trajectory"
+            if api == "trajectory"
+            else "auto",
         )
+        online = kwargs["execution"] == "online"
         if online:
             kwargs.setdefault("collect_stats", True)
         if api in ("prepared", "online-prepared"):

@@ -345,19 +345,25 @@ def test_valid_boundaries_sample_like_stim(valid_boundary_circuit, sampling_mode
 
 @pytest.mark.parametrize("parsed", [False, True], ids=["text", "parsed"])
 def test_valid_boundaries_sample_noncomp_like_stim(
-    valid_boundary_circuit, parsed, noncomp_sampling_api
+    valid_boundary_circuit, parsed, noncomp_sampling_api, noncomp_sampling_config
 ):
     text, expected = valid_boundary_circuit
     source = clifft.parse(text) if parsed else text
+    online = noncomp_sampling_config[0] in ("online", "online-prepared")
+    parity_measurement = any(
+        line.startswith(("MPP(", "MXX(", "MYY(", "MZZ(")) for line in text.splitlines()
+    )
+    if online and parity_measurement:
+        with pytest.raises(ValueError, match="online execution does not support MPP"):
+            noncomp_sampling_api(source, noncomp.Model(), shots=32, seed=3)
+        return
     result = noncomp_sampling_api(source, noncomp.Model(), shots=32, seed=3)
     np.testing.assert_array_equal(result.measurements, expected)
 
 
 # Folded sequentially in double arithmetic, this exhaustive chain's channel
 # probabilities sum one ulp above one. Exactly one branch fires per shot.
-ROUNDING_CHAIN = (
-    "E(0.08) X0\n" "ELSE_CORRELATED_ERROR(0.45) Z0\n" "ELSE_CORRELATED_ERROR(1) X1\n" "M 0 1"
-)
+ROUNDING_CHAIN = "E(0.08) X0\nELSE_CORRELATED_ERROR(0.45) Z0\nELSE_CORRELATED_ERROR(1) X1\nM 0 1"
 ROUNDING_CHAIN_SHOTS = 1024
 
 
@@ -377,7 +383,7 @@ def test_rounding_chain_samples(sampling_mode):
     _check_rounding_chain_rows(result.measurements)
 
 
-@pytest.mark.parametrize("execution", ["trajectory", "fixed"])
+@pytest.mark.parametrize("execution", ["trajectory", "fixed", "online"])
 def test_rounding_chain_samples_noncomp(execution, noncomp_sampling_api):
     result = noncomp_sampling_api(
         ROUNDING_CHAIN,
