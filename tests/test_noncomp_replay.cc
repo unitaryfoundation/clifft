@@ -5,6 +5,7 @@
 
 #include <catch2/generators/catch_generators.hpp>
 #include <complex>
+#include <limits>
 #include <numbers>
 
 using namespace clifft;
@@ -116,6 +117,9 @@ std::vector<ReferenceBranch> instrument(const std::vector<ReferenceBranch>& inpu
 std::vector<double> reference_moments(const ReferenceBranch& branch) {
     std::vector<double> result(16);
     const long double weight = norm(branch);
+    // Some platforms give long double only double precision. Scaling roundoff
+    // by branch mass keeps this check equally strict for rare histories.
+    const long double roundoff = 32 * std::numeric_limits<long double>::epsilon() * weight;
     for (unsigned code = 0; code < 16; ++code) {
         Complex value = 0;
         for (unsigned i = 0; i < 4; ++i) {
@@ -133,7 +137,7 @@ std::vector<double> reference_moments(const ReferenceBranch& branch) {
             }
             value += std::conj(branch.amplitudes[output]) * phase * branch.amplitudes[i];
         }
-        REQUIRE(std::abs(value.imag()) < 1e-18L);
+        REQUIRE(std::abs(value.imag()) <= roundoff);
         result[code] = static_cast<double>(value.real() / weight);
     }
     return result;
