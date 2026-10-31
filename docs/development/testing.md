@@ -171,17 +171,6 @@ collapse, no-fire filters, destination changes, continuation compilation and
 resumption still execute. Decision storage is fixed before dispatch, and the
 selectors neither allocate nor throw.
 
-The bounded example measures a random bit on qubit 0, then applies `R_Y(1/3)`,
-`CX` and `T` to prepare an entangled pair. Its source populations are `3/4`
-and `1/4`, swapped when the prefix bit is one. This tests source-dependent
-history weights and retains a quantum-state dependency on the saved prefix
-symbol. Its first instrument loses qubit 0 with rates 0.2 from `g` and 0.6
-from `e`. After a loss status record and `H 1`,
-the second instrument takes `g -> e` with rate `2^-40` and `e -> leak_e` with
-rate 0.4 on qubit 1. Two `CZ` operations controlled by the saved random bit and
-loss flag, final Hadamards, measurements, a detector and an observable test
-interference and classical dependencies across continuations.
-
 A physical history distinguishes no-fire from each destination level. The
 unobserved source outcomes and internal reset records are marginalized by
 summing their weighted density operators, never their amplitudes or their
@@ -192,42 +181,28 @@ with `I/2` so the comparison has a fixed dimension. Thus all moments with
 nonidentity support on a vacated carrier are zero. Visible records, statuses,
 detectors and observables are retained in the comparison key.
 
-Six separately replayed circuit prefixes check preparation, both instruments,
-the intervening operation, feedback/interference and final outputs. The
-trajectory adapter appends terminal tomography probes during compilation;
-the online adapter maps those same physical Paulis through the live frame
-after dispatch. No coordinate arrays, hidden decompositions or RNG streams
-are compared. Eighteen source-resolved histories combine into twelve physical
-instrument histories; final measurements produce forty internal leaves and
-thirty distinct physical/classical outcomes. Each backend must reach every
-one. This includes four rare histories: weights `0.175 * 2^-40` and
-`0.075 * 2^-40` for prefix bit zero, and two weights of `0.125 * 2^-40` for
-prefix bit one.
+The bounded two-instrument reference uses unnormalized `long double`
+amplitudes and independently specified Kraus operators. Separately replayed
+prefixes locate the first differing boundary. The trajectory adapter appends
+terminal tomography probes during compilation; the online adapter maps those
+physical Paulis through the live frame after dispatch. No coordinate arrays,
+hidden decompositions or RNG streams are compared.
 
-The reference uses unnormalized `long double` amplitudes and independently
-specified Kraus operators. No positive mass is pruned: the omitted-mass
-budget is zero. Comparisons use relative probability error and normalized
-conditional Pauli moments, including for rare histories. The replay helper
-rejects underflowed positive weights and unsupported random operations rather
-than silently sampling them. The initial reusable subset is limited to three
-qubits, deterministic initial levels/readout, exact damping, and named
-instruments on distinct computational operands. Its operation allowlist lives
-in `tests/noncomp_replay_helpers.h`; extending the subset requires covering
-any additional random decisions.
+Measurement choices follow production's dust reachability policy. All remaining
+supported positive mass is retained, with a zero omitted-mass budget.
+Comparisons check relative probability error and normalized conditional Pauli
+moments, including rare histories. Underflowed weights and unsupported random
+operations are rejected. The operation allowlist in
+`tests/noncomp_replay_helpers.h` limits replay to three qubits, deterministic
+initial levels/readout, exact damping, and named instruments on distinct
+computational operands. Extensions must cover every additional random decision.
 
-Negative controls corrupt comparison data for rare weights/support, no-fire evolution,
-correlations, continuation state, feedback and detector dependencies. The
-comparison reports the first differing prefix, the encoded physical/classical
-outcome, and the probability/omission contract. Run this bounded corpus with
+The in-tree negative controls validate the comparator and its diagnostics;
+production-mutation coverage evidence is recorded in the relevant PR. Forced
+replay bypasses RNG interval selection, so statistical tests remain necessary.
+Run this bounded corpus with
 `ctest --test-dir build -R "Weighted" --output-on-failure`. It is included in
 regular native CI without adding matrix axes or Python tests.
-
-To assess additional coverage, temporarily mutate production behavior and
-compare failures with the ordinary tests: omit a rare jump, skip its destination
-correction, replace source populations with one half, or discard saved prefix
-symbols on resumption. The corpus should catch each defect at its first affected
-prefix. The forced choices bypass RNG interval selection, so statistical tests
-remain necessary to validate ordinary random sampling.
 
 ## Running the Tests
 

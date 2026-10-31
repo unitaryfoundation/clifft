@@ -378,6 +378,40 @@ TEST_CASE("Weighted replay rejects uninstrumented randomness", "[noncomp][weight
         std::invalid_argument);
 }
 
+TEST_CASE("Weighted measurement replay follows production dust reachability",
+          "[noncomp][weighted_replay]") {
+    const bool online = GENERATE(false, true);
+    const bool dust = GENERATE(false, true);
+    const bool excited = GENERATE(false, true);
+    const bool inverted = GENERATE(false, true);
+    CAPTURE(online, dust, excited, inverted);
+    const double rotation = dust ? 1e-10 : 1e-8;
+    const auto circuit = parse("R_Y(" + precise_probability(excited ? 1 - rotation : rotation) +
+                               ") 0\nM " + (inverted ? "!0\n" : "0\n"));
+    const auto replay =
+        replay_physical_histories(PreparedNonComputationalRequest(circuit, replay_model()), online);
+    REQUIRE(replay.leaves == (dust ? 1 : 2));
+    REQUIRE(replay.states.size() == replay.leaves);
+    const double rare_probability = std::pow(std::sin(rotation * std::numbers::pi / 2), 2);
+    double total = 0;
+    for (const auto& [history, state] : replay.states) {
+        REQUIRE(history.records.size() == 1);
+        const bool physical_bit = (history.records[0] != 0) ^ inverted;
+        if (dust) {
+            REQUIRE(physical_bit == excited);
+            REQUIRE(state.weight == 1);
+        } else if (physical_bit != excited) {
+            REQUIRE(state.weight > kMeasurementDustEpsilon);
+            // Subtracting the angle from one loses relative precision near pi.
+            REQUIRE(std::abs(state.weight / rare_probability - 1) < 1e-6);
+        }
+        REQUIRE(std::abs(state.weighted_paulis[3] / state.weight - (physical_bit ? -1 : 1)) <
+                precision.expectation_absolute);
+        total += state.weight;
+    }
+    REQUIRE(std::abs(total - 1) < precision.normalization_absolute);
+}
+
 TEST_CASE("Weighted replay refuses impossible selections and underflowed weights",
           "[noncomp][weighted_replay]") {
     WeightedReplay replay;

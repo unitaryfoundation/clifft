@@ -501,8 +501,14 @@ void Executor::execute_action(const ExecutablePlan::ExecuteActiveMeasurement& ac
             branch = sample_active_branch(probabilities);
 #ifdef CLIFFT_NONCOMP_REPLAY_TESTING
             if (test::noncomp_replay) {
-                const double masses[] = {probabilities.for_branch(correction),
-                                         probabilities.for_branch(!correction)};
+                auto supported = probabilities;
+                const auto classification = classify_measurement_branch(probabilities);
+                if (classification.kind == MeasurementBranchKind::DeterministicZero)
+                    supported.one = 0;
+                else if (classification.kind == MeasurementBranchKind::DeterministicOne)
+                    supported.zero = 0;
+                const double masses[] = {supported.for_branch(correction),
+                                         supported.for_branch(!correction)};
                 branch =
                     (test::noncomp_replay->choose(test::ReplayChoice::Measurement, masses) != 0) ^
                     correction;

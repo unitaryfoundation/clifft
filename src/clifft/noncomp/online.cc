@@ -435,7 +435,12 @@ class OnlineWorker {
             std::optional<bool> forced;
 #ifdef CLIFFT_NONCOMP_REPLAY_TESTING
             if (test::noncomp_replay) {
-                const auto populations = quantum.populations(p);
+                auto populations = quantum.populations(p);
+                const double dust = kMeasurementDustEpsilon * populations.total();
+                if (populations.one <= dust)
+                    populations.one = 0;
+                else if (populations.zero <= dust)
+                    populations.zero = 0;
                 const double masses[] = {populations.zero, populations.one};
                 forced = test::noncomp_replay->choose(test::ReplayChoice::Measurement, masses) != 0;
             }
