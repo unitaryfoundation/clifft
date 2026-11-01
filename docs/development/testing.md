@@ -162,47 +162,17 @@ for contribution guidance.
 
 ## Weighted noncomputational histories
 
-The native `clifft_noncomp_replay_tests` target compares the trajectory driver
-and online execution with an independent physical-basis Kraus calculation.
-It compiles test-instrumented copies of three production translation units;
-the ordinary library and Python extension contain no replay hooks. The hooks
-select supported outcomes using their original conditional masses. Production
-collapse, no-fire filters, destination changes, continuation compilation and
-resumption still execute. Decision storage is fixed before dispatch, and the
-selectors neither allocate nor throw.
+Weighted replay compares trajectory and online execution with an independent
+physical reference, including rare histories. It preserves branch weights,
+combines hidden outcomes, and traces out vacated qubits without omitting
+supported probability mass. Replay hooks exist only in the diagnostic test
+target.
 
-A physical history distinguishes no-fire from each destination level. The
-unobserved source outcomes and internal reset records are marginalized by
-summing their weighted density operators, never their amplitudes or their
-unweighted normalized states. Vacated computational carriers are traced out;
-the definite leaked/lost levels remain in the status ledger. The helper
-represents this reduced state by all Pauli moments, padding traced factors
-with `I/2` so the comparison has a fixed dimension. Thus all moments with
-nonidentity support on a vacated carrier are zero. Visible records, statuses,
-detectors and observables are retained in the comparison key.
-
-The bounded two-instrument reference uses unnormalized `long double`
-amplitudes and independently specified Kraus operators. Separately replayed
-prefixes locate the first differing boundary. The trajectory adapter appends
-terminal tomography probes during compilation; the online adapter maps those
-physical Paulis through the live frame after dispatch. No coordinate arrays,
-hidden decompositions or RNG streams are compared.
-
-Measurement choices follow production's dust reachability policy. All remaining
-supported positive mass is retained, with a zero omitted-mass budget.
-Comparisons check relative probability error and normalized conditional Pauli
-moments, including rare histories. Underflowed weights and unsupported random
-operations are rejected. The operation allowlist in
-`tests/noncomp_replay_helpers.h` limits replay to three qubits, deterministic
-initial levels/readout, exact damping, and named instruments on distinct
-computational operands. Extensions must cover every additional random decision.
-
-The in-tree negative controls validate the comparator and its diagnostics;
-production-mutation coverage evidence is recorded in the relevant PR. Forced
-replay bypasses RNG interval selection, so statistical tests remain necessary.
-Run this bounded corpus with
-`ctest --test-dir build -R "Weighted" --output-on-failure`. It is included in
-regular native CI without adding matrix axes or Python tests.
+Run `ctest --test-dir build -R "Weighted" --output-on-failure`. The supported
+subset and extension requirements live in `tests/noncomp_replay_helpers.h`.
+Replay follows production reachability but bypasses RNG selection. In-tree
+negative controls validate the comparator; production-mutation evidence belongs
+in the PR.
 
 ## Running the Tests
 
