@@ -352,26 +352,23 @@ class OnlineWorker {
     }
 
     Level destination(const TransitionInstrument& instrument, Level source) noexcept {
-#ifdef CLIFFT_NONCOMP_REPLAY_TESTING
-        if (test::noncomp_replay) {
-            std::array<double, 5> masses{};
-            for (Level dest : kAllLevels)
-                masses[static_cast<size_t>(dest)] = instrument.prob(dest, source);
-            return static_cast<Level>(
-                test::noncomp_replay->choose(test::ReplayChoice::Destination, masses));
-        }
-#endif
-        double draw = rng.next_double() * instrument.column_sum(source);
-        Level last = source;
-        for (Level dest : kAllLevels) {
-            const double p = instrument.prob(dest, source);
-            if (p > 0)
-                last = dest;
-            draw -= p;
-            if (draw < 0)
-                return dest;
-        }
-        return last;
+        std::array<double, kNumLevels> probabilities{};
+        for (Level dest : kAllLevels)
+            probabilities[static_cast<size_t>(dest)] = instrument.prob(dest, source);
+        return static_cast<Level>(detail::choose_branch(
+            detail::BranchChoice::Destination, probabilities, [&](const auto& masses) noexcept {
+                double draw = rng.next_double() * instrument.column_sum(source);
+                unsigned last = static_cast<unsigned>(source);
+                for (unsigned dest = 0; dest < masses.size(); ++dest) {
+                    const double p = masses[dest];
+                    if (p > 0)
+                        last = dest;
+                    draw -= p;
+                    if (draw < 0)
+                        return dest;
+                }
+                return last;
+            }));
     }
 
     void transition(uint32_t q, const ResolvedTransition& transition) noexcept {
@@ -391,14 +388,13 @@ class OnlineWorker {
             const double dust = kMeasurementDustEpsilon * populations.total();
             const double fire_g = populations.zero <= dust ? 0 : pg * populations.zero;
             const double fire_e = populations.one <= dust ? 0 : pe * populations.one;
-            const double draw = rng.next_double() * populations.total();
-            unsigned selected = draw < fire_g ? 0 : draw < fire_g + fire_e ? 1 : 2;
-#ifdef CLIFFT_NONCOMP_REPLAY_TESTING
-            if (test::noncomp_replay) {
-                const double masses[] = {fire_g, fire_e, populations.total() - fire_g - fire_e};
-                selected = test::noncomp_replay->choose(test::ReplayChoice::Source, masses);
-            }
-#endif
+            const unsigned selected = detail::choose_branch(
+                detail::BranchChoice::Source,
+                std::array{fire_g, fire_e, populations.total() - fire_g - fire_e},
+                [&](const auto& masses) noexcept {
+                    const double draw = rng.next_double() * populations.total();
+                    return draw < masses[0] ? 0U : draw < masses[0] + masses[1] ? 1U : 2U;
+                });
             if (selected < 2) {
                 const bool source = selected != 0;
                 quantum.measure(p, rng, source);
@@ -432,20 +428,7 @@ class OnlineWorker {
         bool bit = false;
         if (live) {
             const auto p = mapped(q, x ? 'X' : y ? 'Y' : 'Z');
-            std::optional<bool> forced;
-#ifdef CLIFFT_NONCOMP_REPLAY_TESTING
-            if (test::noncomp_replay) {
-                auto populations = quantum.populations(p);
-                const double dust = kMeasurementDustEpsilon * populations.total();
-                if (populations.one <= dust)
-                    populations.one = 0;
-                else if (populations.zero <= dust)
-                    populations.zero = 0;
-                const double masses[] = {populations.zero, populations.one};
-                forced = test::noncomp_replay->choose(test::ReplayChoice::Measurement, masses) != 0;
-            }
-#endif
-            bit = quantum.measure(p, rng, forced);
+            bit = quantum.measure(p, rng);
         }
         if (!is_reset(node.gate)) {
             bool reported = bit ^ target.is_inverted();

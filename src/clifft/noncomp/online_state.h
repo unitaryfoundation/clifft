@@ -1,7 +1,8 @@
 #pragma once
 
 #include "clifft/noncomp/online_frame.h"
-#include "clifft/sampling/kernels.h"
+#include "clifft/sampling/branch_choice.h"
+#include "clifft/sampling/measurement_branch.h"
 #include "clifft/util/xoshiro.h"
 
 #include <optional>
@@ -139,7 +140,13 @@ class OnlineState {
                  std::optional<bool> forced = {}) noexcept {
         const bool sign = p.sign();
         if (auto dormant = dormant_x(p)) {
-            const bool branch = forced ? (*forced ^ sign) : rng.next_double() < 0.5;
+            const bool branch =
+                forced ? (*forced ^ sign)
+                       : detail::choose_branch(
+                             detail::BranchChoice::Measurement, std::array{0.5, 0.5},
+                             [&](const auto& masses) noexcept {
+                                 return static_cast<unsigned>(rng.next_double() < masses[1]);
+                             }) != 0;
             frame.measure_dormant(p, *dormant, branch);
             return branch ^ sign;
         }
@@ -154,12 +161,22 @@ class OnlineState {
         const auto probabilities = sampling::measurement_probabilities(state, measurement);
         const double total = probabilities.total();
         assert(total > 0 && is_finite_robust(total));
-        const double dust = kMeasurementDustEpsilon * total;
-        const bool branch = forced                      ? (*forced ^ sign)
-                            : probabilities.one <= dust ? false
-                            : probabilities.zero <= dust
-                                ? true
-                                : rng.next_double() * total < probabilities.one;
+        bool branch;
+        if (forced) {
+            branch = *forced ^ sign;
+        } else {
+            const auto classification = sampling::classify_measurement_branch(probabilities);
+            if (classification.kind == sampling::MeasurementBranchKind::Random) {
+                branch = detail::choose_branch(detail::BranchChoice::Measurement,
+                                               std::array{probabilities.zero, probabilities.one},
+                                               [&](const auto& masses) noexcept {
+                                                   return static_cast<unsigned>(
+                                                       rng.next_double() * total < masses[1]);
+                                               }) != 0;
+            } else {
+                branch = classification.kind == sampling::MeasurementBranchKind::DeterministicOne;
+            }
+        }
         assert(probabilities.for_branch(branch) > 0);
         sampling::collapse_measurement(state, measurement, branch,
                                        probabilities.for_branch(branch));

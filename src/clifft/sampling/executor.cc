@@ -1,9 +1,7 @@
 #include "clifft/sampling/executor.h"
 
-#ifdef CLIFFT_NONCOMP_REPLAY_TESTING
-#include "noncomp_replay_hooks.h"
-#endif
-
+#include "clifft/sampling/branch_choice.h"
+#include "clifft/sampling/measurement_branch.h"
 #include "clifft/util/fault_sampling.h"
 #include "clifft/util/intra_shot_parallel.h"
 #include "clifft/util/noise_sampling.h"
@@ -21,19 +19,6 @@ namespace {
 
 constexpr double kLogHalf = -std::numbers::ln2;
 
-// Zero and one identify the selected Pauli eigenvalue branch before affine
-// corrections turn that branch into a physical measurement record.
-enum class MeasurementBranchKind : uint8_t {
-    Random,
-    DeterministicZero,
-    DeterministicOne,
-};
-
-struct MeasurementBranchClassification {
-    MeasurementBranchKind kind = MeasurementBranchKind::Random;
-    bool clamped_dust = false;
-};
-
 uint32_t resolve_intra_shot_workers(const ExecutablePlan& plan, uint32_t requested_workers,
                                     uint32_t min_active_width) {
     if (requested_workers == 0 ||
@@ -44,25 +29,6 @@ uint32_t resolve_intra_shot_workers(const ExecutablePlan& plan, uint32_t request
                                          min_active_width)
                ? requested_workers
                : 1;
-}
-
-[[nodiscard]] MeasurementBranchClassification classify_measurement_branch(
-    MeasurementProbabilities probabilities) noexcept {
-    const double total = probabilities.total();
-    assert(is_finite_robust(probabilities.zero) && probabilities.zero >= 0.0 &&
-           is_finite_robust(probabilities.one) && probabilities.one >= 0.0 &&
-           is_finite_robust(total) && total > 0.0 &&
-           "measurement probabilities must be finite, nonnegative, and nonzero");
-    const double epsilon = kMeasurementDustEpsilon * total;
-    if (probabilities.one <= epsilon) {
-        return {.kind = MeasurementBranchKind::DeterministicZero,
-                .clamped_dust = probabilities.one > 0.0};
-    }
-    if (probabilities.zero <= epsilon) {
-        return {.kind = MeasurementBranchKind::DeterministicOne,
-                .clamped_dust = probabilities.zero > 0.0};
-    }
-    return {.kind = MeasurementBranchKind::Random};
 }
 
 }  // namespace
@@ -499,21 +465,6 @@ void Executor::execute_action(const ExecutablePlan::ExecuteActiveMeasurement& ac
             forced_record_mask_[action.record] = 0;
         } else {
             branch = sample_active_branch(probabilities);
-#ifdef CLIFFT_NONCOMP_REPLAY_TESTING
-            if (test::noncomp_replay) {
-                auto supported = probabilities;
-                const auto classification = classify_measurement_branch(probabilities);
-                if (classification.kind == MeasurementBranchKind::DeterministicZero)
-                    supported.one = 0;
-                else if (classification.kind == MeasurementBranchKind::DeterministicOne)
-                    supported.zero = 0;
-                const double masses[] = {supported.for_branch(correction),
-                                         supported.for_branch(!correction)};
-                branch =
-                    (test::noncomp_replay->choose(test::ReplayChoice::Measurement, masses) != 0) ^
-                    correction;
-            }
-#endif
         }
     }
     assign_symbol(action.branch, branch);
@@ -551,14 +502,6 @@ void Executor::execute_action(const ExecutablePlan::ExecuteDormantMeasurement& a
             forced_record_mask_[action.record] = 0;
         } else {
             branch = sample_dormant_branch();
-#ifdef CLIFFT_NONCOMP_REPLAY_TESTING
-            if (test::noncomp_replay) {
-                const double masses[] = {0.5, 0.5};
-                branch =
-                    (test::noncomp_replay->choose(test::ReplayChoice::Measurement, masses) != 0) ^
-                    correction;
-            }
-#endif
         }
     }
     assign_symbol(action.branch, branch);
@@ -656,24 +599,15 @@ void Executor::finish_instrument_fire(uint32_t site, uint32_t destination_flip, 
                                       const InstrumentDistribution& distribution) noexcept {
     assert(distribution.p_fire[source] > 0.0 &&
            "a fired instrument source must have positive mass");
-    const double draw = rng_.next_double() * distribution.p_fire[source];
-    int destination = -1;
-    if (draw < distribution.p_computational_dest[source][0]) {
-        destination = 0;
-    } else if (draw < distribution.p_computational_dest[source][0] +
-                          distribution.p_computational_dest[source][1]) {
-        destination = 1;
-    }
-#ifdef CLIFFT_NONCOMP_REPLAY_TESTING
-    if (test::noncomp_replay) {
-        const auto& p = distribution.p_computational_dest[source];
-        const double masses[] = {p[0], p[1], distribution.p_fire[source] - p[0] - p[1]};
-        const unsigned selected =
-            test::noncomp_replay->choose(test::ReplayChoice::DestinationPartition, masses);
-        destination = selected < 2 ? static_cast<int>(selected) : -1;
-    }
-#endif
-    if (destination < 0) {
+    const auto& p = distribution.p_computational_dest[source];
+    const unsigned destination = detail::choose_branch(
+        detail::BranchChoice::DestinationPartition,
+        std::array{p[0], p[1], distribution.p_fire[source] - p[0] - p[1]},
+        [&](const auto& masses) noexcept {
+            const double draw = rng_.next_double() * distribution.p_fire[source];
+            return draw < masses[0] ? 0U : draw < masses[0] + masses[1] ? 1U : 2U;
+        });
+    if (destination == 2) {
         trap_instrument(site, source, false);
     } else if (destination != source) {
         assign_symbol(destination_flip, true);
@@ -687,16 +621,15 @@ void Executor::execute_instrument(
     const InstrumentDistribution& distribution = plan_->instrument_distributions_[action.site];
     assign_symbol(action.destination_flip, false);
     const uint8_t source = static_cast<uint8_t>(evaluate(action.sign));
-    bool fire = rng_.next_double() < distribution.p_fire[source];
-#ifdef CLIFFT_NONCOMP_REPLAY_TESTING
-    if (test::noncomp_replay) {
-        const double masses[] = {source == 0 ? distribution.p_fire[0] : 0,
-                                 source == 1 ? distribution.p_fire[1] : 0,
-                                 1 - distribution.p_fire[source]};
-        fire = test::noncomp_replay->choose(test::ReplayChoice::Source, masses) != 2;
-    }
-#endif
-    if (fire) {
+    const double fire_probability = distribution.p_fire[source];
+    const unsigned selected = detail::choose_branch(
+        detail::BranchChoice::Source,
+        std::array{source == 0 ? fire_probability : 0.0, source == 1 ? fire_probability : 0.0,
+                   1 - fire_probability},
+        [&](const auto&) noexcept {
+            return rng_.next_double() < fire_probability ? static_cast<unsigned>(source) : 2U;
+        });
+    if (selected < 2) {
         finish_instrument_fire(action.site, action.destination_flip, source, distribution);
     }
 }
@@ -707,21 +640,16 @@ void Executor::execute_instrument(
            "instrument action must reference a prepared distribution");
     const InstrumentDistribution& distribution = plan_->instrument_distributions_[action.site];
     const double mass = distribution.p_fire[0] + distribution.p_fire[1];
-#ifdef CLIFFT_NONCOMP_REPLAY_TESTING
-    if (test::noncomp_replay) {
-        const double masses[] = {distribution.p_fire[0], distribution.p_fire[1], 2 - mass};
-        const auto source = test::noncomp_replay->choose(test::ReplayChoice::Source, masses);
-        if (source < 2)
-            trap_instrument(action.site, static_cast<uint8_t>(source), true);
-        return;
-    }
-#endif
-    if (rng_.next_double() * 2.0 >= mass) {
-        return;
-    }
-    const uint8_t source =
-        rng_.next_double() * mass < distribution.p_fire[0] ? uint8_t{0} : uint8_t{1};
-    trap_instrument(action.site, source, true);
+    const unsigned source =
+        detail::choose_branch(detail::BranchChoice::Source,
+                              std::array{distribution.p_fire[0], distribution.p_fire[1], 2 - mass},
+                              [&](const auto& masses) noexcept {
+                                  if (rng_.next_double() * 2.0 >= mass)
+                                      return 2U;
+                                  return rng_.next_double() * mass < masses[0] ? 0U : 1U;
+                              });
+    if (source < 2)
+        trap_instrument(action.site, static_cast<uint8_t>(source), true);
 }
 
 template <ExecutorBackend Backend, typename Action>
@@ -759,21 +687,14 @@ void Executor::execute_quantum_instrument(const Action& action) noexcept {
     const double fire_zero =
         physical_zero <= epsilon ? 0.0 : distribution.p_fire[0] * physical_zero;
     const double fire_one = physical_one <= epsilon ? 0.0 : distribution.p_fire[1] * physical_one;
-    const double draw = rng_.next_double() * total;
-    std::optional<uint8_t> fired_source;
-    if (draw < fire_zero) {
-        fired_source = 0;
-    } else if (draw < fire_zero + fire_one) {
-        fired_source = 1;
-    }
-#ifdef CLIFFT_NONCOMP_REPLAY_TESTING
-    if (test::noncomp_replay) {
-        const double masses[] = {fire_zero, fire_one, total - fire_zero - fire_one};
-        const auto source = test::noncomp_replay->choose(test::ReplayChoice::Source, masses);
-        fired_source =
-            source < 2 ? std::optional<uint8_t>(static_cast<uint8_t>(source)) : std::nullopt;
-    }
-#endif
+    const unsigned selected = detail::choose_branch(
+        detail::BranchChoice::Source, std::array{fire_zero, fire_one, total - fire_zero - fire_one},
+        [&](const auto& masses) noexcept {
+            const double draw = rng_.next_double() * total;
+            return draw < masses[0] ? 0U : draw < masses[0] + masses[1] ? 1U : 2U;
+        });
+    const std::optional<uint8_t> fired_source =
+        selected < 2 ? std::optional<uint8_t>(static_cast<uint8_t>(selected)) : std::nullopt;
 
     if (!fired_source.has_value()) {
         const double factor_zero = std::sqrt(1.0 - distribution.p_fire[static_cast<uint8_t>(sign)]);
@@ -1013,7 +934,13 @@ bool Executor::sample_active_branch(MeasurementProbabilities probabilities) noex
         classify_measurement_branch(probabilities);
     switch (classification.kind) {
         case MeasurementBranchKind::Random:
-            return rng_.next_double() * probabilities.total() >= probabilities.zero;
+            return detail::choose_branch(
+                       detail::BranchChoice::Measurement,
+                       std::array{probabilities.zero, probabilities.one},
+                       [&](const auto& masses) noexcept {
+                           return static_cast<unsigned>(
+                               rng_.next_double() * probabilities.total() >= masses[0]);
+                       }) != 0;
         case MeasurementBranchKind::DeterministicZero:
             dust_clamps_ += static_cast<uint64_t>(classification.clamped_dust);
             return false;
@@ -1043,7 +970,10 @@ std::optional<double> Executor::force_active_branch(MeasurementProbabilities pro
 }
 
 bool Executor::sample_dormant_branch() noexcept {
-    return rng_.next_double() >= 0.5;
+    return detail::choose_branch(detail::BranchChoice::Measurement, std::array{0.5, 0.5},
+                                 [&](const auto& masses) noexcept {
+                                     return static_cast<unsigned>(rng_.next_double() >= masses[0]);
+                                 }) != 0;
 }
 
 }  // namespace clifft::sampling

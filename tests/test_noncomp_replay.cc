@@ -11,6 +11,13 @@
 using namespace clifft;
 using namespace clifft::test;
 
+std::optional<unsigned> clifft::detail::replay_branch(BranchChoice kind,
+                                                      std::span<const double> masses) noexcept {
+    if (test::noncomp_replay)
+        return test::noncomp_replay->choose(kind, masses);
+    return std::nullopt;
+}
+
 namespace {
 
 constexpr double rare_rate = 0x1p-40;

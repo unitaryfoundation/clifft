@@ -4,6 +4,7 @@
 // units. The ordinary library and Python extension contain no replay hooks.
 #include "clifft/circuit/circuit.h"
 #include "clifft/noncomp/level.h"
+#include "clifft/sampling/branch_choice.h"
 
 #include <span>
 
@@ -17,7 +18,7 @@ namespace clifft::test {
 // full destinations use Level order. Measurement outcomes are backend-local
 // bits. Only the resulting visible records enter the physical comparison, so
 // adapters need not share hidden records, corrections, or decision tapes.
-enum class ReplayChoice { Source, DestinationPartition, Destination, Measurement };
+using ReplayChoice = detail::BranchChoice;
 
 struct NoncompReplayHooks {
     virtual ~NoncompReplayHooks() = default;

@@ -1,0 +1,30 @@
+#pragma once
+
+#include <array>
+#include <optional>
+#include <span>
+
+namespace clifft::detail {
+
+// Source outcomes are G, E, no-fire; partitions are G, E, noncomputational;
+// destinations use Level order. Measurements use the local Pauli eigenvalue.
+enum class BranchChoice { Source, DestinationPartition, Destination, Measurement };
+
+#ifdef CLIFFT_NONCOMP_REPLAY_TESTING
+// Defined by the diagnostic executable, never linked into the ordinary library.
+std::optional<unsigned> replay_branch(BranchChoice kind, std::span<const double> masses) noexcept;
+#endif
+
+// Both selectors consume the same supported masses. Keeping the original
+// sampler at the call site preserves its RNG draw count and interval arithmetic.
+template <size_t N, typename Sample>
+unsigned choose_branch([[maybe_unused]] BranchChoice kind, const std::array<double, N>& masses,
+                       Sample sample) noexcept {
+#ifdef CLIFFT_NONCOMP_REPLAY_TESTING
+    if (auto selected = replay_branch(kind, masses))
+        return *selected;
+#endif
+    return sample(masses);
+}
+
+}  // namespace clifft::detail
