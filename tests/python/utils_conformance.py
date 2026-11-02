@@ -179,6 +179,58 @@ CPU_TUNING_MODES = (
 
 
 @dataclass(frozen=True)
+class NoncompSamplingMode:
+    """Run shared computational circuits through an explicitly selected backend."""
+
+    name: str
+    execution: Literal["fixed", "trajectory", "online"]
+    batch_size: int = 1
+    threads: int = 1
+
+    def compile(self, source: str, *, max_active_width: int | None = None) -> Any:
+        return clifft.noncomp.compile(
+            source,
+            clifft.noncomp.Model(),
+            execution=self.execution,
+            final_status=True,
+            max_active_width=max_active_width,
+        )
+
+    def sample(self, program: Any, shots: int, seed: int | None = None) -> Any:
+        assert program.strategy == self.execution
+        result = program.sample(
+            shots, seed=seed, batch_size=self.batch_size, threads=self.threads, collect_stats=True
+        )
+        stats = result.stats
+        assert stats is not None and stats.strategy == self.execution
+        assert stats.fallback_reason is None
+        assert getattr(stats, f"{self.execution}_shots") == shots
+        assert stats.scalar_shots == (shots if self.batch_size == 1 else 0)
+        assert stats.packed_shots == (shots if self.batch_size > 1 else 0)
+        if self.batch_size > 1:
+            assert stats.batch_size == self.batch_size
+            assert stats.packed_batches == (shots + self.batch_size - 1) // self.batch_size
+        if self.execution == "online":
+            assert stats.initial_compilations == stats.continuation_compilations == 0
+        # This adapter uses an empty physical model: every carrier remains
+        # computational, and every retained herald must report ordinary readout.
+        assert result.final_status.shape == (shots, result.num_qubits)
+        np.testing.assert_array_equal(result.final_status, clifft.noncomp.QubitStatus.COMPUTATIONAL)
+        assert result.heralds.shape == result.measurements.shape
+        np.testing.assert_array_equal(result.heralds, 0)
+        return result
+
+
+# Worker and batch choices cover distinct paths without crossing every axis.
+NONCOMP_SAMPLING_MODES = (
+    NoncompSamplingMode("fixed-scalar", "fixed"),
+    NoncompSamplingMode("fixed-packed-65-2-workers", "fixed", batch_size=65, threads=2),
+    NoncompSamplingMode("trajectory", "trajectory"),
+    NoncompSamplingMode("online-2-workers", "online", threads=2),
+)
+
+
+@dataclass(frozen=True)
 class GpuSamplingProgram:
     sampler: Any
 
