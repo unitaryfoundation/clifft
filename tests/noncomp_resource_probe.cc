@@ -37,7 +37,9 @@ void clifft::detail::replay_online_boundary(ReplayOnlineBoundary boundary,
 #endif
 
 #ifdef CLIFFT_REPLAY_SANITIZER_ALLOCATOR
+#if __has_include(<sanitizer/allocator_interface.h>)
 #include <sanitizer/allocator_interface.h>
+#endif
 
 // Sanitizers own new/delete interceptors. Their allocation callback preserves
 // interception and avoids duplicate definitions when linking the TSan runtime.
