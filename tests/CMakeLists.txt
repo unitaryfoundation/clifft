@@ -73,6 +73,38 @@ target_link_libraries(clifft_tests PRIVATE
     Catch2::Catch2WithMain
 )
 
+# Only this executable compiles the replay seams. Linking its instrumented
+# translation units first keeps the archive's ordinary versions out of this
+# binary without changing clifft_core, Python packages, or sampling APIs.
+# Include every source translation unit that instantiates choose_branch or
+# OnlineState::measure here, so the linker cannot silently select an ordinary
+# inline definition from the archive and bypass replay.
+add_executable(clifft_noncomp_replay_tests
+    test_noncomp_replay.cc
+    ../src/clifft/sampling/executor.cc
+    ../src/clifft/noncomp/trajectory_driver.cc
+    ../src/clifft/noncomp/online.cc
+)
+target_compile_definitions(clifft_noncomp_replay_tests PRIVATE CLIFFT_NONCOMP_REPLAY_TESTING)
+target_link_libraries(clifft_noncomp_replay_tests PRIVATE clifft_core Catch2::Catch2WithMain)
+if(CLIFFT_OPENMP_ENABLED)
+    target_compile_definitions(clifft_noncomp_replay_tests PRIVATE CLIFFT_USE_OPENMP)
+    target_link_libraries(clifft_noncomp_replay_tests PRIVATE OpenMP::OpenMP_CXX)
+endif()
+if(CLIFFT_X86_RUNTIME_DISPATCH)
+    target_compile_definitions(clifft_noncomp_replay_tests PRIVATE CLIFFT_ENABLE_X86_RUNTIME_DISPATCH)
+endif()
+if(CLIFFT_APPLE_NEON_DISPATCH)
+    target_compile_definitions(clifft_noncomp_replay_tests PRIVATE CLIFFT_ENABLE_APPLE_NEON)
+endif()
+if(CLIFFT_COVERAGE)
+    target_compile_options(clifft_noncomp_replay_tests PRIVATE --coverage)
+    target_link_options(clifft_noncomp_replay_tests PRIVATE --coverage)
+endif()
+catch_discover_tests(clifft_noncomp_replay_tests)
+# Release CI builds this named target before running all registered CTest cases.
+add_dependencies(clifft_tests clifft_noncomp_replay_tests)
+
 target_compile_definitions(clifft_tests PRIVATE
     CLIFFT_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures"
     CLIFFT_DOCS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../docs"

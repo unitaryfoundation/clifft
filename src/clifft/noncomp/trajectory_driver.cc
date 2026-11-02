@@ -22,6 +22,7 @@
 #include "clifft/noncomp/transition_instrument.h"
 #include "clifft/optimizer/hir_pass_manager.h"
 #include "clifft/optimizer/pass_registry.h"
+#include "clifft/sampling/branch_choice.h"
 #include "clifft/sampling/executor.h"
 #include "clifft/sampling/planner.h"
 #include "clifft/util/shot_parallel.h"
@@ -72,10 +73,13 @@ Level draw_initial_level(const NonComputationalModel& model, Xoshiro256PlusPlus&
 template <typename Admit>
 Level draw_from_column(const TransitionInstrument& instrument, Level source,
                        Xoshiro256PlusPlus& rng, Admit&& admit) {
+    std::array<double, kNumLevels> probabilities{};
     double mass = 0.0;
     for (const Level to : kAllLevels) {
         if (admit(to)) {
-            mass += instrument.prob(to, source);
+            const double p = instrument.prob(to, source);
+            probabilities[static_cast<size_t>(to)] = p;
+            mass += p;
         }
     }
     if (!(mass > 0.0)) {
@@ -86,24 +90,21 @@ Level draw_from_column(const TransitionInstrument& instrument, Level source,
             "sample_noncomputational: destination draw over an empty column (source level '" +
             std::string(level_name(source)) + "')");
     }
-    const double u = rng.next_double() * mass;
-    double acc = 0.0;
-    std::optional<Level> last_positive;
-    for (const Level to : kAllLevels) {
-        if (!admit(to)) {
-            continue;
-        }
-        const double p = instrument.prob(to, source);
-        if (p > 0.0) {
-            last_positive = to;
-        }
-        acc += p;
-        if (u < acc) {
-            return to;
-        }
-    }
-    assert(last_positive.has_value() && "destination draw over an empty column");
-    return *last_positive;
+    return static_cast<Level>(detail::choose_branch(
+        detail::BranchChoice::Destination, probabilities, [&](const auto& masses) noexcept {
+            const double u = rng.next_double() * mass;
+            double acc = 0.0;
+            unsigned last_positive = 0;
+            for (unsigned to = 0; to < masses.size(); ++to) {
+                const double p = masses[to];
+                if (p > 0.0)
+                    last_positive = to;
+                acc += p;
+                if (u < acc)
+                    return to;
+            }
+            return last_positive;
+        }));
 }
 
 // Rewalk the annotated circuit under `events`, reusing previously sampled
@@ -367,6 +368,9 @@ SamplingCompiledContinuation compile_sampling_continuation(
     Circuit patched = std::move(rewrite.circuit);
     patch_heralded_measurements(patched, rewrite.classified_measurements, herald_flags);
     prepend_initial_excited_preparations(patched, initial_levels, rewrite.forced_traceout_node);
+#ifdef CLIFFT_NONCOMP_REPLAY_TESTING
+    detail::replay_append_probes(patched);
+#endif
     if (worker.stats) {
         if (initial) {
             ++worker.stats->initial_compilations;
@@ -589,6 +593,9 @@ NonComputationalSample run_trajectory_driver(const PreparedNonComputationalReque
         std::copy(
             observables.begin(), observables.end(),
             result.observables.begin() + static_cast<size_t>(shot) * annotated.num_observables);
+#ifdef CLIFFT_NONCOMP_REPLAY_TESTING
+        detail::replay_inspect(executor->exp_vals(), continuation->final_status);
+#endif
         executor->return_to_root_plan();
         if (request.requirements().final_status) {
             std::copy(

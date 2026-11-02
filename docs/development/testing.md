@@ -160,6 +160,20 @@ at batch and output boundaries. Short dynamically scheduled cross-shot calls
 may finish on one worker. See [Writing Tests](contributing.md#writing-tests)
 for contribution guidance.
 
+## Weighted noncomputational histories
+
+Weighted replay compares trajectory and online execution with an independent
+physical reference, including rare histories. It preserves branch weights,
+combines hidden outcomes, and traces out vacated qubits without omitting
+supported probability mass. Replay hooks exist only in the diagnostic test
+target.
+
+Run `ctest --test-dir build -R "Weighted" --output-on-failure`. The supported
+subset and extension requirements live in `tests/noncomp_replay_helpers.h`.
+Replay follows production reachability but bypasses RNG selection. In-tree
+negative controls validate the comparator; production-mutation evidence belongs
+in the PR.
+
 ## Running the Tests
 
 We use `pytest` for the Python oracles and `CTest` for the C++ units. You can run the test suites locally using the provided `just` shortcuts.
