@@ -41,9 +41,7 @@ class OnlineState {
 
     // The caller has left ordinary dispatch and grown the coefficient buffer.
     void finish_activation() noexcept {
-#ifdef CLIFFT_NONCOMP_REPLAY_TESTING
-        detail::ReplayHotPathScope hot_path;
-#endif
+        [[maybe_unused]] detail::ReplayHotPathScope hot_path;
         assert(pending() && state.max_active_width() > state.active_width());
         const auto kind = pending_kind_;
         pending_kind_ = PendingKind::None;

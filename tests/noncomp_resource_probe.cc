@@ -22,12 +22,6 @@ void clifft::detail::replay_allocation() noexcept {
         ++test::hot_path_counters.allocations;
 }
 
-void clifft::detail::replay_online_boundary(ReplayOnlineBoundary boundary,
-                                            const noncomp_detail::OnlineState& state) {
-    if (test::online_boundary_probe)
-        test::online_boundary_probe(boundary, state);
-}
-
 #if defined(__clang__)
 #if __has_feature(thread_sanitizer) || __has_feature(address_sanitizer)
 #define CLIFFT_REPLAY_SANITIZER_ALLOCATOR

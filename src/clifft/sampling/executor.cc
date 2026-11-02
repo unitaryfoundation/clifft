@@ -202,9 +202,7 @@ ReplayResult Executor::replay_shot(std::span<const uint8_t> forced_records,
 }
 
 void Executor::reset_shot() noexcept {
-#ifdef CLIFFT_NONCOMP_REPLAY_TESTING
-    detail::ReplayHotPathScope hot_path;
-#endif
+    [[maybe_unused]] detail::ReplayHotPathScope hot_path;
     state_.reset_parallel(intra_shot_workers_, intra_shot_min_active_width_);
     // A continuation assigns symbols under its own numbering, so after a
     // resumed shot a stale true value can sit at an index the root plan never
@@ -790,9 +788,7 @@ void Executor::execute_action(const ExecutablePlan::ExecuteBoundary& action,
 template <ExecutorBackend Backend, Executor::ShotMode Mode, Executor::IntraShotMode IntraShot>
 ReplayResult Executor::execute_actions(std::span<const uint8_t> forced_records,
                                        uint32_t begin) noexcept {
-#ifdef CLIFFT_NONCOMP_REPLAY_TESTING
-    detail::ReplayHotPathScope hot_path;
-#endif
+    [[maybe_unused]] detail::ReplayHotPathScope hot_path;
     ReplayResult result;
     assert(begin <= plan_->actions_.size() && "execution offset must be inside the action stream");
     size_t action_index = begin;

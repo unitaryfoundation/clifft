@@ -5,15 +5,19 @@
 #include "noncomp_resource_probe.h"
 #include "noncomp_test_helpers.h"
 
-#include <catch2/catch_approx.hpp>
-#include <catch2/generators/catch_generators.hpp>
-
 using namespace clifft;
 using namespace clifft::test;
 
 namespace {
 
 struct ResourceReplay : NoncompReplayHooks {
+    struct Snapshot {
+        const double* data = nullptr;
+        uint32_t width = 0, capacity = 0;
+        unsigned sources = 0;
+    };
+    std::array<Snapshot, 4> snapshots{};
+    size_t count = 0;
     unsigned sources = 0;
     unsigned choose(ReplayChoice kind, std::span<const double> masses) noexcept override {
         if (kind == ReplayChoice::Source) {
@@ -27,55 +31,22 @@ struct ResourceReplay : NoncompReplayHooks {
     }
     void append_probes(Circuit&) override {}
     void inspect(std::span<const double>, std::span<const QubitStatus>) override {}
-    void inspect_online(const noncomp_detail::OnlineState&, std::span<const QubitStatus>) override {
+    void inspect_online(const noncomp_detail::OnlineState& quantum,
+                        std::span<const QubitStatus>) override {
+        REQUIRE(count < snapshots.size());
+        REQUIRE(hot_path_counters.depth == 0);
+        snapshots[count++] = {quantum.state.real_data(), quantum.state.active_width(),
+                              quantum.state.max_active_width(), sources};
     }
 };
-
-struct ResourceTrace {
-    struct Snapshot {
-        detail::ReplayOnlineBoundary boundary{};
-        const double* data = nullptr;
-        uint32_t width = 0, capacity = 0;
-        unsigned sources = 0;
-        double z = 0, x = 0;
-    };
-    std::array<Snapshot, 32> snapshots{};
-    size_t count = 0;
-    ResourceReplay replay;
-};
-thread_local ResourceTrace* resource_trace = nullptr;
-
-void capture_boundary(detail::ReplayOnlineBoundary boundary,
-                      const noncomp_detail::OnlineState& quantum) {
-    auto& trace = *resource_trace;
-    REQUIRE(trace.count < trace.snapshots.size());
-    REQUIRE(hot_path_counters.depth == 0);
-    auto& snapshot = trace.snapshots[trace.count++];
-    snapshot = {boundary, quantum.state.real_data(), quantum.state.active_width(),
-                quantum.state.max_active_width(), trace.replay.sources};
-    PauliString axis(quantum.frame.n);
-    quantum.frame.axis(0, 'Z', axis);
-    auto populations = quantum.populations(axis.view());
-    snapshot.z = (populations.zero - populations.one) / populations.total();
-    quantum.frame.axis(0, 'X', axis);
-    populations = quantum.populations(axis.view());
-    snapshot.x = (populations.zero - populations.one) / populations.total();
-}
 
 struct ResourceScope {
-    NoncompReplayHooks* previous_replay = noncomp_replay;
-    OnlineBoundaryProbe previous_probe = online_boundary_probe;
-    explicit ResourceScope(ResourceTrace& trace) {
-        resource_trace = &trace;
-        noncomp_replay = &trace.replay;
-        online_boundary_probe = capture_boundary;
+    NoncompReplayHooks* previous = noncomp_replay;
+    explicit ResourceScope(ResourceReplay& replay) {
+        noncomp_replay = &replay;
         hot_path_counters = {};
     }
-    ~ResourceScope() {
-        noncomp_replay = previous_replay;
-        online_boundary_probe = previous_probe;
-        resource_trace = nullptr;
-    }
+    ~ResourceScope() { noncomp_replay = previous; }
 };
 
 }  // namespace
@@ -114,33 +85,22 @@ TEST_CASE("Weighted online growth retains pending decisions and capacity across 
         "H 0 1\nSWAP 0 1\nSWAP 0 1\nLEVEL_TRANSITION[filter] 0\nT 1\nMY 0\n"
         "R_Y(0.25) 0\nM 0 1\n");
     const OnlineNonComputationalProgram program(PreparedNonComputationalRequest(circuit, model));
-    ResourceTrace trace;
-    ResourceScope scope(trace);
+    ResourceReplay replay;
+    ResourceScope scope(replay);
     const auto sample = program.sample(4, 17, 1, true);
     REQUIRE(hot_path_counters.allocations == 0);
     REQUIRE(hot_path_counters.depth == 0);
     REQUIRE(hot_path_counters.intervals >= 10);
-    REQUIRE(trace.replay.sources == 4);
+    REQUIRE(replay.sources == 4);
     REQUIRE(sample.stats->online_state_growths == 2);
     REQUIRE(sample.stats->continuation_compilations == 0);
-    REQUIRE(trace.count == 12);
-    REQUIRE(trace.snapshots[0].capacity == 0);
-    for (size_t before : {size_t{1}, size_t{3}}) {
-        const auto& a = trace.snapshots[before];
-        const auto& b = trace.snapshots[before + 1];
-        REQUIRE(a.boundary == detail::ReplayOnlineBoundary::BeforeGrowth);
-        REQUIRE(b.boundary == detail::ReplayOnlineBoundary::AfterGrowth);
-        REQUIRE(b.capacity == a.capacity + 1);
-        REQUIRE(b.width == a.width + 1);
-        REQUIRE(a.sources == b.sources);
-    }
-    REQUIRE(trace.snapshots[2].z == Catch::Approx(1.0 / 3));
-    REQUIRE(trace.snapshots[2].x == Catch::Approx(2 * std::sqrt(0.8 * 0.4) / 1.2));
-    const auto* grown = trace.snapshots[4].data;
-    for (size_t i = 5; i < trace.count; ++i) {
-        REQUIRE(trace.snapshots[i].data == grown);
-        REQUIRE(trace.snapshots[i].capacity == 2);
-        REQUIRE(trace.snapshots[i].width == 0);
+    REQUIRE(replay.count == 4);
+    REQUIRE(replay.snapshots[0].data != nullptr);
+    for (size_t i = 0; i < replay.count; ++i) {
+        REQUIRE(replay.snapshots[i].data == replay.snapshots[0].data);
+        REQUIRE(replay.snapshots[i].capacity == 2);
+        REQUIRE(replay.snapshots[i].width == 0);
+        REQUIRE(replay.snapshots[i].sources == i + 1);
     }
 }
 

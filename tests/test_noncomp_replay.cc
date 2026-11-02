@@ -404,6 +404,34 @@ TEST_CASE("Weighted replay rejects uninstrumented randomness", "[noncomp][weight
         std::invalid_argument);
 }
 
+TEST_CASE("Weighted marginalized histories retain only visible key bits",
+          "[noncomp][weighted_replay]") {
+    const bool online = GENERATE(false, true);
+    std::string text;
+    for (unsigned i = 0; i < 22; ++i)
+        text += "LEVEL_TRANSITION[first] 0\n";
+    const auto circuit = parse(text);
+    const auto replay = replay_physical_histories(
+        PreparedNonComputationalRequest(circuit, replay_model()), online, false);
+    REQUIRE(replay.states.size() == 2);
+    const double survival = std::pow(0.8, 22);
+    for (const auto& [history, state] : replay.states) {
+        REQUIRE(history.events.empty());
+        const bool computational = is_computational(history.status[0]);
+        const double expected = computational ? survival : 1 - survival;
+        REQUIRE(std::abs(state.weight / expected - 1) < precision.probability_relative);
+        REQUIRE(std::abs(state.weighted_paulis[3] / state.weight - computational) <
+                precision.expectation_absolute);
+    }
+    REQUIRE(physical_distribution(replay.states, circuit, 0).num_visible_records == 2);
+
+    for (unsigned i = 0; i < 32; ++i)
+        text += "M 0\n";
+    REQUIRE_THROWS_AS(validate_weighted_replay(
+                          PreparedNonComputationalRequest(parse(text), replay_model()), false),
+                      std::invalid_argument);
+}
+
 TEST_CASE("Weighted measurement replay follows production dust reachability",
           "[noncomp][weighted_replay]") {
     const bool online = GENERATE(false, true);
@@ -658,12 +686,19 @@ TEST_CASE("Weighted lifecycle histories retain heralds and coherences after reca
 TEST_CASE("Weighted repeated no fire filters preserve normalized conditional states",
           "[noncomp][weighted_replay]") {
     const bool online = GENERATE(false, true);
-    CAPTURE(online);
+    const bool entangled = GENERATE(false, true);
+    CAPTURE(online, entangled);
     ReferenceBranch prepared;
-    prepared.amplitudes[0] = 1 / std::sqrt(2.L);
-    prepared.amplitudes[3] = std::polar(1 / std::sqrt(2.L), std::numbers::pi_v<long double> / 4);
+    prepared.amplitudes.fill(0.5L);
+    std::string text = "H 0 1\n";
+    if (entangled) {
+        prepared.amplitudes = {};
+        prepared.amplitudes[0] = 1 / std::sqrt(2.L);
+        prepared.amplitudes[3] =
+            std::polar(1 / std::sqrt(2.L), std::numbers::pi_v<long double> / 4);
+        text = "H 0\nT 0\nCX 0 1\n";
+    }
     std::vector<ReferenceBranch> branches{prepared};
-    std::string text = "H 0\nT 0\nCX 0 1\n";
     for (unsigned count = 1; count <= 4; ++count) {
         CAPTURE(count);
         text += "LEVEL_TRANSITION[first] 0\nHERALD_LOSS_EVENT 0\n";
@@ -687,6 +722,7 @@ TEST_CASE("Weighted repeated no fire filters preserve normalized conditional sta
         const auto circuit = parse(text);
         const auto replay = replay_physical_histories(
             PreparedNonComputationalRequest(circuit, replay_model()), online, false);
+        REQUIRE((replay.growths > 0) == online);
         std::string difference;
         const bool equal = distributions_equal(physical_distribution(expected, circuit, 0),
                                                physical_distribution(replay.states, circuit, 0),
@@ -701,6 +737,10 @@ TEST_CASE("Weighted repeated no fire filters preserve normalized conditional sta
                 REQUIRE(std::abs(state.weight / ((g + e) / 2) - 1) < 2e-10);
                 REQUIRE(std::abs(state.weighted_paulis[3] / state.weight - (g - e) / (g + e)) <
                         precision.expectation_absolute);
+                if (!entangled)
+                    REQUIRE(std::abs(state.weighted_paulis[1] / state.weight -
+                                     2 * std::sqrt(g * e) / (g + e)) <
+                            precision.expectation_absolute);
             }
     }
 }

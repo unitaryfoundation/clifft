@@ -476,9 +476,7 @@ class OnlineWorker {
     }
 
     void reset(const SeedRoot& root, uint32_t shot) noexcept {
-#ifdef CLIFFT_NONCOMP_REPLAY_TESTING
-        detail::ReplayHotPathScope hot_path;
-#endif
+        [[maybe_unused]] detail::ReplayHotPathScope hot_path;
         const auto words = derive_state(root, shot, kOnlineNonComputationalDomain);
         rng.seed_full(words[0], words[1], words[2], words[3]);
         quantum.reset();
@@ -643,9 +641,7 @@ class OnlineWorker {
     // An ordinary dispatch interval cannot allocate or throw. Activation is
     // completed by the caller only after leaving this interval.
     void dispatch_until_boundary() noexcept {
-#ifdef CLIFFT_NONCOMP_REPLAY_TESTING
-        detail::ReplayHotPathScope hot_path;
-#endif
+        [[maybe_unused]] detail::ReplayHotPathScope hot_path;
         while (cursor < program.actions.size()) {
             dispatch(program.actions[cursor++]);
             if (quantum.pending())
@@ -656,9 +652,6 @@ class OnlineWorker {
 
     void run(const SeedRoot& root, uint32_t shot) {
         reset(root, shot);
-#ifdef CLIFFT_NONCOMP_REPLAY_TESTING
-        detail::replay_online_boundary(detail::ReplayOnlineBoundary::Reset, quantum);
-#endif
         for (;;) {
             dispatch_until_boundary();
             if (!quantum.pending())
@@ -672,20 +665,13 @@ class OnlineWorker {
                     " exceeds max_active_width or the dense storage limit at circuit line " +
                     std::to_string(node.source_line));
             }
-#ifdef CLIFFT_NONCOMP_REPLAY_TESTING
-            detail::replay_online_boundary(detail::ReplayOnlineBoundary::BeforeGrowth, quantum);
-#endif
             quantum.state.ensure_capacity(required);
             ++growths;
             quantum.finish_activation();
-#ifdef CLIFFT_NONCOMP_REPLAY_TESTING
-            detail::replay_online_boundary(detail::ReplayOnlineBoundary::AfterGrowth, quantum);
-#endif
         }
         peak_width = std::max(peak_width, quantum.peak);
         ++completed_shots;
 #ifdef CLIFFT_NONCOMP_REPLAY_TESTING
-        detail::replay_online_boundary(detail::ReplayOnlineBoundary::Complete, quantum);
         detail::replay_inspect_online(quantum, status);
 #endif
     }

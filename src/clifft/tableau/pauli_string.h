@@ -65,6 +65,7 @@ class PauliString {
         z_.swap(other.z_);
         std::swap(phase_, other.phase_);
     }
+    friend void swap(PauliString& a, PauliString& b) noexcept { a.swap(b); }
 
     [[nodiscard]] bool operator==(const PauliString& other) const;
 

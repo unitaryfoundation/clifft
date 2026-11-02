@@ -248,7 +248,8 @@ inline void validate_weighted_replay(const PreparedNonComputationalRequest& requ
                 throw std::invalid_argument("weighted replay does not support this operation");
         }
     }
-    if (2 * uint64_t{circuit.num_measurements} + 2 * circuit.num_qubits + 3 * instruments > 64 ||
+    const unsigned event_bits = retain_events ? 3 * instruments : 0;
+    if (2 * uint64_t{circuit.num_measurements} + 2 * circuit.num_qubits + event_bits > 64 ||
         circuit.num_detectors > 64 || circuit.num_observables > 64)
         throw std::invalid_argument("weighted replay exceeds the physical-history key capacity");
 }
