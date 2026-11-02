@@ -76,6 +76,9 @@ target_link_libraries(clifft_tests PRIVATE
 # Only this executable compiles the replay seams. Linking its instrumented
 # translation units first keeps the archive's ordinary versions out of this
 # binary without changing clifft_core, Python packages, or sampling APIs.
+# Include every source translation unit that instantiates choose_branch or
+# OnlineState::measure here, so the linker cannot silently select an ordinary
+# inline definition from the archive and bypass replay.
 add_executable(clifft_noncomp_replay_tests
     test_noncomp_replay.cc
     ../src/clifft/sampling/executor.cc
@@ -83,7 +86,6 @@ add_executable(clifft_noncomp_replay_tests
     ../src/clifft/noncomp/online.cc
 )
 target_compile_definitions(clifft_noncomp_replay_tests PRIVATE CLIFFT_NONCOMP_REPLAY_TESTING)
-target_include_directories(clifft_noncomp_replay_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(clifft_noncomp_replay_tests PRIVATE clifft_core Catch2::Catch2WithMain)
 if(CLIFFT_OPENMP_ENABLED)
     target_compile_definitions(clifft_noncomp_replay_tests PRIVATE CLIFFT_USE_OPENMP)

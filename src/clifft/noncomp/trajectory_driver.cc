@@ -14,10 +14,6 @@
 
 #include "clifft/noncomp/trajectory_driver.h"
 
-#ifdef CLIFFT_NONCOMP_REPLAY_TESTING
-#include "noncomp_replay_hooks.h"
-#endif
-
 #include "clifft/frontend/frontend.h"
 #include "clifft/noncomp/instrument_options.h"
 #include "clifft/noncomp/interaction.h"
@@ -373,8 +369,7 @@ SamplingCompiledContinuation compile_sampling_continuation(
     patch_heralded_measurements(patched, rewrite.classified_measurements, herald_flags);
     prepend_initial_excited_preparations(patched, initial_levels, rewrite.forced_traceout_node);
 #ifdef CLIFFT_NONCOMP_REPLAY_TESTING
-    if (test::noncomp_replay)
-        test::noncomp_replay->append_probes(patched);
+    detail::replay_append_probes(patched);
 #endif
     if (worker.stats) {
         if (initial) {
@@ -599,8 +594,7 @@ NonComputationalSample run_trajectory_driver(const PreparedNonComputationalReque
             observables.begin(), observables.end(),
             result.observables.begin() + static_cast<size_t>(shot) * annotated.num_observables);
 #ifdef CLIFFT_NONCOMP_REPLAY_TESTING
-        if (test::noncomp_replay)
-            test::noncomp_replay->inspect(executor->exp_vals(), continuation->final_status);
+        detail::replay_inspect(executor->exp_vals(), continuation->final_status);
 #endif
         executor->return_to_root_plan();
         if (request.requirements().final_status) {

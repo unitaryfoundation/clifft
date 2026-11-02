@@ -18,6 +18,23 @@ std::optional<unsigned> clifft::detail::replay_branch(BranchChoice kind,
     return std::nullopt;
 }
 
+void clifft::detail::replay_append_probes(Circuit& circuit) {
+    if (test::noncomp_replay)
+        test::noncomp_replay->append_probes(circuit);
+}
+
+void clifft::detail::replay_inspect(std::span<const double> probes,
+                                    std::span<const QubitStatus> status) {
+    if (test::noncomp_replay)
+        test::noncomp_replay->inspect(probes, status);
+}
+
+void clifft::detail::replay_inspect_online(const noncomp_detail::OnlineState& quantum,
+                                           std::span<const QubitStatus> status) {
+    if (test::noncomp_replay)
+        test::noncomp_replay->inspect_online(quantum, status);
+}
+
 namespace {
 
 constexpr double rare_rate = 0x1p-40;

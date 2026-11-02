@@ -1,7 +1,6 @@
 #pragma once
 
-// Included only by the diagnostic target's copies of production translation
-// units. The ordinary library and Python extension contain no replay hooks.
+// Keep replay storage and callbacks private to the diagnostic test executable.
 #include "clifft/circuit/circuit.h"
 #include "clifft/noncomp/level.h"
 #include "clifft/sampling/branch_choice.h"

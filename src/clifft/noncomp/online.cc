@@ -1,10 +1,7 @@
 #include "clifft/noncomp/online.h"
 
-#ifdef CLIFFT_NONCOMP_REPLAY_TESTING
-#include "noncomp_replay_hooks.h"
-#endif
-
 #include "clifft/noncomp/online_state.h"
+#include "clifft/sampling/branch_choice.h"
 #include "clifft/tableau/tableau.h"
 #include "clifft/util/shot_parallel.h"
 #include "clifft/util/shot_seed.h"
@@ -666,8 +663,7 @@ class OnlineWorker {
         peak_width = std::max(peak_width, quantum.peak);
         ++completed_shots;
 #ifdef CLIFFT_NONCOMP_REPLAY_TESTING
-        if (test::noncomp_replay)
-            test::noncomp_replay->inspect_online(quantum, status);
+        detail::replay_inspect_online(quantum, status);
 #endif
     }
 };
