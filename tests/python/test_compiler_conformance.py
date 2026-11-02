@@ -1,11 +1,10 @@
-"""Small unitary corpus shared across compiler profiles and CPU sampling modes.
+"""Independent quantum-output checks shared across execution backends.
 
-Each CASES entry runs exact record checks under every compiler profile, and
-sampled record and annotation checks under every profile and sampling mode.
-Profiles select no HIR passes, production defaults, explicit active-width
-scheduling, or phase reduction. Fixed and tuned CPU modes share the sampled assertions.
-Passes are not independently toggled in this matrix: separate witnesses check their effects.
-The boundary circuit runs under every profile, mode, and designated shot count.
+The unitary corpus runs across CPU compiler profiles and sampling modes, plus
+noncomputational fixed, trajectory, and online execution with leakage/loss off.
+Small reset/reuse circuits check joint record laws and earlier-record feedback.
+Compiler rewrite witnesses and the larger batch-boundary matrix remain on the
+ordinary CPU route.
 """
 
 from dataclasses import dataclass
@@ -163,7 +162,13 @@ def test_noncomp_backends_share_unitary_oracles(
 
 
 @pytest.mark.parametrize(
-    "mode", (*CPU_SAMPLING_MODES[:2], *NONCOMP_SAMPLING_MODES), ids=lambda m: m.name
+    "mode",
+    (
+        next(mode for mode in CPU_SAMPLING_MODES if mode.name == "single-shot"),
+        next(mode for mode in CPU_SAMPLING_MODES if mode.name == "packed-65"),
+        *NONCOMP_SAMPLING_MODES,
+    ),
+    ids=lambda m: m.name,
 )
 @pytest.mark.parametrize("rounds", [3, 4])
 def test_shared_lifecycle_preserves_joint_records(
@@ -193,11 +198,13 @@ def test_shared_lifecycle_preserves_joint_records(
         assert program.peak_active_width == 2
     result = mode.sample(program, 4097, seed=317)
     _assert_annotated_distribution(result, probabilities, 4097, rounds + 1)
-    if isinstance(mode, NoncompSamplingMode) and mode.execution == "online":
+    if isinstance(mode, NoncompSamplingMode):
         assert result.stats.peak_active_width == 2
+    if isinstance(mode, NoncompSamplingMode) and mode.execution == "online":
         # Storage grows only to the peak and is retained across later rounds
         # and shots. Workers need not all receive work under dynamic scheduling.
-        assert 2 <= result.stats.online_state_growths <= 2 * mode.threads
+        assert 2 <= result.stats.online_state_growths <= 2 * result.stats.workers
+        assert result.stats.online_state_growths % 2 == 0
 
 
 def _assert_boundary_outputs(result: clifft.SampleResult, shots: int) -> None:

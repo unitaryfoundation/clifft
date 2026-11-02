@@ -204,6 +204,8 @@ class NoncompSamplingMode:
         stats = result.stats
         assert stats is not None and stats.strategy == self.execution
         assert stats.fallback_reason is None
+        work_items = (shots + self.batch_size - 1) // self.batch_size
+        assert stats.workers == min(self.threads, work_items)
         assert getattr(stats, f"{self.execution}_shots") == shots
         assert stats.scalar_shots == (shots if self.batch_size == 1 else 0)
         assert stats.packed_shots == (shots if self.batch_size > 1 else 0)
