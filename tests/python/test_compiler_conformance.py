@@ -1,11 +1,10 @@
-"""Small unitary corpus shared across compiler profiles and CPU sampling modes.
+"""Independent quantum-output checks shared across execution backends.
 
-Each CASES entry runs exact record checks under every compiler profile, and
-sampled record and annotation checks under every profile and sampling mode.
-Profiles select no HIR passes, production defaults, explicit active-width
-scheduling, or phase reduction. Fixed and tuned CPU modes share the sampled assertions.
-Passes are not independently toggled in this matrix: separate witnesses check their effects.
-The boundary circuit runs under every profile, mode, and designated shot count.
+The unitary corpus runs across CPU compiler profiles and sampling modes, plus
+noncomputational fixed, trajectory, and online execution with leakage/loss off.
+Small reset/reuse circuits check joint record laws and earlier-record feedback.
+Compiler rewrite witnesses and the larger batch-boundary matrix remain on the
+ordinary CPU route.
 """
 
 from dataclasses import dataclass
@@ -21,12 +20,15 @@ from utils_conformance import (
     DEFAULT,
     DEFAULT_SCHEDULED,
     FUSION_SQUEEZE,
+    NONCOMP_SAMPLING_MODES,
     UNOPTIMIZED,
     CompilerProfile,
     CpuSamplingMode,
+    NoncompSamplingMode,
     assert_joint_distribution,
     unitary_reference,
 )
+from utils_fuzzing import generate_active_state_lifecycle
 from utils_qiskit import stim_to_qiskit_noiseless
 
 import clifft
@@ -126,12 +128,83 @@ def test_samples_and_annotations_match_independent_oracle(
     # 8193 shots leave a partial final batch with capacity 65. Whole-record
     # comparisons distinguish Bell correlations that marginals cannot.
     result = mode.sample(annotated_program, 8193, seed=1907)
-    assert result.measurements.shape == (8193, case.num_qubits)
+    _assert_annotated_distribution(result, probabilities, 8193, case.num_qubits)
+
+
+def _assert_annotated_distribution(
+    result: Any, probabilities: np.ndarray, shots: int, width: int
+) -> None:
+    assert result.measurements.shape == (shots, width)
     assert_joint_distribution(result.measurements, probabilities)
     np.testing.assert_array_equal(
         result.detectors, (result.measurements[:, 0] ^ result.measurements[:, -1])[:, None]
     )
     np.testing.assert_array_equal(result.observables, result.measurements[:, -1:])
+
+
+@pytest.mark.parametrize("mode", NONCOMP_SAMPLING_MODES, ids=lambda mode: mode.name)
+def test_noncomp_backends_share_unitary_oracles(
+    case: UnitaryCase, probabilities: np.ndarray, mode: NoncompSamplingMode
+) -> None:
+    source = (
+        case.measured_source
+        + f"\nDETECTOR rec[-{case.num_qubits}] rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]"
+    )
+    result = mode.sample(mode.compile(source), 4097, seed=1907)
+    _assert_annotated_distribution(result, probabilities, 4097, case.num_qubits)
+    if mode.execution == "online":
+        # Unlike optimized mirror/fusion circuits, online must execute the
+        # non-Clifford prefix before its inverse, including active-state growth.
+        assert result.stats.peak_active_width > 0
+        assert result.stats.online_state_growths > 0
+    if case.name == "mirror":
+        np.testing.assert_array_equal(result.measurements, 0)
+
+
+@pytest.mark.parametrize(
+    "mode",
+    (
+        next(mode for mode in CPU_SAMPLING_MODES if mode.name == "single-shot"),
+        next(mode for mode in CPU_SAMPLING_MODES if mode.name == "packed-65"),
+        *NONCOMP_SAMPLING_MODES,
+    ),
+    ids=lambda m: m.name,
+)
+@pytest.mark.parametrize("rounds", [3, 4])
+def test_shared_lifecycle_preserves_joint_records(
+    mode: CpuSamplingMode | NoncompSamplingMode, rounds: int
+) -> None:
+    source = generate_active_state_lifecycle(rounds) + (
+        f"\nCZ rec[-{rounds}] 0\nS_DAG 0\nH 0\nM 0"
+        f"\nDETECTOR rec[-{rounds + 1}] rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]"
+    )
+    # Defer measurements in the independent Aer circuit, using a fresh ancilla
+    # each round instead of reset/reuse. The first record controls the final
+    # feedback across all intervening measurements and coordinate removals.
+    reference = ["H 0", "T 0"]
+    for q in range(1, rounds + 1):
+        reference.extend([f"H {q}", f"T {q}", f"H {q}", f"CX {q} 0"])
+    reference.extend(["CZ 1 0", "S_DAG 0", "H 0"])
+    state = unitary_reference("\n".join(reference))
+    # Aer indexes qubit 0 first; the reused-ancilla records precede its readout.
+    keys = np.arange(1 << (rounds + 1))
+    indices = (keys >> rounds) | ((keys & ((1 << rounds) - 1)) << 1)
+    probabilities = np.abs(state[indices]) ** 2
+
+    if isinstance(mode, NoncompSamplingMode):
+        program = mode.compile(source, max_active_width=2)
+    else:
+        program = mode.compile(source, hir_passes=None)
+        assert program.peak_active_width == 2
+    result = mode.sample(program, 4097, seed=317)
+    _assert_annotated_distribution(result, probabilities, 4097, rounds + 1)
+    if isinstance(mode, NoncompSamplingMode):
+        assert result.stats.peak_active_width == 2
+    if isinstance(mode, NoncompSamplingMode) and mode.execution == "online":
+        # Storage grows only to the peak and is retained across later rounds
+        # and shots. Workers need not all receive work under dynamic scheduling.
+        assert 2 <= result.stats.online_state_growths <= 2 * result.stats.workers
+        assert result.stats.online_state_growths % 2 == 0
 
 
 def _assert_boundary_outputs(result: clifft.SampleResult, shots: int) -> None:

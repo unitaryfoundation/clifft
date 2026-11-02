@@ -143,7 +143,11 @@ while a weekly job records combined C++ and Python coverage.
 
 Shared sampling tests run the same behavioral assertions across supported
 execution modes. This helps new features receive coverage across modes and
-makes new modes inherit existing behavioral and regression tests.
+makes new modes inherit existing behavioral and regression tests. The small
+unitary and reset/reuse corpus in `test_compiler_conformance.py` also runs through
+explicit fixed, trajectory, and online adapters, with joint Aer references and
+execution-path checks. These cases use computational inputs; weighted physical
+histories remain a separate contract below.
 
 The CPU corpus shares assertions across batching and threading configurations.
 Intra-shot tests lower the active-width threshold so small circuits can exercise
