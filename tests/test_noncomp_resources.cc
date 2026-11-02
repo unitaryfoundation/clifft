@@ -108,7 +108,7 @@ TEST_CASE("Weighted online growth retains pending decisions and capacity across 
         NonComputationalModel::from_spec(pure_initial_state(Level::G), {{"filter", filter}},
                                          classifier_matrix_with_column(Level::Lost, {1, 0}), {});
     const auto circuit = parse(
-        "H 0 1\nLEVEL_TRANSITION[filter] 0\nT 1\nMY 0\n"
+        "H 0 1\nSWAP 0 1\nSWAP 0 1\nLEVEL_TRANSITION[filter] 0\nT 1\nMY 0\n"
         "R_Y(0.25) 0\nM 0 1\n");
     const OnlineNonComputationalProgram program(PreparedNonComputationalRequest(circuit, model));
     ResourceTrace trace;
