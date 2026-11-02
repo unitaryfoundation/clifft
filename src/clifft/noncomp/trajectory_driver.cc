@@ -177,7 +177,11 @@ void extend_classical_outcomes(const ResolvedNonComputationalCircuit& resolved,
                         if (const auto* id = std::get_if<TransitionId>(&channel)) {
                             const auto& instrument = resolved.instrument(*id);
                             const double total = instrument.column_sum(source);
-                            if (rng.next_double() < total) {
+                            if (detail::choose_branch(
+                                    detail::BranchChoice::ClassicalTransition,
+                                    std::array{1 - total, total}, [&](const auto&) noexcept {
+                                        return unsigned(rng.next_double() < total);
+                                    })) {
                                 outcome.destination = draw_from_column(instrument, source, rng,
                                                                        [](Level) { return true; });
                             }
@@ -473,7 +477,11 @@ NonComputationalSample run_trajectory_driver(const PreparedNonComputationalReque
                 if (inserted && ternary) {
                     const double probability =
                         classifier->prob(MeasurementClassifier::kHeraldSymbol, measurement.level);
-                    it->second = driver_rng.next_double() < probability ? 1 : 0;
+                    it->second = static_cast<uint8_t>(detail::choose_branch(
+                        detail::BranchChoice::Herald, std::array{1 - probability, probability},
+                        [&](const auto&) noexcept {
+                            return unsigned(driver_rng.next_double() < probability);
+                        }));
                 }
                 flags.push_back(it->second);
             }

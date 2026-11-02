@@ -312,6 +312,11 @@ class OnlineWorker {
 
     bool event(double p) noexcept { return p > 0 && rng.next_double() < p; }
 
+    bool replayable_event(detail::BranchChoice kind, double p) noexcept {
+        return detail::choose_branch(kind, std::array{1 - p, p},
+                                     [&](const auto&) noexcept { return unsigned(event(p)); }) != 0;
+    }
+
     void physical(GateType gate, uint32_t a, uint32_t b = 0) noexcept {
         quantum.frame.physical(gate, a, b, program.cliffords[static_cast<size_t>(gate)]);
     }
@@ -374,7 +379,8 @@ class OnlineWorker {
             if (!is_computational(status[q])) {
                 // Ledger values 1..3 correspond to physical levels 2..4.
                 const auto source = static_cast<Level>(static_cast<unsigned>(status[q]) + 1);
-                if (event(instrument.column_sum(source)))
+                if (replayable_event(detail::BranchChoice::ClassicalTransition,
+                                     instrument.column_sum(source)))
                     land(q, destination(instrument, source), false);
                 return;
             }
@@ -431,10 +437,11 @@ class OnlineWorker {
             bool reported = bit ^ target.is_inverted();
             const auto channel =
                 prepared.readout[2 * static_cast<unsigned>(status[q]) + target.is_inverted()];
-            if (event(channel.herald)) {
+            if (replayable_event(detail::BranchChoice::Herald, channel.herald)) {
                 heralds[record] = 1;
-                reported = event(0.5);
-            } else if (event(reported ? channel.p10 : channel.p01)) {
+                reported = replayable_event(detail::BranchChoice::Readout, 0.5);
+            } else if (replayable_event(detail::BranchChoice::Readout,
+                                        reported ? channel.p10 : channel.p01)) {
                 reported = !reported;
             }
             records[record++] = reported;
@@ -469,6 +476,9 @@ class OnlineWorker {
     }
 
     void reset(const SeedRoot& root, uint32_t shot) noexcept {
+#ifdef CLIFFT_NONCOMP_REPLAY_TESTING
+        detail::ReplayHotPathScope hot_path;
+#endif
         const auto words = derive_state(root, shot, kOnlineNonComputationalDomain);
         rng.seed_full(words[0], words[1], words[2], words[3]);
         quantum.reset();
@@ -633,6 +643,9 @@ class OnlineWorker {
     // An ordinary dispatch interval cannot allocate or throw. Activation is
     // completed by the caller only after leaving this interval.
     void dispatch_until_boundary() noexcept {
+#ifdef CLIFFT_NONCOMP_REPLAY_TESTING
+        detail::ReplayHotPathScope hot_path;
+#endif
         while (cursor < program.actions.size()) {
             dispatch(program.actions[cursor++]);
             if (quantum.pending())
@@ -643,6 +656,9 @@ class OnlineWorker {
 
     void run(const SeedRoot& root, uint32_t shot) {
         reset(root, shot);
+#ifdef CLIFFT_NONCOMP_REPLAY_TESTING
+        detail::replay_online_boundary(detail::ReplayOnlineBoundary::Reset, quantum);
+#endif
         for (;;) {
             dispatch_until_boundary();
             if (!quantum.pending())
@@ -656,13 +672,20 @@ class OnlineWorker {
                     " exceeds max_active_width or the dense storage limit at circuit line " +
                     std::to_string(node.source_line));
             }
+#ifdef CLIFFT_NONCOMP_REPLAY_TESTING
+            detail::replay_online_boundary(detail::ReplayOnlineBoundary::BeforeGrowth, quantum);
+#endif
             quantum.state.ensure_capacity(required);
             ++growths;
             quantum.finish_activation();
+#ifdef CLIFFT_NONCOMP_REPLAY_TESTING
+            detail::replay_online_boundary(detail::ReplayOnlineBoundary::AfterGrowth, quantum);
+#endif
         }
         peak_width = std::max(peak_width, quantum.peak);
         ++completed_shots;
 #ifdef CLIFFT_NONCOMP_REPLAY_TESTING
+        detail::replay_online_boundary(detail::ReplayOnlineBoundary::Complete, quantum);
         detail::replay_inspect_online(quantum, status);
 #endif
     }

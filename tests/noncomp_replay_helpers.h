@@ -22,6 +22,7 @@ struct PhysicalHistory {
     std::vector<QubitStatus> status;
     std::vector<uint8_t> records;
     uint64_t detectors = 0, observables = 0;
+    std::vector<uint8_t> heralds;
     auto operator<=>(const PhysicalHistory&) const = default;
 };
 
@@ -67,7 +68,7 @@ inline ExactPlanDistribution physical_distribution(const PhysicalEnsemble& ensem
                                                    const Circuit& circuit, unsigned instruments) {
     ExactPlanDistribution result;
     result.num_visible_records =
-        3 * instruments + 2 * circuit.num_qubits + circuit.num_measurements;
+        3 * instruments + 2 * circuit.num_qubits + 2 * circuit.num_measurements;
     REQUIRE(result.num_visible_records <= 64);
     result.num_detectors = circuit.num_detectors;
     result.num_observables = circuit.num_observables;
@@ -75,7 +76,8 @@ inline ExactPlanDistribution physical_distribution(const PhysicalEnsemble& ensem
     result.kept_exp_vals.resize(result.num_exp_vals);
     for (const auto& [history, state] : ensemble) {
         REQUIRE(history.events.size() == instruments);
-        uint64_t key = pack_bits(history.records);
+        uint64_t key =
+            (pack_bits(history.heralds) << circuit.num_measurements) | pack_bits(history.records);
         for (auto status : history.status)
             key = (key << 2) | static_cast<unsigned>(status);
         for (auto event : history.events)
@@ -140,6 +142,8 @@ class WeightedReplay final : public NoncompReplayHooks {
         weight = next;
         if (kind == ReplayChoice::Source) {
             events[event_count++] = selected == 2 ? 0 : 99;
+        } else if (kind == ReplayChoice::ClassicalTransition) {
+            events[event_count++] = selected == 0 ? 0 : 99;
         } else if (kind == ReplayChoice::Destination ||
                    (kind == ReplayChoice::DestinationPartition && selected < 2)) {
             if (event_count == 0)
@@ -194,10 +198,11 @@ class WeightedReplay final : public NoncompReplayHooks {
     }
 };
 
-// The first corpus deliberately excludes stochastic initial levels, noise,
-// readout confusion and transitions on already noncomputational sources. Fail
-// closed until their draws have replay seams instead of silently sampling them.
-inline void validate_weighted_replay(const PreparedNonComputationalRequest& request) {
+// Uninstrumented randomness must fail closed instead of being silently sampled.
+// This corpus covers explicit instruments and classified readout, but excludes
+// stochastic initialization, Pauli noise, and the LEAKAGE/LOSS shorthand.
+inline void validate_weighted_replay(const PreparedNonComputationalRequest& request,
+                                     bool retain_events) {
     const auto& model = request.model();
     const auto& resolved = request.resolved_circuit();
     if (!request.requirements().final_status)
@@ -206,18 +211,20 @@ inline void validate_weighted_replay(const PreparedNonComputationalRequest& requ
         model.policy().damping != DampingPolicy::Exact)
         throw std::invalid_argument(
             "weighted replay requires at most three qubits and exact G initialization");
-    if (const auto* classifier = model.classifier()) {
-        if (classifier->has_herald())
-            throw std::invalid_argument("weighted replay does not support stochastic readout");
-        for (Level level : kAllLevels)
-            if (classifier->prob(0, level) != 0 && classifier->prob(0, level) != 1)
-                throw std::invalid_argument("weighted replay does not support stochastic readout");
-    }
     const auto& circuit = resolved.circuit();
     unsigned instruments = 0;
     std::vector<bool> instrument_seen(circuit.num_qubits);
     for (const auto& node : resolved.circuit().nodes) {
         switch (node.gate) {
+            case GateType::S:
+            case GateType::S_DAG:
+            case GateType::X:
+            case GateType::R:
+            case GateType::RX:
+            case GateType::RY:
+            case GateType::MR:
+            case GateType::MX:
+            case GateType::MY:
             case GateType::H:
             case GateType::T:
             case GateType::R_Y:
@@ -229,14 +236,10 @@ inline void validate_weighted_replay(const PreparedNonComputationalRequest& requ
             case GateType::OBSERVABLE_INCLUDE:
                 break;
             case GateType::LEVEL_TRANSITION:
-                if (const auto* channel = model.transition_named(node.tag);
-                    !channel || channel->column_sum(Level::G) + channel->column_sum(Level::E) == 0)
-                    throw std::invalid_argument(
-                        "weighted replay requires a live computational instrument");
                 for (auto target : node.targets) {
-                    if (instrument_seen[target.value()])
+                    if (retain_events && instrument_seen[target.value()])
                         throw std::invalid_argument(
-                            "weighted replay requires distinct instrument operands");
+                            "weighted replay must marginalize event order for repeated operands");
                     instrument_seen[target.value()] = true;
                     ++instruments;
                 }
@@ -245,7 +248,7 @@ inline void validate_weighted_replay(const PreparedNonComputationalRequest& requ
                 throw std::invalid_argument("weighted replay does not support this operation");
         }
     }
-    if (uint64_t{circuit.num_measurements} + 2 * circuit.num_qubits + 3 * instruments > 64 ||
+    if (2 * uint64_t{circuit.num_measurements} + 2 * circuit.num_qubits + 3 * instruments > 64 ||
         circuit.num_detectors > 64 || circuit.num_observables > 64)
         throw std::invalid_argument("weighted replay exceeds the physical-history key capacity");
 }
@@ -257,8 +260,8 @@ struct ReplayEnsemble {
 };
 
 inline ReplayEnsemble replay_physical_histories(const PreparedNonComputationalRequest& request,
-                                                bool online) {
-    validate_weighted_replay(request);
+                                                bool online, bool retain_events = true) {
+    validate_weighted_replay(request, retain_events);
     ReplayEnsemble result;
     std::vector<std::vector<unsigned>> pending(1);
     const auto root = make_seed_root(1, 17);
@@ -301,8 +304,13 @@ inline ReplayEnsemble replay_physical_histories(const PreparedNonComputationalRe
         history.events.assign(replay.events.begin(), replay.events.begin() + replay.event_count);
         for (auto event : history.events)
             REQUIRE(event <= kNumLevels);
+        // Classical suffixes may be resolved ahead of executor decisions.
+        // Callers comparing observable histories marginalize that internal order.
+        if (!retain_events)
+            history.events.clear();
         history.status = replay.status;
         history.records = sample.measurements;
+        history.heralds = sample.heralds;
         history.detectors = pack_bits(sample.detectors);
         history.observables = pack_bits(sample.observables);
         add_physical_branch(result.states, std::move(history), replay.weight,

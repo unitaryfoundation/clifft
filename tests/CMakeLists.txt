@@ -81,6 +81,9 @@ target_link_libraries(clifft_tests PRIVATE
 # inline definition from the archive and bypass replay.
 add_executable(clifft_noncomp_replay_tests
     test_noncomp_replay.cc
+    test_noncomp_resources.cc
+    noncomp_resource_probe.cc
+    ../src/clifft/util/page_allocation.cc
     ../src/clifft/sampling/executor.cc
     ../src/clifft/noncomp/trajectory_driver.cc
     ../src/clifft/noncomp/online.cc

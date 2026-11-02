@@ -202,6 +202,9 @@ ReplayResult Executor::replay_shot(std::span<const uint8_t> forced_records,
 }
 
 void Executor::reset_shot() noexcept {
+#ifdef CLIFFT_NONCOMP_REPLAY_TESTING
+    detail::ReplayHotPathScope hot_path;
+#endif
     state_.reset_parallel(intra_shot_workers_, intra_shot_min_active_width_);
     // A continuation assigns symbols under its own numbering, so after a
     // resumed shot a stale true value can sit at an index the root plan never
@@ -555,7 +558,12 @@ void Executor::execute_action(const ExecutablePlan::ExecuteReadoutNoise& action,
             }
         } else {
             const double probability = source ? action.prob_one_to_zero : action.prob_zero_to_one;
-            flip = probability >= 1.0 || (probability > 0.0 && rng_.next_double() < probability);
+            flip = detail::choose_branch(
+                       detail::BranchChoice::Readout, std::array{1 - probability, probability},
+                       [&](const auto&) noexcept {
+                           return unsigned(probability >= 1.0 ||
+                                           (probability > 0.0 && rng_.next_double() < probability));
+                       }) != 0;
         }
         assign_symbol(action.flip, flip);
         records_[action.record] ^= static_cast<uint8_t>(flip);
@@ -782,6 +790,9 @@ void Executor::execute_action(const ExecutablePlan::ExecuteBoundary& action,
 template <ExecutorBackend Backend, Executor::ShotMode Mode, Executor::IntraShotMode IntraShot>
 ReplayResult Executor::execute_actions(std::span<const uint8_t> forced_records,
                                        uint32_t begin) noexcept {
+#ifdef CLIFFT_NONCOMP_REPLAY_TESTING
+    detail::ReplayHotPathScope hot_path;
+#endif
     ReplayResult result;
     assert(begin <= plan_->actions_.size() && "execution offset must be inside the action stream");
     size_t action_index = begin;
