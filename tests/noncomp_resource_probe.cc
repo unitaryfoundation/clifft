@@ -28,6 +28,23 @@ void clifft::detail::replay_online_boundary(ReplayOnlineBoundary boundary,
         test::online_boundary_probe(boundary, state);
 }
 
+#if defined(__clang__)
+#if __has_feature(thread_sanitizer) || __has_feature(address_sanitizer)
+#define CLIFFT_REPLAY_SANITIZER_ALLOCATOR
+#endif
+#elif defined(__SANITIZE_THREAD__) || defined(__SANITIZE_ADDRESS__)
+#define CLIFFT_REPLAY_SANITIZER_ALLOCATOR
+#endif
+
+#ifdef CLIFFT_REPLAY_SANITIZER_ALLOCATOR
+#include <sanitizer/allocator_interface.h>
+
+// Sanitizers own new/delete interceptors. Their allocation callback preserves
+// interception and avoids duplicate definitions when linking the TSan runtime.
+extern "C" void __sanitizer_malloc_hook(const volatile void*, size_t) {
+    clifft::detail::replay_allocation();
+}
+#else
 // Only the diagnostic executable replaces allocation. Coefficient storage uses
 // the separate PageAlignedAllocation seam, including its huge-page mmap route.
 void* operator new(std::size_t size) {
@@ -85,3 +102,5 @@ void operator delete(void* pointer, std::size_t, std::align_val_t alignment) noe
 void operator delete[](void* pointer, std::size_t, std::align_val_t alignment) noexcept {
     ::operator delete(pointer, alignment);
 }
+
+#endif

@@ -84,18 +84,21 @@ TEST_CASE("Weighted resource probe detects ordinary and coefficient allocations"
           "[noncomp][weighted_replay]") {
     hot_path_counters = {};
     void* pointer;
+    size_t ordinary_allocations;
     {
         detail::ReplayHotPathScope hot_path;
         // Call the replaceable function directly so allocation elision cannot
         // turn the probe's positive control into a false success.
         auto* volatile allocate = static_cast<void* (*)(size_t)>(&::operator new);
         pointer = allocate(32);
+        ordinary_allocations = hot_path_counters.allocations;
         PageAlignedAllocation coefficients(32);
     }
     ::operator delete(pointer);
     REQUIRE(hot_path_counters.depth == 0);
     REQUIRE(hot_path_counters.intervals == 1);
-    REQUIRE(hot_path_counters.allocations == 2);
+    REQUIRE(ordinary_allocations > 0);
+    REQUIRE(hot_path_counters.allocations > ordinary_allocations);
     hot_path_counters = {};
 }
 
