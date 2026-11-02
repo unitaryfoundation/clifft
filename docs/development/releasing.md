@@ -144,26 +144,35 @@ rerun benchmarks solely to update version labels. Candidate-backed results are r
 candidate has been validated and before the final tag.
 
 Treat [`clifft-bench`](https://github.com/unitaryfoundation/clifft-bench) as the source of truth for
-raw results, cross-execution joins, and figure generation. This repository owns the reader-facing
-prose and checked-in rendered assets.
+raw results and figure generation. This repository owns the reader-facing prose and rendered assets.
 
-1. In `clifft-bench`, finalize the candidate campaign under a new execution ID and audit the
-   comparison table. Confirm that the measured artifact is the exact published candidate and that
-   no runtime, compiler, packaging, or build input has changed since its tag. If one has, publish and
-   measure another candidate instead of carrying the old results into the final release.
-2. Update the exact execution chain in `reporting/sources.json`, then follow the
-   [`clifft-bench` reporting guide](https://github.com/unitaryfoundation/clifft-bench/blob/main/reporting/README.md)
-   to validate the joins and regenerate the publication and documentation figures. Review and merge
-   the results/reporting PR in `clifft-bench` before copying its outputs here.
-3. Copy the consumed light/dark figure pairs from `reporting/figures/web/` into
-   `docs/assets/performance/`, using the reporting guide's copy command. The README uses the
-   Clifft-only throughput figure; the Performance guide uses the combined simulator figure. Update
-   `docs/guide/performance.md` and any release-specific excerpts in `README.md`, `docs/index.md`, or
-   `docs/updates/`. Keep methodology and raw-result links pinned to the merged `clifft-bench` commit;
-   reader-facing labels may use the target final version while the evidence retains the exact
-   candidate identity.
-4. Check every headline number against the merged comparison table, review both light and dark
-   figures, then run `just docs-build` and the required pre-commit suite.
+1. Collect previous/current Clifft and peer tools together in a new execution directory. Confirm
+   that the measured artifact is the exact published candidate and that no runtime, compiler,
+   packaging, or build input has changed since its tag. If one has, publish and measure another
+   candidate instead of carrying the old results into the final release.
+2. Follow the [`clifft-bench` publication workflow](https://github.com/unitaryfoundation/clifft-bench/blob/main/CONTRIBUTING.md#release-reporting):
+   run `clifft-bench report EXECUTION_DIR --check`, then render with the `report` extra. Review
+   `raw.json`, `cases.csv`, `report/review.md`, failures, missing baselines, and both figure themes.
+   The report uses that execution alone; historical executions are not required. Merge the
+   results/reporting PR in `clifft-bench` before copying its reviewed outputs here.
+3. Copy these light/dark pairs from `reporting/figures/web/` to `docs/assets/performance/`:
+
+   - `clifft-throughput-{light,dark}.png`
+   - `simulator-throughput-{light,dark}.png`
+   - `release-change-{light,dark}.png`
+
+   Update image links and claims together in `README.md`, `docs/guide/performance.md`, and any
+   release-specific excerpts in `docs/index.md` or `docs/updates/`. Use the stable `release-change`
+   filenames for paired release comparisons and remove replaced release-specific assets once their
+   links have moved. Pin source/result links to the merged `clifft-bench` commit. Reader-facing
+   labels may use the target final version while evidence retains the exact candidate identity.
+4. Check headline numbers against the execution's samples and review summary, inspect both themes,
+   then run `just docs-build` and the required pre-commit suite.
+
+Keep existing published figures and their source links until reviewed reference-host results are
+ready; smoke figures are validation artifacts. Historical trends, Quantum Volume, GPU studies,
+and adder-specific plots are optional publications with their own evidence, not release-report
+prerequisites.
 
 ### 5. Tag and push
 
