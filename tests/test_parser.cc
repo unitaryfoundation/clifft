@@ -606,8 +606,6 @@ TEST_CASE("Inverted targets are rejected on non-measurement gates", "[parser]") 
     check_parse_error("CORRELATED_ERROR(0.1) !X0",
                       "Line 1: Target !X0 has invalid modifiers for gate type "
                       "'CORRELATED_ERROR'");
-    check_parse_error("R_PAULI(0.25) !X0",
-                      "Line 1: Target !X0 has invalid modifiers for gate type 'R_PAULI'");
     CHECK_THROWS_AS(parse("EXP_VAL !X0"), ParseError);
 }
 
@@ -2022,6 +2020,22 @@ TEST_CASE("Parse R_PAULI with Pauli product", "[parser][rotation]") {
     CHECK(circuit.nodes[0].targets[2].pauli() == Target::kPauliZ);
     CHECK(circuit.nodes[0].targets[2].value() == 2);
     CHECK(circuit.nodes[0].args[0] == Catch::Approx(0.1));
+}
+
+TEST_CASE("Parse signed R_PAULI factors", "[parser][rotation]") {
+    const auto circuit = parse("R_PAULI(0.3) !X0*Y1*!Z2");
+    REQUIRE(circuit.nodes.size() == 1);
+    const auto& node = circuit.nodes[0];
+    REQUIRE(node.targets.size() == 3);
+    CHECK(node.targets[0].is_inverted());
+    CHECK_FALSE(node.targets[1].is_inverted());
+    CHECK(node.targets[2].is_inverted());
+    CHECK(node.args[0] == Catch::Approx(0.3));
+
+    for (const auto* product : {"!", "!*X0", "!!X0", "X0*!", "!X0*X0"}) {
+        CAPTURE(product);
+        CHECK_THROWS_AS(parse(std::string("R_PAULI(0.3) ") + product), ParseError);
+    }
 }
 
 TEST_CASE("Parse R_Z broadcasts across targets", "[parser][rotation]") {

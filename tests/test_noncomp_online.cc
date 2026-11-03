@@ -154,8 +154,7 @@ TEST_CASE("Online preparation requires contiguous native correlated error chains
 TEST_CASE("Online preparation restricts native inverted targets to supported gates",
           "[noncomp][online]") {
     const auto model = NonComputationalModel::from_spec({1, 0, 0, 0, 0}, {}, std::nullopt, {});
-    for (const auto* text :
-         {"R_PAULI(0.25) X0", "E(0.5) X0", "E(0.5) X0\nELSE_CORRELATED_ERROR(0.5) X0"}) {
+    for (const auto* text : {"E(0.5) X0", "E(0.5) X0\nELSE_CORRELATED_ERROR(0.5) X0"}) {
         auto circuit = parse(text);
         auto& target = circuit.nodes.back().targets[0];
         target = target.inverted();
@@ -163,8 +162,8 @@ TEST_CASE("Online preparation restricts native inverted targets to supported gat
             NonComputationalProgram(circuit, model, NonComputationalExecution::Online),
             Catch::Matchers::ContainsSubstring("inverted target"));
     }
-    REQUIRE_NOTHROW(NonComputationalProgram(parse("SPP !X0\nTPP !Y0\nM !0"), model,
-                                            NonComputationalExecution::Online));
+    REQUIRE_NOTHROW(NonComputationalProgram(parse("SPP !X0\nTPP !Y0\nR_PAULI(0.3) !X0\nM !0"),
+                                            model, NonComputationalExecution::Online));
 }
 
 TEST_CASE("Online preparation rejects grouped native ordinary operations", "[noncomp][online]") {

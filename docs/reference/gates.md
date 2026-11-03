@@ -131,8 +131,9 @@ Duplicate target qubits (e.g. `R_XX(0.5) 3 3`) are rejected at parse time.
 |------|--------|-------|
 | `R_PAULI` | `R_PAULI(alpha) X0*Y1*Z2` | Arbitrary Pauli product rotation |
 
-The target list uses Stim's Pauli product syntax (e.g. `X0*Y1*Z2`). Maximum
-target count is 64 qubits per instruction.
+Each instruction accepts one Pauli product (e.g. `X0*Y1*Z2`). Prefixing a factor
+with `!` negates it: `R_PAULI(0.3) !X0*Y1` is equivalent to
+`R_PAULI(-0.3) X0*Y1`. An even number of inverted factors cancels the sign.
 
 For two- and multi-qubit Pauli rotations, finite angles within the shared
 `1e-12` half-turn tolerance of a Clifford angle are absorbed into the Clifford

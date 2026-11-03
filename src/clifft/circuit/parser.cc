@@ -1074,7 +1074,8 @@ class Parser {
             if (product_str[pos] == '!') {
                 const bool supports_inversion =
                     is_physical_measurement(gate) || gate == GateType::SPP ||
-                    gate == GateType::SPP_DAG || gate == GateType::TPP || gate == GateType::TPP_DAG;
+                    gate == GateType::SPP_DAG || gate == GateType::TPP ||
+                    gate == GateType::TPP_DAG || gate == GateType::R_PAULI;
                 if (!supports_inversion) {
                     throw_invalid_target_modifiers(target_token_at(product_str, pos), gate_name,
                                                    line_num);
