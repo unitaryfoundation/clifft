@@ -147,6 +147,7 @@ nav:
     - Releasing: development/releasing.md
   - Development Blog:
     - Overview: updates/index.md
+    - "v0.13.0: Sampling Through Leakage and Loss": updates/sampling-through-leakage-and-loss.md
     - "v0.12.0: Richer Noise Models, Smaller Active States": updates/smaller-active-states.md
     - "v0.11.0: Less Work per Shot": updates/less-work-per-shot.md
     - "v0.10.0: Packed Sampling": updates/packed-sampling.md

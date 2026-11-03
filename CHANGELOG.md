@@ -4,6 +4,47 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.13.0] - 2026-11-03
+
+Clifft 0.13.0 adds reusable, batched execution for eligible leakage and loss models and an opt-in online backend that handles changes to later gates without recompiling during a shot. Compiler improvements use measurement, feedback, and postselection to simplify more non-Clifford operations. See [Sampling Through Leakage and Loss](https://unitaryfoundation.github.io/clifft/stable/updates/sampling-through-leakage-and-loss/) for the development story and examples.
+
+### Added
+
+- Added `noncomp.compile(circuit, model)` and reusable `NonComputationalProgram` objects. Automatic selection uses a fixed compiled plan for eligible models and trajectories otherwise; `program.explain()` describes the choice. Fixed execution supports scalar and packed sampling, non-Clifford gates, and `batch_size="tune"`. See [Compiling and Execution](https://unitaryfoundation.github.io/clifft/stable/guide/leakage-and-loss/#compiling-and-execution), by @bachase-agent in [#590](https://github.com/unitaryfoundation/clifft/pull/590), [#609](https://github.com/unitaryfoundation/clifft/pull/609), [#610](https://github.com/unitaryfoundation/clifft/pull/610), and [#635](https://github.com/unitaryfoundation/clifft/pull/635).
+- Added explicit `execution="online"` for leakage and loss sampling. It evolves the Clifford frame and active state during each shot, avoiding trajectory recompilation when jumps change later operations. It runs scalar shots with optional cross-shot parallelism and skips compiler optimization passes, so compare active width and sampling time for your circuit. Automatic selection does not choose online execution. See [Online Execution](https://unitaryfoundation.github.io/clifft/stable/guide/leakage-and-loss/#online-execution), by @bachase-agent in [#640](https://github.com/unitaryfoundation/clifft/pull/640).
+- Extended phase and rotation simplification to recover known stabilizers after measurement and feedback. Phase optimization also uses supported postselected measurements, searches larger commuting T regions, and removes rotations that cannot affect any remaining recorded output. See [Optimization Passes](https://unitaryfoundation.github.io/clifft/stable/reference/passes/#constraints-from-measurement-and-feedback), by @bachase-agent in [#552](https://github.com/unitaryfoundation/clifft/pull/552) and [#576](https://github.com/unitaryfoundation/clifft/pull/576).
+- Added `default_hir_pass_manager(overrides=[...])` to customize individual default compiler passes while retaining the other passes and their order, by @bachase-agent in [#569](https://github.com/unitaryfoundation/clifft/pull/569).
+
+### Changed
+
+- **Breaking, leakage/loss outputs:** `noncomp.sample()` now defaults to `final_status=False`, leaving `result.final_status` as `None`. Pass `final_status=True` to retain detailed per-qubit final statuses. Automatic execution and batching can also change fixed-seed samples; choose an explicit execution strategy and batch size when recording a reproducible configuration, by @bachase-agent in [#610](https://github.com/unitaryfoundation/clifft/pull/610).
+- **Breaking, compiler defaults:** `PhasePolynomialPass.max_variables` increases from 32 in v0.12 to 128. Use `default_hir_pass_manager(overrides=[clifft.PhasePolynomialPass(max_variables=32)])` to retain the previous collection limit. The new optimizations preserve measurement and survivor distributions but can change compiled plans and fixed-seed samples, by @bachase-agent in [#552](https://github.com/unitaryfoundation/clifft/pull/552) and [#576](https://github.com/unitaryfoundation/clifft/pull/576).
+- **Breaking, automatic batching:** Postselected `batch_size="auto"` calls with peak active width 0-4 and at least 64 shots now use packed execution and can return different fixed-seed samples. Pass `batch_size=1` to retain scalar execution, by @bachase-agent in [#566](https://github.com/unitaryfoundation/clifft/pull/566).
+- **Breaking, input validation:** Malformed operands and invalid noise arguments now fail during parsing. Single-probability noise instructions require exactly one finite probability in `[0, 1]`; use explicit `(0)` instead of omitting the argument, by @bachase-agent in [#597](https://github.com/unitaryfoundation/clifft/pull/597).
+- **Breaking, macOS wheels:** New arm64 wheels require macOS 15 or newer. Users on macOS 14 must upgrade or use an older Clifft release, by @bachase-agent in [#643](https://github.com/unitaryfoundation/clifft/pull/643).
+
+### Performance
+
+- Reduced fixed leakage/loss sampling overhead by compiling and batching classical status, noise, and readout work and applying peephole fusion to fixed quantum plans. Automatic batch selection now accounts for classical work and memory, by @bachase-agent in [#605](https://github.com/unitaryfoundation/clifft/pull/605), [#625](https://github.com/unitaryfoundation/clifft/pull/625), [#629](https://github.com/unitaryfoundation/clifft/pull/629), and [#636](https://github.com/unitaryfoundation/clifft/pull/636).
+- Reduced packed rotation-sign preparation and output-transposition overhead, and skipped unused scalar expectation-value probes, by @bachase-agent in [#572](https://github.com/unitaryfoundation/clifft/pull/572), [#593](https://github.com/unitaryfoundation/clifft/pull/593), and [#626](https://github.com/unitaryfoundation/clifft/pull/626).
+
+### Fixed
+
+- Accepted signed Pauli factors in `R_PAULI` and classical record operands in either position of `CZ`, including valid record-record pairs, by @bachase-agent in [#651](https://github.com/unitaryfoundation/clifft/pull/651).
+- Clamped folded noise probabilities at one to avoid roundoff producing invalid totals, by @bachase-agent in [#631](https://github.com/unitaryfoundation/clifft/pull/631).
+- Rejected non-integer CPU replay inputs instead of silently converting them, by @bachase-agent in [#618](https://github.com/unitaryfoundation/clifft/pull/618).
+
+### Testing
+
+- Added weighted replay of leakage/loss histories against an independent physical-state reference, including rare events, state-dependent filtering, heralds, recapture, reset, and feedback. Extended state-reuse checks across repeated shots, by @bachase-agent in [#620](https://github.com/unitaryfoundation/clifft/pull/620), [#644](https://github.com/unitaryfoundation/clifft/pull/644), and [#650](https://github.com/unitaryfoundation/clifft/pull/650).
+- Applied shared structured circuit tests to fixed, trajectory, and online execution, with independent Aer and Stim references where applicable, by @bachase-agent in [#648](https://github.com/unitaryfoundation/clifft/pull/648).
+- Strengthened compiler equivalence checks for recoverable stabilizers, noise and measurement barriers, and wide phase-polynomial regions, by @bachase-agent in [#579](https://github.com/unitaryfoundation/clifft/pull/579) and [#580](https://github.com/unitaryfoundation/clifft/pull/580).
+
+### Documentation and CI
+
+- Reworked the leakage/loss guides around model behavior and execution choices, clarified coherent-error reference normalization, and added a development-blog index, by @bachase-agent in [#588](https://github.com/unitaryfoundation/clifft/pull/588), [#608](https://github.com/unitaryfoundation/clifft/pull/608), and [#637](https://github.com/unitaryfoundation/clifft/pull/637).
+- Added core-wheel smoke tests on Python 3.15, reduced routine CI test time, and documented how to publish performance results from one benchmark run, by @bachase-agent in [#592](https://github.com/unitaryfoundation/clifft/pull/592), [#594](https://github.com/unitaryfoundation/clifft/pull/594), and [#649](https://github.com/unitaryfoundation/clifft/pull/649).
+
 ## [0.12.0] - 2026-10-13
 
 Clifft 0.12.0 extends leakage and loss modeling with status probes and configurable effects on gate partners, adds two default compiler passes that find smaller active states, and introduces opt-in CPU batch tuning. See [Richer Noise Models, Smaller Active States](https://unitaryfoundation.github.io/clifft/stable/updates/smaller-active-states/) for examples.
