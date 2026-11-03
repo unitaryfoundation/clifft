@@ -1,34 +1,37 @@
-# Sampling Through Leakage and Loss (v0.13.0)
+# Improved Leakage and Loss Sampling Throughput (v0.13.0)
 
 **Release date:** Pending
 
-A lost qubit can remove gates from the rest of a circuit. Leakage can disturb
-its gate partners, change later readout, and trigger feedback. Simulating
-these effects means following both the quantum state and which operations
-still apply on each shot.
+Since v0.7, Clifft has supported sampling non-Clifford circuits with leakage
+and loss. Leakage moves a qubit outside its computational subspace; loss
+removes the physical carrier from its site. These errors can change which
+subsequent gates act and what later measurements report.
 
-Clifft 0.12 expanded the ways to describe those effects. Version 0.13 adds
-execution choices to make them practical to sample: reusable, batched plans
-for eligible models, and an online backend that responds to events as they
-happen. The compiler also finds more simplifications using what measurement
-and postselection reveal about the state.
+Leakage and loss complicate Clifft's compilation model. Normally, Clifft
+compiles a circuit once and reuses the resulting plan across many shots. If a
+qubit is lost, gates involving it may disappear from the remaining circuit,
+invalidating that plan. Until now, Clifft handled such events by compiling a continuation
+for the rest of the shot. Repeated compilation can dominate sampling time.
 
-## Compile once and sample in batches
+Clifft 0.13 adds two execution modes to avoid that cost: fixed execution
+reuses one compiled plan for eligible models, while online execution applies
+the circuit directly as each shot runs. Separately, the ordinary circuit
+compiler now recovers more known stabilizers after measurement and feedback,
+and uses postselection to simplify more non-Clifford operations.
 
-Clifft's trajectory sampler recompiles the remaining circuit when a leakage
-or loss event changes later operations. That supports detailed models, but
-repeated compilation can become a substantial part of the cost of collecting
-many shots.
+## Fixed and batched execution
 
-Some models allow the same compiled quantum circuit to serve every shot.
-Clifft can sample their leakage/loss statuses and associated noise separately,
-then supply those choices to a fixed plan. This opens up packed execution,
-where one worker processes several shots together.
+For some noise models, the leakage/loss statuses and associated noise can be
+sampled independently of the quantum state. Clifft can generate those choices
+as classical inputs to one fixed quantum plan, including processing many
+shots together in packed batches.
 
-For example, suppose a lost qubit fully depolarizes its partner at a two-qubit
-gate. With that noise applied, keeping the gate in the compiled circuit gives
-the same output statistics as dropping it and fully randomizing the partner.
-That lets this model use fixed execution:
+Two-qubit gates need special treatment. Suppose a lost qubit fully depolarizes
+its partner whenever they would interact. Applying that depolarization after
+the gate gives the same reduced state on the remaining qubits as dropping
+the gate and depolarizing the partner. The compiled plan can therefore keep
+the gate, with the partner noise conditioned on loss. Here is a model that
+allows this, with random readout on lost sites:
 
 ```python
 from clifft import noncomp
@@ -57,52 +60,37 @@ first = program.sample(shots=10_000, seed=42)
 second = program.sample(shots=10_000, seed=43)
 ```
 
-The new `noncomp.compile()` API prepares a reusable program, so repeated
-sampling calls share the preparation work. Here, the classifier assigns a
-random readout bit to a lost site. With the default
-`execution="auto"`, Clifft chooses fixed execution when the model permits it
-and trajectories otherwise. `program.explain()` reports the choice and any
-reason for falling back. The [execution guide](../guide/leakage-and-loss.md#fixed-execution-vs-trajectories)
-describes which physical assumptions allow a fixed plan.
+The new `noncomp.compile()` API returns a reusable program. Its default
+`execution="auto"` selects fixed execution when the circuit and model permit
+it, and trajectories otherwise. `program.explain()` reports the selection
+and any fallback reason; the [execution guide](../guide/leakage-and-loss.md#fixed-execution-vs-trajectories)
+gives the eligibility conditions.
 
-Automatic batching accounts for the classical work and memory as well as the
-quantum state. For longer jobs, fixed execution also supports
-[`batch_size="tune"`](../guide/leakage-and-loss.md#tuning-batch-size): it tries
-several batch sizes and reports one you can reuse on subsequent calls.
+## Online execution without recompilation
 
-## Follow changes during a shot
+A model that drops gates after loss without disturbing the remaining partner
+cannot use the fixed plan above. State-dependent leakage rates also require
+resolving transitions against the quantum state during sampling.
 
-Other models need more flexibility. A lost qubit might cause a gate to be
-skipped while leaving its partner undisturbed, or a transition probability
-might depend on the qubit's quantum state. Recompiling after each event can
-be costly when many such events occur.
-
-The new `execution="online"` option updates the Clifford frame and compact
-active state as each shot runs. It can therefore skip gates, handle
-state-dependent transitions, and continue after recapture without compiling
-a new continuation.
-
-For the same circuit, a model that simply drops gates involving lost qubits
-can use online execution explicitly:
+The new online backend updates the Clifford frame and active state as it
+executes each shot. When a qubit leaks or is lost, it changes which subsequent
+gates apply without compiling a continuation. To use it on the same circuit
+with gates simply dropped after loss:
 
 <!--pytest-codeblocks:cont-->
 ```python
 online = noncomp.compile(
     circuit, noncomp.Model(classifier=classifier), execution="online"
 )
-result = online.sample(shots=1000, seed=42, collect_stats=True)
-assert result.stats.online_shots == 1000
-assert result.stats.continuation_compilations == 0
+result = online.sample(shots=10_000, seed=42)
 ```
 
-This is a useful choice when trajectory recompilation dominates sampling
-time. Online execution runs scalar shots, with optional parallel workers,
-and skips compiler optimization passes. Its active state can therefore be
-larger, and each extra active qubit doubles the dense-state storage. Compare
-sampling time and peak active width for your circuit; automatic selection
-continues to choose between fixed execution and trajectories. See
-[Online Execution](../guide/leakage-and-loss.md#online-execution) for controls
-and supported operations.
+Online execution pays for Clifford-frame updates on every shot and skips the
+compiler's optimization passes. Its active state can be larger, and it
+currently processes one shot at a time per worker. The measurements below
+show both a gain from avoiding recompilation and cases where trajectories
+remain faster. Online execution requires explicit `execution="online"`;
+see the [guide](../guide/leakage-and-loss.md#online-execution) for its controls.
 
 ## Local sampling measurements
 
@@ -124,9 +112,7 @@ use 0.8% leakage and 0.2% loss from the excited state after each S gate.
 
 Automatic execution chose fixed plans for the first two rows and trajectories
 for the others. Online execution was **1.6-1.7x slower** on the state-dependent
-cases, while the default retained roughly v0.12 performance. Avoiding
-recompilation helps some models substantially; it does not make online
-execution the fastest choice for every circuit.
+cases, while the default retained roughly v0.12 performance.
 
 These are local measurements on an AMD EPYC 9554P VM, using one pinned vCPU
 and matching Clang 18 Release builds of v0.12.0 and the v0.13 development
@@ -137,41 +123,53 @@ Circuit parsing and model construction happen before timing. The
 [circuits, models, settings, and individual timings](../assets/updates/noncomp-sampling-v013.json)
 are available alongside this post.
 
-## Use what measurements tell us
+## Stabilizer recovery and phase simplification
 
-For circuits compiled with `clifft.compile()`, this release also simplifies
-more non-Clifford operations using known properties of the state. Earlier
-non-Clifford gates need not prevent the compiler from learning something
-useful later. An ideal Z measurement followed by an X correction
-when the result is one, for example, prepares `|0>` regardless of the earlier
-state. The phase and rotation passes can now recover that fact and use it to
-simplify subsequent operations.
+For ordinary circuits compiled with `clifft.compile()`, measurement and
+feedback can restore known Pauli eigenvalues after non-Clifford gates. In
+this example, `M 0` followed by `CX rec[-1] 0` prepares qubit 0 in `|0>`.
+Consequently, `Z0*Z1` and `Z1` act identically on the state, and the two
+opposite rotations on qubit 1 cancel:
 
-Phase optimization also uses supported postselected measurements to reason
-about the shots that survive. It searches larger groups of commuting T
-rotations and removes rotations that cannot affect any remaining recorded
-output. These reductions can save work on every shot, at the cost of more
-compilation effort. The new `default_hir_pass_manager(overrides=[...])` API
-lets you adjust one default pass while keeping the rest of the pipeline.
+```python
+import clifft
 
-See the [pass reference](../reference/passes.md#constraints-from-measurement-and-feedback)
-for the conditions and controls, and [Optimization for Simulation](../theory/stabilizer-optimization.md)
-for the reasoning. The [Merlin research and examples](../acknowledgments.md#merlin)
-helped inform this work.
+source = """
+    H 0
+    T 0
+    H 0
+    M 0
+    CX rec[-1] 0
+    H 1
+    R_Z(0.137) 1
+    R_PAULI(-0.137) Z0*Z1
+    H 1
+    M 1
+"""
+simplifier = clifft.RotationSimplificationPass()
+passes = clifft.default_hir_pass_manager(overrides=[simplifier])
+program = clifft.compile(source, hir_passes=passes)
+assert simplifier.rotations_removed == 2
+```
 
-## Check the histories behind the samples
+The rotation pass in v0.12 retained both rotations; the new pass removes them
+using the recovered `+Z0` stabilizer. The earlier T gate still affects the
+first measurement's distribution. Removing the feedback instruction prevents
+the cancellation because qubit 0 then has an outcome-dependent Z eigenvalue.
 
-Rare leakage and loss histories are easy to miss in random sampling. The new
-validation runs selected histories directly, accounts for their probabilities,
-and compares their physical states and joint outputs with an independent
-reference. It also checks the state change when a state-dependent transition
-does *not* occur, since that filtering can affect later interference.
+Postselection can also fix Pauli eigenvalues on surviving shots. The phase
+pass now uses supported postselected measurements to recover those
+constraints, and collects larger groups of commuting T rotations to expose
+cancellations across a complete group.
 
-Shared structured circuit tests now exercise fixed, trajectory, and online
-execution, using Qiskit Aer and Stim references where applicable. Together,
-these checks cover both the physical evolution along a history and the
-observable results across execution choices. See
-[Testing](../development/testing.md#weighted-noncomputational-histories) for
-the validation approach, and the
-[release notes](https://github.com/unitaryfoundation/clifft/blob/main/CHANGELOG.md)
-for compatibility changes when upgrading.
+[Merlin's description of measured code-switching circuits](../acknowledgments.md#merlin)
+using affine support and phase polynomials motivated these extensions to
+Clifft's Pauli constraint analysis and TOHPE synthesis. Its BT27 circuit
+exercises stabilizer recovery through measurement and feedback. The modified
+BT81 example contains a commuting phase region with 87 independent variables,
+beyond the previous default collection limit of 32; the new default allows
+up to 128. The [pass reference](../reference/passes.md#constraints-from-measurement-and-feedback)
+describes the conditions under which these rewrites apply.
+
+See the [release notes](https://github.com/unitaryfoundation/clifft/blob/main/CHANGELOG.md)
+for changed defaults and compatibility details when upgrading.

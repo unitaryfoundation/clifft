@@ -110,7 +110,7 @@ as each shot runs without recompiling the remaining circuit.
 
 The compiler also uses more information from measurement, feedback, and
 postselection to simplify non-Clifford operations. Read
-[Sampling Through Leakage and Loss](updates/sampling-through-leakage-and-loss.md)
+[Improved Leakage and Loss Sampling Throughput](updates/sampling-through-leakage-and-loss.md)
 for the release story and examples, and the
 [release notes](https://github.com/unitaryfoundation/clifft/blob/main/CHANGELOG.md)
 for changed defaults and compatibility details. Earlier releases are covered

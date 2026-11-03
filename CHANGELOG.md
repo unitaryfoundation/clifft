@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [0.13.0] - 2026-11-03
 
-Clifft 0.13.0 adds reusable, batched execution for eligible leakage and loss models and an opt-in online backend that handles changes to later gates without recompiling during a shot. Compiler improvements use measurement, feedback, and postselection to simplify more non-Clifford operations. See [Sampling Through Leakage and Loss](https://unitaryfoundation.github.io/clifft/stable/updates/sampling-through-leakage-and-loss/) for the development story and examples.
+Clifft 0.13.0 adds reusable, batched execution for eligible leakage and loss models and an opt-in online backend that handles changes to later gates without recompiling during a shot. Compiler improvements use measurement, feedback, and postselection to simplify more non-Clifford operations. See [Improved Leakage and Loss Sampling Throughput](https://unitaryfoundation.github.io/clifft/stable/updates/sampling-through-leakage-and-loss/) for the development story and examples.
 
 ### Added
 
