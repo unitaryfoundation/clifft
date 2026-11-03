@@ -12,11 +12,9 @@
 // and herald flags) use one per-shot stream. Executor measurements, noise, and
 // transition decisions use a separate per-shot stream; see shot_seed.h.
 
-#include "clifft/noncomp/trajectory_driver.h"
-
 #include "clifft/frontend/frontend.h"
-#include "clifft/noncomp/instrument_options.h"
 #include "clifft/noncomp/interaction.h"
+#include "clifft/noncomp/preparation.h"
 #include "clifft/noncomp/rewriter.h"
 #include "clifft/noncomp/status_walk.h"
 #include "clifft/noncomp/transition_instrument.h"

@@ -13,7 +13,7 @@ class BatchExecutor;
 class ExecutablePlan;
 
 // External noise/readout decisions let a driver reuse one quantum plan across
-// packed shots, including fixed-plan sampling for supported leakage/loss models.
+// packed shots, including fixed noncomputational sampling for supported leakage/loss models.
 //
 // Caller-owned, reusable input columns for one packed worker. The plan must
 // outlive this buffer. Construction fixes the shape; filling and consuming

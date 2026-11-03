@@ -1,6 +1,6 @@
 #pragma once
 
-#include "clifft/noncomp/instrument_options.h"
+#include "clifft/frontend/frontend.h"
 
 namespace clifft::test {
 

@@ -19,9 +19,9 @@ interest is dominated by rare faults.
   It reports aggregate survivor and logical-error counts and can optionally
   retain survivor rows.
 
-Both functions accept the same CPU execution controls as ordinary fixed-plan
-sampling. See [CPU Execution and Tuning](cpu-execution.md) after choosing the
-right result contract.
+Both functions accept the same CPU execution controls as `clifft.sample()`.
+See [CPU Execution and Tuning](cpu-execution.md) for threading and batching
+options.
 
 ## Build the strata
 

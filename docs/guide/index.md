@@ -6,8 +6,7 @@ work runs on the available hardware. Start with the result you need; execution
 tuning comes last.
 
 See [Performance](performance.md) for near-Clifford comparisons, release
-history, dense Quantum Volume results, and the measurement contracts behind
-them.
+history, dense Quantum Volume results, and how each benchmark is measured.
 
 ## 1. Provide a circuit
 

@@ -2,7 +2,6 @@
 
 #include "clifft/noncomp/online.h"
 #include "clifft/noncomp/online_state.h"
-#include "clifft/noncomp/trajectory_driver.h"
 
 #include "noncomp_replay_hooks.h"
 #include "sampling_equivalence_helpers.h"

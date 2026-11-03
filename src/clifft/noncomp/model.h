@@ -20,6 +20,7 @@
 // accepted as hooks that silently never fire.
 
 #include "clifft/circuit/gate_data.h"
+#include "clifft/frontend/frontend.h"
 #include "clifft/noncomp/classifier.h"
 #include "clifft/noncomp/interaction.h"
 #include "clifft/noncomp/level.h"
@@ -28,6 +29,7 @@
 
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <map>
 #include <optional>
 #include <string>
@@ -108,5 +110,19 @@ class NonComputationalModel {
     GatePartnerEffects gate_partner_effects_;
     std::map<std::tuple<GateType, uint32_t, InteractionSource>, PartnerEffect> interactions_;
 };
+
+// Expands gate hooks and configured partner effects into explicit circuit
+// annotations (`LEAKAGE_INTERACTION`, `LOSS_INTERACTION`, and per-operand
+// `LEVEL_TRANSITION[key]`). Record-controlled feedback receives neither kind of
+// hook. When requested, `generated_by` records each generated node's originating
+// physical-gate index in the expanded circuit; original nodes have no parent.
+Circuit expand_transition_hooks(const Circuit& circuit, const NonComputationalModel& model,
+                                std::vector<std::optional<uint32_t>>* generated_by = nullptr);
+
+// Compresses a model's five-level transition matrices into the two
+// computational-source columns (`InstrumentProbabilities`) and damping flag
+// needed by `trace()`, keeping the front-end independent of the five-level
+// model.
+InstrumentTraceOptions instrument_trace_options(const NonComputationalModel& model);
 
 }  // namespace clifft

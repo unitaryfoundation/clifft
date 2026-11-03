@@ -9,7 +9,6 @@
 
 #include "clifft/circuit/parser.h"
 #include "clifft/frontend/frontend.h"
-#include "clifft/noncomp/instrument_options.h"
 #include "clifft/noncomp/model.h"
 #include "clifft/optimizer/commutation.h"
 #include "clifft/optimizer/peephole.h"

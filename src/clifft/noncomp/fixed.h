@@ -5,12 +5,15 @@
 // quantum plan; shots supply classical status-conditioned inputs to that plan.
 // Unsupported requests return a reason for the caller's trajectory fallback.
 
+#include "clifft/frontend/hir.h"
 #include "clifft/noncomp/preparation.h"
+#include "clifft/sampling/plan.h"
 
 #include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <span>
 #include <variant>
 
 namespace clifft {
@@ -70,7 +73,19 @@ struct FixedNonComputationalResult {
 
 namespace detail {
 struct FixedNonComputationalData;
-}
+
+struct FixedReadoutSite {
+    size_t node;
+    uint32_t record;
+};
+
+// External inputs are ordered by lowered circuit sites. Check both boundaries
+// before installing them: equal counts or equal record targets do not establish
+// identity, particularly for consecutive channels on the same record.
+void validate_fixed_input_bindings(std::span<const size_t> noise_nodes,
+                                   std::span<const FixedReadoutSite> readout_sites,
+                                   const HirModule& hir, const sampling::SamplingPlan& plan);
+}  // namespace detail
 
 class FixedNonComputationalProgram {
   public:

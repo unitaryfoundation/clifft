@@ -38,6 +38,10 @@ inline constexpr double kMeasurementDustEpsilonFor =
 // detail.
 inline constexpr double kRotationCanonicalizationTolerance = 1e-12;
 
+// Shared tolerance for probability-sum and column-sum checks across
+// noncomputational model, classifier, and transition validation.
+inline constexpr double kProbTolerance = 1e-12;
+
 [[nodiscard]] inline constexpr uint64_t saturating_add_u64(uint64_t left, uint64_t right) noexcept {
     return right > std::numeric_limits<uint64_t>::max() - left
                ? std::numeric_limits<uint64_t>::max()

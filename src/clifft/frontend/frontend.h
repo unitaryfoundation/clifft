@@ -27,7 +27,7 @@
 
 namespace clifft {
 
-// Opt-in instrument materialization for trace(). `transitions` maps a
+// Opt-in transition-instrument options for trace(). `transitions` maps a
 // LEVEL_TRANSITION tag to its spec; LEAKAGE and LOSS need no entry (their
 // probabilities are inline and their destinations are entirely in the trap
 // remainder).

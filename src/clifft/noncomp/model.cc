@@ -2,7 +2,9 @@
 
 #include "clifft/circuit/gate_data.h"
 #include "clifft/circuit/parser.h"
-#include "clifft/noncomp/numeric.h"
+#include "clifft/circuit/target.h"
+#include "clifft/noncomp/status_walk.h"
+#include "clifft/util/numeric.h"
 
 #include <cstddef>
 #include <map>
@@ -210,6 +212,116 @@ const PartnerEffect* NonComputationalModel::partner_effect(GateType gate, uint32
 const TransitionInstrument* NonComputationalModel::transition_named(std::string_view name) const {
     const auto it = transitions_.find(name);
     return it == transitions_.end() ? nullptr : &it->second;
+}
+
+namespace {
+bool has_enabled_partner_effect(const NonComputationalModel& model, GateType gate) {
+    for (uint32_t source = 0; source < 2; ++source) {
+        for (const auto status : {InteractionSource::Leaked, InteractionSource::Lost}) {
+            const PartnerEffect* effect = model.partner_effect(gate, source, status);
+            if (effect != nullptr && !effect->empty()) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+}  // namespace
+
+Circuit expand_transition_hooks(const Circuit& circuit, const NonComputationalModel& model,
+                                std::vector<std::optional<uint32_t>>* generated_by) {
+    const auto& hooks = model.transition_hooks();
+
+    Circuit out = circuit.metadata_only_copy();
+    out.nodes.reserve(circuit.nodes.size() * 2);
+    if (generated_by != nullptr) {
+        generated_by->clear();
+        generated_by->reserve(circuit.nodes.size() * 2);
+    }
+    auto append = [&](AstNode node, std::optional<uint32_t> parent) {
+        out.nodes.push_back(std::move(node));
+        if (generated_by != nullptr) {
+            generated_by->push_back(parent);
+        }
+    };
+
+    for (const AstNode& node : circuit.nodes) {
+        const auto gate_index = static_cast<uint32_t>(out.nodes.size());
+        append(node, std::nullopt);
+        if (supports_partner_effect(node.gate) && has_enabled_partner_effect(model, node.gate)) {
+            const auto operands = qubit_operands(node);
+            if (operands.size() == 2 && operands[0].role == OperandRole::Physical &&
+                operands[1].role == OperandRole::Physical) {
+                for (uint32_t source = 0; source < 2; ++source) {
+                    for (const auto status : {InteractionSource::Leaked, InteractionSource::Lost}) {
+                        const PartnerEffect* effect =
+                            model.partner_effect(node.gate, source, status);
+                        if (effect == nullptr || effect->empty()) {
+                            continue;
+                        }
+                        const bool leakage = status == InteractionSource::Leaked;
+                        std::vector<double> args(effect->pauli.begin(), effect->pauli.end());
+                        if (leakage) {
+                            args.push_back(effect->spread_probability);
+                        }
+                        append(AstNode{leakage ? GateType::LEAKAGE_INTERACTION
+                                               : GateType::LOSS_INTERACTION,
+                                       {node.targets[source], node.targets[1 - source]},
+                                       std::move(args),
+                                       node.source_line},
+                               gate_index);
+                    }
+                }
+            } else if (operands.size() != 1 || operands[0].role != OperandRole::Feedback) {
+                throw std::invalid_argument(
+                    "configured partner effects require one physical gate pair per node");
+            }
+        }
+        const auto hook = hooks.find(node.gate);
+        if (hook == hooks.end()) {
+            continue;
+        }
+        // Add a transition for each qubit the gate acts on directly.
+        // Record-controlled feedback does not physically execute the gate.
+        for (const QubitOperand& operand : qubit_operands(node)) {
+            if (operand.role != OperandRole::Physical) {
+                continue;
+            }
+            append(AstNode{GateType::LEVEL_TRANSITION,
+                           {Target::qubit(operand.qubit)},
+                           {},
+                           node.source_line,
+                           hook->second},
+                   gate_index);
+        }
+    }
+    return out;
+}
+
+InstrumentTraceOptions instrument_trace_options(const NonComputationalModel& model) {
+    constexpr Level computational[2] = {Level::G, Level::E};
+
+    InstrumentTraceOptions options;
+    options.neglect_instrument_damping = model.policy().damping == DampingPolicy::Neglect;
+
+    for (const auto& [name, instrument] : model.transitions()) {
+        InstrumentProbabilities probabilities;
+        // Compress only the columns whose source remains quantum. p_fire
+        // retains each full five-level column sum, while
+        // p_computational_dest retains its G/E destination entries. Their
+        // difference is the aggregate LeakG/LeakE/Lost trap probability.
+        // Columns sourced at a noncomputational level stay in the model and
+        // are consulted classically by the trajectory driver.
+        for (int s = 0; s < 2; ++s) {
+            probabilities.p_fire[s] = instrument.column_sum(computational[s]);
+            for (int d = 0; d < 2; ++d) {
+                probabilities.p_computational_dest[s][d] =
+                    instrument.prob(computational[d], computational[s]);
+            }
+        }
+        options.transitions.emplace(name, probabilities);
+    }
+    return options;
 }
 
 }  // namespace clifft

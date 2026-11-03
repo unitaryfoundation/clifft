@@ -74,7 +74,7 @@ conditioned on acceptance is `errors / (shots - discards)` when the denominator
 is nonzero.
 
 This example estimates color-code error rates conditioned on detecting no
-errors. It does not apply a decoder to correct detected errors.
+errors (pure error detection without error correction).
 
 ## Options and limits
 

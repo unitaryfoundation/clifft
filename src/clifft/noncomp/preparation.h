@@ -4,6 +4,7 @@
 #include "clifft/noncomp/model.h"
 #include "clifft/noncomp/resolution.h"
 #include "clifft/noncomp/sample.h"
+#include "clifft/util/shot_seed.h"
 
 #include <cstdint>
 #include <optional>
@@ -37,5 +38,12 @@ class PreparedNonComputationalRequest {
     ResolvedNonComputationalCircuit resolved_circuit_;
     NonComputationalRequirements requirements_;
 };
+
+// Steps through shots with noncomputational transitions, stopping at executor
+// traps to record leaked/lost events, compile a rewritten continuation, and
+// resume the shot.
+NonComputationalSample run_trajectory_driver(const PreparedNonComputationalRequest& request,
+                                             uint32_t shots, const SeedRoot& root, uint32_t threads,
+                                             bool collect_stats = false);
 
 }  // namespace clifft

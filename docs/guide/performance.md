@@ -151,5 +151,4 @@ and
 ## Future benchmark scope
 
 The near-Clifford comparison is CPU-only. GPU benchmarking remains ongoing
-work, including comparisons with Tsim under a separate hardware and measurement
-contract.
+work, including comparisons with Tsim.
