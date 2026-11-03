@@ -476,7 +476,6 @@ class OnlineWorker {
     }
 
     void reset(const SeedRoot& root, uint32_t shot) noexcept {
-        [[maybe_unused]] detail::ReplayHotPathScope hot_path;
         const auto words = derive_state(root, shot, kOnlineNonComputationalDomain);
         rng.seed_full(words[0], words[1], words[2], words[3]);
         quantum.reset();
@@ -641,7 +640,6 @@ class OnlineWorker {
     // An ordinary dispatch interval cannot allocate or throw. Activation is
     // completed by the caller only after leaving this interval.
     void dispatch_until_boundary() noexcept {
-        [[maybe_unused]] detail::ReplayHotPathScope hot_path;
         while (cursor < program.actions.size()) {
             dispatch(program.actions[cursor++]);
             if (quantum.pending())

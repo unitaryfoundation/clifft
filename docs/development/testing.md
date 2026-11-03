@@ -173,8 +173,7 @@ Weighted replay compares trajectory and online execution with an independent
 physical reference, including rare histories. It preserves branch weights,
 combines hidden outcomes, and traces out vacated qubits without omitting
 supported probability mass. Replay hooks exist only in the diagnostic test
-target, which also covers recapture, reset, classified readout with heralds,
-and hot-path allocation checks.
+target, which also covers recapture, reset, and classified readout with heralds.
 
 Run `ctest --test-dir build -R "Weighted" --output-on-failure`. The supported
 subset and extension requirements live in `tests/noncomp_replay_helpers.h`.

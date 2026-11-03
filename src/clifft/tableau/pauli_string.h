@@ -6,7 +6,6 @@
 
 #include <cstdint>
 #include <string_view>
-#include <utility>
 #include <vector>
 
 namespace clifft {
@@ -56,16 +55,6 @@ class PauliString {
     void set_sign(bool sign);
     void negate() { add_phase(2); }
     void right_multiply(PauliStringView other);
-
-    // Checked vector move construction can allocate iterator proxies. Swapping
-    // the owned buffers directly keeps frame updates allocation-free as well.
-    void swap(PauliString& other) noexcept {
-        std::swap(num_qubits_, other.num_qubits_);
-        x_.swap(other.x_);
-        z_.swap(other.z_);
-        std::swap(phase_, other.phase_);
-    }
-    friend void swap(PauliString& a, PauliString& b) noexcept { a.swap(b); }
 
     [[nodiscard]] bool operator==(const PauliString& other) const;
 

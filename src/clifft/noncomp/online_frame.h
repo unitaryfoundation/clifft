@@ -71,7 +71,7 @@ class OnlineFrame {
         // Conjugate physical input by the inverse gate before the inverse frame.
         switch (gate) {
             case GateType::H:
-                rows[a].swap(rows[n + a]);
+                std::swap(rows[a], rows[n + a]);
                 return;
             case GateType::S:
             case GateType::S_DAG:
@@ -97,8 +97,8 @@ class OnlineFrame {
                 rows[b].right_multiply(rows[n + a].view());
                 return;
             case GateType::SWAP:
-                rows[a].swap(rows[b]);
-                rows[n + a].swap(rows[n + b]);
+                std::swap(rows[a], rows[b]);
+                std::swap(rows[n + a], rows[n + b]);
                 return;
             default:
                 break;

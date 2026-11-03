@@ -41,7 +41,6 @@ class OnlineState {
 
     // The caller has left ordinary dispatch and grown the coefficient buffer.
     void finish_activation() noexcept {
-        [[maybe_unused]] detail::ReplayHotPathScope hot_path;
         assert(pending() && state.max_active_width() > state.active_width());
         const auto kind = pending_kind_;
         pending_kind_ = PendingKind::None;

@@ -1,9 +1,5 @@
 #include "clifft/util/page_allocation.h"
 
-#ifdef CLIFFT_NONCOMP_REPLAY_TESTING
-#include "clifft/sampling/branch_choice.h"
-#endif
-
 #include <cstdlib>
 #include <limits>
 #include <new>
@@ -64,9 +60,6 @@ size_t PageAlignedAllocation::allocation_size(size_t requested_bytes, Alignment 
 }
 
 PageAlignedAllocation::PageAlignedAllocation(size_t requested_bytes, Alignment alignment) {
-#ifdef CLIFFT_NONCOMP_REPLAY_TESTING
-    detail::replay_allocation();
-#endif
     const size_t allocation_bytes = allocation_size(requested_bytes, alignment);
     if (allocation_bytes == 0) {
         return;

@@ -797,3 +797,55 @@ TEST_CASE("Weighted repeated activation distinguishes zero dust and tiny joint s
         REQUIRE((replay.growths > 0) == (angle > 0));
     }
 }
+
+namespace {
+
+struct CapacityReplay : NoncompReplayHooks {
+    const double* data = nullptr;
+    unsigned sources = 0, shots = 0;
+    unsigned choose(ReplayChoice kind, std::span<const double> masses) noexcept override {
+        if (kind == ReplayChoice::Source) {
+            ++sources;
+            return 2;
+        }
+        for (unsigned i = 0; i < masses.size(); ++i)
+            if (masses[i] > 0)
+                return i;
+        return 0;
+    }
+    void append_probes(Circuit&) override {}
+    void inspect(std::span<const double>, std::span<const QubitStatus>) override {}
+    void inspect_online(const noncomp_detail::OnlineState& quantum,
+                        std::span<const QubitStatus>) override {
+        REQUIRE(quantum.state.active_width() == 0);
+        REQUIRE(quantum.state.max_active_width() == 2);
+        if (shots == 0) {
+            data = quantum.state.real_data();
+            REQUIRE(data != nullptr);
+        } else {
+            REQUIRE(quantum.state.real_data() == data);
+        }
+        ++shots;
+        REQUIRE(sources == shots);
+    }
+};
+
+}  // namespace
+
+TEST_CASE("Weighted online growth retains pending decisions and capacity across shots",
+          "[noncomp][weighted_replay]") {
+    const auto circuit = parse("H 0 1\nLEVEL_TRANSITION[first] 0\nT 1\nMY 0\nR_Y(0.25) 0\nM 0 1\n");
+    const OnlineNonComputationalProgram program(
+        PreparedNonComputationalRequest(circuit, replay_model()));
+    CapacityReplay replay;
+    struct Scope {
+        NoncompReplayHooks* previous = noncomp_replay;
+        explicit Scope(NoncompReplayHooks& hooks) { noncomp_replay = &hooks; }
+        ~Scope() { noncomp_replay = previous; }
+    } scope(replay);
+    const auto sample = program.sample(4, 17, 1, true);
+    REQUIRE(replay.shots == 4);
+    REQUIRE(replay.sources == 4);
+    REQUIRE(sample.stats->online_state_growths == 2);
+    REQUIRE(sample.stats->continuation_compilations == 0);
+}

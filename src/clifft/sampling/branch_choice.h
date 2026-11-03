@@ -34,11 +34,6 @@ enum class BranchChoice {
 // Defined by the diagnostic executable, never linked into the ordinary library.
 std::optional<unsigned> replay_branch(BranchChoice kind, std::span<const double> masses) noexcept;
 
-// Resource probes are confined to this executable as well. Ordinary reset,
-// dispatch, and activation completion must remain allocation-free.
-void replay_hot_path(bool enter) noexcept;
-void replay_allocation() noexcept;
-
 // Inspection stays at compilation or completed-shot boundaries, where the
 // diagnostic executable can allocate without changing the hot-path contract.
 void replay_append_probes(Circuit& circuit);
@@ -46,13 +41,6 @@ void replay_inspect(std::span<const double> probes, std::span<const QubitStatus>
 void replay_inspect_online(const noncomp_detail::OnlineState& quantum,
                            std::span<const QubitStatus> status);
 #endif
-
-struct ReplayHotPathScope {
-#ifdef CLIFFT_NONCOMP_REPLAY_TESTING
-    ReplayHotPathScope() noexcept { replay_hot_path(true); }
-    ~ReplayHotPathScope() { replay_hot_path(false); }
-#endif
-};
 
 // Both selectors consume the same supported masses. Keeping the original
 // sampler at the call site preserves its RNG draw count and interval arithmetic.
