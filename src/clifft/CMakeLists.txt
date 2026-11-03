@@ -58,8 +58,6 @@ add_library(clifft_core STATIC
     util/xoshiro.cc
     noncomp/interaction.cc
     noncomp/transition_instrument.cc
-    noncomp/transition_hooks.cc
-    noncomp/instrument_options.cc
     noncomp/classifier.cc
     noncomp/model.cc
     noncomp/status_walk.cc
@@ -70,9 +68,7 @@ add_library(clifft_core STATIC
     noncomp/resolution.cc
     noncomp/fixed.cc
     noncomp/fixed_classical.cc
-    noncomp/fixed_input_validation.cc
     noncomp/trajectory_driver.cc
-    noncomp/sample.cc
 )
 
 # x86-64 runtime dispatch: compile AVX2 and AVX-512 TUs with SIMD flags.

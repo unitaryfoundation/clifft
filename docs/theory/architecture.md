@@ -63,7 +63,7 @@ expressions needed for branch-dependent signs. The resulting `SamplingPlan`
 is a target-independent description of the work common to every shot.
 
 Keeping this boundary semantic matters. The CPU executor and the experimental
-HIP and CUDA backends share the same coordinate choices and output contract
+HIP and CUDA backends share the same coordinate choices and output definitions
 without sharing action layouts, kernel selectors, or fusion policy.
 
 ### Executable Preparation
@@ -78,9 +78,8 @@ The action's kernel tag describes a prepared operation shape, such as a
 diagonal or lane-paired rotation. It does not independently select an ISA.
 This keeps target selection consistent across the whole executor.
 
-`ExecutablePlan` is immutable after construction. Its builder is temporary
-and is discarded once the fixed storage is ready; it is not another persistent
-IR or a runtime pass manager.
+`ExecutablePlan` is immutable after construction, and its builder is discarded
+once the prepared descriptors are finalized.
 
 The experimental HIP and CUDA backends start from the same `SamplingPlan`
 boundary but prepare a backend-private GPU executable and device workspace.

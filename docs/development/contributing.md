@@ -63,7 +63,7 @@ uv run --frozen --only-group dev pre-commit run --all-files --show-diff-on-failu
 - **Formatter:** clang-format
 - **Standard:** C++20
 - **Namespace:** All code in `namespace clifft { ... }`
-- **Comments:** Explain *why*, not *what*. Omit if the code is self-explanatory.
+- **Comments:** Give files and non-trivial types a concise high-level overview (with a short example or formula when helpful), add brief guideposts in dense logic, and explain *why* for non-obvious decisions or constants. Omit line-by-line comments that merely restate the code.
 
 ### Python
 

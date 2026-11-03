@@ -59,7 +59,7 @@ Executor::Executor(const ExecutablePlan& plan, uint64_t seed, uint32_t intra_sho
 
 void Executor::run_shot() noexcept {
     plan_ = root_plan_;
-    assert(plan_->unbound_presampled_symbols_.empty() &&
+    assert(plan_->num_unbound_presampled_symbols_ == 0 &&
            "automatic execution requires every presampled symbol to have a distribution");
     reset_shot();
     if (!plan_->noise_action_deadlines_.empty()) {
@@ -146,7 +146,7 @@ void Executor::resume(const ExecutablePlan& continuation,
         throw std::invalid_argument(
             "sampling continuation changes externally visible plan dimensions");
     }
-    if (!continuation.unbound_presampled_symbols_.empty()) {
+    if (continuation.num_unbound_presampled_symbols_ != 0) {
         throw std::invalid_argument(
             "sampling continuation requires distributions for every presampled symbol");
     }

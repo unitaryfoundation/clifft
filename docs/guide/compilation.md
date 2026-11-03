@@ -38,8 +38,8 @@ result = clifft.sample(program, shots=1_000, seed=42)
 ```
 
 Compilation options such as `postselection_mask`, `normalize_syndromes`,
-`expected_detectors`, and `expected_observables` define the result contract
-used during sampling.
+`expected_detectors`, and `expected_observables` configure how detectors,
+observables, and post-selection are evaluated during sampling.
 
 For detector-based post-selection, use `normalize_syndromes=True` when the
 circuit has fixed detector and observable parities after stochastic and readout
@@ -172,5 +172,5 @@ scalar or SIMD kernels.
 
 These decisions happen before execution. Runtime kernels do not evolve a
 tableau, choose coordinates, localize Paulis, or discover dependencies. See
-[Software Architecture](../theory/architecture.md) for the contracts between
-HIR, semantic planning, executable preparation, and shot execution.
+[Software Architecture](../theory/architecture.md) for how HIR, semantic
+planning, executable preparation, and shot execution fit together.

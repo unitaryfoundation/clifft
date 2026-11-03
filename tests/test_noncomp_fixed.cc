@@ -1,7 +1,6 @@
 #include "clifft/circuit/parser.h"
 #include "clifft/frontend/frontend.h"
 #include "clifft/noncomp/fixed.h"
-#include "clifft/noncomp/fixed_input_validation.h"
 #include "clifft/optimizer/peephole.h"
 #include "clifft/sampling/executor.h"
 #include "clifft/sampling/planner.h"

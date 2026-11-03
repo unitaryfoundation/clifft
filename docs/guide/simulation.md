@@ -5,8 +5,7 @@
 
 This page covers ordinary sampling and post-selected survivor sampling, then
 explains the fields returned in a `SampleResult`. Exact probabilities,
-importance sampling, and leakage or loss answer different scientific questions
-and have their own guides.
+importance sampling, and leakage or loss are covered in their own guides.
 
 ## Choose sampling behavior
 

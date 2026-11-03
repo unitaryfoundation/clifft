@@ -33,8 +33,8 @@ struct ThreadLayout {
 
 // Samples a fixed number of shots into row-major visible-record storage. The
 // plan and executor are prepared once, and all output is allocated before the
-// first shot enters hot execution. Plans with presampled symbols are rejected
-// until their sampling distribution is part of the executable contract.
+// first shot enters hot execution. Plans with unbound presampled symbols or
+// instrument traps are rejected.
 // threads is a total worker budget. threads=0 selects the implementation-
 // reported hardware concurrency; the public Python API spells this as
 // threads="auto". Automatic scheduling uses either cross-shot or intra-shot

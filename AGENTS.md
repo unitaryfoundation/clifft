@@ -1,8 +1,16 @@
 # Clifft Agent Instructions
 
-This file records repository-specific constraints that are easy to miss from
-the code alone. Use `README.md`, `docs/development/`, and `just --list` for
-project orientation and routine build, test, and contribution instructions.
+This file records repository-specific constraints and recurring review patterns
+that are easy to miss from the code alone. Keep design details in their
+canonical docs and use `just --list` for routine build and test commands:
+
+- `README.md`: high-level project overview and quick links
+- `docs/guide/`: user-facing task guides (motivate *why* and *when* to use a
+  feature before options and limits)
+- `docs/theory/`: mathematical and architectural explanations
+- `docs/reference/`: API, gate, and optimization-pass reference
+- `docs/development/`: contributor workflow (`contributing.md`), test strategy
+  (`testing.md`), and hardware backend notes
 
 ## Project Planning
 
@@ -52,41 +60,68 @@ architecture cannot support it:
   compiler-precomputed multi-coordinate active-Pauli actions directly, but
   runtime code must not perform tableau evolution, commutation analysis,
   localization, or dependency discovery. The explicitly selected
-  noncomputational online backend is a separate contract: it may evolve its
+  noncomputational online backend is a separate mode: it may evolve its
   Clifford frame and active coordinates at runtime. Its ordinary dispatch
   remains allocation-free and exception-free; coefficient storage may grow only
   after suspension at an explicit activation boundary.
 
-## Repository-Specific Source and Test Rules
+## Code Simplicity, Prose, and Test Rules
 
-- Keep source files ASCII-only: use `pi`, `|0>`, and `Schrodinger` rather than
-  Unicode alternatives.
-- Comments and docstrings should explain the reason for a decision in plain
-  sentences. Name the behavior and its consequence; define specialized terms
-  when needed. Omit comments that only restate the code.
-- Do not put issue numbers, task phases, or planning details in code comments
-  or test names.
-- Catch2 `TEST_CASE` names must avoid special characters such as `[]`, `()`,
-  and `,`.
-- Validate Python-facing unitaries against Qiskit Aer and stochastic Clifford
-  behavior against Stim when those independent references apply.
-- For test changes, follow
+- **Simplify before finishing:** Before completing a change, review the full diff
+  in hindsight. Inline single-caller helpers, collapse temporary adapter structs
+  or flags introduced mid-development, and fold tiny pass-through headers or
+  single-function bridge files into their natural owning module. Prefer
+  extending an existing module over adding new files or layers unless the
+  boundary serves a distinct caller or compile-time isolation need (such as
+  ISA-specific kernel translation units).
+- **Replace, do not shim:** When lifting an earlier limitation or replacing an
+  execution or compilation path, delete the superseded validation guard,
+  write-only field, legacy path, error test, and stale comment in the same
+  change.
+- **Plain, physics-grounded prose:** Write comments, docstrings, error messages,
+  and docs in direct English grounded in standard quantum-circuit and simulator
+  concepts. Avoid internal specification jargon (such as *"executable
+  contract"*, *"result contract"*, *"review contract"*, *"supported scientific
+  workflow"*, *"fixed-plan samplers"*, *"production worker layout"*, or
+  *"instrument materialization"*) and invented terms that clash with standard
+  quantum or CS terminology. Define specialized terms at first use. Describe
+  what an API, pass, or mode does and when to use it; omit defensive *"what this
+  is not"* disclaimers unless preventing a likely user mistake.
+- **High-signal, present-tense comments:** Keep source files ASCII-only (use
+  `pi`, `|0>`, and `Schrodinger` rather than Unicode alternatives). Give files
+  and non-trivial classes or structs a concise overview comment stating what
+  they represent or do (with a short example or formula when helpful) before
+  member details. Add brief guidepost comments in dense functions and named
+  constants (or short rationale comments) for non-obvious thresholds; omit
+  line-by-line comments that merely restate the code. Write in the present tense
+  so comments and docs stand alone; do not narrate how a bug was fixed, record
+  migration history, or include issue/PR numbers, task phases, or planning notes.
+- **Right-sized documentation with one canonical home:** Give each topic one
+  owner and link rather than duplicate. User guides (`docs/guide/`) exist to
+  help users choose and use Clifft features: open sections by motivating *why* a
+  user would care in 1-2 plain sentences, keep examples small (folding long
+  circuits or dense tables into collapsible blocks), and leave internal
+  implementation catalogs out of user guides. Update existing sections instead
+  of appending overlapping sections or per-release notes.
+- **Test invariants, not prose or snapshots:** Validate behavior, mathematical
+  identities, and statistical properties (cross-checking Python-facing unitaries
+  against Qiskit Aer and stochastic Clifford behavior against Stim when those
+  independent references apply). Catch2 `TEST_CASE` names must avoid special
+  characters such as `[]`, `()`, and `,`. Do not write tests that
+  substring-match English prose in docs or comments, or that assert deleted
+  helpers remain absent. Follow
   [Writing Tests](docs/development/contributing.md#writing-tests).
-- Keep `contributing.md` focused on the shared contribution workflow. Put
-  technical contracts and subsystem details in the relevant topic guide or
-  beside the implementation, and link to them from the contributor guide.
-- Update existing guidance instead of appending overlapping sections. Keep
-  release evidence and task-specific plans in issues and PRs.
 
 ## Acknowledgments and References
 
-Each acknowledgment should complete the sentence "Clifft benefited from this
-work through..." with a concrete algorithm, implementation, design influence,
-validation method, or reused artifact. When introducing a substantive influence,
-update `docs/acknowledgments.md` and, where appropriate, the README summary.
-Distinguish direct use from inspiration, link the relevant paper, software, or
-other source, and preserve citations beside the technical discussion. A paper is
-not required; the specific contribution is.
+Reserve `docs/acknowledgments.md` (and the `README.md` summary) for substantive
+external research or software influences, not minor internal or incidental
+items. Each acknowledgment should complete the sentence "Clifft benefited from
+this work through..." with a concrete algorithm, implementation, design
+influence, validation method, or reused artifact. Distinguish direct use from
+inspiration, link the relevant paper, software, or other source, and preserve
+citations beside the technical discussion. A paper is not required; the specific
+contribution is.
 
 ## Git and AI-Assisted Contribution Rules
 

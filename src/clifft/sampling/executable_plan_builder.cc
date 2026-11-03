@@ -294,7 +294,7 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::prepare_noise_and_bounda
         }
         output_.presampled_symbols_.push_back(symbol);
         if (bound_presampled_symbols_[symbol] == 0) {
-            output_.unbound_presampled_symbols_.push_back(symbol);
+            ++output_.num_unbound_presampled_symbols_;
         }
     }
 

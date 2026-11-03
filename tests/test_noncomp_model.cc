@@ -3,7 +3,6 @@
 #include "clifft/noncomp/level.h"
 #include "clifft/noncomp/model.h"
 #include "clifft/noncomp/policy.h"
-#include "clifft/noncomp/transition_hooks.h"
 
 #include "noncomp_test_helpers.h"
 #include "test_helpers.h"
