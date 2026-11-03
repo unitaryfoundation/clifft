@@ -395,9 +395,10 @@ def _newer_commits_sentence(base_label: str, base_distance: int | None) -> str:
     if not isinstance(base_distance, int) or base_distance <= 0:
         return ""
     noun, verb = ("commit", "is") if base_distance == 1 else ("commits", "are")
+    label = html.escape(base_label)
     return (
-        f" <code>{html.escape(base_label)}</code> has {base_distance} newer {noun} that "
-        f"{verb} not part of this comparison."
+        f" <code>{label}</code> has {base_distance} newer {noun} that {verb} not part of this "
+        f"comparison; merge or rebase onto <code>{label}</code> to measure against its tip."
     )
 
 

@@ -438,8 +438,16 @@ def test_micro_workload_summary_follows_other_sentences() -> None:
 @pytest.mark.parametrize(
     ("base_distance", "sentence"),
     [
-        (3, "<code>main</code> has 3 newer commits that are not part of this comparison."),
-        (1, "<code>main</code> has 1 newer commit that is not part of this comparison."),
+        (
+            3,
+            "<code>main</code> has 3 newer commits that are not part of this comparison; "
+            "merge or rebase onto <code>main</code> to measure against its tip.",
+        ),
+        (
+            1,
+            "<code>main</code> has 1 newer commit that is not part of this comparison; "
+            "merge or rebase onto <code>main</code> to measure against its tip.",
+        ),
         (0, None),
         (None, None),
     ],
@@ -476,7 +484,10 @@ def test_failure_report_names_the_merge_base() -> None:
         "Attempted to compare this PR (<code>abcdef0</code>) with its merge-base on "
         "<code>main</code> (<code>1234567</code>)."
     ) in report
-    assert "<code>main</code> has 2 newer commits that are not part of this comparison." in report
+    assert (
+        "<code>main</code> has 2 newer commits that are not part of this comparison; "
+        "merge or rebase onto <code>main</code> to measure against its tip."
+    ) in report
     assert "with its merge-base on <code>main</code>" in without_distance
     assert "newer commit" not in without_distance
 
