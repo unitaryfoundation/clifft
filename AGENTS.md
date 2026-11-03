@@ -68,12 +68,13 @@ architecture cannot support it:
 ## Code Simplicity, Prose, and Test Rules
 
 - **Simplify before finishing:** Before completing a change, review the full diff
-  in hindsight. Inline single-caller helpers, collapse temporary adapter structs
-  or flags introduced mid-development, and fold tiny pass-through headers or
-  single-function bridge files into their natural owning module. Prefer
-  extending an existing module over adding new files or layers unless the
-  boundary serves a distinct caller or compile-time isolation need (such as
-  ISA-specific kernel translation units).
+  in hindsight. Inline trivial single-caller bridge helpers, collapse temporary
+  adapter structs or flags introduced mid-development, and fold tiny
+  pass-through headers or single-function bridge files into their natural owning
+  module. Prefer extending an existing module over adding new files or layers.
+  Keep abstractions that clarify nontrivial logic, group related state, serve a
+  distinct caller, or provide compile-time isolation (such as ISA-specific
+  kernel translation units).
 - **Replace, do not shim:** When lifting an earlier limitation or replacing an
   execution or compilation path, delete the superseded validation guard,
   write-only field, legacy path, error test, and stale comment in the same
@@ -101,15 +102,20 @@ architecture cannot support it:
   help users choose and use Clifft features: open sections by motivating *why* a
   user would care in 1-2 plain sentences, keep examples small (folding long
   circuits or dense tables into collapsible blocks), and leave internal
-  implementation catalogs out of user guides. Update existing sections instead
-  of appending overlapping sections or per-release notes.
+  implementation catalogs out of user guides. Preserve limitations, tradeoffs,
+  and relationships to other options that help users choose correctly. Update
+  existing sections instead of appending overlapping sections or per-release
+  notes, then read the whole revised page for flow and consistent detail.
 - **Test invariants, not prose or snapshots:** Validate behavior, mathematical
   identities, and statistical properties (cross-checking Python-facing unitaries
   against Qiskit Aer and stochastic Clifford behavior against Stim when those
   independent references apply). Catch2 `TEST_CASE` names must avoid special
   characters such as `[]`, `()`, and `,`. Do not write tests that
   substring-match English prose in docs or comments, or that assert deleted
-  helpers remain absent. Follow
+  helpers remain absent. Keep validation machinery proportional to the
+  regression risk and maintenance cost. Reuse existing harnesses, identify the
+  additional behavior being protected, and prefer focused checks over new
+  instrumentation or redundant test matrices. Follow
   [Writing Tests](docs/development/contributing.md#writing-tests).
 
 ## Acknowledgments and References
@@ -128,7 +134,9 @@ contribution is.
 - Never commit directly to `main`; use a feature branch.
 - Keep commits atomic and use conventional prefixes such as `feat:`, `fix:`,
   `test:`, and `docs:`.
-- Mark any backward-incompatible public API change, including removals and
+- Python is the external API; C++ interfaces have no cross-version compatibility
+  guarantee.
+- Mark any backward-incompatible Python API change, including removals and
   renames, with a `!` after the type (`feat(api)!:`) and a `BREAKING CHANGE:`
   footer describing the migration. Signature, return-type, default, and
   behavioral changes count. The changelog surfaces both markers; without them
