@@ -186,7 +186,8 @@ void validate_circuit(const Circuit& circuit) {
                 require(product == (target.pauli() != Target::kPauliNone));
                 require(!target.is_inverted() || is_physical_measurement(gate) ||
                             gate == GateType::SPP || gate == GateType::SPP_DAG ||
-                            gate == GateType::TPP || gate == GateType::TPP_DAG,
+                            gate == GateType::TPP || gate == GateType::TPP_DAG ||
+                            gate == GateType::R_PAULI,
                         "inverted target is not supported by this gate");
                 for (size_t j = product ? 0 : i - i % group; j < i; ++j)
                     require(node.targets[j].is_rec() || node.targets[j].value() != target.value());

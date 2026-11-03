@@ -293,6 +293,9 @@ def test_nonfinite_correlated_probability_rejected(probability, prefix, read_cir
         "X 0\nCX 0 1 0 2\nM 0 1 2",
         "X 0\nM 0\nCX rec[-1] 0\nM 0",
         "X 0\nM 0\nH 0\nCZ rec[-1] 0\nMX 0",
+        "X 0\nM 0\nH 0\nCZ 0 rec[-1]\nMX 0",
+        "MPAD 1 1 0\nCZ rec[-3] rec[-2] rec[-1] rec[-3] rec[-2] rec[-1]",
+        "X 0\nM 0\nMPAD 1\nH 1 2\nCZ 1 rec[-1] rec[-1] rec[-2] rec[-2] 2\nMX 1 2",
         "E(0) X0\nELSE_CORRELATED_ERROR(0) Y0\nM 0",
         "E(0) X0\nELSE_CORRELATED_ERROR(1) Y0\nM 0",
         "E(1) X0\nELSE_CORRELATED_ERROR(0) Y0\nM 0",
@@ -314,6 +317,9 @@ def test_nonfinite_correlated_probability_rejected(probability, prefix, read_cir
         "reuse-qubit",
         "cx-feedback",
         "cz-feedback",
+        "cz-reversed-feedback",
+        "cz-classical-pairs",
+        "cz-mixed-pairs",
         "p00",
         "p01",
         "p10",
@@ -360,6 +366,46 @@ def test_valid_boundaries_sample_noncomp_like_stim(
         return
     result = noncomp_sampling_api(source, noncomp.Model(), shots=32, seed=3)
     np.testing.assert_array_equal(result.measurements, expected)
+
+
+@pytest.mark.parametrize("gate", ["CX", "CNOT", "ZCX"])
+@pytest.mark.parametrize("targets", ["0 rec[-1]", "rec[-1] rec[-2]"])
+def test_cx_feedback_cannot_target_records(gate, targets, read_circuit):
+    with pytest.raises(clifft.ParseError, match="Feedback syntax requires"):
+        read_circuit(f"M 0 1\n{gate} {targets}")
+
+
+@pytest.mark.parametrize("gate", ["CZ", "ZCZ"])
+def test_cz_classical_operands_must_be_distinct(gate, read_circuit):
+    source = f"M 0\n{gate} rec[-1] rec[-1]"
+    with pytest.raises(ValueError, match="same target"):
+        stim.Circuit(source)
+    with pytest.raises(clifft.ParseError, match="distinct record targets"):
+        read_circuit(source)
+
+
+@pytest.fixture(params=["CZ", "ZCZ"])
+def cz_feedback_case(request):
+    source = (
+        "H 0 1\nM 0 1\nH 2 3\n"
+        f"{request.param} 2 rec[-2] rec[-1] rec[-2] rec[-1] 3\n"
+        "MX 2 3\nM 0 1"
+    )
+    reference = stim.Circuit(source).compile_sampler(seed=67).sample(16384)
+    keys = reference.astype(np.int64) @ (1 << np.arange(6))
+    return source, np.bincount(keys, minlength=64) / len(reference)
+
+
+def test_cz_feedback_joint_records_match_stim(cz_feedback_case, sampling_mode):
+    source, expected = cz_feedback_case
+    result = sampling_mode.sample(sampling_mode.compile(source), shots=4096, seed=71)
+    assert_joint_distribution(result.measurements, expected)
+
+
+def test_cz_feedback_noncomp_joint_records_match_stim(cz_feedback_case, noncomp_sampling_api):
+    source, expected = cz_feedback_case
+    result = noncomp_sampling_api(source, noncomp.Model(), shots=4096, seed=71)
+    assert_joint_distribution(result.measurements, expected)
 
 
 # Folded sequentially in double arithmetic, this exhaustive chain's channel

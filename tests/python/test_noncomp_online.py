@@ -155,3 +155,19 @@ def test_online_product_phases_match_aer_on_an_active_state(gate, angle):
         execution="online",
     )
     assert_joint_distribution(result.measurements, expected)
+
+
+@pytest.mark.parametrize("product,sign", [("!X0*Y1*Z2", -1), ("X0*!Y1*Z2", -1), ("!X0*!Y1*Z2", 1)])
+@pytest.mark.parametrize("angle", [0.3, 0.5])
+def test_signed_pauli_rotations_match_aer(product, sign, angle, noncomp_sampling_api):
+    prefix = "H 0 1 2\nT 0 1\nS 2\n"
+    suffix = "\nH 0 1 2"
+    reference = prefix + f"R_PAULI({sign * angle}) X0*Y1*Z2" + suffix
+    expected = abs(qiskit_statevector(stim_to_qiskit_noiseless(reference))) ** 2
+    result = noncomp_sampling_api(
+        prefix + f"R_PAULI({angle}) {product}" + suffix + "\nM 0 1 2",
+        noncomp.Model(),
+        shots=4096,
+        seed=29,
+    )
+    assert_joint_distribution(result.measurements, expected)

@@ -278,6 +278,17 @@ class TestArbitraryRotations(_StatevectorBackendMixin):
         self._check_amplitudes("R_PAULI(0.1) X0*Y1*Z2")
 
     @pytest.mark.parametrize(
+        "product,sign",
+        [("!X0*Y1*Z2", -1), ("X0*!Y1*Z2", -1), ("!X0*!Y1*Z2", 1), ("!X0*!Y1*!Z2", -1)],
+    )
+    @pytest.mark.parametrize("angle", [0.3, 0.5, -0.5, 1.0, 2.0])
+    def test_signed_pauli_rotations(self, product: str, sign: int, angle: float) -> None:
+        prefix = "H 0 1 2\nT 0 1\nS 2\nCX 0 2\n"
+        actual = self.statevector(prefix + f"R_PAULI({angle}) {product}")
+        expected = unitary_reference(prefix + f"R_PAULI({sign * angle}) X0*Y1*Z2")
+        assert_statevectors_equiv(actual, expected)
+
+    @pytest.mark.parametrize(
         "rotation",
         [
             "R_ZZ(1.0) 0 1",

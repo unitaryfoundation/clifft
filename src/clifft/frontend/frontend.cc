@@ -835,8 +835,9 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
 
             case GateType::R_PAULI: {
                 double alpha = node.args[0];
-                bool _;
-                auto obs = build_pauli_string(node.targets, circuit.num_qubits, _);
+                bool inverted;
+                auto obs = build_pauli_string(node.targets, circuit.num_qubits, inverted);
+                obs.set_sign(inverted);
                 trace_pauli_rotation(inverse, hir, obs.view(), alpha);
                 break;
             }
