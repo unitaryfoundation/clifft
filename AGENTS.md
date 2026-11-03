@@ -67,55 +67,53 @@ architecture cannot support it:
 
 ## Code Simplicity, Prose, and Test Rules
 
-- **Simplify before finishing:** Before completing a change, review the full diff
-  in hindsight. Inline trivial single-caller bridge helpers, collapse temporary
-  adapter structs or flags introduced mid-development, and fold tiny
-  pass-through headers or single-function bridge files into their natural owning
-  module. Prefer extending an existing module over adding new files or layers.
-  Keep abstractions that clarify nontrivial logic, group related state, serve a
-  distinct caller, or provide compile-time isolation (such as ISA-specific
-  kernel translation units).
-- **Replace, do not shim:** When lifting an earlier limitation or replacing an
-  execution or compilation path, delete the superseded validation guard,
+- **Simplify before finishing:** Review the full diff in hindsight. Search for
+  and reuse existing helpers before adding new ones; inline trivial
+  single-caller bridge helpers, collapse temporary adapter structs or flags, and
+  fold single-function bridge files into their owning module. Keep abstractions
+  that clarify nontrivial logic, group related state, serve a distinct caller,
+  or provide compile-time isolation (such as ISA-specific kernel translation
+  units).
+- **Replace, do not shim:** When lifting a limitation or replacing a
+  compilation or execution path, delete the superseded validation guard,
   write-only field, legacy path, error test, and stale comment in the same
   change.
-- **Plain, physics-grounded prose:** Write comments, docstrings, error messages,
-  and docs in direct English grounded in standard quantum-circuit and simulator
-  concepts. Avoid internal specification jargon (such as *"executable
-  contract"*, *"result contract"*, *"review contract"*, *"supported scientific
-  workflow"*, *"fixed-plan samplers"*, *"production worker layout"*, or
-  *"instrument materialization"*) and invented terms that clash with standard
-  quantum or CS terminology. Define specialized terms at first use. Describe
-  what an API, pass, or mode does and when to use it; omit defensive *"what this
-  is not"* disclaimers unless preventing a likely user mistake.
-- **High-signal, present-tense comments:** Keep source files ASCII-only (use
-  `pi`, `|0>`, and `Schrodinger` rather than Unicode alternatives). Give files
-  and non-trivial classes or structs a concise overview comment stating what
-  they represent or do (with a short example or formula when helpful) before
-  member details. Add brief guidepost comments in dense functions and named
-  constants (or short rationale comments) for non-obvious thresholds; omit
-  line-by-line comments that merely restate the code. Write in the present tense
-  so comments and docs stand alone; do not narrate how a bug was fixed, record
-  migration history, or include issue/PR numbers, task phases, or planning notes.
-- **Right-sized documentation with one canonical home:** Give each topic one
-  owner and link rather than duplicate. User guides (`docs/guide/`) exist to
-  help users choose and use Clifft features: open sections by motivating *why* a
-  user would care in 1-2 plain sentences, keep examples small (folding long
-  circuits or dense tables into collapsible blocks), and leave internal
-  implementation catalogs out of user guides. Preserve limitations, tradeoffs,
-  and relationships to other options that help users choose correctly. Update
-  existing sections instead of appending overlapping sections or per-release
-  notes, then read the whole revised page for flow and consistent detail.
-- **Test invariants, not prose or snapshots:** Validate behavior, mathematical
-  identities, and statistical properties (cross-checking Python-facing unitaries
-  against Qiskit Aer and stochastic Clifford behavior against Stim when those
-  independent references apply). Catch2 `TEST_CASE` names must avoid special
-  characters such as `[]`, `()`, and `,`. Do not write tests that
-  substring-match English prose in docs or comments, or that assert deleted
-  helpers remain absent. Keep validation machinery proportional to the
-  regression risk and maintenance cost. Reuse existing harnesses, identify the
-  additional behavior being protected, and prefer focused checks over new
-  instrumentation or redundant test matrices. Follow
+- **No hand-maintained lists that drift:** Derive lists from the authoritative
+  registry or use exhaustive `switch` statements so the compiler catches new
+  enum values. Do not enumerate pass lists, gate subsets, or default tables in
+  docstrings and comments where they can go stale.
+- **No one-off files in the repository:** Do not commit probe dumps, ad hoc
+  benchmark drivers, benchmark reports, timing data, release evidence, or task
+  plans. Put verification data and design notes in the issue or PR body.
+- **Plain prose and established terminology:** Write comments, docstrings, error
+  messages, and docs in direct English grounded in standard quantum-circuit
+  concepts and Clifft's existing terms (such as *barriers* rather than *fences*,
+  and *statevector* rather than *state ray*). Avoid internal specification
+  jargon (such as *"executable contract"* or *"supported scientific workflow"*),
+  terms that clash with QEC or CS terminology, and defensive *"what this is
+  not"* disclaimers.
+- **Standalone, present-tense comments:** Keep source files ASCII-only (use
+  `pi`, `|0>`, and `Schrodinger`). Give files and non-trivial types a concise
+  overview comment (with a short example or formula when helpful), add brief
+  guideposts in dense functions, and name non-obvious numeric constants; omit
+  comments that restate the code. Write in the present tense without PR diaries,
+  bug-fix defenses, or issue/PR numbers in comments or test names.
+- **Right-sized documentation:** Give each topic one canonical home and link
+  rather than duplicate. Open user-guide sections by motivating *why* a user
+  would care in 1-2 sentences, preserve limitations and tradeoffs that help
+  users choose correctly, fold long circuits or tables into collapsible blocks,
+  and omit internal implementation catalogs, uncommitted APIs, or
+  *"stable"*/*"experimental"* labels outside `clifft.experimental`. Update
+  existing sections instead of appending per-release notes, then read the whole
+  revised page for flow and consistent detail.
+- **Test behavior and invariants, not prose:** Test mathematical, statistical,
+  and structural invariants (cross-checking unitaries against Qiskit Aer and
+  Clifford noise against Stim), and ensure each test fails if the mechanism it
+  covers is removed. Keep validation machinery proportional to regression risk
+  and maintenance cost; reuse existing harnesses and prefer focused checks over
+  new instrumentation or redundant test matrices. Catch2 `TEST_CASE` names must
+  avoid `[]`, `()`, and `,`; never substring-match English prose in
+  docs/comments or assert that deleted helpers stay absent. Follow
   [Writing Tests](docs/development/contributing.md#writing-tests).
 
 ## Acknowledgments and References

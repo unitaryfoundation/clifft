@@ -39,6 +39,9 @@ class PreparedNonComputationalRequest {
     NonComputationalRequirements requirements_;
 };
 
+// Steps through shots with noncomputational transitions, stopping at executor
+// traps to record leaked/lost events, compile a rewritten continuation, and
+// resume the shot.
 NonComputationalSample run_trajectory_driver(const PreparedNonComputationalRequest& request,
                                              uint32_t shots, const SeedRoot& root, uint32_t threads,
                                              bool collect_stats = false);

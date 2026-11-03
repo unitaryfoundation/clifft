@@ -558,7 +558,7 @@ SamplingResult sample(const ExecutablePlan& plan, uint32_t shots, std::optional<
                       std::optional<double> tuning_budget_seconds) {
     if (plan.has_instruments()) {
         throw std::invalid_argument(
-            "fixed-plan sampling does not support instrument traps; use the trajectory driver");
+            "ordinary sampling does not support instrument traps; use the trajectory driver");
     }
     if (plan.num_unbound_presampled_symbols() != 0) {
         throw std::invalid_argument(

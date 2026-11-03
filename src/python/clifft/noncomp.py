@@ -510,7 +510,7 @@ class NonComputationalProgram:
         Workers are constructed once per candidate and reused across probes.
         Selection estimates setup and first-use costs once, plus execution time
         for ``shots``; report throughput excludes separately recorded setup.
-        Their shots and randomness are separate from the returned production rows.
+        Their shots and randomness are separate from the returned samples.
         Trajectory programs reject tuning, including for zero shots. Zero shots
         and a zero budget run no probes; a zero budget uses the auto policy.
 
@@ -553,8 +553,8 @@ def compile(
     sampling. ``"trajectory"`` forces the general compiled driver. ``"online"``
     explicitly selects runtime Clifford coordinates with a compact active state,
     without continuation compilation. Auto does not select online execution.
-    Invalid circuit/model
-    contracts always raise rather than triggering optimization fallback.
+    Invalid circuits or models always raise ``ValueError`` rather than falling
+    back to trajectories.
 
     ``final_status=True`` requests the existing detailed QubitStatus values and
     can require trajectories when leaked labels remain unresolved. The default
@@ -612,7 +612,7 @@ def sample(
         final status and statistics. Three-array unpacking remains supported.
 
     Raises:
-        ValueError: For invalid circuit/model contracts, unsupported forced
+        ValueError: For an invalid circuit or model, unsupported forced
             execution or batching, or an exceeded active-width cap.
     """
     return compile(

@@ -63,6 +63,7 @@ uv run --frozen --only-group dev pre-commit run --all-files --show-diff-on-failu
 - **Formatter:** clang-format
 - **Standard:** C++20
 - **Namespace:** All code in `namespace clifft { ... }`
+- **Types and control flow:** Prefer `std::optional` over sentinel values or paired boolean flags, and structure types so illegal states are unrepresentable. Use exhaustive `switch` statements over enums (omitting `default:` when appropriate) so the compiler catches new values.
 - **Comments:** Give files and non-trivial types a concise high-level overview (with a short example or formula when helpful), add brief guideposts in dense logic, and explain *why* for non-obvious decisions or constants. Omit line-by-line comments that merely restate the code.
 
 ### Python
@@ -79,10 +80,12 @@ shared tests where applicable. Use `sampling_mode` for ordinary/survivor samplin
 for leakage/loss trajectories. These fixtures test features across supported
 modes and let new modes inherit applicable tests.
 
-Check that each test exercises the behavior it claims to cover. Configuration
-alone may not establish this: optimization can remove relevant work, and
-execution policies can select a different path. When adding an HIR optimization
-pass to `kRegisteredPasses` (including optional passes with
+Check that each test exercises the behavior it claims to cover and would fail if
+that mechanism were removed or broken. Configuration alone may not establish
+this: optimization can remove relevant work, and execution policies can select a
+different path. Pair unit checks on compiler passes or lowering with end-to-end
+compile-and-sample checks against an independent oracle. When adding an HIR
+optimization pass to `kRegisteredPasses` (including optional passes with
 `default_enabled = false`), register it in `tests/test_pass_equivalence.cc` with
 a planted scaffold where its rewrite metric fires, a paired positive/negative
 hazard-barrier case (`EXP_VAL`, Pauli and readout noise, resets, and feedback),
