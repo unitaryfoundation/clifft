@@ -40,8 +40,6 @@ architecture cannot support it:
 
 ## Architectural Invariants
 
-- **Stim is immutable:** Fetch Stim through CMake `FetchContent`. Do not fork,
-  vendor, or patch Stim source.
 - **Allocation-free hot execution:** Executors must preallocate coefficient,
   record, symbolic-state, and scratch storage before entering hot dispatch or
   kernels. The sanctioned exception is an explicit trap, continuation, or online
@@ -52,8 +50,9 @@ architecture cannot support it:
   for internal preconditions in per-shot reset, ordinary dispatch, and kernels.
   Throwing validation remains appropriate during construction, planning,
   lowering, and explicit trap, continuation, or online activation boundaries.
-- **Deterministic RNG:** Do not use `std::uniform_real_distribution`; its output
-  is implementation-defined. Use `(rng() >> 11) * 0x1.0p-53` for `[0, 1)`.
+- **Deterministic RNG:** Prefer `Xoshiro256PlusPlus::next_double()` in
+  `src/clifft/util/xoshiro.h` for uniform draws in `[0, 1)`. Do not use
+  `std::uniform_real_distribution`; its output is implementation-defined.
 - **No runtime topology planning in compiled executors:** The compiler or planner
   must precompute coordinate changes, Pauli pairings, phase behavior,
   active-width transitions, and symbolic dependencies. The executor may apply
@@ -82,9 +81,11 @@ architecture cannot support it:
   registry or use exhaustive `switch` statements so the compiler catches new
   enum values. Do not enumerate pass lists, gate subsets, or default tables in
   docstrings and comments where they can go stale.
-- **No one-off files in the repository:** Do not commit probe dumps, ad hoc
-  benchmark drivers, benchmark reports, timing data, release evidence, or task
-  plans. Put verification data and design notes in the issue or PR body.
+- **Keep temporary investigation artifacts out of the repository:** Put probe
+  dumps, ad hoc benchmark drivers, task-specific timing reports, release
+  evidence, task plans, and task-specific design notes in the issue or PR.
+  Maintained documentation assets, including supporting benchmark data, belong
+  with the documentation.
 - **Plain prose and established terminology:** Write comments, docstrings, error
   messages, and docs in direct English grounded in standard quantum-circuit
   concepts and Clifft's existing terms (such as *barriers* rather than *fences*,
@@ -108,11 +109,12 @@ architecture cannot support it:
   revised page for flow and consistent detail.
 - **Test behavior and invariants, not prose:** Test mathematical, statistical,
   and structural invariants (cross-checking unitaries against Qiskit Aer and
-  Clifford noise against Stim), and ensure each test fails if the mechanism it
-  covers is removed. Keep validation machinery proportional to regression risk
-  and maintenance cost; reuse existing harnesses and prefer focused checks over
-  new instrumentation or redundant test matrices. Catch2 `TEST_CASE` names must
-  avoid `[]`, `()`, and `,`; never substring-match English prose in
+  Clifford noise against Stim), and ensure each test exercises the behavior it
+  claims to cover. Optimization-specific tests must demonstrate that the
+  intended rewrite fires. Keep validation machinery proportional to regression
+  risk and maintenance cost; reuse existing harnesses and prefer focused checks
+  over new instrumentation or redundant test matrices. Catch2 `TEST_CASE` names
+  must avoid `[]`, `()`, and `,`; never substring-match English prose in
   docs/comments or assert that deleted helpers stay absent. Follow
   [Writing Tests](docs/development/contributing.md#writing-tests).
 
