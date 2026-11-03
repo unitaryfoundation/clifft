@@ -19,7 +19,16 @@ namespace clifft::detail {
 
 // Source outcomes are G, E, no-fire; partitions are G, E, noncomputational;
 // destinations use Level order. Measurements use the local Pauli eigenvalue.
-enum class BranchChoice { Source, DestinationPartition, Destination, Measurement };
+// Classical transitions, heralds, and readout flips use binary no/yes masses.
+enum class BranchChoice {
+    Source,
+    DestinationPartition,
+    Destination,
+    Measurement,
+    ClassicalTransition,
+    Herald,
+    Readout
+};
 
 #ifdef CLIFFT_NONCOMP_REPLAY_TESTING
 // Defined by the diagnostic executable, never linked into the ordinary library.

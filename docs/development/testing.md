@@ -141,13 +141,16 @@ while a weekly job records combined C++ and Python coverage.
 
 ## Shared Sampling Behavior
 
-Shared sampling tests run the same behavioral assertions across supported
-execution modes. This helps new features receive coverage across modes and
-makes new modes inherit existing behavioral and regression tests. The small
-unitary and reset/reuse corpus in `test_compiler_conformance.py` also runs through
-explicit fixed, trajectory, and online adapters, with joint Aer references and
-execution-path checks. These cases use computational inputs; weighted physical
-histories remain a separate contract below.
+Shared sampling tests reuse behavioral assertions and independent references
+across supported execution modes. `test_compiler_conformance.py` supplies the
+shared FP64 computational corpus, with explicit backend and execution-path checks.
+
+| Route | Shared reference coverage | Execution configurations and limits |
+| --- | --- | --- |
+| Ordinary CPU | Aer unitary/interference and reset/reuse circuits; Stim Clifford/noise cases | Existing HIR profiles, scalar/packed and cross-shot/intra-shot layouts |
+| Fixed noncomputational | The shared computational corpus plus eligible state-independent transition/classifier joint laws | Compiled eligibility check; scalar and packed partial batches; no weighted conditional-state adapter |
+| Trajectory | The shared computational corpus and weighted source-dependent loss, recapture, reset, classified readout and physical states | Instrument-compatible HIR passes; scalar with one/two cross-shot workers; compilation at explicit continuations |
+| Online | The same shared computational and weighted physical references | No HIR pipeline; scalar with one/two cross-shot workers; explicit activation growth; MPP, U3, packing and tuning rejected |
 
 The CPU corpus shares assertions across batching and threading configurations.
 Intra-shot tests lower the active-width threshold so small circuits can exercise
@@ -170,7 +173,7 @@ Weighted replay compares trajectory and online execution with an independent
 physical reference, including rare histories. It preserves branch weights,
 combines hidden outcomes, and traces out vacated qubits without omitting
 supported probability mass. Replay hooks exist only in the diagnostic test
-target.
+target, which also covers recapture, reset, and classified readout with heralds.
 
 Run `ctest --test-dir build -R "Weighted" --output-on-failure`. The supported
 subset and extension requirements live in `tests/noncomp_replay_helpers.h`.

@@ -312,6 +312,11 @@ class OnlineWorker {
 
     bool event(double p) noexcept { return p > 0 && rng.next_double() < p; }
 
+    bool replayable_event(detail::BranchChoice kind, double p) noexcept {
+        return detail::choose_branch(kind, std::array{1 - p, p},
+                                     [&](const auto&) noexcept { return unsigned(event(p)); }) != 0;
+    }
+
     void physical(GateType gate, uint32_t a, uint32_t b = 0) noexcept {
         quantum.frame.physical(gate, a, b, program.cliffords[static_cast<size_t>(gate)]);
     }
@@ -374,7 +379,8 @@ class OnlineWorker {
             if (!is_computational(status[q])) {
                 // Ledger values 1..3 correspond to physical levels 2..4.
                 const auto source = static_cast<Level>(static_cast<unsigned>(status[q]) + 1);
-                if (event(instrument.column_sum(source)))
+                if (replayable_event(detail::BranchChoice::ClassicalTransition,
+                                     instrument.column_sum(source)))
                     land(q, destination(instrument, source), false);
                 return;
             }
@@ -431,10 +437,11 @@ class OnlineWorker {
             bool reported = bit ^ target.is_inverted();
             const auto channel =
                 prepared.readout[2 * static_cast<unsigned>(status[q]) + target.is_inverted()];
-            if (event(channel.herald)) {
+            if (replayable_event(detail::BranchChoice::Herald, channel.herald)) {
                 heralds[record] = 1;
-                reported = event(0.5);
-            } else if (event(reported ? channel.p10 : channel.p01)) {
+                reported = replayable_event(detail::BranchChoice::Readout, 0.5);
+            } else if (replayable_event(detail::BranchChoice::Readout,
+                                        reported ? channel.p10 : channel.p01)) {
                 reported = !reported;
             }
             records[record++] = reported;
