@@ -104,6 +104,39 @@ continues to choose between fixed execution and trajectories. See
 [Online Execution](../guide/leakage-and-loss.md#online-execution) for controls
 and supported operations.
 
+## Local sampling measurements
+
+On 33-qubit repetition-code circuits with five rounds, fixed execution was
+about **600x faster** than v0.12 for the two loss models with full partner
+depolarization. When loss instead dropped gates without disturbing their
+partners, explicit online execution was about **14x faster**.
+
+The loss rows use 1% loss per data qubit per round. The state-dependent rows
+use 0.8% leakage and 0.2% loss from the excited state after each S gate.
+
+| Model | v0.12 time (ms) | v0.13 auto time (ms) | v0.13 online time (ms) |
+| --- | ---: | ---: | ---: |
+| Loss, full partner depolarization | 609 | 1.02 | 34.4 |
+| Same, with coherent X rotations | 692 | 1.11 | 46.5 |
+| Loss, dropped gates, coherent X rotations | 636 | 624 | 45.6 |
+| State-dependent leakage and loss | 765 | 775 | 1,280 |
+| Same, with coherent X rotations | 803 | 805 | 1,263 |
+
+Automatic execution chose fixed plans for the first two rows and trajectories
+for the others. Online execution was **1.6-1.7x slower** on the state-dependent
+cases, while the default retained roughly v0.12 performance. Avoiding
+recompilation helps some models substantially; it does not make online
+execution the fastest choice for every circuit.
+
+These are local measurements on an AMD EPYC 9554P VM, using one pinned vCPU
+and matching Clang 18 Release builds of v0.12.0 and the v0.13 development
+commit [23ff24f](https://github.com/unitaryfoundation/clifft/commit/23ff24f542bb9708f24b22ea5e5c5d2a3f4f827f).
+Each entry is the median of five calls producing **2,000 shots**, including
+preparation and compilation, with all outputs and final statuses retained.
+Circuit parsing and model construction happen before timing. The
+[circuits, models, settings, and individual timings](../assets/updates/noncomp-sampling-v013.json)
+are available alongside this post.
+
 ## Use what measurements tell us
 
 For circuits compiled with `clifft.compile()`, this release also simplifies
