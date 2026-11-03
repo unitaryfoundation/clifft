@@ -81,7 +81,8 @@ unsigned instrument_count(unsigned boundary) {
 using Complex = std::complex<long double>;
 struct ReferenceBranch {
     std::array<Complex, 4> amplitudes{};
-    PhysicalHistory history{{}, {QubitStatus::Computational, QubitStatus::Computational}, {}};
+    PhysicalHistory history{{}, {QubitStatus::Computational, QubitStatus::Computational}, {}, 0, 0,
+                            {}};
 };
 
 long double norm(const ReferenceBranch& branch) {
@@ -243,7 +244,8 @@ std::vector<ExactPlanDistribution> reference_boundaries() {
 }
 
 std::string first_difference(const std::vector<ExactPlanDistribution>& expected,
-                             const std::vector<ExactPlanDistribution>& actual) {
+                             const std::vector<ExactPlanDistribution>& actual,
+                             std::span<const char* const> labels = boundaries) {
     for (size_t boundary = 0; boundary < actual.size(); ++boundary) {
         std::string detail;
         if (!distributions_equal(expected[boundary], actual[boundary], precision, &detail)) {
@@ -265,12 +267,12 @@ std::string first_difference(const std::vector<ExactPlanDistribution>& expected,
                                      "] reference=" + precise_probability(a.outcome.exp_vals[p]) +
                                      " actual=" + precise_probability(b.outcome.exp_vals[p]) +
                                      "; " + detail;
-                            return std::string(boundaries[boundary]) + ": " + detail;
+                            return std::string(labels[boundary]) + ": " + detail;
                         }
                     }
                 }
             }
-            return std::string(boundaries[boundary]) + ": " + detail;
+            return std::string(labels[boundary]) + ": " + detail;
         }
     }
     return {};
@@ -402,6 +404,34 @@ TEST_CASE("Weighted replay rejects uninstrumented randomness", "[noncomp][weight
         std::invalid_argument);
 }
 
+TEST_CASE("Weighted marginalized histories retain only visible key bits",
+          "[noncomp][weighted_replay]") {
+    const bool online = GENERATE(false, true);
+    std::string text;
+    for (unsigned i = 0; i < 22; ++i)
+        text += "LEVEL_TRANSITION[first] 0\n";
+    const auto circuit = parse(text);
+    const auto replay = replay_physical_histories(
+        PreparedNonComputationalRequest(circuit, replay_model()), online, false);
+    REQUIRE(replay.states.size() == 2);
+    const double survival = std::pow(0.8, 22);
+    for (const auto& [history, state] : replay.states) {
+        REQUIRE(history.events.empty());
+        const bool computational = is_computational(history.status[0]);
+        const double expected = computational ? survival : 1 - survival;
+        REQUIRE(std::abs(state.weight / expected - 1) < precision.probability_relative);
+        REQUIRE(std::abs(state.weighted_paulis[3] / state.weight - computational) <
+                precision.expectation_absolute);
+    }
+    REQUIRE(physical_distribution(replay.states, circuit, 0).num_visible_records == 2);
+
+    for (unsigned i = 0; i < 32; ++i)
+        text += "M 0\n";
+    REQUIRE_THROWS_AS(validate_weighted_replay(
+                          PreparedNonComputationalRequest(parse(text), replay_model()), false),
+                      std::invalid_argument);
+}
+
 TEST_CASE("Weighted measurement replay follows production dust reachability",
           "[noncomp][weighted_replay]") {
     const bool online = GENERATE(false, true);
@@ -451,4 +481,371 @@ TEST_CASE("Weighted replay refuses impossible selections and underflowed weights
         REQUIRE(replay.choose(ReplayChoice::Measurement, masses) == 0);
     }
     REQUIRE(replay.invalid);
+}
+
+namespace {
+
+constexpr std::array<const char*, 6> lifecycle_boundaries = {
+    "entangled preparation", "loss and classified readout", "recapture",
+    "reset and feedback",    "compaction and reactivation", "joint outputs"};
+
+Circuit lifecycle_prefix(unsigned boundary) {
+    std::string text = "H 0\nT 0\nCX 0 1\nR_Y(0.25) 1\n";
+    if (boundary >= 1)
+        text += "LEVEL_TRANSITION[lose] 0\nHERALD_LOSS_EVENT 0\nM 0\n";
+    if (boundary >= 2)
+        text += "LEVEL_TRANSITION[recapture] 0\nHERALD_LOSS_EVENT 0\n";
+    if (boundary >= 3)
+        text += "R 0\nR_Y(0.25) 0\nS 0\nCZ rec[-2] 1\n";
+    if (boundary >= 4)
+        text += "MX 1\nR_Y(0.375) 1\nCX rec[-1] 0\nH 0\n";
+    if (boundary >= 5)
+        text +=
+            "M 0 1\nDETECTOR rec[-6] rec[-5] rec[-3] rec[-1]\n"
+            "OBSERVABLE_INCLUDE(0) rec[-4] rec[-2] rec[-1]\n";
+    return parse(text);
+}
+
+NonComputationalModel lifecycle_model(bool restore_lost) {
+    auto lose = zero_transition_matrix();
+    lose[4][0] = 0.2;
+    lose[4][1] = 0.6;
+    auto recapture = zero_transition_matrix();
+    recapture[1][4] = 0.3;
+    recapture[3][4] = 0.2;
+    return NonComputationalModel::from_spec(
+        pure_initial_state(Level::G), {{"lose", lose}, {"recapture", recapture}},
+        classifier_matrix_with_column(Level::Lost, {0.25, 0.25, 0.5}),
+        {.reset_restores_lost = restore_lost});
+}
+
+void rotate_y(ReferenceBranch& branch, unsigned q, long double turns) {
+    if (!is_computational(branch.history.status[q]))
+        return;
+    const long double c = std::cos(turns * std::numbers::pi_v<long double> / 2);
+    const long double s = std::sin(turns * std::numbers::pi_v<long double> / 2);
+    for (unsigned i = 0; i < 4; ++i)
+        if (!(i & (1U << q))) {
+            const auto zero = branch.amplitudes[i], one = branch.amplitudes[i | (1U << q)];
+            branch.amplitudes[i] = c * zero - s * one;
+            branch.amplitudes[i | (1U << q)] = s * zero + c * one;
+        }
+}
+
+void record(ReferenceBranch& branch, bool bit, bool herald = false) {
+    branch.history.records.push_back(bit);
+    branch.history.heralds.push_back(herald);
+}
+
+std::vector<ReferenceBranch> read_z(const std::vector<ReferenceBranch>& input, unsigned q,
+                                    bool reset = false, bool restore_lost = false) {
+    std::vector<ReferenceBranch> result;
+    for (auto before : input) {
+        const auto status = before.history.status[q];
+        if (is_computational(status)) {
+            for (unsigned bit = 0; bit < 2; ++bit) {
+                auto branch = jump(before, q, bit, reset ? 0 : bit, 1);
+                if (!reset)
+                    record(branch, bit);
+                if (norm(branch) > 0)
+                    result.push_back(branch);
+            }
+        } else if (reset) {
+            if (status != QubitStatus::Lost || restore_lost)
+                before.history.status[q] = QubitStatus::Computational;
+            result.push_back(before);
+        } else if (status == QubitStatus::Lost) {
+            // The herald symbol has a fair placeholder bit. Its sidecar must
+            // remain correlated with the physical level and every later output.
+            for (unsigned symbol = 0; symbol < 4; ++symbol) {
+                auto branch = before;
+                for (auto& value : branch.amplitudes)
+                    value *= 0.5L;
+                record(branch, symbol & 1, symbol >= 2);
+                result.push_back(branch);
+            }
+        } else {
+            record(before, false);
+            result.push_back(before);
+        }
+    }
+    return result;
+}
+
+PhysicalEnsemble lifecycle_reference(unsigned boundary, bool restore_lost) {
+    ReferenceBranch initial;
+    initial.amplitudes[0] = 1 / std::sqrt(2.L);
+    initial.amplitudes[3] = std::polar(1 / std::sqrt(2.L), std::numbers::pi_v<long double> / 4);
+    rotate_y(initial, 1, 0.25L);
+    std::vector<ReferenceBranch> branches{initial};
+    if (boundary >= 1) {
+        branches = instrument(branches, false);
+        for (auto& branch : branches)
+            record(branch, branch.history.status[0] == QubitStatus::Lost);
+        branches = read_z(branches, 0);
+    }
+    if (boundary >= 2) {
+        std::vector<ReferenceBranch> recaptured;
+        for (auto before : branches) {
+            if (before.history.status[0] == QubitStatus::Lost) {
+                for (unsigned outcome = 0; outcome < 3; ++outcome) {
+                    auto branch = before;
+                    const long double rates[] = {0.5L, 0.3L, 0.2L};
+                    if (outcome == 1) {
+                        branch = jump(branch, 0, 0, 1, 1);
+                        branch.history.status[0] = QubitStatus::Computational;
+                    } else if (outcome == 2) {
+                        branch.history.status[0] = QubitStatus::LeakE;
+                    }
+                    for (auto& value : branch.amplitudes)
+                        value *= std::sqrt(rates[outcome]);
+                    record(branch, outcome == 0);
+                    recaptured.push_back(branch);
+                }
+            } else {
+                record(before, false);
+                recaptured.push_back(before);
+            }
+        }
+        branches = std::move(recaptured);
+    }
+    if (boundary >= 3) {
+        branches = read_z(branches, 0, true, restore_lost);
+        for (auto& branch : branches) {
+            rotate_y(branch, 0, 0.25L);
+            for (unsigned i = 0; i < 4; ++i) {
+                if ((i & 1) && is_computational(branch.history.status[0]))
+                    branch.amplitudes[i] *= Complex(0, 1);
+                if ((i & 2) && branch.history.records[1])
+                    branch.amplitudes[i] = -branch.amplitudes[i];
+            }
+        }
+    }
+    if (boundary >= 4) {
+        for (auto& branch : branches)
+            hadamard(branch, 1);
+        branches = read_z(branches, 1);
+        for (auto& branch : branches) {
+            hadamard(branch, 1);
+            rotate_y(branch, 1, 0.375L);
+            if (branch.history.records.back() && is_computational(branch.history.status[0])) {
+                std::swap(branch.amplitudes[0], branch.amplitudes[1]);
+                std::swap(branch.amplitudes[2], branch.amplitudes[3]);
+            }
+            hadamard(branch, 0);
+        }
+    }
+    if (boundary >= 5) {
+        branches = read_z(read_z(branches, 0), 1);
+        for (auto& branch : branches) {
+            const auto& r = branch.history.records;
+            branch.history.detectors = r[0] ^ r[1] ^ r[3] ^ r[5];
+            branch.history.observables = r[2] ^ r[4] ^ r[5];
+        }
+    }
+    PhysicalEnsemble result;
+    for (auto& branch : branches) {
+        if (norm(branch) == 0)
+            continue;
+        // Event decisions and reset outcomes are hidden; physical heralds and
+        // records define the conditioning. Mix hidden sources before comparing.
+        branch.history.events.clear();
+        add_physical_branch(result, branch.history, static_cast<double>(norm(branch)),
+                            reference_moments(branch));
+    }
+    return result;
+}
+
+}  // namespace
+
+TEST_CASE("Weighted lifecycle histories retain heralds and coherences after recapture and reset",
+          "[noncomp][weighted_replay]") {
+    const bool online = GENERATE(false, true);
+    const bool restore_lost = GENERATE(false, true);
+    CAPTURE(online, restore_lost);
+    std::vector<ExactPlanDistribution> expected, actual;
+    uint64_t growths = 0, continuations = 0;
+    for (unsigned boundary = 0; boundary < lifecycle_boundaries.size(); ++boundary) {
+        CAPTURE(lifecycle_boundaries[boundary]);
+        const auto circuit = lifecycle_prefix(boundary);
+        expected.push_back(
+            physical_distribution(lifecycle_reference(boundary, restore_lost), circuit, 0));
+        const auto replay = replay_physical_histories(
+            PreparedNonComputationalRequest(circuit, lifecycle_model(restore_lost)), online, false);
+        actual.push_back(physical_distribution(replay.states, circuit, 0));
+        growths += replay.growths;
+        continuations += replay.continuations;
+        const auto difference = first_difference(expected, actual, lifecycle_boundaries);
+        INFO(difference);
+        REQUIRE(difference.empty());
+    }
+    REQUIRE((continuations == 0) == online);
+    REQUIRE((growths > 0) == online);
+}
+
+TEST_CASE("Weighted repeated no fire filters preserve normalized conditional states",
+          "[noncomp][weighted_replay]") {
+    const bool online = GENERATE(false, true);
+    const bool entangled = GENERATE(false, true);
+    CAPTURE(online, entangled);
+    ReferenceBranch prepared;
+    prepared.amplitudes.fill(0.5L);
+    std::string text = "H 0 1\n";
+    if (entangled) {
+        prepared.amplitudes = {};
+        prepared.amplitudes[0] = 1 / std::sqrt(2.L);
+        prepared.amplitudes[3] =
+            std::polar(1 / std::sqrt(2.L), std::numbers::pi_v<long double> / 4);
+        text = "H 0\nT 0\nCX 0 1\n";
+    }
+    std::vector<ReferenceBranch> branches{prepared};
+    for (unsigned count = 1; count <= 4; ++count) {
+        CAPTURE(count);
+        text += "LEVEL_TRANSITION[first] 0\nHERALD_LOSS_EVENT 0\n";
+        std::vector<ReferenceBranch> next;
+        for (auto branch : branches) {
+            if (is_computational(branch.history.status[0])) {
+                const auto split = instrument({branch}, false);
+                next.insert(next.end(), split.begin(), split.end());
+            } else {
+                next.push_back(branch);
+            }
+        }
+        branches = std::move(next);
+        PhysicalEnsemble expected;
+        for (auto& branch : branches) {
+            record(branch, branch.history.status[0] == QubitStatus::Lost);
+            branch.history.events.clear();
+            add_physical_branch(expected, branch.history, static_cast<double>(norm(branch)),
+                                reference_moments(branch));
+        }
+        const auto circuit = parse(text);
+        const auto replay = replay_physical_histories(
+            PreparedNonComputationalRequest(circuit, replay_model()), online, false);
+        REQUIRE((replay.growths > 0) == online);
+        std::string difference;
+        const bool equal = distributions_equal(physical_distribution(expected, circuit, 0),
+                                               physical_distribution(replay.states, circuit, 0),
+                                               precision, &difference);
+        INFO(difference);
+        REQUIRE(equal);
+        // A conditional no-fire state is renormalized at every step. Checking
+        // its closed-form weight and Z moment distinguishes damping from skips.
+        for (const auto& [history, state] : replay.states)
+            if (is_computational(history.status[0])) {
+                const double g = std::pow(0.8, count), e = std::pow(0.4, count);
+                REQUIRE(std::abs(state.weight / ((g + e) / 2) - 1) < 2e-10);
+                REQUIRE(std::abs(state.weighted_paulis[3] / state.weight - (g - e) / (g + e)) <
+                        precision.expectation_absolute);
+                if (!entangled)
+                    REQUIRE(std::abs(state.weighted_paulis[1] / state.weight -
+                                     2 * std::sqrt(g * e) / (g + e)) <
+                            precision.expectation_absolute);
+            }
+    }
+}
+
+TEST_CASE("Weighted lifecycle diagnostics locate herald phase and reset corruption",
+          "[noncomp][weighted_replay]") {
+    const unsigned fault = GENERATE(0U, 1U, 2U, 3U);
+    const unsigned boundary = fault + 1;
+    std::vector<ExactPlanDistribution> expected;
+    for (unsigned b = 0; b < lifecycle_boundaries.size(); ++b)
+        expected.push_back(
+            physical_distribution(lifecycle_reference(b, true), lifecycle_prefix(b), 0));
+    auto actual = expected;
+    if (fault == 0) {
+        // Move mass between herald-conditioned outputs without changing the
+        // sum. A record-only comparison would miss this sidecar corruption.
+        actual[boundary].kept_outcomes[0].outcome.visible_records ^=
+            uint64_t{1} << (lifecycle_prefix(boundary).num_measurements + 4);
+    } else {
+        // Pauli moments expose a wrong restoration state, a stale reset, or a
+        // compaction sign even when the final computational populations agree.
+        actual[boundary].kept_outcomes[0].outcome.exp_vals[fault == 1 ? 3 : 2] += 0.125;
+    }
+    const auto difference = first_difference(expected, actual, lifecycle_boundaries);
+    INFO(difference);
+    REQUIRE(difference.starts_with(std::string(lifecycle_boundaries[boundary]) + ":"));
+}
+
+TEST_CASE("Weighted repeated activation distinguishes zero dust and tiny joint support",
+          "[noncomp][weighted_replay]") {
+    const bool online = GENERATE(false, true);
+    const double angle = GENERATE(0.0, 1e-10, 1e-8);
+    CAPTURE(online, angle);
+    const auto rotation = "R_Y(" + precise_probability(angle) + ") 0\nM 0\n";
+    const auto circuit = parse(rotation + "R 0\n" + rotation + "R 0\n" + rotation);
+    const auto replay =
+        replay_physical_histories(PreparedNonComputationalRequest(circuit, replay_model()), online);
+    const double p = angle == 1e-8 ? std::pow(std::sin(angle * std::numbers::pi / 2), 2) : 0;
+    REQUIRE(replay.states.size() == (p > 0 ? 8 : 1));
+    double total = 0;
+    for (const auto& [history, state] : replay.states) {
+        double expected = 1;
+        for (auto bit : history.records)
+            expected *= bit ? p : 1 - p;
+        REQUIRE(expected > 0);
+        REQUIRE(std::abs(state.weight / expected - 1) < precision.probability_relative);
+        REQUIRE(std::abs(state.weighted_paulis[3] / state.weight -
+                         (history.records.back() ? -1 : 1)) < precision.expectation_absolute);
+        total += state.weight;
+    }
+    REQUIRE(std::abs(total - 1) < precision.normalization_absolute);
+    if (online) {
+        REQUIRE(replay.continuations == 0);
+        REQUIRE((replay.growths > 0) == (angle > 0));
+    }
+}
+
+namespace {
+
+struct CapacityReplay : NoncompReplayHooks {
+    const double* data = nullptr;
+    unsigned sources = 0, shots = 0;
+    unsigned choose(ReplayChoice kind, std::span<const double> masses) noexcept override {
+        if (kind == ReplayChoice::Source) {
+            ++sources;
+            return 2;
+        }
+        for (unsigned i = 0; i < masses.size(); ++i)
+            if (masses[i] > 0)
+                return i;
+        return 0;
+    }
+    void append_probes(Circuit&) override {}
+    void inspect(std::span<const double>, std::span<const QubitStatus>) override {}
+    void inspect_online(const noncomp_detail::OnlineState& quantum,
+                        std::span<const QubitStatus>) override {
+        REQUIRE(quantum.state.active_width() == 0);
+        REQUIRE(quantum.state.max_active_width() == 2);
+        if (shots == 0) {
+            data = quantum.state.real_data();
+            REQUIRE(data != nullptr);
+        } else {
+            REQUIRE(quantum.state.real_data() == data);
+        }
+        ++shots;
+        REQUIRE(sources == shots);
+    }
+};
+
+}  // namespace
+
+TEST_CASE("Weighted online growth retains pending decisions and capacity across shots",
+          "[noncomp][weighted_replay]") {
+    const auto circuit = parse("H 0 1\nLEVEL_TRANSITION[first] 0\nT 1\nMY 0\nR_Y(0.25) 0\nM 0 1\n");
+    const OnlineNonComputationalProgram program(
+        PreparedNonComputationalRequest(circuit, replay_model()));
+    CapacityReplay replay;
+    struct Scope {
+        NoncompReplayHooks* previous = noncomp_replay;
+        explicit Scope(NoncompReplayHooks& hooks) { noncomp_replay = &hooks; }
+        ~Scope() { noncomp_replay = previous; }
+    } scope(replay);
+    const auto sample = program.sample(4, 17, 1, true);
+    REQUIRE(replay.shots == 4);
+    REQUIRE(replay.sources == 4);
+    REQUIRE(sample.stats->online_state_growths == 2);
+    REQUIRE(sample.stats->continuation_compilations == 0);
 }

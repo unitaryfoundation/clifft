@@ -555,7 +555,12 @@ void Executor::execute_action(const ExecutablePlan::ExecuteReadoutNoise& action,
             }
         } else {
             const double probability = source ? action.prob_one_to_zero : action.prob_zero_to_one;
-            flip = probability >= 1.0 || (probability > 0.0 && rng_.next_double() < probability);
+            flip = detail::choose_branch(
+                       detail::BranchChoice::Readout, std::array{1 - probability, probability},
+                       [&](const auto&) noexcept {
+                           return unsigned(probability >= 1.0 ||
+                                           (probability > 0.0 && rng_.next_double() < probability));
+                       }) != 0;
         }
         assign_symbol(action.flip, flip);
         records_[action.record] ^= static_cast<uint8_t>(flip);
