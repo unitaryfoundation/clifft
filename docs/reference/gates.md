@@ -160,6 +160,14 @@ applies the same rule to HIR rotations produced directly or by fusion.
 
 Two-qubit Cliffords are also absorbed at compile time.
 
+`CX rec[-k] q` and `CZ rec[-k] q` apply X or Z to qubit `q` when the referenced
+measurement bit is 1. Since CZ is symmetric, `CZ q rec[-k]` has the same meaning.
+`CZ rec[-a] rec[-b]` is a no-op: both operands are classical and the gate changes
+only an unobservable phase within that measurement branch. The record references
+must point to distinct existing measurements. CX requires a qubit as its second
+operand; targeting a measurement record is rejected. These rules also apply to
+the aliases `CNOT`, `ZCX`, and `ZCZ`.
+
 ## Measurements and Resets
 
 | Instruction | Notes |

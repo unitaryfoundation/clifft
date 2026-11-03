@@ -919,6 +919,43 @@ TEST_CASE("Error: invalid feedback syntax", "[parser]") {
     REQUIRE_THROWS_AS(parse("M 0\nM 1\nCX rec[-1] rec[-2]"), ParseError);
 }
 
+TEST_CASE("Parse CZ normalizes classical controls and drops classical pairs", "[parser]") {
+    for (const auto* gate : {"CZ", "ZCZ"}) {
+        CAPTURE(gate);
+        const auto circuit =
+            parse(std::string("M 0 1\n") + gate + " 4 rec[-1] rec[-2] 5 rec[-1] rec[-2] 6 7");
+        REQUIRE(circuit.nodes.size() == 5);
+        CHECK(circuit.num_measurements == 2);
+        CHECK(circuit.num_qubits == 8);
+        for (size_t i = 2; i < 4; ++i) {
+            CHECK(circuit.nodes[i].gate == GateType::CZ);
+            CHECK(circuit.nodes[i].targets[0].is_rec());
+            CHECK_FALSE(circuit.nodes[i].targets[1].is_rec());
+        }
+        CHECK(circuit.nodes[2].targets[0].value() == 1);
+        CHECK(circuit.nodes[2].targets[1].value() == 4);
+        CHECK(circuit.nodes[3].targets[0].value() == 0);
+        CHECK(circuit.nodes[3].targets[1].value() == 5);
+        CHECK(circuit.nodes[4].targets[0].value() == 6);
+        CHECK(circuit.nodes[4].targets[1].value() == 7);
+    }
+
+    const auto classical = parse("MPAD 1 0\nCZ rec[-1] rec[-2]");
+    CHECK(classical.nodes.size() == 2);
+    CHECK(classical.num_measurements == 2);
+    CHECK(classical.num_qubits == 0);
+}
+
+TEST_CASE("Classical CZ pairs still validate every record reference", "[parser]") {
+    for (const auto* targets : {"0 rec[-2]", "rec[-1] rec[-2]", "rec[-2] rec[-1]", "rec[0] rec[-1]",
+                                "rec[-1]", "rec[-1] !rec[-1]", "rec[-1] rec[-1]"}) {
+        CAPTURE(targets);
+        CHECK_THROWS_AS(parse(std::string("M 0\nCZ ") + targets), ParseError);
+    }
+    check_parse_error("M 0 1\nCZ rec[-1] rec[-2] rec[-1] rec[-3]",
+                      "Line 2: rec reference out of bounds: rec[-3]");
+}
+
 TEST_CASE("Error: rec with trailing characters", "[parser]") {
     REQUIRE_THROWS_AS(parse("M 0\nCX rec[-1]foo 1"), ParseError);
 }

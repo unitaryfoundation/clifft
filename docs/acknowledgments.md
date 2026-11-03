@@ -61,6 +61,7 @@ Tsim's Stim-compatible approach to universal noisy-circuit simulation informed
 Clifft's circuit-format and interface design. Its open code and data enabled
 direct comparisons in Clifft's original performance study.
 Its [signed Pauli-rotation fix](https://github.com/QuEraComputing/tsim/pull/244)
+and [classical CZ handling](https://github.com/QuEraComputing/tsim/pull/195)
 supplied regression cases for Clifft's circuit-input compatibility.
 
 - Rafael Haenel, Xiuzhe Luo, and Chen Zhao, ["Tsim: Fast Universal Simulator for Quantum Error Correction"](https://arxiv.org/abs/2604.01059)
