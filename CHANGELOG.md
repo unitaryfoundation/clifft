@@ -44,8 +44,10 @@ Clifft 0.13.0 adds reusable, batched execution for eligible leakage and loss mod
 
 ### Documentation and CI
 
+- Added interactive CPU throughput charts with simulator controls, measurement details, and circuit-source links, retaining static figures and complete data tables without JavaScript. See [Performance](https://unitaryfoundation.github.io/clifft/stable/guide/performance/), by @bachase-agent in [#661](https://github.com/unitaryfoundation/clifft/pull/661).
 - Reworked the leakage/loss guides around model behavior and execution choices, clarified coherent-error reference normalization, and added a development-blog index, by @bachase-agent in [#588](https://github.com/unitaryfoundation/clifft/pull/588), [#608](https://github.com/unitaryfoundation/clifft/pull/608), and [#637](https://github.com/unitaryfoundation/clifft/pull/637).
 - Added core-wheel smoke tests on Python 3.15, reduced routine CI test time, and documented how to publish performance results from one benchmark run, by @bachase-agent in [#592](https://github.com/unitaryfoundation/clifft/pull/592), [#594](https://github.com/unitaryfoundation/clifft/pull/594), and [#649](https://github.com/unitaryfoundation/clifft/pull/649).
+- Compared performance-canary results against each PR's merge-base so newer base-branch changes do not distort the comparison, by @bachase-agent in [#654](https://github.com/unitaryfoundation/clifft/pull/654).
 
 ## [0.12.0] - 2026-10-13
 
