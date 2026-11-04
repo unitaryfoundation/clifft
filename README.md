@@ -76,8 +76,8 @@ state small so that exact near-Clifford simulation can approach the throughput
 usually associated with specialized Clifford tools.
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/unitaryfoundation/clifft/main/docs/assets/performance/clifft-throughput-dark.png">
-  <img src="https://raw.githubusercontent.com/unitaryfoundation/clifft/main/docs/assets/performance/clifft-throughput-light.png" alt="Clifft v0.12 attempted shots per second across seven QEC workloads">
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/unitaryfoundation/clifft/main/docs/assets/performance/simulator-throughput-dark.png">
+  <img src="https://raw.githubusercontent.com/unitaryfoundation/clifft/main/docs/assets/performance/simulator-throughput-light.png" alt="Clifft v0.13, SymFT, xtim, Stim, and Tsim attempted shots per second across fourteen CPU workloads, grouped on independent logarithmic scales">
 </picture>
 
 See the [Performance guide](https://unitaryfoundation.github.io/clifft/stable/guide/performance/)

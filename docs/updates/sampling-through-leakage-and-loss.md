@@ -1,6 +1,6 @@
 # Improved Leakage and Loss Sampling Throughput (v0.13.0)
 
-**Release date:** Pending
+**Release date:** November 4, 2026
 
 Since v0.7, Clifft has supported sampling non-Clifford circuits with leakage
 and loss. Leakage moves a qubit outside its computational subspace; loss
@@ -170,6 +170,15 @@ BT81 example contains a commuting phase region with 87 independent variables,
 beyond the previous default collection limit of 32; the new default allows
 up to 128. The [pass reference](../reference/passes.md#constraints-from-measurement-and-feedback)
 describes the conditions under which these rewrites apply.
+
+## Release benchmark results
+
+On the single-core CPU benchmark suite, these compiler and sampling
+improvements increase throughput over v0.12 by **223x** on 15-to-1
+distillation, **16.2x** on Reed–Muller, and **8.21%** on the fixed-input
+16-bit Draper adder. See the
+[performance guide](../guide/performance.md#changes-in-v013) for the full
+release comparison and simulator benchmarks.
 
 See the [release notes](https://github.com/unitaryfoundation/clifft/blob/main/CHANGELOG.md)
 for changed defaults and compatibility details when upgrading.

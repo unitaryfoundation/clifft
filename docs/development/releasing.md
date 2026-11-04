@@ -146,26 +146,31 @@ candidate has been validated and before the final tag.
 Treat [`clifft-bench`](https://github.com/unitaryfoundation/clifft-bench) as the source of truth for
 raw results and figure generation. This repository owns the reader-facing prose and rendered assets.
 
-1. Collect previous/current Clifft and peer tools together in a new execution directory. Confirm
+1. Collect previous/current Clifft together in a new execution directory. Measure peers in that
+   execution, or explicitly reuse a compatible reviewed peer execution with `--peer-results` as
+   described in the publication workflow below. Confirm
    that the measured artifact is the exact published candidate and that no runtime, compiler,
    packaging, or build input has changed since its tag. If one has, publish and measure another
    candidate instead of carrying the old results into the final release.
 2. Follow the [`clifft-bench` publication workflow](https://github.com/unitaryfoundation/clifft-bench/blob/main/CONTRIBUTING.md#release-reporting):
-   run `clifft-bench report EXECUTION_DIR --check`, then render with the `report` extra. Review
+   run `clifft-bench report EXECUTION_DIR --check` (with the same `--peer-results` input when reusing
+   peers), then render with the `report` extra. Review
    `raw.json`, `cases.csv`, `report/review.md`, failures, missing baselines, and both figure themes.
-   The report uses that execution alone; historical executions are not required. Merge the
+   Release ratios use the primary execution alone; peer rates may come from the explicitly
+   supplied peer execution. Merge the
    results/reporting PR in `clifft-bench` before copying its reviewed outputs here.
-3. Copy these light/dark pairs from `reporting/figures/web/` to `docs/assets/performance/`:
+3. Copy these light/dark pairs from the merged execution's `report/` directory to
+   `docs/assets/performance/`:
 
-   - `clifft-throughput-{light,dark}.png`
    - `simulator-throughput-{light,dark}.png`
    - `release-change-{light,dark}.png`
 
    Update image links and claims together in `README.md`, `docs/guide/performance.md`, and any
    release-specific excerpts in `docs/index.md` or `docs/updates/`. Use the stable `release-change`
    filenames for paired release comparisons and remove replaced release-specific assets once their
-   links have moved. Pin source/result links to the merged `clifft-bench` commit. Reader-facing
-   labels may use the target final version while evidence retains the exact candidate identity.
+   links have moved. Use final release version labels in reader-facing prose and explain what the
+   results mean for users; keep collection dates, candidate tags, dependency lock details, and
+   run-joining provenance in the pinned `clifft-bench` links and PR summary.
 4. Check headline numbers against the execution's samples and review summary, inspect both themes,
    then run `just docs-build` and the required pre-commit suite.
 
