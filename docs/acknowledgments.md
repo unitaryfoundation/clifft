@@ -61,6 +61,14 @@ Tsim's Stim-compatible approach to universal noisy-circuit simulation informed
 Clifft's circuit-format and interface design. Its open code and data enabled
 direct comparisons in Clifft's original performance study.
 
+Tsim's [closed sampling reconstruction](https://github.com/QuEraComputing/tsim/pull/203)
+also informed Clifft's native global-reconstruction compiler through its
+output-distribution formulation, forgotten commutant measurements, and
+measurement-first active-width scheduling. Clifft implements Clifford dilation,
+causal stabilizer dressing, and projection folding directly with its own parser
+and tableau algebra. The MSC reconstruction regression inputs are preserved
+copies of the noisy SOFT/Tsim benchmark corpus.
+
 - Rafael Haenel, Xiuzhe Luo, and Chen Zhao, ["Tsim: Fast Universal Simulator for Quantum Error Correction"](https://arxiv.org/abs/2604.01059)
   (2026).
 - [Tsim source](https://github.com/QuEraComputing/tsim).

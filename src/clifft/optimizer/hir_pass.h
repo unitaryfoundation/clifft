@@ -8,6 +8,9 @@ namespace clifft {
 class HirPass {
   public:
     virtual void run(HirModule& hir) = 0;
+    // Source-level reconstruction is unsafe after an intentional change of law
+    // such as removing noise. Unknown passes must opt in to this contract.
+    virtual bool preserves_sampling_distribution() const { return false; }
     virtual ~HirPass() = default;
 };
 

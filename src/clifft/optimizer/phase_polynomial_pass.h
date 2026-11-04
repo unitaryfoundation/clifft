@@ -31,6 +31,7 @@ class PhasePolynomialPass : public HirPass {
   public:
     explicit PhasePolynomialPass(PhasePolynomialOptions options = {});
     void run(HirModule& hir) override;
+    bool preserves_sampling_distribution() const override { return true; }
 
     size_t blocks_reduced() const { return blocks_reduced_; }
     // Search effort includes rejected candidates and any narrow fallback rerun.
