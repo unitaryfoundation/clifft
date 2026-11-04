@@ -364,7 +364,9 @@ void Dilation::parse(const Circuit& circuit) {
             }
             measure(term, inverted);
         } else if (g == GateType::MPAD) {
-            records_.push_back({unit(fresh()), {{}, node.targets.at(0).value() != 0}});
+            const Target t = node.targets.at(0);
+            const bool sign = (t.value() != 0) ^ t.is_inverted();
+            records_.push_back({unit(fresh()), {{}, sign}});
         } else if (g == GateType::READOUT_NOISE) {
             require_supported(node.args.size() == 1 || node.args[0] == node.args[1],
                               "asymmetric readout requires the original program");

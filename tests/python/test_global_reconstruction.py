@@ -114,6 +114,32 @@ def test_one_program_supports_concurrent_keep_records_modes():
         assert_same_result(result, results[index % 2])
 
 
+@pytest.mark.parametrize("sampling_mode", CPU_SAMPLING_MODES, indirect=True, ids=lambda m: m.name)
+def test_inverted_padding_preserves_feedback_and_postselection(sampling_mode):
+    source = (
+        UNITARY + "M 0 1\nMPAD !0 !1\nCX rec[-2] 2\nCX rec[-1] 3\nM 2 3\n"
+        "DETECTOR rec[-2]\nOBSERVABLE_INCLUDE(0) rec[-2] rec[-1]\n"
+    )
+    shots = 131
+    for expected_detector in (0, 1):
+        program = compile_selected(
+            source, postselection_mask=[1], expected_detectors=[expected_detector]
+        )
+        for keep_records in (False, True):
+            result = sampling_mode.sample_survivors(
+                program, shots, seed=42, keep_records=keep_records
+            )
+            assert result.total_shots == shots
+            assert result.passed_shots == expected_detector * shots
+            assert result.logical_errors == result.passed_shots
+            np.testing.assert_array_equal(result.observable_ones, [result.passed_shots])
+            if keep_records:
+                expected = np.tile([1, 0, 1, 0], (result.passed_shots, 1))
+                np.testing.assert_array_equal(result.measurements[:, -4:], expected)
+                assert not result.detectors.any()
+                assert result.observables.all()
+
+
 @pytest.mark.parametrize("keep_records", [False, True])
 def test_reference_parities_and_postselection_preserve_joint_law(keep_records):
     source = (

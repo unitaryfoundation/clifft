@@ -225,12 +225,16 @@ TEST_CASE("Global reconstruction folds constraints across machine words", "[reco
 }
 
 TEST_CASE("Global reconstruction preserves padded constants", "[reconstruction]") {
-    const auto result = reconstruct_global_sampling(parse("MPAD 1 0 1\nDETECTOR rec[-1] rec[-2]\n"),
-                                                    ReconstructionOutputs::Records);
-    REQUIRE(result.reconstruction.has_value());
-    const auto law = reconstructed_law(*result.reconstruction);
-    REQUIRE(law.size() == 1);
-    REQUIRE_THAT(law.at(13), Catch::Matchers::WithinAbs(1, 2e-12));
+    for (const auto* padding : {"1 0 1", "!0 !1 !0"}) {
+        CAPTURE(padding);
+        const auto result = reconstruct_global_sampling(
+            parse(std::string("MPAD ") + padding + "\nDETECTOR rec[-1] rec[-2]\n"),
+            ReconstructionOutputs::Records);
+        REQUIRE(result.reconstruction.has_value());
+        const auto law = reconstructed_law(*result.reconstruction);
+        REQUIRE(law.size() == 1);
+        REQUIRE_THAT(law.at(13), Catch::Matchers::WithinAbs(1, 2e-12));
+    }
 }
 
 TEST_CASE("Global reconstruction matches mixed small instruments", "[reconstruction]") {
