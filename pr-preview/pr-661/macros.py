@@ -48,6 +48,7 @@ def define_env(env: Any) -> None:
                 for power in range(math.ceil(low), math.floor(high) + 1, step)
             ]
             for row in panel["rows"]:
+                row["circuit_url"] = env.page.meta["throughput_circuits"][row["artifact_sha256"]]
                 for value in row["values"]:
                     rate = value["median_attempted_shots_per_second"]
                     if value["outcome"] == "measured":
