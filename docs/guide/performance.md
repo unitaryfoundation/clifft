@@ -29,11 +29,12 @@ not measured in this suite:
   on 15-to-1 distillation and **83.6 million** on the measured Reed–Muller
   circuit, where stabilizer recovery and phase simplification collapse the
   active state. On the injection/cultivation circuits (`d=3` and `d=5`), xtim
-  and Tsim are faster. The separate end-to-end cultivation `d=5` workload adds
-  the remaining cultivation rounds and postselection after injection, reaching
+  and Tsim are faster. The separate end-to-end cultivation `d=5` workload
+  continues through escape into a distance-15 surface code, with postselection
+  on cultivation-stage detectors, reaching
   **39.1 thousand shots/s** in Clifft and **135 thousand** in Tsim.
-- **Surface-code memory and coherent noise:** Clifft matches Tsim on coherent
-  `d=3, r=3` (**2.78 million** vs. **2.89 million shots/s**) and leads on
+- **Surface-code memory and coherent noise:** Clifft approaches Tsim's throughput
+  on coherent `d=3, r=3` (**2.78 million** vs. **2.89 million shots/s**) and leads on
   coherent `d=5, r=5` (**12.8 thousand shots/s** vs. **3.03 thousand** in Tsim
   and **63.3** in SymFT), where compiled Pauli rotations and bounded active
   width keep per-shot work small.
@@ -42,7 +43,7 @@ not measured in this suite:
   samples the measured `BT27` and `BT81` code-switching circuits at **247
   thousand** and **831 thousand shots/s**.
 - **Quantum Volume (1 core):** Dense circuits drive the active width to the full
-  qubit count. Tsim's stabilizer-rank decomposition is faster at `QV10`
+  qubit count. Tsim's active-statevector backend is faster at `QV10`
   (**480 thousand** vs. **23.2 thousand shots/s** in Clifft), whereas at `QV20`
   Clifft's dense statevector execution reaches **5.85 shots/s** compared with
   **0.274** in SymFT and **0.0938** in Tsim.
@@ -53,11 +54,12 @@ On the Clifford `Surface code d7, r7` workload in the second panel, all tools
 sample the same circuit, reject any shot with a detector event, and count
 logical observable errors among survivors. Clifft reaches **4.22 million
 attempted shots/s** compared with **1.12 million** for Stim (**3.77x**), while
-xtim and Tsim reach **4.85 million** and **5.58 million**. The near-Clifford
-samplers lead here because compiled all-detector postselection can reject
-failed shots early and accumulate survivor counts directly, whereas the Stim
-baseline materializes packed detector and observable records before filtering
-survivors in the adapter.
+xtim and Tsim reach **4.85 million** and **5.58 million**. Clifft can reject
+failed shots early and accumulate survivor counts directly. xtim and Tsim also
+support early rejection, but return records that their adapters reduce to
+counts. The Stim baseline materializes packed detector and observable records
+before filtering survivors in the adapter. The comparison includes these
+output-processing costs.
 
 ### Measurement setup
 
@@ -82,19 +84,24 @@ for exact software commits, environments, and timing boundaries.
 ![Clifft v0.13 throughput changes from v0.12: 223x for 15-to-1 distillation, 16.2x for Reed–Muller, and -0.52% to +8.21% for the other seven paired workloads](../assets/performance/release-change-light.png#only-light)
 ![Clifft v0.13 throughput changes from v0.12: 223x for 15-to-1 distillation, 16.2x for Reed–Muller, and -0.52% to +8.21% for the other seven paired workloads](../assets/performance/release-change-dark.png#only-dark)
 
-Across the nine paired workloads from v0.12, throughput increases by **223x** on
-15-to-1 distillation and **16.2x** on Reed–Muller. Those gains come from
-[recovering known stabilizers across measurement, feedback, and postselection](../updates/sampling-through-leakage-and-loss.md#stabilizer-recovery-and-phase-simplification)
-to simplify larger commuting phase regions, together with skipping packed noise
-sampling when a compiled plan has no quantum-noise sites.
+Across the nine paired workloads, throughput reaches **223x** the v0.12 rate on
+15-to-1 distillation and **16.2x** on Reed–Muller. Peak active width falls from
+**5 to 0** and **5 to 1**, respectively, reducing the dense state carried during
+sampling. The release's improved
+[stabilizer recovery and phase simplification](../updates/sampling-through-leakage-and-loss.md#stabilizer-recovery-and-phase-simplification)
+eliminate more non-Clifford work before sampling. Packed sampling also skips
+noise-sampling work when a compiled plan has no quantum-noise sites.
 
 Among the remaining workloads, the fixed-input 16-bit Draper adder improves by
 **8.21%**, coherent `d=3, r=3` by **4.74%**, and cultivation `d=3` by
-**2.96%**. The other four circuits fall within the `±1.1%` gray band (with
-cultivation `d=5` at `batch_size=1` showing higher run-to-run variance across
-worker processes). Both releases use their default compiler pipeline followed
+**2.96%**. The other four circuits fall within the **±1.1% inconclusive band**.
+Both releases use their default compiler pipeline followed
 by [active-width scheduling](compilation.md#active-width-scheduling) and
 independently calibrated batch sizes.
+
+Cultivation d5 varies between processes in both releases, so this run does not
+establish a reliable release-change percentage; see
+[#656](https://github.com/unitaryfoundation/clifft/issues/656).
 
 ## Performance over time
 
