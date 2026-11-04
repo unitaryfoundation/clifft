@@ -9,7 +9,7 @@ The measurements below cover three complementary questions: how Clifft
 compares with other CPU simulators, how its throughput has
 changed across releases, and how it behaves when a circuit becomes fully dense.
 
-## Near-Clifford throughput
+## CPU simulator throughput
 
 The recurring [`clifft-bench`](https://github.com/unitaryfoundation/clifft-bench)
 campaign measures attempted shots per second for complete circuits on one
@@ -22,20 +22,26 @@ standard settings after the default compiler pipeline. The pass remains opt-in
 in ordinary Clifft use. The comparison measures the combined release
 configuration, including scheduling and the selected batch size.
 
-![Clifft v0.12, SymFT v0.1.1, xtim v3.1.4, and Stim v1.16 attempted shots per second on their measured QEC workloads](../assets/performance/simulator-throughput-light.png#only-light)
-![Clifft v0.12, SymFT v0.1.1, xtim v3.1.4, and Stim v1.16 attempted shots per second on their measured QEC workloads](../assets/performance/simulator-throughput-dark.png#only-dark)
+![Clifft v0.13, SymFT v0.1.1, xtim v3.2.2, Stim v1.16, and Tsim v0.1.5 attempted shots per second across fourteen CPU workloads](../assets/performance/simulator-throughput-light.png#only-light)
+![Clifft v0.13, SymFT v0.1.1, xtim v3.2.2, Stim v1.16, and Tsim v0.1.5 attempted shots per second across fourteen CPU workloads](../assets/performance/simulator-throughput-dark.png#only-dark)
 
-Clifft is faster than SymFT on all seven workloads, by **1.05x to 201x**.
-xtim is faster than Clifft on cultivation d3/d5 and 15-to-1 distillation,
-by **1.60x to 19.9x**, and essentially tied on the Clifford surface-code
-workload. Stim supplies a separate Clifford comparison below. Missing markers
-mean no measurement in this campaign; xtim has four measured workloads and
-Stim has one.
+The four panels cover magic-state preparation, surface-code memory and coherent
+noise, arithmetic and code switching, and dense Quantum Volume circuits.
+**Each panel has its own logarithmic scale**; compare horizontal positions
+within a panel. Missing markers indicate pairings without measurements.
+
+Clifft reaches **597 million attempted shots/s** on 15-to-1 distillation and
+**83.6 million** on the measured Reed–Muller circuit, leading the measured
+tools on both. xtim and Tsim are faster on injection/cultivation d3 and d5.
+The separate end-to-end cultivation d5 circuit reaches **39.1 thousand
+shots/s** in Clifft and **135 thousand** in Tsim. Circuit scope matters when
+comparing these rates.
 
 These are attempted-shot rates, so post-selected shots that are later discarded
-still count as simulation work. The run used one placement of an AWS
-`m7a.xlarge` with an AMD EPYC 9R14, Ubuntu 24.04, and one pinned logical CPU.
-Each reported configuration has five timed samples of at least 30 seconds.
+still count as simulation work. The collections used AWS `m7a.xlarge`
+instances with an AMD EPYC 9R14, Ubuntu 24.04, one pinned logical CPU, one
+thread, and a 12 GiB memory ceiling. Each reported configuration has five
+timed samples of at least 30 seconds in one fresh worker process.
 Compilation is measured separately and excluded from sampling throughput,
 except for lazy plan construction during sampling. In particular, each xtim
 sample starts with an empty plan cache and includes lazy planning; its rate
@@ -43,25 +49,34 @@ is a fixed-duration average. All tools return aggregate counts. Stim and xtim
 materialize packed records that the adapter reduces to those counts, with
 both steps included in their timing.
 
-The Clifft measurements use the published **0.12.0rc1** wheel, with
-**0.11.0rc1** as the previous-release baseline. Plot labels show the final
-release versions; only documentation has changed since the measured candidate.
-SymFT is pinned to **0.1.1** at upstream commit `c89b985`, and xtim to
-**3.1.4** at `2945407` with its portable build configuration.
-The harness calibrates numeric batch sizes independently; it does not use
-Clifft's new `batch_size="tune"` API.
+The Clifft measurements were collected on **November 4, 2026**, using the
+published **0.13.0rc2** wheel and **0.12.0rc1** baseline. Their locked
+environments use NumPy 2.5.4 and 2.5.2, respectively, so the comparison includes
+those dependency versions. Figure labels use the intended final versions
+0.13.0 and 0.12.0. The harness calibrates numeric batch sizes independently;
+it does not use Clifft's `batch_size="tune"` API.
 
-See the immutable
-[comparison table](https://github.com/unitaryfoundation/clifft-bench/blob/59f78d280c5fcb90f42cc75cfd73ff3f004ad4e8/results/release-v1/release-v1-20261009-192718/comparisons.csv)
-and the
-[benchmark contract](https://github.com/unitaryfoundation/clifft-bench/blob/59f78d280c5fcb90f42cc75cfd73ff3f004ad4e8/docs/benchmark-contract.md)
-for the exact software identities, timing boundaries, and result semantics.
+Peer results are retained from **November 3, 2026**: SymFT **0.1.1**
+(`c89b985`), xtim **3.2.2** (`edf0dd0`), Stim **1.16.0**, and Tsim **0.1.5**
+(`e9406ed`). The report validates matching hardware, protocols, circuit
+digests, selection semantics, and call sizes before combining their absolute
+rates with RC2. These are separate collections; the peer comparisons are
+not fresh paired measurements. All Clifft release ratios below use only the
+November 4 execution.
+
+The immutable [RC2 results and environment](https://github.com/unitaryfoundation/clifft-bench/tree/dce2f9e8ca5eb9311c074fb3c8c0793d469f4b1c/results/release-clifft/0.13.0rc2-20261104-140631),
+[peer results](https://github.com/unitaryfoundation/clifft-bench/tree/dce2f9e8ca5eb9311c074fb3c8c0793d469f4b1c/results/release-v1/0.13.0rc1-20261103-183623),
+and [generated review](https://github.com/unitaryfoundation/clifft-bench/blob/dce2f9e8ca5eb9311c074fb3c8c0793d469f4b1c/results/release-clifft/0.13.0rc2-20261104-140631/report/review.md)
+record every case and exact software identity. The
+[benchmark contract](https://github.com/unitaryfoundation/clifft-bench/blob/dce2f9e8ca5eb9311c074fb3c8c0793d469f4b1c/docs/benchmark-contract.md)
+defines the timing boundaries and result semantics.
 
 ### Clifford postselection with Stim
 
 The surface-code d7/r7 circuit provides a separate Clifford comparison with
-Stim. Clifft reaches **4.35 million attempted shots/s**, compared with
-**1.12 million for Stim**, a **3.90x** throughput ratio. Both tools sample the
+Stim. Clifft reaches **4.22 million attempted shots/s**, compared with
+**1.12 million for Stim**, a **3.77x** throughput ratio across the two collections.
+Both tools sample the
 same circuit, reject shots with any detector event, and count observable errors
 among survivors.
 
@@ -70,15 +85,28 @@ chunking. It measures sampling, all-detector postselection, and aggregate
 counts on this workload, with compilation excluded. Clifft's ability to reject
 shots early is part of the measured execution strategy.
 
-## Changes in v0.12
+## Changes in v0.13
 
-![Clifft v0.12 throughput changes from v0.11 across seven QEC workloads, ranging from -1.16% to +1.90%](../assets/performance/v012-vs-v011-light.png#only-light)
-![Clifft v0.12 throughput changes from v0.11 across seven QEC workloads, ranging from -1.16% to +1.90%](../assets/performance/v012-vs-v011-dark.png#only-dark)
+![Clifft v0.13 throughput changes from v0.12: 223x for 15-to-1 distillation, 16.2x for Reed–Muller, and -0.52% to +8.21% for the other seven paired workloads](../assets/performance/release-change-light.png#only-light)
+![Clifft v0.13 throughput changes from v0.12: 223x for 15-to-1 distillation, 16.2x for Reed–Muller, and -0.52% to +8.21% for the other seven paired workloads](../assets/performance/release-change-dark.png#only-dark)
 
-The seven QEC workloads changed by **-1.16% to +1.90%** on this host.
-These small differences do not establish a release-wide speedup. Both versions
-use their own default compiler passes followed by the opt-in scheduler and
-independently calibrated batching.
+The nine measured release pairs show **223x** throughput on 15-to-1
+distillation, **16.2x** on Reed–Muller, and **8.21% higher throughput** on the
+fixed-input Draper adder. Injection/cultivation d3 improves by **2.96%** and
+coherent d3/r3 by **4.74%**. The other four changes are within the benchmark's
+**±1.1% inconclusive band**, which is a reporting threshold, not a confidence
+interval. Both versions use their default compiler passes followed by the
+opt-in scheduler and independently calibrated batching, so these are changes
+to the complete release configuration.
+
+**Cultivation d5 still has substantial variation between worker processes.**
+This campaign measured **+0.18%**, with both releases selecting batch 1 after
+full calibration. Earlier independent-worker measurements found variation in
+both releases and repeated RC1 losses with direct batch-1 preparation. Five
+samples from one worker per version cannot resolve that behavior; the
+[follow-up investigation](https://github.com/unitaryfoundation/clifft/issues/656)
+remains open. The +0.18% result describes this calibrated run, rather than a
+settled release-wide percentage for d5.
 
 ## Performance over time
 
@@ -88,8 +116,8 @@ preparation, and active-state kernels. That structure does not mean every
 speedup comes from the compiler, but it lets later releases improve one stage
 without moving circuit analysis back into the per-shot execution loop.
 
-![Median Clifft throughput by release relative to v0.1](../assets/performance/performance-over-time-light.png#only-light)
-![Median Clifft throughput by release relative to v0.1](../assets/performance/performance-over-time-dark.png#only-dark)
+![Median Clifft throughput from v0.1 through v0.12 relative to v0.1](../assets/performance/performance-over-time-light.png#only-light)
+![Median Clifft throughput from v0.1 through v0.12 relative to v0.1](../assets/performance/performance-over-time-dark.png#only-dark)
 
 The first broad step arrived in [v0.8](../updates/symbolic-sampling.md), when
 symbolic plans replaced the original localized-Pauli virtual machine. Version
@@ -99,7 +127,7 @@ on that work with operation scheduling and deferred noise sampling.
 Version [0.12](../updates/smaller-active-states.md) preserves that QEC
 throughput while adding state-aware compiler simplification.
 
-The history plot reaches a **13.6x median speedup over v0.1**. Every point
+This historical series ends at v0.12 with a **13.6x median speedup over v0.1**. Every point
 uses the same six-workload reporting core. Earlier release posts used eight
 workloads; the current core omits the two single-round coherent circuits,
 so its historical medians differ from those earlier summaries. The new
@@ -120,7 +148,7 @@ difference between two host boots as a product change. The exact execution
 chain is recorded in
 [reporting sources](https://github.com/unitaryfoundation/clifft-bench/blob/59f78d280c5fcb90f42cc75cfd73ff3f004ad4e8/reporting/sources.json).
 
-## Dense Quantum Volume circuits
+## Dense Quantum Volume circuits on 16 cores
 
 Near-Clifford structure is Clifft's main advantage. A dense Quantum Volume
 circuit instead drives the active width to the full qubit count, making Clifft

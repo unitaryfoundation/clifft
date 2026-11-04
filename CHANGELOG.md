@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [0.13.0] - 2026-11-03
+## [0.13.0] - 2026-11-04
 
 Clifft 0.13.0 adds reusable, batched execution for eligible leakage and loss models and an opt-in online backend that handles changes to later gates without recompiling during a shot. Compiler improvements use measurement, feedback, and postselection to simplify more non-Clifford operations. See [Improved Leakage and Loss Sampling Throughput](https://unitaryfoundation.github.io/clifft/stable/updates/sampling-through-leakage-and-loss/) for the development story and examples.
 
@@ -25,6 +25,8 @@ Clifft 0.13.0 adds reusable, batched execution for eligible leakage and loss mod
 
 ### Performance
 
+- The reference-host campaign using the published 0.13.0rc2 wheel measures 223x previous-release throughput on 15-to-1 distillation, 16.2x on Reed–Muller, and an 8.21% gain on the fixed-input Draper adder. The other six paired workloads range from -0.52% to +4.74%. Cultivation d5 still has unresolved variation across processes and preparation histories; see [Performance](https://unitaryfoundation.github.io/clifft/stable/guide/performance/#changes-in-v013) for the results, methods, and qualification.
+- Skipped packed noise sampling for plans without quantum-noise sites, preserving RNG state and symbol finalization, by @bachase-agent in [#655](https://github.com/unitaryfoundation/clifft/pull/655).
 - Reduced fixed leakage/loss sampling overhead by compiling and batching classical status, noise, and readout work and applying peephole fusion to fixed quantum plans. Automatic batch selection now accounts for classical work and memory, by @bachase-agent in [#605](https://github.com/unitaryfoundation/clifft/pull/605), [#625](https://github.com/unitaryfoundation/clifft/pull/625), [#629](https://github.com/unitaryfoundation/clifft/pull/629), and [#636](https://github.com/unitaryfoundation/clifft/pull/636).
 - Reduced packed rotation-sign preparation and output-transposition overhead, and skipped unused scalar expectation-value probes, by @bachase-agent in [#572](https://github.com/unitaryfoundation/clifft/pull/572), [#593](https://github.com/unitaryfoundation/clifft/pull/593), and [#626](https://github.com/unitaryfoundation/clifft/pull/626).
 

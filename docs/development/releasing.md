@@ -146,18 +146,22 @@ candidate has been validated and before the final tag.
 Treat [`clifft-bench`](https://github.com/unitaryfoundation/clifft-bench) as the source of truth for
 raw results and figure generation. This repository owns the reader-facing prose and rendered assets.
 
-1. Collect previous/current Clifft and peer tools together in a new execution directory. Confirm
+1. Collect previous/current Clifft together in a new execution directory. Measure peers in that
+   execution, or explicitly reuse a compatible reviewed peer execution with `--peer-results` as
+   described in the publication workflow below. Preserve both collection dates and source links. Confirm
    that the measured artifact is the exact published candidate and that no runtime, compiler,
    packaging, or build input has changed since its tag. If one has, publish and measure another
    candidate instead of carrying the old results into the final release.
 2. Follow the [`clifft-bench` publication workflow](https://github.com/unitaryfoundation/clifft-bench/blob/main/CONTRIBUTING.md#release-reporting):
-   run `clifft-bench report EXECUTION_DIR --check`, then render with the `report` extra. Review
+   run `clifft-bench report EXECUTION_DIR --check` (with the same `--peer-results` input when reusing
+   peers), then render with the `report` extra. Review
    `raw.json`, `cases.csv`, `report/review.md`, failures, missing baselines, and both figure themes.
-   The report uses that execution alone; historical executions are not required. Merge the
+   Release ratios use the primary execution alone; peer rates may come from the explicitly
+   supplied peer execution. Merge the
    results/reporting PR in `clifft-bench` before copying its reviewed outputs here.
-3. Copy these light/dark pairs from `reporting/figures/web/` to `docs/assets/performance/`:
+3. Copy these light/dark pairs from the merged execution's `report/` directory to
+   `docs/assets/performance/`:
 
-   - `clifft-throughput-{light,dark}.png`
    - `simulator-throughput-{light,dark}.png`
    - `release-change-{light,dark}.png`
 
