@@ -187,6 +187,7 @@ void apply_nondiagonal_rotation_avx512(State& state, const PreparedRotation& rot
            "AVX-512 non-diagonal rotation requires a high pairing pivot");
     double* const real = state.real_data();
     double* const imag = state.imag_data();
+    // Snapshot metadata so potentially aliasing SIMD stores do not force loop reloads.
     const uint64_t size = state.size();
     const uint64_t x = rotation.pauli.x;
     const uint64_t z = rotation.pauli.z;
