@@ -159,11 +159,20 @@ raw results and figure generation. This repository owns the reader-facing prose 
    Release ratios use the primary execution alone; peer rates may come from the explicitly
    supplied peer execution. Merge the
    results/reporting PR in `clifft-bench` before copying its reviewed outputs here.
-3. Copy these light/dark pairs from the merged execution's `report/` directory to
+3. Copy these files from the merged execution's `report/` directory to
    `docs/assets/performance/`:
 
    - `simulator-throughput-{light,dark}.png`
    - `release-change-{light,dark}.png`
+   - `simulator-throughput.json`
+
+   Generate the JSON with the same exporter revision and explicit peer input as the figures;
+   do not edit it by hand. The guide builds its chart and accessible table from this asset.
+   Update `throughput_evidence` in the performance guide's front matter to map every exported
+   source run ID to its immutable evidence directory. A missing mapping fails the docs build.
+   Generate `throughput_circuits` by matching each exported `artifact_sha256` to a circuit file
+   in the pinned `clifft-bench` checkout. Map each digest to that file's immutable GitHub URL;
+   the chart and table use these links. An unknown circuit digest fails the docs build.
 
    Update image links and claims together in `README.md`, `docs/guide/performance.md`, and any
    release-specific excerpts in `docs/index.md` or `docs/updates/`. Use the stable `release-change`
@@ -172,7 +181,10 @@ raw results and figure generation. This repository owns the reader-facing prose 
    results mean for users; keep collection dates, candidate tags, dependency lock details, and
    run-joining provenance in the pinned `clifft-bench` links and PR summary.
 4. Check headline numbers against the execution's samples and review summary, inspect both themes,
-   then run `just docs-build` and the required pre-commit suite.
+   then run `just docs-build` and the required pre-commit suite. Check the throughput controls,
+   keyboard focus and Escape dismissal, touch layout, navigation away and back, and the static
+   figures and table with JavaScript disabled. Confirm that controls preserve panel scales and
+   that chart labels, table values, and downloads agree.
 
 Keep existing published figures and their source links until reviewed reference-host results are
 ready; smoke figures are validation artifacts. Historical trends, Quantum Volume, GPU studies,
