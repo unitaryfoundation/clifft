@@ -315,6 +315,10 @@ struct BatchExecutor::NoiseSiteActivator {
 };
 
 void BatchExecutor::sample_presampled_noise() noexcept {
+    if (plan_->noise_sites_.empty()) {
+        finalize_presampled_symbols();
+        return;
+    }
     const NoiseSiteActivator activator(*this);
     Xoshiro256PlusPlus rng = rng_;
     const uint32_t lanes = active_lanes();
@@ -346,7 +350,7 @@ void BatchExecutor::sample_presampled_noise() noexcept {
         }
     } else {
         const std::span<const double> hazards(plan_->noise_hazards_);
-        const double last_hazard = end == 0 ? 0.0 : hazards[end - 1];
+        const double last_hazard = hazards[end - 1];
         for (uint32_t lane = 0; lane < lanes; ++lane) {
             uint32_t first_candidate = 0;
             while (first_candidate < end) {
