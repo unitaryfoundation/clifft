@@ -203,8 +203,10 @@ def main() -> None:
         stochastic_model,
         shots=STOCHASTIC_SHOTS,
         seed=7,
+        final_status=True,
     )
     heralded = stochastic.heralds.any(axis=1)
+    assert stochastic.final_status is not None
     final_loss = (stochastic.final_status == noncomp.QubitStatus.LOST).any(axis=1)
     print(f"per-operand loss probability: {site_probability:.7f}")
     print(f"shots with detected loss: {heralded.mean():.1%}")
