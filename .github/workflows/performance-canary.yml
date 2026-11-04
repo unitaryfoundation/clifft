@@ -28,6 +28,8 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: read
+    outputs:
+      compare_sha: ${{ steps.resolve.outputs.compare_sha }}
     env:
       CMAKE_BUILD_TYPE: Release
       CLIFFT_CPU_BASELINE: x86-64-v2
@@ -80,10 +82,26 @@ jobs:
         if: github.event.pull_request.head.repo.full_name != github.repository
         env:
           BASE_REPOSITORY: ${{ github.repository }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           git -C benchmark-source remote add base "$GITHUB_SERVER_URL/$BASE_REPOSITORY.git"
-          git -C benchmark-source fetch --no-tags --depth=1 base "$BASE_SHA"
+
+      # The PR is measured against the code it was written on. Comparing with the
+      # tip of the base branch would charge the PR for base-branch changes it does
+      # not contain, so the base binary is built from the merge-base instead.
+      - name: Resolve comparison base
+        id: resolve
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_REMOTE: ${{ github.event.pull_request.head.repo.full_name == github.repository && 'origin' || 'base' }}
+        run: |
+          set -euo pipefail
+          git -C benchmark-source fetch --no-tags "$BASE_REMOTE" "$BASE_SHA"
+          compare_sha="$(git -C benchmark-source merge-base "$BASE_SHA" "$HEAD_SHA")"
+          base_distance="$(git -C benchmark-source rev-list --count "$compare_sha..$BASE_SHA")"
+          echo "COMPARE_SHA=$compare_sha" >> "$GITHUB_ENV"
+          echo "BASE_DISTANCE=$base_distance" >> "$GITHUB_ENV"
+          echo "compare_sha=$compare_sha" >> "$GITHUB_OUTPUT"
 
       - name: Install native build tools
         uses: ./.github/actions/setup-native-tools
@@ -110,19 +128,21 @@ jobs:
       - name: Prepare fallback report
         env:
           BASE_LABEL: ${{ github.event.pull_request.base.ref }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_SHA: ${{ env.COMPARE_SHA }}
+          BASE_DISTANCE: ${{ env.BASE_DISTANCE }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           python3 tools/ci/benchmark_canary.py failure \
             --output canary-results/report.md \
             --base-label "$BASE_LABEL" \
             --base-sha "$BASE_SHA" \
+            --base-distance "$BASE_DISTANCE" \
             --head-sha "$HEAD_SHA"
 
       - name: Record benchmark evidence metadata
         env:
           BASE_LABEL: ${{ github.event.pull_request.base.ref }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_SHA: ${{ env.COMPARE_SHA }}
           HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -145,7 +165,7 @@ jobs:
         id: benchmark
         continue-on-error: true
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_SHA: ${{ env.COMPARE_SHA }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
@@ -233,7 +253,8 @@ jobs:
         continue-on-error: true
         env:
           BASE_LABEL: ${{ github.event.pull_request.base.ref }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_SHA: ${{ env.COMPARE_SHA }}
+          BASE_DISTANCE: ${{ env.BASE_DISTANCE }}
           BENCHMARK_SHA: ${{ github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.sha || github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
@@ -241,6 +262,7 @@ jobs:
             --output canary-results/report.md \
             --base-label "$BASE_LABEL" \
             --base-sha "$BASE_SHA" \
+            --base-distance "$BASE_DISTANCE" \
             --head-sha "$HEAD_SHA" \
             --base-first canary-results/base-first \
             --head-first canary-results/head-first \
@@ -266,7 +288,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: performance-canary-${{ github.event.pull_request.number }}-${{ github.event.pull_request.base.sha }}
+          name: performance-canary-${{ github.event.pull_request.number }}-${{ env.COMPARE_SHA }}
           path: canary-results/
           # The reporter bounds the stored artifact size before downloading it.
           # Disabling compression makes that bound resist highly compressible input.
@@ -289,7 +311,7 @@ jobs:
       - name: Download benchmark evidence
         uses: actions/download-artifact@v8
         with:
-          name: performance-canary-${{ github.event.pull_request.number }}-${{ github.event.pull_request.base.sha }}
+          name: performance-canary-${{ github.event.pull_request.number }}-${{ needs.benchmark.outputs.compare_sha }}
           path: canary-results
 
       - name: Create or update sticky comment

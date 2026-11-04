@@ -7,6 +7,7 @@ import json
 import re
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -28,6 +29,7 @@ REPOSITORY = "unitaryfoundation/clifft"
 HEAD_REPOSITORY = "contributor/clifft"
 BASE_SHA = "1" * 40
 HEAD_SHA = "2" * 40
+BENCHMARK_SHA = "4" * 40
 
 
 def _registered_workloads() -> list[str]:
@@ -83,7 +85,7 @@ def _write_fork_evidence(path: Path) -> Path:
         directory = path / directory_name
         directory.mkdir()
         for index, name in enumerate(_registered_workloads(), start=1):
-            _write_results(directory / f"{name}.json", {name: index * 100.0 * multiplier})
+            _write_results(directory / f"{name}.json", {name: index * 1_000_000.0 * multiplier})
     benchmark_canary.write_manifest(
         path / "manifest.json",
         repository=REPOSITORY,
@@ -105,16 +107,16 @@ def _write_fork_evidence(path: Path) -> Path:
 
 def test_report_classifies_paired_changes(tmp_path: Path) -> None:
     base = {
-        "stable": 100.0,
-        "notable": 100.0,
-        "regression": 100.0,
-        "improvement": 100.0,
+        "stable": 10_000_000.0,
+        "notable": 10_000_000.0,
+        "regression": 10_000_000.0,
+        "improvement": 10_000_000.0,
     }
     head = {
-        "stable": 104.0,
-        "notable": 106.0,
-        "regression": 114.0,
-        "improvement": 89.0,
+        "stable": 10_400_000.0,
+        "notable": 10_600_000.0,
+        "regression": 11_400_000.0,
+        "improvement": 8_900_000.0,
     }
     comparisons, added, removed = benchmark_canary.compare_runs(
         _write_results(tmp_path / "base-first.json", base),
@@ -140,13 +142,16 @@ def test_report_classifies_paired_changes(tmp_path: Path) -> None:
     )
 
     assert "**Possible regression detected:** 1 of 4 benchmarks was at least 10% slower." in report
-    assert "| stable | 100 ns | 104 ns | +4.0% | No material change |" in report
-    assert "| notable | 100 ns | 106 ns | **+6.0%** | Notable slowdown |" in report
-    assert "| regression | 100 ns | 114 ns | **+14.0%** | Possible regression |" in report
-    assert "| improvement | 100 ns | 89.0 ns | **-11.0%** | Improvement |" in report
+    assert "| stable | 10.0 ms | 10.4 ms | +4.0% | No material change |" in report
+    assert "| notable | 10.0 ms | 10.6 ms | **+6.0%** | Notable slowdown |" in report
+    assert "| regression | 10.0 ms | 11.4 ms | **+14.0%** | Possible regression |" in report
+    assert "| improvement | 10.0 ms | 8.90 ms | **-11.0%** | Improvement |" in report
     assert "## :baby_chick: Performance Canary" in report
     assert "<summary>View 4 benchmark results</summary>" not in report
-    assert "<sub>Compared <code>main</code> (<code>1234567</code>)" in report
+    assert (
+        "<sub>Compared this PR (<code>abcdef0</code>) with its merge-base on "
+        "<code>main</code> (<code>1234567</code>)"
+    ) in report
     assert "Example CPU" in report
     assert "Pinned logical CPU: <code>3</code>" in report
     assert "Release, x86-64-v2, ThinLTO, lld" in report
@@ -210,8 +215,8 @@ def test_material_change_requires_consistent_low_noise_pairs(tmp_path: Path) -> 
 def test_inconclusive_summary_retains_improvements() -> None:
     improvement = benchmark_canary.Comparison(
         name="improvement",
-        base_ns=100.0,
-        head_ns=88.0,
+        base_ns=1_000_000.0,
+        head_ns=880_000.0,
         change=-0.12,
         first_change=-0.12,
         second_change=-0.12,
@@ -219,8 +224,8 @@ def test_inconclusive_summary_retains_improvements() -> None:
     )
     inconclusive = benchmark_canary.Comparison(
         name="inconclusive",
-        base_ns=100.0,
-        head_ns=112.0,
+        base_ns=1_000_000.0,
+        head_ns=1_120_000.0,
         change=0.12,
         first_change=0.12,
         second_change=0.12,
@@ -317,6 +322,176 @@ def test_failure_report_uses_succinct_heading() -> None:
     assert "(advisory)" not in report
 
 
+def _comparison(
+    name: str,
+    base_ns: float,
+    change: float,
+    *,
+    first_change: float | None = None,
+    second_change: float | None = None,
+    max_relative_stddev: float = 0.0,
+) -> Any:
+    return benchmark_canary.Comparison(
+        name=name,
+        base_ns=base_ns,
+        head_ns=base_ns * (1.0 + change),
+        change=change,
+        first_change=change if first_change is None else first_change,
+        second_change=change if second_change is None else second_change,
+        max_relative_stddev=max_relative_stddev,
+    )
+
+
+def _render_comparisons(comparisons: list[Any], **kwargs: Any) -> str:
+    report: str = benchmark_canary.render_report(
+        comparisons,
+        base_label="main",
+        base_sha="1234567890",
+        head_sha="abcdef0123",
+        repetitions=3,
+        min_time=0.5,
+        warmup_time=0.2,
+        added=[],
+        removed=[],
+        cpu="CPU",
+        compiler="compiler",
+        **kwargs,
+    )
+    return report
+
+
+@pytest.mark.parametrize(
+    ("base_ns", "head_first_ns", "head_second_ns", "expected"),
+    [
+        (50_000.0, 57_500.0, 57_500.0, "Micro-workload change"),
+        (50_000.0, 65_000.0, 65_000.0, "Possible regression"),
+        (50_000.0, 35_000.0, 35_000.0, "Improvement"),
+        (50_000.0, 57_500.0, 50_000.0, "Inconclusive"),
+        (150_000.0, 172_500.0, 172_500.0, "Possible regression"),
+    ],
+)
+def test_micro_workloads_need_a_larger_change_for_a_verdict(
+    tmp_path: Path,
+    base_ns: float,
+    head_first_ns: float,
+    head_second_ns: float,
+    expected: str,
+) -> None:
+    comparisons, _, _ = benchmark_canary.compare_runs(
+        _write_results(tmp_path / "base-first.json", {"bench": base_ns}),
+        _write_results(tmp_path / "head-first.json", {"bench": head_first_ns}),
+        _write_results(tmp_path / "head-second.json", {"bench": head_second_ns}),
+        _write_results(tmp_path / "base-second.json", {"bench": base_ns}),
+    )
+
+    assert comparisons[0].assessment == expected
+
+
+def test_micro_workload_change_is_reported_without_a_verdict() -> None:
+    micro = _comparison("micro", 50_000.0, 0.15)
+    stable = _comparison("stable", 1_000_000.0, 0.01)
+
+    report = _render_comparisons([stable, micro])
+
+    assert (
+        "**No possible regressions detected.** 1 micro-workload benchmark changed by at least "
+        "5% and is reported without a verdict."
+    ) in report
+    assert "No material performance changes detected" not in report
+    assert "| micro | 50.0 us | 57.5 us | **+15.0%** | Micro-workload change |" in report
+    assert "<details>\n<summary>View" not in report
+
+
+def test_micro_workload_change_does_not_count_as_a_regression() -> None:
+    regression = _comparison("regression", 1_000_000.0, 0.20)
+    micro = _comparison("micro", 50_000.0, 0.15)
+
+    summary = benchmark_canary._summary([regression, micro])
+
+    assert summary == (
+        "**Possible regression detected:** 1 of 2 benchmarks was at least 10% slower. "
+        "1 micro-workload benchmark changed by at least 5% and is reported without a verdict. "
+        "This does not block merging."
+    )
+
+
+def test_micro_workload_summary_follows_other_sentences() -> None:
+    improvement = _comparison("improvement", 1_000_000.0, -0.12)
+    micro_slower = _comparison("micro_slower", 50_000.0, 0.15)
+    micro_faster = _comparison("micro_faster", 50_000.0, -0.15)
+    inconclusive = _comparison("inconclusive", 1_000_000.0, 0.12, max_relative_stddev=0.06)
+
+    improvements_only = benchmark_canary._summary([improvement, micro_slower, micro_faster])
+    with_inconclusive = benchmark_canary._summary([inconclusive, micro_slower, micro_faster])
+
+    assert improvements_only == (
+        "**No possible regressions detected.** 1 benchmark showed an improvement of at least 5%. "
+        "2 micro-workload benchmarks changed by at least 5% and are reported without a verdict."
+    )
+    assert with_inconclusive == (
+        "**No confirmed regressions detected.** 1 benchmark comparison was inconclusive. "
+        "2 micro-workload benchmarks changed by at least 5% and are reported without a verdict. "
+        "This does not block merging."
+    )
+
+
+@pytest.mark.parametrize(
+    ("base_distance", "sentence"),
+    [
+        (
+            3,
+            "<code>main</code> has 3 newer commits that are not part of this comparison; "
+            "merge or rebase onto <code>main</code> to measure against its tip.",
+        ),
+        (
+            1,
+            "<code>main</code> has 1 newer commit that is not part of this comparison; "
+            "merge or rebase onto <code>main</code> to measure against its tip.",
+        ),
+        (0, None),
+        (None, None),
+    ],
+)
+def test_report_notes_base_commits_beyond_the_merge_base(
+    base_distance: int | None, sentence: str | None
+) -> None:
+    report = _render_comparisons(
+        [_comparison("stable", 1_000_000.0, 0.0)], base_distance=base_distance
+    )
+
+    assert "with its merge-base on <code>main</code> (<code>1234567</code>)" in report
+    if sentence is None:
+        assert "newer commit" not in report
+    else:
+        assert sentence in report
+    assert "Benchmarks under 100 us need at least 25% to count as a possible" in report
+
+
+def test_failure_report_names_the_merge_base() -> None:
+    report = benchmark_canary.render_failure(
+        base_label="main",
+        base_sha="1234567",
+        head_sha="abcdef0",
+        base_distance=2,
+    )
+    without_distance = benchmark_canary.render_failure(
+        base_label="main",
+        base_sha="1234567",
+        head_sha="abcdef0",
+    )
+
+    assert (
+        "Attempted to compare this PR (<code>abcdef0</code>) with its merge-base on "
+        "<code>main</code> (<code>1234567</code>)."
+    ) in report
+    assert (
+        "<code>main</code> has 2 newer commits that are not part of this comparison; "
+        "merge or rebase onto <code>main</code> to measure against its tip."
+    ) in report
+    assert "with its merge-base on <code>main</code>" in without_distance
+    assert "newer commit" not in without_distance
+
+
 def test_parser_rejects_failed_google_benchmark_run(tmp_path: Path) -> None:
     path = _write_results(tmp_path / "failed.json", {"one": 100.0}, error="benchmark failed")
     with pytest.raises(ValueError, match="did not succeed"):
@@ -370,6 +545,7 @@ def test_fork_report_validates_evidence_and_uses_base_workloads(
         expected_head_sha=HEAD_SHA,
         expected_run_id=456,
         run_url="https://github.example/run/456",
+        benchmark_sha=BENCHMARK_SHA,
     )
 
     workload_count = len(_registered_workloads())
@@ -377,8 +553,9 @@ def test_fork_report_validates_evidence_and_uses_base_workloads(
         f"**Possible regression detected:** {workload_count} of {workload_count} "
         "benchmarks were at least 10% slower." in report
     )
-    assert f"/{REPOSITORY}/blob/{BASE_SHA}/benchmarks/clifft_benchmarks.cc#L" in report
-    assert f"/{REPOSITORY}/blob/{HEAD_SHA}/benchmarks/clifft_benchmarks.cc#L" not in report
+    assert f"/{REPOSITORY}/blob/{BENCHMARK_SHA}/benchmarks/clifft_benchmarks.cc#L" in report
+    assert f"/blob/{BASE_SHA}/" not in report
+    assert f"/blob/{HEAD_SHA}/" not in report
     assert "Runner CPU: ` Example CPU `" in report
     assert "Workloads and fixtures come from the base revision for fork isolation." in report
     assert "[View workflow run](https://github.example/run/456)" in report
@@ -388,6 +565,24 @@ def test_fork_report_validates_evidence_and_uses_base_workloads(
         "Phase pass, 32,000 rank-limited rotations",
     ):
         assert f"| [{label}](" in report
+
+
+def test_fork_report_rejects_invalid_benchmark_revision(tmp_path: Path) -> None:
+    evidence = _write_fork_evidence(tmp_path / "evidence")
+
+    with pytest.raises(ValueError, match="invalid commit SHA"):
+        benchmark_canary.render_fork_report(
+            evidence,
+            expected_repository=REPOSITORY,
+            expected_pr_number=123,
+            expected_base_label="main",
+            expected_base_sha=BASE_SHA,
+            expected_head_repository=HEAD_REPOSITORY,
+            expected_head_sha=HEAD_SHA,
+            expected_run_id=456,
+            run_url="https://github.example/run/456",
+            benchmark_sha="not-a-sha",
+        )
 
 
 def test_fork_report_rejects_manifest_not_bound_to_run(tmp_path: Path) -> None:
@@ -408,6 +603,7 @@ def test_fork_report_rejects_manifest_not_bound_to_run(tmp_path: Path) -> None:
             expected_head_sha=HEAD_SHA,
             expected_run_id=456,
             run_url="https://github.example/run/456",
+            benchmark_sha=BENCHMARK_SHA,
         )
 
 
@@ -429,6 +625,7 @@ def test_fork_report_rejects_base_revision_not_bound_to_artifact(tmp_path: Path)
             expected_head_sha=HEAD_SHA,
             expected_run_id=456,
             run_url="https://github.example/run/456",
+            benchmark_sha=BENCHMARK_SHA,
         )
 
 
@@ -452,6 +649,7 @@ def test_fork_report_accepts_workloads_independent_of_display_labels(
         expected_head_sha=HEAD_SHA,
         expected_run_id=456,
         run_url="https://github.example/run/456",
+        benchmark_sha=BENCHMARK_SHA,
     )
 
     assert "| new_workload | 100 ns | 100 ns | +0.0% | No material change |" in report
@@ -477,6 +675,7 @@ def test_fork_report_rejects_inconsistent_workload_sets(
             expected_head_sha=HEAD_SHA,
             expected_run_id=456,
             run_url="https://github.example/run/456",
+            benchmark_sha=BENCHMARK_SHA,
         )
 
 
@@ -542,6 +741,7 @@ def test_fork_report_rejects_multiline_environment_text(tmp_path: Path) -> None:
             expected_head_sha=HEAD_SHA,
             expected_run_id=456,
             run_url="https://github.example/run/456",
+            benchmark_sha=BENCHMARK_SHA,
         )
 
 
@@ -563,6 +763,7 @@ def test_fork_report_quotes_markdown_in_environment_text(tmp_path: Path) -> None
         expected_head_sha=HEAD_SHA,
         expected_run_id=456,
         run_url="https://github.example/run/456",
+        benchmark_sha=BENCHMARK_SHA,
     )
 
     assert "Runner CPU: ` [click](https://example.invalid) `" in report

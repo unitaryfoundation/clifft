@@ -12,6 +12,15 @@ containing only lowercase letters, digits, and underscores. `DISPLAY_NAMES`
 in `tools/ci/benchmark_canary.py` provides optional report labels; workloads
 without a label appear under their registered name.
 
+The canary builds the PR head and the merge-base of the PR with `main`, so a
+branch behind `main` is measured against the code it changed, and the report
+says how many `main` commits lie beyond the merge-base. A change of at least 5%
+is notable and at least 10% is a possible regression or improvement, and either
+must repeat in both A/B/B/A pairs with low noise. Rows under 100 us need a 25%
+change to count, because code placement alone has historically moved them by
+10-20%; smaller changes on those rows are reported as micro-workload changes
+without a verdict.
+
 Build and run the same suite locally:
 
 ```bash
