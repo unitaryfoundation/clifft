@@ -171,18 +171,14 @@ beyond the previous default collection limit of 32; the new default allows
 up to 128. The [pass reference](../reference/passes.md#constraints-from-measurement-and-feedback)
 describes the conditions under which these rewrites apply.
 
-## Reference-host release measurements
+## Release benchmark results
 
-The separate single-core CPU campaign uses the published **0.13.0rc2** and
-**0.12.0rc1** wheels. It measures **223x** previous-release throughput on
-15-to-1 distillation, **16.2x** on Reed–Muller, and an **8.21%** gain on the
-fixed-input Draper adder. These comparisons include each release's compiler,
-scheduler, and calibrated batch size. Cultivation d5 remains subject to
-unresolved variation across worker processes and preparation histories.
-
-The [performance guide](../guide/performance.md#changes-in-v013) gives the
-figures, exact environments, and interpretation, including the retained peer
-measurements used in the simulator comparison.
+On the single-core CPU benchmark suite, these compiler and sampling
+improvements increase throughput over v0.12 by **223x** on 15-to-1
+distillation, **16.2x** on Reed–Muller, and **8.21%** on the fixed-input
+16-bit Draper adder. See the
+[performance guide](../guide/performance.md#changes-in-v013) for the full
+release comparison and simulator benchmarks.
 
 See the [release notes](https://github.com/unitaryfoundation/clifft/blob/main/CHANGELOG.md)
 for changed defaults and compatibility details when upgrading.

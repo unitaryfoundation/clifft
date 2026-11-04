@@ -104,9 +104,12 @@ architecture cannot support it:
   would care in 1-2 sentences, preserve limitations and tradeoffs that help
   users choose correctly, fold long circuits or tables into collapsible blocks,
   and omit internal implementation catalogs, uncommitted APIs, or
-  *"stable"*/*"experimental"* labels outside `clifft.experimental`. Update
-  existing sections instead of appending per-release notes, then read the whole
-  revised page for flow and consistent detail.
+  *"stable"*/*"experimental"* labels outside `clifft.experimental`. In
+  performance and benchmark docs, explain workload behavior and why performance
+  changed; leave collection dates, candidate tags, dependency lock details, and
+  harness audit rules in the linked benchmark repository or PR description.
+  Update existing sections instead of appending per-release notes, then read the
+  whole revised page for flow and consistent detail.
 - **Test behavior and invariants, not prose:** Test mathematical, statistical,
   and structural invariants (cross-checking unitaries against Qiskit Aer and
   Clifford noise against Stim), and ensure each test exercises the behavior it

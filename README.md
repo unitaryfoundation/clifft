@@ -80,10 +80,6 @@ usually associated with specialized Clifford tools.
   <img src="https://raw.githubusercontent.com/unitaryfoundation/clifft/main/docs/assets/performance/simulator-throughput-light.png" alt="Clifft v0.13, SymFT, xtim, Stim, and Tsim attempted shots per second across fourteen CPU workloads, grouped on independent logarithmic scales">
 </picture>
 
-Clifft 0.13.0rc2 was measured on November 4, 2026; peer results are retained
-from November 3 on matching reference hardware and protocols. Each panel has
-its own logarithmic scale.
-
 See the [Performance guide](https://unitaryfoundation.github.io/clifft/stable/guide/performance/)
 for comparisons with other simulators, release history, dense Quantum Volume
 results, and measurement details.

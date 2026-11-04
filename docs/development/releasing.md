@@ -148,7 +148,7 @@ raw results and figure generation. This repository owns the reader-facing prose 
 
 1. Collect previous/current Clifft together in a new execution directory. Measure peers in that
    execution, or explicitly reuse a compatible reviewed peer execution with `--peer-results` as
-   described in the publication workflow below. Preserve both collection dates and source links. Confirm
+   described in the publication workflow below. Confirm
    that the measured artifact is the exact published candidate and that no runtime, compiler,
    packaging, or build input has changed since its tag. If one has, publish and measure another
    candidate instead of carrying the old results into the final release.
@@ -168,8 +168,9 @@ raw results and figure generation. This repository owns the reader-facing prose 
    Update image links and claims together in `README.md`, `docs/guide/performance.md`, and any
    release-specific excerpts in `docs/index.md` or `docs/updates/`. Use the stable `release-change`
    filenames for paired release comparisons and remove replaced release-specific assets once their
-   links have moved. Pin source/result links to the merged `clifft-bench` commit. Reader-facing
-   labels may use the target final version while evidence retains the exact candidate identity.
+   links have moved. Use final release version labels in reader-facing prose and explain what the
+   results mean for users; keep collection dates, candidate tags, dependency lock details, and
+   run-joining provenance in the pinned `clifft-bench` links and PR summary.
 4. Check headline numbers against the execution's samples and review summary, inspect both themes,
    then run `just docs-build` and the required pre-commit suite.
 
