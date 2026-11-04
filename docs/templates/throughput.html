@@ -29,7 +29,7 @@
       {% for row in panel.rows %}
       {% set row_index = loop.index %}
       <div class="throughput-row">
-        <div class="throughput-workload">{{ row.label }}</div>
+        <div class="throughput-workload"><a href="{{ row.circuit_url }}">{{ row.label }}</a></div>
         <div class="throughput-plot">
           {% for tick in panel.ticks %}
           <span class="throughput-grid" style="left: {{ tick.position }}%" aria-hidden="true"></span>
@@ -86,7 +86,7 @@
         {% for value in row["values"] %}
         {% set item = series[value.variant_id] %}
         <tr>
-          <th scope="row">{{ row.label }}<br><small>{{ row.workload_id }}<br>
+          <th scope="row"><a href="{{ row.circuit_url }}">{{ row.label }}</a><br><small>{{ row.workload_id }}<br>
             {% if row.semantics.postselect_all_detectors %}All-detector postselection{% else %}No detector postselection{% endif %};
             observable {{ row.semantics.observable_index }}</small></th>
           <td>{{ item.simulator.name }}</td>

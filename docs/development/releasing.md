@@ -170,6 +170,9 @@ raw results and figure generation. This repository owns the reader-facing prose 
    do not edit it by hand. The guide builds its chart and accessible table from this asset.
    Update `throughput_evidence` in the performance guide's front matter to map every exported
    source run ID to its immutable evidence directory. A missing mapping fails the docs build.
+   Generate `throughput_circuits` by matching each exported `artifact_sha256` to a circuit file
+   in the pinned `clifft-bench` checkout. Map each digest to that file's immutable GitHub URL;
+   the chart and table use these links. An unknown circuit digest fails the docs build.
 
    Update image links and claims together in `README.md`, `docs/guide/performance.md`, and any
    release-specific excerpts in `docs/index.md` or `docs/updates/`. Use the stable `release-change`
