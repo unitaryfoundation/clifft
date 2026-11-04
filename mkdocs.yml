@@ -53,10 +53,12 @@ markdown_extensions:
 
 extra_javascript:
   - javascripts/katex.js
+  - javascripts/throughput.js
 
 extra_css:
   - https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css
   - stylesheets/extra.css
+  - stylesheets/throughput.css
 
 extra:
   version:

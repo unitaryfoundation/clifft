@@ -1,6 +1,8 @@
-"""MkDocs macros hook: loads compiler IR and pass metadata."""
+"""MkDocs macros for compiler metadata and published benchmark views."""
 
 import json
+import math
+import posixpath
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +17,58 @@ def define_env(env: Any) -> None:
 
     site_url = env.conf["site_url"].rstrip("/")
     env.variables["playground_url"] = f"{site_url}/playground/"
+
+    @env.macro
+    def throughput_widget() -> str:
+        """Render the published benchmark view and its no-JavaScript table."""
+        asset_dir = "assets/performance/"
+        view = json.loads((docs_dir / asset_dir / "simulator-throughput.json").read_text())
+        if view["format"] != "clifft-bench/throughput/v1":
+            raise ValueError("Unsupported throughput export format")
+        evidence = env.page.meta["throughput_evidence"]
+        sources = {
+            key: {**source, "url": evidence[source["run"]["id"]]}
+            for key, source in view["sources"].items()
+        }
+        series = {item["variant_id"]: item for item in view["series"]}
+        simulators = {item["simulator"]["implementation_id"]: item for item in view["series"]}
+
+        def rate_label(value: float) -> str:
+            for scale, suffix in ((1e9, "B"), (1e6, "M"), (1e3, "k")):
+                if value >= scale:
+                    return f"{value / scale:.3g}{suffix}"
+            return f"{value:.3g}"
+
+        # Positions and ticks use the supplied panel limits, even when a series is hidden.
+        for panel in view["panels"]:
+            low, high = map(math.log10, panel["x_limits"])
+            step = max(1, math.ceil((high - low) / 6))
+            panel["ticks"] = [
+                {"position": 100 * (power - low) / (high - low), "label": rate_label(10**power)}
+                for power in range(math.ceil(low), math.floor(high) + 1, step)
+            ]
+            for row in panel["rows"]:
+                for value in row["values"]:
+                    rate = value["median_attempted_shots_per_second"]
+                    if value["outcome"] == "measured":
+                        value["position"] = 100 * (math.log10(rate) - low) / (high - low)
+                        value["label"] = rate_label(rate) + "/s"
+
+        templates = env.env.overlay(autoescape=True)
+        templates.filters = {
+            **templates.filters,
+            "number": lambda value: "Not recorded" if value is None else format(value, ","),
+        }
+        template = (docs_dir / "templates/throughput.html").read_text()
+        return str(
+            templates.from_string(template).render(
+                view=view,
+                series=series,
+                simulators=simulators,
+                sources=sources,
+                assets=posixpath.relpath(asset_dir, posixpath.dirname(env.page.url)) + "/",
+            )
+        )
 
     # -- HIR ops --
     hir_ops = data.get("hir_ops", {})

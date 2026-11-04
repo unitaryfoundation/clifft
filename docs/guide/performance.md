@@ -1,3 +1,9 @@
+---
+throughput_evidence:
+  fc091f89-b63e-4be6-9e72-87cc15fcd04a: https://github.com/unitaryfoundation/clifft-bench/tree/dce2f9e8ca5eb9311c074fb3c8c0793d469f4b1c/results/release-clifft/0.13.0rc2-20261104-140631
+  031a93c5-a1c7-4dc3-a045-3f8163cdc50b: https://github.com/unitaryfoundation/clifft-bench/tree/dce2f9e8ca5eb9311c074fb3c8c0793d469f4b1c/results/release-v1/0.13.0rc1-20261103-183623
+---
+
 # Performance
 
 Clifft is built for fast, exact simulation of near-Clifford circuits. Its
@@ -18,12 +24,12 @@ workload, and Clifft enables opt-in
 [active-width scheduling](compilation.md#active-width-scheduling) with standard
 settings after the default compiler pipeline.
 
-![Clifft v0.13, SymFT v0.1.1, xtim v3.2.2, Stim v1.16, and Tsim v0.1.5 attempted shots per second across fourteen CPU workloads](../assets/performance/simulator-throughput-light.png#only-light)
-![Clifft v0.13, SymFT v0.1.1, xtim v3.2.2, Stim v1.16, and Tsim v0.1.5 attempted shots per second across fourteen CPU workloads](../assets/performance/simulator-throughput-dark.png#only-dark)
+{{ throughput_widget() }}
 
 The four panels group workloads by circuit family, and **each panel uses its own
-logarithmic scale**. Missing markers indicate simulator–workload pairs that are
-not measured in this suite:
+logarithmic scale**. The table distinguishes unsupported pairings, failures, and
+unmeasured cases. Simulator controls affect the chart; the table retains all
+measurements.
 
 - **Magic-state preparation:** Clifft reaches **597 million attempted shots/s**
   on 15-to-1 distillation and **83.6 million** on the measured Reed–Muller
@@ -76,7 +82,7 @@ samples of at least 30 seconds per case. The comparison covers **Clifft 0.13**,
 [Clifft v0.13 results](https://github.com/unitaryfoundation/clifft-bench/tree/dce2f9e8ca5eb9311c074fb3c8c0793d469f4b1c/results/release-clifft/0.13.0rc2-20261104-140631),
 [peer simulator results](https://github.com/unitaryfoundation/clifft-bench/tree/dce2f9e8ca5eb9311c074fb3c8c0793d469f4b1c/results/release-v1/0.13.0rc1-20261103-183623),
 [review summary](https://github.com/unitaryfoundation/clifft-bench/blob/dce2f9e8ca5eb9311c074fb3c8c0793d469f4b1c/results/release-clifft/0.13.0rc2-20261104-140631/report/review.md),
-and [benchmark contract](https://github.com/unitaryfoundation/clifft-bench/blob/dce2f9e8ca5eb9311c074fb3c8c0793d469f4b1c/docs/benchmark-contract.md)
+and [benchmark contract](https://github.com/unitaryfoundation/clifft-bench/blob/260a4fe050fe24b6cb2fc6313790b702a82bca75/docs/benchmark-contract.md)
 for exact software commits, environments, and timing boundaries.
 
 ## Changes in v0.13
