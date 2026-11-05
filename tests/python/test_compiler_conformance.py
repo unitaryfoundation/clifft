@@ -1,19 +1,23 @@
 """Independent quantum-output checks shared across execution backends.
 
-The unitary corpus runs across CPU compiler profiles and sampling modes, plus
-noncomputational fixed, trajectory, and online execution with leakage/loss off.
-Small reset/reuse circuits check joint record laws and earlier-record feedback.
-Compiler rewrite witnesses and the larger batch-boundary matrix remain on the
-ordinary CPU route.
+The unitary corpus runs across CPU compiler profiles, reconstruction, and sampling
+modes, plus noncomputational fixed, trajectory, and online execution with
+leakage/loss off. Categorical noise histories drive non-Clifford feedback and
+postselection on both original and reconstructed plans. Small reset/reuse
+circuits check joint record laws and earlier-record feedback. Compiler rewrite
+witnesses and the larger batch-boundary matrix remain on the ordinary CPU route.
 """
 
 from dataclasses import dataclass
+from itertools import product
 from typing import Any, cast
 
 import numpy as np
 import pytest
+from conftest import binomial_tolerance
 from utils_conformance import (
     ACTIVE_WIDTH,
+    CATEGORICAL_NOISE_SOURCE,
     COMPILER_PROFILES,
     CPU_SAMPLING_MODES,
     CPU_TUNING_MODES,
@@ -26,6 +30,7 @@ from utils_conformance import (
     CpuSamplingMode,
     NoncompSamplingMode,
     assert_joint_distribution,
+    categorical_noise_reference,
     unitary_reference,
 )
 from utils_fuzzing import generate_active_state_lifecycle
@@ -40,10 +45,18 @@ class UnitaryCase:
     source: str
     num_qubits: int
     witness_for: str | None = None
+    reconstructed_width: int | None = None
 
     @property
     def measured_source(self) -> str:
         return self.source + "\nM " + " ".join(map(str, range(self.num_qubits)))
+
+    @property
+    def annotated_source(self) -> str:
+        return (
+            self.measured_source
+            + f"\nDETECTOR rec[-{self.num_qubits}] rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]"
+        )
 
 
 PHASE_SOURCE = (
@@ -55,11 +68,13 @@ PHASE_SOURCE = (
     + "\nH 0 1 2 3"
 )
 
+INTERFERENCE_SOURCE = "H 0 1\nT 0 1\nH 0 1"
+
 CASES = (
     # Neither pass alone can satisfy the other pass's width-reduction witness.
     UnitaryCase("fusion", "H 0\nT 0\nT_DAG 0\nH 0", 1, "PeepholeFusionPass"),
-    UnitaryCase("squeeze", "H 0 1\nT 0 1\nH 0 1", 2, "StatevectorSqueezePass"),
-    UnitaryCase("bell", "H 0\nCX 0 1\nT 0", 2),
+    UnitaryCase("squeeze", INTERFERENCE_SOURCE, 2, "StatevectorSqueezePass", reconstructed_width=1),
+    UnitaryCase("bell", "H 0\nCX 0 1\nT 0", 2, reconstructed_width=0),
     UnitaryCase("phase", PHASE_SOURCE, 4),
     UnitaryCase(
         "mixed-pauli", "R_X(0.3) 0\nR_Y(0.2) 1\nH 2\nCX 1 2\nR_PAULI(0.17) X0*Y1*Z2\nH 0 1", 3
@@ -79,6 +94,13 @@ BOUNDARY_SOURCE = (
     + " ".join(map(str, range(65)))
     + "\nDETECTOR rec[-65] rec[-64]\nDETECTOR rec[-2] rec[-1]"
     + "\nOBSERVABLE_INCLUDE(0) rec[-64]\nOBSERVABLE_INCLUDE(1) rec[-1]"
+)
+
+# These choices exercise scalar, packed worker/tail handling, and automatic
+# selection without repeating the compiler-profile and thread-layout matrix.
+RECONSTRUCTION_MODES = tuple(
+    next(mode for mode in CPU_SAMPLING_MODES if mode.name == name)
+    for name in ("single-shot", "packed-65-2-workers", "automatic")
 )
 
 
@@ -104,10 +126,7 @@ def program(case: UnitaryCase, compiler: CompilerProfile) -> Any:
 
 @pytest.fixture(scope="module")
 def annotated_program(case: UnitaryCase, compiler: CompilerProfile) -> Any:
-    return compiler.compile(
-        case.measured_source
-        + f"\nDETECTOR rec[-{case.num_qubits}] rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]"
-    )
+    return compiler.compile(case.annotated_source)
 
 
 def test_exact_records_match_independent_oracle(
@@ -131,6 +150,41 @@ def test_samples_and_annotations_match_independent_oracle(
     _assert_annotated_distribution(result, probabilities, 8193, case.num_qubits)
 
 
+@pytest.mark.parametrize("mode", RECONSTRUCTION_MODES, ids=lambda mode: mode.name)
+@pytest.mark.parametrize(
+    "case",
+    [case for case in CASES if case.reconstructed_width is not None],
+    ids=lambda case: case.name,
+)
+def test_reconstructed_samples_share_unitary_oracles(
+    case: UnitaryCase, mode: CpuSamplingMode
+) -> None:
+    program = mode.compile(case.annotated_source, hir_passes=None, reconstruction=True)
+    for keep_records in (False, True):
+        plan = program.sampling_plan(keep_records=keep_records)
+        assert plan.reconstruction_selected and not plan.fallback_reason
+        assert plan.peak_active_width == case.reconstructed_width
+        assert plan.peak_active_width < program.original_plan.peak_active_width
+    result = mode.sample(program, 4097, seed=1907)
+    probabilities = np.abs(unitary_reference(case.source)) ** 2
+    _assert_annotated_distribution(result, probabilities, 4097, case.num_qubits)
+
+
+def test_reconstruction_fallback_preserves_original_plan_width() -> None:
+    for case in (case for case in CASES if case.reconstructed_width is None):
+        program = clifft.compile(case.annotated_source, hir_passes=None, reconstruction=True)
+        reason = (
+            "does not reduce peak active width"
+            if case.name == "fusion"
+            else "unsupported source operation"
+        )
+        for keep_records in (False, True):
+            plan = program.sampling_plan(keep_records=keep_records)
+            assert not plan.reconstruction_selected
+            assert reason in plan.fallback_reason
+            assert plan.peak_active_width == program.original_plan.peak_active_width
+
+
 def _assert_annotated_distribution(
     result: Any, probabilities: np.ndarray, shots: int, width: int
 ) -> None:
@@ -142,15 +196,141 @@ def _assert_annotated_distribution(
     np.testing.assert_array_equal(result.observables, result.measurements[:, -1:])
 
 
+NOISY_INTERFERENCE_SOURCE = (
+    "H 4 5\nT 4 5\n" + CATEGORICAL_NOISE_SOURCE + "\n"
+    "CZ rec[-4] 4\nCZ rec[-3] 5\nH 4 5\nM 4 5\n"
+    "DETECTOR rec[-2] rec[-1]\nOBSERVABLE_INCLUDE(1) rec[-2] rec[-1] rec[-3]"
+)
+
+
+@pytest.fixture(scope="module")
+def noisy_joint_probabilities() -> np.ndarray:
+    """Combine categorical histories with independent Aer interference outcomes.
+
+    The four Bell/readout records control Z feedback onto two |T> states.
+    Their final X measurements therefore XOR the controlling records into
+    Aer-distributed bits. Detectors and observables use explicit nonzero
+    reference parities. Every history is retained, including impossible bins.
+    """
+    categorical = categorical_noise_reference().sum(axis=0)
+    interference = np.abs(unitary_reference(INTERFERENCE_SOURCE)) ** 2
+    joint = np.zeros(1024)
+    for record, quantum in product(range(16), range(4)):
+        bits = [(record >> bit) & 1 for bit in range(4)]
+        bits += [(quantum & 1) ^ bits[0], (quantum >> 1) ^ bits[1]]
+        detectors = [bits[0] ^ bits[2] ^ 1, bits[4] ^ bits[5] ^ 1]
+        observables = [bits[1] ^ 1, bits[4] ^ bits[5] ^ bits[3]]
+        key = sum(value << bit for bit, value in enumerate(bits + detectors + observables))
+        joint[key] += categorical[record] * interference[quantum]
+    np.testing.assert_allclose(joint.sum(), 1, rtol=0, atol=1e-14)
+    return joint
+
+
+def _assert_noisy_survivors(
+    result: clifft.SampleResult, expected: np.ndarray, shots: int, keep_records: bool
+) -> None:
+    """Check accepted joint outputs and aggregate event masses per attempt."""
+    keys = np.arange(len(expected))
+    masses = [
+        expected.sum(),
+        expected[(keys >> 8) != 0].sum(),
+        expected[((keys >> 8) & 1) != 0].sum(),
+        expected[((keys >> 9) & 1) != 0].sum(),
+    ]
+    assert result.total_shots == shots
+    assert result.passed_shots is not None
+    assert result.logical_errors is not None
+    assert result.observable_ones is not None
+    assert result.discards == shots - result.passed_shots
+    counts = [result.passed_shots, result.logical_errors, *result.observable_ones]
+    assert len(counts) == len(masses)
+    for label, count, mass in zip(
+        ("acceptance", "logical error", "observable 0", "observable 1"), counts, masses, strict=True
+    ):
+        # Aer and the finite weighted sum have a 1e-14 absolute error budget.
+        # Clamp only the variance input when a unit mass rounds above one.
+        assert 0 <= mass <= 1 + 1e-14
+        assert (
+            abs(count / shots - mass) < binomial_tolerance(min(float(mass), 1), shots) + 1e-14
+        ), label
+    rows = result.passed_shots if keep_records else 0
+    assert result.measurements.shape == (rows, 6), "measurement retention"
+    assert result.detectors.shape == (rows, 2), "detector retention"
+    assert result.observables.shape == (rows, 2), "observable retention"
+    assert result.exp_vals.shape == (rows, 0)
+    if keep_records:
+        assert_joint_distribution(
+            np.column_stack((result.measurements, result.detectors, result.observables)),
+            expected / masses[0],
+        )
+        np.testing.assert_array_equal(result.observable_ones, result.observables.sum(axis=0))
+        assert result.logical_errors == np.count_nonzero(np.any(result.observables, axis=1))
+
+
+@pytest.mark.parametrize("mode", RECONSTRUCTION_MODES, ids=lambda mode: mode.name)
+@pytest.mark.parametrize("reconstruction", [False, True], ids=["original", "reconstructed"])
+@pytest.mark.parametrize("postselect", [False, True])
+def test_noisy_joint_outputs_and_survivor_reuse(
+    mode: CpuSamplingMode,
+    reconstruction: bool,
+    postselect: bool,
+    noisy_joint_probabilities: np.ndarray,
+) -> None:
+    program = mode.compile(
+        NOISY_INTERFERENCE_SOURCE,
+        hir_passes=None,
+        reconstruction=reconstruction,
+        postselection_mask=[1, 0] if postselect else None,
+        expected_detectors=[1, 1],
+        expected_observables=[1, 0],
+    )
+    assert program.original_plan.peak_active_width == 2
+    expected = noisy_joint_probabilities.copy()
+    shots = 4097
+    if not postselect:
+        result = mode.sample(program, shots, seed=803)
+        assert_joint_distribution(
+            np.column_stack((result.measurements, result.detectors, result.observables)), expected
+        )
+    else:
+        # Only the first detector rejects. The second remains a random,
+        # correlated output, even though both use nonzero reference parities.
+        expected[((np.arange(1024) >> 6) & 1) != 0] = 0
+    for keep_records in (False, True, False):
+        plan = program.sampling_plan(keep_records=keep_records)
+        assert plan.reconstruction_selected == reconstruction
+        assert bool(plan.fallback_reason) != reconstruction
+        assert plan.peak_active_width == (1 if reconstruction else 2)
+        result = mode.sample_survivors(program, shots, seed=803, keep_records=keep_records)
+        _assert_noisy_survivors(result, expected, shots, keep_records)
+
+
+def test_joint_output_check_detects_unwritten_observable(
+    noisy_joint_probabilities: np.ndarray,
+) -> None:
+    program = clifft.compile(
+        NOISY_INTERFERENCE_SOURCE,
+        hir_passes=None,
+        reconstruction=True,
+        expected_detectors=[1, 1],
+        expected_observables=[1, 0],
+    )
+    result = clifft.sample_survivors(program, 4097, seed=803, keep_records=True, batch_size=65)
+    expected = noisy_joint_probabilities
+    _assert_noisy_survivors(result, expected, 4097, True)
+    # An unwritten observable keeps its expected shape but loses its joint law.
+    result.observables[:, 1] = 0
+    with pytest.raises(AssertionError):
+        assert_joint_distribution(
+            np.column_stack((result.measurements, result.detectors, result.observables)), expected
+        )
+
+
 @pytest.mark.parametrize("mode", NONCOMP_SAMPLING_MODES, ids=lambda mode: mode.name)
 def test_noncomp_backends_share_unitary_oracles(
     case: UnitaryCase, probabilities: np.ndarray, mode: NoncompSamplingMode
 ) -> None:
-    source = (
-        case.measured_source
-        + f"\nDETECTOR rec[-{case.num_qubits}] rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]"
-    )
-    result = mode.sample(mode.compile(source), 4097, seed=1907)
+    result = mode.sample(mode.compile(case.annotated_source), 4097, seed=1907)
     _assert_annotated_distribution(result, probabilities, 4097, case.num_qubits)
     if mode.execution == "online":
         # Unlike optimized mirror/fusion circuits, online must execute the
@@ -231,6 +411,31 @@ def test_deterministic_outputs_cross_word_and_batch_boundaries(
     # 2049 therefore checks its partial batch as well as capacity 65 tails.
     result = mode.sample(boundary_program, shots, seed=1907)
     _assert_boundary_outputs(result, shots)
+
+
+@pytest.mark.parametrize("shots", [0, 1, 131])
+def test_reconstructed_outputs_cross_word_and_batch_boundaries(shots: int) -> None:
+    # The unobserved |T> factors keep the original plan active; reconstruction
+    # eliminates them while retaining all 65 visible records and annotations.
+    program = clifft.compile(
+        "H 65 66\nT 65 66\n" + BOUNDARY_SOURCE, hir_passes=None, reconstruction=True
+    )
+    assert program.original_plan.peak_active_width == 2
+    for keep_records in (False, True):
+        plan = program.sampling_plan(keep_records=keep_records)
+        assert plan.reconstruction_selected and plan.peak_active_width == 0
+        result = clifft.sample_survivors(
+            program, shots, seed=1907, keep_records=keep_records, batch_size=65, threads=2
+        )
+        assert result.total_shots == result.passed_shots == result.logical_errors == shots
+        assert result.discards == 0
+        # Zero-shot calls leave aggregate totals empty even though per-shot
+        # arrays retain their output widths.
+        np.testing.assert_array_equal(result.observable_ones, [0, shots] if shots else [])
+        _assert_boundary_outputs(result, shots if keep_records else 0)
+    _assert_boundary_outputs(
+        clifft.sample(program, shots, seed=1907, batch_size=65, threads=2), shots
+    )
 
 
 @pytest.mark.parametrize(

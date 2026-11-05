@@ -155,6 +155,7 @@ shared FP64 computational corpus, with explicit backend and execution-path check
 | Route | Shared reference coverage | Execution configurations and limits |
 | --- | --- | --- |
 | Ordinary CPU | Aer unitary/interference and reset/reuse circuits; Stim Clifford/noise cases | Existing HIR profiles, scalar/packed and cross-shot/intra-shot layouts |
+| Reconstructed CPU | Shared Aer unitary laws and categorical noise/readout with feedback and postselection | Selection and fallback checks; scalar, packed and automatic batching; retained and aggregate outputs |
 | Fixed noncomputational | The shared computational corpus plus eligible state-independent transition/classifier joint laws | Compiled eligibility check; scalar and packed partial batches; no weighted conditional-state adapter |
 | Trajectory | The shared computational corpus and weighted source-dependent loss, recapture, reset, classified readout and physical states | Instrument-compatible HIR passes; scalar with one/two cross-shot workers; compilation at explicit continuations |
 | Online | The same shared computational and weighted physical references | No HIR pipeline; scalar with one/two cross-shot workers; explicit activation growth; MPP, U3, packing and tuning rejected |
@@ -168,6 +169,10 @@ builds without OpenMP. Cases requesting hybrid layouts also skip when OpenMP
 processor binding is active, including narrow circuits whose execution would
 otherwise fall back to cross-shot workers. Run with `OMP_PROC_BIND=false` to
 include those cases.
+
+Reconstruction preserves requested classical output distributions, not original
+physical states or fault identities. Exact state and record queries use the
+original plan, as do fixed-fault calls.
 
 Dedicated tests check seeded repeatability across worker counts and behavior
 at batch and output boundaries. Short dynamically scheduled cross-shot calls

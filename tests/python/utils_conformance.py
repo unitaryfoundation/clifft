@@ -2,8 +2,10 @@
 
 from collections.abc import Callable
 from dataclasses import dataclass, replace
+from fractions import Fraction
 from functools import lru_cache
 from importlib import import_module
+from itertools import product
 from types import ModuleType
 from typing import Any, Literal, NoReturn
 
@@ -327,6 +329,46 @@ def unitary_reference(source: str) -> npt.NDArray[np.complex128]:
     state = qiskit_statevector(stim_to_qiskit_noiseless(source))
     state.setflags(write=False)
     return state
+
+
+CATEGORICAL_NOISE_SOURCE = (
+    "H 0\nCX 0 1\nPAULI_CHANNEL_1(0.1, 0.15, 0.25) 0\n"
+    "E(0.2) X1 X2\nELSE_CORRELATED_ERROR(0.5) Z0 X2\n"
+    "CX 0 1\nH 0\nM(0.125) 0\nM 1 2\nCX rec[-3] 3\nM 3\n"
+    "DETECTOR rec[-4] rec[-2]\nOBSERVABLE_INCLUDE(0) rec[-3]"
+)
+
+
+def categorical_noise_reference(
+    pauli_weights: tuple[Fraction, ...] = (
+        Fraction(1, 2),
+        Fraction(1, 10),
+        Fraction(3, 20),
+        Fraction(1, 4),
+    ),
+) -> npt.NDArray[np.float64]:
+    """Enumerate P(K, record) for a Bell decoder, correlated chain and readout.
+
+    The decoder maps I/X/Y/Z on the first Bell qubit to (z, x) =
+    00/01/11/10. The second site applies X1 X2 with probability 1/5,
+    Z0 X2 with probability (1 - 1/5)/2, or neither. Readout flips z
+    with probability 1/8; feedback copies that reported bit to qubit 3.
+    All 24 configurations are included using rational arithmetic: omitted
+    mass is exactly zero, independently of production noise-site extraction.
+    """
+    joint = np.full((4, 16), Fraction(0), dtype=object)
+    for pauli, correlated, readout in product(range(4), range(3), range(2)):
+        weight = (
+            pauli_weights[pauli]
+            * (Fraction(2, 5), Fraction(1, 5), Fraction(2, 5))[correlated]
+            * (Fraction(7, 8), Fraction(1, 8))[readout]
+        )
+        record = (0, 2, 3, 1)[pauli] ^ (0, 6, 5)[correlated] ^ readout
+        record |= (record & 1) << 3
+        k = (pauli != 0) + (correlated != 0) + readout
+        joint[k, record] += weight
+    assert joint.sum() == 1
+    return np.asarray(joint, dtype=np.float64)
 
 
 def assert_joint_distribution(measurements: npt.NDArray[np.uint8], expected: npt.ArrayLike) -> None:

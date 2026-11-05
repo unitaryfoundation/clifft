@@ -8,47 +8,17 @@ import numpy.typing as npt
 import pytest
 from conftest import binomial_tolerance
 from utils_conformance import (
+    CATEGORICAL_NOISE_SOURCE,
     CPU_SAMPLING_MODES,
     CPU_TUNING_MODES,
     SMALL_CIRCUIT_SHOTS,
     CpuSamplingMode,
     assert_joint_distribution,
+    categorical_noise_reference,
     unitary_reference,
 )
 
 import clifft
-
-
-def categorical_noise_reference(
-    pauli_weights: tuple[Fraction, ...] = (
-        Fraction(1, 2),
-        Fraction(1, 10),
-        Fraction(3, 20),
-        Fraction(1, 4),
-    ),
-) -> npt.NDArray[np.float64]:
-    """Enumerate P(K, record) for a Bell decoder, correlated chain and readout.
-
-    The decoder maps I/X/Y/Z on the first Bell qubit to (z, x) =
-    00/01/11/10. The second site applies X1 X2 with probability 1/5,
-    Z0 X2 with probability (1 - 1/5)/2, or neither. Readout flips z
-    with probability 1/8; feedback copies that reported bit to qubit 3.
-    All 24 configurations are included using rational arithmetic: omitted
-    mass is exactly zero, independently of production noise-site extraction.
-    """
-    joint = np.full((4, 16), Fraction(0), dtype=object)
-    for pauli, correlated, readout in product(range(4), range(3), range(2)):
-        weight = (
-            pauli_weights[pauli]
-            * (Fraction(2, 5), Fraction(1, 5), Fraction(2, 5))[correlated]
-            * (Fraction(7, 8), Fraction(1, 8))[readout]
-        )
-        record = (0, 2, 3, 1)[pauli] ^ (0, 6, 5)[correlated] ^ readout
-        record |= (record & 1) << 3
-        k = (pauli != 0) + (correlated != 0) + readout
-        joint[k, record] += weight
-    assert joint.sum() == 1
-    return np.asarray(joint, dtype=np.float64)
 
 
 def assert_stratified_estimate(
@@ -528,12 +498,6 @@ class TestImportanceSamplingEndToEnd:
 class TestCategoricalNoiseModel:
     """Resolve each physical outcome and recombine all fault-count strata."""
 
-    source = (
-        "H 0\nCX 0 1\nPAULI_CHANNEL_1(0.1, 0.15, 0.25) 0\n"
-        "E(0.2) X1 X2\nELSE_CORRELATED_ERROR(0.5) Z0 X2\n"
-        "CX 0 1\nH 0\nM(0.125) 0\nM 1 2\nCX rec[-3] 3\nM 3\n"
-        "DETECTOR rec[-4] rec[-2]\nOBSERVABLE_INCLUDE(0) rec[-3]"
-    )
     records = (np.arange(16)[:, None] >> np.arange(4)) & 1
     accepted = records[:, 0] == records[:, 2]
     errors = accepted & (records[:, 1] == 1)
@@ -544,7 +508,7 @@ class TestCategoricalNoiseModel:
         # evolution separately from stochastic configuration selection.
         probabilities = ",".join(str(int(pauli == channel)) for channel in (1, 2, 3))
         source = (
-            self.source.replace("0.1, 0.15, 0.25", probabilities)
+            CATEGORICAL_NOISE_SOURCE.replace("0.1, 0.15, 0.25", probabilities)
             .replace("E(0.2)", f"E({int(correlated == 1)})")
             .replace("ELSE_CORRELATED_ERROR(0.5)", f"ELSE_CORRELATED_ERROR({int(correlated == 2)})")
             .replace("M(0.125)", f"M({readout})")
@@ -565,8 +529,8 @@ class TestCategoricalNoiseModel:
         self, importance_sampling_mode: CpuSamplingMode
     ) -> None:
         mode = importance_sampling_mode
-        program = mode.compile(self.source)
-        postselected = mode.compile(self.source, postselection_mask=[1])
+        program = mode.compile(CATEGORICAL_NOISE_SOURCE)
+        postselected = mode.compile(CATEGORICAL_NOISE_SOURCE, postselection_mask=[1])
         joint = categorical_noise_reference()
         expected_weights = joint.sum(axis=1)
         # Extraction is an actual value under test, never the reference model.
