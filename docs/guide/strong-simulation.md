@@ -111,7 +111,7 @@ bitstrings = [
 ps = clifft.basis_probabilities(program, bitstrings)
 
 print(f"qubits: {program.num_qubits}")
-print(f"peak active width: {program.peak_active_width}")
+print(f"peak active width: {program.original_plan.peak_active_width}")
 for bitstring, probability in zip(bitstrings, ps):
     print(f"{bitstring}: {probability:.12g}")
 ```
@@ -317,9 +317,11 @@ performance can differ substantially:
   measurements next to their non-Clifford gates to reduce active width early.
 
 A practical way to choose is to compile both forms and compare their
-`program.peak_active_width` values. When the *measured* form has a noticeably
-lower peak active width than the unitary form, that reduction can make
-`record_probabilities()` more efficient per query. When the two widths match,
+`program.original_plan.peak_active_width` values. Exact queries use this
+original executable even when reconstruction is enabled for ordinary sampling.
+When the *measured* form has a noticeably lower peak active width than the
+unitary form, that reduction can make `record_probabilities()` more efficient
+per query. When the two widths match,
 `basis_probabilities()` can benefit from amortizing plan execution across the
 batch.
 
@@ -341,8 +343,8 @@ H 0 1 2 3 4
 unitary = clifft.compile(circuit)
 measured = clifft.compile(circuit + "\nM 0 1 2 3 4")
 
-print(f"basis_probabilities()  peak active width: {unitary.peak_active_width}")
-print(f"record_probabilities() peak active width: {measured.peak_active_width}")
+print(f"basis_probabilities()  peak active width: {unitary.original_plan.peak_active_width}")
+print(f"record_probabilities() peak active width: {measured.original_plan.peak_active_width}")
 ```
 
 The ratio $2^{(k_{\text{unitary}} - k_{\text{measured}})}$ describes the

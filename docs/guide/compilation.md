@@ -59,32 +59,49 @@ fixed execution or trajectories; see [Leakage and Loss](leakage-and-loss.md).
 
 ## Inspect sampling cost
 
-When comparing sampling workloads, report the active width of the executable
-that will run. `program.sampling_info(keep_records=...)` returns that plan's
-`peak_active_width` and `num_actions`, including when reconstruction is disabled
-or falls back to the original executable.
+Active width and action count help explain sampling cost and compare compiler
+options. `program.peak_active_width`, `program.num_actions`, `program.inspect()`,
+and `program.inspect_action(i)` describe full-output sampling, as used by
+`sample()` and `sample_survivors(keep_records=True)`.
 
-Match the query to the sampling call: use `keep_records=True` for `sample()`,
-and the same `keep_records` value as `sample_survivors()` (whose default is
-`False`). For example, a benchmark collecting survivor counts can use:
+For survivor counts, select the matching executable once and use its metrics
+and inspection methods together:
 
 ```python
 import clifft
 
 program = clifft.compile("H 0\nT 0\nH 0\nM 0\nDETECTOR rec[-1]", postselection_mask=[1])
 keep_records = False
-info = program.sampling_info(keep_records=keep_records)
-print(f"Sampling peak active width: {info['peak_active_width']}")
+plan = program.sampling_plan(keep_records=keep_records)
+print(f"Sampling peak active width: {plan.peak_active_width}")
+print(f"Sampling actions: {plan.num_actions}")
+print(plan.inspect_action(0))
 result = clifft.sample_survivors(program, shots=1_000, seed=42, keep_records=keep_records)
 ```
 
-`program.peak_active_width` and `program.num_actions` describe the original
-executable, as does `inspect()`. Use those properties for exact queries and
-fixed-fault importance sampling, which always use the original executable.
-Reconstruction can select different plans for the two `keep_records` settings;
-the example below shows how the sampling width can differ from the original.
-See the [Program API reference](../reference/python-api.md#clifft.Program)
-for all `sampling_info()` fields.
+`sampling_plan()` requires an explicit `keep_records` keyword. Match it to the
+sampling call: `sample()` retains records, while `sample_survivors()` defaults
+to `keep_records=False`.
+
+| Execution | Metadata and inspection |
+| --- | --- |
+| Full-output ordinary sampling | `program` or `program.sampling_plan(keep_records=True)` |
+| Ordinary survivor counts | `program.sampling_plan(keep_records=False)` |
+| Exact queries, replay, or fixed-fault sampling | `program.original_plan` |
+
+Each [PlanView](../reference/python-api.md#clifft.PlanView) is read-only and
+keeps its owning program alive. Getting a view uses the already compiled
+executable; pass the `Program` itself to sampling and exact-query functions.
+The view's `reconstruction_selected` and `fallback_reason` explain whether
+reconstruction was selected for that output mode. An explicitly requested
+`original_plan` has no fallback reason.
+
+Without reconstruction, all views describe the original executable and the
+existing properties and inspection methods behave the same way. With
+reconstruction, `repr(program)` identifies the full-output sampling metrics and
+shows original or survivor-count widths when they differ. Circuit counts,
+hidden measurement counts used by replay, and noise-site probabilities retain
+their original meanings.
 
 ## Active-width scheduling
 
@@ -135,17 +152,17 @@ import clifft
 program = clifft.compile(
     "H 0 1\nT 0 1\nH 0 1\nM 0 1", hir_passes=None, reconstruction=True
 )
-info = program.sampling_info(keep_records=True)
-assert info["selected"]
-assert info["peak_active_width"] == 1
-assert program.peak_active_width == info["original_peak_active_width"] == 2
-print(info)
+plan = program.sampling_plan(keep_records=True)
+assert plan.reconstruction_selected
+assert program.peak_active_width == plan.peak_active_width == 1
+assert program.original_plan.peak_active_width == 2
+print(program)
 result = clifft.sample(program, shots=100, seed=42)
 ```
 
 `sample()` uses the plan retaining all records; `sample_survivors()` selects a
-plan according to `keep_records`. Use `sampling_info(keep_records=...)`
-to inspect selection, active width, and the fallback reason, as described in
+plan according to `keep_records`. Use `sampling_plan(keep_records=...)`
+to inspect the selected executable, as described in
 [Inspect sampling cost](#inspect-sampling-cost). Unsupported
 circuits, resource limits, or insufficient width reduction retain the original
 plan. Supported circuits use Clifford+T gates, Pauli noise, and symmetric
@@ -153,10 +170,6 @@ readout noise; general-angle rotations and `EXP_VAL` probes fall back.
 
 Custom `hir_passes` configure the original pipeline; reconstructed candidates
 use the default passes.
-
-Code using `program.reconstruction_info(keep_records=...)` should call
-`program.sampling_info(keep_records=...)` instead. The arguments and dictionary
-fields are unchanged; `selected` still means that reconstruction was selected.
 
 Compare total compilation and sampling time at your intended shot count.
 Unsuccessful attempts can still cost several times ordinary compilation, and

@@ -129,11 +129,14 @@ directional overrides, and circuit annotation ordering.
 ## Compiled Programs
 
 See [Inspect sampling cost](../guide/compilation.md#inspect-sampling-cost) for
-matching `Program.sampling_info()` to an ordinary sampling call. Program
-properties describe the original executable used by exact queries and
+selecting the executable to inspect. `Program` execution metrics and inspection
+describe full-output sampling; `Program.sampling_plan(keep_records=...)` selects
+a specific output mode, and `Program.original_plan` describes exact queries and
 fixed-fault sampling.
 
 ::: clifft.Program
+
+::: clifft.PlanView
 
 ## Circuit and IR Inspection
 

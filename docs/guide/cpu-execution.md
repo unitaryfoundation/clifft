@@ -257,9 +257,10 @@ post-selection lifetime, outputs, CPU, and memory limits. Compare the defaults
 with a small set of representative alternatives such as `batch_size=1`, `256`,
 and `1024`, using your target thread count and output options.
 
-For ordinary sampling, use `program.sampling_info(keep_records=...)["peak_active_width"]`
-as a first-order cost indicator, matching the sampling call's output mode.
-For fixed-fault sampling, use `program.peak_active_width`. See
+Use `program.peak_active_width` as a first-order cost indicator for full-output
+sampling. For survivor counts, use
+`program.sampling_plan(keep_records=False).peak_active_width`; for fixed-fault
+sampling, use `program.original_plan.peak_active_width`. See
 [Inspect sampling cost](compilation.md#inspect-sampling-cost) for examples.
 Peak width alone does not determine the best layout.
 
