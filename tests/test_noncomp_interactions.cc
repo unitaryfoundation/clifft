@@ -1,11 +1,9 @@
 #include "clifft/circuit/parser.h"
 #include "clifft/frontend/frontend.h"
-#include "clifft/noncomp/instrument_options.h"
 #include "clifft/noncomp/interaction.h"
 #include "clifft/noncomp/model.h"
 #include "clifft/noncomp/rewriter.h"
 #include "clifft/noncomp/sample.h"
-#include "clifft/noncomp/transition_hooks.h"
 
 #include "noncomp_test_helpers.h"
 

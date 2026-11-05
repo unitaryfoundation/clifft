@@ -24,11 +24,10 @@
 #include <map>
 #include <optional>
 #include <string>
-#include <vector>
 
 namespace clifft {
 
-// Opt-in instrument materialization for trace(). `transitions` maps a
+// Opt-in transition-instrument options for trace(). `transitions` maps a
 // LEVEL_TRANSITION tag to its spec; LEAKAGE and LOSS need no entry (their
 // probabilities are inline and their destinations are entirely in the trap
 // remainder).
@@ -48,15 +47,6 @@ struct InstrumentTraceOptions {
     // pure reset (R/RX/RY), which trace() validates before processing the
     // circuit. nullopt means no slot is requested.
     std::optional<size_t> forced_traceout_node;
-};
-
-// Optional source-node maps for the HIR noise and readout tables. Each vector
-// is indexed by its HIR table and contains indices into the traced circuit.
-// Node indices distinguish expanded repeats and separate channels targeting
-// the same record. These maps describe the trace result before HIR transformations.
-struct TraceSiteOrigins {
-    std::vector<size_t> noise_nodes;
-    std::vector<size_t> readout_nodes;
 };
 
 // Trace a circuit through the Front-End, producing a HirModule.
@@ -79,8 +69,9 @@ struct TraceSiteOrigins {
 // Throws std::runtime_error if the circuit exceeds the conservative
 // 65536-qubit safety ceiling. Pauli mask storage is otherwise sized at
 // runtime.
+// Throws std::overflow_error when circuit-node indices exceed the HIR's
+// source-node range.
 [[nodiscard]] HirModule trace(const Circuit& circuit,
-                              const InstrumentTraceOptions* instruments = nullptr,
-                              TraceSiteOrigins* site_origins = nullptr);
+                              const InstrumentTraceOptions* instruments = nullptr);
 
 }  // namespace clifft

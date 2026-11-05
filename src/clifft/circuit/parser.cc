@@ -932,14 +932,19 @@ class Parser {
                     Target t0 = targets[i];
                     Target t1 = targets[i + 1];
 
-                    // Validate CX/CZ feedback syntax: rec must be first, qubit second.
-                    if ((gate == GateType::CX || gate == GateType::CZ) &&
-                        (t0.is_rec() || t1.is_rec())) {
-                        if (!t0.is_rec() || t1.is_rec()) {
-                            throw ParseError("Feedback syntax requires: " +
-                                                 std::string(gate_name(gate)) + " rec[-k] qubit",
-                                             line_num);
+                    // CZ is symmetric, so put its classical control first for tracing.
+                    // Two classical operands contribute only an unobservable branch phase.
+                    if (gate == GateType::CZ && t1.is_rec()) {
+                        if (t0.is_rec()) {
+                            if (t0.value() == t1.value()) {
+                                throw ParseError("Gate CZ requires distinct record targets",
+                                                 line_num);
+                            }
+                            continue;
                         }
+                        std::swap(t0, t1);
+                    } else if (gate == GateType::CX && t1.is_rec()) {
+                        throw ParseError("Feedback syntax requires: CX rec[-k] qubit", line_num);
                     }
 
                     if (is_noncomputational_interaction(gate) &&
@@ -1074,7 +1079,8 @@ class Parser {
             if (product_str[pos] == '!') {
                 const bool supports_inversion =
                     is_physical_measurement(gate) || gate == GateType::SPP ||
-                    gate == GateType::SPP_DAG || gate == GateType::TPP || gate == GateType::TPP_DAG;
+                    gate == GateType::SPP_DAG || gate == GateType::TPP ||
+                    gate == GateType::TPP_DAG || gate == GateType::R_PAULI;
                 if (!supports_inversion) {
                     throw_invalid_target_modifiers(target_token_at(product_str, pos), gate_name,
                                                    line_num);

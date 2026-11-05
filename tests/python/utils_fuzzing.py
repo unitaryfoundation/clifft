@@ -12,6 +12,16 @@ import numpy as np
 _T_QUBIT_LIMIT = 4
 
 
+def generate_active_state_lifecycle(rounds: int) -> str:
+    """Reuse one measured ancilla while preserving a nonstabilizer spectator."""
+    lines = ["H 0", "T 0"]
+    for _ in range(rounds):
+        # The second H makes readout biased, so a stale reset changes the next
+        # round's conditional law instead of producing another fair coin.
+        lines.extend(["H 1", "T 1", "H 1", "CX 1 0", "M 1", "R 1"])
+    return "\n".join(lines)
+
+
 def generate_random_commutation_circuit(num_qubits: int, depth: int, seed: int) -> str:
     """Generate a circuit with deep commutation/anti-commutation chains.
 

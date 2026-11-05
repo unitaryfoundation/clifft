@@ -1,4 +1,6 @@
-# Symbolic Sampling in Clifft (v0.8.0, August 2026)
+# Symbolic Sampling in Clifft (v0.8.0)
+
+**Release date:** August 18, 2026
 
 Clifft has replaced its original localized-Pauli Schrodinger virtual machine
 (SVM) with a symbolic-coordinate compiler and sampler. The main Python

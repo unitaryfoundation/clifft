@@ -62,11 +62,11 @@ jobs:
             arch: aarch64
             cibw_archs: aarch64
             cpu_baseline: generic
-          - os: macos-14
+          - os: macos-15
             arch: arm64
             cibw_archs: arm64
             cpu_baseline: generic
-            cibw_environment: MACOSX_DEPLOYMENT_TARGET=14.0 CLIFFT_OPENMP=ON
+            cibw_environment: MACOSX_DEPLOYMENT_TARGET=15.0 CLIFFT_OPENMP=ON
           - os: windows-latest
             arch: amd64
             cibw_archs: AMD64
@@ -126,7 +126,7 @@ jobs:
             python {project}/tools/ci/audit_python_exports.py
 
       - name: Audit private macOS OpenMP runtime
-        if: matrix.os == 'macos-14'
+        if: runner.os == 'macOS'
         run: python3 tools/ci/audit_macos_wheel.py wheelhouse/*.whl
 
       # QEMU and SDE smoke against the just-built Linux x86_64 wheel.

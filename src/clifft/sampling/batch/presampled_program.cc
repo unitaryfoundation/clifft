@@ -321,14 +321,37 @@ std::optional<BatchPresampledProgram> BatchPresampledProgram::build(
         carrier_xor.carrier = carrier_slots[carrier_xor.carrier];
     }
 
+    std::vector<uint32_t> input_for_symbol(source.symbols.size(), kUnassigned);
+    program.input_assignments_.resize(executable.presampled_symbols_.size());
+    for (uint32_t input = 0; input < executable.presampled_symbols_.size(); ++input) {
+        const uint32_t symbol = executable.presampled_symbols_[input];
+        input_for_symbol[symbol] = input;
+        if (bound_presampled_symbols[symbol] != 0 || carrier_slots[symbol] == kUnassigned) {
+            continue;
+        }
+        if (program.assigned_carriers_.size() == std::numeric_limits<uint32_t>::max()) {
+            throw std::length_error(
+                "sampling executable external input assignments exceed uint32 range");
+        }
+        program.input_assignments_[input] = {
+            static_cast<uint32_t>(program.assigned_carriers_.size()), 1};
+        program.assigned_carriers_.push_back(carrier_slots[symbol]);
+    }
+    for (size_t outcome = 0; outcome < executable.noise_outcomes_.size(); ++outcome) {
+        const uint32_t input = input_for_symbol[executable.noise_outcomes_[outcome].symbol];
+        assert(input != kUnassigned && "noise outcomes must name presampled inputs");
+        program.input_assignments_[input] = program.outcome_assignments_[outcome];
+    }
+
     program.validate(executable.noise_outcomes_.size(),
-                     executable.expression_register_constants_.size());
+                     executable.expression_register_constants_.size(),
+                     executable.presampled_symbols_.size());
     return program;
 #endif
 }
 
-void BatchPresampledProgram::validate(size_t num_noise_outcomes,
-                                      size_t num_expression_registers) const noexcept {
+void BatchPresampledProgram::validate(size_t num_noise_outcomes, size_t num_expression_registers,
+                                      size_t num_presampled_inputs) const noexcept {
 #ifndef NDEBUG
     assert(!initialization_level_offsets_.empty() &&
            initialization_level_offsets_.size() == carrier_xor_level_offsets_.size() &&
@@ -353,18 +376,24 @@ void BatchPresampledProgram::validate(size_t num_noise_outcomes,
     }
     assert(outcome_assignments_.size() == num_noise_outcomes && num_carriers_ != 0 &&
            "batch outcome assignments must parallel scalar outcomes");
-    for (const OutcomeAssignments& outcome : outcome_assignments_) {
-        const size_t end = static_cast<size_t>(outcome.begin) + outcome.count;
-        assert(end <= assigned_carriers_.size() &&
-               "batch outcome assignment must stay in its prepared tape");
-        for (size_t assignment = outcome.begin; assignment < end; ++assignment) {
-            assert(assigned_carriers_[assignment] < num_carriers_ &&
-                   "batch outcome assignment must name a compact carrier");
+    assert(input_assignments_.size() == num_presampled_inputs &&
+           "batch input assignments must parallel presampled inputs");
+    for (const auto assignments :
+         {std::span(outcome_assignments_), std::span(input_assignments_)}) {
+        for (const OutcomeAssignments& entry : assignments) {
+            const size_t end = static_cast<size_t>(entry.begin) + entry.count;
+            assert(end <= assigned_carriers_.size() &&
+                   "batch assignment must stay in its prepared tape");
+            for (size_t assignment = entry.begin; assignment < end; ++assignment) {
+                assert(assigned_carriers_[assignment] < num_carriers_ &&
+                       "batch assignment must name a compact carrier");
+            }
         }
     }
 #else
     (void)num_noise_outcomes;
     (void)num_expression_registers;
+    (void)num_presampled_inputs;
 #endif
 }
 

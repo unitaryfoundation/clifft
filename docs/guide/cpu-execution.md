@@ -1,12 +1,11 @@
 # CPU Execution and Tuning
 
-CPU settings control how a supported sampling workflow uses lanes, threads,
-and memory. They do not change circuit semantics or select a different
-scientific workflow.
+CPU settings control how sampling uses SIMD lanes, threads, and memory without
+changing the sampled distribution.
 
 ## Automatic selection (default)
 
-First choose the function that returns the result you need. The four fixed-plan
+First choose the function that returns the result you need. The four standard
 samplers share the same CPU controls:
 
 - `clifft.sample()`
@@ -15,9 +14,8 @@ samplers share the same CPU controls:
 - `clifft.sample_k_survivors()`
 
 For most workloads, leave `batch_size="auto"` and the expert layout controls
-unset. Clifft uses one CPU thread by default; it does not automatically claim
-all cores on the machine. Set `threads` when the process should use a larger
-worker budget:
+unset. Clifft uses one CPU thread by default; set `threads` to use more
+workers:
 
 ```python
 import clifft
@@ -40,10 +38,15 @@ worthwhile. Benchmark before overriding either decision.
 | `thread_layout` | `None` | Expert `(shot_workers, intra_shot_workers)` override. |
 | `intra_shot_min_active_width` | `None` | Expert threshold for enabling an explicit intra-shot layout. |
 
-The fixed-plan samplers above accept these controls. The leakage and loss
-trajectory API, `clifft.noncomp.sample()`, accepts `threads` but not packing or
-intra-shot layouts. Exact probability queries and `get_statevector()` do not
-expose these sampling controls.
+The samplers above accept all five controls. For leakage and loss,
+`clifft.noncomp.sample()` and `NonComputationalProgram.sample()` accept
+cross-shot `threads`, `batch_size` (`"auto"`, `"tune"`, or a positive integer),
+and `tuning_budget_seconds`. Compile-once fixed execution supports batching and
+batch-size tuning, whereas trajectory execution runs one shot at a time
+(`batch_size=1`) and rejects `batch_size > 1` or `"tune"` (see
+[Leakage and Loss](leakage-and-loss.md#compiling-and-execution)). Intra-shot
+thread layouts are not supported by `clifft.noncomp`, and exact probability
+queries and `get_statevector()` do not expose these sampling controls.
 
 Three independent mechanisms are involved:
 
@@ -79,8 +82,8 @@ print(result.batch_tuning.batch_size)
 ```
 
 `tuning_budget_seconds` defaults to 0.25 seconds. It is a **soft limit** on
-calibration time: work already in progress can finish after the deadline. It
-does not limit the requested sampling run. Keep these points in mind:
+calibration time: in-progress calibration trials can finish after the deadline
+before the requested shots run. Keep these points in mind:
 
 - Calibration shots are extra and discarded; all requested shots still run.
   Trial results are excluded from the returned counts and estimates.
@@ -103,7 +106,7 @@ workload or machine changes; selections are not cached automatically.
     | Field | Meaning |
     |---|---|
     | `batch_size`, `baseline_batch_size` | Selected and automatic batch sizes; `1` means scalar. |
-    | `shot_workers`, `intra_shot_workers` | Resolved production worker layout. |
+    | `shot_workers`, `intra_shot_workers` | Resolved worker layout. |
     | `elapsed_seconds` | Total calibration time, including setup and cleanup. |
     | `trial_shots` | Extra attempted shots, including warmup. |
     | `sufficient_measurements` | Whether the automatic choice and at least one alternative provided usable timings. False means the automatic choice was retained. |
@@ -132,7 +135,7 @@ workload or machine changes; selections are not cached automatically.
 ## Power-user tuning
 
 Use explicit settings only after benchmarking the same circuit, shot count,
-sampling function, and output options used in production.
+sampling function, and output options you plan to run.
 
 ### Thread budgets and layouts
 
@@ -221,7 +224,8 @@ exact seeded replay is required.
 Timing-based calibration can select a different capacity on repeated calls,
 even with the same seed. For debugging, pin the reported numeric batch size
 instead of requesting calibration again. Calibration uses separate random
-streams from production. Omitting `seed` continues to use hardware entropy.
+streams from the requested shots. Omitting `seed` continues to use hardware
+entropy.
 
 ### Memory tradeoffs
 
@@ -251,7 +255,7 @@ guidance.
 Performance depends on the circuit, active width over time, shot count,
 post-selection lifetime, outputs, CPU, and memory limits. Compare the defaults
 with a small set of representative alternatives such as `batch_size=1`, `256`,
-and `1024`, using the production worker budget and result options.
+and `1024`, using your target thread count and output options.
 
 Use `program.peak_active_width` as a first-order cost indicator, but do not
 choose a layout from peak width alone.

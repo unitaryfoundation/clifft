@@ -21,6 +21,7 @@ from utils_conformance import (
     expectation_atol,
     skip_unavailable_thread_layout,
 )
+from utils_fuzzing import generate_active_state_lifecycle
 
 import clifft
 
@@ -133,12 +134,9 @@ class TestSample:
     ) -> None:
         """Repeated inject-entangle-measure rounds retain a bounded active state."""
         rounds = 256
-        lines = ["H 0", "T 0"]
-        for _ in range(rounds):
-            lines.extend(["H 1", "T 1", "CX 1 0", "M 1", "R 1"])
-        lines.append("M 0")
-
-        program = sampling_mode.compile("\n".join(lines), hir_passes=None)
+        program = sampling_mode.compile(
+            generate_active_state_lifecycle(rounds) + "\nM 0", hir_passes=None
+        )
         assert program.peak_active_width == 2
 
         result = sampling_mode.sample(program, shots=SMALL_CIRCUIT_SHOTS, seed=7)

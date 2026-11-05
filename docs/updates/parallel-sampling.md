@@ -1,4 +1,6 @@
-# Parallel Sampling in Clifft (v0.9.0, August 2026)
+# Parallel Sampling in Clifft (v0.9.0)
+
+**Release date:** August 24, 2026
 
 Clifft's original localized-Pauli SVM already used OpenMP to divide wide
 active-state kernels across CPU cores. The

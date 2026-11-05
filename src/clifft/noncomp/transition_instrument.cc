@@ -1,6 +1,6 @@
 #include "clifft/noncomp/transition_instrument.h"
 
-#include "clifft/noncomp/numeric.h"
+#include "clifft/util/numeric.h"
 
 #include <stdexcept>
 #include <string>

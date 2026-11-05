@@ -8,6 +8,7 @@ add_library(clifft_core STATIC
     tableau/tableau.cc
     frontend/frontend.cc
     optimizer/hir_pass_manager.cc
+    optimizer/global_reconstruction.cc
     optimizer/active_width_analysis.cc
     optimizer/drop_non_unitary_pass.cc
     optimizer/commutation.cc
@@ -33,6 +34,8 @@ add_library(clifft_core STATIC
     sampling/pauli_preparation.cc
     sampling/batch/bits.cc
     sampling/batch/executor.cc
+    sampling/batch/external_inputs.cc
+    sampling/batch/random_bits.cc
     sampling/batch/policy.cc
     sampling/batch/tuning.cc
     sampling/batch/presampled_program.cc
@@ -48,6 +51,7 @@ add_library(clifft_core STATIC
     sampling/sampler.cc
     sampling/state.cc
     api/basis_probabilities.cc
+    api/program.cc
     api/reference_syndrome.cc
     api/statevector.cc
     util/fault_sampling.cc
@@ -66,18 +70,17 @@ add_library(clifft_core STATIC
     zx/simplify.cc
     noncomp/interaction.cc
     noncomp/transition_instrument.cc
-    noncomp/transition_hooks.cc
-    noncomp/instrument_options.cc
     noncomp/classifier.cc
     noncomp/model.cc
     noncomp/status_walk.cc
     noncomp/rewriter.cc
     noncomp/preparation.cc
+    noncomp/program.cc
+    noncomp/online.cc
     noncomp/resolution.cc
     noncomp/fixed.cc
-    noncomp/fixed_input_validation.cc
+    noncomp/fixed_classical.cc
     noncomp/trajectory_driver.cc
-    noncomp/sample.cc
 )
 
 # x86-64 runtime dispatch: compile AVX2 and AVX-512 TUs with SIMD flags.

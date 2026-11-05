@@ -39,6 +39,14 @@ struct PreparedMeasurement {
     uint64_t z_without_pivot = 0;
 };
 
+// Internal construction after masks and width have been established by the
+// planner or online coordinate engine. Ordinary execution uses assertions.
+[[nodiscard]] PreparedPauli prepare_pauli_unchecked(ActivePauli pauli,
+                                                    uint32_t active_width) noexcept;
+[[nodiscard]] PreparedMeasurement prepare_measurement_unchecked(ActivePauli pauli,
+                                                                uint32_t active_width,
+                                                                uint32_t pivot) noexcept;
+
 [[nodiscard]] PreparedPauli prepare_pauli(ActivePauli pauli, uint32_t active_width);
 [[nodiscard]] PreparedRotation prepare_rotation(ActivePauli pauli, uint32_t active_width,
                                                 double half_turns);

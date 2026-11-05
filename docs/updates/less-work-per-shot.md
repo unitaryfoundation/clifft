@@ -1,4 +1,6 @@
-# Less Work per Shot in Clifft (v0.11.0, September 2026)
+# Less Work per Shot in Clifft (v0.11.0)
+
+**Release date:** September 30, 2026
 
 A near-Clifford experiment often compiles one circuit and samples it many
 times. The cost of those shots depends on more than the circuit's qubit count:

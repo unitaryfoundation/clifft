@@ -44,11 +44,30 @@ and [packed sampling](updates/packed-sampling.md) updates explain the adaptation
   (2026).
 - [SOFT and SymFT source](https://github.com/haoliri0/SOFT).
 
+## Microsoft QDK
+
+QDK's skip-gate loss sampler supplied performance and differential-correctness
+comparisons during development of the online noncomputational backend. Its
+stabilizer-branching implementation informed the comparison between runtime
+Clifford-frame updates and ahead-of-time coordinate planning. The backend reuses
+Clifft's native Pauli representation and dense active-state kernels.
+
+- [Microsoft QDK](https://github.com/microsoft/qdk).
+- [Shared Clifford frame and sparse amplitudes](https://github.com/microsoft/qdk/blob/7660f71a2edfff7934a82c9bea97050fe96f0511/source/simulators/src/stabilizer_simulator/branching_state.rs).
+
 ## Tsim
 
 Tsim's Stim-compatible approach to universal noisy-circuit simulation informed
 Clifft's circuit-format and interface design. Its open code and data enabled
 direct comparisons in Clifft's original performance study.
+
+Tsim's [closed sampling reconstruction](https://github.com/QuEraComputing/tsim/pull/203)
+also informed Clifft's native global-reconstruction compiler through its
+output-distribution formulation, forgotten commutant measurements, and
+measurement-first active-width scheduling. Clifft implements Clifford dilation,
+causal stabilizer dressing, and projection folding directly with its own parser
+and tableau algebra. The MSC reconstruction regression inputs are preserved
+copies of the noisy SOFT/Tsim benchmark corpus.
 
 Clifft's ZX lowering (`src/clifft/zx/pbc.cc` and `schedule.cc`) ports Tsim's
 statevector reader, which turns a reduced ZX diagram into Pauli rotations and
@@ -108,8 +127,8 @@ back-action.
 
 Riverlane's deltakit-stim inspired Clifft's configurable leakage partner effects,
 including partner noise and leakage spreading. Its binary leakage ledger and
-status-conditioned Pauli randomization also informed the scalar fixed execution
-path: Clifft prepares classical status/noise inputs for a shared quantum plan,
+status-conditioned Pauli randomization also informed the fixed execution
+path: Clifft prepares packed classical status/noise columns for a shared quantum plan,
 with separate readout handling to preserve its classifier correlations. The
 [partner-interactions guide](guide/partner-interactions.md) describes Clifft's
 model and API.

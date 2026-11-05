@@ -12,16 +12,15 @@
 // and herald flags) use one per-shot stream. Executor measurements, noise, and
 // transition decisions use a separate per-shot stream; see shot_seed.h.
 
-#include "clifft/noncomp/trajectory_driver.h"
-
 #include "clifft/frontend/frontend.h"
-#include "clifft/noncomp/instrument_options.h"
 #include "clifft/noncomp/interaction.h"
+#include "clifft/noncomp/preparation.h"
 #include "clifft/noncomp/rewriter.h"
 #include "clifft/noncomp/status_walk.h"
 #include "clifft/noncomp/transition_instrument.h"
 #include "clifft/optimizer/hir_pass_manager.h"
 #include "clifft/optimizer/pass_registry.h"
+#include "clifft/sampling/branch_choice.h"
 #include "clifft/sampling/executor.h"
 #include "clifft/sampling/planner.h"
 #include "clifft/util/shot_parallel.h"
@@ -72,10 +71,13 @@ Level draw_initial_level(const NonComputationalModel& model, Xoshiro256PlusPlus&
 template <typename Admit>
 Level draw_from_column(const TransitionInstrument& instrument, Level source,
                        Xoshiro256PlusPlus& rng, Admit&& admit) {
+    std::array<double, kNumLevels> probabilities{};
     double mass = 0.0;
     for (const Level to : kAllLevels) {
         if (admit(to)) {
-            mass += instrument.prob(to, source);
+            const double p = instrument.prob(to, source);
+            probabilities[static_cast<size_t>(to)] = p;
+            mass += p;
         }
     }
     if (!(mass > 0.0)) {
@@ -86,24 +88,21 @@ Level draw_from_column(const TransitionInstrument& instrument, Level source,
             "sample_noncomputational: destination draw over an empty column (source level '" +
             std::string(level_name(source)) + "')");
     }
-    const double u = rng.next_double() * mass;
-    double acc = 0.0;
-    std::optional<Level> last_positive;
-    for (const Level to : kAllLevels) {
-        if (!admit(to)) {
-            continue;
-        }
-        const double p = instrument.prob(to, source);
-        if (p > 0.0) {
-            last_positive = to;
-        }
-        acc += p;
-        if (u < acc) {
-            return to;
-        }
-    }
-    assert(last_positive.has_value() && "destination draw over an empty column");
-    return *last_positive;
+    return static_cast<Level>(detail::choose_branch(
+        detail::BranchChoice::Destination, probabilities, [&](const auto& masses) noexcept {
+            const double u = rng.next_double() * mass;
+            double acc = 0.0;
+            unsigned last_positive = 0;
+            for (unsigned to = 0; to < masses.size(); ++to) {
+                const double p = masses[to];
+                if (p > 0.0)
+                    last_positive = to;
+                acc += p;
+                if (u < acc)
+                    return to;
+            }
+            return last_positive;
+        }));
 }
 
 // Rewalk the annotated circuit under `events`, reusing previously sampled
@@ -176,7 +175,11 @@ void extend_classical_outcomes(const ResolvedNonComputationalCircuit& resolved,
                         if (const auto* id = std::get_if<TransitionId>(&channel)) {
                             const auto& instrument = resolved.instrument(*id);
                             const double total = instrument.column_sum(source);
-                            if (rng.next_double() < total) {
+                            if (detail::choose_branch(
+                                    detail::BranchChoice::ClassicalTransition,
+                                    std::array{1 - total, total}, [&](const auto&) noexcept {
+                                        return unsigned(rng.next_double() < total);
+                                    })) {
                                 outcome.destination = draw_from_column(instrument, source, rng,
                                                                        [](Level) { return true; });
                             }
@@ -215,11 +218,17 @@ struct SamplingCompiledContinuation {
 };
 
 struct TrajectoryWorker {
+    explicit TrajectoryWorker(bool collect_stats) {
+        if (collect_stats) {
+            stats.emplace();
+        }
+    }
     // The start shared by shots whose initial levels are all G remains lazy:
     // other initial levels can make it unreachable, including when compiling it
     // would exceed the active-width cap.
     std::optional<SamplingCompiledContinuation> shared_start;
     std::optional<sampling::Executor> shared_start_executor;
+    std::optional<NonComputationalSamplingStats> stats;
 };
 
 // Build the HIR pass pipeline from default passes that preserve measurement
@@ -357,13 +366,27 @@ void enforce_sampling_active_width_cap(const sampling::SamplingPlan& plan,
 SamplingCompiledContinuation compile_sampling_continuation(
     ContinuationRewrite rewrite, const std::vector<uint8_t>& herald_flags,
     const InstrumentTraceOptions& instrument_options, std::optional<uint32_t> max_active_width_cap,
-    std::span<const Level> initial_levels) {
+    std::span<const Level> initial_levels, TrajectoryWorker& worker, bool initial) {
     Circuit patched = std::move(rewrite.circuit);
     patch_heralded_measurements(patched, rewrite.classified_measurements, herald_flags);
     prepend_initial_excited_preparations(patched, initial_levels, rewrite.forced_traceout_node);
+#ifdef CLIFFT_NONCOMP_REPLAY_TESTING
+    detail::replay_append_probes(patched);
+#endif
+    if (worker.stats) {
+        if (initial) {
+            ++worker.stats->initial_compilations;
+        } else {
+            ++worker.stats->continuation_compilations;
+        }
+    }
     TracedContinuation traced =
         trace_continuation(std::move(patched), rewrite.forced_traceout_node, instrument_options);
     sampling::SamplingPlan plan = sampling::plan_sampling(traced.hir);
+    if (worker.stats) {
+        worker.stats->peak_active_width =
+            std::max(worker.stats->peak_active_width.value_or(0), plan.peak_active_width);
+    }
     if (max_active_width_cap.has_value() && plan.peak_active_width > *max_active_width_cap) {
         // Source provenance is retained only on the exceptional diagnostic
         // path; successful continuations can be numerous and do not need it.
@@ -391,13 +414,16 @@ SamplingCompiledContinuation compile_sampling_continuation(
 }  // namespace
 
 NonComputationalSample run_trajectory_driver(const PreparedNonComputationalRequest& request,
-                                             uint32_t shots, const SeedRoot& root,
-                                             uint32_t threads) {
+                                             uint32_t shots, const SeedRoot& root, uint32_t threads,
+                                             bool collect_stats) {
     const auto& resolved = request.resolved_circuit();
     const Circuit& annotated = resolved.circuit();
     const NonComputationalModel& model = request.model();
     const auto max_active_width_cap = request.requirements().max_active_width;
     NonComputationalSample result;
+    if (collect_stats) {
+        result.stats.emplace();
+    }
     result.shots = shots;
     result.num_qubits = annotated.num_qubits;
     result.num_measurements = annotated.num_measurements;
@@ -449,7 +475,11 @@ NonComputationalSample run_trajectory_driver(const PreparedNonComputationalReque
                 if (inserted && ternary) {
                     const double probability =
                         classifier->prob(MeasurementClassifier::kHeraldSymbol, measurement.level);
-                    it->second = driver_rng.next_double() < probability ? 1 : 0;
+                    it->second = static_cast<uint8_t>(detail::choose_branch(
+                        detail::BranchChoice::Herald, std::array{1 - probability, probability},
+                        [&](const auto&) noexcept {
+                            return unsigned(driver_rng.next_double() < probability);
+                        }));
                 }
                 flags.push_back(it->second);
             }
@@ -463,9 +493,9 @@ NonComputationalSample run_trajectory_driver(const PreparedNonComputationalReque
             extend_classical_outcomes(resolved, events, model, driver_rng);
             ContinuationRewrite rewrite = rewrite_continuation(resolved, events, false, model);
             const std::vector<uint8_t> flags = flags_for(rewrite);
-            shot_start.emplace(compile_sampling_continuation(std::move(rewrite), flags,
-                                                             instrument_options,
-                                                             max_active_width_cap, initial_levels));
+            shot_start.emplace(
+                compile_sampling_continuation(std::move(rewrite), flags, instrument_options,
+                                              max_active_width_cap, initial_levels, worker, true));
             continuation = &*shot_start;
         } else {
             if (!worker.shared_start.has_value()) {
@@ -473,9 +503,9 @@ NonComputationalSample run_trajectory_driver(const PreparedNonComputationalReque
                     rewrite_continuation(resolved, no_events, false, model);
                 assert(rewrite.classified_measurements.empty() &&
                        "the shared initial continuation has no classified measurements");
-                worker.shared_start.emplace(
-                    compile_sampling_continuation(std::move(rewrite), {}, instrument_options,
-                                                  max_active_width_cap, initial_levels));
+                worker.shared_start.emplace(compile_sampling_continuation(
+                    std::move(rewrite), {}, instrument_options, max_active_width_cap,
+                    initial_levels, worker, true));
             }
             continuation = &*worker.shared_start;
         }
@@ -539,7 +569,7 @@ NonComputationalSample run_trajectory_driver(const PreparedNonComputationalReque
             auto next =
                 std::make_unique<SamplingCompiledContinuation>(compile_sampling_continuation(
                     std::move(next_rewrite), next_flags, instrument_options, max_active_width_cap,
-                    initial_levels));
+                    initial_levels, worker, false));
 
             std::optional<sampling::ForcedTraceOut> forced_trace_out;
             if (force) {
@@ -569,6 +599,9 @@ NonComputationalSample run_trajectory_driver(const PreparedNonComputationalReque
         std::copy(
             observables.begin(), observables.end(),
             result.observables.begin() + static_cast<size_t>(shot) * annotated.num_observables);
+#ifdef CLIFFT_NONCOMP_REPLAY_TESTING
+        detail::replay_inspect(executor->exp_vals(), continuation->final_status);
+#endif
         executor->return_to_root_plan();
         if (request.requirements().final_status) {
             std::copy(
@@ -579,13 +612,30 @@ NonComputationalSample run_trajectory_driver(const PreparedNonComputationalReque
             result.heralds[static_cast<size_t>(shot) * annotated.num_measurements + slot] = flag;
         }
     };
-    run_shot_ranges(
-        shots, threads, [](uint32_t) { return std::make_unique<TrajectoryWorker>(); },
+    const auto workers = run_shot_ranges(
+        shots, threads, [&](uint32_t) { return std::make_unique<TrajectoryWorker>(collect_stats); },
         [&](const std::unique_ptr<TrajectoryWorker>& worker, ShotRange range) {
             for (uint32_t shot = range.begin; shot < range.end; ++shot) {
                 run_shot(*worker, shot);
             }
+            if (worker->stats) {
+                worker->stats->trajectory_shots += range.end - range.begin;
+            }
         });
+    if (result.stats) {
+        auto& stats = *result.stats;
+        stats.workers = static_cast<uint32_t>(workers.size());
+        for (const auto& worker : workers) {
+            stats.initial_compilations += worker->stats->initial_compilations;
+            stats.continuation_compilations += worker->stats->continuation_compilations;
+            stats.trajectory_shots += worker->stats->trajectory_shots;
+            if (worker->stats->peak_active_width) {
+                stats.peak_active_width = std::max(stats.peak_active_width.value_or(0),
+                                                   *worker->stats->peak_active_width);
+            }
+        }
+        stats.scalar_shots = stats.trajectory_shots;
+    }
 
     return result;
 }

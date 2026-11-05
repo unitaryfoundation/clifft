@@ -187,26 +187,30 @@ void apply_nondiagonal_rotation_avx512(State& state, const PreparedRotation& rot
            "AVX-512 non-diagonal rotation requires a high pairing pivot");
     double* const real = state.real_data();
     double* const imag = state.imag_data();
+    // Snapshot metadata so potentially aliasing SIMD stores do not force loop reloads.
+    const uint64_t size = state.size();
+    const uint64_t x = rotation.pauli.x;
+    const uint64_t z = rotation.pauli.z;
     const uint64_t pair_stride = rotation.pauli.pairing_bit;
     const uint64_t pair_period = pair_stride << 1;
-    const uint64_t lane_xor = rotation.pauli.x & (kLanes - 1);
+    const uint64_t lane_xor = x & (kLanes - 1);
     const __m512i permutation = _mm512_load_si512(kLanePermutations[lane_xor].data());
     const __m512d cosine = _mm512_set1_pd(rotation.cosine);
     const double base_phase =
         RealPhase ? rotation.pauli.even_phase.real() : rotation.pauli.even_phase.imag();
     const double even_left_sine = sine * base_phase;
 
-    for (uint64_t block = 0; block < state.size(); block += pair_period) {
+    for (uint64_t block = 0; block < size; block += pair_period) {
         for (uint64_t offset = 0; offset < pair_stride; offset += kLanes) {
             const uint64_t left = block + offset;
-            const uint64_t right_base = (left ^ rotation.pauli.x) & ~(uint64_t{kLanes - 1});
+            const uint64_t right_base = (left ^ x) & ~(uint64_t{kLanes - 1});
             const __m512d left_real = _mm512_load_pd(real + left);
             const __m512d left_imag = _mm512_load_pd(imag + left);
             const __m512d right_real =
                 _mm512_permutexvar_pd(permutation, _mm512_load_pd(real + right_base));
             const __m512d right_imag =
                 _mm512_permutexvar_pd(permutation, _mm512_load_pd(imag + right_base));
-            const __m512d left_sine = signed_sine_lanes(left, rotation.pauli.z, even_left_sine);
+            const __m512d left_sine = signed_sine_lanes(left, z, even_left_sine);
 
             __m512d output_left_real;
             __m512d output_left_imag;

@@ -181,6 +181,8 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }}
         run: |
           mkdir -p "$RUNNER_TEMP/trusted-canary-report"
+          # The source links must name the revision whose file supplied the line numbers.
+          BENCHMARK_SHA="$(git -C trusted-reporter rev-parse HEAD)"
           python3 trusted-reporter/tools/ci/benchmark_canary.py fork-report \
             --output "$RUNNER_TEMP/trusted-canary-report/report.md" \
             --evidence "$RUNNER_TEMP/canary-evidence" \
@@ -191,7 +193,8 @@ jobs:
             --head-repository "$HEAD_REPOSITORY" \
             --head-sha "$HEAD_SHA" \
             --run-id "$RUN_ID" \
-            --run-url "$RUN_URL"
+            --run-url "$RUN_URL" \
+            --benchmark-sha "$BENCHMARK_SHA"
 
       - name: Render trusted failure report
         if: >-

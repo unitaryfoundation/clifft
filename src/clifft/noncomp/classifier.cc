@@ -1,6 +1,6 @@
 #include "clifft/noncomp/classifier.h"
 
-#include "clifft/noncomp/numeric.h"
+#include "clifft/util/numeric.h"
 
 #include <algorithm>
 #include <cassert>

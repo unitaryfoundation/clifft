@@ -30,11 +30,12 @@ A fast exact simulator for near-Clifford quantum circuits.
 
 Clifft is an exact simulator for quantum circuits whose dominant structure is Clifford, but whose behavior depends on localized non-Clifford operations. It accepts Stim circuits, extends them with non-Clifford gates, and compiles them into a high-performance symbolic-coordinate sampling plan.
 
-Clifft factors each trajectory into an offline Clifford coordinate map,
-branch-dependent Pauli corrections represented by affine Boolean signs, and a
-dense active state. Coordinate transformations and symbolic dependencies are
-resolved ahead of time; each shot evaluates the prepared signs and active-state
-actions without evolving an online tableau or physical-qubit Pauli frame.
+In its compiled execution modes, Clifft factors each trajectory into an offline
+Clifford coordinate map, branch-dependent Pauli corrections represented by
+affine Boolean signs, and a dense active state. Coordinate transformations and
+symbolic dependencies are resolved ahead of time; each shot evaluates the
+prepared signs and active-state actions without evolving an online tableau or
+physical-qubit Pauli frame.
 
 The main cost scales with $2^k$ rather than $2^n$, where $n$ is the total
 number of qubits and $k$ is the active width. The corresponding active-state
@@ -99,57 +100,21 @@ For QEC workflows, Clifft also supports detector-based post-selection, survivor 
 [Quick Start](getting-started/quickstart.md){ .md-button .md-button--primary }
 [Try the Playground]({{ playground_url }}){ .md-button }
 
-## What's New in 0.12.0
+## What's New in 0.13.0
 
-Clifft 0.12.0 extends leakage and loss simulations with
-[status checks](guide/leakage-and-loss.md#nondestructive-status-checks) that feed
-detectors and feedback, and configurable
-[effects on gate partners](guide/partner-interactions.md) to model Pauli noise
-and leakage spreading.
+Leakage and loss can change which gates act later in a circuit. Clifft 0.13.0
+adds two ways to handle that work: [reusable fixed execution](guide/leakage-and-loss.md#compiling-and-execution)
+compiles eligible models once and samples shots in batches, while opt-in
+[online execution](guide/leakage-and-loss.md#online-execution) handles changes
+as each shot runs without recompiling the remaining circuit.
 
-Two new default compiler passes use the prepared state to simplify commuting
-T rotations and arbitrary-angle rotations, reducing the dense state needed
-for sampling. Opt-in
-[batch tuning](guide/cpu-execution.md#budgeted-batch-calibration) measures and
-reports a reusable batch size for longer CPU sampling jobs. Read
-[Richer Noise Models, Smaller Active States](updates/smaller-active-states.md)
-for examples of the new capabilities.
-
-The new default passes can change compiled plans and fixed-seed samples while
-preserving distributions. See the
-[full release notes](https://github.com/unitaryfoundation/clifft/blob/main/CHANGELOG.md)
-for compatibility details.
-
-## What's New in 0.11.0
-
-Clifft 0.11.0 continues improving CPU sampling through
-[active-width scheduling](guide/compilation.md#active-width-scheduling) and
-sampling noise only when it is needed. The opt-in scheduler searches for
-operation orders with lower peak active width or less work at larger widths;
-deferred noise draws let postselected shots avoid later noise work after
-rejection.
-
-Early testing suggested that Clifft could be competitive with Stim on some
-Clifford error-detection circuits. The new
-[Sinter-compatible sampler](guide/sinter.md) makes those workloads accessible
-through Sinter's experiment collection tools and is a first step toward
-exploring broader QEC workflows.
-
-Experimental GPU work also continues, exploring workloads that could benefit
-from GPU memory capacity and bandwidth. The [AMD HIP
-backend](development/hip-backend.md) gains cooperative execution for wider
-active states, and the new [NVIDIA CUDA backend](development/cuda-backend.md)
-opens another hardware path. Thanks to
-[Jose Manuel Monsalve Diaz](https://github.com/josemonsalve2) and AMD for the HIP
-contributions, and [Farrokh Labib](https://github.com/FarLab) for the CUDA
-backend. Both remain experimental, require source builds, and are never
-selected automatically.
-
-The shared test suite has grown alongside these execution choices: feature
-tests run across the modes that support them, and new backends inherit the
-existing tests for their supported features. Read
-[Less Work per Shot in Clifft](updates/less-work-per-shot.md) for the development
-story and local A/B measurements, or see the
-[full release notes](https://github.com/unitaryfoundation/clifft/blob/main/CHANGELOG.md).
+The compiler also uses more information from measurement, feedback, and
+postselection to simplify non-Clifford operations, reaching
+[223x v0.12 throughput on 15-to-1 distillation and 16.2x on Reed–Muller](guide/performance.md#changes-in-v013).
+Read [Improved Leakage and Loss Sampling Throughput](updates/sampling-through-leakage-and-loss.md)
+for the release story and examples, and the
+[release notes](https://github.com/unitaryfoundation/clifft/blob/main/CHANGELOG.md)
+for changed defaults and compatibility details. Earlier releases are covered
+in the [development blog](updates/index.md).
 
 [Full Changelog](https://github.com/unitaryfoundation/clifft/blob/main/CHANGELOG.md){ .md-button }

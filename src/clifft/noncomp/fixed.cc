@@ -1,8 +1,12 @@
 #include "clifft/noncomp/fixed.h"
 
 #include "clifft/frontend/frontend.h"
-#include "clifft/noncomp/fixed_input_validation.h"
+#include "clifft/noncomp/fixed_classical.h"
 #include "clifft/noncomp/status_walk.h"
+#include "clifft/optimizer/peephole.h"
+#include "clifft/sampling/batch/executor.h"
+#include "clifft/sampling/batch/output.h"
+#include "clifft/sampling/batch/tuning.h"
 #include "clifft/sampling/executor.h"
 #include "clifft/sampling/planner.h"
 #include "clifft/util/numeric.h"
@@ -12,63 +16,33 @@
 #include <algorithm>
 #include <array>
 #include <cassert>
+#include <chrono>
 #include <limits>
+#include <optional>
+#include <span>
 #include <stdexcept>
 #include <type_traits>
 #include <utility>
+#include <variant>
 #include <vector>
 
 namespace clifft {
 namespace {
 
-// Runtime values contain one bit; analysis uses unions of reachable values.
-// A leaked value deliberately carries no claim about the hidden G/E label.
-constexpr uint8_t kComputational = 1;
-constexpr uint8_t kLeaked = 2;
-constexpr uint8_t kLost = 4;
+using detail::InputStep;
+using detail::kComputational;
+using detail::kLeaked;
+using detail::kLost;
+using detail::kStatusBits;
+using detail::NoiseInput;
+using detail::NoiseOutcome;
+using detail::ProbeInput;
+using detail::ReadoutChannel;
+using detail::ReadoutInput;
+using detail::ResetInput;
+using detail::TransitionInput;
 constexpr std::array<QubitStatus, 3> kRepresentativeStatuses{QubitStatus::Computational,
                                                              QubitStatus::LeakG, QubitStatus::Lost};
-constexpr std::array<uint8_t, 3> kStatusBits{kComputational, kLeaked, kLost};
-
-struct TransitionInput {
-    uint32_t qubit;
-    double probability;
-    bool loss;
-};
-
-struct ResetInput {
-    uint32_t qubit;
-    std::array<uint8_t, 3> destinations;
-};
-
-struct NoiseOutcome {
-    uint32_t input;
-    double cumulative_probability;
-};
-
-struct NoiseInput {
-    std::vector<uint32_t> active_targets;
-    std::optional<uint32_t> inactive_source;
-    uint8_t source_status = 0;
-    std::vector<NoiseOutcome> outcomes;
-};
-
-using ReadoutChannel = ClassifiedReadoutChannel;
-
-struct ReadoutInput {
-    uint32_t input;
-    uint32_t record;
-    std::optional<uint32_t> qubit;
-    std::array<ReadoutChannel, 3> channels;
-};
-
-struct ProbeInput {
-    uint32_t input;
-    uint32_t qubit;
-    uint8_t status;
-};
-
-using InputStep = std::variant<TransitionInput, ResetInput, NoiseInput, ReadoutInput, ProbeInput>;
 
 bool full_depolarization(const PartnerEffect* effect) {
     return effect != nullptr && effect->spread_probability == 0.0 &&
@@ -134,6 +108,7 @@ struct FixedNonComputationalData {
     bool final_status = false;
     bool dynamic_inputs = false;
     std::vector<InputStep> inputs;
+    std::optional<FixedClassicalProgram> classical;
     std::optional<sampling::ExecutablePlan> plan;
     FixedNonComputationalMetrics metrics;
 };
@@ -171,12 +146,12 @@ class FixedBuilder {
             return reject(FixedNonComputationalReason::DetailedLeakedStatus);
         }
 
-        // Bind status-conditioned sites before any probability-based rewrite
-        // could combine or erase them. The planner still performs coordinate
-        // planning and the executable lowering still fuses quantum actions.
         ++data_->metrics.preparation_compilations;
-        TraceSiteOrigins site_origins;
-        const HirModule hir = trace(lowered_, nullptr, &site_origins);
+        HirModule hir = trace(lowered_);
+        // Status can suppress even a probability-one event. Peephole fusion
+        // preserves each noise outcome and readout site without assuming its
+        // probability, so their external inputs remain valid after rewriting.
+        PeepholeFusionPass{}.run(hir);
         sampling::SamplingPlan plan;
         try {
             plan = sampling::plan_sampling(hir);
@@ -185,12 +160,12 @@ class FixedBuilder {
             // when optimized trajectory continuations fit within it.
             return reject(FixedNonComputationalReason::ActiveWidth);
         }
+        candidate_width_ = plan.peak_active_width;
         if (request_.requirements().max_active_width.has_value() &&
             plan.peak_active_width > *request_.requirements().max_active_width) {
             return reject(FixedNonComputationalReason::ActiveWidth);
         }
-        detail::validate_fixed_input_bindings(noise_nodes_, readout_sites_, site_origins, hir,
-                                              plan);
+        detail::validate_fixed_input_bindings(noise_nodes_, readout_sites_, hir, plan);
         std::vector<uint32_t> symbol_to_input(plan.symbols.size(), 0);
         uint32_t input = 0;
         for (uint32_t symbol = 0; symbol < plan.symbols.size(); ++symbol) {
@@ -236,12 +211,18 @@ class FixedBuilder {
         if (data_->plan->num_readout_noise_sites() != readout_count_) {
             throw std::logic_error("fixed noncomputational lowering lost a readout-site identity");
         }
+        // Validate the quantum plan first so invalid compiler-produced channels
+        // retain the planner's site-specific diagnostic.
+        if (data_->dynamic_inputs) {
+            data_->classical.emplace(data_->inputs, data_->dimensions.num_qubits, input,
+                                     readout_count_, data_->dimensions.num_measurements);
+        }
         data_->metrics.peak_active_width = plan.peak_active_width;
         data_->metrics.quantum_noise_inputs = input;
         data_->metrics.readout_inputs = readout_count_;
+        data_->metrics.packed_noise_carriers = data_->plan->num_batch_noise_carriers();
         data_->metrics.classical_workspace_bytes =
-            reachable_.size() + input + readout_count_ * sizeof(sampling::ReadoutNoiseInput) +
-            lowered_.num_measurements;
+            reachable_.size() + input + readout_count_ * sizeof(sampling::ReadoutNoiseInput);
         if (!data_->dynamic_inputs) {
             data_->inputs = std::vector<InputStep>{};
             data_->metrics.quantum_noise_inputs = 0;
@@ -254,9 +235,10 @@ class FixedBuilder {
   private:
     FixedNonComputationalRejection reject(FixedNonComputationalReason reason) const {
         if (operation_ < resolved_.circuit().nodes.size()) {
-            return {reason, operation_, resolved_.circuit().nodes[operation_].source_line};
+            return {reason, operation_, resolved_.circuit().nodes[operation_].source_line,
+                    data_->metrics.preparation_compilations, candidate_width_};
         }
-        return {reason, std::nullopt, 0};
+        return {reason, std::nullopt, 0, data_->metrics.preparation_compilations, candidate_width_};
     }
 
     uint32_t append_readout(uint32_t record, uint32_t source_line) {
@@ -289,6 +271,7 @@ class FixedBuilder {
     uint32_t operation_ = std::numeric_limits<uint32_t>::max();
     uint32_t record_ = 0;
     uint32_t readout_count_ = 0;
+    std::optional<uint32_t> candidate_width_;
 };
 
 std::optional<FixedNonComputationalRejection> FixedBuilder::lower() {
@@ -544,77 +527,129 @@ std::optional<FixedNonComputationalRejection> FixedBuilder::lower() {
     return reject(FixedNonComputationalReason::UnsupportedOperation);
 }
 
+// The scalar reference retains its per-shot RNG schedule. Packed execution
+// compiles these same ordered descriptors into operations across shot masks.
+template <typename Inputs>
+void prepare_inputs(const detail::FixedNonComputationalData& data, Xoshiro256PlusPlus& rng,
+                    std::span<uint8_t> status, std::span<uint8_t> heralds,
+                    Inputs& inputs) noexcept {
+    std::ranges::fill(status, kComputational);
+    for (const auto& input : data.inputs) {
+        std::visit(
+            [&](const auto& step) noexcept {
+                using T = std::decay_t<decltype(step)>;
+                if constexpr (std::is_same_v<T, TransitionInput>) {
+                    const uint8_t before = status[step.qubit];
+                    const bool affected = step.loss ? before != kLost : before == kComputational;
+                    if (affected && rng.next_double() < step.probability) {
+                        status[step.qubit] = step.loss ? kLost : kLeaked;
+                    }
+                } else if constexpr (std::is_same_v<T, ResetInput>) {
+                    status[step.qubit] = after_reset(status[step.qubit], step);
+                } else if constexpr (std::is_same_v<T, NoiseInput>) {
+                    if (step.inactive_source &&
+                        status[*step.inactive_source] != step.source_status) {
+                        return;
+                    }
+                    for (const uint32_t target : step.active_targets) {
+                        if (status[target] != kComputational) {
+                            return;
+                        }
+                    }
+                    const double draw = rng.next_double();
+                    for (const auto& outcome : step.outcomes) {
+                        if (draw < outcome.cumulative_probability) {
+                            inputs.activate_noise(outcome.input);
+                            break;
+                        }
+                    }
+                } else if constexpr (std::is_same_v<T, ReadoutInput>) {
+                    const uint8_t current = step.qubit ? status[*step.qubit] : kComputational;
+                    const size_t category = current == kComputational ? 0
+                                            : current == kLeaked      ? 1
+                                                                      : 2;
+                    const auto& channel = step.channels[category];
+                    const bool herald = channel.herald > 0.0 && rng.next_double() < channel.herald;
+                    if (herald) {
+                        heralds[step.record] = 1;
+                    }
+                    const double draw = rng.next_double();
+                    inputs.set_readout(step.input, {draw < (herald ? 0.5 : channel.p01),
+                                                    draw < (herald ? 0.5 : channel.p10)});
+                } else if constexpr (std::is_same_v<T, ProbeInput>) {
+                    const bool value = status[step.qubit] == step.status;
+                    inputs.set_readout(step.input, {value, value});
+                }
+            },
+            input);
+    }
+}
+
+struct ScalarInputSink {
+    std::span<uint8_t> noise;
+    std::span<sampling::ReadoutNoiseInput> readout;
+
+    void activate_noise(uint32_t input) noexcept { noise[input] = 1; }
+    void set_readout(uint32_t input, sampling::ReadoutNoiseInput value) noexcept {
+        readout[input] = value;
+    }
+};
+
+template <typename Inputs>
+void prepare_shot(const detail::FixedNonComputationalData& data, const SeedRoot& root,
+                  uint32_t shot, std::span<uint8_t> status, Inputs& inputs,
+                  NonComputationalSample& result) noexcept {
+    const auto seed = derive_state(root, shot, kFixedNonComputationalInputDomain);
+    Xoshiro256PlusPlus rng(0);
+    rng.seed_full(seed[0], seed[1], seed[2], seed[3]);
+    // Each global row is written once, so no batch-sized status/herald copy is
+    // needed. The quantum executor consumes the separate packed input columns.
+    const auto heralds =
+        std::span(result.heralds)
+            .subspan(static_cast<size_t>(shot) * result.num_measurements, result.num_measurements);
+    prepare_inputs(data, rng, status, heralds, inputs);
+    if (data.final_status) {
+        for (uint32_t qubit = 0; qubit < result.num_qubits; ++qubit) {
+            assert(status[qubit] != kLeaked);
+            result.final_status[static_cast<size_t>(shot) * result.num_qubits + qubit] =
+                status[qubit] == kLost ? QubitStatus::Lost : QubitStatus::Computational;
+        }
+    }
+}
+
 struct FixedWorker {
     explicit FixedWorker(const detail::FixedNonComputationalData& data)
         : executor(*data.plan),
           status(data.dynamic_inputs ? data.dimensions.num_qubits : 0),
           noise(data.metrics.quantum_noise_inputs),
-          readout(data.metrics.readout_inputs),
-          heralds(data.dynamic_inputs ? data.dimensions.num_measurements : 0) {}
+          readout(data.metrics.readout_inputs) {}
 
     sampling::Executor executor;
     std::vector<uint8_t> status;
     std::vector<uint8_t> noise;
     std::vector<sampling::ReadoutNoiseInput> readout;
-    std::vector<uint8_t> heralds;
+    uint64_t shots = 0;
+};
 
-    void prepare_inputs(const detail::FixedNonComputationalData& data,
-                        Xoshiro256PlusPlus& rng) noexcept {
-        std::fill(status.begin(), status.end(), kComputational);
-        std::fill(noise.begin(), noise.end(), 0);
-        std::fill(heralds.begin(), heralds.end(), 0);
-        for (const auto& input : data.inputs) {
-            std::visit(
-                [&](const auto& step) noexcept {
-                    using T = std::decay_t<decltype(step)>;
-                    if constexpr (std::is_same_v<T, TransitionInput>) {
-                        const uint8_t before = status[step.qubit];
-                        const bool affected =
-                            step.loss ? before != kLost : before == kComputational;
-                        if (affected && rng.next_double() < step.probability) {
-                            status[step.qubit] = step.loss ? kLost : kLeaked;
-                        }
-                    } else if constexpr (std::is_same_v<T, ResetInput>) {
-                        status[step.qubit] = after_reset(status[step.qubit], step);
-                    } else if constexpr (std::is_same_v<T, NoiseInput>) {
-                        if (step.inactive_source &&
-                            status[*step.inactive_source] != step.source_status) {
-                            return;
-                        }
-                        for (const uint32_t target : step.active_targets) {
-                            if (status[target] != kComputational) {
-                                return;
-                            }
-                        }
-                        const double draw = rng.next_double();
-                        for (const auto& outcome : step.outcomes) {
-                            if (draw < outcome.cumulative_probability) {
-                                noise[outcome.input] = 1;
-                                break;
-                            }
-                        }
-                    } else if constexpr (std::is_same_v<T, ReadoutInput>) {
-                        const uint8_t current = step.qubit ? status[*step.qubit] : kComputational;
-                        const size_t category = current == kComputational ? 0
-                                                : current == kLeaked      ? 1
-                                                                          : 2;
-                        const auto& channel = step.channels[category];
-                        const bool herald =
-                            channel.herald > 0.0 && rng.next_double() < channel.herald;
-                        if (herald) {
-                            heralds[step.record] = 1;
-                        }
-                        const double draw = rng.next_double();
-                        readout[step.input] = {draw < (herald ? 0.5 : channel.p01),
-                                               draw < (herald ? 0.5 : channel.p10)};
-                    } else if constexpr (std::is_same_v<T, ProbeInput>) {
-                        const bool value = status[step.qubit] == step.status;
-                        readout[step.input] = {value, value};
-                    }
-                },
-                input);
+sampling::BatchSamplingMode sampling_mode(const detail::FixedNonComputationalData& data) {
+    return data.dynamic_inputs ? sampling::BatchSamplingMode::ExternalInputs
+                               : sampling::BatchSamplingMode::Ordinary;
+}
+
+struct PackedFixedWorker {
+    PackedFixedWorker(const detail::FixedNonComputationalData& data, uint32_t capacity)
+        : executor(*data.plan, capacity, sampling::BatchOutputMode::Rows, sampling_mode(data)) {
+        if (data.dynamic_inputs) {
+            classical.emplace(data.dimensions.num_qubits, capacity);
+            inputs.emplace(*data.plan, capacity);
         }
     }
+
+    sampling::BatchExecutor executor;
+    std::optional<detail::FixedClassicalWorkspace> classical;
+    std::optional<sampling::BatchExternalInputs> inputs;
+    uint64_t shots = 0;
+    uint64_t batches = 0;
 };
 
 }  // namespace
@@ -641,12 +676,44 @@ prepare_fixed_noncomputational(const PreparedNonComputationalRequest& request) {
         std::get<std::shared_ptr<const detail::FixedNonComputationalData>>(std::move(result)));
 }
 
-NonComputationalSample FixedNonComputationalProgram::sample(uint32_t shots,
-                                                            std::optional<uint64_t> seed,
-                                                            uint32_t threads) const {
-    const auto& data = *data_;
+namespace {
+
+uint64_t classical_bit_columns(const detail::FixedNonComputationalData& data) {
+    return data.dynamic_inputs
+               ? detail::FixedClassicalWorkspace::bit_columns(data.dimensions.num_qubits)
+               : 0;
+}
+
+struct FixedWorkers {
+    FixedWorkers(const detail::FixedNonComputationalData& data,
+                 sampling::BatchExecutionPolicy policy) {
+        if (policy.lane_capacity > 1) {
+            packed.reserve(policy.worker_count);
+            for (uint32_t i = 0; i < policy.worker_count; ++i) {
+                packed.push_back(std::make_unique<PackedFixedWorker>(data, policy.lane_capacity));
+            }
+        } else {
+            scalar.reserve(policy.worker_count);
+            for (uint32_t i = 0; i < policy.worker_count; ++i) {
+                scalar.push_back(std::make_unique<FixedWorker>(data));
+            }
+        }
+    }
+
+    std::vector<std::unique_ptr<FixedWorker>> scalar;
+    std::vector<std::unique_ptr<PackedFixedWorker>> packed;
+};
+
+FixedNonComputationalResult sample_fixed_configured(const detail::FixedNonComputationalData& data,
+                                                    uint32_t shots, std::optional<uint64_t> seed,
+                                                    sampling::BatchExecutionPolicy policy,
+                                                    FixedWorkers& prepared_workers) {
     const auto& dimensions = data.dimensions;
-    NonComputationalSample result;
+    const uint64_t driver_columns = classical_bit_columns(data);
+    FixedNonComputationalResult run;
+    auto& result = run.output;
+    auto& metrics = run.metrics;
+    metrics.batch_size = policy.lane_capacity;
     result.shots = shots;
     result.num_qubits = dimensions.num_qubits;
     result.num_measurements = dimensions.num_measurements;
@@ -654,7 +721,7 @@ NonComputationalSample FixedNonComputationalProgram::sample(uint32_t shots,
     result.num_observables = dimensions.num_observables;
     const SeedRoot root = make_seed_root(shots, seed);
     if (shots == 0) {
-        return result;
+        return run;
     }
     result.measurements.resize(static_cast<size_t>(shots) * dimensions.num_measurements);
     result.heralds.resize(result.measurements.size());
@@ -663,16 +730,70 @@ NonComputationalSample FixedNonComputationalProgram::sample(uint32_t shots,
     if (data.final_status) {
         result.final_status.resize(static_cast<size_t>(shots) * dimensions.num_qubits);
     }
-    run_shot_ranges(
-        shots, threads, [&](uint32_t) { return std::make_unique<FixedWorker>(data); },
-        [&](const std::unique_ptr<FixedWorker>& worker, ShotRange range) {
+    if (policy.lane_capacity > 1) {
+        metrics.packed_worker_bytes =
+            sampling::batch_detail::batch_worker_storage_bytes(*data.plan, policy.lane_capacity,
+                                                               sampling::BatchOutputMode::Rows,
+                                                               sampling_mode(data)) +
+            sampling::packed_bit_columns_storage_bytes(driver_columns, policy.lane_capacity);
+        // Derive a fixed-execution root because BatchExecutor supplies its own
+        // domain and rehashes this root with each global batch start.
+        const auto quantum_seed = derive_state(root, 0, kFixedNonComputationalExecutorDomain);
+        const SeedRoot quantum_root{
+            {quantum_seed[0], quantum_seed[1], quantum_seed[2], quantum_seed[3]}};
+        const auto workers = run_shot_ranges(
+            shots, policy.worker_count,
+            [&](uint32_t i) {
+                auto* worker = prepared_workers.packed[i].get();
+                worker->shots = 0;
+                worker->batches = 0;
+                return worker;
+            },
+            [&](const auto& worker, ShotRange range) noexcept {
+                for (uint32_t first = range.begin; first < range.end;) {
+                    const uint32_t count = std::min(policy.lane_capacity, range.end - first);
+                    if (data.dynamic_inputs) {
+                        data.classical->prepare(root, first, count, *worker->classical,
+                                                *worker->inputs, result);
+                        worker->executor.run_batch(quantum_root, first, count, *worker->inputs);
+                    } else {
+                        worker->executor.run_batch(quantum_root, first, count);
+                    }
+                    assert(worker->executor.surviving_shots() == count);
+#ifndef NDEBUG
+                    for (uint32_t lane = 0; lane < count; ++lane) {
+                        assert(worker->executor.shot_index(lane) == first + lane);
+                    }
+#endif
+                    sampling::batch_detail::copy_batch_rows(result, worker->executor, *data.plan);
+                    worker->shots += count;
+                    ++worker->batches;
+                    first += count;
+                }
+            },
+            policy.lane_capacity);
+        metrics.workers = static_cast<uint32_t>(workers.size());
+        for (const auto& worker : workers) {
+            metrics.packed_shots += worker->shots;
+            if (data.dynamic_inputs)
+                metrics.packed_classical_shots += worker->shots;
+            metrics.packed_batches += worker->batches;
+        }
+        return run;
+    }
+    const auto workers = run_shot_ranges(
+        shots, policy.worker_count,
+        [&](uint32_t i) {
+            auto* worker = prepared_workers.scalar[i].get();
+            worker->shots = 0;
+            return worker;
+        },
+        [&](const auto& worker, ShotRange range) noexcept {
             for (uint32_t shot = range.begin; shot < range.end; ++shot) {
                 if (data.dynamic_inputs) {
-                    const auto input_seed =
-                        derive_state(root, shot, kFixedNonComputationalInputDomain);
-                    Xoshiro256PlusPlus rng(0);
-                    rng.seed_full(input_seed[0], input_seed[1], input_seed[2], input_seed[3]);
-                    worker->prepare_inputs(data, rng);
+                    std::ranges::fill(worker->noise, 0);
+                    ScalarInputSink inputs{worker->noise, worker->readout};
+                    prepare_shot(data, root, shot, worker->status, inputs, result);
                 }
                 const auto quantum_seed =
                     derive_state(root, shot, kFixedNonComputationalExecutorDomain);
@@ -691,19 +812,121 @@ NonComputationalSample FixedNonComputationalProgram::sample(uint32_t shots,
                 copy(worker->executor.visible_records(), result.measurements);
                 copy(worker->executor.detectors(), result.detectors);
                 copy(worker->executor.observables(), result.observables);
-                copy(worker->heralds, result.heralds);
-                if (data.final_status && data.dynamic_inputs) {
-                    for (uint32_t qubit = 0; qubit < dimensions.num_qubits; ++qubit) {
-                        assert(worker->status[qubit] != kLeaked);
-                        result.final_status[static_cast<size_t>(shot) * dimensions.num_qubits +
-                                            qubit] = worker->status[qubit] == kLost
-                                                         ? QubitStatus::Lost
-                                                         : QubitStatus::Computational;
-                    }
-                }
             }
+            worker->shots += range.end - range.begin;
         });
-    return result;
+    metrics.workers = static_cast<uint32_t>(workers.size());
+    for (const auto& worker : workers) {
+        metrics.scalar_shots += worker->shots;
+    }
+    return run;
 }
+
+}  // namespace
+
+FixedNonComputationalResult FixedNonComputationalProgram::sample(
+    uint32_t shots, std::optional<uint64_t> seed, uint32_t threads,
+    std::optional<uint32_t> batch_size, std::optional<double> tuning_budget_seconds) const {
+    sampling::batch_detail::validate_batch_tuning_options(batch_size, tuning_budget_seconds);
+    const auto& data = *data_;
+    const uint32_t shot_workers = resolve_shot_worker_count(shots, threads);
+    auto policy = sampling::resolve_batch_execution_policy(
+        *data.plan, shots, shot_workers, 1, sampling::BatchOutputMode::Rows, batch_size,
+        sampling_mode(data), 0, classical_bit_columns(data), data.inputs.size());
+    if (policy.lane_capacity == 1) {
+        policy.worker_count = shot_workers;
+    }
+    std::optional<sampling::BatchTuningReport> tuning;
+    if (tuning_budget_seconds) {
+        const auto start = std::chrono::steady_clock::now();
+        const auto now = [&] {
+            return std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+        };
+        tuning.emplace();
+        tuning->batch_size = policy.lane_capacity;
+        tuning->baseline_batch_size = policy.lane_capacity;
+        tuning->shot_workers = policy.worker_count;
+        if (shots == 0) {
+            tuning->stop_reason = "zero_shots";
+        } else if (*tuning_budget_seconds == 0) {
+            tuning->stop_reason = "zero_budget";
+        } else {
+            const uint64_t sidecar_row_bytes =
+                uint64_t{data.dimensions.num_measurements} +
+                (data.final_status ? uint64_t{data.dimensions.num_qubits} * sizeof(QubitStatus)
+                                   : 0);
+            const auto candidates = sampling::batch_detail::batch_tuning_candidates(
+                *data.plan, shots, shot_workers, 1, sampling::BatchOutputMode::Rows,
+                sampling_mode(data), 0, policy, classical_bit_columns(data), sidecar_row_bytes);
+            if (candidates.size() < 2) {
+                tuning->stop_reason = "single_candidate";
+            } else {
+                const SeedRoot calibration_root = make_seed_root(shots, seed);
+                auto make_probe = [&](sampling::BatchExecutionPolicy probe_policy) {
+                    // Production constructs workers once per call. Keep them
+                    // across probe chunks and charge setup once at that scale.
+                    return [&, probe_policy, workers = FixedWorkers(data, probe_policy)](
+                               uint32_t count, uint64_t trial_seed) mutable {
+                        (void)sample_fixed_configured(data, count, trial_seed, probe_policy,
+                                                      workers);
+                    };
+                };
+                const double remaining = std::max(0.0, *tuning_budget_seconds - now());
+                tuning = sampling::batch_detail::sweep_batch_candidates(
+                    candidates, policy, 1, remaining, calibration_root, now, make_probe, shots);
+                policy = {tuning->batch_size, tuning->shot_workers};
+            }
+        }
+        tuning->elapsed_seconds = now();
+    }
+    FixedWorkers workers(data, policy);
+    auto run = sample_fixed_configured(data, shots, seed, policy, workers);
+    run.output.batch_tuning = std::move(tuning);
+    return run;
+}
+
+namespace detail {
+
+void validate_fixed_input_bindings(std::span<const size_t> noise_nodes,
+                                   std::span<const FixedReadoutSite> readout_sites,
+                                   const HirModule& hir, const sampling::SamplingPlan& plan) {
+    if (!plan.instrument_distributions.empty() || hir.noise_sites.size() != noise_nodes.size() ||
+        plan.presampled_noise_sites.size() != noise_nodes.size()) {
+        throw std::logic_error("fixed noncomputational lowering lost a noise-site identity");
+    }
+    for (size_t site = 0; site < noise_nodes.size(); ++site) {
+        if (hir.noise_sites[site].source_node == kUnknownSourceNode ||
+            hir.noise_sites[site].source_node != noise_nodes[site] ||
+            plan.presampled_noise_sites[site].source_site != site) {
+            throw std::logic_error("fixed noncomputational noise-site identity changed");
+        }
+    }
+    if (hir.readout_noise.size() != readout_sites.size()) {
+        throw std::logic_error("fixed noncomputational lowering lost a readout-site identity");
+    }
+    for (size_t site = 0; site < readout_sites.size(); ++site) {
+        if (hir.readout_noise[site].source_node == kUnknownSourceNode ||
+            hir.readout_noise[site].source_node != readout_sites[site].node ||
+            hir.readout_noise[site].meas_idx != readout_sites[site].record) {
+            throw std::logic_error("fixed noncomputational readout-site identity changed");
+        }
+    }
+    size_t site = 0;
+    for (const auto& action : plan.actions) {
+        if (const auto* readout = std::get_if<sampling::ApplyReadoutNoise>(&action.action)) {
+            if (site >= readout_sites.size() || readout->source_site != site ||
+                sampling::index(readout->record) != readout_sites[site].record) {
+                throw std::logic_error(
+                    "fixed noncomputational planned readout-site identity changed");
+            }
+            ++site;
+        }
+    }
+    if (site != readout_sites.size()) {
+        throw std::logic_error("fixed noncomputational lowering lost a readout-site identity");
+    }
+}
+
+}  // namespace detail
 
 }  // namespace clifft

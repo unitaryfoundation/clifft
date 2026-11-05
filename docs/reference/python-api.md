@@ -20,7 +20,7 @@
 
 ## Sampling
 
-The four fixed-plan functions share CPU batching and threading arguments. See
+The four sampling functions below share CPU batching and threading arguments. See
 [CPU Execution and Tuning](../guide/cpu-execution.md) for their interaction and
 compatibility limits.
 
@@ -87,6 +87,12 @@ Sampling under a five-level leakage/loss model. See the
 directional overrides, and circuit annotation ordering.
 
 ::: clifft.noncomp.sample
+
+::: clifft.noncomp.compile
+
+::: clifft.noncomp.NonComputationalProgram
+
+::: clifft.noncomp.NonComputationalStats
 
 ::: clifft.noncomp.Model
 

@@ -1,5 +1,6 @@
 #include "clifft/circuit/parser.h"
 #include "clifft/frontend/frontend.h"
+#include "clifft/sampling/batch/bits.h"
 #include "clifft/sampling/batch/tuning.h"
 #include "clifft/sampling/planner.h"
 #include "clifft/sampling/sampler.h"
@@ -10,6 +11,7 @@
 #include <array>
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/generators/catch_generators.hpp>
 #include <set>
 
 using namespace clifft::sampling;
@@ -84,6 +86,45 @@ TEST_CASE("Batch tuning reports budget exhaustion when only the baseline can be 
     REQUIRE(report.trials.front().shots_per_second() > 0);
     REQUIRE_FALSE(report.sufficient_measurements);
     REQUIRE(report.stop_reason == "budget_exhausted");
+}
+
+TEST_CASE("Batch tuning amortizes setup over the requested production call") {
+    const bool first_use = GENERATE(false, true);
+    const std::array<BatchTuningCandidate, 2> candidates{{{{1, 1}, 1, 4096}, {{64, 1}, 64, 4096}}};
+    for (const auto production_shots :
+         {std::optional<uint32_t>{}, std::optional<uint32_t>{65}, std::optional<uint32_t>{10000}}) {
+        CAPTURE(production_shots.value_or(0));
+        double clock = 0;
+        std::array<uint32_t, 2> constructions{};
+        uint32_t largest_packed_probe = 0;
+        const auto report = sweep_batch_candidates(
+            candidates, candidates.front().policy, 1, 0.25, clifft::seed_root_from_seed(42),
+            [&] { return clock; },
+            [&](BatchExecutionPolicy policy) {
+                const bool packed = policy.lane_capacity > 1;
+                ++constructions[packed];
+                clock += packed && !first_use ? 0.02 : 0.0001;
+                return [&, packed, first = true](uint32_t shots, uint64_t) mutable {
+                    if (packed && first && first_use) {
+                        clock += 0.02;
+                    }
+                    first = false;
+                    if (packed) {
+                        largest_packed_probe = std::max(largest_packed_probe, shots);
+                    }
+                    // Even one packed batch exceeds the chunk-growth threshold.
+                    // Its one-time setup must still amortize over production.
+                    clock += shots / (packed ? 32000.0 : 10000.0);
+                };
+            },
+            production_shots);
+        REQUIRE(report.sufficient_measurements);
+        REQUIRE(report.batch_size == (production_shots == 65 ? 1 : 64));
+        REQUIRE(constructions == std::array<uint32_t, 2>{1, 1});
+        REQUIRE(largest_packed_probe == 64);
+        REQUIRE(report.trials.back().setup_seconds == Catch::Approx(first_use ? 0.0001 : 0.02));
+        REQUIRE(report.trials.back().shots_per_second() == Catch::Approx(32000));
+    }
 }
 
 TEST_CASE("Batch tuning can compare first probes without steady state measurements") {
@@ -288,6 +329,43 @@ TEST_CASE("Batch tuning deduplicates clipped capacities and respects total worke
                                                      BatchSamplingMode::Ordinary,
                                                      kDefaultBatchWorkerBudget / 2, {1, 16});
     REQUIRE(constrained.size() == 1);
+}
+
+TEST_CASE("Batch tuning charges page rounded classical workspace at each capacity") {
+    const auto plan = compile_tuning_plan("M 0");
+    constexpr uint32_t capacity = 64;
+    constexpr uint64_t columns = 7;
+    const auto executor_bytes = batch_detail::batch_worker_storage_bytes(
+        plan, capacity, BatchOutputMode::Rows, BatchSamplingMode::ExternalInputs);
+    const auto column_bytes = packed_bit_columns_storage_bytes(columns, capacity);
+    REQUIRE(column_bytes > columns * sizeof(uint64_t));
+    const auto extra = kDefaultBatchWorkerBudget - executor_bytes - column_bytes + 1;
+    const auto candidates =
+        batch_tuning_candidates(plan, 10000, 1, 1, BatchOutputMode::Rows,
+                                BatchSamplingMode::ExternalInputs, extra, {1, 1}, columns);
+    REQUIRE(candidates.size() == 1);
+    CHECK(candidates.front().policy.lane_capacity == 1);
+
+    constexpr uint32_t workers = 9;
+    const auto total_extra =
+        kDefaultBatchTotalWorkerBudget / workers - executor_bytes - columns * sizeof(uint64_t);
+    const auto total_limited = batch_tuning_candidates(
+        plan, 100000, workers, 1, BatchOutputMode::Rows, BatchSamplingMode::ExternalInputs,
+        total_extra, {1, workers}, columns);
+    REQUIRE(total_limited.size() == 1);
+}
+
+TEST_CASE("Batch tuning bounds herald and final status probe outputs") {
+    const auto plan = compile_tuning_plan("M 0");
+    constexpr uint64_t sidecar_bytes = 1024 * 1024;
+    const auto candidates =
+        batch_tuning_candidates(plan, 10000, 1, 1, BatchOutputMode::Rows,
+                                BatchSamplingMode::Ordinary, 0, {1, 1}, 0, sidecar_bytes);
+    REQUIRE(candidates.size() == 1);
+    CHECK(candidates.front().max_probe_shots == 7);
+    CHECK(batch_tuning_candidates(plan, 10000, 1, 1, BatchOutputMode::Rows,
+                                  BatchSamplingMode::Ordinary, 0, {1, 1}, 0, 8 * sidecar_bytes)
+              .empty());
 }
 
 TEST_CASE("Batch tuning validates budgets even for empty sampling calls") {

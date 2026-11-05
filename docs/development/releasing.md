@@ -127,6 +127,16 @@ curated rather than generated directly from the changelog. Link to the
 most relevant new documentation or tutorial, and include a link to the
 full changelog.
 
+When adding a development post, add it to `docs/updates/index.md` and the
+Development Blog navigation in `mkdocs.yml`, newest release first. Keep the
+release version in the post title and put the full release date below it,
+labeled "Release date" (for example, "October 13, 2026"). Use the same date in
+the index's "Release date" column and confirm it matches the final release.
+Keep the index as the first entry in that navigation so
+`/stable/updates/` remains the blog landing page across releases. Use relative
+links to posts so readers stay within their selected documentation version.
+Review `docs/acknowledgments.md` for the release's research and software credits.
+
 ### 4. Refresh performance reporting (when applicable)
 
 Do this when a release has new, reviewed benchmark results; an ordinary release does not need to
@@ -134,26 +144,52 @@ rerun benchmarks solely to update version labels. Candidate-backed results are r
 candidate has been validated and before the final tag.
 
 Treat [`clifft-bench`](https://github.com/unitaryfoundation/clifft-bench) as the source of truth for
-raw results, cross-execution joins, and figure generation. This repository owns the reader-facing
-prose and checked-in rendered assets.
+raw results and figure generation. This repository owns the reader-facing prose and rendered assets.
 
-1. In `clifft-bench`, finalize the candidate campaign under a new execution ID and audit the
-   comparison table. Confirm that the measured artifact is the exact published candidate and that
-   no runtime, compiler, packaging, or build input has changed since its tag. If one has, publish and
-   measure another candidate instead of carrying the old results into the final release.
-2. Update the exact execution chain in `reporting/sources.json`, then follow the
-   [`clifft-bench` reporting guide](https://github.com/unitaryfoundation/clifft-bench/blob/main/reporting/README.md)
-   to validate the joins and regenerate the publication and documentation figures. Review and merge
-   the results/reporting PR in `clifft-bench` before copying its outputs here.
-3. Copy the consumed light/dark figure pairs from `reporting/figures/web/` into
-   `docs/assets/performance/`, using the reporting guide's copy command. The README uses the
-   Clifft-only throughput figure; the Performance guide uses the combined simulator figure. Update
-   `docs/guide/performance.md` and any release-specific excerpts in `README.md`, `docs/index.md`, or
-   `docs/updates/`. Keep methodology and raw-result links pinned to the merged `clifft-bench` commit;
-   reader-facing labels may use the target final version while the evidence retains the exact
-   candidate identity.
-4. Check every headline number against the merged comparison table, review both light and dark
-   figures, then run `just docs-build` and the required pre-commit suite.
+1. Collect previous/current Clifft together in a new execution directory. Measure peers in that
+   execution, or explicitly reuse a compatible reviewed peer execution with `--peer-results` as
+   described in the publication workflow below. Confirm
+   that the measured artifact is the exact published candidate and that no runtime, compiler,
+   packaging, or build input has changed since its tag. If one has, publish and measure another
+   candidate instead of carrying the old results into the final release.
+2. Follow the [`clifft-bench` publication workflow](https://github.com/unitaryfoundation/clifft-bench/blob/main/CONTRIBUTING.md#release-reporting):
+   run `clifft-bench report EXECUTION_DIR --check` (with the same `--peer-results` input when reusing
+   peers), then render with the `report` extra. Review
+   `raw.json`, `cases.csv`, `report/review.md`, failures, missing baselines, and both figure themes.
+   Release ratios use the primary execution alone; peer rates may come from the explicitly
+   supplied peer execution. Merge the
+   results/reporting PR in `clifft-bench` before copying its reviewed outputs here.
+3. Copy these files from the merged execution's `report/` directory to
+   `docs/assets/performance/`:
+
+   - `simulator-throughput-{light,dark}.png`
+   - `release-change-{light,dark}.png`
+   - `simulator-throughput.json`
+
+   Generate the JSON with the same exporter revision and explicit peer input as the figures;
+   do not edit it by hand. The guide builds its chart and accessible table from this asset.
+   Update `throughput_evidence` in the performance guide's front matter to map every exported
+   source run ID to its immutable evidence directory. A missing mapping fails the docs build.
+   Generate `throughput_circuits` by matching each exported `artifact_sha256` to a circuit file
+   in the pinned `clifft-bench` checkout. Map each digest to that file's immutable GitHub URL;
+   the chart and table use these links. An unknown circuit digest fails the docs build.
+
+   Update image links and claims together in `README.md`, `docs/guide/performance.md`, and any
+   release-specific excerpts in `docs/index.md` or `docs/updates/`. Use the stable `release-change`
+   filenames for paired release comparisons and remove replaced release-specific assets once their
+   links have moved. Use final release version labels in reader-facing prose and explain what the
+   results mean for users; keep collection dates, candidate tags, dependency lock details, and
+   run-joining provenance in the pinned `clifft-bench` links and PR summary.
+4. Check headline numbers against the execution's samples and review summary, inspect both themes,
+   then run `just docs-build` and the required pre-commit suite. Check the throughput controls,
+   keyboard focus and Escape dismissal, touch layout, navigation away and back, and the static
+   figures and table with JavaScript disabled. Confirm that controls preserve panel scales and
+   that chart labels, table values, and downloads agree.
+
+Keep existing published figures and their source links until reviewed reference-host results are
+ready; smoke figures are validation artifacts. Historical trends, Quantum Volume, GPU studies,
+and adder-specific plots are optional publications with their own evidence, not release-report
+prerequisites.
 
 ### 5. Tag and push
 
@@ -196,8 +232,17 @@ Then verify the hosted docs and Playground:
 - `https://unitaryfoundation.github.io/clifft/<version>/` exists.
 - For the newest release, `https://unitaryfoundation.github.io/clifft/stable/`
   shows the new release docs.
+- [Development Blog](https://unitaryfoundation.github.io/clifft/stable/updates/)
+  loads the index with full release dates, newest release first. The Development
+  Blog navigation opens this index, and its article links work. Each post's
+  release date matches its index entry and the GitHub Release.
+- [Acknowledgments and References](https://unitaryfoundation.github.io/clifft/stable/acknowledgments/)
+  includes the current research and software credits, including Merlin.
 - `https://unitaryfoundation.github.io/clifft/playground/?url=<raw-stim-url>`
   still loads a remote circuit.
+
+Complete these checks after deployment and before publishing external posts
+that link to the stable documentation.
 
 ## Documentation versions
 

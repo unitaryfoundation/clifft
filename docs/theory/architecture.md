@@ -1,6 +1,6 @@
 # Software Architecture
 
-Clifft separates circuit analysis from repeated execution. Compilation does
+Clifft's compiled modes separate circuit analysis from repeated execution. Compilation does
 the tableau, coordinate, and dependency work once. Sampling then executes a
 fixed symbolic-coordinate program using preallocated state.
 
@@ -17,6 +17,7 @@ These boundaries have different responsibilities:
 | HIR | Circuit operations expressed in the Heisenberg frame | Active-coordinate and kernel choices |
 | `SamplingPlan` | Symbols, affine dependencies, active-coordinate actions, width transitions, and outputs | CPU instruction-set selection, descriptor layout, and target-specific fusion |
 | `ExecutablePlan` | Immutable descriptors, dependency tables, fused actions, and kernels prepared for one execution target | Per-shot state and runtime topology analysis |
+| `Program` | Original CPU executable and optional reconstructed sampling plans for retained records and survivor counts | Per-shot state and runtime compilation |
 | `Executor` | Mutable coefficients, symbols, expression registers, records, outputs, scratch space, and RNG state | Tableau evolution, coordinate planning, and dependency discovery |
 
 The [Theoretical Overview](overview.md) explains the state factorization and
@@ -34,8 +35,9 @@ implementation moved from that design to the pipeline described here.
 | `src/clifft/circuit/` | Circuit AST, parser, and target encoding |
 | `src/clifft/frontend/` | Clifford tracing and Heisenberg IR construction |
 | `src/clifft/optimizer/` | HIR optimization passes |
+| `src/clifft/api/` | Program ownership, sampling-plan selection, and exact queries |
 | `src/clifft/sampling/` | Semantic planning, executable preparation, shot execution, and kernels |
-| `src/clifft/noncomp/` | Leakage/loss trajectory planning and continuation handling |
+| `src/clifft/noncomp/` | Leakage/loss fixed, trajectory, and online execution |
 | `src/python/` | Python API via nanobind |
 | `src/wasm/` | Browser bindings for compilation, inspection, and sampling |
 
@@ -63,7 +65,7 @@ expressions needed for branch-dependent signs. The resulting `SamplingPlan`
 is a target-independent description of the work common to every shot.
 
 Keeping this boundary semantic matters. The CPU executor and the experimental
-HIP and CUDA backends share the same coordinate choices and output contract
+HIP and CUDA backends share the same coordinate choices and output definitions
 without sharing action layouts, kernel selectors, or fusion policy.
 
 ### Executable Preparation
@@ -78,9 +80,8 @@ The action's kernel tag describes a prepared operation shape, such as a
 diagonal or lane-paired rotation. It does not independently select an ISA.
 This keeps target selection consistent across the whole executor.
 
-`ExecutablePlan` is immutable after construction. Its builder is temporary
-and is discarded once the fixed storage is ready; it is not another persistent
-IR or a runtime pass manager.
+`ExecutablePlan` is immutable after construction, and its builder is discarded
+once the prepared descriptors are finalized.
 
 The experimental HIP and CUDA backends start from the same `SamplingPlan`
 boundary but prepare a backend-private GPU executable and device workspace.
@@ -89,7 +90,7 @@ see [HIP Backend](../development/hip-backend.md) and
 [CUDA Backend](../development/cuda-backend.md).
 
 !!! important "Planning boundary"
-    Runtime kernels do not evolve tableaus, localize Paulis, analyze
+    Compiled executors and their kernels do not evolve tableaus, localize Paulis, analyze
     commutation, choose coordinates, or discover symbolic dependencies. Those
     decisions belong to compilation and executable preparation.
 
@@ -117,6 +118,18 @@ prepare a trajectory-specific suffix, grow reusable storage if necessary, and
 resume without losing the live coefficients, records, symbols, or RNG
 position. See [Noncomputational States](noncomputational.md).
 
+## Online Noncomputational Execution
+
+Most Clifft execution modes resolve the Clifford frame ahead of time. In some
+noncomputational simulations, leakage or loss changes downstream operations:
+for example, a two-qubit gate is skipped when one target is lost. Trajectory
+execution recompiles the remaining circuit to account for these changes. When
+many sites can leak or be lost, recompilation can dominate sampling time.
+Users can instead select `execution="online"`, which updates the Clifford frame
+during sampling and handles these changes as they occur. See
+[Online execution](../guide/leakage-and-loss.md#online-execution) for usage and
+performance tradeoffs.
+
 ## Execution Targets
 
 Architecture-specific kernels live in separate translation units compiled
@@ -126,20 +139,36 @@ AVX2 or AVX-512 kernels without allowing those instructions to leak into
 fallback execution on other CPUs. Apple arm64 builds use NEON kernels. Linux
 arm64, Windows, and WebAssembly builds use the scalar backend.
 
+The online noncomputational backend currently uses the portable scalar dense
+kernels on all platforms.
+
 WebAssembly follows the same HIR, `SamplingPlan`, and `ExecutablePlan`
 boundaries. The playground can inspect the semantic and prepared plans, while
 browser sampling consumes the prepared scalar executable.
 
 ## Python Bindings
 
-`clifft.compile()` returns a `Program` backed by an `ExecutablePlan`.
+`clifft.compile()` returns a `Program` owning the original `ExecutablePlan`.
 `clifft.sample()`, survivor sampling, fixed-fault sampling, and exact queries
 all consume that same type. One compiled program can be reused for many calls
 and shot counts.
 
+With `reconstruction=True`, compilation also prepares bounded reconstructed
+plans for full-record sampling and for detector/observable survivor counts.
+`sample()` selects the full-record plan; `sample_survivors()` selects according
+to `keep_records`. Each falls back to the original plan when its candidate is
+ineligible or does not reduce peak active width.
+
+Because the reconstructed plans preserve only the classical output distribution
+and postselection acceptance probability, state and exact-probability queries,
+replay, and fixed-fault sampling always use the original plan. Standard
+`Program` metadata and `inspect()` also describe the original plan, while
+`reconstruction_info(keep_records=...)` reports the plan selected for ordinary
+sampling. Experimental GPU and WebAssembly paths prepare a single executable.
+
 `clifft.get_statevector(program)` expands an eligible pure-state program into
-the full physical-qubit state vector for debugging and validation. The result
-represents the final state ray and is defined only up to global phase. Its
+the full physical-qubit statevector for debugging and validation. The result is
+normalized and defined only up to global phase. Its
 final coordinate metadata is not read during ordinary sampling.
 
 See [Compiling Circuits](../guide/compilation.md) and

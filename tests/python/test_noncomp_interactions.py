@@ -373,8 +373,8 @@ def test_interaction_continuations_preserve_seeded_rows_across_worker_counts():
         M 0 1 2
     """
     assert_same_result(
-        noncomp.sample(source, model, shots=256, seed=12, threads=1),
-        noncomp.sample(source, model, shots=256, seed=12, threads=2),
+        noncomp.sample(source, model, shots=256, seed=12, threads=1, final_status=True),
+        noncomp.sample(source, model, shots=256, seed=12, threads=2, final_status=True),
     )
 
 

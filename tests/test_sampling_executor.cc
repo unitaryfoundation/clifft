@@ -267,6 +267,17 @@ TEST_CASE("Sampling executor does not draw for empty noise sites") {
     }
 }
 
+TEST_CASE("Sampling executor accepts correlated chains that round above one") {
+    const SamplingPlan plan = plan_from(
+        "E(0.08) X0\n"
+        "ELSE_CORRELATED_ERROR(0.45) Z0\n"
+        "ELSE_CORRELATED_ERROR(1) X1\n"
+        "M 0 1");
+    REQUIRE(plan.presampled_noise_sites.size() == 1);
+    CHECK(plan.presampled_noise_sites[0].total_probability == 1.0);
+    REQUIRE_NOTHROW(ExecutablePlan(plan));
+}
+
 TEST_CASE("Sampling executor evaluates presampled and derived affine symbols") {
     SamplingPlan plan;
     plan.num_visible_records = 1;

@@ -6,11 +6,12 @@
 // - Clifford gates: H, S, S_DAG, X, Y, Z, CX, CY, CZ
 // - Non-Clifford gates: T, T_DAG
 // - Measurements: M, MX, MY, MR, MRX, MPP
-// - Classical feedback: CX rec[-k] q, CZ rec[-k] q
+// - Classical feedback: CX rec[-k] q, CZ rec[-k] q, CZ q rec[-k]
 // - Annotations: TICK
 //
 // Parser transformations:
 // - MPP X0*Z1 X2 -> two separate AstNodes (unrolling)
+// - CZ q rec[-k] -> CZ rec[-k] q; validated two-record CZ pairs emit no node
 // - CH c t -> R_Y(0.25) t, CX c t, R_Y(-0.25) t
 // - CCZ a b c -> 7 T/T_DAG gates + 6 CX gates
 // - CCX a b t -> H t, CCZ a b t, H t

@@ -1,12 +1,14 @@
 #include "clifft/circuit/parser.h"
 #include "clifft/frontend/frontend.h"
 #include "clifft/noncomp/fixed.h"
-#include "clifft/noncomp/fixed_input_validation.h"
+#include "clifft/optimizer/peephole.h"
 #include "clifft/sampling/executor.h"
 #include "clifft/sampling/planner.h"
 #include "clifft/util/numeric.h"
 
+#include "dense_circuit_oracle.h"
 #include "noncomp_test_helpers.h"
+#include "sampling_equivalence_helpers.h"
 
 #include <array>
 #include <catch2/catch_test_macros.hpp>
@@ -49,26 +51,83 @@ void same(const NonComputationalSample& a, const NonComputationalSample& b) {
 
 }  // namespace
 
+TEST_CASE("Fixed sampling rejects zero batch capacity through shared policy validation") {
+    const auto program = fixed("LOSS(0.1) 0\nM 0", model());
+    for (uint32_t shots : {0, 65}) {
+        REQUIRE_THROWS_WITH(program.sample(shots, 42, 1, 0),
+                            Catch::Matchers::ContainsSubstring("batch_size must be a positive"));
+    }
+}
+
+TEST_CASE("Fixed peephole fusion preserves externally selected noise and readout branches") {
+    const auto circuit = parse(
+        "H 0\nT 0\nT 0\nX_ERROR(1) 0\nS_DAG 0\nH 0\nMR 0\n"
+        "READOUT_NOISE(0.5,0.5) rec[-1]\nCX rec[-1] 1\n"
+        "PAULI_CHANNEL_1(0.2,0.1,0.7) 1\nM 0 1\n"
+        "READOUT_NOISE(0.5,0.5) rec[-1]\n"
+        "DETECTOR rec[-1] rec[-3]\nOBSERVABLE_INCLUDE(0) rec[-2]");
+    const auto original = trace(circuit);
+    auto optimized = original;
+    PeepholeFusionPass pass;
+    pass.run(optimized);
+    REQUIRE(pass.fusions() == 1);
+    REQUIRE(sampling::plan_sampling(original).peak_active_width == 1);
+    REQUIRE(sampling::plan_sampling(optimized).peak_active_width == 0);
+    const std::vector<size_t> noise_nodes{3, 9};
+    const std::vector<detail::FixedReadoutSite> readout_sites{{7, 0}, {12, 2}};
+    detail::validate_fixed_input_bindings(noise_nodes, readout_sites, optimized,
+                                          sampling::plan_sampling(optimized));
+
+    // The optimizer sees placeholder readout probabilities. Check every joint
+    // assignment of the external flip bits after optimization, including the
+    // asymmetric channels that would be invalid to move across feedback/reset.
+    for (unsigned bits = 0; bits < 16; ++bits) {
+        CAPTURE(bits);
+        auto before = original;
+        auto after = optimized;
+        auto reference = circuit;
+        for (size_t site = 0; site < readout_sites.size(); ++site) {
+            const double p01 = (bits >> (2 * site)) & 1;
+            const double p10 = (bits >> (2 * site + 1)) & 1;
+            before.readout_noise[site].prob_zero_to_one = p01;
+            before.readout_noise[site].prob_one_to_zero = p10;
+            after.readout_noise[site].prob_zero_to_one = p01;
+            after.readout_noise[site].prob_one_to_zero = p10;
+            reference.nodes[readout_sites[site].node].args = {p01, p10};
+        }
+        Xoshiro256PlusPlus rng(83);
+        // Enumerates the no-fault branch even at probability one, as required
+        // when an inactive operand suppresses an otherwise certain event.
+        test::check_exact_equivalent(before, after, rng);
+        test::require_distributions_equal(test::compute_dense_circuit_distribution(reference),
+                                          test::compute_exact_hir_distribution(after));
+    }
+}
+
 TEST_CASE("Fixed input bindings distinguish repeated lines and channels on the same record") {
     const Circuit circuit = parse(
         "REPEAT 2 {\nX_ERROR(0.2) 0\nM 0\n"
         "READOUT_NOISE(0.3) rec[-1]\nREADOUT_NOISE(0.4) rec[-1]\n}\n"
         "E(0.1) X0\nELSE_CORRELATED_ERROR(0.2) Y0");
     REQUIRE(circuit.nodes[0].source_line == circuit.nodes[4].source_line);
-    TraceSiteOrigins origins;
-    const HirModule hir = trace(circuit, nullptr, &origins);
+    HirModule hir = trace(circuit);
     auto plan = sampling::plan_sampling(hir);
     const std::vector<size_t> noise_nodes{0, 4, 8};
     const std::vector<detail::FixedReadoutSite> readout_sites{{2, 0}, {3, 0}, {6, 1}, {7, 1}};
-    REQUIRE(origins.noise_nodes == noise_nodes);
-    REQUIRE(origins.readout_nodes == std::vector<size_t>{2, 3, 6, 7});
-    REQUIRE_NOTHROW(
-        detail::validate_fixed_input_bindings(noise_nodes, readout_sites, origins, hir, plan));
+    REQUIRE(hir.noise_sites.size() == noise_nodes.size());
+    REQUIRE(hir.readout_noise.size() == readout_sites.size());
+    for (size_t i = 0; i < noise_nodes.size(); ++i) {
+        REQUIRE(hir.noise_sites[i].source_node == noise_nodes[i]);
+    }
+    for (size_t i = 0; i < readout_sites.size(); ++i) {
+        REQUIRE(hir.readout_noise[i].source_node == readout_sites[i].node);
+    }
+    REQUIRE_NOTHROW(detail::validate_fixed_input_bindings(noise_nodes, readout_sites, hir, plan));
 
-    const std::string mutation =
-        GENERATE("traced noise order", "traced readout order", "missing traced site",
-                 "planned noise order", "planned readout order", "missing planned identity",
-                 "wrong record", "extra readout", "missing readout");
+    const std::string mutation = GENERATE(
+        "traced noise order", "traced readout order", "missing traced site", "planned noise order",
+        "planned readout order", "missing planned identity", "wrong record", "extra readout",
+        "missing readout", "missing traced noise identity", "missing traced readout identity");
     CAPTURE(mutation);
     std::vector<size_t> readout_actions;
     for (size_t i = 0; i < plan.actions.size(); ++i) {
@@ -81,11 +140,15 @@ TEST_CASE("Fixed input bindings distinguish repeated lines and channels on the s
     auto& second = std::get<sampling::ApplyReadoutNoise>(plan.actions[readout_actions[1]].action);
     REQUIRE(first.record == second.record);
     if (mutation == "traced noise order") {
-        std::swap(origins.noise_nodes[0], origins.noise_nodes[1]);
+        std::swap(hir.noise_sites[0].source_node, hir.noise_sites[1].source_node);
     } else if (mutation == "traced readout order") {
-        std::swap(origins.readout_nodes[0], origins.readout_nodes[1]);
+        std::swap(hir.readout_noise[0].source_node, hir.readout_noise[1].source_node);
     } else if (mutation == "missing traced site") {
-        origins.readout_nodes.pop_back();
+        hir.readout_noise.pop_back();
+    } else if (mutation == "missing traced noise identity") {
+        hir.noise_sites[0].source_node = NoiseSite{}.source_node;
+    } else if (mutation == "missing traced readout identity") {
+        hir.readout_noise[0].source_node = ReadoutNoiseEntry{}.source_node;
     } else if (mutation == "planned noise order") {
         std::swap(plan.presampled_noise_sites[0].source_site,
                   plan.presampled_noise_sites[1].source_site);
@@ -101,9 +164,8 @@ TEST_CASE("Fixed input bindings distinguish repeated lines and channels on the s
     } else {
         plan.actions.erase(plan.actions.begin() + readout_actions[0]);
     }
-    CHECK_THROWS_AS(
-        detail::validate_fixed_input_bindings(noise_nodes, readout_sites, origins, hir, plan),
-        std::logic_error);
+    CHECK_THROWS_AS(detail::validate_fixed_input_bindings(noise_nodes, readout_sites, hir, plan),
+                    std::logic_error);
 }
 
 TEST_CASE("External readout inputs preserve reset correction and feed later records") {
@@ -127,7 +189,7 @@ TEST_CASE("External readout inputs preserve reset correction and feed later reco
 TEST_CASE("Fixed noncomputational repeated leaked readouts are independent of the survivor") {
     const auto program = fixed("H 0\nCX 0 1\nLEAKAGE(1) 0\nM 0 0 1", model());
     const uint32_t shots = 16000;
-    const auto result = program.sample(shots, 12);
+    const auto result = program.sample(shots, 12).output;
     std::array<uint32_t, 8> counts{};
     for (uint32_t s = 0; s < shots; ++s) {
         const auto* row = result.measurements.data() + s * 3;
@@ -152,7 +214,7 @@ TEST_CASE("Fixed noncomputational reset reports classifier values before restori
     const auto program = fixed("LEAKAGE(1) 0\n" + gate + (inverted ? "0" : " 0") +
                                    "\nCX rec[-1] 1\n" + measurement + " 0\nM 1",
                                constant_one, true);
-    const auto result = program.sample(64, 5);
+    const auto result = program.sample(64, 5).output;
     for (size_t s = 0; s < result.shots; ++s) {
         CHECK(result.measurements[s * 3] == !inverted);
         CHECK(result.measurements[s * 3 + 1] == 0);
@@ -166,7 +228,7 @@ TEST_CASE("Fixed noncomputational ternary readout preserves the joint herald dis
         "LEAKAGE(1) 0\nM 0\nCX rec[-1] 1\nM 1\n"
         "DETECTOR rec[-1] rec[-2]\nOBSERVABLE_INCLUDE(0) rec[-1]",
         model(true));
-    const auto result = program.sample(16000, 71);
+    const auto result = program.sample(16000, 71).output;
     std::array<uint32_t, 4> counts{};
     for (size_t s = 0; s < result.shots; ++s) {
         ++counts[result.measurements[s * 2] + 2 * result.heralds[s * 2]];
@@ -187,7 +249,7 @@ TEST_CASE(
     const auto program = fixed(std::string(event) + "(1) " + std::to_string(source) +
                                    "\nCX 0 1\nM " + std::to_string(1 - source),
                                model());
-    const auto result = program.sample(6000, 32);
+    const auto result = program.sample(6000, 32).output;
     size_t ones = 0;
     for (const auto bit : result.measurements) {
         ones += bit;
@@ -199,7 +261,7 @@ TEST_CASE("Fixed noncomputational distinguishes ordinary dropped noise from corr
     const auto noise =
         GENERATE("DEPOLARIZE2(1) 0 1", "CORRELATED_ERROR(1) X0\nELSE_CORRELATED_ERROR(1) X1");
     const auto program = fixed(std::string("LEAKAGE(1) 0\n") + noise + "\nM 1", model());
-    const auto result = program.sample(128, 9);
+    const auto result = program.sample(128, 9).output;
     for (const auto bit : result.measurements) {
         CHECK(bit == 0);
     }
@@ -208,7 +270,7 @@ TEST_CASE("Fixed noncomputational distinguishes ordinary dropped noise from corr
 TEST_CASE("Fixed noncomputational preserves non Clifford probabilities with erased labels") {
     const auto program = fixed("H 0\nT 0\nH 0\nLEAKAGE(0.3) 1\nM 0\nR 1", model(), true);
     CHECK(program.metrics().peak_active_width > 0);
-    const auto result = program.sample(10000, 72);
+    const auto result = program.sample(10000, 72).output;
     size_t ones = 0;
     for (const auto bit : result.measurements) {
         ones += bit;
@@ -222,12 +284,13 @@ TEST_CASE("Fixed noncomputational programs own their plan and share no mutable s
         "H 0\nCX 0 1\nLEAKAGE(0.3) 0\nLOSS(0.2) 1\n"
         "CX 0 1\nM 0\nHERALD_LOSS_EVENT 1\nR 0\nM 1",
         model(true), true);
-    const auto expected = program.sample(1025, 123);
+    const auto expected = program.sample(1025, 123, 1, 65).output;
     auto copy = program;
-    auto future = std::async(std::launch::async, [&] { return copy.sample(1025, 123, 3); });
-    same(expected, program.sample(1025, 123, 2));
+    auto future =
+        std::async(std::launch::async, [&] { return copy.sample(1025, 123, 3, 65).output; });
+    same(expected, program.sample(1025, 123, 2, 65).output);
     same(expected, future.get());
-    const auto empty = program.sample(0);
+    const auto empty = program.sample(0).output;
     CHECK(empty.measurements.empty());
     CHECK(empty.num_measurements == 3);
     CHECK(program.metrics().preparation_compilations == 1);
@@ -288,7 +351,7 @@ TEST_CASE("Fixed noncomputational rejects requests whose observable contract nee
         reason = FixedNonComputationalReason::NamedTransition;
     }
     SECTION("width cap") {
-        circuit = parse("H 0\nT 0\nM 0");
+        circuit = parse("H 0\nT 0\nH 0\nM 0");
         requirements.max_active_width = 0;
         reason = FixedNonComputationalReason::ActiveWidth;
     }
@@ -296,7 +359,7 @@ TEST_CASE("Fixed noncomputational rejects requests whose observable contract nee
         std::string text;
         for (uint32_t qubit = 0; qubit < kDenseActiveWidthLimit; ++qubit) {
             const auto q = std::to_string(qubit);
-            text += "H " + q + "\nT " + q + "\nT " + q + "\n";
+            text += "H " + q + "\nT " + q + "\n";
         }
         circuit = parse(text);
         reason = FixedNonComputationalReason::ActiveWidth;
@@ -356,7 +419,8 @@ TEST_CASE("Fixed noncomputational accepts grouped operations without whole node 
     const PreparedNonComputationalRequest request(circuit, model(false, true));
     const auto result = prepare_fixed_noncomputational(request);
     REQUIRE(std::holds_alternative<FixedNonComputationalProgram>(result));
-    same(std::get<FixedNonComputationalProgram>(result).sample(16, 3), request.sample(16, 3));
+    same(std::get<FixedNonComputationalProgram>(result).sample(16, 3).output,
+         request.sample(16, 3));
 }
 
 TEST_CASE("Fixed noncomputational permits unreachable spreading") {
@@ -365,7 +429,7 @@ TEST_CASE("Fixed noncomputational permits unreachable spreading") {
                                          {PartnerEffect{{0.25, 0.25, 0.25}, 0.1}, {}}, {});
     const auto circuit = GENERATE("LEAKAGE(0) 0\nCX 0 1", "LEAKAGE(1) 0 1\nCX 0 1");
     const auto program = fixed(circuit, noise);
-    CHECK(program.sample(1, 9).num_qubits == 2);
+    CHECK(program.sample(1, 9).output.num_qubits == 2);
 }
 
 TEST_CASE("Fixed noncomputational rejection identifies the expanded hook node") {

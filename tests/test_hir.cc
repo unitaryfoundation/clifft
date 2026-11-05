@@ -177,6 +177,13 @@ TEST_CASE("HirModule with noise sites", "[hir]") {
     HirModule hir(2, /*num_pauli_masks=*/0, /*num_noise_channels=*/1);
 
     NoiseSite site;
+    CHECK(site.source_node == kUnknownSourceNode);
+    CHECK(ReadoutNoiseEntry{}.source_node == kUnknownSourceNode);
+    const ReadoutNoiseEntry positional{3, 0.1, 0.2};
+    CHECK(positional.meas_idx == 3);
+    CHECK(positional.prob_zero_to_one == 0.1);
+    CHECK(positional.prob_one_to_zero == 0.2);
+    CHECK(positional.source_node == kUnknownSourceNode);
     site.total_probability = 0.1;
     auto h = clifft::test::claim_noise_channel_mask(hir, X(0), 0);
     site.channels.push_back({h, 0.1});

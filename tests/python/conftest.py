@@ -61,17 +61,76 @@ def statevector_from_circuit() -> Callable[[str], npt.NDArray[np.complex128]]:
     return statevector
 
 
-@pytest.fixture(params=[1, 2], ids=["1-worker", "2-workers"])
-def noncomp_sampling_api(
-    request: pytest.FixtureRequest,
-) -> Callable[..., clifft.noncomp.NonComputationalSample]:
-    """Run shared trajectory assertions with bounded cross-shot worker counts."""
+@pytest.fixture(
+    params=[
+        (api, workers)
+        for api in ("auto", "prepared", "trajectory", "online", "online-prepared")
+        for workers in (1, 2)
+    ],
+    ids=[
+        f"{api}-{workers}-workers"
+        for api in ("auto", "prepared", "trajectory", "online", "online-prepared")
+        for workers in (1, 2)
+    ],
+)
+def noncomp_sampling_config(request: pytest.FixtureRequest) -> tuple[str, int]:
+    return cast(tuple[str, int], request.param)
 
-    def sample(*args: Any, **kwargs: Any) -> clifft.noncomp.NonComputationalSample:
+
+@pytest.fixture
+def noncomp_sampling_api(
+    noncomp_sampling_config: tuple[str, int],
+) -> Callable[..., clifft.noncomp.NonComputationalSample]:
+    """Check API consistency through convenience, prepared, and forced paths.
+
+    Full final status is requested by default to preserve the shared status
+    assertions. Auto and prepared cases may therefore select trajectories;
+    the parameter IDs identify API configurations, not selected strategies.
+    Fixed selection and packed execution are asserted in dedicated tests.
+    """
+
+    def sample(
+        circuit: clifft.Circuit | str,
+        model: clifft.noncomp.Model,
+        shots: int,
+        seed: int | None = None,
+        max_active_width: int | None = None,
+        **kwargs: Any,
+    ) -> clifft.noncomp.NonComputationalSample:
         if "threads" in kwargs:
             raise TypeError("threads is selected by noncomp_sampling_api")
-        kwargs["threads"] = request.param
-        return clifft.noncomp.sample(*args, **kwargs)
+        api, workers = noncomp_sampling_config
+        kwargs["threads"] = workers
+        kwargs.setdefault("final_status", True)
+        kwargs.setdefault(
+            "execution",
+            "online"
+            if api in ("online", "online-prepared")
+            else "trajectory"
+            if api == "trajectory"
+            else "auto",
+        )
+        online = kwargs["execution"] == "online"
+        if online:
+            kwargs.setdefault("collect_stats", True)
+        if api in ("prepared", "online-prepared"):
+            options = {
+                key: kwargs.pop(key) for key in ("final_status", "execution") if key in kwargs
+            }
+            program = clifft.noncomp.compile(
+                circuit, model, max_active_width=max_active_width, **options
+            )
+            if online:
+                assert program.strategy == "online"
+            result = program.sample(shots, seed, **kwargs)
+        else:
+            result = clifft.noncomp.sample(circuit, model, shots, seed, max_active_width, **kwargs)
+        if online and result.stats is not None:
+            assert result.stats.strategy == "online"
+            assert result.stats.online_shots == shots
+            assert result.stats.continuation_compilations == 0
+            assert result.stats.initial_compilations == 0
+        return result
 
     return sample
 

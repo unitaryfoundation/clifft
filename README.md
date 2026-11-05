@@ -76,8 +76,8 @@ state small so that exact near-Clifford simulation can approach the throughput
 usually associated with specialized Clifford tools.
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/unitaryfoundation/clifft/main/docs/assets/performance/clifft-throughput-dark.png">
-  <img src="https://raw.githubusercontent.com/unitaryfoundation/clifft/main/docs/assets/performance/clifft-throughput-light.png" alt="Clifft v0.12 attempted shots per second across seven QEC workloads">
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/unitaryfoundation/clifft/main/docs/assets/performance/simulator-throughput-dark.png">
+  <img src="https://raw.githubusercontent.com/unitaryfoundation/clifft/main/docs/assets/performance/simulator-throughput-light.png" alt="Clifft v0.13, SymFT, xtim, Stim, and Tsim attempted shots per second across fourteen CPU workloads, grouped on independent logarithmic scales">
 </picture>
 
 See the [Performance guide](https://unitaryfoundation.github.io/clifft/stable/guide/performance/)
@@ -96,7 +96,7 @@ pip install clifft
 |---|---|
 | Linux `x86_64` with x86-64-v2 support | Supported |
 | Linux `aarch64` | Supported |
-| macOS `arm64` | Supported |
+| macOS 15+ `arm64` | Supported |
 | Windows `amd64` | Supported |
 
 All other platforms and CPU families should build from source. See the
@@ -145,8 +145,9 @@ Clifft has benefited from the following research and software:
   simulation, cultivation circuits, symbolic sampling, adaptive coordinate
   planning, and inspiration for packed execution.
 - [Tsim](https://github.com/QuEraComputing/tsim) for Stim-compatible universal
-  simulation design, open code and data enabling comparisons, and the PBC
-  reader and greedy scheduler ported in the ZX lowering.
+  simulation design, closed-output reconstruction and scheduling ideas, open
+  code and data enabling comparisons, and the PBC reader and greedy scheduler
+  ported in the ZX lowering.
 - [zxparam](https://pypi.org/project/zxparam/) for the parametric ZX rewrite
   rules ported in the ZX lowering and the fixtures that pin them.
 - [QuiZX](https://github.com/zxcalc/quizx) for the layout of the single-copy ZX
@@ -155,6 +156,8 @@ Clifft has benefited from the following research and software:
   instrument design and providing a five-level neutral-atom model and examples.
 - [deltakit-stim](https://github.com/Deltakit/deltakit-stim) for inspiring
   configurable leakage partner effects and status-conditioned fixed execution.
+- [Microsoft QDK](https://github.com/microsoft/qdk) for development comparisons
+  informing online Clifford-frame execution for leakage and loss.
 - [TOHPE](https://doi.org/10.22331/q-2025-09-16-1860) for T-count reduction in
   the phase-polynomial optimizer.
 - [Merlin](https://arxiv.org/abs/2610.06811) for code-switching benchmark circuits

@@ -22,7 +22,7 @@ string(REPLACE "-ffast-math" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
 include(${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/FetchFastFloat.cmake)
 include(${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/FetchNlohmannJson.cmake)
 
-# Build the core library (reuses the same source list)
+# Build the core subset used by the WebAssembly inspection and sampling bindings.
 add_library(clifft_core STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/circuit/parser.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/circuit/qasm2_parser.cc

@@ -689,8 +689,8 @@ jobs:
           .abi3-venv/bin/python -m pytest tests/python/ -n logical --maxprocesses 4 -v --durations=20
 
   macos-release-wheel-smoke:
-    name: macOS 14 release wheel smoke
-    runs-on: macos-14
+    name: macOS 15 release wheel smoke
+    runs-on: macos-15
     timeout-minutes: 60
     steps:
       - name: Checkout code
@@ -720,7 +720,7 @@ jobs:
           CIBW_BUILD: "cp312-*"
           CIBW_ARCHS: arm64
           CIBW_ENVIRONMENT: >-
-            MACOSX_DEPLOYMENT_TARGET=14.0
+            MACOSX_DEPLOYMENT_TARGET=15.0
             CLIFFT_CPU_BASELINE=generic
             CLIFFT_OPENMP=ON
           CIBW_BEFORE_ALL_MACOS: brew install libomp

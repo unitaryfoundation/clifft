@@ -20,6 +20,10 @@ COMMENT_MARKER = "<!-- clifft-performance-canary -->"
 MATERIAL_CHANGE_THRESHOLD = 0.05
 MAX_RELATIVE_STDDEV = 0.05
 POSSIBLE_CHANGE_THRESHOLD = 0.10
+# Rows this small shift by 10-20% from code placement alone when unrelated code
+# changes size, so the ordinary thresholds would flag them on most PRs.
+MICRO_WORKLOAD_NS = 100_000.0
+MICRO_POSSIBLE_CHANGE_THRESHOLD = 0.25
 CANARY_MANIFEST_SCHEMA = 1
 CANARY_REPETITIONS = 3
 CANARY_MIN_TIME = 0.5
@@ -78,6 +82,10 @@ class Comparison:
     max_relative_stddev: float
 
     @property
+    def is_micro(self) -> bool:
+        return self.base_ns < MICRO_WORKLOAD_NS
+
+    @property
     def assessment(self) -> str:
         if abs(self.change) < MATERIAL_CHANGE_THRESHOLD:
             return "No material change"
@@ -93,6 +101,12 @@ class Comparison:
             or self.second_change > -MATERIAL_CHANGE_THRESHOLD
         ):
             return "Inconclusive"
+        if self.is_micro:
+            if self.change >= MICRO_POSSIBLE_CHANGE_THRESHOLD:
+                return "Possible regression"
+            if self.change <= -MICRO_POSSIBLE_CHANGE_THRESHOLD:
+                return "Improvement"
+            return "Micro-workload change"
         if self.change >= POSSIBLE_CHANGE_THRESHOLD:
             return "Possible regression"
         if self.change >= MATERIAL_CHANGE_THRESHOLD:
@@ -244,6 +258,7 @@ def _summary(comparisons: list[Comparison]) -> str:
     notable_slowdowns = assessments.count("Notable slowdown")
     improvements = assessments.count("Improvement") + assessments.count("Notable improvement")
     inconclusive = assessments.count("Inconclusive")
+    micro = assessments.count("Micro-workload change")
     total = len(comparisons)
 
     if regressions:
@@ -252,7 +267,8 @@ def _summary(comparisons: list[Comparison]) -> str:
             f"**Possible regression detected:** {regressions} of {total} benchmarks {verb} at "
             f"least {_threshold_percent(POSSIBLE_CHANGE_THRESHOLD)} slower."
         )
-        return f"{_append_inconclusive(summary, inconclusive)} This does not block merging."
+        summary = _append_micro(_append_inconclusive(summary, inconclusive), micro)
+        return f"{summary} This does not block merging."
     if notable_slowdowns:
         verb = "was" if notable_slowdowns == 1 else "were"
         summary = (
@@ -261,7 +277,8 @@ def _summary(comparisons: list[Comparison]) -> str:
             f"{_threshold_percent(POSSIBLE_CHANGE_THRESHOLD)} slower. No possible regression "
             "was detected."
         )
-        return f"{_append_inconclusive(summary, inconclusive)} This does not block merging."
+        summary = _append_micro(_append_inconclusive(summary, inconclusive), micro)
+        return f"{summary} This does not block merging."
     if inconclusive:
         summary = "**No confirmed regressions detected.**"
         if improvements:
@@ -270,14 +287,18 @@ def _summary(comparisons: list[Comparison]) -> str:
                 f" {improvements} {noun} showed an improvement of at least "
                 f"{_threshold_percent(MATERIAL_CHANGE_THRESHOLD)}."
             )
-        return f"{_append_inconclusive(summary, inconclusive)} This does not block merging."
+        summary = _append_micro(_append_inconclusive(summary, inconclusive), micro)
+        return f"{summary} This does not block merging."
     if improvements:
         noun = "benchmark" if improvements == 1 else "benchmarks"
-        return (
+        summary = (
             "**No possible regressions detected.** "
             f"{improvements} {noun} showed an improvement of at least "
             f"{_threshold_percent(MATERIAL_CHANGE_THRESHOLD)}."
         )
+        return _append_micro(summary, micro)
+    if micro:
+        return _append_micro("**No possible regressions detected.**", micro)
     return (
         f"**No material performance changes detected.** All {total} benchmarks remained within "
         f"{_threshold_percent(MATERIAL_CHANGE_THRESHOLD)} of the base."
@@ -289,6 +310,20 @@ def _append_inconclusive(summary: str, count: int) -> str:
         return summary
     noun = "comparison was" if count == 1 else "comparisons were"
     return f"{summary} {count} benchmark {noun} inconclusive."
+
+
+def _append_micro(summary: str, count: int) -> str:
+    if not count:
+        return summary
+    if count == 1:
+        return (
+            f"{summary} 1 micro-workload benchmark changed by at least "
+            f"{_threshold_percent(MATERIAL_CHANGE_THRESHOLD)} and is reported without a verdict."
+        )
+    return (
+        f"{summary} {count} micro-workload benchmarks changed by at least "
+        f"{_threshold_percent(MATERIAL_CHANGE_THRESHOLD)} and are reported without a verdict."
+    )
 
 
 def _benchmark_source_links(head_sha: str) -> dict[str, str]:
@@ -356,19 +391,38 @@ def _run_url(override: str | None) -> str | None:
     return None
 
 
-def _comparison_note(base_label: str, base_sha: str, head_sha: str) -> str:
+def _newer_commits_sentence(base_label: str, base_distance: int | None) -> str:
+    if not isinstance(base_distance, int) or base_distance <= 0:
+        return ""
+    noun, verb = ("commit", "is") if base_distance == 1 else ("commits", "are")
+    label = html.escape(base_label)
+    return (
+        f" <code>{label}</code> has {base_distance} newer {noun} that {verb} not part of this "
+        f"comparison; merge or rebase onto <code>{label}</code> to measure against its tip."
+    )
+
+
+def _comparison_note(
+    base_label: str, base_sha: str, head_sha: str, base_distance: int | None = None
+) -> str:
     return (
         "<sub>"
-        f"Compared <code>{html.escape(base_label)}</code> (<code>{base_sha[:7]}</code>) with "
-        f"this PR (<code>{head_sha[:7]}</code>) on the same runner using workload-local A/B/B/A "
-        "ordering. Positive changes are slower. "
+        f"Compared this PR (<code>{head_sha[:7]}</code>) with its merge-base on "
+        f"<code>{html.escape(base_label)}</code> (<code>{base_sha[:7]}</code>) on the same "
+        "runner using workload-local A/B/B/A ordering."
+        f"{_newer_commits_sentence(base_label, base_distance)} "
+        "Positive changes are slower. "
         f"Changes under {_threshold_percent(MATERIAL_CHANGE_THRESHOLD)} are reported as no "
         f"material change; changes of at least "
         f"{_threshold_percent(MATERIAL_CHANGE_THRESHOLD)} but under "
         f"{_threshold_percent(POSSIBLE_CHANGE_THRESHOLD)} are notable; changes of at least "
         f"{_threshold_percent(POSSIBLE_CHANGE_THRESHOLD)} are possible regressions or "
         "improvements. Material changes that do not repeat in both pairs with low noise are "
-        "inconclusive."
+        "inconclusive. "
+        f"Benchmarks under {format_duration(MICRO_WORKLOAD_NS)} need at least "
+        f"{_threshold_percent(MICRO_POSSIBLE_CHANGE_THRESHOLD)} to count as a possible "
+        "regression or improvement; smaller material changes on those rows are micro-workload "
+        "changes without a verdict."
         "</sub>"
     )
 
@@ -389,6 +443,7 @@ def render_report(
     cpu_core: str | None = None,
     run_url: str | None = None,
     benchmark_sha: str | None = None,
+    base_distance: int | None = None,
 ) -> str:
     lines = [
         COMMENT_MARKER,
@@ -429,7 +484,7 @@ def render_report(
             f"{format_change_cell(comparison.change)} | {comparison.assessment} |"
         )
 
-    lines.extend(["", _comparison_note(base_label, base_sha, head_sha)])
+    lines.extend(["", _comparison_note(base_label, base_sha, head_sha, base_distance)])
     if collapse_results:
         lines.extend(["", "</details>"])
     lines.extend(
@@ -470,7 +525,12 @@ def render_report(
 
 
 def render_failure(
-    *, base_label: str, base_sha: str, head_sha: str, run_url: str | None = None
+    *,
+    base_label: str,
+    base_sha: str,
+    head_sha: str,
+    run_url: str | None = None,
+    base_distance: int | None = None,
 ) -> str:
     lines = [
         COMMENT_MARKER,
@@ -478,9 +538,10 @@ def render_failure(
         "",
         "**The canary could not produce a comparison.** This does not block merging.",
         "",
-        f"Attempted to compare <code>{html.escape(base_label)}</code> "
-        f"(<code>{html.escape(base_sha[:7])}</code>) with this PR "
-        f"(<code>{html.escape(head_sha[:7])}</code>).",
+        f"Attempted to compare this PR (<code>{html.escape(head_sha[:7])}</code>) with its "
+        f"merge-base on <code>{html.escape(base_label)}</code> "
+        f"(<code>{html.escape(base_sha[:7])}</code>)."
+        f"{_newer_commits_sentence(base_label, base_distance)}",
     ]
     resolved_run_url = _run_url(run_url)
     if resolved_run_url:
@@ -538,6 +599,12 @@ def _validated_plain_text(value: object, field: str, max_length: int = 256) -> s
     return value
 
 
+def _require_commit_shas(*shas: str) -> None:
+    sha_pattern = re.compile(r"^[0-9a-f]{40}$")
+    if not all(sha_pattern.fullmatch(sha) for sha in shas):
+        raise ValueError("workflow metadata contains an invalid commit SHA")
+
+
 def _load_fork_manifest(
     evidence: Path,
     *,
@@ -591,9 +658,7 @@ def _load_fork_manifest(
         if type(payload[field]) is not type(expected) or payload[field] != expected:
             raise ValueError(f"benchmark manifest {field} does not match the workflow run")
 
-    sha_pattern = re.compile(r"^[0-9a-f]{40}$")
-    if not sha_pattern.fullmatch(expected_base_sha) or not sha_pattern.fullmatch(expected_head_sha):
-        raise ValueError("workflow metadata contains an invalid commit SHA")
+    _require_commit_shas(expected_base_sha, expected_head_sha)
     _validated_plain_text(payload["repository"], "repository")
     _validated_plain_text(payload["base_label"], "base label")
     _validated_plain_text(payload["head_repository"], "head repository")
@@ -636,7 +701,9 @@ def render_fork_report(
     expected_head_sha: str,
     expected_run_id: int,
     run_url: str,
+    benchmark_sha: str,
 ) -> str:
+    _require_commit_shas(benchmark_sha)
     manifest = _load_fork_manifest(
         evidence,
         expected_repository=expected_repository,
@@ -672,7 +739,7 @@ def render_fork_report(
         compiler=str(manifest["compiler"]),
         cpu_core=str(manifest["cpu_core"]),
         run_url=run_url,
-        benchmark_sha=expected_base_sha,
+        benchmark_sha=benchmark_sha,
     )
 
 
@@ -689,6 +756,7 @@ def _add_common_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--base-sha", required=True)
     parser.add_argument("--head-sha", required=True)
     parser.add_argument("--run-url")
+    parser.add_argument("--base-distance", type=int)
 
 
 def main() -> None:
@@ -734,6 +802,7 @@ def main() -> None:
     fork_report_parser.add_argument("--base-sha", required=True)
     fork_report_parser.add_argument("--head-sha", required=True)
     fork_report_parser.add_argument("--run-url", required=True)
+    fork_report_parser.add_argument("--benchmark-sha", required=True)
     fork_report_parser.add_argument("--evidence", type=Path, required=True)
     fork_report_parser.add_argument("--repository", required=True)
     fork_report_parser.add_argument("--pr-number", type=int, required=True)
@@ -747,6 +816,7 @@ def main() -> None:
             base_sha=args.base_sha,
             head_sha=args.head_sha,
             run_url=args.run_url,
+            base_distance=args.base_distance,
         )
         write_report(args.output, content)
     elif args.command == "report":
@@ -768,6 +838,7 @@ def main() -> None:
             cpu_core=args.cpu_core,
             run_url=args.run_url,
             benchmark_sha=args.benchmark_sha,
+            base_distance=args.base_distance,
         )
         write_report(args.output, content)
     elif args.command == "manifest":
@@ -798,6 +869,7 @@ def main() -> None:
             expected_head_sha=args.head_sha,
             expected_run_id=args.run_id,
             run_url=args.run_url,
+            benchmark_sha=args.benchmark_sha,
         )
         write_report(args.output, content)
 

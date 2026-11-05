@@ -41,6 +41,9 @@ class ZxSpacetimePass : public HirPass {
     explicit ZxSpacetimePass(ZxSpacetimeOptions options = {});
 
     void run(HirModule& hir) override;
+    // Records, detectors, observables and postselection keep their joint
+    // distribution; only the quantum state is not kept.
+    bool preserves_sampling_distribution() const override { return true; }
 
     // Statistics from the last run() call: peak active widths after the
     // default passes, planned, or structural when either module exceeds the

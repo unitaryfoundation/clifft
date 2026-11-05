@@ -114,8 +114,8 @@ class ExecutablePlan {
         return estimated_batch_lane_work_.width_five.for_output_mode(output_mode);
     }
     [[nodiscard]] size_t num_new_x_instrument_activations() const;
-    [[nodiscard]] uint32_t num_unbound_presampled_symbols() const {
-        return static_cast<uint32_t>(unbound_presampled_symbols_.size());
+    [[nodiscard]] uint32_t num_unbound_presampled_symbols() const noexcept {
+        return num_unbound_presampled_symbols_;
     }
     [[nodiscard]] std::vector<double> noise_site_probabilities() const;
     // Deterministic target-specific inspection for diagnostics and tooling.
@@ -387,7 +387,7 @@ class ExecutablePlan {
     // Presampled inputs and their circuit-site distributions. Symbol lists use
     // ascending plan-local ids so execution can index them without a map.
     std::vector<uint32_t> presampled_symbols_;
-    std::vector<uint32_t> unbound_presampled_symbols_;
+    uint32_t num_unbound_presampled_symbols_ = 0;
     std::vector<PreparedNoiseOutcome> noise_outcomes_;
     std::vector<PreparedNoiseSite> noise_sites_;
     std::vector<double> noise_hazards_;

@@ -38,8 +38,8 @@ result = clifft.sample(program, shots=1_000, seed=42)
 ```
 
 Compilation options such as `postselection_mask`, `normalize_syndromes`,
-`expected_detectors`, and `expected_observables` define the result contract
-used during sampling.
+`expected_detectors`, and `expected_observables` configure how detectors,
+observables, and post-selection are evaluated during sampling.
 
 For detector-based post-selection, use `normalize_syndromes=True` when the
 circuit has fixed detector and observable parities after stochastic and readout
@@ -50,11 +50,12 @@ as described in [reference selection](simulation.md#detectors-and-observables).
 `sample_survivors()` applies the post-selection mask to the normalized detector
 values; it does not recompute the reference per call.
 
-Circuits containing `LEAKAGE`, `LOSS`, or `LEVEL_TRANSITION` annotations, or the
-status probes `HERALD_LEAKAGE_EVENT` and `HERALD_LOSS_EVENT`, take a
-trajectory-specific path. Pass the circuit and model to
-`clifft.noncomp.sample()` rather than compiling one fixed program first; see
-[Leakage and Loss](leakage-and-loss.md).
+Circuits containing `LEAKAGE`, `LOSS`, `LEVEL_TRANSITION`,
+`LEAKAGE_INTERACTION`, or `LOSS_INTERACTION` annotations, or the status checks
+`HERALD_LEAKAGE_EVENT` and `HERALD_LOSS_EVENT`, use the `clifft.noncomp` API.
+Pass the circuit and model to `clifft.noncomp.sample()`, or compile once for
+repeated sampling with `clifft.noncomp.compile()`. Clifft automatically selects
+fixed execution or trajectories; see [Leakage and Loss](leakage-and-loss.md).
 
 ## Active-width scheduling
 
@@ -86,6 +87,54 @@ See [Optimization Passes](../reference/passes.md#activewidthschedulepass) for
 options, result statistics, and search-budget limits, and the
 [theoretical overview](../theory/overview.md#hir-optimization) for why ordering
 affects active width.
+
+## Global reconstruction for sampling
+
+For repeated CPU sampling, `reconstruction=True` can reduce the active quantum
+state beyond local optimization, particularly in magic-state cultivation and
+distillation circuits. It reorganizes the computation while preserving the
+joint distribution of measurement records, detectors, observables, and
+postselection acceptance. The option is off by default.
+
+This small example uses `hir_passes=None` to expose a width reduction from two
+to one. Keep the default passes for ordinary use; they already achieve width
+one on this example.
+
+```python
+import clifft
+
+program = clifft.compile(
+    "H 0 1\nT 0 1\nH 0 1\nM 0 1", hir_passes=None, reconstruction=True
+)
+info = program.reconstruction_info(keep_records=True)
+assert info["selected"]
+assert info["peak_active_width"] == 1
+print(info)
+result = clifft.sample(program, shots=100, seed=42)
+```
+
+`sample()` uses the plan retaining all records; `sample_survivors()` selects a
+plan according to `keep_records`. Use `reconstruction_info(keep_records=...)`
+to inspect selection, active width, and the fallback reason. Unsupported
+circuits, resource limits, or insufficient width reduction retain the original
+plan. Supported circuits use Clifford+T gates, Pauli noise, and symmetric
+readout noise; general-angle rotations and `EXP_VAL` probes fall back.
+
+Standard `Program` metadata, `inspect()`, exact queries, and fixed-fault sampling
+continue to use the original plan. Custom `hir_passes` configure that original
+pipeline; reconstructed candidates use the default passes.
+
+Compare total compilation and sampling time at your intended shot count.
+Unsuccessful attempts can still cost several times ordinary compilation, and
+the early width guard can miss improvements found by later optimization.
+Reconstructed detector checks run at the end of the shot, which can reduce the
+benefit of early postselection. Seeded results are reproducible for a fixed
+configuration but can differ from the original plan.
+
+See [the reconstruction theory](../theory/stabilizer-optimization.md#closed-output-global-reconstruction)
+for the transformation, eligibility, and cost guard, and
+[program architecture](../theory/architecture.md#python-bindings) for plan ownership
+and execution paths.
 
 ## ZX spacetime lowering
 
@@ -198,5 +247,5 @@ scalar or SIMD kernels.
 
 These decisions happen before execution. Runtime kernels do not evolve a
 tableau, choose coordinates, localize Paulis, or discover dependencies. See
-[Software Architecture](../theory/architecture.md) for the contracts between
-HIR, semantic planning, executable preparation, and shot execution.
+[Software Architecture](../theory/architecture.md) for how HIR, semantic
+planning, executable preparation, and shot execution fit together.

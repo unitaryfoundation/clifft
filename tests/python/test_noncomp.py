@@ -463,8 +463,10 @@ def test_threads_preserve_seeded_rows_and_sidecars(threads):
         "H 1\nCX 1 0\nLEVEL_TRANSITION[leak] 0\nM 0\nM 1\n"
         "DETECTOR rec[-1] rec[-2]\nOBSERVABLE_INCLUDE(0) rec[-1]\n"
     )
-    serial = noncomp.sample(circuit, model, shots=257, seed=12345, threads=1)
-    parallel = noncomp.sample(circuit, model, shots=257, seed=12345, threads=threads)
+    serial = noncomp.sample(circuit, model, shots=257, seed=12345, threads=1, final_status=True)
+    parallel = noncomp.sample(
+        circuit, model, shots=257, seed=12345, threads=threads, final_status=True
+    )
 
     for field in ("measurements", "detectors", "observables", "final_status", "heralds"):
         assert np.array_equal(getattr(parallel, field), getattr(serial, field))
@@ -473,7 +475,7 @@ def test_threads_preserve_seeded_rows_and_sidecars(threads):
 @pytest.mark.parametrize("threads", [0, -1, "all", 1.5])
 def test_sample_rejects_invalid_threads(threads):
     with pytest.raises((TypeError, ValueError), match="threads|incompatible"):
-        noncomp.sample("M 0", noncomp.Model(), shots=1, threads=threads)
+        noncomp.sample("M 0", noncomp.Model(), shots=1, threads=threads, final_status=True)
 
 
 def test_different_seeds_differ(noncomp_sampling_api):

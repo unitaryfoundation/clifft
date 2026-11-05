@@ -190,7 +190,7 @@ operations act, which measurements use the classifier, and when a site
 returns to the computational subspace. Those choices differ between shots, so
 in general one program compiled before sampling cannot describe every trajectory.
 
-`noncomp.sample` instead alternates execution with compilation when the
+The general trajectory driver alternates execution with compilation when the
 sampled history requires it. The executor directly handles outcomes whose state
 update leaves the remaining program valid. When an outcome invalidates the
 compiled remainder -- for example, when a computational site becomes
@@ -234,7 +234,10 @@ full continuation approach. Clifft can identify requests where the sampled
 status history changes only classical noise and readout inputs to that program.
 This *fixed execution* avoids recompiling after each jump, making repeated
 sampling much faster. Eligibility follows from the circuit, model, and requested
-outputs, so the choice of representation can be transparent to users.
+outputs. `noncomp.sample` and `noncomp.compile` select it automatically when
+supported; `execution="fixed"` and `execution="trajectory"` provide overrides.
+Detailed final status is opt-in because distinguishing the leaked labels can
+require the general trajectory representation.
 
 The initial supported subset starts each site in `g` and uses state-independent
 inline leakage and loss. Equal jump rates from `g` and `e` make the no-jump
@@ -273,6 +276,12 @@ probabilities: their status conditions select classical noise inputs without
 changing the compiled gates. Non-Clifford gates fit the same representation,
 subject to the compiled program's active-width limit.
 
+Before checking that limit, fixed execution applies peephole fusion to cancel
+or combine non-Clifford gates. This pass preserves the individual noise outcomes
+and readout sites without relying on their probabilities: a status history can
+suppress even a nominally certain noise event. Other HIR passes are not yet
+enabled for fixed execution.
+
 Single-site measurements and resets preserve the distinction between the hidden
 quantum outcome and the reported result. On a computational site, reset correction
 uses the hidden outcome; feedback, detectors, and observables use the reported
@@ -288,8 +297,28 @@ a branch acting only on auxiliaries still suppresses later branches on
 computational sites. These choices affect the sampled noise inputs, while the
 quantum program stays fixed.
 
-Fixed execution is currently internal. Automatic selection through the public
-API is being added separately; `noncomp.sample` currently uses continuations.
+Packed fixed execution also compiles the classical input program. It advances
+computational, leaked, and lost masks across a batch, generates rare events with
+sparse sampling, and supplies whole noise/readout columns to the quantum plan.
+Status checks retain their circuit order. Classifier heralds and conditional bit
+values are sampled jointly, and a categorical noise site selects at most one
+outcome, including correlated-error chains.
+
+This path is automatic when fixed execution uses packed batches, including
+eligible non-Clifford circuits. `collect_stats=True` reports actual use through
+`packed_classical_shots`; a static plan with no possible status change continues
+to use ordinary noise sampling and reports zero for this counter. Scalar execution
+remains available with `batch_size=1`. Packed status and scratch columns participate
+in the shared worker-memory budget.
+
+Packed classical sampling uses its own domain-separated random stream addressed
+by the global batch start. For a fixed seed, shot count, and batch configuration,
+worker count and scheduling do not change results. Its rows need not match scalar
+execution, other batch capacities, or an earlier sampling algorithm; the joint
+output distribution is unchanged.
+
+See [batch tuning](../guide/leakage-and-loss.md#tuning-batch-size) for measured
+capacity selection and calibration costs.
 
 ## Active-width cost
 

@@ -606,8 +606,6 @@ TEST_CASE("Inverted targets are rejected on non-measurement gates", "[parser]") 
     check_parse_error("CORRELATED_ERROR(0.1) !X0",
                       "Line 1: Target !X0 has invalid modifiers for gate type "
                       "'CORRELATED_ERROR'");
-    check_parse_error("R_PAULI(0.25) !X0",
-                      "Line 1: Target !X0 has invalid modifiers for gate type 'R_PAULI'");
     CHECK_THROWS_AS(parse("EXP_VAL !X0"), ParseError);
 }
 
@@ -919,6 +917,43 @@ TEST_CASE("Error: invalid feedback syntax", "[parser]") {
     REQUIRE_THROWS_AS(parse("M 0\nCX 1 rec[-1]"), ParseError);
     // Both rec targets is invalid
     REQUIRE_THROWS_AS(parse("M 0\nM 1\nCX rec[-1] rec[-2]"), ParseError);
+}
+
+TEST_CASE("Parse CZ normalizes classical controls and drops classical pairs", "[parser]") {
+    for (const auto* gate : {"CZ", "ZCZ"}) {
+        CAPTURE(gate);
+        const auto circuit =
+            parse(std::string("M 0 1\n") + gate + " 4 rec[-1] rec[-2] 5 rec[-1] rec[-2] 6 7");
+        REQUIRE(circuit.nodes.size() == 5);
+        CHECK(circuit.num_measurements == 2);
+        CHECK(circuit.num_qubits == 8);
+        for (size_t i = 2; i < 4; ++i) {
+            CHECK(circuit.nodes[i].gate == GateType::CZ);
+            CHECK(circuit.nodes[i].targets[0].is_rec());
+            CHECK_FALSE(circuit.nodes[i].targets[1].is_rec());
+        }
+        CHECK(circuit.nodes[2].targets[0].value() == 1);
+        CHECK(circuit.nodes[2].targets[1].value() == 4);
+        CHECK(circuit.nodes[3].targets[0].value() == 0);
+        CHECK(circuit.nodes[3].targets[1].value() == 5);
+        CHECK(circuit.nodes[4].targets[0].value() == 6);
+        CHECK(circuit.nodes[4].targets[1].value() == 7);
+    }
+
+    const auto classical = parse("MPAD 1 0\nCZ rec[-1] rec[-2]");
+    CHECK(classical.nodes.size() == 2);
+    CHECK(classical.num_measurements == 2);
+    CHECK(classical.num_qubits == 0);
+}
+
+TEST_CASE("Classical CZ pairs still validate every record reference", "[parser]") {
+    for (const auto* targets : {"0 rec[-2]", "rec[-1] rec[-2]", "rec[-2] rec[-1]", "rec[0] rec[-1]",
+                                "rec[-1]", "rec[-1] !rec[-1]", "rec[-1] rec[-1]"}) {
+        CAPTURE(targets);
+        CHECK_THROWS_AS(parse(std::string("M 0\nCZ ") + targets), ParseError);
+    }
+    check_parse_error("M 0 1\nCZ rec[-1] rec[-2] rec[-1] rec[-3]",
+                      "Line 2: rec reference out of bounds: rec[-3]");
 }
 
 TEST_CASE("Error: rec with trailing characters", "[parser]") {
@@ -2022,6 +2057,22 @@ TEST_CASE("Parse R_PAULI with Pauli product", "[parser][rotation]") {
     CHECK(circuit.nodes[0].targets[2].pauli() == Target::kPauliZ);
     CHECK(circuit.nodes[0].targets[2].value() == 2);
     CHECK(circuit.nodes[0].args[0] == Catch::Approx(0.1));
+}
+
+TEST_CASE("Parse signed R_PAULI factors", "[parser][rotation]") {
+    const auto circuit = parse("R_PAULI(0.3) !X0*Y1*!Z2");
+    REQUIRE(circuit.nodes.size() == 1);
+    const auto& node = circuit.nodes[0];
+    REQUIRE(node.targets.size() == 3);
+    CHECK(node.targets[0].is_inverted());
+    CHECK_FALSE(node.targets[1].is_inverted());
+    CHECK(node.targets[2].is_inverted());
+    CHECK(node.args[0] == Catch::Approx(0.3));
+
+    for (const auto* product : {"!", "!*X0", "!!X0", "X0*!", "!X0*X0"}) {
+        CAPTURE(product);
+        CHECK_THROWS_AS(parse(std::string("R_PAULI(0.3) ") + product), ParseError);
+    }
 }
 
 TEST_CASE("Parse R_Z broadcasts across targets", "[parser][rotation]") {

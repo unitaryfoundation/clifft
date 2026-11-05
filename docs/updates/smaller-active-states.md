@@ -1,4 +1,6 @@
-# Richer Noise Models, Smaller Active States (v0.12.0, October 2026)
+# Richer Noise Models, Smaller Active States (v0.12.0)
+
+**Release date:** October 13, 2026
 
 Clifft 0.12.0 extends leakage and loss modeling with configurable effects on
 gate partners and status checks that circuits can act on. Two new default

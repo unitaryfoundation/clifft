@@ -1,0 +1,123 @@
+{# The chart and accessible table share the exported report, including absent outcomes. #}
+{% macro style(item) -%}
+--series-light: {{ item.colors.light }}; --series-dark: {{ item.colors.dark }};
+{%- endmacro %}
+{% macro marker(item) -%}
+<span class="throughput-marker" data-shape="{{ item.marker }}" aria-hidden="true"></span>
+{%- endmacro %}
+<div class="throughput" data-throughput>
+  <div class="throughput-interactive" hidden>
+    <fieldset class="throughput-controls">
+      <legend>Show simulators</legend>
+      {% for id, item in simulators.items() %}
+      <label style="{{ style(item) }}">
+        <input type="checkbox" value="{{ id }}" checked>
+        {{ marker(item) }} {{ item.simulator.name }} {{ item.simulator.display_version }}
+      </label>
+      {% endfor %}
+    </fieldset>
+    <p class="throughput-help">Hover, focus, or tap a rate for measurement details.
+      Press Escape to dismiss. <a class="throughput-table-link" href="#throughput-table">Read the complete data table</a>.</p>
+    <p class="throughput-status" role="status" aria-live="polite"></p>
+    {% for panel in view.panels %}
+    {% set panel_index = loop.index %}
+    <section class="throughput-panel" aria-labelledby="throughput-panel-{{ panel_index }}"
+      style="--plot-light: {{ view.themes.light.background }}; --plot-dark: {{ view.themes.dark.background }};
+        --text-light: {{ view.themes.light.foreground }}; --text-dark: {{ view.themes.dark.foreground }};
+        --grid-light: {{ view.themes.light.grid }}; --grid-dark: {{ view.themes.dark.grid }};">
+      <h3 id="throughput-panel-{{ panel_index }}">{{ panel.title }}</h3>
+      {% for row in panel.rows %}
+      {% set row_index = loop.index %}
+      <div class="throughput-row">
+        <div class="throughput-workload"><a href="{{ row.circuit_url }}">{{ row.label }}</a></div>
+        <div class="throughput-plot">
+          {% for tick in panel.ticks %}
+          <span class="throughput-grid" style="left: {{ tick.position }}%" aria-hidden="true"></span>
+          {% endfor %}
+          {% for value in row["values"] if value.outcome != 'unsupported' %}
+          {% set item = series[value.variant_id] %}
+          <div class="throughput-entry" data-simulator="{{ item.simulator.implementation_id }}"
+            style="{{ style(item) }}">
+            {% if value.outcome == 'measured' %}
+            <span class="throughput-stem" style="width: {{ value.position }}%" aria-hidden="true"></span>
+            {% endif %}
+            <button type="button" class="throughput-point" style="left: {{ value.position | default(0) }}%"
+              data-detail="throughput-detail-{{ panel_index }}-{{ row_index }}-{{ value.variant_id }}"
+              aria-label="{{ row.label }}, {{ item.simulator.name }}: {% if value.outcome == 'measured' %}{{ value.median_attempted_shots_per_second | number }} attempted shots per second{% else %}{{ value.outcome }}{% endif %}">
+              {% if value.outcome == 'measured' %}{{ marker(item) }} {{ value.label }}{% else %}{{ item.simulator.name }}: {{ value.outcome }}{% endif %}
+            </button>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% endfor %}
+      <div class="throughput-axis" aria-hidden="true">
+        {% for tick in panel.ticks %}
+        <span style="left: {{ tick.position }}%">{{ tick.label }}</span>
+        {% endfor %}
+      </div>
+      <p class="throughput-axis-title">Attempted shots per second &middot; log scale &middot; higher is faster</p>
+    </section>
+    {% endfor %}
+  </div>
+  <div class="throughput-fallback">
+    {% for theme in view.themes %}
+    <img src="{{ assets }}simulator-throughput-{{ theme }}.png#only-{{ theme }}" alt="CPU simulator throughput across {{ view.panels | map(attribute='rows') | map('length') | sum }} workloads in {{ view.panels | length }} panels; exact rates and outcomes are in the data table below.">
+    {% endfor %}
+  </div>
+  <p>Download: <a href="{{ assets }}simulator-throughput-light.png" download>light figure</a> &middot;
+    <a href="{{ assets }}simulator-throughput-dark.png" download>dark figure</a> &middot;
+    <a href="{{ assets }}simulator-throughput.json" download>JSON data</a>.</p>
+  <details id="throughput-table">
+    <summary>Complete throughput data and measurement details</summary>
+    <p>Rates and median absolute deviations (MAD) are in attempted shots/s.
+      MAD describes dispersion across samples, not a confidence interval.
+      Unsupported pairings have no chart marker; failures and unmeasured cases are labeled.
+      This table always includes every simulator.</p>
+    {% for panel in view.panels %}
+    {% set panel_index = loop.index %}
+    <div class="throughput-table-scroll" role="region" aria-label="{{ panel.title }} data" tabindex="0">
+      <table>
+        <caption>{{ panel.title }}</caption>
+        <thead><tr><th scope="col">Circuit</th><th scope="col">Simulator</th><th scope="col">Measurement</th></tr></thead>
+        <tbody>
+        {% for row in panel.rows %}
+        {% set row_index = loop.index %}
+        {% for value in row["values"] %}
+        {% set item = series[value.variant_id] %}
+        <tr>
+          <th scope="row"><a href="{{ row.circuit_url }}">{{ row.label }}</a><br><small>{{ row.workload_id }}<br>
+            {% if row.semantics.postselect_all_detectors %}All-detector postselection{% else %}No detector postselection{% endif %};
+            observable {{ row.semantics.observable_index }}</small></th>
+          <td>{{ item.simulator.name }}</td>
+          <td id="throughput-detail-{{ panel_index }}-{{ row_index }}-{{ value.variant_id }}">
+            <strong>{{ row.label }} &middot; {{ item.simulator.name }}</strong>
+            <dl>
+              <dt>Outcome</dt><dd>{{ value.outcome }}</dd>
+              {% if value.error %}<dt>Error</dt><dd>{{ value.error }}</dd>{% endif %}
+              {% if value.outcome == 'measured' %}
+              <dt>Median shots/s</dt><dd>{{ value.median_attempted_shots_per_second | number }}</dd>
+              <dt>MAD shots/s</dt><dd>{{ value.mad_attempted_shots_per_second | number }}</dd>
+              {% endif %}
+              <dt>Version</dt><dd>{{ item.simulator.display_version }}</dd>
+              {% if value.source %}
+              {% set source = sources[value.source] %}
+              <dt>Samples</dt><dd>{{ value.sample_count | number }}</dd>
+              <dt>Shots per call</dt><dd>{{ value.shots_per_call | number }}</dd>
+              <dt>Effective batch</dt><dd>{{ value.batch_size_effective | number }}</dd>
+              <dt>Peak active width</dt><dd>{{ value.peak_active_width | number }}</dd>
+              <dt>Source execution</dt><dd><a href="{{ source.url }}">{{ source.run.id }}</a>
+                ({{ value.source }}, {{ source.run.classification }})</dd>
+              {% endif %}
+            </dl>
+          </td>
+        </tr>
+        {% endfor %}
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endfor %}
+  </details>
+  <div class="throughput-tooltip" id="throughput-tooltip" role="tooltip" hidden></div>
+</div>

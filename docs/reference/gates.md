@@ -131,8 +131,9 @@ Duplicate target qubits (e.g. `R_XX(0.5) 3 3`) are rejected at parse time.
 |------|--------|-------|
 | `R_PAULI` | `R_PAULI(alpha) X0*Y1*Z2` | Arbitrary Pauli product rotation |
 
-The target list uses Stim's Pauli product syntax (e.g. `X0*Y1*Z2`). Maximum
-target count is 64 qubits per instruction.
+Each instruction accepts one Pauli product (e.g. `X0*Y1*Z2`). Prefixing a factor
+with `!` negates it: `R_PAULI(0.3) !X0*Y1` is equivalent to
+`R_PAULI(-0.3) X0*Y1`. An even number of inverted factors cancels the sign.
 
 For two- and multi-qubit Pauli rotations, finite angles within the shared
 `1e-12` half-turn tolerance of a Clifford angle are absorbed into the Clifford
@@ -158,6 +159,14 @@ applies the same rule to HIR rotations produced directly or by fusion.
 | `YCX`, `YCY`, `YCZ` | Y-controlled gates |
 
 Two-qubit Cliffords are also absorbed at compile time.
+
+`CX rec[-k] q` and `CZ rec[-k] q` apply X or Z to qubit `q` when the referenced
+measurement bit is 1. Since CZ is symmetric, `CZ q rec[-k]` has the same meaning.
+`CZ rec[-a] rec[-b]` is a no-op: both operands are classical and the gate changes
+only an unobservable phase within that measurement branch. The record references
+must point to distinct existing measurements. CX requires a qubit as its second
+operand; targeting a measurement record is rejected. These rules also apply to
+the aliases `CNOT`, `ZCX`, and `ZCZ`.
 
 ## Measurements and Resets
 

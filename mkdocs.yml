@@ -53,10 +53,12 @@ markdown_extensions:
 
 extra_javascript:
   - javascripts/katex.js
+  - javascripts/throughput.js
 
 extra_css:
   - https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css
   - stylesheets/extra.css
+  - stylesheets/throughput.css
 
 extra:
   version:
@@ -146,8 +148,10 @@ nav:
     - Tableau Conventions: development/tableau-conventions.md
     - Releasing: development/releasing.md
   - Development Blog:
-    - "v0.12.0 (October 2026): Richer Noise Models, Smaller Active States": updates/smaller-active-states.md
-    - "v0.11.0 (September 2026): Less Work per Shot": updates/less-work-per-shot.md
-    - "v0.10.0 (September 2026): Packed Sampling": updates/packed-sampling.md
-    - "v0.9.0 (August 2026): Parallel Sampling": updates/parallel-sampling.md
-    - "v0.8.0 (August 2026): Symbolic Sampling": updates/symbolic-sampling.md
+    - Overview: updates/index.md
+    - "v0.13.0: Improved Leakage and Loss Sampling Throughput": updates/sampling-through-leakage-and-loss.md
+    - "v0.12.0: Richer Noise Models, Smaller Active States": updates/smaller-active-states.md
+    - "v0.11.0: Less Work per Shot": updates/less-work-per-shot.md
+    - "v0.10.0: Packed Sampling": updates/packed-sampling.md
+    - "v0.9.0: Parallel Sampling": updates/parallel-sampling.md
+    - "v0.8.0: Symbolic Sampling": updates/symbolic-sampling.md
