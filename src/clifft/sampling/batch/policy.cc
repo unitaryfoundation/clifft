@@ -27,6 +27,11 @@ namespace {
 constexpr uint32_t kMaxExternalInputBatchWidth = 8;
 constexpr uint64_t kMaxBatchLaneWorkPerExternalInput = 16;
 
+// Classical dispatch and parity work can amortize wider packed kernels when
+// detectors cannot skip coefficient work. Sustained quantum plans stay scalar.
+constexpr uint32_t kMaxClassicalBatchWidth = 8;
+constexpr uint64_t kMaxBatchLaneWorkPerAction = 32;
+
 [[nodiscard]] uint32_t batch_worker_count(uint32_t shots, uint32_t shot_workers,
                                           uint32_t lane_capacity) noexcept {
     const uint64_t batches = (static_cast<uint64_t>(shots) + lane_capacity - 1) / lane_capacity;
@@ -168,16 +173,16 @@ BatchExecutionPolicy resolve_batch_execution_policy(
         return {.lane_capacity = capacity,
                 .worker_count = batch_worker_count(shots, shot_workers, capacity)};
     }
-    if (shots < kDefaultMinAutoBatchShots) {
+    const uint32_t shots_per_worker = shots / std::max(uint32_t{1}, shot_workers);
+    if (shots_per_worker < kDefaultMinAutoBatchShots) {
         return {};
     }
     uint32_t max_capacity = kDefaultMaxAutoBatchShots;
-    if (plan.has_postselection()) {
+    const bool early_postselection = plan.has_early_postselection(output_mode);
+    if (early_postselection) {
         if (plan.peak_active_width() >= 5) {
             return {};
         }
-        // Capacity must not depend on workers: batch boundaries define seeded
-        // streams, while worker count only controls their scheduling.
         max_capacity = kDefaultMaxPostselectedBatchShots;
     }
     // Packed status/input generation can repay the wider quantum kernels, but
@@ -185,17 +190,23 @@ BatchExecutionPolicy resolve_batch_execution_policy(
     // Bound both width and total coefficient visits relative to scalar input
     // steps; the existing memory limits still determine the batch capacity.
     const bool amortizes_external_inputs =
-        sampling_mode == BatchSamplingMode::ExternalInputs && !plan.has_postselection() &&
+        sampling_mode == BatchSamplingMode::ExternalInputs && !early_postselection &&
         external_input_steps != 0 && plan.peak_active_width() <= kMaxExternalInputBatchWidth &&
         plan.estimated_batch_lane_work(output_mode) <=
             saturating_multiply_u64(external_input_steps, kMaxBatchLaneWorkPerExternalInput);
-    if (!amortizes_external_inputs &&
+    const bool amortizes_classical_actions =
+        !early_postselection && plan.peak_active_width() <= kMaxClassicalBatchWidth &&
+        plan.estimated_batch_lane_work(output_mode) <=
+            saturating_multiply_u64(plan.num_actions(), kMaxBatchLaneWorkPerAction);
+    if (!amortizes_external_inputs && !amortizes_classical_actions &&
         (plan.peak_active_width() > 5 ||
          (plan.peak_active_width() == 5 && plan.estimated_width_five_batch_lane_work(output_mode) >
                                                kDefaultMaxWidthFiveBatchLaneWork))) {
         return {};
     }
-    uint32_t capacity = std::min(shots, max_capacity);
+    // Leave at least one full batch per requested worker before memory limits
+    // cap concurrency. Explicit capacities retain their seeded batch boundaries.
+    uint32_t capacity = std::min(shots_per_worker, max_capacity);
     while (capacity >= kDefaultMinAutoBatchShots) {
         if (interleaved_batch_state_bytes(plan.peak_active_width(), capacity) >
             kDefaultBatchStateBudget) {

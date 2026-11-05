@@ -77,6 +77,10 @@ class ExecutablePlan {
     [[nodiscard]] uint32_t num_observables() const { return num_observables_; }
     [[nodiscard]] uint32_t num_exp_vals() const { return num_exp_vals_; }
     [[nodiscard]] bool has_postselection() const { return has_postselection_; }
+    // Early checks can skip coefficient work in the requested output mode.
+    [[nodiscard]] bool has_early_postselection(BatchOutputMode output_mode) const noexcept {
+        return postselection_remaining_lane_work_.for_output_mode(output_mode) != 0;
+    }
     [[nodiscard]] bool has_readout_noise() const { return has_readout_noise_; }
     [[nodiscard]] bool has_instruments() const { return has_instruments_; }
     [[nodiscard]] bool supports_final_state_queries() const { return final_tableau_.has_value(); }
@@ -377,6 +381,8 @@ class ExecutablePlan {
     uint32_t num_readout_noise_sites_ = 0;
     uint32_t initial_noise_end_ = 0;
     batch_detail::BatchWorkEstimate estimated_batch_lane_work_;
+    // The earliest selected detector has the largest remaining coefficient work.
+    batch_detail::BatchLaneWork postselection_remaining_lane_work_;
     std::optional<Tableau> final_tableau_;
 
     // Affine registers. Constants are indexed by

@@ -322,10 +322,10 @@ def test_public_prepared_program_is_owned_reusable_and_concurrent(execution):
     noise = noncomp.Model(classifier=noncomp.Classifier(matrix))
     circuit = clifft.parse("LOSS(0.4) 0\nM 0\nDETECTOR rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]")
     program = noncomp.compile(circuit, noise, execution=execution, final_status=True)
-    expected = program.sample(1025, seed=81, threads=1, collect_stats=True)
+    expected = program.sample(1025, seed=81, threads=1, collect_stats=True, batch_size=1)
     assert expected.stats is not None
     direct = noncomp.sample(
-        circuit, noise, shots=1025, seed=81, execution=execution, final_status=True
+        circuit, noise, shots=1025, seed=81, execution=execution, final_status=True, batch_size=1
     )
     same_rows(expected, direct)
     matrix[0][4], matrix[1][4] = 1, 0
@@ -334,12 +334,14 @@ def test_public_prepared_program_is_owned_reusable_and_concurrent(execution):
     )
     del circuit, noise, matrix
     with ThreadPoolExecutor(max_workers=2) as pool:
-        futures = [pool.submit(program.sample, 1025, 81, workers) for workers in (2, 3)]
+        futures = [
+            pool.submit(program.sample, 1025, 81, workers, batch_size=1) for workers in (2, 3)
+        ]
         for future in futures:
             actual = future.result()
             same_rows(actual, expected)
             assert actual.stats is None
-    again = program.sample(1025, 81, collect_stats=True)
+    again = program.sample(1025, 81, collect_stats=True, batch_size=1)
     assert again.stats is not None
     same_rows(again, expected)
     assert again.stats.preparation_compilations == expected.stats.preparation_compilations

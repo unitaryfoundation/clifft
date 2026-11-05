@@ -438,6 +438,83 @@ TEST_CASE("Executable postselection metadata tracks a fused rotation tail") {
           "remaining_batch_lane_work_common=32 remaining_batch_lane_work_row_output=0");
     CHECK(executable.inspect_action(1) == "FUSED_ROTATION descriptor=0");
     CHECK(executable.estimated_batch_lane_work(BatchOutputMode::AggregateSurvivors) == 32);
+    CHECK(executable.has_early_postselection(BatchOutputMode::Rows));
+    CHECK(executable.has_early_postselection(BatchOutputMode::AggregateSurvivors));
+}
+
+TEST_CASE("Early postselection follows selected checks and requested coefficient work") {
+    SamplingPlan source;
+    source.num_qubits = 5;
+    source.initial_active_width = source.peak_active_width = 5;
+    source.num_detectors = 2;
+    source.num_exp_vals = 1;
+    source.actions = {
+        PlannedAction{5, 5, WriteDetector{RecordParity{}, DetectorSlot{0}, false}},
+        PlannedAction{5, 5, RotateActivePauli{ActivePauli{1, 0}, 0.25, AffineBool{}}},
+        PlannedAction{5, 5, WriteDetector{RecordParity{}, DetectorSlot{1}, true}},
+        PlannedAction{5, 5,
+                      WriteExpectationValue{ActiveExpectation{ActivePauli{1, 0}, AffineBool{}},
+                                            ExpValSlot{0}}},
+    };
+    const ExecutablePlan with_probe(source);
+    CHECK(with_probe.has_early_postselection(BatchOutputMode::Rows));
+    CHECK_FALSE(with_probe.has_early_postselection(BatchOutputMode::AggregateSurvivors));
+    CHECK(
+        resolve_batch_execution_policy(with_probe, 4096, 1, 1, BatchOutputMode::Rows, std::nullopt)
+            .lane_capacity == 1);
+    CHECK(resolve_batch_execution_policy(with_probe, 4096, 1, 1,
+                                         BatchOutputMode::AggregateSurvivors, std::nullopt)
+              .lane_capacity == 1024);
+
+    source.actions.pop_back();
+    source.num_exp_vals = 0;
+    const ExecutablePlan terminal(source);
+    CHECK(terminal.has_postselection());
+    CHECK_FALSE(terminal.has_early_postselection(BatchOutputMode::Rows));
+    CHECK_FALSE(terminal.has_early_postselection(BatchOutputMode::AggregateSurvivors));
+
+    std::get<WriteDetector>(source.actions.front().action).postselected = true;
+    const ExecutablePlan early(source);
+    CHECK(early.has_early_postselection(BatchOutputMode::Rows));
+    CHECK(early.has_early_postselection(BatchOutputMode::AggregateSurvivors));
+}
+
+TEST_CASE("Classical work admits wider batches after terminal postselection") {
+    const uint32_t width = GENERATE(6, 8, 9);
+    SamplingPlan source;
+    source.num_qubits = width;
+    source.initial_active_width = source.peak_active_width = width;
+    source.num_visible_records = 256;
+    source.num_detectors = 1;
+    source.actions.push_back(
+        PlannedAction{width, width, RotateActivePauli{ActivePauli{1, 0}, 0.25, AffineBool{}}});
+    for (uint32_t record = 0; record < source.num_visible_records; ++record) {
+        source.actions.push_back(
+            PlannedAction{width, width, RecordClassical{AffineBool{}, RecordSlot{record}}});
+    }
+    source.actions.push_back(
+        PlannedAction{width, width, WriteDetector{RecordParity{}, DetectorSlot{0}, true}});
+    const auto resolve = [&](const ExecutablePlan& plan, uint32_t shots, uint32_t workers) {
+        return resolve_batch_execution_policy(plan, shots, workers, 1, BatchOutputMode::Rows,
+                                              std::nullopt)
+            .lane_capacity;
+    };
+    const ExecutablePlan terminal(source);
+    REQUIRE_FALSE(terminal.has_early_postselection(BatchOutputMode::Rows));
+    CHECK(resolve(terminal, 4096, 1) == (width == 6 ? 512 : width == 8 ? 128 : 1));
+    CHECK(resolve(terminal, 4096, 16) == (width == 6 ? 256 : width == 8 ? 128 : 1));
+    CHECK(resolve(terminal, 129, 4) == 1);
+    CHECK(resolve(terminal, 129, 1) == (width == 6 ? 129 : width == 8 ? 128 : 1));
+
+    std::get<WriteDetector>(source.actions.back().action).postselected = false;
+    const ExecutablePlan unselected(source);
+    CHECK(resolve(unselected, 4096, 1) == resolve(terminal, 4096, 1));
+
+    std::get<WriteDetector>(source.actions.back().action).postselected = true;
+    std::rotate(source.actions.begin(), source.actions.end() - 1, source.actions.end());
+    const ExecutablePlan early(source);
+    REQUIRE(early.has_early_postselection(BatchOutputMode::Rows));
+    CHECK(resolve(early, 4096, 1) == 1);
 }
 
 TEST_CASE("Packed capacity policy bounds worker state footprint") {
@@ -601,10 +678,10 @@ TEST_CASE("External input work can justify wider automatic packing") {
     source.actions.push_back(
         PlannedAction{width, width, WriteDetector{RecordParity{}, DetectorSlot{0}, true}});
     const ExecutablePlan postselected(source);
-    CHECK(resolve_batch_execution_policy(postselected, 4097, 1, 1, BatchOutputMode::Rows,
-                                         std::nullopt, BatchSamplingMode::ExternalInputs, 0, 0,
-                                         100000)
-              .lane_capacity == 1);
+    CHECK((resolve_batch_execution_policy(postselected, 4097, 1, 1, BatchOutputMode::Rows,
+                                          std::nullopt, BatchSamplingMode::ExternalInputs, 0, 0,
+                                          100000)
+               .lane_capacity > 1) == (width <= 8));
 }
 
 TEST_CASE("Wider automatic external packing retains shot and memory limits") {
@@ -625,28 +702,28 @@ TEST_CASE("Wider automatic external packing retains shot and memory limits") {
         const auto parallel = resolve(shots, 16, 0);
         REQUIRE(serial.lane_capacity >= 64);
         CHECK(serial.lane_capacity <= shots);
-        CHECK(parallel.lane_capacity == serial.lane_capacity);
+        CHECK(parallel.lane_capacity == (shots == 4097 ? 256 : 1));
+        CHECK(resolve(shots, 16, 0, serial.lane_capacity).lane_capacity == serial.lane_capacity);
     }
     // Page-rounded classical scratch is live alongside the quantum buffers.
-    CHECK(resolve(4097, 16, 200000).lane_capacity < resolve(4097, 16, 0).lane_capacity);
+    CHECK(resolve(4097, 1, 200000).lane_capacity < resolve(4097, 1, 0).lane_capacity);
     CHECK(resolve(4097, 16, 2000000).lane_capacity == 1);
     CHECK(resolve(4097, 16, 0, 1).lane_capacity == 1);
     CHECK(resolve(4097, 16, 0, 65).lane_capacity == 65);
 }
 
-TEST_CASE("Postselected automatic capacity preserves request boundaries across worker budgets") {
+TEST_CASE("Postselected automatic capacity accounts for work per worker") {
     struct Case {
         uint32_t width;
         uint32_t shots;
+        uint32_t workers;
         uint32_t capacity;
     };
     const std::array cases{
-        Case{0, 0, 1},      Case{0, 63, 1},      Case{0, 64, 64},    Case{0, 255, 255},
-        Case{0, 256, 256},  Case{0, 257, 256},   Case{0, 1024, 256}, Case{1, 0, 1},
-        Case{1, 63, 1},     Case{1, 64, 64},     Case{1, 255, 255},  Case{1, 256, 256},
-        Case{1, 257, 256},  Case{1, 65536, 256}, Case{2, 1025, 256}, Case{3, 1025, 256},
-        Case{4, 1025, 256}, Case{4, 65536, 256}, Case{5, 1025, 1},   Case{5, 65536, 1},
-        Case{6, 65536, 1},
+        Case{0, 0, 1, 1},     Case{0, 63, 1, 1},      Case{0, 64, 1, 64},     Case{0, 255, 4, 1},
+        Case{0, 256, 4, 64},  Case{0, 257, 4, 64},    Case{0, 1024, 1, 1024}, Case{0, 1024, 4, 256},
+        Case{1, 64, 1, 64},   Case{1, 65536, 1, 256}, Case{4, 1025, 4, 256},  Case{4, 1025, 16, 64},
+        Case{5, 65536, 1, 1}, Case{6, 65536, 1, 1},
     };
     for (const auto& test : cases) {
         std::string circuit = "X_ERROR(0.25) 8\nM 8\nDETECTOR rec[-1]\n";
@@ -661,31 +738,29 @@ TEST_CASE("Postselected automatic capacity preserves request boundaries across w
         REQUIRE(plan.peak_active_width() == test.width);
         for (const auto output : {BatchOutputMode::Rows, BatchOutputMode::AggregateSurvivors}) {
             for (const auto mode : {BatchSamplingMode::Ordinary, BatchSamplingMode::FixedFaults}) {
-                for (const uint32_t workers : {1, 4, 16}) {
-                    CAPTURE(test.width, test.shots, output, mode, workers);
-                    const auto policy = resolve_batch_execution_policy(plan, test.shots, workers, 1,
-                                                                       output, std::nullopt, mode);
-                    REQUIRE(policy.lane_capacity == test.capacity);
-                    if (test.capacity > 1) {
-                        REQUIRE(
-                            policy.worker_count ==
+                const uint32_t workers = test.workers;
+                CAPTURE(test.width, test.shots, output, mode, workers);
+                const auto policy = resolve_batch_execution_policy(plan, test.shots, workers, 1,
+                                                                   output, std::nullopt, mode);
+                REQUIRE(policy.lane_capacity == test.capacity);
+                if (test.capacity > 1) {
+                    REQUIRE(policy.worker_count ==
                             std::min(workers, (test.shots + test.capacity - 1) / test.capacity));
-                        REQUIRE(resolve_batch_execution_policy(
-                                    plan, test.shots, workers, 1, output, std::nullopt, mode,
-                                    clifft::sampling::kDefaultBatchWorkerBudget)
-                                    .lane_capacity == 1);
-                    }
-                    REQUIRE(resolve_batch_execution_policy(plan, test.shots, workers, 2, output,
-                                                           std::nullopt, mode)
+                    REQUIRE(resolve_batch_execution_policy(
+                                plan, test.shots, workers, 1, output, std::nullopt, mode,
+                                clifft::sampling::kDefaultBatchWorkerBudget)
                                 .lane_capacity == 1);
-                    if (test.shots != 0) {
-                        REQUIRE(resolve_batch_execution_policy(plan, test.shots, workers, 1, output,
-                                                               uint32_t{2048}, mode)
-                                    .lane_capacity == std::min(test.shots, uint32_t{2048}));
-                        REQUIRE(resolve_batch_execution_policy(plan, test.shots, workers, 1, output,
-                                                               uint32_t{1}, mode)
-                                    .lane_capacity == 1);
-                    }
+                }
+                REQUIRE(resolve_batch_execution_policy(plan, test.shots, workers, 2, output,
+                                                       std::nullopt, mode)
+                            .lane_capacity == 1);
+                if (test.shots != 0) {
+                    REQUIRE(resolve_batch_execution_policy(plan, test.shots, workers, 1, output,
+                                                           uint32_t{2048}, mode)
+                                .lane_capacity == std::min(test.shots, uint32_t{2048}));
+                    REQUIRE(resolve_batch_execution_policy(plan, test.shots, workers, 1, output,
+                                                           uint32_t{1}, mode)
+                                .lane_capacity == 1);
                 }
             }
         }
@@ -706,8 +781,8 @@ TEST_CASE("Packed capacity policy limits workers to available batches") {
             CAPTURE(output_mode, shots);
             const auto policy =
                 resolve_batch_execution_policy(plan, shots, 2, 1, output_mode, std::nullopt);
-            REQUIRE(policy.lane_capacity == (shots == 257 ? 257 : 2048));
-            REQUIRE(policy.worker_count == (shots == 257 ? 1 : 2));
+            REQUIRE(policy.lane_capacity == (shots == 257 ? 128 : 2048));
+            REQUIRE(policy.worker_count == 2);
         }
     }
 }

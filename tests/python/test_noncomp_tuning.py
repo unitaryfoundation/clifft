@@ -64,7 +64,7 @@ def test_tuning_replays_all_production_outputs_at_the_selected_capacity(
     assert report.trial_shots > 0
     assert report.trial_shots == sum(t.shots + t.warmup_shots for t in report.trials)
     assert report.batch_size == result.stats.batch_size
-    assert report.batch_size in {1, 64, 256, 1024, 2048}
+    assert report.batch_size in {trial.batch_size for trial in report.trials}
     if report.sufficient_measurements:
         measured = [trial for trial in report.trials if trial.shots_per_second > 0]
         best = min(measured, key=lambda trial: estimated_call_seconds(trial, 4097))

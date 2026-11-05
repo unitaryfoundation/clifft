@@ -533,8 +533,12 @@ def test_postselected_single_record_detector_recovers_phase_constraint(
     reference = sampling_mode.compile(source, hir_passes=None, postselection_mask=[1])
     opt_survivors = sampling_mode.sample_survivors(selected, shots=8192, seed=901)
     ref_survivors = sampling_mode.sample_survivors(reference, shots=8192, seed=901)
-    assert opt_survivors.passed_shots == ref_survivors.passed_shots
-    np.testing.assert_array_equal(opt_survivors.observables, ref_survivors.observables)
+    # Width reduction can select a different automatic batch size and random stream.
+    for field in ("passed_shots", "logical_errors"):
+        actual = getattr(opt_survivors, field) / 8192
+        expected = getattr(ref_survivors, field) / 8192
+        pooled = (actual + expected) / 2
+        assert abs(actual - expected) < np.sqrt(2) * binomial_tolerance(pooled, 8192)
 
 
 def test_postselected_upstream_and_difference_detectors_recover_phase_constraints(
@@ -581,8 +585,12 @@ def test_postselected_upstream_and_difference_detectors_recover_phase_constraint
     )
     opt_survivors = sampling_mode.sample_survivors(selected, shots=8192, seed=902)
     ref_survivors = sampling_mode.sample_survivors(reference, shots=8192, seed=902)
-    assert opt_survivors.passed_shots == ref_survivors.passed_shots
-    np.testing.assert_array_equal(opt_survivors.observables, ref_survivors.observables)
+    # Width reduction can select a different automatic batch size and random stream.
+    for field in ("passed_shots", "logical_errors"):
+        actual = getattr(opt_survivors, field) / 8192
+        expected = getattr(ref_survivors, field) / 8192
+        pooled = (actual + expected) / 2
+        assert abs(actual - expected) < np.sqrt(2) * binomial_tolerance(pooled, 8192)
 
 
 @pytest.mark.parametrize(

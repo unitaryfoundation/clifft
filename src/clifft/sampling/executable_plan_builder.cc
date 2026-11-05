@@ -630,6 +630,9 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::prepare_batch_compaction
         if (auto* detector =
                 std::get_if<ExecutablePlan::ExecuteDetector>(&output_.actions_[index])) {
             detector->remaining_batch_lane_work = remaining_lane_work;
+            if (detector->postselected) {
+                output_.postselection_remaining_lane_work_ = remaining_lane_work;
+            }
         }
         remaining_lane_work =
             add_batch_lane_work(remaining_lane_work, action_batch_lane_work_[index]);

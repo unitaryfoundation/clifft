@@ -350,10 +350,10 @@ class TestSampleKSurvivors:
             postselection_mask=[1],
         )
         serial = clifft.sample_k_survivors(
-            prog, shots=257, k=1, seed=100, keep_records=True, threads=1
+            prog, shots=257, k=1, seed=100, keep_records=True, threads=1, batch_size=65
         )
         threaded = clifft.sample_k_survivors(
-            prog, shots=257, k=1, seed=100, keep_records=True, threads=2
+            prog, shots=257, k=1, seed=100, keep_records=True, threads=2, batch_size=65
         )
         assert threaded.passed_shots == serial.passed_shots
         assert threaded.logical_errors == serial.logical_errors

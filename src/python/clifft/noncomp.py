@@ -520,9 +520,10 @@ class NonComputationalProgram:
         configuration. Tuning never mutates or caches state on this program.
 
         ``threads`` selects cross-shot workers; ``"auto"`` uses hardware
-        concurrency. For a fixed seed, shot count, and batch configuration,
-        results are independent of worker count and scheduling. Different
-        strategies or batch configurations need not produce identical rows.
+        concurrency. Automatic batch selection depends on this budget and can
+        change seeded results. With a fixed seed, shot count, and numeric batch
+        size, results are independent of cross-shot worker count and scheduling.
+        Different strategies or batch configurations need not produce identical rows.
         A missing seed uses fresh entropy; zero shots use none.
         """
         values, report, tuning = self._handle.sample(

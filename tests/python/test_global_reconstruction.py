@@ -417,7 +417,10 @@ def test_full_noisy_msc_joint_statistics_and_acceptance(distance, postselection)
     assert selected.sampling_plan(keep_records=False).reconstruction_selected
     shots = 8192 if postselection == "all" else 4096
     reference = clifft.sample_survivors(original, shots, seed=34, keep_records=True, batch_size=1)
-    actual = clifft.sample_survivors(selected, shots, seed=81, keep_records=True, batch_size=65)
+    actual = clifft.sample_survivors(
+        selected, shots, seed=81, keep_records=True, batch_size="tune", tuning_budget_seconds=0
+    )
+    assert actual.batch_tuning.baseline_batch_size == (512 if distance == 5 else 128)
     columns = original.num_measurements + original.num_detectors + original.num_observables
     rng = np.random.default_rng(917)
     projections = rng.integers(0, 2, size=(columns, 32), dtype=np.uint8)
@@ -428,7 +431,7 @@ def test_full_noisy_msc_joint_statistics_and_acceptance(distance, postselection)
     # mass and accepted-output correlations both contribute to the check.
     tolerance = 7 * np.sqrt(2 * pooled * (1 - pooled) / shots) + 5 / shots
     assert np.all(np.abs(p - q) <= tolerance)
-    counts = clifft.sample_survivors(selected, shots, seed=103, keep_records=False, batch_size=65)
+    counts = clifft.sample_survivors(selected, shots, seed=103, keep_records=False)
     p = np.r_[reference.passed_shots, reference.logical_errors, reference.observable_ones] / shots
     q = np.r_[counts.passed_shots, counts.logical_errors, counts.observable_ones] / shots
     pooled = (p + q) / 2

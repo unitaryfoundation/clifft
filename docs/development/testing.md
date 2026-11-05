@@ -174,9 +174,10 @@ Reconstruction preserves requested classical output distributions, not original
 physical states or fault identities. Exact state and record queries use the
 original plan, as do fixed-fault calls.
 
-Dedicated tests check seeded repeatability across worker counts and behavior
-at batch and output boundaries. Short dynamically scheduled cross-shot calls
-may finish on one worker. See [Writing Tests](contributing.md#writing-tests)
+Dedicated tests check seeded repeatability with fixed execution settings, replay
+across worker counts with explicit batch sizes, and behavior at batch and output
+boundaries. Short dynamically scheduled cross-shot calls may finish on one
+worker. See [Writing Tests](contributing.md#writing-tests)
 for contribution guidance.
 
 ## Weighted noncomputational histories

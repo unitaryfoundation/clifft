@@ -551,16 +551,19 @@ def test_packed_fixed_composes_status_noise_readout_and_non_clifford_execution(r
 def test_fixed_automatic_batch_policy_reports_executed_work(dynamic, shots):
     model = noncomp.Model(classifier=noncomp.Classifier(CLASSIFIER))
     program = prepare(f"LOSS({0.4 if dynamic else 0}) 0\nM 0", model, final_status=True)
-    expected_capacity = 1 if shots < 64 else min(shots, 2048)
-    serial = sample(program, shots=shots, seed=14)
-    parallel = sample(program, shots=shots, seed=14, threads=3)
-    assert serial.stats["batch_size"] == parallel.stats["batch_size"] == expected_capacity
-    assert parallel.stats["workers"] == min(3, (shots + expected_capacity - 1) // expected_capacity)
-    assert parallel.stats["packed_shots"] == (shots if expected_capacity > 1 else 0)
-    for field in ("measurements", "heralds", "detectors", "observables", "final_status"):
-        np.testing.assert_array_equal(getattr(serial, field), getattr(parallel, field))
-    if shots:
-        assert (parallel.stats["packed_worker_bytes"] > 0) == (expected_capacity > 1)
+    for threads in (1, 3):
+        expected_capacity = 1 if shots // threads < 64 else min(shots // threads, 2048)
+        automatic = sample(program, shots=shots, seed=14, threads=threads)
+        assert automatic.stats["batch_size"] == expected_capacity
+        assert automatic.stats["workers"] == min(
+            threads, (shots + expected_capacity - 1) // expected_capacity
+        )
+        assert automatic.stats["packed_shots"] == (shots if expected_capacity > 1 else 0)
+        explicit = sample(program, shots=shots, seed=14, batch_size=expected_capacity)
+        for field in ("measurements", "heralds", "detectors", "observables", "final_status"):
+            np.testing.assert_array_equal(getattr(explicit, field), getattr(automatic, field))
+        if shots:
+            assert (automatic.stats["packed_worker_bytes"] > 0) == (expected_capacity > 1)
 
 
 def test_fixed_automatic_batching_retains_scalar_with_little_classical_work():

@@ -39,7 +39,7 @@ its prepared sampling plans and result APIs.
 
 Packed execution has its own bookkeeping and memory costs, so it is not faster
 for every circuit. The default `batch_size="auto"` policy considers the shot
-count, active width, estimated lane work, output mode, and retained storage. It
+count per worker, active width, estimated lane work, output mode, and retained storage. It
 selects packing conservatively for workloads expected to benefit and keeps the
 scalar path otherwise.
 
@@ -52,9 +52,11 @@ The same interface is available on the four fixed-plan samplers:
 
 Most users can leave the automatic policy alone. Advanced callers can set
 `batch_size=1` to require scalar execution or request an explicit packed
-capacity after measuring their own workload. Automatic survivor sampling stays
-scalar because the planner cannot predict how long post-selected lanes will
-remain alive.
+capacity after measuring their own workload. Early postselection limits
+automatic packing because rejected lanes can carry unnecessary quantum work.
+Checks after quantum execution finishes allow more packing; see
+[CPU Execution and Tuning](../guide/cpu-execution.md#packed-batch-sampling)
+for the current policy.
 
 Packed execution cannot be combined with intra-shot OpenMP, since both modes
 organize the active-state kernels in different ways. The

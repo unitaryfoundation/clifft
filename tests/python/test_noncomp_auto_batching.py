@@ -32,8 +32,11 @@ def same_rows(left, right):
 
 @pytest.mark.parametrize("prepared", [False, True], ids=["convenience", "prepared"])
 @pytest.mark.parametrize("width", [6, 8])
-def test_auto_packs_wider_classical_work_and_replays_without_calibration(prepared, width):
-    text = circuit(width)
+@pytest.mark.parametrize("probability", [0, 0.3], ids=["static-inputs", "dynamic-inputs"])
+def test_auto_packs_wider_classical_work_and_replays_without_calibration(
+    prepared, width, probability
+):
+    text = circuit(width, probability=probability)
     noise = model()
     program = noncomp.compile(text, noise, final_status=True) if prepared else None
 
@@ -48,7 +51,8 @@ def test_auto_packs_wider_classical_work_and_replays_without_calibration(prepare
     stats = parallel.stats
     assert stats.strategy == "fixed"
     assert stats.peak_active_width == width
-    assert stats.packed_shots == stats.packed_classical_shots == 2049
+    assert stats.packed_shots == 2049
+    assert stats.packed_classical_shots == (2049 if probability else 0)
     assert stats.scalar_shots == stats.continuation_compilations == 0
     assert stats.workers == 3
     assert stats.batch_size == serial.stats.batch_size > 1
@@ -69,8 +73,8 @@ def test_auto_packs_wider_classical_work_and_replays_without_calibration(prepare
 
 @pytest.mark.parametrize(
     "width,depth,inputs,probability",
-    [(6, 128, 256, 0.3), (6, 0, 0, 0.3), (6, 0, 256, 0), (9, 0, 256, 0.3)],
-    ids=["sustained-quantum-work", "little-classical-work", "static-inputs", "wider-state"],
+    [(6, 128, 256, 0.3), (6, 0, 0, 0.3), (9, 0, 256, 0.3)],
+    ids=["sustained-quantum-work", "little-classical-work", "wider-state"],
 )
 def test_auto_preserves_conservative_fallbacks(width, depth, inputs, probability):
     program = noncomp.compile(

@@ -15,7 +15,7 @@ class ExecutablePlan;
 // Largest lane capacity considered by automatic packed selection.
 inline constexpr uint32_t kDefaultMaxAutoBatchShots = 2048;
 
-// Smaller batches leave parallel work in short postselected requests.
+// Smaller batches bound work carried by lanes rejected before quantum actions.
 inline constexpr uint32_t kDefaultMaxPostselectedBatchShots = 256;
 
 // Hard lane-capacity ceiling for explicit packed requests.
@@ -33,7 +33,7 @@ inline constexpr size_t kDefaultBatchTotalWorkerBudget = 64 * 1024 * 1024;
 // Maximum dense coefficient state retained by one explicit packed worker.
 inline constexpr size_t kMaxExplicitBatchStateBudget = 64 * 1024 * 1024;
 
-// Minimum request and capacity for automatic packed execution.
+// Minimum shots per worker and capacity for automatic packed execution.
 inline constexpr uint32_t kDefaultMinAutoBatchShots = 64;
 
 // Sustained width-five coefficient work eventually favors the scalar SIMD
@@ -194,7 +194,7 @@ struct BatchWorkerStorageLayout {
 
 }  // namespace batch_detail
 
-// Resolve deterministic lane boundaries first, then cap automatic workers by
+// Resolve lane boundaries from work per requested worker, then cap workers by
 // the aggregate retained-memory budget. Callers include wrapper-owned scratch
 // that is not part of BatchExecutor in additional_worker_bytes, excluding the
 // BatchExternalInputs buffer already counted in external input mode. Bit columns

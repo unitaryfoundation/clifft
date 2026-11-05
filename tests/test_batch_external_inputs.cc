@@ -530,10 +530,11 @@ TEST_CASE("Packed external storage participates in worker budgets") {
 TEST_CASE("Packed external readout buffers constrain automatic capacity and workers") {
     const auto plan = compile("REPEAT 6000 {\nM(0.5) 0\n}\n");
     REQUIRE(plan.num_readout_noise_sites() == 6000);
-    const auto ordinary = resolve_batch_execution_policy(plan, 65536, 64, 1, BatchOutputMode::Rows,
+    const auto ordinary = resolve_batch_execution_policy(plan, 131072, 64, 1, BatchOutputMode::Rows,
                                                          std::nullopt, BatchSamplingMode::Ordinary);
-    const auto external = resolve_batch_execution_policy(
-        plan, 65536, 64, 1, BatchOutputMode::Rows, std::nullopt, BatchSamplingMode::ExternalInputs);
+    const auto external =
+        resolve_batch_execution_policy(plan, 131072, 64, 1, BatchOutputMode::Rows, std::nullopt,
+                                       BatchSamplingMode::ExternalInputs);
     REQUIRE(external.lane_capacity > 1);
     REQUIRE(external.lane_capacity < ordinary.lane_capacity);
     const uint64_t bytes = batch_detail::batch_worker_storage_bytes(
@@ -614,7 +615,7 @@ TEST_CASE("Packed driver page rounding changes capacity and worker budget decisi
         (aggregate_limit ? kDefaultBatchTotalWorkerBudget / 9 : kDefaultBatchWorkerBudget) -
         executor_bytes - logical;
     const auto policy =
-        resolve_batch_execution_policy(plan, 65536, 64, 1, BatchOutputMode::Rows, std::nullopt,
+        resolve_batch_execution_policy(plan, 131072, 64, 1, BatchOutputMode::Rows, std::nullopt,
                                        BatchSamplingMode::ExternalInputs, extra, columns);
     REQUIRE(policy.lane_capacity > 1);
     if (!aggregate_limit) {
