@@ -21,6 +21,7 @@ class HirPassManager {
 
     void add_pass(std::unique_ptr<HirPass> pass);
     void run(HirModule& hir);
+    [[nodiscard]] bool preserves_sampling_distribution() const;
 
   private:
     std::vector<std::unique_ptr<HirPass>> passes_;

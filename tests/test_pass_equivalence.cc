@@ -1410,10 +1410,11 @@ TEST_CASE(
 
                 HirModule staged = original;
                 for (const auto& info : kRegisteredPasses) {
-                    if (info.name == "RemoveNoisePass" || info.name == "DropNonUnitaryPass") {
+                    auto pass = info.make();
+                    if (!pass->preserves_sampling_distribution()) {
                         continue;
                     }
-                    info.make()->run(staged);
+                    pass->run(staged);
                     CAPTURE(info.name);
                     require_distributions_equal(dense_dist,
                                                 compute_exact_hir_distribution(staged, options));
@@ -1844,6 +1845,7 @@ TEST_CASE("Every registered pass is covered by planted equivalence or explicitly
                          "its rewrite metric and a paired hazard-barrier SECTION (or to "
                          "kDestructiveRegisteredPasses if it intentionally alters semantics).");
         REQUIRE(is_verified != is_destructive);
+        REQUIRE(info.make()->preserves_sampling_distribution() == is_verified);
     }
 
     clifft::Xoshiro256PlusPlus rng(0x578099);

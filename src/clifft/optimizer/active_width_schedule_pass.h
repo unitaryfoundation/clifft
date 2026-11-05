@@ -39,6 +39,7 @@ class ActiveWidthSchedulePass : public HirPass {
     explicit ActiveWidthSchedulePass(ActiveWidthScheduleOptions options = {});
 
     void run(HirModule& hir) override;
+    bool preserves_sampling_distribution() const override { return true; }
 
     // Statistics from the last run() call. All read as zero/false before
     // the first call.

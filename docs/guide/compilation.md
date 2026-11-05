@@ -88,6 +88,54 @@ options, result statistics, and search-budget limits, and the
 [theoretical overview](../theory/overview.md#hir-optimization) for why ordering
 affects active width.
 
+## Global reconstruction for sampling
+
+For repeated CPU sampling, `reconstruction=True` can reduce the active quantum
+state beyond local optimization, particularly in magic-state cultivation and
+distillation circuits. It reorganizes the computation while preserving the
+joint distribution of measurement records, detectors, observables, and
+postselection acceptance. The option is off by default.
+
+This small example uses `hir_passes=None` to expose a width reduction from two
+to one. Keep the default passes for ordinary use; they already achieve width
+one on this example.
+
+```python
+import clifft
+
+program = clifft.compile(
+    "H 0 1\nT 0 1\nH 0 1\nM 0 1", hir_passes=None, reconstruction=True
+)
+info = program.reconstruction_info(keep_records=True)
+assert info["selected"]
+assert info["peak_active_width"] == 1
+print(info)
+result = clifft.sample(program, shots=100, seed=42)
+```
+
+`sample()` uses the plan retaining all records; `sample_survivors()` selects a
+plan according to `keep_records`. Use `reconstruction_info(keep_records=...)`
+to inspect selection, active width, and the fallback reason. Unsupported
+circuits, resource limits, or insufficient width reduction retain the original
+plan. Supported circuits use Clifford+T gates, Pauli noise, and symmetric
+readout noise; general-angle rotations and `EXP_VAL` probes fall back.
+
+Standard `Program` metadata, `inspect()`, exact queries, and fixed-fault sampling
+continue to use the original plan. Custom `hir_passes` configure that original
+pipeline; reconstructed candidates use the default passes.
+
+Compare total compilation and sampling time at your intended shot count.
+Unsuccessful attempts can still cost several times ordinary compilation, and
+the early width guard can miss improvements found by later optimization.
+Reconstructed detector checks run at the end of the shot, which can reduce the
+benefit of early postselection. Seeded results are reproducible for a fixed
+configuration but can differ from the original plan.
+
+See [the reconstruction theory](../theory/stabilizer-optimization.md#closed-output-global-reconstruction)
+for the transformation, eligibility, and cost guard, and
+[program architecture](../theory/architecture.md#python-bindings) for plan ownership
+and execution paths.
+
 ## Inspect or customize the pipeline
 
 The following APIs are intended for power users working on compiler behavior,

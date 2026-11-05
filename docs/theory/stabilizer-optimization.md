@@ -74,6 +74,51 @@ search budgets, and restrictions for continuation-based sampling. Larger
 search budgets trade compilation time for opportunities to reduce sampling
 cost, without guaranteeing an optimal result.
 
+## Closed-Output Global Reconstruction
+
+Local HIR passes preserve the sequential structure of the traced circuit. When
+only the classical output distribution is needed, `clifft.compile(...,
+reconstruction=True)` can reformulate the entire sampling problem to reduce the
+number of active coordinates that must stay entangled at once.
+
+The reconstruction compiler defers measurements onto fresh record ancillas and
+moves discarded reset states onto environment wires. It replaces each $\pi/4$
+rotation with a Clifford gadget and a magic-state projection, dresses those
+rotation axes with causal input stabilizers, and folds a maximally commuting
+subset of the projections back into the initial stabilizer state. A native
+Clifford frame and linear $X$-support basis then eliminate coordinates fixed in
+$|0\rangle$. Remaining projections that commute with all retained outputs and
+remaining non-Clifford rotations are dropped, and a measurement-first schedule
+orders the surviving operations to minimize peak active width. This formulation
+and scheduling approach were informed by
+[Tsim's reconstruction work](https://github.com/QuEraComputing/tsim/pull/203).
+
+Throughout dilation and folding, Pauli and symmetric readout noise are tracked
+through affine parity masks over categorical noise variables. Before lowering
+to HIR, independent noise channels whose parity images have identical support
+are convolved into single channels, reducing the number of classical noise
+symbols while preserving the exact joint distribution over all retained
+outputs. Because a detector may read a measurement record before a subsequent
+`READOUT_NOISE` instruction flips that record, detector and observable parity
+rows are tracked alongside measurement records rather than recomputed from final
+records alone. Lowering copies the reference parities and postselection mask
+from the original pipeline and emits standard HIR operations for the existing
+planner and executor.
+
+Compilation builds up to two reconstructed candidates: one retaining all
+measurement records, detectors, and observables (used when `keep_records=True`),
+and one retaining only detectors and observables (used by `sample_survivors(...,
+keep_records=False)`). To limit compilation cost, a candidate proceeds to
+lowering and the default HIR passes only when its scheduled peak active width
+is strictly smaller than the original plan's. This heuristic can miss reductions
+that later optimization would find. The optimized candidate must still have a
+strictly smaller peak active width to be selected. Dilation and scheduling
+precede the guard, so unsuccessful attempts can remain expensive. Explicit
+resource bounds cap circuit size, dilation qubits, noise channels, and scheduling
+work; unsupported operations (such as general-angle rotations, `EXP_VAL` probes,
+asymmetric readout noise, or distribution-altering HIR passes) fall back to the
+original plan.
+
 ## Stabilizer-Based Simplification
 
 Starting from the circuit's known all-zero input state, Clifft tracks which

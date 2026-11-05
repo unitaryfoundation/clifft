@@ -8,6 +8,9 @@ namespace clifft {
 class HirPass {
   public:
     virtual void run(HirModule& hir) = 0;
+    // Source-level reconstruction requires passes to preserve the sampling
+    // distribution. Passes that remove noise or have unknown behavior opt out.
+    virtual bool preserves_sampling_distribution() const { return false; }
     virtual ~HirPass() = default;
 };
 
