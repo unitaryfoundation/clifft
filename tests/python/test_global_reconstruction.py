@@ -260,13 +260,30 @@ def test_reconstruction_does_not_suppress_invalid_source_errors():
             clifft.compile(source, reconstruction=True)
 
 
+def test_python_owned_pass_preserves_reconstruction_selection():
+    passes = clifft.HirPassManager()
+    passes.add(clifft.PeepholeFusionPass())
+    program = clifft.compile(NOISY, hir_passes=passes, reconstruction=True)
+    expected = compile_selected(NOISY)
+    for keep_records in (False, True):
+        assert program.reconstruction_info(keep_records)["selected"]
+        assert_same_result(
+            clifft.sample_survivors(program, 65, seed=9, keep_records=keep_records),
+            clifft.sample_survivors(expected, 65, seed=9, keep_records=keep_records),
+        )
+
+
 @pytest.mark.expensive
 @pytest.mark.parametrize("distance, width", [(5, 6), (7, 8)])
-def test_full_noisy_msc_uses_reconstructed_plans_with_default_passes(distance, width):
+@pytest.mark.parametrize("schedule", [False, True])
+def test_full_noisy_msc_uses_reconstructed_plans_with_default_passes(distance, width, schedule):
     source = (
         Path(__file__).parents[1] / "fixtures" / f"reconstruction_msc_d{distance}.stim"
     ).read_text()
-    program = clifft.compile(source, reconstruction=True)
+    passes = clifft.default_hir_pass_manager()
+    if schedule:
+        passes.add(clifft.ActiveWidthSchedulePass())
+    program = clifft.compile(source, hir_passes=passes, reconstruction=True)
     for keep_records in (False, True):
         info = program.reconstruction_info(keep_records)
         assert info["selected"] and info["peak_active_width"] == width

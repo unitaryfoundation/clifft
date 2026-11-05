@@ -1218,6 +1218,9 @@ NB_MODULE(_clifft_core, m) {
                     clifft::HirPass& ref;
                     explicit BorrowedPass(clifft::HirPass& r) : ref(r) {}
                     void run(clifft::HirModule& hir) override { ref.run(hir); }
+                    bool preserves_sampling_distribution() const override {
+                        return ref.preserves_sampling_distribution();
+                    }
                 };
                 pm.add_pass(std::make_unique<BorrowedPass>(hir_pass));
             },
