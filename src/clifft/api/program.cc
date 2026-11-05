@@ -45,6 +45,12 @@ Program Program::compile(const Circuit& source, const HirModule& original_hir, b
             variant.fallback_reason = std::move(result.fallback_reason);
             continue;
         }
+        // Avoid expensive lowering and HIR passes without a scheduled width
+        // reduction. This cost policy can skip reductions found by later passes.
+        if (result.reconstruction->peak_active_width >= program.original_.peak_active_width()) {
+            variant.fallback_reason = "reconstruction schedule does not reduce peak active width";
+            continue;
+        }
         auto lowered =
             lower_global_reconstruction(*result.reconstruction, original_hir.postselection, limits);
         if (!lowered.hir) {

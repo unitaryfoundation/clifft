@@ -340,8 +340,9 @@ def compile(
             ``"qasm2"`` for the supported unitary OpenQASM 2 subset.
         reconstruction: Opt in to bounded global reconstruction for ordinary
             CPU sampling. Compilation prepares reconstructed plans for
-            full-record sampling and survivor-count sampling, selecting each
-            only when it strictly reduces peak active width; inspect
+            full-record sampling and survivor-count sampling. To limit cost,
+            candidates must reduce peak active width before lowering and after
+            optimization. Inspect
             ``program.reconstruction_info(keep_records=...)`` for details.
             State queries, exact probabilities, and fixed-fault sampling always
             use the original plan.

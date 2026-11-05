@@ -133,8 +133,11 @@ the selected `peak_active_width` and `num_actions`, and
 `num_qubits`, `peak_active_width`, `noise_site_probabilities`, and `inspect()`
 continue to describe the original executable. Each reconstructed candidate is
 selected only when it is supported, stays within compiler resource limits, and
-strictly reduces peak active width compared to the original plan. Clifford
-circuits already at width zero skip the search.
+strictly reduces peak active width compared to the original plan. To limit
+compilation cost, candidates whose scheduled width is no smaller than the
+original are skipped before lowering and HIR optimization. This heuristic can
+miss reductions that later optimization would find. Clifford circuits already
+at width zero skip the search.
 
 Reconstruction supports Clifford+T circuits with Pauli measurements, resets,
 record-controlled Pauli feedback, categorical Pauli noise, and symmetric
@@ -147,8 +150,10 @@ configures only the original pipeline.
 Because reconstruction adds compilation time and extra plans, compare end-to-end
 compile plus sampling time at your target shot count, especially on circuits
 that rely on early detector postselection (reconstructed detector checks run at
-the end of the shot). Seeded runs are reproducible for a given compiled program
-and `keep_records` setting, though individual trajectories may differ from the
+the end of the shot). An unsuccessful attempt can still take several times the
+ordinary compilation time because dilation and scheduling precede the width
+check. Seeded runs are reproducible for a given compiled program and
+`keep_records` setting, though individual trajectories may differ from the
 original plan. The option is off by default and applies to `clifft.compile()`
 for CPU sampling; `clifft.lower()` and experimental GPU compilation prepare
 only the supplied HIR.

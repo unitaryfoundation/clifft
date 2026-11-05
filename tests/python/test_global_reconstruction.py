@@ -182,10 +182,10 @@ def test_normalization_uses_the_original_reference(keep_records):
 
 
 def test_selected_clifford_distribution_matches_stim():
-    # Canceling rotations keep this reference within Stim's supported gates,
-    # while an unoptimized original still has a nonzero active width.
+    # Concurrent canceling rotations preserve the Clifford output law and leave
+    # room for a scheduled width reduction before HIR optimization cancels them.
     clifford = "H 0\nCX 0 1\nDEPOLARIZE2(0.2) 0 1\nM 0 1\n"
-    program = compile_selected("H 0\nT 0\nT_DAG 0\nH 0\n" + clifford + "DETECTOR rec[-1]\n")
+    program = compile_selected("H 0 2\nT 0 2\nT_DAG 0 2\nH 0 2\n" + clifford + "DETECTOR rec[-1]\n")
     actual = clifft.sample(program, 20000, seed=12, batch_size=65).measurements
     expected = stim.Circuit(clifford).compile_sampler(seed=94).sample(20000)
     weights = np.array([1, 2])
