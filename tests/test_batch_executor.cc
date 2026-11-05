@@ -503,7 +503,7 @@ TEST_CASE("Classical work admits wider batches after terminal postselection") {
     REQUIRE_FALSE(terminal.has_early_postselection(BatchOutputMode::Rows));
     CHECK(resolve(terminal, 4096, 1) == (width == 6 ? 512 : width == 8 ? 128 : 1));
     CHECK(resolve(terminal, 4096, 16) == (width == 6 ? 256 : width == 8 ? 128 : 1));
-    CHECK(resolve(terminal, 129, 4) == 1);
+    CHECK(resolve(terminal, 129, 4) == resolve(terminal, 129, 1));
     CHECK(resolve(terminal, 129, 1) == (width == 6 ? 129 : width == 8 ? 128 : 1));
 
     std::get<WriteDetector>(source.actions.back().action).postselected = false;
@@ -547,6 +547,15 @@ TEST_CASE("Packed capacity policy bounds worker state footprint") {
     REQUIRE(resolve_batch_execution_policy(postselected, 4096, 1, 1, BatchOutputMode::Rows,
                                            uint32_t{65})
                 .lane_capacity == 65);
+
+    const ExecutablePlan terminal(clifft::sampling::plan_sampling(
+        clifft::trace(clifft::parse("H 0\nT 0\nH 0\nM 0\nDETECTOR rec[-1]")),
+        {.postselection_mask = postselection}));
+    REQUIRE(terminal.peak_active_width() == 1);
+    REQUIRE_FALSE(terminal.has_early_postselection(BatchOutputMode::Rows));
+    REQUIRE(
+        resolve_batch_execution_policy(terminal, 4096, 8, 1, BatchOutputMode::Rows, std::nullopt)
+            .lane_capacity == 256);
 
     std::string circuit;
     for (uint32_t qubit = 0; qubit < 18; ++qubit) {
@@ -606,6 +615,18 @@ TEST_CASE("Packed capacity policy bounds worker state footprint") {
     REQUIRE(
         resolve_batch_execution_policy(sustained, 4096, 1, 1, BatchOutputMode::Rows, uint32_t{64})
             .lane_capacity == 64);
+
+    sustained_plan.num_visible_records = 1024;
+    for (uint32_t record = 0; record < sustained_plan.num_visible_records; ++record) {
+        sustained_plan.actions.push_back(
+            PlannedAction{5, 5, RecordClassical{AffineBool{}, RecordSlot{record}}});
+    }
+    const ExecutablePlan classical_heavy(sustained_plan);
+    REQUIRE(classical_heavy.estimated_width_five_batch_lane_work(BatchOutputMode::Rows) >
+            kDefaultMaxWidthFiveBatchLaneWork);
+    REQUIRE(resolve_batch_execution_policy(classical_heavy, 4096, 8, 1, BatchOutputMode::Rows,
+                                           std::nullopt)
+                .lane_capacity == 1024);
 
     SamplingPlan brief_width_five_plan;
     brief_width_five_plan.num_qubits = 5;
@@ -702,7 +723,7 @@ TEST_CASE("Wider automatic external packing retains shot and memory limits") {
         const auto parallel = resolve(shots, 16, 0);
         REQUIRE(serial.lane_capacity >= 64);
         CHECK(serial.lane_capacity <= shots);
-        CHECK(parallel.lane_capacity == (shots == 4097 ? 256 : 1));
+        CHECK(parallel.lane_capacity == (shots == 4097 ? 256 : serial.lane_capacity));
         CHECK(resolve(shots, 16, 0, serial.lane_capacity).lane_capacity == serial.lane_capacity);
     }
     // Page-rounded classical scratch is live alongside the quantum buffers.
@@ -712,7 +733,7 @@ TEST_CASE("Wider automatic external packing retains shot and memory limits") {
     CHECK(resolve(4097, 16, 0, 65).lane_capacity == 65);
 }
 
-TEST_CASE("Postselected automatic capacity accounts for work per worker") {
+TEST_CASE("Narrow postselected automatic capacity retains conservative limits") {
     struct Case {
         uint32_t width;
         uint32_t shots;
@@ -720,9 +741,9 @@ TEST_CASE("Postselected automatic capacity accounts for work per worker") {
         uint32_t capacity;
     };
     const std::array cases{
-        Case{0, 0, 1, 1},     Case{0, 63, 1, 1},      Case{0, 64, 1, 64},     Case{0, 255, 4, 1},
-        Case{0, 256, 4, 64},  Case{0, 257, 4, 64},    Case{0, 1024, 1, 1024}, Case{0, 1024, 4, 256},
-        Case{1, 64, 1, 64},   Case{1, 65536, 1, 256}, Case{4, 1025, 4, 256},  Case{4, 1025, 16, 64},
+        Case{0, 0, 1, 1},     Case{0, 63, 1, 1},      Case{0, 64, 1, 64},    Case{0, 255, 4, 255},
+        Case{0, 256, 4, 256}, Case{0, 257, 4, 256},   Case{0, 1024, 1, 256}, Case{0, 65536, 8, 256},
+        Case{1, 64, 1, 64},   Case{1, 65536, 1, 256}, Case{4, 1025, 4, 256}, Case{4, 1025, 16, 256},
         Case{5, 65536, 1, 1}, Case{6, 65536, 1, 1},
     };
     for (const auto& test : cases) {
@@ -781,8 +802,8 @@ TEST_CASE("Packed capacity policy limits workers to available batches") {
             CAPTURE(output_mode, shots);
             const auto policy =
                 resolve_batch_execution_policy(plan, shots, 2, 1, output_mode, std::nullopt);
-            REQUIRE(policy.lane_capacity == (shots == 257 ? 128 : 2048));
-            REQUIRE(policy.worker_count == 2);
+            REQUIRE(policy.lane_capacity == (shots == 257 ? 257 : 2048));
+            REQUIRE(policy.worker_count == (shots == 257 ? 1 : 2));
         }
     }
 }

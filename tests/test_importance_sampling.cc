@@ -711,9 +711,9 @@ TEST_CASE("Threaded conditioned sampling preserves seeded rows and survivors") {
     )",
                                      postselection);
     const clifft::sampling::SamplingSurvivorResult survivor_serial =
-        clifft::sampling::sample_k_survivors(survivors, 257, 1, 48, true, 1, std::nullopt, 65);
+        clifft::sampling::sample_k_survivors(survivors, 257, 1, 48, true, 1);
     const clifft::sampling::SamplingSurvivorResult survivor_threaded =
-        clifft::sampling::sample_k_survivors(survivors, 257, 1, 48, true, 3, std::nullopt, 65);
+        clifft::sampling::sample_k_survivors(survivors, 257, 1, 48, true, 3);
     REQUIRE(survivor_threaded.total_shots == survivor_serial.total_shots);
     REQUIRE(survivor_threaded.passed_shots == survivor_serial.passed_shots);
     REQUIRE(survivor_threaded.logical_errors == survivor_serial.logical_errors);

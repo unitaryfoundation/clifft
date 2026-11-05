@@ -173,18 +173,18 @@ BatchExecutionPolicy resolve_batch_execution_policy(
         return {.lane_capacity = capacity,
                 .worker_count = batch_worker_count(shots, shot_workers, capacity)};
     }
-    const uint32_t shots_per_worker = shots / std::max(uint32_t{1}, shot_workers);
-    if (shots_per_worker < kDefaultMinAutoBatchShots) {
+    if (shots < kDefaultMinAutoBatchShots) {
         return {};
     }
-    uint32_t max_capacity = kDefaultMaxAutoBatchShots;
     const bool early_postselection = plan.has_early_postselection(output_mode);
-    if (early_postselection) {
-        if (plan.peak_active_width() >= 5) {
-            return {};
-        }
-        max_capacity = kDefaultMaxPostselectedBatchShots;
+    if (early_postselection && plan.peak_active_width() >= 5) {
+        return {};
     }
+    // Narrow postselected plans can reject before substantial classical work,
+    // including width-zero plans with no coefficient work at all.
+    const uint32_t max_capacity = plan.has_postselection() && plan.peak_active_width() < 5
+                                      ? kDefaultMaxPostselectedBatchShots
+                                      : kDefaultMaxAutoBatchShots;
     // Packed status/input generation can repay the wider quantum kernels, but
     // merely having a transition says nothing about sustained coefficient work.
     // Bound both width and total coefficient visits relative to scalar input
@@ -204,9 +204,13 @@ BatchExecutionPolicy resolve_batch_execution_policy(
                                                kDefaultMaxWidthFiveBatchLaneWork))) {
         return {};
     }
-    // Leave at least one full batch per requested worker before memory limits
-    // cap concurrency. Explicit capacities retain their seeded batch boundaries.
-    uint32_t capacity = std::min(shots_per_worker, max_capacity);
+    // Wider kernels benefit from parallel batches when each requested worker
+    // has enough shots to fill one. Shorter requests retain their packed size.
+    uint32_t capacity = std::min(shots, max_capacity);
+    const uint32_t shots_per_worker = shots / std::max(uint32_t{1}, shot_workers);
+    if (plan.peak_active_width() > 5 && shots_per_worker >= kDefaultMinAutoBatchShots) {
+        capacity = std::min(capacity, shots_per_worker);
+    }
     while (capacity >= kDefaultMinAutoBatchShots) {
         if (interleaved_batch_state_bytes(plan.peak_active_width(), capacity) >
             kDefaultBatchStateBudget) {

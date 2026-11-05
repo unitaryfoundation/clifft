@@ -27,7 +27,7 @@ def test_postselected_auto_replays_its_explicit_capacity(
     sample: Any = clifft.sample_k_survivors if fixed_faults else clifft.sample_survivors
     options = {"k": 1} if fixed_faults else {}
     for threads in (1, 4):
-        capacity = (shots // threads if width == 0 else 256) if width < 5 else 1
+        capacity = 256 if width < 5 else 1
         explicit = sample(
             program,
             shots,
@@ -71,7 +71,7 @@ def test_terminal_postselection_batches_classical_work_with_bounded_parallel_cap
     for threads, capacity in (
         (1, 512 if width == 6 else 128),
         (4, 256 if width == 6 else 128),
-        (32, 1),
+        (32, 512 if width == 6 else 128),
     ):
         options = dict(seed=48, threads=threads, keep_records=True)
         automatic = clifft.sample_survivors(program, 1025, **options)

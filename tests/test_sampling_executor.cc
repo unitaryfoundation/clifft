@@ -2261,13 +2261,12 @@ TEST_CASE("Threaded survivor sampling preserves seeded survivors and records") {
                                         {.postselection_mask = postselection,
                                          .expected_detectors = {},
                                          .expected_observables = {}}));
-    const clifft::sampling::SamplingSurvivorResult serial = clifft::sampling::sample_survivors(
-        executable, 257, uint64_t{9184}, true, 1, std::nullopt, 65);
+    const clifft::sampling::SamplingSurvivorResult serial =
+        clifft::sampling::sample_survivors(executable, 257, uint64_t{9184}, true, 1);
 
     for (uint32_t threads : std::array<uint32_t, 2>{3, 0}) {
         const clifft::sampling::SamplingSurvivorResult threaded =
-            clifft::sampling::sample_survivors(executable, 257, uint64_t{9184}, true, threads,
-                                               std::nullopt, 65);
+            clifft::sampling::sample_survivors(executable, 257, uint64_t{9184}, true, threads);
         CAPTURE(threads);
         REQUIRE(threaded.total_shots == serial.total_shots);
         REQUIRE(threaded.passed_shots == serial.passed_shots);

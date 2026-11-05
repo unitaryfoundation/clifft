@@ -211,8 +211,8 @@ class TestSample:
         np.testing.assert_array_equal(threaded.observables, serial.observables)
         np.testing.assert_array_equal(threaded.exp_vals, serial.exp_vals)
 
-    def test_auto_replays_when_workers_have_enough_work_for_the_same_capacity(self) -> None:
-        """The automatic capacity remains capped for sufficiently large requests."""
+    def test_narrow_auto_batch_boundaries_ignore_worker_count(self) -> None:
+        """Changing worker count preserves automatic batch RNG boundaries."""
         prog = clifft.compile(
             "X_ERROR(0.125) 0\nH 1\nT 1\nEXP_VAL X1\nM 0 1\n"
             "DETECTOR rec[-2] rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]"
@@ -1210,10 +1210,10 @@ class TestSampleSurvivors:
             )
 
     @pytest.mark.parametrize("threads", [2, 3])
-    @pytest.mark.parametrize("batch_size", [1, 65])
+    @pytest.mark.parametrize("batch_size", [1, 65, "auto"])
     @pytest.mark.parametrize("keep_records", [False, True])
     def test_threads_preserve_survivor_results(
-        self, threads: int, batch_size: int, keep_records: bool
+        self, threads: int, batch_size: int | str, keep_records: bool
     ) -> None:
         """Survivor counts and retained row order are independent of worker schedules."""
         prog = clifft.compile(
