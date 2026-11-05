@@ -28,8 +28,7 @@ using clifft::test::ReferenceTableau;
 using clifft::test::X;
 using clifft::test::Z;
 
-TEST_CASE("Front-End records origins for implicit readout and correlated noise sites",
-          "[frontend]") {
+TEST_CASE("Front-End records origins for readout and correlated noise sites", "[frontend]") {
     const std::string reset = GENERATE("MR", "MRX", "MRY");
     const auto circuit = parse("REPEAT 2 {\nPAULI_CHANNEL_1(0,0,0) 0\n" + reset +
                                " !0\nREADOUT_NOISE(0.2) rec[-1]\n}\n"
@@ -42,11 +41,11 @@ TEST_CASE("Front-End records origins for implicit readout and correlated noise s
     CHECK(hir.noise_sites[2].source_node == 6);
     CHECK(hir.noise_sites[0].channels.empty());
     CHECK(hir.noise_sites[1].channels.empty());
-    REQUIRE(hir.readout_noise.size() == 4);
-    CHECK(hir.readout_noise[0].source_node == 1);
-    CHECK(hir.readout_noise[1].source_node == 2);
-    CHECK(hir.readout_noise[2].source_node == 4);
-    CHECK(hir.readout_noise[3].source_node == 5);
+    // The inverted measure-reset is carried by the Clifford frame, so only
+    // the explicit READOUT_NOISE instructions create readout sites.
+    REQUIRE(hir.readout_noise.size() == 2);
+    CHECK(hir.readout_noise[0].source_node == 2);
+    CHECK(hir.readout_noise[1].source_node == 5);
     const auto copy = hir;
     CHECK(copy.noise_sites == hir.noise_sites);
     CHECK(copy.readout_noise == hir.readout_noise);

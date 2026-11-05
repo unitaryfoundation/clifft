@@ -943,6 +943,14 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                 for (const auto& target : node.targets) {
                     uint32_t qubit = target.value();
 
+                    // MR !q is X q then MR q (Z q for MRX and MRY): the Pauli
+                    // flips the outcome and the reset still prepares the +1
+                    // eigenstate, so the frame carries the inversion.
+                    if (!hidden && target.is_inverted()) {
+                        apply_single_qubit_clifford(
+                            inverse, basis == Basis::Z ? GateType::X : GateType::Z, qubit);
+                    }
+
                     uint32_t this_meas;
                     if (hidden) {
                         this_meas = hidden_meas_idx++;
@@ -976,16 +984,6 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                                                extract_corr(qubit, slot.x(), slot.z(), corr_sign);
                                                slot.set_sign(corr_sign);
                                            });
-
-                    if (!hidden && target.is_inverted()) {
-                        ReadoutNoiseIdx idx{static_cast<uint32_t>(hir.readout_noise.size())};
-                        hir.readout_noise.push_back(
-                            {.meas_idx = this_meas,
-                             .prob_zero_to_one = 1.0,
-                             .prob_one_to_zero = 1.0,
-                             .source_node = static_cast<uint32_t>(node_index)});
-                        hir.append_readout_noise(idx);
-                    }
                 }
                 break;
             }
