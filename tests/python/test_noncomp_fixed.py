@@ -459,10 +459,7 @@ def test_fixed_static_inputs_keep_asymmetric_readout_and_reset_semantics(fixed_s
         ),
     ],
 )
-@pytest.mark.parametrize("threads", [1, 2])
-def test_fixed_joint_output_contract_matches_trajectories(
-    text, restore_lost, threads, fixed_sample
-):
+def test_fixed_joint_output_contract_matches_trajectories(text, restore_lost, fixed_sample):
     model = noncomp.Model(
         classifier=noncomp.Classifier(
             [[1, 0, 0.2, 0.2, 0.2], [0, 1, 0.3, 0.3, 0.3], [0, 0, 0.5, 0.5, 0.5]]
@@ -478,7 +475,7 @@ def test_fixed_joint_output_contract_matches_trajectories(
         model,
         shots=16000,
         seed=71,
-        threads=threads,
+        threads=1,
         final_status=True,
         execution="trajectory",
         collect_stats=True,

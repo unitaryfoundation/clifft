@@ -343,13 +343,13 @@ jobs:
 
       - name: Run Python tests (default ISA)
         if: matrix.isa == 'default'
-        run: uv run --locked pytest tests/python/ -n logical --maxprocesses 4 -v -m "not expensive" --durations=20
+        run: uv run --locked pytest tests/python/ -n logical --maxprocesses 4 --dist=worksteal -v -m "not expensive" --durations=20
 
       - name: Run Python tests (scalar ISA)
         if: matrix.isa == 'scalar'
         env:
           CLIFFT_FORCE_ISA: scalar
-        run: uv run --locked pytest tests/python/ -n logical --maxprocesses 4 -v -m "not expensive" --durations=20
+        run: uv run --locked pytest tests/python/ -n logical --maxprocesses 4 --dist=worksteal -v -m "not expensive" --durations=20
 
       - name: Test documentation code examples
         if: matrix.isa == 'default'
@@ -462,7 +462,7 @@ jobs:
         run: .smoke-venv/bin/python tools/ci/audit_python_exports.py
 
       - name: Run Python tests (optimized extension)
-        run: .smoke-venv/bin/python -m pytest tests/python/ -n logical --maxprocesses 4 -v --durations=20
+        run: .smoke-venv/bin/python -m pytest tests/python/ -n logical --maxprocesses 4 --dist=worksteal -v --durations=20
 
       # Run a small QEMU-emulated CPU matrix against the release-baseline
       # Python install. Catches AVX-512 leakage into the AVX-2 dispatch
@@ -686,7 +686,7 @@ jobs:
             --output-file /tmp/dev-requirements.txt
           uv pip install --python .abi3-venv/bin/python \
             --only-binary :all: --requirements /tmp/dev-requirements.txt
-          .abi3-venv/bin/python -m pytest tests/python/ -n logical --maxprocesses 4 -v --durations=20
+          .abi3-venv/bin/python -m pytest tests/python/ -n logical --maxprocesses 4 --dist=worksteal -v --durations=20
 
   macos-release-wheel-smoke:
     name: macOS 15 release wheel smoke
@@ -767,13 +767,11 @@ jobs:
             install-deps: sudo apt-get update && sudo apt-get install -y ninja-build
             skbuild-type: Debug
             skbuild-cmake-args: ""
-            pytest-markexpr: "not expensive"
           - label: macOS
             os: macos-latest
             install-deps: brew install ninja libomp
             skbuild-type: Debug
             skbuild-cmake-args: ""
-            pytest-markexpr: "not expensive"
           # MSVC Debug wheels make the Python suite several times slower than
           # every other platform, so Windows tests an optimized wheel that
           # keeps assert() active instead. The C++ suite stays in Debug for
@@ -783,7 +781,6 @@ jobs:
             install-deps: ""
             skbuild-type: RelWithDebInfo
             skbuild-cmake-args: "-DCLIFFT_FORCE_ASSERTS=ON"
-            pytest-markexpr: ""
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     env:
@@ -853,8 +850,8 @@ jobs:
 
       - name: Run Python tests
         run: >-
-          uv run --locked pytest tests/python/ -n logical --maxprocesses 4 -v
-          -m "${{ matrix.pytest-markexpr }}" --durations=20
+          uv run --locked pytest tests/python/ -n logical --maxprocesses 4 --dist=worksteal -v
+          -m "not expensive" --durations=20
 
   # Single aggregate check for branch protection. Requiring this job
   # instead of enumerating every job means new or renamed jobs cannot

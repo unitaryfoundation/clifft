@@ -302,43 +302,42 @@ def joint_frequencies(result, attempted, projections):
 
 @pytest.mark.expensive
 @pytest.mark.parametrize("distance", [5, 7])
-def test_full_noisy_msc_joint_statistics_and_acceptance(distance):
+@pytest.mark.parametrize("postselection", ["none", "partial", "all"])
+def test_full_noisy_msc_joint_statistics_and_acceptance(distance, postselection):
     source = (
         Path(__file__).parents[1] / "fixtures" / f"reconstruction_msc_d{distance}.stim"
     ).read_text()
     num_detectors = sum(
         node.gate == clifft.GateType.DETECTOR for node in clifft.parse(source).nodes
     )
+    if postselection == "none":
+        mask = None
+    elif postselection == "partial":
+        mask = [int(i < 3) for i in range(num_detectors)]
+    else:
+        mask = [1] * num_detectors
+    original = clifft.compile(source, postselection_mask=mask, normalize_syndromes=True)
+    selected = clifft.compile(
+        source, reconstruction=True, postselection_mask=mask, normalize_syndromes=True
+    )
+    assert selected.reconstruction_info()["selected"]
+    assert selected.reconstruction_info(False)["selected"]
+    shots = 8192 if postselection == "all" else 4096
+    reference = clifft.sample_survivors(original, shots, seed=34, keep_records=True, batch_size=1)
+    actual = clifft.sample_survivors(selected, shots, seed=81, keep_records=True, batch_size=65)
+    columns = original.num_measurements + original.num_detectors + original.num_observables
     rng = np.random.default_rng(917)
-    for mask in (None, [int(i < 3) for i in range(num_detectors)], [1] * num_detectors):
-        original = clifft.compile(source, postselection_mask=mask, normalize_syndromes=True)
-        selected = clifft.compile(
-            source, reconstruction=True, postselection_mask=mask, normalize_syndromes=True
-        )
-        assert selected.reconstruction_info()["selected"]
-        assert selected.reconstruction_info(False)["selected"]
-        shots = 8192 if mask == [1] * num_detectors else 4096
-        reference = clifft.sample_survivors(
-            original, shots, seed=34, keep_records=True, batch_size=1
-        )
-        actual = clifft.sample_survivors(selected, shots, seed=81, keep_records=True, batch_size=65)
-        columns = original.num_measurements + original.num_detectors + original.num_observables
-        projections = rng.integers(0, 2, size=(columns, 32), dtype=np.uint8)
-        p = joint_frequencies(reference, shots, projections)
-        q = joint_frequencies(actual, shots, projections)
-        pooled = (p + q) / 2
-        # Compare marginals and joint parities per attempted shot, so rejected
-        # mass and accepted-output correlations both contribute to the check.
-        tolerance = 7 * np.sqrt(2 * pooled * (1 - pooled) / shots) + 5 / shots
-        assert np.all(np.abs(p - q) <= tolerance)
-        counts = clifft.sample_survivors(
-            selected, shots, seed=103, keep_records=False, batch_size=65
-        )
-        p = (
-            np.r_[reference.passed_shots, reference.logical_errors, reference.observable_ones]
-            / shots
-        )
-        q = np.r_[counts.passed_shots, counts.logical_errors, counts.observable_ones] / shots
-        pooled = (p + q) / 2
-        tolerance = 7 * np.sqrt(2 * pooled * (1 - pooled) / shots) + 5 / shots
-        assert np.all(np.abs(p - q) <= tolerance)
+    projections = rng.integers(0, 2, size=(columns, 32), dtype=np.uint8)
+    p = joint_frequencies(reference, shots, projections)
+    q = joint_frequencies(actual, shots, projections)
+    pooled = (p + q) / 2
+    # Compare marginals and joint parities per attempted shot, so rejected
+    # mass and accepted-output correlations both contribute to the check.
+    tolerance = 7 * np.sqrt(2 * pooled * (1 - pooled) / shots) + 5 / shots
+    assert np.all(np.abs(p - q) <= tolerance)
+    counts = clifft.sample_survivors(selected, shots, seed=103, keep_records=False, batch_size=65)
+    p = np.r_[reference.passed_shots, reference.logical_errors, reference.observable_ones] / shots
+    q = np.r_[counts.passed_shots, counts.logical_errors, counts.observable_ones] / shots
+    pooled = (p + q) / 2
+    tolerance = 7 * np.sqrt(2 * pooled * (1 - pooled) / shots) + 5 / shots
+    assert np.all(np.abs(p - q) <= tolerance)
