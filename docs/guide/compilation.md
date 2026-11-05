@@ -90,17 +90,15 @@ affects active width.
 
 ## Global reconstruction for sampling
 
-When a circuit has many non-Clifford gates whose intermediate quantum state is
-discarded or measured out, `reconstruction=True` can build a smaller sampling
-plan that preserves the joint distribution of the requested classical outputs.
-This is particularly effective for magic-state cultivation and distillation
-circuits, where global Clifford dilation and projection folding can reduce peak
-active width beyond what local HIR passes achieve.
+For repeated CPU sampling, `reconstruction=True` can reduce the active quantum
+state beyond local optimization, particularly in magic-state cultivation and
+distillation circuits. It reorganizes the computation while preserving the
+joint distribution of measurement records, detectors, observables, and
+postselection acceptance. The option is off by default.
 
-This small example disables the original plan's HIR passes to make selection
-visible: reconstruction reduces its peak active width from two to one. Leave
-`hir_passes` at its default for ordinary use; the default passes already reduce
-this particular circuit to width one.
+This small example uses `hir_passes=None` to expose a width reduction from two
+to one. Keep the default passes for ordinary use; they already achieve width
+one on this example.
 
 ```python
 import clifft
@@ -115,48 +113,28 @@ print(info)
 result = clifft.sample(program, shots=100, seed=42)
 ```
 
-Compilation prepares up to two reconstructed plans alongside the original
-executable: one that retains all measurement records, detectors, and
-observables, and one that retains only detectors and observables. `sample()`
-uses the full-output plan, while `sample_survivors()` chooses between them
-based on `keep_records`. Output order, reference parities, correlations, and
-postselection acceptance probabilities are preserved.
+`sample()` uses the plan retaining all records; `sample_survivors()` selects a
+plan according to `keep_records`. Use `reconstruction_info(keep_records=...)`
+to inspect selection, active width, and the fallback reason. Unsupported
+circuits, resource limits, or insufficient width reduction retain the original
+plan. Supported circuits use Clifford+T gates, Pauli noise, and symmetric
+readout noise; general-angle rotations and `EXP_VAL` probes fall back.
 
-Exact state and probability queries (`get_statevector()`,
-`basis_probabilities()`, `record_probabilities()`) and fixed-fault sampling
-(`sample_k()`, `sample_k_survivors()`) always use the original executable.
-`EXP_VAL` probes disable reconstruction.
+Standard `Program` metadata, `inspect()`, exact queries, and fixed-fault sampling
+continue to use the original plan. Custom `hir_passes` configure that original
+pipeline; reconstructed candidates use the default passes.
 
-`reconstruction_info(keep_records=...)` reports `selected`, `fallback_reason`,
-the selected `peak_active_width` and `num_actions`, and
-`original_peak_active_width`. Standard `Program` properties such as
-`num_qubits`, `peak_active_width`, `noise_site_probabilities`, and `inspect()`
-continue to describe the original executable. Each reconstructed candidate is
-selected only when it is supported, stays within compiler resource limits, and
-strictly reduces peak active width compared to the original plan. To limit
-compilation cost, candidates whose scheduled width is no smaller than the
-original are skipped before lowering and HIR optimization. This heuristic can
-miss reductions that later optimization would find. Clifford circuits already
-at width zero skip the search.
+Compare total compilation and sampling time at your intended shot count.
+Unsuccessful attempts can still cost several times ordinary compilation, and
+the early width guard can miss improvements found by later optimization.
+Reconstructed detector checks run at the end of the shot, which can reduce the
+benefit of early postselection. Seeded results are reproducible for a fixed
+configuration but can differ from the original plan.
 
-Reconstruction supports Clifford+T circuits with Pauli measurements, resets,
-record-controlled Pauli feedback, categorical Pauli noise, and symmetric
-readout noise. General-angle rotations, noncomputational instruments,
-asymmetric readout noise, and custom HIR passes that alter the sampling
-distribution (such as `RemoveNoisePass`) fall back to the original plan.
-Reconstructed HIR runs the default HIR optimization pipeline; `hir_passes`
-configures only the original pipeline.
-
-Because reconstruction adds compilation time and extra plans, compare end-to-end
-compile plus sampling time at your target shot count, especially on circuits
-that rely on early detector postselection (reconstructed detector checks run at
-the end of the shot). An unsuccessful attempt can still take several times the
-ordinary compilation time because dilation and scheduling precede the width
-check. Seeded runs are reproducible for a given compiled program and
-`keep_records` setting, though individual trajectories may differ from the
-original plan. The option is off by default and applies to `clifft.compile()`
-for CPU sampling; `clifft.lower()` and experimental GPU compilation prepare
-only the supplied HIR.
+See [the reconstruction theory](../theory/stabilizer-optimization.md#closed-output-global-reconstruction)
+for the transformation, eligibility, and cost guard, and
+[program architecture](../theory/architecture.md#python-bindings) for plan ownership
+and execution paths.
 
 ## Inspect or customize the pipeline
 

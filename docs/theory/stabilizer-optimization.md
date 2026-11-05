@@ -108,12 +108,16 @@ planner and executor.
 Compilation builds up to two reconstructed candidates: one retaining all
 measurement records, detectors, and observables (used when `keep_records=True`),
 and one retaining only detectors and observables (used by `sample_survivors(...,
-keep_records=False)`). Each candidate runs the default HIR pass pipeline and is
-selected only when its lowered plan achieves a strictly smaller peak active
-width than the original plan. Explicit resource bounds cap circuit size,
-dilation qubits, noise channels, and scheduling work; unsupported operations
-(such as general-angle rotations, `EXP_VAL` probes, asymmetric readout noise,
-or distribution-altering HIR passes) fall back cleanly to the original plan.
+keep_records=False)`). To limit compilation cost, a candidate proceeds to
+lowering and the default HIR passes only when its scheduled peak active width
+is strictly smaller than the original plan's. This heuristic can miss reductions
+that later optimization would find. The optimized candidate must still have a
+strictly smaller peak active width to be selected. Dilation and scheduling
+precede the guard, so unsuccessful attempts can remain expensive. Explicit
+resource bounds cap circuit size, dilation qubits, noise channels, and scheduling
+work; unsupported operations (such as general-angle rotations, `EXP_VAL` probes,
+asymmetric readout noise, or distribution-altering HIR passes) fall back to the
+original plan.
 
 ## Stabilizer-Based Simplification
 
