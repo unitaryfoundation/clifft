@@ -80,6 +80,36 @@ TEST_CASE("OpenQASM 2 evaluates constant angle expressions") {
     CHECK(imported.circuit.nodes[5].args[0] == Catch::Approx(512.0 / std::numbers::pi));
 }
 
+TEST_CASE("OpenQASM 2 bounds expression nesting depth") {
+    const auto source_with = [](const std::string& expression) {
+        return "OPENQASM 2.0; include \"qelib1.inc\"; qreg q[1]; rz(" + expression + ") q[0];";
+    };
+    const auto parenthesized = [](size_t depth) {
+        return std::string(depth, '(') + "1" + std::string(depth, ')');
+    };
+    const auto nested_sin = [](size_t depth) {
+        std::string expression;
+        for (size_t i = 0; i < depth; i++)
+            expression += "sin(";
+        return expression + "0" + std::string(depth, ')');
+    };
+    std::string power_chain = "1";
+    for (int i = 0; i < 200000; i++)
+        power_chain += "^1";
+
+    const Qasm2Import imported = parse_qasm2(source_with(parenthesized(99)));
+    REQUIRE(imported.circuit.nodes.size() == 1);
+    CHECK(imported.circuit.nodes[0].args[0] == Catch::Approx(1.0 / std::numbers::pi));
+    CHECK_NOTHROW(parse_qasm2(source_with(nested_sin(99))));
+    CHECK_THROWS_AS(parse_qasm2(source_with(parenthesized(100))), ParseError);
+
+    // Each of these overflows the native stack when nesting is unbounded.
+    CHECK_THROWS_AS(parse_qasm2(source_with(parenthesized(200000))), ParseError);
+    CHECK_THROWS_AS(parse_qasm2(source_with(std::string(200000, '-') + "1")), ParseError);
+    CHECK_THROWS_AS(parse_qasm2(source_with(power_chain)), ParseError);
+    CHECK_THROWS_AS(parse_qasm2(source_with(nested_sin(200000))), ParseError);
+}
+
 TEST_CASE("OpenQASM 2 lowers Euler gates with their source phase") {
     const Qasm2Import u1 = parse_qasm2(R"(
         OPENQASM 2.0;
