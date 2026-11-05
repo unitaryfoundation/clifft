@@ -1313,12 +1313,16 @@ NB_MODULE(_clifft_core, m) {
         "per-op 'widths' (the width after each op) and 'effects' (a "
         "lower-case effect name per op).");
 
-    nb::class_<clifft::Program>(m, "Program", "A reusable compiled sampling program")
+    nb::class_<clifft::Program>(
+        m, "Program",
+        "A reusable compiled program.\n\n"
+        "Properties and inspect() describe the original executable. Use sampling_info() "
+        "for the plan selected by ordinary CPU sampling.")
         .def_prop_ro(
             "peak_active_width",
             [](const clifft::Program& p) { return p.original().peak_active_width(); },
             "Largest active width reached by the original executable. "
-            "Use reconstruction_info() for ordinary sampling selection.")
+            "Use sampling_info() for ordinary sampling selection.")
         .def_prop_ro(
             "peak_rank",
             [](const clifft::Program& p) {
@@ -1343,8 +1347,10 @@ NB_MODULE(_clifft_core, m) {
                      [](const clifft::Program& p) { return p.original().num_exp_vals(); })
         .def_prop_ro("has_postselection",
                      [](const clifft::Program& p) { return p.original().has_postselection(); })
-        .def_prop_ro("num_actions",
-                     [](const clifft::Program& p) { return p.original().num_actions(); })
+        .def_prop_ro(
+            "num_actions", [](const clifft::Program& p) { return p.original().num_actions(); },
+            "Number of actions in the original executable. "
+            "Use sampling_info() for ordinary sampling selection.")
         .def_prop_ro(
             "noise_site_probabilities",
             [](const clifft::Program& p) {
@@ -1371,7 +1377,7 @@ NB_MODULE(_clifft_core, m) {
             "The format is diagnostic output for debugging and tooling, not a "
             "stable machine-readable interface.")
         .def(
-            "reconstruction_info",
+            "sampling_info",
             [](const clifft::Program& p, bool keep_records) {
                 const auto& plan = p.sampling_plan(keep_records);
                 nb::dict info;
@@ -1383,8 +1389,21 @@ NB_MODULE(_clifft_core, m) {
                 return info;
             },
             nb::arg("keep_records") = true,
-            "Describe the plan selected for ordinary sampling with the given keep_records setting. "
-            "State queries and fixed-fault sampling always use the original program.")
+            "Describe the executable selected for ordinary CPU sampling.\n\n"
+            "Works whether reconstruction is disabled, selected, or falls back to the original "
+            "executable. State queries, exact probabilities, replay, and fixed-fault sampling "
+            "use the original executable described by Program properties.\n\n"
+            "Args:\n"
+            "    keep_records: Use True for sample(). For sample_survivors(), match its "
+            "keep_records argument (False by default).\n\n"
+            "Returns:\n"
+            "    dict: Sampling metadata with these fields:\n\n"
+            "        - `peak_active_width`: Largest active width of the selected executable.\n"
+            "        - `num_actions`: Number of actions in that same executable.\n"
+            "        - `original_peak_active_width`: Width reported by Program.peak_active_width.\n"
+            "        - `selected`: Whether a reconstructed executable is selected.\n"
+            "        - `fallback_reason`: Why the original executable is used; empty when "
+            "reconstruction is selected.")
         .def("__repr__", [](const clifft::Program& p) {
             return "Program(" + std::to_string(p.original().num_actions()) +
                    " actions, peak_active_width=" +
@@ -1559,6 +1578,8 @@ NB_MODULE(_clifft_core, m) {
                 "batch_size: int | typing.Literal['auto', 'tune'] = 'auto', *, "
                 "tuning_budget_seconds: float | None = None) -> clifft.SampleResult"),
         "Run a compiled program and return a SampleResult.\n\n"
+        "Use program.sampling_info(keep_records=True) to inspect this call's selected "
+        "executable width and action count.\n\n"
         "Raises ValueError for post-selected programs because fixed-row output\n"
         "cannot represent discarded shots. Use sample_survivors() instead.\n\n"
         "If seed is None (default), uses hardware entropy. threads is a positive\n"
@@ -1786,6 +1807,8 @@ NB_MODULE(_clifft_core, m) {
                 "batch_size: int | typing.Literal['auto', 'tune'] = 'auto', *, "
                 "tuning_budget_seconds: float | None = None) -> clifft.SampleResult"),
         "Sample shots and return results only for surviving (non-discarded) shots.\n\n"
+        "Use program.sampling_info(keep_records=keep_records) to inspect this call's selected "
+        "executable width and action count. Match keep_records to this call (False by default).\n\n"
         "If seed is None (default), uses hardware entropy. threads is a positive\n"
         "total worker budget or 'auto' to use the implementation-reported hardware\n"
         "concurrency; it defaults to 1. thread_layout=(shot_workers,\n"

@@ -23,8 +23,8 @@ def compile_selected(source=SOURCE, **kwargs):
     # Keep the independent rotations concurrent in the original plan so this
     # small circuit exercises actual selection as well as the full MSC fixtures.
     program = clifft.compile(source, hir_passes=None, reconstruction=True, **kwargs)
-    assert program.reconstruction_info()["selected"]
-    assert program.reconstruction_info(False)["selected"]
+    assert program.sampling_info()["selected"]
+    assert program.sampling_info(False)["selected"]
     return program
 
 
@@ -35,6 +35,42 @@ def assert_same_result(a, b):
         assert getattr(a, name) == getattr(b, name)
 
 
+@pytest.mark.parametrize("keep_records", [False, True])
+def test_sampling_info_reports_original_without_reconstruction(keep_records):
+    programs = (
+        clifft.compile(SOURCE),
+        clifft.lower(clifft.trace(clifft.parse(SOURCE))),
+    )
+    for program in programs:
+        info = program.sampling_info(keep_records=keep_records)
+        assert not info["selected"]
+        assert info["fallback_reason"]
+        assert info["peak_active_width"] == program.peak_active_width
+        assert info["original_peak_active_width"] == program.peak_active_width
+        assert info["num_actions"] == program.num_actions
+
+
+def test_sampling_info_selects_output_specific_plan():
+    # With no detectors or observables, only retained-record sampling reconstructs.
+    program = clifft.compile(UNITARY + "M 0 1", hir_passes=None, reconstruction=True)
+    records = program.sampling_info(keep_records=True)
+    counts = program.sampling_info(keep_records=False)
+    assert program.sampling_info() == records
+    assert records["selected"]
+    assert not records["fallback_reason"]
+    assert records["peak_active_width"] == 1
+    assert records["original_peak_active_width"] == program.peak_active_width == 2
+    assert records["num_actions"] != program.num_actions
+    assert not counts["selected"]
+    assert counts["fallback_reason"]
+    assert counts["peak_active_width"] == counts["original_peak_active_width"] == 2
+    assert counts["num_actions"] == program.num_actions
+    for keep_records in (True, False):
+        result = clifft.sample_survivors(program, 65, seed=9, keep_records=keep_records)
+        assert result.total_shots == result.passed_shots == 65
+        assert result.measurements.shape == (65 if keep_records else 0, 2)
+
+
 def test_program_metadata_and_exact_queries_use_original_plan():
     original = clifft.compile(SOURCE, hir_passes=None)
     selected = compile_selected()
@@ -42,12 +78,13 @@ def test_program_metadata_and_exact_queries_use_original_plan():
     assert selected.inspect() == original.inspect()
     assert selected.inspect_action(0) == original.inspect_action(0)
     assert repr(selected) == repr(original)
+    assert selected.num_actions == original.num_actions
     assert selected.peak_active_width == 2
-    assert selected.reconstruction_info()["peak_active_width"] == 1
+    assert selected.sampling_info()["peak_active_width"] == 1
     records = np.array([[0, 0], [1, 0], [0, 1], [1, 1]], dtype=np.uint8)
     probabilities = np.abs(qiskit_statevector(stim_to_qiskit_noiseless(UNITARY))) ** 2
     measured = clifft.compile(UNITARY + "M 0 1", hir_passes=None, reconstruction=True)
-    assert measured.reconstruction_info()["selected"]
+    assert measured.sampling_info()["selected"]
     np.testing.assert_allclose(clifft.record_probabilities(measured, records), probabilities)
     for program in (original, selected):
         with pytest.raises(ValueError, match="detectors"):
@@ -61,14 +98,14 @@ def test_program_metadata_and_exact_queries_use_original_plan():
             clifft.get_statevector(program)
 
     unitary = clifft.compile(UNITARY, reconstruction=True)
-    assert not unitary.reconstruction_info()["selected"]
+    assert not unitary.sampling_info()["selected"]
     reference = qiskit_statevector(stim_to_qiskit_noiseless(UNITARY))
     qasm = clifft.compile(
         'OPENQASM 2.0; include "qelib1.inc"; qreg q[2]; h q; t q; h q;',
         input_format="qasm2",
         reconstruction=True,
     )
-    assert not qasm.reconstruction_info()["selected"]
+    assert not qasm.sampling_info()["selected"]
     assert_statevectors_equiv(clifft.get_statevector(qasm), reference)
     assert_statevectors_equiv(clifft.get_statevector(unitary), reference)
     np.testing.assert_allclose(clifft.basis_probabilities(unitary, records), np.abs(reference) ** 2)
@@ -238,8 +275,14 @@ def test_forced_faults_keep_original_sites_and_seeded_results(
 def test_unsupported_or_unprofitable_sampling_falls_back(source, reason):
     original = clifft.compile(source)
     fallback = clifft.compile(source, reconstruction=True)
-    assert not fallback.reconstruction_info()["selected"]
-    assert reason.lower() in fallback.reconstruction_info()["fallback_reason"].lower()
+    assert not fallback.sampling_info()["selected"]
+    assert reason.lower() in fallback.sampling_info()["fallback_reason"].lower()
+    for keep_records in (False, True):
+        info = fallback.sampling_info(keep_records=keep_records)
+        assert not info["selected"]
+        assert info["peak_active_width"] == original.peak_active_width
+        assert info["original_peak_active_width"] == original.peak_active_width
+        assert info["num_actions"] == original.num_actions
     assert_same_result(clifft.sample(original, 65, seed=9), clifft.sample(fallback, 65, seed=9))
 
 
@@ -249,8 +292,8 @@ def test_intentional_hir_transformations_are_not_undone(pass_type):
     passes.add(pass_type())
     original = clifft.compile(NOISY, hir_passes=passes)
     fallback = clifft.compile(NOISY, hir_passes=passes, reconstruction=True)
-    assert not fallback.reconstruction_info()["selected"]
-    assert "HIR passes" in fallback.reconstruction_info()["fallback_reason"]
+    assert not fallback.sampling_info()["selected"]
+    assert "HIR passes" in fallback.sampling_info()["fallback_reason"]
     assert_same_result(clifft.sample(original, 65, seed=9), clifft.sample(fallback, 65, seed=9))
 
 
@@ -266,7 +309,7 @@ def test_python_owned_pass_preserves_reconstruction_selection():
     program = clifft.compile(NOISY, hir_passes=passes, reconstruction=True)
     expected = compile_selected(NOISY)
     for keep_records in (False, True):
-        assert program.reconstruction_info(keep_records)["selected"]
+        assert program.sampling_info(keep_records)["selected"]
         assert_same_result(
             clifft.sample_survivors(program, 65, seed=9, keep_records=keep_records),
             clifft.sample_survivors(expected, 65, seed=9, keep_records=keep_records),
@@ -285,7 +328,7 @@ def test_full_noisy_msc_uses_reconstructed_plans_with_default_passes(distance, w
         passes.add(clifft.ActiveWidthSchedulePass())
     program = clifft.compile(source, hir_passes=passes, reconstruction=True)
     for keep_records in (False, True):
-        info = program.reconstruction_info(keep_records)
+        info = program.sampling_info(keep_records)
         assert info["selected"] and info["peak_active_width"] == width
         result = clifft.sample_survivors(
             program, 65, seed=7, keep_records=keep_records, batch_size=65
@@ -320,8 +363,8 @@ def test_full_noisy_msc_joint_statistics_and_acceptance(distance, postselection)
     selected = clifft.compile(
         source, reconstruction=True, postselection_mask=mask, normalize_syndromes=True
     )
-    assert selected.reconstruction_info()["selected"]
-    assert selected.reconstruction_info(False)["selected"]
+    assert selected.sampling_info()["selected"]
+    assert selected.sampling_info(False)["selected"]
     shots = 8192 if postselection == "all" else 4096
     reference = clifft.sample_survivors(original, shots, seed=34, keep_records=True, batch_size=1)
     actual = clifft.sample_survivors(selected, shots, seed=81, keep_records=True, batch_size=65)

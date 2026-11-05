@@ -163,7 +163,7 @@ Because the reconstructed plans preserve only the classical output distribution
 and postselection acceptance probability, state and exact-probability queries,
 replay, and fixed-fault sampling always use the original plan. Standard
 `Program` metadata and `inspect()` also describe the original plan, while
-`reconstruction_info(keep_records=...)` reports the plan selected for ordinary
+`sampling_info(keep_records=...)` reports the plan selected for ordinary
 sampling. Experimental GPU and WebAssembly paths prepare a single executable.
 
 `clifft.get_statevector(program)` expands an eligible pure-state program into

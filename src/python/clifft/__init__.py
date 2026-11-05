@@ -343,7 +343,7 @@ def compile(
             full-record sampling and survivor-count sampling. To limit cost,
             candidates must reduce peak active width before lowering and after
             optimization. Inspect
-            ``program.reconstruction_info(keep_records=...)`` for details.
+            ``program.sampling_info(keep_records=...)`` for details.
             State queries, exact probabilities, and fixed-fault sampling always
             use the original plan.
     """

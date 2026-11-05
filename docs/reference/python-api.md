@@ -128,6 +128,11 @@ directional overrides, and circuit annotation ordering.
 
 ## Compiled Programs
 
+See [Inspect sampling cost](../guide/compilation.md#inspect-sampling-cost) for
+matching `Program.sampling_info()` to an ordinary sampling call. Program
+properties describe the original executable used by exact queries and
+fixed-fault sampling.
+
 ::: clifft.Program
 
 ## Circuit and IR Inspection
