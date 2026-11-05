@@ -97,11 +97,21 @@ This is particularly effective for magic-state cultivation and distillation
 circuits, where global Clifford dilation and projection folding can reduce peak
 active width beyond what local HIR passes achieve.
 
+This small example disables the original plan's HIR passes to make selection
+visible: reconstruction reduces its peak active width from two to one. Leave
+`hir_passes` at its default for ordinary use; the default passes already reduce
+this particular circuit to width one.
+
 ```python
 import clifft
 
-program = clifft.compile("H 0\nT 0\nH 0\nM 0", reconstruction=True)
-print(program.reconstruction_info(keep_records=True))
+program = clifft.compile(
+    "H 0 1\nT 0 1\nH 0 1\nM 0 1", hir_passes=None, reconstruction=True
+)
+info = program.reconstruction_info(keep_records=True)
+assert info["selected"]
+assert info["peak_active_width"] == 1
+print(info)
 result = clifft.sample(program, shots=100, seed=42)
 ```
 

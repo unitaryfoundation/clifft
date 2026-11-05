@@ -394,7 +394,7 @@ TEST_CASE("Reconstructed output snapshots do not require the source circuit", "[
                                         mode);
         REQUIRE(r.reconstruction.has_value());
         const auto& layout = r.reconstruction->outputs;
-        REQUIRE(layout.num_records == (mode == ReconstructionOutputs::Records ? 1 : 0));
+        REQUIRE(layout.num_records == (mode == ReconstructionOutputs::Records ? 1u : 0u));
         REQUIRE(layout.num_detectors == 1);
         REQUIRE(layout.num_observables == 3);
         const auto lowered = lower_global_reconstruction(*r.reconstruction);
@@ -478,13 +478,13 @@ TEST_CASE("Global reconstruction lowers complete noisy cultivation circuits",
             const auto r = reconstruct_global_sampling(source, mode);
             INFO(r.fallback_reason);
             REQUIRE(r.reconstruction.has_value());
-            REQUIRE(r.reconstruction->peak_active_width == (distance == 5 ? 6 : 8));
+            REQUIRE(r.reconstruction->peak_active_width == (distance == 5 ? 6u : 8u));
             auto lowered = lower_global_reconstruction(*r.reconstruction);
             INFO(lowered.fallback_reason);
             REQUIRE(lowered.hir.has_value());
             default_hir_pass_manager().run(*lowered.hir);
             const sampling::ExecutablePlan executable(sampling::plan_sampling(*lowered.hir));
-            REQUIRE(executable.peak_active_width() <= (distance == 5 ? 6 : 8));
+            REQUIRE(executable.peak_active_width() <= (distance == 5 ? 6u : 8u));
             REQUIRE(executable.num_visible_records() ==
                     (mode == ReconstructionOutputs::Records ? source.num_measurements : 0));
             REQUIRE(executable.num_detectors() == source.num_detectors);

@@ -269,15 +269,14 @@ void Dilation::clifford(const AstNode& node) {
     if (std::any_of(node.targets.begin(), node.targets.end(),
                     [](Target t) { return t.is_rec(); })) {
         require_supported(arity == 2 && node.targets[0].is_rec() && !node.targets[1].is_rec() &&
-                              (node.gate == GateType::CX || node.gate == GateType::CY ||
-                               node.gate == GateType::CZ),
+                              (node.gate == GateType::CX || node.gate == GateType::CZ),
                           "unsupported feedback");
         const auto& r = records_.at(node.targets[0].value());
         const auto control = highest(r.z);
         assert(control.has_value());
         const uint32_t q = qubit(node.targets[1].value());
         gate(node.gate, {*control, q});
-        error(q, node.gate == GateType::CX ? 'X' : node.gate == GateType::CY ? 'Y' : 'Z', r.sign);
+        error(q, node.gate == GateType::CX ? 'X' : 'Z', r.sign);
         return;
     }
     std::vector<uint32_t> qs;
@@ -834,7 +833,9 @@ HirModule lower_reconstruction(const GlobalReconstruction& r, const Reconstructi
     hir.num_measurements = visible;
     hir.num_detectors = r.outputs.num_detectors;
     hir.num_observables = r.outputs.num_observables;
-    hir.postselection = postselection;
+    hir.postselection.mask = postselection.mask;
+    hir.postselection.expected_detectors = postselection.expected_detectors;
+    hir.postselection.expected_observables = postselection.expected_observables;
 
     // 2. Emit compressed categorical noise channels as X flips on the auxiliary
     // fault-bit wires, then measure each fault wire into a hidden record.
