@@ -94,7 +94,14 @@ unlikely.
 
 Both the C++ and Python references track probability lost when branches are
 omitted. Tests check this against their required precision, and deliberately
-corrupted C++ results confirm that the comparisons detect errors.
+corrupted results confirm that the comparisons detect errors.
+
+The importance-sampling tests enumerate complete small categorical noise models
+independently of production noise-site extraction. They compare each fault-count
+stratum and recombine the joint record law, acceptance mass, and accepted-error
+mass before checking the conditional error rate. Rare acceptance is tested by
+sampling its fault-count stratum directly; relative precision budgets prevent a
+missing rare contribution from passing an absolute tolerance check.
 
 ## Layer-by-Layer C++ Unit Testing
 
