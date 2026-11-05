@@ -1,5 +1,8 @@
 """Integration tests for importance sampling (forced k-fault) API."""
 
+from fractions import Fraction
+from itertools import product
+
 import numpy as np
 import numpy.typing as npt
 import pytest
@@ -14,6 +17,87 @@ from utils_conformance import (
 )
 
 import clifft
+
+
+def categorical_noise_reference(
+    pauli_weights: tuple[Fraction, ...] = (
+        Fraction(1, 2),
+        Fraction(1, 10),
+        Fraction(3, 20),
+        Fraction(1, 4),
+    ),
+) -> npt.NDArray[np.float64]:
+    """Enumerate P(K, record) for a Bell decoder, correlated chain and readout.
+
+    The decoder maps I/X/Y/Z on the first Bell qubit to (z, x) =
+    00/01/11/10. The second site applies X1 X2 with probability 1/5,
+    Z0 X2 with probability (1 - 1/5)/2, or neither. Readout flips z
+    with probability 1/8; feedback copies that reported bit to qubit 3.
+    All 24 configurations are included using rational arithmetic: omitted
+    mass is exactly zero, independently of production noise-site extraction.
+    """
+    joint = np.full((4, 16), Fraction(0), dtype=object)
+    for pauli, correlated, readout in product(range(4), range(3), range(2)):
+        weight = (
+            pauli_weights[pauli]
+            * (Fraction(2, 5), Fraction(1, 5), Fraction(2, 5))[correlated]
+            * (Fraction(7, 8), Fraction(1, 8))[readout]
+        )
+        record = (0, 2, 3, 1)[pauli] ^ (0, 6, 5)[correlated] ^ readout
+        record |= (record & 1) << 3
+        k = (pauli != 0) + (correlated != 0) + readout
+        joint[k, record] += weight
+    assert joint.sum() == 1
+    return np.asarray(joint, dtype=np.float64)
+
+
+def assert_stratified_estimate(
+    rates: npt.NDArray[np.float64],
+    weights: npt.NDArray[np.float64],
+    reference: npt.NDArray[np.float64],
+    shots: int,
+    *,
+    context: str,
+) -> None:
+    """Compare reweighted event masses with a simultaneous Bernstein bound.
+
+    Rows are independent fixed-K experiments; columns are record/event bins.
+    Reference rows contain the complete record law followed by the acceptance
+    and accepted-error masses. These last two columns overlap the record bins.
+    No absolute tolerance floor can hide a missing rare event.
+    """
+    expected_weights = reference[:, :-2].sum(axis=1)
+    conditional = np.divide(
+        reference,
+        expected_weights[:, None],
+        out=np.zeros_like(reference),
+        where=expected_weights[:, None] != 0,
+    )
+    variance = (expected_weights**2) @ (conditional * (1 - conditional)) / shots
+    # Only nondeterministic strata contribute sampling uncertainty. This
+    # keeps a common deterministic stratum from masking a rare sampled one.
+    increments = np.where((conditional > 0) & (conditional < 1), expected_weights[:, None], 0)
+    log_bound = np.log(2 * reference.shape[1] / 1e-7)
+    expected = reference.sum(axis=0)
+    # Rational references round only when converted to FP64; allow a relative
+    # 1e-12 budget for conversion and the small weighted sums as well as shots.
+    tolerance = (
+        np.sqrt(2 * variance * log_bound)
+        + 2 * log_bound * increments.max(axis=0) / (3 * shots)
+        + 1e-12 * expected
+    )
+    actual = weights @ rates
+    assert np.all(np.isfinite(actual)) and np.all(
+        np.abs(actual - expected) <= tolerance
+    ), f"{context}: actual={actual}, reference={expected}, tolerance={tolerance}, omitted_mass=0"
+    # Propagate the separate mass bounds to the conditional logical-error
+    # ratio. The denominator must be resolved before the ratio is meaningful.
+    acceptance, errors = expected[-2:]
+    acceptance_bound, error_bound = tolerance[-2:]
+    assert acceptance > acceptance_bound, f"{context}: unresolved acceptance mass"
+    ratio = errors / acceptance
+    ratio_bound = (error_bound + ratio * acceptance_bound) / (acceptance - acceptance_bound)
+    assert abs(actual[-1] / actual[-2] - ratio) <= ratio_bound, f"{context}: normalization"
 
 
 def poisson_binomial_pmf(probs: npt.NDArray[np.float64], max_k: int) -> npt.NDArray[np.float64]:
@@ -439,6 +523,228 @@ class TestImportanceSamplingEndToEnd:
         assert weighted_errors / weighted_survival == pytest.approx(
             0.1 * 0.3 / survival_probability, abs=1e-12
         )
+
+
+class TestCategoricalNoiseModel:
+    """Resolve each physical outcome and recombine all fault-count strata."""
+
+    source = (
+        "H 0\nCX 0 1\nPAULI_CHANNEL_1(0.1, 0.15, 0.25) 0\n"
+        "E(0.2) X1 X2\nELSE_CORRELATED_ERROR(0.5) Z0 X2\n"
+        "CX 0 1\nH 0\nM(0.125) 0\nM 1 2\nCX rec[-3] 3\nM 3\n"
+        "DETECTOR rec[-4] rec[-2]\nOBSERVABLE_INCLUDE(0) rec[-3]"
+    )
+    records = (np.arange(16)[:, None] >> np.arange(4)) & 1
+    accepted = records[:, 0] == records[:, 2]
+    errors = accepted & (records[:, 1] == 1)
+
+    @pytest.mark.parametrize("pauli,correlated,readout", product(range(4), range(3), range(2)))
+    def test_each_physical_configuration(self, pauli: int, correlated: int, readout: int) -> None:
+        # Deterministic channel probabilities exercise production channel
+        # evolution separately from stochastic configuration selection.
+        probabilities = ",".join(str(int(pauli == channel)) for channel in (1, 2, 3))
+        source = (
+            self.source.replace("0.1, 0.15, 0.25", probabilities)
+            .replace("E(0.2)", f"E({int(correlated == 1)})")
+            .replace("ELSE_CORRELATED_ERROR(0.5)", f"ELSE_CORRELATED_ERROR({int(correlated == 2)})")
+            .replace("M(0.125)", f"M({readout})")
+        )
+        k = (pauli != 0) + (correlated != 0) + readout
+        result = clifft.sample_k(
+            clifft.compile(source), SMALL_CIRCUIT_SHOTS, k, seed=615, batch_size=65
+        )
+        record = (0, 2, 3, 1)[pauli] ^ (0, 6, 5)[correlated] ^ readout
+        record |= (record & 1) << 3
+        np.testing.assert_array_equal(
+            result.measurements,
+            np.broadcast_to(self.records[record], (SMALL_CIRCUIT_SHOTS, 4)),
+            err_msg=f"evolution: pauli={pauli}, correlated={correlated}, readout={readout}",
+        )
+
+    def test_conditional_and_recombined_laws(
+        self, importance_sampling_mode: CpuSamplingMode
+    ) -> None:
+        mode = importance_sampling_mode
+        program = mode.compile(self.source)
+        postselected = mode.compile(self.source, postselection_mask=[1])
+        joint = categorical_noise_reference()
+        expected_weights = joint.sum(axis=1)
+        # Extraction is an actual value under test, never the reference model.
+        np.testing.assert_allclose(
+            program.noise_site_probabilities, [0.5, 0.6, 0.125], rtol=1e-14, atol=0
+        )
+        weights = poisson_binomial_pmf(program.noise_site_probabilities, 3)
+        np.testing.assert_allclose(
+            weights, expected_weights, rtol=1e-14, atol=0, err_msg="stratum weights"
+        )
+        reference = np.column_stack(
+            (joint, joint[:, self.accepted].sum(axis=1), joint[:, self.errors].sum(axis=1))
+        )
+        rates = np.zeros_like(reference)
+        shots = 2049
+        for k, weight in enumerate(expected_weights):
+            conditional = joint[k] / weight
+            result = mode.sample_k(program, shots, k, seed=615 + k)
+            assert_joint_distribution(result.measurements, conditional)
+            np.testing.assert_array_equal(result.measurements[:, 3], result.measurements[:, 0])
+            np.testing.assert_array_equal(
+                result.detectors[:, 0], result.measurements[:, 0] ^ result.measurements[:, 2]
+            )
+            np.testing.assert_array_equal(result.observables[:, 0], result.measurements[:, 1])
+            keys = result.measurements @ (1 << np.arange(4))
+            rates[k, :16] = np.bincount(keys, minlength=16) / shots
+
+            survivors = mode.sample_k_survivors(
+                postselected, shots, k, seed=1615 + k, keep_records=True
+            )
+            acceptance = float(conditional[self.accepted].sum())
+            error_mass = float(conditional[self.errors].sum())
+            assert survivors.total_shots == shots
+            assert survivors.discards == shots - survivors.passed_shots
+            assert survivors.logical_errors == survivors.observables.sum()
+            np.testing.assert_array_equal(survivors.observable_ones, [survivors.logical_errors])
+            np.testing.assert_array_equal(survivors.detectors, 0)
+            rates[k, 16:] = np.array([survivors.passed_shots, survivors.logical_errors]) / shots
+            for observed, expected in zip(rates[k, 16:], (acceptance, error_mass), strict=True):
+                assert abs(observed - expected) < binomial_tolerance(
+                    expected, shots
+                ), f"survivor mass: k={k}"
+            assert_joint_distribution(
+                survivors.measurements, conditional * self.accepted / acceptance
+            )
+
+        assert_stratified_estimate(
+            rates, weights, reference, shots, context="categorical reweighting"
+        )
+        # Independent unconditional sampling must retain the same joint law.
+        assert_joint_distribution(
+            mode.sample(program, shots, seed=2615).measurements, joint.sum(axis=0)
+        )
+
+    @pytest.mark.parametrize("mutation", ["weights", "channels", "exclusivity", "normalization"])
+    def test_comparison_rejects_wrong_models(self, mutation: str) -> None:
+        joint = categorical_noise_reference()
+        weights = joint.sum(axis=1)
+        reference = np.column_stack(
+            (joint, joint[:, self.accepted].sum(axis=1), joint[:, self.errors].sum(axis=1))
+        )
+        rates = reference / weights[:, None]
+        if mutation == "weights":
+            weights = np.full(4, 0.25)
+        elif mutation == "channels":
+            # Keep the firing probability but choose X/Y/Z uniformly.
+            wrong = categorical_noise_reference((Fraction(1, 2),) + (Fraction(1, 6),) * 3)
+            rates[:, :16] = wrong / wrong.sum(axis=1)[:, None]
+        elif mutation == "exclusivity":
+            # When only the Pauli site fires, incorrectly draw X/Y/Z as
+            # independent Bernoullis instead of one categorical outcome.
+            site_weight = 0.5 * 0.4 * 0.875 / weights[1]
+            channels = np.array([0.2, 0.3, 0.5])
+            rates[1, [2, 11, 9]] -= site_weight * channels
+            for x, y, z in product((0, 1), repeat=3):
+                probability = np.prod(np.where((x, y, z), channels, 1 - channels))
+                record = (2 * x) ^ (11 * y) ^ (9 * z)
+                rates[1, record] += site_weight * probability
+        else:
+            # Averaging per-stratum error/accepted ratios biases the result.
+            rates[:, 17] /= rates[:, 16]
+        with pytest.raises(AssertionError, match="negative control"):
+            assert_stratified_estimate(
+                rates, weights, reference, 2049, context=f"negative control: {mutation}"
+            )
+
+
+class TestRareCategoricalAcceptance:
+    """Resolve rare accepted mass by conditioning on its firing site."""
+
+    probability = 2.0**-48
+    source = (
+        "X_ERROR(1) 2\nX_ERROR(0) 3\nH 0\nCX 0 1\n"
+        f"PAULI_CHANNEL_1({probability / 4}, {probability / 2}, {probability / 4}) 0\n"
+        "CX 0 1\nH 0\nX 1\nM 0 1 2 3\n"
+        "DETECTOR rec[-3]\nOBSERVABLE_INCLUDE(0) rec[-4]"
+    )
+
+    @classmethod
+    def reference(cls) -> npt.NDArray[np.float64]:
+        # Every value is a representable dyadic rational. All configurations
+        # are included, with no pruning or aggregation loss. The smallest
+        # nonzero branch is 2^-50, far below an absolute 1e-12 tolerance.
+        joint = np.zeros((4, 16))
+        joint[1, 6] = 1 - cls.probability
+        joint[2, [4, 5, 7]] = cls.probability * np.array([0.25, 0.5, 0.25])
+        assert joint.sum() == 1
+        acceptance = joint[:, [4, 5]].sum(axis=1)
+        errors = joint[:, 5]
+        return np.column_stack((joint, acceptance, errors))
+
+    def test_rare_mass_and_zero_strata(self, importance_sampling_mode: CpuSamplingMode) -> None:
+        mode = importance_sampling_mode
+        program = mode.compile(self.source)
+        postselected = mode.compile(self.source, postselection_mask=[1])
+        np.testing.assert_array_equal(program.noise_site_probabilities, [1, 0, self.probability])
+        reference = self.reference()
+        weights = poisson_binomial_pmf(program.noise_site_probabilities, 3)
+        np.testing.assert_allclose(weights, reference[:, :16].sum(axis=1), rtol=1e-14, atol=0)
+        rates = np.zeros_like(reference)
+        shots = 2049
+        for k in (0, 3):
+            with pytest.raises(ValueError, match="zero probability mass"):
+                mode.sample_k(program, 1, k, seed=48)
+            with pytest.raises(ValueError, match="zero probability mass"):
+                mode.sample_k_survivors(postselected, 1, k, seed=48)
+        for k in (1, 2):
+            result = mode.sample_k(program, shots, k, seed=48 + k)
+            assert_joint_distribution(result.measurements, reference[k, :16] / weights[k])
+            keys = result.measurements @ (1 << np.arange(4))
+            rates[k, :16] = np.bincount(keys, minlength=16) / shots
+            survivors = mode.sample_k_survivors(
+                postselected, shots, k, seed=148 + k, keep_records=True
+            )
+            assert survivors.total_shots == shots
+            assert survivors.discards == shots - survivors.passed_shots
+            assert survivors.logical_errors == survivors.observables.sum()
+            np.testing.assert_array_equal(survivors.observable_ones, [survivors.logical_errors])
+            rates[k, 16:] = np.array([survivors.passed_shots, survivors.logical_errors]) / shots
+            if k == 1:
+                assert survivors.passed_shots == survivors.logical_errors == 0
+                assert survivors.measurements.shape == (0, 4)
+            else:
+                accepted = np.zeros(16)
+                accepted[[4, 5]] = [1 / 3, 2 / 3]
+                assert_joint_distribution(survivors.measurements, accepted)
+                np.testing.assert_array_equal(survivors.detectors, 0)
+        # P(accept) = 3p/4 and P(error AND accept) = p/2, so the
+        # conditional logical-error probability is 2/3 despite rare acceptance.
+        assert_stratified_estimate(rates, weights, reference, shots, context="rare acceptance")
+
+    @pytest.mark.parametrize("factor", [0.0, 0.5])
+    def test_comparison_rejects_lost_rare_mass(self, factor: float) -> None:
+        reference = self.reference()
+        weights = reference[:, :16].sum(axis=1)
+        rates = np.divide(
+            reference, weights[:, None], out=np.zeros_like(reference), where=weights[:, None] != 0
+        )
+        weights[2] *= factor
+        # Reweighting both numerator and denominator incorrectly preserves
+        # their ratio. Separate branch-relative mass checks still reject it.
+        with pytest.raises(AssertionError, match="rare negative control"):
+            assert_stratified_estimate(
+                rates, weights, reference, 2049, context="rare negative control"
+            )
+
+
+def test_conditioning_rejects_asymmetric_readout(importance_sampling_mode: CpuSamplingMode) -> None:
+    mode = importance_sampling_mode
+    source = "H 0\nM 0\nREADOUT_NOISE(0.1, 0.2) rec[-1]\nDETECTOR rec[-1]"
+    program = mode.compile(source)
+    postselected = mode.compile(source, postselection_mask=[1])
+    with pytest.raises(ValueError, match="asymmetric readout"):
+        _ = program.noise_site_probabilities
+    with pytest.raises(ValueError, match="asymmetric readout"):
+        mode.sample_k(program, 1, 1, seed=615)
+    with pytest.raises(ValueError, match="asymmetric readout"):
+        mode.sample_k_survivors(postselected, 1, 1, seed=615)
 
 
 class TestActiveFaults:
