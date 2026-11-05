@@ -440,14 +440,23 @@ class Parser {
         return value;
     }
 
+    // Every recursive expression path passes through here, so bounding it keeps
+    // adversarial nesting from overflowing the native stack.
     double parse_unary() {
+        if (expression_depth_ >= kMaxExpressionDepth) {
+            throw ParseError("Max expression nesting depth exceeded", token_.line);
+        }
+        ++expression_depth_;
+        double value;
         if (consume_symbol('+')) {
-            return parse_unary();
+            value = parse_unary();
+        } else if (consume_symbol('-')) {
+            value = -parse_unary();
+        } else {
+            value = parse_power();
         }
-        if (consume_symbol('-')) {
-            return -parse_unary();
-        }
-        return parse_power();
+        --expression_depth_;
+        return value;
     }
 
     double parse_primary() {
@@ -615,9 +624,11 @@ class Parser {
         }
     }
 
+    static constexpr uint32_t kMaxExpressionDepth = 100;
     Lexer lexer_;
     Token token_;
     size_t max_ops_;
+    uint32_t expression_depth_ = 0;
     bool qelib1_included_ = false;
     std::unordered_map<std::string, Register> registers_;
     Qasm2Import result_;
