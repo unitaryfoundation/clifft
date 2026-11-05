@@ -93,6 +93,9 @@ The result includes aggregate survivor information:
 - `logical_errors`: number of logical errors among survivors
 - `observable_ones`: per-observable error counts
 
+`observable_ones` always has shape `(program.num_observables,)`; a zero-shot
+run contains zero counts. Use `result.total_shots == 0` to identify an empty run.
+
 By default, the per-shot arrays are empty, and `EXP_VAL` probe values are not
 included in the aggregate statistics. CPU scalar and packed execution also skip
 evaluating these probes when `keep_records=False`, avoiding their evaluation cost

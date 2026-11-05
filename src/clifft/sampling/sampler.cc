@@ -291,10 +291,10 @@ SamplingSurvivorResult sample_surviving_rows(const ExecutablePlan& plan, uint32_
                                              RunShot&& run_shot) {
     SamplingSurvivorResult result;
     result.total_shots = shots;
+    result.observable_ones.resize(plan.num_observables(), 0);
     if (shots == 0) {
         return result;
     }
-    result.observable_ones.resize(plan.num_observables(), 0);
     if (keep_records) {
         result.measurements.resize(checked_output_size(shots, plan.num_visible_records()));
         result.detectors.resize(checked_output_size(shots, plan.num_detectors()));
@@ -366,10 +366,10 @@ SamplingSurvivorResult sample_surviving_batches(const ExecutablePlan& plan, uint
                                                 MakeWorker&& make_worker, RunBatch&& run_batch) {
     SamplingSurvivorResult result;
     result.total_shots = shots;
+    result.observable_ones.resize(plan.num_observables(), 0);
     if (shots == 0) {
         return result;
     }
-    result.observable_ones.resize(plan.num_observables(), 0);
     if (keep_records) {
         result.measurements.resize(checked_output_size(shots, plan.num_visible_records()));
         result.detectors.resize(checked_output_size(shots, plan.num_detectors()));

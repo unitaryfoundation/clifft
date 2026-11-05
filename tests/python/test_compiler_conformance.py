@@ -429,9 +429,7 @@ def test_reconstructed_outputs_cross_word_and_batch_boundaries(shots: int) -> No
         )
         assert result.total_shots == result.passed_shots == result.logical_errors == shots
         assert result.discards == 0
-        # Zero-shot calls leave aggregate totals empty even though per-shot
-        # arrays retain their output widths.
-        np.testing.assert_array_equal(result.observable_ones, [0, shots] if shots else [])
+        np.testing.assert_array_equal(result.observable_ones, [0, shots])
         _assert_boundary_outputs(result, shots if keep_records else 0)
     _assert_boundary_outputs(
         clifft.sample(program, shots, seed=1907, batch_size=65, threads=2), shots

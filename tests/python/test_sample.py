@@ -1059,17 +1059,27 @@ class TestSampleSurvivors:
                 rtol=0,
             )
 
-    def test_zero_shots_returns_empty_result(self, sampling_mode: SamplingMode) -> None:
-        """Zero shots preserves the existing empty-result contract."""
-        program = sampling_mode.compile("M 0\nOBSERVABLE_INCLUDE(0) rec[-1]")
-        result = sampling_mode.sample_survivors(program, 0, seed=42)
+    @pytest.mark.parametrize("keep_records", [False, True])
+    @pytest.mark.parametrize("num_observables", [0, 2])
+    def test_zero_shots_preserves_output_widths(
+        self, sampling_mode: SamplingMode, keep_records: bool, num_observables: int
+    ) -> None:
+        circuit = "M 0\nDETECTOR rec[-1]\nEXP_VAL Z0\n"
+        if num_observables:
+            circuit += f"OBSERVABLE_INCLUDE({num_observables - 1}) rec[-1]\n"
+        program = sampling_mode.compile(circuit)
+        result = sampling_mode.sample_survivors(program, 0, seed=42, keep_records=keep_records)
 
         assert result.total_shots == 0
         assert result.passed_shots == 0
-        assert len(result.observable_ones) == 0
+        assert result.discards == 0
+        assert result.logical_errors == 0
+        assert result.observable_ones.dtype == np.uint64
+        np.testing.assert_array_equal(result.observable_ones, np.zeros(num_observables))
         assert result.measurements.shape == (0, 1)
-        assert result.detectors.shape == (0, 0)
-        assert result.observables.shape == (0, 1)
+        assert result.detectors.shape == (0, 1)
+        assert result.observables.shape == (0, num_observables)
+        assert result.exp_vals.shape == (0, 1)
 
     def test_counting_only_fast_path(self, sampling_mode: SamplingMode) -> None:
         """keep_records=False returns survivor metadata with empty arrays."""

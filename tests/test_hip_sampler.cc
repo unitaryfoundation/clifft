@@ -145,11 +145,15 @@ uint32_t first_block_global_width(CoefficientPrecision precision) {
 }  // namespace
 
 TEST_CASE("HIP sampler zero shots does not require a device") {
-    const HipExecutablePlan executable(SamplingPlan{});
+    const auto circuit = GENERATE("M 0\n", "M 0\nOBSERVABLE_INCLUDE(1) rec[-1]\n");
+    const SamplingPlan plan = plan_from(circuit);
+    const HipExecutablePlan executable(plan);
+    const bool keep_records = GENERATE(false, true);
 
     REQUIRE(SamplingOptions{}.coefficient_precision == CoefficientPrecision::FP64);
     const SamplingResult rows = clifft::sampling::hip::sample(executable, 0);
-    const SamplingSurvivorResult survivors = clifft::sampling::hip::sample_survivors(executable, 0);
+    const SamplingSurvivorResult survivors =
+        clifft::sampling::hip::sample_survivors(executable, 0, keep_records);
 
     REQUIRE(rows.measurements.empty());
     REQUIRE(rows.detectors.empty());
@@ -157,7 +161,12 @@ TEST_CASE("HIP sampler zero shots does not require a device") {
     REQUIRE(rows.exp_vals.empty());
     REQUIRE(survivors.total_shots == 0);
     REQUIRE(survivors.passed_shots == 0);
-    REQUIRE(survivors.observable_ones.empty());
+    REQUIRE(survivors.logical_errors == 0);
+    REQUIRE(survivors.observable_ones == std::vector<uint64_t>(plan.num_observables, 0));
+    REQUIRE(survivors.measurements.empty());
+    REQUIRE(survivors.detectors.empty());
+    REQUIRE(survivors.observables.empty());
+    REQUIRE(survivors.exp_vals.empty());
 
     const SamplingOptions automatic{.block_size = clifft::sampling::hip::kAutoBlockSize};
     REQUIRE(SamplingOptions{}.block_size == clifft::sampling::hip::kAutoBlockSize);
