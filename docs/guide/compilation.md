@@ -98,7 +98,7 @@ reconstruction was selected for that output mode. An explicitly requested
 
 Without reconstruction, all views describe the original executable and the
 existing properties and inspection methods behave the same way. With
-reconstruction, `repr(program)` identifies the full-output sampling metrics and
+reconstruction, `repr(program)` reports the full-output sampling metrics and
 shows original or survivor-count widths when they differ. Circuit counts,
 hidden measurement counts used by replay, and noise-site probabilities retain
 their original meanings.

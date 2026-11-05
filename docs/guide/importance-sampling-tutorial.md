@@ -98,7 +98,7 @@ prog = clifft.compile(
     hir_passes=clifft.default_hir_pass_manager(),
 )
 
-print(f"Peak active width: {prog.original_plan.peak_active_width}")  # 4 (only 2^4 = 16 amplitudes)
+print(f"Peak active width: {prog.peak_active_width}")  # 4 (only 2^4 = 16 amplitudes)
 print(f"Detectors:      {prog.num_detectors}")    # 20
 print(f"Observables:    {prog.num_observables}")   # 1
 
@@ -108,6 +108,9 @@ print(f"Noise sites:    {len(site_probs)}")       # 518
 print(f"All uniform:    {len(np.unique(site_probs)) == 1}")  # True
 print(f"Site prob:      {site_probs[0]}")         # 0.001
 ```
+
+If you enable `reconstruction=True`, use `prog.original_plan.peak_active_width`
+to report the width used by fixed-fault sampling.
 
 Automatic normalization works for both cultivation circuits in this tutorial:
 after stochastic noise is removed, their ideal detector and observable parities

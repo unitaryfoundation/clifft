@@ -1442,16 +1442,13 @@ NB_MODULE(_clifft_core, m) {
                 "Program(" + std::to_string(records.num_actions()) +
                 " actions, peak_active_width=" + std::to_string(records.peak_active_width()) +
                 ", " + std::to_string(p.original().num_visible_records()) + " measurements";
-            if (p.uses_reconstruction(true) || p.uses_reconstruction(false)) {
-                text += ", keep_records=True";
-                if (p.original().peak_active_width() != records.peak_active_width()) {
-                    text += ", original_peak_active_width=" +
-                            std::to_string(p.original().peak_active_width());
-                }
-                if (p.sampling_plan(false).peak_active_width() != records.peak_active_width()) {
-                    text += ", survivor_peak_active_width=" +
-                            std::to_string(p.sampling_plan(false).peak_active_width());
-                }
+            if (p.original().peak_active_width() != records.peak_active_width()) {
+                text += ", original_peak_active_width=" +
+                        std::to_string(p.original().peak_active_width());
+            }
+            if (p.sampling_plan(false).peak_active_width() != records.peak_active_width()) {
+                text += ", survivor_peak_active_width=" +
+                        std::to_string(p.sampling_plan(false).peak_active_width());
             }
             return text + ")";
         });

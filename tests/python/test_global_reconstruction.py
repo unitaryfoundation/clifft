@@ -95,7 +95,7 @@ def test_plan_views_select_output_specific_executable():
         assert program.peak_rank == program.peak_active_width
     assert repr(program) == (
         f"Program({records.num_actions} actions, peak_active_width=1, 2 measurements, "
-        "keep_records=True, original_peak_active_width=2, survivor_peak_active_width=2)"
+        "original_peak_active_width=2, survivor_peak_active_width=2)"
     )
     for keep_records in (True, False):
         result = clifft.sample_survivors(program, 65, seed=9, keep_records=keep_records)
