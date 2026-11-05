@@ -284,14 +284,6 @@ def test_selected_clifford_distribution_matches_stim():
     np.testing.assert_allclose(actual_law, expected_law, atol=0.025, rtol=0)
 
 
-def test_selected_nonclifford_joint_law_matches_aer():
-    program = compile_selected()
-    reference = np.abs(qiskit_statevector(stim_to_qiskit_noiseless(UNITARY))) ** 2
-    samples = clifft.sample(program, 20000, seed=18, batch_size=65)
-    law = np.bincount(samples.measurements @ np.array([1, 2]), minlength=4) / 20000
-    np.testing.assert_allclose(law, reference, atol=0.015, rtol=0)
-
-
 @pytest.mark.parametrize("postselection", [False, True])
 def test_forced_faults_keep_original_sites_and_seeded_results(
     importance_sampling_mode, postselection

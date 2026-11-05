@@ -155,6 +155,7 @@ shared FP64 computational corpus, with explicit backend and execution-path check
 | Route | Shared reference coverage | Execution configurations and limits |
 | --- | --- | --- |
 | Ordinary CPU | Aer unitary/interference and reset/reuse circuits; Stim Clifford/noise cases | Existing HIR profiles, scalar/packed and cross-shot/intra-shot layouts |
+| Reconstructed CPU | Shared Aer unitary laws and exhaustive categorical noise histories with non-Clifford feedback, joint records/detectors/observables, and postselection | Selected and fallback plans; scalar, packed partial batches, and automatic batching; retained and aggregate survivor outputs |
 | Fixed noncomputational | The shared computational corpus plus eligible state-independent transition/classifier joint laws | Compiled eligibility check; scalar and packed partial batches; no weighted conditional-state adapter |
 | Trajectory | The shared computational corpus and weighted source-dependent loss, recapture, reset, classified readout and physical states | Instrument-compatible HIR passes; scalar with one/two cross-shot workers; compilation at explicit continuations |
 | Online | The same shared computational and weighted physical references | No HIR pipeline; scalar with one/two cross-shot workers; explicit activation growth; MPP, U3, packing and tuning rejected |
@@ -168,6 +169,23 @@ builds without OpenMP. Cases requesting hybrid layouts also skip when OpenMP
 processor binding is active, including narrow circuits whose execution would
 otherwise fall back to cross-shot workers. Run with `OMP_PROC_BIND=false` to
 include those cases.
+
+Reconstruction checks assert selection and reduced active width before comparing
+output distributions. The noisy reference combines complete categorical,
+correlated-error, and readout histories with independent Aer interference
+probabilities. It checks acceptance and accepted-error mass as well as the joint
+law among survivors, including unselected detectors and nonzero reference
+parities. Repeated calls alternate retained and aggregate outputs on the same
+program; focused boundary cases cover empty calls and packed output tails. A
+negative control removes an observable column to verify output completeness.
+
+Reconstruction preserves requested classical output distributions, not original
+physical states or fault identities. Exact state and record queries use the
+original plan, as do fixed-fault calls; the latter share the categorical reference
+with importance-sampling tests. `test_global_reconstruction.py` checks original
+plan routing, seeded reuse, and fallback for unsupported or unprofitable
+reconstruction. Physical-state and instrument laws remain covered by the
+noncomputational routes above.
 
 Dedicated tests check seeded repeatability across worker counts and behavior
 at batch and output boundaries. Short dynamically scheduled cross-shot calls
