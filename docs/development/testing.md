@@ -215,6 +215,8 @@ counts. It and the Windows Python wheel keep `assert()` active with
 `CLIFFT_FORCE_ASSERTS=ON`; the GCC Release job runs the C++ cases with `NDEBUG`.
 Windows C++ stays in Debug to retain MSVC library and runtime checks.
 Small deterministic cases and squeezed sampling boundaries remain in Debug.
+On pushes to `main`, the package smoke job also runs the full Python suite
+against the installed wheel.
 Local test runs include expensive cases by default, as do the nightly C++
 sanitizer and weekly coverage jobs.
 

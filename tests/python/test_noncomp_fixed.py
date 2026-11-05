@@ -459,7 +459,7 @@ def test_fixed_static_inputs_keep_asymmetric_readout_and_reset_semantics(fixed_s
         ),
     ],
 )
-def test_fixed_joint_output_contract_matches_trajectories(text, restore_lost, fixed_sample):
+def test_fixed_joint_output_contract_matches_trajectories(text, restore_lost):
     model = noncomp.Model(
         classifier=noncomp.Classifier(
             [[1, 0, 0.2, 0.2, 0.2], [0, 1, 0.3, 0.3, 0.3], [0, 0, 0.5, 0.5, 0.5]]
@@ -469,7 +469,6 @@ def test_fixed_joint_output_contract_matches_trajectories(text, restore_lost, fi
     )
     text += "\nDETECTOR rec[-1] rec[-2]\nOBSERVABLE_INCLUDE(0) rec[-1]"
     program = prepare(text, model, final_status=True)
-    actual = fixed_sample(program)
     expected = noncomp.sample(
         text,
         model,
@@ -499,7 +498,10 @@ def test_fixed_joint_output_contract_matches_trajectories(text, restore_lost, fi
 
     # Compare the full joint law; matching marginals can hide broken feedback
     # or correlations between the reported record and the status sidecars.
-    assert dense.tvd(joint(actual), joint(expected)) < 0.04
+    expected_joint = joint(expected)
+    for batch_size in (1, 65):
+        actual = sample(program, batch_size=batch_size)
+        assert dense.tvd(joint(actual), expected_joint) < 0.04, f"{batch_size=}"
 
 
 @pytest.mark.parametrize("rounds", [2, 40], ids=["ordinary-propagation", "optimized-carriers"])
