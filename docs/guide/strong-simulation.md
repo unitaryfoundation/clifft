@@ -345,6 +345,10 @@ print(f"basis_probabilities()  peak active width: {unitary.peak_active_width}")
 print(f"record_probabilities() peak active width: {measured.peak_active_width}")
 ```
 
+If you enable `reconstruction=True`, compare
+`program.original_plan.peak_active_width` instead: exact queries use the
+original executable.
+
 The ratio $2^{(k_{\text{unitary}} - k_{\text{measured}})}$ describes the
 difference in peak active-state dimensions, not a predicted wall-clock
 speedup. Actual performance also depends on plan replay, amplitude walking,

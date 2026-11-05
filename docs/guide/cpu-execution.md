@@ -144,8 +144,8 @@ Pass a positive `threads` count to set the total worker budget, or
 automatic scheduler chooses one layout:
 
 - With at least as many shots as workers, use cross-shot workers.
-- With fewer shots and `program.peak_active_width >= 18`, an OpenMP-enabled
-  build can spend the budget within shots.
+- With fewer shots and a selected executable's peak active width of at least 18,
+  an OpenMP-enabled build can spend the budget within shots.
 - Otherwise use cross-shot workers bounded by the shot count.
 
 Automatic scheduling does not create a hybrid layout. Builds without OpenMP
@@ -257,8 +257,12 @@ post-selection lifetime, outputs, CPU, and memory limits. Compare the defaults
 with a small set of representative alternatives such as `batch_size=1`, `256`,
 and `1024`, using your target thread count and output options.
 
-Use `program.peak_active_width` as a first-order cost indicator, but do not
-choose a layout from peak width alone.
+Use `program.peak_active_width` as a first-order cost indicator for full-output
+sampling. For survivor counts, use
+`program.sampling_plan(keep_records=False).peak_active_width`; for fixed-fault
+sampling, use `program.original_plan.peak_active_width`. See
+[Inspect sampling cost](compilation.md#inspect-sampling-cost) for examples.
+Peak width alone does not determine the best layout.
 
 ## Compile-time scheduling
 

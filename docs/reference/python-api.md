@@ -128,7 +128,15 @@ directional overrides, and circuit annotation ordering.
 
 ## Compiled Programs
 
+See [Inspect sampling cost](../guide/compilation.md#inspect-sampling-cost) for
+selecting the executable to inspect. `Program` execution metrics and inspection
+describe full-output sampling; `Program.sampling_plan(keep_records=...)` selects
+a specific output mode, and `Program.original_plan` describes exact queries and
+fixed-fault sampling.
+
 ::: clifft.Program
+
+::: clifft.PlanView
 
 ## Circuit and IR Inspection
 

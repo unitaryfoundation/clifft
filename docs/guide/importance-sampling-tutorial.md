@@ -109,6 +109,9 @@ print(f"All uniform:    {len(np.unique(site_probs)) == 1}")  # True
 print(f"Site prob:      {site_probs[0]}")         # 0.001
 ```
 
+If you enable `reconstruction=True`, use `prog.original_plan.peak_active_width`
+to report the width used by fixed-fault sampling.
+
 Automatic normalization works for both cultivation circuits in this tutorial:
 after stochastic noise is removed, their ideal detector and observable parities
 are fixed at zero. Explicit references are not required. The T gates implement

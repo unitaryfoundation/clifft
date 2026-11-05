@@ -161,10 +161,14 @@ ineligible or does not reduce peak active width.
 
 Because the reconstructed plans preserve only the classical output distribution
 and postselection acceptance probability, state and exact-probability queries,
-replay, and fixed-fault sampling always use the original plan. Standard
-`Program` metadata and `inspect()` also describe the original plan, while
-`reconstruction_info(keep_records=...)` reports the plan selected for ordinary
-sampling. Experimental GPU and WebAssembly paths prepare a single executable.
+replay, and fixed-fault sampling always use the original plan, exposed through
+`program.original_plan`. `Program.peak_active_width`, `num_actions`, and
+inspection describe the full-output sampling plan.
+`program.sampling_plan(keep_records=...)` returns a read-only `PlanView` with
+metrics, inspection, and reconstruction diagnostics for the chosen output mode.
+Views retain the owning program and refer to its immutable executables. Circuit
+counts and noise-site probabilities continue to describe the original program.
+Experimental GPU and WebAssembly paths prepare a single executable.
 
 `clifft.get_statevector(program)` expands an eligible pure-state program into
 the full physical-qubit statevector for debugging and validation. The result is

@@ -56,6 +56,14 @@ namespace {
 using ThreadOption = std::variant<int64_t, std::string>;
 using BatchOption = ThreadOption;
 
+// Inspection view of an immutable executable. Python bindings keep the owning
+// Program alive while the view refers to its plan and selection diagnostics.
+struct PyPlanView {
+    const clifft::sampling::ExecutablePlan* plan;
+    bool reconstruction_selected;
+    std::string fallback_reason;
+};
+
 std::optional<uint32_t> parse_positive_uint32_option(
     const ThreadOption& option, const char* field,
     const char* choices = "a positive integer or 'auto'") {
@@ -1313,12 +1321,46 @@ NB_MODULE(_clifft_core, m) {
         "per-op 'widths' (the width after each op) and 'effects' (a "
         "lower-case effect name per op).");
 
-    nb::class_<clifft::Program>(m, "Program", "A reusable compiled sampling program")
+    nb::class_<PyPlanView>(
+        m, "PlanView",
+        "Read-only metrics and inspection for one compiled executable.\n\n"
+        "Obtained from Program.sampling_plan() or Program.original_plan. The view keeps "
+        "its Program alive. Pass the Program to sampling and exact-query functions.")
+        .def_prop_ro(
+            "peak_active_width", [](const PyPlanView& v) { return v.plan->peak_active_width(); },
+            "Largest active width reached by this executable.")
+        .def_prop_ro(
+            "num_actions", [](const PyPlanView& v) { return v.plan->num_actions(); },
+            "Number of actions in this executable.")
+        .def_ro("reconstruction_selected", &PyPlanView::reconstruction_selected,
+                "Whether this view describes a reconstructed executable.")
+        .def_ro("fallback_reason", &PyPlanView::fallback_reason,
+                "Why sampling uses the original executable. Empty when reconstruction is "
+                "selected or the original_plan view is requested explicitly.")
+        .def(
+            "inspect", [](const PyPlanView& v) { return v.plan->inspect(); },
+            "Diagnostic text for this executable. The format is intended for human inspection.")
+        .def(
+            "inspect_action",
+            [](const PyPlanView& v, size_t action) { return v.plan->inspect_action(action); },
+            nb::arg("action"), "Diagnostic text for one action in this executable.")
+        .def("__repr__", [](const PyPlanView& v) {
+            return "PlanView(" + std::to_string(v.plan->num_actions()) +
+                   " actions, peak_active_width=" + std::to_string(v.plan->peak_active_width()) +
+                   ")";
+        });
+
+    nb::class_<clifft::Program>(
+        m, "Program",
+        "A reusable compiled program.\n\n"
+        "peak_active_width, num_actions, and inspection describe full-output sampling, "
+        "as used by sample(). Use sampling_plan(keep_records=...) for survivor sampling "
+        "and original_plan for exact queries and fixed-fault sampling. Circuit counts "
+        "and noise-site probabilities retain their original meanings.")
         .def_prop_ro(
             "peak_active_width",
-            [](const clifft::Program& p) { return p.original().peak_active_width(); },
-            "Largest active width reached by the original executable. "
-            "Use reconstruction_info() for ordinary sampling selection.")
+            [](const clifft::Program& p) { return p.sampling_plan(true).peak_active_width(); },
+            "Largest active width reached by the full-output sampling executable.")
         .def_prop_ro(
             "peak_rank",
             [](const clifft::Program& p) {
@@ -1326,15 +1368,17 @@ NB_MODULE(_clifft_core, m) {
                                  "Program.peak_rank is deprecated; use peak_active_width", 1) < 0) {
                     throw nb::python_error();
                 }
-                return p.original().peak_active_width();
+                return p.sampling_plan(true).peak_active_width();
             },
             "Deprecated alias for peak_active_width.")
         .def_prop_ro("num_qubits",
                      [](const clifft::Program& p) { return p.original().num_qubits(); })
         .def_prop_ro("num_measurements",
                      [](const clifft::Program& p) { return p.original().num_visible_records(); })
-        .def_prop_ro("num_hidden_measurements",
-                     [](const clifft::Program& p) { return p.original().num_hidden_records(); })
+        .def_prop_ro(
+            "num_hidden_measurements",
+            [](const clifft::Program& p) { return p.original().num_hidden_records(); },
+            "Hidden measurement count in the original executable used by replay.")
         .def_prop_ro("num_detectors",
                      [](const clifft::Program& p) { return p.original().num_detectors(); })
         .def_prop_ro("num_observables",
@@ -1343,8 +1387,10 @@ NB_MODULE(_clifft_core, m) {
                      [](const clifft::Program& p) { return p.original().num_exp_vals(); })
         .def_prop_ro("has_postselection",
                      [](const clifft::Program& p) { return p.original().has_postselection(); })
-        .def_prop_ro("num_actions",
-                     [](const clifft::Program& p) { return p.original().num_actions(); })
+        .def_prop_ro(
+            "num_actions",
+            [](const clifft::Program& p) { return p.sampling_plan(true).num_actions(); },
+            "Number of actions in the full-output sampling executable.")
         .def_prop_ro(
             "noise_site_probabilities",
             [](const clifft::Program& p) {
@@ -1353,43 +1399,58 @@ NB_MODULE(_clifft_core, m) {
                 return vec_to_numpy(std::move(probabilities), {size});
             },
             nb::rv_policy::move,
-            "Per-site total fault probabilities: quantum noise sites followed by readout noise.")
+            "Per-site total fault probabilities in the original executable: quantum noise sites "
+            "followed by readout noise.")
         .def(
-            "inspect", [](const clifft::Program& p) { return p.original().inspect(); },
-            "Deterministic human-readable diagnostic text for the whole lowered "
-            "CPU program.\n\n"
-            "The format is diagnostic output for debugging and tooling, not a "
-            "stable machine-readable interface.")
+            "inspect", [](const clifft::Program& p) { return p.sampling_plan(true).inspect(); },
+            "Diagnostic text for the full-output sampling executable.\n\n"
+            "The format is intended for human inspection. Use sampling_plan(keep_records=...) "
+            "to inspect survivor sampling, or original_plan for exact queries and "
+            "fixed-fault sampling.")
         .def(
             "inspect_action",
             [](const clifft::Program& p, size_t action) {
-                return p.original().inspect_action(action);
+                return p.sampling_plan(true).inspect_action(action);
             },
             nb::arg("action"),
-            "Deterministic human-readable diagnostic text for a single action "
-            "in the lowered CPU program.\n\n"
-            "The format is diagnostic output for debugging and tooling, not a "
-            "stable machine-readable interface.")
+            "Diagnostic text for one action in the full-output sampling executable.")
+        .def_prop_ro(
+            "original_plan",
+            [](const clifft::Program& p) { return PyPlanView{&p.original(), false, {}}; },
+            nb::keep_alive<0, 1>(),
+            "Read-only view of the original executable used by exact queries, replay, "
+            "and fixed-fault sampling.")
         .def(
-            "reconstruction_info",
+            "sampling_plan",
             [](const clifft::Program& p, bool keep_records) {
-                const auto& plan = p.sampling_plan(keep_records);
-                nb::dict info;
-                info["selected"] = p.uses_reconstruction(keep_records);
-                info["fallback_reason"] = p.reconstruction_fallback_reason(keep_records);
-                info["peak_active_width"] = plan.peak_active_width();
-                info["original_peak_active_width"] = p.original().peak_active_width();
-                info["num_actions"] = plan.num_actions();
-                return info;
+                return PyPlanView{&p.sampling_plan(keep_records),
+                                  p.uses_reconstruction(keep_records),
+                                  p.reconstruction_fallback_reason(keep_records)};
             },
-            nb::arg("keep_records") = true,
-            "Describe the plan selected for ordinary sampling with the given keep_records setting. "
-            "State queries and fixed-fault sampling always use the original program.")
+            nb::kw_only(), nb::arg("keep_records"), nb::keep_alive<0, 1>(),
+            "Return a read-only view of the executable selected for ordinary CPU sampling.\n\n"
+            "Selection is prepared during compilation. When reconstruction is disabled or "
+            "falls back, the view describes the original executable.\n\n"
+            "Args:\n"
+            "    keep_records: Required output choice. Use True for sample(). For "
+            "sample_survivors(), match its keep_records argument (False by default).\n\n"
+            "Returns:\n"
+            "    A PlanView with metrics, inspection methods, and reconstruction diagnostics.")
         .def("__repr__", [](const clifft::Program& p) {
-            return "Program(" + std::to_string(p.original().num_actions()) +
-                   " actions, peak_active_width=" +
-                   std::to_string(p.original().peak_active_width()) + ", " +
-                   std::to_string(p.original().num_visible_records()) + " measurements)";
+            const auto& records = p.sampling_plan(true);
+            std::string text =
+                "Program(" + std::to_string(records.num_actions()) +
+                " actions, peak_active_width=" + std::to_string(records.peak_active_width()) +
+                ", " + std::to_string(p.original().num_visible_records()) + " measurements";
+            if (p.original().peak_active_width() != records.peak_active_width()) {
+                text += ", original_peak_active_width=" +
+                        std::to_string(p.original().peak_active_width());
+            }
+            if (p.sampling_plan(false).peak_active_width() != records.peak_active_width()) {
+                text += ", survivor_peak_active_width=" +
+                        std::to_string(p.sampling_plan(false).peak_active_width());
+            }
+            return text + ")";
         });
 
     m.def(
@@ -1559,6 +1620,8 @@ NB_MODULE(_clifft_core, m) {
                 "batch_size: int | typing.Literal['auto', 'tune'] = 'auto', *, "
                 "tuning_budget_seconds: float | None = None) -> clifft.SampleResult"),
         "Run a compiled program and return a SampleResult.\n\n"
+        "Use program.sampling_plan(keep_records=True) to inspect this call's selected "
+        "executable width and action count.\n\n"
         "Raises ValueError for post-selected programs because fixed-row output\n"
         "cannot represent discarded shots. Use sample_survivors() instead.\n\n"
         "If seed is None (default), uses hardware entropy. threads is a positive\n"
@@ -1786,6 +1849,8 @@ NB_MODULE(_clifft_core, m) {
                 "batch_size: int | typing.Literal['auto', 'tune'] = 'auto', *, "
                 "tuning_budget_seconds: float | None = None) -> clifft.SampleResult"),
         "Sample shots and return results only for surviving (non-discarded) shots.\n\n"
+        "Use program.sampling_plan(keep_records=keep_records) to inspect this call's selected "
+        "executable width and action count. Match keep_records to this call (False by default).\n\n"
         "If seed is None (default), uses hardware entropy. threads is a positive\n"
         "total worker budget or 'auto' to use the implementation-reported hardware\n"
         "concurrency; it defaults to 1. thread_layout=(shot_workers,\n"
