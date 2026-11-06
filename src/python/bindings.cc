@@ -1,5 +1,6 @@
 #include "clifft/api/program.h"
 #include "clifft/api/reference_syndrome.h"
+#include "clifft/api/survivor_sampler.h"
 #include "clifft/circuit/circuit.h"
 #include "clifft/circuit/gate_data.h"
 #include "clifft/circuit/parser.h"
@@ -1754,6 +1755,86 @@ NB_MODULE(_clifft_core, m) {
                    result.logical_errors, obs_ones_arr, ev_arr,
                    nb::cast(std::move(result.batch_tuning)));
     };
+
+    nb::enum_<clifft::sampling::BatchNoiseMode>(m, "NoisePreparation",
+                                                "Noise preparation for reusable survivor sampling.")
+        .value("DENSE", clifft::sampling::BatchNoiseMode::Dense)
+        .value("SPARSE", clifft::sampling::BatchNoiseMode::Sparse)
+        .value("SITE_SPARSE", clifft::sampling::BatchNoiseMode::SiteSparse)
+        .value("SITE_ROWS", clifft::sampling::BatchNoiseMode::SiteRows);
+
+    nb::class_<clifft::SurvivorSampler>(
+        m, "SurvivorSampler",
+        "Reuse classical batches and shared quantum trajectories for repeated count sampling. "
+        "Construction prepares entrance postselection and worker storage; later calls retain "
+        "that storage. The program is kept alive by the sampler.\n\n"
+        "batch_size defaults to 8192 and accepts a positive integer, 'auto', or 'tune'. "
+        "A numeric capacity permits larger classical batches when trajectories share states; "
+        "auto conservatively fits the state budget even if every lane becomes distinct. "
+        "'tune' searches capacities up to that conservative limit on the first nonzero call "
+        "and retains its capacity and result.batch_tuning report. "
+        "tuning_budget_seconds is a soft deadline, defaulting to 0.25 seconds; trial shots "
+        "are excluded from counts. Auto can change capacity with the worker budget; "
+        "pin a numeric capacity for seeded replay.\n\n"
+        "initial_states reserves up to that many quantum states per worker. max_state_bytes "
+        "bounds their combined coefficients, collapse scratch, and alignment across workers "
+        "(64 MiB by default), excluding classical storage and plans. Growth suspends dispatch "
+        "without resampling; exceeding the budget raises RuntimeError. Reduce batch_size or "
+        "threads, or increase max_state_bytes, before retrying. noise_preparation selects dense "
+        "propagation, "
+        "direct sparse updates, or site-oriented sparse updates in columns or rows. "
+        "Changing preparation or batch size can change seeded results.\n\n"
+        "compact_outputs prepares only the expressions needed for aggregate outputs. "
+        "group_by_noise groups shots by future rotation signs before evolution, avoiding "
+        "repeated sign scans at the possible cost of more distinct states. It is ignored "
+        "when sharing is false. Both options default to false.\n\n"
+        "The sampler returns aggregate counts using program.sampling_plan(keep_records=False). "
+        "Width-zero plans use packed classical execution with the selected noise preparation. "
+        "Instrument continuations are unsupported. Calls on one sampler are serialized; "
+        "distinct samplers can execute concurrently.")
+        .def(
+            "__init__",
+            [](clifft::SurvivorSampler* self, const clifft::Program& program,
+               const BatchOption& batch_option, const ThreadOption& thread_option,
+               int64_t initial_states, clifft::sampling::BatchNoiseMode noise, bool sharing,
+               bool early_postselection, bool compact_outputs, bool group_by_noise,
+               int64_t max_state_bytes, std::optional<double> tuning_budget_seconds) {
+                const auto batch = parse_batch_option(batch_option, tuning_budget_seconds);
+                const auto states = parse_positive_uint32_option(
+                    ThreadOption{initial_states}, "initial_states", "a positive integer");
+                if (max_state_bytes <= 0) {
+                    throw std::invalid_argument("max_state_bytes must be positive");
+                }
+                const uint32_t threads = parse_thread_option(thread_option);
+                nb::gil_scoped_release release;
+                new (self) clifft::SurvivorSampler(
+                    program, batch.batch_size, threads, *states, noise, sharing,
+                    early_postselection, compact_outputs, group_by_noise,
+                    static_cast<uint64_t>(max_state_bytes), batch.tuning_budget_seconds);
+            },
+            nb::arg("program"), nb::kw_only(), nb::arg("batch_size") = BatchOption{int64_t{8192}},
+            nb::arg("threads") = ThreadOption{int64_t{1}}, nb::arg("initial_states") = 128,
+            nb::arg("noise_preparation") = clifft::sampling::BatchNoiseMode::SiteSparse,
+            nb::arg("sharing") = true, nb::arg("early_postselection") = true,
+            nb::arg("compact_outputs") = false, nb::arg("group_by_noise") = false,
+            nb::arg("max_state_bytes") = clifft::sampling::kDefaultBatchTotalWorkerBudget,
+            nb::arg("tuning_budget_seconds") = nb::none(), nb::keep_alive<1, 2>())
+        .def(
+            "sample",
+            [make_survivor_result](clifft::SurvivorSampler& sampler, uint32_t shots,
+                                   std::optional<uint64_t> seed) {
+                clifft::sampling::SamplingSurvivorResult result;
+                {
+                    nb::gil_scoped_release release;
+                    result = sampler.sample(shots, seed);
+                }
+                return make_survivor_result(std::move(result), sampler.program().original(), false);
+            },
+            nb::arg("shots"), nb::arg("seed") = nb::none(),
+            nb::sig("def sample(self, shots: int, seed: int | None = None) -> clifft.SampleResult"),
+            "Sample attempted shots and return survivor and observable counts. "
+            "Per-shot output arrays are empty. A seed replays at fixed preparation and batch size, "
+            "independently of worker scheduling and retained state-pool growth.");
 
     m.def(
         "sample_k_survivors",

@@ -1,7 +1,6 @@
 #include "clifft/sampling/batch/presampled_program.h"
 
 #include "clifft/sampling/executable_plan.h"
-#include "clifft/sampling/plan.h"
 #include "clifft/util/mask_view.h"
 
 #include <algorithm>
@@ -56,24 +55,27 @@ uint64_t expression_hash(bool constant, std::span<const uint32_t> terms) noexcep
 }  // namespace
 
 std::optional<BatchPresampledProgram> BatchPresampledProgram::build(
-    const ExecutablePlan& executable, const SamplingPlan& source,
-    std::span<const uint32_t> expression_terms, std::span<const uint32_t> expression_term_begins,
-    std::span<const uint8_t> bound_presampled_symbols) {
+    const ExecutablePlan& executable, std::span<const uint32_t> expression_terms,
+    std::span<const uint32_t> expression_term_begins) {
 #if defined(__EMSCRIPTEN__)
     (void)executable;
-    (void)source;
     (void)expression_terms;
     (void)expression_term_begins;
-    (void)bound_presampled_symbols;
     return std::nullopt;
 #else
     if (executable.has_instruments_) {
         return std::nullopt;
     }
 
+    std::vector<uint8_t> presampled(executable.num_symbols_);
+    for (uint32_t symbol : executable.presampled_symbols_) {
+        presampled[symbol] = 1;
+    }
+    std::vector<uint8_t> bound_presampled_symbols(executable.num_symbols_);
+    for (const auto& outcome : executable.noise_outcomes_) {
+        bound_presampled_symbols[outcome.symbol] = 1;
+    }
     const size_t num_expressions = expression_term_begins.size();
-    assert(bound_presampled_symbols.size() == source.symbols.size() &&
-           "presampled ownership must parallel plan symbols");
     std::vector<std::vector<uint32_t> > presampled_terms(num_expressions);
     uint64_t original_presampled_terms = 0;
     for (size_t expression = 0; expression < num_expressions; ++expression) {
@@ -83,7 +85,7 @@ std::optional<BatchPresampledProgram> BatchPresampledProgram::build(
                                  : static_cast<uint32_t>(expression_terms.size());
         for (uint32_t term = begin; term < end; ++term) {
             const uint32_t symbol = expression_terms[term];
-            if (source.symbols[symbol] != SymbolKind::Presampled) {
+            if (!presampled[symbol]) {
                 continue;
             }
             ++original_presampled_terms;
@@ -99,15 +101,16 @@ std::optional<BatchPresampledProgram> BatchPresampledProgram::build(
     BatchPresampledProgram program;
     const size_t effect_words = num_expressions / 64 + (num_expressions % 64 != 0);
     program.outcome_assignments_.reserve(executable.noise_outcomes_.size());
-    for (const PresampledNoiseSite& site : source.presampled_noise_sites) {
+    for (const auto& site : executable.noise_sites_) {
         std::vector<NoiseEffectBasis> basis;
         std::vector<int32_t> basis_for_effect(num_expressions, -1);
         std::vector<uint64_t> residual(effect_words, 0);
-        basis.reserve(site.outcomes.size());
-        for (const PresampledNoiseOutcome& outcome : site.outcomes) {
+        basis.reserve(site.outcome_count);
+        for (const auto& outcome : std::span(executable.noise_outcomes_)
+                                       .subspan(site.outcome_begin, site.outcome_count)) {
             std::ranges::fill(residual, uint64_t{0});
             for (uint32_t expression :
-                 executable.expression_dependencies_.dependent_registers(index(outcome.symbol))) {
+                 executable.expression_dependencies_.dependent_registers(outcome.symbol)) {
                 residual[expression >> 6] |= uint64_t{1} << (expression & 63);
             }
 
@@ -126,7 +129,7 @@ std::optional<BatchPresampledProgram> BatchPresampledProgram::build(
                 const uint32_t new_basis_index = static_cast<uint32_t>(basis.size());
                 basis_for_effect[pivot] = static_cast<int32_t>(new_basis_index);
                 coordinates.push_back(new_basis_index);
-                basis.push_back(NoiseEffectBasis{std::move(residual), index(outcome.symbol)});
+                basis.push_back(NoiseEffectBasis{std::move(residual), outcome.symbol});
                 residual.resize(effect_words, 0);
                 const NoiseEffectBasis& added = basis.back();
                 for (size_t word = 0; word < added.effects.size(); ++word) {
@@ -298,7 +301,7 @@ std::optional<BatchPresampledProgram> BatchPresampledProgram::build(
     constexpr uint32_t kUnassigned = std::numeric_limits<uint32_t>::max();
     std::vector<uint32_t> carrier_slots(executable.num_symbols_, kUnassigned);
     const auto mark_carrier = [&](uint32_t symbol) {
-        assert(symbol < source.symbols.size() && source.symbols[symbol] == SymbolKind::Presampled &&
+        assert(symbol < executable.num_symbols_ && presampled[symbol] &&
                "batch carrier must originate from a presampled symbol");
         carrier_slots[symbol] = 0;
     };
@@ -321,7 +324,7 @@ std::optional<BatchPresampledProgram> BatchPresampledProgram::build(
         carrier_xor.carrier = carrier_slots[carrier_xor.carrier];
     }
 
-    std::vector<uint32_t> input_for_symbol(source.symbols.size(), kUnassigned);
+    std::vector<uint32_t> input_for_symbol(executable.num_symbols_, kUnassigned);
     program.input_assignments_.resize(executable.presampled_symbols_.size());
     for (uint32_t input = 0; input < executable.presampled_symbols_.size(); ++input) {
         const uint32_t symbol = executable.presampled_symbols_[input];

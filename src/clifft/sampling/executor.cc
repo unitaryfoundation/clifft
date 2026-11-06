@@ -344,41 +344,9 @@ template <ExecutorBackend Backend, Executor::IntraShotMode IntraShot>
 void Executor::execute_action(const ExecutablePlan::ExecuteRotation& action,
                               std::span<const uint8_t>, ReplayResult&) noexcept {
     const bool sign = evaluate(action.sign);
-    if (action.kernel == DirectRotationKernel::Scalar) {
-        if constexpr (IntraShot == IntraShotMode::OpenMP) {
-            apply_rotation_parallel(state_, action.rotation, sign, intra_shot_workers_,
-                                    intra_shot_min_active_width_);
-        } else {
-            apply_rotation(state_, action.rotation, sign);
-        }
-        return;
-    }
-    if constexpr (Backend == ExecutorBackend::Neon) {
-        if constexpr (IntraShot == IntraShotMode::OpenMP) {
-            apply_direct_rotation_neon_parallel(state_, action.rotation, action.kernel, sign,
-                                                intra_shot_workers_, intra_shot_min_active_width_);
-        } else {
-            apply_direct_rotation_neon(state_, action.rotation, action.kernel, sign);
-        }
-    } else if constexpr (Backend == ExecutorBackend::Avx2) {
-        if constexpr (IntraShot == IntraShotMode::OpenMP) {
-            apply_direct_rotation_avx2_parallel(state_, action.rotation, action.kernel, sign,
-                                                intra_shot_workers_, intra_shot_min_active_width_);
-        } else {
-            apply_direct_rotation_avx2(state_, action.rotation, action.kernel, sign);
-        }
-    } else if constexpr (Backend == ExecutorBackend::Avx512) {
-        if constexpr (IntraShot == IntraShotMode::OpenMP) {
-            apply_direct_rotation_avx512_parallel(state_, action.rotation, action.kernel, sign,
-                                                  intra_shot_workers_,
-                                                  intra_shot_min_active_width_);
-        } else {
-            apply_direct_rotation_avx512(state_, action.rotation, action.kernel, sign);
-        }
-    } else {
-        assert(false && "scalar executor requires scalar direct-rotation actions");
-        apply_rotation(state_, action.rotation, sign);
-    }
+    apply_direct_rotation<Backend, IntraShot == IntraShotMode::OpenMP>(
+        state_, action.rotation, action.kernel, sign, intra_shot_workers_,
+        intra_shot_min_active_width_);
 }
 
 template <Executor::IntraShotMode IntraShot>
@@ -429,22 +397,8 @@ template <ExecutorBackend Backend, Executor::ShotMode Mode>
 void Executor::execute_action(const ExecutablePlan::ExecuteActiveMeasurement& action,
                               std::span<const uint8_t> forced_records,
                               ReplayResult& result) noexcept {
-    const MeasurementProbabilities probabilities = [&]() noexcept {
-        if (action.kernel == ActiveMeasurementKernel::Scalar) {
-            return measurement_probabilities(state_, action.measurement);
-        }
-        if constexpr (Backend == ExecutorBackend::Neon) {
-            return active_measurement_probabilities_neon(state_, action.measurement, action.kernel);
-        } else if constexpr (Backend == ExecutorBackend::Avx2) {
-            return active_measurement_probabilities_avx2(state_, action.measurement, action.kernel);
-        } else if constexpr (Backend == ExecutorBackend::Avx512) {
-            return active_measurement_probabilities_avx512(state_, action.measurement,
-                                                           action.kernel);
-        } else {
-            assert(false && "scalar executor requires scalar active-measurement actions");
-            return measurement_probabilities(state_, action.measurement);
-        }
-    }();
+    const auto probabilities =
+        active_measurement_probabilities<Backend>(state_, action.measurement, action.kernel);
     const bool correction = evaluate(action.correction);
     bool branch = false;
     if constexpr (Mode == ShotMode::ReplayRecords) {
@@ -469,21 +423,8 @@ void Executor::execute_action(const ExecutablePlan::ExecuteActiveMeasurement& ac
     }
     assign_symbol(action.branch, branch);
     const double branch_probability = probabilities.for_branch(branch);
-    if (action.kernel == ActiveMeasurementKernel::Scalar) {
-        collapse_measurement(state_, action.measurement, branch, branch_probability);
-    } else if constexpr (Backend == ExecutorBackend::Neon) {
-        collapse_active_measurement_neon(state_, action.measurement, action.kernel, branch,
+    collapse_active_measurement<Backend>(state_, action.measurement, action.kernel, branch,
                                          branch_probability);
-    } else if constexpr (Backend == ExecutorBackend::Avx2) {
-        collapse_active_measurement_avx2(state_, action.measurement, action.kernel, branch,
-                                         branch_probability);
-    } else if constexpr (Backend == ExecutorBackend::Avx512) {
-        collapse_active_measurement_avx512(state_, action.measurement, action.kernel, branch,
-                                           branch_probability);
-    } else {
-        assert(false && "scalar executor requires scalar active-measurement actions");
-        collapse_measurement(state_, action.measurement, branch, branch_probability);
-    }
     records_[action.record] = static_cast<uint8_t>(branch ^ correction);
 }
 

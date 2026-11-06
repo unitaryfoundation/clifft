@@ -11,7 +11,6 @@ namespace clifft::sampling {
 class BatchExecutor;
 class ExecutablePlan;
 class ExecutablePlanBuilder;
-struct SamplingPlan;
 
 // Immutable packed-only program for evaluating presampled affine inputs.
 // Categorical outcomes set XOR combinations of compact carrier columns based
@@ -52,10 +51,8 @@ class BatchPresampledProgram {
     };
 
     [[nodiscard]] static std::optional<BatchPresampledProgram> build(
-        const ExecutablePlan& executable, const SamplingPlan& source,
-        std::span<const uint32_t> expression_terms,
-        std::span<const uint32_t> expression_term_begins,
-        std::span<const uint8_t> bound_presampled_symbols);
+        const ExecutablePlan& executable, std::span<const uint32_t> expression_terms,
+        std::span<const uint32_t> expression_term_begins);
     void validate(size_t num_noise_outcomes, size_t num_expression_registers,
                   size_t num_presampled_inputs) const noexcept;
 

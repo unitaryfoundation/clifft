@@ -53,16 +53,27 @@ uint32_t count_lane_bits(std::span<const uint64_t> bits, uint32_t lanes) noexcep
 
 // In-place transpose of a 64x64 bit matrix stored as 64 words, so that bit j of
 // tile[i] afterwards equals bit i of the original tile[j]. Each step swaps the
-// off-diagonal blocks of every 2j x 2j sub-matrix.
+// off-diagonal blocks of every 2j x 2j sub-matrix. Constant shifts and contiguous
+// pairs within each block let the compiler vectorize the stages.
 void transpose_tile_64x64(uint64_t* tile) noexcept {
-    uint64_t mask = 0x00000000FFFFFFFFULL;
-    for (unsigned j = 32; j != 0; j >>= 1, mask ^= mask << j) {
-        for (unsigned k = 0; k < 64; k = ((k | j) + 1) & ~j) {
-            const uint64_t t = ((tile[k] >> j) ^ tile[k | j]) & mask;
-            tile[k | j] ^= t;
-            tile[k] ^= t << j;
+    const auto stage = [&]<unsigned Shift>() {
+        constexpr uint64_t mask =
+            std::numeric_limits<uint64_t>::max() / ((uint64_t{1} << Shift) + 1);
+        for (unsigned base = 0; base < 64; base += 2 * Shift) {
+            for (unsigned offset = 0; offset < Shift; ++offset) {
+                const unsigned low = base + offset, high = low + Shift;
+                const uint64_t swap = ((tile[low] >> Shift) ^ tile[high]) & mask;
+                tile[high] ^= swap;
+                tile[low] ^= swap << Shift;
+            }
         }
-    }
+    };
+    stage.template operator()<32>();
+    stage.template operator()<16>();
+    stage.template operator()<8>();
+    stage.template operator()<4>();
+    stage.template operator()<2>();
+    stage.template operator()<1>();
 }
 
 // Returns eight bytes whose byte k is bit k of the low byte of bits, so a

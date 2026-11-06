@@ -14,6 +14,9 @@ namespace clifft::sampling {
 // collapsing a non-diagonal measurement.
 class State {
   public:
+    // Coefficients, collapse scratch, and page alignment for one state.
+    [[nodiscard]] static size_t storage_bytes(uint32_t max_active_width);
+
     // Immediately allocates all coefficient and temporary storage required by
     // max_active_width, even when initial_active_width is smaller.
     explicit State(uint32_t max_active_width, uint32_t initial_active_width = 0,
