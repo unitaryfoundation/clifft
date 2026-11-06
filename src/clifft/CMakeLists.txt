@@ -32,6 +32,7 @@ add_library(clifft_core STATIC
     sampling/planner_frame.cc
     sampling/pauli_preparation.cc
     sampling/batch/bits.cc
+    sampling/batch/classical.cc
     sampling/batch/executor.cc
     sampling/batch/external_inputs.cc
     sampling/batch/random_bits.cc

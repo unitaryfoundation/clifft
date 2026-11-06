@@ -132,6 +132,8 @@ class ExecutablePlan {
   private:
     friend class Executor;
     friend class BatchExecutor;
+    friend class BatchClassicalState;
+    friend class PreparedBatchNoise;
     friend class BatchPresampledProgram;
     friend class ExecutablePlanBuilder;
 

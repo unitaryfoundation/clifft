@@ -47,18 +47,21 @@ namespace batch_detail {
 BatchWorkerStorageLayout batch_worker_storage_layout(const ExecutablePlan& plan,
                                                      uint32_t lane_capacity,
                                                      BatchOutputMode output_mode,
-                                                     BatchSamplingMode sampling_mode) {
+                                                     BatchSamplingMode sampling_mode,
+                                                     BatchNoiseMode noise_mode) {
     BatchWorkerStorageLayout layout;
     layout.peak_active_width = plan.peak_active_width();
     layout.initial_active_width = plan.initial_active_width();
     layout.lane_capacity = lane_capacity;
     layout.word_capacity = packed_word_count(lane_capacity);
     layout.shot_index_entries = lane_capacity;
-    layout.symbol_columns =
-        plan.num_batch_noise_carriers() == 0 && plan.num_presampled_symbols() != 0
-            ? plan.num_symbols()
-            : 0;
-    layout.noise_carrier_columns = plan.num_batch_noise_carriers();
+    layout.symbol_columns = noise_mode == BatchNoiseMode::Dense &&
+                                    plan.num_batch_noise_carriers() == 0 &&
+                                    plan.num_presampled_symbols() != 0
+                                ? plan.num_symbols()
+                                : 0;
+    layout.noise_carrier_columns =
+        noise_mode == BatchNoiseMode::Dense ? plan.num_batch_noise_carriers() : 0;
     layout.expression_register_columns = plan.num_expression_registers();
     layout.record_columns =
         output_mode == BatchOutputMode::Rows || plan.output_parities_read_records()
@@ -89,9 +92,10 @@ BatchWorkerStorageLayout batch_worker_storage_layout(const ExecutablePlan& plan,
 }
 
 uint64_t batch_worker_storage_bytes(const ExecutablePlan& plan, uint32_t lane_capacity,
-                                    BatchOutputMode output_mode, BatchSamplingMode sampling_mode) {
+                                    BatchOutputMode output_mode, BatchSamplingMode sampling_mode,
+                                    BatchNoiseMode noise_mode) {
     const BatchWorkerStorageLayout layout =
-        batch_worker_storage_layout(plan, lane_capacity, output_mode, sampling_mode);
+        batch_worker_storage_layout(plan, lane_capacity, output_mode, sampling_mode, noise_mode);
     uint64_t bytes = interleaved_batch_state_bytes(layout.peak_active_width, layout.lane_capacity);
     const auto add_entries = [&](uint64_t entries, size_t entry_bytes) {
         bytes = saturating_add_u64(bytes, saturating_multiply_u64(entries, entry_bytes));
@@ -117,6 +121,11 @@ uint64_t batch_worker_storage_bytes(const ExecutablePlan& plan, uint32_t lane_ca
     add_entries(layout.probability_zero_entries, sizeof(double));
     add_entries(layout.probability_one_entries, sizeof(double));
     add_entries(layout.lane_value_entries, sizeof(double));
+    if (noise_mode == BatchNoiseMode::SiteRows) {
+        add_entries(
+            saturating_multiply_u64(lane_capacity, (plan.num_expression_registers() + 63) / 64),
+            sizeof(uint64_t));
+    }
     // External workers retain the caller's input buffer as well as the readout
     // copy whose lane order follows intermediate survivor compaction.
     if (sampling_mode == BatchSamplingMode::ExternalInputs) {

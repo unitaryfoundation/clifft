@@ -70,6 +70,7 @@ class PackedBitColumns {
     PackedBitColumns(size_t columns, uint32_t lane_capacity);
 
     [[nodiscard]] size_t num_columns() const noexcept { return columns_; }
+    [[nodiscard]] uint32_t lane_capacity() const noexcept { return lane_capacity_; }
 
     // See MutableBitColumnsView for the lifetime rule.
     [[nodiscard]] MutableBitColumnsView mutable_view() noexcept {
@@ -128,5 +129,10 @@ void fill_low_lane_mask(std::span<uint64_t> output, uint32_t lanes) noexcept;
 void transpose_bit_columns_to_rows(const PackedBitColumns& columns, size_t num_columns,
                                    std::span<const uint32_t> rows, std::span<uint8_t> output,
                                    size_t stride) noexcept;
+
+// XORs a lane-major packed matrix into the matching bit columns. Padding lanes
+// and bits beyond the destination column count are ignored.
+void xor_bit_rows_into_columns(std::span<const uint64_t> rows, size_t stride, uint32_t lanes,
+                               PackedBitColumns& columns) noexcept;
 
 }  // namespace clifft::sampling
