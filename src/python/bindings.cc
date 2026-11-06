@@ -1768,10 +1768,11 @@ NB_MODULE(_clifft_core, m) {
         "Reuse classical batches and shared quantum trajectories for repeated count sampling. "
         "Construction prepares entrance postselection and worker storage; later calls retain "
         "that storage. The program is kept alive by the sampler.\n\n"
-        "batch_size accepts a positive integer, 'auto', or 'tune', as in sample_survivors. "
+        "batch_size defaults to 8192 and accepts a positive integer, 'auto', or 'tune'. "
         "A numeric capacity permits larger classical batches when trajectories share states; "
-        "auto fits the state budget even if every lane becomes distinct. 'tune' calibrates on "
-        "the first nonzero call and retains its capacity and result.batch_tuning report. "
+        "auto conservatively fits the state budget even if every lane becomes distinct. "
+        "'tune' searches capacities up to that conservative limit on the first nonzero call "
+        "and retains its capacity and result.batch_tuning report. "
         "tuning_budget_seconds is a soft deadline, defaulting to 0.25 seconds; trial shots "
         "are excluded from counts. Auto can change capacity with the worker budget; "
         "pin a numeric capacity for seeded replay.\n\n"
@@ -1811,8 +1812,7 @@ NB_MODULE(_clifft_core, m) {
                     early_postselection, compact_outputs, group_by_noise,
                     static_cast<uint64_t>(max_state_bytes), batch.tuning_budget_seconds);
             },
-            nb::arg("program"), nb::kw_only(),
-            nb::arg("batch_size") = BatchOption{std::string{"auto"}},
+            nb::arg("program"), nb::kw_only(), nb::arg("batch_size") = BatchOption{int64_t{8192}},
             nb::arg("threads") = ThreadOption{int64_t{1}}, nb::arg("initial_states") = 128,
             nb::arg("noise_preparation") = clifft::sampling::BatchNoiseMode::SiteSparse,
             nb::arg("sharing") = true, nb::arg("early_postselection") = true,

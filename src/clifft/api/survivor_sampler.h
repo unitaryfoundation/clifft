@@ -18,7 +18,7 @@ namespace clifft {
 // sampling calls. The Program must outlive this sampler.
 class SurvivorSampler {
   public:
-    SurvivorSampler(const Program& program, std::optional<uint32_t> batch_size = std::nullopt,
+    SurvivorSampler(const Program& program, std::optional<uint32_t> batch_size = 8192,
                     uint32_t threads = 1, uint32_t initial_states = 128,
                     sampling::BatchNoiseMode noise_mode = sampling::BatchNoiseMode::SiteSparse,
                     bool sharing = true, bool early_postselection = true,

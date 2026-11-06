@@ -191,7 +191,7 @@ def test_state_budget_is_shared_across_workers_and_failure_allows_reuse():
     with pytest.raises(RuntimeError):
         sampler.sample(130, seed=23)
     assert sampler.sample(1, seed=23).passed_shots == 1
-    auto = clifft.SurvivorSampler(program, threads=2, max_state_bytes=8192)
+    auto = clifft.SurvivorSampler(program, batch_size="auto", threads=2, max_state_bytes=8192)
     explicit = clifft.SurvivorSampler(program, batch_size=1, threads=2, max_state_bytes=8192)
     assert counts(auto.sample(131, seed=23)) == counts(explicit.sample(131, seed=23))
 
@@ -220,4 +220,5 @@ def test_zero_budget_tuning_uses_auto_and_the_existing_warning():
         result = sampler.sample(1301, seed=25)
     assert result.batch_tuning.trial_shots == 0
     assert not result.batch_tuning.sufficient_measurements
-    assert counts(result) == counts(clifft.SurvivorSampler(program).sample(1301, seed=25))
+    auto = clifft.SurvivorSampler(program, batch_size="auto")
+    assert counts(result) == counts(auto.sample(1301, seed=25))

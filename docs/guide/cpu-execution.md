@@ -66,14 +66,17 @@ noise preparation; they need no trajectory groups or separate entrance checks.
 
 The settings are explicit so you can measure the complete workload:
 
-- `batch_size` accepts a positive integer, `"auto"` (the default), or `"tune"`.
+- `batch_size` defaults to 8192 and accepts a positive integer, `"auto"`, or `"tune"`.
   A numeric value sets the classical batch capacity. Larger batches can amortize
   noise preparation but leave too few batches to occupy all workers on small calls.
-  Automatic capacity fits the state budget even if every lane becomes distinct.
-  An explicit capacity can be larger when sharing keeps the state count small.
+  Automatic capacity conservatively fits the state budget even if every lane
+  becomes distinct. The default numeric capacity can be larger when sharing keeps
+  the state count small; it remains subject to the state budget below.
 - `batch_size="tune"` calibrates capacities on the first nonzero sample call and
-  retains the selected capacity for later calls. `tuning_budget_seconds` sets the
-  soft deadline, and `result.batch_tuning` retains the calibration report. Trials
+  retains the selected capacity for later calls. Its candidates stay within the
+  conservative automatic limit, so it cannot discover larger batches that rely on
+  sharing to fit. `tuning_budget_seconds` sets the soft deadline, and
+  `result.batch_tuning` retains the calibration report. Trials
   are excluded from returned counts. This tunes capacity with your chosen noise
   and sharing settings; it does not select those strategies for you.
 - `initial_states` reserves up to that many coefficient states per worker, within
@@ -81,7 +84,7 @@ The settings are explicit so you can measure the complete workload:
   grows the pool before resuming with the same sampled noise and branches.
 - `max_state_bytes` bounds the combined coefficient and collapse-scratch allocations
   across workers, including page alignment. Its default is 64 MiB; classical
-  batches and prepared plans are separate. An explicit capacity whose next action
+  batches and prepared plans are separate. A numeric capacity whose next action
   could require more states than this budget permits raises `RuntimeError` at a
   suspension boundary.
   Increase the budget or reduce the capacity or worker count before retrying.
@@ -125,7 +128,8 @@ Calls on one sampler serialize; separate samplers can run concurrently.
 | `intra_shot_min_active_width` | `None` | Expert threshold for enabling an explicit intra-shot layout. |
 
 The four standard sampling functions accept all five controls. `SurvivorSampler`
-uses cross-shot workers and accepts the first three controls. For leakage and loss,
+uses cross-shot workers and accepts the first three controls, with a numeric
+`batch_size` default of 8192. For leakage and loss,
 `clifft.noncomp.sample()` and `NonComputationalProgram.sample()` accept
 cross-shot `threads`, `batch_size` (`"auto"`, `"tune"`, or a positive integer),
 and `tuning_budget_seconds`. Compile-once fixed execution supports batching and
