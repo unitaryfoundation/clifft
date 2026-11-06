@@ -1,5 +1,6 @@
 #include "clifft/sampling/executable_plan_builder.h"
 
+#include "clifft/sampling/early_postselection.h"
 #include "clifft/util/noise_sampling.h"
 #include "clifft/util/numeric.h"
 
@@ -7,6 +8,7 @@
 #include <cassert>
 #include <cmath>
 #include <limits>
+#include <map>
 #include <optional>
 #include <span>
 #include <stdexcept>
@@ -141,6 +143,199 @@ ExecutablePlan::ExpressionDependencies::build(uint32_t num_symbols,
     return result;
 }
 
+ExecutablePlan ExecutablePlanBuilder::compact_outputs(const ExecutablePlan& input,
+                                                      bool early_postselection) {
+    if (input.has_instruments()) {
+        throw std::invalid_argument("compact outputs require a fixed sampling plan");
+    }
+    ExecutablePlan output(input);
+    const EarlyPostselection order(input, early_postselection);
+    const auto expressions = input.affine_registers();
+    std::vector<AffineBool> symbols;
+    symbols.reserve(input.num_symbols_);
+    for (uint32_t symbol = 0; symbol < input.num_symbols_; ++symbol) {
+        symbols.push_back(AffineBool::symbol(SymbolId{symbol}));
+    }
+    std::vector<AffineBool> records(size_t{input.num_visible_records_} + input.num_hidden_records_);
+    const auto expand = [&](ExecutablePlan::PreparedExpression expression) {
+        const auto& original = expressions[expression.register_id];
+        AffineBool result(original.constant());
+        for (SymbolId symbol : original.terms()) {
+            result ^= symbols[index(symbol)];
+        }
+        return result;
+    };
+    const auto parity = [&](ExecutablePlan::PreparedRecordParity value) {
+        AffineBool result(value.constant);
+        for (uint32_t term = 0; term < value.count; ++term) {
+            result ^= records[input.record_parity_terms_[value.begin + term]];
+        }
+        return result;
+    };
+
+    // Intern only expressions consumed by the compact program. Record snapshots
+    // and derived symbols are expanded at their original write positions.
+    std::map<std::pair<bool, std::vector<SymbolId>>, uint32_t> interned;
+    std::vector<uint32_t> terms, begins;
+    std::vector<uint32_t> first_actions(input.num_symbols_, std::numeric_limits<uint32_t>::max());
+    output.actions_.clear();
+    output.action_plan_ranges_.clear();
+    output.expression_register_constants_.clear();
+    output.record_parity_terms_.clear();
+    output.dynamic_fused_rotations_.clear();
+    const auto prepare = [&](const AffineBool& expression) -> ExecutablePlan::PreparedExpression {
+        if (terms.size() + expression.terms().size() > std::numeric_limits<uint32_t>::max() ||
+            interned.size() >= std::numeric_limits<uint32_t>::max()) {
+            throw std::length_error("compact expression storage exceeds uint32 range");
+        }
+        const auto [found, inserted] =
+            interned.emplace(std::make_pair(expression.constant(), expression.terms()),
+                             static_cast<uint32_t>(interned.size()));
+        if (inserted) {
+            begins.push_back(static_cast<uint32_t>(terms.size()));
+            output.expression_register_constants_.push_back(expression.constant());
+            for (SymbolId symbol : expression.terms()) {
+                terms.push_back(index(symbol));
+            }
+        }
+        for (SymbolId symbol : expression.terms()) {
+            first_actions[index(symbol)] = std::min(first_actions[index(symbol)],
+                                                    static_cast<uint32_t>(output.actions_.size()));
+        }
+        return {found->second};
+    };
+    const auto zero = prepare(AffineBool{});
+    uint32_t next_record = 1;
+    for (size_t source_index : order.action_order()) {
+        const auto append = [&](ExecutablePlan::Action action) {
+            if (output.actions_.size() >= std::numeric_limits<uint32_t>::max()) {
+                throw std::length_error("compact action storage exceeds uint32 range");
+            }
+            output.actions_.push_back(std::move(action));
+            if (!input.action_plan_ranges_.empty()) {
+                output.action_plan_ranges_.push_back(input.action_plan_ranges_[source_index]);
+            }
+        };
+        std::visit(
+            [&](auto typed) {
+                using T = std::decay_t<decltype(typed)>;
+                if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteRotation> ||
+                              std::is_same_v<T, ExecutablePlan::ExecutePromotion>) {
+                    typed.sign = prepare(expand(typed.sign));
+                    append(typed);
+                } else if constexpr (std::is_same_v<T,
+                                                    ExecutablePlan::ExecuteDynamicFusedRotation>) {
+                    auto rotation = input.dynamic_fused_rotations_[typed.rotation_index];
+                    for (auto& sign : rotation.sign_basis) {
+                        sign = prepare(expand(sign));
+                    }
+                    typed.rotation_index =
+                        static_cast<uint32_t>(output.dynamic_fused_rotations_.size());
+                    output.dynamic_fused_rotations_.push_back(std::move(rotation));
+                    append(typed);
+                } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteActiveMeasurement> ||
+                                     std::is_same_v<T, ExecutablePlan::ExecuteDormantMeasurement>) {
+                    records[typed.record] =
+                        expand(typed.correction) ^ AffineBool::symbol(SymbolId{typed.branch});
+                    // Measurement records are internal scratch; requested outputs
+                    // retain the original correction through their expanded parity.
+                    typed.correction = zero;
+                    typed.record = 0;
+                    append(typed);
+                } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteClassicalRecord>) {
+                    records[typed.record] = expand(typed.outcome);
+                } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteSymbolDefinition>) {
+                    symbols[typed.symbol] = expand(typed.value);
+                } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteReadoutNoise>) {
+                    records[typed.record] ^= AffineBool::symbol(SymbolId{typed.flip});
+                    typed.source = prepare(expand(typed.source));
+                    typed.record = 0;
+                    append(typed);
+                } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteDetector>) {
+                    const auto value = prepare(parity(typed.outcome));
+                    append(ExecutablePlan::ExecuteClassicalRecord{value, next_record});
+                    typed.outcome = {static_cast<uint32_t>(output.record_parity_terms_.size()), 1,
+                                     false};
+                    output.record_parity_terms_.push_back(next_record++);
+                    append(typed);
+                } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteObservable>) {
+                    const auto* expression =
+                        std::get_if<ExecutablePlan::PreparedExpression>(&typed.outcome);
+                    typed.outcome =
+                        prepare(expression ? expand(*expression)
+                                           : parity(std::get<ExecutablePlan::PreparedRecordParity>(
+                                                 typed.outcome)));
+                    append(typed);
+                } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteExpectation>) {
+                    if (typed.active)
+                        typed.active->sign = prepare(expand(typed.active->sign));
+                    append(typed);
+                } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteFusedRotation>) {
+                    append(typed);
+                } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteInstrument> ||
+                                     std::is_same_v<T, ExecutablePlan::ExecuteBoundary>) {
+                    throw std::logic_error("fixed compact program contains a continuation");
+                } else {
+                    static_assert(kAlwaysFalse<T>, "Unhandled compact action alternative");
+                }
+            },
+            input.actions_[source_index]);
+    }
+    output.num_visible_records_ = 0;
+    output.num_hidden_records_ = next_record;
+    output.expression_dependencies_ =
+        ExecutablePlan::ExpressionDependencies::build(output.num_symbols_, terms, begins);
+    output.expression_dependencies_.validate(output.num_symbols_,
+                                             output.num_expression_registers());
+    prepare_noise_schedule(output, first_actions);
+    output.batch_presampled_program_ = BatchPresampledProgram::build(output, terms, begins);
+
+    // Quantum actions are unchanged. Recompute only the future work at moved
+    // detectors, keeping the original plan's total estimates.
+    if (output.has_postselection_) {
+        uint32_t width = output.initial_active_width_;
+        std::vector<batch_detail::BatchLaneWork> work;
+        work.reserve(output.actions_.size());
+        for (const auto& action : output.actions_) {
+            work.push_back(std::visit(
+                [&](const auto& typed) -> batch_detail::BatchLaneWork {
+                    using T = std::decay_t<decltype(typed)>;
+                    const auto size = coefficient_size(width);
+                    if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteRotation>) {
+                        return common_batch_lane_work(saturating_multiply_u64(size, 4));
+                    } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecutePromotion>) {
+                        ++width;
+                        return common_batch_lane_work(saturating_multiply_u64(size, 4));
+                    } else if constexpr (std::is_same_v<T,
+                                                        ExecutablePlan::ExecuteActiveMeasurement>) {
+                        --width;
+                        return common_batch_lane_work(saturating_multiply_u64(size, 6));
+                    } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteFusedRotation>) {
+                        return fused_batch_lane_work(
+                                   output.fused_rotations_[typed.rotation_index].rotation())
+                            .all_widths;
+                    } else if constexpr (std::is_same_v<
+                                             T, ExecutablePlan::ExecuteDynamicFusedRotation>) {
+                        return fused_batch_lane_work(
+                                   output.dynamic_fused_rotations_[typed.rotation_index]
+                                       .variants.front()
+                                       .rotation())
+                            .all_widths;
+                    } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteExpectation>) {
+                        return typed.active
+                                   ? row_output_batch_lane_work(saturating_multiply_u64(size, 4))
+                                   : batch_detail::BatchLaneWork{};
+                    } else {
+                        return {};
+                    }
+                },
+                action));
+        }
+        prepare_batch_compaction_costs(output, work);
+    }
+    return output;
+}
+
 void ExecutablePlanBuilder::build(ExecutablePlan& output, const SamplingPlan& source) {
     ExecutablePlanBuilder builder(output, source);
     builder.compile();
@@ -156,11 +351,12 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::compile() {
     initialize_program();
     prepare_noise_and_boundaries();
     lower_action_stream();
-    prepare_batch_compaction_costs();
+    output_.estimated_batch_lane_work_ = estimated_batch_lane_work_;
+    prepare_batch_compaction_costs(output_, action_batch_lane_work_);
     build_expression_dependencies();
-    prepare_noise_schedule();
-    output_.batch_presampled_program_ = BatchPresampledProgram::build(
-        output_, source_, expression_terms_, expression_term_begins_, bound_presampled_symbols_);
+    prepare_noise_schedule(output_, symbol_first_actions_);
+    output_.batch_presampled_program_ =
+        BatchPresampledProgram::build(output_, expression_terms_, expression_term_begins_);
     validate_executable_plan();
 }
 
@@ -595,18 +791,19 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::lower_action_stream() {
     }
 }
 
-void ExecutablePlanBuilder::prepare_noise_schedule() {
-    if (symbol_first_actions_.empty() || output_.noise_sites_.empty()) {
+void ExecutablePlanBuilder::prepare_noise_schedule(ExecutablePlan& output,
+                                                   std::span<const uint32_t> first_actions) {
+    if (first_actions.empty() || output.noise_sites_.empty()) {
         return;
     }
-    const uint32_t end = static_cast<uint32_t>(output_.actions_.size());
-    auto& deadlines = output_.noise_action_deadlines_;
-    deadlines.assign(output_.noise_sites_.size(), end);
-    for (size_t site = 0; site < output_.noise_sites_.size(); ++site) {
-        const auto& prepared = output_.noise_sites_[site];
+    const uint32_t end = static_cast<uint32_t>(output.actions_.size());
+    auto& deadlines = output.noise_action_deadlines_;
+    deadlines.assign(output.noise_sites_.size(), end);
+    for (size_t site = 0; site < output.noise_sites_.size(); ++site) {
+        const auto& prepared = output.noise_sites_[site];
         for (uint32_t offset = 0; offset < prepared.outcome_count; ++offset) {
-            const uint32_t symbol = output_.noise_outcomes_[prepared.outcome_begin + offset].symbol;
-            deadlines[site] = std::min(deadlines[site], symbol_first_actions_[symbol]);
+            const uint32_t symbol = output.noise_outcomes_[prepared.outcome_begin + offset].symbol;
+            deadlines[site] = std::min(deadlines[site], first_actions[symbol]);
         }
     }
     // An earlier site cannot remain pending when a later site must be sampled.
@@ -616,29 +813,28 @@ void ExecutablePlanBuilder::prepare_noise_schedule() {
     }
 }
 
-CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::prepare_batch_compaction_costs() {
-    output_.estimated_batch_lane_work_ = estimated_batch_lane_work_;
-    if (!output_.has_postselection_) {
-        assert(action_batch_lane_work_.empty() &&
-               "ordinary plans must not retain compaction metadata");
+CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::prepare_batch_compaction_costs(
+    ExecutablePlan& output, std::span<const batch_detail::BatchLaneWork> work) {
+    if (!output.has_postselection_) {
+        assert(work.empty() && "ordinary plans must not retain compaction metadata");
         return;
     }
-    assert(action_batch_lane_work_.size() == output_.actions_.size() &&
+    assert(work.size() == output.actions_.size() &&
            "postselected batch work must parallel executable actions");
     batch_detail::BatchLaneWork remaining_lane_work;
-    for (size_t index = output_.actions_.size(); index-- > 0;) {
+    for (size_t index = output.actions_.size(); index-- > 0;) {
         if (auto* detector =
-                std::get_if<ExecutablePlan::ExecuteDetector>(&output_.actions_[index])) {
+                std::get_if<ExecutablePlan::ExecuteDetector>(&output.actions_[index])) {
             detector->remaining_batch_lane_work = remaining_lane_work;
             if (detector->postselected) {
-                output_.postselection_remaining_lane_work_ = remaining_lane_work;
+                output.postselection_remaining_lane_work_ = remaining_lane_work;
             }
         }
-        remaining_lane_work =
-            add_batch_lane_work(remaining_lane_work, action_batch_lane_work_[index]);
+        remaining_lane_work = add_batch_lane_work(remaining_lane_work, work[index]);
     }
-    assert(remaining_lane_work.common == estimated_batch_lane_work_.all_widths.common &&
-           remaining_lane_work.row_output == estimated_batch_lane_work_.all_widths.row_output &&
+    assert(remaining_lane_work.common == output.estimated_batch_lane_work_.all_widths.common &&
+           remaining_lane_work.row_output ==
+               output.estimated_batch_lane_work_.all_widths.row_output &&
            "forward and reverse batch work totals must agree");
 }
 

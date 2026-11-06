@@ -23,9 +23,18 @@ def counts(result):
     )
 
 
+@pytest.mark.parametrize(
+    "strategy",
+    [
+        {},
+        {"compact_outputs": True},
+        {"group_by_noise": True},
+        {"compact_outputs": True, "group_by_noise": True},
+    ],
+)
 @pytest.mark.parametrize("sharing", [False, True])
 @pytest.mark.parametrize("early", [False, True])
-def test_worker_count_and_storage_growth_preserve_seeded_counts(sharing, early):
+def test_worker_count_and_storage_growth_preserve_seeded_counts(sharing, early, strategy):
     program = clifft.compile(SOURCE, postselection_mask=[1])
     reference = clifft.SurvivorSampler(program, batch_size=65, initial_states=65).sample(
         1301, seed=7
@@ -37,6 +46,7 @@ def test_worker_count_and_storage_growth_preserve_seeded_counts(sharing, early):
         threads=3,
         sharing=sharing,
         early_postselection=early,
+        **strategy,
     )
     for shots in (1301, 0, 1, 63, 65, 1301):
         result = sampler.sample(shots, seed=7)
@@ -70,7 +80,12 @@ def test_noise_layouts_preserve_their_corresponding_seeded_stream():
 
 def test_program_ownership_and_concurrent_calls():
     sampler = clifft.SurvivorSampler(
-        clifft.compile(SOURCE), batch_size=65, threads=2, initial_states=1
+        clifft.compile(SOURCE),
+        batch_size=65,
+        threads=2,
+        initial_states=1,
+        compact_outputs=True,
+        group_by_noise=True,
     )
     gc.collect()
     expected = counts(sampler.sample(1301, seed=17))
@@ -79,8 +94,11 @@ def test_program_ownership_and_concurrent_calls():
     assert results == [expected] * 6
 
 
-def test_no_observables_and_empty_action_stream():
-    sampler = clifft.SurvivorSampler(clifft.compile(""), batch_size=65)
+@pytest.mark.parametrize("compact", [False, True])
+def test_no_observables_and_empty_action_stream(compact):
+    sampler = clifft.SurvivorSampler(
+        clifft.compile(""), batch_size=65, compact_outputs=compact, group_by_noise=True
+    )
     for shots in (0, 1, 131):
         result = sampler.sample(shots, seed=9)
         assert result.passed_shots == shots
@@ -90,7 +108,8 @@ def test_no_observables_and_empty_action_stream():
 
 
 @pytest.mark.parametrize("mode", [clifft.NoisePreparation.DENSE, clifft.NoisePreparation.SPARSE])
-def test_width_zero_reuses_packed_execution_with_exact_counts(mode):
+@pytest.mark.parametrize("compact", [False, True])
+def test_width_zero_reuses_packed_execution_with_exact_counts(mode, compact):
     program = clifft.compile(
         "H 0\nCX 0 1\nDEPOLARIZE2(0.07) 0 1\nM(0.13) 0 1\n"
         "DETECTOR rec[-1] rec[-2]\nOBSERVABLE_INCLUDE(0) rec[-1]",
@@ -98,7 +117,9 @@ def test_width_zero_reuses_packed_execution_with_exact_counts(mode):
         expected_detectors=[1],
     )
     assert program.sampling_plan(keep_records=False).peak_active_width == 0
-    sampler = clifft.SurvivorSampler(program, batch_size=65, noise_preparation=mode)
+    sampler = clifft.SurvivorSampler(
+        program, batch_size=65, noise_preparation=mode, compact_outputs=compact
+    )
     # Both interfaces retain capacity 65, including the final partial batch.
     for shots in (65, 130, 193, 65):
         expected = clifft.sample_survivors(
@@ -114,7 +135,8 @@ def test_invalid_configuration_is_rejected_before_sampling(options):
 
 
 @pytest.mark.parametrize("reconstruction", [False, True])
-def test_detector_snapshot_precedes_asymmetric_readout(reconstruction):
+@pytest.mark.parametrize("compact", [False, True])
+def test_detector_snapshot_precedes_asymmetric_readout(reconstruction, compact):
     program = clifft.compile(
         "H 0\nT 0\nH 0\nM 0\nDETECTOR rec[-1]\n"
         "READOUT_NOISE(0.2, 0.3) rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]",
@@ -123,9 +145,9 @@ def test_detector_snapshot_precedes_asymmetric_readout(reconstruction):
         expected_detectors=[1],
         expected_observables=[1],
     )
-    result = clifft.SurvivorSampler(program, batch_size=257, initial_states=1).sample(
-        32768, seed=24
-    )
+    result = clifft.SurvivorSampler(
+        program, batch_size=257, initial_states=1, compact_outputs=compact, group_by_noise=True
+    ).sample(32768, seed=24)
     probability = np.sin(np.pi / 8) ** 2
     for count, mass in [
         (result.passed_shots, probability),

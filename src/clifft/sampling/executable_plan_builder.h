@@ -23,6 +23,7 @@ class ExecutablePlanBuilder {
         bool has_postselection = false;
     };
 
+    static ExecutablePlan compact_outputs(const ExecutablePlan& input, bool early_postselection);
     static void build(ExecutablePlan& output, const SamplingPlan& source);
     ExecutablePlanBuilder(ExecutablePlan& output, const SamplingPlan& source);
 
@@ -41,11 +42,13 @@ class ExecutablePlanBuilder {
     void lower_action(const PlannedAction& planned, size_t& boundary_index);
     void record_batch_lane_work(batch_detail::BatchWorkEstimate work);
     void record_action_origin(uint32_t plan_begin, uint32_t plan_end);
-    void prepare_batch_compaction_costs();
+    static void prepare_batch_compaction_costs(ExecutablePlan& output,
+                                               std::span<const batch_detail::BatchLaneWork> work);
 
     // Transpose action-order affine terms into symbol-to-register CSR storage.
     void build_expression_dependencies();
-    void prepare_noise_schedule();
+    static void prepare_noise_schedule(ExecutablePlan& output,
+                                       std::span<const uint32_t> first_actions);
 
     // Check construction-only invariants in Debug builds.
     void validate_executable_plan() const;

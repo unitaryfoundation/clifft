@@ -77,6 +77,13 @@ The settings are explicit so you can measure the complete workload:
   transposing them, which can help when faults affect many expressions.
   `DENSE` uses the ordinary packed propagation path; `SPARSE` applies direct
   updates in that path's original noise-event order.
+- `compact_outputs=True` expands record snapshots and derived symbols into the
+  expressions needed for survivor counts. This can reduce noise propagation and
+  classical record work, at the cost of additional preparation during construction.
+- `group_by_noise=True` groups shots by their effect on future rotation signs
+  before evolution. This avoids repeated sign scans but may retain more distinct
+  states and split measurement branches earlier. Compare it with the default
+  incremental grouping on your workload; it is ignored when `sharing=False`.
 - `sharing=False` measures independent coefficient evolution with the same
   classical preparation. `early_postselection=False` disables entrance checks
   and retains the original detector order.

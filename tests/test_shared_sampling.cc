@@ -6,6 +6,7 @@
 #include "clifft/sampling/early_postselection.h"
 #include "clifft/sampling/planner.h"
 #include "clifft/sampling/sharing_executor.h"
+#include "clifft/util/runtime_isa.h"
 
 #include <algorithm>
 #include <array>
@@ -124,6 +125,9 @@ TEST_CASE("Sharing storage boundaries preserve per-shot branches and classical c
     SharingExecutor reserved(plan, noise, checks, 129, 129);
     SharingExecutor independent(plan, noise, checks, 129, 129, false);
     SharingExecutor late(plan, noise, late_checks, 129, 1);
+    const SharingKey key(plan);
+    REQUIRE(key.num_bits() == 0);
+    SharingExecutor grouped(plan, noise, checks, 129, 1, true, &key);
     uint64_t boundaries = 0, splits = 0, rejected = 0;
     uint32_t largest_shared_group_count = 0;
     for (uint64_t seed = 0; seed < 20; ++seed) {
@@ -133,13 +137,14 @@ TEST_CASE("Sharing storage boundaries preserve per-shot branches and classical c
             reserved.run_batch(root, 17, shots);
             independent.run_batch(root, 17, shots);
             late.run_batch(root, 17, shots);
+            grouped.run_batch(root, 17, shots);
             boundaries += growing.storage_boundaries();
             splits += growing.num_splits();
             rejected += growing.entrance_rejected();
             largest_shared_group_count =
                 std::max(largest_shared_group_count, growing.peak_groups());
             REQUIRE(growing.state_capacity() <= 129);
-            for (const auto* reference : {&reserved, &independent, &late}) {
+            for (const auto* reference : {&reserved, &independent, &late, &grouped}) {
                 REQUIRE(growing.surviving_shots() == reference->surviving_shots());
                 REQUIRE(std::ranges::equal(growing.survivor_mask(), reference->survivor_mask()));
                 const auto compare = [&](const PackedBitColumns& actual,
@@ -304,4 +309,127 @@ TEST_CASE("Shared wide Pauli kernels preserve interference and collapsed coordin
                  Catch::Matchers::WithinAbs(shots * probability, tolerance));
     REQUIRE(ones[1] == 0);
     REQUIRE(splits > 0);
+}
+
+TEST_CASE("Compact outputs preserve snapshots and feedback across noise preparations") {
+    const auto mode = GENERATE(BatchNoiseMode::Dense, BatchNoiseMode::Sparse,
+                               BatchNoiseMode::SiteSparse, BatchNoiseMode::SiteRows);
+    const bool early = GENERATE(false, true);
+    auto hir = trace(parse(R"(
+        H 0
+        T 0
+        PAULI_CHANNEL_1(0.1, 0.05, 0.2) 0
+        H 0
+        M 0
+        DETECTOR rec[-1]
+        READOUT_NOISE(0.2, 0.4) rec[-1]
+        CX rec[-1] 1
+        H 1
+        T 1
+        H 1
+        M 1
+        H 2
+        M 2
+        CX rec[-1] 3
+        H 3
+        T 3
+        H 3
+        M 3
+        DETECTOR rec[-1] rec[-2]
+        OBSERVABLE_INCLUDE(0) rec[-4]
+        OBSERVABLE_INCLUDE(1) rec[-3] rec[-1]
+    )"));
+    hir.postselection.mask = {1, 1};
+    hir.postselection.expected_detectors = {1, 0};
+    const ExecutablePlan original(plan_sampling(hir));
+    const auto compact = original.compact_outputs(early);
+    REQUIRE(original.num_visible_records() > 0);
+    REQUIRE(compact.num_visible_records() == 0);
+    REQUIRE(compact.num_expression_registers() < original.num_expression_registers());
+    REQUIRE(compact.estimated_batch_lane_work(BatchOutputMode::Rows) ==
+            original.estimated_batch_lane_work(BatchOutputMode::Rows));
+    const PreparedBatchNoise old_noise(original, mode), noise(compact, mode);
+    const EarlyPostselection old_checks(original, early), checks(compact, early);
+    const SharingKey key(compact);
+    SharingExecutor reference(original, old_noise, old_checks, 129, 1);
+    SharingExecutor worker(compact, noise, checks, 129, 1);
+    SharingExecutor grouped(compact, noise, checks, 129, 1, true, &key);
+    for (uint64_t seed = 0; seed < 12; ++seed) {
+        for (uint32_t shots : {129, 0, 1, 63, 65}) {
+            const auto root = seed_root_from_seed(seed);
+            reference.run_batch(root, 17, shots);
+            for (auto* candidate : {&worker, &grouped}) {
+                candidate->run_batch(root, 17, shots);
+                REQUIRE(std::ranges::equal(candidate->survivor_mask(), reference.survivor_mask()));
+                for (size_t column = 0; column < compact.num_observables(); ++column) {
+                    const auto actual = candidate->observable_columns().column(column);
+                    const auto expected = reference.observable_columns().column(column);
+                    for (size_t word = 0; word < actual.size(); ++word) {
+                        REQUIRE(((actual[word] ^ expected[word]) &
+                                 reference.survivor_mask()[word]) == 0);
+                    }
+                }
+            }
+        }
+    }
+}
+
+TEST_CASE("Noise grouping closes derived signs over readout and dormant branches") {
+    const bool compact_outputs = GENERATE(false, true);
+    const SymbolId noise_symbol{0}, dormant{1}, flip{2}, first_sign{3}, sign{4}, active{5};
+    SamplingPlan source;
+    source.num_qubits = 7;
+    source.initial_active_width = source.peak_active_width = 6;
+    source.num_visible_records = source.num_observables = 2;
+    source.symbols = {SymbolKind::Presampled, SymbolKind::Branch,  SymbolKind::Readout,
+                      SymbolKind::Derived,    SymbolKind::Derived, SymbolKind::Branch};
+    source.presampled_noise_sites = {{0.2, {{noise_symbol, 0.2}}}};
+    source.actions = {
+        {6, 6, MeasureDormantRandom{6, dormant, AffineBool::symbol(dormant), RecordSlot{0}}},
+        {6, 6, ApplyReadoutNoise{flip, AffineBool::symbol(dormant), RecordSlot{0}, 0.2, 0.4}},
+        {6, 6, DefineSymbol{first_sign, AffineBool(false, {noise_symbol, dormant})}},
+        {6, 6, DefineSymbol{sign, AffineBool(true, {first_sign, flip})}},
+    };
+    const std::array rotations = {
+        RotateActivePauli{{0b001000, 0b000101}, 0.17, AffineBool::symbol(first_sign)},
+        RotateActivePauli{{0b100000, 0b010010}, -0.23, AffineBool::symbol(sign)},
+        RotateActivePauli{{0b101000, 0b100001}, 0.31, AffineBool(false, {first_sign, sign})},
+        RotateActivePauli{{0b001000, 0b001110}, -0.11, AffineBool(true, {first_sign})},
+        RotateActivePauli{{0b100000, 0b011001}, 0.29, AffineBool(true, {sign})},
+        RotateActivePauli{{0b101000, 0b100100}, -0.37, AffineBool(true, {first_sign, sign})},
+        RotateActivePauli{{0b001000, 0b010101}, 0.13, AffineBool(false)},
+        RotateActivePauli{{0b100000, 0b101010}, -0.19, AffineBool::symbol(first_sign)},
+    };
+    for (const auto& rotation : rotations) {
+        source.actions.push_back({6, 6, rotation});
+    }
+    source.actions.push_back({6, 5,
+                              MeasureActivePauli{ActivePauli{0, 1}, 0, active,
+                                                 AffineBool::symbol(active), RecordSlot{1}}});
+    source.actions.push_back(
+        {5, 5, WriteObservable{RecordParity{false, {RecordSlot{0}}}, ObservableSlot{0}}});
+    source.actions.push_back(
+        {5, 5, WriteObservable{RecordParity{false, {RecordSlot{1}}}, ObservableSlot{1}}});
+    const ExecutablePlan original(source);
+    if (internal::runtime_isa() == internal::RuntimeIsa::Avx512) {
+        REQUIRE(original.num_actions() < source.actions.size());
+    }
+    const auto plan = compact_outputs ? original.compact_outputs() : original;
+    const SharingKey key(plan);
+    REQUIRE(key.num_bits() == 1);
+    const PreparedBatchNoise old_noise(original, BatchNoiseMode::SiteSparse);
+    const PreparedBatchNoise noise(plan, BatchNoiseMode::SiteSparse);
+    const EarlyPostselection old_checks(original), checks(plan);
+    SharingExecutor reference(original, old_noise, old_checks, 129, 1);
+    SharingExecutor grouped(plan, noise, checks, 129, 1, true, &key);
+    for (uint64_t seed = 0; seed < 20; ++seed) {
+        const auto root = seed_root_from_seed(seed);
+        reference.run_batch(root, 17, 129);
+        grouped.run_batch(root, 17, 129);
+        REQUIRE(grouped.peak_groups() >= 4);
+        for (size_t column = 0; column < 2; ++column) {
+            REQUIRE(std::ranges::equal(reference.observable_columns().column(column),
+                                       grouped.observable_columns().column(column)));
+        }
+    }
 }

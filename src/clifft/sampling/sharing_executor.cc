@@ -5,14 +5,75 @@
 #include <algorithm>
 #include <bit>
 #include <cassert>
+#include <map>
 #include <stdexcept>
 #include <type_traits>
 
 namespace clifft::sampling {
 
+SharingKey::SharingKey(const ExecutablePlan& plan) : plan_(&plan) {
+    std::vector<uint8_t> required(plan.num_expression_registers());
+    for (const auto& action : plan.actions_) {
+        std::visit(
+            [&](const auto& typed) {
+                using T = std::decay_t<decltype(typed)>;
+                if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteRotation> ||
+                              std::is_same_v<T, ExecutablePlan::ExecutePromotion>) {
+                    required[typed.sign.register_id] = 1;
+                } else if constexpr (std::is_same_v<T,
+                                                    ExecutablePlan::ExecuteDynamicFusedRotation>) {
+                    for (const auto& sign :
+                         plan.dynamic_fused_rotations_[typed.rotation_index].sign_basis) {
+                        required[sign.register_id] = 1;
+                    }
+                }
+            },
+            action);
+    }
+    // A derived sign input is uniform only when its defining expression is
+    // uniform. Definitions are ordered, so one reverse pass closes this set.
+    for (auto it = plan.actions_.rbegin(); it != plan.actions_.rend(); ++it) {
+        if (const auto* definition = std::get_if<ExecutablePlan::ExecuteSymbolDefinition>(&*it)) {
+            for (auto reg : plan.expression_dependencies_.dependent_registers(definition->symbol)) {
+                if (required[reg]) {
+                    required[definition->value.register_id] = 1;
+                    break;
+                }
+            }
+        }
+    }
+    std::vector<AffineBool> rows(required.size());
+    for (uint32_t symbol : plan.presampled_symbols_) {
+        for (uint32_t reg : plan.expression_dependencies_.dependent_registers(symbol)) {
+            if (required[reg])
+                rows[reg] ^= AffineBool::symbol(SymbolId{symbol});
+        }
+    }
+    std::map<uint32_t, AffineBool> basis;
+    for (uint32_t reg = 0; reg < rows.size(); ++reg) {
+        auto row = std::move(rows[reg]);
+        while (!row.terms().empty()) {
+            const auto pivot = index(row.terms().back());
+            auto found = basis.find(pivot);
+            if (found == basis.end()) {
+                basis.emplace(pivot, std::move(row));
+                registers_.push_back(reg);
+                break;
+            }
+            row ^= found->second;
+        }
+    }
+    split_symbols_.resize(plan.num_symbols_);
+    for (uint32_t symbol = 0; symbol < plan.num_symbols_; ++symbol) {
+        for (uint32_t reg : plan.expression_dependencies_.dependent_registers(symbol)) {
+            split_symbols_[symbol] |= required[reg];
+        }
+    }
+}
+
 SharingExecutor::SharingExecutor(const ExecutablePlan& plan, const PreparedBatchNoise& noise,
                                  const EarlyPostselection& checks, uint32_t lane_capacity,
-                                 uint32_t initial_states, bool share)
+                                 uint32_t initial_states, bool share, const SharingKey* key)
     : BatchClassicalState(plan, BatchOutputMode::AggregateSurvivors, BatchSamplingMode::Ordinary,
                           batch_detail::batch_worker_storage_layout(
                               plan, lane_capacity, BatchOutputMode::AggregateSurvivors,
@@ -20,6 +81,7 @@ SharingExecutor::SharingExecutor(const ExecutablePlan& plan, const PreparedBatch
                           &noise),
       checks_(&checks),
       share_(share),
+      key_(share ? key : nullptr),
       shot_rng_(lane_capacity),
       heads_(lane_capacity, kNoShot),
       next_(lane_capacity, kNoShot),
@@ -31,6 +93,20 @@ SharingExecutor::SharingExecutor(const ExecutablePlan& plan, const PreparedBatch
     }
     if (lane_capacity == 0 || initial_states == 0) {
         throw std::invalid_argument("sharing requires positive lane and initial state capacities");
+    }
+    if (key_ && key_->plan_ != &plan) {
+        throw std::invalid_argument("sharing key must belong to the executor plan");
+    }
+    if (key_) {
+        key_stride_ = (key_->registers_.size() + 63) / 64;
+        if (key_stride_ != 0) {
+            if (lane_capacity > key_rows_.max_size() / key_stride_ ||
+                size_t{lane_capacity} > key_hash_.max_size() / 4) {
+                throw std::length_error("sharing keys exceed addressable storage");
+            }
+            key_rows_.resize(size_t{lane_capacity} * key_stride_);
+            key_hash_.resize(std::bit_ceil(size_t{lane_capacity} * 2));
+        }
     }
     states_.reserve(std::min(initial_states, lane_capacity));
     grow_state_pool(std::min(initial_states, lane_capacity));
@@ -47,6 +123,10 @@ SharingExecutor::SharingExecutor(const ExecutablePlan& plan, const PreparedBatch
                                                     ExecutablePlan::ExecuteDynamicFusedRotation>) {
                     return uint32_t{1}
                            << plan.dynamic_fused_rotations_[typed.rotation_index].sign_basis.size();
+                } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteDormantMeasurement>) {
+                    return key_ && key_->split_symbols_[typed.branch] ? 2 : 1;
+                } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteReadoutNoise>) {
+                    return key_ && key_->split_symbols_[typed.flip] ? 2 : 1;
                 } else {
                     return 1;
                 }
@@ -80,34 +160,7 @@ void SharingExecutor::run_batch(const SeedRoot& root, uint32_t first_shot, uint3
     if (live_count_ == 0) {
         return;
     }
-    const uint32_t initial_groups = share_ ? 1 : live_count_;
-    if (initial_groups > states_.size()) {
-        ++storage_boundaries_;
-        grow_state_pool(initial_groups);
-    }
-    group_count_ = initial_groups;
-    peak_groups_ = group_count_;
-    free_count_ = static_cast<uint32_t>(states_.size()) - group_count_;
-    for (uint32_t index = 0; index < free_count_; ++index) {
-        free_[index] = static_cast<uint32_t>(states_.size()) - 1 - index;
-    }
-    for (uint32_t group = 0; group < group_count_; ++group) {
-        groups_[group] = group;
-        heads_[group] = kNoShot;
-        states_[group].reset();
-    }
-    uint32_t independent_group = 0;
-    for (uint32_t shot = 0; shot < shots; ++shot) {
-        if (!is_live(shot)) {
-            continue;
-        }
-        const uint32_t group = share_ ? 0 : independent_group++;
-        next_[shot] = heads_[group];
-        heads_[group] = shot;
-        const auto words =
-            derive_state(root, uint64_t{first_shot} + shot, kSharedSamplingExecutorDomain);
-        shot_rng_[shot].seed_full(words[0], words[1], words[2], words[3]);
-    }
+    initialize_groups(root, first_shot, shots);
     const auto run = [&]<ExecutorBackend Backend>() {
         while (const uint32_t required = dispatch_until_storage_boundary<Backend>()) {
             ++storage_boundaries_;
@@ -137,6 +190,81 @@ void SharingExecutor::run_batch(const SeedRoot& root, uint32_t first_shot, uint3
 #endif
     }
     assert(false && "unhandled sharing executor backend");
+}
+
+void SharingExecutor::initialize_groups(const SeedRoot& root, uint32_t first_shot, uint32_t shots) {
+    if (key_stride_ != 0) {
+        std::ranges::fill(key_rows_, uint64_t{0});
+        std::ranges::fill(key_hash_, kNoShot);
+        // Collect only surviving set bits. At low noise rates most key bits
+        // vanish after entrance rejection, avoiding a full per-shot transpose.
+        for (size_t k = 0; k < key_->registers_.size(); ++k) {
+            const auto reg = key_->registers_[k];
+            const auto column = evaluate({reg});
+            for (size_t word = 0; word < word_capacity_; ++word) {
+                const auto constant =
+                    plan_->expression_register_constants_[reg] ? live_words_[word] : 0;
+                uint64_t bits = (column[word] ^ constant) & live_words_[word];
+                while (bits) {
+                    const size_t shot = word * 64 + std::countr_zero(bits);
+                    key_rows_[shot * key_stride_ + k / 64] |= uint64_t{1} << (k & 63);
+                    bits &= bits - 1;
+                }
+            }
+        }
+    }
+    if (share_ && key_stride_ == 0) {
+        group_count_ = 1;
+        heads_[0] = kNoShot;
+    }
+    for (uint32_t shot = 0; shot < shots; ++shot) {
+        if (!is_live(shot))
+            continue;
+        uint32_t group = 0;
+        if (key_stride_ != 0) {
+            const auto* key = key_rows_.data() + size_t{shot} * key_stride_;
+            uint64_t hash = 0;
+            for (size_t word = 0; word < key_stride_; ++word) {
+                auto value = key[word];
+                hash ^= splitmix64(value);
+            }
+            size_t bucket = hash & (key_hash_.size() - 1);
+            while (true) {
+                group = key_hash_[bucket];
+                if (group == kNoShot) {
+                    group = group_count_++;
+                    key_hash_[bucket] = group;
+                    heads_[group] = kNoShot;
+                    break;
+                }
+                const auto* other = key_rows_.data() + size_t{heads_[group]} * key_stride_;
+                if (std::equal(key, key + key_stride_, other))
+                    break;
+                bucket = (bucket + 1) & (key_hash_.size() - 1);
+            }
+        } else if (!share_) {
+            group = group_count_++;
+            heads_[group] = kNoShot;
+        }
+        next_[shot] = heads_[group];
+        heads_[group] = shot;
+        const auto words =
+            derive_state(root, uint64_t{first_shot} + shot, kSharedSamplingExecutorDomain);
+        shot_rng_[shot].seed_full(words[0], words[1], words[2], words[3]);
+    }
+    if (group_count_ > states_.size()) {
+        ++storage_boundaries_;
+        grow_state_pool(group_count_);
+    }
+    peak_groups_ = group_count_;
+    free_count_ = static_cast<uint32_t>(states_.size()) - group_count_;
+    for (uint32_t index = 0; index < free_count_; ++index) {
+        free_[index] = static_cast<uint32_t>(states_.size()) - 1 - index;
+    }
+    for (uint32_t group = 0; group < group_count_; ++group) {
+        groups_[group] = group;
+        states_[group].reset();
+    }
 }
 
 template <ExecutorBackend Backend>
@@ -210,6 +338,8 @@ uint32_t SharingExecutor::split(uint32_t group) noexcept {
 }
 
 uint32_t SharingExecutor::split_by_sign(uint32_t group, std::span<const uint64_t> values) noexcept {
+    if (key_)
+        return kNoShot;
     const auto bit = [&](uint32_t shot) { return ((values[shot >> 6] >> (shot & 63)) & 1) != 0; };
     const bool first = bit(heads_[group]);
     uint32_t shot = next_[heads_[group]];
@@ -358,11 +488,19 @@ void SharingExecutor::execute_action(
             }
         }();
         const auto kind = classify_measurement_branch(probabilities).kind;
+        if (kind != MeasurementBranchKind::Random) {
+            const bool branch = kind == MeasurementBranchKind::DeterministicOne;
+            if (branch) {
+                for (uint32_t shot = heads_[group]; shot != kNoShot; shot = next_[shot]) {
+                    scratch_words_[shot >> 6] |= uint64_t{1} << (shot & 63);
+                }
+            }
+            collapse(group, branch, probabilities.for_branch(branch));
+            continue;
+        }
         for (uint32_t shot = heads_[group]; shot != kNoShot; shot = next_[shot]) {
             const bool branch =
-                kind == MeasurementBranchKind::Random
-                    ? shot_rng_[shot].next_double() * probabilities.total() >= probabilities.zero
-                    : kind == MeasurementBranchKind::DeterministicOne;
+                shot_rng_[shot].next_double() * probabilities.total() >= probabilities.zero;
             choices_[shot] = branch;
             if (branch) {
                 scratch_words_[shot >> 6] |= uint64_t{1} << (shot & 63);
@@ -387,10 +525,17 @@ void SharingExecutor::execute_action(
     std::ranges::fill(scratch_words_, uint64_t{0});
     for (uint32_t index = 0; index < group_count_; ++index) {
         for (uint32_t shot = heads_[groups_[index]]; shot != kNoShot; shot = next_[shot]) {
-            if (shot_rng_[shot].next_double() < 0.5) {
+            const bool branch = shot_rng_[shot].next_double() < 0.5;
+            choices_[shot] = branch;
+            if (branch) {
                 scratch_words_[shot >> 6] |= uint64_t{1} << (shot & 63);
             }
         }
+    }
+    if (key_ && key_->split_symbols_[action.branch]) {
+        const auto original_groups = group_count_;
+        for (uint32_t i = 0; i < original_groups; ++i)
+            (void)split(groups_[i]);
     }
     propagate_symbol(action.branch, scratch_words_);
     if (records_.num_columns() != 0) {
@@ -419,11 +564,18 @@ void SharingExecutor::execute_action(const ExecutablePlan::ExecuteReadoutNoise& 
         for (uint32_t shot = heads_[groups_[index]]; shot != kNoShot; shot = next_[shot]) {
             const double probability =
                 lane_bit(values, shot) ? action.prob_one_to_zero : action.prob_zero_to_one;
-            if (probability >= 1 ||
-                (probability > 0 && shot_rng_[shot].next_double() < probability)) {
+            const bool flip = probability >= 1 ||
+                              (probability > 0 && shot_rng_[shot].next_double() < probability);
+            choices_[shot] = flip;
+            if (flip) {
                 scratch_words_[shot >> 6] |= uint64_t{1} << (shot & 63);
             }
         }
+    }
+    if (key_ && key_->split_symbols_[action.flip]) {
+        const auto original_groups = group_count_;
+        for (uint32_t i = 0; i < original_groups; ++i)
+            (void)split(groups_[i]);
     }
     propagate_symbol(action.flip, scratch_words_);
     if (records_.num_columns() != 0) {
