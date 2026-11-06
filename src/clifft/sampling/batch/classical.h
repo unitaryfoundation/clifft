@@ -21,6 +21,7 @@ namespace clifft::sampling {
 
 // Immutable preparation shared by workers using direct fault propagation.
 // Site traversal skips silent shots independently for each categorical site.
+// The plan outlives this object, and both outlive every executor using them.
 class PreparedBatchNoise {
   public:
     PreparedBatchNoise(const ExecutablePlan& plan, BatchNoiseMode mode);

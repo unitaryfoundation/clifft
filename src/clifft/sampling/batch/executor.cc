@@ -1,6 +1,6 @@
 #include "clifft/sampling/batch/executor.h"
 
-#include "clifft/util/numeric.h"
+#include "clifft/sampling/measurement_branch.h"
 
 #include <algorithm>
 #include <array>
@@ -13,29 +13,6 @@
 namespace clifft::sampling {
 
 namespace {
-
-enum class MeasurementBranchKind : uint8_t {
-    Random,
-    DeterministicZero,
-    DeterministicOne,
-};
-
-[[nodiscard]] MeasurementBranchKind classify_measurement_branch(
-    MeasurementProbabilities probabilities) noexcept {
-    const double total = probabilities.total();
-    assert(is_finite_robust(probabilities.zero) && probabilities.zero >= 0.0 &&
-           is_finite_robust(probabilities.one) && probabilities.one >= 0.0 &&
-           is_finite_robust(total) && total > 0.0 &&
-           "measurement probabilities must be finite, nonnegative, and nonzero");
-    const double epsilon = kMeasurementDustEpsilon * total;
-    if (probabilities.one <= epsilon) {
-        return MeasurementBranchKind::DeterministicZero;
-    }
-    if (probabilities.zero <= epsilon) {
-        return MeasurementBranchKind::DeterministicOne;
-    }
-    return MeasurementBranchKind::Random;
-}
 
 [[nodiscard]] size_t checked_size(uint64_t entries, const char* description) {
     if (entries > std::numeric_limits<size_t>::max()) {
@@ -185,7 +162,8 @@ void BatchExecutor::execute_action(
     for (uint32_t lane = 0; lane < active_lanes(); ++lane) {
         const MeasurementProbabilities probabilities{probability_zero_[lane],
                                                      probability_one_[lane]};
-        const MeasurementBranchKind classification = classify_measurement_branch(probabilities);
+        const MeasurementBranchKind classification =
+            classify_measurement_branch(probabilities).kind;
         bool branch = classification == MeasurementBranchKind::DeterministicOne;
         if (is_live(lane)) {
             switch (classification) {

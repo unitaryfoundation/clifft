@@ -922,6 +922,7 @@ TEST_CASE("Site noise preserves the categorical joint law and normalized rejecti
     auto hir = clifft::trace(clifft::parse(R"(
         PAULI_CHANNEL_1(0.2, 0.1, 0.3) 0
         CORRELATED_ERROR(0.2) X0 X1
+        X_ERROR(0.02) 1
         X_ERROR(1) 2
         M(0.1) 0
         M 1 2
@@ -952,7 +953,8 @@ TEST_CASE("Site noise preserves the categorical joint law and normalized rejecti
     }
     // X or Y flips the first record with probability .3. Readout changes that
     // to .34, independently of the correlated two-record flip with probability .2.
-    std::array<double, 5> probability{0.528, 0.272, 0.068, 0.132, 0.0};
+    // The rare .02 flip on the second record exercises geometric site traversal.
+    std::array<double, 5> probability{0.5188, 0.2692, 0.0772, 0.1348, 0.0};
     if (postselect) {
         probability.back() = probability[0] + probability[3];
         probability[0] = probability[3] = 0.0;
