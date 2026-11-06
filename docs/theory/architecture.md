@@ -119,8 +119,9 @@ Before an action can exceed the retained state capacity, dispatch suspends at
 an explicit storage boundary. The pool grows without changing sampled noise,
 branches, or live coefficients, then the same prepared action resumes.
 
-Entrance postselection eliminates unavailable measurement and readout variables
-from selected detector equations during preparation. For example, requiring
+Entrance checks are noise-only necessary conditions evaluated before quantum
+work. Preparation derives them by eliminating unavailable measurement and readout
+variables from selected detector equations. For example, requiring
 both `m XOR n0 = 0` and `m XOR n1 = 0` implies the noise-only condition
 `n0 XOR n1 = 0`. These necessary checks reject individual shots before quantum
 work; the original detector checks still determine final acceptance. Expected
