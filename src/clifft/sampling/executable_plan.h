@@ -134,6 +134,8 @@ class ExecutablePlan {
     friend class BatchExecutor;
     friend class BatchClassicalState;
     friend class PreparedBatchNoise;
+    friend class EarlyPostselection;
+    friend class SharingExecutor;
     friend class BatchPresampledProgram;
     friend class ExecutablePlanBuilder;
 

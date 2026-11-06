@@ -28,6 +28,68 @@ Clifft chooses whether that budget is better spent across shots or within a
 wide shot. It separately decides whether packing shots into SIMD lanes is
 worthwhile. Benchmark before overriding either decision.
 
+## Reusing survivor sampling work
+
+Repeated postselected count jobs can spend more time preparing noise and evolving
+identical trajectories than collecting survivors. `SurvivorSampler` retains
+worker storage across calls, rejects shots using necessary detector constraints
+before quantum work, and shares a coefficient state until shots need different
+rotation signs or measurement outcomes.
+
+```python
+import clifft
+
+program = clifft.compile(
+    "H 0 1\nT 0 1\nDEPOLARIZE1(0.001) 0 1\nH 0 1\nM 0 1\n"
+    "DETECTOR rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-2]",
+    postselection_mask=[1],
+    reconstruction=True,
+)
+sampler = clifft.SurvivorSampler(
+    program,
+    batch_size=8192,
+    threads=2,
+    initial_states=128,
+    noise_preparation=clifft.NoisePreparation.SITE_SPARSE,
+)
+result = sampler.sample(100_000, seed=42)
+print(result.passed_shots, result.observable_ones)
+```
+
+This interface returns aggregate survivor, logical-error, and observable counts;
+its per-shot arrays are empty. It uses the program's `keep_records=False` plan,
+including reconstruction when selected. Instrument continuations are unsupported.
+Use the ordinary sampling functions for retained rows or fixed-fault conditioning.
+Plans with zero active width use the packed classical executor with the selected
+noise preparation; they need no trajectory groups or separate entrance checks.
+
+The settings are explicit so you can measure the complete workload:
+
+- `batch_size` is the actual classical batch capacity. Larger batches can amortize
+  noise preparation but leave too few batches to occupy all workers on small calls.
+- `initial_states` reserves coefficient states per worker. When a later action
+  needs more states, dispatch suspends and grows the pool before resuming with
+  the same sampled noise and branches. The pool can grow to one state per
+  classical lane and stays allocated for subsequent calls.
+- `NoisePreparation.SITE_SPARSE` applies sampled faults directly to expression
+  columns. `SITE_ROWS` collects each shot's effects contiguously before
+  transposing them, which can help when faults affect many expressions.
+  `DENSE` uses the ordinary packed propagation path; `SPARSE` applies direct
+  updates in that path's original noise-event order.
+- `sharing=False` measures independent coefficient evolution with the same
+  classical preparation. `early_postselection=False` disables entrance checks.
+  These controls help determine which mechanisms benefit your circuit.
+
+Compare construction time and sustained sampling separately. Small jobs or
+circuits with many distinct trajectories may favor ordinary sampling. This
+interface uses cross-shot threads and explicit capacities; the budgeted batch
+calibration below applies to the ordinary sampling functions.
+
+A fixed seed, batch size, and noise preparation reproduce counts independently
+of worker scheduling and state-pool growth. Different batch sizes or noise
+preparations can change seeded results while preserving their distribution.
+Calls on one sampler serialize; separate samplers can run concurrently.
+
 ## Common controls
 
 | Argument | Default | Meaning |

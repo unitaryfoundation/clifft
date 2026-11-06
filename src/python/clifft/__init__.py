@@ -40,6 +40,7 @@ from clifft._clifft_core import (
     HirModule,
     HirPass,
     HirPassManager,
+    NoisePreparation,
     OpType,
     ParseError,
     PeepholeFusionPass,
@@ -50,6 +51,7 @@ from clifft._clifft_core import (
     RemoveNoisePass,
     RotationSimplificationPass,
     StatevectorSqueezePass,
+    SurvivorSampler,
     Target,
     _basis_probabilities_from_bitmasks,
     _record_probabilities_from_records,
@@ -107,7 +109,7 @@ def _basis_masks_from_bitstrings(
     def fill_string_mask(masks: npt.NDArray[np.uint64], bitstring: str, row: int) -> None:
         if len(bitstring) != num_qubits:
             raise ValueError(
-                f"bitstring at index {row} has length {len(bitstring)}, " f"expected {num_qubits}"
+                f"bitstring at index {row} has length {len(bitstring)}, expected {num_qubits}"
             )
         for col, char in enumerate(bitstring):
             if char == "1":
@@ -387,6 +389,8 @@ __all__ = [
     "PhasePolynomialPass",
     "PlanView",
     "Program",
+    "SurvivorSampler",
+    "NoisePreparation",
     "Qasm2Import",
     "RemoveNoisePass",
     "RotationSimplificationPass",

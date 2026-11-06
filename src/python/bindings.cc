@@ -1,5 +1,6 @@
 #include "clifft/api/program.h"
 #include "clifft/api/reference_syndrome.h"
+#include "clifft/api/survivor_sampler.h"
 #include "clifft/circuit/circuit.h"
 #include "clifft/circuit/gate_data.h"
 #include "clifft/circuit/parser.h"
@@ -1754,6 +1755,59 @@ NB_MODULE(_clifft_core, m) {
                    result.logical_errors, obs_ones_arr, ev_arr,
                    nb::cast(std::move(result.batch_tuning)));
     };
+
+    nb::enum_<clifft::sampling::BatchNoiseMode>(m, "NoisePreparation",
+                                                "Noise preparation for reusable survivor sampling.")
+        .value("DENSE", clifft::sampling::BatchNoiseMode::Dense)
+        .value("SPARSE", clifft::sampling::BatchNoiseMode::Sparse)
+        .value("SITE_SPARSE", clifft::sampling::BatchNoiseMode::SiteSparse)
+        .value("SITE_ROWS", clifft::sampling::BatchNoiseMode::SiteRows);
+
+    nb::class_<clifft::SurvivorSampler>(
+        m, "SurvivorSampler",
+        "Reuse classical batches and shared quantum trajectories for repeated count sampling. "
+        "Construction prepares entrance postselection and worker storage; later calls retain "
+        "that storage. The program is kept alive by the sampler.\n\n"
+        "batch_size is the actual classical lane capacity. initial_states reserves quantum "
+        "states per worker; explicit storage boundaries may grow this pool up to batch_size "
+        "without resampling any noise or branch. noise_preparation selects dense propagation, "
+        "direct sparse updates, or site-oriented sparse updates in columns or rows. "
+        "Changing preparation or batch size can change seeded results.\n\n"
+        "The sampler returns aggregate counts using program.sampling_plan(keep_records=False). "
+        "Width-zero plans use packed classical execution with the selected noise preparation. "
+        "Instrument continuations are unsupported. Calls on one sampler are serialized; "
+        "distinct samplers can execute concurrently.")
+        .def(
+            "__init__",
+            [](clifft::SurvivorSampler* self, const clifft::Program& program, uint32_t batch_size,
+               const ThreadOption& thread_option, uint32_t initial_states,
+               clifft::sampling::BatchNoiseMode noise, bool sharing, bool early_postselection) {
+                const uint32_t threads = parse_thread_option(thread_option);
+                nb::gil_scoped_release release;
+                new (self) clifft::SurvivorSampler(program, batch_size, threads, initial_states,
+                                                   noise, sharing, early_postselection);
+            },
+            nb::arg("program"), nb::kw_only(), nb::arg("batch_size") = 8192,
+            nb::arg("threads") = ThreadOption{int64_t{1}}, nb::arg("initial_states") = 128,
+            nb::arg("noise_preparation") = clifft::sampling::BatchNoiseMode::SiteSparse,
+            nb::arg("sharing") = true, nb::arg("early_postselection") = true,
+            nb::keep_alive<1, 2>())
+        .def(
+            "sample",
+            [make_survivor_result](clifft::SurvivorSampler& sampler, uint32_t shots,
+                                   std::optional<uint64_t> seed) {
+                clifft::sampling::SamplingSurvivorResult result;
+                {
+                    nb::gil_scoped_release release;
+                    result = sampler.sample(shots, seed);
+                }
+                return make_survivor_result(std::move(result), sampler.program().original(), false);
+            },
+            nb::arg("shots"), nb::arg("seed") = nb::none(),
+            nb::sig("def sample(self, shots: int, seed: int | None = None) -> clifft.SampleResult"),
+            "Sample attempted shots and return survivor and observable counts. "
+            "Per-shot output arrays are empty. A seed replays at fixed preparation and batch size, "
+            "independently of worker scheduling and retained state-pool growth.");
 
     m.def(
         "sample_k_survivors",
