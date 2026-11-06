@@ -892,7 +892,7 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
 
             // Reset / measure-reset decomposition.
             // Pattern: extract measurement observable -> emit MEASURE -> extract
-            // correction -> emit CONDITIONAL_PAULI -> (MR only) optional readout noise.
+            // correction -> emit CONDITIONAL_PAULI.
             case GateType::R:
             case GateType::RX:
             case GateType::RY:
