@@ -99,6 +99,25 @@ constexpr size_t kDirectCopyColumns = 16;
 
 }  // namespace
 
+void xor_bit_rows_into_columns(std::span<const uint64_t> rows, size_t stride, uint32_t lanes,
+                               PackedBitColumns& columns) noexcept {
+    assert(stride >= (columns.num_columns() + 63) / 64 && lanes <= columns.lane_capacity());
+    assert(rows.size() / std::max(size_t{1}, stride) >= lanes || columns.num_columns() == 0);
+    for (uint64_t first = 0; first < lanes; first += 64) {
+        for (size_t word = 0; word < (columns.num_columns() + 63) / 64; ++word) {
+            uint64_t tile[64]{};
+            for (uint32_t lane = 0; lane < std::min(uint64_t{64}, lanes - first); ++lane) {
+                tile[lane] = rows[size_t{first + lane} * stride + word];
+            }
+            transpose_tile_64x64(tile);
+            const size_t count = std::min(size_t{64}, columns.num_columns() - 64 * word);
+            for (size_t bit = 0; bit < count; ++bit) {
+                columns.column(64 * word + bit)[first >> 6] ^= tile[bit];
+            }
+        }
+    }
+}
+
 size_t packed_word_count(uint32_t lanes) noexcept {
     return (static_cast<size_t>(lanes) + 63) / 64;
 }

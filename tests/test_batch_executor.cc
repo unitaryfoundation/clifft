@@ -13,6 +13,7 @@
 #include <catch2/generators/catch_generators.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
+#include <cmath>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -834,4 +835,137 @@ TEST_CASE("Packed capacity policy accounts for lane-scaled sidecars") {
     REQUIRE(resolve_batch_execution_policy(d11, shots, 1, 1, BatchOutputMode::Rows, std::nullopt,
                                            BatchSamplingMode::FixedFaults)
                 .lane_capacity == 2048);
+}
+
+TEST_CASE("Direct sparse noise preserves seeded quantum and classical outputs") {
+    auto hir = clifft::trace(clifft::parse(R"(
+        H 0
+        CX 0 1
+        PAULI_CHANNEL_1(0.07, 0.03, 0.05) 0
+        CORRELATED_ERROR(0.12) X0
+        ELSE_CORRELATED_ERROR(0.2) Z0 X1
+        X_ERROR(1) 1
+        M(0.13) 0
+        H 2
+        T 2
+        CX rec[-1] 2
+        EXP_VAL X2
+        M(0.23) 1 2
+        DETECTOR rec[-3] rec[-2]
+        OBSERVABLE_INCLUDE(0) rec[-1] rec[-3]
+    )"));
+    hir.postselection.mask = {1};
+    hir.postselection.expected_detectors = {1};
+    const ExecutablePlan plan(clifft::sampling::plan_sampling(hir));
+    const clifft::sampling::PreparedBatchNoise sparse(plan,
+                                                      clifft::sampling::BatchNoiseMode::Sparse);
+    BatchExecutor dense(plan, 129);
+    BatchExecutor direct(plan, 129, BatchOutputMode::Rows, BatchSamplingMode::Ordinary, &sparse);
+    REQUIRE(plan.num_presampled_symbols() > 0);
+    const auto storage = clifft::sampling::batch_detail::batch_worker_storage_layout(
+        plan, 129, BatchOutputMode::Rows, BatchSamplingMode::Ordinary,
+        clifft::sampling::BatchNoiseMode::Sparse);
+    REQUIRE(storage.noise_carrier_columns == 0);
+    REQUIRE(storage.symbol_columns == 0);
+    for (uint64_t seed : {0, 1, 731}) {
+        const auto root = clifft::seed_root_from_seed(seed);
+        for (uint32_t shots : {129, 0, 1, 63, 65, 129}) {
+            dense.run_batch(root, 17, shots);
+            direct.run_batch(root, 17, shots);
+            REQUIRE(dense.surviving_shots() == direct.surviving_shots());
+            for (uint32_t lane = 0; lane < direct.surviving_shots(); ++lane) {
+                REQUIRE(dense.shot_index(lane) == direct.shot_index(lane));
+                compare_lane_outputs(direct, dense, lane, lane, plan);
+            }
+        }
+    }
+    REQUIRE_THROWS_AS(
+        BatchExecutor(plan, 65, BatchOutputMode::Rows, BatchSamplingMode::FixedFaults, &sparse),
+        std::invalid_argument);
+}
+
+TEST_CASE("Site noise row and column preparation agree across packed words") {
+    const auto plan = compile_batch_fixture("surface_d7_r7_p001.stim");
+    REQUIRE(plan.num_expression_registers() > 64);
+    REQUIRE(plan.num_batch_noise_carriers() > 0);
+    const clifft::sampling::PreparedBatchNoise direct(plan,
+                                                      clifft::sampling::BatchNoiseMode::Sparse);
+    BatchExecutor dense_worker(plan, 257);
+    BatchExecutor sparse_worker(plan, 257, BatchOutputMode::Rows, BatchSamplingMode::Ordinary,
+                                &direct);
+    const clifft::sampling::PreparedBatchNoise columns(
+        plan, clifft::sampling::BatchNoiseMode::SiteSparse);
+    const clifft::sampling::PreparedBatchNoise rows(plan,
+                                                    clifft::sampling::BatchNoiseMode::SiteRows);
+    BatchExecutor column_worker(plan, 257, BatchOutputMode::Rows, BatchSamplingMode::Ordinary,
+                                &columns);
+    BatchExecutor row_worker(plan, 257, BatchOutputMode::Rows, BatchSamplingMode::Ordinary, &rows);
+    for (uint32_t shots : {257, 0, 1, 63, 65, 257}) {
+        const auto root = clifft::seed_root_from_seed(731);
+        dense_worker.run_batch(root, 13, shots);
+        sparse_worker.run_batch(root, 13, shots);
+        REQUIRE(dense_worker.surviving_shots() == sparse_worker.surviving_shots());
+        for (uint32_t lane = 0; lane < sparse_worker.surviving_shots(); ++lane) {
+            compare_lane_outputs(sparse_worker, dense_worker, lane, lane, plan);
+        }
+        column_worker.run_batch(root, 13, shots);
+        row_worker.run_batch(root, 13, shots);
+        REQUIRE(column_worker.surviving_shots() == row_worker.surviving_shots());
+        for (uint32_t lane = 0; lane < row_worker.surviving_shots(); ++lane) {
+            compare_lane_outputs(row_worker, column_worker, lane, lane, plan);
+        }
+    }
+}
+
+TEST_CASE("Site noise preserves the categorical joint law and normalized rejection") {
+    const bool postselect = GENERATE(false, true);
+    auto hir = clifft::trace(clifft::parse(R"(
+        PAULI_CHANNEL_1(0.2, 0.1, 0.3) 0
+        CORRELATED_ERROR(0.2) X0 X1
+        X_ERROR(1) 2
+        M(0.1) 0
+        M 1 2
+        DETECTOR rec[-3] rec[-2]
+        OBSERVABLE_INCLUDE(0) rec[-3]
+    )"));
+    hir.postselection.mask = {static_cast<uint8_t>(postselect)};
+    hir.postselection.expected_detectors = {1};
+    const ExecutablePlan plan(clifft::sampling::plan_sampling(hir));
+    const clifft::sampling::PreparedBatchNoise noise(plan,
+                                                     clifft::sampling::BatchNoiseMode::SiteSparse);
+    BatchExecutor worker(plan, 257, BatchOutputMode::Rows, BatchSamplingMode::Ordinary, &noise);
+    constexpr uint32_t shots = 65536;
+    std::array<uint64_t, 5> observed{};
+    const auto root = clifft::seed_root_from_seed(191);
+    for (uint32_t first = 0; first < shots; first += 257) {
+        const uint32_t count = std::min(uint32_t{257}, shots - first);
+        worker.run_batch(root, first, count);
+        observed.back() += count - worker.surviving_shots();
+        for (uint32_t lane = 0; lane < worker.surviving_shots(); ++lane) {
+            const uint32_t zero = worker.measurement(lane, 0);
+            const uint32_t one = worker.measurement(lane, 1);
+            REQUIRE(worker.measurement(lane, 2));
+            REQUIRE(worker.observable(lane, 0) == (zero != 0));
+            REQUIRE(worker.detector(lane, 0) == ((zero ^ one ^ 1) != 0));
+            ++observed[zero | (one << 1)];
+        }
+    }
+    // X or Y flips the first record with probability .3. Readout changes that
+    // to .34, independently of the correlated two-record flip with probability .2.
+    std::array<double, 5> probability{0.528, 0.272, 0.068, 0.132, 0.0};
+    if (postselect) {
+        probability.back() = probability[0] + probability[3];
+        probability[0] = probability[3] = 0.0;
+    }
+    for (size_t bin = 0; bin < probability.size(); ++bin) {
+        CAPTURE(postselect, bin);
+        if (probability[bin] == 0.0) {
+            REQUIRE(observed[bin] == 0);
+        } else {
+            const double expected = shots * probability[bin];
+            const double tolerance = 7 * std::sqrt(expected * (1 - probability[bin])) + 10;
+            REQUIRE_THAT(static_cast<double>(observed[bin]),
+                         Catch::Matchers::WithinAbs(expected, tolerance));
+        }
+    }
 }

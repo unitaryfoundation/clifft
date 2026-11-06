@@ -76,6 +76,7 @@ class BatchExternalInputs {
 
   private:
     friend class BatchExecutor;
+    friend class BatchClassicalState;
 
     const ExecutablePlan* plan_;
     uint32_t lane_capacity_;

@@ -26,6 +26,7 @@ class BatchPresampledProgram {
 
   private:
     friend class BatchExecutor;
+    friend class BatchClassicalState;
     friend class ExecutablePlan;
     friend class ExecutablePlanBuilder;
 
