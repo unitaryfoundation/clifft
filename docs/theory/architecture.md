@@ -125,6 +125,10 @@ both `m XOR n0 = 0` and `m XOR n1 = 0` implies the noise-only condition
 `n0 XOR n1 = 0`. These necessary checks reject individual shots before quantum
 work; the original detector checks still determine final acceptance. Expected
 reference parities are included in the equations.
+Preparation also schedules selected detectors after the last contributing record
+write, including readout noise. This preserves each detector's record snapshot
+while allowing rejected trajectories to skip subsequent quantum actions. Workers
+share this action order and apply the plan's selected scalar or SIMD kernels.
 
 Noncomputational transitions use explicit boundaries to change future
 execution. A leakage or loss instrument may stop at an explicit boundary,

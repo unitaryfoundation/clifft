@@ -34,7 +34,8 @@ Repeated postselected count jobs can spend more time preparing noise and evolvin
 identical trajectories than collecting survivors. `SurvivorSampler` retains
 worker storage across calls, rejects shots using necessary detector constraints
 before quantum work, and shares a coefficient state until shots need different
-rotation signs or measurement outcomes.
+rotation signs or measurement outcomes. Remaining selected detectors are checked
+as soon as their input records are ready, so rejected shots skip later evolution.
 
 ```python
 import clifft
@@ -77,7 +78,8 @@ The settings are explicit so you can measure the complete workload:
   `DENSE` uses the ordinary packed propagation path; `SPARSE` applies direct
   updates in that path's original noise-event order.
 - `sharing=False` measures independent coefficient evolution with the same
-  classical preparation. `early_postselection=False` disables entrance checks.
+  classical preparation. `early_postselection=False` disables entrance checks
+  and retains the original detector order.
   These controls help determine which mechanisms benefit your circuit.
 
 Compare construction time and sustained sampling separately. Small jobs or

@@ -34,17 +34,21 @@ class SharingExecutor : public BatchClassicalState {
 
     void grow_state_pool(uint32_t required);
     // Returns zero on completion, otherwise the capacity required to resume.
+    template <ExecutorBackend Backend>
     [[nodiscard]] uint32_t dispatch_until_storage_boundary() noexcept;
     void copy_state(uint32_t to, uint32_t from) noexcept;
     [[nodiscard]] uint32_t split(uint32_t group) noexcept;
+    [[nodiscard]] uint32_t split_by_sign(uint32_t group, std::span<const uint64_t> values) noexcept;
     void prune() noexcept;
     template <class F>
     void sign_action(std::span<const uint64_t> values, F&& apply) noexcept;
 
+    template <ExecutorBackend Backend>
     void execute_action(const ExecutablePlan::ExecuteRotation& action) noexcept;
     void execute_action(const ExecutablePlan::ExecutePromotion& action) noexcept;
     void execute_action(const ExecutablePlan::ExecuteFusedRotation& action) noexcept;
     void execute_action(const ExecutablePlan::ExecuteDynamicFusedRotation& action) noexcept;
+    template <ExecutorBackend Backend>
     void execute_action(const ExecutablePlan::ExecuteActiveMeasurement& action) noexcept;
     void execute_action(const ExecutablePlan::ExecuteDormantMeasurement& action) noexcept;
     void execute_action(const ExecutablePlan::ExecuteDetector& action) noexcept;

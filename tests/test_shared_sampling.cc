@@ -119,9 +119,11 @@ TEST_CASE("Sharing storage boundaries preserve per-shot branches and classical c
     const PreparedBatchNoise noise(plan, mode);
     const EarlyPostselection checks(plan);
     REQUIRE(checks.num_checks() > 0);
+    const EarlyPostselection late_checks(plan, false);
     SharingExecutor growing(plan, noise, checks, 129, 1);
     SharingExecutor reserved(plan, noise, checks, 129, 129);
     SharingExecutor independent(plan, noise, checks, 129, 129, false);
+    SharingExecutor late(plan, noise, late_checks, 129, 1);
     uint64_t boundaries = 0, splits = 0, rejected = 0;
     uint32_t largest_shared_group_count = 0;
     for (uint64_t seed = 0; seed < 20; ++seed) {
@@ -130,13 +132,14 @@ TEST_CASE("Sharing storage boundaries preserve per-shot branches and classical c
             growing.run_batch(root, 17, shots);
             reserved.run_batch(root, 17, shots);
             independent.run_batch(root, 17, shots);
+            late.run_batch(root, 17, shots);
             boundaries += growing.storage_boundaries();
             splits += growing.num_splits();
             rejected += growing.entrance_rejected();
             largest_shared_group_count =
                 std::max(largest_shared_group_count, growing.peak_groups());
             REQUIRE(growing.state_capacity() <= 129);
-            for (const auto* reference : {&reserved, &independent}) {
+            for (const auto* reference : {&reserved, &independent, &late}) {
                 REQUIRE(growing.surviving_shots() == reference->surviving_shots());
                 REQUIRE(std::ranges::equal(growing.survivor_mask(), reference->survivor_mask()));
                 const auto compare = [&](const PackedBitColumns& actual,
@@ -159,6 +162,52 @@ TEST_CASE("Sharing storage boundaries preserve per-shot branches and classical c
     REQUIRE(splits > 0);
     REQUIRE(rejected > 0);
     REQUIRE(largest_shared_group_count < 129);
+}
+
+TEST_CASE("Selected detector scheduling preserves record snapshots and later readout") {
+    const bool select_second = GENERATE(false, true);
+    const SymbolId first_flip{0}, second_flip{1};
+    SamplingPlan source;
+    source.num_qubits = 1;
+    source.num_visible_records = 4;
+    source.num_detectors = 2;
+    source.num_observables = 1;
+    source.symbols = {SymbolKind::Readout, SymbolKind::Readout};
+    source.actions = {
+        {0, 0, RecordClassical{AffineBool{}, RecordSlot{0}}},
+        {0, 0, RecordClassical{AffineBool{true}, RecordSlot{1}}},
+        {0, 0, ApplyReadoutNoise{first_flip, AffineBool{}, RecordSlot{0}, 0.2, 0.4}},
+        {0, 0, RecordClassical{AffineBool{}, RecordSlot{2}}},
+        {0, 0,
+         WriteDetector{RecordParity{true, {RecordSlot{0}, RecordSlot{1}}}, DetectorSlot{0}, true}},
+        {0, 0,
+         ApplyReadoutNoise{second_flip, AffineBool::symbol(first_flip), RecordSlot{0}, 0.3, 0.7}},
+        {0, 0, RecordClassical{AffineBool{}, RecordSlot{3}}},
+        {0, 0,
+         WriteDetector{RecordParity{true, {RecordSlot{0}, RecordSlot{1}}}, DetectorSlot{1},
+                       select_second}},
+        {0, 0, WriteObservable{RecordParity{false, {RecordSlot{0}}}, ObservableSlot{0}}},
+    };
+    const ExecutablePlan plan(source);
+    const EarlyPostselection checks(plan), late_checks(plan, false);
+    const std::vector<size_t> expected = select_second
+                                             ? std::vector<size_t>{0, 1, 2, 4, 3, 5, 7, 6, 8}
+                                             : std::vector<size_t>{0, 1, 2, 4, 3, 5, 6, 7, 8};
+    REQUIRE(std::ranges::equal(checks.action_order(), expected));
+    const PreparedBatchNoise noise(plan, BatchNoiseMode::SiteSparse);
+    SharingExecutor scheduled(plan, noise, checks, 129, 1);
+    SharingExecutor late(plan, noise, late_checks, 129, 1);
+    for (uint64_t seed = 0; seed < 20; ++seed) {
+        const auto root = seed_root_from_seed(seed);
+        scheduled.run_batch(root, 0, 129);
+        late.run_batch(root, 0, 129);
+        REQUIRE(std::ranges::equal(scheduled.survivor_mask(), late.survivor_mask()));
+        const auto actual = scheduled.observable_columns().column(0);
+        const auto reference = late.observable_columns().column(0);
+        for (size_t word = 0; word < actual.size(); ++word) {
+            REQUIRE(((actual[word] ^ reference[word]) & scheduled.survivor_mask()[word]) == 0);
+        }
+    }
 }
 
 TEST_CASE("Shared measurement and readout preserve the selected interference law") {
@@ -211,4 +260,48 @@ TEST_CASE("Shared measurement and readout preserve the selected interference law
                          Catch::Matchers::WithinAbs(expected, tolerance));
         }
     }
+}
+
+TEST_CASE("Shared wide Pauli kernels preserve interference and collapsed coordinates") {
+    const uint32_t pivot = GENERATE(0, 5);
+    const uint32_t axis = GENERATE(0, 1, 2);
+    const uint64_t bit = uint64_t{1} << pivot;
+    const ActivePauli pauli = axis == 0   ? ActivePauli{bit, 0}
+                              : axis == 1 ? ActivePauli{bit, bit}
+                                          : ActivePauli{0, bit};
+    const SymbolId first{0}, second{1};
+    SamplingPlan source;
+    source.num_qubits = source.initial_active_width = source.peak_active_width = 6;
+    source.num_visible_records = source.num_observables = 2;
+    source.symbols = {SymbolKind::Branch, SymbolKind::Branch};
+    source.actions = {
+        {6, 6, RotateActivePauli{ActivePauli{bit, 0}, 0.25, AffineBool{}}},
+        {6, 6, RotateActivePauli{ActivePauli{0, bit}, 0.25, AffineBool{}}},
+        {6, 5, MeasureActivePauli{pauli, pivot, first, AffineBool::symbol(first), RecordSlot{0}}},
+        {5, 4,
+         MeasureActivePauli{ActivePauli{0, 1}, 0, second, AffineBool::symbol(second),
+                            RecordSlot{1}}},
+        {4, 4, WriteObservable{RecordParity{false, {RecordSlot{0}}}, ObservableSlot{0}}},
+        {4, 4, WriteObservable{RecordParity{false, {RecordSlot{1}}}, ObservableSlot{1}}},
+    };
+    const ExecutablePlan plan(source);
+    const PreparedBatchNoise noise(plan, BatchNoiseMode::SiteSparse);
+    const EarlyPostselection checks(plan);
+    SharingExecutor worker(plan, noise, checks, 257, 1);
+    constexpr uint32_t shots = 65536;
+    std::array<uint64_t, 2> ones{};
+    const auto root = seed_root_from_seed(134);
+    uint64_t splits = 0;
+    for (uint32_t offset = 0; offset < shots; offset += 257) {
+        worker.run_batch(root, offset, std::min(uint32_t{257}, shots - offset));
+        (void)worker.accumulate_survivor_counts(ones);
+        splits += worker.num_splits();
+    }
+    // RX(pi/4) followed by RZ(pi/4) has Bloch vector (1/2, -1/2, sqrt(1/2)).
+    const double probability = axis == 0 ? 0.25 : axis == 1 ? 0.75 : (1 - std::sqrt(0.5)) / 2;
+    const double tolerance = 7 * std::sqrt(shots * probability * (1 - probability)) + 10;
+    REQUIRE_THAT(static_cast<double>(ones[0]),
+                 Catch::Matchers::WithinAbs(shots * probability, tolerance));
+    REQUIRE(ones[1] == 0);
+    REQUIRE(splits > 0);
 }
