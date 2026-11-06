@@ -660,3 +660,35 @@ def test_sampling_mode_only_skips_unavailable_layouts(
         with pytest.raises(ValueError) as raised:
             getattr(mode, sampler)(object(), 2, **options)
         assert raised.value is error
+
+
+@pytest.mark.parametrize("reconstruction", [False, True])
+@pytest.mark.parametrize("mask", [None, [1, 0], [1, 1]])
+@pytest.mark.parametrize(
+    "preparation", [clifft.NoisePreparation.DENSE, clifft.NoisePreparation.SITE_ROWS]
+)
+def test_reusable_sharing_preserves_noisy_aggregate_masses(
+    reconstruction: bool,
+    mask: list[int] | None,
+    preparation: clifft.NoisePreparation,
+    noisy_joint_probabilities: np.ndarray,
+) -> None:
+    program = clifft.compile(
+        NOISY_INTERFERENCE_SOURCE,
+        hir_passes=None,
+        reconstruction=reconstruction,
+        postselection_mask=mask,
+        expected_detectors=[1, 1],
+        expected_observables=[1, 0],
+    )
+    if reconstruction:
+        assert program.sampling_plan(keep_records=False).reconstruction_selected
+    expected = noisy_joint_probabilities.copy()
+    for detector, selected in enumerate(mask or []):
+        if selected:
+            expected[((np.arange(1024) >> (6 + detector)) & 1) != 0] = 0
+    sampler = clifft.SurvivorSampler(
+        program, batch_size=65, initial_states=1, threads=2, noise_preparation=preparation
+    )
+    result = sampler.sample(8193, seed=803)
+    _assert_noisy_survivors(result, expected, 8193, keep_records=False)

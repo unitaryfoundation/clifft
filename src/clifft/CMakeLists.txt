@@ -40,6 +40,7 @@ add_library(clifft_core STATIC
     sampling/batch/tuning.cc
     sampling/batch/presampled_program.cc
     sampling/kernel_dispatch.cc
+    sampling/early_postselection.cc
     sampling/executable_plan.cc
     sampling/executable_plan_inspection.cc
     sampling/executable_plan_builder.cc
@@ -48,10 +49,12 @@ add_library(clifft_core STATIC
     sampling/batch/interleaved_kernels.cc
     sampling/batch/interleaved_state.cc
     sampling/kernels.cc
+    sampling/sharing_executor.cc
     sampling/sampler.cc
     sampling/state.cc
     api/basis_probabilities.cc
     api/program.cc
+    api/survivor_sampler.cc
     api/reference_syndrome.cc
     api/statevector.cc
     util/fault_sampling.cc

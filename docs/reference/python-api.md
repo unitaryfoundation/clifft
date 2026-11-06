@@ -32,6 +32,13 @@ compatibility limits.
 
 ::: clifft.sample_k_survivors
 
+Repeated aggregate jobs can retain worker storage and share trajectories with
+[`SurvivorSampler`](../guide/cpu-execution.md#reusing-survivor-sampling-work).
+
+::: clifft.SurvivorSampler
+
+::: clifft.NoisePreparation
+
 ## Optional Sinter Integration
 
 Install `clifft[sinter]` for this optional integration with Stim/Sinter 1.16.
