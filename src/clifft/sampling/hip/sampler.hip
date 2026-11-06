@@ -1529,10 +1529,10 @@ SamplingSurvivorResult Sampler::sample_survivors(uint32_t shots, bool keep_recor
     validate_launch_block_size(block_size, impl_->tier);
     SamplingSurvivorResult result;
     result.total_shots = shots;
+    result.observable_ones.resize(impl_->num_observables(), 0);
     if (shots == 0) {
         return result;
     }
-    result.observable_ones.resize(impl_->num_observables(), 0);
     if (keep_records) {
         result.measurements.resize(checked_elements(shots, impl_->num_visible_records(),
                                                     "survivor measurement result"));
@@ -1697,7 +1697,9 @@ SamplingSurvivorResult sample_survivors(const ExecutablePlan& executable, uint32
     validate_block_size(options.block_size);
     validate_max_batch_shots(options.max_batch_shots);
     if (shots == 0) {
-        return {};
+        SamplingSurvivorResult empty;
+        empty.observable_ones.resize(executable.num_observables(), 0);
+        return empty;
     }
     Sampler sampler(executable, options.coefficient_precision,
                     std::min(shots, options.max_batch_shots), options.tier);

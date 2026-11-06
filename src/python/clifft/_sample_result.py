@@ -26,7 +26,8 @@ class SampleResult:
         discards: number of discarded shots (total_shots - passed_shots)
         logical_errors: number of surviving shots with at least one
             observable flipped
-        observable_ones: uint64 array of per-observable error counts
+        observable_ones: uint64 array of per-observable error counts, shape
+            (num_observables,), filled with zeros when total_shots is zero
 
     Supports tuple unpacking for backward compatibility:
 
