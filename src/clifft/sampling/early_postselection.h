@@ -4,16 +4,18 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <span>
 #include <vector>
 
 namespace clifft::sampling {
 
-// Necessary selected-detector constraints that depend only on presampled noise.
-// Each check reads the initial affine registers, before branch assignments.
+// Prepares noise-only entrance constraints and schedules selected detectors
+// immediately after their contributing record values become available.
 class EarlyPostselection {
   public:
     explicit EarlyPostselection(const ExecutablePlan& plan, bool enabled = true);
     [[nodiscard]] size_t num_checks() const noexcept { return checks_.size(); }
+    [[nodiscard]] std::span<const size_t> action_order() const noexcept { return action_order_; }
 
   private:
     friend class BatchClassicalState;
@@ -24,6 +26,7 @@ class EarlyPostselection {
     };
     const ExecutablePlan* plan_;
     std::vector<Check> checks_;
+    std::vector<size_t> action_order_;
 };
 
 }  // namespace clifft::sampling

@@ -108,15 +108,42 @@ void SharingExecutor::run_batch(const SeedRoot& root, uint32_t first_shot, uint3
             derive_state(root, uint64_t{first_shot} + shot, kSharedSamplingExecutorDomain);
         shot_rng_[shot].seed_full(words[0], words[1], words[2], words[3]);
     }
-    while (const uint32_t required = dispatch_until_storage_boundary()) {
-        ++storage_boundaries_;
-        grow_state_pool(required);
+    const auto run = [&]<ExecutorBackend Backend>() {
+        while (const uint32_t required = dispatch_until_storage_boundary<Backend>()) {
+            ++storage_boundaries_;
+            grow_state_pool(required);
+        }
+    };
+    switch (plan_->backend_) {
+        case ExecutorBackend::Scalar:
+            return run.template operator()<ExecutorBackend::Scalar>();
+        case ExecutorBackend::Neon:
+#if defined(CLIFFT_ENABLE_APPLE_NEON)
+            return run.template operator()<ExecutorBackend::Neon>();
+#else
+            break;
+#endif
+        case ExecutorBackend::Avx2:
+#if defined(CLIFFT_ENABLE_X86_RUNTIME_DISPATCH)
+            return run.template operator()<ExecutorBackend::Avx2>();
+#else
+            break;
+#endif
+        case ExecutorBackend::Avx512:
+#if defined(CLIFFT_ENABLE_X86_RUNTIME_DISPATCH)
+            return run.template operator()<ExecutorBackend::Avx512>();
+#else
+            break;
+#endif
     }
+    assert(false && "unhandled sharing executor backend");
 }
 
+template <ExecutorBackend Backend>
 uint32_t SharingExecutor::dispatch_until_storage_boundary() noexcept {
     while (action_index_ < plan_->actions_.size() && live_count_ != 0) {
-        const auto& action = plan_->actions_[action_index_];
+        const auto plan_index = checks_->action_order()[action_index_];
+        const auto& action = plan_->actions_[plan_index];
         std::visit(
             [&](const auto& typed) noexcept {
                 using T = std::decay_t<decltype(typed)>;
@@ -131,12 +158,22 @@ uint32_t SharingExecutor::dispatch_until_storage_boundary() noexcept {
                 }
             },
             action);
-        const uint32_t required = static_cast<uint32_t>(std::min<uint64_t>(
-            live_count_, uint64_t{group_count_} * split_factors_[action_index_]));
+        const uint32_t required = static_cast<uint32_t>(
+            std::min<uint64_t>(live_count_, uint64_t{group_count_} * split_factors_[plan_index]));
         if (required > states_.size()) {
             return required;
         }
-        std::visit([&](const auto& typed) noexcept { execute_action(typed); }, action);
+        std::visit(
+            [&](const auto& typed) noexcept {
+                using T = std::decay_t<decltype(typed)>;
+                if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteRotation> ||
+                              std::is_same_v<T, ExecutablePlan::ExecuteActiveMeasurement>) {
+                    execute_action<Backend>(typed);
+                } else {
+                    execute_action(typed);
+                }
+            },
+            action);
         ++action_index_;
     }
     return 0;
@@ -172,6 +209,24 @@ uint32_t SharingExecutor::split(uint32_t group) noexcept {
     return other;
 }
 
+uint32_t SharingExecutor::split_by_sign(uint32_t group, std::span<const uint64_t> values) noexcept {
+    const auto bit = [&](uint32_t shot) { return ((values[shot >> 6] >> (shot & 63)) & 1) != 0; };
+    const bool first = bit(heads_[group]);
+    uint32_t shot = next_[heads_[group]];
+    while (shot != kNoShot && bit(shot) == first) {
+        shot = next_[shot];
+    }
+    // Most signs agree throughout a group. Preserve its list without writing
+    // choices or relinking members unless the sign actually separates them.
+    if (shot == kNoShot) {
+        return kNoShot;
+    }
+    for (shot = heads_[group]; shot != kNoShot; shot = next_[shot]) {
+        choices_[shot] = bit(shot);
+    }
+    return split(group);
+}
+
 void SharingExecutor::prune() noexcept {
     uint32_t kept = 0;
     for (uint32_t index = 0; index < group_count_; ++index) {
@@ -195,10 +250,21 @@ void SharingExecutor::prune() noexcept {
     group_count_ = kept;
 }
 
+template <ExecutorBackend Backend>
 void SharingExecutor::execute_action(const ExecutablePlan::ExecuteRotation& action) noexcept {
     const auto values = evaluate(action.sign);
     sign_action(values, [&](uint32_t group, bool sign) {
-        apply_rotation(states_[group], action.rotation, sign);
+        if (action.kernel == DirectRotationKernel::Scalar) {
+            apply_rotation(states_[group], action.rotation, sign);
+        } else if constexpr (Backend == ExecutorBackend::Neon) {
+            apply_direct_rotation_neon(states_[group], action.rotation, action.kernel, sign);
+        } else if constexpr (Backend == ExecutorBackend::Avx2) {
+            apply_direct_rotation_avx2(states_[group], action.rotation, action.kernel, sign);
+        } else if constexpr (Backend == ExecutorBackend::Avx512) {
+            apply_direct_rotation_avx512(states_[group], action.rotation, action.kernel, sign);
+        } else {
+            assert(false && "scalar sharing requires scalar rotation actions");
+        }
     });
 }
 
@@ -207,11 +273,8 @@ void SharingExecutor::sign_action(std::span<const uint64_t> values, F&& apply) n
     const uint32_t original_group_count = group_count_;
     for (uint32_t index = 0; index < original_group_count; ++index) {
         const uint32_t group = groups_[index];
-        for (uint32_t shot = heads_[group]; shot != kNoShot; shot = next_[shot]) {
-            choices_[shot] = lane_bit(values, shot);
-        }
-        const auto other = split(group);
-        apply(group, choices_[heads_[group]]);
+        const auto other = split_by_sign(group, values);
+        apply(group, lane_bit(values, heads_[group]));
         if (other != kNoShot) {
             apply(other, true);
         }
@@ -239,10 +302,7 @@ void SharingExecutor::execute_action(
         const uint32_t original_group_count = group_count_;
         for (uint32_t index = 0; index < original_group_count; ++index) {
             auto group = groups_[index];
-            for (uint32_t shot = heads_[group]; shot != kNoShot; shot = next_[shot]) {
-                choices_[shot] = lane_bit(values, shot);
-            }
-            (void)split(group);
+            (void)split_by_sign(group, values);
         }
     }
     for (uint32_t index = 0; index < group_count_; ++index) {
@@ -256,13 +316,47 @@ void SharingExecutor::execute_action(
     }
 }
 
+template <ExecutorBackend Backend>
 void SharingExecutor::execute_action(
     const ExecutablePlan::ExecuteActiveMeasurement& action) noexcept {
     std::ranges::fill(scratch_words_, uint64_t{0});
+    const auto collapse = [&](uint32_t group, bool branch, double probability) {
+        if (action.kernel == ActiveMeasurementKernel::Scalar) {
+            collapse_measurement(states_[group], action.measurement, branch, probability);
+        } else if constexpr (Backend == ExecutorBackend::Neon) {
+            collapse_active_measurement_neon(states_[group], action.measurement, action.kernel,
+                                             branch, probability);
+        } else if constexpr (Backend == ExecutorBackend::Avx2) {
+            collapse_active_measurement_avx2(states_[group], action.measurement, action.kernel,
+                                             branch, probability);
+        } else if constexpr (Backend == ExecutorBackend::Avx512) {
+            collapse_active_measurement_avx512(states_[group], action.measurement, action.kernel,
+                                               branch, probability);
+        } else {
+            assert(false && "scalar sharing requires scalar measurement actions");
+        }
+    };
     const uint32_t original_group_count = group_count_;
     for (uint32_t index = 0; index < original_group_count; ++index) {
         const uint32_t group = groups_[index];
-        const auto probabilities = measurement_probabilities(states_[group], action.measurement);
+        const auto probabilities = [&]() {
+            if (action.kernel == ActiveMeasurementKernel::Scalar) {
+                return measurement_probabilities(states_[group], action.measurement);
+            }
+            if constexpr (Backend == ExecutorBackend::Neon) {
+                return active_measurement_probabilities_neon(states_[group], action.measurement,
+                                                             action.kernel);
+            } else if constexpr (Backend == ExecutorBackend::Avx2) {
+                return active_measurement_probabilities_avx2(states_[group], action.measurement,
+                                                             action.kernel);
+            } else if constexpr (Backend == ExecutorBackend::Avx512) {
+                return active_measurement_probabilities_avx512(states_[group], action.measurement,
+                                                               action.kernel);
+            } else {
+                assert(false && "scalar sharing requires scalar measurement actions");
+                return measurement_probabilities(states_[group], action.measurement);
+            }
+        }();
         const auto kind = classify_measurement_branch(probabilities).kind;
         for (uint32_t shot = heads_[group]; shot != kNoShot; shot = next_[shot]) {
             const bool branch =
@@ -276,10 +370,9 @@ void SharingExecutor::execute_action(
         }
         const auto other = split(group);
         const bool branch = choices_[heads_[group]];
-        collapse_measurement(states_[group], action.measurement, branch,
-                             probabilities.for_branch(branch));
+        collapse(group, branch, probabilities.for_branch(branch));
         if (other != kNoShot) {
-            collapse_measurement(states_[other], action.measurement, true, probabilities.one);
+            collapse(other, true, probabilities.one);
         }
     }
     propagate_symbol(action.branch, scratch_words_);
@@ -309,12 +402,13 @@ void SharingExecutor::execute_action(
 void SharingExecutor::execute_action(const ExecutablePlan::ExecuteDetector& action) noexcept {
     const auto values = evaluate_record_parity(action.outcome);
     if (action.postselected) {
+        const auto previous_live_count = live_count_;
         for (size_t word = 0; word < values.size(); ++word) {
             const auto dead = values[word] & live_words_[word];
             live_count_ -= std::popcount(dead);
             live_words_[word] &= ~dead;
         }
-        prune_pending_ = true;
+        prune_pending_ |= live_count_ != previous_live_count;
     }
 }
 
