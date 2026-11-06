@@ -31,7 +31,8 @@ class SharingExecutor : public BatchClassicalState {
   public:
     SharingExecutor(const ExecutablePlan& plan, const PreparedBatchNoise& noise,
                     const EarlyPostselection& checks, uint32_t lane_capacity,
-                    uint32_t initial_states, bool share = true, const SharingKey* key = nullptr);
+                    uint32_t initial_states, bool share = true, const SharingKey* key = nullptr,
+                    uint64_t max_state_bytes = kDefaultBatchTotalWorkerBudget);
 
     void run_batch(const SeedRoot& root, uint32_t first_shot, uint32_t shots);
     [[nodiscard]] uint32_t state_capacity() const noexcept {
@@ -79,6 +80,7 @@ class SharingExecutor : public BatchClassicalState {
     std::vector<uint64_t> key_rows_;
     std::vector<uint32_t> key_hash_;
     std::vector<uint32_t> split_factors_;
+    uint32_t max_states_ = 0;
     std::vector<State> states_;
     std::vector<Xoshiro256PlusPlus> shot_rng_;
     std::vector<uint32_t> heads_, next_, groups_, free_;

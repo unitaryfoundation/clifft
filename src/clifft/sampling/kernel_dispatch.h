@@ -4,6 +4,7 @@
 #include "clifft/sampling/kernels.h"
 #include "clifft/util/runtime_isa.h"
 
+#include <cassert>
 #include <cstdint>
 #include <memory>
 
@@ -108,5 +109,82 @@ void collapse_active_measurement_neon(State& state, const PreparedMeasurement& m
 
 void apply_new_x_instrument_no_fire_avx2(State& state, double factor_zero, double factor_one,
                                          double no_fire_probability) noexcept;
+
+// Compile-time backend dispatch shared by ordinary and trajectory-sharing executors.
+template <ExecutorBackend Backend, bool Parallel = false>
+void apply_direct_rotation(State& state, const PreparedRotation& rotation,
+                           DirectRotationKernel kernel, bool sign, uint32_t workers = 1,
+                           uint32_t min_active_width = kDefaultIntraShotMinActiveWidth) noexcept {
+    if (kernel == DirectRotationKernel::Scalar) {
+        if constexpr (Parallel) {
+            apply_rotation_parallel(state, rotation, sign, workers, min_active_width);
+        } else {
+            apply_rotation(state, rotation, sign);
+        }
+        return;
+    }
+    if constexpr (Backend == ExecutorBackend::Neon) {
+        if constexpr (Parallel) {
+            apply_direct_rotation_neon_parallel(state, rotation, kernel, sign, workers,
+                                                min_active_width);
+        } else {
+            apply_direct_rotation_neon(state, rotation, kernel, sign);
+        }
+    } else if constexpr (Backend == ExecutorBackend::Avx2) {
+        if constexpr (Parallel) {
+            apply_direct_rotation_avx2_parallel(state, rotation, kernel, sign, workers,
+                                                min_active_width);
+        } else {
+            apply_direct_rotation_avx2(state, rotation, kernel, sign);
+        }
+    } else if constexpr (Backend == ExecutorBackend::Avx512) {
+        if constexpr (Parallel) {
+            apply_direct_rotation_avx512_parallel(state, rotation, kernel, sign, workers,
+                                                  min_active_width);
+        } else {
+            apply_direct_rotation_avx512(state, rotation, kernel, sign);
+        }
+    } else {
+        assert(false && "scalar executor requires scalar direct-rotation actions");
+        apply_rotation(state, rotation, sign);
+    }
+}
+
+template <ExecutorBackend Backend>
+[[nodiscard]] MeasurementProbabilities active_measurement_probabilities(
+    const State& state, const PreparedMeasurement& measurement,
+    ActiveMeasurementKernel kernel) noexcept {
+    if (kernel == ActiveMeasurementKernel::Scalar) {
+        return measurement_probabilities(state, measurement);
+    }
+    if constexpr (Backend == ExecutorBackend::Neon) {
+        return active_measurement_probabilities_neon(state, measurement, kernel);
+    } else if constexpr (Backend == ExecutorBackend::Avx2) {
+        return active_measurement_probabilities_avx2(state, measurement, kernel);
+    } else if constexpr (Backend == ExecutorBackend::Avx512) {
+        return active_measurement_probabilities_avx512(state, measurement, kernel);
+    } else {
+        assert(false && "scalar executor requires scalar active-measurement actions");
+        return measurement_probabilities(state, measurement);
+    }
+}
+
+template <ExecutorBackend Backend>
+void collapse_active_measurement(State& state, const PreparedMeasurement& measurement,
+                                 ActiveMeasurementKernel kernel, bool branch,
+                                 double branch_probability) noexcept {
+    if (kernel == ActiveMeasurementKernel::Scalar) {
+        collapse_measurement(state, measurement, branch, branch_probability);
+    } else if constexpr (Backend == ExecutorBackend::Neon) {
+        collapse_active_measurement_neon(state, measurement, kernel, branch, branch_probability);
+    } else if constexpr (Backend == ExecutorBackend::Avx2) {
+        collapse_active_measurement_avx2(state, measurement, kernel, branch, branch_probability);
+    } else if constexpr (Backend == ExecutorBackend::Avx512) {
+        collapse_active_measurement_avx512(state, measurement, kernel, branch, branch_probability);
+    } else {
+        assert(false && "scalar executor requires scalar active-measurement actions");
+        collapse_measurement(state, measurement, branch, branch_probability);
+    }
+}
 
 }  // namespace clifft::sampling

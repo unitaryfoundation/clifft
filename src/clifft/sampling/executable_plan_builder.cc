@@ -72,30 +72,6 @@ inline constexpr double kMaxSparseBatchReadoutProbability = 0.05;
             .width_five = add_batch_lane_work(lhs.width_five, rhs.width_five)};
 }
 
-[[nodiscard]] batch_detail::BatchWorkEstimate planned_batch_lane_work(
-    const PlannedAction& planned) noexcept {
-    const batch_detail::BatchLaneWork work = std::visit(
-        [&](const auto& typed) -> batch_detail::BatchLaneWork {
-            using T = std::decay_t<decltype(typed)>;
-            const uint64_t size = coefficient_size(planned.active_before);
-            if constexpr (std::is_same_v<T, RotateActivePauli>) {
-                return common_batch_lane_work(saturating_multiply_u64(size, 4));
-            } else if constexpr (std::is_same_v<T, PromoteDormantRotation>) {
-                return common_batch_lane_work(saturating_multiply_u64(size, 4));
-            } else if constexpr (std::is_same_v<T, MeasureActivePauli>) {
-                return common_batch_lane_work(saturating_multiply_u64(size, 6));
-            } else if constexpr (std::is_same_v<T, WriteExpectationValue>) {
-                return typed.active.has_value()
-                           ? row_output_batch_lane_work(saturating_multiply_u64(size, 4))
-                           : batch_detail::BatchLaneWork{};
-            } else {
-                return {};
-            }
-        },
-        planned.action);
-    return classify_batch_lane_work(work, planned.active_before);
-}
-
 [[nodiscard]] batch_detail::BatchWorkEstimate fused_batch_lane_work(
     const PreparedFusedRotation& rotation) noexcept {
     const uint64_t dimension = uint64_t{1} << rotation.orbit_rank;
@@ -143,13 +119,46 @@ ExecutablePlan::ExpressionDependencies::build(uint32_t num_symbols,
     return result;
 }
 
+batch_detail::BatchWorkEstimate ExecutablePlanBuilder::action_batch_lane_work(
+    const ExecutablePlan& plan, const ExecutablePlan::Action& action, uint32_t width) {
+    return std::visit(
+        [&](const auto& typed) -> batch_detail::BatchWorkEstimate {
+            using T = std::decay_t<decltype(typed)>;
+            const auto size = coefficient_size(width);
+            if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteRotation> ||
+                          std::is_same_v<T, ExecutablePlan::ExecutePromotion>) {
+                return classify_batch_lane_work(
+                    common_batch_lane_work(saturating_multiply_u64(size, 4)), width);
+            } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteActiveMeasurement>) {
+                return classify_batch_lane_work(
+                    common_batch_lane_work(saturating_multiply_u64(size, 6)), width);
+            } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteExpectation>) {
+                return classify_batch_lane_work(
+                    typed.active ? row_output_batch_lane_work(saturating_multiply_u64(size, 4))
+                                 : batch_detail::BatchLaneWork{},
+                    width);
+            } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteFusedRotation>) {
+                return fused_batch_lane_work(
+                    plan.fused_rotations_[typed.rotation_index].rotation());
+            } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteDynamicFusedRotation>) {
+                return fused_batch_lane_work(plan.dynamic_fused_rotations_[typed.rotation_index]
+                                                 .variants.front()
+                                                 .rotation());
+            } else {
+                return {};
+            }
+        },
+        action);
+}
+
 ExecutablePlan ExecutablePlanBuilder::compact_outputs(const ExecutablePlan& input,
-                                                      bool early_postselection) {
+                                                      bool early_postselection,
+                                                      BatchNoiseMode noise_mode) {
     if (input.has_instruments()) {
         throw std::invalid_argument("compact outputs require a fixed sampling plan");
     }
     ExecutablePlan output(input);
-    const EarlyPostselection order(input, early_postselection);
+    const auto order = EarlyPostselection::schedule(input, early_postselection);
     const auto expressions = input.affine_registers();
     std::vector<AffineBool> symbols;
     symbols.reserve(input.num_symbols_);
@@ -206,7 +215,7 @@ ExecutablePlan ExecutablePlanBuilder::compact_outputs(const ExecutablePlan& inpu
     };
     const auto zero = prepare(AffineBool{});
     uint32_t next_record = 1;
-    for (size_t source_index : order.action_order()) {
+    for (size_t source_index : order) {
         const auto append = [&](ExecutablePlan::Action action) {
             if (output.actions_.size() >= std::numeric_limits<uint32_t>::max()) {
                 throw std::length_error("compact action storage exceeds uint32 range");
@@ -252,6 +261,9 @@ ExecutablePlan ExecutablePlanBuilder::compact_outputs(const ExecutablePlan& inpu
                     typed.record = 0;
                     append(typed);
                 } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteDetector>) {
+                    if (!typed.postselected) {
+                        return;
+                    }
                     const auto value = prepare(parity(typed.outcome));
                     append(ExecutablePlan::ExecuteClassicalRecord{value, next_record});
                     typed.outcome = {static_cast<uint32_t>(output.record_parity_terms_.size()), 1,
@@ -267,9 +279,7 @@ ExecutablePlan ExecutablePlanBuilder::compact_outputs(const ExecutablePlan& inpu
                                                  typed.outcome)));
                     append(typed);
                 } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteExpectation>) {
-                    if (typed.active)
-                        typed.active->sign = prepare(expand(typed.active->sign));
-                    append(typed);
+                    // Aggregate sampling does not produce expectation values.
                 } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteFusedRotation>) {
                     append(typed);
                 } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteInstrument> ||
@@ -288,51 +298,29 @@ ExecutablePlan ExecutablePlanBuilder::compact_outputs(const ExecutablePlan& inpu
     output.expression_dependencies_.validate(output.num_symbols_,
                                              output.num_expression_registers());
     prepare_noise_schedule(output, first_actions);
-    output.batch_presampled_program_ = BatchPresampledProgram::build(output, terms, begins);
+    output.batch_presampled_program_ = noise_mode == BatchNoiseMode::Dense
+                                           ? BatchPresampledProgram::build(output, terms, begins)
+                                           : std::nullopt;
 
-    // Quantum actions are unchanged. Recompute only the future work at moved
-    // detectors, keeping the original plan's total estimates.
-    if (output.has_postselection_) {
-        uint32_t width = output.initial_active_width_;
-        std::vector<batch_detail::BatchLaneWork> work;
-        work.reserve(output.actions_.size());
-        for (const auto& action : output.actions_) {
-            work.push_back(std::visit(
-                [&](const auto& typed) -> batch_detail::BatchLaneWork {
-                    using T = std::decay_t<decltype(typed)>;
-                    const auto size = coefficient_size(width);
-                    if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteRotation>) {
-                        return common_batch_lane_work(saturating_multiply_u64(size, 4));
-                    } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecutePromotion>) {
-                        ++width;
-                        return common_batch_lane_work(saturating_multiply_u64(size, 4));
-                    } else if constexpr (std::is_same_v<T,
-                                                        ExecutablePlan::ExecuteActiveMeasurement>) {
-                        --width;
-                        return common_batch_lane_work(saturating_multiply_u64(size, 6));
-                    } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteFusedRotation>) {
-                        return fused_batch_lane_work(
-                                   output.fused_rotations_[typed.rotation_index].rotation())
-                            .all_widths;
-                    } else if constexpr (std::is_same_v<
-                                             T, ExecutablePlan::ExecuteDynamicFusedRotation>) {
-                        return fused_batch_lane_work(
-                                   output.dynamic_fused_rotations_[typed.rotation_index]
-                                       .variants.front()
-                                       .rotation())
-                            .all_widths;
-                    } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteExpectation>) {
-                        return typed.active
-                                   ? row_output_batch_lane_work(saturating_multiply_u64(size, 4))
-                                   : batch_detail::BatchLaneWork{};
-                    } else {
-                        return {};
-                    }
-                },
-                action));
+    // Count-only output omits expectation work and moves detector checks.
+    output.estimated_batch_lane_work_ = {};
+    uint32_t width = output.initial_active_width_;
+    std::vector<batch_detail::BatchLaneWork> work;
+    work.reserve(output.actions_.size());
+    for (const auto& action : output.actions_) {
+        const auto estimate = action_batch_lane_work(output, action, width);
+        output.estimated_batch_lane_work_ =
+            add_batch_work_estimate(output.estimated_batch_lane_work_, estimate);
+        if (output.has_postselection_) {
+            work.push_back(estimate.all_widths);
         }
-        prepare_batch_compaction_costs(output, work);
+        if (std::holds_alternative<ExecutablePlan::ExecutePromotion>(action)) {
+            ++width;
+        } else if (std::holds_alternative<ExecutablePlan::ExecuteActiveMeasurement>(action)) {
+            --width;
+        }
     }
+    prepare_batch_compaction_costs(output, work);
     return output;
 }
 
@@ -718,7 +706,8 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::lower_action(const Plann
             }
         },
         planned.action);
-    record_batch_lane_work(planned_batch_lane_work(planned));
+    record_batch_lane_work(
+        action_batch_lane_work(output_, output_.actions_.back(), planned.active_before));
 }
 
 CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::record_batch_lane_work(
