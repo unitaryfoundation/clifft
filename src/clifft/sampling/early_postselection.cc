@@ -134,13 +134,13 @@ EarlyPostselection::EarlyPostselection(const ExecutablePlan& plan, bool enabled)
                         const auto [row, inserted] =
                             noise_basis.emplace(index(equation.terms().back()), equation);
                         if (inserted) {
-                            append_check(equation);
+                            append_check(std::move(equation));
                             return;
                         }
                         equation ^= row->second;
                     }
                     if (equation.constant()) {
-                        append_check(equation);
+                        append_check(std::move(equation));
                     }
                 }
             },
