@@ -312,7 +312,7 @@ remains available with `batch_size=1`. Packed status and scratch columns partici
 in the shared worker-memory budget.
 
 Packed classical sampling uses its own domain-separated random stream addressed
-by the global batch start. For a fixed seed, shot count, and batch configuration,
+by the global batch start. For a fixed seed, shot count, and numeric batch size,
 worker count and scheduling do not change results. Its rows need not match scalar
 execution, other batch capacities, or an earlier sampling algorithm; the joint
 output distribution is unchanged.

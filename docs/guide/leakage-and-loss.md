@@ -510,13 +510,14 @@ Options passed to `program.sample()` (and `noncomp.sample()`):
   execution.
 
 Leave `batch_size="auto"` for normal use. Clifft chooses whether to process
-shots individually or in batches based on your circuit, shot count, and memory
+shots individually or in batches based on your circuit, shots per worker, and memory
 needs, without spending time on trial runs. For repeated sampling of the same
 circuit, `batch_size="tune"` can help find a faster setting, as shown below.
 
 Changing the batch size can change individual samples, even with the same seed.
-With the same program, seed, shot count, and batch size, changing `threads`
-does not change the results.
+Automatic selection can choose a different batch size when `threads` changes.
+With the same program, seed, shot count, and numeric batch size, changing
+`threads` does not change the results.
 
 Post-selected survivor sampling, fixed-fault importance sampling, intra-shot
 thread layouts, and custom optimization pass managers are not supported by

@@ -184,14 +184,26 @@ The default `batch_size="auto"` considers packed execution only when:
 
 | Program | Automatic packed capacity limit |
 | --- | --- |
-| No post-selection, width 0-4 | 2048 lanes |
-| No post-selection, width 5 | Up to 1024 lanes; sustained work stays scalar |
-| Post-selected, width 0-4 | 256 lanes |
-| Width above 5, or post-selected width 5 | Scalar |
+| No postselection, width 0-4 | 2048 lanes |
+| Postselected, width 0-4 | 256 lanes |
+| No early postselection, width 5 | Up to 1024 lanes when coefficient work is limited or amortized by classical work |
+| No early postselection, width 6-8 | Up to 512, 256, or 128 lanes respectively when classical work amortizes the quantum kernels |
+| Early postselection at width 5 or above, or width above 8 | Scalar |
 
-Capacities are also bounded by the requested shots and memory budgets. When
-early detectors reject most shots, packed execution can be slower than scalar
-execution.
+An early postselection check can reject a shot before further coefficient work.
+Checks after the last quantum action, including reconstructed detector checks,
+do not impose that restriction. Expectation-value probes count as coefficient
+work only when retaining rows. Width and work refer to the selected executable
+plan; use `program.sampling_plan(keep_records=...)` to inspect its width. Narrow
+postselected plans retain the 256-lane cap because rejection can also skip
+classical work, even at width zero.
+
+For widths 6-8, capacities are also bounded by attempted shots per worker
+when each requested worker has at least 64 shots. Shorter requests retain their
+packed capacity and use fewer workers. Memory budgets can further reduce capacity
+and concurrency. When early detectors reject most shots, packed execution can be
+slower than scalar execution. Fixed noncomputational sampling also accounts for
+its classical input-generation work when considering wider packed states.
 
 Set `batch_size=1` to require scalar execution. A positive integer requests a
 capacity of up to 2048 lanes, bounded by the shot count and safety limits:
@@ -212,9 +224,13 @@ continuations, and WebAssembly.
 
 ### Reproducibility
 
-Workers dynamically claim contiguous shot ranges. With a fixed seed, changing
-`threads` alone produces the same rows and survivor order as one-thread
-execution.
+With a fixed seed and the same program, shot count, and execution settings,
+sampling repeats its results within the same build. Automatic batching considers
+the thread budget, so changing `threads` or `thread_layout` can change batch
+boundaries and sampled rows. With `threads="auto"`, the available worker count
+can differ between machines, so the same seed need not produce the same rows.
+To preserve rows and survivor order while changing the number of cross-shot
+workers, pin a numeric `batch_size`.
 
 Scalar and packed execution use separate random streams, and different packed
 capacities can produce different rows. Every supported strategy remains

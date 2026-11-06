@@ -211,7 +211,7 @@ class TestSample:
         np.testing.assert_array_equal(threaded.observables, serial.observables)
         np.testing.assert_array_equal(threaded.exp_vals, serial.exp_vals)
 
-    def test_auto_batch_boundaries_ignore_worker_count(self) -> None:
+    def test_narrow_auto_batch_boundaries_ignore_worker_count(self) -> None:
         """Changing worker count preserves automatic batch RNG boundaries."""
         prog = clifft.compile(
             "X_ERROR(0.125) 0\nH 1\nT 1\nEXP_VAL X1\nM 0 1\n"

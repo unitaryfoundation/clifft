@@ -10,7 +10,12 @@ from pathlib import Path
 import numpy as np
 import pytest
 import stim
-from utils_conformance import SMALL_CIRCUIT_SHOTS, CpuSamplingMode, SamplingMode
+from utils_conformance import (
+    CPU_SAMPLING_MODES,
+    SMALL_CIRCUIT_SHOTS,
+    CpuSamplingMode,
+    SamplingMode,
+)
 
 import clifft
 
@@ -148,6 +153,12 @@ def test_expectation_probes_are_available_through_public_api(
 
 @pytest.mark.parametrize("postselect", [False, True])
 @pytest.mark.parametrize("fixed_faults", [False, True])
+@pytest.mark.parametrize(
+    "importance_sampling_mode",
+    [mode for mode in CPU_SAMPLING_MODES if isinstance(mode.batch_size, int)],
+    indirect=True,
+    ids=lambda mode: mode.name,
+)
 def test_aggregate_probes_preserve_seeded_counts(
     importance_sampling_mode: CpuSamplingMode, postselect: bool, fixed_faults: bool
 ) -> None:

@@ -7,6 +7,8 @@ import numpy as np
 import pytest
 from conftest import assert_statevectors_equiv, binomial_tolerance
 from utils_conformance import (
+    CPU_SAMPLING_MODES,
+    GPU_SAMPLING_MODES,
     CpuSamplingMode,
     SamplingMode,
     assert_joint_distribution,
@@ -14,6 +16,11 @@ from utils_conformance import (
 )
 
 import clifft
+
+_FIXED_SAMPLING_MODES = (
+    tuple(mode for mode in CPU_SAMPLING_MODES if isinstance(mode.batch_size, int))
+    + GPU_SAMPLING_MODES
+)
 
 
 def _manager(pass_: Any | None = None) -> Any:
@@ -497,6 +504,9 @@ def test_known_phase_constraints_preserve_forced_faults(
     assert_joint_distribution(samples.measurements, expected)
 
 
+@pytest.mark.parametrize(
+    "sampling_mode", _FIXED_SAMPLING_MODES, indirect=True, ids=lambda mode: mode.name
+)
 def test_postselected_single_record_detector_recovers_phase_constraint(
     sampling_mode: SamplingMode,
 ) -> None:
@@ -531,12 +541,21 @@ def test_postselected_single_record_detector_recovers_phase_constraint(
     assert selected.peak_active_width == 0
 
     reference = sampling_mode.compile(source, hir_passes=None, postselection_mask=[1])
-    opt_survivors = sampling_mode.sample_survivors(selected, shots=8192, seed=901)
-    ref_survivors = sampling_mode.sample_survivors(reference, shots=8192, seed=901)
-    assert opt_survivors.passed_shots == ref_survivors.passed_shots
-    np.testing.assert_array_equal(opt_survivors.observables, ref_survivors.observables)
+    opt_survivors = sampling_mode.sample_survivors(
+        selected, shots=8192, seed=901, keep_records=True
+    )
+    ref_survivors = sampling_mode.sample_survivors(
+        reference, shots=8192, seed=901, keep_records=True
+    )
+    assert opt_survivors.passed_shots == ref_survivors.passed_shots > 0
+    assert opt_survivors.observables.shape == (opt_survivors.passed_shots, 1)
+    for field in ("measurements", "detectors", "observables", "observable_ones"):
+        np.testing.assert_array_equal(getattr(opt_survivors, field), getattr(ref_survivors, field))
 
 
+@pytest.mark.parametrize(
+    "sampling_mode", _FIXED_SAMPLING_MODES, indirect=True, ids=lambda mode: mode.name
+)
 def test_postselected_upstream_and_difference_detectors_recover_phase_constraints(
     sampling_mode: SamplingMode,
 ) -> None:
@@ -579,10 +598,16 @@ def test_postselected_upstream_and_difference_detectors_recover_phase_constraint
         postselection_mask=[1, 1],
         normalize_syndromes=True,
     )
-    opt_survivors = sampling_mode.sample_survivors(selected, shots=8192, seed=902)
-    ref_survivors = sampling_mode.sample_survivors(reference, shots=8192, seed=902)
-    assert opt_survivors.passed_shots == ref_survivors.passed_shots
-    np.testing.assert_array_equal(opt_survivors.observables, ref_survivors.observables)
+    opt_survivors = sampling_mode.sample_survivors(
+        selected, shots=8192, seed=902, keep_records=True
+    )
+    ref_survivors = sampling_mode.sample_survivors(
+        reference, shots=8192, seed=902, keep_records=True
+    )
+    assert opt_survivors.passed_shots == ref_survivors.passed_shots > 0
+    assert opt_survivors.observables.shape == (opt_survivors.passed_shots, 1)
+    for field in ("measurements", "detectors", "observables", "observable_ones"):
+        np.testing.assert_array_equal(getattr(opt_survivors, field), getattr(ref_survivors, field))
 
 
 @pytest.mark.parametrize(
