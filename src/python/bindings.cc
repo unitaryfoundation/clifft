@@ -1773,6 +1773,10 @@ NB_MODULE(_clifft_core, m) {
         "without resampling any noise or branch. noise_preparation selects dense propagation, "
         "direct sparse updates, or site-oriented sparse updates in columns or rows. "
         "Changing preparation or batch size can change seeded results.\n\n"
+        "compact_outputs prepares only the expressions needed for aggregate outputs. "
+        "group_by_noise groups shots by future rotation signs before evolution, avoiding "
+        "repeated sign scans at the possible cost of more distinct states. It is ignored "
+        "when sharing is false. Both options default to false.\n\n"
         "The sampler returns aggregate counts using program.sampling_plan(keep_records=False). "
         "Width-zero plans use packed classical execution with the selected noise preparation. "
         "Instrument continuations are unsupported. Calls on one sampler are serialized; "
@@ -1781,16 +1785,19 @@ NB_MODULE(_clifft_core, m) {
             "__init__",
             [](clifft::SurvivorSampler* self, const clifft::Program& program, uint32_t batch_size,
                const ThreadOption& thread_option, uint32_t initial_states,
-               clifft::sampling::BatchNoiseMode noise, bool sharing, bool early_postselection) {
+               clifft::sampling::BatchNoiseMode noise, bool sharing, bool early_postselection,
+               bool compact_outputs, bool group_by_noise) {
                 const uint32_t threads = parse_thread_option(thread_option);
                 nb::gil_scoped_release release;
                 new (self) clifft::SurvivorSampler(program, batch_size, threads, initial_states,
-                                                   noise, sharing, early_postselection);
+                                                   noise, sharing, early_postselection,
+                                                   compact_outputs, group_by_noise);
             },
             nb::arg("program"), nb::kw_only(), nb::arg("batch_size") = 8192,
             nb::arg("threads") = ThreadOption{int64_t{1}}, nb::arg("initial_states") = 128,
             nb::arg("noise_preparation") = clifft::sampling::BatchNoiseMode::SiteSparse,
             nb::arg("sharing") = true, nb::arg("early_postselection") = true,
+            nb::arg("compact_outputs") = false, nb::arg("group_by_noise") = false,
             nb::keep_alive<1, 2>())
         .def(
             "sample",

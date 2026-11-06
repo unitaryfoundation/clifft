@@ -19,14 +19,15 @@ struct SurvivorSampler::Worker {
 
     Worker(const sampling::ExecutablePlan& plan, const sampling::PreparedBatchNoise& noise,
            const sampling::EarlyPostselection& checks, uint32_t capacity, uint32_t initial_states,
-           bool sharing)
-        : executor(make_executor(plan, noise, checks, capacity, initial_states, sharing)),
+           bool sharing, const sampling::SharingKey* key)
+        : executor(make_executor(plan, noise, checks, capacity, initial_states, sharing, key)),
           observable_ones(plan.num_observables()) {}
 
     static Executor make_executor(const sampling::ExecutablePlan& plan,
                                   const sampling::PreparedBatchNoise& noise,
                                   const sampling::EarlyPostselection& checks, uint32_t capacity,
-                                  uint32_t initial_states, bool sharing) {
+                                  uint32_t initial_states, bool sharing,
+                                  const sampling::SharingKey* key) {
         // Width-zero plans have no coefficient evolution to share. Their packed
         // executor applies classical checks without per-shot group bookkeeping.
         if (plan.peak_active_width() == 0) {
@@ -35,26 +36,33 @@ struct SurvivorSampler::Worker {
                             sampling::BatchSamplingMode::Ordinary, &noise);
         }
         return Executor(std::in_place_type<sampling::SharingExecutor>, plan, noise, checks,
-                        capacity, initial_states, sharing);
+                        capacity, initial_states, sharing, key);
     }
 };
 
 SurvivorSampler::SurvivorSampler(const Program& program, uint32_t batch_size, uint32_t threads,
                                  uint32_t initial_states, sampling::BatchNoiseMode noise_mode,
-                                 bool sharing, bool early_postselection)
+                                 bool sharing, bool early_postselection, bool compact_outputs,
+                                 bool group_by_noise)
     : program_(&program),
       batch_size_(batch_size),
-      noise_(program.sampling_plan(false), noise_mode),
-      checks_(program.sampling_plan(false),
-              early_postselection && program.sampling_plan(false).peak_active_width() != 0) {
+      compact_plan_(compact_outputs ? std::optional(program.sampling_plan(false).compact_outputs(
+                                          early_postselection))
+                                    : std::nullopt),
+      plan_(compact_plan_ ? *compact_plan_ : program.sampling_plan(false)),
+      noise_(plan_, noise_mode),
+      checks_(plan_, early_postselection && plan_.peak_active_width() != 0),
+      key_(sharing && group_by_noise && plan_.peak_active_width() != 0
+               ? std::optional<sampling::SharingKey>(plan_)
+               : std::nullopt) {
     if (batch_size == 0 || initial_states == 0) {
         throw std::invalid_argument("batch_size and initial_states must be positive");
     }
     const uint32_t worker_count = resolve_thread_budget(threads);
     workers_.reserve(worker_count);
     for (uint32_t worker = 0; worker < worker_count; ++worker) {
-        workers_.push_back(std::make_unique<Worker>(program.sampling_plan(false), noise_, checks_,
-                                                    batch_size, initial_states, sharing));
+        workers_.push_back(std::make_unique<Worker>(
+            plan_, noise_, checks_, batch_size, initial_states, sharing, key_ ? &*key_ : nullptr));
     }
 }
 

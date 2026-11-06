@@ -22,16 +22,7 @@ EarlyPostselection::EarlyPostselection(const ExecutablePlan& plan, bool enabled)
     for (uint32_t symbol : plan.presampled_symbols_) {
         presampled[symbol] = 1;
     }
-    std::vector<AffineBool> expressions;
-    expressions.reserve(plan.num_expression_registers());
-    for (uint8_t constant : plan.expression_register_constants_) {
-        expressions.emplace_back(constant != 0);
-    }
-    for (uint32_t symbol = 0; symbol < plan.num_symbols_; ++symbol) {
-        for (uint32_t reg : plan.expression_dependencies_.dependent_registers(symbol)) {
-            expressions[reg] ^= AffineBool::symbol(SymbolId{symbol});
-        }
-    }
+    const auto expressions = plan.affine_registers();
 
     // Retain an inverse map from noise effects to initial register parities.
     // Later checks can use the existing registers without extra noise columns.

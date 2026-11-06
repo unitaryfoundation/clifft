@@ -10,6 +10,20 @@
 
 namespace clifft::sampling {
 
+// Immutable noise-sign basis shared by workers. Branches affecting this basis
+// split groups as they are sampled, keeping every later rotation sign uniform.
+class SharingKey {
+  public:
+    explicit SharingKey(const ExecutablePlan& plan);
+    [[nodiscard]] size_t num_bits() const noexcept { return registers_.size(); }
+
+  private:
+    friend class SharingExecutor;
+    const ExecutablePlan* plan_;
+    std::vector<uint32_t> registers_;
+    std::vector<uint8_t> split_symbols_;
+};
+
 // Shares coefficient states across shots with identical prepared evolution.
 // Splits retain independent per-shot RNG streams and classical outputs. A pool
 // growth boundary suspends dispatch before an action can require more states.
@@ -17,7 +31,7 @@ class SharingExecutor : public BatchClassicalState {
   public:
     SharingExecutor(const ExecutablePlan& plan, const PreparedBatchNoise& noise,
                     const EarlyPostselection& checks, uint32_t lane_capacity,
-                    uint32_t initial_states, bool share = true);
+                    uint32_t initial_states, bool share = true, const SharingKey* key = nullptr);
 
     void run_batch(const SeedRoot& root, uint32_t first_shot, uint32_t shots);
     [[nodiscard]] uint32_t state_capacity() const noexcept {
@@ -32,6 +46,7 @@ class SharingExecutor : public BatchClassicalState {
     using BatchClassicalState::execute_action;
     static constexpr uint32_t kNoShot = std::numeric_limits<uint32_t>::max();
 
+    void initialize_groups(const SeedRoot& root, uint32_t first_shot, uint32_t shots);
     void grow_state_pool(uint32_t required);
     // Returns zero on completion, otherwise the capacity required to resume.
     template <ExecutorBackend Backend>
@@ -59,6 +74,10 @@ class SharingExecutor : public BatchClassicalState {
 
     const EarlyPostselection* checks_;
     bool share_;
+    const SharingKey* key_;
+    size_t key_stride_ = 0;
+    std::vector<uint64_t> key_rows_;
+    std::vector<uint32_t> key_hash_;
     std::vector<uint32_t> split_factors_;
     std::vector<State> states_;
     std::vector<Xoshiro256PlusPlus> shot_rng_;
