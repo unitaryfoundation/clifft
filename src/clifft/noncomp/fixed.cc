@@ -425,20 +425,8 @@ std::optional<FixedNonComputationalRejection> FixedBuilder::lower() {
                 }
             }
         }
-        AstNode measurement = node;
         const bool inverted = node.targets.front().is_inverted();
-        if (is_measure_reset(node.gate) && inverted) {
-            // The front-end otherwise inserts an implicit readout site. Keep
-            // all externally supplied sites explicit and ordered here.
-            measurement.targets = {Target::qubit(qubit)};
-        }
-        lowered_.nodes.push_back(std::move(measurement));
-        if (is_measure_reset(node.gate) && inverted) {
-            const ReadoutChannel invert{1.0, 1.0, 0.0};
-            const uint32_t input = append_readout(record_, node.source_line);
-            data_->inputs.emplace_back(
-                ReadoutInput{input, record_, std::nullopt, {invert, invert, invert}});
-        }
+        lowered_.nodes.push_back(node);
         std::array<ReadoutChannel, 3> channels{};
         for (size_t category = 0; category < channels.size(); ++category) {
             if (classifier != nullptr || category == 0) {

@@ -47,6 +47,12 @@ def test_feedback_circuit_returns_joint_trajectory_probability() -> None:
     np.testing.assert_allclose(probs, [0.5, 0.0, 0.0, 0.5], atol=1e-12)
 
 
+def test_inverted_measure_reset_is_noiseless() -> None:
+    prog = clifft.compile("H 0\nCX 0 1\nMR !0\nM 0 1")
+    probs = clifft.record_probabilities(prog, ["100", "001", "000", "101"])
+    np.testing.assert_allclose(probs, [0.5, 0.5, 0.0, 0.0], atol=1e-12)
+
+
 # =============================================================================
 # Input polymorphism.
 # =============================================================================

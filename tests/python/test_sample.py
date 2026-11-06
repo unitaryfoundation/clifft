@@ -1553,6 +1553,81 @@ class TestSyndromeNormalization:
 
         assert np.all(result.observables[:, 0] == 0)
 
+    @pytest.mark.parametrize(("prepare", "basis"), [("R", ""), ("RX", "X"), ("RY", "Y")])
+    def test_normalize_syndromes_inverted_measure_reset(
+        self, sampling_mode: SamplingMode, prepare: str, basis: str
+    ) -> None:
+        """An inverted measure-reset keeps its deterministic reference and still resets."""
+        circuit = f"""
+            {prepare} 0 1 2
+            MR{basis} !0 1 !2
+            DETECTOR rec[-3]
+            DETECTOR rec[-2]
+            DETECTOR rec[-1]
+            OBSERVABLE_INCLUDE(0) rec[-1]
+            M{basis} 0 1 2
+            DETECTOR rec[-3] rec[-2] rec[-1]
+        """
+        raw = sampling_mode.sample(
+            sampling_mode.compile(circuit), shots=SMALL_CIRCUIT_SHOTS, seed=0
+        )
+        np.testing.assert_array_equal(
+            raw.measurements, np.tile([1, 0, 1, 0, 0, 0], (SMALL_CIRCUIT_SHOTS, 1))
+        )
+
+        prog = sampling_mode.compile(circuit, normalize_syndromes=True)
+        result = sampling_mode.sample(prog, shots=SMALL_CIRCUIT_SHOTS, seed=0)
+        assert np.all(result.detectors == 0)
+        assert np.all(result.observables == 0)
+
+    def test_inverted_measure_reset_feedback_and_correlations(
+        self, sampling_mode: SamplingMode
+    ) -> None:
+        """The inverted record drives feedback and stays correlated with an entangled partner."""
+        circuit = """
+            H 0
+            CX 0 1
+            MR !0
+            CX rec[-1] 2
+            M 0 1 2
+            DETECTOR rec[-4] rec[-2]
+            DETECTOR rec[-4] rec[-1]
+        """
+        raw = sampling_mode.sample(
+            sampling_mode.compile(circuit), shots=SMALL_CIRCUIT_SHOTS, seed=0
+        )
+        m = raw.measurements.astype(np.uint8)
+        assert 0 < m[:, 0].sum() < SMALL_CIRCUIT_SHOTS
+        assert not m[:, 1].any()
+        np.testing.assert_array_equal(m[:, 2], 1 - m[:, 0])
+        np.testing.assert_array_equal(m[:, 3], m[:, 0])
+
+        prog = sampling_mode.compile(circuit, normalize_syndromes=True)
+        result = sampling_mode.sample(prog, shots=SMALL_CIRCUIT_SHOTS, seed=0)
+        assert np.all(result.detectors == 0)
+
+    def test_inverted_measure_reset_with_readout_noise(self, sampling_mode: SamplingMode) -> None:
+        """Readout noise after an inverted measure-reset acts on the reported bit."""
+        shots = 20_000
+        prog = sampling_mode.compile(
+            "MR !0\nREADOUT_NOISE(0.1, 0.3) rec[-1]\nM 0\nDETECTOR rec[-2]",
+            normalize_syndromes=True,
+        )
+        result = sampling_mode.sample(prog, shots=shots, seed=0)
+        assert abs(result.measurements[:, 0].mean() - 0.7) <= binomial_tolerance(0.7, shots)
+        assert abs(result.detectors[:, 0].mean() - 0.3) <= binomial_tolerance(0.3, shots)
+        assert not result.measurements[:, 1].any()
+
+    def test_explicit_certain_readout_noise_stays_noise(self, sampling_mode: SamplingMode) -> None:
+        """Explicit READOUT_NOISE(1) after an inverted measure-reset is still a noise site."""
+        prog = sampling_mode.compile(
+            "MR !0\nREADOUT_NOISE(1) rec[-1]\nDETECTOR rec[-1]", normalize_syndromes=True
+        )
+        np.testing.assert_array_equal(prog.noise_site_probabilities, [1.0])
+        result = sampling_mode.sample(prog, shots=SMALL_CIRCUIT_SHOTS, seed=0)
+        assert not result.measurements.any()
+        assert np.all(result.detectors == 1)
+
     def test_compute_reference_syndrome_api(self) -> None:
         """compute_reference_syndrome is accessible from Python."""
         circuit = clifft.parse("X 0\nM 0\nDETECTOR rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]\n")

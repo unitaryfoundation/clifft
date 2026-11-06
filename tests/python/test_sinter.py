@@ -58,6 +58,8 @@ def sampler(request: pytest.FixtureRequest) -> PerfectionistSampler:
             0,
         ),
         ("R 0\nX 0\nM 0\nDETECTOR rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]", 0, 0),
+        ("R 0\nMR !0\nDETECTOR rec[-1]", 0, 0),
+        ("R 0\nMR !0\nOBSERVABLE_INCLUDE(0) rec[-1]", 0, 0),
         (
             "REPEAT[round] 2 {\nR[reset] 0\nX_ERROR[fault](1) 0\n"
             "M[readout] 0\nDETECTOR[check] rec[-1]\n}\n"

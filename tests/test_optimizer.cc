@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <bit>
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/generators/catch_generators.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <cmath>
 #include <cstdint>
@@ -287,21 +288,28 @@ TEST_CASE("Peephole: disjoint feedback controlled by a crossed measurement is tr
 
 TEST_CASE("Peephole: reset phase elimination preserves inverted records and annotations",
           "[optimizer]") {
-    auto hir = hir_from(
-        "R 0 1\n"
-        "H 0 1\n"
-        "R_Z(0.3) 0 1\n"
-        "MR !0 !1\n"
-        "DETECTOR rec[-2] rec[-1]\n"
-        "OBSERVABLE_INCLUDE(0) rec[-1]");
+    const bool inverted = GENERATE(false, true);
+    CAPTURE(inverted);
+    const std::string text = std::string("R 0 1\nH 0 1\nR_Z(0.3) 0 1\n") +
+                             (inverted ? "MR !0 !1\n" : "MR 0 1\n") +
+                             "DETECTOR rec[-2] rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]";
+    auto hir = hir_from(text.c_str());
 
     PeepholeFusionPass pass;
     pass.run(hir);
 
     REQUIRE(count_ops(hir, OpType::PHASE_ROTATION) == 0);
-    REQUIRE(count_ops(hir, OpType::READOUT_NOISE) == 2);
+    REQUIRE(count_ops(hir, OpType::READOUT_NOISE) == 0);
     REQUIRE(count_ops(hir, OpType::DETECTOR) == 1);
     REQUIRE(count_ops(hir, OpType::OBSERVABLE) == 1);
+    uint32_t measurements = 0;
+    for (const auto& op : hir.ops) {
+        if (op.op_type() == OpType::MEASURE && !op.is_hidden()) {
+            ++measurements;
+            CHECK(hir.sign(op) == inverted);
+        }
+    }
+    CHECK(measurements == 2);
 }
 
 TEST_CASE("Peephole: terminal phase elimination respects barriers", "[optimizer]") {
