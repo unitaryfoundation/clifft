@@ -322,7 +322,11 @@ struct BatchClassicalState::NoiseSiteActivator {
 };
 
 void BatchClassicalState::sample_presampled_noise() noexcept {
-    std::ranges::fill(noise_rows_, uint64_t{0});
+    if (!noise_rows_.empty()) {
+        std::ranges::fill(
+            std::span(noise_rows_).first(static_cast<size_t>(active_lanes()) * noise_->row_stride_),
+            uint64_t{0});
+    }
     if (plan_->noise_sites_.empty()) {
         finalize_presampled_symbols();
         return;
