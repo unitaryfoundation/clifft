@@ -9,12 +9,55 @@
 
 namespace clifft::sampling {
 
+std::vector<size_t> EarlyPostselection::schedule(const ExecutablePlan& plan, bool enabled) {
+    std::vector<size_t> order(plan.actions_.size());
+    std::iota(order.begin(), order.end(), size_t{0});
+    if (!enabled || !plan.has_postselection()) {
+        return order;
+    }
+    std::vector<size_t> ready = order;
+    std::vector<size_t> record_ready(size_t{plan.num_visible_records_} + plan.num_hidden_records_);
+    for (size_t i = 0; i < plan.actions_.size(); ++i) {
+        std::visit(
+            [&](const auto& typed) {
+                using T = std::decay_t<decltype(typed)>;
+                if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteActiveMeasurement> ||
+                              std::is_same_v<T, ExecutablePlan::ExecuteDormantMeasurement> ||
+                              std::is_same_v<T, ExecutablePlan::ExecuteClassicalRecord> ||
+                              std::is_same_v<T, ExecutablePlan::ExecuteReadoutNoise>) {
+                    record_ready[typed.record] = i + 1;
+                } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteDetector>) {
+                    if (typed.postselected) {
+                        ready[i] = 0;
+                        for (uint32_t term = 0; term < typed.outcome.count; ++term) {
+                            ready[i] = std::max(
+                                ready[i],
+                                record_ready[plan.record_parity_terms_[typed.outcome.begin +
+                                                                       term]]);
+                        }
+                    }
+                }
+            },
+            plan.actions_[i]);
+    }
+    // A check at position i runs before the original action i, after all
+    // contributing writes. Other actions retain their original relative order.
+    std::stable_sort(order.begin(), order.end(), [&](size_t left, size_t right) {
+        if (ready[left] != ready[right]) {
+            return ready[left] < ready[right];
+        }
+        const auto* detector = std::get_if<ExecutablePlan::ExecuteDetector>(&plan.actions_[left]);
+        const auto* other = std::get_if<ExecutablePlan::ExecuteDetector>(&plan.actions_[right]);
+        return (detector && detector->postselected) && !(other && other->postselected);
+    });
+    return order;
+}
+
 EarlyPostselection::EarlyPostselection(const ExecutablePlan& plan, bool enabled) : plan_(&plan) {
     if (plan.has_instruments()) {
         throw std::invalid_argument("entrance postselection requires a fixed sampling plan");
     }
-    action_order_.resize(plan.actions_.size());
-    std::iota(action_order_.begin(), action_order_.end(), size_t{0});
+    action_order_ = schedule(plan, enabled);
     if (!enabled || !plan.has_postselection()) {
         return;
     }
@@ -58,8 +101,6 @@ EarlyPostselection::EarlyPostselection(const ExecutablePlan& plan, bool enabled)
         symbols.push_back(AffineBool::symbol(SymbolId{symbol}));
     }
     std::vector<AffineBool> records(size_t{plan.num_visible_records_} + plan.num_hidden_records_);
-    std::vector<size_t> record_ready(records.size());
-    std::vector<size_t> ready(plan.actions_.size());
     const auto expand = [&](ExecutablePlan::PreparedExpression expression) {
         const auto& original = expressions[expression.register_id];
         AffineBool result(original.constant());
@@ -91,9 +132,7 @@ EarlyPostselection::EarlyPostselection(const ExecutablePlan& plan, bool enabled)
 
     // Expand record snapshots and derived symbols before eliminating unknown
     // measurement/readout outcomes from the selected detector equations.
-    for (size_t action_index = 0; action_index < plan.actions_.size(); ++action_index) {
-        const auto& action = plan.actions_[action_index];
-        ready[action_index] = action_index;
+    for (const auto& action : plan.actions_) {
         std::visit(
             [&](const auto& typed) {
                 using T = std::decay_t<decltype(typed)>;
@@ -101,25 +140,20 @@ EarlyPostselection::EarlyPostselection(const ExecutablePlan& plan, bool enabled)
                               std::is_same_v<T, ExecutablePlan::ExecuteDormantMeasurement>) {
                     records[typed.record] =
                         expand(typed.correction) ^ AffineBool::symbol(SymbolId{typed.branch});
-                    record_ready[typed.record] = action_index + 1;
                 } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteClassicalRecord>) {
                     records[typed.record] = expand(typed.outcome);
-                    record_ready[typed.record] = action_index + 1;
                 } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteSymbolDefinition>) {
                     symbols[typed.symbol] = expand(typed.value);
                 } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteReadoutNoise>) {
                     records[typed.record] ^= AffineBool::symbol(SymbolId{typed.flip});
-                    record_ready[typed.record] = action_index + 1;
                 } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteDetector>) {
                     if (!typed.postselected) {
                         return;
                     }
-                    ready[action_index] = 0;
                     AffineBool equation(typed.outcome.constant);
                     for (uint32_t term = 0; term < typed.outcome.count; ++term) {
                         const auto record = plan.record_parity_terms_[typed.outcome.begin + term];
                         equation ^= records[record];
-                        ready[action_index] = std::max(ready[action_index], record_ready[record]);
                     }
                     while (true) {
                         const auto pivot = std::find_if(
@@ -150,16 +184,6 @@ EarlyPostselection::EarlyPostselection(const ExecutablePlan& plan, bool enabled)
             },
             action);
     }
-    // A check at position i runs before the original action i, after all
-    // contributing writes. Other actions retain their original relative order.
-    std::stable_sort(action_order_.begin(), action_order_.end(), [&](size_t left, size_t right) {
-        if (ready[left] != ready[right]) {
-            return ready[left] < ready[right];
-        }
-        const auto* detector = std::get_if<ExecutablePlan::ExecuteDetector>(&plan.actions_[left]);
-        const auto* other = std::get_if<ExecutablePlan::ExecuteDetector>(&plan.actions_[right]);
-        return (detector && detector->postselected) && !(other && other->postselected);
-    });
 }
 
 }  // namespace clifft::sampling

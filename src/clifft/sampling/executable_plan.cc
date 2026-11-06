@@ -53,8 +53,9 @@ ExecutablePlan::ExecutablePlan(const SamplingPlan& plan)
     ExecutablePlanBuilder::build(*this, plan);
 }
 
-ExecutablePlan ExecutablePlan::compact_outputs(bool early_postselection) const {
-    return ExecutablePlanBuilder::compact_outputs(*this, early_postselection);
+ExecutablePlan ExecutablePlan::compact_outputs(bool early_postselection,
+                                               BatchNoiseMode noise_mode) const {
+    return ExecutablePlanBuilder::compact_outputs(*this, early_postselection, noise_mode);
 }
 
 std::vector<AffineBool> ExecutablePlan::affine_registers() const {

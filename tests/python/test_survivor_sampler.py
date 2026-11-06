@@ -156,3 +156,68 @@ def test_detector_snapshot_precedes_asymmetric_readout(reconstruction, compact):
         tolerance = 7 * np.sqrt(32768 * mass * (1 - mass)) + 10
         assert abs(count - 32768 * mass) <= tolerance
     np.testing.assert_array_equal(result.observable_ones, [result.logical_errors])
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        {"batch_size": -1},
+        {"batch_size": 2**32},
+        {"batch_size": "unknown"},
+        {"initial_states": -1},
+        {"initial_states": 2**32},
+        {"threads": -1},
+        {"max_state_bytes": 0},
+        {"max_state_bytes": -1},
+        {"max_state_bytes": 1},
+        {"tuning_budget_seconds": 0},
+        {"batch_size": "tune", "tuning_budget_seconds": -1},
+        {"batch_size": "tune", "tuning_budget_seconds": float("nan")},
+    ],
+)
+def test_configuration_uses_existing_option_validation(options):
+    with pytest.raises(ValueError):
+        clifft.SurvivorSampler(clifft.compile(SOURCE), **options)
+
+
+def test_state_budget_is_shared_across_workers_and_failure_allows_reuse():
+    program = clifft.compile(SOURCE)
+    # This narrow plan needs one 4096-byte allocation per shared state.
+    with pytest.raises(ValueError):
+        clifft.SurvivorSampler(program, threads=2, max_state_bytes=4096)
+    sampler = clifft.SurvivorSampler(
+        program, batch_size=65, threads=2, max_state_bytes=8192, sharing=False
+    )
+    with pytest.raises(RuntimeError):
+        sampler.sample(130, seed=23)
+    assert sampler.sample(1, seed=23).passed_shots == 1
+    auto = clifft.SurvivorSampler(program, threads=2, max_state_bytes=8192)
+    explicit = clifft.SurvivorSampler(program, batch_size=1, threads=2, max_state_bytes=8192)
+    assert counts(auto.sample(131, seed=23)) == counts(explicit.sample(131, seed=23))
+
+
+def test_tuning_is_reused_and_replays_at_the_selected_numeric_capacity():
+    program = clifft.compile(SOURCE)
+    sampler = clifft.SurvivorSampler(program, batch_size="tune", tuning_budget_seconds=0.15)
+    assert sampler.sample(0, seed=25).batch_tuning is None
+    result = sampler.sample(1301, seed=25)
+    report = result.batch_tuning
+    assert report is not None
+    assert report.trial_shots > 0
+    assert len(report.trials) >= 2
+    assert result.total_shots == 1301
+    explicit = clifft.SurvivorSampler(program, batch_size=report.batch_size)
+    assert counts(result) == counts(explicit.sample(1301, seed=25))
+    repeated = sampler.sample(1301, seed=25)
+    assert counts(repeated) == counts(result)
+    assert repeated.batch_tuning.trial_shots == report.trial_shots
+
+
+def test_zero_budget_tuning_uses_auto_and_the_existing_warning():
+    program = clifft.compile(SOURCE)
+    sampler = clifft.SurvivorSampler(program, batch_size="tune", tuning_budget_seconds=0)
+    with pytest.warns(RuntimeWarning):
+        result = sampler.sample(1301, seed=25)
+    assert result.batch_tuning.trial_shots == 0
+    assert not result.batch_tuning.sufficient_measurements
+    assert counts(result) == counts(clifft.SurvivorSampler(program).sample(1301, seed=25))

@@ -66,12 +66,26 @@ noise preparation; they need no trajectory groups or separate entrance checks.
 
 The settings are explicit so you can measure the complete workload:
 
-- `batch_size` is the actual classical batch capacity. Larger batches can amortize
+- `batch_size` accepts a positive integer, `"auto"` (the default), or `"tune"`.
+  A numeric value sets the classical batch capacity. Larger batches can amortize
   noise preparation but leave too few batches to occupy all workers on small calls.
-- `initial_states` reserves coefficient states per worker. When a later action
-  needs more states, dispatch suspends and grows the pool before resuming with
-  the same sampled noise and branches. The pool can grow to one state per
-  classical lane and stays allocated for subsequent calls.
+  Automatic capacity fits the state budget even if every lane becomes distinct.
+  An explicit capacity can be larger when sharing keeps the state count small.
+- `batch_size="tune"` calibrates capacities on the first nonzero sample call and
+  retains the selected capacity for later calls. `tuning_budget_seconds` sets the
+  soft deadline, and `result.batch_tuning` retains the calibration report. Trials
+  are excluded from returned counts. This tunes capacity with your chosen noise
+  and sharing settings; it does not select those strategies for you.
+- `initial_states` reserves up to that many coefficient states per worker, within
+  the state budget. When a later action needs more states, dispatch suspends and
+  grows the pool before resuming with the same sampled noise and branches.
+- `max_state_bytes` bounds the combined coefficient and collapse-scratch allocations
+  across workers, including page alignment. Its default is 64 MiB; classical
+  batches and prepared plans are separate. An explicit capacity whose next action
+  could require more states than this budget permits raises `RuntimeError` at a
+  suspension boundary.
+  Increase the budget or reduce the capacity or worker count before retrying.
+  Successfully allocated states stay available for subsequent calls.
 - `NoisePreparation.SITE_SPARSE` applies sampled faults directly to expression
   columns. `SITE_ROWS` collects each shot's effects contiguously before
   transposing them, which can help when faults affect many expressions.
@@ -84,15 +98,16 @@ The settings are explicit so you can measure the complete workload:
   before evolution. This avoids repeated sign scans but may retain more distinct
   states and split measurement branches earlier. Compare it with the default
   incremental grouping on your workload; it is ignored when `sharing=False`.
-- `sharing=False` measures independent coefficient evolution with the same
-  classical preparation. `early_postselection=False` disables entrance checks
-  and retains the original detector order.
-  These controls help determine which mechanisms benefit your circuit.
+- `sharing=False` uses independent coefficient evolution, which can avoid grouping
+  overhead when most trajectories differ. `early_postselection=False` skips the
+  preparation of entrance constraints and retains the original detector order;
+  this can reduce setup costs when few shots will be rejected.
 
 Compare construction time and sustained sampling separately. Small jobs or
 circuits with many distinct trajectories may favor ordinary sampling. This
-interface uses cross-shot threads and explicit capacities; the budgeted batch
-calibration below applies to the ordinary sampling functions.
+interface uses cross-shot threads. With automatic capacity, changing the worker
+budget can change batch size and seeded results. Calibration is timing-dependent,
+so pin a numeric capacity to replay a configuration.
 
 A fixed seed, batch size, and noise preparation reproduce counts independently
 of worker scheduling and state-pool growth. Different batch sizes or noise
@@ -109,7 +124,8 @@ Calls on one sampler serialize; separate samplers can run concurrently.
 | `thread_layout` | `None` | Expert `(shot_workers, intra_shot_workers)` override. |
 | `intra_shot_min_active_width` | `None` | Expert threshold for enabling an explicit intra-shot layout. |
 
-The samplers above accept all five controls. For leakage and loss,
+The four standard sampling functions accept all five controls. `SurvivorSampler`
+uses cross-shot workers and accepts the first three controls. For leakage and loss,
 `clifft.noncomp.sample()` and `NonComputationalProgram.sample()` accept
 cross-shot `threads`, `batch_size` (`"auto"`, `"tune"`, or a positive integer),
 and `tuning_budget_seconds`. Compile-once fixed execution supports batching and

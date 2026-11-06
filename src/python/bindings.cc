@@ -1768,9 +1768,19 @@ NB_MODULE(_clifft_core, m) {
         "Reuse classical batches and shared quantum trajectories for repeated count sampling. "
         "Construction prepares entrance postselection and worker storage; later calls retain "
         "that storage. The program is kept alive by the sampler.\n\n"
-        "batch_size is the actual classical lane capacity. initial_states reserves quantum "
-        "states per worker; explicit storage boundaries may grow this pool up to batch_size "
-        "without resampling any noise or branch. noise_preparation selects dense propagation, "
+        "batch_size accepts a positive integer, 'auto', or 'tune', as in sample_survivors. "
+        "A numeric capacity permits larger classical batches when trajectories share states; "
+        "auto fits the state budget even if every lane becomes distinct. 'tune' calibrates on "
+        "the first nonzero call and retains its capacity and result.batch_tuning report. "
+        "tuning_budget_seconds is a soft deadline, defaulting to 0.25 seconds; trial shots "
+        "are excluded from counts. Auto can change capacity with the worker budget; "
+        "pin a numeric capacity for seeded replay.\n\n"
+        "initial_states reserves up to that many quantum states per worker. max_state_bytes "
+        "bounds their combined coefficients, collapse scratch, and alignment across workers "
+        "(64 MiB by default), excluding classical storage and plans. Growth suspends dispatch "
+        "without resampling; exceeding the budget raises RuntimeError. Reduce batch_size or "
+        "threads, or increase max_state_bytes, before retrying. noise_preparation selects dense "
+        "propagation, "
         "direct sparse updates, or site-oriented sparse updates in columns or rows. "
         "Changing preparation or batch size can change seeded results.\n\n"
         "compact_outputs prepares only the expressions needed for aggregate outputs. "
@@ -1783,22 +1793,32 @@ NB_MODULE(_clifft_core, m) {
         "distinct samplers can execute concurrently.")
         .def(
             "__init__",
-            [](clifft::SurvivorSampler* self, const clifft::Program& program, uint32_t batch_size,
-               const ThreadOption& thread_option, uint32_t initial_states,
-               clifft::sampling::BatchNoiseMode noise, bool sharing, bool early_postselection,
-               bool compact_outputs, bool group_by_noise) {
+            [](clifft::SurvivorSampler* self, const clifft::Program& program,
+               const BatchOption& batch_option, const ThreadOption& thread_option,
+               int64_t initial_states, clifft::sampling::BatchNoiseMode noise, bool sharing,
+               bool early_postselection, bool compact_outputs, bool group_by_noise,
+               int64_t max_state_bytes, std::optional<double> tuning_budget_seconds) {
+                const auto batch = parse_batch_option(batch_option, tuning_budget_seconds);
+                const auto states = parse_positive_uint32_option(
+                    ThreadOption{initial_states}, "initial_states", "a positive integer");
+                if (max_state_bytes <= 0) {
+                    throw std::invalid_argument("max_state_bytes must be positive");
+                }
                 const uint32_t threads = parse_thread_option(thread_option);
                 nb::gil_scoped_release release;
-                new (self) clifft::SurvivorSampler(program, batch_size, threads, initial_states,
-                                                   noise, sharing, early_postselection,
-                                                   compact_outputs, group_by_noise);
+                new (self) clifft::SurvivorSampler(
+                    program, batch.batch_size, threads, *states, noise, sharing,
+                    early_postselection, compact_outputs, group_by_noise,
+                    static_cast<uint64_t>(max_state_bytes), batch.tuning_budget_seconds);
             },
-            nb::arg("program"), nb::kw_only(), nb::arg("batch_size") = 8192,
+            nb::arg("program"), nb::kw_only(),
+            nb::arg("batch_size") = BatchOption{std::string{"auto"}},
             nb::arg("threads") = ThreadOption{int64_t{1}}, nb::arg("initial_states") = 128,
             nb::arg("noise_preparation") = clifft::sampling::BatchNoiseMode::SiteSparse,
             nb::arg("sharing") = true, nb::arg("early_postselection") = true,
             nb::arg("compact_outputs") = false, nb::arg("group_by_noise") = false,
-            nb::keep_alive<1, 2>())
+            nb::arg("max_state_bytes") = clifft::sampling::kDefaultBatchTotalWorkerBudget,
+            nb::arg("tuning_budget_seconds") = nb::none(), nb::keep_alive<1, 2>())
         .def(
             "sample",
             [make_survivor_result](clifft::SurvivorSampler& sampler, uint32_t shots,

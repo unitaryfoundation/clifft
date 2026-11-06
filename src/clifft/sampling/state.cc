@@ -24,15 +24,26 @@ uint64_t round_array_stride(uint64_t entries) {
 
 }  // namespace
 
+size_t State::storage_bytes(uint32_t max_active_width) {
+    if (max_active_width >= kDenseActiveWidthLimit) {
+        throw std::invalid_argument("sampling state maximum active width must be below " +
+                                    std::to_string(kDenseActiveWidthLimit));
+    }
+    const uint64_t capacity = uint64_t{1} << max_active_width;
+    const uint64_t doubles = 2 * round_array_stride(capacity) +
+                             2 * round_array_stride(std::max(uint64_t{1}, capacity >> 1));
+    if (doubles > std::numeric_limits<size_t>::max() / sizeof(double)) {
+        throw std::length_error("sampling state allocation exceeds addressable memory");
+    }
+    return PageAlignedAllocation::allocation_size(static_cast<size_t>(doubles) * sizeof(double));
+}
+
 State::State(uint32_t max_active_width, uint32_t initial_active_width,
              uint32_t initialization_workers, uint32_t intra_shot_min_active_width)
     : initial_active_width_(initial_active_width),
       active_width_(initial_active_width),
       max_active_width_(max_active_width) {
-    if (max_active_width >= kDenseActiveWidthLimit) {
-        throw std::invalid_argument("sampling state maximum active width must be below " +
-                                    std::to_string(kDenseActiveWidthLimit));
-    }
+    const size_t allocation_bytes = storage_bytes(max_active_width);
     if (initial_active_width > max_active_width) {
         throw std::invalid_argument("sampling state initial active width exceeds its maximum");
     }
@@ -40,11 +51,6 @@ State::State(uint32_t max_active_width, uint32_t initial_active_width,
     coefficient_stride_ = round_array_stride(capacity_);
     const uint64_t scratch_capacity = std::max(uint64_t{1}, capacity_ >> 1);
     scratch_stride_ = round_array_stride(scratch_capacity);
-    const uint64_t allocated_doubles = 2 * coefficient_stride_ + 2 * scratch_stride_;
-    if (allocated_doubles > std::numeric_limits<size_t>::max() / sizeof(double)) {
-        throw std::length_error("sampling state allocation exceeds addressable memory");
-    }
-    const size_t allocation_bytes = static_cast<size_t>(allocated_doubles) * sizeof(double);
     allocation_ = PageAlignedAllocation(allocation_bytes);
     real_ = static_cast<double*>(allocation_.data());
     imag_ = real_ + coefficient_stride_;
@@ -109,24 +115,16 @@ void State::ensure_capacity(uint32_t max_active_width) {
     if (max_active_width <= max_active_width_) {
         return;
     }
-    if (max_active_width >= kDenseActiveWidthLimit) {
-        throw std::invalid_argument("sampling state maximum active width must be below " +
-                                    std::to_string(kDenseActiveWidthLimit));
-    }
+    const size_t allocation_bytes = storage_bytes(max_active_width);
 
     const uint64_t new_capacity = uint64_t{1} << max_active_width;
     const uint64_t new_coefficient_stride = round_array_stride(new_capacity);
     const uint64_t new_scratch_capacity = std::max(uint64_t{1}, new_capacity >> 1);
     const uint64_t new_scratch_stride = round_array_stride(new_scratch_capacity);
-    const uint64_t allocated_doubles = 2 * new_coefficient_stride + 2 * new_scratch_stride;
-    if (allocated_doubles > std::numeric_limits<size_t>::max() / sizeof(double)) {
-        throw std::length_error("sampling state allocation exceeds addressable memory");
-    }
-
     // The old block must remain live until both coefficient arrays are copied.
     // This transient old-plus-new peak preserves the shot if allocation fails;
     // portable aligned allocation has no in-place growth operation.
-    PageAlignedAllocation allocation(static_cast<size_t>(allocated_doubles) * sizeof(double));
+    PageAlignedAllocation allocation(allocation_bytes);
     double* const new_real = static_cast<double*>(allocation.data());
     double* const new_imag = new_real + new_coefficient_stride;
     std::copy_n(real_, static_cast<size_t>(size()), new_real);

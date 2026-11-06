@@ -1,3 +1,4 @@
+#include "clifft/api/survivor_sampler.h"
 #include "clifft/circuit/parser.h"
 #include "clifft/frontend/frontend.h"
 #include "clifft/optimizer/pass_factory.h"
@@ -7,6 +8,8 @@
 #include "clifft/sampling/planner.h"
 #include "clifft/sampling/sharing_executor.h"
 #include "clifft/util/runtime_isa.h"
+
+#include "instrument_test_helpers.h"
 
 #include <algorithm>
 #include <array>
@@ -342,7 +345,10 @@ TEST_CASE("Compact outputs preserve snapshots and feedback across noise preparat
     hir.postselection.mask = {1, 1};
     hir.postselection.expected_detectors = {1, 0};
     const ExecutablePlan original(plan_sampling(hir));
-    const auto compact = original.compact_outputs(early);
+    const auto compact = original.compact_outputs(early, mode);
+    if (mode != BatchNoiseMode::Dense) {
+        REQUIRE(compact.num_batch_noise_carriers() == 0);
+    }
     REQUIRE(original.num_visible_records() > 0);
     REQUIRE(compact.num_visible_records() == 0);
     REQUIRE(compact.num_expression_registers() < original.num_expression_registers());
@@ -432,4 +438,59 @@ TEST_CASE("Noise grouping closes derived signs over readout and dormant branches
                                        grouped.observable_columns().column(column)));
         }
     }
+}
+
+TEST_CASE("Shared state budgets include scratch and bound growth at suspension") {
+    REQUIRE(State::storage_bytes(19) == 12 * 1024 * 1024);
+    const ExecutablePlan plan(plan_sampling(trace(parse("H 0\nT 0\nH 0\nM 0"))));
+    const PreparedBatchNoise noise(plan, BatchNoiseMode::SiteSparse);
+    const EarlyPostselection checks(plan);
+    const auto bytes = State::storage_bytes(plan.peak_active_width());
+    REQUIRE_THROWS_AS(SharingExecutor(plan, noise, checks, 65, 1, true, nullptr, bytes - 1),
+                      std::invalid_argument);
+    SharingExecutor worker(plan, noise, checks, 65, 128, false, nullptr, 2 * bytes);
+    REQUIRE(worker.state_capacity() == 2);
+    REQUIRE_THROWS_AS(worker.run_batch(seed_root_from_seed(19), 0, 65), std::runtime_error);
+    REQUIRE(worker.state_capacity() == 2);
+    worker.run_batch(seed_root_from_seed(19), 0, 1);
+    REQUIRE(worker.surviving_shots() == 1);
+}
+
+TEST_CASE("Survivor construction rejects instruments in each preparation path") {
+    const auto options = test::source_dependent_jump_options();
+    const auto hir = trace(parse("LEVEL_TRANSITION[jump] 0"), &options);
+    const Program program{ExecutablePlan(plan_sampling(hir))};
+    const bool compact = GENERATE(false, true);
+    const bool early = GENERATE(false, true);
+    REQUIRE_THROWS_AS(
+        SurvivorSampler(program, 65, 1, 1, BatchNoiseMode::SiteSparse, true, early, compact),
+        std::invalid_argument);
+}
+
+TEST_CASE("Compact count plans omit unselected detectors and expectations") {
+    auto hir = trace(
+        parse("H 0\nT 0\nEXP_VAL X0\nH 0\nM 0\nDETECTOR rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]"));
+    const ExecutablePlan original(plan_sampling(hir));
+    const auto compact = original.compact_outputs();
+    REQUIRE(compact.num_actions() < original.num_actions());
+    REQUIRE(compact.num_hidden_records() == 1);
+    REQUIRE(compact.estimated_batch_lane_work(BatchOutputMode::Rows) ==
+            original.estimated_batch_lane_work(BatchOutputMode::AggregateSurvivors));
+}
+
+TEST_CASE("Pregrouped rotations retain their existing state budget") {
+    SamplingPlan source;
+    source.num_qubits = source.initial_active_width = source.peak_active_width = 1;
+    source.symbols = {SymbolKind::Presampled};
+    source.presampled_noise_sites = {{0.5, {{SymbolId{0}, 0.5}}}};
+    source.actions = {{1, 1, RotateActivePauli{{1, 0}, 0.17, AffineBool::symbol(SymbolId{0})}}};
+    const ExecutablePlan plan(source);
+    const PreparedBatchNoise noise(plan, BatchNoiseMode::SiteSparse);
+    const EarlyPostselection checks(plan);
+    const SharingKey key(plan);
+    SharingExecutor worker(plan, noise, checks, 65, 1, true, &key, 2 * State::storage_bytes(1));
+    worker.run_batch(seed_root_from_seed(19), 0, 65);
+    REQUIRE(worker.peak_groups() == 2);
+    REQUIRE(worker.state_capacity() == 2);
+    REQUIRE(worker.surviving_shots() == 65);
 }
