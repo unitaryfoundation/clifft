@@ -201,7 +201,7 @@ TEST_CASE("Packed external readout preserves hidden reset outcomes and ordered f
                 "DETECTOR rec[-4] rec[-3] rec[-2] rec[-1]\n"
                 "OBSERVABLE_INCLUDE(0) rec[-1]\n");
     REQUIRE(plan.num_presampled_symbols() == 1);
-    REQUIRE(plan.num_readout_noise_sites() == 3 + static_cast<uint32_t>(inverted));
+    REQUIRE(plan.num_readout_noise_sites() == 3);
     REQUIRE(plan.num_visible_records() == 4);
     constexpr uint32_t shots = 129;
     BatchExternalInputs inputs(plan, shots);
@@ -209,12 +209,8 @@ TEST_CASE("Packed external readout preserves hidden reset outcomes and ordered f
     Executor scalar(plan);
     for (uint32_t lane = 0; lane < shots; ++lane) {
         set(inputs.noise(0), lane, (lane & 1) != 0);
-        uint32_t offset = 0;
-        if (inverted) {
-            set_channel(inputs, offset++, lane, 1);
-        }
         for (uint32_t channel = 0; channel < 3; ++channel) {
-            set_channel(inputs, offset + channel, lane, (lane >> (1 + 2 * channel)) & 3);
+            set_channel(inputs, channel, lane, (lane >> (1 + 2 * channel)) & 3);
         }
     }
     batch.run_batch(clifft::make_seed_root(shots, uint64_t{71}), 0, shots, inputs);

@@ -180,6 +180,18 @@ class TestSampleK:
                 prog, shots=SMALL_CIRCUIT_SHOTS, k=1, seed=42
             )
 
+    def test_inverted_measure_reset_is_not_a_fault_site(
+        self, importance_sampling_mode: CpuSamplingMode
+    ) -> None:
+        """Measure-reset inversion is deterministic, so only the real error is a fault site."""
+        prog = importance_sampling_mode.compile("MR !0\nX_ERROR(0.1) 0\nM 0")
+        clean = importance_sampling_mode.sample_k(prog, shots=SMALL_CIRCUIT_SHOTS, k=0, seed=42)
+        np.testing.assert_array_equal(clean.measurements, np.tile([1, 0], (SMALL_CIRCUIT_SHOTS, 1)))
+        faulted = importance_sampling_mode.sample_k(prog, shots=SMALL_CIRCUIT_SHOTS, k=1, seed=42)
+        np.testing.assert_array_equal(
+            faulted.measurements, np.tile([1, 1], (SMALL_CIRCUIT_SHOTS, 1))
+        )
+
     @pytest.mark.parametrize("k", range(4))
     @pytest.mark.parametrize("postselect", [False, True])
     @pytest.mark.parametrize(
