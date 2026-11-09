@@ -664,12 +664,14 @@ def test_sampling_mode_only_skips_unavailable_layouts(
 
 @pytest.mark.parametrize("reconstruction", [False, True])
 @pytest.mark.parametrize("mask", [None, [1, 0], [1, 1]])
+@pytest.mark.parametrize("group", [False, True])
 @pytest.mark.parametrize(
     "preparation", [clifft.NoisePreparation.DENSE, clifft.NoisePreparation.SITE_ROWS]
 )
 def test_reusable_sharing_preserves_noisy_aggregate_masses(
     reconstruction: bool,
     mask: list[int] | None,
+    group: bool,
     preparation: clifft.NoisePreparation,
     noisy_joint_probabilities: np.ndarray,
 ) -> None:
@@ -688,7 +690,12 @@ def test_reusable_sharing_preserves_noisy_aggregate_masses(
         if selected:
             expected[((np.arange(1024) >> (6 + detector)) & 1) != 0] = 0
     sampler = clifft.SurvivorSampler(
-        program, batch_size=65, initial_states=1, threads=2, noise_preparation=preparation
+        program,
+        batch_size=65,
+        initial_states=1,
+        threads=2,
+        noise_preparation=preparation,
+        group_by_noise=group,
     )
     result = sampler.sample(8193, seed=803)
     _assert_noisy_survivors(result, expected, 8193, keep_records=False)

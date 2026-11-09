@@ -32,7 +32,8 @@ class SharingKey {
 };
 
 // Shares coefficient states across shots with identical prepared evolution.
-// Splits retain independent per-shot RNG streams and classical outputs. A pool
+// Dormant measurements and sparse symmetric readout use packed draws;
+// active measurements and all other readout retain per-shot RNG streams. A pool
 // growth boundary suspends dispatch before an action can require more states.
 class SharingExecutor : public BatchClassicalState {
   public:
@@ -62,6 +63,8 @@ class SharingExecutor : public BatchClassicalState {
     void copy_state(uint32_t to, uint32_t from) noexcept;
     [[nodiscard]] uint32_t split(uint32_t group) noexcept;
     [[nodiscard]] uint32_t split_by_sign(uint32_t group, std::span<const uint64_t> values) noexcept;
+    // Uses the packed outcome in scratch_words_ and prepared sign dependencies.
+    void split_on_symbol(uint32_t symbol) noexcept;
     void prune() noexcept;
     template <class F>
     void sign_action(std::span<const uint64_t> values, F&& apply) noexcept;

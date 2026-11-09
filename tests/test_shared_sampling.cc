@@ -90,6 +90,7 @@ TEST_CASE("Entrance postselection detects a constant impossible normalized detec
 }
 
 TEST_CASE("Sharing storage boundaries preserve per-shot branches and classical correlations") {
+    const double readout_probability = GENERATE(0.001, 0.1);
     const auto mode = GENERATE(BatchNoiseMode::Dense, BatchNoiseMode::Sparse,
                                BatchNoiseMode::SiteSparse, BatchNoiseMode::SiteRows);
     auto hir = trace(parse(R"(
@@ -117,6 +118,8 @@ TEST_CASE("Sharing storage boundaries preserve per-shot branches and classical c
     )"));
     hir.postselection.mask = {1, 1};
     hir.postselection.expected_detectors = {0, 1};
+    hir.readout_noise.front().prob_zero_to_one = readout_probability;
+    hir.readout_noise.front().prob_one_to_zero = readout_probability;
     default_hir_pass_manager().run(hir);
     const ExecutablePlan plan(plan_sampling(hir));
     REQUIRE(plan.peak_active_width() > 0);
@@ -220,6 +223,7 @@ TEST_CASE("Selected detector scheduling preserves record snapshots and later rea
 
 TEST_CASE("Shared measurement and readout preserve the selected interference law") {
     const bool reference_one = GENERATE(false, true);
+    const double readout_probability = GENERATE(0.05, 0.1);
     auto hir = trace(parse(R"(
         H 0
         T 0
@@ -234,6 +238,8 @@ TEST_CASE("Shared measurement and readout preserve the selected interference law
     )"));
     hir.postselection.mask = {1};
     hir.postselection.expected_detectors = {static_cast<uint8_t>(reference_one)};
+    hir.readout_noise.front().prob_zero_to_one = readout_probability;
+    hir.readout_noise.front().prob_one_to_zero = readout_probability;
     const ExecutablePlan plan(plan_sampling(hir));
     const PreparedBatchNoise noise(plan, BatchNoiseMode::SiteSparse);
     const EarlyPostselection checks(plan);
@@ -254,9 +260,10 @@ TEST_CASE("Shared measurement and readout preserve the selected interference law
         }
     }
     const double one = 0.85 * (1 - std::sqrt(0.5)) / 2 + 0.15 * (1 + std::sqrt(0.5)) / 2;
+    const double p = readout_probability;
     const std::array<double, 5> probabilities =
-        reference_one ? std::array<double, 5>{0, one * 0.1, (1 - one) * 0.1, 0, 0.9}
-                      : std::array<double, 5>{(1 - one) * 0.9, 0, 0, one * 0.9, 0.1};
+        reference_one ? std::array<double, 5>{0, one * p, (1 - one) * p, 0, 1 - p}
+                      : std::array<double, 5>{(1 - one) * (1 - p), 0, 0, one * (1 - p), p};
     for (size_t bin = 0; bin < probabilities.size(); ++bin) {
         CAPTURE(reference_one, bin);
         if (probabilities[bin] == 0) {
@@ -382,6 +389,7 @@ TEST_CASE("Compact outputs preserve snapshots and feedback across noise preparat
 
 TEST_CASE("Noise grouping closes derived signs over readout and dormant branches") {
     const bool compact_outputs = GENERATE(false, true);
+    const bool symmetric = GENERATE(false, true);
     const SymbolId noise_symbol{0}, dormant{1}, flip{2}, first_sign{3}, sign{4}, active{5};
     SamplingPlan source;
     source.num_qubits = 7;
@@ -392,7 +400,9 @@ TEST_CASE("Noise grouping closes derived signs over readout and dormant branches
     source.presampled_noise_sites = {{0.2, {{noise_symbol, 0.2}}}};
     source.actions = {
         {6, 6, MeasureDormantRandom{6, dormant, AffineBool::symbol(dormant), RecordSlot{0}}},
-        {6, 6, ApplyReadoutNoise{flip, AffineBool::symbol(dormant), RecordSlot{0}, 0.2, 0.4}},
+        {6, 6,
+         ApplyReadoutNoise{flip, AffineBool::symbol(dormant), RecordSlot{0}, symmetric ? 0.01 : 0.2,
+                           symmetric ? 0.01 : 0.4}},
         {6, 6, DefineSymbol{first_sign, AffineBool(false, {noise_symbol, dormant})}},
         {6, 6, DefineSymbol{sign, AffineBool(true, {first_sign, flip})}},
     };
@@ -428,16 +438,20 @@ TEST_CASE("Noise grouping closes derived signs over readout and dormant branches
     const EarlyPostselection old_checks(original), checks(plan);
     SharingExecutor reference(original, old_noise, old_checks, 129, 1);
     SharingExecutor grouped(plan, noise, checks, 129, 1, true, &key);
+    uint32_t largest_group_count = 0;
     for (uint64_t seed = 0; seed < 20; ++seed) {
         const auto root = seed_root_from_seed(seed);
         reference.run_batch(root, 17, 129);
         grouped.run_batch(root, 17, 129);
         REQUIRE(grouped.peak_groups() >= 4);
+        largest_group_count = std::max(largest_group_count, grouped.peak_groups());
         for (size_t column = 0; column < 2; ++column) {
             REQUIRE(std::ranges::equal(reference.observable_columns().column(column),
                                        grouped.observable_columns().column(column)));
         }
     }
+    // Readout splits the four noise/dormant groups for at least one seed.
+    REQUIRE(largest_group_count > 4);
 }
 
 TEST_CASE("Shared state budgets include scratch and bound growth at suspension") {
