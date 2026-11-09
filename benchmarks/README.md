@@ -44,7 +44,7 @@ This is a regression canary, not a comparison with another simulator.
 both reconstructed output variants on the noisy MSC d5 fixture. An untimed
 check requires both variants to select active width six. This tracks the cost
 of optimizing the auxiliary noise wires introduced by reconstruction; it does
-not measure sampling or raise reconstruction limits.
+not measure sampling.
 
 ### Shared survivor sampling
 

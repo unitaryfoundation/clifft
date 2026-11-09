@@ -40,6 +40,11 @@ class PauliCommutation {
         }
     }
 
+    [[nodiscard]] bool references(MaskView x, MaskView z) const {
+        return x.words.data() == x_.words.data() && z.words.data() == z_.words.data() &&
+               x.num_words() == x_.num_words() && z.num_words() == z_.num_words();
+    }
+
     [[nodiscard]] bool anti_commutes(MaskView x, MaskView z) const {
         assert(x.num_words() == x_.num_words() && z.num_words() == z_.num_words());
         return anti_commute(MaskView{x_.words.subspan(begin_, end_ - begin_)},

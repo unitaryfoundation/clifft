@@ -75,6 +75,7 @@ bool noise_sites_anti_commute(const NoiseSite& a, const NoiseSite& b, const HirM
 
 bool can_swap(const HeisenbergOp& left, const HeisenbergOp& right, const HirModule& hir,
               const PauliCommutation* left_axis) {
+    assert(!left_axis || left_axis->references(hir.destab_mask(left), hir.stab_mask(left)));
     auto lt = left.op_type();
     auto rt = right.op_type();
 
