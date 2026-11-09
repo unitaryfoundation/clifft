@@ -113,13 +113,15 @@ structure outside that active space remains encoded by the prepared coordinate
 description.
 
 In shared-trajectory execution (`SurvivorSampler`), each shot keeps its own
-packed classical values and RNG stream while shots on identical quantum
-branches share a single coefficient state. This resembles copy-on-write:
+packed classical values while shots on identical quantum branches share a
+single coefficient state. This resembles copy-on-write:
 equivalent shots evolve one coefficient vector together, and splitting a group
 copies that vector so the resulting groups can evolve independently. Prepared
 rotation signs and measurement outcomes determine group splitting. Optional
 upfront grouping separates shots by their effects on future rotation signs,
 which can split groups earlier.
+Active measurements and state-dependent readout keep per-shot RNG streams;
+dormant measurements and rare symmetric readout use packed random draws.
 
 Plan preparation also extracts **entrance checks**: noise-only necessary
 conditions evaluated before quantum evolution. Eliminating unknown measurement

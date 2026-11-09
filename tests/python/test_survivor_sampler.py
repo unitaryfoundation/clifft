@@ -34,8 +34,9 @@ def counts(result):
 )
 @pytest.mark.parametrize("sharing", [False, True])
 @pytest.mark.parametrize("early", [False, True])
-def test_worker_count_and_storage_growth_preserve_seeded_counts(sharing, early, strategy):
-    program = clifft.compile(SOURCE, postselection_mask=[1])
+@pytest.mark.parametrize("readout", [0.001, 0.13])
+def test_worker_count_and_storage_growth_preserve_seeded_counts(sharing, early, strategy, readout):
+    program = clifft.compile(SOURCE.replace("M(0.13)", f"M({readout})"), postselection_mask=[1])
     reference = clifft.SurvivorSampler(program, batch_size=65, initial_states=65).sample(
         1301, seed=7
     )

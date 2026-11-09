@@ -369,13 +369,15 @@ constexpr uint32_t kSharedBatchCapacity = 8192;
 constexpr uint32_t kSharedInitialStates = 128;
 constexpr uint32_t kSharedShots = 65536;
 
-// Reconstructed cultivation keeps the quantum width small enough to share
-// thousands of noisy trajectories while retaining selected detector checks.
+// Cultivation keeps the quantum width small enough to share thousands of noisy
+// trajectories while retaining selected detector checks.
 // Reuse compilation across calibration and repetitions within each process.
 template <uint32_t Distance>
 const Program& shared_cultivation_program() {
     static const Program program = [] {
-        const auto name = "reconstruction_msc_d" + std::to_string(Distance) + ".stim";
+        const auto name = Distance == 3
+                              ? "cultivation_d3.stim"
+                              : "reconstruction_msc_d" + std::to_string(Distance) + ".stim";
         const auto circuit = parse_file(fixture(name.c_str()));
         auto hir = trace(circuit);
         hir.postselection.mask.assign(hir.num_detectors, 1);
@@ -397,8 +399,7 @@ bool validate_shared_cultivation(benchmark::State& state, const Program& program
     sampling::SharingExecutor executor(plan, noise, checks, kSharedBatchCapacity,
                                        kSharedInitialStates, true, key ? &*key : nullptr);
     executor.run_batch(seed_root_from_seed(731), 0, kSharedBatchCapacity);
-    if (!program.uses_reconstruction(false) || plan.peak_active_width() == 0 ||
-        !plan.has_postselection() || checks.num_checks() == 0 ||
+    if (plan.peak_active_width() == 0 || !plan.has_postselection() || checks.num_checks() == 0 ||
         executor.entrance_rejected() == 0 || executor.surviving_shots() == 0 ||
         executor.peak_groups() <= 1 ||
         executor.peak_groups() >= kSharedBatchCapacity - executor.entrance_rejected() ||
@@ -408,6 +409,7 @@ bool validate_shared_cultivation(benchmark::State& state, const Program& program
         return false;
     }
     state.counters["active_width"] = plan.peak_active_width();
+    state.counters["reconstructed"] = program.uses_reconstruction(false);
     state.counters["capacity"] = kSharedBatchCapacity;
     state.counters["probe_peak_groups"] = executor.peak_groups();
     return true;
@@ -451,6 +453,9 @@ void prepare_shared_cultivation_d5(benchmark::State& state) {
     }
 }
 
+BENCHMARK_CAPTURE(sample_shared_cultivation<3>, grouped_d3, sampling::BatchNoiseMode::SiteRows,
+                  true)
+    ->Name("sample_shared_cultivation_d3_compact_grouped_65536_shots");
 BENCHMARK_CAPTURE(sample_shared_cultivation<5>, grouped_d5, sampling::BatchNoiseMode::SiteRows,
                   true)
     ->Name("sample_shared_cultivation_d5_compact_grouped_65536_shots");

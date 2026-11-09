@@ -506,25 +506,22 @@ void SharingExecutor::execute_action(
 
 void SharingExecutor::execute_action(
     const ExecutablePlan::ExecuteDormantMeasurement& action) noexcept {
-    std::ranges::fill(scratch_words_, uint64_t{0});
-    for (uint32_t index = 0; index < group_count_; ++index) {
-        for (uint32_t shot = heads_[groups_[index]]; shot != kNoShot; shot = next_[shot]) {
-            const bool branch = shot_rng_[shot].next_double() < 0.5;
-            choices_[shot] = branch;
-            if (branch) {
-                scratch_words_[shot >> 6] |= uint64_t{1} << (shot & 63);
-            }
+    BatchClassicalState::execute_action(action);
+    split_on_symbol(action.branch);
+}
+
+void SharingExecutor::split_on_symbol(uint32_t symbol) noexcept {
+    if (!key_ || !key_->split_symbols_[symbol]) {
+        return;
+    }
+    // Packed outcomes split only the compiler-prepared future sign dependencies.
+    const auto original_groups = group_count_;
+    for (uint32_t i = 0; i < original_groups; ++i) {
+        const auto group = groups_[i];
+        for (auto shot = heads_[group]; shot != kNoShot; shot = next_[shot]) {
+            choices_[shot] = lane_bit(scratch_words_, shot);
         }
-    }
-    if (key_ && key_->split_symbols_[action.branch]) {
-        const auto original_groups = group_count_;
-        for (uint32_t i = 0; i < original_groups; ++i)
-            (void)split(groups_[i]);
-    }
-    propagate_symbol(action.branch, scratch_words_);
-    if (records_.num_columns() != 0) {
-        records_.assign_xor(action.record, scratch_words_, evaluate(action.correction),
-                            live_words_);
+        (void)split(group);
     }
 }
 
@@ -542,6 +539,12 @@ void SharingExecutor::execute_action(const ExecutablePlan::ExecuteDetector& acti
 }
 
 void SharingExecutor::execute_action(const ExecutablePlan::ExecuteReadoutNoise& action) noexcept {
+    if (action.batch_symmetric_inverse_hazard > 0.0) {
+        // Rare symmetric flips are independent of both the source bit and group.
+        BatchClassicalState::execute_action(action);
+        split_on_symbol(action.flip);
+        return;
+    }
     const auto values = evaluate(action.source);
     std::ranges::fill(scratch_words_, uint64_t{0});
     for (uint32_t index = 0; index < group_count_; ++index) {

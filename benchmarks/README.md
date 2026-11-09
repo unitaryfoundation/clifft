@@ -45,16 +45,18 @@ This is a regression canary, not a comparison with another simulator.
 Shared execution can reduce repeated coefficient evolution, but its preparation
 cost matters for short jobs. `--benchmark_filter='^(sample|prepare)_shared_'`
 keeps retained sampling and sampler construction visible as separate canary rows.
-These cases reuse the noisy reconstruction fixtures, postselect all detectors,
+These cases reuse the noisy cultivation fixtures, postselect all detectors,
 and request aggregate survivor and observable counts with raw parities.
 
-The d5 sampling case covers upfront noise grouping and site-row noise. The d7
-sampling case covers incremental sharing and site-sparse noise. A third case
+The d3 sampling case covers packed dormant measurements and rare symmetric
+readout. Both d3 and d5 use upfront noise grouping and site-row noise. The d7
+sampling case covers incremental sharing and site-sparse noise. A separate case
 measures d5 grouped sampler construction. These are fixed configurations for
 regression monitoring. Choosing defaults and attributing gains to individual
-options require separate comparisons. All use compact outputs,
-reconstruction, FP64, one worker, capacity 8192, and an initial reservation of
-128 states.
+options require separate comparisons. All use compact outputs, FP64, one worker,
+capacity 8192, and an initial reservation of 128 states. Reconstruction is
+requested for all cases and selected for d5 and d7; d3 uses its original
+width-four plan.
 
 Each fixture's `Program` is compiled once per process and reused across
 calibration and repetitions. `sample_shared_*` times 65,536 attempts per call
@@ -66,11 +68,12 @@ allocation, with no sampling in the timed loop. It excludes Program compilation
 and reconstruction. Existing `compile_plan_*` rows measure their own
 original-plan workloads separately.
 
-Untimed checks require reconstruction, nonzero active width, entrance rejection,
-fewer quantum groups than entering shots, and expression reduction. Grouped
-cases also check a nonempty noise-sign basis. Reported group counts come from
-that fixed-seed validation batch, not from the timed calls. Throughput counts
-attempted shots. There are no timing assertions.
+Untimed checks require nonzero active width, entrance rejection, fewer quantum
+groups than entering shots, and expression reduction. Grouped cases also check a
+nonempty noise-sign basis. Reported group counts come from that fixed-seed
+validation batch, not from the timed calls. The `reconstructed` counter reports
+which plan was selected. Throughput counts attempted shots. There are no timing
+assertions.
 
 ## External input execution
 
