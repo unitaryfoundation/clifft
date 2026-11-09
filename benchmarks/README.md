@@ -40,6 +40,38 @@ on one worker, including worker setup and output allocation; preparation is
 excluded. An untimed check verifies online execution and zero continuations.
 This is a regression canary, not a comparison with another simulator.
 
+### Shared survivor sampling
+
+Shared execution can reduce repeated coefficient evolution, but its preparation
+cost matters for short jobs. `--benchmark_filter='^(sample|prepare)_shared_'`
+keeps retained sampling and sampler construction visible as separate canary rows.
+These cases reuse the noisy reconstruction fixtures, postselect all detectors,
+and request aggregate survivor and observable counts with raw parities.
+
+The d5 sampling case covers upfront noise grouping and site-row noise. The d7
+sampling case covers incremental sharing and site-sparse noise. A third case
+measures d5 grouped sampler construction. These are fixed configurations for
+regression monitoring. Choosing defaults and attributing gains to individual
+options require separate comparisons. All use compact outputs,
+reconstruction, FP64, one worker, capacity 8192, and an initial reservation of
+128 states.
+
+Each fixture's `Program` is compiled once per process and reused across
+calibration and repetitions. `sample_shared_*` times 65,536 attempts per call
+after warming one retained `SurvivorSampler`; compilation and construction are
+excluded, while aggregate result allocation and destruction are included.
+`prepare_shared_*` times repeated construction and destruction from that retained
+`Program`, including compaction, noise/check/grouping metadata, and worker
+allocation, with no sampling in the timed loop. It excludes Program compilation
+and reconstruction. Existing `compile_plan_*` rows measure their own
+original-plan workloads separately.
+
+Untimed checks require reconstruction, nonzero active width, entrance rejection,
+fewer quantum groups than entering shots, and expression reduction. Grouped
+cases also check a nonempty noise-sign basis. Reported group counts come from
+that fixed-seed validation batch, not from the timed calls. Throughput counts
+attempted shots. There are no timing assertions.
+
 ## External input execution
 
 `--benchmark_filter='^external_inputs_'` compares reusable scalar and packed
