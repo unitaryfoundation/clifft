@@ -46,6 +46,14 @@ enum class BatchOutputMode : uint8_t {
     AggregateSurvivors,
 };
 
+// Selects how faults are sampled and applied to classical expressions.
+enum class BatchNoiseMode : uint8_t {
+    Dense,       // Propagate sampled faults through intermediate bit columns.
+    Sparse,      // Update expressions directly with the same random draws as Dense.
+    SiteSparse,  // Sample faults site by site and update expression columns.
+    SiteRows,    // Sample as SiteSparse, collect effects per shot, then transpose.
+};
+
 // Selects the source of noise and the corresponding retained readout storage.
 enum class BatchSamplingMode : uint8_t {
     Ordinary,
@@ -180,16 +188,14 @@ struct BatchWorkerStorageLayout {
 // Wasm omits packed storage implementations; reject accidental callers at
 // compile time instead of depending on linker dead-code removal.
 #if !defined(__EMSCRIPTEN__)
-[[nodiscard]] BatchWorkerStorageLayout batch_worker_storage_layout(const ExecutablePlan& plan,
-                                                                   uint32_t lane_capacity,
-                                                                   BatchOutputMode output_mode,
-                                                                   BatchSamplingMode sampling_mode);
+[[nodiscard]] BatchWorkerStorageLayout batch_worker_storage_layout(
+    const ExecutablePlan& plan, uint32_t lane_capacity, BatchOutputMode output_mode,
+    BatchSamplingMode sampling_mode, BatchNoiseMode noise_mode = BatchNoiseMode::Dense);
 
 // Includes one BatchExternalInputs buffer when using external input mode.
-[[nodiscard]] uint64_t batch_worker_storage_bytes(const ExecutablePlan& plan,
-                                                  uint32_t lane_capacity,
-                                                  BatchOutputMode output_mode,
-                                                  BatchSamplingMode sampling_mode);
+[[nodiscard]] uint64_t batch_worker_storage_bytes(
+    const ExecutablePlan& plan, uint32_t lane_capacity, BatchOutputMode output_mode,
+    BatchSamplingMode sampling_mode, BatchNoiseMode noise_mode = BatchNoiseMode::Dense);
 #endif
 
 }  // namespace batch_detail
