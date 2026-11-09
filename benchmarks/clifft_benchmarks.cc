@@ -31,6 +31,11 @@
 #include "clifft/noncomp/program.h"
 #endif
 
+#if __has_include("clifft/api/survivor_sampler.h")
+#define CLIFFT_BENCHMARK_HAS_SURVIVOR_SAMPLER
+#include "clifft/api/survivor_sampler.h"
+#endif
+
 #include <array>
 #include <benchmark/benchmark.h>
 #include <cstdint>
@@ -358,6 +363,106 @@ void sample_cultivation_d5(benchmark::State& state) {
         benchmark::DoNotOptimize(result);
     }
 }
+
+#ifdef CLIFFT_BENCHMARK_HAS_SURVIVOR_SAMPLER
+constexpr uint32_t kSharedBatchCapacity = 8192;
+constexpr uint32_t kSharedInitialStates = 128;
+constexpr uint32_t kSharedShots = 65536;
+
+// Reconstructed cultivation keeps the quantum width small enough to share
+// thousands of noisy trajectories while retaining selected detector checks.
+Program shared_cultivation_program(const char* name) {
+    const auto circuit = parse_file(fixture(name));
+    auto hir = trace(circuit);
+    hir.postselection.mask.assign(hir.num_detectors, 1);
+    default_hir_pass_manager().run(hir);
+    return Program::compile(circuit, hir, true);
+}
+
+// Inspect the same prepared execution outside timing: a configured sampler
+// alone does not establish that noise rejection and state sharing do useful work.
+bool validate_shared_cultivation(benchmark::State& state, const Program& program,
+                                 sampling::BatchNoiseMode mode, bool compact, bool group) {
+    const auto& original = program.sampling_plan(false);
+    const auto compact_plan =
+        compact ? std::optional(original.compact_outputs(true, mode)) : std::nullopt;
+    const auto& plan = compact_plan ? *compact_plan : original;
+    const sampling::PreparedBatchNoise noise(plan, mode);
+    const sampling::EarlyPostselection checks(plan);
+    const auto key = group ? std::optional<sampling::SharingKey>(plan) : std::nullopt;
+    sampling::SharingExecutor executor(plan, noise, checks, kSharedBatchCapacity,
+                                       kSharedInitialStates, true, key ? &*key : nullptr);
+    executor.run_batch(seed_root_from_seed(731), 0, kSharedBatchCapacity);
+    if (!program.uses_reconstruction(false) || plan.peak_active_width() == 0 ||
+        !plan.has_postselection() || checks.num_checks() == 0 ||
+        executor.entrance_rejected() == 0 || executor.surviving_shots() == 0 ||
+        executor.peak_groups() <= 1 ||
+        executor.peak_groups() >= kSharedBatchCapacity - executor.entrance_rejected() ||
+        (group && key->num_bits() == 0) ||
+        (compact && plan.num_expression_registers() >= original.num_expression_registers())) {
+        state.SkipWithError("cultivation did not exercise the expected shared preparation");
+        return false;
+    }
+    state.counters["active_width"] = plan.peak_active_width();
+    state.counters["capacity"] = kSharedBatchCapacity;
+    state.counters["probe_peak_groups"] = executor.peak_groups();
+    return true;
+}
+
+void sample_shared_cultivation(benchmark::State& state, const char* name,
+                               sampling::BatchNoiseMode mode, bool compact, bool group) {
+    const auto program = shared_cultivation_program(name);
+    if (!validate_shared_cultivation(state, program, mode, compact, group)) {
+        return;
+    }
+    SurvivorSampler sampler(program, kSharedBatchCapacity, 1, kSharedInitialStates, mode, true,
+                            true, compact, group);
+    const auto warmup = sampler.sample(kSharedShots, 731);
+    if (warmup.total_shots != kSharedShots || warmup.passed_shots == 0 ||
+        warmup.passed_shots >= warmup.total_shots ||
+        warmup.observable_ones.size() != program.original().num_observables()) {
+        state.SkipWithError("unexpected shared survivor counts");
+        return;
+    }
+    uint64_t seed = 732;
+    for ([[maybe_unused]] auto _ : state) {
+        auto result = sampler.sample(kSharedShots, seed++);
+        benchmark::DoNotOptimize(result);
+    }
+    state.SetItemsProcessed(state.iterations() * kSharedShots);
+}
+
+// Construction includes output compaction, sparse noise metadata, early checks,
+// optional upfront grouping metadata, and worker storage; compilation is excluded.
+void prepare_shared_cultivation(benchmark::State& state, const char* name,
+                                sampling::BatchNoiseMode mode, bool group) {
+    const auto program = shared_cultivation_program(name);
+    if (!validate_shared_cultivation(state, program, mode, true, group)) {
+        return;
+    }
+    for ([[maybe_unused]] auto _ : state) {
+        SurvivorSampler sampler(program, kSharedBatchCapacity, 1, kSharedInitialStates, mode, true,
+                                true, true, group);
+        benchmark::DoNotOptimize(sampler);
+    }
+}
+
+BENCHMARK_CAPTURE(sample_shared_cultivation, incremental_d5, "reconstruction_msc_d5.stim",
+                  sampling::BatchNoiseMode::SiteSparse, false, false)
+    ->Name("sample_shared_cultivation_d5_incremental_65536_shots");
+BENCHMARK_CAPTURE(sample_shared_cultivation, grouped_d5, "reconstruction_msc_d5.stim",
+                  sampling::BatchNoiseMode::SiteRows, true, true)
+    ->Name("sample_shared_cultivation_d5_compact_grouped_65536_shots");
+BENCHMARK_CAPTURE(sample_shared_cultivation, incremental_d7, "reconstruction_msc_d7.stim",
+                  sampling::BatchNoiseMode::SiteSparse, true, false)
+    ->Name("sample_shared_msc_d7_compact_65536_shots");
+BENCHMARK_CAPTURE(prepare_shared_cultivation, grouped_d5, "reconstruction_msc_d5.stim",
+                  sampling::BatchNoiseMode::SiteRows, true)
+    ->Name("prepare_shared_cultivation_d5_compact_grouped");
+BENCHMARK_CAPTURE(prepare_shared_cultivation, incremental_d7, "reconstruction_msc_d7.stim",
+                  sampling::BatchNoiseMode::SiteSparse, false)
+    ->Name("prepare_shared_msc_d7_compact");
+#endif
 
 // Most shots reject before the noisy suffix. Retained survivor records keep
 // that suffix observable while exposing noise work wasted on rejected shots.

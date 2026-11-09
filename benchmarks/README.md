@@ -40,6 +40,36 @@ on one worker, including worker setup and output allocation; preparation is
 excluded. An untimed check verifies online execution and zero continuations.
 This is a regression canary, not a comparison with another simulator.
 
+### Shared survivor sampling
+
+Shared execution can reduce repeated coefficient evolution, but its preparation
+cost matters for short jobs. `--benchmark_filter='^(sample|prepare)_shared_'`
+keeps retained sampling and sampler construction visible as separate canary rows.
+These cases reuse the noisy reconstruction fixtures, postselect all detectors,
+and request aggregate survivor and observable counts with raw parities.
+
+The d5 sampling cases cover incremental sharing with site-sparse noise and
+compact outputs with upfront noise grouping and site-row noise. The d7 sampling
+case uses compact outputs, site-sparse noise, and incremental sharing. These
+are fixed configurations for regression monitoring. Choosing defaults and
+attributing gains to individual options require separate comparisons. All use
+reconstruction, FP64, one worker, capacity 8192, and an initial reservation of
+128 states.
+
+`sample_shared_*` times 65,536 attempts per call after warming one retained
+`SurvivorSampler`; compilation and construction are excluded, while aggregate
+result allocation and destruction are included. `prepare_shared_*` times
+construction and destruction from one retained `Program`, including compaction,
+noise/check/grouping metadata, and worker allocation, with no sampling in the
+timed loop. It excludes Program compilation and reconstruction. Existing
+`compile_plan_*` rows measure their own original-plan workloads separately.
+
+Untimed checks require reconstruction, nonzero active width, entrance rejection,
+and fewer quantum groups than entering shots. Compact and grouped cases also
+check expression reduction and a nonempty noise-sign basis. Reported group
+counts come from that fixed-seed validation batch, not from the timed calls.
+Throughput counts attempted shots. There are no timing assertions.
+
 ## External input execution
 
 `--benchmark_filter='^external_inputs_'` compares reusable scalar and packed
