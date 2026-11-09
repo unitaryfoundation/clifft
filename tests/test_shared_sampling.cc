@@ -223,7 +223,7 @@ TEST_CASE("Selected detector scheduling preserves record snapshots and later rea
 
 TEST_CASE("Shared measurement and readout preserve the selected interference law") {
     const bool reference_one = GENERATE(false, true);
-    const double readout_probability = GENERATE(0.001, 0.1);
+    const double readout_probability = GENERATE(0.05, 0.1);
     auto hir = trace(parse(R"(
         H 0
         T 0
@@ -438,16 +438,20 @@ TEST_CASE("Noise grouping closes derived signs over readout and dormant branches
     const EarlyPostselection old_checks(original), checks(plan);
     SharingExecutor reference(original, old_noise, old_checks, 129, 1);
     SharingExecutor grouped(plan, noise, checks, 129, 1, true, &key);
+    uint32_t largest_group_count = 0;
     for (uint64_t seed = 0; seed < 20; ++seed) {
         const auto root = seed_root_from_seed(seed);
         reference.run_batch(root, 17, 129);
         grouped.run_batch(root, 17, 129);
         REQUIRE(grouped.peak_groups() >= 4);
+        largest_group_count = std::max(largest_group_count, grouped.peak_groups());
         for (size_t column = 0; column < 2; ++column) {
             REQUIRE(std::ranges::equal(reference.observable_columns().column(column),
                                        grouped.observable_columns().column(column)));
         }
     }
+    // Readout splits the four noise/dormant groups for at least one seed.
+    REQUIRE(largest_group_count > 4);
 }
 
 TEST_CASE("Shared state budgets include scratch and bound growth at suspension") {

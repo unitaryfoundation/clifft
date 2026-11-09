@@ -120,8 +120,8 @@ copies that vector so the resulting groups can evolve independently. Prepared
 rotation signs and measurement outcomes determine group splitting. Optional
 upfront grouping separates shots by their effects on future rotation signs,
 which can split groups earlier.
-Active measurements and state-dependent readout keep per-shot RNG streams;
-dormant measurements and rare symmetric readout use packed random draws.
+Dormant measurements and sparse symmetric readout use packed random draws.
+Active measurements and all other readout keep per-shot RNG streams.
 
 Plan preparation also extracts **entrance checks**: noise-only necessary
 conditions evaluated before quantum evolution. Eliminating unknown measurement

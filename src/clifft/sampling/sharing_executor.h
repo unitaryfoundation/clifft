@@ -32,8 +32,8 @@ class SharingKey {
 };
 
 // Shares coefficient states across shots with identical prepared evolution.
-// Active measurements and state-dependent readout retain per-shot RNG streams;
-// dormant measurements and sparse symmetric readout use packed draws. A pool
+// Dormant measurements and sparse symmetric readout use packed draws;
+// active measurements and all other readout retain per-shot RNG streams. A pool
 // growth boundary suspends dispatch before an action can require more states.
 class SharingExecutor : public BatchClassicalState {
   public:

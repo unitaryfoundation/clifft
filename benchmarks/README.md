@@ -68,12 +68,12 @@ allocation, with no sampling in the timed loop. It excludes Program compilation
 and reconstruction. Existing `compile_plan_*` rows measure their own
 original-plan workloads separately.
 
-Untimed checks require nonzero active width, entrance rejection, fewer quantum
-groups than entering shots, and expression reduction. Grouped cases also check a
-nonempty noise-sign basis. Reported group counts come from that fixed-seed
-validation batch, not from the timed calls. The `reconstructed` counter reports
-which plan was selected. Throughput counts attempted shots. There are no timing
-assertions.
+Untimed checks require the expected reconstruction selection, nonzero active
+width, entrance rejection, fewer quantum groups than entering shots, and
+expression reduction. Grouped cases also check a nonempty noise-sign basis.
+Reported group counts come from that fixed-seed validation batch, not from the
+timed calls. The `reconstructed` counter reports which plan was selected.
+Throughput counts attempted shots. There are no timing assertions.
 
 ## External input execution
 
