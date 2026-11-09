@@ -48,11 +48,11 @@ keeps retained sampling and sampler construction visible as separate canary rows
 These cases reuse the noisy reconstruction fixtures, postselect all detectors,
 and request aggregate survivor and observable counts with raw parities.
 
-The d5 sampling cases cover incremental sharing with site-sparse noise and
-compact outputs with upfront noise grouping and site-row noise. The d7 sampling
-case uses compact outputs, site-sparse noise, and incremental sharing. These
-are fixed configurations for regression monitoring. Choosing defaults and
-attributing gains to individual options require separate comparisons. All use
+The d5 sampling case covers upfront noise grouping and site-row noise. The d7
+sampling case covers incremental sharing and site-sparse noise. A third case
+measures d5 grouped sampler construction. These are fixed configurations for
+regression monitoring. Choosing defaults and attributing gains to individual
+options require separate comparisons. All use compact outputs,
 reconstruction, FP64, one worker, capacity 8192, and an initial reservation of
 128 states.
 
@@ -67,10 +67,10 @@ and reconstruction. Existing `compile_plan_*` rows measure their own
 original-plan workloads separately.
 
 Untimed checks require reconstruction, nonzero active width, entrance rejection,
-and fewer quantum groups than entering shots. Compact and grouped cases also
-check expression reduction and a nonempty noise-sign basis. Reported group
-counts come from that fixed-seed validation batch, not from the timed calls.
-Throughput counts attempted shots. There are no timing assertions.
+fewer quantum groups than entering shots, and expression reduction. Grouped
+cases also check a nonempty noise-sign basis. Reported group counts come from
+that fixed-seed validation batch, not from the timed calls. Throughput counts
+attempted shots. There are no timing assertions.
 
 ## External input execution
 
