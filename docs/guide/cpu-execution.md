@@ -134,15 +134,19 @@ workload or machine changes; selections are not cached automatically.
     `thread_layout=(report.shot_workers, report.intra_shot_workers)` from a
     nonempty call and preserve any explicit intra-shot threshold.
 
-## Reusing survivor sampling work
+## Sharing trajectories in survivor sampling
 
-Repeated postselected count jobs can spend most of their time preparing
-classical noise and evolving identical quantum trajectories. `SurvivorSampler`
-retains worker storage across calls, filters out shots that fail noise-only
-detector constraints before quantum evolution, and shares a single quantum
-state across shots until rotation signs or measurement outcomes diverge.
-Remaining postselected detectors are checked as soon as their measurement
-records are ready, so rejected shots skip later evolution.
+Many shots in a noisy circuit follow the same quantum trajectory.
+`SurvivorSampler` shares quantum state evolution across those shots, reducing
+repeated work and state memory. It also retains worker storage across calls
+and rejects shots that fail noise-only necessary conditions before quantum
+evolution. The selected detectors still determine final acceptance; they are
+checked as soon as their measurement records are ready, so rejected shots skip
+later evolution.
+
+!!! note "Interface under review"
+    The constructor options and defaults are being reviewed and may change
+    before release.
 
 ```python
 import clifft
@@ -185,13 +189,15 @@ much larger classical batches than ordinary packed execution:
   reuses the winner on subsequent calls.
 - **`initial_states`** (default `128`): Number of quantum states preallocated
   per worker (capped by `max_state_bytes`). If trajectory splitting needs more
-  states mid-batch, the worker grows its state pool on the fly without
-  discarding in-progress shots.
+  states mid-batch, the worker pauses before the next action to grow its state
+  pool without discarding in-progress shots.
 - **`max_state_bytes`** (default `64 MiB`): Total memory limit across all
-  workers for quantum coefficient and measurement-collapse scratch storage
-  (classical buffers and compiled plans are separate). If a batch splits into
-  more trajectories than `max_state_bytes` allows, `.sample()` raises
-  `RuntimeError`; reduce `batch_size` or `threads`, or raise `max_state_bytes`.
+  workers for quantum coefficient storage, measurement-collapse scratch, and
+  page alignment (classical buffers and compiled plans are separate). Before
+  an action, Clifft checks a conservative bound on the states its possible
+  splits could require. If that bound exceeds the budget, `.sample()` raises
+  `RuntimeError`, even if the sampled outcomes would have needed fewer states.
+  Reduce `batch_size` or `threads`, or raise `max_state_bytes`, before retrying.
 
 ### Noise preparation and sharing controls
 
@@ -207,9 +213,12 @@ When benchmarking, measure sampler construction and `.sample()` throughput
 separately: options like `compact_outputs=True` and `group_by_noise=True` do
 extra work during construction to speed up repeated `.sample()` calls.
 
-With a fixed `seed`, `batch_size`, and `noise_preparation`, `.sample()` returns
-identical counts regardless of `threads` or when the state pool grows. Calls on
-a single `SurvivorSampler` instance serialize; use separate instances to sample
+With a fixed `seed`, numeric `batch_size`, and `noise_preparation`, `.sample()`
+returns identical counts regardless of `threads` or when the state pool grows.
+`"auto"` can choose a different capacity when the worker budget changes, and
+`"tune"` depends on measured timings. To replay a calibrated run, reuse
+`result.batch_tuning.batch_size` as a numeric capacity. Calls on a single
+`SurvivorSampler` instance serialize; use separate instances to sample
 concurrently from multiple Python threads.
 
 ## Power-user tuning

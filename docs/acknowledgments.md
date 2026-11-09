@@ -32,10 +32,7 @@ inspired Clifft's packed sampling path.
 SymFT's [counts-focused CPU optimization work](https://github.com/haoliri0/SOFT/pull/19)
 also motivated decoupling classical batch capacity from quantum state storage,
 filtering shots with noise-only detector constraints before quantum evolution,
-and skipping unused expectation probes in aggregate survivor sampling. Clifft
-derives its entrance checks by eliminating measurement variables from selected
-detector equations during plan preparation, and skips unused expectation probes
-directly in its compiled CPU plans (where SymFT's compiled CPU path falls back).
+and skipping unused expectation probes in aggregate survivor sampling.
 
 The [method provenance](theory/overview.md#method-provenance) describes this
 lineage and the implementation boundaries. The [symbolic sampling](updates/symbolic-sampling.md)

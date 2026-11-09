@@ -32,8 +32,9 @@ compatibility limits.
 
 ::: clifft.sample_k_survivors
 
-Repeated aggregate jobs can retain worker storage and share trajectories with
-[`SurvivorSampler`](../guide/cpu-execution.md#reusing-survivor-sampling-work).
+Aggregate survivor jobs can share quantum trajectories and retain worker storage
+with `SurvivorSampler`. See the guide for its
+[interface status and controls](../guide/cpu-execution.md#sharing-trajectories-in-survivor-sampling).
 
 ::: clifft.SurvivorSampler
 

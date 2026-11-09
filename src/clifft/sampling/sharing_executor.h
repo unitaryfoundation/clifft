@@ -10,6 +10,13 @@
 
 namespace clifft::sampling {
 
+// Shared-trajectory workers combine BatchClassicalState's per-shot classical
+// data with SharingExecutor's groups and pool of coefficient states. An optional
+// SharingKey, prepared before execution, groups shots upfront by noise effects
+// on future rotation signs. SharingExecutor applies prepared actions to each
+// group and splits it when needed; SurvivorSampler retains the workers and
+// their storage across sampling calls.
+
 // Immutable noise-sign basis shared by workers. Branches affecting this basis
 // split groups as they are sampled, keeping every later rotation sign uniform.
 class SharingKey {

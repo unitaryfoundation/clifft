@@ -1757,32 +1757,34 @@ NB_MODULE(_clifft_core, m) {
     };
 
     nb::enum_<clifft::sampling::BatchNoiseMode>(
-        m, "NoisePreparation",
-        "Classical noise preparation strategy for SurvivorSampler.\n\n"
-        "- SITE_SPARSE: Sample independent noise sites across shots and update affected "
-        "expressions directly.\n"
-        "- SITE_ROWS: Accumulate per-shot fault effects contiguously before transposing into "
-        "packed columns.\n"
-        "- SPARSE: Apply direct sparse updates in the original noise-event order.\n"
-        "- DENSE: Initialize packed noise columns and propagate them through the dense "
-        "expression schedule.")
-        .value("DENSE", clifft::sampling::BatchNoiseMode::Dense)
-        .value("SPARSE", clifft::sampling::BatchNoiseMode::Sparse)
-        .value("SITE_SPARSE", clifft::sampling::BatchNoiseMode::SiteSparse)
-        .value("SITE_ROWS", clifft::sampling::BatchNoiseMode::SiteRows);
+        m, "NoisePreparation", "Classical noise preparation strategy for SurvivorSampler.")
+        .value("DENSE", clifft::sampling::BatchNoiseMode::Dense,
+               "Initialize packed noise columns and propagate them through the dense "
+               "expression schedule.")
+        .value("SPARSE", clifft::sampling::BatchNoiseMode::Sparse,
+               "Apply direct sparse updates in the original noise-event order.")
+        .value("SITE_SPARSE", clifft::sampling::BatchNoiseMode::SiteSparse,
+               "Sample independent noise sites across shots and update affected "
+               "expressions directly.")
+        .value("SITE_ROWS", clifft::sampling::BatchNoiseMode::SiteRows,
+               "Accumulate per-shot fault effects contiguously before transposing into "
+               "packed columns.");
 
     nb::class_<clifft::SurvivorSampler>(
         m, "SurvivorSampler",
-        "Stateful count-only sampler that reuses worker buffers, rejects shots using "
-        "noise-only detector constraints before quantum evolution, and shares quantum "
-        "trajectories across shots until rotation signs or measurement outcomes diverge.\n\n"
+        "Count-only sampler that shares quantum state evolution across equivalent shots "
+        "and retains worker buffers across calls. Noise-only necessary conditions reject "
+        "shots before quantum evolution; selected detectors determine final acceptance.\n\n"
         "batch_size defaults to 8192 and accepts a positive integer, 'auto', or 'tune'. "
         "Numeric capacities can exceed the conservative 'auto' limit when trajectories share "
-        "states, provided live states stay within max_state_bytes (default 64 MiB across "
-        "workers). 'tune' calibrates candidates up to the 'auto' limit on the first nonzero "
+        "states. max_state_bytes (default 64 MiB across workers) bounds coefficient storage, "
+        "collapse scratch, and page alignment; classical buffers and plans are separate. "
+        "'tune' calibrates candidates up to the 'auto' limit on the first nonzero "
         "sample() call and records timings in result.batch_tuning.\n\n"
-        "initial_states preallocates up to that many quantum states per worker; if trajectory "
-        "splitting needs more, the pool grows up to max_state_bytes or raises RuntimeError. "
+        "initial_states preallocates up to that many quantum states per worker within the "
+        "budget. Before an action, the pool grows to cover a conservative bound on possible "
+        "splits or raises RuntimeError if that bound exceeds max_state_bytes, even if sampled "
+        "outcomes would need fewer states. "
         "compact_outputs=True builds a count-only plan with inlined record snapshots and only "
         "required outputs. group_by_noise=True partitions surviving shots upfront by their "
         "effect on future rotation signs (ignored when sharing=False).\n\n"
@@ -1838,8 +1840,10 @@ NB_MODULE(_clifft_core, m) {
             nb::arg("shots"), nb::arg("seed") = nb::none(),
             nb::sig("def sample(self, shots: int, seed: int | None = None) -> clifft.SampleResult"),
             "Sample attempted shots and return survivor and observable counts. "
-            "Per-shot output arrays are empty. A seed replays at fixed preparation and batch size, "
-            "independently of worker scheduling and retained state-pool growth.");
+            "Per-shot output arrays are empty. A seed replays at fixed preparation and numeric "
+            "batch size, independently of worker scheduling and retained state-pool growth. "
+            "'auto' can choose a different capacity with a different worker budget; 'tune' "
+            "depends on measured timings.");
 
     m.def(
         "sample_k_survivors",
