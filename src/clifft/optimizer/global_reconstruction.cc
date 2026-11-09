@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <bit>
 #include <cassert>
+#include <iterator>
 #include <map>
 #include <numeric>
 #include <optional>
@@ -610,6 +611,11 @@ void schedule_reconstruction(GlobalReconstruction& result, const ReconstructionL
 }
 
 GlobalReconstruction Dilation::reconstruct(ReconstructionOutputs outputs) {
+    // Parsing has copied the fault signs needed by rotations and outputs.
+    // Release the per-wire signs before allocating the reconstruction frames.
+    fx_.clear();
+    fz_.clear();
+
     // 1. Build the inverse Clifford frame by prepending local gate inverses in
     // forward order, touching only each gate's operand rows.
     Tableau backward(n_);
@@ -677,12 +683,15 @@ GlobalReconstruction Dilation::reconstruct(ReconstructionOutputs outputs) {
     // operations to a basis of their X supports, eliminating fixed-|0> wires.
     std::vector<Output> requested;
     if (outputs == ReconstructionOutputs::Records)
-        requested = records_;
-    requested.insert(requested.end(), detectors_.begin(), detectors_.end());
-    requested.insert(requested.end(), observables_.begin(), observables_.end());
+        requested = std::move(records_);
+    requested.insert(requested.end(), std::make_move_iterator(detectors_.begin()),
+                     std::make_move_iterator(detectors_.end()));
+    requested.insert(requested.end(), std::make_move_iterator(observables_.begin()),
+                     std::make_move_iterator(observables_.end()));
     for (uint32_t i = 0; i < requested.size(); ++i) {
-        const auto& out = requested[i];
-        result.operations.push_back({backward.apply(axis(n_, {}, out.z).view()), out.sign, 0, i});
+        auto& out = requested[i];
+        result.operations.push_back(
+            {backward.apply(axis(n_, {}, out.z).view()), std::move(out.sign), 0, i});
     }
     Basis xb;
     std::vector<Bits> directions;
